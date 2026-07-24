@@ -235,6 +235,20 @@ describe("work authz — edges as capability", () => {
     }
   });
 
+  it("S8 attack: artifact.publish from unedged actor → ScopeError", () => {
+    const noEdge = admitWorkTarget(board, "agent", "stranger", "artifact.publish");
+    expect(Either.isLeft(noEdge)).toBe(true);
+    if (Either.isLeft(noEdge)) {
+      expect(noEdge.left.type).toBe("ScopeError");
+    }
+    // Connected task sink does not offer artifact.publish.
+    const wrongSink = admitWorkTarget(board, "agent", "tasks", "artifact.publish");
+    expect(Either.isLeft(wrongSink)).toBe(true);
+    if (Either.isLeft(wrongSink)) {
+      expect(wrongSink.left.type).toBe("ScopeError");
+    }
+  });
+
   it("scopeDenialToWorkError keeps wire-compatible ScopeError bodies", () => {
     const notConnected = scopeDenialToWorkError(
       new ScopeDenial({

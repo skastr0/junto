@@ -20,6 +20,11 @@ import {
 } from "@shared/a2a";
 import { formatNodeRef } from "@shared/node-ref";
 import {
+  artifactPublishAuthority,
+  extractProofStamp,
+  globalStampRuntime,
+} from "@shared/proof-stamps";
+import {
   ArtifactPublishArgs,
   EmptyArgs,
   MsgListArgs,
@@ -278,10 +283,18 @@ const requireTarget = (
   return { node: admitted.right.node };
 };
 
+/** Work-control caller: process-bound seat (+ occupant string for proof stamps). */
+type WorkCaller = {
+  readonly canvasName: string;
+  readonly nodeId: string;
+  /** Process-bind identity key; required for proof stamp minting. */
+  readonly occupant: string;
+};
+
 const dispatchOp = (
   op: WorkOp,
   args: unknown,
-  caller: { readonly canvasName: string; readonly nodeId: string },
+  caller: WorkCaller,
   version: string,
 ): Effect.Effect<unknown, WorkErrorBody, WorkService | CanvasesService> =>
   Effect.gen(function* () {
@@ -509,6 +522,18 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      // I16: only this admitted, process-bound path may mint proof stamps.
+      // Renderer IPC publish does not write stamps (no side-door).
+      const authority = artifactPublishAuthority({
+        canvasName: caller.canvasName,
+        seat: caller.nodeId,
+        occupant: caller.occupant,
+        sinkNodeId: decoded.right.target,
+      });
+      const stamp = extractProofStamp(authority, mapped.right);
+      if (stamp) {
+        globalStampRuntime.recordStamp(authority, stamp);
+      }
       return mapped.right;
     }
 
@@ -967,9 +992,17 @@ export const startWorkControlServer = async (
                   },
                 });
               }
-              const caller = {
+              const principal = identity.principal;
+              const occupantKey =
+                principal.kind === "agent"
+                  ? `agent:${principal.agentKey ?? principal.nodeId ?? identity.peerPid}`
+                  : principal.kind === "herdr"
+                    ? `herdr:${principal.paneId ?? principal.nodeId ?? identity.peerPid}`
+                    : `terminal:${principal.bindingId ?? identity.peerPid}`;
+              const caller: WorkCaller = {
                 canvasName: callerResolved.caller.canvasName,
                 nodeId: callerResolved.caller.nodeId,
+                occupant: `${occupantKey}@pid:${identity.peerPid}`,
               };
               return options.run(
                 dispatchOp(req.op, req.args, caller, options.version).pipe(
