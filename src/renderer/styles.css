@@ -951,6 +951,26 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .react-flow__node-group { background: transparent !important; border: 0 !important; }
 .react-flow__pane { background-image: radial-gradient(circle at 50% 50%, rgba(232,163,61,.018), transparent 45%); }
 
+/* Viewport busy freeze — pan/zoom owns the compositor; kill paint thrash. */
+.react-flow.is-viewport-busy .react-flow__node,
+.react-flow.is-viewport-busy .react-flow__edge,
+.react-flow.is-viewport-busy .vellum-node,
+.react-flow.is-viewport-busy .vellum-edge-label {
+  transition: none !important;
+  animation: none !important;
+}
+.react-flow.is-viewport-busy .react-flow__node:hover .vellum-node {
+  transform: none;
+}
+/* Impact-mode filter/opacity transitions are especially expensive mid-pan. */
+.react-flow.is-viewport-busy.impact-mode .react-flow__node {
+  transition: none !important;
+  filter: none;
+}
+.react-flow.is-viewport-busy .react-flow__edge-path {
+  transition: none !important;
+}
+
 /* Selection impact mode — default-dim under .impact-mode; only in/lead stamped. */
 .react-flow.impact-mode .react-flow__node {
   opacity: 0.22;

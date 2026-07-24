@@ -31,6 +31,7 @@ import {
   selectionImpact,
   type ImpactSelection,
 } from "../lib/impact-mode";
+import { markViewportBusy, releaseViewportBusy, viewportBusy$ } from "../lib/viewport-busy";
 import { nodeTitle } from "../lib/presentation";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
@@ -197,7 +198,8 @@ function useCanvasDocument(
   }, [searchQuery]);
 
   const rebuild = useCallback(() => {
-    if (dragInProgressRef.current) {
+    // Drag + viewport pan both own the RF shell — queue structural remints.
+    if (dragInProgressRef.current || viewportBusy$.peek()) {
       pendingRebuildRef.current = true;
       return;
     }
@@ -238,11 +240,25 @@ function useCanvasDocument(
     };
   }, [rebuild]);
 
+  // Pan/zoom released — flush any rebuild deferred mid-gesture.
+  useEffect(() => {
+    return viewportBusy$.onChange(() => {
+      if (!viewportBusy$.peek() && pendingRebuildRef.current) rebuild();
+    });
+  }, [rebuild, pendingRebuildRef]);
+
   // Selection + impact-mode sync — light map over the existing graph.
   // Structural rebuild already stamps on doc/execution ticks; this path is
   // selection-only so CanvasGraph need not subscribe to selected ids.
   useEffect(() => {
+    let pendingSelection = false;
     const syncSelection = () => {
+      // setNodes during pan forces RF to reconcile the full shell — defer.
+      if (viewportBusy$.peek()) {
+        pendingSelection = true;
+        return;
+      }
+      pendingSelection = false;
       const selectedNodeId = state$.selectedNodeId.peek();
       const selectedEdgeId = state$.selectedEdgeId.peek();
       const impact: ImpactSelection = selectedNodeId
@@ -299,6 +315,9 @@ function useCanvasDocument(
     const offs = [
       state$.selectedNodeId.onChange(syncSelection),
       state$.selectedEdgeId.onChange(syncSelection),
+      viewportBusy$.onChange(() => {
+        if (!viewportBusy$.peek() && pendingSelection) syncSelection();
+      }),
     ];
     return () => {
       for (const off of offs) off();
@@ -1031,6 +1050,9 @@ function FieldControls() {
 function RtsMinimapStack() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const severityByNodeId = use$(state$.regionSeverityByNodeId) as Readonly<Record<string, string>>;
+  // Unmount MiniMap while panning — its transform store sub recomputes the mask
+  // SVG every wheel tick and is the loudest scroll-time cost on the board.
+  const viewportBusy = use$(viewportBusy$);
   const lastClickAt = useRef(0);
   const lastClickPos = useRef<{ x: number; y: number } | null>(null);
 
@@ -1076,26 +1098,30 @@ function RtsMinimapStack() {
 
   return (
     <>
-      <MiniMap
-        pannable
-        zoomable
-        nodeColor={miniMapNodeColor}
-        nodeStrokeColor={(node) => {
-          const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
-          if (severity && severity !== "idle") return signalMark(severity).hue;
-          return "rgba(12,11,10,0.85)";
-        }}
-        nodeStrokeWidth={1.5}
-        maskColor="rgba(12,11,10,0.72)"
-        onClick={onMiniMapClick}
-        onNodeClick={onMiniMapNodeClick}
-        ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
-        // Never put width/height: "100%" here. xyflow reads style.width/height as
-        // *numbers* for viewScale + mask path math (`M${x}h${w}v${h}…`). A percent
-        // string → NaN → console spam on every pan/scroll. Size the panel via
-        // .rts-minimap-wrap CSS (100% inset); math falls back to 200×150 defaults.
-        style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
-      />
+      {viewportBusy ? (
+        <div className="rts-minimap-frozen" aria-hidden />
+      ) : (
+        <MiniMap
+          pannable
+          zoomable
+          nodeColor={miniMapNodeColor}
+          nodeStrokeColor={(node) => {
+            const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
+            if (severity && severity !== "idle") return signalMark(severity).hue;
+            return "rgba(12,11,10,0.85)";
+          }}
+          nodeStrokeWidth={1.5}
+          maskColor="rgba(12,11,10,0.72)"
+          onClick={onMiniMapClick}
+          onNodeClick={onMiniMapNodeClick}
+          ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
+          // Never put width/height: "100%" here. xyflow reads style.width/height as
+          // *numbers* for viewScale + mask path math (`M${x}h${w}v${h}…`). A percent
+          // string → NaN → console spam on every pan/scroll. Size the panel via
+          // .rts-minimap-wrap CSS (100% inset); math falls back to 200×150 defaults.
+          style={{ background: "rgba(12,11,10,0.9)", border: "1px solid rgba(237,230,218,0.1)" }}
+        />
+      )}
       <FieldControls />
     </>
   );
@@ -1257,11 +1283,24 @@ function CanvasGraph() {
   }, [interactions.onPaneClick, closeMenus]);
   // Boolean only — flips when a cone appears/clears, not on every kernel tick.
   const impactMode = use$(impactModeActive$);
+  // Viewport freeze: one boolean flip at gesture edges (never per-frame).
+  const viewportBusy = use$(viewportBusy$);
+  const onMoveStart = useCallback(() => {
+    markViewportBusy();
+    closeMenus();
+  }, [closeMenus]);
+  const onMoveEnd = useCallback(() => {
+    releaseViewportBusy();
+  }, []);
 
   return <>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
     <ReactFlow
-      className={[connecting ? "is-connecting" : "", impactMode ? "impact-mode" : ""].filter(Boolean).join(" ") || undefined}
+      className={[
+        connecting ? "is-connecting" : "",
+        impactMode ? "impact-mode" : "",
+        viewportBusy ? "is-viewport-busy" : "",
+      ].filter(Boolean).join(" ") || undefined}
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
@@ -1273,7 +1312,8 @@ function CanvasGraph() {
       onPaneContextMenu={onPaneContextMenu}
       onNodeContextMenu={onNodeContextMenu}
       onSelectionContextMenu={onSelectionContextMenu}
-      onMoveStart={closeMenus}
+      onMoveStart={onMoveStart}
+      onMoveEnd={onMoveEnd}
       connectionMode={ConnectionMode.Loose}
       connectionRadius={42}
       panOnScroll
@@ -1293,7 +1333,10 @@ function CanvasGraph() {
       proOptions={{ hideAttribution: true }}
       style={{ background: GROUND }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
+      {/* Background pattern re-renders from transform every pan tick — drop it mid-gesture. */}
+      {viewportBusy ? null : (
+        <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
+      )}
       <ImpactSeedChip />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>

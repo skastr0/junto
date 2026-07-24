@@ -25,6 +25,7 @@ import { groupMembers } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { state$, toggleFlagFilter } from "../../lib/state";
+import { viewportBusy$ } from "../../lib/viewport-busy";
 import { assignSlot, mergeSlotOrder, useRegionRollups } from "../../lib/region-rollups";
 import {
   membersInDocumentOrder,
@@ -995,7 +996,18 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
   const severityMap = useSeverityByNodeId(rollups);
 
   // Publish into state$ so MiniMap can subscribe (React data path, not a module ref).
+  // Skip while panning — MiniMap is frozen and a severity push remounts its colors.
   useEffect(() => {
+    if (viewportBusy$.peek()) {
+      const off = viewportBusy$.onChange(() => {
+        if (viewportBusy$.peek()) return;
+        off();
+        const next: Record<string, string> = {};
+        for (const [id, severity] of severityMap) next[id] = severity;
+        state$.regionSeverityByNodeId.set(next);
+      });
+      return off;
+    }
     const next: Record<string, string> = {};
     for (const [id, severity] of severityMap) next[id] = severity;
     state$.regionSeverityByNodeId.set(next);

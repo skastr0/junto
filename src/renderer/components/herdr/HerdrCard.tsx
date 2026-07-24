@@ -15,6 +15,7 @@ import {
   subscribeHerdrMirror,
   subscribeHerdrServiceMap,
 } from "../../lib/herdr-state";
+import { viewportBusy$ } from "../../lib/viewport-busy";
 import { harnessDisplayName } from "../../lib/harness-icons";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveNodeHostId } from "@shared/station";
@@ -161,11 +162,35 @@ export function HerdrCard({
   // `fresh` is the *default* mirror and is not their data path). Default-session
   // cards poll only while the host mirror is stale. Shared poller in herdr-state
   // (one 12s timer for all registered cards — not per-card intervals).
+  //
+  // onlyRenderVisibleElements remounts cards at the viewport edge during pan —
+  // never fire IPC on that mount while the viewport is busy.
   useEffect(() => {
     if (!herdr?.paneId) return;
-    void refreshHerdrMeta(node.id, herdr);
-    if (pushDriven) return;
-    return registerHerdrMetaPoll(node.id, herdr);
+    let unregPoll: (() => void) | undefined;
+    let cancelled = false;
+    const arm = () => {
+      if (cancelled) return;
+      void refreshHerdrMeta(node.id, herdr);
+      if (!pushDriven) unregPoll = registerHerdrMetaPoll(node.id, herdr);
+    };
+    if (viewportBusy$.peek()) {
+      const off = viewportBusy$.onChange(() => {
+        if (viewportBusy$.peek()) return;
+        off();
+        arm();
+      });
+      return () => {
+        cancelled = true;
+        off();
+        unregPoll?.();
+      };
+    }
+    arm();
+    return () => {
+      cancelled = true;
+      unregPoll?.();
+    };
   }, [node.id, herdr?.host, herdr?.paneId, herdr?.session, herdr?.terminalId, pushDriven]);
 
   if (!herdr) {

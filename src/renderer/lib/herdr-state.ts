@@ -16,6 +16,7 @@ import type {
 } from "@shared/ipc";
 import { state$ } from "./state";
 import { getVellumApi } from "./vellum-api";
+import { viewportBusy$ } from "./viewport-busy";
 
 export interface HerdrMetaCache {
   readonly status: "idle" | "loading" | "ok" | "error";
@@ -643,6 +644,8 @@ export const scheduleRefreshHerdrMeta = (nodeId: string, herdr: EtherHerdr): voi
     nodeId,
     setTimeout(() => {
       metaRefreshDebounce.delete(nodeId);
+      // Still busy (wheel burst) — leave last paint; next idle tick or poll catches up.
+      if (viewportBusy$.peek()) return;
       void refreshHerdrMeta(nodeId, herdr);
     }, META_REFRESH_DEBOUNCE_MS),
   );
@@ -663,6 +666,8 @@ const metaPollLastAt = new Map<string, number>();
 let metaPollTimer: ReturnType<typeof setInterval> | undefined;
 
 const tickMetaPoll = (): void => {
+  // Skip IPC fan-out mid pan/zoom — cards stay on last meta until gesture ends.
+  if (viewportBusy$.peek()) return;
   const now = Date.now();
   for (const [nodeId, herdr] of metaPollByNodeId) {
     const connState = connectionStateOf(nodeId);

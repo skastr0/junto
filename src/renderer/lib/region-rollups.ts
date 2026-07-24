@@ -6,6 +6,7 @@ import { state$ } from "./state";
 import { kernel$ } from "./kernel-view";
 import { chatCoarse$ } from "./chat-state";
 import { herdr$ } from "./herdr-state";
+import { viewportBusy$ } from "./viewport-busy";
 
 // Coarse poll of window.vellum.regionRollups for glyph/graph enrichment.
 // Client always re-derives with herdr$ meta + chat activity so chips match
@@ -173,12 +174,23 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     }
     const gen = ++genRef.current;
     const timer = window.setTimeout(() => {
+      // Apply after pan freezes so setState does not fight the compositor.
+      const apply = (next: ReadonlyArray<RegionRollup>) => {
+        if (gen !== genRef.current) return;
+        if (viewportBusy$.peek()) {
+          const off = viewportBusy$.onChange(() => {
+            if (viewportBusy$.peek()) return;
+            off();
+            if (gen !== genRef.current) return;
+            setLive(next);
+          });
+          return;
+        }
+        setLive(next);
+      };
       void api
         .regionRollups(canvasName)
-        .then((next) => {
-          if (gen !== genRef.current) return;
-          setLive(next);
-        })
+        .then(apply)
         .catch(() => {
           if (gen !== genRef.current) return;
         });
