@@ -2,7 +2,7 @@
  * Buckets 1–3 board contract (authority install — disk seed is not live map).
  *
  * Installs a board via app write path after boot:
- * - tasks sink with submitted + input-required items
+ * - tasks sink with a submitted item + an input-required item claimed by the worker
  * - actor edged via tasks criteria
  * - soft relates edge (must not stamp RELATES)
  *
@@ -21,7 +21,11 @@ import { expect, test } from "../harness/launch";
 
 const seededTasks: ReadonlyArray<Task> = [
   taskItem("open-1", "queue work", "submitted"),
-  taskItem("hot-1", "needs human", "input-required"),
+  // Blocking is worker-state: only a CLAIMED attention task stops its claimant.
+  {
+    ...taskItem("hot-1", "needs human", "input-required"),
+    metadata: { claimedBy: "local:e2e-worker" },
+  },
 ];
 
 const fixtureDoc = (): CanvasDoc =>
@@ -100,7 +104,7 @@ const installBoard = async (
   }, doc);
 };
 
-test("factory board: fire on input-required, calm edges silent, tasks glance", async ({
+test("factory board: fire on claimed input-required, calm edges silent, tasks glance", async ({
   vellum,
 }) => {
   const { page } = vellum;
