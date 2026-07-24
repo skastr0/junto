@@ -325,7 +325,7 @@ test("still 00 — factory hero board", async () => {
       x: bc1,
       y: br0,
       items: [
-        richTask("t-b1", "sign release build", "working", "Security", "remote-a:security"),
+        richTask("t-b1", "sign release build", "working", "Security", "a-security"),
         richTask("t-b2", "rotate signing key", "submitted", "Security"),
       ],
     }),
@@ -334,11 +334,21 @@ test("still 00 — factory hero board", async () => {
       x: bc1,
       y: br1,
       items: [
-        richTask("r-b1", "authorize signing identity", "input-required", "Security", "remote-a:security"),
+        richTask("r-b1", "authorize signing identity", "input-required", "Security", "a-security"),
       ],
     }),
   );
-  edges.push(hEdge("e-b-queue", "a-security", "tasks-forge"), hEdge("e-b-req", "a-security", "req-forge"));
+  edges.push(hEdge("e-b-queue", "a-security", "tasks-forge"), {
+    // Real gate: criteria edge from the request sink into the claimant actor.
+    // The execution graph derives phase "blocks" from the claimed
+    // input-required item — the red is physics, not paint.
+    id: "e-b-req",
+    fromNode: "req-forge",
+    toNode: "a-security",
+    fromSide: "left",
+    toSide: "right",
+    ether: { criteria: { mode: "tasks" } },
+  });
   nodes.push(
     note(
       "note-forge",
