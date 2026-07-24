@@ -234,8 +234,10 @@ describe("Remote browser station admission", () => {
     for (const statusListener of statusListeners) {
       statusListener({ kind: "pull", previous: current, current });
     }
+    // Established pairing freezes commandCenterRef/hostId/role; only
+    // supervisedPreferred may change — still an admission-relevant settings event.
     await Effect.runPromise(
-      service.setStationTopology({ commandCenterRef: "new-command" }),
+      service.setStationTopology({ supervisedPreferred: false }),
     );
     const previousHosts = hosts;
     hosts = [{ ...remoteHost(), capabilities: ["terminal"] }];

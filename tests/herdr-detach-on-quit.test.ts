@@ -77,13 +77,24 @@ describe("herdr detach-on-quit product lock", () => {
     expect(controlErrorBlock).toMatch(/terminateControl\(active\)/);
     expect(controlErrorBlock).not.toMatch(/settleLocalControl|releaseOwned/);
 
-    const observeStart = observeSrc.indexOf("const onError =");
-    const observeEnd = observeSrc.indexOf('child.on("close"', observeStart);
+    // Observe error path retires the generation without treating pipe errors
+    // as a clean local exit. Bound to the retireGeneration helper only.
+    const observeStart = observeSrc.indexOf("const retireGeneration");
+    const observeEnd = observeSrc.indexOf(
+      "child.stdout.on(\"error\", retireGeneration)",
+      observeStart,
+    );
     const observeErrorBlock = observeSrc.slice(observeStart, observeEnd);
     expect(observeStart).toBeGreaterThan(-1);
     expect(observeEnd).toBeGreaterThan(observeStart);
     expect(observeErrorBlock).toMatch(/terminateGeneration\(generation\)/);
     expect(observeErrorBlock).not.toMatch(/settleLocalGeneration|releaseOwned/);
+    expect(observeSrc).toMatch(
+      /child\.stdout\.on\("error",\s*retireGeneration\)/,
+    );
+    expect(observeSrc).toMatch(
+      /child\.on\("error",\s*retireGeneration\)/,
+    );
   });
 
   it("main process detaches herdr on quit and signals", () => {

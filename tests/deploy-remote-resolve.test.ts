@@ -394,7 +394,7 @@ describe("remote deploy transaction behavior", () => {
           '    bootouts="$(cat "$FAKE_STATE/bootout-count" 2>/dev/null || echo 0)"',
           '    bootouts="$((bootouts + 1))"',
           '    printf \'%s\\n\' "$bootouts" > "$FAKE_STATE/bootout-count"',
-          '    if [ "$FAKE_SIGNAL_DURING_ROLLBACK" = "1" ] && [ "$bootouts" -ge 2 ]; then kill -TERM "$PPID"; fi',
+          '    if [ "$FAKE_SIGNAL_DURING_ROLLBACK" = "1" ] && [ "$bootouts" -ge 2 ]; then kill -TERM "$PPID"; sleep 0.2; fi',
           '    rm -f "$FAKE_STATE/loaded" "$FAKE_STATE/pid"',
           "    ;;",
           "  bootstrap|load) touch \"$FAKE_STATE/loaded\"; printf '200\\n' > \"$FAKE_STATE/pid\" ;;",
