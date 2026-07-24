@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
-import { closeFleet } from "../../lib/fleet-state";
+import { closeFleet, refreshFleet } from "../../lib/fleet-state";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { FocusSurface } from "../FocusSurface";
@@ -21,6 +21,23 @@ function FleetOverlayInner() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(null);
   const [ccHostId, setCcHostId] = useState("");
+  const stations = hosts.filter((host) => host.kind === "remote");
+  const reachable = stations.filter(
+    (host) => probes[host.id]?.status === "reachable",
+  ).length;
+  const checking = stations.filter(
+    (host) => probes[host.id]?.status === "probing",
+  ).length;
+  const tested = stations.filter((host) => {
+    const status = probes[host.id]?.status;
+    return status === "reachable" || status === "unreachable";
+  }).length;
+  const routeSummary =
+    loading || checking > 0
+      ? "scanning routes"
+      : tested === 0
+        ? "routes untested"
+        : `${reachable}/${stations.length} reachable`;
 
   useEffect(() => {
     let cancelled = false;
@@ -68,15 +85,28 @@ function FleetOverlayInner() {
       <OverlayHeader
         eyebrow="fleet"
         title="Command Fleet"
-        status={(() => {
-          const n = hosts.filter((host) => host.kind === "remote").length;
-          return `${n} station${n === 1 ? "" : "s"}${loading ? " · refreshing…" : ""}`;
-        })()}
+        status={`${stations.length} enrolled · ${routeSummary}${
+          peers.length > 0 ? ` · ${peers.length} discovered` : ""
+        }`}
         actions={
-          <Button size="sm" onClick={() => setForm({})}>
-            <Plus size={12} />
-            Add host
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="subtle"
+              disabled={loading}
+              onClick={() => void refreshFleet()}
+            >
+              <RefreshCw
+                size={12}
+                className={loading ? "fleet-refresh-icon" : undefined}
+              />
+              Refresh
+            </Button>
+            <Button size="sm" onClick={() => setForm({})}>
+              <Plus size={12} />
+              Add host
+            </Button>
+          </>
         }
       />
       <div className="fleet-body">

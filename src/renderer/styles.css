@@ -2165,13 +2165,66 @@ ol.note-md__list > .note-md__li::before {
   min-width: 0;
   overflow: hidden;
   background: var(--color-ground);
+  isolation: isolate;
 }
 .fleet-map-wrap .react-flow {
   background: transparent;
 }
 
+.fleet-map__context,
+.fleet-map__legend,
+.fleet-map__hint {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  font-family: var(--font-mono);
+}
+.fleet-map__context {
+  top: 16px;
+  left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--color-dim);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+.fleet-map__context > span:first-child {
+  color: var(--color-ink-2);
+  font-size: 10px;
+  font-weight: 600;
+}
+.fleet-map__legend {
+  left: 18px;
+  bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
+  color: var(--color-dim);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+}
+.fleet-map__legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.fleet-map__legend i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+}
+.fleet-map__hint {
+  right: 18px;
+  bottom: 16px;
+  color: var(--color-faint);
+  font-size: 8px;
+  letter-spacing: 0.05em;
+}
+
 /* React Flow handles double as edge anchors — pinned to node centers so link
-   lines run medallion-to-medallion, and invisible. */
+   lines run machine-to-machine, and invisible. */
 .fleet-handle.react-flow__handle {
   left: 50% !important;
   top: 50% !important;
@@ -2194,58 +2247,108 @@ ol.note-md__list > .note-md__li::before {
   to { stroke-dashoffset: -8; }
 }
 .fleet-link__label {
-  fill: var(--color-faint);
+  fill: var(--color-dim);
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.08em;
+  paint-order: stroke;
+  stroke: var(--color-ground);
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+.fleet-link {
+  transition: filter 160ms ease-out, opacity 160ms ease-out;
+}
+.react-flow__edge:hover .fleet-link {
+  filter: brightness(1.45);
 }
 @media (prefers-reduced-motion: reduce) {
   .fleet-link--probing { animation: none; }
 }
 
-/* --- Nodes: icon medallion tinted per host -------------------------------- */
+/* --- Nodes: machine signatures, icon-first and operational ---------------- */
 .fleet-cc,
-.fleet-station {
+.fleet-station,
+.fleet-ghost {
+  position: relative;
+  cursor: pointer;
+}
+.fleet-cc { width: 244px; }
+.fleet-station,
+.fleet-ghost { width: 238px; }
+
+.fleet-node__plate {
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  text-align: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 96px;
+  padding: 11px 12px;
+  border: 1px solid;
+  border-radius: 10px;
+  background: var(--color-raise-2);
+  transition:
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 160ms ease-out,
+    border-color 160ms ease-out;
 }
-.fleet-cc { width: 240px; }
-.fleet-station { width: 140px; }
+.fleet-cc .fleet-node__plate {
+  min-height: 94px;
+  padding: 14px;
+}
 
 .fleet-node__medallion {
   position: relative;
+  flex: none;
   display: grid;
   place-items: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 999px;
-  border: 1px solid; /* hue set inline per host */
-  background: var(--color-raise-2);
-  transition: transform 160ms ease-out, background-color 160ms ease-out;
+  width: 48px;
+  height: 48px;
+  border-radius: 9px;
+  border: 1px solid currentColor;
+  background: var(--color-inset);
 }
 .fleet-node__medallion--cc {
-  width: 84px;
-  height: 84px;
+  width: 58px;
+  height: 58px;
+  background: color-mix(in srgb, var(--color-amber) 7%, var(--color-inset));
 }
-.fleet-cc,
-.fleet-station {
-  cursor: pointer;
+
+.fleet-node__copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: left;
 }
-.fleet-cc:hover .fleet-node__medallion,
-.fleet-station:hover .fleet-node__medallion,
-.fleet-cc--selected .fleet-node__medallion,
-.fleet-station--selected .fleet-node__medallion {
+.fleet-cc:hover .fleet-node__plate,
+.fleet-station:hover .fleet-node__plate,
+.fleet-ghost:hover .fleet-node__plate,
+.fleet-cc--selected .fleet-node__plate,
+.fleet-station--selected .fleet-node__plate,
+.fleet-ghost--selected .fleet-node__plate {
   background: var(--color-raise);
 }
-.fleet-cc:hover .fleet-node__medallion,
-.fleet-station:hover .fleet-node__medallion {
-  transform: scale(1.07);
+.fleet-cc:hover .fleet-node__plate,
+.fleet-station:hover .fleet-node__plate,
+.fleet-ghost:hover .fleet-node__plate {
+  transform: translateY(-2px);
 }
-.react-flow__edge:hover {
-  filter: brightness(1.4);
+.react-flow__node:focus-visible .fleet-node__plate {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 3px;
+}
+
+.fleet-node__capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+.fleet-node__capabilities > span {
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.03em;
 }
 
 .fleet-pip {
@@ -2279,28 +2382,55 @@ ol.note-md__list > .note-md__li::before {
 }
 
 .fleet-cc__label {
-  margin-top: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 14px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--color-amber-hi);
 }
 .fleet-station__label {
-  margin-top: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--color-ink-2);
-}
-.fleet-station--selected .fleet-station__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--color-ink);
 }
 .fleet-node__meta {
   margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 9px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
+  color: var(--color-dim);
+}
+.fleet-node__signal {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
   color: var(--color-faint);
+}
+.fleet-node__signal--authority { color: var(--color-amber); }
+.fleet-node__signal--probing { color: var(--color-cyan); }
+.fleet-node__signal--reachable { color: var(--color-green); }
+.fleet-node__signal--unreachable { color: var(--color-crimson); }
+.fleet-node__signal--discovered { color: var(--color-dim); }
+
+.fleet-refresh-icon {
+  animation: fleet-refresh-spin 0.8s linear infinite;
+}
+@keyframes fleet-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fleet-refresh-icon,
+  .fleet-detail__status-dot--probing { animation: none; }
 }
 
 /* --- Detail panel --------------------------------------------------------- */
@@ -2308,7 +2438,7 @@ ol.note-md__list > .note-md__li::before {
   display: flex;
   flex-direction: column;
   flex: none;
-  width: 320px;
+  width: 360px;
   border-left: 1px solid var(--color-stroke);
   background: var(--color-raise-2);
   overflow-y: auto;
@@ -2316,26 +2446,68 @@ ol.note-md__list > .note-md__li::before {
 .fleet-detail__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px 6px;
+  gap: 10px;
+  min-height: 72px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+.fleet-detail__identity-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid;
+  border-radius: 8px;
+}
+.fleet-detail__identity {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-mono);
+}
+.fleet-detail__identity > span {
+  color: var(--color-faint);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+.fleet-detail__identity > strong {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fleet-detail__identity > small {
+  overflow: hidden;
+  color: var(--color-dim);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .fleet-detail__body {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 4px 14px 16px;
+  padding: 0 14px 18px;
 }
 .fleet-detail__section {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 9px;
+  padding: 16px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 72%, transparent);
 }
-.fleet-detail__title {
+.fleet-detail__section:last-child {
+  border-bottom: 0;
+}
+.fleet-detail__section-label {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--color-ink);
+  color: var(--color-ink-2);
 }
 .fleet-detail__kv {
   display: grid;
@@ -2364,6 +2536,39 @@ ol.note-md__list > .note-md__li::before {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
+}
+.fleet-detail__status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.fleet-detail__status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--fleet-status-color, var(--color-faint));
+}
+.fleet-detail__status-dot--probing {
+  animation: fleet-pip-pulse 1.2s ease-in-out infinite;
+}
+.fleet-detail__diagnostic {
+  width: 100%;
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+.fleet-detail__diagnostic > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.fleet-detail__diagnostic > p {
+  margin: 8px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--color-inset);
+  color: var(--color-ink-2);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 .fleet-detail__swatches,
 .fleet-detail__glyphs {
@@ -2419,41 +2624,24 @@ ol.note-md__list > .note-md__li::before {
 }
 
 /* --- Unclaimed peer ghosts -------------------------------------------------- */
-.fleet-ghost {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 140px;
-  text-align: center;
-  cursor: pointer;
+.fleet-ghost__plate {
+  border-color: rgba(237, 230, 218, 0.18);
+  border-style: dashed;
+  background: color-mix(in srgb, var(--color-raise-2) 70%, transparent);
 }
 .fleet-ghost__medallion {
-  border-style: dashed;
   border-color: rgba(237, 230, 218, 0.22);
   background: transparent;
   color: var(--color-faint);
 }
-.fleet-ghost .fleet-station__label,
-.fleet-ghost .fleet-node__meta {
-  color: var(--color-faint);
+.fleet-ghost .fleet-station__label {
+  color: var(--color-ink-2);
 }
-.fleet-ghost:hover .fleet-ghost__medallion {
-  transform: scale(1.07);
-  border-color: rgba(237, 230, 218, 0.45);
-  color: var(--color-dim);
-}
+.fleet-ghost:hover .fleet-ghost__medallion,
 .fleet-ghost--selected .fleet-ghost__medallion {
   border-color: rgba(237, 230, 218, 0.5);
   color: var(--color-dim);
-  background: var(--color-raise-2);
 }
-.fleet-detail__title--icon {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
 /* --- Add / claim host form ------------------------------------------------- */
 .fleet-form-backdrop {
   position: absolute;
@@ -2496,4 +2684,19 @@ ol.note-md__list > .note-md__li::before {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+@media (max-width: 980px) {
+  .fleet-detail {
+    position: absolute;
+    z-index: 6;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(380px, 82%);
+    box-shadow: -8px 0 8px rgba(0, 0, 0, 0.26);
+  }
+  .fleet-map__hint {
+    display: none;
+  }
 }

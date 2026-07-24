@@ -1,12 +1,12 @@
-import { Fragment, useState } from "react";
-import { X } from "lucide-react";
+import { Fragment, useState, type CSSProperties } from "react";
+import { Command, X } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
 import { FLEET_COLORS, FLEET_GLYPHS, hostColor } from "../../lib/fleet-layout";
 import { HUE, withAlpha } from "../../lib/theme";
 import { getVellumApi } from "../../lib/vellum-api";
-import { Button, Chip, Eyebrow, IconButton, type ChipTone } from "../ui";
+import { Button, Chip, IconButton, type ChipTone } from "../ui";
 import { fleetGlyphIcon, peerOsIcon } from "./FleetNodes";
 
 export type FleetSelection =
@@ -21,17 +21,26 @@ const CAPABILITY_TONE: Record<string, ChipTone> = {
   hermes: "green",
 };
 
-function reachabilityLine(probe?: FleetProbeState): { readonly text: string; readonly color: string } {
+function reachabilityLine(probe?: FleetProbeState): {
+  readonly text: string;
+  readonly detail?: string;
+  readonly color: string;
+} {
   switch (probe?.status) {
     case "probing":
       return { text: "probing link…", color: HUE.cyan };
     case "reachable":
       return {
         text: probe.latencyMs !== undefined ? `reachable · ${probe.latencyMs} ms` : "reachable",
+        detail: probe.detail,
         color: "#5FB98E",
       };
     case "unreachable":
-      return { text: `unreachable${probe.detail ? ` — ${probe.detail}` : ""}`, color: HUE.crimson };
+      return {
+        text: "unreachable",
+        detail: probe.detail,
+        color: HUE.crimson,
+      };
     default:
       return { text: "link untested", color: "#8a8378" };
   }
@@ -41,8 +50,7 @@ function CommandCenterDetail({ hostId }: { readonly hostId: string }) {
   return (
     <div className="fleet-detail__body">
       <section className="fleet-detail__section">
-        <Eyebrow tone="steel">station</Eyebrow>
-        <div className="fleet-detail__title">Command Center</div>
+        <div className="fleet-detail__section-label">Authority</div>
         <div className="fleet-detail__kv">
           <span>role</span>
           <span>command-center</span>
@@ -50,8 +58,8 @@ function CommandCenterDetail({ hostId }: { readonly hostId: string }) {
           <span>{hostId || "local"}</span>
         </div>
         <p className="fleet-detail__note">
-          The human-authored core of the fleet. Remote stations are enrolled from the star map or
-          the discovery rail — the core itself has no operator actions here.
+          The human-authored core of the fleet. It distributes complete intent to enrolled
+          stations; it does not create station-to-station reach.
         </p>
       </section>
     </div>
@@ -112,8 +120,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   return (
     <div className="fleet-detail__body">
       <section className="fleet-detail__section">
-        <Eyebrow tone="steel">station</Eyebrow>
-        <div className="fleet-detail__title">{host.label}</div>
+        <div className="fleet-detail__section-label">Identity</div>
         <div className="fleet-detail__kv">
           <span>endpoint</span>
           <span>{host.endpoint ?? "—"}</span>
@@ -136,34 +143,49 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
       </section>
 
       <section className="fleet-detail__section">
-        <Eyebrow tone="steel">link</Eyebrow>
-        <div className="fleet-detail__reach" style={{ color: reach.color }}>
-          {reach.text}
+        <div className="fleet-detail__section-label">Connectivity</div>
+        <div className="fleet-detail__status">
+          <span
+            className={probePipClassName(probe)}
+            style={{ "--fleet-status-color": reach.color } as CSSProperties}
+          />
+          <span className="fleet-detail__reach" style={{ color: reach.color }}>
+            {reach.text}
+          </span>
         </div>
+        {reach.detail ? (
+          <details className="fleet-detail__diagnostic">
+            <summary>Probe detail</summary>
+            <p>{reach.detail}</p>
+          </details>
+        ) : null}
         <Button size="xs" disabled={probing} onClick={() => void probeHost(host.id)}>
           {probing ? "probing…" : "Test link"}
         </Button>
       </section>
 
       <section className="fleet-detail__section">
-        <Eyebrow tone="steel">appearance</Eyebrow>
+        <div className="fleet-detail__section-label">Machine signature</div>
         <div className="fleet-detail__swatches" role="group" aria-label="Station color">
-          {FLEET_COLORS.map((swatch) => (
-            <button
-              key={swatch}
-              type="button"
-              className={`fleet-swatch${host.appearance?.color === swatch ? " fleet-swatch--active" : ""}`}
-              style={{ background: swatch, boxShadow: `0 0 8px ${withAlpha(swatch, 0.5)}` }}
-              aria-label={`Set station color ${swatch}`}
-              aria-pressed={host.appearance?.color === swatch}
-              onClick={() => void saveAppearance({ color: swatch, glyph: host.appearance?.glyph })}
-            />
-          ))}
+          {FLEET_COLORS.map((swatch) => {
+            const active = color === swatch;
+            return (
+              <button
+                key={swatch}
+                type="button"
+                className={`fleet-swatch${active ? " fleet-swatch--active" : ""}`}
+                style={{ background: swatch }}
+                aria-label={`Set station color ${swatch}`}
+                aria-pressed={active}
+                onClick={() => void saveAppearance({ color: swatch, glyph: host.appearance?.glyph })}
+              />
+            );
+          })}
         </div>
         <div className="fleet-detail__glyphs" role="group" aria-label="Station glyph">
           {FLEET_GLYPHS.map((glyph) => {
             const Icon = fleetGlyphIcon(glyph);
-            const active = (host.appearance?.glyph ?? "satellite") === glyph;
+            const active = (host.appearance?.glyph ?? "server") === glyph;
             return (
               <button
                 key={glyph}
@@ -183,13 +205,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
       </section>
 
       <section className="fleet-detail__section">
-        <Eyebrow tone="steel">operator actions</Eyebrow>
+        <div className="fleet-detail__section-label">Operations</div>
         <div className="fleet-detail__actions">
           <Button size="xs" disabled={actionBusy !== ""} onClick={() => void runAction("configure")}>
-            {actionBusy === "configure" ? "configuring…" : "Configure as station"}
+            {actionBusy === "configure" ? "configuring…" : "Configure station"}
           </Button>
-          <Button size="xs" disabled={actionBusy !== ""} onClick={() => void runAction("deploy")}>
-            {actionBusy === "deploy" ? "deploying…" : "Install CLI / deploy"}
+          <Button variant="primary" size="xs" disabled={actionBusy !== ""} onClick={() => void runAction("deploy")}>
+            {actionBusy === "deploy" ? "deploying…" : "Deploy Vellum Remote"}
           </Button>
           {confirmRemove ? (
             <Button
@@ -223,15 +245,10 @@ function GhostDetail({
   readonly peer: DiscoveredPeer;
   readonly onClaim: (peer: DiscoveredPeer) => void;
 }) {
-  const OsIcon = peerOsIcon(peer.os);
   return (
     <div className="fleet-detail__body">
       <section className="fleet-detail__section">
-        <Eyebrow tone="steel">unclaimed peer</Eyebrow>
-        <div className="fleet-detail__title fleet-detail__title--icon">
-          <OsIcon size={15} strokeWidth={1.6} />
-          {peer.name}
-        </div>
+        <div className="fleet-detail__section-label">Observed identity</div>
         <div className="fleet-detail__kv">
           <span>os</span>
           <span>{peer.os ?? "unknown"}</span>
@@ -245,15 +262,15 @@ function GhostDetail({
           ))}
         </div>
         <p className="fleet-detail__note">
-          Detected on the Tailscale mesh but not enrolled. Claiming enrolls it as a fleet host —
-          configure and install stay separate operator actions.
+          Seen on the Tailscale mesh, but outside the execution graph. Claiming only enrolls the
+          host; configuration and installation remain separate operator actions.
         </p>
       </section>
 
       <section className="fleet-detail__section">
-        <Eyebrow tone="steel">operator actions</Eyebrow>
+        <div className="fleet-detail__section-label">Enrollment</div>
         <div className="fleet-detail__actions">
-          <Button size="xs" onClick={() => onClaim(peer)}>
+          <Button variant="primary" size="xs" onClick={() => onClaim(peer)}>
             Claim as station
           </Button>
         </div>
@@ -261,6 +278,9 @@ function GhostDetail({
     </div>
   );
 }
+
+const probePipClassName = (probe?: FleetProbeState): string =>
+  `fleet-detail__status-dot fleet-detail__status-dot--${probe?.status ?? "unknown"}`;
 
 /** Right-hand detail column for the selected star-map node. */
 export function FleetDetailPanel({
@@ -276,10 +296,56 @@ export function FleetDetailPanel({
   readonly onClose: () => void;
   readonly onClaimPeer: (peer: DiscoveredPeer) => void;
 }) {
+  const reach = selection.kind === "station" ? reachabilityLine(probe) : undefined;
+  const HeaderIcon =
+    selection.kind === "cc"
+      ? Command
+      : selection.kind === "station"
+        ? fleetGlyphIcon(selection.host.appearance?.glyph)
+        : peerOsIcon(selection.peer.os);
+  const title =
+    selection.kind === "cc"
+      ? "Command Center"
+      : selection.kind === "station"
+        ? selection.host.label
+        : selection.peer.name;
+  const kind =
+    selection.kind === "cc"
+      ? "Authorial core"
+      : selection.kind === "station"
+        ? "Enrolled station"
+        : "Discovered peer";
+  const color =
+    selection.kind === "cc"
+      ? HUE.amber
+      : selection.kind === "station"
+        ? hostColor(selection.host)
+        : HUE.steel;
+
   return (
     <aside className="fleet-detail" aria-label="Fleet node detail">
       <div className="fleet-detail__head">
-        <Eyebrow tone="steel">detail</Eyebrow>
+        <div
+          className="fleet-detail__identity-mark"
+          style={{
+            color,
+            borderColor: withAlpha(color, 0.42),
+            background: withAlpha(color, 0.07),
+          }}
+        >
+          <HeaderIcon size={18} strokeWidth={1.55} />
+        </div>
+        <div className="fleet-detail__identity">
+          <span>{kind}</span>
+          <strong>{title}</strong>
+          <small style={reach ? { color: reach.color } : undefined}>
+            {selection.kind === "station"
+              ? reach?.text
+              : selection.kind === "ghost"
+                ? `${selection.peer.os ?? "unknown device"} · ${selection.peer.online ? "online" : "offline"}`
+                : ccHostId || "local"}
+          </small>
+        </div>
         <IconButton aria-label="Close fleet detail" title="close detail" onClick={onClose}>
           <X size={13} />
         </IconButton>

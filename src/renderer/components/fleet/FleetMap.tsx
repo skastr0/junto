@@ -7,7 +7,6 @@ import {
   type Edge,
   type EdgeProps,
   type EdgeTypes,
-  type InternalNode,
 } from "@xyflow/react";
 import type { DiscoveredPeer } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
@@ -39,26 +38,19 @@ type FleetLinkData = {
 };
 type FleetLinkEdgeType = Edge<FleetLinkData, "fleetLink">;
 
-/** Medallion radii (FleetNodes: CC 84px, station 64px) — the medallion is the
- * first, horizontally-centered child of the node, so its center is
- * (node.x + width/2, node.y + radius). Handle measurement is not trustworthy
- * here (CSS transforms are invisible to it), so compute from node internals. */
-const MEDALLION_RADIUS: Record<string, number> = {
-  commandCenter: 42,
-  station: 32,
-};
-
-const medallionCenter = (node: InternalNode): { x: number; y: number } => {
-  const radius = MEDALLION_RADIUS[node.type ?? "station"] ?? 32;
+const nodeCenter = (
+  node: NonNullable<ReturnType<typeof useInternalNode>>,
+): { x: number; y: number } => {
   const width = node.measured?.width ?? 0;
+  const height = node.measured?.height ?? 0;
   return {
     x: node.internals.positionAbsolute.x + width / 2,
-    y: node.internals.positionAbsolute.y + radius,
+    y: node.internals.positionAbsolute.y + height / 2,
   };
 };
 
-/** Straight medallion-to-medallion link line. Status drives hue, dash, and
- * the probing animation — never invented state. */
+/** Straight machine-to-machine route. The dark underlay separates topology
+ * from the field without inventing strength or direction. */
 function FleetLinkEdge({
   id,
   source,
@@ -70,13 +62,23 @@ function FleetLinkEdge({
   const status = data?.status ?? "unknown";
   const phase = edgePhase(status);
   if (!sourceNode || !targetNode) return null;
-  const s = medallionCenter(sourceNode);
-  const t = medallionCenter(targetNode);
+  const s = nodeCenter(sourceNode);
+  const t = nodeCenter(targetNode);
   const path = `M ${s.x} ${s.y} L ${t.x} ${t.y}`;
   const midX = (s.x + t.x) / 2;
   const midY = (s.y + t.y) / 2;
   return (
     <>
+      <BaseEdge
+        id={`${id}-underlay`}
+        path={path}
+        style={{
+          stroke: "var(--color-ground)",
+          strokeWidth: phase.width + 4,
+          opacity: 0.92,
+        }}
+        className="fleet-link__underlay"
+      />
       <BaseEdge
         id={id}
         path={path}
@@ -84,9 +86,9 @@ function FleetLinkEdge({
           stroke: phase.hue,
           strokeWidth: phase.width,
           strokeDasharray: phase.dash ?? undefined,
-          opacity: data?.ghost ? 0.2 : status === "unknown" ? 0.45 : 0.8,
+          opacity: data?.ghost ? 0.28 : status === "unknown" ? 0.5 : 0.88,
         }}
-        className={phase.animated ? "fleet-link--probing" : undefined}
+        className={`fleet-link${phase.animated ? " fleet-link--probing" : ""}`}
       />
       {status === "reachable" && data?.latencyMs !== undefined ? (
         <text x={midX} y={midY - 7} textAnchor="middle" className="fleet-link__label">
@@ -115,6 +117,16 @@ function FleetMapInner({
   readonly onSelect: (id: string | null) => void;
 }) {
   const stations = useMemo(() => hosts.filter((host) => host.kind === "remote"), [hosts]);
+  const topologyKey = useMemo(
+    () =>
+      [
+        ...stations.map((host) => `station:${host.id}`),
+        ...peers.map((peer) => `peer:${peer.name}`),
+      ]
+        .sort()
+        .join("|"),
+    [stations, peers],
+  );
 
   const nodes = useMemo<ReadonlyArray<FleetFlowNode>>(() => {
     const stationIds = stations.map((host) => host.id);
@@ -130,6 +142,7 @@ function FleetMapInner({
       type: "commandCenter",
       position: { x: 0, y: 0 },
       data: { hostId: ccHostId },
+      ariaLabel: `Command Center${ccHostId ? `, host ${ccHostId}` : ""}`,
       selected: selectedId === COMMAND_CENTER_ID,
       draggable: false,
       connectable: false,
@@ -139,6 +152,9 @@ function FleetMapInner({
       type: "station",
       position: positions[host.id] ?? { x: 0, y: 0 },
       data: { host, probe: probes[host.id] },
+      ariaLabel: `${host.label}, enrolled station, ${
+        probes[host.id]?.status ?? "link untested"
+      }`,
       selected: selectedId === host.id,
       draggable: false,
       connectable: false,
@@ -148,6 +164,7 @@ function FleetMapInner({
       type: "ghost",
       position: ghostPositions[ghostNodeId(peer)] ?? { x: 0, y: 0 },
       data: { peer },
+      ariaLabel: `${peer.name}, ${peer.os ?? "unknown device"}, discovered but not enrolled`,
       selected: selectedId === ghostNodeId(peer),
       draggable: false,
       connectable: false,
@@ -191,6 +208,7 @@ function FleetMapInner({
 
   return (
     <ReactFlow
+      key={topologyKey}
       nodes={nodes as Array<FleetFlowNode>}
       edges={edges as Array<Edge>}
       nodeTypes={fleetNodeTypes}
@@ -198,7 +216,7 @@ function FleetMapInner({
       onNodeClick={(_, node) => onSelect(node.id)}
       onPaneClick={() => onSelect(null)}
       fitView
-      fitViewOptions={{ padding: 0.28, maxZoom: 1.1 }}
+      fitViewOptions={{ padding: 0.25, maxZoom: 1.2 }}
       minZoom={0.3}
       maxZoom={1.6}
       panOnDrag
@@ -206,12 +224,27 @@ function FleetMapInner({
       nodesDraggable={false}
       nodesConnectable={false}
       edgesFocusable={false}
+      nodesFocusable
       proOptions={{ hideAttribution: true }}
-    />
+    >
+      <div className="fleet-map__context" role="status">
+        <span>Command Center routes</span>
+        <span>
+          {stations.length} enrolled · {peers.length} visible on mesh
+        </span>
+      </div>
+      <div className="fleet-map__legend" aria-label="Fleet route states">
+        <span><i className="fleet-pip--reachable" />reachable</span>
+        <span><i className="fleet-pip--probing" />checking</span>
+        <span><i className="fleet-pip--unreachable" />unreachable</span>
+        <span><i className="fleet-pip--unknown" />untested</span>
+      </div>
+      <div className="fleet-map__hint">drag to pan · scroll to zoom · select a machine to inspect</div>
+    </ReactFlow>
   );
 }
 
-/** The star map: Command Center core + orbiting station nodes over the starfield. */
+/** Fleet topology: Command Center core, enrolled stations, and visible peers. */
 export function FleetMap(props: Parameters<typeof FleetMapInner>[0]) {
   return (
     <ReactFlowProvider>

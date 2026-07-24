@@ -45,17 +45,21 @@ export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlo
   return (
     <div className={`fleet-cc${selected ? " fleet-cc--selected" : ""}`}>
       <Handle type="source" position={Position.Right} className="fleet-handle" />
-      <div
-        className="fleet-node__medallion fleet-node__medallion--cc"
-        style={{
-          borderColor: withAlpha(HUE.amber, selected ? 0.9 : 0.45),
-          color: HUE.amber,
-        }}
-      >
-        <Command size={26} strokeWidth={1.6} />
+      <div className="fleet-node__plate" style={{ borderColor: withAlpha(HUE.amber, selected ? 0.8 : 0.28) }}>
+        <div
+          className="fleet-node__medallion fleet-node__medallion--cc"
+          style={{ color: HUE.amber }}
+        >
+          <Command size={25} strokeWidth={1.55} />
+        </div>
+        <div className="fleet-node__copy">
+          <div className="fleet-cc__label font-display">Command Center</div>
+          <div className="fleet-node__meta">{data.hostId || "local"}</div>
+          <div className="fleet-node__signal fleet-node__signal--authority">
+            authorial core
+          </div>
+        </div>
       </div>
-      <div className="fleet-cc__label font-display">Command Center</div>
-      <div className="fleet-node__meta">{data.hostId ? `${data.hostId} · command-center` : "command-center"}</div>
     </div>
   );
 }
@@ -94,6 +98,21 @@ const probePipTitle = (probe?: FleetProbeState): string => {
   }
 };
 
+const probeLabel = (probe?: FleetProbeState): string => {
+  switch (probe?.status) {
+    case "probing":
+      return "checking route";
+    case "reachable":
+      return probe.latencyMs === undefined
+        ? "reachable"
+        : `reachable · ${probe.latencyMs} ms`;
+    case "unreachable":
+      return "unreachable";
+    default:
+      return "route untested";
+  }
+};
+
 export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
   const { host, probe } = data;
   const color = hostColor(host);
@@ -102,17 +121,26 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
     <div className={`fleet-station${selected ? " fleet-station--selected" : ""}`}>
       <Handle type="target" position={Position.Left} className="fleet-handle" />
       <div
-        className="fleet-node__medallion"
-        style={{
-          borderColor: withAlpha(color, selected ? 0.9 : 0.4),
-          color,
-        }}
+        className="fleet-node__plate"
+        style={{ borderColor: withAlpha(color, selected ? 0.82 : 0.28) }}
       >
-        <Icon size={22} strokeWidth={1.6} />
-        <span className={probePipClass(probe)} title={probePipTitle(probe)} />
+        <div className="fleet-node__medallion" style={{ color, background: withAlpha(color, 0.08) }}>
+          <Icon size={21} strokeWidth={1.55} />
+          <span className={probePipClass(probe)} title={probePipTitle(probe)} />
+        </div>
+        <div className="fleet-node__copy">
+          <div className="fleet-station__label">{host.label}</div>
+          <div className="fleet-node__meta">{host.endpoint ?? host.kind}</div>
+          <div className={`fleet-node__signal fleet-node__signal--${probe?.status ?? "unknown"}`}>
+            {probeLabel(probe)}
+          </div>
+          <div className="fleet-node__capabilities" aria-label={`Capabilities: ${host.capabilities.join(", ")}`}>
+            {host.capabilities.slice(0, 3).map((capability) => (
+              <span key={capability}>{capability}</span>
+            ))}
+          </div>
+        </div>
       </div>
-      <div className="fleet-station__label">{host.label}</div>
-      <div className="fleet-node__meta">{host.endpoint ?? host.kind}</div>
     </div>
   );
 }
@@ -140,16 +168,21 @@ export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowN
   return (
     <div className={`fleet-ghost${selected ? " fleet-ghost--selected" : ""}`}>
       <Handle type="target" position={Position.Left} className="fleet-handle" />
-      <div className="fleet-node__medallion fleet-ghost__medallion">
-        <Icon size={20} strokeWidth={1.5} />
-        <span
-          className={peer.online ? "fleet-pip fleet-pip--reachable" : "fleet-pip fleet-pip--unknown"}
-          title={peer.online ? "online on the tailnet" : "offline"}
-        />
-      </div>
-      <div className="fleet-station__label">{peer.name}</div>
-      <div className="fleet-node__meta">
-        {`${peer.os ?? "device"} · ${peer.online ? "online" : "offline"}`}
+      <div className="fleet-node__plate fleet-ghost__plate">
+        <div className="fleet-node__medallion fleet-ghost__medallion">
+          <Icon size={20} strokeWidth={1.5} />
+          <span
+            className={peer.online ? "fleet-pip fleet-pip--reachable" : "fleet-pip fleet-pip--unknown"}
+            title={peer.online ? "online on the tailnet" : "offline"}
+          />
+        </div>
+        <div className="fleet-node__copy">
+          <div className="fleet-station__label">{peer.name}</div>
+          <div className="fleet-node__meta">{peer.os ?? "unknown device"}</div>
+          <div className="fleet-node__signal fleet-node__signal--discovered">
+            {peer.online ? "visible · not enrolled" : "offline · not enrolled"}
+          </div>
+        </div>
       </div>
     </div>
   );
