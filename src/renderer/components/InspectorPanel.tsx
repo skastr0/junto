@@ -20,6 +20,7 @@ import { chatState$ } from "../lib/chat-state";
 import { connectionStateOf, herdr$, refreshHerdrMeta } from "../lib/herdr-state";
 import { HarnessMark } from "./herdr/HarnessMark";
 import { NoteMarkdown } from "../lib/note-markdown";
+import { WaitingOnSection } from "./WaitingOnSection";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
   { value: "1", label: "red", hue: HUE.crimson },
@@ -284,6 +285,7 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
           <div className="inspector-detail">{nodeDetail(node) || (node.ether?.entity?.kind === "project" ? "project (note)" : "No description recorded.")}</div>
         )}
         {isAgent ? <AgentSections key={node.id} node={node} /> : null}
+        <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} />
         <NodeCapabilityInventory key={`cap:${node.id}`} node={node} />
         <BrowserAutomationSection key={`${canvasName}:${node.id}`} canvasName={canvasName} node={node} />
         <NodeFieldEditors node={node} />

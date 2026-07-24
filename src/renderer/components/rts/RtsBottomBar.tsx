@@ -63,6 +63,7 @@ import { useAlertAttention } from "../../lib/alert-attention";
 import { ConnectEditor } from "../InspectorFields";
 import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import { PulseTray } from "../PulseTray";
+import { StoppageRank } from "./StoppageRank";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -1022,6 +1023,7 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
       <RegionMiddle rollups={rollups} byId={byId} idleQueue={idleQueue} />
       <div className="rts-right">
         <OrphanNotices />
+        <StoppageRank />
         <div className="rts-notify rts-notify--pulse">
           <PulseTray embedded />
         </div>
