@@ -12,7 +12,8 @@
   width: 100%;
   z-index: 25;
   display: grid;
-  grid-template-columns: minmax(240px, 1.05fr) minmax(220px, 1.35fr) minmax(200px, 0.9fr);
+  /* Center (regions) slightly wider than command + minimap; wings matched. */
+  grid-template-columns: minmax(220px, 1fr) minmax(300px, 1.4fr) minmax(220px, 1fr);
   gap: 8px;
   padding: 8px 10px 10px;
   pointer-events: none;
@@ -27,8 +28,8 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  height: 104px;
-  max-height: 104px;
+  height: 120px;
+  max-height: 120px;
   border: 1px solid rgba(237, 230, 218, 0.1);
   border-radius: 8px;
   background: rgba(12, 11, 10, 0.88);
@@ -191,7 +192,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  max-width: 160px;
+  max-width: 200px;
   padding: 5px 8px;
   border-radius: 6px;
   border: 1px solid rgba(237, 230, 218, 0.1);
@@ -259,7 +260,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 72px;
+  max-width: 112px;
 }
 
 .rts-chip__counts {
@@ -506,8 +507,8 @@
   flex-direction: column;
   gap: 0;
   min-height: 0;
-  height: 104px;
-  max-height: 104px;
+  height: 120px;
+  max-height: 120px;
   /* Match command/region panel chrome so the three thirds align. */
   border: 1px solid rgba(237, 230, 218, 0.1);
   border-radius: 8px;
