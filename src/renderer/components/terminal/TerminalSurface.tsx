@@ -21,7 +21,8 @@ import {
   VELLUM_XTERM_THEME,
 } from "../../lib/terminal-theme";
 import { ActivityMark } from "../ActivityMark";
-import { Button, OverlayHeader } from "../ui";
+import { FocusSurface } from "../FocusSurface";
+import { Button, Eyebrow, OverlayHeader } from "../ui";
 
 type AttachResult = {
   readonly ok: boolean;
@@ -315,17 +316,23 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const registry = use$(dock$.registry);
   const surface = surfaceById(registry, surfaceId);
   const pinned = surface?.zone === "pinned";
+  const [killConfirmOpen, setKillConfirmOpen] = useState(false);
   const closeSurface = () => closeWorkbenchSurface(surfaceId);
   const togglePin = () => {
     if (pinned) unpinWorkbenchSurface(surfaceId);
     else pinWorkbenchSurface(surfaceId);
   };
   const killSession = () => {
+    setKillConfirmOpen(false);
     void getVellumApi()
       ?.terminalKill?.(bindingId, hostId)
       .then(() => setStatus("exited"));
   };
   const attached = status === "control";
+
+  useEffect(() => {
+    if (!attached && killConfirmOpen) setKillConfirmOpen(false);
+  }, [attached, killConfirmOpen]);
 
   return (
     <div
@@ -359,7 +366,12 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
               {pinned ? "Unpin" : "Pin"}
             </Button>
             {attached ? (
-              <Button size="xs" variant="danger" onClick={killSession}>
+              <Button
+                size="xs"
+                variant="danger"
+                title="Kill terminal session"
+                onClick={() => setKillConfirmOpen(true)}
+              >
                 Kill
               </Button>
             ) : null}
@@ -370,6 +382,35 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         }
       />
       <div ref={hostRef} className="native-terminal-surface__xterm" />
+      {killConfirmOpen ? (
+        <FocusSurface
+          measure="form"
+          height="fit"
+          layer="work"
+          label="Confirm kill terminal"
+          onClose={() => setKillConfirmOpen(false)}
+        >
+          <div className="grid gap-4 p-5">
+            <div>
+              <Eyebrow tone="steel">terminal · kill</Eyebrow>
+              <div className="mt-1 font-mono text-[16px] font-semibold text-ink">
+                Kill this session?
+              </div>
+              <p className="mt-2 text-[12px] leading-relaxed text-dim">
+                Terminates the process. Close detaches without killing.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="subtle" onClick={() => setKillConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button size="sm" variant="danger" onClick={killSession}>
+                Kill session
+              </Button>
+            </div>
+          </div>
+        </FocusSurface>
+      ) : null}
     </div>
   );
 }
