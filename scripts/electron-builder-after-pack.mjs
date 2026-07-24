@@ -534,15 +534,33 @@ export default async function afterPack(context) {
           "materialized Electron runtime version is not canonical",
         );
       }
-      await writeFile(
-        procDescriptorPath(linuxArtifact.root.handle, "version"),
-        runtimeVersion,
-        {
+      // electronDist copies already include Electron's version file. Exclusive
+      // create then fails with EEXIST; accept an identical pre-existing body.
+      const versionPath = procDescriptorPath(
+        linuxArtifact.root.handle,
+        "version",
+      );
+      try {
+        const existing = await readFile(versionPath, "utf8");
+        if (existing !== runtimeVersion) {
+          throw new Error(
+            "package version already present and does not match the materialized Electron runtime",
+          );
+        }
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !("code" in error) ||
+          error.code !== "ENOENT"
+        ) {
+          throw error;
+        }
+        await writeFile(versionPath, runtimeVersion, {
           encoding: "utf8",
           flag: "wx",
           mode: 0o644,
-        },
-      );
+        });
+      }
       await applyFixedLinuxArtifactModes(linuxArtifact);
     }
     const executablePath =
