@@ -1,6 +1,6 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { Activity, CircleHelp, FileDown, Plus, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
+import { Activity, CircleHelp, Plus, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
 import type { EntitySource } from "@shared/entities";
 import type { CanvasSummary } from "@shared/ipc";
 import { state$ } from "../lib/state";
@@ -36,20 +36,88 @@ function ConnectorsPopover({ onClose }: { readonly onClose: () => void }) {
   </aside>;
 }
 
+type HelpRow = readonly [string, string];
+
+const HELP_POINTER: ReadonlyArray<HelpRow> = [
+  ["scroll", "pan the field"],
+  ["mid-drag", "pan the field"],
+  ["drag empty", "rubber-band multi-select"],
+  ["double-click", "add a note at cursor"],
+  ["right-click empty", "add item menu (place at cursor)"],
+  ["right-click region", "add item inside the region"],
+  ["drag card", "move a node"],
+  ["select + corners", "resize a node"],
+  ["drag edge handle", "connect nodes (drop on a card)"],
+  ["click edge", "inspect edge · set criteria"],
+  ["click node", "select · open command card"],
+  ["RMB selection", "bulk: region · flags · delete"],
+  ["select + RMB target", "connect all → that node"],
+  ["⇧ RMB target", "connect keep selection (fan-out)"],
+  ["minimap click", "jump camera · dbl-click zoom"],
+  ["add item · fit all", "docked above minimap"],
+];
+
+const HELP_KEYS: ReadonlyArray<HelpRow> = [
+  ["/ · ⌘K", "focus search"],
+  ["Escape", "close overlays / clear selection"],
+  ["⌘Z · ⌘⇧Z", "undo · redo"],
+  ["⌫ · Del", "delete selection"],
+  ["1–9", "focus region slot · re-tap cycles members"],
+  ["⌘1–9", "assign selection as region → slot"],
+  ["F1 · .", "cycle idle herdr workers needing you"],
+];
+
 function HelpPopover({ onClose }: { readonly onClose: () => void }) {
-  const shortcuts = [
-    ["/ · ⌘K", "focus search"],
-    ["double-click", "add a note"],
-    ["drag card", "move a node"],
-    ["drag edge dot", "connect nodes (drop anywhere on a card)"],
-    ["select + corners", "resize a node"],
-    ["click edge", "inspect edge"],
-    ["Escape", "close overlays / clear selection"],
-  ] as const;
-  return <aside className="station-help-popover" role="dialog" aria-label="Interaction help">
-    <div className="station-help-popover__header"><div><div className="station-help-popover__eyebrow">canvas protocol</div><strong>interaction map</strong></div><button type="button" aria-label="Close interaction help" onClick={onClose}>×</button></div>
-    <div className="station-help-popover__list">{shortcuts.map(([key, action]) => <div className="station-help-popover__row" key={key}><kbd>{key}</kbd><span>{action}</span></div>)}<div className="station-help-popover__row"><kbd>fit all</kbd><span>frame the full graph</span></div></div>
-  </aside>;
+  return (
+    <aside className="station-help-popover" role="dialog" aria-label="Interaction help">
+      <div className="station-help-popover__header">
+        <div>
+          <div className="station-help-popover__eyebrow">canvas protocol</div>
+          <strong>interaction map</strong>
+        </div>
+        <button type="button" aria-label="Close interaction help" onClick={onClose}>×</button>
+      </div>
+      <div className="station-help-popover__body">
+        <section className="station-help-popover__primer" aria-label="Field primer">
+          <div className="station-help-popover__section">field primer</div>
+          <p>
+            <strong>execution graph</strong> — edges carry optional criteria.
+            Live data derives phase: <em>blocks</em> · <em>depends</em> · soft <em>relates</em>.
+            Blocks stop sinks and relay through outbound blocks/depends; relates never stop work.
+            Notes and agents are never members of the blocked set.
+          </p>
+          <p>
+            <strong>factory physics</strong> — the canvas is a factory floor.
+            Drawn edges mint capability (ocaps); ports attenuate; process-bind wields a seat.
+            Capability (reach), phase (stoppage), and attention/occupancy are separate planes —
+            selecting a node never grants power; clearing a block never mints an edge.
+          </p>
+        </section>
+        <section className="station-help-popover__group" aria-label="Pointer">
+          <div className="station-help-popover__section">pointer</div>
+          <div className="station-help-popover__list">
+            {HELP_POINTER.map(([key, action]) => (
+              <div className="station-help-popover__row" key={key}>
+                <kbd>{key}</kbd>
+                <span>{action}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="station-help-popover__group" aria-label="Keys">
+          <div className="station-help-popover__section">keys</div>
+          <div className="station-help-popover__list">
+            {HELP_KEYS.map(([key, action]) => (
+              <div className="station-help-popover__row" key={key}>
+                <kbd>{key}</kbd>
+                <span>{action}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </aside>
+  );
 }
 
 function CanvasPicker({
@@ -199,20 +267,17 @@ export function TopBar({
   onOpen,
   onCreate,
   onDelete,
-  onExport,
   onRefresh,
 }: {
   readonly onOpen: (name: string) => void;
   readonly onCreate: (name: string) => void;
   readonly onDelete: (name: string) => void;
-  readonly onExport: () => void;
   readonly onRefresh: () => void;
 }) {
   const canvases = use$(state$.canvases);
   const canvasName = use$(state$.canvasName);
   const canvasLoading = use$(state$.canvasLoading);
   const refreshing = use$(state$.refreshing);
-  const exporting = use$(state$.exporting);
   const [healthOpen, setHealthOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   useEffect(() => {
@@ -235,7 +300,27 @@ export function TopBar({
       <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
       <SearchField canvasName={canvasName} />
       <SaveStatus />
-      <div className="station-actions relative ml-auto flex items-center gap-3"><div className="station-sources">{SOURCES.map((source) => <SourceDot key={source} source={source} active={healthOpen} onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }} />)}</div><button type="button" className="station-health-trigger" aria-label="Open connectors" aria-expanded={healthOpen} aria-haspopup="dialog" onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }}><Activity size={14} /></button><button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => { setHealthOpen(false); setHelpOpen((open) => !open); }}><CircleHelp size={14} /></button>{healthOpen ? <ConnectorsPopover onClose={() => setHealthOpen(false)} /> : null}{helpOpen ? <HelpPopover onClose={() => setHelpOpen(false)} /> : null}<button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="settings" onClick={() => { setHealthOpen(false); setHelpOpen(false); openSettings(); }}><Settings2 size={15} /></button><button className="station-icon-button" disabled={refreshing} aria-label={refreshing ? "Refreshing snapshots" : "Refresh snapshots"} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.cyan }} title={refreshing ? "refreshing snapshots" : "refresh snapshots"} onClick={onRefresh}><RefreshCw size={15} className={refreshing ? "station-spin" : ""} /></button><button className="station-digest-button inline-flex items-center gap-2" disabled={exporting} aria-label={exporting ? "Exporting digest" : "Export digest"} style={{ borderColor: "rgba(232,163,61,.35)", color: HUE.amber }} title={exporting ? "exporting digest" : "export digest"} onClick={onExport}><FileDown size={14} className={exporting ? "station-spin" : ""} /><span>{exporting ? "syncing" : "digest"}</span></button></div>
+      <div className="station-actions relative ml-auto flex items-center gap-3">
+        <div className="station-sources">
+          {SOURCES.map((source) => (
+            <SourceDot key={source} source={source} active={healthOpen} onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }} />
+          ))}
+        </div>
+        <button type="button" className="station-health-trigger" aria-label="Open connectors" aria-expanded={healthOpen} aria-haspopup="dialog" onClick={() => { setHelpOpen(false); setHealthOpen((open) => !open); }}>
+          <Activity size={14} />
+        </button>
+        <button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => { setHealthOpen(false); setHelpOpen((open) => !open); }}>
+          <CircleHelp size={14} />
+        </button>
+        {healthOpen ? <ConnectorsPopover onClose={() => setHealthOpen(false)} /> : null}
+        {helpOpen ? <HelpPopover onClose={() => setHelpOpen(false)} /> : null}
+        <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="settings" onClick={() => { setHealthOpen(false); setHelpOpen(false); openSettings(); }}>
+          <Settings2 size={15} />
+        </button>
+        <button className="station-icon-button" disabled={refreshing} aria-label={refreshing ? "Refreshing snapshots" : "Refresh snapshots"} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.cyan }} title={refreshing ? "refreshing snapshots" : "refresh snapshots"} onClick={onRefresh}>
+          <RefreshCw size={15} className={refreshing ? "station-spin" : ""} />
+        </button>
+      </div>
     </header>
   );
 }

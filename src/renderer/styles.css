@@ -185,15 +185,22 @@ html[data-vellum-platform="darwin"] .focus-surface {
   background: var(--color-raise-2);
 }
 
-/* Herdr chrome (lives inside a focus-surface terminal panel) */
+/* Herdr chrome (lives inside a focus-surface / workbench terminal panel).
+   Same island break as native terminal: flex:1 1 0 + height:0 so the host
+   gets the pane's flex-assigned box. Without it, the chain content-sizes to
+   xterm's default ~80×24 and FitAddon freezes on that island (large black
+   panel with a short TUI band — see native-terminal-layout e2e). */
 .herdr-modal-panel {
   /* dock variant still uses this class as the slot body */
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
   width: 100%;
-  height: 100%;
+  height: 0;
   max-height: 100%;
   overflow: hidden;
   border-radius: 12px;
@@ -208,13 +215,30 @@ html[data-vellum-platform="darwin"] .focus-surface {
   border-radius: 0;
   box-shadow: none;
   width: 100%;
-  height: 100%;
+  height: 0;
+  flex: 1 1 0;
+  min-height: 0;
+}
+/* Root chrome column: header + xterm body (direct child of focus panel or dock panel). */
+.herdr-terminal-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 0;
+  overflow: hidden;
+  background: var(--color-ground);
 }
 .herdr-modal-body {
   position: relative;
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
   width: 100%;
+  height: 0;
   overflow: hidden;
 }
 
@@ -260,10 +284,22 @@ html[data-vellum-platform="darwin"] .focus-surface {
 /* The docked terminal reuses the modal panel chrome, sized to its slot. */
 .dock-slot--herdr .herdr-dock-panel {
   width: 100%;
-  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  height: 0;
   border: 0;
   border-radius: 0;
   box-shadow: none;
+}
+/* Same island break as native: workbench pane → dock-slot → herdr panel. */
+.workbench-pane > .dock-slot > .herdr-dock-panel,
+.workbench-pane > .dock-slot > .herdr-terminal-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 0;
 }
 
 /* =============================================================================
@@ -480,13 +516,15 @@ html[data-vellum-platform="darwin"] .focus-surface {
 .workbench-resize-handle--left:active {
   background: rgba(232, 163, 61, 0.25);
 }
-/* xterm fills the measured body so cols×rows match the host */
+/* xterm absolute-fill so it never drives host content height (island loop). */
 .herdr-xterm {
   outline: none;
 }
 .herdr-xterm .xterm {
-  width: 100%;
-  height: 100%;
+  position: absolute !important;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
   padding: 6px 8px;
   box-sizing: border-box;
 }
@@ -664,25 +702,29 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .station-health-popover__error { overflow-wrap: anywhere; color: var(--color-crimson); }
 .station-help-trigger { display: grid; height: 30px; width: 30px; place-items: center; border: 1px solid rgba(143,163,176,.28); border-radius: 6px; color: var(--color-steel); background: rgba(143,163,176,.04); transition: background .18s ease, border-color .18s ease, color .18s ease; }
 .station-help-trigger:hover, .station-help-trigger[aria-expanded="true"] { background: rgba(57,198,214,.1); border-color: rgba(57,198,214,.52); color: var(--color-cyan); }
-.station-help-popover { position: fixed; top: calc(var(--bar-height) + 10px); right: 18px; z-index: 80; width: min(340px, calc(100vw - 36px)); border: 1px solid rgba(237,230,218,.16); border-radius: 10px; background: rgba(19,17,16,.97); box-shadow: 0 20px 55px rgba(0,0,0,.48); backdrop-filter: blur(18px); }
-.station-help-popover__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; border-bottom: 1px solid rgba(237,230,218,.1); padding: 13px 14px 11px; }
+.station-help-popover { position: fixed; top: calc(var(--bar-height) + 10px); right: 18px; z-index: 80; width: min(400px, calc(100vw - 36px)); max-height: min(78vh, 720px); display: flex; flex-direction: column; border: 1px solid rgba(237,230,218,.16); border-radius: 10px; background: rgba(19,17,16,.97); box-shadow: 0 20px 55px rgba(0,0,0,.48); backdrop-filter: blur(18px); }
+.station-help-popover__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-shrink: 0; border-bottom: 1px solid rgba(237,230,218,.1); padding: 13px 14px 11px; }
 .station-help-popover__header strong { color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 17px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; }
 .station-help-popover__header button { color: var(--color-dim); font-size: 18px; line-height: 1; }
 .station-help-popover__header button:hover { color: var(--color-ink); }
 .station-help-popover__eyebrow { color: var(--color-amber); font-size: 8px; letter-spacing: .16em; text-transform: uppercase; }
-.station-help-popover__list { display: grid; gap: 1px; padding: 7px; }
-.station-help-popover__row { display: grid; grid-template-columns: 122px 1fr; gap: 10px; align-items: center; border-radius: 5px; padding: 8px 7px; background: rgba(255,255,255,.025); color: var(--color-dim); font-size: 9px; }
-.station-help-popover__row kbd { width: max-content; border: 1px solid rgba(57,198,214,.22); border-radius: 4px; background: rgba(57,198,214,.06); color: var(--color-cyan); padding: 3px 5px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 9px; }
-.station-digest-button { height: 34px; border-radius: 7px; border: 1px solid rgba(232,163,61,.45); background: rgba(232,163,61,.06); color: var(--color-amber); padding: 0 13px; font-size: 10px; letter-spacing: .22em; text-transform: uppercase; transition: background .18s ease, transform .18s ease; }
-.station-digest-button:hover { background: rgba(232,163,61,.13); transform: translateY(-1px); }
-
+.station-help-popover__body { overflow-y: auto; overscroll-behavior: contain; padding: 0 0 8px; }
+.station-help-popover__section { color: var(--color-amber); font-size: 8px; letter-spacing: .16em; text-transform: uppercase; padding: 10px 14px 4px; }
+.station-help-popover__primer { border-bottom: 1px solid rgba(237,230,218,.08); padding: 0 7px 8px; }
+.station-help-popover__primer p { margin: 0; padding: 7px 7px 6px; border-radius: 5px; background: rgba(255,255,255,.025); color: var(--color-dim); font-size: 9px; line-height: 1.45; }
+.station-help-popover__primer p + p { margin-top: 1px; }
+.station-help-popover__primer strong { color: var(--color-ink); font-weight: 500; letter-spacing: .04em; }
+.station-help-popover__primer em { color: var(--color-cyan); font-style: normal; }
+.station-help-popover__group { padding-top: 2px; }
+.station-help-popover__list { display: grid; gap: 1px; padding: 4px 7px 0; }
+.station-help-popover__row { display: grid; grid-template-columns: 132px 1fr; gap: 10px; align-items: center; border-radius: 5px; padding: 7px 7px; background: rgba(255,255,255,.025); color: var(--color-dim); font-size: 9px; line-height: 1.35; }
+.station-help-popover__row kbd { width: max-content; max-width: 100%; border: 1px solid rgba(57,198,214,.22); border-radius: 4px; background: rgba(57,198,214,.06); color: var(--color-cyan); padding: 3px 5px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 9px; line-height: 1.2; }
 @media (max-width: 1360px) {
   .station-bar { gap: 8px; padding: 0 10px 0 84px; }
   .station-sources { display: none; }
   .station-health-trigger { display: grid; }
   .station-search { max-width: 210px; min-width: 120px; }
   .station-actions { gap: 7px !important; }
-  .station-digest-button { width: 34px; justify-content: center; padding: 0; font-size: 0; letter-spacing: 0; }
   .field-hint__secondary { display: none; }
 }
 
@@ -693,7 +735,6 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   .station-view-toggle span { display: none; }
   .station-generate-button { width: 34px; justify-content: center; padding: 0; }
   .station-view-toggle { width: 34px; justify-content: center; padding: 0; }
-  .station-digest-button { padding: 0 9px; font-size: 9px; }
   .station-save span:last-child { display: none; }
 }
 
