@@ -17,6 +17,7 @@ import {
   portSet,
   resolveSpec,
   roleOf,
+  undirectedEdgeKey,
   type Port,
   type WellKnownKind,
 } from "../../src/shared/physics";
@@ -387,6 +388,122 @@ describe("physics admitPure", () => {
       "browser.automate",
     );
     expect(Either.isRight(admitted)).toBe(true);
+  });
+});
+
+describe("physics mask union (I7 — multi-edge masks combine as union)", () => {
+  const portsEdge = (
+    id: string,
+    fromNode: string,
+    toNode: string,
+    ports?: ReadonlyArray<Port>,
+  ): CanvasDoc["edges"][number] => ({
+    id,
+    fromNode,
+    toNode,
+    ...(ports !== undefined ? { ether: { ports } } : {}),
+  });
+
+  const taskDoc = (
+    edges: CanvasDoc["edges"],
+  ): CanvasDoc => ({
+    nodes: [textNode("agent", "agent"), textNode("task1", "task", 200, 0)],
+    edges,
+  });
+
+  const admittedPorts = (view: ReturnType<typeof canvasDocToCapabilityView>) =>
+    (
+      [
+        "tasks.list",
+        "tasks.claim",
+        "tasks.update",
+        "msg.list",
+        "msg.send",
+      ] as const satisfies ReadonlyArray<Port>
+    ).filter((port) =>
+      Either.isRight(admitPure(view, asNodeId("agent"), asNodeId("task1"), port)),
+    );
+
+  it("no-mask: neither edge declares ports ⇒ full offers", () => {
+    const doc = taskDoc([
+      portsEdge("e1", "agent", "task1"),
+      portsEdge("e2", "task1", "agent"),
+    ]);
+    const view = canvasDocToCapabilityView(doc);
+    expect(HashMap.size(view.edgePortMask)).toBe(0);
+    expect(admittedPorts(view).sort()).toEqual(
+      ["msg.list", "msg.send", "tasks.claim", "tasks.list", "tasks.update"].sort(),
+    );
+  });
+
+  it("one-mask: single masked edge ⇒ exactly that mask", () => {
+    const doc = taskDoc([portsEdge("e1", "agent", "task1", ["msg.list"])]);
+    const view = canvasDocToCapabilityView(doc);
+    expect(admittedPorts(view).sort()).toEqual(["msg.list"]);
+  });
+
+  it("two-mask-disjoint: masks union across edges (both ports admit)", () => {
+    const doc = taskDoc([
+      portsEdge("e1", "agent", "task1", ["msg.list"]),
+      portsEdge("e2", "task1", "agent", ["tasks.claim"]),
+    ]);
+    const view = canvasDocToCapabilityView(doc);
+    expect(admittedPorts(view).sort()).toEqual(["msg.list", "tasks.claim"].sort());
+  });
+
+  it("two-mask-overlap: union dedupes the shared port, keeps both sides' extras", () => {
+    const doc = taskDoc([
+      portsEdge("e1", "agent", "task1", ["msg.list", "tasks.claim"]),
+      portsEdge("e2", "task1", "agent", ["tasks.claim", "msg.send"]),
+    ]);
+    const view = canvasDocToCapabilityView(doc);
+    expect(admittedPorts(view).sort()).toEqual(
+      ["msg.list", "msg.send", "tasks.claim"].sort(),
+    );
+  });
+
+  it("mask+unmasked: one unmasked edge restores full offers regardless of order", () => {
+    const maskedFirst = taskDoc([
+      portsEdge("e1", "agent", "task1", ["msg.list"]),
+      portsEdge("e2", "task1", "agent"),
+    ]);
+    const unmaskedFirst = taskDoc([
+      portsEdge("e1", "agent", "task1"),
+      portsEdge("e2", "task1", "agent", ["msg.list"]),
+    ]);
+    for (const doc of [maskedFirst, unmaskedFirst]) {
+      const view = canvasDocToCapabilityView(doc);
+      expect(HashMap.size(view.edgePortMask)).toBe(0);
+      expect(admittedPorts(view).sort()).toEqual(
+        ["msg.list", "msg.send", "tasks.claim", "tasks.list", "tasks.update"].sort(),
+      );
+    }
+  });
+
+  it("union can never smuggle a port the target does not offer", () => {
+    // page offers only browser.automate; union of two masks that both name
+    // ports outside the target's KindSpec.offers must still deny.
+    const doc: CanvasDoc = {
+      nodes: [textNode("agent", "agent"), pageNode("p1")],
+      edges: [
+        portsEdge("e1", "agent", "p1", ["msg.list"]),
+        portsEdge("e2", "p1", "agent", ["msg.send"]),
+      ],
+    };
+    const view = canvasDocToCapabilityView(doc);
+    // The union mask is {msg.list, msg.send} — neither is in page's offers.
+    const mask = HashMap.get(view.edgePortMask, undirectedEdgeKey("agent", "p1"));
+    expect(Option.isSome(mask)).toBe(true);
+    if (Option.isSome(mask)) {
+      expect(HashSet.toValues(mask.value).sort()).toEqual(
+        ["msg.list", "msg.send"].sort(),
+      );
+    }
+    const automate = admitPure(view, asNodeId("agent"), asNodeId("p1"), "browser.automate");
+    expect(Either.isLeft(automate)).toBe(true);
+    if (Either.isLeft(automate)) {
+      expect(automate.left.reason).toBe("no_port");
+    }
   });
 });
 

@@ -59,7 +59,10 @@ export const canvasDocToCapabilityView = (doc: CanvasDoc): CapabilityView => {
   };
 
   // Per undirected pair: any edge without ports ⇒ no mask (full offers).
-  // When every declaring edge has ports: intersect masks.
+  // When every declaring edge has ports: union masks (I7 — each edge is an
+  // independent capability; possession is additive, ocap-style). `allows()`
+  // in admit.ts still intersects the resulting grant with target offers, so
+  // the union can never smuggle a port the target does not offer.
   const pairState = new Map<
     string,
     { unmasked: boolean; mask: HashSet.HashSet<Port> | undefined }
@@ -84,7 +87,7 @@ export const canvasDocToCapabilityView = (doc: CanvasDoc): CapabilityView => {
     } else {
       pairState.set(key, {
         unmasked: false,
-        mask: HashSet.intersection(prev.mask, ports),
+        mask: HashSet.union(prev.mask, ports),
       });
     }
   }
