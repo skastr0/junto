@@ -489,7 +489,11 @@ describe("remote deploy transaction behavior", () => {
     const run = (overrides: NodeJS.ProcessEnv = {}) =>
       spawnSync("/bin/bash", ["-lc", script], {
         encoding: "utf8",
-        timeout: 15_000,
+        // Pure hang-safety net (the script's own retry bound is iteration-count,
+        // not wall-clock — `sleep` is stubbed to exit 0). 30s gives headroom
+        // under full-suite subprocess contention over the prior 15s, which
+        // raced the surrounding vitest test timeout.
+        timeout: 30_000,
         maxBuffer: 1024 * 1024,
         env: {
           ...process.env,
@@ -514,79 +518,99 @@ describe("remote deploy transaction behavior", () => {
     };
   };
 
-  it("validates the transferred signature before stopping the old job", () => {
-    const harness = makeHarness();
-    try {
-      const result = harness.run({ FAKE_CODESIGN_FAIL: "1" });
-      const launchctlLogPath = join(harness.state, "launchctl.log");
-      const launchctlLog = existsSync(launchctlLogPath)
-        ? readFileSync(launchctlLogPath, "utf8")
-        : "";
-      expect(result.status).not.toBe(0);
-      expect(readFileSync(harness.executablePath, "utf8")).toBe(
-        "old-generation",
-      );
-      expect(launchctlLog).not.toContain("bootout");
-      expect(existsSync(join(harness.state, "loaded"))).toBe(true);
-    } finally {
-      harness.cleanup();
-    }
-  });
+  // Every it() below shares makeHarness()'s real /bin/bash spawnSync (many
+  // real subprocesses per run). The vitest default 5s per-test timeout races
+  // that under full-suite subprocess contention; give the same headroom as
+  // the harness's own 30s hang-safety net.
+  it(
+    "validates the transferred signature before stopping the old job",
+    () => {
+      const harness = makeHarness();
+      try {
+        const result = harness.run({ FAKE_CODESIGN_FAIL: "1" });
+        const launchctlLogPath = join(harness.state, "launchctl.log");
+        const launchctlLog = existsSync(launchctlLogPath)
+          ? readFileSync(launchctlLogPath, "utf8")
+          : "";
+        expect(result.status).not.toBe(0);
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "old-generation",
+        );
+        expect(launchctlLog).not.toContain("bootout");
+        expect(existsSync(join(harness.state, "loaded"))).toBe(true);
+      } finally {
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
 
-  it("binds the transferred generation to the locally admitted code hash", () => {
-    const harness = makeHarness();
-    try {
-      const result = harness.run({
-        FAKE_REMOTE_CDHASH: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      });
-      const launchctlLogPath = join(harness.state, "launchctl.log");
-      const launchctlLog = existsSync(launchctlLogPath)
-        ? readFileSync(launchctlLogPath, "utf8")
-        : "";
-      expect(result.status).toBe(3);
-      expect(result.stderr).toContain("REMOTE_SIGNATURE_GENERATION_MISMATCH");
-      expect(launchctlLog).not.toContain("bootout");
-      expect(readFileSync(harness.executablePath, "utf8")).toBe(
-        "old-generation",
-      );
-      expect(existsSync(join(harness.state, "loaded"))).toBe(true);
-    } finally {
-      harness.cleanup();
-    }
-  });
+  it(
+    "binds the transferred generation to the locally admitted code hash",
+    () => {
+      const harness = makeHarness();
+      try {
+        const result = harness.run({
+          FAKE_REMOTE_CDHASH: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        });
+        const launchctlLogPath = join(harness.state, "launchctl.log");
+        const launchctlLog = existsSync(launchctlLogPath)
+          ? readFileSync(launchctlLogPath, "utf8")
+          : "";
+        expect(result.status).toBe(3);
+        expect(result.stderr).toContain("REMOTE_SIGNATURE_GENERATION_MISMATCH");
+        expect(launchctlLog).not.toContain("bootout");
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "old-generation",
+        );
+        expect(existsSync(join(harness.state, "loaded"))).toBe(true);
+      } finally {
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
 
-  it("refuses a concurrent remote transaction before staging or replacement", () => {
-    const harness = makeHarness();
-    try {
-      mkdirSync(harness.runtime.lockPath);
-      const result = harness.run();
-      expect(result.status).toBe(8);
-      expect(result.stderr).toContain("DEPLOY_ALREADY_IN_PROGRESS");
-      expect(existsSync(join(harness.state, "tar-ran"))).toBe(false);
-      expect(readFileSync(harness.executablePath, "utf8")).toBe(
-        "old-generation",
-      );
-    } finally {
-      harness.cleanup();
-    }
-  });
+  it(
+    "refuses a concurrent remote transaction before staging or replacement",
+    () => {
+      const harness = makeHarness();
+      try {
+        mkdirSync(harness.runtime.lockPath);
+        const result = harness.run();
+        expect(result.status).toBe(8);
+        expect(result.stderr).toContain("DEPLOY_ALREADY_IN_PROGRESS");
+        expect(existsSync(join(harness.state, "tar-ran"))).toBe(false);
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "old-generation",
+        );
+      } finally {
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
 
-  it("never replaces the app when executable observation is ambiguous", () => {
-    const harness = makeHarness();
-    try {
-      const result = harness.run({ FAKE_LSOF_GLOBAL_ERROR: "1" });
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).toMatch(
-        /PROCESS_OBSERVATION_FAILED|ROLLBACK_REFUSED_LIVE_GENERATION/u,
-      );
-      expect(readFileSync(harness.executablePath, "utf8")).toBe(
-        "old-generation",
-      );
-      expect(existsSync(`${harness.appPath}.previous`)).toBe(false);
-    } finally {
-      harness.cleanup();
-    }
-  });
+  it(
+    "never replaces the app when executable observation is ambiguous",
+    () => {
+      const harness = makeHarness();
+      try {
+        const result = harness.run({ FAKE_LSOF_GLOBAL_ERROR: "1" });
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toMatch(
+          /PROCESS_OBSERVATION_FAILED|ROLLBACK_REFUSED_LIVE_GENERATION/u,
+        );
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "old-generation",
+        );
+        expect(existsSync(`${harness.appPath}.previous`)).toBe(false);
+      } finally {
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
 
   it(
     "restores and restarts the old bundle despite a second termination signal",
@@ -619,7 +643,8 @@ describe("remote deploy transaction behavior", () => {
         harness.cleanup();
       }
     },
-    15_000,
+    // Headroom above the harness's own 30s spawnSync hang-safety net.
+    35_000,
   );
 });
 
