@@ -2,14 +2,20 @@ import type { IpcMain } from "electron";
 import { Effect } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type {
+  DiscoveredPeer,
   HostsConfigureRemoteResult,
   HostsDeployRemoteAuthorizationRequest,
   HostsDeployRemoteInput,
   HostsDeployRemoteResult,
+  HostsDiscoverPeersResult,
   HostsOpResult,
   HostsTestResult,
 } from "@shared/ipc";
-import { RemoteHostsError } from "@shared/remote-hosts";
+import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
+import {
+  endpointHostToken,
+  type TailscalePeer,
+} from "@shared/tailscale-peers";
 import {
   configureRecordFromResult,
   deployRecordFromResult,
@@ -25,6 +31,7 @@ import {
 } from "./linux-administrator-credential";
 import type { RemoteDeploymentAuthorization } from "./remote-deployment";
 import { HostsService } from "./service";
+import { tailscalePeerCache } from "./tailscale-peers";
 import {
   HOST_OPERATION_ADMISSIONS,
   HostOperationShutdownRefused,
@@ -227,6 +234,62 @@ export const projectDeployRemoteResult = (
     : { authorizationRequest: deploy.authorizationRequest }),
 });
 
+const stripDnsDots = (value: string): string => value.replace(/\.+$/, "");
+
+const firstDnsLabelOf = (value: string): string =>
+  stripDnsDots(value.trim().toLowerCase()).split(".")[0] ?? "";
+
+/** Lowercase tokens that identify an enrolled host (id, hermesId, endpoint). */
+const enrolledTokens = (
+  hosts: ReadonlyArray<RemoteHost>,
+): ReadonlySet<string> => {
+  const tokens = new Set<string>();
+  for (const host of hosts) {
+    tokens.add(host.id.toLowerCase());
+    if (host.hermesId) tokens.add(host.hermesId.toLowerCase());
+    const endpointToken = endpointHostToken(host.endpoint);
+    if (endpointToken) {
+      tokens.add(endpointToken.toLowerCase());
+      const label = firstDnsLabelOf(endpointToken);
+      if (label) tokens.add(label);
+    }
+  }
+  return tokens;
+};
+
+const peerIsEnrolled = (
+  peer: TailscalePeer,
+  tokens: ReadonlySet<string>,
+): boolean => {
+  if (peer.hostName && tokens.has(peer.hostName.trim().toLowerCase())) {
+    return true;
+  }
+  if (peer.dnsName) {
+    const dns = stripDnsDots(peer.dnsName.trim().toLowerCase());
+    if (tokens.has(dns) || tokens.has(firstDnsLabelOf(peer.dnsName))) {
+      return true;
+    }
+  }
+  return peer.ipv4 !== undefined && tokens.has(peer.ipv4);
+};
+
+const toDiscoveredPeer = (peer: TailscalePeer): DiscoveredPeer | undefined => {
+  const dns = peer.dnsName ? stripDnsDots(peer.dnsName.trim()) : undefined;
+  const name = peer.hostName?.trim() ||
+    (peer.dnsName ? firstDnsLabelOf(peer.dnsName) : "") ||
+    peer.ipv4;
+  if (!name) return undefined;
+  const addresses = [dns, peer.ipv4].filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  return { name, addresses, online: peer.online === true };
+};
+
+const DISCOVER_PEERS_EMPTY: HostsDiscoverPeersResult = {
+  ok: true,
+  peers: [],
+};
+
 export const registerHostsIpc = (
   ipcMain: IpcMain,
   operations: HostOperationGate = hostOperationGate,
@@ -243,6 +306,34 @@ export const registerHostsIpc = (
         ),
       ),
       (error) => ({ ok: false, code: error.code, message: error.message }),
+    ),
+  );
+
+  // Tailscale mesh peers not yet enrolled. Read path — mirrors hostsList
+  // gating (registry-read admission). Degrades to an empty peer list; the
+  // tailscale CLI being absent is never an error surface.
+  ipcMain.handle(IPC_CHANNELS.hostsDiscoverPeers, () =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.list, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const hosts = yield* HostsService;
+            const listed = yield* Effect.either(hosts.list);
+            const enrolled =
+              listed._tag === "Right" ? enrolledTokens(listed.right) : new Set<string>();
+            const snapshot = yield* Effect.promise(() =>
+              tailscalePeerCache.refresh(),
+            );
+            if (!snapshot) return DISCOVER_PEERS_EMPTY;
+            const peers = snapshot.peers
+              .filter((peer) => !peerIsEnrolled(peer, enrolled))
+              .map(toDiscoveredPeer)
+              .filter((peer): peer is DiscoveredPeer => peer !== undefined);
+            return { ok: true, peers } satisfies HostsDiscoverPeersResult;
+          }).pipe(Effect.catchAll(() => Effect.succeed(DISCOVER_PEERS_EMPTY))),
+        ),
+      ),
+      () => DISCOVER_PEERS_EMPTY,
     ),
   );
 
@@ -318,11 +409,14 @@ export const registerHostsIpc = (
               } satisfies HostsTestResult;
             }
             const hosts = yield* HostsService;
+            const startedAt = Date.now();
             const result = yield* Effect.either(hosts.test(id));
+            const latencyMs = Date.now() - startedAt;
             if (result._tag === "Right") {
               return {
                 ok: result.right.ok,
                 detail: result.right.detail,
+                latencyMs,
               } satisfies HostsTestResult;
             }
             return {

@@ -431,3 +431,24 @@ test("capture the empty field state", async () => {
     await vellum.close();
   }
 });
+
+
+// Fleet manager — the sandbox tailnet has no enrolled remote hosts, so the
+// star map renders with only the Command Center core. That empty-fleet frame
+// is the expected screenshot.
+test("capture the fleet manager overlay", async () => {
+  const vellum = await launchVellum({
+    seedCanvases: { fleet: canvasDoc([]) },
+  });
+  try {
+    const { page } = vellum;
+    await mkdir(SHOTS, { recursive: true });
+    await expect(page.locator(".react-flow").first()).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Open fleet manager" }).click();
+    const panel = page.locator(".fleet-panel");
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+    await shot(page, "26-fleet-overlay");
+  } finally {
+    await vellum.close();
+  }
+});

@@ -150,6 +150,8 @@ export const IPC_CHANNELS = {
   loginItemSet: "vellum:login-item-set",
   // remote host registry (~/.vellum/hosts.json)
   hostsList: "vellum:hosts-list",
+  /** Tailscale peers visible on the mesh but not yet enrolled in hosts.json. */
+  hostsDiscoverPeers: "vellum:hosts-discover-peers",
   hostsUpsert: "vellum:hosts-upsert",
   hostsRemove: "vellum:hosts-remove",
   hostsTest: "vellum:hosts-test",
@@ -587,6 +589,7 @@ export interface VellumApi {
   readonly loginItemSet: (openAtLogin: boolean) => Promise<LoginItemOpResult>;
   // Remote host registry (SSH fleet surface).
   readonly hostsList: () => Promise<HostsOpResult>;
+  readonly hostsDiscoverPeers: () => Promise<HostsDiscoverPeersResult>;
   readonly hostsUpsert: (host: unknown) => Promise<HostsOpResult>;
   readonly hostsRemove: (id: string) => Promise<HostsOpResult>;
   readonly hostsTest: (id: string) => Promise<HostsTestResult>;
@@ -607,7 +610,27 @@ export interface HostsOpResult {
     readonly endpoint?: string;
     readonly capabilities: ReadonlyArray<"browser" | "terminal" | "herdr" | "hermes">;
     readonly hermesId?: string;
+    readonly appearance?: {
+      readonly color?: string;
+      readonly glyph?: string;
+    };
   }>;
+  readonly code?: string;
+  readonly message?: string;
+}
+
+/** A Tailscale mesh peer not yet enrolled in the host registry. */
+export interface DiscoveredPeer {
+  readonly name: string;
+  readonly addresses: ReadonlyArray<string>;
+  readonly online: boolean;
+  readonly os?: string;
+}
+
+/** hostsDiscoverPeers — degrades to `{ ok: true, peers: [] }`, never throws. */
+export interface HostsDiscoverPeersResult {
+  readonly ok: boolean;
+  readonly peers?: ReadonlyArray<DiscoveredPeer>;
   readonly code?: string;
   readonly message?: string;
 }
@@ -633,6 +656,8 @@ export interface LoginItemOpResult {
 export interface HostsTestResult {
   readonly ok: boolean;
   readonly detail: string;
+  /** Round-trip ms of the probe (present on probe success/failure paths). */
+  readonly latencyMs?: number;
   readonly code?: string;
   readonly message?: string;
 }

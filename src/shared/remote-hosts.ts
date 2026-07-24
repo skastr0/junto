@@ -68,6 +68,14 @@ export const RemoteHost = Schema.Struct({
     Schema.maxItems(4),
   ),
   hermesId: Schema.optionalWith(HermesHostKey, { exact: true }),
+  /** Fleet-overlay presentation (color/glyph). Presentational; additive. */
+  appearance: Schema.optionalWith(
+    Schema.Struct({
+      color: Schema.optionalWith(Schema.String, { exact: true }),
+      glyph: Schema.optionalWith(Schema.String, { exact: true }),
+    }),
+    { exact: true },
+  ),
 });
 export type RemoteHost = typeof RemoteHost.Type;
 

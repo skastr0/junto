@@ -33,6 +33,7 @@ import { CanvasChrome } from "./components/CanvasChrome";
 import { KernelStatus } from "./components/KernelStatus";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { FleetOverlay } from "./components/fleet/FleetOverlay";
 import { StationRoleGate } from "./components/StationRoleGate";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
@@ -418,6 +419,7 @@ export function App() {
         <InspectorPanel />
 
         <SettingsPanel />
+        <FleetOverlay />
         <StationRoleGate />
         {/* PulseTray mounts inside RtsBottomBar (right third, above minimap). */}
         <HerdrWizard />

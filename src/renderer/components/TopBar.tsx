@@ -1,10 +1,11 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { CircleHelp, Plus, Search, Settings2, Trash2, X } from "lucide-react";
+import { CircleHelp, Plus, Radar, Search, Settings2, Trash2, X } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
 import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
+import { openFleet } from "../lib/fleet-state";
 import { HUE, INK } from "../lib/theme";
 import { Dropdown } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
@@ -189,6 +190,11 @@ export function TopBar({
       <SearchField canvasName={canvasName} />
       <SaveStatus />
       <div className="station-actions relative ml-auto flex items-center gap-3">
+        <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="fleet"
+          style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }}
+          onClick={() => { setHelpOpen(false); openFleet(); }}>
+          <Radar size={15} />
+        </button>
         <button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => setHelpOpen((open) => !open)}>
           <CircleHelp size={14} />
         </button>

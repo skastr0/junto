@@ -1,9 +1,11 @@
 import { batch, observable } from "@legendapp/state";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import type { SnapshotState } from "@shared/entities";
-import type { CanvasSummary, DigestResult } from "@shared/ipc";
+import type { CanvasSummary, DigestResult, DiscoveredPeer } from "@shared/ipc";
+import type { RemoteHost } from "@shared/remote-hosts";
 import { defaultSettings, type Settings } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
+import type { FleetProbeState } from "./fleet-state";
 
 export const EMPTY_DOC: CanvasDoc = { nodes: [], edges: [] };
 export const EMPTY_SNAPSHOTS: SnapshotState = { bundles: [] };
@@ -47,6 +49,13 @@ export const state$ = observable({
   settingsOpen: false,
   settingsLoading: false,
   settingsError: "",
+  // Fleet overlay plane: enrolled hosts, discovered Tailscale peers, and
+  // per-host reachability probes. Mirrors the settings plane pattern.
+  fleetOpen: false,
+  fleetHosts: [] as ReadonlyArray<RemoteHost>,
+  fleetPeers: [] as ReadonlyArray<DiscoveredPeer>,
+  fleetLoading: false,
+  fleetProbe: {} as Record<string, FleetProbeState>,
   digest: null as DigestResult | null,
   digestOpen: false,
   exporting: false,

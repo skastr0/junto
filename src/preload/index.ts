@@ -453,6 +453,7 @@ const vellumApi: VellumApi = {
   onUsageChanged: (listener) => subscribe<UsageState>(IPC_CHANNELS.usageChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
   hostsList: () => invoke(IPC_CHANNELS.hostsList, IPC_TIMEOUT_MS),
+  hostsDiscoverPeers: () => invoke(IPC_CHANNELS.hostsDiscoverPeers, IPC_TIMEOUT_MS),
   hostsUpsert: (host: unknown) => invoke(IPC_CHANNELS.hostsUpsert, IPC_TIMEOUT_MS, host),
   hostsRemove: (id: string) => invoke(IPC_CHANNELS.hostsRemove, IPC_TIMEOUT_MS, id),
   hostsTest: (id: string) => invoke(IPC_CHANNELS.hostsTest, IPC_TIMEOUT_MS, id),
