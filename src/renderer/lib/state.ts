@@ -52,7 +52,6 @@ export const state$ = observable({
   exporting: false,
   booting: true,
   generating: false,
-  refreshing: false,
   saveState: "saved" as "saved" | "saving" | "error",
   canUndo: false,
   canRedo: false,

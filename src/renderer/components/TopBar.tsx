@@ -1,6 +1,6 @@
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
-import { CircleHelp, Plus, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
+import { CircleHelp, Plus, Search, Settings2, Trash2, X } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
 import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
@@ -157,17 +157,14 @@ export function TopBar({
   onOpen,
   onCreate,
   onDelete,
-  onRefresh,
 }: {
   readonly onOpen: (name: string) => void;
   readonly onCreate: (name: string) => void;
   readonly onDelete: (name: string) => void;
-  readonly onRefresh: () => void;
 }) {
   const canvases = use$(state$.canvases);
   const canvasName = use$(state$.canvasName);
   const canvasLoading = use$(state$.canvasLoading);
-  const refreshing = use$(state$.refreshing);
   const [helpOpen, setHelpOpen] = useState(false);
   useEffect(() => {
     if (!helpOpen) return;
@@ -198,9 +195,6 @@ export function TopBar({
         {helpOpen ? <CanvasInteractionMap onClose={() => setHelpOpen(false)} /> : null}
         <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="settings" onClick={() => { setHelpOpen(false); openSettings(); }}>
           <Settings2 size={15} />
-        </button>
-        <button className="station-icon-button" disabled={refreshing} aria-label={refreshing ? "Refreshing snapshots" : "Refresh snapshots"} style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.cyan }} title={refreshing ? "refreshing snapshots" : "refresh snapshots"} onClick={onRefresh}>
-          <RefreshCw size={15} className={refreshing ? "station-spin" : ""} />
         </button>
       </div>
     </header>

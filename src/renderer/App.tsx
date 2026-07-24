@@ -224,27 +224,8 @@ const deleteCanvas = async (name: string) => {
   });
 };
 
-const refreshSnapshots = async () => {
-  if (!window.vellum) return;
-  state$.refreshing.set(true);
-  state$.error.set("");
-  try {
-    const result = await Promise.race([
-      window.vellum.refreshSnapshots(identityHints([state$.doc.peek()], state$.snapshots.peek())),
-      new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 4000)),
-    ]);
-    if (result) state$.snapshots.set(result);
-    else state$.error.set("snapshot refresh timed out; existing snapshots kept");
-  } catch (error) {
-    setError(error);
-  } finally {
-    state$.refreshing.set(false);
-  }
-};
-
 const retryActionForError = (message: string): { readonly label: string; readonly run: () => Promise<void> } | undefined => {
   if (message.includes("write-canvas") || message.includes("cannot write")) return { label: "retry save", run: async () => retrySave() };
-  if (message.includes("snapshot refresh timed out")) return { label: "retry refresh", run: refreshSnapshots };
   return undefined;
 };
 
@@ -403,7 +384,6 @@ export function App() {
         onOpen={(name) => void openCanvas(name)}
         onCreate={(name) => void createCanvas(name)}
         onDelete={(name) => void deleteCanvas(name)}
-        onRefresh={() => void refreshSnapshots()}
       />
 
       <div className="vellum-stage flex min-h-0 flex-1">

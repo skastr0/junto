@@ -37,9 +37,9 @@ describe("canvas navigation quiesce wiring", () => {
   it("does not apply returning create/delete continuations after the latch", () => {
     const createStart = source.indexOf("const createCanvas = async");
     const deleteStart = source.indexOf("const deleteCanvas = async", createStart);
-    const refreshStart = source.indexOf("const refreshSnapshots = async", deleteStart);
+    const retryStart = source.indexOf("const retryActionForError", deleteStart);
     const create = source.slice(createStart, deleteStart);
-    const remove = source.slice(deleteStart, refreshStart);
+    const remove = source.slice(deleteStart, retryStart);
 
     const createCall = create.indexOf("await window.vellum.createCanvas(name)");
     const gateAfterCreate = create.indexOf("if (canvasMutationsQuiesced()) return", createCall);
