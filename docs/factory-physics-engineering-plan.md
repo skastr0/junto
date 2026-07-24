@@ -62,8 +62,8 @@ left is wrong by definition.
 | I15 | criteria is a phase filter on edges; never folded into `KindSpec.offers` | module boundary | keep |
 | I16 | proof stamps written only via `artifact.publish` by a process-bound principal; trust chips derived only | absent (plane not built) | test (S8) |
 | I17 | strip `ether.*` → valid JSON Canvas | test | keep |
-| I18 | placement is physics: every executable node resolves to a runtime (CC · station · external · facility); admit verifies the target belongs to the expected runtime/host and the route is CC↔Station only — Station↔Station is denied, never representable as a grant | ✗ today: `CapabilityView` ignores `ether.host` entirely | type + test (S11) |
-| I19 | actor class + runtime tier constrain creatable edges and admittable ports; each port carries a tier floor; facility (tier 4) never admits and never wields | absent (no class/tier types exist) | type + test (S11) |
+| I18 | placement is physics: every executable node resolves to a runtime (CC · station · external · facility); admit verifies the target belongs to the expected runtime/host and the route is CC↔Station only — Station↔Station is denied, never representable as a grant | type + test (`placement.ts`, `admit.ts` route denial, `tests/physics`) | type + test (S11) ✓ |
+| I19 | actor class + runtime tier constrain creatable edges and admittable ports; each port carries a tier floor; facility (tier 4) never admits and never wields | type + test (`PORT_TIER_FLOOR`, facility denial, class×tier×port table) | type + test (S11) ✓ |
 | I20 | revocation honesty: receipts are per reachable runtime; an unreachable Station is shown stale/unreachable — Vellum never manufactures a revocation receipt it cannot prove | prose (doctrine) | test (S4) |
 | I21 | agents never author the canvas; physics consumes projections; any migration stamp (S3) commits only through the app-owned canvas-authority store (`~/.vellum/state/canvas-authority-v1`) | doctrine + in-flight canvas-authority lane | construction (S3 lands on that path) |
 | I22 | doctrine-open decisions are operator-closed only. **#4 closed 2026-07-24** (§4.5: D1 sink residency + honest deny, D2 split scheduler residency, D1x parked). **#5 (projection contents) remains open, fleet-lane owned** — a slice that quietly resolves it is wrong regardless of code quality | — | process gate, every slice |
@@ -469,13 +469,12 @@ source strings degrades cleanly (test fixture).
 
 ---
 
-### S11 · Placement plane — actor classes, tiers, runtime routing
+### S11 · Placement plane — actor classes, tiers, runtime routing — **DONE**
 
-**Lane:** `src/shared/physics/` + a typed seam to the fleet lane. **Contract
-draftable now; implementation blocked** on the fleet lane's topology types
-stabilizing (`ether.host`, `shared/station` `resolveNodeHostId`,
-`station-status`, topology seal). The §4.5 residency decisions are closed
-(D1/D2) — placement semantics are no longer a blocker.
+**Lane:** `src/shared/physics/` + a typed seam to the fleet lane. Landed on
+frozen fleet types (`ether.host`, `resolveNodeHostId`, station-status as
+topology inputs). Live CC-reachability liveness is **not** wired here (later
+call-site). The §4.5 residency decisions are closed (D1/D2).
 
 **Why this is physics, not fleet plumbing (doctrine, verbatim intent):** actor
 classes — Command Center actor · Station actor · External actor · Facility —
