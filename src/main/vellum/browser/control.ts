@@ -6,6 +6,7 @@ import {
   lstatSync,
   mkdirSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import {
@@ -1952,10 +1953,19 @@ export const startBrowserControlServer = async (
   }
   let socketIdentity: ControlSocketPathIdentity | undefined;
   let socketPathCleanupBlocked = false;
-  const ownsSocketPath = (): boolean => {
+  /** Exact bound inode still at the pathname — independent of a live kernel lease. */
+  const pathMatchesCapturedIdentity = (): boolean => {
     if (socketIdentity === undefined) return false;
     try {
-      return controlSocketPathOwnedByLease(listenerLease, socketIdentity);
+      const current = lstatSync(socketPath, { bigint: true });
+      return (
+        current.isSocket() &&
+        !current.isSymbolicLink() &&
+        current.dev === socketIdentity.dev &&
+        current.ino === socketIdentity.ino &&
+        current.birthtimeNs === socketIdentity.birthtimeNs &&
+        current.uid === socketIdentity.uid
+      );
     } catch {
       return false;
     }
@@ -1966,14 +1976,20 @@ export const startBrowserControlServer = async (
       controlListenerLeaseHeld(listenerLease)
     ) {
       removeOwnedControlSocketPath(listenerLease, socketIdentity);
+      return;
+    }
+    if (pathMatchesCapturedIdentity()) {
+      unlinkSync(socketPath);
     }
   };
   const closeListenerWithoutDeletingReplacement = async (): Promise<void> => {
-    if (existsSync(socketPath) && !ownsSocketPath()) {
+    if (existsSync(socketPath) && !pathMatchesCapturedIdentity()) {
       // Node/libuv unlinks the originally-bound pathname during Server.close,
       // even if another process replaced that directory entry. There is no
       // identity-checked unlink primitive in Node, so refuse the close rather
       // than trying to preserve/restore a foreign path across a TOCTOU window.
+      // Identity is lease-independent so Ctrl+C killing Darwin lockf still
+      // allows close of the exact inode we bound.
       socketPathCleanupBlocked = true;
       server.unref();
       throw new Error("refusing to close browser listener over a replacement path");
@@ -1983,7 +1999,9 @@ export const startBrowserControlServer = async (
       unlinkOwnedSocket();
       socketPathCleanupBlocked = false;
     } finally {
-      await releaseControlListenerLease(listenerLease);
+      if (controlListenerLeaseHeld(listenerLease)) {
+        await releaseControlListenerLease(listenerLease);
+      }
     }
   };
   const ensureListenerClose = (): void => {
@@ -2078,7 +2096,7 @@ export const startBrowserControlServer = async (
       countKind("listener-close"),
       server.listening || controlListenerLeaseHeld(listenerLease) ? 1 : 0,
     );
-    const socketPaths = ownsSocketPath() || socketPathCleanupBlocked ? 1 : 0;
+    const socketPaths = pathMatchesCapturedIdentity() || socketPathCleanupBlocked ? 1 : 0;
     const counts: BrowserControlRetainedCounts = {
       requests: countKind("request"),
       edgeAdmissions: countKind("edge-admission"),

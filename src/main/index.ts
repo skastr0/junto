@@ -1505,6 +1505,7 @@ const requireCleanBrowserShutdown = async (reason: string): Promise<void> => {
   const receipt = await (browserShutdown ??= browserComposition?.drainOnQuit(reason));
   if (receipt !== undefined) {
     if (!receipt.clean) {
+      browserShutdown = undefined;
       throw new Error(
         `browser shutdown retained automation state${receipt.timedOut ? " (deadline)" : ""}`,
       );
@@ -1524,6 +1525,7 @@ const requireCleanWorkControlShutdown = async (): Promise<void> => {
   const receipt = await (workControlShutdown ??= workControl?.drainOnQuit());
   if (receipt === undefined) return;
   if (!receipt.clean) {
+    workControlShutdown = undefined;
     throw new Error(
       `work control shutdown retained ${receipt.retainedLabels.join(", ") || "transport state"}`,
     );
@@ -1543,6 +1545,9 @@ const requireCleanHostOperationsShutdown = async (): Promise<void> => {
 const requireCleanTermPlaneShutdown = async (reason: string): Promise<void> => {
   const receipt = await (termPlaneShutdown ??= termPlane.drainOnQuit(reason));
   if (!receipt.clean) {
+    // Bounded unclean receipts are observations, not permanent facts. Clear so
+    // a later Cmd+Q / signal can re-drain after stragglers exit or path races end.
+    termPlaneShutdown = undefined;
     const detail = [
       ...receipt.retainedLabels,
       ...receipt.diagnostics,

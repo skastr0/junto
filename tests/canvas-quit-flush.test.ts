@@ -97,6 +97,7 @@ describe("canvas quit durability wiring", () => {
     const signalBlock = source.slice(standardStart);
 
     expect(helper).toContain("if (!receipt.clean)");
+    expect(helper).toContain("termPlaneShutdown = undefined");
     expect(helper).toContain("throw new Error");
     expect(helper).not.toContain("waitForAllLocalExited");
     expect(directExit.indexOf("requireCleanLocalTerminalShutdown(reason)"))

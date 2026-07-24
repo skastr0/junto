@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -1112,6 +1113,24 @@ export const startWorkControlServer = async (
   let socketIdentity: ControlSocketPathIdentity | undefined;
   let socketPathCleanupBlocked = false;
 
+  /** Exact bound inode still at the pathname — independent of a live kernel lease. */
+  const pathMatchesCapturedIdentity = (): boolean => {
+    if (socketIdentity === undefined) return false;
+    try {
+      const current = lstatSync(socketPath, { bigint: true });
+      return (
+        current.isSocket() &&
+        !current.isSymbolicLink() &&
+        current.dev === socketIdentity.dev &&
+        current.ino === socketIdentity.ino &&
+        current.birthtimeNs === socketIdentity.birthtimeNs &&
+        current.uid === socketIdentity.uid
+      );
+    } catch {
+      return false;
+    }
+  };
+
   const ownsSocketPath = (): boolean => {
     if (socketIdentity === undefined) return false;
     try {
@@ -1127,17 +1146,23 @@ export const startWorkControlServer = async (
       controlListenerLeaseHeld(listenerLease)
     ) {
       removeOwnedControlSocketPath(listenerLease, socketIdentity);
+      return;
+    }
+    if (pathMatchesCapturedIdentity()) {
+      unlinkSync(socketPath);
     }
   };
 
   const closeListenerWithoutDeletingReplacement = async (): Promise<void> => {
-    if (existsSync(socketPath) && !ownsSocketPath()) {
+    if (existsSync(socketPath) && !pathMatchesCapturedIdentity()) {
       // Node/libuv may unlink the originally-bound pathname during close even
       // when another process has replaced that directory entry. Node exposes
       // no identity-checked unlink/close primitive, so an observed replacement
       // makes listener close unsafe until that path leaves. Keep this check and
       // close call adjacent with no await or caller-controlled seam; scheduler
       // preemption between them is the irreducible Node pathname race.
+      // Identity is lease-independent so Ctrl+C killing Darwin lockf still
+      // allows close of the exact inode we bound.
       socketPathCleanupBlocked = true;
       server.unref();
       throw new Error("refusing to close work listener over a replacement path");
@@ -1147,7 +1172,9 @@ export const startWorkControlServer = async (
       unlinkOwnedSocket();
       socketPathCleanupBlocked = false;
     } finally {
-      await releaseControlListenerLease(listenerLease);
+      if (controlListenerLeaseHeld(listenerLease)) {
+        await releaseControlListenerLease(listenerLease);
+      }
     }
   };
 
@@ -1257,7 +1284,7 @@ export const startWorkControlServer = async (
       countKind("listener-close"),
       server.listening || controlListenerLeaseHeld(listenerLease) ? 1 : 0,
     );
-    const socketPaths = ownsSocketPath() || socketPathCleanupBlocked ? 1 : 0;
+    const socketPaths = pathMatchesCapturedIdentity() || socketPathCleanupBlocked ? 1 : 0;
     const counts: WorkControlRetainedCounts = {
       lineHandlers: countKind("line-handler"),
       dispatches: countKind("dispatch"),

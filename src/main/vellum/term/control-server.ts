@@ -16,6 +16,7 @@ import {
   mkdirSync,
   openSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
   readFileSync,
 } from "node:fs";
@@ -666,10 +667,23 @@ export const startTermControlServer = async (
   let socketIdentity: ControlSocketPathIdentity | undefined;
   let socketPathCleanupBlocked = false;
 
-  const ownsSocketPath = (): boolean => {
+  /**
+   * Pathname still names the exact inode we bound. Independent of the kernel
+   * listener lease: Ctrl+C can kill Darwin lockf holders in the process group
+   * before quit drain runs, and close must still be able to retire *our* socket.
+   */
+  const pathMatchesCapturedIdentity = (): boolean => {
     if (socketIdentity === undefined) return false;
     try {
-      return controlSocketPathOwnedByLease(listenerLease, socketIdentity);
+      const current = lstatSync(socketPath, { bigint: true });
+      return (
+        current.isSocket() &&
+        !current.isSymbolicLink() &&
+        current.dev === socketIdentity.dev &&
+        current.ino === socketIdentity.ino &&
+        current.birthtimeNs === socketIdentity.birthtimeNs &&
+        current.uid === socketIdentity.uid
+      );
     } catch {
       return false;
     }
@@ -681,11 +695,17 @@ export const startTermControlServer = async (
       controlListenerLeaseHeld(listenerLease)
     ) {
       removeOwnedControlSocketPath(listenerLease, socketIdentity);
+      return;
+    }
+    // Lease may already be dead (SIGINT killed lockf). Identity is still
+    // enough to remove our residual pathname without touching a replacement.
+    if (pathMatchesCapturedIdentity()) {
+      unlinkSync(socketPath);
     }
   };
 
   const closeListenerWithoutDeletingReplacement = async (): Promise<void> => {
-    if (existsSync(socketPath) && !ownsSocketPath()) {
+    if (existsSync(socketPath) && !pathMatchesCapturedIdentity()) {
       // libuv may unlink the originally-bound path as Server.close runs. Node
       // has no identity-checked close primitive, so retain the listener rather
       // than deleting a path another owner installed after our bind.
@@ -706,7 +726,9 @@ export const startTermControlServer = async (
       unlinkOwnedSocket();
       socketPathCleanupBlocked = false;
     } finally {
-      await releaseControlListenerLease(listenerLease);
+      if (controlListenerLeaseHeld(listenerLease)) {
+        await releaseControlListenerLease(listenerLease);
+      }
     }
   };
 
@@ -764,7 +786,7 @@ export const startTermControlServer = async (
         server.listening || controlListenerLeaseHeld(listenerLease) ? 1 : 0,
       ),
       sockets: sockets.size,
-      socketPaths: ownsSocketPath() || socketPathCleanupBlocked ? 1 : 0,
+      socketPaths: pathMatchesCapturedIdentity() || socketPathCleanupBlocked ? 1 : 0,
     };
     const labels = new Set(
       pending

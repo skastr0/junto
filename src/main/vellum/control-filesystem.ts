@@ -217,7 +217,10 @@ const acquireDarwinFileLease = async (
         "/dev/fd/3",
         "/bin/sh",
         "-c",
-        "printf '\\001'; /bin/cat >/dev/null",
+        // Ignore SIGINT so Ctrl+C to the Electron process group does not
+        // drop the flock before quit drain can release it via stdin EOF.
+        // SIGTERM and parent-pipe close still terminate the holder.
+        "trap '' INT; printf '\\001'; /bin/cat >/dev/null",
       ],
       inheritedFileDescriptor: {
         parentFd: fd,
@@ -280,11 +283,12 @@ const acquireDarwinFileLease = async (
     held: () => closed === undefined,
     release: () => {
       releaseFlight ??= (async () => {
+        // Any terminal exit releases the kernel flock. Prefer a clean stdin
+        // EOF release, but a prior SIGINT/SIGTERM that already reaped the
+        // holder must not fail shutdown.
+        if (closed !== undefined) return;
         child.io.stdin.end();
-        const event = await child.io.closed;
-        if (event.code !== 0 || event.signal !== null) {
-          throw new Error("control listener lock holder failed to release");
-        }
+        await child.io.closed;
       })();
       return releaseFlight;
     },

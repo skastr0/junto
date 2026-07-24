@@ -496,6 +496,59 @@ describe("terminal shutdown receipts", () => {
     expect(second.clean).toBe(true);
   });
 
+  it("still retires the bound socket after the Darwin lockf lease dies", async () => {
+    // Repro: Ctrl+C / process-group death can drop the lockf holder before quit
+    // drain. Close must use captured path identity, not a live lease, or quit
+    // blocks forever with listener+socket-path. Kill only this lease's holders —
+    // never drain the singleton appProcessPlane (that permanently quiesces it).
+    if (process.platform !== "darwin") return;
+    const home = mkdtempSync(join(tmpdir(), "vt-lockf-death-"));
+    const host = localHost();
+    const server = await startTermControlServer(host, {
+      home,
+      shutdownGraceMs: 5,
+      shutdownDeadlineMs: 200,
+    });
+    cleanups.push(async () => {
+      if (existsSync(server.socketPath)) unlinkSync(server.socketPath);
+      await server.drainOnQuit().catch(() => undefined);
+      rmSync(home, { recursive: true, force: true });
+    });
+
+    const leasePath = `${server.socketPath}.lease`;
+    const { execFileSync } = await import("node:child_process");
+    let holderPids: string[] = [];
+    try {
+      holderPids = execFileSync("lsof", ["-t", leasePath], { encoding: "utf8" })
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+    } catch {
+      holderPids = [];
+    }
+    expect(holderPids.length).toBeGreaterThan(0);
+    for (const pid of holderPids) {
+      try {
+        process.kill(Number(pid), "SIGKILL");
+      } catch {
+        // Already reaped.
+      }
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    await expect(server.drainOnQuit()).resolves.toMatchObject({
+      clean: true,
+      retainedLabels: [],
+      retainedCounts: {
+        requests: 0,
+        listenerClosures: 0,
+        sockets: 0,
+        socketPaths: 0,
+      },
+    });
+    expect(existsSync(server.socketPath)).toBe(false);
+  });
+
   it("refuses to replace a live listener or rotate its token", async () => {
     const home = mkdtempSync(join(tmpdir(), "vt-l-"));
     const host = localHost();
