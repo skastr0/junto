@@ -113,15 +113,11 @@ export const workRolesInDoc = (doc: CanvasDoc): ReadonlyArray<string> => {
 };
 
 /**
- * Worker claim identity for a seat — never "operator", never the work role.
- * Identity is per-seat (name, else node id); the role is a routing tag shared
- * by many seats and would collapse them into one worker if used as identity.
+ * Worker claim identity for a seat: the vellum node id, nothing else.
+ * entity.name is a display label and the work role is a routing tag — using
+ * either as identity collapses or aliases seats. Claims address the node.
  */
-export const workerClaimId = (node: CanvasNode): string => {
-  const name = node.ether?.entity?.name?.trim();
-  if (name) return name;
-  return node.id;
-};
+export const workerClaimId = (node: CanvasNode): string => node.id;
 
 export const isReservedClaimActor = (actor: string): boolean => {
   const t = actor.trim().toLowerCase();

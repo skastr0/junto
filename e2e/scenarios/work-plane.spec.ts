@@ -101,6 +101,8 @@ type WorkApi = {
     canvas: string,
     nodeId: string,
     brief: string,
+    metadata?: Record<string, unknown>,
+    raisedBy?: string,
   ) => Promise<WorkOpResult<Task>>;
   workRequestResolve: (
     canvas: string,
@@ -141,10 +143,10 @@ const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => 
         ([c, n, t, s, noteText]) => window.vellum!.workTaskTransition(c, n, t, s, noteText),
         [canvas, nodeId, taskId, state, note] as const,
       ),
-    workRequestCreate: (canvas, nodeId, brief) =>
+    workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy) =>
       page.evaluate(
-        ([c, n, b]) => window.vellum!.workRequestCreate(c, n, b),
-        [canvas, nodeId, brief] as const,
+        ([c, n, b, m, r]) => window.vellum!.workRequestCreate(c, n, b, m, r),
+        [canvas, nodeId, brief, metadata, raisedBy] as const,
       ),
     workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
       page.evaluate(
@@ -229,10 +231,13 @@ test("work plane: task claim/transition, request blocks then clears, artifact on
   await expect(targetShell).toBeVisible();
   await expect(targetShell).not.toHaveAttribute("data-blocked", "true");
 
-  const req = await api.workRequestCreate(CANVAS, "req", "need review");
+  // Raised by the target seat — the raiser is the claimant, so the block
+  // lands on "target" alone.
+  const req = await api.workRequestCreate(CANVAS, "req", "need review", undefined, "target");
   expect(req.ok).toBe(true);
   if (!req.ok) return;
   expect(req.data.state).toBe("input-required");
+  expect(req.data.metadata?.claimedBy).toBe("target");
 
   await expect(async () => {
     const live = await page.evaluate(async (name) => window.vellum!.readCanvas(name), CANVAS);

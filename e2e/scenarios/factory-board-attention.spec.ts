@@ -21,10 +21,11 @@ import { expect, test } from "../harness/launch";
 
 const seededTasks: ReadonlyArray<Task> = [
   taskItem("open-1", "queue work", "submitted"),
-  // Blocking is worker-state: only a CLAIMED attention task stops its claimant.
+  // Blocking is worker-state: only a CLAIMED attention task stops its
+  // claimant. Claims address the node id.
   {
     ...taskItem("hot-1", "needs human", "input-required"),
-    metadata: { claimedBy: "local:e2e-worker" },
+    metadata: { claimedBy: "worker" },
   },
 ];
 

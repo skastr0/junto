@@ -8,7 +8,7 @@ import {
   rankStoppageSeeds,
   waitingOnPath,
 } from "../src/shared/impact";
-import { taskItem } from "./helpers/task-fixtures";
+import { claimed, taskItem } from "./helpers/task-fixtures";
 import { seat } from "./helpers/physics-seats";
 
 const text = (
@@ -28,20 +28,27 @@ const text = (
 
 /**
  * Two independent stoppage seeds via sink fan-out (no actor→actor cascade).
- * Big cone size 4 = r-big + p1 + p2 + p3; small size 2 = r-small + s1.
+ * Each pending request blocks its raiser; big cone size 4 = r-big + p1 + p2
+ * + p3 (three raisers); small size 2 = r-small + s1.
  */
 const twoSeedDoc = (): CanvasDoc => ({
   nodes: [
     text("r-big", "Big Requests", {
       entity: { kind: "requests" },
-      requests: { items: [taskItem("q1", "approve deploy?", "input-required")] },
+      requests: {
+        items: [
+          claimed(taskItem("q1", "approve deploy?", "input-required"), "p1"),
+          claimed(taskItem("q1b", "approve schema?", "input-required"), "p2"),
+          claimed(taskItem("q1c", "approve copy?", "input-required"), "p3"),
+        ],
+      },
     }),
     seat("p1", "actor", { label: "Ship" }),
     seat("p2", "actor", { label: "Release" }),
     seat("p3", "actor", { label: "Announce" }),
     text("r-small", "Small Requests", {
       entity: { kind: "requests" },
-      requests: { items: [taskItem("q2", "ping?", "input-required")] },
+      requests: { items: [claimed(taskItem("q2", "ping?", "input-required"), "s1")] },
     }),
     seat("s1", "actor", { label: "Side" }),
     // Soft attention lead into the big cone (free actor, not blocked)
@@ -85,7 +92,7 @@ describe("rankStoppageSeeds — blast-radius ranking", () => {
     expect(ranked.length).toBeGreaterThanOrEqual(2);
     expect(ranked[0]!.seedNodeId).toBe("r-big");
     expect(ranked[0]!.stops).toBe(4);
-    expect(ranked[0]!.seedBrief).toBe("1 request");
+    expect(ranked[0]!.seedBrief).toBe("3 requests");
     expect(ranked[1]!.seedNodeId).toBe("r-small");
     expect(ranked[1]!.stops).toBe(2);
 
@@ -94,7 +101,7 @@ describe("rankStoppageSeeds — blast-radius ranking", () => {
     const line = formatRankedStoppageLine(ranked[0]!, {
       titleOf: (id) => (id === "lead1" ? "lead worker" : id),
     });
-    expect(line).toMatch(/1 request · stops 4/);
+    expect(line).toMatch(/3 requests · stops 4/);
     expect(line).toMatch(/leads: lead worker/);
   });
 

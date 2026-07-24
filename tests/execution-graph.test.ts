@@ -89,7 +89,7 @@ describe("evaluateEdge — authorial modes", () => {
     expect(evaluateEdge(edge, empty, worker).phase).toBe("relates");
   });
 
-  it("requests: input-required blocks without any claim; resolved relates", () => {
+  it("requests: pending blocks its raiser only; unclaimed and resolved relate", () => {
     const edge = {
       id: "e1",
       fromNode: "r1",
@@ -97,16 +97,28 @@ describe("evaluateEdge — authorial modes", () => {
       ether: { criteria: { mode: "tasks" as const } },
     };
     const worker = seat("b", "actor", { label: "B" });
-    const pending = text("r1", "Requests", {
+    const raisedHere = text("r1", "Requests", {
+      entity: { kind: "requests" },
+      requests: { items: [claimed(taskItem("q1", "approve?", "input-required"), "b")] },
+    });
+    expect(evaluateEdge(edge, raisedHere, worker).phase).toBe("blocks");
+
+    const raisedElsewhere = text("r1", "Requests", {
+      entity: { kind: "requests" },
+      requests: { items: [claimed(taskItem("q1", "approve?", "input-required"), "other")] },
+    });
+    expect(evaluateEdge(edge, raisedElsewhere, worker).phase).toBe("relates");
+
+    const operatorSeeded = text("r1", "Requests", {
       entity: { kind: "requests" },
       requests: { items: [taskItem("q1", "approve?", "input-required")] },
     });
-    expect(evaluateEdge(edge, pending, worker).phase).toBe("blocks");
+    expect(evaluateEdge(edge, operatorSeeded, worker).phase).toBe("relates");
 
     for (const state of ["completed", "rejected", "canceled"] as const) {
       const resolved = text("r1", "Requests", {
         entity: { kind: "requests" },
-        requests: { items: [taskItem("q1", "approve?", state)] },
+        requests: { items: [claimed(taskItem("q1", "approve?", state), "b")] },
       });
       expect(evaluateEdge(edge, resolved, worker).phase).toBe("relates");
     }

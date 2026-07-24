@@ -22,9 +22,10 @@ import {
 //
 // Authorial edge model — criteria only:
 //   - no criteria → soft "relates" (never generates stoppage)
-//   - criteria tasks → a CLAIMED attention task (input-required | auth-required)
+//   - criteria tasks → a CLAIMED attention item (input-required | auth-required)
 //     generates blocks on the claimant toNode actor only; unclaimed attention
-//     is human inventory, never worker stoppage. Requests need no claim.
+//     is human inventory, never worker stoppage. Tasks are claimed by the
+//     pulling worker; requests are claimed by their raiser at creation.
 //   - criteria proof / approval → blocks until trust view clears
 //   - retired: glyphs, wip, depends phase, dependency cascade/relay
 //
@@ -104,12 +105,12 @@ export const isBlockableNode = (node: CanvasNode | undefined): boolean => {
   });
 };
 
+/** Kind-strict: only task/requests sinks hold work items. No tolerance reads. */
 const workItemsOn = (node: CanvasNode | undefined): ReadonlyArray<Task> => {
-  if (!node) return [];
-  const kind = node.ether?.entity?.kind;
-  if (kind === "requests") return node.ether?.requests?.items ?? [];
-  if (kind === "task") return node.ether?.tasks?.items ?? [];
-  return node.ether?.tasks?.items ?? node.ether?.requests?.items ?? [];
+  const kind = node?.ether?.entity?.kind;
+  if (kind === "requests") return node?.ether?.requests?.items ?? [];
+  if (kind === "task") return node?.ether?.tasks?.items ?? [];
+  return [];
 };
 
 /** Attention states only — open queue (submitted/working) does not stop actors. */
@@ -137,31 +138,24 @@ const evalTasksCriteria = (
     return softRelates(fromKind === "requests" ? "no pending requests" : "no open tasks");
   }
   const open = scoped.filter((item) => isAttentionTaskItem(item));
-  if (fromKind === "requests") {
-    if (open.length === 0) {
-      return softRelates(`${scoped.length}/${scoped.length} requests resolved`);
-    }
-    const sample = open
-      .slice(0, 3)
-      .map((item) => taskBrief(item))
-      .join(", ");
-    return {
-      phase: "blocks",
-      detail: `${scoped.length - open.length}/${scoped.length} requests resolved · pending: ${sample}`,
-      generates: true,
-    };
-  }
-  // Blocking is worker-state: only an attention task CLAIMED by this edge's
-  // toNode worker stops it. Unclaimed attention is inventory for a human.
+  // Blocking is worker-state for tasks AND requests: only an attention item
+  // CLAIMED by this edge's toNode worker stops it. Tasks are claimed by the
+  // worker that pulled them; requests are claimed by the actor that raised
+  // them. Unclaimed attention is inventory for a human — it stops nobody.
   const held =
     toNode === undefined
       ? []
       : open.filter((item) => claimedByOf(item) === workerClaimId(toNode));
+  const noun = fromKind === "requests" ? "pending" : "need input";
   if (held.length === 0) {
     if (open.length > 0) {
-      return softRelates(`${open.length} need input · none claimed by this worker`);
+      return softRelates(`${open.length} ${noun} · not this worker's wait`);
     }
-    return softRelates(`${scoped.length}/${scoped.length} tasks clear (no attention)`);
+    return softRelates(
+      fromKind === "requests"
+        ? `${scoped.length}/${scoped.length} requests resolved`
+        : `${scoped.length}/${scoped.length} tasks clear (no attention)`,
+    );
   }
   const sample = held
     .slice(0, 3)
@@ -169,7 +163,7 @@ const evalTasksCriteria = (
     .join(", ");
   return {
     phase: "blocks",
-    detail: `${held.length} need input · ${sample}`,
+    detail: `${held.length} ${noun} · ${sample}`,
     generates: true,
   };
 };

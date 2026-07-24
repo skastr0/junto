@@ -590,11 +590,14 @@ const dispatchOp = (
       if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
       const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
+      // The raiser IS the claimant: the calling seat waits on this answer,
+      // so the request is claimed by caller.nodeId at birth.
       const result = yield* work.workRequestCreate(
         caller.canvasName,
         decoded.right.target,
         decoded.right.brief,
         decoded.right.metadata,
+        caller.nodeId,
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);

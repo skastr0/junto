@@ -402,11 +402,25 @@ export const workRequestCreate = (
   brief: string,
   metadata: WorkMetadata | undefined,
   ids: WorkIds,
+  raisedBy?: string,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
   requireKind(node, ["requests"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
+  // A request raised by an actor is claimed by that actor at birth — the
+  // raiser is the worker waiting on the answer, so stoppage lands on it.
+  // Operator-seeded requests (no raiser) are unclaimed inventory.
+  const raiser = raisedBy?.trim();
+  if (raiser !== undefined && raiser.length > 0) {
+    const reserved = raiser.toLowerCase();
+    if (reserved === "operator" || reserved === "user" || reserved === "human") {
+      throw new WorkError(
+        "invalid",
+        `raisedBy must be a worker seat, not "${raiser}"`,
+      );
+    }
+  }
   const taskId = ids.id();
   const contextId = regionContextId(doc, nodeId, canvasName);
   const briefMessage = makeUserMessage({
@@ -415,11 +429,14 @@ export const workRequestCreate = (
     contextId,
     taskId,
   });
+  const stamped = raiser
+    ? mergeMetadata(metadata, { claimedBy: raiser })
+    : metadata;
   const task: Task = {
     id: taskId,
     state: "input-required",
     history: [briefMessage],
-    ...(metadata ? { metadata } : {}),
+    ...(stamped ? { metadata: stamped } : {}),
   };
   const items = [...(node.ether?.requests?.items ?? []), task];
   return { doc: withRequests(doc, nodeId, items), task };

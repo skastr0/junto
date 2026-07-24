@@ -21,13 +21,18 @@ const text = (
 });
 
 describe("impactCone — tasks / requests stoppage", () => {
-  it("requests input-required blocks actors and builds cone membership", () => {
-    // Fan-out edges from the sink (no cascade/relay between actors).
+  it("pending requests block their raisers and build cone membership", () => {
+    // Fan-out edges from the sink; each request blocks only its raiser.
     const doc: CanvasDoc = {
       nodes: [
         text("r1", "Requests", {
           entity: { kind: "requests" },
-          requests: { items: [taskItem("q1", "approve deploy?", "input-required")] },
+          requests: {
+            items: [
+              claimed(taskItem("q1", "approve deploy?", "input-required"), "a1"),
+              claimed(taskItem("q2", "approve rollback?", "input-required"), "a2"),
+            ],
+          },
         }),
         seat("a1", "actor", { label: "Ship" }),
         seat("a2", "actor", { label: "Release" }),

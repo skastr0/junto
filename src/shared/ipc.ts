@@ -549,6 +549,7 @@ export interface VellumApi {
     nodeId: string,
     brief: string,
     metadata?: WorkMetadata,
+    raisedBy?: string,
   ) => Promise<WorkOpResult<Task>>;
   readonly workRequestResolve: (
     canvas: string,

@@ -177,12 +177,24 @@ describe("work pure transforms", () => {
     );
   });
 
+  it("request raised by an actor is claimed by that actor at birth", () => {
+    const doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
+    const raised = workRequestCreate(doc, "c", "req", "need a key", undefined, ids, "actor-7");
+    expect(raised.task.state).toBe("input-required");
+    expect(raised.task.metadata?.claimedBy).toBe("actor-7");
+
+    expect(() =>
+      workRequestCreate(doc, "c", "req", "need a key", undefined, ids, "operator"),
+    ).toThrow(WorkError);
+  });
+
   it("request create + resolve appends user message and clears input-required", () => {
     let doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
     const created = workRequestCreate(doc, "c", "req", "need approval", { class: "review" }, ids);
     doc = created.doc;
     expect(created.task.state).toBe("input-required");
     expect(created.task.metadata?.class).toBe("review");
+    expect(created.task.metadata?.claimedBy).toBeUndefined();
     expect((doc.nodes[0] as { text: string }).text.startsWith("1 pending")).toBe(true);
 
     const resolved = workRequestResolve(
