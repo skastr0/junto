@@ -359,7 +359,7 @@ export const registerVellumIpc = (): void => {
 
   privilegedIpc.handle(
     IPC_CHANNELS.workTaskCreate,
-    (_event, canvas: string, nodeId: string, brief: string, metadata?: WorkMetadata) =>
+    (_event, canvas: string, nodeId: string, brief: string, metadata?: WorkMetadata, reason?: string) =>
       runRendererWorkAuthoring(
         "ipc.work.task-create",
         () => AppRuntime.runPromise(
@@ -367,7 +367,7 @@ export const registerVellumIpc = (): void => {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
             const work = yield* WorkService;
-            return yield* work.workTaskCreate(canvas, nodeId, brief, metadata);
+            return yield* work.workTaskCreate(canvas, nodeId, brief, metadata, reason);
           }),
         ),
       ),
@@ -441,7 +441,7 @@ export const registerVellumIpc = (): void => {
   );
   privilegedIpc.handle(
     IPC_CHANNELS.workRequestCreate,
-    (_event, canvas: string, nodeId: string, brief: string, metadata?: WorkMetadata, raisedBy?: string) =>
+    (_event, canvas: string, nodeId: string, brief: string, metadata?: WorkMetadata, raisedBy?: string, reason?: string) =>
       runRendererWorkAuthoring(
         "ipc.work.request-create",
         () => AppRuntime.runPromise(
@@ -449,7 +449,7 @@ export const registerVellumIpc = (): void => {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
             const work = yield* WorkService;
-            return yield* work.workRequestCreate(canvas, nodeId, brief, metadata, raisedBy);
+            return yield* work.workRequestCreate(canvas, nodeId, brief, metadata, raisedBy, reason);
           }),
         ),
       ),

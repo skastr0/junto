@@ -195,6 +195,7 @@ export const workTaskCreate = (
   brief: string,
   metadata: WorkMetadata | undefined,
   ids: WorkIds,
+  reason?: string,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
   requireKind(node, ["task"]);
@@ -208,11 +209,13 @@ export const workTaskCreate = (
     contextId,
     taskId,
   });
+  const why = reason?.trim();
   const task: Task = {
     id: taskId,
     state: "submitted",
     history: [briefMessage],
     ...(metadata ? { metadata } : {}),
+    ...(why ? { reason: why } : {}),
   };
   const items = [...(node.ether?.tasks?.items ?? []), task];
   return { doc: withTasks(doc, nodeId, items), task };
@@ -403,6 +406,7 @@ export const workRequestCreate = (
   metadata: WorkMetadata | undefined,
   ids: WorkIds,
   raisedBy?: string,
+  reason?: string,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
   requireKind(node, ["requests"]);
@@ -432,11 +436,13 @@ export const workRequestCreate = (
   const stamped = raiser
     ? mergeMetadata(metadata, { claimedBy: raiser })
     : metadata;
+  const why = reason?.trim();
   const task: Task = {
     id: taskId,
     state: "input-required",
     history: [briefMessage],
     ...(stamped ? { metadata: stamped } : {}),
+    ...(why ? { reason: why } : {}),
   };
   const items = [...(node.ether?.requests?.items ?? []), task];
   return { doc: withRequests(doc, nodeId, items), task };
@@ -476,10 +482,12 @@ export const workRequestResolve = (
       contextId,
       taskId,
     });
+    // The answer is first-class on the item (glanceable), and in history.
     return {
       ...current,
       state: disposition,
       history: [...current.history, reply],
+      response: text,
     };
   });
   return { doc: withRequests(doc, nodeId, nextItems), task };

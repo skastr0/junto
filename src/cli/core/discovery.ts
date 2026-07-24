@@ -178,11 +178,16 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     command_id: "request.create",
     command: "request create",
     name: "ask operator",
-    input: { target: "req1", brief: "approve deploy?", metadata: { urgency: "high" } },
+    input: {
+      target: "req1",
+      brief: "approve deploy?",
+      reason: "prod deploy is gated on operator sign-off",
+      metadata: { urgency: "high" },
+    },
     args: [
       "request",
       "create",
-      '{"target":"req1","brief":"approve deploy?","metadata":{"urgency":"high"}}',
+      '{"target":"req1","brief":"approve deploy?","reason":"prod deploy is gated on operator sign-off","metadata":{"urgency":"high"}}',
     ],
   },
   {

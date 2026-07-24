@@ -103,6 +103,7 @@ type WorkApi = {
     brief: string,
     metadata?: Record<string, unknown>,
     raisedBy?: string,
+    reason?: string,
   ) => Promise<WorkOpResult<Task>>;
   workRequestResolve: (
     canvas: string,
@@ -143,10 +144,10 @@ const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => 
         ([c, n, t, s, noteText]) => window.vellum!.workTaskTransition(c, n, t, s, noteText),
         [canvas, nodeId, taskId, state, note] as const,
       ),
-    workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy) =>
+    workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy, reason) =>
       page.evaluate(
-        ([c, n, b, m, r]) => window.vellum!.workRequestCreate(c, n, b, m, r),
-        [canvas, nodeId, brief, metadata, raisedBy] as const,
+        ([c, n, b, m, r, why]) => window.vellum!.workRequestCreate(c, n, b, m, r, why),
+        [canvas, nodeId, brief, metadata, raisedBy, reason] as const,
       ),
     workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
       page.evaluate(
@@ -232,12 +233,20 @@ test("work plane: task claim/transition, request blocks then clears, artifact on
   await expect(targetShell).not.toHaveAttribute("data-blocked", "true");
 
   // Raised by the target seat — the raiser is the claimant, so the block
-  // lands on "target" alone.
-  const req = await api.workRequestCreate(CANVAS, "req", "need review", undefined, "target");
+  // lands on "target" alone. The why travels first-class.
+  const req = await api.workRequestCreate(
+    CANVAS,
+    "req",
+    "need review",
+    undefined,
+    "target",
+    "merge is gated on review",
+  );
   expect(req.ok).toBe(true);
   if (!req.ok) return;
   expect(req.data.state).toBe("input-required");
   expect(req.data.metadata?.claimedBy).toBe("target");
+  expect(req.data.reason).toBe("merge is gated on review");
 
   await expect(async () => {
     const live = await page.evaluate(async (name) => window.vellum!.readCanvas(name), CANVAS);
@@ -259,6 +268,7 @@ test("work plane: task claim/transition, request blocks then clears, artifact on
   expect(resolved.ok).toBe(true);
   if (!resolved.ok) return;
   expect(resolved.data.state).toBe("completed");
+  expect(resolved.data.response).toBe("lgtm");
 
   await expect(async () => {
     await expect(targetShell).not.toHaveAttribute("data-blocked", "true");

@@ -598,6 +598,7 @@ const dispatchOp = (
         decoded.right.brief,
         decoded.right.metadata,
         caller.nodeId,
+        decoded.right.reason,
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);

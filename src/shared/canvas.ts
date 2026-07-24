@@ -306,6 +306,10 @@ export const Task = Schema.Struct({
   history: Schema.Array(Message),
   artifactIds: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
   metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
+  /** Why the raiser raised this (first-class, set at creation). */
+  reason: Schema.optionalWith(Schema.String, { exact: true }),
+  /** The operator's answer (first-class, stamped on resolve). */
+  response: Schema.optionalWith(Schema.String, { exact: true }),
 });
 export type Task = typeof Task.Type;
 

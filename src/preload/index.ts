@@ -422,8 +422,8 @@ const vellumApi: VellumApi = {
     invoke<void>(IPC_CHANNELS.pulseRegion, IPC_TIMEOUT_MS, canvasName, regionId, opts),
   regionRollups: (name) =>
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
-  workTaskCreate: (canvas, nodeId, brief, metadata) =>
-    invoke(IPC_CHANNELS.workTaskCreate, IPC_TIMEOUT_MS, canvas, nodeId, brief, metadata),
+  workTaskCreate: (canvas, nodeId, brief, metadata, reason) =>
+    invoke(IPC_CHANNELS.workTaskCreate, IPC_TIMEOUT_MS, canvas, nodeId, brief, metadata, reason),
   workTaskDescribe: (canvas, nodeId, taskId, brief) =>
     invoke(IPC_CHANNELS.workTaskDescribe, IPC_TIMEOUT_MS, canvas, nodeId, taskId, brief),
   workTaskTransition: (canvas, nodeId, taskId, state, note) =>
@@ -432,8 +432,8 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.workTaskClaim, IPC_TIMEOUT_MS, canvas, nodeId, taskId, actor),
   workMessageAppend: (canvas, nodeId, taskId, message) =>
     invoke(IPC_CHANNELS.workMessageAppend, IPC_TIMEOUT_MS, canvas, nodeId, taskId, message),
-  workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy) =>
-    invoke(IPC_CHANNELS.workRequestCreate, IPC_TIMEOUT_MS, canvas, nodeId, brief, metadata, raisedBy),
+  workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy, reason) =>
+    invoke(IPC_CHANNELS.workRequestCreate, IPC_TIMEOUT_MS, canvas, nodeId, brief, metadata, raisedBy, reason),
   workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
     invoke(
       IPC_CHANNELS.workRequestResolve,

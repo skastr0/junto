@@ -199,6 +199,8 @@ export type MsgSendArgs = typeof MsgSendArgs.Type;
 export const RequestCreateArgs = Schema.Struct({
   target: Schema.String,
   brief: Schema.String,
+  /** Why the caller is raising this — lands first-class on the request. */
+  reason: Schema.optionalWith(Schema.String, { exact: true }),
   metadata: Schema.optionalWith(
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
     { exact: true },

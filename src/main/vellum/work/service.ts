@@ -101,6 +101,7 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       nodeId: string,
       brief: string,
       metadata?: WorkMetadata,
+      reason?: string,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskDescribe: (
       canvas: string,
@@ -133,6 +134,7 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       brief: string,
       metadata?: WorkMetadata,
       raisedBy?: string,
+      reason?: string,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workRequestResolve: (
       canvas: string,
@@ -207,10 +209,10 @@ export const WorkLive = Layer.effect(
       });
 
     return WorkService.of({
-      workTaskCreate: (canvas, nodeId, brief, metadata) =>
+      workTaskCreate: (canvas, nodeId, brief, metadata, reason) =>
         asResult(
           apply(canvas, (doc) => {
-            const result = workTaskCreate(doc, canvas, nodeId, brief, metadata, ids);
+            const result = workTaskCreate(doc, canvas, nodeId, brief, metadata, ids, reason);
             return { doc: result.doc, value: result.task };
           }),
         ),
@@ -256,10 +258,19 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy) =>
+      workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy, reason) =>
         asResult(
           apply(canvas, (doc) => {
-            const result = workRequestCreate(doc, canvas, nodeId, brief, metadata, ids, raisedBy);
+            const result = workRequestCreate(
+              doc,
+              canvas,
+              nodeId,
+              brief,
+              metadata,
+              ids,
+              raisedBy,
+              reason,
+            );
             return { doc: result.doc, value: result.task };
           }),
         ),

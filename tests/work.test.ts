@@ -177,15 +177,33 @@ describe("work pure transforms", () => {
     );
   });
 
-  it("request raised by an actor is claimed by that actor at birth", () => {
+  it("request raised by an actor is claimed by that actor at birth, with its reason", () => {
     const doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
-    const raised = workRequestCreate(doc, "c", "req", "need a key", undefined, ids, "actor-7");
+    const raised = workRequestCreate(
+      doc,
+      "c",
+      "req",
+      "need a key",
+      undefined,
+      ids,
+      "actor-7",
+      "signing is gated on the operator's key",
+    );
     expect(raised.task.state).toBe("input-required");
     expect(raised.task.metadata?.claimedBy).toBe("actor-7");
+    expect(raised.task.reason).toBe("signing is gated on the operator's key");
 
     expect(() =>
       workRequestCreate(doc, "c", "req", "need a key", undefined, ids, "operator"),
     ).toThrow(WorkError);
+  });
+
+  it("task create records its reason first-class", () => {
+    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    const created = workTaskCreate(doc, "c", "tasks", "port the map", undefined, ids, "fleet epic");
+    expect(created.task.reason).toBe("fleet epic");
+    const bare = workTaskCreate(doc, "c", "tasks", "port the map", undefined, ids);
+    expect(bare.task.reason).toBeUndefined();
   });
 
   it("request create + resolve appends user message and clears input-required", () => {
@@ -208,6 +226,8 @@ describe("work pure transforms", () => {
     );
     expect(resolved.task.state).toBe("completed");
     expect(resolved.task.history.at(-1)?.role).toBe("user");
+    // The answer is first-class on the item, not only buried in history.
+    expect(resolved.task.response).toBe("approved");
     expect((resolved.doc.nodes[0] as { text: string }).text.startsWith("0 pending")).toBe(true);
   });
 
