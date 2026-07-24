@@ -331,10 +331,14 @@ export const readUnixPeerPid: PeerPidReader = (socket) => {
   const python = resolveTrustedPython();
   if (helper === undefined || python === undefined) return undefined;
   try {
+    // Hang-safety net only (not a security bound): a trusted, sealed,
+    // near-instant interpreter start. 500ms was tight enough to misfire as
+    // "no peer PID" under ordinary host CPU contention rather than an actual
+    // stuck helper; widen the net without weakening what is trusted.
     const result = spawnSync(python, [helper], {
       stdio: [fd, "pipe", "pipe"],
       encoding: "utf8",
-      timeout: 500,
+      timeout: 2_000,
     });
     if (result.status !== 0) return undefined;
     const raw = (result.stdout ?? "").trim();
