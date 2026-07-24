@@ -15,7 +15,7 @@ import {
   documentsFromCanvasDocs,
   reduceProjectionDelivery,
   scheduleHostSync,
-  SSH_PROJECTION_BRIDGE_RESIDUAL_DETAIL,
+  REMOTE_PROJECTION_BRIDGE_RESIDUAL_DETAIL,
 } from "../src/main/vellum/projection/delivery";
 import {
   loadStationProjectionSnapshot,
@@ -70,7 +70,7 @@ describe("projection delivery status machine", () => {
   it("transitions pending → unreachable", () => {
     const next = reduceProjectionDelivery("pending", {
       type: "unreachable",
-      detail: "ssh down",
+      detail: "remote down",
     });
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -273,17 +273,17 @@ describe("scheduleHostSync status recording", () => {
     expect(status.lastProjection?.status).toBe("rejected");
   });
 
-  it("ssh mode without transport: pending then unreachable residual", async () => {
+  it("remote mode without transport: pending then unreachable residual", async () => {
     const compiled = compile("2");
     const result = await scheduleHostSync(
       compiled,
-      [{ hostId: "studio", endpoint: "studio-box", mode: "ssh" }],
+      [{ hostId: "studio", endpoint: "studio-box", mode: "remote" }],
       { now, record: recordStationProjection },
     );
 
     expect(result.outcomes[0]!.record.status).toBe("unreachable");
     expect(result.outcomes[0]!.record.detail).toBe(
-      SSH_PROJECTION_BRIDGE_RESIDUAL_DETAIL,
+      REMOTE_PROJECTION_BRIDGE_RESIDUAL_DETAIL,
     );
 
     const status = await readStationStatus();
@@ -291,11 +291,11 @@ describe("scheduleHostSync status recording", () => {
     expect(status.projections?.studio?.endpoint).toBe("studio-box");
   });
 
-  it("ssh mode with transport: pending then applied", async () => {
+  it("remote mode with transport: pending then applied", async () => {
     const compiled = compile("3");
     const result = await scheduleHostSync(
       compiled,
-      [{ hostId: "studio", endpoint: "studio-box", mode: "ssh" }],
+      [{ hostId: "studio", endpoint: "studio-box", mode: "remote" }],
       {
         now,
         record: recordStationProjection,
@@ -312,7 +312,7 @@ describe("scheduleHostSync status recording", () => {
     const compiled = compile("6");
     const result = await scheduleHostSync(
       compiled,
-      [{ hostId: "studio", endpoint: "studio-box", mode: "ssh" }],
+      [{ hostId: "studio", endpoint: "studio-box", mode: "remote" }],
       {
         now,
         record: recordStationProjection,
@@ -399,7 +399,7 @@ describe("station-status projection decode + doctor", () => {
           generation: "9",
           manifestSha256: WITNESS_A,
           status: "unreachable",
-          detail: SSH_PROJECTION_BRIDGE_RESIDUAL_DETAIL,
+          detail: REMOTE_PROJECTION_BRIDGE_RESIDUAL_DETAIL,
           at: "2026-07-24T12:00:00.000Z",
         }),
       },

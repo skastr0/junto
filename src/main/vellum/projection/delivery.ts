@@ -6,7 +6,7 @@
  * locally via the Station projection store for same-machine / unit-test
  * targets.
  *
- * Residual: typed SSH bridge that ships the frame to a Remote station and
+ * Residual: typed remote bridge that ships the frame to a Remote station and
  * invokes a remote apply bridge is not yet product-wired. Remote targets
  * without an injected transport record `pending` then `unreachable` so
  * Doctor surfaces honest reachability truth. Do not remove canvas-pull.
@@ -220,19 +220,19 @@ export const applyLocalProjectionForTest = async (
 
 export type ProjectionHostTarget = {
   readonly hostId: string;
-  /** SSH endpoint when remote; omit for local/test apply. */
+  /** Remote endpoint when enrolled; omit for local/test apply. */
   readonly endpoint?: string;
   /**
    * `local` — apply via station projection store on this machine.
    * `record-only` — exercise status machine without I/O (tests).
-   * `ssh` — Remote push; requires transport or records residual unreachable.
+   * `remote` — Remote push; requires transport or records residual unreachable.
    */
-  readonly mode: "local" | "record-only" | "ssh";
+  readonly mode: "local" | "record-only" | "remote";
 };
 
 export type ProjectionDeliveryTransport = {
   /**
-   * Optional Remote bridge. When absent, ssh-mode targets become unreachable
+   * Optional remote bridge. When absent, remote-mode targets become unreachable
    * with an honest residual detail string.
    */
   readonly deliver?: (input: {
@@ -273,15 +273,15 @@ export type ScheduleHostSyncResult = {
   readonly outcomes: ReadonlyArray<HostSyncOutcome>;
 };
 
-const SSH_BRIDGE_RESIDUAL =
-  "SSH projection bridge residual — frame not delivered; canvas-pull remains product path";
+const REMOTE_BRIDGE_RESIDUAL =
+  "Remote projection bridge residual — frame not delivered; canvas-pull remains product path";
 
 /**
  * For each enrolled host target: record pending, then resolve to applied /
  * rejected / unreachable and persist the receipt.
  *
  * Pure status transitions go through `reduceProjectionDelivery` so unit tests
- * can assert the machine without SSH.
+ * can assert the machine without transport.
  */
 export const scheduleHostSync = async (
   compiled: CompiledStationProjection,
@@ -331,7 +331,7 @@ export const scheduleHostSync = async (
         detail: "record-only delivery marked applied",
       };
     } else {
-      // ssh
+      // remote push residual
       const endpoint = target.endpoint?.trim() ?? "";
       if (!endpoint) {
         finalEvent = {
@@ -358,7 +358,7 @@ export const scheduleHostSync = async (
       } else {
         finalEvent = {
           type: "unreachable",
-          detail: SSH_BRIDGE_RESIDUAL,
+          detail: REMOTE_BRIDGE_RESIDUAL,
         };
       }
     }
@@ -408,4 +408,4 @@ export const deliverProjectionToHosts = async (
   return scheduleHostSync(compiled, input.targets, deps);
 };
 
-export const SSH_PROJECTION_BRIDGE_RESIDUAL_DETAIL = SSH_BRIDGE_RESIDUAL;
+export const REMOTE_PROJECTION_BRIDGE_RESIDUAL_DETAIL = REMOTE_BRIDGE_RESIDUAL;
