@@ -33,6 +33,7 @@ const remoteSettings = (): Settings => ({
     agentHostId: "studio",
     commandCenterRef: "command",
     supervisedPreferred: true,
+    topologyIntegrity: "ok",
   },
 });
 
@@ -254,6 +255,7 @@ describe("Remote browser station admission", () => {
         hostId: "local",
         commandCenterRef: "",
         supervisedPreferred: false,
+        topologyIntegrity: "ok",
       },
     };
     await writeFile(settingsPath, JSON.stringify(settings), "utf8");

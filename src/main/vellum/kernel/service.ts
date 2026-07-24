@@ -171,6 +171,11 @@ type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
 const refreshStationScope = async (settings: SettingsShape): Promise<void> => {
   try {
     const current = await Effect.runPromise(settings.get);
+    // Integrity-failed → unset (no Command Center / Remote power).
+    if (current.station.topologyIntegrity === "failed") {
+      setStationScope({ hostId: current.station.hostId, role: "" });
+      return;
+    }
     setStationScope({
       hostId: current.station.hostId,
       role: current.station.role,

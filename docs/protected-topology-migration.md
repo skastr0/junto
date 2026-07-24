@@ -29,16 +29,19 @@ seal, not the plaintext fields.
    - `topology.seal` — `{ version: 1, alg: "hmac-sha256", mac }` over a
      canonical topology body
 2. **Load admit** (`admitStationTopology`):
-   - no key + no seal → **bootstrap** (accept + write seal) — first run and
-     post-configure remote
-   - key/seal missing asymmetrically, corrupt, or MAC mismatch → **fail closed**
-     (strip station to defaults / role unset → `StationRoleGate`)
+   - no key + no seal → **bootstrap** (accept + write seal, `topologyIntegrity: ok`)
+     — first run and post-configure remote
+   - key/seal missing asymmetrically, corrupt, or MAC mismatch → **integrity-failed**
+     (role unset + durable `topologyIntegrity: "failed"`) — recovery-locked UI,
+     not first-run CC picker; ordinary `setStationTopology` cannot promote
 3. **Write path:** every settings write reseals current station topology.
 4. **API boundary:** generic `settingsPatch` rejects any `station` key;
-   dedicated IPC `settingsSetStationTopology` merges, validates, persists, seals.
-5. **CC configure/deploy:** after stamping remote `settings.json`, deletes
+   dedicated IPC `settingsSetStationTopology` merges, validates, persists, seals;
+   refuses when `topologyIntegrity === "failed"`.
+5. **CC configure/deploy:** after a *successful* settings stamp/write, deletes
    remote `topology.key` + `topology.seal` so the remote app bootstraps a seal
-   for the operator-stamped role on next start.
+   for the operator-stamped role on next start. Seals are never deleted before
+   CAS/write postcondition (failed CAS keeps prior seals).
 
 Code: `src/main/vellum/settings/topology-seal.ts`, `service.ts`,
 `settings/ipc.ts`, hosts configure/stamp scripts.
@@ -69,7 +72,7 @@ Code: `src/main/vellum/hosts/hosts-seal.ts`, `hosts/registry.ts`.
 
 | risk | status |
 |---|---|
-| Offline edit of `settings.json` **after** a seal exists | **mitigated** — MAC fail → role unset |
+| Offline edit of `settings.json` **after** a seal exists | **mitigated** — MAC fail → integrity-failed lock (not first-run) |
 | Offline edit of `hosts.json` **after** a seal exists | **mitigated** — MAC fail → local-only |
 | Delete seal only (key remains) | **mitigated** — fail closed |
 | Delete key only (seal remains) | **mitigated** — fail closed |
@@ -93,10 +96,11 @@ claim hostility against a fully privileged same-user attacker.
 - **Existing installs:** first load after upgrade bootstraps a seal over the
   current role / hosts membership (no key/seal yet). From then on, offline
   edits fail closed.
-- **CC `configure-remote` / deploy stamp:** writes remote settings, removes
-  remote topology seal material; remote first start bootstraps. (Hosts seal is
-  local to each station's enrollment file; remote hosts.json is not stamped
-  by CC in this cut.)
+- **CC `configure-remote` / deploy stamp:** writes remote settings first, then
+  removes remote topology seal material; remote first start bootstraps.
+  "Already configured" requires matching settings **and** present topology
+  seals (absent seals force re-stamp). (Hosts seal is local to each station's
+  enrollment file; remote hosts.json is not stamped by CC in this cut.)
 
 ## Next migration steps (not this pass)
 

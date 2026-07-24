@@ -5,8 +5,8 @@
  * - **prefs** (appearance, canvas, kernel, browser, audio, advanced) may live
  *   in ambient `settings.json` and are mutable via generic settingsPatch.
  * - **topology** (station.role, hostId, agentHostId, commandCenterRef,
- *   supervisedPreferred) must not be mutably trusted from an offline plaintext
- *   edit alone.
+ *   supervisedPreferred, topologyIntegrity) must not be mutably trusted from
+ *   an offline plaintext edit alone.
  *
  * Mechanism (app-owned integrity, not a crypto vault):
  * - `topology.key`  — machine-local HMAC secret (32 bytes, mode 0600)
@@ -14,9 +14,11 @@
  *
  * Admit rules on load (after settings decode):
  * - key+seal absent → **bootstrap** (first run / CC-stamped remote after seal
- *   invalidation) — accept topology and write seal
+ *   invalidation) — accept topology and write seal (topologyIntegrity: ok)
  * - key present, seal missing | seal present, key missing | MAC mismatch |
- *   corrupt seal → **fail closed** — strip station to defaults (role unset)
+ *   corrupt seal → **integrity-failed** — durable lock (role unset +
+ *   topologyIntegrity: "failed"), not first-run "". Ordinary setStationTopology
+ *   cannot promote to command-center/remote until a recovery ceremony.
  * - both present + MAC ok → accept
  *
  * Residual risk until a full protected store: same-user who can delete both
@@ -57,6 +59,7 @@ export type TopologyMaterial = {
   readonly agentHostId?: string;
   readonly commandCenterRef: string;
   readonly supervisedPreferred: boolean;
+  readonly topologyIntegrity: string;
 };
 
 export type TopologyPaths = SealPaths;
@@ -72,6 +75,7 @@ export const topologyFromStation = (station: StationSettings): TopologyMaterial 
   ...(station.agentHostId !== undefined ? { agentHostId: station.agentHostId } : {}),
   commandCenterRef: station.commandCenterRef,
   supervisedPreferred: station.supervisedPreferred,
+  topologyIntegrity: station.topologyIntegrity,
 });
 
 /**
@@ -84,11 +88,36 @@ export const canonicalizeTopology = (material: TopologyMaterial): Buffer => {
     hostId: material.hostId,
     role: material.role,
     supervisedPreferred: material.supervisedPreferred,
+    topologyIntegrity: material.topologyIntegrity,
   };
   if (material.agentHostId !== undefined) {
     body.agentHostId = material.agentHostId;
   }
   // JSON.stringify insertion order follows key creation; re-key sorted for safety.
+  const ordered: Record<string, string | boolean> = {};
+  for (const key of Object.keys(body).sort()) {
+    ordered[key] = body[key]!;
+  }
+  return Buffer.from(JSON.stringify(ordered), "utf8");
+};
+
+/**
+ * Pre-integrity-field seal body (no topologyIntegrity key). Used only to admit
+ * seals written before that field existed; successful admit reseals under the
+ * current canonical form.
+ */
+export const canonicalizeTopologyLegacy = (
+  material: Omit<TopologyMaterial, "topologyIntegrity">,
+): Buffer => {
+  const body: Record<string, string | boolean> = {
+    commandCenterRef: material.commandCenterRef,
+    hostId: material.hostId,
+    role: material.role,
+    supervisedPreferred: material.supervisedPreferred,
+  };
+  if (material.agentHostId !== undefined) {
+    body.agentHostId = material.agentHostId;
+  }
   const ordered: Record<string, string | boolean> = {};
   for (const key of Object.keys(body).sort()) {
     ordered[key] = body[key]!;
@@ -147,19 +176,37 @@ export const verifyTopologySeal = async (
   );
 };
 
+const verifyTopologySealLegacy = async (
+  settingsPath: string,
+  material: TopologyMaterial,
+): Promise<TopologyVerifyStatus> => {
+  const paths = topologyPathsForSettings(settingsPath);
+  const { topologyIntegrity: _drop, ...legacy } = material;
+  return verifySealFile(
+    paths,
+    TOPOLOGY_SEAL_DOMAIN,
+    TOPOLOGY_SEAL_VERSION,
+    TOPOLOGY_SEAL_ALG,
+    canonicalizeTopologyLegacy(legacy),
+  );
+};
+
 /**
  * Admit topology from a loaded settings document.
- * On reject: returns settings with station reset to defaults (role unset → StationRoleGate).
+ * On reject: durable integrity-failed lock (role unset + topologyIntegrity
+ * "failed") — never first-run "" with integrity ok (would open CC picker).
  * Does not rewrite settings.json — caller persists when appropriate.
- * Always ensures a seal for the admitted topology (bootstrap or after strip).
+ * Always ensures a seal for the admitted topology (bootstrap or after lock).
  */
 export const admitStationTopology = async (
   settingsPath: string,
   settings: Settings,
 ): Promise<{
   readonly settings: Settings;
-  readonly outcome: "valid" | "bootstrap" | "stripped";
+  readonly outcome: "valid" | "bootstrap" | "integrity-failed";
   readonly reason?: string;
+  /** True when a pre-integrity seal was accepted and needs reseal + disk heal. */
+  readonly resealed?: boolean;
 }> => {
   const material = topologyFromStation(settings.station);
   const verified = await verifyTopologySeal(settingsPath, material);
@@ -169,18 +216,58 @@ export const admitStationTopology = async (
   }
 
   if (verified.status === "bootstrap") {
-    await writeTopologySeal(settingsPath, material);
-    return { settings, outcome: "bootstrap", reason: verified.reason };
+    // Bootstrap always admits as integrity-ok (first run / post-stamp).
+    const admitted: Settings = {
+      ...settings,
+      station: {
+        ...settings.station,
+        topologyIntegrity: "ok",
+      },
+    };
+    await writeTopologySeal(
+      settingsPath,
+      topologyFromStation(admitted.station),
+    );
+    return { settings: admitted, outcome: "bootstrap", reason: verified.reason };
   }
 
-  const stripped: Settings = {
+  // Upgrade path: seals written before topologyIntegrity was sealed may MAC
+  // under the legacy body. Admit once, reseal under the current form.
+  if (verified.reason === "mac-mismatch") {
+    const legacy = await verifyTopologySealLegacy(settingsPath, material);
+    if (legacy.status === "valid") {
+      const admitted: Settings = {
+        ...settings,
+        station: {
+          ...settings.station,
+          topologyIntegrity: "ok",
+        },
+      };
+      await writeTopologySeal(
+        settingsPath,
+        topologyFromStation(admitted.station),
+      );
+      return {
+        settings: admitted,
+        outcome: "valid",
+        resealed: true,
+        reason: "legacy-seal-migrated",
+      };
+    }
+  }
+
+  // MAC/asymmetric/corrupt: lock closed — not first-run.
+  const locked: Settings = {
     ...settings,
-    station: defaultStation(),
+    station: {
+      ...defaultStation(),
+      topologyIntegrity: "failed",
+    },
   };
-  await writeTopologySeal(settingsPath, topologyFromStation(stripped.station));
+  await writeTopologySeal(settingsPath, topologyFromStation(locked.station));
   return {
-    settings: stripped,
-    outcome: "stripped",
+    settings: locked,
+    outcome: "integrity-failed",
     reason: verified.reason,
   };
 };

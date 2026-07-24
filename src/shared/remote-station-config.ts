@@ -70,6 +70,7 @@ export const planRemoteStationFields = (
     agentHostId,
     commandCenterRef,
     supervisedPreferred: input.supervisedPreferred ?? true,
+    topologyIntegrity: "ok",
   };
 };
 
@@ -102,7 +103,11 @@ export const remoteStationSettingsFromScratch = (
   input: RemoteStationConfigInput,
 ): Settings => mergeRemoteStationSettings(defaultSettings(), input);
 
-/** True when settings.station already matches the planned Remote stamp. */
+/**
+ * True when settings.station already matches the planned Remote stamp and
+ * integrity is ok. Seal presence is a separate check on the SSH path —
+ * seals absent is not success (force re-stamp).
+ */
 export const remoteStationAlreadyConfigured = (
   settings: Settings,
   input: RemoteStationConfigInput,
@@ -114,6 +119,7 @@ export const remoteStationAlreadyConfigured = (
     s.hostId === planned.hostId &&
     s.agentHostId === planned.agentHostId &&
     s.commandCenterRef === planned.commandCenterRef &&
-    s.supervisedPreferred === planned.supervisedPreferred
+    s.supervisedPreferred === planned.supervisedPreferred &&
+    s.topologyIntegrity === "ok"
   );
 };

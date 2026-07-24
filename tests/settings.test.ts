@@ -315,7 +315,7 @@ describe("settings service", () => {
     expect(reloaded.station.hostId).toBe("local");
   });
 
-  it("tampered topology fields fail closed to role unset", async () => {
+  it("tampered topology fields fail closed to integrity-failed lock", async () => {
     const svc = await fresh();
     await run(svc.get);
     await run(
@@ -343,17 +343,19 @@ describe("settings service", () => {
     const svc2 = makeSettingsService(path);
     const admitted = await run(svc2.get);
     expect(admitted.station.role).toBe("");
+    expect(admitted.station.topologyIntegrity).toBe("failed");
     expect(admitted.station.commandCenterRef).toBe("");
     expect(admitted.station.supervisedPreferred).toBe(false);
 
-    // Disk rewritten fail-closed.
+    // Disk rewritten fail-closed as integrity-failed (not first-run ok).
     const after = JSON.parse(await readFile(path, "utf8")) as {
-      station: { role: string };
+      station: { role: string; topologyIntegrity: string };
     };
     expect(after.station.role).toBe("");
+    expect(after.station.topologyIntegrity).toBe("failed");
   });
 
-  it("tampered seal mac fails closed", async () => {
+  it("tampered seal mac fails closed to integrity-failed", async () => {
     const svc = await fresh();
     await run(svc.get);
     await run(svc.setStationTopology({ role: "remote", hostId: "box", commandCenterRef: "cc" }));
@@ -368,9 +370,10 @@ describe("settings service", () => {
     const svc2 = makeSettingsService(path);
     const admitted = await run(svc2.get);
     expect(admitted.station.role).toBe("");
+    expect(admitted.station.topologyIntegrity).toBe("failed");
   });
 
-  it("missing seal after key exists fails closed", async () => {
+  it("missing seal after key exists fails closed to integrity-failed", async () => {
     const svc = await fresh();
     await run(svc.get);
     await run(svc.setStationTopology({ role: "command-center" }));
@@ -386,6 +389,37 @@ describe("settings service", () => {
     const svc2 = makeSettingsService(path);
     const admitted = await run(svc2.get);
     expect(admitted.station.role).toBe("");
+    expect(admitted.station.topologyIntegrity).toBe("failed");
+  });
+
+  it("integrity-failed blocks setStationTopology promotion to command-center", async () => {
+    const svc = await fresh();
+    await run(svc.get);
+    await run(svc.setStationTopology({ role: "command-center", hostId: "local" }));
+
+    // Tamper to force integrity-failed lock.
+    const paths = topologyPathsForSettings(path);
+    await writeFile(
+      paths.seal,
+      `${JSON.stringify({ version: 1, alg: "hmac-sha256", mac: "broken" })}\n`,
+      "utf8",
+    );
+    const locked = makeSettingsService(path);
+    const admitted = await run(locked.get);
+    expect(admitted.station.topologyIntegrity).toBe("failed");
+    expect(admitted.station.role).toBe("");
+
+    const promote = await runEither(
+      locked.setStationTopology({ role: "command-center", hostId: "local" }),
+    );
+    expect(Either.isLeft(promote)).toBe(true);
+    if (Either.isLeft(promote)) {
+      expect(promote.left.code).toBe("validation");
+      expect(promote.left.message).toMatch(/integrity failed/i);
+    }
+    const still = await run(locked.get);
+    expect(still.station.role).toBe("");
+    expect(still.station.topologyIntegrity).toBe("failed");
   });
 
   it("bootstrap admits unsealed topology once then seals", async () => {
@@ -416,7 +450,7 @@ describe("settings service", () => {
     await stat(paths.key);
     await stat(paths.seal);
 
-    // Subsequent offline role flip fails closed.
+    // Subsequent offline role flip fails closed (integrity-failed, not first-run).
     const disk = JSON.parse(await readFile(path, "utf8")) as ReturnType<
       typeof defaultSettings
     >;
@@ -429,8 +463,9 @@ describe("settings service", () => {
     };
     await writeFile(path, `${JSON.stringify(flipped, null, 2)}\n`, "utf8");
     const svc2 = makeSettingsService(path);
-    const stripped = await run(svc2.get);
-    expect(stripped.station.role).toBe("");
+    const locked = await run(svc2.get);
+    expect(locked.station.role).toBe("");
+    expect(locked.station.topologyIntegrity).toBe("failed");
   });
 
   it("refuses ambient reset of station topology", async () => {

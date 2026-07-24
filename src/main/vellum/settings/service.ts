@@ -139,8 +139,15 @@ const loadFromDisk = async (path: string): Promise<Settings> => {
   }
 
   const admitted = await admitStationTopology(path, migrated.right);
-  if (admitted.outcome === "stripped") {
-    // Persist fail-closed station so disk and live view agree (role unset → gate).
+  if (
+    admitted.outcome === "integrity-failed" ||
+    admitted.resealed === true ||
+    (admitted.outcome === "bootstrap" &&
+      JSON.stringify(admitted.settings.station) !==
+        JSON.stringify(migrated.right.station))
+  ) {
+    // Persist integrity-failed lock, legacy seal migration, or bootstrap heal
+    // so disk and live view agree — never leave a sealed lock only in memory.
     await atomicWrite(path, admitted.settings);
   }
   return admitted.settings;
@@ -293,16 +300,31 @@ export const makeSettingsService = (
             const patchEither = decodeStationTopologyPatch(input);
             if (Either.isLeft(patchEither)) throw patchEither.left;
             const current = await ensureLoaded();
-            // Validate via full aggregate decode after merge.
+            // Integrity-failed is not first-run: refuse ordinary role mint.
+            // Recovery / transfer ceremony is a dedicated path (not Settings).
+            if (current.station.topologyIntegrity === "failed") {
+              throw new SettingsError({
+                message:
+                  "Topology integrity failed — recovery requires an explicit Command Center transfer ceremony; Settings cannot promote this station to command-center or remote",
+                code: "validation",
+              });
+            }
+            // Validate via full aggregate decode after merge. App writes always
+            // land as integrity-ok (failed is only set by admit on seal breach).
+            const stationPatch = {
+              ...patchEither.right,
+              topologyIntegrity: "ok" as const,
+            };
             const validated = applyAndValidatePatch(current, {
-              station: patchEither.right,
+              station: stationPatch,
             });
             if (Either.isLeft(validated)) throw validated.left;
             const prevRole = current.station.role;
             const nextRole = validated.right.station.role;
             // Doctrine: role transitions between sealed roles (or clearing a
             // sealed role) are Command Center transfer / migration ceremonies —
-            // not Settings toggles. First-run "" → command-center|remote is ok.
+            // not Settings toggles. First-run "" → command-center|remote is ok
+            // only when topologyIntegrity is ok (checked above).
             if (
               (prevRole === "command-center" || prevRole === "remote") &&
               nextRole !== prevRole

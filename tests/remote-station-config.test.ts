@@ -22,6 +22,7 @@ describe("remote station config planner", () => {
       agentHostId: "studio",
       commandCenterRef: "local",
       supervisedPreferred: true,
+      topologyIntegrity: "ok",
     });
   });
 
@@ -90,6 +91,7 @@ describe("remote station config planner", () => {
   it("alreadyConfigured matches planned stamp only", () => {
     const configured = remoteStationSettingsFromScratch(input);
     expect(remoteStationAlreadyConfigured(configured, input)).toBe(true);
+    expect(configured.station.topologyIntegrity).toBe("ok");
     expect(
       remoteStationAlreadyConfigured(configured, {
         ...input,
@@ -97,6 +99,15 @@ describe("remote station config planner", () => {
       }),
     ).toBe(false);
     expect(remoteStationAlreadyConfigured(defaultSettings(), input)).toBe(false);
+    expect(
+      remoteStationAlreadyConfigured(
+        {
+          ...configured,
+          station: { ...configured.station, topologyIntegrity: "failed" },
+        },
+        input,
+      ),
+    ).toBe(false);
   });
 
   it("plan summary is glanceable", () => {
