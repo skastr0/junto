@@ -530,7 +530,7 @@ test("capture every surface for design review", async () => {
     await expect(requestInbox).toBeVisible();
     await expect(requestInbox.getByText("Confirm release signing identity", { exact: true }).first()).toBeVisible();
     await shot(page, "06e-input-requests");
-    await requestInbox.getByRole("button", { name: "Close input requests" }).click();
+    await requestInbox.locator('button[title="Close"]').click();
     await expect(requestInbox).toBeHidden();
 
     const artifactsNodeCard = page.locator('.react-flow__node[data-id="art1"]');
@@ -539,7 +539,7 @@ test("capture every surface for design review", async () => {
     await expect(artifactLibrary).toBeVisible();
     await expect(artifactLibrary.getByText("release-v1.4.2-sigstore.json", { exact: true }).first()).toBeVisible();
     await shot(page, "06f-artifact-library");
-    await artifactLibrary.getByRole("button", { name: "Close artifacts" }).click();
+    await artifactLibrary.locator('button[title="Close"]').click();
     await expect(artifactLibrary).toBeHidden();
 
     // Edge label closeup.
