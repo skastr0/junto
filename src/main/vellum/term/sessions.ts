@@ -197,8 +197,10 @@ export const makeTerminalSessions = (
     pasteImageProduct: (streamId, extension, dataBase64) =>
       streams.pasteImage(streamId, extension, dataBase64),
     closeProduct: (streamId, reason = "client_close") => {
-      streams.close(streamId, reason);
-      return { ok: true };
+      const result = streams.close(streamId, reason);
+      return result.ok
+        ? { ok: true as const }
+        : { ok: false as const, error: result.error ?? "close failed" };
     },
 
     setFrameSink: (sink) => streams.setSink(sink),

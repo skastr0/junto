@@ -1,4 +1,4 @@
-import { lstat, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -12,6 +12,7 @@ import {
 } from "@shared/canvas-name";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import {
+  CanvasAuthorityError,
   canvasAuthorityRoot,
   commitAuthorityGeneration,
   loadAuthoritySnapshot,
@@ -209,11 +210,12 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       CanvasError
     >;
     /**
-     * Projection install plane: replace live authority with the installed set.
-     * Only the pull/install path calls this.
+     * Replace live authority with a fully decoded document set (projection
+     * install). Commits one full-map generation. Names not in the set are
+     * removed. Callers must validate the set before invoking.
      */
-    readonly replaceLiveAuthorityFromInstall: (
-      installedNames: ReadonlyArray<string>,
+    readonly replaceLiveAuthorityDocuments: (
+      documents: ReadonlyMap<string, CanvasDoc>,
     ) => Effect.Effect<void, CanvasError>;
   }
 >() {}
@@ -240,6 +242,11 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   let bootstrapped = false;
   /** Last committed authority generation (BigInt). Next commit is +1n. */
   let authorityGeneration = 0n;
+  /**
+   * Non-empty when the store is unusable (corrupt generation, orphan objects
+   * without pointer). Mutations refuse; doctor reports the reason.
+   */
+  let authorityBlocked: string | undefined;
 
   // Per-canvas-file write mutex: overlapping write() calls for the same
   // name queue behind each other instead of racing the same tmp file. Each
@@ -317,12 +324,22 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
    * Refuses accidental shrinkage: names present in the previous generation
    * must still be present unless listed in `explicitlyRemoved`.
    */
+  const assertAuthorityWritable = (): void => {
+    if (authorityBlocked !== undefined) {
+      throw new CanvasError({
+        message: `canvas authority blocked: ${authorityBlocked}`,
+      });
+    }
+  };
+
   const commitLiveAuthorityGeneration = async (
     explicitlyRemoved: ReadonlySet<string> = new Set(),
   ): Promise<void> =>
     withAuthorityMutex(async () => {
+      assertAuthorityWritable();
       const authRoot = canvasAuthorityRoot();
-      const previous = await loadAuthoritySnapshot(authRoot).catch(() => undefined);
+      // Fail closed: a corrupt store must not look "absent" and allow shrink.
+      const previous = await loadAuthoritySnapshot(authRoot);
       if (previous !== undefined) {
         for (const name of previous.documents.keys()) {
           if (!liveAuthority.has(name) && !explicitlyRemoved.has(name)) {
@@ -354,27 +371,52 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
   const virtualPath = (name: CanvasName): string =>
     canvasDocumentPathIn(canvasesDir(), name);
 
+  /** True when objects exist without a usable current.json pointer. */
+  const authorityOrphansPresent = async (authRoot: string): Promise<boolean> => {
+    for (const sub of ["documents", "manifests"] as const) {
+      try {
+        const entries = await readdir(join(authRoot, sub));
+        if (entries.some((name) => !name.endsWith(".tmp"))) return true;
+      } catch {
+        // missing dir is fine
+      }
+    }
+    return false;
+  };
+
+  /**
+   * Load one full generation into the live map. Any invalid name or semantic
+   * document fails the whole generation — never partial skip.
+   */
   const loadSnapshotIntoLive = (
     root: string,
     snapshot: NonNullable<Awaited<ReturnType<typeof loadAuthoritySnapshot>>>,
   ): void => {
-    liveAuthority.clear();
+    const next = new Map<string, LiveAuthority>();
     for (const [rawName, bytes] of snapshot.documents) {
       let name: CanvasName;
       try {
         name = canvasNameFrom(rawName);
-      } catch {
-        console.error(
-          `[canvases] authority document skipped (invalid name): ${rawName}`,
-        );
-        continue;
+      } catch (error) {
+        throw new CanvasError({
+          message: `authority generation ${snapshot.pointer.generation} unusable: invalid name "${rawName}" (${
+            error instanceof Error ? error.message : String(error)
+          })`,
+        });
       }
       try {
-        const entry = decodeDocumentBytes(name, virtualPath(name), bytes);
-        liveAuthority.set(name, entry);
+        next.set(name, decodeDocumentBytes(name, virtualPath(name), bytes));
       } catch (error) {
-        console.error(`[canvases] authority document skipped (${name}):`, error);
+        throw new CanvasError({
+          message: `authority generation ${snapshot.pointer.generation} unusable: document "${name}" failed (${
+            error instanceof Error ? error.message : String(error)
+          })`,
+        });
       }
+    }
+    liveAuthority.clear();
+    for (const [name, entry] of next) {
+      liveAuthority.set(name, entry);
     }
     authorityGeneration = BigInt(snapshot.pointer.generation);
   };
@@ -384,11 +426,49 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     if (bootstrapPromise) return bootstrapPromise;
     bootstrapPromise = (async () => {
       // Sidecar root only — not a document store.
-      const root = await ensureCanvasesDir();
-      const snapshot = await loadAuthoritySnapshot(canvasAuthorityRoot());
-      if (snapshot !== undefined) {
-        loadSnapshotIntoLive(root, snapshot);
-      } else {
+      await ensureCanvasesDir();
+      const authRoot = canvasAuthorityRoot();
+      let snapshot: Awaited<ReturnType<typeof loadAuthoritySnapshot>>;
+      try {
+        snapshot = await loadAuthoritySnapshot(authRoot);
+      } catch (error) {
+        const detail =
+          error instanceof CanvasAuthorityError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        authorityBlocked = `corrupt authority store: ${detail}`;
+        liveAuthority.clear();
+        authorityGeneration = 0n;
+        bootstrapped = true;
+        return;
+      }
+      if (snapshot === undefined) {
+        if (await authorityOrphansPresent(authRoot)) {
+          authorityBlocked =
+            "authority pointer missing but store objects present; recovery required";
+          liveAuthority.clear();
+          authorityGeneration = 0n;
+          bootstrapped = true;
+          return;
+        }
+        authorityBlocked = undefined;
+        authorityGeneration = 0n;
+        bootstrapped = true;
+        return;
+      }
+      try {
+        loadSnapshotIntoLive(canvasesDir(), snapshot);
+        authorityBlocked = undefined;
+      } catch (error) {
+        authorityBlocked =
+          error instanceof CanvasError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        liveAuthority.clear();
         authorityGeneration = 0n;
       }
       bootstrapped = true;
@@ -402,6 +482,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
 
   const requireLive = async (name: CanvasName): Promise<LiveAuthority> => {
     await bootstrapLiveAuthority();
+    assertAuthorityWritable();
     const entry = liveAuthority.get(name);
     if (!entry) {
       throw new CanvasError({
@@ -451,6 +532,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       try: () =>
         withCanvasMutex(canvasFileName(canvasNameFrom(name)), async () => {
           await bootstrapLiveAuthority();
+          assertAuthorityWritable();
           const canonicalName = canvasNameFrom(name);
           const decoded = decodeCanvasDoc(doc);
           if (Either.isLeft(decoded)) {
@@ -536,6 +618,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
         const sanitized = canvasNameFrom(name);
         return withCanvasMutex(canvasFileName(sanitized), async () => {
           await bootstrapLiveAuthority();
+          assertAuthorityWritable();
           if (liveAuthority.has(sanitized)) {
             throw new CanvasError({ message: `canvas "${sanitized}" already exists` });
           }
@@ -566,6 +649,7 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
         try: () =>
           withCanvasMutex(canvasFileName(sanitized), async () => {
             await bootstrapLiveAuthority();
+            assertAuthorityWritable();
             const previous = liveAuthority.get(sanitized);
             if (previous === undefined) {
               throw new CanvasError({ message: `canvas "${sanitized}" does not exist` });
@@ -649,42 +733,49 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     });
 
   /**
-   * Remote pull / projection install: replace live authority with the
-   * installed set. Names not in installedNames are dropped (CC deleted them).
-   * Each installed name is re-decoded from disk under its mutex.
+   * Projection install: replace the live map with a fully-validated document
+   * set and commit one full-map generation. No disk re-read.
    */
-  const replaceLiveAuthorityFromInstall = (
-    installedNames: ReadonlyArray<string>,
+  const replaceLiveAuthorityDocuments = (
+    documents: ReadonlyMap<string, CanvasDoc>,
   ): Effect.Effect<void, CanvasError> =>
     Effect.tryPromise({
       try: async () => {
         await bootstrapLiveAuthority();
-        const root = await ensureCanvasesDir();
+        assertAuthorityWritable();
         const previous = new Map(liveAuthority);
-        const keep = new Set<string>();
-        const changed: CanvasName[] = [];
+        const previousGeneration = authorityGeneration;
+        const next = new Map<string, LiveAuthority>();
         const removed = new Set<string>();
-        for (const rawName of installedNames) {
+        const changed: CanvasName[] = [];
+
+        for (const [rawName, doc] of documents) {
           const name = canvasNameFrom(rawName);
-          keep.add(name);
-          await withCanvasMutex(canvasFileName(name), async () => {
-            const path = canvasDocumentPathIn(root, name);
-            await assertRegularOrMissing(path);
-            const raw = await readFile(path, "utf8");
-            const entry = decodeDocumentBytes(
-              name,
-              path,
-              textEncoder.encode(raw),
-            );
-            liveAuthority.set(name, entry);
-            changed.push(name);
+          const decoded = decodeCanvasDoc(doc);
+          if (Either.isLeft(decoded)) {
+            throw new CanvasError({
+              message: `projection document "${name}" failed validation: ${decoded.left.message}`,
+            });
+          }
+          const nextDoc = applyMirrorLaw(decoded.right);
+          const serialized = serializeCanvas(nextDoc);
+          next.set(name, {
+            doc: nextDoc,
+            revision: revisionOf(serialized),
+            path: virtualPath(name),
           });
+          changed.push(name);
         }
-        for (const name of [...liveAuthority.keys()]) {
-          if (keep.has(name)) continue;
-          liveAuthority.delete(name);
-          removed.add(name);
-          changed.push(name as CanvasName);
+        for (const name of liveAuthority.keys()) {
+          if (!next.has(name)) {
+            removed.add(name);
+            changed.push(name as CanvasName);
+          }
+        }
+
+        liveAuthority.clear();
+        for (const [name, entry] of next) {
+          liveAuthority.set(name, entry);
         }
         try {
           await commitLiveAuthorityGeneration(removed);
@@ -693,21 +784,32 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
           for (const [name, entry] of previous) {
             liveAuthority.set(name, entry);
           }
+          authorityGeneration = previousGeneration;
           throw error;
         }
         for (const name of changed) {
-          notifyListeners(name);
+          notifyListeners(name as CanvasName);
         }
       },
       catch: toCanvasError,
     });
 
   return CanvasesService.of({
-    doctor: Effect.succeed({
-      id: "canvases",
-      label: "Canvas Documents",
-      status: "ok",
-      detail: canvasAuthorityRoot(),
+    doctor: Effect.sync(() => {
+      if (authorityBlocked !== undefined) {
+        return {
+          id: "canvases",
+          label: "Canvas Documents",
+          status: "error" as const,
+          detail: authorityBlocked,
+        };
+      }
+      return {
+        id: "canvases",
+        label: "Canvas Documents",
+        status: "ok" as const,
+        detail: `${canvasAuthorityRoot()} · gen ${authorityGeneration.toString()}`,
+      };
     }),
     list,
     read,
@@ -720,6 +822,6 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     start,
     subscribeChanges,
     liveDocuments,
-    replaceLiveAuthorityFromInstall,
+    replaceLiveAuthorityDocuments,
   });
 });

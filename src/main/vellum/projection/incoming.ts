@@ -1,40 +1,26 @@
 /**
  * Remote station: apply Command Center projection frames from the drop path.
  *
- * Drop: `~/.vellum/projections/incoming.frame` (staged by compileProjectionFrameDeliver).
- * Apply: generation-gated station store install → materialize canvas docs →
- * optional live authority swap → consume drop file.
+ * Drop: `~/.vellum/projections/incoming.frame` (staged by delivery).
+ * Apply: generation-gated station store install → decode complete document set
+ * → replace live authority in one generation → consume drop file.
  *
  * Fail closed: corrupt/stale frames leave live authority untouched; drop is
  * not consumed on rejection so a re-push can overwrite the drop path.
  */
 
 import { constants } from "node:fs";
-import {
-  lstat,
-  mkdir,
-  open,
-  readdir,
-  rename,
-  rm,
-} from "node:fs/promises";
+import { open, rename, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-  canvasPullFileName,
-  canvasNameFromListingEntry,
-} from "@shared/canvas-pull";
+import { Either } from "effect";
+import { decodeCanvasDoc, type CanvasDoc } from "@shared/canvas";
 import {
   PROJECTION_DROP_RELATIVE_DIR,
   PROJECTION_INCOMING_BASENAME,
 } from "../ssh/remote-plan";
-import {
-  preparePulledCanvasBody,
-  writeStagedCanvasFile,
-  applyStagedCanvasProjection,
-} from "../canvas-pull";
-import { canvasNameFrom, ensureCanvasesDir } from "../canvases";
+import { canvasNameFrom } from "../canvases";
 import {
   applyStationProjectionGeneration,
   stationProjectionRoot,
@@ -79,9 +65,12 @@ export type ApplyIncomingProjectionDeps = {
   readonly storeRoot?: string;
   /** Drop directory containing incoming.frame. */
   readonly dropRoot?: string;
-  /** Admit installed canvas names into live authority after disk materialize. */
-  readonly replaceLiveAuthority?: (
-    names: ReadonlyArray<string>,
+  /**
+   * Replace live authority with the fully decoded projection document set.
+   * Required for product apply; tests may omit to exercise store-only path.
+   */
+  readonly replaceLiveAuthorityDocuments?: (
+    documents: ReadonlyMap<string, CanvasDoc>,
   ) => Promise<void>;
 };
 
@@ -146,30 +135,9 @@ const consumeIncomingFrame = async (
   }
 };
 
-const deleteLocalCanvasesAbsentFrom = async (
-  keepNames: ReadonlyArray<string>,
-): Promise<void> => {
-  const targetDir = await ensureCanvasesDir();
-  const keep = new Set(keepNames.map(canvasPullFileName));
-  const entries = await readdir(targetDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isFile() || keep.has(entry.name)) continue;
-    const name = canvasNameFromListingEntry(entry.name);
-    if (name === undefined) continue;
-    const path = join(targetDir, entry.name);
-    try {
-      const info = await lstat(path);
-      if (!info.isFile() || info.isSymbolicLink()) continue;
-      await rm(path);
-    } catch {
-      /* best-effort mirror reconcile */
-    }
-  }
-};
-
 /**
  * If `incoming.frame` is present, install it into the station projection store
- * and replace local canvas documents (+ optional live authority).
+ * and replace live authority with the complete decoded document set.
  */
 export const applyIncomingProjectionFrame = async (
   deps: ApplyIncomingProjectionDeps = {},
@@ -197,48 +165,49 @@ export const applyIncomingProjectionFrame = async (
     };
   }
 
-  const stageDir = join(
-    await ensureCanvasesDir(),
-    `.projection-stage-${randomUUID()}`,
-  );
+  const documents = new Map<string, CanvasDoc>();
   const names: string[] = [];
-  try {
-    await mkdir(stageDir, { recursive: true, mode: 0o700 });
-
-    const snapshotDocs = storeResult.snapshot.documents;
-    const staged = [];
-    for (const [rawName, bodyBytes] of snapshotDocs) {
-      const name = canvasNameFrom(rawName);
-      const raw = new TextDecoder().decode(bodyBytes);
-      const prepared = preparePulledCanvasBody(name, raw);
-      if (!prepared.ok) {
-        return {
-          status: "rejected",
-          detail: prepared.detail,
-        };
-      }
-      staged.push(await writeStagedCanvasFile(stageDir, name, prepared.body));
-      names.push(name);
-    }
-    names.sort((a, b) => a.localeCompare(b));
-    await applyStagedCanvasProjection(stageDir, staged);
-    await deleteLocalCanvasesAbsentFrom(names);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      status: "rejected",
-      detail: `materialize failed after store install: ${message}`.slice(
-        0,
-        4_096,
-      ),
-    };
-  } finally {
-    await rm(stageDir, { recursive: true, force: true }).catch(() => undefined);
-  }
-
-  if (deps.replaceLiveAuthority) {
+  for (const [rawName, bodyBytes] of storeResult.snapshot.documents) {
+    let name: string;
     try {
-      await deps.replaceLiveAuthority(names);
+      name = canvasNameFrom(rawName);
+    } catch (error) {
+      return {
+        status: "rejected",
+        detail: `invalid canvas name in frame: ${rawName} (${
+          error instanceof Error ? error.message : String(error)
+        })`.slice(0, 4_096),
+      };
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(bodyBytes));
+    } catch (error) {
+      return {
+        status: "rejected",
+        detail: `canvas "${name}" is not valid JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`.slice(0, 4_096),
+      };
+    }
+    const decoded = decodeCanvasDoc(parsed);
+    if (Either.isLeft(decoded)) {
+      return {
+        status: "rejected",
+        detail: `canvas "${name}" failed validation: ${decoded.left.message}`.slice(
+          0,
+          4_096,
+        ),
+      };
+    }
+    documents.set(name, decoded.right);
+    names.push(name);
+  }
+  names.sort((a, b) => a.localeCompare(b));
+
+  if (deps.replaceLiveAuthorityDocuments) {
+    try {
+      await deps.replaceLiveAuthorityDocuments(documents);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {

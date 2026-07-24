@@ -211,4 +211,44 @@ describe("CanvasesService authority store", () => {
       runtime.runPromise(Effect.either(canvases.read("drop"))),
     ).resolves.toMatchObject({ _tag: "Left" });
   });
+
+  it("corrupt pointer blocks authoring without collapsing the store", async () => {
+    await installEnv();
+    runtime = ManagedRuntime.make(CanvasesLive);
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(canvases.write("alpha", noteDoc("kept")));
+    await runtime.dispose();
+    runtime = undefined;
+
+    await writeFile(join(authorityDir, "current.json"), "{not-json", "utf8");
+
+    runtime = ManagedRuntime.make(CanvasesLive);
+    const blocked = await runtime.runPromise(CanvasesService);
+    await expect(
+      runtime.runPromise(Effect.either(blocked.write("beta", noteDoc("nope")))),
+    ).resolves.toMatchObject({ _tag: "Left" });
+    const doctor = await runtime.runPromise(blocked.doctor);
+    expect(doctor.status).toBe("error");
+    expect(doctor.detail).toMatch(/corrupt/i);
+  });
+
+  it("orphan store objects without a pointer block authoring", async () => {
+    await installEnv();
+    runtime = ManagedRuntime.make(CanvasesLive);
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(canvases.write("alpha", noteDoc("object")));
+    await runtime.dispose();
+    runtime = undefined;
+
+    await rm(join(authorityDir, "current.json"), { force: true });
+
+    runtime = ManagedRuntime.make(CanvasesLive);
+    const blocked = await runtime.runPromise(CanvasesService);
+    await expect(
+      runtime.runPromise(Effect.either(blocked.write("beta", noteDoc("nope")))),
+    ).resolves.toMatchObject({ _tag: "Left" });
+    const doctor = await runtime.runPromise(blocked.doctor);
+    expect(doctor.status).toBe("error");
+    expect(doctor.detail).toMatch(/recovery required/i);
+  });
 });

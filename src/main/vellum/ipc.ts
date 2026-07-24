@@ -10,7 +10,7 @@ import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { CanvasesService } from "./canvases";
-import { pullCanvasesFromCommandCenter } from "./canvas-pull";
+
 import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
 import { HermesPlane } from "./hermes/plane";
@@ -224,12 +224,14 @@ export const registerVellumIpc = (): void => {
     ),
   );
 
-  // Remote → Command Center canvas pull (read-only; never mutates CC).
+  // Beta: raw canvas-pull is removed. Fleet intent is projection push only.
   privilegedIpc.handle(IPC_CHANNELS.pullCanvases, () =>
-    runMainAuthoring(
-      "ipc.canvas.pull",
-      () => AppRuntime.runPromise(pullCanvasesFromCommandCenter),
-    ),
+    Promise.resolve({
+      status: "failed" as const,
+      detail:
+        "canvas-pull is disabled; use station projection push from Command Center",
+      files: [] as const,
+    }),
   );
 
   privilegedIpc.handle(IPC_CHANNELS.exportDigest, (_event, name: string) =>
@@ -488,15 +490,20 @@ export const registerVellumIpc = (): void => {
       const kernel = yield* KernelService;
       const chat = yield* ChatServiceContext;
       const herdr = yield* HerdrPlane;
-      yield* Effect.tryPromise({
-        try: () => runMainAuthoring(
-          "startup.canvas.ensure-seed",
-          () => Effect.runPromise(canvases.ensureSeed),
-        ),
-        catch: () => undefined,
-      }).pipe(Effect.catchAll(() => Effect.void));
+      const settingsForSeed = yield* SettingsService;
+      const stationForSeed = yield* settingsForSeed.get;
+      // Fresh Command Center (or unset) may seed. Remote never authors a seed.
+      if (stationForSeed.station.role !== "remote") {
+        yield* Effect.tryPromise({
+          try: () =>
+            runMainAuthoring("startup.canvas.ensure-seed", () =>
+              Effect.runPromise(canvases.ensureSeed),
+            ),
+          catch: () => undefined,
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
-      // Coalesced CC → Remote projection push (beta fleet path). Pull remains fallback.
+      // Coalesced CC → Remote projection push (beta fleet path).
       {
         let pushTimer: ReturnType<typeof setTimeout> | undefined;
         const scheduleProjectionPush = (): void => {
@@ -610,8 +617,7 @@ export const registerVellumIpc = (): void => {
       usage.start();
       kernel.start();
 
-      // Remote beta: apply any staged projection frame drop after live maps start.
-      // Failures are logged; canvas-pull remains the operator fallback.
+      // Remote: apply any staged projection frame after live maps start.
       void AppRuntime.runPromise(
         Effect.gen(function* () {
           const settings = yield* SettingsService;
@@ -624,10 +630,10 @@ export const registerVellumIpc = (): void => {
           const canvasesSvc = yield* CanvasesService;
           const outcome = yield* Effect.promise(() =>
             applyIncomingProjectionFrame({
-              replaceLiveAuthority: async (names) => {
+              replaceLiveAuthorityDocuments: async (documents) => {
                 const admit = await AppRuntime.runPromise(
                   canvasesSvc
-                    .replaceLiveAuthorityFromInstall(names)
+                    .replaceLiveAuthorityDocuments(documents)
                     .pipe(Effect.either),
                 );
                 if (admit._tag === "Left") {

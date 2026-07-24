@@ -330,7 +330,11 @@ export function HerdrTerminalPanel({
       for (const bytes of frames) term.write(base64ToUtf8(bytes));
     };
     const markLive = (): void => {
-      liveFrameSeen = true;
+      if (!liveFrameSeen) {
+        liveFrameSeen = true;
+        // First live frame after open/reconnect resets attempt counters.
+        setConnectionEvent(nodeId, { type: "ok" });
+      }
       hostEl.style.opacity = "1";
     };
     // Cached terminal id is good enough for a dimmed preview — the live id is
@@ -464,8 +468,9 @@ export function HerdrTerminalPanel({
           sessionRecoveryCodeFromReason(event.reason);
         streamIdRef.current = undefined;
         setTerminalStreamId(nodeId, undefined);
+        // stream_drop first so canAutoReconnect sees degraded state.
+        setConnectionEvent(nodeId, { type: "stream_drop" });
         if (sessionRecoveryShouldAutoReconnect(code) && canAutoReconnect(nodeId)) {
-          setConnectionEvent(nodeId, { type: "stream_drop" });
           setConnectionEvent(nodeId, { type: "reconnect_start" });
           setStatus("reconnecting…");
           void openStream();
@@ -475,10 +480,8 @@ export function HerdrTerminalPanel({
         } else if (!sessionRecoveryShouldAutoReconnect(code)) {
           // client_close / renderer_reloaded / supersede — stay quiet.
           setStatus(code === "client_close" ? "detached" : `closed · ${code}`);
-          setConnectionEvent(nodeId, { type: "stream_drop" });
         } else {
           setStatus(`closed · ${code}`);
-          setConnectionEvent(nodeId, { type: "stream_drop" });
           setConnectionEvent(nodeId, { type: "reconnect_exhausted" });
         }
       }
