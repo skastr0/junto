@@ -66,8 +66,19 @@ cleanup_package_assets() {
 trap cleanup_package_assets EXIT
 install -m 0644 -- assets/brand/vellum-command-icon.png "$PACKAGE_ICON"
 
+# Prefer a pre-materialized Electron tree when set (or the node_modules dist).
+# Avoids app-builder re-download, which can SIGSEGV under some x86_64-on-arm
+# OrbStack guests during DNS/netpoll.
+ELECTRON_DIST_ARGS=()
+if [[ -n "${ELECTRON_DIST:-}" ]]; then
+  ELECTRON_DIST_ARGS+=(--config.electronDist="$ELECTRON_DIST")
+elif [[ -x "node_modules/electron/dist/electron" ]]; then
+  ELECTRON_DIST_ARGS+=(--config.electronDist=node_modules/electron/dist)
+fi
+
 bunx --no-install electron-builder --linux dir deb --x64 \
   --config.npmRebuild=false \
+  "${ELECTRON_DIST_ARGS[@]}" \
   --config.linux.icon="$PACKAGE_ICON"
 finalized="$(bun "$SCRIPT_DIR/finalize-linux-package.ts" --release-dir "$SCRIPT_DIR/../release")"
 unpacked="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.artifact !== "string") process.exit(1); process.stdout.write(value.artifact)')"
