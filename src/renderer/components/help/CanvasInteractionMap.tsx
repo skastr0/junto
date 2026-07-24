@@ -1,0 +1,79 @@
+import {
+  HelpMap,
+  HelpMapGroup,
+  HelpMapKeys,
+  HelpMapPrimer,
+  HelpMapPrimerBlock,
+  type HelpMapKeyRow,
+} from "../ui";
+
+/** Canvas pointer / gesture inventory — single source for the interaction map. */
+export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
+  { keys: "scroll", action: "pan the field" },
+  { keys: "mid-drag", action: "pan the field" },
+  { keys: "drag empty", action: "rubber-band multi-select" },
+  { keys: "double-click", action: "add a note at cursor" },
+  { keys: "right-click empty", action: "add item menu (place at cursor)" },
+  { keys: "right-click region", action: "add item inside the region" },
+  { keys: "drag card", action: "move a node" },
+  { keys: "select + corners", action: "resize a node" },
+  { keys: "drag edge handle", action: "connect nodes (drop on a card)" },
+  { keys: "click edge", action: "inspect edge · set criteria" },
+  { keys: "click node", action: "select · open command card" },
+  { keys: "RMB selection", action: "bulk: region · flags · delete" },
+  { keys: "select + RMB target", action: "connect all → that node" },
+  { keys: "⇧ RMB target", action: "connect keep selection (fan-out)" },
+  { keys: "minimap click", action: "jump camera · dbl-click zoom" },
+  { keys: "add item · fit all", action: "docked above minimap" },
+];
+
+/** Canvas hotkey inventory — single source for the interaction map. */
+export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
+  { keys: "/ · ⌘K", action: "focus search" },
+  { keys: "Escape", action: "close overlays / clear selection" },
+  { keys: "⌘Z · ⌘⇧Z", action: "undo · redo" },
+  { keys: "⌫ · Del", action: "delete selection" },
+  { keys: "1–9", action: "focus region slot · re-tap cycles members" },
+  { keys: "⌘1–9", action: "assign selection as region → slot" },
+  { keys: "F1 · .", action: "cycle idle herdr workers needing you" },
+];
+
+/**
+ * Full canvas interaction map — dock under the station bar help trigger.
+ * Reuse {@link HelpMap} pieces elsewhere; this is the canvas-shaped fill.
+ */
+export function CanvasInteractionMap({ onClose }: { readonly onClose: () => void }) {
+  return (
+    <HelpMap
+      className="help-map--dock-top-right"
+      eyebrow="canvas protocol"
+      title="interaction map"
+      aria-label="Interaction help"
+      closeLabel="Close interaction help"
+      onClose={onClose}
+    >
+      <HelpMapGroup label="field primer" aria-label="Field primer">
+        <HelpMapPrimer>
+          <HelpMapPrimerBlock lead="execution graph">
+            edges carry optional criteria. Live data derives phase:{" "}
+            <em>blocks</em> · <em>depends</em> · soft <em>relates</em>. Blocks stop
+            sinks and relay through outbound blocks/depends; relates never stop work.
+            Notes and agents are never members of the blocked set.
+          </HelpMapPrimerBlock>
+          <HelpMapPrimerBlock lead="factory physics">
+            the canvas is a factory floor. Drawn edges mint capability (ocaps); ports
+            attenuate; process-bind wields a seat. Capability (reach), phase (stoppage),
+            and attention/occupancy are separate planes — selecting a node never grants
+            power; clearing a block never mints an edge.
+          </HelpMapPrimerBlock>
+        </HelpMapPrimer>
+      </HelpMapGroup>
+      <HelpMapGroup label="pointer">
+        <HelpMapKeys rows={CANVAS_HELP_POINTER} />
+      </HelpMapGroup>
+      <HelpMapGroup label="keys">
+        <HelpMapKeys rows={CANVAS_HELP_KEYS} />
+      </HelpMapGroup>
+    </HelpMap>
+  );
+}

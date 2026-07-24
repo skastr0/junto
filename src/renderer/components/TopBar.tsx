@@ -7,7 +7,8 @@ import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { HUE, INK, SOURCE_HUE } from "../lib/theme";
-import { Dropdown } from "./ui";
+import { Dropdown, HelpMap } from "./ui";
+import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { UsageHud } from "./UsageHud";
 
 const SOURCES: ReadonlyArray<EntitySource> = ["hermes"];
@@ -22,101 +23,39 @@ function SourceDot({ source, active, onClick }: { readonly source: EntitySource;
 }
 
 // Honest connector health: per-source dot + name + last-fetch detail. Lit when
-// fresh, dim when stale/down. It never filters the canvas.
+// fresh, dim when stale/down. It never filters the canvas. Shell is HelpMap so
+// station instrument popovers share one chrome.
 function ConnectorsPopover({ onClose }: { readonly onClose: () => void }) {
   const snapshots = use$(state$.snapshots);
-  return <aside className="station-health-popover" role="dialog" aria-label="Connectors">
-    <div className="station-health-popover__header"><div><div className="station-health-popover__eyebrow">adapter plane</div><strong>connectors</strong></div><button type="button" aria-label="Close connectors" onClick={onClose}>×</button></div>
-    <div className="station-health-popover__list">{SOURCES.map((source) => {
-      const bundle = snapshots.bundles.find((item) => item.source === source);
-      const ok = bundle?.ok ?? false;
-      const fetched = bundle ? new Date(bundle.fetchedAt).toLocaleTimeString() : "never";
-      return <div key={source} className="station-health-popover__row"><span className="station-health-popover__name"><i style={{ background: ok ? SOURCE_HUE[source] : HUE.crimson }} />{source}</span><span className={ok ? "station-health-popover__ok" : "station-health-popover__error"}>{ok ? `fresh · ${fetched}` : bundle?.error ?? "stale"}</span></div>;
-    })}</div>
-  </aside>;
-}
-
-type HelpRow = readonly [string, string];
-
-const HELP_POINTER: ReadonlyArray<HelpRow> = [
-  ["scroll", "pan the field"],
-  ["mid-drag", "pan the field"],
-  ["drag empty", "rubber-band multi-select"],
-  ["double-click", "add a note at cursor"],
-  ["right-click empty", "add item menu (place at cursor)"],
-  ["right-click region", "add item inside the region"],
-  ["drag card", "move a node"],
-  ["select + corners", "resize a node"],
-  ["drag edge handle", "connect nodes (drop on a card)"],
-  ["click edge", "inspect edge · set criteria"],
-  ["click node", "select · open command card"],
-  ["RMB selection", "bulk: region · flags · delete"],
-  ["select + RMB target", "connect all → that node"],
-  ["⇧ RMB target", "connect keep selection (fan-out)"],
-  ["minimap click", "jump camera · dbl-click zoom"],
-  ["add item · fit all", "docked above minimap"],
-];
-
-const HELP_KEYS: ReadonlyArray<HelpRow> = [
-  ["/ · ⌘K", "focus search"],
-  ["Escape", "close overlays / clear selection"],
-  ["⌘Z · ⌘⇧Z", "undo · redo"],
-  ["⌫ · Del", "delete selection"],
-  ["1–9", "focus region slot · re-tap cycles members"],
-  ["⌘1–9", "assign selection as region → slot"],
-  ["F1 · .", "cycle idle herdr workers needing you"],
-];
-
-function HelpPopover({ onClose }: { readonly onClose: () => void }) {
   return (
-    <aside className="station-help-popover" role="dialog" aria-label="Interaction help">
-      <div className="station-help-popover__header">
-        <div>
-          <div className="station-help-popover__eyebrow">canvas protocol</div>
-          <strong>interaction map</strong>
-        </div>
-        <button type="button" aria-label="Close interaction help" onClick={onClose}>×</button>
+    <HelpMap
+      className="help-map--dock-top-right help-map--narrow"
+      tone="cyan"
+      eyebrow="adapter plane"
+      title="connectors"
+      aria-label="Connectors"
+      closeLabel="Close connectors"
+      onClose={onClose}
+    >
+      <div className="station-health-popover__list">
+        {SOURCES.map((source) => {
+          const bundle = snapshots.bundles.find((item) => item.source === source);
+          const ok = bundle?.ok ?? false;
+          const fetched = bundle ? new Date(bundle.fetchedAt).toLocaleTimeString() : "never";
+          return (
+            <div key={source} className="station-health-popover__row">
+              <span className="station-health-popover__name">
+                <i style={{ background: ok ? SOURCE_HUE[source] : HUE.crimson }} />
+                {source}
+              </span>
+              <span className={ok ? "station-health-popover__ok" : "station-health-popover__error"}>
+                {ok ? `fresh · ${fetched}` : bundle?.error ?? "stale"}
+              </span>
+            </div>
+          );
+        })}
       </div>
-      <div className="station-help-popover__body">
-        <section className="station-help-popover__primer" aria-label="Field primer">
-          <div className="station-help-popover__section">field primer</div>
-          <p>
-            <strong>execution graph</strong> — edges carry optional criteria.
-            Live data derives phase: <em>blocks</em> · <em>depends</em> · soft <em>relates</em>.
-            Blocks stop sinks and relay through outbound blocks/depends; relates never stop work.
-            Notes and agents are never members of the blocked set.
-          </p>
-          <p>
-            <strong>factory physics</strong> — the canvas is a factory floor.
-            Drawn edges mint capability (ocaps); ports attenuate; process-bind wields a seat.
-            Capability (reach), phase (stoppage), and attention/occupancy are separate planes —
-            selecting a node never grants power; clearing a block never mints an edge.
-          </p>
-        </section>
-        <section className="station-help-popover__group" aria-label="Pointer">
-          <div className="station-help-popover__section">pointer</div>
-          <div className="station-help-popover__list">
-            {HELP_POINTER.map(([key, action]) => (
-              <div className="station-help-popover__row" key={key}>
-                <kbd>{key}</kbd>
-                <span>{action}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="station-help-popover__group" aria-label="Keys">
-          <div className="station-help-popover__section">keys</div>
-          <div className="station-help-popover__list">
-            {HELP_KEYS.map(([key, action]) => (
-              <div className="station-help-popover__row" key={key}>
-                <kbd>{key}</kbd>
-                <span>{action}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      </div>
-    </aside>
+    </HelpMap>
   );
 }
 
@@ -313,7 +252,7 @@ export function TopBar({
           <CircleHelp size={14} />
         </button>
         {healthOpen ? <ConnectorsPopover onClose={() => setHealthOpen(false)} /> : null}
-        {helpOpen ? <HelpPopover onClose={() => setHelpOpen(false)} /> : null}
+        {helpOpen ? <CanvasInteractionMap onClose={() => setHelpOpen(false)} /> : null}
         <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="settings" onClick={() => { setHealthOpen(false); setHelpOpen(false); openSettings(); }}>
           <Settings2 size={15} />
         </button>

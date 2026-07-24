@@ -7,3 +7,13 @@ export { Input, Select, FieldLabel } from "./Field";
 export { Dropdown, type DropdownOption } from "./Dropdown";
 export { OverlayHeader } from "./OverlayHeader";
 export { ToolbarPill } from "./ToolbarPill";
+export { Kbd } from "./Kbd";
+export {
+  HelpMap,
+  HelpMapGroup,
+  HelpMapKeys,
+  HelpMapPrimer,
+  HelpMapPrimerBlock,
+  type HelpMapKeyRow,
+  type HelpMapTone,
+} from "./HelpMap";
