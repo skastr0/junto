@@ -538,6 +538,10 @@ export const testHostConnection = (
 ): Effect.Effect<{
   readonly ok: boolean;
   readonly detail: string;
+  /** Raw SSH link truth from the probe observation. Distinct from `ok`, which
+   * is a strict all-checks-pass verdict — a reachable host with warnings
+   * (e.g. station status not yet written) is still `reachable` here. */
+  readonly reachability?: "reachable" | "unreachable" | "unknown";
 }> =>
   host.kind === "local"
     ? Effect.gen(function* () {
@@ -560,5 +564,6 @@ export const testHostConnection = (
         Effect.map((result) => ({
           ok: result.status === "ok",
           detail: result.detail,
+          reachability: result.observation.reachability,
         })),
       );

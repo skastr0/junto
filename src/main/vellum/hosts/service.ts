@@ -58,7 +58,14 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
     ) => Effect.Effect<ReadonlyArray<RemoteHostT>, RemoteHostsError>;
     readonly test: (
       id: string,
-    ) => Effect.Effect<{ readonly ok: boolean; readonly detail: string }, RemoteHostsError>;
+    ) => Effect.Effect<
+      {
+        readonly ok: boolean;
+        readonly detail: string;
+        readonly reachability?: "reachable" | "unreachable" | "unknown";
+      },
+      RemoteHostsError
+    >;
     /** Command Center → SSH stamp Remote station fields on a registered remote host. */
     readonly configureRemote: (
       id: string,

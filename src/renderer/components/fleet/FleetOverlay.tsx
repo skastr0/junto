@@ -63,7 +63,10 @@ function FleetOverlayInner() {
       <OverlayHeader
         eyebrow="fleet"
         title="Command Fleet"
-        status={`${hosts.filter((host) => host.kind === "remote").length} stations${loading ? " · refreshing…" : ""}`}
+        status={(() => {
+          const n = hosts.filter((host) => host.kind === "remote").length;
+          return `${n} station${n === 1 ? "" : "s"}${loading ? " · refreshing…" : ""}`;
+        })()}
         actions={
           <Button size="sm" onClick={() => setForm({})}>
             <Plus size={12} />

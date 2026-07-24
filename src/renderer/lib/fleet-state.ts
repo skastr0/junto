@@ -56,8 +56,14 @@ export const probeHost = async (id: string): Promise<void> => {
   state$.fleetProbe[id].set({ status: "probing" });
   try {
     const result = await window.vellum.hostsTest(id);
+    // The edge mirrors link reachability, not the strict all-checks verdict —
+    // a host that answers SSH but has doctor warnings is still reachable.
+    const reachable =
+      result.reachability !== undefined
+        ? result.reachability === "reachable"
+        : result.ok;
     state$.fleetProbe[id].set(
-      result.ok
+      reachable
         ? {
             status: "reachable",
             ...(result.latencyMs === undefined

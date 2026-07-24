@@ -417,6 +417,9 @@ export const registerHostsIpc = (
                 ok: result.right.ok,
                 detail: result.right.detail,
                 latencyMs,
+                ...(result.right.reachability === undefined
+                  ? {}
+                  : { reachability: result.right.reachability }),
               } satisfies HostsTestResult;
             }
             return {

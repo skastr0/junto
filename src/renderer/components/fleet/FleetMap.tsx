@@ -3,9 +3,11 @@ import {
   BaseEdge,
   ReactFlow,
   ReactFlowProvider,
+  useInternalNode,
   type Edge,
   type EdgeProps,
   type EdgeTypes,
+  type InternalNode,
 } from "@xyflow/react";
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { FleetProbeState } from "../../lib/fleet-state";
@@ -26,21 +28,42 @@ type FleetLinkData = {
 };
 type FleetLinkEdgeType = Edge<FleetLinkData, "fleetLink">;
 
-/** Straight center-to-center link line. Status drives hue, dash, and the
- * probing animation — never invented state. */
+/** Medallion radii (FleetNodes: CC 84px, station 64px) — the medallion is the
+ * first, horizontally-centered child of the node, so its center is
+ * (node.x + width/2, node.y + radius). Handle measurement is not trustworthy
+ * here (CSS transforms are invisible to it), so compute from node internals. */
+const MEDALLION_RADIUS: Record<string, number> = {
+  commandCenter: 42,
+  station: 32,
+};
+
+const medallionCenter = (node: InternalNode): { x: number; y: number } => {
+  const radius = MEDALLION_RADIUS[node.type ?? "station"] ?? 32;
+  const width = node.measured?.width ?? 0;
+  return {
+    x: node.internals.positionAbsolute.x + width / 2,
+    y: node.internals.positionAbsolute.y + radius,
+  };
+};
+
+/** Straight medallion-to-medallion link line. Status drives hue, dash, and
+ * the probing animation — never invented state. */
 function FleetLinkEdge({
   id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
+  source,
+  target,
   data,
 }: EdgeProps<FleetLinkEdgeType>) {
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
   const status = data?.status ?? "unknown";
   const phase = edgePhase(status);
-  const path = `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
-  const midX = (sourceX + targetX) / 2;
-  const midY = (sourceY + targetY) / 2;
+  if (!sourceNode || !targetNode) return null;
+  const s = medallionCenter(sourceNode);
+  const t = medallionCenter(targetNode);
+  const path = `M ${s.x} ${s.y} L ${t.x} ${t.y}`;
+  const midX = (s.x + t.x) / 2;
+  const midY = (s.y + t.y) / 2;
   return (
     <>
       <BaseEdge

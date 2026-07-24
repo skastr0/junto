@@ -2224,14 +2224,28 @@ ol.note-md__list > .note-md__li::before {
   border-radius: 999px;
   border: 1px solid; /* hue set inline per host */
   background: var(--color-raise-2);
+  transition: transform 160ms ease-out, background-color 160ms ease-out;
 }
 .fleet-node__medallion--cc {
   width: 84px;
   height: 84px;
 }
+.fleet-cc,
+.fleet-station {
+  cursor: pointer;
+}
+.fleet-cc:hover .fleet-node__medallion,
+.fleet-station:hover .fleet-node__medallion,
 .fleet-cc--selected .fleet-node__medallion,
 .fleet-station--selected .fleet-node__medallion {
   background: var(--color-raise);
+}
+.fleet-cc:hover .fleet-node__medallion,
+.fleet-station:hover .fleet-node__medallion {
+  transform: scale(1.07);
+}
+.react-flow__edge:hover {
+  filter: brightness(1.4);
 }
 
 .fleet-pip {

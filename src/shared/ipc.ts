@@ -657,6 +657,9 @@ export interface HostsTestResult {
   readonly detail: string;
   /** Round-trip ms of the probe (present on probe success/failure paths). */
   readonly latencyMs?: number;
+  /** Raw SSH link truth — `ok` is the strict all-checks verdict; this is
+   * whether the host answered at all (remote probes only). */
+  readonly reachability?: "reachable" | "unreachable" | "unknown";
   readonly code?: string;
   readonly message?: string;
 }
