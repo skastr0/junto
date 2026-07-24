@@ -95,11 +95,16 @@ export const computeInstallCapabilities = (
   let pluginLocalDetail: string | undefined;
   if (!release.pluginInstall) {
     pluginLocalDetail = PLUGIN_INSTALL_DISABLED_DETAIL;
+  } else if (!cc) {
+    pluginLocalDetail = NOT_COMMAND_CENTER_DETAIL;
   }
 
   let routeDetail: string | undefined;
   if (!release.routeTokens) {
     routeDetail = ROUTE_TOKENS_DISABLED_DETAIL;
+  } else if (!operatorOn) {
+    // Same kill-switch as remote plugin/deploy — route-token is Tier-3 seat identity.
+    routeDetail = REMOTE_INSTALLS_OPERATOR_DISABLED_DETAIL;
   } else if (!cc) {
     routeDetail = NOT_COMMAND_CENTER_DETAIL;
   }
@@ -107,8 +112,11 @@ export const computeInstallCapabilities = (
   const deployRemote = releaseDeploy && operatorOn && cc;
   const installPluginRemote =
     release.pluginInstall === true && operatorOn && cc;
-  const installPluginLocal = release.pluginInstall === true;
-  const routeTokenAdmin = release.routeTokens === true && cc;
+  // Local plugin writes this station's harness trees — CC only (no Remote self-write).
+  const installPluginLocal =
+    release.pluginInstall === true && cc;
+  const routeTokenAdmin =
+    release.routeTokens === true && operatorOn && cc;
 
   return {
     ok: true,

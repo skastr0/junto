@@ -34,12 +34,18 @@ import { decodeRemoteHomeDirectoryOutput } from "../hosts/remote-home";
 import { HostsService } from "../hosts/service";
 import { SshTransport } from "../ssh/service";
 import { SettingsService } from "../settings/service";
+import { CanvasesService } from "../canvases";
 import {
   installVellumPlugin,
   type InstallReceipt,
 } from "../plugin-install/install";
-import { isFleetPluginTarget } from "../plugin-install/harness-targets";
+import { harnessApplyRoot } from "../plugin-install/harness-homes";
+import {
+  isFleetPluginTarget,
+  type FleetPluginTarget,
+} from "../plugin-install/harness-targets";
 import { resolveVellumPluginPath } from "../plugin-install/plugin-path";
+import { proveLiveSeat } from "../work/live-seat";
 import {
   listRouteTokens,
   mintRouteToken,
@@ -151,6 +157,7 @@ export const InstallPlaneLive = Layer.effect(
     const settings = yield* SettingsService;
     const hosts = yield* HostsService;
     const ssh = yield* SshTransport;
+    const canvases = yield* CanvasesService;
 
     const capabilities: Effect.Effect<HostsInstallCapabilitiesResult> =
       readCapabilities(settings).pipe(
@@ -230,16 +237,45 @@ export const InstallPlaneLive = Layer.effect(
           packageId: string;
           applied: number;
           skipped: number;
+          regionsSkipped?: number;
         }> = [];
 
+        const pushReceipt = (
+          target: string,
+          receipt: InstallReceipt,
+        ): void => {
+          results.push({
+            target,
+            packageId: receipt.packageId,
+            applied: receipt.applied,
+            skipped: receipt.skipped,
+            ...(receipt.regionsSkipped > 0
+              ? { regionsSkipped: receipt.regionsSkipped }
+              : {}),
+          });
+        };
+
         if (body.mode === "local") {
+          const home = process.env.HOME?.trim();
+          if (!home) {
+            return {
+              ok: false,
+              detail: "local install requires HOME for harness applyRoot",
+              code: "validation",
+              message: "local install requires HOME for harness applyRoot",
+            } satisfies HostsInstallPluginResult;
+          }
           for (const target of body.targets as ReadonlyArray<HostsInstallPluginTarget>) {
+            const applyRoot = harnessApplyRoot(
+              home,
+              target as FleetPluginTarget,
+            );
             const receipt = yield* installVellumPlugin({
               pluginPath,
               target,
               mode: "local",
               scope: body.scope ?? "global",
-              applyRoot: process.env.HOME,
+              applyRoot,
             }).pipe(
               Effect.mapError(
                 (error) =>
@@ -249,16 +285,14 @@ export const InstallPlaneLive = Layer.effect(
                   }),
               ),
             );
-            results.push({
-              target,
-              packageId: receipt.packageId,
-              applied: receipt.applied,
-              skipped: receipt.skipped,
-            });
+            pushReceipt(target, receipt);
           }
+          const regionWarn = results.some((r) => (r.regionsSkipped ?? 0) > 0);
           return {
             ok: true,
-            detail: `installed ${results.length} harness target(s) locally`,
+            detail: regionWarn
+              ? `installed ${results.length} harness target(s) locally under harness homes (some config regions not applied — incomplete)`
+              : `installed ${results.length} harness target(s) locally under harness homes`,
             results,
           } satisfies HostsInstallPluginResult;
         }
@@ -324,13 +358,17 @@ export const InstallPlaneLive = Layer.effect(
         }
 
         for (const target of body.targets as ReadonlyArray<HostsInstallPluginTarget>) {
+          const targetRoot = harnessApplyRoot(
+            applyRoot,
+            target as FleetPluginTarget,
+          );
           const receipt: InstallReceipt = yield* installVellumPlugin({
             pluginPath,
             target,
             mode: "remote",
             endpoint,
             scope: body.scope ?? "global",
-            applyRoot,
+            applyRoot: targetRoot,
           }).pipe(
             Effect.provideService(SshTransport, ssh),
             Effect.mapError(
@@ -341,17 +379,15 @@ export const InstallPlaneLive = Layer.effect(
                 }),
             ),
           );
-          results.push({
-            target,
-            packageId: receipt.packageId,
-            applied: receipt.applied,
-            skipped: receipt.skipped,
-          });
+          pushReceipt(target, receipt);
         }
 
+        const regionWarn = results.some((r) => (r.regionsSkipped ?? 0) > 0);
         return {
           ok: true,
-          detail: `installed ${results.length} harness target(s) on ${host.label} (applyRoot=${applyRoot})`,
+          detail: regionWarn
+            ? `installed ${results.length} harness target(s) on ${host.label} under harness homes (some config regions not applied — incomplete)`
+            : `installed ${results.length} harness target(s) on ${host.label} under harness homes (home=${applyRoot})`,
           results,
         } satisfies HostsInstallPluginResult;
       }).pipe(
@@ -415,10 +451,31 @@ export const InstallPlaneLive = Layer.effect(
             message: "invalid route-token mint request",
           } satisfies RouteTokenMintResult;
         }
+        const liveDocs = yield* canvases.liveDocuments().pipe(
+          Effect.mapError(
+            (error) =>
+              new InstallPlaneError({
+                code: "io",
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "live canvas authority unavailable",
+              }),
+          ),
+        );
+        const seat = proveLiveSeat(
+          liveDocs,
+          decoded.right as RouteTokenMintPrincipal,
+        );
+        if (!seat.ok) {
+          return {
+            ok: false,
+            code: seat.code === "invalid" ? "validation" : "not_found",
+            message: seat.message,
+          } satisfies RouteTokenMintResult;
+        }
         try {
-          const minted = mintRouteToken(
-            decoded.right as RouteTokenMintPrincipal,
-          );
+          const minted = mintRouteToken(seat.principal);
           return {
             ok: true,
             id: minted.id,

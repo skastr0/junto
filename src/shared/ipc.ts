@@ -809,6 +809,8 @@ export type HostsInstallPluginResult = {
     readonly packageId: string;
     readonly applied: number;
     readonly skipped: number;
+    /** Config-region fragments not materialised (incomplete install honesty). */
+    readonly regionsSkipped?: number;
   }>;
 };
 

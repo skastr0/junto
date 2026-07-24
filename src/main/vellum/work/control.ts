@@ -395,12 +395,17 @@ const requireTarget = (
   return { node: admitted.right.node };
 };
 
-/** Work-control caller: process-bound seat (+ occupant string for proof stamps). */
+/**
+ * Work-control caller: canvas seat + admission tier.
+ * I16: proof stamps only for process-bind (Tier 2). Route-token (Tier 3)
+ * may use the work plane but must not mint trust-plane stamps.
+ */
 type WorkCaller = {
   readonly canvasName: string;
   readonly nodeId: string;
-  /** Process-bind identity key; required for proof stamp minting. */
+  /** Occupant label for proof stamps / logs. */
   readonly occupant: string;
+  readonly tier: WorkIdentityTier;
 };
 
 const dispatchOp = (
@@ -658,17 +663,20 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      // I16: only this admitted, process-bound path may mint proof stamps.
-      // Renderer IPC publish does not write stamps (no side-door).
-      const authority = artifactPublishAuthority({
-        canvasName: caller.canvasName,
-        seat: caller.nodeId,
-        occupant: caller.occupant,
-        sinkNodeId: decoded.right.target,
-      });
-      const stamp = extractProofStamp(authority, mapped.right);
-      if (stamp) {
-        globalStampRuntime.recordStamp(authority, stamp);
+      // I16: only process-bind (Tier 2) may mint proof stamps.
+      // Route-token (Tier 3) publishes artifacts without trust-plane stamps.
+      // Renderer IPC publish also does not write stamps (no side-door).
+      if (caller.tier === "process-bind") {
+        const authority = artifactPublishAuthority({
+          canvasName: caller.canvasName,
+          seat: caller.nodeId,
+          occupant: caller.occupant,
+          sinkNodeId: decoded.right.target,
+        });
+        const stamp = extractProofStamp(authority, mapped.right);
+        if (stamp) {
+          globalStampRuntime.recordStamp(authority, stamp);
+        }
       }
       return mapped.right;
     }
@@ -1166,6 +1174,7 @@ export const startWorkControlServer = async (
                 canvasName: callerResolved.caller.canvasName,
                 nodeId: callerResolved.caller.nodeId,
                 occupant,
+                tier: admission.tier,
               };
               return options.run(
                 dispatchOp(req.op, req.args, caller, options.version).pipe(

@@ -65,10 +65,13 @@ const HostsWithSshLive = Layer.provideMerge(
   SshTransportLive,
 );
 
-/** Install plane: capabilities, plugin install, route-tokens (needs hosts+ssh+settings). */
+/**
+ * Install plane: capabilities, plugin install, route-tokens.
+ * Needs hosts+ssh (remote apply), settings (kill-switch), canvases (live seat mint).
+ */
 const InstallPlaneWithDepsLive = Layer.provideMerge(
   InstallPlaneLive,
-  Layer.mergeAll(HostsWithSshLive, SettingsLive),
+  Layer.mergeAll(HostsWithSshLive, SettingsLive, CanvasesLive),
 );
 
 // HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.

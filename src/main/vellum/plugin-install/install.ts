@@ -41,6 +41,11 @@ export type InstallReceipt = {
   readonly skipped: number;
   /** Packager planned package-root ops (write/skip/prune/drift) from dryRun. */
   readonly packageOperations: ReadonlyArray<PackageWriteOperation>;
+  /**
+   * Region fragments not applied (hooks/config markers). 0 when clean.
+   * Non-zero is incomplete install honesty — not a silent skip.
+   */
+  readonly regionsSkipped: number;
 };
 
 export type InstallVellumPluginOptions = {
@@ -125,18 +130,23 @@ const toReceipt = (
   applied: apply.applied,
   skipped: apply.skipped,
   packageOperations: packaged.operations,
+  regionsSkipped: packaged.compileRegions?.length ?? 0,
 });
 
 /**
  * Files to materialize from a package dryRun result.
  * Prefer `compileFiles` (harness-shaped whole files from lowerers).
  * When `applyRoot` is set, re-home absolute plan/package paths under it.
+ *
+ * Regions (config fragments) are not applied yet — callers must refuse or
+ * surface `regionsSkipped` when compileRegions is non-empty.
  */
 export const desiredFilesFromPackage = (
   result: {
     readonly compileFiles: ReadonlyArray<DesiredFile>;
     readonly packageRoot: string;
     readonly planRoot: string;
+    readonly compileRegions?: ReadonlyArray<unknown>;
   },
   applyRoot?: string,
 ): ReadonlyArray<DesiredFile> => {
@@ -148,6 +158,11 @@ export const desiredFilesFromPackage = (
     applyRoot,
   );
 };
+
+/** True when packager emitted region fragments we do not yet materialize. */
+export const packageHasUnappliedRegions = (result: {
+  readonly compileRegions?: ReadonlyArray<unknown>;
+}): boolean => (result.compileRegions?.length ?? 0) > 0;
 
 const compileForInstall = (
   opts: InstallVellumPluginOptions,

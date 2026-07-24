@@ -10,13 +10,14 @@ describe("computeInstallCapabilities", () => {
     });
     expect(caps.effective.deployRemote).toBe(false);
     expect(caps.effective.installPluginRemote).toBe(false);
+    // local plugin still CC-gated; operator off does not block local on CC
     expect(caps.effective.installPluginLocal).toBe(
       RELEASE_CAPABILITIES.pluginInstall,
     );
-    expect(caps.effective.routeTokenAdmin).toBe(
-      RELEASE_CAPABILITIES.routeTokens,
-    );
+    // route-token admin requires kill-switch on
+    expect(caps.effective.routeTokenAdmin).toBe(false);
     expect(caps.detail.installPluginRemote).toMatch(/turned off/i);
+    expect(caps.detail.routeTokenAdmin).toMatch(/turned off/i);
   });
 
   it("enables remote plugin + route admin when operator opts in on CC", () => {
@@ -35,14 +36,16 @@ describe("computeInstallCapabilities", () => {
     expect(caps.detail.deployRemote).toBeDefined();
   });
 
-  it("refuses remote ops when not command-center", () => {
+  it("refuses remote ops and local plugin when not command-center", () => {
     const caps = computeInstallCapabilities({
       stationRole: "remote",
       remoteManagedInstalls: true,
     });
     expect(caps.effective.installPluginRemote).toBe(false);
+    expect(caps.effective.installPluginLocal).toBe(false);
     expect(caps.effective.routeTokenAdmin).toBe(false);
     expect(caps.detail.routeTokenAdmin).toMatch(/Command Center/i);
+    expect(caps.detail.installPluginLocal).toMatch(/Command Center/i);
   });
 
   it("cannot enable deploy when RELEASE freezes managed deploy", () => {

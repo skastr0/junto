@@ -23,19 +23,46 @@ export type CallerResolveResult =
   | { readonly ok: true; readonly caller: ResolvedWorkCaller }
   | CallerResolveFailure;
 
-const matchesPrincipal = (node: CanvasNode, principal: ProcessPrincipal): boolean => {
+/**
+ * Seat match for process-bind and route-token principals.
+ * When both id and role key are present, both must match (no id-only forge).
+ */
+export const matchesPrincipal = (
+  node: CanvasNode,
+  principal: ProcessPrincipal,
+): boolean => {
   const kind = nodeKind(node);
   if (principal.kind === "agent") {
     if (kind !== "agent") return false;
-    if (principal.nodeId !== undefined) return node.id === principal.nodeId;
-    return node.ether?.entity?.name === principal.agentKey;
+    if (principal.nodeId !== undefined && node.id !== principal.nodeId) {
+      return false;
+    }
+    if (
+      principal.agentKey !== undefined &&
+      node.ether?.entity?.name !== principal.agentKey
+    ) {
+      return false;
+    }
+    // Need at least one positive anchor.
+    return (
+      principal.nodeId !== undefined || principal.agentKey !== undefined
+    );
+  }
+  if (principal.kind === "terminal") {
+    // Terminal principals are process-bind only; never mint as route-token seats.
+    return false;
   }
   if (kind !== "herdr") return false;
-  if (principal.nodeId !== undefined) return node.id === principal.nodeId;
-  if (principal.paneId !== undefined) {
-    return node.ether?.herdr?.paneId === principal.paneId;
+  if (principal.nodeId !== undefined && node.id !== principal.nodeId) {
+    return false;
   }
-  return false;
+  if (
+    principal.paneId !== undefined &&
+    node.ether?.herdr?.paneId !== principal.paneId
+  ) {
+    return false;
+  }
+  return principal.nodeId !== undefined || principal.paneId !== undefined;
 };
 
 /** Resolve against one already-loaded document (tests / hot path). */
