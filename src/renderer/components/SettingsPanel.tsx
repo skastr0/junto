@@ -286,8 +286,6 @@ function BrowserSection() {
 
   return (
     <div className="settings-section">
-      {/* maxVisibleSurfaces is retained in config for compatibility but no longer
-          gates the workbench (tabs + keep-alive). Warm sessions are the real cap. */}
       <FieldRow label="Max warm sessions" hint="concurrent warm browser pages (hard ceiling 32)">
         <input
           type="number"

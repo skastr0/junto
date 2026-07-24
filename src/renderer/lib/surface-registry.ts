@@ -21,9 +21,6 @@ export interface WorkSurface {
   readonly zone: WorkZone;
 }
 
-/** @deprecated Prefer WorkSurface — kept as alias for gradual call-site migration. */
-export type DockSurface = WorkSurface;
-
 export interface WorkbenchState {
   readonly surfaces: ReadonlyArray<WorkSurface>;
   /** MRU per zone; index 0 is frontmost. */
@@ -36,17 +33,11 @@ export interface WorkbenchState {
   readonly pinnedWidthFrac: number;
 }
 
-/** @deprecated Prefer WorkbenchState. */
-export type DockState = WorkbenchState;
-
 export interface WorkbenchTransition {
   readonly state: WorkbenchState;
   /** Surfaces the caller must fully close (stream release / browser detach). */
   readonly evicted: ReadonlyArray<WorkSurface>;
 }
-
-/** @deprecated Prefer WorkbenchTransition. */
-export type DockTransition = WorkbenchTransition;
 
 export interface VisiblePanes {
   readonly pane0: string | undefined;
@@ -76,9 +67,6 @@ export const initialWorkbenchState = (): WorkbenchState => ({
   focusSize: null,
   pinnedWidthFrac: DEFAULT_PINNED_WIDTH_FRAC,
 });
-
-/** @deprecated Prefer initialWorkbenchState. */
-export const initialDockState = (_maxVisible?: number): WorkbenchState => initialWorkbenchState();
 
 const mruKey = (zone: WorkZone): "focusMru" | "pinnedMru" =>
   zone === "focus" ? "focusMru" : "pinnedMru";
@@ -275,17 +263,3 @@ export const workbenchBrowserSurfaces = (
 
 export const zoneHasSurfaces = (state: WorkbenchState, zone: WorkZone): boolean =>
   zoneSurfaces(state, zone).length > 0;
-
-/** @deprecated Prefer workbenchInteractiveSurface. */
-export const dockInteractiveSurface = workbenchInteractiveSurface;
-/** @deprecated Prefer workbenchBrowserSurfaces. */
-export const dockBrowserSurfaces = workbenchBrowserSurfaces;
-
-/**
- * @deprecated maxVisible no longer gates UI admission (tabs replace eviction).
- * Kept as a no-op-compatible stub so older call sites compile during migration.
- */
-export const setMaxVisible = (state: WorkbenchState, _maxVisible: number): WorkbenchTransition => ({
-  state,
-  evicted: [],
-});

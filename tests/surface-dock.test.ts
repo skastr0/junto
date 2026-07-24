@@ -9,7 +9,6 @@ import {
   openSurface,
   pinSurface,
   setLayout,
-  setMaxVisible,
   unpinSurface,
   visiblePanes,
   workbenchBrowserSurfaces,
@@ -21,7 +20,6 @@ import {
   closeWorkbenchSurface,
   dock$,
   herdrSurfaceId,
-  hydrateDockConfig,
   openDockBrowser,
   pinWorkbenchSurface,
   reconcileDockFromLiveSessions,
@@ -91,14 +89,6 @@ describe("surface-registry (pure workbench)", () => {
     expect(closed.evicted.map((s) => s.id)).toEqual(["a"]);
     const noop = closeSurface(closed.state, "ghost");
     expect(noop.evicted).toEqual([]);
-  });
-
-  it("setMaxVisible is a no-op stub (tabs replaced eviction)", () => {
-    let t = openSurface(initialWorkbenchState(), browserSlot("a"));
-    t = openSurface(t.state, browserSlot("b"));
-    const shrunk = setMaxVisible(t.state, 1);
-    expect(shrunk.evicted).toEqual([]);
-    expect(shrunk.state.surfaces.map((s) => s.id)).toEqual(["a", "b"]);
   });
 
   it("pin / unpin moves zone and MRU stacks", () => {
@@ -462,21 +452,6 @@ describe("dock-state", () => {
     expect(dock$.browserByRef[attachedRef].peek()?.nodeId).toBe("attached");
     expect(browser$.sessionByRef[attachedRef].peek()?.sessionId).toBe("attached-handle");
     expect(dock$.browserByRef[detachedRef].peek()).toBeUndefined();
-  });
-
-  it("hydrateDockConfig is one-shot (maxVisible no longer applied to registry)", async () => {
-    installMockVellum({
-      browserSurfaceConfig: vi.fn(async () => ({
-        ok: true,
-        data: { maxVisibleSurfaces: 3, maxWarmSessions: 3 },
-      })),
-    });
-    await hydrateDockConfig();
-    expect(dock$.configHydrated.peek()).toBe(true);
-    await hydrateDockConfig();
-    expect(
-      (window as unknown as { vellum: MockVellum }).vellum.browserSurfaceConfig,
-    ).toHaveBeenCalledTimes(1);
   });
 
   describe("herdr workbench sync — multi terminal, focus by default", () => {

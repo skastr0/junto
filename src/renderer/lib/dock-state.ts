@@ -63,9 +63,6 @@ export const parseHerdrSurfaceId = (id: string): string | null => {
   return nodeId.length > 0 ? nodeId : null;
 };
 
-/** @deprecated Prefer herdrSurfaceId(nodeId) — global id no longer used. */
-export const HERDR_DOCK_ID = "herdr-terminal";
-
 export const dock$ = observable({
   registry: initialWorkbenchState() as WorkbenchState,
   /** canonical vellum:// ref -> display payload for browser slots. */
@@ -236,9 +233,6 @@ export const syncHerdrWorkbenchSlot = (): void => {
     registry = dock$.registry.peek();
   }
 };
-
-/** @deprecated Use syncHerdrWorkbenchSlot — no longer auto-docks when browser opens. */
-export const syncDockHerdrSlot = syncHerdrWorkbenchSlot;
 
 // Synchronous bridge: herdr open/close updates registry before React paints
 // (no dynamic-import flash of orphan modal → shell).

@@ -1,6 +1,6 @@
 import { parseHerdrSurfaceId } from "../../lib/dock-state";
 import { dock$ } from "../../lib/dock-state";
-import { getHerdrTerminal, herdr$ } from "../../lib/herdr-state";
+import { getHerdrTerminal } from "../../lib/herdr-state";
 import type { WorkbenchState, WorkSurface } from "../../lib/surface-registry";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { terminal$ } from "../../lib/terminal-state";
@@ -16,7 +16,7 @@ export function surfaceLabel(
     return payload?.title ?? payload?.url ?? surface.id.slice(0, 24);
   }
   if (surface.kind === "herdr") {
-    const nodeId = parseHerdrSurfaceId(surface.id) ?? parseHerdrNodeIdLegacy(surface.id);
+    const nodeId = parseHerdrSurfaceId(surface.id);
     if (nodeId) {
       const terminal = getHerdrTerminal(nodeId);
       if (terminal) return terminal.title || "herdr";
@@ -32,19 +32,7 @@ export function surfaceLabel(
   return surface.kind;
 }
 
-/**
- * Defensive herdr surface id → nodeId.
- * Prefers `herdr:${nodeId}`; falls back to legacy `herdr-terminal` → focused.
- */
+/** herdr surface id → nodeId. Canonical form is `herdr:${nodeId}` only. */
 export function parseHerdrNodeId(surfaceId: string): string | undefined {
-  const parsed = parseHerdrSurfaceId(surfaceId);
-  if (parsed) return parsed;
-  return parseHerdrNodeIdLegacy(surfaceId);
-}
-
-function parseHerdrNodeIdLegacy(surfaceId: string): string | undefined {
-  if (surfaceId === "herdr-terminal" || surfaceId === "herdr") {
-    return herdr$.focusedNodeId.peek() ?? undefined;
-  }
-  return undefined;
+  return parseHerdrSurfaceId(surfaceId) ?? undefined;
 }
