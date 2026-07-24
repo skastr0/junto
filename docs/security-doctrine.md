@@ -265,9 +265,12 @@ not inherently secret. It is not the canonical live authority store. Importing
 an edited document is an explicit operator action. Exporting a document does
 not grant the exported file live authority over a running factory.
 
-The current externally writable `~/.vellum/canvases/*.canvas` authority and
-external file-watch authoring path are migration debt. Plaintext by itself is
-not the defect; allowing an ordinary file edit to become operator intent is.
+Canonical live and durable authority is `~/.vellum/state/canvas-authority-v1`
+(content-addressed generations + `current.json`). App-owned write/create/remove
+commit full-map generations only. Legacy `~/.vellum/canvases/*.canvas` is
+import-only when no pointer exists; external file edits never re-admit as live
+authority. Remote install may materialize `.canvas` as a projection cache, not
+a second product SoT.
 
 Canvas confidentiality follows the operator's operating-system account, disk,
 backup, and export choices. Vellum does not become a general secret-management
