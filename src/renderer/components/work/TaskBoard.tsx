@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
+import { ulid } from "ulid";
 import {
+  Activity,
   CheckCircle2,
-  ChevronDown,
   CircleDot,
   Filter,
   GripVertical,
@@ -9,9 +10,11 @@ import {
   LoaderCircle,
   MessageSquareWarning,
   MoreHorizontal,
-  Play,
+  PanelRightClose,
   Plus,
   Search,
+  Send,
+  UserRound,
   X,
 } from "lucide-react";
 import {
@@ -22,18 +25,18 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
-import type { CanvasNode, Part, TaskState } from "@shared/canvas";
+import type { CanvasNode, Message, Part, TaskState, WorkMetadata } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
-import { sinkGlance, workRoleOf } from "@shared/attention";
+import { sinkGlance, workRoleOf, workRolesInDoc } from "@shared/attention";
 import { canTransitionTaskState, claimedByOf, taskBrief } from "@shared/task";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
 import { Chip, type ChipTone } from "../ui/Chip";
 import { IconButton } from "../ui/IconButton";
-import { Input } from "../ui/Field";
+import { Input, Textarea } from "../ui/Field";
 import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
-import { applyWorkCanvasWrite, runFactoryClaimTick, setNodeWorkRole } from "../../lib/mutations";
+import { applyWorkCanvasWrite, setNodeWorkRole } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
@@ -167,6 +170,20 @@ const chipToneForState = (state: TaskState): ChipTone => {
   return tone === "dim" ? "steel" : tone;
 };
 
+const metadataText = (metadata: WorkMetadata | undefined, key: string): string | undefined => {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+};
+
+const taskTitle = (task: WorkTask): string =>
+  metadataText(task.metadata, "title") ?? taskBrief(task).split(/\r?\n/, 1)[0]?.trim() ?? "Untitled task";
+
+const taskDetails = (task: WorkTask): string | undefined =>
+  metadataText(task.metadata, "details");
+
+const taskRole = (task: WorkTask): string | undefined =>
+  metadataText(task.metadata, "workRole");
+
 const latestText = (task: WorkTask): string | undefined => {
   for (let messageIndex = task.history.length - 1; messageIndex >= 1; messageIndex -= 1) {
     const message = task.history[messageIndex];
@@ -204,7 +221,9 @@ function TaskLane({
   activeLane,
   pendingTaskId,
   editingTaskId,
+  selectedTaskId,
   onCreate,
+  onSelect,
   onMove,
   onEdit,
   onCancelEdit,
@@ -216,7 +235,9 @@ function TaskLane({
   readonly activeLane: LaneId | null;
   readonly pendingTaskId: string | null;
   readonly editingTaskId: string | null;
+  readonly selectedTaskId: string | null;
   readonly onCreate: () => void;
+  readonly onSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onEdit: (task: WorkTask) => void;
   readonly onCancelEdit: () => void;
@@ -278,6 +299,8 @@ function TaskLane({
             index={index}
             pending={pendingTaskId === task.id}
             editing={editingTaskId === task.id}
+            selected={selectedTaskId === task.id}
+            onSelect={onSelect}
             onMove={onMove}
             onEdit={onEdit}
             onCancelEdit={onCancelEdit}
@@ -299,12 +322,125 @@ function TaskLane({
   );
 }
 
+function TaskActionsMenu({
+  task,
+  lane,
+  pending,
+  onEdit,
+  onMove,
+}: {
+  readonly task: WorkTask;
+  readonly lane: LaneDefinition;
+  readonly pending: boolean;
+  readonly onEdit: (task: WorkTask) => void;
+  readonly onMove: (task: WorkTask, state: TaskState) => void;
+}) {
+  const menuId = `task-actions-${useId().replaceAll(":", "")}`;
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const brief = taskTitle(task);
+  const availableMoves = LANES.filter(
+    (destination) =>
+      destination.state &&
+      destination.id !== lane.id &&
+      canTransitionTaskState(task.state, destination.state),
+  );
+  const terminalActions = (
+    [
+      ["completed", "Complete task"],
+      ["failed", "Mark as failed"],
+      ["rejected", "Reject task"],
+      ["canceled", "Cancel task"],
+    ] as const
+  ).filter(([state]) => canTransitionTaskState(task.state, state));
+
+  const show = (trigger: HTMLButtonElement) => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const rect = trigger.getBoundingClientRect();
+    menu.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - 220)}px`;
+    menu.style.left = `${Math.max(8, Math.min(rect.right - 174, window.innerWidth - 182))}px`;
+    menu.showPopover();
+  };
+
+  const commit = (action: () => void) => {
+    menuRef.current?.hidePopover();
+    action();
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className="task-board-card__menu-trigger"
+        aria-label={`Actions for ${brief}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={menuId}
+        title="Task actions"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          show(event.currentTarget);
+        }}
+      >
+        <MoreHorizontal size={15} />
+      </button>
+      <div
+        ref={menuRef}
+        id={menuId}
+        popover="auto"
+        role="menu"
+        className="task-board-card__menu-popover"
+        onClick={(event) => event.stopPropagation()}
+        onToggle={(event) => setOpen(event.currentTarget.matches(":popover-open"))}
+      >
+        <button type="button" role="menuitem" onClick={() => commit(() => onEdit(task))}>
+          Edit title
+        </button>
+        {availableMoves.map((destination) => (
+          <button
+            key={destination.id}
+            type="button"
+            role="menuitem"
+            disabled={pending}
+            onClick={() =>
+              commit(() => {
+                if (destination.state) onMove(task, destination.state);
+              })
+            }
+          >
+            Move to {destination.label}
+          </button>
+        ))}
+        {terminalActions.length > 0 ? (
+          <div className="task-board-card__menu-separator" aria-hidden />
+        ) : null}
+        {terminalActions.map(([state, label]) => (
+          <button
+            key={state}
+            type="button"
+            role="menuitem"
+            disabled={pending}
+            data-terminal-action={state}
+            onClick={() => commit(() => onMove(task, state))}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function TaskCard({
   task,
   lane,
   index,
   pending,
   editing,
+  selected,
+  onSelect,
   onMove,
   onEdit,
   onCancelEdit,
@@ -315,6 +451,8 @@ function TaskCard({
   readonly index: number;
   readonly pending: boolean;
   readonly editing: boolean;
+  readonly selected: boolean;
+  readonly onSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onEdit: (task: WorkTask) => void;
   readonly onCancelEdit: () => void;
@@ -335,23 +473,10 @@ function TaskCard({
       idle: true,
     },
   });
-  const brief = taskBrief(task);
+  const brief = taskTitle(task);
   const claim = claimedByOf(task);
+  const role = taskRole(task);
   const context = latestText(task);
-  const availableMoves = LANES.filter(
-    (destination) =>
-      destination.state &&
-      destination.id !== lane.id &&
-      canTransitionTaskState(task.state, destination.state),
-  );
-  const terminalActions = (
-    [
-      ["completed", "Complete task"],
-      ["failed", "Mark as failed"],
-      ["rejected", "Reject task"],
-      ["canceled", "Cancel task"],
-    ] as const
-  ).filter(([state]) => canTransitionTaskState(task.state, state));
 
   return (
     <article
@@ -362,25 +487,36 @@ function TaskCard({
         sortable.isDragging ? "task-board-card--dragging" : "",
         sortable.isDropTarget ? "task-board-card--drop-target" : "",
         pending ? "task-board-card--pending" : "",
+        selected ? "task-board-card--selected" : "",
       ]
         .filter(Boolean)
         .join(" ")}
       data-state={task.state}
+      data-draggable={TERMINAL_STATES.has(task.state) || pending ? "false" : "true"}
       data-testid="task-board-card"
       role="listitem"
+      tabIndex={0}
       aria-busy={pending}
+      aria-label={`Open details for ${brief}`}
+      aria-current={selected ? "true" : undefined}
+      onClick={() => {
+        if (!editing) onSelect(task.id);
+      }}
+      onKeyDown={(event) => {
+        if (!editing && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          onSelect(task.id);
+        }
+      }}
     >
       <div className="task-board-card__topline">
-        <button
-          ref={sortable.handleRef}
-          type="button"
+        <span
           className="task-board-card__handle"
-          aria-label={`Drag ${brief}`}
-          title={TERMINAL_STATES.has(task.state) ? "Closed tasks cannot move" : "Move task"}
-          disabled={TERMINAL_STATES.has(task.state) || pending}
+          aria-hidden
+          title={TERMINAL_STATES.has(task.state) ? "Closed tasks cannot move" : "Drag task"}
         >
           <GripVertical size={14} />
-        </button>
+        </span>
 
         <div className="task-board-card__content">
           {editing ? (
@@ -413,6 +549,7 @@ function TaskCard({
               <div className="task-board-card__meta">
                 <StatusDot tone={toneForState(task.state)} pulse={task.state === "working"} />
                 <span>{claim ?? "Unclaimed"}</span>
+                {role ? <span className="task-board-card__role">{role}</span> : null}
               </div>
               {context && (task.state === "input-required" || task.state === "auth-required") ? (
                 <p className="task-board-card__context">{context}</p>
@@ -422,42 +559,13 @@ function TaskCard({
         </div>
 
         {!editing ? (
-          <details className="task-board-card__menu">
-            <summary aria-label={`Actions for ${brief}`} title="Task actions">
-              <MoreHorizontal size={15} />
-            </summary>
-            <div className="task-board-card__menu-body">
-              <button type="button" onClick={() => onEdit(task)}>
-                Edit title
-              </button>
-              {availableMoves.map((destination) => (
-                <button
-                  key={destination.id}
-                  type="button"
-                  disabled={pending}
-                  onClick={() => {
-                    if (destination.state) onMove(task, destination.state);
-                  }}
-                >
-                  Move to {destination.label}
-                </button>
-              ))}
-              {terminalActions.length > 0 ? (
-                <div className="task-board-card__menu-separator" aria-hidden />
-              ) : null}
-              {terminalActions.map(([state, label]) => (
-                <button
-                  key={state}
-                  type="button"
-                  disabled={pending}
-                  data-terminal-action={state}
-                  onClick={() => onMove(task, state)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </details>
+          <TaskActionsMenu
+            task={task}
+            lane={lane}
+            pending={pending}
+            onEdit={onEdit}
+            onMove={onMove}
+          />
         ) : null}
       </div>
 
@@ -483,7 +591,7 @@ function DragCardPreview({ task }: { readonly task: WorkTask }) {
           <GripVertical size={14} />
         </span>
         <div className="task-board-card__content">
-          <h3 className="task-board-card__title">{taskBrief(task)}</h3>
+          <h3 className="task-board-card__title">{taskTitle(task)}</h3>
           <div className="task-board-card__meta">
             <StatusDot tone={toneForState(task.state)} />
             <span>{claimedByOf(task) ?? "Unclaimed"}</span>
@@ -491,6 +599,262 @@ function DragCardPreview({ task }: { readonly task: WorkTask }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function TaskCreateDialog({
+  roles,
+  pending,
+  onClose,
+  onCreate,
+}: {
+  readonly roles: ReadonlyArray<string>;
+  readonly pending: boolean;
+  readonly onClose: () => void;
+  readonly onCreate: (title: string, details: string, role: string) => void;
+}) {
+  const roleListId = `task-role-options-${useId().replaceAll(":", "")}`;
+  const [title, setTitle] = useState("");
+  const [details, setDetails] = useState("");
+  const [role, setRole] = useState("");
+
+  return (
+    <FocusSurface
+      measure="form"
+      height="fit"
+      layer="detail"
+      label="Create task"
+      onClose={onClose}
+      closeOnBackdrop={!pending}
+      closeOnEscape={!pending}
+      panelClassName="task-create-dialog"
+    >
+      <OverlayHeader
+        eyebrow="new task"
+        title="Define the work"
+        status="Give the worker enough context to act without guessing."
+        actions={
+          <IconButton aria-label="Close task creator" title="Close" onClick={onClose} disabled={pending}>
+            <X size={14} />
+          </IconButton>
+        }
+      />
+      <form
+        className="task-create-dialog__form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (title.trim()) onCreate(title.trim(), details.trim(), role.trim());
+        }}
+      >
+        <label>
+          <span>Title</span>
+          <Input
+            autoFocus
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="What needs doing?"
+            maxLength={180}
+          />
+          <small>A concise outcome that stays readable on the board.</small>
+        </label>
+        <label>
+          <span>Task role</span>
+          <Input
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
+            placeholder="e.g. Security Agent"
+            list={roleListId}
+          />
+          <datalist id={roleListId}>
+            {roles.map((knownRole) => (
+              <option key={knownRole} value={knownRole} />
+            ))}
+          </datalist>
+          <small>The specialization this task should be routed to.</small>
+        </label>
+        <label>
+          <span>Description</span>
+          <Textarea
+            value={details}
+            onChange={(event) => setDetails(event.target.value)}
+            placeholder="Describe the context, constraints, expected result, and any proof the worker should return…"
+            rows={9}
+          />
+          <small>Long-form is welcome. Line breaks and detailed acceptance notes are preserved.</small>
+        </label>
+        <footer>
+          <Button type="button" variant="subtle" onClick={onClose} disabled={pending}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={pending || !title.trim()}>
+            {pending ? "Creating…" : "Create task"}
+          </Button>
+        </footer>
+      </form>
+    </FocusSurface>
+  );
+}
+
+function TaskDetailPanel({
+  task,
+  pending,
+  onClose,
+  onSaveTitle,
+  onAppendNote,
+  onMove,
+}: {
+  readonly task: WorkTask;
+  readonly pending: boolean;
+  readonly onClose: () => void;
+  readonly onSaveTitle: (task: WorkTask, title: string) => void;
+  readonly onAppendNote: (task: WorkTask, note: string) => void;
+  readonly onMove: (task: WorkTask, state: TaskState) => void;
+}) {
+  const [title, setTitle] = useState(() => taskTitle(task));
+  const [note, setNote] = useState("");
+  const role = taskRole(task);
+  const claim = claimedByOf(task);
+  const details = taskDetails(task);
+  const moves = LANES.filter(
+    (lane) => lane.state && canTransitionTaskState(task.state, lane.state),
+  );
+  const terminalActions = (
+    [
+      ["completed", "Complete"],
+      ["rejected", "Reject"],
+      ["canceled", "Cancel"],
+    ] as const
+  ).filter(([state]) => canTransitionTaskState(task.state, state));
+
+  return (
+    <aside className="task-detail-panel" aria-label={`Details for ${taskTitle(task)}`}>
+      <header className="task-detail-panel__header">
+        <div>
+          <Chip tone={chipToneForState(task.state)}>{stateLabel(task.state)}</Chip>
+          <h2>{taskTitle(task)}</h2>
+        </div>
+        <IconButton aria-label="Close task details" title="Close details" onClick={onClose}>
+          <PanelRightClose size={15} />
+        </IconButton>
+      </header>
+
+      <div className="task-detail-panel__identity">
+        <span title="Task ID">#{task.id}</span>
+        <span>
+          <UserRound size={12} aria-hidden />
+          {claim ?? "Unclaimed"}
+        </span>
+        <span>{role ?? "No task role"}</span>
+      </div>
+
+      <div className="task-detail-panel__scroll">
+        <section className="task-detail-panel__section">
+          <h3>Title</h3>
+          <form
+            className="task-detail-panel__title-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (title.trim() && title.trim() !== taskTitle(task)) onSaveTitle(task, title.trim());
+            }}
+          >
+            <Input value={title} onChange={(event) => setTitle(event.target.value)} />
+            <Button
+              type="submit"
+              size="xs"
+              variant="subtle"
+              disabled={pending || !title.trim() || title.trim() === taskTitle(task)}
+            >
+              Save title
+            </Button>
+          </form>
+        </section>
+
+        <section className="task-detail-panel__section">
+          <h3>Description</h3>
+          {details ? (
+            <p className="task-detail-panel__description">{details}</p>
+          ) : (
+            <p className="task-detail-panel__empty">No long-form description was provided.</p>
+          )}
+        </section>
+
+        <section className="task-detail-panel__section">
+          <h3>
+            <Activity size={13} aria-hidden />
+            Activity
+          </h3>
+          <ol className="task-detail-panel__activity">
+            {task.history.slice(1).length > 0 ? (
+              task.history.slice(1).map((message) => (
+                <li key={message.messageId}>
+                  <StatusDot tone={message.role === "agent" ? "cyan" : "amber"} />
+                  <div>
+                    <strong>{message.role === "agent" ? claim ?? "Agent" : "Operator"}</strong>
+                    <p>
+                      {message.parts
+                        .filter((part): part is Extract<Part, { kind: "text" }> => part.kind === "text")
+                        .map((part) => part.text)
+                        .join(" ") || "Attached structured context."}
+                    </p>
+                  </div>
+                </li>
+              ))
+            ) : (
+              <li className="task-detail-panel__empty">No activity yet.</li>
+            )}
+          </ol>
+        </section>
+
+        <section className="task-detail-panel__section">
+          <h3>Add a note</h3>
+          <Textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Add context for the worker…"
+            rows={4}
+          />
+          <Button
+            size="sm"
+            variant="subtle"
+            disabled={pending || !note.trim()}
+            onClick={() => {
+              onAppendNote(task, note.trim());
+              setNote("");
+            }}
+          >
+            <Send size={12} />
+            Add note
+          </Button>
+        </section>
+      </div>
+
+      <footer className="task-detail-panel__actions">
+        {moves.map((lane) => (
+          <Button
+            key={lane.id}
+            size="sm"
+            variant="subtle"
+            disabled={pending}
+            onClick={() => {
+              if (lane.state) onMove(task, lane.state);
+            }}
+          >
+            Move to {lane.label}
+          </Button>
+        ))}
+        {terminalActions.map(([state, label]) => (
+          <Button
+            key={state}
+            size="sm"
+            variant={state === "rejected" ? "danger" : "chrome"}
+            disabled={pending}
+            onClick={() => onMove(task, state)}
+          >
+            {label}
+          </Button>
+        ))}
+      </footer>
+    </aside>
   );
 }
 
@@ -507,12 +871,13 @@ export function TaskBoard({
   const [query, setQuery] = useState("");
   const [hideClosed, setHideClosed] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [brief, setBrief] = useState("");
+  const [creatingPending, setCreatingPending] = useState(false);
   const [roleDraft, setRoleDraft] = useState(workRoleOf(node) ?? "");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeLane, setActiveLane] = useState<LaneId | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const api = getVellumApi();
@@ -523,7 +888,12 @@ export function TaskBoard({
     if (!normalized) return items;
     return items.filter((task) => {
       const claim = claimedByOf(task)?.toLowerCase() ?? "";
-      return taskBrief(task).toLowerCase().includes(normalized) || claim.includes(normalized);
+      return (
+        taskTitle(task).toLowerCase().includes(normalized) ||
+        Boolean(taskDetails(task)?.toLowerCase().includes(normalized)) ||
+        Boolean(taskRole(task)?.toLowerCase().includes(normalized)) ||
+        claim.includes(normalized)
+      );
     });
   }, [items, query]);
 
@@ -540,24 +910,36 @@ export function TaskBoard({
   }, [visibleItems]);
 
   const activeTask = activeTaskId ? items.find((task) => task.id === activeTaskId) : undefined;
+  const selectedTask = selectedTaskId
+    ? items.find((task) => task.id === selectedTaskId)
+    : undefined;
+  const knownRoles = workRolesInDoc(state$.doc.peek());
 
-  const createTask = async () => {
-    if (!api || !brief.trim()) return;
+  const createTask = async (title: string, details: string, role: string) => {
+    if (!api || !title.trim()) return;
     setError("");
+    setCreatingPending(true);
     try {
+      const metadata: WorkMetadata = {
+        title: title.trim(),
+        ...(details.trim() ? { details: details.trim() } : {}),
+        ...(role.trim() ? { workRole: role.trim() } : {}),
+      };
       const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskCreate(name, node.id, brief.trim()),
+        api.workTaskCreate(name, node.id, title.trim(), metadata),
       );
       if (result === undefined) return;
       if (!result.ok) {
         setError(result.message);
         return;
       }
-      setAnnouncement(`Created ${brief.trim()} in Queue.`);
-      setBrief("");
+      setAnnouncement(`Created ${title.trim()} in Queue.`);
       setCreating(false);
+      setSelectedTaskId(result.data.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCreatingPending(false);
     }
   };
 
@@ -572,14 +954,14 @@ export function TaskBoard({
       if (result === undefined) return;
       if (!result.ok) {
         setError(result.message);
-        setAnnouncement(`Could not move ${taskBrief(task)}. ${result.message}`);
+        setAnnouncement(`Could not move ${taskTitle(task)}. ${result.message}`);
         return;
       }
-      setAnnouncement(`Moved ${taskBrief(task)} to ${stateLabel(state)}.`);
+      setAnnouncement(`Moved ${taskTitle(task)} to ${stateLabel(state)}.`);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
-      setAnnouncement(`Could not move ${taskBrief(task)}. ${message}`);
+      setAnnouncement(`Could not move ${taskTitle(task)}. ${message}`);
     } finally {
       setPendingTaskId(null);
     }
@@ -611,13 +993,44 @@ export function TaskBoard({
     }
   };
 
+  const appendTaskNote = async (task: WorkTask, text: string) => {
+    if (!api || !text.trim()) return;
+    setError("");
+    setPendingTaskId(task.id);
+    const message: Message = {
+      messageId: ulid(),
+      role: "user",
+      parts: [{ kind: "text", text: text.trim() }],
+      taskId: task.id,
+    };
+    try {
+      const result = await runWorkCanvasMutation(name, () =>
+        api.workMessageAppend(name, node.id, task.id, message),
+      );
+      if (result === undefined) return;
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setAnnouncement(`Added a note to ${taskTitle(task)}.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPendingTaskId(null);
+    }
+  };
+
   const onDragStart = (event: DragStartEvent) => {
     const data = event.operation.source?.data as BoardDragData | undefined;
     if (data?.kind !== "task") return;
     setActiveTaskId(data.taskId);
     setActiveLane(data.laneId);
     const task = items.find((item) => item.id === data.taskId);
-    if (task) setAnnouncement(`Picked up ${taskBrief(task)} from ${LANES.find((lane) => lane.id === data.laneId)?.label}.`);
+    if (task) {
+      setAnnouncement(
+        `Picked up ${taskTitle(task)} from ${LANES.find((lane) => lane.id === data.laneId)?.label}.`,
+      );
+    }
   };
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -636,22 +1049,6 @@ export function TaskBoard({
       return;
     }
     void transitionTask(task, state);
-  };
-
-  const runClaimTick = () => {
-    setError("");
-    try {
-      const { claimed } = runFactoryClaimTick();
-      if (claimed.length === 0) {
-        setError("No free role-matched worker is connected to this queue.");
-        return;
-      }
-      setAnnouncement(
-        `Claimed ${claimed.length} task${claimed.length === 1 ? "" : "s"} for connected workers.`,
-      );
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
   };
 
   const shownLanes = hideClosed ? LANES.filter((lane) => lane.id !== "closed") : LANES;
@@ -721,10 +1118,6 @@ export function TaskBoard({
               >
                 <Filter size={14} />
               </IconButton>
-              <Button variant="chrome" size="sm" onClick={runClaimTick} title="Claim queued work">
-                <Play size={11} />
-                Claim work
-              </Button>
               <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
                 <Plus size={12} />
                 New task
@@ -761,41 +1154,14 @@ export function TaskBoard({
         ) : null}
 
         {creating ? (
-          <form
-            className="task-board-composer"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void createTask();
+          <TaskCreateDialog
+            roles={knownRoles}
+            pending={creatingPending}
+            onClose={() => {
+              if (!creatingPending) setCreating(false);
             }}
-          >
-            <label htmlFor="task-board-new-task">Task brief</label>
-            <Input
-              id="task-board-new-task"
-              value={brief}
-              autoFocus
-              placeholder="Describe the outcome"
-              onChange={(event) => setBrief(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setCreating(false);
-                  setBrief("");
-                }
-              }}
-            />
-            <Button
-              size="sm"
-              variant="subtle"
-              onClick={() => {
-                setCreating(false);
-                setBrief("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button size="sm" variant="primary" type="submit" disabled={!brief.trim()}>
-              Create task
-            </Button>
-          </form>
+            onCreate={(title, details, role) => void createTask(title, details, role)}
+          />
         ) : null}
 
         {error ? (
@@ -808,28 +1174,43 @@ export function TaskBoard({
           </div>
         ) : null}
 
-        <div
-          className="task-board-grid"
-          style={{ ["--task-board-lanes" as string]: shownLanes.length }}
-          data-lane-count={shownLanes.length}
-          data-testid="task-board"
-        >
-          {shownLanes.map((lane) => (
-            <TaskLane
-              key={lane.id}
-              lane={lane}
-              tasks={tasksByLane[lane.id]}
-              searchActive={Boolean(query.trim())}
-              activeLane={activeLane}
-              pendingTaskId={pendingTaskId}
-              editingTaskId={editingTaskId}
-              onCreate={() => setCreating(true)}
+        <div className="task-board-workspace" data-detail-open={selectedTask ? "true" : "false"}>
+          <div
+            className="task-board-grid"
+            style={{ ["--task-board-lanes" as string]: shownLanes.length }}
+            data-lane-count={shownLanes.length}
+            data-testid="task-board"
+          >
+            {shownLanes.map((lane) => (
+              <TaskLane
+                key={lane.id}
+                lane={lane}
+                tasks={tasksByLane[lane.id]}
+                searchActive={Boolean(query.trim())}
+                activeLane={activeLane}
+                pendingTaskId={pendingTaskId}
+                editingTaskId={editingTaskId}
+                selectedTaskId={selectedTaskId}
+                onCreate={() => setCreating(true)}
+                onSelect={setSelectedTaskId}
+                onMove={(task, state) => void transitionTask(task, state)}
+                onEdit={(task) => setEditingTaskId(task.id)}
+                onCancelEdit={() => setEditingTaskId(null)}
+                onSaveEdit={(task, nextBrief) => void saveTaskTitle(task, nextBrief)}
+              />
+            ))}
+          </div>
+          {selectedTask ? (
+            <TaskDetailPanel
+              key={selectedTask.id}
+              task={selectedTask}
+              pending={pendingTaskId === selectedTask.id}
+              onClose={() => setSelectedTaskId(null)}
+              onSaveTitle={(task, title) => void saveTaskTitle(task, title)}
+              onAppendNote={(task, note) => void appendTaskNote(task, note)}
               onMove={(task, state) => void transitionTask(task, state)}
-              onEdit={(task) => setEditingTaskId(task.id)}
-              onCancelEdit={() => setEditingTaskId(null)}
-              onSaveEdit={(task, nextBrief) => void saveTaskTitle(task, nextBrief)}
             />
-          ))}
+          ) : null}
         </div>
 
         <div className="sr-only" aria-live="polite" aria-atomic="true">

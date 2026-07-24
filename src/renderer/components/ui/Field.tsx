@@ -1,4 +1,9 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import type {
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+} from "react";
 
 /**
  * House form fields — one treatment for every text input and select:
@@ -15,6 +20,24 @@ export function Input({
   ...rest
 }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={[FIELD_CLASS, className ?? ""].filter(Boolean).join(" ")} {...rest} />;
+}
+
+export function Textarea({
+  className,
+  ...rest
+}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={[
+        FIELD_CLASS,
+        "min-h-24 resize-y leading-relaxed",
+        className ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      {...rest}
+    />
+  );
 }
 
 export function Select({
