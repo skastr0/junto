@@ -8,15 +8,16 @@ import type {
   Part,
   TaskState,
 } from "@shared/canvas";
-import { claimedByOf, isTerminalTaskState, taskBrief } from "@shared/task";
+import { isTerminalTaskState, taskBrief } from "@shared/task";
 import { sinkGlance, workRoleOf } from "@shared/attention";
 import type { WorkOpResult } from "@shared/ipc";
 import { DetailModal } from "../DetailModal";
-import { applyWorkCanvasWrite, runFactoryClaimTick, setNodeWorkRole } from "../../lib/mutations";
+import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { getVellumApi } from "../../lib/vellum-api";
 import { state$ } from "../../lib/state";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
+import { TaskBoard } from "./TaskBoard";
 
 /** Baseline renderer revision + merge freeform after every successful work op. */
 const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
@@ -246,75 +247,6 @@ export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
 
 // --- Detail surfaces -------------------------------------------------------
 
-function TaskFocusRow({
-  task,
-  onTransition,
-  error,
-}: {
-  readonly task: Task;
-  readonly onTransition: (state: TaskState, note?: string) => void | Promise<void>;
-  readonly error?: string;
-}) {
-  const claim = claimedByOf(task);
-  const human =
-    task.state === "input-required" || task.state === "auth-required" ? "fire" : "idle";
-  const nextHuman =
-    task.state === "working" || task.state === "submitted"
-      ? (["input-required", "completed", "failed"] as const)
-      : task.state === "input-required"
-        ? (["working", "completed", "rejected"] as const)
-        : ([] as const);
-  return (
-    <div
-      className="rounded border p-3"
-      data-attention={human}
-      style={{ borderColor: withAlpha(HUE.amber, 0.2), background: withAlpha("#0c0b09", 0.4) }}
-    >
-      <div className="text-[14px] font-medium" style={{ color: INK }}>
-        {taskBrief(task)}
-      </div>
-      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]" style={{ color: DIM }}>
-        <span style={{ color: stateHue(task.state) }}>{task.state}</span>
-        {claim ? <span>worker {claim}</span> : <span>unclaimed</span>}
-      </div>
-      {task.history.length > 1 ? (
-        <div className="mt-2 max-h-24 overflow-auto text-[11px]" style={{ color: DIM }}>
-          {task.history
-            .slice(1)
-            .map((msg) =>
-              msg.parts
-                .filter((p): p is Extract<Part, { kind: "text" }> => p.kind === "text")
-                .map((p) => p.text)
-                .join(" "),
-            )
-            .filter(Boolean)
-            .join(" · ")}
-        </div>
-      ) : null}
-      {nextHuman.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {nextHuman.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className="rounded border px-2 py-0.5 text-[10px]"
-              style={{ borderColor: withAlpha(stateHue(s), 0.4), color: stateHue(s) }}
-              onClick={() => void onTransition(s)}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {error ? (
-        <div className="mt-1 text-[10px]" style={{ color: HUE.crimson }}>
-          {error}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export function TasksDetail({
   node,
   onClose,
@@ -322,125 +254,7 @@ export function TasksDetail({
   readonly node: CanvasNode;
   readonly onClose: () => void;
 }) {
-  const items = node.ether?.tasks?.items ?? [];
-  const glance = sinkGlance(items);
-  const [brief, setBrief] = useState("");
-  const [error, setError] = useState("");
-  const [rowError, setRowError] = useState<Record<string, string>>({});
-  const [roleDraft, setRoleDraft] = useState(workRoleOf(node) ?? "");
-  const api = getVellumApi();
-  const name = canvasName();
-
-  const create = async () => {
-    if (!api || !brief.trim()) return;
-    setError("");
-    try {
-      const result = await runWorkCanvasMutation(
-        name,
-        () => api.workTaskCreate(name, node.id, brief.trim()),
-      );
-      if (result === undefined) return;
-      if (!result.ok) setError(result.message);
-      else setBrief("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const runTick = () => {
-    setError("");
-    try {
-      const { claimed } = runFactoryClaimTick();
-      if (claimed.length === 0) {
-        setError("no free role-matched worker edged to this queue");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  return (
-    <DetailModal onClose={onClose}>
-      <div className="flex h-full flex-col gap-3 p-4" data-testid="tasks-focus">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.16em]" style={{ color: DIM }}>
-            tasks
-          </div>
-          <div className="text-[16px] font-semibold" style={{ color: INK }}>
-            {glance.inFlight} in flight
-            {glance.needsInput > 0 ? (
-              <span style={{ color: HUE.amber }}> · {glance.needsInput} need input</span>
-            ) : null}
-          </div>
-        </div>
-        <label className="flex flex-col gap-1 text-[10px]" style={{ color: DIM }}>
-          work role
-          <input
-            aria-label="Queue work role"
-            placeholder="e.g. builder"
-            value={roleDraft}
-            onChange={(e) => setRoleDraft(e.target.value)}
-            onBlur={() => setNodeWorkRole(node.id, roleDraft || undefined)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                setNodeWorkRole(node.id, roleDraft || undefined);
-                e.currentTarget.blur();
-              }
-            }}
-          />
-        </label>
-        <div className="flex gap-2">
-          <input
-            className="flex-1"
-            aria-label="New task brief"
-            placeholder="what needs doing"
-            value={brief}
-            onChange={(e) => setBrief(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void create();
-            }}
-          />
-          <button type="button" onClick={() => void create()}>
-            add
-          </button>
-          <button type="button" title="Claim submitted tasks with free edged workers" onClick={runTick}>
-            tick
-          </button>
-        </div>
-        {error ? (
-          <div className="text-[11px]" style={{ color: HUE.crimson }}>
-            {error}
-          </div>
-        ) : null}
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
-          {items.map((task) => (
-            <TaskFocusRow
-              key={task.id}
-              task={task}
-              error={rowError[task.id]}
-              onTransition={async (state) => {
-                if (!api) return;
-                setRowError((prev) => ({ ...prev, [task.id]: "" }));
-                try {
-                  const result = await runWorkCanvasMutation(
-                    name,
-                    () => api.workTaskTransition(name, node.id, task.id, state),
-                  );
-                  if (result === undefined) return;
-                  if (!result.ok) setRowError((prev) => ({ ...prev, [task.id]: result.message }));
-                } catch (err) {
-                  setRowError((prev) => ({
-                    ...prev,
-                    [task.id]: err instanceof Error ? err.message : String(err),
-                  }));
-                }
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </DetailModal>
-  );
+  return <TaskBoard node={node} onClose={onClose} />;
 }
 
 export function RequestsDetail({
