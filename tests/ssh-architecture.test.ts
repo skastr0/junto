@@ -84,6 +84,11 @@ describe("SSH architecture", () => {
       // Fleet trust provisioning renders one fixed wrapper with a canonical
       // Ed25519 public record on bounded stdin.
       "src/main/vellum/browser/station-trust.ts",
+      // Command Center projection push: home lookup + named frame-deliver recipe.
+      "src/main/vellum/projection/remote-delivery.ts",
+      "src/main/vellum/projection/product-push.ts",
+      // Remote drop path constants + apply (reads confined plan path names only).
+      "src/main/vellum/projection/incoming.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {

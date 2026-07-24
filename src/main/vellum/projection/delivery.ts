@@ -1,15 +1,18 @@
 /**
- * Command Center projection delivery lane (Cut 5 pragmatic slice).
+ * Command Center projection delivery lane (beta ship slice).
  *
  * Compiles full-canvas-set frames from live canvas documents, tracks per-host
  * delivery status (pending → applied | rejected | unreachable), and applies
  * locally via the Station projection store for same-machine / unit-test
  * targets.
  *
- * Residual: typed remote bridge that ships the frame to a Remote station and
- * invokes a remote apply bridge is not yet product-wired. Remote targets
- * without an injected transport record `pending` then `unreachable` so
- * Doctor surfaces honest reachability truth. Do not remove canvas-pull.
+ * Remote push: inject `createProjectionDeliveryTransport(ssh)` so enrolled
+ * remotes receive frames via SshTransport + `compileProjectionFrameDeliver`
+ * (stdin atomic write to `~/.vellum/projections/incoming.frame`). Without a
+ * transport, remote targets record honest `unreachable`.
+ *
+ * Residual: auto-tick on Command Center canvas writes; Remote interval poll
+ * (boot apply is wired). canvas-pull remains fallback for operators.
  */
 
 import type { CanvasDoc } from "@shared/canvas";
@@ -274,7 +277,7 @@ export type ScheduleHostSyncResult = {
 };
 
 const REMOTE_BRIDGE_RESIDUAL =
-  "Remote projection bridge residual — frame not delivered; canvas-pull remains product path";
+  "Remote projection transport not injected — frame not delivered; inject createProjectionDeliveryTransport or use canvas-pull fallback";
 
 /**
  * For each enrolled host target: record pending, then resolve to applied /
@@ -397,6 +400,8 @@ export const scheduleHostSync = async (
 /**
  * Convenience: compile from documents then schedule sync for enrolled remotes.
  * Callers (Command Center IPC / future kernel tick) own when this runs.
+ *
+ * Product remote push: pass `transport: createProjectionDeliveryTransport(ssh)`.
  */
 export const deliverProjectionToHosts = async (
   input: CompileProjectionSnapshotInput & {

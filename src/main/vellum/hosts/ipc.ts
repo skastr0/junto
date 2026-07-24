@@ -35,6 +35,7 @@ import {
   MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
   RELEASE_CAPABILITIES,
 } from "@shared/release-capabilities";
+import { pushLiveProjectionToEnrolledRemotes } from "../projection/product-push";
 
 const toOp = (
   either: { readonly _tag: "Right"; readonly right: ReadonlyArray<unknown> } | {
@@ -399,6 +400,25 @@ export const registerHostsIpc = (
                 code: result.left.code,
                 message: result.left.message,
               } satisfies HostsConfigureRemoteResult;
+            }
+
+            // Best-effort: after enroll, stage a projection frame on remotes.
+            // Failures do not undo configure — Doctor lastProjection surfaces truth.
+            if (result.right.ok && RELEASE_CAPABILITIES.stationProjection) {
+              const push = yield* Effect.either(
+                pushLiveProjectionToEnrolledRemotes,
+              );
+              if (push._tag === "Left") {
+                console.error(
+                  "[projection] post-configure push failed:",
+                  push.left,
+                );
+              } else if (!push.right.ok) {
+                console.error(
+                  "[projection] post-configure push rejected:",
+                  push.right.detail,
+                );
+              }
             }
 
             return {

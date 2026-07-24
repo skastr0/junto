@@ -79,14 +79,17 @@ status lane:
 | CC delivery queue (`projection/delivery.ts`) | compile from live docs · pure status machine · local apply · scheduleHostSync receipts |
 | Station status `lastProjection` / `projections` | durable pending → applied \| rejected \| unreachable (Cut 7.1 surface) |
 | Doctor metadata | `lastProjectionStatus` / generation / host / detail |
-| **Live canvas-pull** | **Still the product path** for fleet canvas sync |
-| Typed SSH projection bridge (frame ship + remote apply) | residual — ssh-mode without transport records honest `unreachable` |
-| Live admit from projection store → canvas authority | residual — do not remove canvas-pull yet |
+| Named remote recipe `compileProjectionFrameDeliver` | **landed** — stdin atomic write to `~/.vellum/projections/incoming.frame` |
+| CC push transport (`createProjectionDeliveryTransport`) | **landed** — SshTransport + named recipe; wired via `pushLiveProjectionToEnrolledRemotes` (post-configure best-effort) |
+| Remote apply of `incoming.frame` | **landed** — boot apply + materialize canvases + live authority admit |
+| **Live canvas-pull** | **Fallback residual** — Settings labels it fallback; keep for offline/manual recovery |
+| Auto-tick push on every CC canvas write | residual |
+| Remote interval poll of drop path | residual (boot-only for beta) |
+| Packaged `/opt/Vellum Command/resources/bin/vellum-projection-bridge` | residual (drop-file path ships first) |
 
-Operators continue to use Remote canvas-pull for fleet canvas sync in beta.
-Projection store install is not yet the live authority path. CC may record
-push intent receipts so Doctor shows projection reachability truth; full
-enrolled-SSH frame delivery is a later cut.
+Preferred fleet path in beta: Command Center stages projection frames over the
+enrolled remote recipe; Remote applies on boot. canvas-pull remains available as
+operator fallback and is not removed.
 
 ## Cut 7.1 residual — Projection reachability truth
 

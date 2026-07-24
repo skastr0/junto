@@ -1182,16 +1182,16 @@ function StationSection() {
       {role === "remote" ? (
         <FieldRow
           label="Canvas pull"
-          hint="Replace local canvases with full copies from the Command Center (read-only)"
+          hint="Fallback: replace local canvases from Command Center. Preferred path is Command Center projection push (incoming.frame on this station)."
         >
           <button
             type="button"
             className="settings-panel__ghost"
             disabled={pullBusy || station.commandCenterRef.trim().length === 0}
-            aria-label="Pull canvases from Command Center"
+            aria-label="Pull canvases from Command Center (fallback)"
             onClick={() => void onPullCanvases()}
           >
-            {pullBusy ? "Pulling…" : "Pull from Command Center"}
+            {pullBusy ? "Pulling…" : "Pull from Command Center (fallback)"}
           </button>
         </FieldRow>
       ) : null}

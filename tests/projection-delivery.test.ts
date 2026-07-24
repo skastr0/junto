@@ -308,7 +308,7 @@ describe("scheduleHostSync status recording", () => {
     expect(result.outcomes[0]!.record.detail).toBe("bridge ok");
   });
 
-  it("ssh transport rejection: pending → rejected", async () => {
+  it("remote transport rejection: pending → rejected", async () => {
     const compiled = compile("6");
     const result = await scheduleHostSync(
       compiled,
@@ -327,6 +327,37 @@ describe("scheduleHostSync status recording", () => {
     );
     expect(result.outcomes[0]!.record.status).toBe("rejected");
   });
+
+  it("remote mode with product-shaped transport: pending then applied", async () => {
+    const compiled = compile("8");
+    const seen: Array<{ hostId: string; endpoint: string; gen: string }> = [];
+    const result = await scheduleHostSync(
+      compiled,
+      [{ hostId: "studio", endpoint: "studio-box", mode: "remote" }],
+      {
+        now,
+        record: recordStationProjection,
+        transport: {
+          deliver: async (input) => {
+            seen.push({
+              hostId: input.hostId,
+              endpoint: input.endpoint,
+              gen: input.compiled.manifest.generation,
+            });
+            return {
+              ok: true,
+              detail: "projection frame staged at /home/x/.vellum/projections/incoming.frame",
+            };
+          },
+        },
+      },
+    );
+    expect(result.outcomes[0]!.record.status).toBe("applied");
+    expect(seen).toEqual([
+      { hostId: "studio", endpoint: "studio-box", gen: "8" },
+    ]);
+  });
+
 
   it("deliverProjectionToHosts compiles and syncs in one call", async () => {
     const result = await deliverProjectionToHosts(

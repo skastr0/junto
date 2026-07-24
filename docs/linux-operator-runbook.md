@@ -221,8 +221,8 @@ For release qualification and day-to-day operations, also observe:
 - browser (and terminal) control surfaces are owner-only when those planes are
   expected for the workload;
 - Vellum Doctor reports the selected role, exact host ID, supervised alignment,
-  current canvas-pull evidence, work readiness, native terminal readiness, and
-  browser product-path readiness.
+  projection delivery / canvas-pull fallback evidence, work readiness, native
+  terminal readiness, and browser product-path readiness.
 
 Use the in-app Doctor surface. The `vellum doctor` CLI is also valid when
 launched from an attached Vellum agent or Herdr process, because process-bind

@@ -7,6 +7,7 @@ import {
   compileLinuxReleaseBridge,
   compileLinuxRemotePreflight,
   compileLinuxRemotePreflightSource,
+  compileProjectionFrameDeliver,
   compileRemotePlan,
   compileRemotePlanSource,
   compileRemoteSettingsRestore,
@@ -15,9 +16,11 @@ import {
   compileRemoteTopologyEvidencePresence,
   compileRemoteTopologySealPresence,
   confineHerdrStagePath,
+  confineProjectionIncomingPath,
   confineVellumDirectory,
   confineVellumLeaf,
   HERDR_IMAGE_STAGE_DIR,
+  PROJECTION_INCOMING_BASENAME,
   remotePlanPathFootprint,
   remoteStationSettingsInstallPlan,
 } from "../src/main/vellum/ssh/remote-plan";
@@ -309,5 +312,50 @@ describe("herdr image stage plan", () => {
     expect(src).not.toContain("$1");
     expect(src).not.toContain("$2");
     expect(staged.path).toBe(`${HERDR_IMAGE_STAGE_DIR}/${productName}`);
+  });
+});
+
+describe("compileProjectionFrameDeliver", () => {
+  it("admits a clean home and confining drop path", () => {
+    const path = run(confineProjectionIncomingPath("/home/station"));
+    expect(path).toBe(
+      `/home/station/.vellum/projections/${PROJECTION_INCOMING_BASENAME}`,
+    );
+  });
+
+  it("rejects path traversal and shell metacharacters in home", () => {
+    expect(
+      Either.isLeft(
+        Effect.runSync(Effect.either(confineProjectionIncomingPath("/tmp/../etc"))),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        Effect.runSync(
+          Effect.either(confineProjectionIncomingPath("/home/a;rm -rf /")),
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("compiles atomic stdin write under .vellum/projections only", () => {
+    const staged = run(compileProjectionFrameDeliver("/home/station"));
+    const parts = inspectRemoteCommand(staged.command);
+    expect(parts.executable).toBe("/bin/sh");
+    expect(parts.args[0]).toBe("-c");
+    expect(parts.args[2]).toBe("vellum-plan:projection-frame-deliver");
+    const src = parts.args[1]!;
+    expect(src).toContain("set -eu");
+    expect(src).toContain("umask 077");
+    expect(src).toContain("/home/station/.vellum/projections");
+    expect(src).toContain("incoming.frame");
+    expect(src).toContain("set -C");
+    expect(src).toContain("chmod 600");
+    expect(src).toContain("/bin/mv -f");
+    expect(src).not.toMatch(/rm\s+-rf\s+\//);
+    expect(src).not.toContain("$1");
+    expect(staged.path).toBe(
+      `/home/station/.vellum/projections/${PROJECTION_INCOMING_BASENAME}`,
+    );
   });
 });
