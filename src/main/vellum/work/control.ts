@@ -65,7 +65,10 @@ import {
   admitProcessIdentity,
   getProcessIdentityMap,
   type PeerPidReader,
+  type ProcessIdentityDenial,
   type ProcessIdentityMap,
+  type ProcessIdentityResult,
+  type ProcessPrincipal,
   readUnixPeerPid,
 } from "../process-identity";
 import {
@@ -86,10 +89,14 @@ import {
   rotateControlFileToken,
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
+import {
+  resolveRouteTokenDetailed,
+  resolveRoutesHome,
+} from "./route-tokens";
 
 // Local work control plane for agents: NDJSON over a Unix domain socket at
-// ~/.vellum/work/control.sock. Token + process-bind identity + edge authz;
-// all mutations route through WorkService — this module is transport + authz.
+// ~/.vellum/work/control.sock. Token + process-bind (Tier 2) or route-token
+// (Tier 3) identity + edge authz; mutations route through WorkService.
 
 // ---------------------------------------------------------------------------
 // Token rotation (browser control pattern)
@@ -147,6 +154,100 @@ export const workTokenMatches = (
   const a = createHash("sha256").update(presented).digest();
   const b = createHash("sha256").update(expected).digest();
   return timingSafeEqual(a, b);
+};
+
+// ---------------------------------------------------------------------------
+// Dual-path admission (Tier 2 process-bind | Tier 3 route-token)
+
+export type WorkIdentityTier = "process-bind" | "route-token";
+
+export type WorkIdentityAdmission =
+  | {
+      readonly ok: true;
+      readonly tier: "process-bind";
+      readonly peerPid: number;
+      readonly principal: ProcessPrincipal;
+    }
+  | {
+      readonly ok: true;
+      readonly tier: "route-token";
+      readonly routeId: string;
+      readonly principal: ProcessPrincipal;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: "auth" | "process_unbound" | "peer_pid_unavailable";
+      readonly message: string;
+      readonly denial?: ProcessIdentityDenial;
+    };
+
+/**
+ * Pure dual-path work identity admission.
+ *
+ * 1. Local work-file token → require process-bind (Tier 2).
+ * 2. Else route-token resolve → admit Tier 3 seat principal (no peer PID).
+ * 3. Else AuthError.
+ */
+export const admitWorkIdentity = (input: {
+  readonly localToken: string;
+  readonly presentedToken: string;
+  readonly processIdentity: ProcessIdentityResult | (() => ProcessIdentityResult);
+  readonly routeResolve: (
+    token: string,
+  ) => { readonly id: string; readonly principal: ProcessPrincipal } | null;
+}): WorkIdentityAdmission => {
+  if (workTokenMatches(input.presentedToken, input.localToken)) {
+    const identity =
+      typeof input.processIdentity === "function"
+        ? input.processIdentity()
+        : input.processIdentity;
+    if (!identity.ok) {
+      return {
+        ok: false,
+        reason:
+          identity.denial === "peer_pid_unavailable"
+            ? "peer_pid_unavailable"
+            : "process_unbound",
+        message: identity.message,
+        denial: identity.denial,
+      };
+    }
+    return {
+      ok: true,
+      tier: "process-bind",
+      peerPid: identity.peerPid,
+      principal: identity.principal,
+    };
+  }
+
+  const route = input.routeResolve(input.presentedToken);
+  if (route !== null) {
+    return {
+      ok: true,
+      tier: "route-token",
+      routeId: route.id,
+      principal: route.principal,
+    };
+  }
+
+  return {
+    ok: false,
+    reason: "auth",
+    message: "invalid or missing work control token",
+  };
+};
+
+const occupantKeyForPrincipal = (
+  principal: ProcessPrincipal,
+  suffix: string,
+): string => {
+  const base =
+    principal.kind === "agent"
+      ? `agent:${principal.agentKey ?? principal.nodeId ?? "unknown"}`
+      : principal.kind === "herdr"
+        ? `herdr:${principal.paneId ?? principal.nodeId ?? "unknown"}`
+        : `terminal:${principal.bindingId ?? principal.nodeId ?? "unknown"}`;
+  return `${base}@${suffix}`;
 };
 
 // ---------------------------------------------------------------------------
@@ -592,6 +693,18 @@ export interface WorkControlServerOptions {
   readonly canvasesDir?: string;
   /** Test seam; production uses the process-global main authoring authority. */
   readonly authoringGate?: MainAuthoringGate;
+  /**
+   * Routes home for Tier-3 route-token resolve (defaults to
+   * `VELLUM_ROUTES_HOME` or `~/.vellum/routes`).
+   */
+  readonly routesHome?: string;
+  /**
+   * Test seam for route-token resolve. Production uses the filesystem store.
+   * Returning null means "not a live route-token".
+   */
+  readonly routeResolve?: (
+    token: string,
+  ) => { readonly id: string; readonly principal: ProcessPrincipal } | null;
 }
 
 export interface WorkControlRuntime {
@@ -763,6 +876,10 @@ export const startWorkControlServer = async (
   const processMap = options.processMap ?? getProcessIdentityMap();
   const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
   const authoringGate = options.authoringGate ?? mainAuthoringGate;
+  const routesHome = resolveRoutesHome(options.home, options.routesHome);
+  const routeResolve =
+    options.routeResolve ??
+    ((presented: string) => resolveRouteTokenDetailed(presented, routesHome));
   // Legacy option retained for callers; live authority no longer scans this path.
   void options.canvasesDir;
 
@@ -907,36 +1024,42 @@ export const startWorkControlServer = async (
       }
 
       const req = decoded.right;
-      if (!workTokenMatches(req.token, token)) {
-        respond(
-          socket,
-          workErr(
-            "AuthError",
-            "invalid or missing work control token",
-            {
-              retryable: true,
-              next_step: "launch Vellum, then `vellum doctor`",
-            },
-            req.op,
-            req.id,
-          ),
-        );
-        return;
-      }
 
-      // Process-bind: peer PID → registered agent|herdr principal → canvas node.
-      // Client-supplied nodeRef is never identity (forgeable).
-      const identity = admitProcessIdentity(socket, processMap, readPeerOnce);
-      if (!identity.ok) {
+      // Dual path: work-file token + process-bind (Tier 2), else route-token
+      // seat principal (Tier 3). Client-supplied nodeRef is never identity.
+      const admission = admitWorkIdentity({
+        localToken: token,
+        presentedToken: req.token,
+        processIdentity: () =>
+          admitProcessIdentity(socket, processMap, readPeerOnce),
+        routeResolve,
+      });
+      if (!admission.ok) {
+        if (admission.reason === "auth") {
+          respond(
+            socket,
+            workErr(
+              "AuthError",
+              admission.message,
+              {
+                retryable: true,
+                next_step: "launch Vellum, then `vellum doctor`",
+              },
+              req.op,
+              req.id,
+            ),
+          );
+          return;
+        }
         respond(
           socket,
           workErr(
             "AuthError",
-            identity.message,
+            admission.message,
             {
-              retryable: identity.denial === "peer_pid_unavailable",
+              retryable: admission.reason === "peer_pid_unavailable",
               next_step:
-                identity.denial === "process_unbound"
+                admission.reason === "process_unbound"
                   ? "open the agent chat in Vellum so its process is registered"
                   : "ensure the CLI runs as a child of a live Vellum agent process",
               missing: "process-bind",
@@ -976,7 +1099,7 @@ export const startWorkControlServer = async (
               }
               const callerResolved = resolveCallerAcrossCanvases(
                 liveDocs,
-                identity.principal,
+                admission.principal,
               );
               if (!callerResolved.ok) {
                 return Either.left({
@@ -988,21 +1111,26 @@ export const startWorkControlServer = async (
                   details: {
                     retryable: false,
                     next_step:
-                      "ensure exactly one agent|herdr node matches the live process",
+                      admission.tier === "route-token"
+                        ? "ensure the route-token canvas seat still exists on a live canvas"
+                        : "ensure exactly one agent|herdr node matches the live process",
                   },
                 });
               }
-              const principal = identity.principal;
-              const occupantKey =
-                principal.kind === "agent"
-                  ? `agent:${principal.agentKey ?? principal.nodeId ?? identity.peerPid}`
-                  : principal.kind === "herdr"
-                    ? `herdr:${principal.paneId ?? principal.nodeId ?? identity.peerPid}`
-                    : `terminal:${principal.bindingId ?? identity.peerPid}`;
+              const occupant =
+                admission.tier === "process-bind"
+                  ? occupantKeyForPrincipal(
+                      admission.principal,
+                      `pid:${admission.peerPid}`,
+                    )
+                  : occupantKeyForPrincipal(
+                      admission.principal,
+                      `route:${admission.routeId}`,
+                    );
               const caller: WorkCaller = {
                 canvasName: callerResolved.caller.canvasName,
                 nodeId: callerResolved.caller.nodeId,
-                occupant: `${occupantKey}@pid:${identity.peerPid}`,
+                occupant,
               };
               return options.run(
                 dispatchOp(req.op, req.args, caller, options.version).pipe(
