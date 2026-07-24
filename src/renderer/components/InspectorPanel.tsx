@@ -14,7 +14,6 @@ import { resolveNodeConnections } from "../../shared/connections";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
 import { getAgentAvatar, getAgentIdentity } from "../lib/agent";
 import { getVellumApi } from "../lib/vellum-api";
-import { BrowserAutomationSection } from "./BrowserAutomationSection";
 import { ChatView, InspectorTabs } from "./chat";
 import { chatState$ } from "../lib/chat-state";
 import { connectionStateOf, herdr$, refreshHerdrMeta } from "../lib/herdr-state";
@@ -70,9 +69,7 @@ function LiveReadout({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
-// The herdr surface, inspector-sized: binding ids straight from the document
-// (always available), enriched meta from the herdr meta cache when loaded.
-// Full values ride in `title` — rows truncate visually.
+// Herdr inspector: glance essentials only (host + status + agent).
 function HerdrSections({ node }: { readonly node: CanvasNode }) {
   const herdr = node.ether?.herdr;
   const metaCache = use$(herdr$.metaByNodeId[node.id]);
@@ -81,17 +78,10 @@ function HerdrSections({ node }: { readonly node: CanvasNode }) {
   const meta = metaCache?.meta;
   const connState = conn?.state ?? connectionStateOf(node.id);
   const reconnects = conn?.reconnectAttempts ?? 0;
-
-  const row = (label: string, value?: string, full?: string) =>
-    value ? (
-      <div className="inspector-binding" key={label} title={full ?? value}>
-        <span className="inspector-binding__source">{label}</span>
-        <span>{value}</span>
-      </div>
-    ) : null;
-
-  const workspaceId = herdr.workspaceId ?? meta?.workspaceId;
-  const tabId = herdr.tabId ?? meta?.tabId;
+  const status =
+    reconnects > 0
+      ? `${connState} · ${reconnects} reconnect${reconnects === 1 ? "" : "s"}`
+      : connState;
   const agent = meta?.agent
     ? meta.agentStatus
       ? `${meta.agent} · ${meta.agentStatus}`
@@ -99,14 +89,18 @@ function HerdrSections({ node }: { readonly node: CanvasNode }) {
     : undefined;
 
   return <div className="inspector-section">
-    <div className="inspector-section__label">herdr surface</div>
+    <div className="inspector-section__label">herdr</div>
     <div className="inspector-bindings mt-2">
-      {row("host", herdr.host)}
-      {row("session", herdr.session ?? undefined)}
-      {row("workspace", meta?.workspaceLabel && workspaceId ? `${meta.workspaceLabel} · ${workspaceId}` : (meta?.workspaceLabel ?? workspaceId))}
-      {row("tab", meta?.tabLabel && tabId ? `${meta.tabLabel} · ${tabId}` : (meta?.tabLabel ?? tabId))}
-      {row("pane", herdr.paneId ?? meta?.paneId)}
-      {row("terminal", herdr.terminalId ?? meta?.terminalId)}
+      {herdr.host ? (
+        <div className="inspector-binding" title={herdr.host}>
+          <span className="inspector-binding__source">host</span>
+          <span>{herdr.host}</span>
+        </div>
+      ) : null}
+      <div className="inspector-binding" title={status}>
+        <span className="inspector-binding__source">status</span>
+        <span>{status}</span>
+      </div>
       {agent ? (
         <div className="inspector-binding" key="agent" title={agent} style={{ alignItems: "center" }}>
           <span className="inspector-binding__source">agent</span>
@@ -116,22 +110,6 @@ function HerdrSections({ node }: { readonly node: CanvasNode }) {
           </span>
         </div>
       ) : null}
-      {row("agent session", meta?.agentSession?.value)}
-      {row("cwd", meta?.cwd)}
-      {row("fg cwd", meta?.foregroundCwd)}
-      {row("focused", meta?.focused === undefined ? undefined : meta.focused ? "yes" : "no")}
-      {row("connection", reconnects > 0 ? `${connState} · ${reconnects} reconnect${reconnects === 1 ? "" : "s"}` : connState)}
-      {(meta?.processes ?? []).map((proc, i) =>
-        row(`process ${i + 1}`, proc.name ?? proc.cmdline, proc.cmdline ?? proc.name),
-      )}
-      {row(
-        "service",
-        meta?.service?.url
-          ? `${meta.service.serveJoined && meta.service.serveLabel ? `${meta.service.serveLabel} · ` : ""}${meta.service.url}`
-          : meta?.service?.health,
-        meta?.service?.url,
-      )}
-      {row("preview", meta?.preview)}
     </div>
     <div className="mt-2 flex items-center gap-2">
       <button
@@ -257,12 +235,13 @@ function AgentTabBar({ agentKey, active, onSelect }: { readonly agentKey: string
 // Memoized so parent re-renders from unrelated doc churn (other-node drag stops
 // that leave this node reference stable) do not rebuild the inspector tree.
 const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
-  const canvasName = use$(state$.canvasName);
   const [agentTab, setAgentTab] = useState("chat");
   const isEntity = Boolean(node.ether?.entity);
   const isAgent = isEntity && node.ether?.entity?.kind === "agent";
   const hermesKey = isAgent ? node.ether?.entity?.name : undefined;
   const chatTab = Boolean(hermesKey) && agentTab === "chat";
+  const detail =
+    nodeDetail(node) || (node.ether?.entity?.kind === "project" ? "project (note)" : "");
 
   return <aside className="inspector-panel">
     <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />
@@ -281,14 +260,13 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
           <div className="inspector-detail note-surface">
             <NoteMarkdown source={node.text.split("\n").slice(1).join("\n").trim()} />
           </div>
-        ) : (
-          <div className="inspector-detail">{nodeDetail(node) || (node.ether?.entity?.kind === "project" ? "project (note)" : "No description recorded.")}</div>
-        )}
+        ) : detail ? (
+          <div className="inspector-detail">{detail}</div>
+        ) : null}
         {isAgent ? <AgentSections key={node.id} node={node} /> : null}
         <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} />
         <NodePlacementSection key={`place:${node.id}`} node={node} />
         <NodeCapabilityInventory key={`cap:${node.id}`} node={node} />
-        <BrowserAutomationSection key={`${canvasName}:${node.id}`} canvasName={canvasName} node={node} />
         <NodeFieldEditors node={node} />
       </>}
     </div>

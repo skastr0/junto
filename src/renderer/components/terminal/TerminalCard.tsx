@@ -81,7 +81,6 @@ export function TerminalCard({ node }: { readonly node: CanvasNode }) {
         </div>
         <div className="mt-1 truncate text-[10px] tabular-nums text-dim">
           {native.hostId} · {session?.status ?? "stopped"}
-          {session?.pid ? ` · pid ${session.pid}` : ""}
         </div>
       </div>
     </div>

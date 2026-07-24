@@ -18,18 +18,20 @@ export function EtherEdge({
   const phase = data?.phase ?? data?.edge.ether?.kind ?? "relates";
   const detail = data?.detail ?? "";
   const hasCriteria = Boolean(data?.edge.ether?.criteria);
-  // Live phase is the label. For criteria edges show short detail when blocking.
+  // Silence is semantic: only "blocks" (+ short detail) gets face text.
+  // Soft relates / calm depends stay unlabeled; authorial edge.label still shows.
   const label =
-    hasCriteria && detail && phase === "blocks"
+    phase === "blocks" && detail
       ? `blocks · ${detail.length > 28 ? `${detail.slice(0, 26)}…` : detail}`
-      : hasCriteria
-        ? phase
-        : (data?.edge.label ?? phase);
-  const title = hasCriteria
-    ? detail
-      ? `${phase} · ${detail}`
-      : `${phase} (live criteria)`
-    : "soft relates · select to attach criteria";
+      : phase === "blocks"
+        ? "blocks"
+        : (data?.edge.label ?? "");
+  const title =
+    phase === "blocks" && detail
+      ? `blocks · ${detail}`
+      : phase === "blocks"
+        ? "blocks"
+        : data?.edge.label || undefined;
   const rippling = data?.rippling ?? false;
   // Prefer live phase palette; only honor non-mirror accents (not stuck "1").
   const color =

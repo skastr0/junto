@@ -25,7 +25,7 @@ import {
 } from "@shared/physics";
 import { addEdge, setEdgeCriteria, setEdgePorts } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
-import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
@@ -96,7 +96,7 @@ function PortChips({ ports }: { readonly ports: ReadonlyArray<PortName> }) {
   );
 }
 
-/** Edge CAPABILITY plane: endpoint roles + read-only port chips (offers ∩ mask). */
+/** Edge reach: one plain line + compact port chips. */
 export function EdgeCapabilitySection({
   edge,
   fromNode,
@@ -108,57 +108,19 @@ export function EdgeCapabilitySection({
 }) {
   const fromSpec = specOf(fromNode);
   const toSpec = specOf(toNode);
-  const fromRole = roleOf(fromSpec);
-  const toRole = roleOf(toSpec);
   const mask = readEdgePortMask(edge);
   const forward = effectivePorts(fromSpec, toSpec, mask);
-  const reverse = effectivePorts(toSpec, fromSpec, mask);
-  const maskLabel =
-    mask === undefined
-      ? "full offers (no ether.ports attenuation)"
-      : `attenuated · ${[...HashSet.values(mask)].join(", ")}`;
+  const fromLabel = fromNode ? nodeTitle(fromNode) : edge.fromNode;
+  const toLabel = toNode ? nodeTitle(toNode) : edge.toNode;
+  const portsNote = forward.length > 0 ? ` · ${forward.join(" · ")}` : "";
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">capability</div>
-      <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        Endpoint roles (derived from kind — not authorial).
+      <div className="inspector-section__label">reach</div>
+      <div className="inspector-detail" style={{ marginBottom: forward.length > 0 ? 8 : 0 }}>
+        {fromLabel} can reach {toLabel}{portsNote}
       </div>
-      <div className="inspector-bindings">
-        <div className="inspector-binding">
-          <span className="inspector-binding__source">source</span>
-          <span>
-            {fromNode ? nodeTitle(fromNode) : edge.fromNode} · {fromRole}
-            {fromNode?.ether?.entity?.kind ? ` · ${fromNode.ether.entity.kind}` : ""}
-          </span>
-        </div>
-        <div className="inspector-binding">
-          <span className="inspector-binding__source">target</span>
-          <span>
-            {toNode ? nodeTitle(toNode) : edge.toNode} · {toRole}
-            {toNode?.ether?.entity?.kind ? ` · ${toNode.ether.entity.kind}` : ""}
-          </span>
-        </div>
-        <div className="inspector-binding">
-          <span className="inspector-binding__source">mask</span>
-          <span title={maskLabel}>{maskLabel}</span>
-        </div>
-      </div>
-      <div className="inspector-section__label" style={{ marginTop: 12 }}>
-        ports · source → target
-      </div>
-      <PortChips ports={forward} />
-      {reverse.length > 0 || toRole === "actor" ? (
-        <>
-          <div className="inspector-section__label" style={{ marginTop: 12 }}>
-            ports · target → source
-          </div>
-          <PortChips ports={reverse} />
-        </>
-      ) : null}
-      <div className="inspector-detail" style={{ marginTop: 8 }}>
-        Access plane only — does not block work. Phase filter is separate below.
-      </div>
+      {forward.length > 0 ? <PortChips ports={forward} /> : null}
     </div>
   );
 }
@@ -240,7 +202,7 @@ type CapabilityNeighbor = {
   readonly ports: ReadonlyArray<PortName>;
 };
 
-/** Actor: "Holds keys to…"; sink: "Who can reach me…" — read-only inventory. */
+/** Actor: "reaches"; sink: "reached by" — plain inventory, no physics lecture. */
 export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode }) {
   const doc = use$(state$.doc);
   const selfSpec = useMemo(
@@ -268,12 +230,11 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
       });
       const maskOpt = HashMap.get(view.edgePortMask, undirectedEdgeKey(node.id, peerId));
       const mask = Option.isSome(maskOpt) ? maskOpt.value : undefined;
-      // Actor wields outbound; sink lists inbound callers that hold keys.
+      // Actor: outbound reach; sink: inbound callers only.
       const ports =
         selfRole === "actor"
           ? effectivePorts(selfSpec, peerSpec, mask)
           : effectivePorts(peerSpec, selfSpec, mask);
-      // For sink inventory, only list callers that can actually grant (typically actors).
       if (selfRole === "sink" && roleOf(peerSpec) !== "actor") continue;
       rows.push({
         id: peerId,
@@ -289,34 +250,27 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
 
   if (!inventory) return null;
 
-  const label = inventory.role === "actor" ? "holds keys to…" : "who can reach me…";
-  const empty =
-    inventory.role === "actor"
-      ? "No connected targets. Draw an edge to mint an ocap."
-      : "No connected actors. An edge from an actor mints reach.";
+  const label = inventory.role === "actor" ? "reaches" : "reached by";
+
+  if (inventory.rows.length === 0) return null;
 
   return (
     <div className="inspector-section">
       <div className="inspector-section__label">{label}</div>
-      {inventory.rows.length === 0 ? (
-        <div className="inspector-detail">{empty}</div>
-      ) : (
-        <div className="inspector-bindings mt-2">
-          {inventory.rows.map((row) => (
-            <div key={row.id} className="inspector-binding" title={`${row.title} · ${row.role}`}>
-              <span className="inspector-binding__source">
-                {row.kind ?? row.role}
+      <div className="inspector-bindings mt-2">
+        {inventory.rows.map((row) => (
+          <div key={row.id} className="inspector-binding" title={row.title}>
+            <span className="inspector-binding__source">
+              {row.kind ?? row.role}
+            </span>
+            <span className="min-w-0 flex-1 truncate">{row.title}</span>
+            {row.ports.length > 0 ? (
+              <span style={{ color: HUE.cyan, flex: "0 1 auto" }}>
+                {row.ports.join(" · ")}
               </span>
-              <span className="min-w-0 flex-1 truncate">{row.title}</span>
-              <span style={{ color: row.ports.length > 0 ? HUE.cyan : DIM, flex: "0 1 auto" }}>
-                {row.ports.length > 0 ? row.ports.join(" · ") : "relate only"}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="inspector-detail" style={{ marginTop: 8 }}>
-        Capability from edges + ports. Process-bind still required to wield.
+            ) : null}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -370,11 +324,6 @@ export function NodePlacementSection({ node }: { readonly node: CanvasNode }) {
           {assign}
         </Chip>
       </div>
-      <div className="inspector-detail" style={{ marginTop: 8 }}>
-        {placement.class === "facility"
-          ? "Facility — acknowledged only; never admits or wields."
-          : "Class · tier · host assignment. Inter-runtime routes are CC↔Station only."}
-      </div>
     </div>
   );
 }
@@ -407,6 +356,9 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const [subpathDraft, setSubpathDraft] = useState(subpathValue);
   const [backgroundDraft, setBackgroundDraft] = useState(backgroundValue);
   const [backgroundStyleDraft, setBackgroundStyleDraft] = useState<"cover" | "ratio" | "repeat">(backgroundStyleValue);
+  const workRoleValue = node.ether?.workRole ?? "";
+  const [workRoleDraft, setWorkRoleDraft] = useState(workRoleValue);
+  const showWorkRole = Boolean(node.ether?.entity);
 
   useEffect(() => {
     setTextDraft(textValue);
@@ -416,7 +368,8 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     setSubpathDraft(subpathValue);
     setBackgroundDraft(backgroundValue);
     setBackgroundStyleDraft(backgroundStyleValue);
-  }, [backgroundStyleValue, backgroundValue, fileValue, groupLabelValue, linkValue, node.id, subpathValue, textValue]);
+    setWorkRoleDraft(workRoleValue);
+  }, [backgroundStyleValue, backgroundValue, fileValue, groupLabelValue, linkValue, node.id, subpathValue, textValue, workRoleValue]);
 
   const commitText = () => { if (node.type === "text" && textDraft !== textValue) editText(node.id, textDraft); };
   const commitLink = () => { if (node.type === "link" && linkDraft.trim() && linkDraft.trim() !== linkValue) editLink(node.id, linkDraft.trim()); };
@@ -425,6 +378,29 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const commitBackground = (background = backgroundDraft, style = backgroundStyleDraft) => { if (node.type === "group") editGroupBackground(node.id, background, style); };
 
   return <>
+    {showWorkRole ? (
+      <label className="inspector-editor">
+        <span>work role</span>
+        <input
+          aria-label="Work role for claim routing"
+          placeholder="e.g. builder"
+          value={workRoleDraft}
+          onChange={(event) => setWorkRoleDraft(event.target.value)}
+          onBlur={() => setNodeWorkRole(node.id, workRoleDraft || undefined)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              setNodeWorkRole(node.id, workRoleDraft || undefined);
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              setWorkRoleDraft(workRoleValue);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      </label>
+    ) : null}
     {node.type === "text" ? <label className="inspector-editor"><span>{node.ether?.entity ? "label" : "note text"}</span><textarea aria-label={node.ether?.entity ? "Node label" : "Note text"} value={textDraft} onChange={(event) => setTextDraft(event.target.value)} onBlur={commitText} onKeyDown={(event) => { if (event.key === "Escape") { setTextDraft(textValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "link" ? <label className="inspector-editor"><span>web reference</span><input aria-label="Link URL" value={linkDraft} onChange={(event) => setLinkDraft(event.target.value)} onBlur={commitLink} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitLink(); event.currentTarget.blur(); } if (event.key === "Escape") { setLinkDraft(linkValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "link" && node.ether?.entity?.kind === "page"

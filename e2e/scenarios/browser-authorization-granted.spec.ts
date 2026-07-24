@@ -45,12 +45,10 @@ test("browser access UI is process-bind + edges; no enable grant ceremony", asyn
 
     await page.getByRole("tab", { name: "details" }).click();
 
-    const section = page.locator(".inspector-section", { hasText: "browser access" });
-    await expect(section).toBeVisible({ timeout: 30_000 });
-    await expect(section.getByText(/Process-bind/i)).toBeVisible({ timeout: 10_000 });
-    // Ceremony is dead.
-    await expect(section.getByRole("button", { name: /enable browser access/i })).toHaveCount(0);
-    await expect(section.getByText(/no active grants/i)).toHaveCount(0);
+    // Instructional browser-access wall is gone; ceremony controls stay dead.
+    await expect(page.locator(".inspector-section", { hasText: "browser access" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /enable browser access/i })).toHaveCount(0);
+    await expect(page.getByText(/no active grants/i)).toHaveCount(0);
 
     // Transport token alone without process-bind still cannot use protected routes.
     const denied = await controlCall(socketPath, token, "profiles");

@@ -51,5 +51,5 @@ export const nodeDetail = (node: CanvasNode): string => {
   if (node.type === "group") return "Spatial region";
   const entity = node.ether?.entity;
   if (entity?.name) return `${entity.kind} · ${entity.name}`;
-  return "No description recorded.";
+  return "";
 };

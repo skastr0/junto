@@ -45,9 +45,9 @@ test("protected control routes deny without process-bind; request-id contract ho
     await expect(node).toBeVisible({ timeout: 30_000 });
     await node.click();
     await page.getByRole("tab", { name: "details" }).click();
-    const section = page.locator(".inspector-section", { hasText: "browser access" });
-    await expect(section).toBeVisible({ timeout: 30_000 });
-    await expect(section.getByRole("button", { name: /enable browser access/i })).toHaveCount(0);
+    // Browser instructional wall removed; ceremony controls stay absent.
+    await expect(page.locator(".inspector-section", { hasText: "browser access" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /enable browser access/i })).toHaveCount(0);
 
     // Without a registered process, protected routes deny.
     const requestId = randomUUID();
