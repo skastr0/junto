@@ -63,6 +63,7 @@ import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard } from "./terminal/TerminalWizard";
+import { CanvasMagnifier } from "./CanvasMagnifier";
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
 type CanvasFlow = {
@@ -1388,6 +1389,7 @@ function CanvasGraph() {
       style={{ background: GROUND }}
     >
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="rgba(237,230,218,0.07)" />
+      <CanvasMagnifier />
       <ImpactSeedChip />
       <ConnectPreviewChip />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}

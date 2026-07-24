@@ -23,6 +23,7 @@ export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "RMB selection", action: "bulk: region · flags · delete" },
   { keys: "select + RMB target", action: "connect all → that node" },
   { keys: "⇧ RMB target", action: "connect keep selection (fan-out)" },
+  { keys: "⌥ / Alt + move", action: "scan nearby nodes at readable scale" },
   { keys: "minimap click", action: "jump camera · dbl-click zoom" },
   { keys: "add item · fit all", action: "docked above minimap" },
 ];
