@@ -49,11 +49,11 @@ export class CanvasAuthorityError extends Error {
 }
 
 /**
- * Authority store root.
+ * Authority store root (sole durable canvas store).
  *
  * - `VELLUM_CANVAS_AUTHORITY_DIR` wins when set (explicit hermetic tests).
- * - Else if `VELLUM_CANVASES_DIR` is set (legacy test isolation), place the
- *   store next to that temp canvases tree so dual-path never reads the
+ * - Else if `VELLUM_CANVASES_DIR` is set (hermetic test isolation), place the
+ *   store next to that temp canvases tree so tests never touch the
  *   operator's real `~/.vellum/state/canvas-authority-v1`.
  * - Else production: `~/.vellum/state/canvas-authority-v1`.
  */
