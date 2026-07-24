@@ -523,13 +523,14 @@ html[data-vellum-platform="darwin"] .station-bar input,
 html[data-vellum-platform="darwin"] .station-bar select,
 html[data-vellum-platform="darwin"] .station-bar label,
 html[data-vellum-platform="darwin"] .station-bar aside,
-html[data-vellum-platform="darwin"] .station-bar .usage-hud {
+html[data-vellum-platform="darwin"] .station-bar .usage-hud,
+html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   -webkit-app-region: no-drag;
 }
 
 .station-context__loading { color: var(--color-amber); font-size: 8px; letter-spacing: .12em; text-transform: uppercase; animation: station-pulse 1.1s ease-in-out infinite; }
 
-/* Canvas switcher: one segmented control, not a lonely native select. */
+/* Canvas switcher: segmented chrome + design-system Dropdown (not OS select). */
 .station-canvas {
   display: inline-flex;
   height: 34px;
@@ -537,23 +538,24 @@ html[data-vellum-platform="darwin"] .station-bar .usage-hud {
   border: 1px solid rgba(237, 230, 218, 0.14);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
-  overflow: hidden;
+  overflow: visible;
 }
-.station-select {
-  appearance: none;
-  -webkit-appearance: none;
+.station-select-wrap {
   height: 100%;
   min-width: 108px;
   max-width: 180px;
+  border-radius: 7px 0 0 7px;
+}
+.station-select {
+  height: 100%;
+  width: 100%;
+  min-width: 0;
   margin: 0;
   border: 0;
-  border-radius: 0;
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8378' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")
-    no-repeat right 10px center / 11px;
-  background-color: transparent;
+  border-radius: 7px 0 0 7px;
+  background: transparent;
   color: var(--color-ink);
-  padding: 0 30px 0 12px;
+  padding: 0 10px 0 12px;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.06em;
@@ -562,9 +564,9 @@ html[data-vellum-platform="darwin"] .station-bar .usage-hud {
   cursor: pointer;
 }
 .station-select:hover { background-color: rgba(255, 255, 255, 0.03); }
-.station-select:focus { background-color: rgba(232, 163, 61, 0.06); }
+.station-select:focus,
+.station-select[aria-expanded="true"] { background-color: rgba(232, 163, 61, 0.06); }
 .station-select:disabled { cursor: wait; opacity: 0.62; }
-.station-select option { background: var(--color-inset); color: var(--color-ink); }
 .station-canvas__action {
   display: grid;
   width: 32px;
@@ -575,6 +577,9 @@ html[data-vellum-platform="darwin"] .station-bar .usage-hud {
   color: var(--color-steel);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
+}
+.station-canvas__action:last-child {
+  border-radius: 0 7px 7px 0;
 }
 .station-canvas__action:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.06);

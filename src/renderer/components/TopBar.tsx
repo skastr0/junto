@@ -7,6 +7,7 @@ import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { HUE, INK, SOURCE_HUE } from "../lib/theme";
+import { Dropdown } from "./ui";
 import { UsageHud } from "./UsageHud";
 
 const SOURCES: ReadonlyArray<EntitySource> = ["hermes"];
@@ -105,22 +106,20 @@ function CanvasPicker({
   return (
     <>
       <div className="station-canvas" role="group" aria-label="Canvas switcher">
-        <select
-          className="station-select"
+        <Dropdown
+          className="station-select-wrap"
+          triggerClassName="station-select"
           disabled={busy}
           aria-busy={busy}
           aria-label="Active canvas"
           title={busy ? "opening canvas…" : "switch canvas"}
           value={canvasName}
-          onChange={(e) => onOpen(e.target.value)}
-        >
-          {canvases.length === 0 ? <option value="">no canvases</option> : null}
-          {canvases.map((canvas) => (
-            <option key={canvas.name} value={canvas.name}>
-              {canvas.name}
-            </option>
-          ))}
-        </select>
+          uppercase
+          emptyLabel="no canvases"
+          placeholder="select canvas"
+          options={canvases.map((canvas) => ({ value: canvas.name, label: canvas.name }))}
+          onChange={onOpen}
+        />
         {busy ? <span className="station-context__loading" role="status" aria-live="polite">opening</span> : null}
         <button type="button" className="station-canvas__action" disabled={busy} title="new canvas" aria-label="New canvas" onClick={() => createOpen$.set(true)}>
           <Plus size={14} />

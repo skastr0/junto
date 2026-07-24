@@ -4,5 +4,6 @@ export { Eyebrow } from "./Eyebrow";
 export { StatusDot, type StatusTone } from "./StatusDot";
 export { Chip, type ChipTone } from "./Chip";
 export { Input, Select, FieldLabel } from "./Field";
+export { Dropdown, type DropdownOption } from "./Dropdown";
 export { OverlayHeader } from "./OverlayHeader";
 export { ToolbarPill } from "./ToolbarPill";
