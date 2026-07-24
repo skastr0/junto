@@ -40,8 +40,6 @@ export {
   GrantLaw,
   RolePair,
   canonicalRolePair,
-  defaultGrantBetween,
-  defaultGrantForRoles,
   grantLawBetween,
   grantLawForRoles,
   selectGrant,

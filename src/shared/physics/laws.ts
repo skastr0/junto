@@ -108,17 +108,3 @@ export const selectGrantFromOption = (
 ): PortGrant =>
   selectGrant(law, Option.isSome(mask) ? mask.value : undefined);
 
-/**
- * @deprecated Prefer grantLawBetween + selectGrant. Returns the no-mask
- * materialization of the law (Full→full, OptIn→empty, None→empty).
- */
-export const defaultGrantBetween = (pair: RolePair): PortGrant =>
-  selectGrant(grantLawBetween(pair), undefined);
-
-/**
- * @deprecated Prefer grantLawForRoles + selectGrant. No-mask materialization.
- */
-export const defaultGrantForRoles = (
-  from: FactoryRole,
-  to: FactoryRole,
-): PortGrant => selectGrant(grantLawForRoles(from, to), undefined);

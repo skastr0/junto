@@ -17,8 +17,6 @@ import {
   asNodeId,
   canvasDocToCapabilityView,
   canonicalRolePair,
-  defaultGrantBetween,
-  defaultGrantForRoles,
   grantLawBetween,
   grantLawForRoles,
   nullPlacementView,
@@ -172,12 +170,12 @@ describe("physics GrantLaw (I8 — actor→actor OptIn)", () => {
     expect(tags).toEqual(["Full", "OptIn", "None"]);
   });
 
-  it("no-mask materialization of laws (compat defaultGrant*)", () => {
-    expect(defaultGrantBetween(canonicalRolePair("actor", "sink")).isFull()).toBe(true);
+  it("no-mask materialization of laws", () => {
+    expect(selectGrant(grantLawBetween(canonicalRolePair("actor", "sink")), undefined).isFull()).toBe(true);
     // OptIn without mask → empty (discovery); never Full
-    expect(defaultGrantBetween(canonicalRolePair("actor", "actor")).isEmpty()).toBe(true);
-    expect(defaultGrantForRoles("actor", "sink").isFull()).toBe(true);
-    expect(defaultGrantForRoles("actor", "furniture").isEmpty()).toBe(true);
+    expect(selectGrant(grantLawBetween(canonicalRolePair("actor", "actor")), undefined).isEmpty()).toBe(true);
+    expect(selectGrant(grantLawForRoles("actor", "sink"), undefined).isFull()).toBe(true);
+    expect(selectGrant(grantLawForRoles("actor", "furniture"), undefined).isEmpty()).toBe(true);
   });
 });
 

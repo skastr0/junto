@@ -1222,7 +1222,7 @@ function ImpactSeedChip() {
 /**
  * Connect preview — role pair + would-be grant, live while a connection drag
  * hovers a candidate target, before the edge is drawn. Copy is computed by
- * describeConnectPreview (defaultGrantForRoles + target offers, the same
+ * describeConnectPreview (grantLawForRoles + target offers, the same
  * inputs admit itself uses) — never a hardcoded per-pair table.
  */
 function ConnectPreviewChip() {
