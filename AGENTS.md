@@ -82,7 +82,7 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria } }`.
 - No `criteria` → soft **relates** (never generates or relays blocks).
 - `criteria.mode: "glyphs"` → selected glyph ids must be `done` when glyph data is available (blocks while pending; depends when clear). Unknown/missing glyph data does not invent blocks.
 - `criteria.mode: "wip"` → opt-in: any glyph in `committed`|`building`|`reviewing` blocks (never default on projects).
-- `criteria.mode: "tasks"` → from a **task** node, non-terminal A2A items block (submitted/working/input-required/auth-required); from a **requests** node, items in `input-required` block (clears on completed|rejected|canceled). Connecting from either kind attaches this criteria automatically.
+- `criteria.mode: "tasks"` / requests → **blocking is worker-state, not a queue cascade.** A `submitted`/`working` task never blocks — an open queue is a factory humming, not a stoppage. The only task stoppage is an actor's *claimed* task escalated to `input-required` / `auth-required`, which blocks **that worker** (claimed, can't proceed, can't abandon, can't claim another). Requests are **always** blocking. Both land on the **actor**, never fanned red out of the sink onto connected nodes. (Blockability is `role === "actor"`; sinks/schedulers never — see [`architecture-factory-physics.md`](docs/architecture-factory-physics.md) §2a.) The old "non-terminal items block" cascade is retired.
 - Live **phase** (`blocks`|`depends`|`relates`) is derived. Optional `ether.kind` is only a phase mirror for offline JSON Canvas readers — never authorial input.
 
 **Two invariants** (enforced on every app/CLI write):
