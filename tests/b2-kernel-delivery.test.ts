@@ -7,6 +7,7 @@ import {
   __setDeliveryDepsForTest,
   __setSnapshotsForTest,
   __setDocsForTest,
+  __setStationScopeForTest,
   deliverPulse,
   MIN_LIVE_PULSE_SPACING_MS,
   runEvaluationCycle,
@@ -73,6 +74,8 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
   beforeEach(() => {
     resetWatcherMemory();
     __resetDeliveryQueueForTest();
+    // Fail-closed default is role "unset" (no fire). Tests need CC scope.
+    __setStationScopeForTest({ hostId: "local", role: "command-center" });
     __setDocsForTest(new Map([[canvasName, doc]]));
     setArmed(`${canvasName}::${regionId}`, true);
   });

@@ -19,6 +19,7 @@ import {
   getPulseLog,
   __resetPulseLogForTest,
   __setDeliveryDepsForTest,
+  __setStationScopeForTest,
 } from "../src/main/vellum/kernel/cycle";
 
 // --- fixtures ----------------------------------------------------------------
@@ -356,6 +357,7 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
   };
 
   beforeEach(() => {
+    __setStationScopeForTest({ hostId: "local", role: "command-center" });
     __resetPulseLogForTest();
     __setDocsForTest(new Map([[canvasName, agentDoc]]));
     setArmed(`${canvasName}::${regionId}`, true);

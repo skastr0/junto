@@ -7,6 +7,7 @@ import {
   __resetPulseLogForTest,
   __setDeliveryDepsForTest,
   __setSnapshotsForTest,
+  __setStationScopeForTest,
   checkTimers,
   deliverPulse,
   getArmed,
@@ -67,6 +68,8 @@ beforeEach(() => {
   __resetKernelMemoryForTest();
   __resetPulseLogForTest();
   resetWatcherMemory();
+  // Fail-closed default is role "unset" (no fire). Delivery tests need CC scope.
+  __setStationScopeForTest({ hostId: "local", role: "command-center" });
   __setSnapshotsForTest(snapshotsWithStat("signals", 3)); // below threshold -> pending
 });
 
