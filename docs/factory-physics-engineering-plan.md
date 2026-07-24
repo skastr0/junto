@@ -4,6 +4,15 @@ Companion to [`architecture-factory-physics.md`](architecture-factory-physics.md
 (doctrine) and the product story it implements. Doctrine wins on conflict;
 [`security-doctrine.md`](security-doctrine.md) wins over both.
 
+**Sovereign-model conformance (2026-07-24):** this plan is bound to the
+security doctrine's single-sovereign / Command-Center-and-Stations model.
+The capability physics below is the *intra-runtime* half of the engine; the
+doctrine adds a **placement plane** (actor classes, runtime tiers, station
+assignment, CC-only routing) that is equally constitutive — see invariants
+I18–I22 and slice S11. Two doctrine decisions remain operator-open (sink /
+scheduler taxonomy and projection contents); no slice may resolve them by
+accident.
+
 This document is a **handoff brief**: each slice is self-contained — verify
 reality first, implement, gate, commit. You do not need the authoring
 conversation to execute a slice.
@@ -53,6 +62,11 @@ left is wrong by definition.
 | I15 | criteria is a phase filter on edges; never folded into `KindSpec.offers` | module boundary | keep |
 | I16 | proof stamps written only via `artifact.publish` by a process-bound principal; trust chips derived only | absent (plane not built) | test (S8) |
 | I17 | strip `ether.*` → valid JSON Canvas | test | keep |
+| I18 | placement is physics: every executable node resolves to a runtime (CC · station · external · facility); admit verifies the target belongs to the expected runtime/host and the route is CC↔Station only — Station↔Station is denied, never representable as a grant | ✗ today: `CapabilityView` ignores `ether.host` entirely | type + test (S11) |
+| I19 | actor class + runtime tier constrain creatable edges and admittable ports; each port carries a tier floor; facility (tier 4) never admits and never wields | absent (no class/tier types exist) | type + test (S11) |
+| I20 | revocation honesty: receipts are per reachable runtime; an unreachable Station is shown stale/unreachable — Vellum never manufactures a revocation receipt it cannot prove | prose (doctrine) | test (S4) |
+| I21 | agents never author the canvas; physics consumes projections; any migration stamp (S3) commits only through the app-owned canvas-authority store (`~/.vellum/state/canvas-authority-v1`) | doctrine + in-flight canvas-authority lane | construction (S3 lands on that path) |
+| I22 | doctrine-open decisions are operator-closed only: sink/scheduler taxonomy + CC-offline behavior (doctrine open #4) and Station projection contents (#5). A slice that quietly resolves one is wrong regardless of code quality | — | process gate, every slice |
 
 ---
 
@@ -222,11 +236,17 @@ admit:  Full  → PortGrant.full, then attenuate by mask
 invariant; `GrantLaw` is the selection layer above it. ActorSink stays Full.
 ActorActor becomes OptIn. Scheduler/Region/Furniture/Denied stay None.
 
-**Migration (one-time stamp, no dual semantics):** on document load, any edge
-whose endpoints both resolve to role `actor` and which has no `ether.ports`
-gets stamped `ports: ["msg.list", "msg.send"]`. Idempotent by construction
-(only stamps when absent). After stamp, exactly one semantics exists; there is
-no compatibility flag, no version branch, nothing to retire.
+**Migration (one-time stamp, no dual semantics):** any edge whose endpoints
+both resolve to role `actor` and which has no `ether.ports` gets stamped
+`ports: ["msg.list", "msg.send"]`. Idempotent by construction (only stamps
+when absent). After stamp, exactly one semantics exists; there is no
+compatibility flag, no version branch, nothing to retire.
+
+**Landing path (I21):** the stamp is an app-owned generation commit through
+the canvas-authority store (`~/.vellum/state/canvas-authority-v1`) — never a
+free-form file write. **This slice waits for the canvas-authority lane to
+land** and then rides its upgrade path. The stamp preserves existing authority
+explicitly; it never creates new reach (doctrine law 2).
 
 **|- acceptance**
 - fresh actor↔actor edge, no ports → `msg.send` denied `no_port`; both
@@ -262,15 +282,23 @@ Establish: node-delete teardown exists; edge-delete path does not (expected).
 **Scope:** deleting an edge severs live sessions that ride it *now*, not at
 next op. Per-op admit already fails subsequent calls; this slice closes the
 window for long-lived surfaces (browser automation sessions; any streaming msg
-subscriptions). Reuse the node-delete teardown machinery — this is the same
-law applied to a second trigger, not new machinery.
+subscriptions) and **cancels queued actions** riding the revoked edge
+(doctrine: "new actions are denied and queued actions are canceled"). Reuse
+the node-delete teardown machinery — same law, second trigger.
+
+**Fleet honesty (I20):** revocation propagates to every *reachable* runtime
+immediately; per-runtime receipts. An unreachable Station is reported
+stale/unreachable — the UI must not claim the revocation reached it.
 
 **|- acceptance**
 - live browser automation session on edge A→page; delete edge → session
   terminated within the same document-commit tick; next op returns
   `ScopeError` naming the missing edge
+- queued/in-flight actions on the revoked edge are canceled, not drained
 - deleting an *unrelated* edge of A leaves the session alive
 - node delete behavior unchanged (existing tests stay green, unmodified)
+- unreachable-station fixture: revocation reports "not confirmed on host X",
+  never a success receipt
 
 **Reviewer brief:** race the deletion — op in flight while edge deletes must
 resolve to denial or clean termination, never a half-applied op. Check the
@@ -317,6 +345,9 @@ exports and `tests/occupancy.test.ts` to learn the spectrum contract.
   `parked` without the policy flag**
 - no occupancy value is written into the canvas document (I11 — assert the
   document bytes are unchanged by pure occupancy churn)
+- `gone` / unreachable chrome is **honest** (I20): it reads as "host
+  unreachable — last intent stands", never as "stopped/revoked/compromised";
+  no compromise inference from unreachability (doctrine non-goal)
 
 **Reviewer brief:** hunt for occupancy leaking into the document or into
 authz. Verify the three "blocked" vocabularies never collapse into one badge.
@@ -415,6 +446,11 @@ edge-routing. Membership reads must already go through S1's single function.
 - actor with an edge receives the pulse (in or out of region)
 - manual region pulse reaches eligible members (unchanged operator action)
 
+**I22 deference:** this slice verifies **local-runtime** pulse routing only.
+Where fleet-wide schedulers execute, and what a Station's watchers may pulse
+while Command Center is unavailable, is doctrine open decision #4 — this
+slice must not encode an answer.
+
 ---
 
 ### S10 · Schema vocabulary consolidation
@@ -433,6 +469,71 @@ source strings degrades cleanly (test fixture).
 
 ---
 
+### S11 · Placement plane — actor classes, tiers, runtime routing
+
+**Lane:** `src/shared/physics/` + a typed seam to the fleet lane. **Contract
+draftable now; implementation blocked** on (a) the fleet lane's topology types
+stabilizing (`ether.host`, `shared/station` `resolveNodeHostId`,
+`station-status`, topology seal) and (b) the two operator decisions in §4.5.
+
+**Why this is physics, not fleet plumbing (doctrine, verbatim intent):** actor
+classes — Command Center actor · Station actor · External actor · Facility —
+and runtime tiers 1–4 "directly impact their ports and edges they can connect
+and what sinks / schedulers they can be connected to." Role×role laws alone
+are the intra-runtime half; placement is the inter-runtime half of the same
+admit decision.
+
+**Scope:**
+- `PlacementView` seam: per-node `{runtime: cc | station(hostId) | external |
+  facility, tier: 1|2|3|4}` resolved from `ether.host` + station topology —
+  produced by fleet-lane types, consumed here; interface + null producer
+  first (same pattern as `ActivityFeed`)
+- admit gains the placement check, ordered before ports: unknown placement →
+  deny; **facility → deny always**; cross-runtime route must be CC↔Station —
+  a Station-actor → other-Station-target admit is denied with a denial reason
+  naming the missing CC route (never silently relayed)
+- port tier floors: each `Port` carries a minimum tier (e.g. host-local
+  surfaces tier ≤2; protocol-safe ops available at tier 3 — maximize tier-3
+  capability per doctrine); admit intersects as with offers
+- canvas + inspector surface class/tier/assignment chips (doctrine: "must be
+  visible on the canvas and in inspection overlays")
+
+**|- acceptance**
+- station-A actor → station-B page: denied with a route denial (not `no_port`)
+- facility node: zero admits, zero wields, visible on canvas as facility
+- tier-3 actor admits protocol-safe ports, denied host-local ones; table test
+  over class × tier × port
+- placement unknown (stale projection) → fail closed, honest denial
+
+**Reviewer brief:** the trap is placement leaking in as a *fourth role* or as
+an ACL table. It must stay a view input to the same admit, alongside
+connectivity and offers. Hunt for any Station↔Station path that survives via
+relays — doctrine law 6 says relays repeat the checks.
+
+---
+
+### §4.5 · Operator decision requests (doctrine open #4/#5 — physics blocked on these)
+
+**D1 — Sink residency taxonomy** (doctrine open decision #4). Proposal on the
+table: **data sinks** (`task`, `requests`, `artifacts`) are Command-Center
+plane resources — reachable only via CC connection; **physical sinks**
+(`page`; runtime surfaces) are Station-resident, accessible to that Station's
+actors and CC actors. Consequence worth naming: mailboxes-are-sinks + CC-owned
+data sinks ⇒ every actor↔actor message is CC-routed **by construction** —
+law 6 (no Station↔Station control plane) holds with zero extra machinery.
+
+**D2 — Scheduler residency + CC-offline behavior** (same open decision).
+Proposal: fleet-wide schedulers execute at CC only; Station-scoped watchers
+ship inside the Station's intent projection and keep pulsing Station-local
+targets under last-received intent while CC is unavailable (consistent with
+stateless-Station law 7 — the projection is the intent, the tick is runtime).
+
+Both are **proposals, not plan content** — no slice implements either until
+the operator closes them (with the fleet lane in the loop, since projection
+contents are decision #5).
+
+---
+
 ### J-series · New kinds (designed, unscheduled — do not start without operator go)
 
 | kind | role | ports | seal |
@@ -448,14 +549,17 @@ doc applies verbatim.
 ## 5 · Sequencing & concurrency protocol
 
 ```
-S1 ──► S2 ──► S3 ──► S6
+S1 ──► S2 ──► S3* ──► S6
               │
               ├────► S8
 S5 (parallel from day one, null producers)
 S7 (after cone consumers stable; consumes S5 if present)
 S4 (probe hot lane, then anytime)
-S9 (kernel quiet window)
+S9 (kernel quiet window; local-runtime scope only — I22)
 S10 (anytime; probe settings/)
+S11 (contract now; implementation after fleet-lane types + D1/D2 decisions)
+
+*S3 lands on the canvas-authority store path (I21) — waits for that lane.
 ```
 
 - One slice per agent per branch of work; commit per cut inside a slice.
