@@ -429,7 +429,7 @@ test("capture every surface for design review", async () => {
     await expect(taskFlow.getByTestId("task-board")).toBeVisible();
     await expect(taskFlow.getByText("Needs authorization", { exact: true })).toBeVisible();
     await shot(page, "06b-task-flow-kanban");
-    await taskFlow.getByRole("button", { name: "Close task flow" }).click();
+    await taskFlow.locator('button[title="Close"]').click();
     await expect(taskFlow).toBeHidden();
 
     // Edge label closeup.
