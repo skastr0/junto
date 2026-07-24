@@ -66,3 +66,20 @@ is intentional and must not grow:
 | Parallel command types | **Do not invent** separate WeakMap brands for sh vs bash vs argv — seal at named-compiler boundary. |
 
 Post-beta: re-enable `darwinRemoteDeploy` only with an explicit product decision; prefer migrating Darwin install ceremony toward typed plans before widening the freeform surface.
+
+## Cut 5 residual — Station projection delivery
+
+Schema + pure frame compiler + Station apply store land first
+(`src/shared/station-projection.ts`, `src/main/vellum/projection/`). Complete
+generations install under `~/.vellum/projections/station/` with a `current.json`
+pointer (refuse lower generation; same gen + frame hash is idempotent).
+
+| Item | Status |
+|---|---|
+| Manifest + frame (`VELLUM-STATION-PROJECTION/1`) | v1 skeleton — full-canvas-set scope only |
+| Station apply store | generation gate + content-addressed objects |
+| **Live canvas-pull** | **Still the product path** until the CC→Remote delivery lane lands |
+| CC push / Remote frame pull / live admit from projection store | residual — do not remove canvas-pull yet |
+
+Operators continue to use Remote canvas-pull for fleet canvas sync in beta.
+Projection install into the Station store is not yet the live authority path.
