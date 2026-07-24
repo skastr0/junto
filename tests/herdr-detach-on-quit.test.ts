@@ -42,7 +42,9 @@ describe("herdr detach-on-quit product lock", () => {
       .replace(/\/\/[^\n]*/g, "");
     expect(detachStart).toBeGreaterThan(-1);
     expect(detachEnd).toBeGreaterThan(detachStart);
-    expect(detachBlock).toMatch(/terminal\.release/);
+    // The canonical terminal.release protocol constructor (shared/terminal-session-domain)
+    // replaced the inline `{ type: "terminal.release" }` literal; check the call site.
+    expect(detachBlock).toMatch(/herdrRelease\(\)/);
     expect(detachBlock).not.toMatch(/["']pane["']\s*,\s*["']close["']/);
     expect(detachBlock).not.toMatch(/\bpane\s+close\b/);
     expect(detachBlock).not.toMatch(/\btab\s+close\b/);
@@ -57,7 +59,7 @@ describe("herdr detach-on-quit product lock", () => {
 
   it("keeps exact child authority through TERM grace and bounded KILL escalation", () => {
     const start = streamSrc.indexOf("private terminateControl(");
-    const end = streamSrc.indexOf("\n  private writeJson(", start);
+    const end = streamSrc.indexOf("\n  private writeCommand(", start);
     const terminationBlock = streamSrc.slice(start, end);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
