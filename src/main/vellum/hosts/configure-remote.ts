@@ -4,7 +4,6 @@ import { Effect, Either } from "effect";
 import type { StationSettings } from "@shared/settings";
 import { SETTINGS_MAX_FILE_BYTES } from "@shared/settings";
 import {
-  mergeRemoteStationSettings,
   planRemoteStationConfig,
   remoteStationAlreadyConfigured,
   remoteStationSettingsFromScratch,
@@ -22,6 +21,7 @@ import { remoteCat } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
 import {
   compileRemotePlan,
+  compileRemoteTopologyEvidencePresence,
   compileRemoteTopologySealPresence,
   confineVellumDirectory,
   confineVellumLeaf,
@@ -134,7 +134,7 @@ const writeRemoteSettings = (
 
 /**
  * Remote "already configured" requires topology.key + topology.seal as regular
- * files. Absent / symlink / asymmetric is not success — force re-stamp.
+ * files. Absent / symlink / asymmetric is not success.
  */
 const probeRemoteTopologySealed = (
   ssh: Ssh,
@@ -148,6 +148,22 @@ const probeRemoteTopologySealed = (
     const out = result.stdout.trim();
     return out === "SEALED";
   }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+/**
+ * Any topology seal footprint (key and/or seal, including partial/asymmetric).
+ * Probe failure → fail closed (assume evidence present).
+ */
+const probeRemoteTopologyEvidence = (
+  ssh: Ssh,
+  endpoint: Parameters<typeof oneShot>[0],
+  remoteHome: string,
+): Effect.Effect<boolean, never> =>
+  Effect.gen(function* () {
+    const vellumDir = yield* confineVellumDirectory(remoteHome);
+    const command = yield* compileRemoteTopologyEvidencePresence(vellumDir);
+    const result = yield* ssh.run(oneShot(endpoint, command, { budget: "status" }));
+    return result.stdout.trim() !== "ABSENT";
+  }).pipe(Effect.catchAll(() => Effect.succeed(true)));
 
 const probeRemoteStation = (
   ssh: Ssh,
@@ -201,7 +217,13 @@ const probeRemoteStation = (
 
 /**
  * Configure a registered remote host as a Vellum Remote station over existing SSH.
- * Merges station fields into ~/.vellum/settings.json; does not install a third binary.
+ *
+ * Beta contract: **enroll fresh Remote only on pristine topology** — never
+ * overwrite an existing settings document or seal footprint. Idempotent when
+ * remote already matches the planned stamp **and** topology seals are present.
+ *
+ * Residual: still stamps `settings.json` directly (pending-remote-v1 enrollment
+ * artifact + first-boot admit not yet wired). Deploy CAS stamp path is separate.
  */
 export const configureRemoteHost = (
   ssh: Ssh,
@@ -290,7 +312,6 @@ export const configureRemoteHost = (
     const settingsPath = posix.join(dirPath, "settings.json");
 
     const raw = yield* readRemoteSettingsRaw(ssh, endpoint, settingsPath);
-    let nextSettings = remoteStationSettingsFromScratch(planInput);
     if (raw !== null && raw.trim().length > 0) {
       let parsed: unknown;
       try {
@@ -298,7 +319,7 @@ export const configureRemoteHost = (
       } catch {
         return {
           ok: false,
-          detail: `${host.label}: remote settings.json is not valid JSON — fix or remove it before configure`,
+          detail: `${host.label}: remote settings.json is not valid JSON — refuse enroll (not pristine); fix or remove before configure`,
           code: "validation" as const,
           message: "remote settings.json is not valid JSON",
         } satisfies ConfigureRemoteResult;
@@ -307,7 +328,7 @@ export const configureRemoteHost = (
       if (Either.isLeft(migrated)) {
         return {
           ok: false,
-          detail: `${host.label}: remote settings unreadable — ${migrated.left.message}`,
+          detail: `${host.label}: remote settings unreadable — refuse enroll (not pristine): ${migrated.left.message}`,
           code: migrated.left.code === "io" ? "io" : "validation",
           message: migrated.left.message,
         } satisfies ConfigureRemoteResult;
@@ -321,11 +342,37 @@ export const configureRemoteHost = (
             station: migrated.right.station,
           } satisfies ConfigureRemoteResult;
         }
-        // Settings match but seals absent/incomplete — force re-stamp.
+        // Settings match but seals incomplete — not pristine; do not re-stamp.
+        return {
+          ok: false,
+          detail: `${host.label}: remote settings match plan but topology seals are incomplete — refuse overwrite; restore seals or wipe to a pristine install`,
+          code: "conflict" as const,
+          message: "remote topology seals incomplete; refuse enroll overwrite",
+          station: migrated.right.station,
+        } satisfies ConfigureRemoteResult;
       }
-      nextSettings = mergeRemoteStationSettings(migrated.right, planInput);
+      // Existing non-matching settings — never merge/overwrite.
+      return {
+        ok: false,
+        detail: `${host.label}: remote already has settings.json — refuse enroll overwrite (fresh Remote requires pristine topology)`,
+        code: "conflict" as const,
+        message: "remote settings already present; refuse enroll overwrite",
+        station: migrated.right.station,
+      } satisfies ConfigureRemoteResult;
     }
 
+    // Settings absent: still refuse when key/seal evidence remains.
+    const hasEvidence = yield* probeRemoteTopologyEvidence(ssh, endpoint, homePath);
+    if (hasEvidence) {
+      return {
+        ok: false,
+        detail: `${host.label}: remote has topology.key/seal evidence without settings — refuse enroll (not pristine)`,
+        code: "conflict" as const,
+        message: "remote topology evidence present; refuse enroll overwrite",
+      } satisfies ConfigureRemoteResult;
+    }
+
+    const nextSettings = remoteStationSettingsFromScratch(planInput);
     let body: string;
     try {
       body = serializeSettingsBody(nextSettings);

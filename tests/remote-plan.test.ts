@@ -12,6 +12,7 @@ import {
   compileRemoteSettingsRestore,
   compileRemoteSettingsSnapshot,
   compileRemoteSettingsStamp,
+  compileRemoteTopologyEvidencePresence,
   compileRemoteTopologySealPresence,
   confineHerdrStagePath,
   confineVellumDirectory,
@@ -179,6 +180,17 @@ describe("remote settings snapshot/stamp/restore compilers", () => {
     expect(src).toContain("/home/station/.vellum/topology.seal");
     expect(src).toContain("SEALED");
     expect(src).toContain("UNSEALED");
+    expect(src).not.toMatch(/rm\s+/);
+  });
+
+  it("topology evidence presence probe is confined and binary ABSENT|EVIDENCE", () => {
+    const dir = run(confineVellumDirectory("/home/station"));
+    const cmd = run(compileRemoteTopologyEvidencePresence(dir));
+    const src = inspectRemoteCommand(cmd).args[1]!;
+    expect(src).toContain("/home/station/.vellum/topology.key");
+    expect(src).toContain("/home/station/.vellum/topology.seal");
+    expect(src).toContain("ABSENT");
+    expect(src).toContain("EVIDENCE");
     expect(src).not.toMatch(/rm\s+/);
   });
 });

@@ -579,7 +579,7 @@ export const compileRemoteSettingsRestore = (
  * Probe whether topology.key + topology.seal both exist as regular files.
  * Symlinks or asymmetric presence → UNSEALED (not an admit success).
  * Remote cannot HMAC-verify without the local admit path; presence is the
- * gate for "already configured" early-return (absent → force re-stamp).
+ * gate for "already configured" early-return.
  */
 export const compileRemoteTopologySealPresence = (
   vellumDir: ConfinedRemotePath,
@@ -607,6 +607,48 @@ export const compileRemoteTopologySealPresence = (
           error instanceof Error
             ? error.message
             : "topology seal presence compile failed",
+      }),
+    );
+  }
+};
+
+/**
+ * Probe any topology seal footprint under `.vellum`.
+ * - ABSENT — neither key nor seal exists (not a symlink, not a regular file)
+ * - EVIDENCE — any of key/seal present as file, symlink, or other node
+ *
+ * Used by fresh-Remote enroll to refuse non-pristine targets (fail closed).
+ */
+export const compileRemoteTopologyEvidencePresence = (
+  vellumDir: ConfinedRemotePath,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  try {
+    const dir = inspectPath(vellumDir);
+    const key = shellSingleQuote(`${dir}/topology.key`);
+    const seal = shellSingleQuote(`${dir}/topology.seal`);
+    const source = [
+      "set -eu",
+      // -e catches regular files and most nodes; -L catches dangling symlinks
+      // where -e is false.
+      `if [ -e ${key} ] || [ -L ${key} ] || [ -e ${seal} ] || [ -L ${seal} ]; then`,
+      "  /usr/bin/printf 'EVIDENCE\\n'",
+      "  exit 0",
+      "fi",
+      "/usr/bin/printf 'ABSENT\\n'",
+      "",
+    ].join("\n");
+    return makeRemoteCommand("/bin/sh", [
+      "-c",
+      source,
+      "vellum-plan:remote-topology-evidence-presence",
+    ]);
+  } catch (error) {
+    return Effect.fail(
+      new SshInputError({
+        message:
+          error instanceof Error
+            ? error.message
+            : "topology evidence presence compile failed",
       }),
     );
   }
