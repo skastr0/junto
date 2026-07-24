@@ -138,6 +138,12 @@ export const canonicalizeTopology = (material: TopologyMaterial): Buffer => {
  * Pre-integrity-field seal body (no topologyIntegrity key). Used only to admit
  * seals written before that field existed; successful admit reseals under the
  * current canonical form.
+ *
+ * RETIREMENT TRIGGER: delete this path (and verifyTopologySealLegacy) once
+ * every enrolled machine has booted a build containing the integrity field —
+ * reseal is automatic on admit, so one boot per machine retires the need.
+ * Deleting earlier trips the durable integrity-failed topology lock on any
+ * machine still holding an old-form seal.
  */
 export const canonicalizeTopologyLegacy = (
   material: Omit<TopologyMaterial, "topologyIntegrity">,

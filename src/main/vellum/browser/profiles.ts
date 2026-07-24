@@ -382,7 +382,9 @@ const decodePendingWipe = (
   });
 };
 
-const LEGACY_KEYS = [
+// Base config field set (not legacy — shared by every phase shape). The only
+// legacy acceptance is the versionless branch in parseConfig below.
+const BASE_KEYS = [
   "defaultProfile",
   "canvasDefaults",
   "maxWarmSessions",
@@ -390,7 +392,7 @@ const LEGACY_KEYS = [
   "profiles",
 ] as const;
 
-const READY_KEYS = ["version", "phase", ...LEGACY_KEYS] as const;
+const READY_KEYS = ["version", "phase", ...BASE_KEYS] as const;
 const PENDING_KEYS = [...READY_KEYS, "pendingWipe"] as const;
 
 const decodeBase = (record: Record<string, unknown>): BrowserConfigFile => {
@@ -422,8 +424,11 @@ const parseConfig = (raw: string): DecodedConfig => {
   }
   if (!isPlainRecord(parsed)) throw corruptError();
 
+  // Versionless legacy acceptance — one-shot: `migrated: true` rewrites the
+  // file versioned. RETIREMENT TRIGGER: delete this branch once every machine
+  // with browser profiles has loaded a versioned build (rewrite is automatic).
   if (!Object.prototype.hasOwnProperty.call(parsed, "version")) {
-    if (!hasExactKeys(parsed, LEGACY_KEYS)) throw corruptError();
+    if (!hasExactKeys(parsed, BASE_KEYS)) throw corruptError();
     return {
       config: { version: CONFIG_VERSION, phase: "ready", ...decodeBase(parsed) },
       migrated: true,
