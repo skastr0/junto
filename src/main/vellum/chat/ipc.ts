@@ -1,5 +1,12 @@
 import type { IpcMain, WebContents } from "electron";
-import { IPC_CHANNELS, type ChatOpenResult, type ChatTurnResult } from "@shared/ipc";
+import {
+  IPC_CHANNELS,
+  type ChatFinishNodeDeleteOutcome,
+  type ChatOpenResult,
+  type ChatTurnResult,
+  type NodeDeleteResource,
+} from "@shared/ipc";
+import { NodeDeleteService } from "./node-delete";
 import { ChatService } from "./service";
 
 // Thin IPC pass-through onto ChatService. Exported as a factory, not
@@ -12,6 +19,7 @@ export const registerChatIpc = (
   serviceSource: ChatService | Promise<ChatService>,
 ): Promise<ChatService> => {
   const service = Promise.resolve(serviceSource);
+  const nodeDelete = service.then((resolved) => new NodeDeleteService(resolved));
   void service.then((resolved) => {
     resolved.setEventSink((event) => {
       let recipients: ReadonlyArray<WebContents>;
@@ -64,14 +72,16 @@ export const registerChatIpc = (
     service.then((resolved) => resolved.chatClose(agentKey)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.chatAdmitDeleteTombstone, (_event, agentKey: string) =>
-    service.then((resolved) => resolved.admitDeleteTombstone(agentKey)),
+  ipcMain.handle(
+    IPC_CHANNELS.chatBeginNodeDelete,
+    (_event, resources: ReadonlyArray<NodeDeleteResource>) =>
+      nodeDelete.then((resolved) => resolved.beginNodeDelete(resources)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.chatReleaseDeleteTombstone, (_event, agentKey: string) =>
-    service.then((resolved) => {
-      resolved.releaseDeleteTombstone(agentKey);
-    }),
+  ipcMain.handle(
+    IPC_CHANNELS.chatFinishNodeDelete,
+    (_event, leaseId: string, outcome: ChatFinishNodeDeleteOutcome) =>
+      nodeDelete.then((resolved) => resolved.finishNodeDelete(leaseId, outcome)),
   );
 
   return service;

@@ -72,8 +72,10 @@ export const IPC_CHANNELS = {
   chatPermission: "vellum:chat-permission",
   chatSetModel: "vellum:chat-set-model",
   chatClose: "vellum:chat-close",
-  chatAdmitDeleteTombstone: "vellum:chat-admit-delete-tombstone",
-  chatReleaseDeleteTombstone: "vellum:chat-release-delete-tombstone",
+  /** Main-owned agent delete lease: lock + tombstone + close. */
+  chatBeginNodeDelete: "vellum:chat-begin-node-delete",
+  /** Release delete lease after document commit or abort. */
+  chatFinishNodeDelete: "vellum:chat-finish-node-delete",
   getKernelState: "vellum:get-kernel-state",
   armRegion: "vellum:arm-region",
   pulseRegion: "vellum:pulse-region",
@@ -430,15 +432,42 @@ export interface ChatApi {
     agentKey: string,
   ) => Promise<{ ok: boolean; clean?: boolean }>;
   /**
-   * Fence agent delete: admit a tombstone so chatOpen cannot reopen the seat
-   * until release after document commit (or abort).
+   * Main-owned agent delete lease: locks keys, admits chatOpen tombstones,
+   * starts verified close. Finish after document commit or abort.
    */
-  readonly chatAdmitDeleteTombstone: (
-    agentKey: string,
-  ) => Promise<{ ok: boolean; error?: string }>;
-  readonly chatReleaseDeleteTombstone: (agentKey: string) => Promise<void>;
+  readonly chatBeginNodeDelete: (
+    resources: ReadonlyArray<NodeDeleteResource>,
+  ) => Promise<ChatBeginNodeDeleteResult>;
+  readonly chatFinishNodeDelete: (
+    leaseId: string,
+    outcome: ChatFinishNodeDeleteOutcome,
+  ) => Promise<ChatFinishNodeDeleteResult>;
   readonly onChatEvent: (listener: (event: ChatEvent) => void) => () => void;
 }
+
+/** Resource targeted by a Main-owned node-delete lease (agents only for Cut 6). */
+export type NodeDeleteResource = {
+  readonly kind: "agent";
+  readonly agentKey: string;
+};
+
+export type ChatBeginNodeDeleteResult =
+  | {
+      readonly ok: true;
+      readonly leaseId: string;
+      readonly closeResults: ReadonlyArray<{
+        readonly agentKey: string;
+        readonly ok: boolean;
+        readonly clean: boolean;
+      }>;
+    }
+  | { readonly ok: false; readonly error: string };
+
+export type ChatFinishNodeDeleteOutcome = "committed" | "aborted";
+
+export type ChatFinishNodeDeleteResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: string };
 
 export interface VellumApi {
   /** Read-only platform marker for renderer geometry and copy. */

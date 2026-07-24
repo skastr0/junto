@@ -19,10 +19,30 @@ const chatClose = vi.fn(async (): Promise<{ ok: boolean; clean?: boolean }> => (
   ok: true,
   clean: true,
 }));
-const chatAdmitDeleteTombstone = vi.fn(
-  async (): Promise<{ ok: boolean; error?: string }> => ({ ok: true }),
+const chatBeginNodeDelete = vi.fn(
+  async (
+    resources: ReadonlyArray<{ readonly kind: "agent"; readonly agentKey: string }>,
+  ): Promise<{
+    readonly ok: true;
+    readonly leaseId: string;
+    readonly closeResults: ReadonlyArray<{
+      readonly agentKey: string;
+      readonly ok: boolean;
+      readonly clean: boolean;
+    }>;
+  } | { readonly ok: false; readonly error: string }> => ({
+    ok: true,
+    leaseId: "test-lease",
+    closeResults: resources.map((resource) => ({
+      agentKey: resource.agentKey,
+      ok: true,
+      clean: true,
+    })),
+  }),
 );
-const chatReleaseDeleteTombstone = vi.fn(async (): Promise<void> => undefined);
+const chatFinishNodeDelete = vi.fn(
+  async (): Promise<{ readonly ok: true }> => ({ ok: true }),
+);
 
 const runtimeWindow = {
   vellum: {
@@ -30,8 +50,8 @@ const runtimeWindow = {
     browserStop,
     browserSessionList: async () => ({ ok: true, data: [] }),
     chatClose,
-    chatAdmitDeleteTombstone,
-    chatReleaseDeleteTombstone,
+    chatBeginNodeDelete,
+    chatFinishNodeDelete,
   },
   setTimeout: globalThis.setTimeout,
   confirm: () => true,
@@ -54,10 +74,18 @@ describe("renderer graph mutations", () => {
     browserStop.mockResolvedValue({ ok: true });
     chatClose.mockReset();
     chatClose.mockResolvedValue({ ok: true, clean: true });
-    chatAdmitDeleteTombstone.mockReset();
-    chatAdmitDeleteTombstone.mockResolvedValue({ ok: true });
-    chatReleaseDeleteTombstone.mockReset();
-    chatReleaseDeleteTombstone.mockResolvedValue(undefined);
+    chatBeginNodeDelete.mockReset();
+    chatBeginNodeDelete.mockImplementation(async (resources) => ({
+      ok: true as const,
+      leaseId: "test-lease",
+      closeResults: resources.map((resource) => ({
+        agentKey: resource.agentKey,
+        ok: true,
+        clean: true,
+      })),
+    }));
+    chatFinishNodeDelete.mockReset();
+    chatFinishNodeDelete.mockResolvedValue({ ok: true });
     browser$.sessionByRef.set({});
     dock$.stopErrorByRef.set({});
     state$.settings.station.hostId.set("local");
@@ -261,17 +289,28 @@ describe("renderer graph mutations", () => {
       }],
       edges: [],
     });
-    let finishClose!: (result: { readonly ok: boolean; readonly clean?: boolean }) => void;
-    chatClose.mockImplementationOnce(
+    let finishBegin!: (result: {
+      readonly ok: true;
+      readonly leaseId: string;
+      readonly closeResults: ReadonlyArray<{
+        readonly agentKey: string;
+        readonly ok: boolean;
+        readonly clean: boolean;
+      }>;
+    }) => void;
+    chatBeginNodeDelete.mockImplementationOnce(
       () => new Promise((resolve) => {
-        finishClose = resolve;
+        finishBegin = resolve;
       }),
     );
 
     deleteNode("agent");
-    await vi.waitFor(() => expect(chatAdmitDeleteTombstone).toHaveBeenCalledWith("local:default"));
-    await vi.waitFor(() => expect(chatClose).toHaveBeenCalledWith("local:default"));
-    // Canvas switch / reload advances docEpoch while close awaits.
+    await vi.waitFor(() =>
+      expect(chatBeginNodeDelete).toHaveBeenCalledWith([
+        { kind: "agent", agentKey: "local:default" },
+      ]),
+    );
+    // Canvas switch / reload advances docEpoch while lease begin awaits.
     loadDoc({
       nodes: [{
         id: "agent",
@@ -285,18 +324,22 @@ describe("renderer graph mutations", () => {
       }],
       edges: [],
     });
-    finishClose({ ok: true, clean: true });
+    finishBegin({
+      ok: true,
+      leaseId: "lease-epoch",
+      closeResults: [{ agentKey: "local:default", ok: true, clean: true }],
+    });
 
     await vi.waitFor(() => expect(state$.error.peek()).toBe(
       "Canvas changed before deletion completed; no nodes were deleted.",
     ));
-    expect(chatReleaseDeleteTombstone).toHaveBeenCalledWith("local:default");
+    expect(chatFinishNodeDelete).toHaveBeenCalledWith("lease-epoch", "aborted");
     expect(state$.doc.peek().nodes).toMatchObject([
       { id: "agent", text: "replacement" },
     ]);
   });
 
-  it("admits delete tombstone before close and releases after commit", async () => {
+  it("begins delete lease then finishes committed after document commit", async () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [{
@@ -314,14 +357,13 @@ describe("renderer graph mutations", () => {
 
     deleteNode("agent");
     await vi.waitFor(() => expect(state$.doc.peek().nodes).toEqual([]));
-    expect(chatAdmitDeleteTombstone).toHaveBeenCalledWith("local:default");
-    expect(chatClose).toHaveBeenCalledWith("local:default");
-    expect(chatReleaseDeleteTombstone).toHaveBeenCalledWith("local:default");
-    const admitOrder = chatAdmitDeleteTombstone.mock.invocationCallOrder[0]!;
-    const closeOrder = chatClose.mock.invocationCallOrder[0]!;
-    const releaseOrder = chatReleaseDeleteTombstone.mock.invocationCallOrder[0]!;
-    expect(admitOrder).toBeLessThan(closeOrder);
-    expect(closeOrder).toBeLessThan(releaseOrder);
+    expect(chatBeginNodeDelete).toHaveBeenCalledWith([
+      { kind: "agent", agentKey: "local:default" },
+    ]);
+    expect(chatFinishNodeDelete).toHaveBeenCalledWith("test-lease", "committed");
+    const beginOrder = chatBeginNodeDelete.mock.invocationCallOrder[0]!;
+    const finishOrder = chatFinishNodeDelete.mock.invocationCallOrder[0]!;
+    expect(beginOrder).toBeLessThan(finishOrder);
   });
 
   it("creates schema-valid soft edges without criteria", () => {

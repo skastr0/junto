@@ -13,6 +13,7 @@ import {
   ChatShutdownUncleanError,
   requireCleanChatShutdown,
 } from "../src/main/vellum/chat/service";
+import { NodeDeleteService } from "../src/main/vellum/chat/node-delete";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
@@ -753,6 +754,93 @@ describe("chatClose", () => {
     service.releaseDeleteTombstone("local:default");
     const { result } = await openHappyPath(service, children);
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("NodeDeleteService lease", () => {
+  it("begin locks + tombstones + closes; finish committed releases fence", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const chat = new ChatService(spawnFn);
+    const deletes = new NodeDeleteService(chat);
+    await openHappyPath(chat, children);
+    const child = children[0]!;
+    child.kill.mockImplementation((_signal?: NodeJS.Signals) => {
+      child.emit("exit", 0);
+      child.emit("close", 0);
+      return true;
+    });
+
+    const began = await deletes.beginNodeDelete([
+      { kind: "agent", agentKey: "local:default" },
+    ]);
+    expect(began.ok).toBe(true);
+    if (!began.ok) return;
+    expect(began.closeResults).toEqual([
+      { agentKey: "local:default", ok: true, clean: true },
+    ]);
+    expect(deletes.isLocked("local:default")).toBe(true);
+    await expect(chat.chatOpen("local:default")).resolves.toEqual({
+      ok: false,
+      error: "agent is being deleted",
+    });
+
+    expect(deletes.finishNodeDelete(began.leaseId, "committed")).toEqual({ ok: true });
+    expect(deletes.isLocked("local:default")).toBe(false);
+    expect(deletes.activeLeaseCount()).toBe(0);
+    const { result } = await openHappyPath(chat, children);
+    expect(result.ok).toBe(true);
+  });
+
+  it("finish aborted releases tombstone without requiring a second admit", async () => {
+    const { spawnFn, children } = fakeSpawn();
+    const chat = new ChatService(spawnFn);
+    const deletes = new NodeDeleteService(chat);
+
+    const began = await deletes.beginNodeDelete([
+      { kind: "agent", agentKey: "local:default" },
+    ]);
+    expect(began.ok).toBe(true);
+    if (!began.ok) return;
+    expect(began.closeResults[0]?.ok).toBe(true);
+
+    expect(deletes.finishNodeDelete(began.leaseId, "aborted")).toEqual({ ok: true });
+    // Open after abort must be allowed (seat was closed; fence released).
+    const { result } = await openHappyPath(chat, children);
+    expect(result.ok).toBe(true);
+  });
+
+  it("refuses a second begin while the first lease still holds the key", async () => {
+    const { spawnFn } = fakeSpawn();
+    const chat = new ChatService(spawnFn);
+    const deletes = new NodeDeleteService(chat);
+
+    const first = await deletes.beginNodeDelete([
+      { kind: "agent", agentKey: "local:default" },
+    ]);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    await expect(
+      deletes.beginNodeDelete([{ kind: "agent", agentKey: "local:default" }]),
+    ).resolves.toEqual({
+      ok: false,
+      error: "agent local:default already has an active delete lease",
+    });
+
+    expect(deletes.finishNodeDelete(first.leaseId, "aborted")).toEqual({ ok: true });
+    const second = await deletes.beginNodeDelete([
+      { kind: "agent", agentKey: "local:default" },
+    ]);
+    expect(second.ok).toBe(true);
+    if (second.ok) {
+      expect(deletes.finishNodeDelete(second.leaseId, "committed")).toEqual({ ok: true });
+    }
+  });
+
+  it("finish is idempotent for unknown lease ids", () => {
+    const chat = new ChatService(noSpawn);
+    const deletes = new NodeDeleteService(chat);
+    expect(deletes.finishNodeDelete("missing-lease", "aborted")).toEqual({ ok: true });
   });
 });
 

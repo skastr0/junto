@@ -1,6 +1,13 @@
 import { observable } from "@legendapp/state";
 import { ulid } from "ulid";
-import type { ChatApi, ChatEvent, ChatModelChoice, ChatOpenResult } from "@shared/ipc";
+import type {
+  ChatApi,
+  ChatBeginNodeDeleteResult,
+  ChatEvent,
+  ChatFinishNodeDeleteOutcome,
+  ChatModelChoice,
+  ChatOpenResult,
+} from "@shared/ipc";
 import { getVellumApi } from "./vellum-api";
 
 // window.vellum is ambiently typed as VellumApi only (src/renderer/global.d.ts).
@@ -591,42 +598,67 @@ export async function closeChat(agentKey: string): Promise<boolean> {
 }
 
 /**
- * Admit a delete tombstone so main refuses chatOpen for this agent until release.
- * Call before closeChat on agent-node delete.
+ * Begin a Main-owned agent delete lease: locks keys, admits chatOpen
+ * tombstones, and awaits verified close. Call finishAgentNodeDelete after
+ * document commit or abort.
  */
-export async function admitAgentDeleteTombstone(agentKey: string): Promise<boolean> {
+export async function beginAgentNodeDelete(
+  agentKeys: ReadonlyArray<string>,
+): Promise<ChatBeginNodeDeleteResult> {
+  const keys = [...new Set(agentKeys.map((k) => k.trim()).filter((k) => k.length > 0))];
+  for (const agentKey of keys) {
+    ensureAgent(agentKey);
+    chatState$[agentKey].assign({ status: "closed", pendingPermission: undefined });
+    syncChatCoarse(agentKey, getAgentChatState(agentKey));
+  }
   const api = getChatApi();
-  if (!api || typeof api.chatAdmitDeleteTombstone !== "function") {
-    pushStatus(agentKey, "delete tombstone unavailable — refuse agent delete", "error");
-    return false;
+  if (!api || typeof api.chatBeginNodeDelete !== "function") {
+    for (const agentKey of keys) {
+      pushStatus(agentKey, "delete lease unavailable — refuse agent delete", "error");
+    }
+    return { ok: false, error: "delete lease unavailable" };
   }
   try {
-    const result = await api.chatAdmitDeleteTombstone(agentKey);
-    if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-      pushStatus(
-        agentKey,
-        typeof result.error === "string" ? result.error : "delete tombstone admit failed",
-        "error",
-      );
-      return false;
-    }
-    return true;
-  } catch (error) {
-    pushStatus(
-      agentKey,
-      error instanceof Error ? error.message : "delete tombstone admit failed",
-      "error",
+    const result = await api.chatBeginNodeDelete(
+      keys.map((agentKey) => ({ kind: "agent" as const, agentKey })),
     );
-    return false;
+    if (result && typeof result === "object" && "ok" in result && result.ok === false) {
+      for (const agentKey of keys) {
+        pushStatus(
+          agentKey,
+          typeof result.error === "string" ? result.error : "delete lease begin failed",
+          "error",
+        );
+      }
+      return result;
+    }
+    if (result && typeof result === "object" && result.ok === true) {
+      for (const close of result.closeResults) {
+        if (!close.ok) {
+          pushStatus(close.agentKey, "agent process teardown was not clean", "error");
+        }
+      }
+      return result;
+    }
+    return { ok: false, error: "delete lease begin failed" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "delete lease begin failed";
+    for (const agentKey of keys) {
+      pushStatus(agentKey, message, "error");
+    }
+    return { ok: false, error: message };
   }
 }
 
-/** Release delete tombstone after document commit or abort (never open while releasing). */
-export async function releaseAgentDeleteTombstone(agentKey: string): Promise<void> {
+/** Release delete lease after document commit or abort (never open while releasing). */
+export async function finishAgentNodeDelete(
+  leaseId: string,
+  outcome: ChatFinishNodeDeleteOutcome,
+): Promise<void> {
   const api = getChatApi();
-  if (!api || typeof api.chatReleaseDeleteTombstone !== "function") return;
+  if (!api || typeof api.chatFinishNodeDelete !== "function") return;
   try {
-    await api.chatReleaseDeleteTombstone(agentKey);
+    await api.chatFinishNodeDelete(leaseId, outcome);
   } catch {
     // Best-effort release; TTL on main is the backstop.
   }
