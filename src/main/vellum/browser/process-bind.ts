@@ -1,6 +1,7 @@
 import type { CanvasDoc } from "@shared/canvas";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
+import type { CapabilityViewOptions } from "@shared/physics";
 import {
   connectedPageRefs,
   findNode,
@@ -53,11 +54,13 @@ const matchesProcessPrincipal = (
 /**
  * Resolve a process principal against one canvas document into a browser
  * caller + edge-reachable page refs.
+ * `viewOptions` carries placement topology when the origin knows its CC host.
  */
 export const resolveBrowserCallerFromProcess = (
   doc: CanvasDoc,
   canvasName: string,
   principal: ProcessPrincipal,
+  viewOptions?: CapabilityViewOptions,
 ): BrowserProcessBindResult => {
   if (principal.kind === "terminal") {
     return {
@@ -105,7 +108,7 @@ export const resolveBrowserCallerFromProcess = (
     };
   }
 
-  const pageRefs = connectedPageRefs(doc, canvasName, node.id);
+  const pageRefs = connectedPageRefs(doc, canvasName, node.id, viewOptions);
   if (pageRefs.length === 0) {
     return {
       ok: false,

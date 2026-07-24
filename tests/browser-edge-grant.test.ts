@@ -382,11 +382,14 @@ describe("browser edge-grant process-bind dual admit", () => {
       },
     });
 
+    // S11 placement: Station↔Station is a route denial before host-mint checks.
+    // Cross-host studio→render therefore never reaches physical_host_mismatch —
+    // physics withholds the browser.automate edge (surfaces as not_connected).
     await expect(
       edgeGrant.admitPrincipal({ kind: "agent", agentKey: "local:default" }),
     ).resolves.toMatchObject({
       ok: false,
-      denial: "physical_host_mismatch",
+      denial: "not_connected",
     });
     expect(capabilities.stats().activeCapabilities).toBe(0);
   });

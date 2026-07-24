@@ -177,10 +177,13 @@ export const makeAgentStationBrowserRouteAdmission = (
         );
       }
 
+      // Origin station is Command Center for this route — name it so placement
+      // classifies the CC actor correctly (I18 CC↔Station, not Station↔Station).
       const resolved = resolveBrowserCallerFromProcess(
         doc,
         principal.canvasName,
         principal,
+        { topology: { commandCenterHostId: options.stationId } },
       );
       if (!resolved.ok || resolved.principal.kind !== "agent") {
         throw new StationBrowserOriginAdmissionError(

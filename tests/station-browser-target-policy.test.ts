@@ -165,11 +165,21 @@ describe("Remote station browser target policy", () => {
     expect(verification.currentGeneration(signedRequest)).toBeUndefined();
   });
 
+  it("denies the page when its page host is not this station", async () => {
+    // S11 placement: agent@remote-a → page@remote-b is Station↔Station route
+    // denial — no edgeAllowed; resolvePage is undefined (not policyAllowed:false).
+    const policy = makePolicy({
+      readCanvas: async () => canvas({ page: pageNode({ host: "remote-b" }) }),
+    });
+    const signedRequest = request();
+    const verification = await policy.verification(signedRequest);
+
+    expect(verification.resolvePage(pageRef)).toBeUndefined();
+    expect(verification.allowAction(signedRequest)).toBe(false);
+    await expect(policy.discoverPages(signedRequest)).resolves.toEqual([]);
+  });
+
   it.each([
-    {
-      name: "page host is not this station",
-      page: pageNode({ host: "remote-b" }),
-    },
     {
       name: "page URL is not admitted by the public-web policy",
       page: pageNode({ url: "http://127.0.0.1/admin" }),
