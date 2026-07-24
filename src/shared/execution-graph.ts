@@ -8,8 +8,15 @@ import type {
 } from "./canvas";
 import { WIP_GLYPH_STATES } from "./canvas";
 import { isTerminalTaskState, taskBrief } from "./a2a";
+import {
+  findApproval,
+  findMatchingStamp,
+  type ApprovalView,
+  type ProofStamp,
+  type StampView,
+} from "./proof-stamps";
 
-// Live execution graph: pure function of (document + glyph view).
+// Live execution graph: pure function of (document + live views).
 // Derived state is never stored in the .canvas file.
 //
 // Authorial edge model — criteria only:
@@ -17,6 +24,9 @@ import { isTerminalTaskState, taskBrief } from "./a2a";
 //   - criteria glyphs/wip → "blocks" | "depends" when glyph data known;
 //     unknown/missing glyph data → "relates" (no fail-closed generation)
 //   - criteria tasks → from document A2A tasks/requests stores only
+//   - criteria proof → blocks until matching stamp in source-sink runtime
+//     (StampView; never reads authored canvas fields for stamps)
+//   - criteria approval → blocks until human grant in ApprovalView
 //
 // Propagation:
 //   - phase "blocks" generates a block on toNode
@@ -33,6 +43,12 @@ export type GlyphRow = {
 
 /** Map project key → glyph rows. Missing key or undefined value = data unavailable. */
 export type GlyphView = ReadonlyMap<string, ReadonlyArray<GlyphRow> | undefined>;
+
+/** Optional live views for proof/approval criteria (runtime, not document). */
+export type LiveTrustViews = {
+  readonly stamps?: StampView;
+  readonly approvals?: ApprovalView;
+};
 
 export type BlockedReason =
   | {
@@ -276,10 +292,71 @@ const softRelates = (): EdgeEval => ({
   relays: false,
 });
 
+const evalProofCriteria = (
+  criteria: Extract<EdgeCriteria, { mode: "proof" }>,
+  fromNode: CanvasNode | undefined,
+  stamps: StampView | undefined,
+): EdgeEval => {
+  const step = criteria.step.trim();
+  if (!step) {
+    return { phase: "relates", detail: "proof criteria missing step", generates: false, relays: false };
+  }
+  const sinkId = fromNode?.id;
+  const sinkStamps = sinkId && stamps ? stamps.get(sinkId) : undefined;
+  const match = findMatchingStamp(sinkStamps, step, criteria.inputsHash);
+  if (match) {
+    return {
+      phase: "depends",
+      detail: `proof step "${step}" stamped`,
+      generates: false,
+      relays: true,
+    };
+  }
+  const hashHint =
+    criteria.inputsHash !== undefined ? ` (inputsHash=${criteria.inputsHash})` : "";
+  return {
+    phase: "blocks",
+    detail: `missing proof step "${step}"${hashHint}`,
+    generates: true,
+    relays: true,
+  };
+};
+
+const evalApprovalCriteria = (
+  criteria: Extract<EdgeCriteria, { mode: "approval" }>,
+  approvals: ApprovalView | undefined,
+): EdgeEval => {
+  const step = criteria.step.trim();
+  if (!step) {
+    return {
+      phase: "relates",
+      detail: "approval criteria missing step",
+      generates: false,
+      relays: false,
+    };
+  }
+  const grant = findApproval(approvals, step);
+  if (grant && grant.principal === "human") {
+    return {
+      phase: "depends",
+      detail: `approval step "${step}" granted`,
+      generates: false,
+      relays: true,
+    };
+  }
+  return {
+    phase: "blocks",
+    detail: `missing human approval for step "${step}"`,
+    generates: true,
+    relays: true,
+  };
+};
+
 export const evaluateEdge = (
   edge: CanvasEdge,
   fromNode: CanvasNode | undefined,
   glyphs: GlyphView,
+  trust: LiveTrustViews = {},
 ): EdgeEval => {
   const criteria = edge.ether?.criteria;
   if (!criteria) return softRelates();
@@ -290,6 +367,10 @@ export const evaluateEdge = (
       return evalWipCriteria(criteria, fromNode, glyphs);
     case "tasks":
       return evalTasksCriteria(criteria, fromNode);
+    case "proof":
+      return evalProofCriteria(criteria, fromNode, trust.stamps);
+    case "approval":
+      return evalApprovalCriteria(criteria, trust.approvals);
   }
 };
 
@@ -299,7 +380,9 @@ export const edgeGlyphProjects = (doc: CanvasDoc): ReadonlySet<string> => {
   const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
   for (const edge of doc.edges) {
     const criteria = edge.ether?.criteria;
-    if (!criteria || criteria.mode === "tasks") continue;
+    if (!criteria) continue;
+    // Only glyph/wip criteria need project keys.
+    if (criteria.mode !== "glyphs" && criteria.mode !== "wip") continue;
     const from = byId.get(edge.fromNode);
     const project = criteria.project ?? entityProjectKey(from);
     if (project) projects.add(project);
@@ -307,7 +390,33 @@ export const edgeGlyphProjects = (doc: CanvasDoc): ReadonlySet<string> => {
   return projects;
 };
 
-export const deriveExecutionGraph = (doc: CanvasDoc, glyphs: GlyphView = new Map()): ExecutionGraph => {
+/**
+ * List stamps that currently clear a proof edge (for digest completion).
+ * Pure: document + StampView only.
+ */
+export const clearingStampsForDoc = (
+  doc: CanvasDoc,
+  stamps: StampView | undefined,
+): ReadonlyArray<{ readonly edgeId: string; readonly stamp: ProofStamp }> => {
+  if (!stamps) return [];
+  const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
+  const out: Array<{ edgeId: string; stamp: ProofStamp }> = [];
+  for (const edge of doc.edges) {
+    const criteria = edge.ether?.criteria;
+    if (!criteria || criteria.mode !== "proof") continue;
+    const from = byId.get(edge.fromNode);
+    if (!from) continue;
+    const match = findMatchingStamp(stamps.get(from.id), criteria.step, criteria.inputsHash);
+    if (match) out.push({ edgeId: edge.id, stamp: match });
+  }
+  return out;
+};
+
+export const deriveExecutionGraph = (
+  doc: CanvasDoc,
+  glyphs: GlyphView = new Map(),
+  trust: LiveTrustViews = {},
+): ExecutionGraph => {
   const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
 
   const phaseByEdgeId = new Map<string, EdgePhase>();
@@ -315,7 +424,7 @@ export const deriveExecutionGraph = (doc: CanvasDoc, glyphs: GlyphView = new Map
   const edgeEvalById = new Map<string, EdgeEval>();
 
   for (const edge of doc.edges) {
-    const evaluation = evaluateEdge(edge, byId.get(edge.fromNode), glyphs);
+    const evaluation = evaluateEdge(edge, byId.get(edge.fromNode), glyphs, trust);
     edgeEvalById.set(edge.id, evaluation);
     phaseByEdgeId.set(edge.id, evaluation.phase);
     detailByEdgeId.set(edge.id, evaluation.detail);

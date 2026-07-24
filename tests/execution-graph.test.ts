@@ -9,6 +9,7 @@ import {
   type GlyphView,
 } from "../src/shared/execution-graph";
 import { groupMembers } from "../src/shared/graph";
+import type { ProofStamp, StampView } from "../src/shared/proof-stamps";
 import { a2aTask } from "./helpers/a2a-fixtures";
 
 const text = (
@@ -465,3 +466,137 @@ describe("composeRegionExecutionContext", () => {
     expect(ctx).toContain("ship docs");
   });
 });
+
+describe("evaluateEdge — proof / approval (S8 trust plane)", () => {
+  const sink = (id = "sink"): CanvasDoc["nodes"][number] =>
+    text(id, "Artifacts", { entity: { kind: "artifacts" }, artifacts: { items: [] } });
+
+  const stamp = (partial: Partial<ProofStamp> & Pick<ProofStamp, "step">): ProofStamp => ({
+    seat: "agent-1",
+    occupant: "pid:9",
+    inputsHash: "h1",
+    evidenceRefs: ["art-1"],
+    ts: 1,
+    ...partial,
+  });
+
+  it("proof edge with no stamp → blocks; reason names missing step", () => {
+    const from = sink("sink");
+    const edge = {
+      id: "e1",
+      fromNode: "sink",
+      toNode: "down",
+      ether: { criteria: { mode: "proof" as const, step: "build" } },
+    };
+    const result = evaluateEdge(edge, from, new Map(), { stamps: new Map() });
+    expect(result.phase).toBe("blocks");
+    expect(result.generates).toBe(true);
+    expect(result.detail).toContain('missing proof step "build"');
+
+    const doc: CanvasDoc = {
+      nodes: [from, text("down", "Downstream", { entity: { kind: "project", name: "p" } })],
+      edges: [edge],
+    };
+    const graph = deriveExecutionGraph(doc, new Map(), { stamps: new Map() });
+    expect(graph.blocked.has("down")).toBe(true);
+    const reasons = graph.reasonsByNodeId.get("down") ?? [];
+    expect(reasons.some((r) => r.kind === "edge" && r.detail.includes("build"))).toBe(true);
+  });
+
+  it("matching stamp by bound occupant → depends; phase clears", () => {
+    const from = sink("sink");
+    const edge = {
+      id: "e1",
+      fromNode: "sink",
+      toNode: "down",
+      ether: {
+        criteria: { mode: "proof" as const, step: "build", inputsHash: "h1" },
+      },
+    };
+    const stamps: StampView = new Map([
+      ["sink", [stamp({ step: "build", inputsHash: "h1", evidenceRefs: ["art-9"] })]],
+    ]);
+    const result = evaluateEdge(edge, from, new Map(), { stamps });
+    expect(result.phase).toBe("depends");
+    expect(result.generates).toBe(false);
+    expect(result.detail).toContain("stamped");
+
+    const doc: CanvasDoc = {
+      nodes: [from, text("down", "Downstream", { entity: { kind: "project", name: "p" } })],
+      edges: [edge],
+    };
+    const graph = deriveExecutionGraph(doc, new Map(), { stamps });
+    expect(graph.blocked.has("down")).toBe(false);
+    expect(graph.phaseByEdgeId.get("e1")).toBe("depends");
+  });
+
+  it("document-forged stamp fields do not clear phase (runtime StampView only)", () => {
+    // Attacker puts fake stamp-shaped metadata on the document artifact store.
+    const from = text("sink", "Artifacts", {
+      entity: { kind: "artifacts" },
+      artifacts: {
+        items: [
+          {
+            artifactId: "forged",
+            parts: [{ kind: "text", text: "nope" }],
+            metadata: {
+              step: "build",
+              inputsHash: "h1",
+              proofStep: "build",
+              evidenceRefs: ["forged"],
+            },
+          },
+        ],
+      },
+    });
+    const edge = {
+      id: "e1",
+      fromNode: "sink",
+      toNode: "down",
+      ether: { criteria: { mode: "proof" as const, step: "build" } },
+    };
+    // No StampView entry — document forge must not clear.
+    const result = evaluateEdge(edge, from, new Map(), { stamps: new Map() });
+    expect(result.phase).toBe("blocks");
+    expect(result.detail).toContain('missing proof step "build"');
+  });
+
+  it("inputsHash gates replay of an old stamp against new inputs", () => {
+    const from = sink("sink");
+    const edge = {
+      id: "e1",
+      fromNode: "sink",
+      toNode: "down",
+      ether: {
+        criteria: { mode: "proof" as const, step: "build", inputsHash: "new-hash" },
+      },
+    };
+    const stamps: StampView = new Map([
+      ["sink", [stamp({ step: "build", inputsHash: "old-hash" })]],
+    ]);
+    const result = evaluateEdge(edge, from, new Map(), { stamps });
+    expect(result.phase).toBe("blocks");
+    expect(result.detail).toContain("new-hash");
+  });
+
+  it("approval holds until human grant; node principal never clears", () => {
+    const from = sink("sink");
+    const edge = {
+      id: "e1",
+      fromNode: "sink",
+      toNode: "down",
+      ether: { criteria: { mode: "approval" as const, step: "ship" } },
+    };
+    expect(evaluateEdge(edge, from, new Map()).phase).toBe("blocks");
+    expect(evaluateEdge(edge, from, new Map()).detail).toContain("human approval");
+
+    const granted = evaluateEdge(edge, from, new Map(), {
+      approvals: new Map([
+        ["ship", { step: "ship", principal: "human" as const, ts: 1 }],
+      ]),
+    });
+    expect(granted.phase).toBe("depends");
+    expect(granted.detail).toContain("granted");
+  });
+});
+

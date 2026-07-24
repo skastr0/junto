@@ -346,11 +346,14 @@ export const EtherMessages = Schema.Struct({
 });
 export type EtherMessages = typeof EtherMessages.Type;
 
-// Edge glyph-binding / task-binding criteria. Absence → plain relates.
-// - glyphs: selected glyph ids on a project must all be "done"
-// - wip:    opt-in; any glyph in committed|building|reviewing generates blocks
-// - tasks:  from task node → selected items not "completed";
-//           from requests node → selected items still "input-required"
+// Edge glyph-binding / task-binding / trust criteria. Absence → plain relates.
+// - glyphs:   selected glyph ids on a project must all be "done"
+// - wip:      opt-in; any glyph in committed|building|reviewing generates blocks
+// - tasks:    from task node → selected items not "completed";
+//             from requests node → selected items still "input-required"
+// - proof:    holds until a matching runtime stamp exists on the source sink
+//             (stamps live in sink runtime state — never authored canvas fields)
+// - approval: holds until a human grant (external principal; never a node)
 export const EdgeCriteriaGlyphs = Schema.Struct({
   mode: Schema.Literal("glyphs"),
   project: Schema.optionalWith(Schema.String, { exact: true }),
@@ -373,7 +376,33 @@ export const EdgeCriteriaTasks = Schema.Struct({
 });
 export type EdgeCriteriaTasks = typeof EdgeCriteriaTasks.Type;
 
-export const EdgeCriteria = Schema.Union(EdgeCriteriaGlyphs, EdgeCriteriaWip, EdgeCriteriaTasks);
+/** Phase holds until a matching stamp exists in source-sink runtime state. */
+export const EdgeCriteriaProof = Schema.Struct({
+  mode: Schema.Literal("proof"),
+  /** Step name the stamp must claim. */
+  step: Schema.String,
+  /**
+   * When set, stamp.inputsHash must equal this value (gates replay of an old
+   * stamp against new inputs). Absent = any stamp for `step` clears.
+   */
+  inputsHash: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type EdgeCriteriaProof = typeof EdgeCriteriaProof.Type;
+
+/** Phase holds until a human grant is recorded for `step` (operator surface). */
+export const EdgeCriteriaApproval = Schema.Struct({
+  mode: Schema.Literal("approval"),
+  step: Schema.String,
+});
+export type EdgeCriteriaApproval = typeof EdgeCriteriaApproval.Type;
+
+export const EdgeCriteria = Schema.Union(
+  EdgeCriteriaGlyphs,
+  EdgeCriteriaWip,
+  EdgeCriteriaTasks,
+  EdgeCriteriaProof,
+  EdgeCriteriaApproval,
+);
 export type EdgeCriteria = typeof EdgeCriteria.Type;
 
 export const EtherNodeExtension = Schema.Struct({
