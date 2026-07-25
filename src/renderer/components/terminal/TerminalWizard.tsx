@@ -32,13 +32,16 @@ export function TerminalWizard({
         if (!res?.ok || !Array.isArray(res.hosts)) return;
         // Only hosts that declare the terminal capability (Vellum station
         // term-control surface). Remote without it cannot host native sessions.
+        // Local is always offered as a floor: TermPlane runs on this process
+        // even if hosts.json was stripped of the terminal cap (migration also
+        // restores it on load).
         const opts = res.hosts
           .filter(
             (h) =>
               typeof h.id === "string" &&
               h.id.length > 0 &&
               Array.isArray(h.capabilities) &&
-              h.capabilities.includes(TERMINAL_HOST_CAPABILITY),
+              (h.id === "local" || h.capabilities.includes(TERMINAL_HOST_CAPABILITY)),
           )
           .map((h) => ({
             id: h.id,
@@ -49,11 +52,13 @@ export function TerminalWizard({
           }));
         const seen = new Set<string>();
         const merged: HostOpt[] = [];
-        // Prefer local first when it has terminal capability.
         for (const opt of opts) {
           if (seen.has(opt.id)) continue;
           seen.add(opt.id);
           merged.push(opt);
+        }
+        if (!seen.has("local")) {
+          merged.unshift({ id: "local", label: "local" });
         }
         if (merged.length === 0) {
           merged.push({ id: "local", label: "local" });
@@ -107,13 +112,12 @@ export function TerminalWizard({
         </div>
         <FieldLabel>
           Host
-          <Select aria-label="Host" value={hostId} onChange={(e) => setHostId(e.target.value)}>
-            {hostOptions.map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.label}
-              </option>
-            ))}
-          </Select>
+          <Select
+            aria-label="Host"
+            value={hostId}
+            options={hostOptions.map((h) => ({ value: h.id, label: h.label }))}
+            onChange={setHostId}
+          />
         </FieldLabel>
         <div className="flex justify-end gap-2">
           <Button size="sm" variant="subtle" onClick={onClose} disabled={busy}>

@@ -31,6 +31,7 @@ import {
 import { DIM, HUE, INK } from "../lib/theme";
 import { getVellumApi } from "../lib/vellum-api";
 import { HostServeCatalog } from "./HostServeCatalog";
+import { Select } from "./ui";
 import "./settings-panel.css";
 
 /** Settings sections: prefs sections + hosts (hosts is not a SettingsSectionKey). */
@@ -99,32 +100,36 @@ function AppearanceSection() {
   return (
     <div className="settings-section">
       <FieldRow label="Theme" hint="deep-field is the house look">
-        <select
+        <Select
+          dense
           value={appearance.theme}
           aria-label="Theme"
-          onChange={(event) =>
+          options={[
+            { value: "deep-field", label: "deep-field" },
+            { value: "system", label: "system" },
+          ]}
+          onChange={(value) =>
             void patchSettings({
-              appearance: { theme: event.target.value as "deep-field" | "system" },
+              appearance: { theme: value as "deep-field" | "system" },
             })
           }
-        >
-          <option value="deep-field">deep-field</option>
-          <option value="system">system</option>
-        </select>
+        />
       </FieldRow>
       <FieldRow label="Density" hint="spacing of chrome and cards">
-        <select
+        <Select
+          dense
           value={appearance.density}
           aria-label="Density"
-          onChange={(event) =>
+          options={[
+            { value: "comfortable", label: "comfortable" },
+            { value: "compact", label: "compact" },
+          ]}
+          onChange={(value) =>
             void patchSettings({
-              appearance: { density: event.target.value as "comfortable" | "compact" },
+              appearance: { density: value as "comfortable" | "compact" },
             })
           }
-        >
-          <option value="comfortable">comfortable</option>
-          <option value="compact">compact</option>
-        </select>
+        />
       </FieldRow>
       <FieldRow label="Reduce motion" hint="honor reduced motion for UI chrome">
         <input

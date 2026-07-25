@@ -9,6 +9,7 @@ import {
   REMOTE_HOSTS_VERSION,
   RemoteHostsDocument,
   RemoteHostsError,
+  TERMINAL_HOST_CAPABILITY,
   defaultRemoteHostsDocument,
   hermesKeyFor,
   hostHasCapability,
@@ -107,30 +108,40 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
 };
 
 /**
- * V1 documents predate the explicit browser capability. This machine's
- * reserved local record is the only capability we can migrate from product
- * fact; remote SSH records remain exactly user-authored.
+ * Soft-migrate product capabilities onto the reserved local host only.
+ * Remote SSH records stay exactly user-authored — never invent caps there.
+ * V1 docs predate explicit browser; terminal was sometimes stripped while
+ * editing hosts, which hid local from terminal host pickers.
  */
-const migrateBrowserCapability = (
+const migrateLocalCapability = (
   document: RemoteHostsDocumentT,
+  capability: typeof BROWSER_HOST_CAPABILITY | typeof TERMINAL_HOST_CAPABILITY,
 ): RemoteHostsDocumentT => {
   let changed = false;
   const hosts = document.hosts.map((host) => {
     if (
       host.id !== "local" ||
       host.kind !== "local" ||
-      host.capabilities.includes(BROWSER_HOST_CAPABILITY)
+      host.capabilities.includes(capability)
     ) {
       return host;
     }
     changed = true;
     return {
       ...host,
-      capabilities: [...host.capabilities, BROWSER_HOST_CAPABILITY],
+      capabilities: [...host.capabilities, capability],
     };
   });
   return changed ? { ...document, hosts } : document;
 };
+
+const migrateLocalHostCapabilities = (
+  document: RemoteHostsDocumentT,
+): RemoteHostsDocumentT =>
+  migrateLocalCapability(
+    migrateLocalCapability(document, BROWSER_HOST_CAPABILITY),
+    TERMINAL_HOST_CAPABILITY,
+  );
 
 const atomicWrite = async (
   path: string,
@@ -205,7 +216,7 @@ export const loadRemoteHostsDocument = async (
       await atomicWrite(path, admitted.document);
       return admitted.document;
     }
-    const migrated = migrateBrowserCapability(admitted.document);
+    const migrated = migrateLocalHostCapabilities(admitted.document);
     validateHosts(migrated.hosts);
     if (migrated !== admitted.document) {
       await atomicWriteAndSeal(path, migrated);

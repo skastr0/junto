@@ -15,7 +15,7 @@ import {
 import { getAgentIdentity } from "../../lib/agent";
 import { chatActivity } from "../../lib/activity";
 import { ActivityMarkFromSpec } from "../ActivityMark";
-import { OverlayHeader } from "../ui";
+import { Dropdown, OverlayHeader } from "../ui";
 import { ChatTranscript } from "./ChatTranscript";
 import { ChatComposer, type ChatContextBlock } from "./ChatComposer";
 import "./chat.css";
@@ -215,18 +215,17 @@ export function ChatView({
   const headerActions = (
     <>
       {isLive && models.length > 0 ? (
-        <select
+        <Dropdown
           aria-label="Model"
-          className="vellum-picker-select chat-header__model"
-          value={selectedModelId ?? models[0]?.modelId}
-          onChange={(event) => void setModel(agentKey, event.target.value)}
-        >
-          {models.map((model) => (
-            <option key={model.modelId} value={model.modelId}>
-              {model.description ?? model.modelId}
-            </option>
-          ))}
-        </select>
+          className="chat-header__model"
+          triggerClassName="vellum-picker-select chat-header__model-trigger"
+          value={selectedModelId ?? models[0]?.modelId ?? ""}
+          options={models.map((model) => ({
+            value: model.modelId,
+            label: model.description ?? model.modelId,
+          }))}
+          onChange={(value) => void setModel(agentKey, value)}
+        />
       ) : null}
       {usageText ? <span className="chat-header__usage">{usageText}</span> : null}
       {actions}

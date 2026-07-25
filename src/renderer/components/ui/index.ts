@@ -3,7 +3,13 @@ export { IconButton } from "./IconButton";
 export { Eyebrow } from "./Eyebrow";
 export { StatusDot, type StatusTone } from "./StatusDot";
 export { Chip, type ChipTone } from "./Chip";
-export { Input, Select, FieldLabel } from "./Field";
+export {
+  Input,
+  Select,
+  FieldLabel,
+  FIELD_SELECT_TRIGGER_CLASS,
+  INSPECTOR_SELECT_TRIGGER_CLASS,
+} from "./Field";
 export { Dropdown, type DropdownOption } from "./Dropdown";
 export { OverlayHeader } from "./OverlayHeader";
 export { ToolbarPill } from "./ToolbarPill";

@@ -32,7 +32,7 @@ import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
 import { resolveNodeHostId } from "@shared/station";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
-import { Chip, type ChipTone } from "./ui";
+import { Chip, Select, type ChipTone } from "./ui";
 
 // ---------------------------------------------------------------------------
 // Factory physics — capability inventory (read-only) + "limit this key" editor
@@ -446,7 +446,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
       : null}
     {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "file" ? <div className="inspector-section"><div className="inspector-section__label">file reference</div><div className="inspector-file-fields"><label><span>path</span><input aria-label="File path" value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setFileDraft(fileValue); event.currentTarget.blur(); } }} /></label><label><span>subpath</span><input aria-label="File subpath" value={subpathDraft} placeholder="#section or block" onChange={(event) => setSubpathDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setSubpathDraft(subpathValue); event.currentTarget.blur(); } }} /></label></div></div> : null}
-    {node.type === "group" ? <div className="inspector-section"><div className="inspector-section__label">background</div><div className="inspector-background"><input aria-label="Region background source" value={backgroundDraft} placeholder="image URL or file path" onChange={(event) => setBackgroundDraft(event.target.value)} onBlur={() => commitBackground()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitBackground(); event.currentTarget.blur(); } if (event.key === "Escape") { setBackgroundDraft(backgroundValue); event.currentTarget.blur(); } }} /><label><span>fit</span><select aria-label="Region background fit" value={backgroundStyleDraft} onChange={(event) => { const style = event.target.value as "cover" | "ratio" | "repeat"; setBackgroundStyleDraft(style); commitBackground(backgroundDraft, style); }}><option value="cover">cover</option><option value="ratio">contain</option><option value="repeat">repeat</option></select></label></div></div> : null}
+    {node.type === "group" ? <div className="inspector-section"><div className="inspector-section__label">background</div><div className="inspector-background"><input aria-label="Region background source" value={backgroundDraft} placeholder="image URL or file path" onChange={(event) => setBackgroundDraft(event.target.value)} onBlur={() => commitBackground()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitBackground(); event.currentTarget.blur(); } if (event.key === "Escape") { setBackgroundDraft(backgroundValue); event.currentTarget.blur(); } }} /><label><span>fit</span><Select dense aria-label="Region background fit" value={backgroundStyleDraft} options={[{ value: "cover", label: "cover" }, { value: "ratio", label: "contain" }, { value: "repeat", label: "repeat" }]} onChange={(value) => { const style = value as "cover" | "ratio" | "repeat"; setBackgroundStyleDraft(style); commitBackground(backgroundDraft, style); }} /></label></div></div> : null}
     {node.type === "group" ? <RegionHoldControl node={node} /> : null}
     {node.type === "group" ? <RegionDefaultsControl node={node} /> : null}
     <KernelFieldEditors node={node} />
@@ -495,19 +495,19 @@ function PageBindingControl({ node }: { readonly node: CanvasNode }) {
     <div className="inspector-section__label">browser binding</div>
     <label className="inspector-editor">
       <span>host</span>
-      <select
+      <Select
+        dense
         aria-label="Page browser host"
         value={host}
-        onChange={(event) => {
-          const next = event.target.value;
+        options={hostOptions.map((candidate) => ({
+          value: candidate.id,
+          label: candidate.label,
+        }))}
+        onChange={(next) => {
           setHost(next);
           commit(profile, next);
         }}
-      >
-        {hostOptions.map((candidate) => (
-          <option key={candidate.id} value={candidate.id}>{candidate.label}</option>
-        ))}
-      </select>
+      />
     </label>
     <label className="inspector-editor">
       <span>profile</span>
@@ -604,18 +604,22 @@ export function EdgeCriteriaEditor({
       ) : (
         <label className="inspector-editor">
           <span>mode</span>
-          <select
+          <Select
+            dense
             aria-label="Edge phase filter mode"
             value={mode}
-            onChange={(event) => setMode(event.target.value as AuthoringMode)}
-          >
-            <option value="none">none · soft relates</option>
-            <option value="tasks">
-              {fromIsTask && fromKind === "requests"
-                ? "tasks · pending requests block"
-                : "tasks · needs input blocks"}
-            </option>
-          </select>
+            options={[
+              { value: "none", label: "none · soft relates" },
+              {
+                value: "tasks",
+                label:
+                  fromIsTask && fromKind === "requests"
+                    ? "tasks · pending requests block"
+                    : "tasks · needs input blocks",
+              },
+            ]}
+            onChange={(value) => setMode(value as AuthoringMode)}
+          />
         </label>
       )}
     </div>
@@ -919,9 +923,13 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
   return <>
     <label className="inspector-editor">
       <span>source</span>
-      <select aria-label="Watcher stat source" value={source} onChange={(event) => onSourceChange(event.target.value as NonNullable<EtherWatch["source"]>)}>
-        {STAT_SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-      </select>
+      <Select
+        dense
+        aria-label="Watcher stat source"
+        value={source}
+        options={STAT_SOURCE_OPTIONS.map((s) => ({ value: s, label: s }))}
+        onChange={(value) => onSourceChange(value as NonNullable<EtherWatch["source"]>)}
+      />
     </label>
     <label className="inspector-editor">
       <span>key</span>
@@ -933,9 +941,13 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
     </label>
     <label className="inspector-editor">
       <span>op</span>
-      <select aria-label="Watcher comparison" value={op} onChange={(event) => onOpChange(event.target.value as NonNullable<EtherWatch["op"]>)}>
-        {STAT_OP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
+      <Select
+        dense
+        aria-label="Watcher comparison"
+        value={op}
+        options={STAT_OP_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+        onChange={(value) => onOpChange(value as NonNullable<EtherWatch["op"]>)}
+      />
     </label>
     <label className="inspector-editor">
       <span>value</span>
@@ -1034,9 +1046,23 @@ function WatcherEditor({ node }: { readonly node: CanvasNode }) {
     <div className="inspector-section__label">watcher</div>
     <label className="inspector-editor">
       <span>kind</span>
-      <select aria-label="Watcher kind" value={kind} onChange={(event) => { const next = event.target.value as EtherWatch["kind"]; setKind(next); commit({ kind: next }); }}>
-        {WATCH_KIND_OPTIONS.filter((option) => option.value === kind || option.value === "stat_threshold" || option.value === "glyphs_done" || option.value === "glyphs_entered_state").map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
+      <Select
+        dense
+        aria-label="Watcher kind"
+        value={kind}
+        options={WATCH_KIND_OPTIONS.filter(
+          (option) =>
+            option.value === kind ||
+            option.value === "stat_threshold" ||
+            option.value === "glyphs_done" ||
+            option.value === "glyphs_entered_state",
+        ).map((option) => ({ value: option.value, label: option.label }))}
+        onChange={(value) => {
+          const next = value as EtherWatch["kind"];
+          setKind(next);
+          commit({ kind: next });
+        }}
+      />
     </label>
     {kind !== "stat_threshold" ? (
       <GlyphScopeFields
@@ -1053,9 +1079,16 @@ function WatcherEditor({ node }: { readonly node: CanvasNode }) {
     {kind === "glyphs_entered_state" ? (
       <label className="inspector-editor">
         <span>entered state</span>
-        <select aria-label="Watcher target state" value={stateName} onChange={(event) => { setStateName(event.target.value); commit({ state: event.target.value }); }}>
-          {GLYPH_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <Select
+          dense
+          aria-label="Watcher target state"
+          value={stateName}
+          options={GLYPH_STATES.map((s) => ({ value: s, label: s }))}
+          onChange={(value) => {
+            setStateName(value);
+            commit({ state: value });
+          }}
+        />
       </label>
     ) : null}
     {kind === "stat_threshold" ? (
@@ -1176,14 +1209,20 @@ export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node
       ) : (
         <label>
           <span>connect to</span>
-          <select aria-label="Connect to node" value={targetId} onChange={(event) => setTargetId(event.target.value)}>
-            <option value="">choose a node</option>
-            {filteredTargets.map((target) => (
-              <option key={target.id} value={target.id}>
-                {nodeTitle(target)} · {target.ether?.entity?.kind ?? target.type}
-              </option>
-            ))}
-          </select>
+          <Select
+            dense
+            aria-label="Connect to node"
+            value={targetId}
+            placeholder="choose a node"
+            options={[
+              { value: "", label: "choose a node" },
+              ...filteredTargets.map((target) => ({
+                value: target.id,
+                label: `${nodeTitle(target)} · ${target.ether?.entity?.kind ?? target.type}`,
+              })),
+            ]}
+            onChange={setTargetId}
+          />
         </label>
       )}
       <div className="inspector-detail">

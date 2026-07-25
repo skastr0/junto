@@ -315,6 +315,48 @@ describe("remote hosts registry", () => {
       .toEqual(["terminal"]);
   });
 
+  it("migrates terminal onto the reserved local host without inventing it for SSH hosts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-terminal-migration-"));
+    dirs.push(root);
+    const path = join(root, "hosts.json");
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        version: 1,
+        hosts: [
+          {
+            id: "local",
+            label: "local",
+            kind: "local",
+            capabilities: ["herdr", "hermes", "browser"],
+          },
+          {
+            id: "studio",
+            label: "Studio",
+            kind: "remote",
+            endpoint: "studio",
+            capabilities: ["herdr", "hermes"],
+          },
+        ],
+      })}\n`,
+      "utf8",
+    );
+
+    const hosts = await makeHostsRegistry(path).list();
+    expect(hosts.find((host) => host.id === "local")?.capabilities).toContain("terminal");
+    expect(hosts.find((host) => host.id === "studio")?.capabilities).toEqual([
+      "herdr",
+      "hermes",
+    ]);
+    const persisted = JSON.parse(await readFile(path, "utf8")) as {
+      hosts: Array<{ id: string; capabilities: string[] }>;
+    };
+    expect(persisted.hosts.find((host) => host.id === "local")?.capabilities)
+      .toContain("terminal");
+    expect(persisted.hosts.find((host) => host.id === "studio")?.capabilities)
+      .toEqual(["herdr", "hermes"]);
+  });
+
   it("upserts an remote host and rejects removing local", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-"));
     dirs.push(root);

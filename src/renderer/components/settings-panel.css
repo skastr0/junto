@@ -156,7 +156,6 @@
   font-size: 11px;
   color: #8a8378;
 }
-.settings-field__control select,
 .settings-field__control input[type="text"],
 .settings-field__control input[type="number"] {
   width: 100%;

@@ -1,9 +1,9 @@
 import type {
   InputHTMLAttributes,
   ReactNode,
-  SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
+import { Dropdown, type DropdownOption } from "./Dropdown";
 
 /**
  * House form fields — one treatment for every text input and select:
@@ -13,6 +13,21 @@ const FIELD_CLASS = [
   "w-full rounded-[5px] border border-stroke bg-inset px-2 py-1.5",
   "text-[12px] text-ink placeholder:text-faint outline-none transition-colors",
   "focus:border-cyan/60 focus:shadow-[0_0_0_3px_rgba(57,198,214,0.1)]",
+].join(" ");
+
+/** Form-field trigger chrome shared by Select (design-system Dropdown). */
+export const FIELD_SELECT_TRIGGER_CLASS = [
+  FIELD_CLASS,
+  "cursor-pointer min-h-[34px]",
+  "aria-expanded:border-cyan/60 aria-expanded:shadow-[0_0_0_3px_rgba(57,198,214,0.1)]",
+].join(" ");
+
+/** Compact inspector/settings chrome for Dropdown triggers. */
+export const INSPECTOR_SELECT_TRIGGER_CLASS = [
+  "w-full min-h-[30px] rounded-[4px] border border-stroke bg-inset px-2 py-1.5",
+  "text-[10px] text-ink outline-none transition-colors cursor-pointer",
+  "focus:border-cyan/60 focus:shadow-[0_0_0_3px_rgba(57,198,214,0.08)]",
+  "aria-expanded:border-cyan/60 aria-expanded:shadow-[0_0_0_3px_rgba(57,198,214,0.08)]",
 ].join(" ");
 
 export function Input({
@@ -40,21 +55,54 @@ export function Textarea({
   );
 }
 
+/**
+ * Form select — design-system Dropdown with field chrome.
+ * Never a native &lt;select&gt; (OS menus break deep-field and overflow parents).
+ */
 export function Select({
+  value,
+  options,
+  onChange,
+  disabled = false,
+  "aria-label": ariaLabel,
   className,
-  children,
-  ...rest
+  triggerClassName,
+  placeholder = "select…",
+  emptyLabel = "no options",
+  uppercase = false,
+  dense = false,
 }: {
+  readonly value: string;
+  readonly options: ReadonlyArray<DropdownOption>;
+  readonly onChange: (value: string) => void;
+  readonly disabled?: boolean;
+  readonly "aria-label": string;
   readonly className?: string;
-  readonly children: ReactNode;
-} & SelectHTMLAttributes<HTMLSelectElement>) {
+  readonly triggerClassName?: string;
+  readonly placeholder?: string;
+  readonly emptyLabel?: string;
+  readonly uppercase?: boolean;
+  /** Smaller inspector/settings density. */
+  readonly dense?: boolean;
+}) {
   return (
-    <select
-      className={[FIELD_CLASS, "cursor-pointer", className ?? ""].filter(Boolean).join(" ")}
-      {...rest}
-    >
-      {children}
-    </select>
+    <Dropdown
+      value={value}
+      options={options}
+      onChange={onChange}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+      emptyLabel={emptyLabel}
+      uppercase={uppercase}
+      className={["w-full", className ?? ""].filter(Boolean).join(" ")}
+      triggerClassName={[
+        dense ? INSPECTOR_SELECT_TRIGGER_CLASS : FIELD_SELECT_TRIGGER_CLASS,
+        triggerClassName ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    />
   );
 }
 
