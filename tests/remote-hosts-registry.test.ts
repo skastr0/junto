@@ -276,85 +276,50 @@ describe("remote hosts registry", () => {
     expect((await lstat(target)).mode & 0o777).toBe(0o664);
   });
 
-  it("migrates browser onto the reserved local host without inventing it for SSH hosts", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-browser-migration-"));
+  it("projects local station caps from code defaults without rewriting disk or inventing remote caps", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-local-projection-"));
     dirs.push(root);
     const path = join(root, "hosts.json");
-    await writeFile(
-      path,
-      `${JSON.stringify({
-        version: 1,
-        hosts: [
-          {
-            id: "local",
-            label: "local",
-            kind: "local",
-            capabilities: ["terminal", "herdr", "hermes"],
-          },
-          {
-            id: "studio",
-            label: "Studio",
-            kind: "remote",
-            endpoint: "studio",
-            capabilities: ["terminal"],
-          },
-        ],
-      })}\n`,
-      "utf8",
-    );
+    const onDisk = {
+      version: 1,
+      hosts: [
+        {
+          id: "local",
+          label: "local",
+          kind: "local",
+          // Intentionally stripped — must not gate this-machine surfaces.
+          capabilities: ["herdr"],
+        },
+        {
+          id: "studio",
+          label: "Studio",
+          kind: "remote",
+          endpoint: "studio",
+          capabilities: ["terminal"],
+        },
+      ],
+    };
+    await writeFile(path, `${JSON.stringify(onDisk)}\n`, "utf8");
 
     const hosts = await makeHostsRegistry(path).list();
-    expect(hosts.find((host) => host.id === "local")?.capabilities).toContain("browser");
-    expect(hosts.find((host) => host.id === "studio")?.capabilities).toEqual(["terminal"]);
+    const local = hosts.find((host) => host.id === "local");
+    expect(local?.capabilities).toEqual(
+      expect.arrayContaining(["terminal", "browser", "herdr", "hermes"]),
+    );
+    expect(local?.capabilities).toHaveLength(4);
+    // Dynamic label when stored label is still the routing id.
+    expect(local?.label).not.toBe("local");
+    expect(hosts.find((host) => host.id === "studio")?.capabilities).toEqual([
+      "terminal",
+    ]);
+    // Projection is runtime-only — do not rewrite enrollment for local caps.
     const persisted = JSON.parse(await readFile(path, "utf8")) as {
       hosts: Array<{ id: string; capabilities: string[] }>;
     };
     expect(persisted.hosts.find((host) => host.id === "local")?.capabilities)
-      .toContain("browser");
+      .toEqual(["herdr"]);
     expect(persisted.hosts.find((host) => host.id === "studio")?.capabilities)
       .toEqual(["terminal"]);
-  });
-
-  it("migrates terminal onto the reserved local host without inventing it for SSH hosts", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-terminal-migration-"));
-    dirs.push(root);
-    const path = join(root, "hosts.json");
-    await writeFile(
-      path,
-      `${JSON.stringify({
-        version: 1,
-        hosts: [
-          {
-            id: "local",
-            label: "local",
-            kind: "local",
-            capabilities: ["herdr", "hermes", "browser"],
-          },
-          {
-            id: "studio",
-            label: "Studio",
-            kind: "remote",
-            endpoint: "studio",
-            capabilities: ["herdr", "hermes"],
-          },
-        ],
-      })}\n`,
-      "utf8",
-    );
-
-    const hosts = await makeHostsRegistry(path).list();
-    expect(hosts.find((host) => host.id === "local")?.capabilities).toContain("terminal");
-    expect(hosts.find((host) => host.id === "studio")?.capabilities).toEqual([
-      "herdr",
-      "hermes",
-    ]);
-    const persisted = JSON.parse(await readFile(path, "utf8")) as {
-      hosts: Array<{ id: string; capabilities: string[] }>;
-    };
-    expect(persisted.hosts.find((host) => host.id === "local")?.capabilities)
-      .toContain("terminal");
-    expect(persisted.hosts.find((host) => host.id === "studio")?.capabilities)
-      .toEqual(["herdr", "hermes"]);
   });
 
   it("upserts an remote host and rejects removing local", async () => {

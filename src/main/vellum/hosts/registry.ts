@@ -1,18 +1,19 @@
 import { constants } from "node:fs";
 import { mkdir, open, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { isIP } from "node:net";
 import { Either, Schema } from "effect";
 import {
-  BROWSER_HOST_CAPABILITY,
+  LOCAL_HOST_ID,
   REMOTE_HOSTS_VERSION,
   RemoteHostsDocument,
   RemoteHostsError,
-  TERMINAL_HOST_CAPABILITY,
   defaultRemoteHostsDocument,
   hermesKeyFor,
   hostHasCapability,
+  makeLocalHost,
+  projectHostsWithCodeDefaultLocal,
   type HostCapability,
   type RemoteHost,
   type RemoteHostsDocument as RemoteHostsDocumentT,
@@ -84,64 +85,46 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
       hermesKeys.add(key);
     }
 
-    // local is reserved as the sole kind=local host.
-    if (host.kind === "local" && host.id !== "local") {
+    // local is reserved as the sole kind=local host (routing id).
+    if (host.kind === "local" && host.id !== LOCAL_HOST_ID) {
       throw new RemoteHostsError(
         "validation",
-        `only id "local" may use kind local (got ${host.id})`,
+        `only id "${LOCAL_HOST_ID}" may use kind local (got ${host.id})`,
       );
     }
-    if (host.id === "local" && host.kind !== "local") {
+    if (host.id === LOCAL_HOST_ID && host.kind !== "local") {
       throw new RemoteHostsError(
         "validation",
-        `host id "local" must use kind local`,
+        `host id "${LOCAL_HOST_ID}" must use kind local`,
       );
     }
   }
+  // Local is a code default at projection time — disk may omit it or carry
+  // presentation-only fields. Remotes are the only enrollment rows.
+};
 
-  if (!hosts.some((host) => host.id === "local" && host.kind === "local")) {
-    throw new RemoteHostsError(
-      "validation",
-      "registry must include the local host",
-    );
+/** Dynamic this-machine label (OS hostname); presentation overrides still win. */
+const thisMachineLabel = (): string => {
+  try {
+    const name = hostname().trim();
+    return name.length > 0 ? name : LOCAL_HOST_ID;
+  } catch {
+    return LOCAL_HOST_ID;
   }
 };
 
 /**
- * Soft-migrate product capabilities onto the reserved local host only.
- * Remote SSH records stay exactly user-authored — never invent caps there.
- * V1 docs predate explicit browser; terminal was sometimes stripped while
- * editing hosts, which hid local from terminal host pickers.
+ * Runtime view of a hosts document: local caps/id from code defaults;
+ * remotes unchanged. Does not rewrite disk.
  */
-const migrateLocalCapability = (
+const projectDocument = (
   document: RemoteHostsDocumentT,
-  capability: typeof BROWSER_HOST_CAPABILITY | typeof TERMINAL_HOST_CAPABILITY,
-): RemoteHostsDocumentT => {
-  let changed = false;
-  const hosts = document.hosts.map((host) => {
-    if (
-      host.id !== "local" ||
-      host.kind !== "local" ||
-      host.capabilities.includes(capability)
-    ) {
-      return host;
-    }
-    changed = true;
-    return {
-      ...host,
-      capabilities: [...host.capabilities, capability],
-    };
-  });
-  return changed ? { ...document, hosts } : document;
-};
-
-const migrateLocalHostCapabilities = (
-  document: RemoteHostsDocumentT,
-): RemoteHostsDocumentT =>
-  migrateLocalCapability(
-    migrateLocalCapability(document, BROWSER_HOST_CAPABILITY),
-    TERMINAL_HOST_CAPABILITY,
-  );
+): RemoteHostsDocumentT => ({
+  ...document,
+  hosts: projectHostsWithCodeDefaultLocal(document.hosts, {
+    label: thisMachineLabel(),
+  }),
+});
 
 const atomicWrite = async (
   path: string,
@@ -207,25 +190,21 @@ export const loadRemoteHostsDocument = async (
         `hosts.json schema invalid: ${decoded.left.message}`,
       );
     }
-    // Admit the on-disk document first (seal covers pre-migration body), then
-    // apply soft migrations and reseal only when the body actually changes.
+    // Admit the on-disk document (seal covers body as stored). Local station
+    // capabilities are never enrollment data — project code defaults in memory.
     validateHosts(decoded.right.hosts);
     const admitted = await admitHostsDocument(path, decoded.right);
     if (admitted.outcome === "stripped") {
       // Persist fail-closed local-only so disk and live view agree.
-      await atomicWrite(path, admitted.document);
-      return admitted.document;
+      const stripped = projectDocument(admitted.document);
+      await atomicWrite(path, stripped);
+      return stripped;
     }
-    const migrated = migrateLocalHostCapabilities(admitted.document);
-    validateHosts(migrated.hosts);
-    if (migrated !== admitted.document) {
-      await atomicWriteAndSeal(path, migrated);
-    }
-    return migrated;
+    return projectDocument(admitted.document);
   } catch (error) {
     if (error instanceof RemoteHostsError) throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      const fresh = defaultRemoteHostsDocument();
+      const fresh = projectDocument(defaultRemoteHostsDocument());
       // First create: seal so later offline membership mint fails closed.
       await atomicWriteAndSeal(path, fresh);
       return fresh;
@@ -249,9 +228,12 @@ export const saveRemoteHostsDocument = async (
       `unsupported hosts document version: ${document.version}`,
     );
   }
-  validateHosts(document.hosts);
-  await atomicWriteAndSeal(path, document);
-  return document;
+  // Always persist the projected local row (code-default caps + dynamic label)
+  // so disk never becomes a second source of truth for this-machine surfaces.
+  const projected = projectDocument(document);
+  validateHosts(projected.hosts);
+  await atomicWriteAndSeal(path, projected);
+  return projected;
 };
 
 export interface HostsRegistry {
@@ -312,10 +294,19 @@ export const makeHostsRegistry = (
     upsert: (host) =>
       withWrite(async () => {
         const current = await ensure();
+        // Local is not enrollable: ignore caller-supplied caps; keep presentation.
+        const entry =
+          host.id === LOCAL_HOST_ID || host.kind === "local"
+            ? makeLocalHost({
+                label: host.label,
+                hermesId: host.hermesId,
+                appearance: host.appearance,
+              })
+            : host;
         const nextHosts = [...current.hosts];
-        const index = nextHosts.findIndex((entry) => entry.id === host.id);
-        if (index >= 0) nextHosts[index] = host;
-        else nextHosts.push(host);
+        const index = nextHosts.findIndex((row) => row.id === entry.id);
+        if (index >= 0) nextHosts[index] = entry;
+        else nextHosts.push(entry);
         const next = await saveRemoteHostsDocument(
           { version: REMOTE_HOSTS_VERSION, hosts: nextHosts },
           path,
@@ -325,8 +316,11 @@ export const makeHostsRegistry = (
       }),
     remove: (id) =>
       withWrite(async () => {
-        if (id === "local") {
-          throw new RemoteHostsError("conflict", "cannot remove the local host");
+        if (id === LOCAL_HOST_ID) {
+          throw new RemoteHostsError(
+            "conflict",
+            "cannot remove the local station host",
+          );
         }
         const current = await ensure();
         if (!current.hosts.some((host) => host.id === id)) {

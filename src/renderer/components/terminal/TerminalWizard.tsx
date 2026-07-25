@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
+import { LOCAL_HOST_ID, TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
 import { makeTerminalNode } from "../../lib/node-factories";
 import { addNode } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
@@ -17,11 +17,13 @@ export function TerminalWizard({
   readonly anchor: { x: number; y: number };
   readonly onClose: () => void;
 }) {
-  const stationHost = state$.settings.station.hostId.peek() || "local";
+  const stationHost = state$.settings.station.hostId.peek() || LOCAL_HOST_ID;
   const [hostOptions, setHostOptions] = useState<HostOpt[]>([
-    { id: "local", label: "local" },
+    { id: LOCAL_HOST_ID, label: "this machine" },
   ]);
-  const [hostId, setHostId] = useState(stationHost === "local" ? "local" : stationHost);
+  const [hostId, setHostId] = useState(
+    stationHost === LOCAL_HOST_ID ? LOCAL_HOST_ID : stationHost,
+  );
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -30,18 +32,15 @@ export function TerminalWizard({
       ?.hostsList?.()
       .then((res) => {
         if (!res?.ok || !Array.isArray(res.hosts)) return;
-        // Only hosts that declare the terminal capability (Vellum station
-        // term-control surface). Remote without it cannot host native sessions.
-        // Local is always offered as a floor: TermPlane runs on this process
-        // even if hosts.json was stripped of the terminal cap (migration also
-        // restores it on load).
+        // Local is this process (code default on the hosts API). Remotes must
+        // declare terminal to appear — enrollment, not process fact.
         const opts = res.hosts
           .filter(
             (h) =>
               typeof h.id === "string" &&
               h.id.length > 0 &&
               Array.isArray(h.capabilities) &&
-              (h.id === "local" || h.capabilities.includes(TERMINAL_HOST_CAPABILITY)),
+              h.capabilities.includes(TERMINAL_HOST_CAPABILITY),
           )
           .map((h) => ({
             id: h.id,
@@ -57,23 +56,19 @@ export function TerminalWizard({
           seen.add(opt.id);
           merged.push(opt);
         }
-        if (!seen.has("local")) {
-          merged.unshift({ id: "local", label: "local" });
-        }
         if (merged.length === 0) {
-          merged.push({ id: "local", label: "local" });
+          merged.push({ id: LOCAL_HOST_ID, label: "this machine" });
         }
-        // Local first for scanability.
         merged.sort((a, b) => {
-          if (a.id === "local") return -1;
-          if (b.id === "local") return 1;
+          if (a.id === LOCAL_HOST_ID) return -1;
+          if (b.id === LOCAL_HOST_ID) return 1;
           return a.label.localeCompare(b.label);
         });
         setHostOptions(merged);
         setHostId((current) =>
           merged.some((h) => h.id === current)
             ? current
-            : (merged.find((h) => h.id === "local")?.id ?? merged[0]!.id),
+            : (merged.find((h) => h.id === LOCAL_HOST_ID)?.id ?? merged[0]!.id),
         );
       })
       .catch(() => undefined);
@@ -87,11 +82,10 @@ export function TerminalWizard({
       anchor.y,
       { kind: "shell" },
       "terminal",
-      hostId || "local",
+      hostId || LOCAL_HOST_ID,
     );
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
-    // Always start + open — no separate Start on the card.
     void openTerminal(node).finally(() => {
       setBusy(false);
       onClose();

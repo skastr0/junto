@@ -2,6 +2,7 @@ import {
   defaultRemoteHostsDocument,
   hermesKeyFor,
   hostHasCapability,
+  projectHostsWithCodeDefaultLocal,
   type HostCapability,
   type RemoteHost,
 } from "@shared/remote-hosts";
@@ -22,12 +23,14 @@ const sameHosts = (
 export const hostsSnapshot = (): ReadonlyArray<RemoteHost> => snapshot;
 
 export const setHostsSnapshot = (hosts: ReadonlyArray<RemoteHost>): void => {
+  // Local caps are process fact — never trust a stripped row in tests or IPC.
+  const next = projectHostsWithCodeDefaultLocal(hosts);
   const previous = snapshot;
-  snapshot = hosts;
-  if (sameHosts(previous, hosts)) return;
+  snapshot = next;
+  if (sameHosts(previous, next)) return;
   for (const listener of listeners) {
     try {
-      listener(hosts, previous);
+      listener(next, previous);
     } catch {
       // A durable mutation has already committed. Keep notifying independent
       // consumers and never echo host data or endpoint-bearing exceptions.

@@ -85,33 +85,91 @@ export const RemoteHostsDocument = Schema.Struct({
 });
 export type RemoteHostsDocument = typeof RemoteHostsDocument.Type;
 
-/** Only local is seeded. Remote hosts are added via Settings / hosts API. */
+/**
+ * Stable routing id for this process / this station.
+ * Not an enrollment fact — remotes are enrolled; this machine is the runtime.
+ */
+export const LOCAL_HOST_ID = "local" as const;
+
+/**
+ * Surfaces this Vellum process always owns. Never read from hosts.json for
+ * gating: disk may store a local row for presentation (label/hermesId/appearance)
+ * but capabilities for local are always this code default.
+ */
+export const LOCAL_STATION_CAPABILITIES: ReadonlyArray<HostCapability> = [
+  TERMINAL_HOST_CAPABILITY,
+  BROWSER_HOST_CAPABILITY,
+  "herdr",
+  "hermes",
+];
+
+export type LocalHostPresentation = {
+  readonly label?: string;
+  readonly hermesId?: HermesHostKey;
+  readonly appearance?: RemoteHost["appearance"];
+};
+
+/** Build the this-machine host record from code defaults + optional presentation. */
+export const makeLocalHost = (
+  presentation: LocalHostPresentation = {},
+): RemoteHost => ({
+  id: LOCAL_HOST_ID,
+  label: presentation.label?.trim() || LOCAL_HOST_ID,
+  kind: "local",
+  capabilities: [...LOCAL_STATION_CAPABILITIES],
+  ...(presentation.hermesId ? { hermesId: presentation.hermesId } : {}),
+  ...(presentation.appearance ? { appearance: presentation.appearance } : {}),
+});
+
+/**
+ * Runtime projection: remotes stay user-authored; local is always the code
+ * default (caps from process fact). Optional `label` is the dynamic display
+ * name (e.g. OS hostname) when the stored label is absent or still "local".
+ */
+export const projectHostsWithCodeDefaultLocal = (
+  hosts: ReadonlyArray<RemoteHost>,
+  options: { readonly label?: string } = {},
+): ReadonlyArray<RemoteHost> => {
+  const remotes = hosts.filter(
+    (host) => host.kind === "remote" && host.id !== LOCAL_HOST_ID,
+  );
+  const stored = hosts.find(
+    (host) => host.id === LOCAL_HOST_ID && host.kind === "local",
+  );
+  const storedLabel = stored?.label?.trim();
+  const label =
+    storedLabel && storedLabel !== LOCAL_HOST_ID
+      ? storedLabel
+      : options.label?.trim() || storedLabel || LOCAL_HOST_ID;
+  return [
+    makeLocalHost({
+      label,
+      hermesId: stored?.hermesId,
+      appearance: stored?.appearance,
+    }),
+    ...remotes,
+  ];
+};
+
+/** Seed / fail-closed document: this machine only (code default). */
 export const defaultRemoteHostsDocument = (): RemoteHostsDocument => ({
   version: REMOTE_HOSTS_VERSION,
-  hosts: [
-    {
-      id: "local",
-      label: "local",
-      kind: "local",
-      capabilities: [
-        TERMINAL_HOST_CAPABILITY,
-        BROWSER_HOST_CAPABILITY,
-        "herdr",
-        "hermes",
-      ],
-    },
-  ],
+  hosts: [makeLocalHost()],
 });
 
 export const hostHasCapability = (
   host: RemoteHost,
   capability: HostCapability,
-): boolean => host.capabilities.includes(capability);
+): boolean =>
+  host.id === LOCAL_HOST_ID || host.kind === "local"
+    ? LOCAL_STATION_CAPABILITIES.includes(capability)
+    : host.capabilities.includes(capability);
 
 export const hermesKeyFor = (host: RemoteHost): string =>
   host.hermesId ?? host.id;
 
-export const isLocalHost = (host: RemoteHost): boolean => host.kind === "local";
+export const isLocalHost = (host: RemoteHost): boolean =>
+  host.kind === "local" || host.id === LOCAL_HOST_ID;
 
 export class RemoteHostsError extends Error {
   readonly code: "io" | "validation" | "not_found" | "conflict";
