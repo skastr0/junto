@@ -131,6 +131,26 @@ describe("message-delivery pure helpers", () => {
     expect(deliveryTargetOf(bare)).toBeUndefined();
   });
 
+  it("routes managed agent seats to terminal drive (not ACP)", () => {
+    const managed: CanvasDoc["nodes"][number] = {
+      id: "agent",
+      type: "text",
+      text: "claude",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 80,
+      ether: {
+        entity: { kind: "agent", name: "local:claude" },
+        terminal: { bindingId: "bind-managed-1", harness: "claude" },
+      },
+    };
+    expect(deliveryTargetOf(managed)).toEqual({
+      kind: "terminal",
+      bindingId: "bind-managed-1",
+    });
+  });
+
   it("lists only foreign pending messages on agent/herdr nodes", () => {
     const doc: CanvasDoc = {
       nodes: [

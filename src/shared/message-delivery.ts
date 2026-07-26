@@ -62,10 +62,20 @@ export type DeliveryTarget =
   | { readonly kind: "herdr"; readonly terminalId: string }
   | { readonly kind: "terminal"; readonly bindingId: string };
 
-/** Resolve transport target from an agent/herdr node. Undefined = unreachable. */
+/**
+ * Resolve transport target from an agent/herdr/terminal node.
+ * Managed agents (`entity.kind=agent` + `ether.terminal.bindingId`) prefer the
+ * managed-terminal drive — never ACP chatPrompt. Bare agents (no terminal)
+ * remain ACP targets for dormant/legacy paths.
+ */
 export const deliveryTargetOf = (node: CanvasNode): DeliveryTarget | undefined => {
   const kind = node.ether?.entity?.kind;
   if (kind === "agent") {
+    // Managed terminal seat wins over ACP (terminal is the only v1 agent surface).
+    const managedBinding = node.ether?.terminal?.bindingId?.trim();
+    if (managedBinding) {
+      return { kind: "terminal", bindingId: managedBinding };
+    }
     const agentKey = node.ether?.entity?.name?.trim();
     if (!agentKey) return undefined;
     return { kind: "agent", agentKey };
