@@ -27,9 +27,12 @@ import {
   reconcileDockFromLiveSessions,
   stopDockBrowser,
   syncHerdrWorkbenchSlot,
+  terminalSurfaceId,
 } from "../src/renderer/lib/dock-state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
 import { herdr$ } from "../src/renderer/lib/herdr-state";
+import { openTerminalSurface, terminal$ } from "../src/renderer/lib/terminal-state";
+import type { CanvasNode } from "../src/shared/canvas";
 
 // --- pure registry ---------------------------------------------------------
 
@@ -210,7 +213,28 @@ function resetDock(): void {
   browser$.sessionByRef.set({});
   herdr$.terminals.set({});
   herdr$.focusedNodeId.set(null);
+  terminal$.openByNodeId.set({});
+  terminal$.preferredZoneByNodeId.set({});
 }
+
+const nativeTerminalNode = (id = "term-1"): CanvasNode =>
+  ({
+    id,
+    type: "text",
+    text: "terminal",
+    x: 0,
+    y: 0,
+    width: 220,
+    height: 84,
+    ether: {
+      entity: { kind: "terminal" },
+      host: "local",
+      terminal: {
+        bindingId: `bind-${id}`,
+        launch: { kind: "command", argv: ["zsh"] },
+      },
+    },
+  }) satisfies CanvasNode;
 
 describe("dock-state", () => {
   beforeEach(resetDock);
@@ -576,6 +600,51 @@ describe("dock-state", () => {
       closeWorkbenchSurface(id);
       expect(dock$.registry.peek().surfaces.some((s) => s.id === id)).toBe(false);
       expect(herdr$.terminals["h1"].peek()).toBeUndefined();
+    });
+  });
+
+  describe("native terminal open zone", () => {
+    it("opens into focus by default", () => {
+      const node = nativeTerminalNode("t1");
+      openTerminalSurface(node);
+      expect(dock$.registry.peek().surfaces).toEqual([
+        { id: terminalSurfaceId("t1"), kind: "terminal", zone: "focus" },
+      ]);
+    });
+
+    it("opens auto-pinned when preferred zone is pinned", () => {
+      const node = nativeTerminalNode("t1");
+      openTerminalSurface(node, "pinned");
+      expect(dock$.registry.peek().surfaces).toEqual([
+        { id: terminalSurfaceId("t1"), kind: "terminal", zone: "pinned" },
+      ]);
+      expect(dock$.registry.peek().pinnedMru[0]).toBe(terminalSurfaceId("t1"));
+    });
+
+    it("moves an already-open focus terminal into pinned on open-pinned", () => {
+      const node = nativeTerminalNode("t1");
+      openTerminalSurface(node, "focus");
+      expect(dock$.registry.peek().surfaces[0]?.zone).toBe("focus");
+      openTerminalSurface(node, "pinned");
+      expect(dock$.registry.peek().surfaces).toEqual([
+        { id: terminalSurfaceId("t1"), kind: "terminal", zone: "pinned" },
+      ]);
+    });
+
+    it("does not re-pin after the operator unpins when another terminal opens", () => {
+      const a = nativeTerminalNode("t1");
+      const b = nativeTerminalNode("t2");
+      openTerminalSurface(a, "pinned");
+      const idA = terminalSurfaceId("t1");
+      // Operator moves back to focus.
+      dock$.registry.set(unpinSurface(dock$.registry.peek(), idA).state);
+      expect(dock$.registry.peek().surfaces.find((s) => s.id === idA)?.zone).toBe("focus");
+
+      openTerminalSurface(b, "focus");
+      expect(dock$.registry.peek().surfaces.find((s) => s.id === idA)?.zone).toBe("focus");
+      expect(dock$.registry.peek().surfaces.find((s) => s.id === terminalSurfaceId("t2"))?.zone).toBe(
+        "focus",
+      );
     });
   });
 });

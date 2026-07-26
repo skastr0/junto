@@ -6,6 +6,7 @@ import type { CanvasNode } from "@shared/canvas";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { getVellumApi } from "./vellum-api";
 import { state$ } from "./state";
+import type { WorkZone } from "./surface-registry";
 import { openTerminalSurface, terminal$ } from "./terminal-state";
 
 export const ensureTerminalRunning = async (
@@ -49,14 +50,20 @@ export const ensureTerminalRunning = async (
   }
 };
 
-/** Ensure session is live, then open the workbench surface. */
-export const openTerminal = async (node: CanvasNode): Promise<void> => {
+/**
+ * Ensure session is live, then open the workbench surface.
+ * Pass `zone: "pinned"` to land in the side dock (open auto-pinned).
+ */
+export const openTerminal = async (
+  node: CanvasNode,
+  zone: WorkZone = "focus",
+): Promise<void> => {
   const result = await ensureTerminalRunning(node);
   if (!result.ok) {
     console.error("[terminal] open failed", result.message);
     return;
   }
-  openTerminalSurface(node);
+  openTerminalSurface(node, zone);
 };
 
 export const killTerminal = async (node: CanvasNode): Promise<void> => {

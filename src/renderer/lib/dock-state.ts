@@ -283,6 +283,7 @@ observe(() => {
 
 observe(() => {
   terminal$.openByNodeId.get();
+  terminal$.openSeq.get();
   const openIds = new Set(terminalNodeIds());
   let registry = dock$.registry.peek();
   for (const surface of registry.surfaces) {
@@ -292,8 +293,22 @@ observe(() => {
   }
   for (const nodeId of openIds) {
     const id = terminalSurfaceId(nodeId);
-    if (!surfaceById(registry, id)) registry = openSurface(registry, { id, kind: "terminal" }, "focus").state;
-    else registry = focusSurface(registry, id).state;
+    // preferredZone is one-shot: apply once, then clear so a later sibling
+    // open / re-sync does not re-pin after the operator unpinned.
+    const preferred = terminal$.preferredZoneByNodeId[nodeId].peek();
+    const zone = preferred ?? "focus";
+    const existing = surfaceById(registry, id);
+    if (!existing) {
+      registry = openSurface(registry, { id, kind: "terminal" }, zone).state;
+    } else if (zone === "pinned" && existing.zone !== "pinned") {
+      // Open-pinned from the toolbar: move an already-open focus surface over.
+      registry = pinSurface(registry, id).state;
+    } else {
+      registry = focusSurface(registry, id).state;
+    }
+    if (preferred !== undefined) {
+      terminal$.preferredZoneByNodeId[nodeId].delete();
+    }
   }
   dock$.registry.set(registry);
 });
