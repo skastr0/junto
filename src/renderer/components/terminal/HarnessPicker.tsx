@@ -15,6 +15,7 @@ import type {
   ManagedTerminalProfileOption,
 } from "@shared/ipc";
 import { LOCAL_HOST_ID, TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
+import { resolveRegionCwd } from "@shared/region-defaults";
 import { makeManagedAgentNode } from "../../lib/node-factories";
 import { addNode } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
@@ -26,6 +27,8 @@ import { Button, Chip, Eyebrow, FieldLabel, Select } from "../ui";
 type HostOpt = { readonly id: string; readonly label: string };
 
 type Step = "harness" | "profile" | "model" | "effort";
+
+const AGENT_SIZE = { width: 260, height: 110 } as const;
 
 const stepFor = (harness: HarnessId | null, profile: string | null, model: string | null): Step => {
   if (!harness) return "harness";
@@ -153,12 +156,21 @@ export function HarnessPicker({
       if (busy) return;
       setBusy(true);
       try {
+        const host = hostId || LOCAL_HOST_ID;
+        // Create-time cwd from containing region paths for the chosen host.
+        const cwd = resolveRegionCwd(
+          state$.doc.peek(),
+          anchor.x + AGENT_SIZE.width / 2,
+          anchor.y + AGENT_SIZE.height / 2,
+          host,
+        );
         const node = makeManagedAgentNode(anchor.x, anchor.y, {
           harness: choices.harness,
-          host: hostId || LOCAL_HOST_ID,
+          host,
           profile: choices.profile,
           model: choices.model,
           effort: choices.effort,
+          ...(cwd ? { cwd } : {}),
         });
         addNode(node, { edit: false });
         state$.focusNodeId.set(node.id);
