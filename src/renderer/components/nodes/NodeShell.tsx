@@ -3,7 +3,6 @@ import { Handle, NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import { Ban, ExternalLink, Maximize2, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
-import { actorClassLabel, resolveNodePlacement, tierLabel } from "@shared/physics";
 import { isExecutableNode } from "@shared/station";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
 import { resizeNode } from "../../lib/geometry";
@@ -15,7 +14,7 @@ import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-s
 import { attentionOf } from "@shared/attention";
 import { deriveOccupancy } from "@shared/occupancy";
 import { useNodeOccupancyClue } from "../../lib/occupancy-feed";
-import { Chip, IconButton, ToolbarPill, type ChipTone } from "../ui";
+import { IconButton, ToolbarPill } from "../ui";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 const FLAG_HUES: Record<EtherFlag, string> = {
@@ -209,27 +208,18 @@ export function NodeShell({
         },
   );
   const flagBlocker = flags.includes("blocker");
-  // Placement chips (S11/I18): class · tier · host on executable seats.
-  // Pure resolve — no live fleet producer (null PlacementView pattern).
-  const showPlacement = isExecutableNode(node);
+  // Executable seats get pause chrome; placement class/tier lives in the
+  // inspector only (not on the card body).
+  const executable = isExecutableNode(node);
   // Node-scope pause (executable seats only). Fine-grained selector: only
   // this node re-renders when its own pausedNodes membership flips.
   const nodePaused = use$(() =>
-    showPlacement ? nodePausedIn(pause$.state.get(), node.id) : false,
+    executable ? nodePausedIn(pause$.state.get(), node.id) : false,
   );
   useEffect(() => {
-    if (!showPlacement) return;
+    if (!executable) return;
     ensurePauseState(state$.canvasName.peek());
-  }, [showPlacement, node.id]);
-  const placement = showPlacement ? resolveNodePlacement(node) : undefined;
-  const placementChipTone: ChipTone =
-    placement?.class === "facility"
-      ? "steel"
-      : placement?.class === "external"
-        ? "violet"
-        : placement?.class === "station"
-          ? "cyan"
-          : "amber";
+  }, [executable, node.id]);
   const primaryFlag: EtherFlag | undefined = isBlocker
     ? "blocker"
     : flags.includes("attention")
@@ -315,9 +305,9 @@ export function NodeShell({
         toolbarExtras={toolbarExtras}
         flagBlocker={flagBlocker}
         liveHerdrBlocked={liveHerdrBlocked}
-        nodePaused={showPlacement ? nodePaused : undefined}
+        nodePaused={executable ? nodePaused : undefined}
       />
-      {flags.length > 0 || liveHerdrBlocked || showPlacement ? (
+      {flags.length > 0 || liveHerdrBlocked ? (
         <div className="vellum-node__flag-rail">
           {liveHerdrBlocked && !flagBlocker ? (
             <span
@@ -346,24 +336,6 @@ export function NodeShell({
               {flag}
             </span>
           ))}
-          {showPlacement && placement ? (
-            <>
-              <Chip
-                tone={placementChipTone}
-                title={`placement · ${placement.class} · tier ${placement.tier}${placement.assignment ? ` · ${placement.assignment}` : ""}`}
-              >
-                {actorClassLabel(placement.class)}
-              </Chip>
-              <Chip tone={placementChipTone} title={`runtime tier ${placement.tier}`}>
-                {tierLabel(placement.tier)}
-              </Chip>
-              {placement.assignment && placement.assignment !== "local" ? (
-                <Chip tone="steel" title={`assigned host ${placement.assignment}`}>
-                  {placement.assignment}
-                </Chip>
-              ) : null}
-            </>
-          ) : null}
         </div>
       ) : null}
       <div className="vellum-node__body min-h-0 flex-1 overflow-hidden">
