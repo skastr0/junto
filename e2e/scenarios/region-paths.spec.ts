@@ -11,7 +11,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import type { CanvasDoc, GroupNode } from "../../src/shared/canvas";
 import { canvasDoc } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 
@@ -27,9 +27,13 @@ const regionEmpty: GroupNode = {
 };
 
 const regionFilled: GroupNode = {
-  ...regionEmpty,
   id: "region-paths-2",
+  type: "group",
   label: "beacon orbit",
+  x: 40,
+  y: 40,
+  width: 640,
+  height: 360,
   ether: {
     region: {
       hold: true,
@@ -74,13 +78,21 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
     ).vellum;
     const list = await api.listCanvases();
     const name = list[0]?.name ?? (await api.createCanvas("region-paths")).name;
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, document, read.revision);
+    // Retry once on revision conflict (autosave / concurrent stamp).
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const read = await api.readCanvas(name);
+      try {
+        await api.writeCanvas(name, document, read.revision);
+        return;
+      } catch (error) {
+        if (attempt === 2) throw error;
+      }
+    }
   }, doc);
 };
 
-const openRegionPaths = async (page: Page, regionLabel: string) => {
-  const region = page.locator(".react-flow__node", { hasText: regionLabel }).first();
+const openRegionPaths = async (page: Page, regionNodeId: string) => {
+  const region = page.getByTestId(`rf__node-${regionNodeId}`);
   await expect(region).toBeVisible({ timeout: 30_000 });
   await region.click({ position: { x: 24, y: 24 } });
   const pathsBtn = page.getByRole("button", { name: "Region folder paths" });
@@ -91,76 +103,79 @@ const openRegionPaths = async (page: Page, regionLabel: string) => {
   return dialog;
 };
 
-test("region folder paths modal — empty, filled, accessible", async () => {
+test.beforeAll(async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellum = await launchVellum();
+});
 
-  try {
-    const { page } = vellum;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+test("region folder paths — empty, save, escape", async ({ vellum }) => {
+  const { page } = vellum;
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await installBoard(page, canvasDoc([regionEmpty]));
+  await expect(page.getByTestId(`rf__node-${regionEmpty.id}`)).toBeVisible({
+    timeout: 30_000,
+  });
 
-    // ── empty state ────────────────────────────────────────────────────────
-    await installBoard(page, canvasDoc([regionEmpty]));
-    await expect(page.getByText("forge orbit")).toBeVisible({ timeout: 30_000 });
+  let dialog = await openRegionPaths(page, regionEmpty.id);
+  await expect(dialog.getByText("Folder paths", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("status")).toContainText(/No host paths yet/i);
+  await expect(dialog.getByRole("button", { name: /add host/i })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /save/i })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Close folder paths" })).toBeVisible();
 
-    let dialog = await openRegionPaths(page, "forge orbit");
-    await expect(dialog.getByText("Folder paths")).toBeVisible();
-    await expect(dialog.getByRole("status")).toContainText(/No host paths yet/i);
-    await expect(dialog.getByRole("button", { name: /add host/i })).toBeVisible();
-    await expect(dialog.getByRole("button", { name: /save/i })).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Close folder paths" })).toBeVisible();
+  await page.screenshot({
+    path: join(SHOTS, "21-region-paths-empty.png"),
+    fullPage: false,
+  });
 
-    await page.screenshot({
-      path: join(SHOTS, "21-region-paths-empty.png"),
-      fullPage: false,
-    });
+  await dialog.getByRole("button", { name: /add host/i }).click();
+  const pathInput = dialog.getByRole("textbox", { name: /Default path/i });
+  await expect(pathInput).toBeVisible();
+  await pathInput.fill("/Users/operator/Projects/forge");
+  await dialog.getByRole("button", { name: /^save$/i }).click();
+  await expect(dialog).toHaveCount(0);
 
-    // Add a row, fill path, save.
-    await dialog.getByRole("button", { name: /add host/i }).click();
-    const pathInput = dialog.getByRole("textbox", { name: /Default path/i });
-    await expect(pathInput).toBeVisible();
-    await pathInput.fill("/Users/operator/Projects/forge");
-    await dialog.getByRole("button", { name: /^save$/i }).click();
-    await expect(dialog).toHaveCount(0);
+  dialog = await openRegionPaths(page, regionEmpty.id);
+  await expect(dialog.getByRole("textbox", { name: /Default path/i })).toHaveValue(
+    "/Users/operator/Projects/forge",
+  );
+  await page.screenshot({
+    path: join(SHOTS, "21-region-paths-saved.png"),
+    fullPage: false,
+  });
 
-    // Re-open — path persisted on the region.
-    dialog = await openRegionPaths(page, "forge orbit");
-    await expect(
-      dialog.getByRole("textbox", { name: /Default path/i }),
-    ).toHaveValue("/Users/operator/Projects/forge");
-    await page.screenshot({
-      path: join(SHOTS, "21-region-paths-saved.png"),
-      fullPage: false,
-    });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Region folder paths" })).toHaveCount(0);
+});
 
-    // Escape closes the dialog (FocusSurface keyboard contract).
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "Region folder paths" })).toHaveCount(0);
+test("region folder paths — multi-host seed + remove", async ({ vellum }) => {
+  const { page } = vellum;
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await installBoard(page, canvasDoc([regionFilled]));
+  await expect(page.getByTestId(`rf__node-${regionFilled.id}`)).toBeVisible({
+    timeout: 30_000,
+  });
 
-    // ── multi-host filled seed ─────────────────────────────────────────────
-    await installBoard(page, canvasDoc([regionFilled]));
-    await expect(page.getByText("beacon orbit")).toBeVisible({ timeout: 30_000 });
-    dialog = await openRegionPaths(page, "beacon orbit");
-    await expect(dialog.getByRole("list", { name: "Host folder paths" })).toBeVisible();
-    await expect(dialog.getByDisplayValue("/Users/operator/Projects/vellum")).toBeVisible();
-    await expect(dialog.getByDisplayValue("/home/operator/vellum")).toBeVisible();
-    await page.screenshot({
-      path: join(SHOTS, "21-region-paths-multi-host.png"),
-      fullPage: false,
-    });
+  let dialog = await openRegionPaths(page, regionFilled.id);
+  await expect(dialog.getByRole("list", { name: "Host folder paths" })).toBeVisible();
+  await expect(
+    dialog.getByRole("textbox", { name: /Default path for local/i }),
+  ).toHaveValue("/Users/operator/Projects/vellum");
+  await expect(
+    dialog.getByRole("textbox", { name: /Default path for remote-a/i }),
+  ).toHaveValue("/home/operator/vellum");
+  await page.screenshot({
+    path: join(SHOTS, "21-region-paths-multi-host.png"),
+    fullPage: false,
+  });
 
-    // Remove one row keeps the other; save.
-    await dialog
-      .getByRole("button", { name: /Remove path for remote-a/i })
-      .click();
-    await expect(dialog.getByDisplayValue("/home/operator/vellum")).toHaveCount(0);
-    await dialog.getByRole("button", { name: /^save$/i }).click();
-    await expect(dialog).toHaveCount(0);
+  await dialog.getByRole("button", { name: /Remove path for remote-a/i }).click();
+  await expect(dialog.getByRole("textbox", { name: /Default path for remote-a/i })).toHaveCount(0);
+  await dialog.getByRole("button", { name: /^save$/i }).click();
+  await expect(dialog).toHaveCount(0);
 
-    dialog = await openRegionPaths(page, "beacon orbit");
-    await expect(dialog.getByDisplayValue("/Users/operator/Projects/vellum")).toBeVisible();
-    await expect(dialog.getByDisplayValue("/home/operator/vellum")).toHaveCount(0);
-  } finally {
-    await vellum.close();
-  }
+  dialog = await openRegionPaths(page, regionFilled.id);
+  await expect(
+    dialog.getByRole("textbox", { name: /Default path for local/i }),
+  ).toHaveValue("/Users/operator/Projects/vellum");
+  await expect(dialog.getByRole("textbox", { name: /Default path for remote-a/i })).toHaveCount(0);
 });

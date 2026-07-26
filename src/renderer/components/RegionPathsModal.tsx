@@ -168,7 +168,7 @@ export function RegionPathsModal({
       <OverlayHeader
         eyebrow="region · paths"
         title="Folder paths"
-        status={`Actors in “${regionLabel}” open under the path for their host.`}
+        status={`${regionLabel} · per-host cwd for agents & terminals`}
         actions={
           <IconButton aria-label="Close folder paths" title="Close" onClick={onClose}>
             <X size={14} />
