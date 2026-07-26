@@ -107,10 +107,11 @@ test("rts two-bar controls: role actions left, kind actions middle, pause everyw
   await expect(page.locator(".rts-panel--cmd .rts-panel__label")).toContainText("actor");
 
   // Middle bar: agent kind strip above the region hotbar.
+  // ACP chat is hard-hidden (LEGACY_SURFACES_HIDDEN) — strip still labels the kind.
   const kindStrip = page.locator(".rts-kind-strip");
   await expect(kindStrip).toBeVisible();
   await expect(kindStrip).toContainText("agent");
-  await expect(kindStrip.getByRole("button", { name: "Open chat" })).toBeVisible();
+  await expect(kindStrip.getByRole("button", { name: "Open chat" })).toHaveCount(0);
 
   // Floating node toolbar carries the same pause toggle.
   const toolbarPause = page.getByTestId("node-toolbar-pause");

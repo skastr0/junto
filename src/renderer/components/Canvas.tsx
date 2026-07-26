@@ -53,6 +53,7 @@ import {
   makeTasksNode,
   makeTextNode,
 } from "../lib/node-factories";
+import { HERDR_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { describeConnectPreview } from "../lib/connect-preview";
 import { resolveSpec, roleOf, type FactoryRoleName } from "@shared/physics";
@@ -680,6 +681,10 @@ const makeAddActions = (
     dismiss();
   },
   addHerdr: () => {
+    if (HERDR_SURFACE_HIDDEN) {
+      dismiss();
+      return;
+    }
     const position = positionFor({ width: 260, height: 110 });
     openHerdrWizard(position);
     dismiss();
@@ -781,11 +786,14 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
 
   // Grouped Actors / Sinks / Schedulers / Geography, in that order — group
   // membership is paletteGroupFor(kind, isGroup), never authored per entry.
+  // Herdr placement is hard-hidden; terminal is the only agent work surface.
   const entries: ReadonlyArray<MenuEntry> = !picker
     ? [
       { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", group: paletteGroupFor("agent", false), onSelect: () => setPicker("agent") },
       { key: "terminal", label: "terminal", sub: "native work surface · default", icon: <Terminal size={14} />, ariaLabel: "Add native terminal work surface", group: paletteGroupFor("terminal", false), onSelect: () => actions.addTerminal() },
-      { key: "herdr", label: "Herdr (legacy)", sub: "optional · attach existing pane", icon: <Terminal size={14} />, ariaLabel: "Add legacy herdr work surface", group: paletteGroupFor("herdr", false), onSelect: () => actions.addHerdr() },
+      ...(HERDR_SURFACE_HIDDEN
+        ? []
+        : [{ key: "herdr", label: "Herdr (legacy)", sub: "optional · attach existing pane", icon: <Terminal size={14} />, ariaLabel: "Add legacy herdr work surface", group: paletteGroupFor("herdr", false), onSelect: () => actions.addHerdr() } satisfies MenuEntry]),
       { key: "tasks", label: "tasks", sub: "task list · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", group: paletteGroupFor("task", false), onSelect: () => actions.addTasks() },
       { key: "requests", label: "requests", sub: "input-required · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add requests", group: paletteGroupFor("requests", false), onSelect: () => actions.addRequests() },
       { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", group: paletteGroupFor("artifacts", false), onSelect: () => actions.addArtifacts() },

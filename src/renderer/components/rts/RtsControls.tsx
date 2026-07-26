@@ -30,6 +30,7 @@ import {
   setScopePaused,
 } from "../../lib/pause-state";
 import { openWorkDetail } from "../../lib/work-detail-open";
+import { ACP_CHAT_SURFACE_HIDDEN, HERDR_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { openAgentChatSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import {
@@ -253,7 +254,7 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
     };
   }, []);
 
-  if (!herdr) return null;
+  if (!herdr || HERDR_SURFACE_HIDDEN) return null;
   const agentStatus = herdrMeta?.meta?.agentStatus;
   const canMarkSeen = Boolean(herdr.paneId) && agentStatus === "done";
   const canKill = Boolean(herdr.paneId);
@@ -412,6 +413,8 @@ function NodeKindKeys({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
   switch (kind) {
     case "agent":
+      // Managed terminal is the only agent surface; ACP chat is hard-hidden.
+      if (ACP_CHAT_SURFACE_HIDDEN) return null;
       return (
         <Key
           label="Open chat"

@@ -12,6 +12,7 @@ import type {
   HostsTestResult,
   VellumBrowserApi,
 } from "@shared/ipc";
+import { HERDR_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import type { SettingsSectionKey } from "@shared/settings";
 import { state$ } from "../lib/state";
 import { deployRecoveryGuidance } from "../lib/deploy-recovery";
@@ -70,7 +71,8 @@ const emptyHostDraft = (): {
   endpoint: "",
   terminal: true,
   browser: false,
-  herdr: true,
+  // Herdr capability is product-hidden; default off so new hosts do not opt in.
+  herdr: !HERDR_SURFACE_HIDDEN,
   hermes: true,
   hermesId: "",
 });
@@ -933,16 +935,18 @@ function HostsSection() {
               />
               Browser
             </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={draft.herdr}
-                disabled={busy}
-                aria-label="Herdr capability"
-                onChange={(event) => setDraft((d) => ({ ...d, herdr: event.target.checked }))}
-              />
-              Herdr
-            </label>
+            {HERDR_SURFACE_HIDDEN ? null : (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.herdr}
+                  disabled={busy}
+                  aria-label="Herdr capability"
+                  onChange={(event) => setDraft((d) => ({ ...d, herdr: event.target.checked }))}
+                />
+                Herdr
+              </label>
+            )}
             <label>
               <input
                 type="checkbox"

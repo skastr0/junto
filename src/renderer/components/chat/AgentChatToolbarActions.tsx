@@ -1,9 +1,13 @@
 import { MessageSquareText } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
+import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { openAgentChatSurface } from "../../lib/dock-state";
 
 /** Selection-toolbar entry point for the agent's ACP work surface. */
 export function AgentChatToolbarActions({ node }: { readonly node: CanvasNode }) {
+  // Terminal is the only agent surface; ACP chat UI is hard-hidden.
+  if (ACP_CHAT_SURFACE_HIDDEN) return null;
+
   return (
     <button
       type="button"

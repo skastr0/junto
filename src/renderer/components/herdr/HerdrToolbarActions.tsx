@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { PanelTopClose, RotateCw, SquareX } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
+import { HERDR_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { connectionStateOf, herdr$, openHerdrTerminal } from "../../lib/herdr-state";
 import { killHerdrPane, killHerdrTab, recreateHerdrPane } from "../../lib/herdr-actions";
 import { HUE } from "../../lib/theme";
@@ -26,7 +27,8 @@ export function HerdrToolbarActions({ node }: { readonly node: CanvasNode }) {
     };
   }, []);
 
-  if (!herdr) return null;
+  // Herdr is hard-hidden as a product surface; keep component for dormant boards.
+  if (HERDR_SURFACE_HIDDEN || !herdr) return null;
 
   const connState = conn?.state ?? connectionStateOf(node.id);
   const title = (node.type === "text" ? node.text : "").split("\n")[0] || "herdr";

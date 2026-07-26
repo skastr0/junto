@@ -17,6 +17,7 @@ import { chatCoarse$ } from "../../lib/chat-state";
 import { accentColor, INK, DIM, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
+import { ACP_CHAT_SURFACE_HIDDEN, HERDR_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { openHerdrTerminal } from "../../lib/herdr-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentChatSurface } from "../../lib/dock-state";
@@ -382,6 +383,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const herdrBinding = isHerdr ? node.ether?.herdr : undefined;
   const title = text.split("\n")[0] ?? "herdr";
   const openHerdr = () => {
+    if (HERDR_SURFACE_HIDDEN) return;
     if (herdrBinding) openHerdrTerminal(node.id, herdrBinding, title);
   };
 
@@ -394,11 +396,11 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       onMaximize={isFreeNote ? openMaximized : undefined}
       inlineEdit={!isHerdr && !isTerminal}
       toolbarExtras={
-        isHerdr ? (
+        isHerdr && !HERDR_SURFACE_HIDDEN ? (
           <HerdrToolbarActions node={node} />
         ) : isTerminal ? (
           <TerminalToolbarActions node={node} />
-        ) : isAgent ? (
+        ) : isAgent && !ACP_CHAT_SURFACE_HIDDEN ? (
           <AgentChatToolbarActions node={node} />
         ) : undefined
       }
@@ -448,6 +450,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             event.preventDefault();
             event.stopPropagation();
             // herdr / terminal: double-click opens the live surface, never inline text.
+            // ACP chat is hard-hidden — agent double-click is inert until templates bind terminal.
             if (isHerdr) {
               openHerdr();
               return;
@@ -457,7 +460,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               return;
             }
             if (isAgent) {
-              openAgentChatSurface(node);
+              if (!ACP_CHAT_SURFACE_HIDDEN) openAgentChatSurface(node);
               return;
             }
             if (isWorkSurface) {
