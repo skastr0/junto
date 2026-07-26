@@ -37,6 +37,7 @@ import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { ManagedTerminalDrive } from "./term/drive";
+import { seatStateRuntime } from "./term/agent-state";
 import { termPlane } from "./term/plane";
 import type { ControlLease } from "./term/local-host";
 import { isTrustedMainWebContents, trustedRendererIpc } from "./trusted-main-webcontents";
@@ -630,6 +631,9 @@ export const registerVellumIpc = (): void => {
         driveLeases.set(bindingId, attached.lease);
         return attached.lease;
       };
+      // Observer → seat state machine → idle gate for drive typing.
+      // Fail closed: unknown/unbound seats are not idle (never type into dialogs).
+      seatStateRuntime.start();
       const managedDrive = new ManagedTerminalDrive({
         write: (bindingId, data) => {
           let lease = ensureDriveLease(bindingId);
@@ -644,13 +648,25 @@ export const registerVellumIpc = (): void => {
           }
           return ok;
         },
-        // TODO(phase-2): inject SeatIdleLookup from the agent state machine.
-        // Default true so the transport path is exercisable; Phase 2 must replace
-        // this before beta (typing into a permission dialog is the failure mode).
-        isSeatIdle: (_bindingId) => true,
-        onAttention: (_bindingId, _reason) => {
-          // Phase 3 surfaces attention on the node; keep soft until then.
+        isSeatIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
+        onAttention: (bindingId, reason) => {
+          broadcast(IPC_CHANNELS.agentSeatStateChanged, {
+            bindingId,
+            state: "attention",
+            reason,
+            at: Date.now(),
+          });
         },
+      });
+      seatStateRuntime.subscribe((event) => {
+        broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
+        if (event.state === "idle") {
+          managedDrive.onSeatIdle(event.bindingId);
+          messageDelivery.onManagedTerminalIdle(event.bindingId);
+        }
+        if (event.state === "working") {
+          managedDrive.onTurnStart(event.bindingId);
+        }
       });
 
       // Message nudge channel: ether.messages → live ACP / herdr / managed terminal.

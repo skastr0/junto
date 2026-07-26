@@ -39,6 +39,7 @@ import {
   terminalObserverPlane,
   type TerminalObserverPlane,
 } from "./observer";
+import { seatStateRuntime } from "./agent-state";
 
 export type LocalHostCreateInput = {
   readonly bindingId: string;
@@ -50,6 +51,11 @@ export type LocalHostCreateInput = {
   readonly nodeId?: string;
   readonly label?: string;
   readonly title?: string;
+  /**
+   * Managed-agent harness id (claude|codex|grok|hermes). When set, binds the
+   * seat state machine rule pack for this generation.
+   */
+  readonly harness?: string;
 };
 
 export type LocalHostEvent =
@@ -399,8 +405,12 @@ export class LocalSessionHost extends EventEmitter {
         cols,
         rows,
       });
+      if (input.harness?.trim()) {
+        seatStateRuntime.bindHarness(bindingId, input.harness.trim(), epoch);
+      }
       if (!this.liveRecords.has(rec)) {
         this.observerPlane.detach(bindingId, epoch);
+        if (input.harness?.trim()) seatStateRuntime.unbind(bindingId);
         return this.summaryOf(rec);
       }
 
@@ -852,6 +862,7 @@ export class LocalSessionHost extends EventEmitter {
   private removeLiveRecord(rec: SessionRec): void {
     // Drop headless grid for this exact generation (epoch-gated).
     this.observerPlane.detach(rec.bindingId, rec.epoch);
+    seatStateRuntime.unbind(rec.bindingId);
     if (!this.liveRecords.delete(rec) || this.liveRecords.size !== 0) return;
     const waiters = [...this.allExitedWaiters];
     this.allExitedWaiters.clear();

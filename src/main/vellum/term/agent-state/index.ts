@@ -1,6 +1,5 @@
 /**
- * Agent seat state plane — pure evaluation + per-binding machine.
- * Not wired to kernel yet (Phase 3/4).
+ * Agent seat state plane — pure evaluation + per-binding machine + runtime wire.
  */
 
 export type {
@@ -44,3 +43,9 @@ export {
 } from "./rules";
 
 export { matcherMatches, regionLines, regionText, ruleMatches } from "./match";
+
+export {
+  SeatStateRuntime,
+  seatStateRuntime,
+  type SeatStateRuntimeOptions,
+} from "./runtime";

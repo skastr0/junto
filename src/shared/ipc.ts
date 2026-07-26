@@ -207,6 +207,8 @@ export const IPC_CHANNELS = {
   terminalResize: "vellum:terminal-resize",
   terminalShutdown: "vellum:terminal-shutdown",
   terminalEvent: "vellum:terminal-event",
+  /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
+  agentSeatStateChanged: "vellum:agent-seat-state-changed",
   browserSessionChanged: "vellum:browser-session-changed",
 } as const;
 

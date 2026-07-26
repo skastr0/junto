@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest";
+import { SeatStateRuntime } from "../src/main/vellum/term/agent-state/runtime";
+import type { ObserverGridSnapshot } from "../src/main/vellum/term/observer/types";
+
+const snap = (
+  bindingId: string,
+  partial: Partial<ObserverGridSnapshot> & {
+    title?: string;
+    lines?: string[];
+  } = {},
+): ObserverGridSnapshot => {
+  const lines = partial.lines ?? ["❯ ready"];
+  return {
+    bindingId,
+    epoch: partial.epoch ?? "e1",
+    cols: 80,
+    rows: 24,
+    lines,
+    text: lines.join("\n"),
+    seq: partial.seq ?? 1n,
+    signals: {
+      title: partial.title ?? partial.signals?.title ?? "",
+      osc9: partial.signals?.osc9 ?? "",
+      modes: partial.signals?.modes ?? {
+        bracketedPaste: true,
+        synchronizedOutput: false,
+      },
+    },
+  };
+};
+
+describe("SeatStateRuntime idle gate", () => {
+  it("fail-closed: unbound binding is never idle", () => {
+    const rt = new SeatStateRuntime();
+    expect(rt.isSeatIdle("missing")).toBe(false);
+    rt.stop();
+  });
+
+  it("becomes idle after bound harness sees idle chrome", () => {
+    const rt = new SeatStateRuntime({ now: () => 1_000 });
+    rt.bindHarness("b1", "claude", "e1");
+    // Feed through machine directly (runtime.start uses global observer plane).
+    const event = rt.machine.feed(
+      snap("b1", {
+        lines: [
+          "────────────────",
+          "❯ do work",
+          "────────────────",
+        ],
+        title: "",
+      }),
+      { harness: "claude" },
+    );
+    // High-confidence visible idle publishes immediately.
+    expect(event?.state === "idle" || rt.getState("b1") === "idle").toBe(true);
+    expect(rt.isSeatIdle("b1")).toBe(true);
+    rt.stop();
+  });
+
+  it("is not idle while attention", () => {
+    const rt = new SeatStateRuntime({ now: () => 2_000 });
+    rt.bindHarness("b1", "codex", "e1");
+    rt.machine.feed(
+      snap("b1", {
+        title: "Action Required",
+        lines: ["please approve"],
+      }),
+      { harness: "codex" },
+    );
+    expect(rt.getState("b1")).toBe("attention");
+    expect(rt.isSeatIdle("b1")).toBe(false);
+    rt.stop();
+  });
+});
