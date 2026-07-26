@@ -133,6 +133,21 @@ export const requireElectronObservationAdmission = (observation: ElectronObserva
 };
 
 const readVersion = async (filename: string, field?: string): Promise<string> => { const raw = await readFile(filename, "utf8"); if (!field) return raw.trim(); const parsed = JSON.parse(raw) as Record<string, unknown>; if (typeof parsed[field] !== "string") fail(`${filename} is missing ${field}`); return parsed[field] as string; };
+/**
+ * Electron no longer ships a plain `version` file inside the macOS framework
+ * Resources tree (stock Electron 43 keeps only dist/version next to Electron.app).
+ * Packaged .app identity is CFBundleVersion on the framework Info.plist — the
+ * same pin audit-packaged-app already trusts after this gate.
+ */
+const readPackagedElectronVersion = async (root: string): Promise<string> => {
+  if (!path.basename(root).endsWith(".app")) return readVersion(path.join(root, "version"));
+  const infoPath = path.join(root, "Contents", "Frameworks", "Electron Framework.framework", "Versions", "A", "Resources", "Info.plist");
+  const raw = await readFile(infoPath, "utf8");
+  const match = /<key>CFBundleVersion<\/key>\s*<string>([^<]+)<\/string>/u.exec(raw);
+  const version = match?.[1]?.trim();
+  if (!version) fail(`artifact ${root} is missing Electron Framework CFBundleVersion`);
+  return version as string;
+};
 const readObservation = async (filename: string) => decodeElectronObservation(JSON.parse(await readFile(filename, "utf8")));
 const sameObservation = (left: ElectronObservation, right: ElectronObservation) => JSON.stringify(left) === JSON.stringify(right);
 type PersistedObservation = { readonly present: false } | { readonly present: true; readonly value: ElectronObservation };
@@ -236,7 +251,7 @@ export const validateElectronArtifactPath = async (artifactPath: string, now = n
   validateElectronObservation(receipt, policy, embeddedRaw, now); validateElectronObservation(water, policy, embeddedRaw, now); if (!sameObservation(receipt, water)) fail("artifact observation is not its current high-water state"); requireElectronObservationAdmission(receipt);
   const local = await validatePersistedObservation(policy, reviewedRaw, now, false);
   if (local && !sameObservation(receipt, local)) fail("artifact observation differs from latest private state");
-  const versionPath = path.basename(root).endsWith(".app") ? path.join(root, "Contents", "Frameworks", "Electron Framework.framework", "Versions", "A", "Resources", "version") : path.join(root, "version"); const version = await readVersion(versionPath);
+  const version = await readPackagedElectronVersion(root);
   if (version !== policy.electron.exactVersion) fail(`artifact ${root} embeds ${version}; expected audited ${policy.electron.exactVersion}`); return { artifact: root, electronVersion: version, policyVersion: policy.electron.exactVersion };
 };
 
