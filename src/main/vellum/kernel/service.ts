@@ -31,7 +31,10 @@ import { SettingsService } from "../settings/service";
 import { MainAuthoringRefused, mainAuthoringGate } from "../main-authoring-gate";
 import { PausePlane } from "../pause-plane";
 import { factoryClaimTick } from "@shared/factory-tick";
+import { listPendingDeliveries } from "@shared/message-delivery";
 import { seatPaused } from "@shared/pause";
+import { messageDelivery } from "../work/message-delivery";
+import { managedPulseDeliver } from "../term/managed-pulse-bridge";
 import {
   checkTimers,
   deliverPulse,
@@ -280,7 +283,7 @@ const makeKernelService = (
   // No production private-source fetch — leave unset (undefined → unavailable).
   __setGlyphFetcherForTest(undefined);
 
-  // --- delivery: the shared main-side ChatService -----------------------------
+  // --- delivery: managed terminal first; ACP dormant fallback -----------------
   __setDeliveryDepsForTest({
     isLive: (agentKey) => chatService.isLive(agentKey),
     openChat: async (agentKey) => {
@@ -291,6 +294,8 @@ const makeKernelService = (
       const result = await chatService.chatPrompt(agentKey, message, contextBlocks);
       if (!result.ok) throw new Error(result.error);
     },
+    sendManagedTerminal: (bindingId, message) =>
+      managedPulseDeliver(bindingId, message),
   });
 
   // --- flag mirror: CanvasesService.mutate, routed by (canvasName, nodeId).
@@ -380,7 +385,17 @@ const makeKernelService = (
             ),
           );
           const result = await Effect.runPromise(Effect.either(canvases.read(canvasName)));
-          if (result._tag === "Right") docs.set(canvasName, result.right.doc);
+          if (result._tag === "Right") {
+            docs.set(canvasName, result.right.doc);
+            // Assignment messages on actor seats → managed drive mailbox.
+            for (const pending of listPendingDeliveries(result.right.doc)) {
+              messageDelivery.notifyAppended(
+                canvasName,
+                pending.nodeId,
+                pending.message,
+              );
+            }
+          }
           for (const listener of canvasMutatedListeners) listener(canvasName);
         })
         .catch((error) => {

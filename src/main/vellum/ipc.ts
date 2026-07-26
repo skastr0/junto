@@ -38,6 +38,7 @@ import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { ManagedTerminalDrive } from "./term/drive";
 import { seatStateRuntime } from "./term/agent-state";
+import { setManagedPulseDeliver } from "./term/managed-pulse-bridge";
 import { termPlane } from "./term/plane";
 import type { ControlLease } from "./term/local-host";
 import { isTrustedMainWebContents, trustedRendererIpc } from "./trusted-main-webcontents";
@@ -668,6 +669,10 @@ export const registerVellumIpc = (): void => {
           managedDrive.onTurnStart(event.bindingId);
         }
       });
+      // Kernel pulses for managed seats (not ACP).
+      setManagedPulseDeliver((bindingId, text) =>
+        managedDrive.writePrompt(bindingId, text, { ready: true }),
+      );
 
       // Message nudge channel: ether.messages → live ACP / herdr / managed terminal.
       // Retry only on session-live / stream-attach / seat-idle (no polling store).

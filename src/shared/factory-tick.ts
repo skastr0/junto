@@ -1,7 +1,7 @@
 import { ulid } from "ulid";
 import type { Task, CanvasDoc, CanvasNode } from "./canvas";
-import { claimedByOf } from "./task";
-import { workTaskClaim, type WorkIds } from "./work";
+import { claimedByOf, makeUserMessage, taskBrief } from "./task";
+import { workMessageAppend, workTaskClaim, type WorkIds } from "./work";
 import { isReservedClaimActor, workRoleOf, workerClaimId } from "./attention";
 import { resolveSpec, roleOf } from "./physics/kinds";
 
@@ -109,6 +109,35 @@ export const factoryClaimTick = (
         next = result.doc;
         busy.add(actorId);
         claimed.push({ taskId: task.id, actor: actorId });
+        // Nudge the managed seat: assignment lands on ether.messages so the
+        // idle-gated drive transport can type it into the live TUI.
+        // Task history alone is never auto-delivered (work plane law).
+        try {
+          const brief = taskBrief(result.task);
+          const assignment = makeUserMessage({
+            messageId: ids.messageId(),
+            text: [
+              `[factory claim] task ${task.id}: ${brief}`,
+              "",
+              "You claimed this task from the factory pull queue.",
+              "1. Run `vellum onboard` (and again after compaction).",
+              "2. Do the work. Update with `vellum tasks update` when done.",
+              "3. If blocked on a human, `vellum escalate` (or request create).",
+            ].join("\n"),
+            contextId: canvasName,
+            taskId: task.id,
+          });
+          const nudged = workMessageAppend(
+            next,
+            canvasName,
+            actor.id,
+            null,
+            assignment,
+          );
+          next = nudged.doc;
+        } catch {
+          // Actor may not admit messages (illegal_kind) — claim still stands.
+        }
         // Refresh byId for subsequent claims on same doc generation.
         for (const n of next.nodes) byId.set(n.id, n);
       } catch {

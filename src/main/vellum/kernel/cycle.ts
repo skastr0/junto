@@ -125,6 +125,14 @@ export interface PulseDeliverDeps {
     message: string,
     contextBlocks?: ReadonlyArray<string>,
   ) => Promise<void>;
+  /**
+   * Managed-terminal seats (agent + ether.terminal.bindingId). Idle-gated
+   * paste+CR via ManagedTerminalDrive. Prefer over ACP when present.
+   */
+  readonly sendManagedTerminal?: (
+    bindingId: string,
+    message: string,
+  ) => Promise<boolean>;
 }
 
 export interface FlagWriterDeps {
@@ -442,9 +450,27 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
         contextBlocks = executionContext.length > 0 ? [executionContext] : undefined;
       }
 
+      const fullMessage =
+        contextBlocks && contextBlocks.length > 0
+          ? `${message}\n\n${contextBlocks.join("\n\n")}`
+          : message;
+
       const ok: string[] = [];
       for (const key of keys) {
         try {
+          const agentNode = doc.nodes.find(
+            (node) =>
+              node.ether?.entity?.kind === "agent" &&
+              node.ether.entity.name === key,
+          );
+          const bindingId = agentNode?.ether?.terminal?.bindingId?.trim();
+          // Managed terminal is the v1 agent surface — never open ACP for it.
+          if (bindingId && deps.sendManagedTerminal) {
+            const sent = await deps.sendManagedTerminal(bindingId, fullMessage);
+            if (sent) ok.push(key);
+            continue;
+          }
+          // Dormant ACP path (hidden UI; kept for tests / revival).
           if (!deps.isLive(key)) await deps.openChat(key);
           await deps.sendPrompt(key, message, contextBlocks);
           ok.push(key);
