@@ -139,16 +139,44 @@ export const KindSpecs = {
 } as const satisfies Record<WellKnownKind, KindSpec>;
 ```
 
-**Ports belong to the ROLE, not to the kind — operator ruling 2026-07-26.**
-For **sinks**, `offers` is legitimately kind-specific: a task takes task ops,
-a page takes `browser.automate`, artifacts take publish. That is what a sink
-*is* — the thing ops are invoked on. For an **actor**, `offers` is the actor's
-inbox, and it is role-determined: one actor role, one inbox. `terminal:
-emptyOffers` (`kinds.ts:39`) is therefore not a "narrower kind" — it is a
-**wrong declaration**, and it is exactly why factory mail had to detour
-through `agent` (`kinds.ts:38`). Nothing inherits, nothing widens: the actor
-inbox gets declared where it always belonged. Do not describe this as a
-capability change; it is a mis-declaration being corrected.
+### 1.2b Three layers — the distinction that was never named
+
+Operator design ruling 2026-07-26. Ports are **not** purely role-bound; the
+earlier "ports attach to the role, never the kind" phrasing (mine) was too
+absolute. The real structure has three layers, and conflating them under the
+single word `offers` is the actual defect:
+
+**Layer 1 — edge legality + grant law: ROLE PAIRS ONLY.** Whether an edge may
+exist, and its law (Full / OptIn / None), is computed over ordered role pairs:
+`canonicalRolePair` + `grantLawBetween` (`physics/laws.ts:47-76`). This is the
+whole reason the four roles exist: with N node kinds, edge rules are N²
+combinatorial hell; with 4 roles the space is bounded and enumerable. **There is
+no such thing as an "agent → terminal" rule, or any other kind→kind edge rule.**
+Only actor→sink, actor→actor, actor→scheduler, actor→geography, denied.
+
+**Layer 2 — what a node offers: THE KIND declares it, within Layer 1's
+constraints.** A node's service surface is kind-specific and that is correct —
+`task` takes task ops, `page` takes `browser.automate`, `artifacts` takes
+publish (`kinds.ts:41-44`). That is what being a *sink* means. The kind may only
+declare ports reachable on edges Layer 1 permits for its role.
+
+**Layer 3 — the authorial edge mask attenuates, never expands.** `ether.ports`
+on the edge, materialized against the law (`laws.ts:31-38`).
+
+**Where the actor inbox sits, precisely.** `msg.list`/`msg.send` on an
+actor↔actor edge is **Layer 1 derived** and the code already implements it that
+way: `ACTOR_ACTOR_INBOX_PORTS` is applied by `isActorActorEdge`, which tests
+`roleOf(...) === "actor"` on both ends and never looks at a kind
+(`physics/stamp.ts:9-12,34-40`). The bug is that `kinds.ts` **also** declares
+`msgOffers` on the `agent` and `herdr` rows (`:38,:40`) — the same fact stated a
+second time, at the wrong layer — and `terminal: emptyOffers` (`:39`) is a third
+statement contradicting both. Three sources of truth for one rule is why factory
+mail had to route through `agent`.
+
+**Fix:** delete the duplicate per-kind declaration of the actor inbox. The one
+actor kind's `offers` is the actor-role inbox by derivation, not by a hand-typed
+row; sink rows keep their kind-specific ports untouched. This is a
+de-duplication, not a capability change — do not describe it as a widening.
 
 `page` **is a sink** — settled, not a question. Browser pages are *data*:
 they live in the runtime and actors interact with them, so they receive ops
