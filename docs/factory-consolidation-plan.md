@@ -63,8 +63,19 @@ tests.
 > is a PTY. In the future ACP is the transport that will carry the `worker` node
 > (the native agent UI) — which is why `worker` is reserved and why ACP's removal
 > here is a removal of a *hidden node surface*, not a ruling against the protocol.
-> A builder that sees "keep `agent`" and therefore spares `main/vellum/chat/` has
-> misread this plan: rows D3 and D11 still delete every line of that surface.
+**The chat UI and the ACP transport are kept, hidden — operator ruling 2026-07-26.**
+This reverses D3 as originally written. They are unshipped product, not debt: the
+UI is built and will be refined, and ACP is the transport that will carry `worker`.
+Consolidation doctrine targets *preserved old paths*; this is a *future path*, and
+the operator has ruled it product. So the deletion narrows to the coupling:
+
+> **ACP is severed from the factory, not removed from the repo.** The chat surface
+> keeps no kind, no seat, no principal, no ports, no inbox, and no work claim. It
+> holds no row in the kind vocabulary and appears in no capability decision. D11
+> still dies in full — binding an ACP child PID as an actor seat principal is
+> runtime-derived identity, the worst class in this plan, and it is precisely the
+> coupling that made ACP look like a kind. When `worker` ships, it is authored as
+> a kind then, deliberately, against its own spec.
 
 **What becomes unrepresentable** (construction-level, the far right of the
 gradient — not policed, structurally impossible):
@@ -138,7 +149,7 @@ owner).
 |---|---|---|---|
 | D1 | today's `agent` + `herdr` as separate actor kinds; one actor kind remains, named `agent`; `herdr` → `role: "geography"` | an ACP-backed node was once the actor | `physics/kinds.ts:38-40` |
 | D2 | `sanitizeActorSurfacePorts` — the decoder that deletes an actor's entity | invented to validate "one kind requires another kind's fields" | `canvas.ts:559-592` |
-| D3 | the ACP-backed node surface, whole | hidden product surface, still compiled + reachable | `main/vellum/chat/` (+ IPC channels, renderer chat dir) |
+| D3 | ~~ACP subsystem~~ → **kept, severed.** Its factory coupling dies: no kind, no seat, no ports, no participation in any capability decision. The UI and transport stay, hidden and inert. | it was wired into physics to be reachable | `main/vellum/chat/` (+ IPC channels, renderer chat dir) |
 | D4 | Route tokens + the second admission path | Tier 3 for callers with no local Vellum | `work/route-tokens.ts`, `work/live-seat.ts:26,76`, `work/control.ts:194-266` |
 | D5 | `RuntimeTier`, `PORT_TIER_FLOOR`, `tierAllowsPort`, `ActorClass`, `External`/`Facility` placements | the retired Tier 1–4 model, gating ports inside physics | `physics/placement.ts:20-30,63-81`; `admit.ts:200-207` |
 | D6 | Opt-in prism plugin + its install plane + Fleet UI section | the retired opt-in tier | `packages/vellum-plugin/`, `main/vellum/plugin-install/` (12 files), `FleetDetailPanel.tsx:386-418`, `hosts/ipc.ts:562` |
@@ -200,15 +211,16 @@ references them.
 | C5 | one `Principal`; delete `ProcessPrincipalKind` + `ActorDeliverySurface` tags | ~8 | work-control transport suite green; browser grant admits actors (fixes D13) |
 | C6 | `OPS_BY_SINK` total record; `requireActor`/`requireSink` | ~5 | adding a sink kind without an op row is a compile error |
 | C7 | herdr → geography (repoint, not delete) | ~12 | herdr renders + shows state; no seat, no ports; refused by work-control and browser grant |
-| C8 | delete ACP (D3) | ~20, delete-only | `grep -c "chatOpen\|chatPrompt\|acp" src/` = 0; its tests deleted with it |
+| C8 | sever ACP from the factory (D3, D11); keep the UI and transport hidden | ~10 | no ACP symbol appears in `physics/`, `work/`, `browser/`, or `kernel/`; the chat surface holds no kind and mints no principal; its own tests keep passing, because the code lives |
 | C9 | delete route tokens + tier machinery (D4, D5) | ~14, delete-only | one admission path; no tier symbols remain |
 | C10 | delete plugin + install plane + Fleet UI section (D6) | ~26, delete-only | no `plugin-install` references; Fleet detail panel has no install section |
 | C11 | the cement | ~4 | each grep test proven **red** against a deliberate violation before landing |
 
-C8–C10 exceed 20 files. Justification, per the >20 rule: all three are
-delete-only webs whose members import only each other, so no green intermediate
-exists; review cost is low because the diff is removed lines with no logic
-rewritten. C1–C7 land first specifically to shrink them.
+C9–C10 exceed 20 files. Justification, per the >20 rule: both are delete-only webs
+whose members import only each other, so no green intermediate exists; review cost
+is low because the diff is removed lines with no logic rewritten. C1–C7 land first
+specifically to shrink them. (C8 was a third such web until the chat UI and ACP
+transport were ruled kept; it is now a small severing commit.)
 
 ## 5 · Yield — decisions compressed
 
@@ -270,3 +282,7 @@ Both former open items are closed by operator ruling; neither is a derivation.
    state *reads* for display in the renderer and occupancy feeds, and bans only
    seat, ports, inbox, and work claim. Written down so the permission is
    deliberate rather than a hole.
+3. **The hidden chat surface stays.** The cement test therefore bans ACP symbols
+   from `physics/`, `work/`, `browser/`, and `kernel/` — the capability planes —
+   rather than from the repo. `main/vellum/chat/` and the ACP transport are
+   allowed to exist, and must remain unreferenced by any factory decision.
