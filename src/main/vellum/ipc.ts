@@ -706,10 +706,7 @@ export const registerVellumIpc = (): void => {
       // Retry only on session-live / stream-attach / seat-idle (no polling store).
       messageDelivery.configure({
         transport: {
-          // ACP retired for product delivery — agents without managed terminal
-          // are unreachable (deliveryTargetOf returns undefined).
-          isAgentLive: () => false,
-          sendAgentPrompt: async () => false,
+          // Kind-discriminated surfaces only — no ACP transport fields.
           sendHerdrText: (terminalId, text) => {
             // Legacy herdr surface only (hard-hidden in UI).
             const streamId = herdr.sessions.streamIdForTerminal(terminalId);
@@ -717,9 +714,9 @@ export const registerVellumIpc = (): void => {
             const written = herdr.sessions.inputTextProduct(streamId, text);
             return written.ok;
           },
-          // Unmanaged raw terminal nodes: still no auto-submit.
+          // Raw geography shells: no auto-submit.
           sendTerminalPaste: (_bindingId, _text, _messageId) => false,
-          // Managed agent seats: paste+CR via idle-gated drive + readiness.
+          // managedAgent + rawTerminal → paste+CR via idle-gated drive.
           sendManagedTerminalPrompt: (bindingId, text) =>
             writeManagedPrompt(bindingId, text),
         },

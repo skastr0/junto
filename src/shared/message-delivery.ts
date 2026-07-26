@@ -1,8 +1,12 @@
 // Pure helpers for the one-way message nudge channel.
-// Agent nodes → ACP chatPrompt; herdr nodes → stock terminal.input text.
+// Actor delivery is kind-discriminated (actor-surface sum) — never ACP.
 // Document stays the source of truth: delivered = metadata.deliveredAt stamped.
 
 import type { CanvasDoc, CanvasNode, Message } from "./canvas";
+import {
+  actorDeliverySurfaceOf,
+  deliveryTargetFromSurface,
+} from "./actor-surface";
 
 /**
  * Strip C0/C1 controls (and DEL) so herdr terminal.input never carries
@@ -57,37 +61,23 @@ export const isForeignMessage = (message: Message): boolean => message.role !== 
 export const isPendingDelivery = (message: Message): boolean =>
   isForeignMessage(message) && !isMessageDelivered(message);
 
+/**
+ * Wire target for MessageDeliveryTransport.
+ * ACP / `kind: "agent"` is not a target — removed from the sum.
+ * Derived only via {@link actorDeliverySurfaceOf} (kind-discriminated).
+ */
 export type DeliveryTarget =
-  | { readonly kind: "agent"; readonly agentKey: string }
   | { readonly kind: "herdr"; readonly terminalId: string }
   | { readonly kind: "terminal"; readonly bindingId: string };
 
 /**
- * Resolve transport target from an agent/herdr/terminal node.
- *
- * **Managed terminal is the only agent delivery surface.** An agent without
- * `ether.terminal.bindingId` is unreachable — never ACP chatPrompt (that path
- * is retired for product delivery; relitigating ACP here is forbidden).
+ * Resolve transport target from kind-discriminated actor surface.
+ * No optional-field OR. No ACP. Illegal agent shapes → undefined.
  */
 export const deliveryTargetOf = (node: CanvasNode): DeliveryTarget | undefined => {
-  const kind = node.ether?.entity?.kind;
-  if (kind === "agent") {
-    const managedBinding = node.ether?.terminal?.bindingId?.trim();
-    if (!managedBinding) return undefined;
-    return { kind: "terminal", bindingId: managedBinding };
-  }
-  if (kind === "herdr") {
-    // Legacy herdr remains a distinct surface when present; not ACP.
-    const terminalId = node.ether?.herdr?.terminalId?.trim();
-    if (!terminalId) return undefined;
-    return { kind: "herdr", terminalId };
-  }
-  if (kind === "terminal") {
-    const bindingId = node.ether?.terminal?.bindingId?.trim();
-    if (!bindingId) return undefined;
-    return { kind: "terminal", bindingId };
-  }
-  return undefined;
+  const surface = actorDeliverySurfaceOf(node);
+  if (!surface) return undefined;
+  return deliveryTargetFromSurface(surface);
 };
 
 /** Stamp metadata.deliveredAt on one message in an agent/herdr messages list. */

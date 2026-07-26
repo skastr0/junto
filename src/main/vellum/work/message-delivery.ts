@@ -1,7 +1,6 @@
 // Message delivery — one-way nudge from ether.messages onto live transports.
-// Agent → ACP chatPrompt (must already be live; never openChat).
-// Herdr → stock terminal.input text on an attached control stream.
-// No delivery daemon, no retry queue, no polling: attempt on append + on attach.
+// Actor targets come from kind-discriminated surfaces (managed terminal / herdr).
+// ACP is not a transport. No delivery daemon, no retry queue, no polling.
 
 import type { CanvasDoc, Message } from "@shared/canvas";
 import {
@@ -14,19 +13,15 @@ import {
 } from "@shared/message-delivery";
 
 export type MessageDeliveryTransport = {
-  readonly isAgentLive: (agentKey: string) => boolean;
-  /** Returns true only when the prompt was accepted by a live session. */
-  readonly sendAgentPrompt: (agentKey: string, text: string) => Promise<boolean>;
   /**
    * Write one line of plain text to a live herdr control stream for terminalId.
    * Returns false when no stream is attached.
    */
   readonly sendHerdrText: (terminalId: string, text: string) => boolean;
-  /** Paste without submitting. A future harness-aware transport may consume messageId. */
+  /** Paste without submitting (raw geography shells only). */
   readonly sendTerminalPaste?: (bindingId: string, text: string, messageId: string) => boolean;
   /**
    * Managed-terminal drive: paste+CR into an agent seat PTY, idle-gated.
-   * Prefer this over sendTerminalPaste for harness-bound native terminals.
    * Returns true only when the prompt was accepted (on the wire or queued-then-written).
    */
   readonly sendManagedTerminalPrompt?: (bindingId: string, text: string) => Promise<boolean>;
@@ -96,9 +91,12 @@ export class MessageDeliveryService {
     void this.attemptOne(canvas, nodeId, message);
   }
 
-  /** Chat session just became live — deliver pending for that agent key. */
-  onAgentLive(agentKey: string): void {
-    void this.scanAndDeliver((target) => target.kind === "agent" && target.agentKey === agentKey);
+  /**
+   * @deprecated ACP is not a delivery surface. No-op retained so call sites compile
+   * until chat IPC is fully retired from factory paths.
+   */
+  onAgentLive(_agentKey: string): void {
+    // Intentionally empty — managed seats redrive via onManagedTerminalIdle.
   }
 
   /** Herdr control stream attached — deliver pending for that terminal. */
@@ -215,21 +213,26 @@ export class MessageDeliveryService {
     payload: string,
     messageId: string,
   ): Promise<boolean> {
-    if (target.kind === "agent") {
-      if (!transport.isAgentLive(target.agentKey)) return false;
-      return transport.sendAgentPrompt(target.agentKey, payload);
-    }
-    if (target.kind === "terminal") {
-      // Prefer managed drive (paste+CR, idle-gated) when wired; else unsubmitted paste.
-      if (transport.sendManagedTerminalPrompt) {
-        return transport.sendManagedTerminalPrompt(target.bindingId, payload);
+    switch (target.kind) {
+      case "terminal": {
+        // Managed drive (paste+CR) preferred; raw paste only for geography shells.
+        if (transport.sendManagedTerminalPrompt) {
+          return transport.sendManagedTerminalPrompt(target.bindingId, payload);
+        }
+        return transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
       }
-      return transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
+      case "herdr": {
+        // Bracketed paste envelope — never auto-submit shell metacharacters.
+        return transport.sendHerdrText(
+          target.terminalId,
+          `\u001b[200~${payload}\u001b[201~`,
+        );
+      }
+      default: {
+        const _exhaustive: never = target;
+        return _exhaustive;
+      }
     }
-    // Terminal input is never implicitly submitted. Bracketed paste lets an
-    // interactive harness distinguish the payload while shell metacharacters
-    // remain inert until a human explicitly accepts/submits it.
-    return transport.sendHerdrText(target.terminalId, `\u001b[200~${payload}\u001b[201~`);
   }
 }
 

@@ -14,6 +14,7 @@ import {
 } from "@shared/execution-graph";
 import { groupMembers } from "@shared/graph";
 import type { TowerGlyphRow } from "@shared/ipc";
+import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import {
   agentKeysForExecutableSource,
   DEFAULT_STATION_HOST_ID,
@@ -467,10 +468,16 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
               node.ether?.entity?.kind === "agent" &&
               node.ether.entity.name === key,
           );
-          const bindingId = agentNode?.ether?.terminal?.bindingId?.trim();
-          // No binding or no managed driver → skip (never ACP).
-          if (!bindingId || !deps.sendManagedTerminal) continue;
-          const sent = await deps.sendManagedTerminal(bindingId, fullMessage);
+          // Agent kind ⇒ managedAgent surface (sum type); not optional terminal OR.
+          const surface = agentNode
+            ? actorDeliverySurfaceOf(agentNode)
+            : undefined;
+          if (!surface || surface._tag !== "managedAgent") continue;
+          if (!deps.sendManagedTerminal) continue;
+          const sent = await deps.sendManagedTerminal(
+            surface.bindingId,
+            fullMessage,
+          );
           if (sent) ok.push(key);
         } catch {
           // Best-effort per agent: one failing delivery doesn't sink the rest.

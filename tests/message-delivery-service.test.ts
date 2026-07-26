@@ -110,8 +110,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => false,
-        sendAgentPrompt: async () => false,
         sendHerdrText: () => false,
         sendManagedTerminalPrompt,
       },
@@ -141,8 +139,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => false,
-        sendAgentPrompt: async () => false,
         sendHerdrText: () => false,
         sendManagedTerminalPrompt,
       },
@@ -170,8 +166,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => false,
-        sendAgentPrompt: async () => false,
         sendHerdrText: () => false,
         sendManagedTerminalPrompt: async () => {
           sendCount += 1;
@@ -214,11 +208,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => true,
-        sendAgentPrompt: async () => {
-          agentSends += 1;
-          return true;
-        },
         sendHerdrText: () => false,
         sendManagedTerminalPrompt: async () => {
           managedSends += 1;
@@ -241,8 +230,6 @@ describe("MessageDeliveryService", () => {
     let herdrOk = false;
     const service = new MessageDeliveryService();
     const transport: MessageDeliveryTransport = {
-      isAgentLive: () => false,
-      sendAgentPrompt: async () => false,
       sendHerdrText: (_terminalId, text) => {
         herdrPayloads.push(text);
         return herdrOk;
@@ -282,8 +269,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => false,
-        sendAgentPrompt: async () => false,
         sendHerdrText: () => false,
         sendTerminalPaste: (_bindingId, text, messageId) => {
           pastes.push({ text, messageId });
@@ -308,8 +293,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => false,
-        sendAgentPrompt: async () => false,
         sendHerdrText: () => false,
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           payloads.push(text);
@@ -344,8 +327,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => false,
-        sendAgentPrompt: async () => false,
         sendHerdrText: () => false,
         sendTerminalPaste: () => {
           throw new Error("paste path must not run when managed prompt is wired");
@@ -388,8 +369,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => false,
-        sendAgentPrompt: async () => false,
         sendHerdrText: () => false,
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           if (!accept) return false;
@@ -425,8 +404,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => false,
-        sendAgentPrompt: async () => false,
         sendHerdrText: () => false,
         sendManagedTerminalPrompt: async () => {
           sendCount += 1;
