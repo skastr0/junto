@@ -169,7 +169,11 @@ function FleetOverlayInner() {
   );
 }
 
-/** Fleet manager overlay — gated on state$.fleetOpen like SettingsPanel. */
+/**
+ * Fleet manager overlay. Parent mounts this only while `state$.fleetOpen`
+ * is true (lazy chunk) so three.js / GLBs never load on cold start and every
+ * WebGL machine unmounts on close. Defense-in-depth gate remains here.
+ */
 export function FleetOverlay() {
   const open = use$(state$.fleetOpen);
   if (!open) return null;

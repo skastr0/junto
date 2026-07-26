@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { identityHints } from "../shared/connections";
 import type { CanvasDoc } from "@shared/canvas";
@@ -33,7 +33,11 @@ import { CanvasChrome } from "./components/CanvasChrome";
 import { KernelStatus } from "./components/KernelStatus";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { FleetOverlay } from "./components/fleet/FleetOverlay";
+// Fleet pulls three.js + GLBs. Keep it out of the main chunk until open.
+const FleetOverlay = lazy(async () => {
+  const mod = await import("./components/fleet/FleetOverlay");
+  return { default: mod.FleetOverlay };
+});
 import { StationRoleGate } from "./components/StationRoleGate";
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
@@ -239,6 +243,7 @@ export function App() {
   const error = use$(state$.error);
   const booting = use$(state$.booting);
   const canvasName = use$(state$.canvasName);
+  const fleetOpen = use$(state$.fleetOpen);
   const errorAction = retryActionForError(error);
 
   useEffect(() => {
@@ -419,7 +424,12 @@ export function App() {
         <InspectorPanel />
 
         <SettingsPanel />
-        <FleetOverlay />
+        {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
+        {fleetOpen ? (
+          <Suspense fallback={null}>
+            <FleetOverlay />
+          </Suspense>
+        ) : null}
         <StationRoleGate />
         {/* PulseTray mounts inside RtsBottomBar (right third, above minimap). */}
         <HerdrWizard />
