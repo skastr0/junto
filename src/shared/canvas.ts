@@ -96,6 +96,11 @@ export const EtherTerminal = Schema.Struct({
   onDelete: Schema.optionalWith(TerminalOnDelete, { exact: true }),
   /** Optional launch profile — inert until deliberate Start (never auto-exec on load). */
   launch: Schema.optionalWith(EtherTerminalLaunch, { exact: true }),
+  /**
+   * Managed-agent harness id (claude|codex|grok|hermes). Authorial when the
+   * seat was created via the harness picker — drives seat state + open path.
+   */
+  harness: Schema.optionalWith(Schema.String, { exact: true }),
 });
 export type EtherTerminal = typeof EtherTerminal.Type;
 

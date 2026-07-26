@@ -41,6 +41,8 @@ export const ensureTerminalRunning = async (
       canvasName: state$.canvasName.peek(),
       nodeId: node.id,
       label: binding.label,
+      ...(binding.harness ? { harness: binding.harness } : {}),
+      ...(binding.agentKey ? { agentKey: binding.agentKey } : {}),
     });
     terminal$.sessionByBindingId[binding.bindingId].set(next);
     return { ok: true };

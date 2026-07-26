@@ -40,6 +40,8 @@ import {
   type TerminalObserverPlane,
 } from "./observer";
 import { seatStateRuntime } from "./agent-state";
+import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
+import { buildManagedSeatInject } from "./templates/seat-env";
 
 export type LocalHostCreateInput = {
   readonly bindingId: string;
@@ -56,6 +58,11 @@ export type LocalHostCreateInput = {
    * seat state machine rule pack for this generation.
    */
   readonly harness?: string;
+  /**
+   * Agent key for process-bind when this seat is an actor node
+   * (`entity.kind === "agent"`). Absent → principal stays kind terminal.
+   */
+  readonly agentKey?: string;
 };
 
 export type LocalHostEvent =
@@ -156,6 +163,8 @@ type SessionRec = {
   backend: "pty" | undefined;
   canvasName?: string;
   nodeId?: string;
+  /** Actor key when this generation is an agent seat (process-bind principal). */
+  agentKey?: string;
   detached: boolean;
   createdAt: number;
   seq: bigint;
@@ -247,18 +256,42 @@ const defaultShell = (): string => {
 
 export const resolveLaunch = (
   launch: TerminalLaunch | undefined,
+  options?: {
+    readonly managed?: boolean;
+    readonly seatInject?: Readonly<Record<string, string>>;
+  },
 ): { file: string; args: string[]; cwd: string; env: Record<string, string> } => {
   const cwd =
     (launch?.cwd && launch.cwd.trim()) ||
     process.env.HOME ||
     os.homedir() ||
     process.cwd();
-  const env: Record<string, string> = {
-    ...(process.env as Record<string, string>),
-    ...(launch?.env ?? {}),
-    TERM: process.env.TERM || "xterm-256color",
-    COLORTERM: process.env.COLORTERM || "truecolor",
-  };
+  const managed = options?.managed === true || launch?.kind === "harness";
+  // Managed harness: scrub nested Claude markers + merge seat inject after scrub
+  // so ambient CLAUDE_CODE_CHILD_SESSION cannot disable the child transcript.
+  const env: Record<string, string> = managed
+    ? {
+        ...buildSpawnEnv(process.env, {
+          ...(options?.seatInject ?? {}),
+          ...(launch?.env ?? {}),
+        }),
+        TERM: process.env.TERM || "xterm-256color",
+        COLORTERM: process.env.COLORTERM || "truecolor",
+      }
+    : {
+        ...(process.env as Record<string, string>),
+        ...(launch?.env ?? {}),
+        TERM: process.env.TERM || "xterm-256color",
+        COLORTERM: process.env.COLORTERM || "truecolor",
+      };
+  // Defensive: never let scrubbed keys re-enter via TERM/COLORTERM path.
+  if (managed) {
+    for (const key of Object.keys(env)) {
+      if (scrubSpawnEnv({ [key]: env[key] })[key] === undefined) {
+        delete env[key];
+      }
+    }
+  }
   const argv = launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [];
   if (launch?.kind === "shell" || !launch || argv.length === 0) {
     // An explicit shell argv wins over the user/default shell, but is still
@@ -327,7 +360,21 @@ export class LocalSessionHost extends EventEmitter {
 
     const cols = Math.max(20, Math.min(300, input.cols ?? DEFAULT_COLS));
     const rows = Math.max(5, Math.min(120, input.rows ?? DEFAULT_ROWS));
-    const launch = resolveLaunch(input.launch);
+    const harness = input.harness?.trim();
+    const agentKey = input.agentKey?.trim();
+    const managed =
+      Boolean(harness) || input.launch?.kind === "harness";
+    const seatInject = managed
+      ? buildManagedSeatInject({
+          agentKey,
+          canvasName: input.canvasName,
+          nodeId: input.nodeId,
+        })
+      : undefined;
+    const launch = resolveLaunch(input.launch, {
+      managed,
+      seatInject,
+    });
     const epoch = mintEpoch();
     const rec: SessionRec = {
       bindingId,
@@ -347,6 +394,7 @@ export class LocalSessionHost extends EventEmitter {
       backend: undefined,
       canvasName: input.canvasName,
       nodeId: input.nodeId,
+      agentKey,
       detached: !(input.canvasName && input.nodeId),
       createdAt: Date.now(),
       seq: 0n,
@@ -929,6 +977,16 @@ export class LocalSessionHost extends EventEmitter {
     const identities = getProcessIdentityMap();
     // Unbind only this PID so a replaced epoch's late exit cannot wipe the new bind.
     identities.unbind(rec.pid);
+    // Managed actor seats bind as agent so work-control process-bind matches the card.
+    if (rec.agentKey) {
+      identities.bind(rec.pid, {
+        kind: "agent",
+        agentKey: rec.agentKey,
+        canvasName: rec.canvasName,
+        nodeId: rec.nodeId,
+      });
+      return;
+    }
     identities.bind(rec.pid, {
       kind: "terminal",
       bindingId: rec.bindingId,

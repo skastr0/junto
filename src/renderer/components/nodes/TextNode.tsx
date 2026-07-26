@@ -18,6 +18,7 @@ import { accentColor, INK, DIM, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { ACP_CHAT_SURFACE_HIDDEN, HERDR_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
+import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import { openHerdrTerminal } from "../../lib/herdr-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentChatSurface } from "../../lib/dock-state";
@@ -29,7 +30,7 @@ import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
 import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FocusSurface } from "../FocusSurface";
-import { Button, Eyebrow, IconButton } from "../ui";
+import { Button, Chip, Eyebrow, IconButton } from "../ui";
 import {
   ArtifactsCard,
   ArtifactsDetail,
@@ -153,6 +154,10 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
   const nameHue = node.color ? accentColor(node.color) : INK;
   const workRole = workRoleOf(node);
   const hermesKey = kind === "agent" ? node.ether?.entity?.name : undefined;
+  const managedHarness =
+    kind === "agent" && typeof node.ether?.terminal?.harness === "string"
+      ? node.ether.terminal.harness
+      : undefined;
   const line = use$(() => {
     if (!hermesKey) return "";
     const hermes = findEntity(state$.snapshots.get(), "hermes", hermesKey);
@@ -178,6 +183,10 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
     return () => { cancelled = true; };
   }, [hermesKey]);
   const displayName = hermesKey && identity?.displayName && identity.displayName !== rawName ? identity.displayName : rawName;
+  const badgeLabels =
+    managedHarness && isHarnessId(managedHarness)
+      ? templateFor(managedHarness).capabilityBadges.labels.slice(0, 3)
+      : [];
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <div>
@@ -187,12 +196,12 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
             style={{ color: "#68604a" }}
             title={workRole ? `work role: ${workRole}` : undefined}
           >
-            {kind}
+            {managedHarness ? `agent · ${managedHarness}` : kind}
             {workRole ? <span style={{ color: "#9a8b62" }}> · {workRole}</span> : null}
           </span>
           <span className="flex items-center gap-1.5">
-            {hermesKey ? <AgentActivityMark agentKey={hermesKey} /> : null}
-            {hermesKey ? (
+            {hermesKey && !managedHarness ? <AgentActivityMark agentKey={hermesKey} /> : null}
+            {hermesKey && !managedHarness ? (
               <span
                 title={`hermes · ${hermesFresh ? "fresh" : "stale"}`}
                 className="size-[5px] rounded-full"
@@ -206,7 +215,7 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
           </span>
         </div>
         <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
-          {hermesKey ? (
+          {hermesKey && !managedHarness ? (
             <span className="shrink-0 overflow-hidden rounded-full" style={{ width: 20, height: 20 }}>
               {avatarUrl ? <img src={avatarUrl} alt="" className="size-full object-cover" /> : null}
             </span>
@@ -215,9 +224,20 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
             {displayName}
           </span>
         </div>
+        {badgeLabels.length > 0 ? (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {badgeLabels.map((label) => (
+              <Chip key={label} tone="steel" title={label}>
+                {label}
+              </Chip>
+            ))}
+          </div>
+        ) : null}
       </div>
       <div className="line-clamp-2 text-[10px] leading-snug tabular-nums" style={{ color: DIM }} title={line}>
-        {line || "no live data"}
+        {managedHarness
+          ? "double-click to open terminal"
+          : line || "no live data"}
       </div>
     </div>
   );
@@ -317,6 +337,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const isHerdr = node.ether?.entity?.kind === "herdr";
   const isTerminal = node.ether?.entity?.kind === "terminal";
   const isAgent = node.ether?.entity?.kind === "agent";
+  const managedTerminal =
+    Boolean(node.ether?.terminal?.bindingId) &&
+    (isTerminal || isAgent);
   // Boolean selector: only this node re-renders when edit intent targets it.
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const [editing, setEditing] = useState(false);
@@ -392,13 +415,13 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       node={node}
       selected={selected}
       blocked={data.blocked}
-      onEdit={isHerdr ? () => setRenaming(true) : isTerminal ? undefined : openInline}
+      onEdit={isHerdr ? () => setRenaming(true) : managedTerminal ? undefined : openInline}
       onMaximize={isFreeNote ? openMaximized : undefined}
-      inlineEdit={!isHerdr && !isTerminal}
+      inlineEdit={!isHerdr && !managedTerminal}
       toolbarExtras={
         isHerdr && !HERDR_SURFACE_HIDDEN ? (
           <HerdrToolbarActions node={node} />
-        ) : isTerminal ? (
+        ) : managedTerminal ? (
           <TerminalToolbarActions node={node} />
         ) : isAgent && !ACP_CHAT_SURFACE_HIDDEN ? (
           <AgentChatToolbarActions node={node} />
@@ -422,7 +445,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       {workDetail && entityKind === "artifacts" ? (
         <ArtifactsDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
-      {editing && !maximized && !isHerdr && !isTerminal && !isWorkSurface ? (
+      {editing && !maximized && !isHerdr && !managedTerminal && !isWorkSurface ? (
         <textarea
           ref={ref}
           autoFocus
@@ -449,13 +472,13 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           onDoubleClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            // herdr / terminal: double-click opens the live surface, never inline text.
-            // ACP chat is hard-hidden — agent double-click is inert until templates bind terminal.
+            // herdr / terminal / managed agent: double-click opens the live surface.
+            // ACP chat is hard-hidden — agent seats open the managed terminal.
             if (isHerdr) {
               openHerdr();
               return;
             }
-            if (isTerminal) {
+            if (managedTerminal) {
               void openTerminal(node);
               return;
             }

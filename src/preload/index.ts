@@ -598,6 +598,10 @@ const terminalApi: VellumTerminalApi = {
   terminalWrite: (leaseId, data, encoding) => invoke(IPC_CHANNELS.terminalWrite, IPC_TIMEOUT_MS, leaseId, data, encoding),
   terminalResize: (leaseId, cols, rows) => invoke(IPC_CHANNELS.terminalResize, IPC_TIMEOUT_MS, leaseId, cols, rows),
   onTerminalEvent: (listener) => subscribe(IPC_CHANNELS.terminalEvent, listener),
+  managedTerminalModels: (harness) =>
+    invoke(IPC_CHANNELS.managedTerminalModels, IPC_TIMEOUT_MS, harness),
+  managedTerminalProfiles: () =>
+    invoke(IPC_CHANNELS.managedTerminalProfiles, IPC_TIMEOUT_MS),
   onAgentSeatStateChanged: (listener) =>
     subscribe(IPC_CHANNELS.agentSeatStateChanged, listener),
 };

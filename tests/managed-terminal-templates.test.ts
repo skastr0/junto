@@ -16,7 +16,7 @@ import {
   buildSpawnEnv,
   resolveManagedLaunch,
   scrubSpawnEnv,
-} from "../src/main/vellum/term/templates/resolve-launch";
+} from "../src/shared/managed-terminal-launch";
 import {
   effortsFor,
   enumerateCodexModels,

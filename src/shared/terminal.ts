@@ -133,6 +133,10 @@ export type ResolvedTerminalBinding =
       readonly onDelete: TerminalOnDelete;
       readonly launch?: TerminalLaunch;
       readonly label?: string;
+      /** Managed harness when authored via the picker. */
+      readonly harness?: string;
+      /** Agent key when the card is entity.kind agent. */
+      readonly agentKey?: string;
     }
   | {
       readonly kind: "herdr";
@@ -165,6 +169,16 @@ export const resolveTerminalBinding = (
       (typeof ether.host === "string" && ether.host.length > 0
         ? ether.host
         : undefined) ?? "local";
+    const harness =
+      typeof t?.harness === "string" && t.harness.trim().length > 0
+        ? t.harness.trim()
+        : undefined;
+    const agentKey =
+      entityKind === "agent" &&
+      typeof ether.entity?.name === "string" &&
+      ether.entity.name.trim().length > 0
+        ? ether.entity.name.trim()
+        : undefined;
     return {
       kind: "native",
       hostId,
@@ -172,6 +186,8 @@ export const resolveTerminalBinding = (
       onDelete: resolveTerminalOnDelete(t),
       launch: t?.launch,
       label: t?.label,
+      ...(harness ? { harness } : {}),
+      ...(agentKey ? { agentKey } : {}),
     };
   }
 

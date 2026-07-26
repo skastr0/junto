@@ -37,13 +37,8 @@ import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
-import {
-  hermesAgentsFromSnapshots,
-  snapshotAgentHostId,
-} from "@shared/portfolio";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import {
-  makeAgentNode,
   makeArtifactsNode,
   makeFileNode,
   makeGroupNode,
@@ -64,6 +59,7 @@ import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard } from "./terminal/TerminalWizard";
+import { HarnessPicker } from "./terminal/HarnessPicker";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
@@ -551,11 +547,9 @@ function useCanvasInteractions(
   return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
 }
 
-type AddPicker = "agent" | null;
-
 interface AddActions {
   readonly create: (kind: "text" | "file" | "link" | "group") => void;
-  readonly addAgent: (label: string, key: string, hostId: string) => void;
+  readonly addAgent: () => void;
   readonly addWatcher: () => void;
   readonly addTimer: () => void;
   readonly addTasks: () => void;
@@ -617,11 +611,9 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
-  addAgent: (label, key, hostId) => {
-    const position = positionFor({ width: 240, height: 96 });
-    const node = makeAgentNode(position.x, position.y, label, key, hostId);
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
+  addAgent: () => {
+    const position = positionFor({ width: 260, height: 110 });
+    window.dispatchEvent(new CustomEvent("vellum:new-agent", { detail: position }));
     dismiss();
   },
   addWatcher: () => {
@@ -763,67 +755,36 @@ type MenuEntry = {
   readonly onSelect: () => void;
 };
 
-// Auto-focused filter + arrow/Enter selection, shared by the top-level kind
-// menu and both pickers. Typing narrows by label+sub; Enter commits whichever
-// row is highlighted (the top match by default).
-function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; readonly setPicker: (picker: AddPicker) => void; readonly actions: AddActions }) {
-  const snapshots = use$(state$.snapshots);
-  const stationHostId = use$(state$.settings.station.hostId) || "local";
-  // bound to every source that knows it).
-  const agents = hermesAgentsFromSnapshots(snapshots);
-
+// Auto-focused filter + arrow/Enter selection. Typing narrows by label+sub;
+// Enter commits the highlighted row. Agent authoring opens HarnessPicker.
+function AddMenu({ actions }: { readonly actions: AddActions }) {
   const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Drilling into (or backing out of) a picker starts the filter fresh, and
-  // the filter input re-claims focus at every level.
   useEffect(() => {
-    setQuery("");
-    setHighlighted(0);
     inputRef.current?.focus();
-  }, [picker]);
+  }, []);
 
-  // Grouped Actors / Sinks / Schedulers / Geography, in that order — group
-  // membership is paletteGroupFor(kind, isGroup), never authored per entry.
-  // Herdr placement is hard-hidden; terminal is the only agent work surface.
-  const entries: ReadonlyArray<MenuEntry> = !picker
-    ? [
-      { key: "agent", label: "agent", sub: "hermes profile", icon: <Bot size={14} />, ariaLabel: "Add agent", group: paletteGroupFor("agent", false), onSelect: () => setPicker("agent") },
-      { key: "terminal", label: "terminal", sub: "native work surface · default", icon: <Terminal size={14} />, ariaLabel: "Add native terminal work surface", group: paletteGroupFor("terminal", false), onSelect: () => actions.addTerminal() },
-      ...(HERDR_SURFACE_HIDDEN
-        ? []
-        : [{ key: "herdr", label: "Herdr (legacy)", sub: "optional · attach existing pane", icon: <Terminal size={14} />, ariaLabel: "Add legacy herdr work surface", group: paletteGroupFor("herdr", false), onSelect: () => actions.addHerdr() } satisfies MenuEntry]),
-      { key: "tasks", label: "tasks", sub: "task list · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", group: paletteGroupFor("task", false), onSelect: () => actions.addTasks() },
-      { key: "requests", label: "requests", sub: "input-required · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add requests", group: paletteGroupFor("requests", false), onSelect: () => actions.addRequests() },
-      { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", group: paletteGroupFor("artifacts", false), onSelect: () => actions.addArtifacts() },
-      { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", group: paletteGroupFor("page", false), onSelect: () => actions.addPage() },
-      { key: "watcher", label: "watcher", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add watcher", group: paletteGroupFor("watcher", false), onSelect: () => actions.addWatcher() },
-      { key: "timer", label: "timer", sub: "pulse on an interval", icon: <Timer size={14} />, ariaLabel: "Add timer", group: paletteGroupFor("timer", false), onSelect: () => actions.addTimer() },
-      { key: "text", label: "note", sub: "freeform text", icon: <FileText size={14} />, ariaLabel: "Add note", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("text") },
-      { key: "file", label: "file", sub: "workspace path", icon: <FileText size={14} />, ariaLabel: "Add file", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("file") },
-      { key: "link", label: "link", sub: "web reference", icon: <Link2 size={14} />, ariaLabel: "Add link", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("link") },
-      { key: "group", label: "region", sub: "spatial container", icon: <SquareDashed size={14} />, ariaLabel: "Add region", group: paletteGroupFor(undefined, true), onSelect: () => actions.create("group") },
-    ]
-    : agents.map((agent) => {
-        const hostLabel = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
-        const hostId = snapshotAgentHostId(agent, stationHostId);
-        const title = agent.title ?? agent.key;
-        return {
-          key: agent.key,
-          label: title,
-          sub: hostLabel ?? hostId,
-          icon: <Bot size={13} />,
-          ariaLabel: `Add agent ${title}`,
-          group: "Actors" as const,
-          onSelect: () =>
-            actions.addAgent(
-              hostLabel ? `${title} · ${hostLabel}` : title,
-              agent.key,
-              hostId,
-            ),
-        };
-      });
+  // Grouped Actors / Sinks / Schedulers / Geography — group membership is
+  // paletteGroupFor(kind, isGroup). Agent opens harness picker; terminal is shell.
+  const entries: ReadonlyArray<MenuEntry> = [
+    { key: "agent", label: "agent", sub: "harness picker · managed terminal", icon: <Bot size={14} />, ariaLabel: "Add managed agent", group: paletteGroupFor("agent", false), onSelect: () => actions.addAgent() },
+    { key: "terminal", label: "terminal", sub: "native shell · geography", icon: <Terminal size={14} />, ariaLabel: "Add native terminal work surface", group: paletteGroupFor("terminal", false), onSelect: () => actions.addTerminal() },
+    ...(HERDR_SURFACE_HIDDEN
+      ? []
+      : [{ key: "herdr", label: "Herdr (legacy)", sub: "optional · attach existing pane", icon: <Terminal size={14} />, ariaLabel: "Add legacy herdr work surface", group: paletteGroupFor("herdr", false), onSelect: () => actions.addHerdr() } satisfies MenuEntry]),
+    { key: "tasks", label: "tasks", sub: "task list · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", group: paletteGroupFor("task", false), onSelect: () => actions.addTasks() },
+    { key: "requests", label: "requests", sub: "input-required · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add requests", group: paletteGroupFor("requests", false), onSelect: () => actions.addRequests() },
+    { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", group: paletteGroupFor("artifacts", false), onSelect: () => actions.addArtifacts() },
+    { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", group: paletteGroupFor("page", false), onSelect: () => actions.addPage() },
+    { key: "watcher", label: "watcher", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add watcher", group: paletteGroupFor("watcher", false), onSelect: () => actions.addWatcher() },
+    { key: "timer", label: "timer", sub: "pulse on an interval", icon: <Timer size={14} />, ariaLabel: "Add timer", group: paletteGroupFor("timer", false), onSelect: () => actions.addTimer() },
+    { key: "text", label: "note", sub: "freeform text", icon: <FileText size={14} />, ariaLabel: "Add note", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("text") },
+    { key: "file", label: "file", sub: "workspace path", icon: <FileText size={14} />, ariaLabel: "Add file", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("file") },
+    { key: "link", label: "link", sub: "web reference", icon: <Link2 size={14} />, ariaLabel: "Add link", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("link") },
+    { key: "group", label: "region", sub: "spatial container", icon: <SquareDashed size={14} />, ariaLabel: "Add region", group: paletteGroupFor(undefined, true), onSelect: () => actions.create("group") },
+  ];
 
   const needle = query.trim().toLowerCase();
   const filtered = needle
@@ -844,36 +805,30 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
     }
   };
 
-  const isPicker = picker !== null;
-  const emptyLabel = "No agents in the live snapshots.";
-
-  return <div className={isPicker ? "node-palette__menu node-palette__menu--picker" : "node-palette__menu"} role={isPicker ? "listbox" : undefined} aria-label={isPicker ? "Choose an agent" : undefined}>
-    {isPicker ? <div className="node-palette__picker-head"><button type="button" aria-label="Back to add menu" onClick={() => setPicker(null)}>‹ {picker}</button></div> : null}
+  return <div className="node-palette__menu">
     <input
       ref={inputRef}
       autoFocus
       type="text"
       className="node-palette__filter"
-      placeholder={isPicker ? "filter…" : "filter kinds…"}
+      placeholder="filter kinds…"
       aria-label="Filter add menu"
       value={query}
       onChange={(event) => { setQuery(event.target.value); setHighlighted(0); }}
       onKeyDown={onKeyDown}
     />
-    {isPicker && entries.length === 0 ? <div className="node-palette__picker-empty">{emptyLabel}</div>
-      : filtered.length === 0 ? <div className="node-palette__picker-empty">No matches.</div>
+    {filtered.length === 0 ? <div className="node-palette__picker-empty">No matches.</div>
         : (() => {
             // Root menu is already group-major order — a header renders once
             // per group boundary crossed while walking the filtered list.
             let lastGroup: PaletteGroup | null = null;
             return filtered.map((entry, index) => {
-              const showHeader = !isPicker && entry.group !== lastGroup;
+              const showHeader = entry.group !== lastGroup;
               lastGroup = entry.group;
               return (
                 <Fragment key={entry.key}>
                   {showHeader ? <div className="node-palette__group-label">{entry.group}</div> : null}
                   <button
-                    role={isPicker ? "option" : undefined}
                     aria-label={entry.ariaLabel}
                     className={index === activeIndex ? "is-active" : undefined}
                     onMouseEnter={() => setHighlighted(index)}
@@ -893,10 +848,9 @@ function AddMenu({ picker, setPicker, actions }: { readonly picker: AddPicker; r
 function CanvasFieldTools() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const [open, setOpen] = useState(false);
-  const [picker, setPicker] = useState<AddPicker>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [menuBox, setMenuBox] = useState<{ left: number; bottom: number } | null>(null);
-  const dismiss = useCallback(() => { setPicker(null); setOpen(false); }, []);
+  const dismiss = useCallback(() => { setOpen(false); }, []);
   useMenuDismiss(open, dismiss);
 
   useLayoutEffect(() => {
@@ -916,7 +870,7 @@ function CanvasFieldTools() {
     place();
     window.addEventListener("resize", place);
     return () => window.removeEventListener("resize", place);
-  }, [open, picker]);
+  }, [open]);
 
   // A non-overlapping slot near the viewport center for a node of the given size.
   const nextPosition = (size: { width: number; height: number }) => {
@@ -942,7 +896,7 @@ function CanvasFieldTools() {
           className="node-palette__trigger"
           aria-label="Add canvas item"
           aria-expanded={open}
-          onClick={() => { setPicker(null); setOpen((value) => !value); }}
+          onClick={() => { setOpen((value) => !value); }}
         >
           <Plus size={12} /><span>add item</span>
         </button>
@@ -952,7 +906,7 @@ function CanvasFieldTools() {
                 className="node-palette node-palette--context"
                 style={{ position: "fixed", left: menuBox.left, bottom: menuBox.bottom, zIndex: 60 }}
               >
-                <AddMenu picker={picker} setPicker={setPicker} actions={actions} />
+                <AddMenu actions={actions} />
               </div>,
               document.body,
             )
@@ -975,7 +929,6 @@ function CanvasFieldTools() {
 // creating the node exactly where you clicked.
 function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }; readonly onClose: () => void }) {
   const rf = useReactFlow<FlowNode, FlowEdge>();
-  const [picker, setPicker] = useState<AddPicker>(null);
   useMenuDismiss(true, onClose);
   const positionFor = (size: { width: number; height: number }) => {
     const point = rf.screenToFlowPosition({ x: at.x, y: at.y });
@@ -984,7 +937,7 @@ function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }
   const actions = makeAddActions(positionFor, onClose);
   return (
     <div className="node-palette node-palette--context" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 340), zIndex: 40 }}>
-      <AddMenu picker={picker} setPicker={setPicker} actions={actions} />
+      <AddMenu actions={actions} />
     </div>
   );
 }
@@ -1255,10 +1208,18 @@ function CanvasGraph() {
   const connecting = useConnection((connection) => connection.inProgress);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [terminalAnchor, setTerminalAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [agentAnchor, setAgentAnchor] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
-    const open = (event: Event) => setTerminalAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
-    window.addEventListener("vellum:new-terminal", open);
-    return () => window.removeEventListener("vellum:new-terminal", open);
+    const openTerminal = (event: Event) =>
+      setTerminalAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
+    const openAgent = (event: Event) =>
+      setAgentAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
+    window.addEventListener("vellum:new-terminal", openTerminal);
+    window.addEventListener("vellum:new-agent", openAgent);
+    return () => {
+      window.removeEventListener("vellum:new-terminal", openTerminal);
+      window.removeEventListener("vellum:new-agent", openAgent);
+    };
   }, []);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
   const [connectMenu, setConnectMenu] = useState<{
@@ -1357,6 +1318,7 @@ function CanvasGraph() {
 
   return <>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
+    {agentAnchor ? <HarnessPicker anchor={agentAnchor} onClose={() => setAgentAnchor(null)} /> : null}
     <ReactFlow
       className={[
         connecting ? "is-connecting" : "",

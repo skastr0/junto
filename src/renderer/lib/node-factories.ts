@@ -8,6 +8,9 @@ import type {
   LinkNode,
   TextNode,
 } from "@shared/canvas";
+import type { HarnessId } from "@shared/managed-terminal-templates";
+import { templateFor } from "@shared/managed-terminal-templates";
+import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 
 export const makeTextNode = (x: number, y: number): TextNode => ({
   id: `node-${ulid()}`,
@@ -54,7 +57,7 @@ export const makeGroupNode = (
 });
 
 // An agent node — profile name plus its live hermes readout (running/stopped,
-// model, version).
+// model, version). Legacy hermes-bound form without a managed terminal.
 export const makeAgentNode = (
   x: number,
   y: number,
@@ -71,6 +74,74 @@ export const makeAgentNode = (
   height: 96,
   ether: { entity: { kind: "agent", name: key }, host },
 });
+
+/**
+ * Managed-terminal actor seat — harness picker authoring result.
+ * Opens via ether.terminal (not ACP). Secrets never stored in launch.env.
+ */
+export const makeManagedAgentNode = (
+  x: number,
+  y: number,
+  options: {
+    readonly harness: HarnessId;
+    readonly host?: string;
+    readonly profile?: string;
+    readonly model?: string;
+    readonly effort?: string;
+    readonly cwd?: string;
+    readonly label?: string;
+  },
+): TextNode => {
+  const host = options.host?.trim() || "local";
+  const template = templateFor(options.harness);
+  // Document launch: argv only — main injects scrubbed seat env at spawn.
+  const full = resolveManagedLaunch(
+    options.harness,
+    {
+      ...(options.profile ? { profile: options.profile } : {}),
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.effort ? { effort: options.effort } : {}),
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      injection: { connected: false },
+    },
+    {},
+  );
+  const launch: EtherTerminalLaunch = {
+    kind: "harness",
+    argv: full.argv,
+    ...(full.cwd ? { cwd: full.cwd } : {}),
+  };
+  const agentKey =
+    options.harness === "hermes" && options.profile
+      ? `${host}:${options.profile}`
+      : `${host}:${options.harness}`;
+  const parts = [
+    template.displayName,
+    options.profile,
+    options.model,
+    options.effort,
+  ].filter((p): p is string => Boolean(p && p.trim()));
+  const label = options.label?.trim() || parts.join(" · ");
+  return {
+    id: `agent-${ulid()}`,
+    type: "text",
+    text: label,
+    x: Math.round(x),
+    y: Math.round(y),
+    width: 260,
+    height: 110,
+    ether: {
+      entity: { kind: "agent", name: agentKey },
+      host,
+      terminal: {
+        bindingId: ulid(),
+        label,
+        harness: options.harness,
+        launch,
+      },
+    },
+  };
+};
 
 // A tasks node — task list; blocks only when edged with criteria.mode tasks.
 export const makeTasksNode = (x: number, y: number): TextNode => ({

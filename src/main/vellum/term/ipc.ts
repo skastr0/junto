@@ -93,6 +93,21 @@ export const registerTerminalIpc = (
   });
 
   ipcMain.handle(
+    IPC_CHANNELS.managedTerminalModels,
+    async (event, harness: string) => {
+      assertTrusted(event);
+      const { enumerateManagedModels } = await import("./templates/enumerate-dispatch");
+      return enumerateManagedModels(harness);
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.managedTerminalProfiles, async (event) => {
+    assertTrusted(event);
+    const { enumerateManagedProfiles } = await import("./templates/enumerate-dispatch");
+    return enumerateManagedProfiles();
+  });
+
+  ipcMain.handle(
     IPC_CHANNELS.terminalGet,
     async (event, bindingId: string, hostId?: string) => {
       assertTrusted(event);

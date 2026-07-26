@@ -208,6 +208,10 @@ export const IPC_CHANNELS = {
   terminalResize: "vellum:terminal-resize",
   terminalShutdown: "vellum:terminal-shutdown",
   terminalEvent: "vellum:terminal-event",
+  /** Fail-soft model list for the managed-terminal harness picker. */
+  managedTerminalModels: "vellum:managed-terminal-models",
+  /** Fail-soft Hermes profile list for the harness picker. */
+  managedTerminalProfiles: "vellum:managed-terminal-profiles",
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateChanged: "vellum:agent-seat-state-changed",
   browserSessionChanged: "vellum:browser-session-changed",
@@ -1206,6 +1210,44 @@ export interface TerminalCreateInput {
   readonly nodeId?: string;
   readonly label?: string;
   readonly title?: string;
+  /**
+   * Managed-agent harness id. When set, binds the seat state machine and
+   * injects scrubbed PATH / work-control seat env at spawn.
+   */
+  readonly harness?: string;
+  /**
+   * Hermes / agent key for process-bind principal when this is an actor seat
+   * (`entity.kind === "agent"`). Absent → principal stays kind terminal.
+   */
+  readonly agentKey?: string;
+}
+
+/** Fail-soft model option for the harness picker (main enumeration). */
+export interface ManagedTerminalModelOption {
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly efforts?: readonly string[];
+}
+
+export interface ManagedTerminalModelsResult {
+  readonly models: readonly ManagedTerminalModelOption[];
+  readonly source: "cache" | "aliases" | "command" | "empty";
+  readonly error?: string;
+  /** Template efforts when model list carries none. */
+  readonly efforts: readonly string[];
+}
+
+export interface ManagedTerminalProfileOption {
+  readonly name: string;
+  readonly model: string;
+  readonly gateway?: string;
+}
+
+export interface ManagedTerminalProfilesResult {
+  readonly profiles: readonly ManagedTerminalProfileOption[];
+  readonly source: "cache" | "aliases" | "command" | "empty";
+  readonly error?: string;
 }
 
 export interface TerminalAttachInput {
@@ -1231,6 +1273,12 @@ export interface VellumTerminalApi {
   readonly terminalWrite: (leaseId: string, data: string, encoding?: "utf8" | "base64") => Promise<boolean>;
   readonly terminalResize: (leaseId: string, cols: number, rows: number) => Promise<boolean>;
   readonly onTerminalEvent: (listener: (event: unknown) => void) => () => void;
+  /** Fail-soft model enumeration for one harness (empty list = use defaults). */
+  readonly managedTerminalModels: (
+    harness: string,
+  ) => Promise<ManagedTerminalModelsResult>;
+  /** Fail-soft Hermes profile enumeration. */
+  readonly managedTerminalProfiles: () => Promise<ManagedTerminalProfilesResult>;
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   readonly onAgentSeatStateChanged: (
     listener: (event: AgentSeatStateEvent) => void,
