@@ -459,7 +459,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
     case "timer":
       return <SchedulerKindKeys node={node} />;
     default:
-      // Unknown / furniture kinds: silence is semantic.
+      // Unknown / geography kinds: silence is semantic.
       return null;
   }
 }
@@ -511,7 +511,7 @@ export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
 /**
  * Middle-bar kind surface: selected node's kind-specific actions (agent /
  * herdr / terminal / tasks / requests / watcher / timer), or the selected
- * relation's pair controls. Empty selection and furniture get a quiet cue —
+ * relation's pair controls. Empty selection and geography get a quiet cue —
  * never invent controls for a kind that has none.
  */
 export function KindStrip() {

@@ -118,7 +118,7 @@ export const DEFAULT_PLACEMENT_TOPOLOGY: PlacementTopology = {
 
 /**
  * Resolve placement for one canvas node.
- * - Groups / non-executable furniture still get a placement so admit can
+ * - Groups / non-executable geography still get a placement so admit can
  *   fail closed honestly when they appear as endpoints; default is facility
  *   (no execution authority) unless host stamps a known runtime.
  * - Executable nodes: host via resolveNodeHostId, then class from topology.
