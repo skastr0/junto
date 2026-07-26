@@ -139,16 +139,23 @@ export const KindSpecs = {
 } as const satisfies Record<WellKnownKind, KindSpec>;
 ```
 
-Note the offers move: `terminal` holds `emptyOffers` today (`kinds.ts:39`)
-and `agent` holds `msgOffers` (`kinds.ts:38`). One kind means terminal
-inherits `msg.list`/`msg.send`. That is a real capability widening — see
-§5 R4.
+**Ports belong to the ROLE, not to the kind — operator ruling 2026-07-26.**
+For **sinks**, `offers` is legitimately kind-specific: a task takes task ops,
+a page takes `browser.automate`, artifacts take publish. That is what a sink
+*is* — the thing ops are invoked on. For an **actor**, `offers` is the actor's
+inbox, and it is role-determined: one actor role, one inbox. `terminal:
+emptyOffers` (`kinds.ts:39`) is therefore not a "narrower kind" — it is a
+**wrong declaration**, and it is exactly why factory mail had to detour
+through `agent` (`kinds.ts:38`). Nothing inherits, nothing widens: the actor
+inbox gets declared where it always belonged. Do not describe this as a
+capability change; it is a mis-declaration being corrected.
 
-`page` **stays a sink**. The mandate's role sketch lists "browser pages"
-under geography, but `page` offers `browser.automate` (`kinds.ts:41`) — it
-receives an op, which is the sink definition (`architecture-factory-physics.md:76`).
-Moving it to geography would delete browser automation by definition.
-Flagged as `? Q1` in §5.
+`page` **is a sink** — settled, not a question. Browser pages are *data*:
+they live in the runtime and actors interact with them, so they receive ops
+(`browser.automate`, `kinds.ts:41`), which is the sink definition
+(`architecture-factory-physics.md:76`). Geography holds no capability and
+receives nothing. Any earlier text (including this plan's own mandate sketch)
+that filed browser pages under geography was wrong.
 
 ### 1.3 Role resolution happens in exactly one place, and it is a sum type
 
@@ -940,17 +947,17 @@ answered before C8.** **Guard**: `tests/browser-edge-grant.test.ts`,
 `tests/station-browser-target-policy.test.ts`,
 `docs/capability-revocation-matrix.md` re-walked by hand.
 
-### R4 · Port-offer widening
+### R4 · The actor inbox is role-level (NOT a widening — closed by ruling)
 
-`physics/kinds.ts:39` gives `terminal` `emptyOffers` today; `:38` gives
-`agent` `msgOffers`. One kind means every terminal node offers
-`msg.list`/`msg.send`. A bare shell terminal that today cannot be messaged
-becomes messageable. Mitigating fact, not a substitute for the decision:
-wielding still requires process-bind (`architecture-factory-physics.md:66-69`)
-and actor→actor is `GrantLaw.OptIn` (`laws.ts:71`), so no *default* grant
-appears — the port must still be explicitly masked onto an edge. **Guard**:
-`tests/physics/physics.test.ts` grant-law and `ACTOR_ACTOR_INBOX_PORTS`
-assertions; `stampActorActorMsgPorts` behavior.
+Struck as a risk. `terminal: emptyOffers` (`kinds.ts:39`) was a wrong
+declaration, not a narrow capability: the actor role has an inbox, and there
+is one actor role. Correcting it is the alignment, not a change to weigh.
+The remaining *mechanical* checks still apply and stay in C1's gate:
+wielding requires process-bind (`architecture-factory-physics.md:66-69`),
+actor→actor is `GrantLaw.OptIn` (`laws.ts:71`) so no default grant appears,
+and `tests/physics/physics.test.ts` grant-law + `ACTOR_ACTOR_INBOX_PORTS`
+assertions plus `stampActorActorMsgPorts` must stay green. Do not re-open
+this as a product question.
 
 ### R5 · Occupancy / attention feeds
 
@@ -986,7 +993,9 @@ the new outcome: node retained, `roleOf === "geography"`, no seat, no ports.
 ### Deliberately NOT touched
 
 - **`page` as a sink.** Stays `role: "sink"` with `browser.automate`
-  (`kinds.ts:41`). See `? Q1`.
+  (`kinds.ts:41`). Settled by operator ruling 2026-07-26: browser pages are
+  data living in the runtime that actors interact with — sinks, never
+  geography. Not an open question.
 - **Authoring `entity.kind`.** Node factories keep stamping
   `entity: { kind: "watcher" }` etc. (`Canvas.tsx:572,584`,
   `node-factories.ts:321,342`). Role-from-kind is the doctrine
@@ -1032,6 +1041,7 @@ loses its target.
 **Q3** — E2 (§0.1): do Tier-3 route tokens survive with a terminal principal
 (`work/live-seat.ts:27` inverts), or does Tier 3 retire with ACP and herdr?
 
-**Q4** — C7 gate: is any live herdr pane in an operator canvas load-bearing?
-`HERDR_SURFACE_HIDDEN` gates creation, not rendering, so existing panes still
-work. Source cannot answer this.
+**Q4 — CLOSED by operator ruling 2026-07-26.** Herdr is gone/hidden, and the
+data currently in the system is unimportant. C7 is **ungated**: delete the
+herdr web without preserving existing panes, and do not add a data-preservation
+step for them.
