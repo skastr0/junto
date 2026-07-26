@@ -1,0 +1,234 @@
+# Managed terminal — end-to-end plan to beta
+
+Status: plan of record. Authored 2026-07-26 after the ACP/terminal decision arc and a 63-item executed-probe verification pass.
+Evidence: [`managed-terminal-verification.md`](managed-terminal-verification.md) (per-harness verified facts + traps) · [`research/managed-terminal-probes/`](research/managed-terminal-probes/) (raw reports).
+Supersedes for v1: the ACP-first framing in [`factory-harness-integration.md`](factory-harness-integration.md) §1 Mode A/B and §7 plugin lowering. That doc's factory model (owned session, seat state, tick) stands unchanged — only the transport changes.
+
+---
+
+## 1 · The product sentence
+
+**Vellum Command is the canvas for the coding agents you already run.** Not a new agent UI — the terminals you know, on a factory floor you author, driven by a factory you can watch.
+
+The enemy is friction. Every design call below resolves toward: fewer ways to do one thing, fewer installs, fewer hoops, nothing hidden from the operator's eye.
+
+## 2 · The acceptance loop (the definition of beta-ready)
+
+Verbatim from the operator; this is the test:
+
+1. Create an agent node. Open it. Use the picker. **It opens fine and I can talk to it.** (Standalone terminal-with-a-harness works, connected to nothing.)
+2. Open an unconnected agent → **nothing is injected, no message is sent.** Silence is correct.
+3. Create a Claude Code node, connect it to a tasks node, add a task, **start the simulation.**
+4. The task is **claimed by the agent**, which **starts working autonomously.**
+5. Double-click the node → **the already-running TUI**, live, mid-session.
+6. Among its first messages: **`vellum onboard`** via the station CLI — it worked, and it injected the **task data and metadata**.
+7. Work **continues until the task is complete.**
+8. **Blocked states are visible** on the canvas.
+
+Nothing ships as beta until this loop runs on all four v1 harnesses (with per-harness state fidelity as specified in §9).
+
+## 3 · Settled rulings (do not relitigate)
+
+| ruling | consequence |
+|---|---|
+| **Managed terminal is the only v1 agent surface** — full interactive TUI in a Vellum-owned PTY | no headless worker drive (`claude -p`, `codex exec`) — that would be "a different UI leveraging their harness", which the operator's ToS line forbids |
+| **Actor = command template. Terminal = geography.** | one way to build a worker; variation lives in template *properties* (harness/profile/model/effort/permission mode), never in *modes* of the action. A raw terminal is not an actor |
+| **Zero writes to the user's harness config, ever** | injection is flags + env + project-local files + typed input only |
+| **Synthetic homes (`CODEX_HOME`/`HERMES_HOME`) VETOED** | no symlinked auth, no shadow config trees |
+| **`--dangerously-bypass-hook-trust` BANNED** | it would run the user's own unreviewed hooks. Codex PreToolUse deny is dropped; blocking is enforced by CLI-returns-Blocked + Ctrl+C |
+| **Any harness prompt is a product state, not an engineering problem** | permission prompt, hook-trust modal, directory-trust modal, un-runnable CLI → all surface as *attention* on the node. One mechanism, all harnesses, all prompt types. Never allowlist around it — that silently loosens the user's security posture |
+| **Tool surface is the station CLI, not MCP** | bash is universal → no per-harness MCP parity hole; process-bind identity already law |
+| **ACP is hidden, not removed** | dormant code, revives with the embedded-Worker/native-chat timeline (§14) |
+| **v1 harnesses: Claude Code, Codex, Grok, Hermes. OpenClaw out.** | OpenClaw's agent runs in a Gateway daemon, not the PTY tree — process-bind, interrupt, and injection all break by construction |
+| **Herdr: hands-off legacy toggle.** Learn from, never fork/vendor. | its detection design is portable; its config-writing installer is not |
+
+## 4 · What already exists (verified by code read, 2026-07-26)
+
+This is why the plan is short. Most of the factory is built.
+
+| subsystem | state | files |
+|---|---|---|
+| PTY ownership, spawn, byte journal, resize, exit, sealed kill plane | **built** | `src/main/vellum/term/local-host.ts` (single data hook at `observeData:698`), `plane.ts`, `router.ts`, `sessions.ts`, `release-fence.ts`, `shell-policy.ts` |
+| Remote terminals over SSH | **built** | `term/remote/`, and `hermes --profile X -m Y` over `ssh -t` verified working (R1–R3) |
+| Renderer terminal surface (xterm) | **built** | `src/renderer/components/terminal/{TerminalSurface,TerminalCard,TerminalWizard,TerminalInventory}.tsx` |
+| Work-control server: all ops + scopes + process-bind identity + route tokens (tier 3) | **built** | `src/main/vellum/work/{control,authz,caller-resolve,live-seat,route-tokens,service}.ts` — ops: `ping doctor capabilities onboard tasks.list tasks.claim tasks.update msg.list msg.send request.create artifact.publish` |
+| **Station CLI, agent-native** | **built** | `src/cli/` — `vellum onboard \| doctor \| capabilities \| tasks list\|claim\|update \| msg list\|send \| request create \| artifact publish \| schema \| examples`; JSON-in/JSON-out, batch-capable, `dist/vellum` via `bun run cli:build` |
+| **Mailbox with transport abstraction** — pending-until-live, deliver-on-append + deliver-on-attach, pause-aware | **built** | `src/main/vellum/work/message-delivery.ts` (`MessageDeliveryTransport`) — today: ACP `chatPrompt` + herdr control stream |
+| Kernel tick / pulse: claim routing, pulse composition, armed/paused state, execution snapshots | **built** | `src/main/vellum/kernel/{cycle,evaluate,service}.ts` — incl. `composePulseMessage`, `MIN_LIVE_PULSE_SPACING_MS` |
+| Factory physics: tasks pull queue, seats, blocking as worker-state, on-fire/on-ice, claim law | **built** | see `architecture-factory-physics.md`, `vellum-factory-simulation-model` |
+| Attention/alert surfaces | **partially built** | `alert-attention.ts`, `alert-queue.ts` exist |
+| vellum prism plugin (7 tools + session-start hook + global rule + skill) | **built, to be pruned** | `packages/vellum-plugin/` |
+
+**The gap is exactly four things:** (a) main has no idea what any terminal's screen says, (b) no managed-terminal transport on the mailbox, (c) no templates/picker, (d) instruction injection is a global-config hook instead of per-session.
+
+---
+
+## 5 · Phases
+
+Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surfaces that exist.
+
+### Phase 1 — The observer (main-process grid + signal parsing)
+
+**Why:** every drive decision (is the input box idle? is a dialog up? did the title flip to working?) needs the screen, and today the only interpreter of the byte stream lives in the renderer and is disposed on unmount (`TerminalSurface.tsx:207/266`). Autonomous workers run with windows closed — exactly when the interpretation must exist.
+
+- Add `@xterm/headless` (currently absent; only `xterm` + `addon-fit` are present).
+- New `src/main/vellum/term/observer/`: one headless terminal per live session, fed from `observeData:698` (the single insertion point — every byte already flows through it with a seq).
+- Register the handlers Vellum currently discards (zero OSC/CSI handlers exist in `src/` today):
+  - **OSC 0/2** title — the primary state feed on all four harnesses.
+  - **OSC 9** — Claude's `9;4;3`/`9;4;0` working flag, Codex's `]9;<msg>` turn-complete, Grok's `9;4` binary.
+  - **CSI ?2004** bracketed-paste mode — protocol-level "a readline input box is live"; the truest typing gate.
+  - **CSI ?2026** synchronized output — exact repaint boundaries, better than a debounce timer.
+- Grid region extraction (port herdr's *concept*, not its strings): `prompt_box_body`, `bottom_non_empty_lines(n)`, `footer_line`, `after_last_horizontal_rule`.
+- Sanitize titles: untrusted model output — 256-char cap, strip control chars, clear retained evidence on session change.
+- Attach path change: renderer gets a **grid snapshot + deltas** instead of byte-journal replay (the 512KB ring can trim mid-escape-sequence and corrupt a replay — `local-host.ts:200,875-880`).
+
+**Acceptance:** unit tests over recorded PTY captures from the probe artifacts; the two trap cases the probes surfaced — **wide-char/CJK column arithmetic** (`getWidth()` returns 0 after a wide cell; `IBufferLine.length` may exceed columns after resize) and **mid-resize disagreement** (`reflowCursorLine` defaults false → last-line rules are *wrong*, not merely stale). Both grids pin the same `unicode.activeVersion`. Mark handling synchronous (async parser handlers have poor throughput per the typings). No consumers yet → zero behavior change.
+
+### Phase 2 — Agent state machine
+
+- Four states: `idle | working | attention | unknown`. (`done` is not a state — it's idle + unseen, computed at presentation, per herdr's design.)
+- Three feeds, ranked per harness: **hooks** (Claude via `--settings`, Grok via `.grok/hooks` + `events.jsonl`, Hermes via project plugins) → **OSC/byte signals** → **grid rules**.
+- Rules as **data** per harness (a rule pack shipped in-app, updatable without a release), patterns derived from **our own captures** — never herdr's literal strings.
+- Debounce, ported verbatim from herdr's tuned values: 300ms tick → 100ms while holding, 3 confirmations, 700ms cap, 800ms sustained-blocker heartbeat, 3s post-change grace. **Debounce only the low-confidence Working→Idle drop** — visible idle chrome publishes immediately.
+- `attention` sources per harness (§9) — including the modals that emit no title and must come from the grid (Codex dir-trust + hooks-review; Claude permission prompt).
+- Emits seat state into the kernel; feeds `alert-attention`/`alert-queue`.
+
+**Acceptance:** replay-driven tests per harness from recorded captures: idle→working→attention→idle transitions with no flapping; a permission prompt is never read as idle (the failure that would type into a dialog).
+
+### Phase 3 — Node UI: attention and blocked
+
+- Node **requesting attention**: amber + exclamation mark.
+- Nodes **blocked behind it**: red. (Consistent with existing physics — blocking is worker-state, not a cascade; see `vellum-factory-simulation-model`.)
+- Uniform across every prompt type and every harness. A codex hook-trust modal reads exactly like a Claude permission prompt reads exactly like "the CLI could not run."
+- Design from the canvas act inward, grounded in the rendered app — capture with e2e stills before claiming the surface works.
+
+**Acceptance:** loop step 8. E2E: force each prompt type per harness, screenshot the canvas, confirm amber/exclamation + red downstream.
+
+### Phase 4 — The drive channel (typing)
+
+- Add a **managed-terminal transport** to `MessageDeliveryTransport` (`message-delivery.ts`). The mailbox, pause-awareness, pending-until-live, and deliver-on-attach semantics already exist — the new transport's `deliver` is state-gated instead of merely live-gated: **deliver only when the seat is idle.**
+- Write recipe (per-harness timings in §9): bracketed paste (`ESC[200~ … ESC[201~`) as **one write**, then a **separate** CR write. Never LF (inserts a newline everywhere). Never payload+CR in one write (verified: Codex silently never submits).
+- **Interrupt:** Ctrl+C (0x03) — never ESC (rebindable, context-multiplexed, swallowed by vim mode). Guard rails from the byte-timing probe: a single mid-turn 0x03 is always safe; two 0x03 while **idle** must never be <~1.0s apart (Claude self-exits in the 0.509–1.009s window; Codex exits immediately on idle 0x03 with an empty composer).
+- **Delivery ack:** the next state transition (or hook event) is the ack. Stall check: no turn-start within ~5s → retry once, then attention. (Port herdr's `agent_prompt_stalled` concept; herdr has *no* gating at all, so ours is strictly stronger.)
+- **Grok clipboard hazard:** pre-flight `osascript clipboard info` before any paste; if an image is on the clipboard, **abort and surface attention** — do not silently clear the operator's clipboard.
+- **Hermes readiness:** never gate on a byte-stream quiet-gap — the `Installing TUI dependencies…` window (~1–2s, ssh especially) swallows Ctrl+C and kills the session. Gate on a positive UI signal.
+
+**Acceptance:** loop steps 4 and 7. A typed message lands as one submitted prompt on all four harnesses, mid-turn messages queue and drain at the turn boundary, and an interrupt never exits a session.
+
+### Phase 5 — Templates (actor nodes) + the picker
+
+- A template is **data**: `{harness, argv-spec, env-spec, injection-spec, capability-badges}`. The four v1 templates.
+- **The picker is the authoring act** — progressive specificity, click at any level to accept defaults below:
+  `harness → [profile (hermes)] → model → effort`
+  Click `Codex` → spawn with defaults. Hover → models → click `gpt-5.6-luna` → spawn with that + default effort. Hover the model → efforts → click → fully specified.
+- Enumeration sources (all verified, all cacheable strings — cache with explicit refresh, never block the hover):
+  - Claude: `~/.claude.json → additionalModelOptionsCache` + aliases; efforts = 6 levels (`--effort`/`CLAUDE_EFFORT`).
+  - Codex: **`codex debug models`** (models + per-model effort lists).
+  - Grok: `~/.grok/models_cache.json` (or ACP init); efforts = high/medium/low.
+  - Hermes: `hermes profile list` (~1s, parseable, no `--json`) + `~/.hermes/profiles/*/config.yaml`; models from `provider_models_cache.json` — **validate, staleness is proven** (exit 0 with an HTTP 404 body); effort has no flag → typed `/reasoning` (verify session-scoped) or omitted in v1.
+- **Spawn env scrubbing (mandatory):** strip `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` — otherwise a Vellum launched from inside a Claude session silently disables the child's transcript persistence and excludes it from `--resume`.
+- Inject `PATH` so `dist/vellum` resolves; inject seat/socket/token env (verified to reach agent shell subprocesses on all four).
+- Session id: pin where possible (Claude `--session-id`, Grok `--session-id`), capture otherwise (Codex: SessionStart hook > `CODEX_THREAD_ID` > notify > rollout; Hermes: `HERMES_SESSION_ID` env). Store on the seat for cold wake.
+- Per-harness spawn traps: Grok **requires a git cwd** (else a modal swallows the prompt); Hermes needs **`chat --tui -q`** (`-z` is headless); Codex resume **does not inherit flags** — re-pass everything.
+
+**Acceptance:** loop steps 1, 3, 5. Also: template row + capability badges visible in the node UI so a harness with weaker state fidelity is honest about it.
+
+### Phase 6 — Instruction injection + plugin disposition
+
+This is the piece the operator flagged as needing to be strong. **Two tiers, because two harnesses have no system-prompt flag.**
+
+- **Tier A — system prompt at spawn** (verified): Claude `--append-system-prompt`; Grok `--rules` (appends) or `--agent <file>` (frontmatter + body appended, and `tools`/`disallowedTools` gating verified enforced).
+- **Tier B — first typed message** (Codex, Hermes): the same text delivered as the session's first typed prompt. Costs a little context; gains full visibility in the transcript, which suits the legibility doctrine. (Candidate to check later: a codex `-c` instructions-file key — unverified, do not assume.)
+- **Injected payload** (the content the pruned global rule used to carry):
+  1. Worker doctrine — factory seat, pull queue, claim-is-factory, requests block, artifacts never block, identity is process-bind, reach is edges.
+  2. The CLI contract — call **`vellum onboard`** at session start and after compaction; the op table; errors (`ScopeError`, `ClaimConflict`, `RuntimeDown`, `Blocked`) are ground truth.
+  3. Seat context — seat ref, connected targets.
+- **Then the task arrives as a typed prompt** carrying the task assignment. `vellum onboard` returns seat + role + connected targets + claimed task metadata — which is loop step 6 exactly.
+- **Plugin pruning** (`packages/vellum-plugin/`): delete `hooks/session-start.hook.ts`, the 12-harness `targets.hooks` list, and the global `rules/`+`skills/` lowering. Keep the doctrine *text* (it becomes the injected payload) and `tools/shared/work-client.ts` (already the socket client). The plugin survives only as the **opt-in tier**: a user who *wants* vellum tools in their own harness config installs it deliberately — and it must advertise an **empty tool list when no station socket is reachable**, so nothing outside Vellum sees phantom tools.
+
+**Acceptance:** loop steps 2 and 6. Unconnected agent → nothing injected, nothing typed. Connected agent → onboard called by the agent itself, task metadata in its context, visible in the TUI.
+
+### Phase 7 — Tool surface completion (CLI)
+
+The CLI exists; the deltas are:
+
+- **`vellum escalate`** — `request.create` plus **blocked-seat semantics**: files the request, marks the seat blocked, returns a stop directive. Optional bounded **hold**: block on the socket until the human answers and return the answer in-band, so the agent continues the same turn (bound below the harness's bash timeout; Claude's is settable via injected `--settings` env). Timeout → return the blocked directive.
+- **Blocked enforcement in the server**: while a seat is blocked, every work/page op returns `Blocked` with a stop directive. Transport-independent — this is the layer that works even where hooks don't (Codex).
+- **Page automation ops** — expose the existing edge-gated page capability to the agent's CLI. Process-bind gives the agent principal; the capability matrix already grants `agent` principals edge pages.
+- **`msg.*` revived for agent-to-agent mail** — agents never touch another PTY. An agent sends via the work plane; the **kernel** delivers by typed injection at the recipient's turn boundary, tagged `[factory mail from <seat>]`. Edges gate who may mail whom; the kernel owns pacing (cooldown + per-tick budget), so a mail loop drains at human-visible speed on a visible canvas.
+- **Ergonomics for a typing agent:** ops are typed by an LLM into a TUI, so error messages must be instructive and self-correcting, and `vellum schema`/`examples` must cover every op. Keep JSON-in/JSON-out (already batch-capable).
+- **Broadcast** — same mailbox, N seats, eventually-delivered per seat (a busy seat receives at its turn boundary). Shift-click → type → broadcast.
+
+**Acceptance:** escalate blocks and unblocks cleanly on all four; a blocked seat's tools are dark; broadcast lands on N seats.
+
+### Phase 8 — Usage rail (per station)
+
+Replaces the Codex Bar dependency; per-station, cross-account, and Linux-viable.
+
+| harness | tokens/cost | plan/weekly limits |
+|---|---|---|
+| Claude | OTEL via injected `--settings {"env":…}` (verified end-to-end) | `~/.claude.json → cachedUsageUtilization` — ⚠ refreshes only when `/usage` is opened, so the rail must trigger it |
+| Codex | OTLP export works (verified live sink, per-event token fields) | **not in OTLP** (verified absent) → `/status` grid scrape |
+| Grok | per-turn `updates.jsonl` (`costUsdTicks`, tokens); `signals.json` context | `/usage` TUI text scrape |
+| Hermes | `state.db` per session (tokens, `estimated_cost_usd`, billing mode); `hermes insights` | subscription-included; no separate limit surface |
+
+**Acceptance:** a per-station usage rail with tokens + cost per seat and weekly-limit state where available. Do not claim "Codex Bar replaced" until the two scrape paths are live and tested.
+
+---
+
+## 9 · Per-harness capability matrix (the template spec)
+
+Every row verified — see [`managed-terminal-verification.md`](managed-terminal-verification.md) for receipts.
+
+| | Claude Code | Codex | Grok | Hermes |
+|---|---|---|---|---|
+| TUI + auto-fired prompt | `claude "<p>"` | `codex "<p>"` | `grok "<p>"` (needs git cwd) | `hermes chat --tui -q "<p>"` |
+| instruction injection | **A** `--append-system-prompt` | **B** first typed msg | **A** `--rules` / `--agent` | **B** first typed msg |
+| hooks (per-session, zero-write) | ✅ `--settings` (30 events, deny works) | ❌ dropped (trust modal; bypass banned) | ✅ `.grok/hooks` + `events.jsonl` | ✅ project plugins + `HERMES_ENABLE_PROJECT_PLUGINS=1` (21 events) |
+| state feed rank | hooks → OSC → grid | **OSC → grid** (+`notify` turn-complete) | hooks/events.jsonl → OSC → grid | hooks → OSC (`--tui` only) → grid |
+| attention source | grid (OSC can't distinguish) | **OSC title `Action Required`** + grid for startup modals | events.jsonl `permission_requested` + footer | OSC title `⚠` |
+| permission mode at spawn | `--permission-mode` | `-a` (template property) | `--permission-mode`/`--allow` | `--yolo` |
+| session id | pin `--session-id` | capture (hook > `CODEX_THREAD_ID`) | pin `--session-id` | capture (`HERMES_SESSION_ID`) |
+| cold wake | `--resume <id>` (re-pass flags) | `codex resume <id>` (re-pass flags) | `grok -r <id>` | `chat --tui -r <id>` (re-pass `-m`) |
+| typing | paste + CR, 0ms ok | paste + **separate** CR | paste + CR, ≥1.5s after spawn | paste + CR |
+| `/compact` | ✅ + Pre/PostCompact hooks | ✅ | ✅ | via `/` commands |
+| effort at spawn | ✅ `--effort` | ✅ per-model list | ✅ high/med/low | ❌ typed `/reasoning` or omit |
+| remote (ssh) | — | — | — | ✅ verified end-to-end |
+
+## 10 · QA plan
+
+The consolidation's whole point: **QA scales with template rows, not with surfaces.** One drive path, four templates.
+
+- **Per harness, per template row:** spawn → inject → onboard → claim → work → escalate → block → answer → resume → complete. Plus the trap list from §9 as explicit regressions.
+- **Replay tests** (cheap, deterministic, no model spend): recorded PTY captures per harness drive the state machine and the typing gate. This is the bulk of automated coverage.
+- **E2E stills** for every canvas state (idle/working/attention/blocked) — never describe the UI from a code read; capture it (`vellum-e2e-capture-recipe`).
+- **Live smoke** (costs plan usage, keep minimal): one full acceptance loop per harness before release.
+- **Version pinning:** several load-bearing behaviors are undocumented (Claude's `--settings`-as-hook-source; Hermes's hidden `--profile`). Pin probed versions in the template pack and re-smoke on harness updates.
+
+## 11 · Beta checklist
+
+1. Acceptance loop (§2) green on all four harnesses.
+2. Zero writes to user harness configs — audited, with a test that fails if a spawn touches `~/.claude`, `~/.codex`, `~/.grok`, `~/.hermes`.
+3. Attention/blocked surfaces correct for every prompt type per harness.
+4. Escalate → block → answer → resume, incl. cold wake after an app restart.
+5. Plugin pruned; nothing lowers into user configs by default.
+6. Usage rail live per station.
+7. ACP + herdr + hermes-chat hidden behind settings; no dead UI.
+8. Capability badges honest per harness.
+9. Remote station: hermes over ssh in the loop (the verified remote path).
+10. Docs: the four residue items (§13) either closed or documented as known limits.
+
+## 12 · Deferred (explicitly not v1)
+
+- **Embedded Worker (forked pi)** — tabled until the monotool exists. The dossier (MIT, white-label `piConfig`, `PI_CODING_AGENT_DIR` isolation, injectable credentials, per-message cost) stays valid; forking pi is *sanctioned* (unlike herdr).
+- **Cloud workers** — the zero-harness answer; Vouch-shaped, keys server-side, no consumer-ToS exposure. Empty-state should point at it to measure demand.
+- **ACP revival + native chat UI** — arrives with the Worker, not before. Grok's leader lane (a second ACP client can `session/load` a *live TUI's* session and replay its updates) is a promising future observability path.
+- **TUI automation horizons** — dev-server node, log-watcher, exit-code→task state, terminal macros, OSC 133 semantic prompt marks (with nonce discipline: children can forge marks). Cheap once Phases 1–4 land. Two taste rulings deferred: shell-integration injection into plain terminals; command palettes typed into any terminal.
+- **Round-robin workers, harness-per-task, model-per-task** — trivial once templates are data and every harness shares one drive path. Post-beta.
+
+## 13 · Known residue (non-blocking, tracked)
+
+1. Grok leader-lane **steering** of a live TUI: plausible, unexecuted. Typing covers steering.
+2. Codex approval-behavior confound (Groundwork-hooks hypothesis) not fully ablation-closed.
+3. Hermes `/reasoning` persistence: must confirm session-scoped before shipping effort for hermes.
+4. Hermes TUI self-exit anomaly: bounded non-reproducible (5/5 clean) — QA watch item.
