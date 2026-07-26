@@ -26,6 +26,7 @@ import {
 import { makeCanvasExternalReloadCoordinator } from "./lib/canvas-external-reload";
 import { startKernelBridge } from "./lib/kernel-view";
 import { startSettingsBridge, closeSettings } from "./lib/settings-state";
+import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
@@ -318,6 +319,9 @@ export function App() {
 
     const stopKernel = startKernelBridge();
     const stopSettings = startSettingsBridge();
+    // Managed-agent seat state (attention/working) — subscribe early so canvas
+    // node chrome paints before any TerminalCard mounts.
+    const stopAgentSeat = subscribeAgentSeatState();
 
     const offSnapshots = vellum.onSnapshotsChanged((state) => state$.snapshots.set(state));
     const offCanvas = vellum.onCanvasChanged((name) => {
@@ -351,6 +355,7 @@ export function App() {
       offCanvasQuiesceAndFlush();
       stopKernel();
       stopSettings?.();
+      stopAgentSeat?.();
     };
   }, []);
 

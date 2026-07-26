@@ -38,6 +38,7 @@ import type {
 } from "./settings";
 import type { UsageState } from "./usage";
 import type { CanvasPullResult } from "./canvas-pull";
+import type { AgentSeatStateEvent } from "./agent-seat-state";
 import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
 export type {
   CanvasPullResult,
@@ -1230,6 +1231,10 @@ export interface VellumTerminalApi {
   readonly terminalWrite: (leaseId: string, data: string, encoding?: "utf8" | "base64") => Promise<boolean>;
   readonly terminalResize: (leaseId: string, cols: number, rows: number) => Promise<boolean>;
   readonly onTerminalEvent: (listener: (event: unknown) => void) => () => void;
+  /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
+  readonly onAgentSeatStateChanged: (
+    listener: (event: AgentSeatStateEvent) => void,
+  ) => () => void;
 }
 
 // --- demo/scripting engine (--vellum-demo only) ------------------------------

@@ -1,25 +1,28 @@
 /**
- * ActivityFeed producer — ACP chat plane + process-bind presence only.
+ * ActivityFeed producer — ACP chat plane + managed-terminal seat state +
+ * process-bind presence.
  *
  * Binds `@shared/occupancy`'s ActivityFeed seam (S5 cut 1) from signals the
  * app already computes: `chatCoarse$` (ACP agent status; a live/connecting
  * session is the same process-bind-presence predicate `useRegionRollups`
  * already treats as `sessionLive` — see region-rollups.ts and the
- * `AgentActivity` contract in shared/region-rollup.ts) and document
- * `ether.flags`. Classification reuses `chatActivity` from ./activity — the
- * ActivityMark source of truth — so occupancy and the chat activity mark
- * never diverge on what "attention" / "working" / "blocked" means for an
- * agent seat. No parallel classification tree.
+ * `AgentActivity` contract in shared/region-rollup.ts), managed-agent seat
+ * events (`agentSeat$`, bindingId-keyed), and document `ether.flags`.
+ * Classification reuses `chatActivity` from ./activity — the ActivityMark
+ * source of truth — so occupancy and the chat activity mark never diverge
+ * on what "attention" / "working" / "blocked" means for an agent seat.
+ * Terminal seats use `clueFromAgentSeat` (same harness vocabulary).
  *
- * PTY/terminal producers (herdr) are a separate, hot-owned lane: this file
- * imports nothing from herdr-state or the herdr plane, and never will for
- * this cut.
+ * PTY/herdr producers stay a separate, hot-owned lane: this file imports
+ * nothing from herdr-state.
  */
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import type { ActivityFeedService, OccupancyClue, OccupancyFlagsValue } from "@shared/occupancy";
+import { resolveTerminalBinding } from "@shared/terminal";
 import { chatActivity, type ActivityTone } from "./activity";
+import { agentSeat$, clueFromAgentSeat } from "./agent-seat-state";
 import { chatCoarse$, type AgentChatCoarse } from "./chat-state";
 
 const TONE_HARNESS: Record<ActivityTone, "idle" | "working" | "blocked" | "attention"> = {
@@ -84,25 +87,41 @@ export function chatActivityFeed(
 }
 
 const NO_AGENT_KEY = "__vellum-occupancy-no-agent__";
+const NO_BINDING = "__vellum-occupancy-no-binding__";
 
 /**
  * Node-scoped seam for card chrome: subscribes only to this node's own
- * agent-key slice of `chatCoarse$`, never the whole document or the whole
- * chat map. Cards are many; a whole-document ActivityFeed rebuild per card
- * per doc-wide state change would refire on unrelated edits (drag, unrelated
- * chat). `chatActivityFeed` above still satisfies the shared contract for
- * batch consumers (tests, future RTS/digest use); this hook is the same
- * classification (`clueFromChatCoarse`), scoped for the render-many case.
+ * agent-key slice of `chatCoarse$` and/or managed-terminal seat event,
+ * never the whole document or the whole chat map. Cards are many; a
+ * whole-document ActivityFeed rebuild per card per doc-wide state change
+ * would refire on unrelated edits (drag, unrelated chat).
+ * `chatActivityFeed` above still satisfies the shared contract for batch
+ * consumers (tests, future RTS/digest use).
+ *
+ * Merge rule: native terminal seat state wins over ACP chat when both
+ * exist (a terminal seat is the live process; chat is the legacy ACP path).
  */
 export function useNodeOccupancyClue(node: MinimalNode): OccupancyClue | undefined {
   const agentKey =
     node.ether?.entity?.kind === "agent" ? node.ether.entity.name : undefined;
+  const nativeBinding = resolveTerminalBinding(node as CanvasNode);
+  const bindingId =
+    nativeBinding?.kind === "native" ? nativeBinding.bindingId : undefined;
   const coarse = use$(chatCoarse$[agentKey ?? NO_AGENT_KEY]) as AgentChatCoarse | undefined;
+  const seatEvent = use$(agentSeat$.byBindingId[bindingId ?? NO_BINDING]);
   const rawFlags = node.ether?.flags;
   return useMemo(() => {
-    const base = coarse ? clueFromChatCoarse(coarse) : undefined;
+    const seat = clueFromAgentSeat(seatEvent);
+    const chat = coarse ? clueFromChatCoarse(coarse) : undefined;
+    // Terminal seat telemetry is the authoritative harness for managed seats.
+    const base = seat ?? chat;
     const flags = flagsFromEther(rawFlags);
     if (!base && !flags) return undefined;
-    return { hasOccupant: base?.hasOccupant ?? false, activity: base?.activity, flags };
-  }, [coarse, rawFlags]);
+    return {
+      hasOccupant: base?.hasOccupant ?? false,
+      activity: base?.activity,
+      lastSeenAtMs: base?.lastSeenAtMs,
+      flags,
+    };
+  }, [coarse, seatEvent, rawFlags]);
 }

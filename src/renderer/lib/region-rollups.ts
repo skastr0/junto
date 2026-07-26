@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { deriveRegionRollups } from "@shared/region-rollup";
 import { use$ } from "@legendapp/state/react";
+import { agentSeat$, terminalStatusByNodeIdFromSeats } from "./agent-seat-state";
 import { state$ } from "./state";
 import { kernel$ } from "./kernel-view";
 import { chatCoarse$ } from "./chat-state";
@@ -147,16 +149,41 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     return m;
   }, [chatKey]);
 
-  // Client derive — always has herdr/chat/flags; no IPC required for those.
+  // Managed-terminal seat state (bindingId → event) for native terminal nodes.
+  const seatByBinding = use$(agentSeat$.byBindingId) as Record<
+    string,
+    { state?: string; at?: number } | undefined
+  >;
+  const seatKey = useMemo(
+    () =>
+      Object.entries(seatByBinding ?? {})
+        .map(([id, e]) => `${id}:${e?.state ?? ""}:${e?.at ?? 0}`)
+        .sort()
+        .join("|"),
+    [seatByBinding],
+  );
+  const terminalStatusByNodeId = useMemo(
+    () =>
+      terminalStatusByNodeIdFromSeats(
+        doc?.nodes ?? [],
+        agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>,
+      ),
+    // seatKey captures state changes; docVersion/docEpoch capture node binds.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [docVersion, docEpoch, seatKey],
+  );
+
+  // Client derive — always has herdr/chat/flags/seat; no IPC required for those.
   const client = useMemo(
     () =>
       deriveRegionRollups({
         doc,
         agentActivity,
+        terminalStatusByNodeId,
       }),
-    // docVersion/docEpoch bound doc identity; herdr/chat via maps above.
+    // docVersion/docEpoch bound doc identity; herdr/chat/seat via maps above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [docVersion, docEpoch, canvasName, herdrKey, agentActivity],
+    [docVersion, docEpoch, canvasName, herdrKey, agentActivity, terminalStatusByNodeId],
   );
 
   const [live, setLive] = useState<ReadonlyArray<RegionRollup>>([]);

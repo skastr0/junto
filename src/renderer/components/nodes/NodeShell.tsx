@@ -14,7 +14,7 @@ import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-s
 import { attentionOf } from "@shared/attention";
 import { deriveOccupancy } from "@shared/occupancy";
 import { useNodeOccupancyClue } from "../../lib/occupancy-feed";
-import { IconButton, ToolbarPill } from "../ui";
+import { Chip, IconButton, ToolbarPill } from "../ui";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 const FLAG_HUES: Record<EtherFlag, string> = {
@@ -208,6 +208,9 @@ export function NodeShell({
         },
   );
   const flagBlocker = flags.includes("blocker");
+  const flagAttention = flags.includes("attention");
+  // Live managed-seat attention (occupancy) paints amber without a doc flag.
+  const liveSeatAttention = occupancyState === "attention" && !flagAttention;
   // Executable seats get pause chrome; placement class/tier lives in the
   // inspector only (not on the card body).
   const executable = isExecutableNode(node);
@@ -222,7 +225,7 @@ export function NodeShell({
   }, [executable, node.id]);
   const primaryFlag: EtherFlag | undefined = isBlocker
     ? "blocker"
-    : flags.includes("attention")
+    : flagAttention || liveSeatAttention
       ? "attention"
       : flags.includes("parked")
         ? "parked"
@@ -251,8 +254,9 @@ export function NodeShell({
       className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${isBlocker ? "vellum-blocker" : ""}`}
       data-blocked={shellBlocked ? "true" : undefined}
       data-herdr-blocked={liveHerdrBlocked ? "true" : undefined}
+      data-seat-attention={liveSeatAttention ? "true" : undefined}
       data-occupancy={occupancyState}
-      data-attention={attention}
+      data-attention={attention === "idle" && liveSeatAttention ? "fire" : attention}
       style={{
         border: `1px solid ${selected ? withAlpha(isBlocker ? HUE.crimson : accent, 0.75) : border}`,
         background,
@@ -307,7 +311,7 @@ export function NodeShell({
         liveHerdrBlocked={liveHerdrBlocked}
         nodePaused={executable ? nodePaused : undefined}
       />
-      {flags.length > 0 || liveHerdrBlocked ? (
+      {flags.length > 0 || liveHerdrBlocked || liveSeatAttention ? (
         <div className="vellum-node__flag-rail">
           {liveHerdrBlocked && !flagBlocker ? (
             <span
@@ -322,6 +326,11 @@ export function NodeShell({
             >
               blocker
             </span>
+          ) : null}
+          {liveSeatAttention ? (
+            <Chip key="seat-attention" tone="amber" title="needs operator input">
+              !
+            </Chip>
           ) : null}
           {flags.map((flag) => (
             <span
