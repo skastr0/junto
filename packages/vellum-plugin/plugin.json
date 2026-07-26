@@ -1,24 +1,8 @@
 {
   "name": "vellum",
   "version": "0.1.0",
-  "description": "Vellum factory work plane — onboard, tasks, messages, requests, artifacts.",
+  "description": "Vellum factory work plane (opt-in) — tools only; install deliberately. Empty tool list when no station socket is reachable.",
   "targets": {
-    "rules": ["coding-harness"],
-    "skills": ["coding-harness", "hermes"],
-    "tools": ["coding-harness", "hermes"],
-    "hooks": [
-      "claude-code",
-      "codex-cli",
-      "opencode",
-      "grok",
-      "kimi-code",
-      "amp-code",
-      "hermes",
-      "devin",
-      "factory-droid",
-      "pi",
-      "omp",
-      "antigravity-cli"
-    ]
+    "tools": ["coding-harness", "hermes"]
   }
 }

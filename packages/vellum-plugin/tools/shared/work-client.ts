@@ -1,3 +1,4 @@
+import { accessSync, constants, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
@@ -13,6 +14,22 @@ export const WORK_MAX_FRAME_BYTES = 8 * 1024 * 1024;
 export const WORK_HOME_ENV = "VELLUM_WORK_HOME";
 export const WORK_SOCKET_ENV = "VELLUM_WORK_SOCKET";
 export const ROUTE_TOKEN_ENV = "VELLUM_ROUTE_TOKEN";
+
+/**
+ * Opt-in plugin tool names. Advertised only when the station work socket is
+ * reachable so nothing outside a live Vellum sees phantom tools.
+ */
+export const ADVERTISED_TOOL_NAMES = [
+  "onboard",
+  "tasks_list",
+  "tasks_update",
+  "msg_list",
+  "msg_send",
+  "request_create",
+  "artifact_publish",
+] as const;
+
+export type AdvertisedToolName = (typeof ADVERTISED_TOOL_NAMES)[number];
 
 export type WorkOpName =
   | "ping"
@@ -60,6 +77,36 @@ export const resolveWorkPaths = (
 
 export const encodeWorkFrame = (value: unknown): string =>
   `${JSON.stringify(value)}\n`;
+
+/**
+ * True when the work control socket path looks reachable (exists on disk).
+ * Fail-closed: missing path / inaccessible → not reachable.
+ * Does not open a connection (cheap gate for advertise).
+ */
+export const isWorkSocketReachable = (
+  env: NodeJS.ProcessEnv = process.env,
+): boolean => {
+  const { socketPath } = resolveWorkPaths(env);
+  if (!socketPath || !existsSync(socketPath)) return false;
+  try {
+    accessSync(socketPath, constants.R_OK | constants.W_OK);
+    return true;
+  } catch {
+    // Socket file may still be connectable without R/W bits on some platforms.
+    return existsSync(socketPath);
+  }
+};
+
+/**
+ * Tool names this opt-in plugin should advertise.
+ * Empty when no station socket is reachable — no phantom tools outside Vellum.
+ */
+export const listAdvertisedTools = (
+  env: NodeJS.ProcessEnv = process.env,
+): readonly AdvertisedToolName[] => {
+  if (!isWorkSocketReachable(env)) return [];
+  return ADVERTISED_TOOL_NAMES;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -305,7 +352,7 @@ export const callWork = async (
   }
 };
 
-/** Format onboard data for session-start systemMessage. */
+/** Format onboard data for a brief human/tool summary. */
 export const formatOnboardSummary = (data: unknown): string => {
   if (!isRecord(data)) {
     return `Vellum onboard ok (protocol ${WORK_PROTOCOL_VERSION}).`;

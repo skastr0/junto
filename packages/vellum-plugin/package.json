@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Vellum factory Prism plugin — work-plane tools, session-start onboard, and agent rules.",
+  "description": "Vellum factory Prism plugin (opt-in) — work-plane tools over the station socket. No global rules/hooks; empty tools when socket is down.",
   "license": "UNLICENSED",
   "exports": {
     ".": "./plugin.json"

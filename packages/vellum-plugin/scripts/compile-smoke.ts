@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Pragmatic acceptance: packagePluginForTarget dry-run for the Tier-3 min set.
+ * Pragmatic acceptance: packagePluginForTarget dry-run for opt-in tools targets.
+ * Phase 6: hooks/rules/skills pruned — tools only.
  *
  * Run from repo root or package dir:
  *   bun packages/vellum-plugin/scripts/compile-smoke.ts
@@ -18,7 +19,10 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const pluginPath = resolve(here, "..");
 
-/** Operator-locked Tier-3 minimum harness set. */
+/**
+ * Concrete harnesses covered by targets.tools (coding-harness family + hermes).
+ * plugin.json lists families; packager dry-run needs a concrete harness id.
+ */
 const targets = ["claude-code", "codex-cli", "grok", "hermes"] as const;
 
 const summarize = (result: PackageResult) => ({
@@ -61,6 +65,15 @@ const main = async () => {
         return String(f);
       })
       .map((p) => p.split("/").slice(-4).join("/"));
+
+    // Phase 6: no session-start hook or global rules/skills/vellum doctrine lowering.
+    // Packager may still emit empty hooks.json / prism-tools-* skill wrappers for tools.
+    const lowered = filePaths.join("\n");
+    if (/session-start/i.test(lowered) || /rules\/.*vellum|skills\/vellum\//i.test(lowered)) {
+      throw new Error(
+        `${target}: unexpected session-start or global vellum rule/skill in compile output`,
+      );
+    }
 
     results.push(summarize(result));
     console.log(
