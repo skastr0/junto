@@ -28,16 +28,16 @@ is not in this plan.
 type FactoryRole = "actor" | "sink" | "scheduler" | "geography"
 
 // ── The kinds. Closed. One actor. ───────────────────────────────────────────
-type ActorKind     = "terminal"                                   // Vellum-spawned template terminal
+type ActorKind     = "agent"                                      // Vellum-spawned template terminal
 type SinkKind      = "task" | "requests" | "artifacts" | "page"
 type SchedulerKind = "watcher" | "timer"
-type GeographyKind = "note" | "file" | "link" | "region" | "herdr" | "shell"
+type GeographyKind = "note" | "file" | "link" | "region" | "herdr" | "terminal"
 //                                                        ↑ geography, not legacy
-//                                                                  ↑ raw user terminal
+//                                                                  ↑ raw user-opened terminal
 
 // ── What a node IS. Decided at creation. Never recomputed from runtime. ─────
 type NodeSpec =
-  | { role: "actor";      kind: "terminal"; harness: HarnessId; binding: BindingId }
+  | { role: "actor";      kind: "agent"; harness: HarnessId; binding: BindingId }
   | { role: "sink";       kind: SinkKind }
   | { role: "scheduler";  kind: SchedulerKind }
   | { role: "geography";  kind: GeographyKind }
@@ -51,12 +51,22 @@ type Placement = { host: "local" } | { host: "station"; hostId: string }
 type Principal = { binding: BindingId; canvas: string; node: NodeId }
 ```
 
+**Vocabulary, settled 2026-07-26 (operator).** The one actor kind is `agent`. A
+raw user-opened terminal is `geography/"terminal"`. `worker` is **reserved** for a
+future native agent UI and must not appear in this migration's code, types, or
+tests.
+
+> The string `agent` is *reused*, not preserved. It was the ACP actor kind (D1);
+> it now names the Vellum-spawned template terminal. Every line of ACP still dies
+> (D3, D11). A builder that sees "keep `agent`" and spares `main/vellum/chat/` has
+> misread this plan. The kind survives by name only; nothing behind it does.
+
 **What becomes unrepresentable** (construction-level, the far right of the
 gradient — not policed, structurally impossible):
 
 | impossible after | today's shape that permits it |
 |---|---|
-| an actor that is not a terminal | 3 kinds carry `role: "actor"` (`physics/kinds.ts:38-40`) |
+| an actor that is not an `agent` | 3 kinds carry `role: "actor"` (`physics/kinds.ts:38-40`) |
 | an actor with no binding or no harness | `harness`/`bindingId` optional (`canvas.ts:103`) |
 | a harness with no template | `harness: Schema.String` (`canvas.ts:103`) |
 | geography holding ports, a seat, or an inbox | herdr offers `msgOffers` (`kinds.ts:40`) |
@@ -121,7 +131,7 @@ owner).
 
 | # | dies | why it was alive | evidence |
 |---|---|---|---|
-| D1 | `agent` + `herdr` as actor kinds; `herdr` → `role: "geography"` | ACP was once the actor | `physics/kinds.ts:38-40` |
+| D1 | the ACP `agent` kind + `herdr` as actor kinds; one actor kind remains, named `agent`; `herdr` → `role: "geography"` | ACP was once the actor | `physics/kinds.ts:38-40` |
 | D2 | `sanitizeActorSurfacePorts` — the decoder that deletes an actor's entity | invented to validate "one kind requires another kind's fields" | `canvas.ts:559-592` |
 | D3 | ACP subsystem, whole | hidden product surface, still compiled + reachable | `main/vellum/chat/` (+ IPC channels, renderer chat dir) |
 | D4 | Route tokens + the second admission path | Tier 3 for callers with no local Vellum | `work/route-tokens.ts`, `work/live-seat.ts:26,76`, `work/control.ts:194-266` |
@@ -149,7 +159,7 @@ CI catches it; **lint/prose** is policed and therefore weakest.
 
 | invariant | today | target | mechanism |
 |---|---|---|---|
-| exactly one actor kind | prose (a doc row) | **construction** | `ActorKind = "terminal"` — a single literal; `kindsWithRole("actor")` is typed, not asserted |
+| exactly one actor kind | prose (a doc row) | **construction** | `ActorKind = "agent"` — a single literal; `kindsWithRole("actor")` is typed, not asserted |
 | an actor has a harness + binding | runtime validation, then deletion | **construction** | required fields in the `NodeSpec` actor variant; no optionals to check |
 | harness names a real template | unchecked string | **type** | closed `HarnessId` literal; decode fails on anything else |
 | role derived in one place | ~12 parallel lists | **type** | `NodeSpec` sum + exhaustive `Match`; adding a kind is a compile error |
@@ -157,7 +167,7 @@ CI catches it; **lint/prose** is policed and therefore weakest.
 | one admission path | two (process-bind + route token) | **construction** | delete the second; `Principal` has no token variant |
 | no port gated by tier | tier table | **construction** | delete `RuntimeTier`; ports have no tier field |
 | kind never runtime-derived | recomputed per open | **type** | spawn takes a `NodeSpec`, not loose `harness?`/`launch?` inputs |
-| an actor never degrades to a shell | silent fallback | **type** | `resolveLaunch` returns `Either<LaunchError, Argv>`; the shell path is reachable only from the `geography/"shell"` variant |
+| an actor never degrades to a shell | silent fallback | **type** | `resolveLaunch` returns `Either<LaunchError, Argv>`; the shell path is reachable only from the `geography/"terminal"` variant |
 | edge legality is role-pair only | correct already | **type** (hold) | `canonicalRolePair` + exhaustive `grantLawBetween` — the pattern to copy |
 | no second actor kind ever appears | — | **test** | `tests/factory-physics-architecture.test.ts`, source-grep in the shape of `ssh-architecture.test.ts` |
 | no `entity.kind ===` in capability code | — | **test** | same file; scans `work/`, `browser/`, `kernel/`, `shared/` |
@@ -181,7 +191,7 @@ references them.
 | C1 | four roles; `region`+`furniture` → `geography` | ~11 files | `laws.ts` pairs collapse; palette unchanged; existing physics tests pass unmodified |
 | C2 | `NodeSpec` sum + `resolveSpec` as the only resolution site | ~15 | every kind list in D9 becomes a `Match`; delivery tests pass **unmodified** |
 | C3 | closed `HarnessId`; required `harness`+`binding` on the actor variant | ~8 | a doc with `harness: "banana"` fails decode; `ts-expect-error` fixture proves the optional is gone |
-| C4 | `resolveLaunch → Either`; delete the clean-shell fallback | ~6 | unresolvable managed launch errors; the node shows the error/restart state; shell reachable only via `geography/"shell"` |
+| C4 | `resolveLaunch → Either`; delete the clean-shell fallback | ~6 | unresolvable managed launch errors; the node shows the error/restart state; shell reachable only via `geography/"terminal"` |
 | C5 | one `Principal`; delete `ProcessPrincipalKind` + `ActorDeliverySurface` tags | ~8 | work-control transport suite green; browser grant admits actors (fixes D13) |
 | C6 | `OPS_BY_SINK` total record; `requireActor`/`requireSink` | ~5 | adding a sink kind without an op row is a compile error |
 | C7 | herdr → geography (repoint, not delete) | ~12 | herdr renders + shows state; no seat, no ports; refused by work-control and browser grant |
@@ -242,11 +252,16 @@ Also untouched: authoring `entity.kind` at creation (role-from-kind is the
 doctrine); presentation-by-kind in the renderer; `promote` outside the physics
 domain; work role (`ether.workRole`) as an operator-authored routing label.
 
-## 8 · Open
+## 8 · Settled 2026-07-26
 
-1. `GeographyKind` includes `"shell"` for a raw user terminal above. Confirm the
-   document name for it — a user-opened terminal needs a kind distinct from the
-   actor's `"terminal"`, and naming it is a product call, not a derivation.
-2. Does a geography node ever legitimately display agent state (herdr does
-   today)? If yes, state display is explicitly not a factory power and the
-   cement test must permit it.
+Both former open items are closed by operator ruling; neither is a derivation.
+
+1. **Naming.** Actor kind is `agent`; the raw user-opened terminal is
+   `geography/"terminal"`. `worker` is reserved for a future native agent UI and
+   is banned from this migration — the cement test bans it alongside the invented
+   vocabulary in §3.
+2. **State display is not a factory power.** A geography node may display agent
+   state; herdr keeps its live badge after re-kinding. The cement test permits
+   state *reads* for display in the renderer and occupancy feeds, and bans only
+   seat, ports, inbox, and work claim. Written down so the permission is
+   deliberate rather than a hole.
