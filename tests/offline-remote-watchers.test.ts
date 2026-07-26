@@ -61,6 +61,11 @@ const watcherDocument = (watchedAgentKey: string): CanvasDoc => ({
       height: 60,
       ether: {
         entity: { kind: "agent", name: localAgentKey },
+        terminal: {
+          bindingId: "bind-local-agent",
+          harness: "claude",
+          launch: { kind: "harness", argv: ["claude"] },
+        },
         host: stationHostId,
       },
     },
@@ -117,10 +122,10 @@ const freshFleetSnapshot = (remoteRunning: number, at: string): SnapshotState =>
 describe("offline Remote watcher island", () => {
   const delivered: string[] = [];
   const delivery: PulseDeliverDeps = {
-    isLive: () => true,
-    openChat: async () => undefined,
-    sendPrompt: async (agentKey) => {
-      delivered.push(agentKey);
+    sendManagedTerminal: async (bindingId) => {
+      // Map binding back to agent key for assertions that still check keys
+      delivered.push(bindingId);
+      return true;
     },
   };
 
@@ -158,7 +163,7 @@ describe("offline Remote watcher island", () => {
       status: "satisfied",
       lastFiredAt: expect.any(Number),
     });
-    expect(delivered).toEqual([localAgentKey]);
+    expect(delivered).toEqual(["bind-local-agent"]);
   });
 
   it("does not fire a fleet predicate from a retained stale Command Center fact", async () => {

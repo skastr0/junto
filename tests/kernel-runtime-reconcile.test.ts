@@ -112,7 +112,14 @@ describe("fix 3 — arming survives canvas deletion; derived state does not", ()
           y: 40,
           width: 100,
           height: 50,
-          ether: { entity: { kind: "agent", name: "remote-a:vega" } },
+          ether: {
+          entity: { kind: "agent", name: "remote-a:vega" },
+          terminal: {
+            bindingId: "bind-remote-a-vega",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
         },
       ],
       edges: [],
@@ -121,15 +128,17 @@ describe("fix 3 — arming survives canvas deletion; derived state does not", ()
 
     const calls: string[] = [];
     const deps: PulseDeliverDeps = {
-      isLive: () => false,
-      openChat: async (key) => void calls.push(`open:${key}`),
-      sendPrompt: async (key) => void calls.push(`send:${key}`),
+      sendManagedTerminal: async (bindingId) => {
+        calls.push(`send:${bindingId}`);
+        return true;
+      },
     };
     await deliverPulse({ canvasName: "f3-resume", sourceNodeId: "region1", kind: "manual", regionId: "region1", summary: "resumed", deps });
 
     const record = getPulseLog()[0];
     expect(record?.dry).toBe(false); // armed intent resumed automatically
     expect(record?.delivered).toEqual(["remote-a:vega"]);
+    expect(calls.some((c) => c.includes("bind-remote-a-vega"))).toBe(true);
   });
 });
 

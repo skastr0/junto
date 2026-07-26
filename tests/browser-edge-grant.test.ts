@@ -93,7 +93,14 @@ const canvasDoc = (withEdge: boolean): CanvasDoc => ({
       y: 0,
       width: 120,
       height: 48,
-      ether: { entity: { kind: "agent", name: "local:default" } },
+      ether: {
+        entity: { kind: "agent", name: "local:default" },
+        terminal: {
+          bindingId: "bind-local-default",
+          harness: "claude",
+          launch: { kind: "harness", argv: ["claude"] },
+        },
+      },
     },
     {
       id: "p1",

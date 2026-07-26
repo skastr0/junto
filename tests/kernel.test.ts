@@ -248,9 +248,7 @@ describe("deliverPulse — arming and live-pulse spacing", () => {
     __setDocsForTest(new Map([[canvasName, { nodes: [], edges: [] }]]));
     // Set default deps that simulate successful delivery when arming is true
     const defaultDeps: PulseDeliverDeps = {
-      isLive: () => true,
-      openChat: async () => undefined,
-      sendPrompt: async () => undefined,
+      sendManagedTerminal: async () => true,
     };
     __setDeliveryDepsForTest(defaultDeps);
   });
@@ -330,7 +328,14 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
         y: 50,
         width: 100,
         height: 50,
-        ether: { entity: { kind: "agent", name: "remote-a:vega" } },
+        ether: {
+          entity: { kind: "agent", name: "remote-a:vega" },
+          terminal: {
+            bindingId: "bind-remote-a-vega",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
       },
       {
         id: "agent-b",
@@ -340,7 +345,14 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
         y: 200,
         width: 100,
         height: 50,
-        ether: { entity: { kind: "agent", name: "remote-a:nova" } },
+        ether: {
+          entity: { kind: "agent", name: "remote-a:nova" },
+          terminal: {
+            bindingId: "bind-remote-a-nova",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
       },
       // Outside the region's rect — must never receive a pulse.
       {
@@ -351,7 +363,14 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
         y: 900,
         width: 100,
         height: 50,
-        ether: { entity: { kind: "agent", name: "remote-a:outside" } },
+        ether: {
+          entity: { kind: "agent", name: "remote-a:outside" },
+          terminal: {
+            bindingId: "bind-remote-a-outside",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
       },
     ],
     edges: [],
@@ -368,29 +387,19 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
     __setDeliveryDepsForTest(undefined);
   });
 
-  it("opens only the not-yet-live agent, then sends every member sequentially in order", async () => {
+  it("delivers to every managed agent member via terminal binding", async () => {
     const calls: string[] = [];
-    const contextBlocksByAgent: Record<string, ReadonlyArray<string> | undefined> = {};
     const deps: PulseDeliverDeps = {
-      isLive: (key) => key === "remote-a:nova",
-      openChat: async (key) => {
-        calls.push(`open:${key}`);
-      },
-      sendPrompt: async (key, message, contextBlocks) => {
-        calls.push(`send:${key}:${message}`);
-        contextBlocksByAgent[key] = contextBlocks;
+      sendManagedTerminal: async (bindingId, message) => {
+        calls.push(`send:${bindingId}:${message}`);
+        return true;
       },
     };
 
     await deliverPulse({ canvasName, sourceNodeId: regionId, kind: "manual", regionId, summary: "go", deps });
 
-    expect(calls).toEqual([
-      "open:remote-a:vega",
-      "send:remote-a:vega:[pulse] go",
-      "send:remote-a:nova:[pulse] go",
-    ]);
-    // Execution context rides as a separate ACP block.
-    expect(contextBlocksByAgent["remote-a:vega"]?.[0]).toContain("execution");
+    expect(calls.some((c) => c.includes("bind-remote-a-vega") && c.includes("[pulse] go"))).toBe(true);
+    expect(calls.some((c) => c.includes("bind-remote-a-nova") && c.includes("[pulse] go"))).toBe(true);
     const record = getPulseLog()[0];
     expect(record?.dry).toBe(false);
     expect(record?.delivered).toEqual(["remote-a:vega", "remote-a:nova"]);
@@ -398,10 +407,9 @@ describe("deliverPulse — injected delivery fn (no real chat calls)", () => {
 
   it("one agent's delivery failure doesn't sink the rest", async () => {
     const deps: PulseDeliverDeps = {
-      isLive: () => true,
-      openChat: async () => undefined,
-      sendPrompt: async (key) => {
-        if (key === "remote-a:vega") throw new Error("boom");
+      sendManagedTerminal: async (bindingId) => {
+        if (bindingId.includes("vega")) throw new Error("boom");
+        return true;
       },
     };
     await deliverPulse({ canvasName, sourceNodeId: regionId, kind: "manual", regionId, summary: "go", deps });
@@ -431,7 +439,14 @@ describe("I9 — single membership authority: kernel path matches rollup path", 
         y: 50,
         width: 100,
         height: 50,
-        ether: { entity: { kind: "agent", name: "remote-a:inside" } },
+        ether: {
+          entity: { kind: "agent", name: "remote-a:inside" },
+          terminal: {
+            bindingId: "bind-remote-a-inside",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
       },
       {
         id: "agent-straddler",
@@ -441,7 +456,14 @@ describe("I9 — single membership authority: kernel path matches rollup path", 
         y: 300,
         width: 150,
         height: 150,
-        ether: { entity: { kind: "agent", name: "remote-a:straddler" } },
+        ether: {
+          entity: { kind: "agent", name: "remote-a:straddler" },
+          terminal: {
+            bindingId: "bind-remote-a-straddler",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
       },
     ],
     edges: [],
@@ -456,11 +478,7 @@ describe("I9 — single membership authority: kernel path matches rollup path", 
     __resetPulseLogForTest();
     __setDocsForTest(new Map([[canvasName, doc]]));
     setArmed(`${canvasName}::${regionId}`, true);
-    const deps: PulseDeliverDeps = {
-      isLive: () => true,
-      openChat: async () => undefined,
-      sendPrompt: async () => undefined,
-    };
+    const deps: PulseDeliverDeps = { sendManagedTerminal: async () => true };
     await deliverPulse({ canvasName, sourceNodeId: regionId, kind: "manual", regionId, summary: "go", deps });
     const record = getPulseLog()[0];
     expect(record?.delivered).toEqual(["remote-a:inside"]);
@@ -527,7 +545,14 @@ describe("I14 — pulse delivery: edges route; geometry does not mint", () => {
       y: 200,
       width: 100,
       height: 50,
-      ether: { entity: { kind: "agent", name: "local:in-region-no-edge" } },
+      ether: {
+          entity: { kind: "agent", name: "local:in-region-no-edge" },
+          terminal: {
+            bindingId: "bind-local-in-region-no-edge",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
     },
     // In-region, edged from watcher.
     {
@@ -538,7 +563,14 @@ describe("I14 — pulse delivery: edges route; geometry does not mint", () => {
       y: 200,
       width: 100,
       height: 50,
-      ether: { entity: { kind: "agent", name: "local:in-region-edged" } },
+      ether: {
+          entity: { kind: "agent", name: "local:in-region-edged" },
+          terminal: {
+            bindingId: "bind-local-in-region-edged",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
     },
     // Outside region, edged from watcher — still receives (geometry is not the router).
     {
@@ -549,7 +581,14 @@ describe("I14 — pulse delivery: edges route; geometry does not mint", () => {
       y: 900,
       width: 100,
       height: 50,
-      ether: { entity: { kind: "agent", name: "local:outside-edged" } },
+      ether: {
+          entity: { kind: "agent", name: "local:outside-edged" },
+          terminal: {
+            bindingId: "bind-local-outside-edged",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
     },
     // Outside region, no edge — never receives.
     {
@@ -560,17 +599,23 @@ describe("I14 — pulse delivery: edges route; geometry does not mint", () => {
       y: 900,
       width: 100,
       height: 50,
-      ether: { entity: { kind: "agent", name: "local:outside-no-edge" } },
+      ether: {
+          entity: { kind: "agent", name: "local:outside-no-edge" },
+          terminal: {
+            bindingId: "bind-local-outside-no-edge",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
     },
   ];
 
   const recordingDeps = () => {
     const sent: string[] = [];
     const deps: PulseDeliverDeps = {
-      isLive: () => true,
-      openChat: async () => undefined,
-      sendPrompt: async (key) => {
-        sent.push(key);
+      sendManagedTerminal: async (bindingId) => {
+        sent.push(bindingId);
+        return true;
       },
     };
     return { deps, sent };
@@ -640,7 +685,8 @@ describe("I14 — pulse delivery: edges route; geometry does not mint", () => {
     expect(record?.delivered).toHaveLength(2);
     expect(record?.delivered).not.toContain("local:in-region-no-edge");
     expect(record?.delivered).not.toContain("local:outside-no-edge");
-    expect(sent).toEqual(record?.delivered);
+    expect(sent).toHaveLength(2);
+    expect(sent.every((b) => b.startsWith("bind-"))).toBe(true);
   });
 
   it("timer fire: same edge-only routing (geometry does not mint)", async () => {
@@ -664,7 +710,7 @@ describe("I14 — pulse delivery: edges route; geometry does not mint", () => {
     expect(record?.dry).toBe(false);
     expect(record?.kind).toBe("timer");
     expect(record?.delivered).toEqual(["local:outside-edged"]);
-    expect(sent).toEqual(["local:outside-edged"]);
+    expect(sent).toEqual(["bind-local-outside-edged"]);
   });
 
   it("manual region pulse still reaches eligible members (operator action, unchanged)", async () => {
@@ -695,6 +741,7 @@ describe("I14 — pulse delivery: edges route; geometry does not mint", () => {
     expect(record?.delivered).toHaveLength(2);
     expect(record?.delivered).not.toContain("local:outside-edged");
     expect(record?.delivered).not.toContain("local:outside-no-edge");
-    expect(sent).toEqual(record?.delivered);
+    expect(sent).toHaveLength(2);
+    expect(sent.every((b) => b.startsWith("bind-"))).toBe(true);
   });
 });

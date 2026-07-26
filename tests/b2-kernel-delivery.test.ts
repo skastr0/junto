@@ -66,7 +66,14 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
         width: 100,
         height: 50,
         // local host so command-center station scope (default) may fire + deliver
-        ether: { entity: { kind: "agent", name: "local:vega" } },
+        ether: {
+          entity: { kind: "agent", name: "local:vega" },
+          terminal: {
+            bindingId: "bind-local-vega",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
       },
     ],
     // Host-scoped fire routes on edges, not region membership alone.
@@ -95,11 +102,9 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
     // ssh-stalled chat turn bounded only by the 15-minute IPC ceiling).
     let sendStarted = false;
     const hangingDeps: PulseDeliverDeps = {
-      isLive: () => true,
-      openChat: async () => undefined,
-      sendPrompt: () => {
+      sendManagedTerminal: async () => {
         sendStarted = true;
-        return new Promise<void>(() => {}); // never resolves
+        return new Promise<boolean>(() => {}); // never resolves
       },
     };
     __setDeliveryDepsForTest(hangingDeps);
@@ -197,7 +202,14 @@ describe("deliverPulse — pause gates the target seat, not only the source", ()
         y: 140,
         width: 100,
         height: 50,
-        ether: { entity: { kind: "agent", name: "local:vega" } },
+        ether: {
+          entity: { kind: "agent", name: "local:vega" },
+          terminal: {
+            bindingId: "bind-local-vega",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
       },
       {
         id: "agent-b",
@@ -207,7 +219,14 @@ describe("deliverPulse — pause gates the target seat, not only the source", ()
         y: 140,
         width: 100,
         height: 50,
-        ether: { entity: { kind: "agent", name: "local:rigel" } },
+        ether: {
+          entity: { kind: "agent", name: "local:rigel" },
+          terminal: {
+            bindingId: "bind-local-rigel",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
       },
     ],
     edges: [
@@ -231,17 +250,12 @@ describe("deliverPulse — pause gates the target seat, not only the source", ()
     setPausedLookup(() => false);
   });
 
-  it("a live source never opens or prompts a paused agent seat; unpaused seats still receive", async () => {
-    const opened: string[] = [];
+  it("a live source never prompts a paused agent seat; unpaused seats still receive", async () => {
     const prompted: string[] = [];
     __setDeliveryDepsForTest({
-      // isLive false: an un-gated path would even wake a dead session (openChat).
-      isLive: () => false,
-      openChat: async (key) => {
-        opened.push(key);
-      },
-      sendPrompt: async (key) => {
-        prompted.push(key);
+      sendManagedTerminal: async (bindingId) => {
+        prompted.push(bindingId);
+        return true;
       },
     });
     // Operator paused node agent-a; source watcher, region, and canvas stay live.
@@ -255,8 +269,7 @@ describe("deliverPulse — pause gates the target seat, not only the source", ()
       summary: "fire",
     });
 
-    expect(opened).toEqual(["local:rigel"]);
-    expect(prompted).toEqual(["local:rigel"]);
+    expect(prompted).toEqual(["bind-local-rigel"]);
     const log = getPulseLog();
     const record = log[log.length - 1];
     expect(record?.dry).toBe(false);

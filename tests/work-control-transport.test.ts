@@ -62,7 +62,14 @@ const seedDoc = (): CanvasDoc => ({
       width: 120,
       height: 48,
       text: "agent",
-      ether: { entity: { kind: "agent", name: "local:agent" } },
+      ether: {
+        entity: { kind: "agent", name: "local:agent" },
+        terminal: {
+          bindingId: "bind-agent",
+          harness: "claude",
+          launch: { kind: "harness", argv: ["claude"] },
+        },
+      },
     },
     {
       id: "tasks",

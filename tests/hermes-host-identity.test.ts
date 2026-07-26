@@ -67,6 +67,11 @@ const routedDoc = (
       ether: {
         entity: { kind: "agent", name: agentKey },
         host: agentHost,
+        terminal: {
+          bindingId: `bind-${agentKey.replace(/[^a-z0-9]+/gi, "-")}`,
+          harness: "claude",
+          launch: { kind: "harness", argv: ["claude"] },
+        },
       },
     },
   ],
@@ -148,8 +153,7 @@ describe("canonical Hermes station identity", () => {
 
   it("delivers a Remote watcher to its canonical same-host agent locally", async () => {
     const doc = routedDoc("studio", "studio", "fleet-studio:default");
-    const openChat = vi.fn(async () => undefined);
-    const sendPrompt = vi.fn(async () => undefined);
+    const sendManaged = vi.fn(async () => true);
     __setDocsForTest(new Map([["work", doc]]));
     __setStationScopeForTest({ hostId: "studio", role: "remote" });
     setArmed("work::region", true);
@@ -161,19 +165,15 @@ describe("canonical Hermes station identity", () => {
       regionId: "region",
       summary: "same host",
       deps: {
-        isLive: () => false,
-        openChat,
-        sendPrompt,
+        sendManagedTerminal: sendManaged,
       },
     });
 
     expect(agentKeysForWatcher(doc, "watcher", "remote", "studio"))
       .toEqual(["fleet-studio:default"]);
-    expect(openChat).toHaveBeenCalledWith("fleet-studio:default");
-    expect(sendPrompt).toHaveBeenCalledWith(
-      "fleet-studio:default",
+    expect(sendManaged).toHaveBeenCalledWith(
+      expect.stringContaining("bind-"),
       expect.stringContaining("same host"),
-      expect.any(Array),
     );
     const parsed = parseAgentKey("fleet-studio:default");
     expect(parsed && isLocalHermesHost(parsed.host, station)).toBe(true);
@@ -181,7 +181,7 @@ describe("canonical Hermes station identity", () => {
 
   it("keeps Command Center cross-host delivery on the non-local fleet route", async () => {
     const doc = routedDoc("local", "render", "fleet-render:default");
-    const sendPrompt = vi.fn(async () => undefined);
+    const sendManaged = vi.fn(async () => true);
     __setDocsForTest(new Map([["work", doc]]));
     __setStationScopeForTest({ hostId: "local", role: "command-center" });
     setArmed("work::region", true);
@@ -193,18 +193,15 @@ describe("canonical Hermes station identity", () => {
       regionId: "region",
       summary: "cross host",
       deps: {
-        isLive: () => true,
-        openChat: async () => undefined,
-        sendPrompt,
+        sendManagedTerminal: sendManaged,
       },
     });
 
     expect(agentKeysForWatcher(doc, "watcher", "command-center", "local"))
       .toEqual(["fleet-render:default"]);
-    expect(sendPrompt).toHaveBeenCalledWith(
-      "fleet-render:default",
+    expect(sendManaged).toHaveBeenCalledWith(
+      expect.stringContaining("bind-"),
       expect.stringContaining("cross host"),
-      expect.any(Array),
     );
     const parsed = parseAgentKey("fleet-render:default");
     expect(parsed && isLocalHermesHost(parsed.host, station)).toBe(false);
