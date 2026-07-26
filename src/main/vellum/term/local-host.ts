@@ -40,6 +40,10 @@ import {
   type TerminalObserverPlane,
 } from "./observer";
 import { seatStateRuntime } from "./agent-state";
+import {
+  armFirstTypedMessage,
+  clearFirstTypedMessage,
+} from "./first-typed";
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
 import { buildManagedSeatInject } from "./templates/seat-env";
 
@@ -63,6 +67,11 @@ export type LocalHostCreateInput = {
    * (`entity.kind === "agent"`). Absent → principal stays kind terminal.
    */
   readonly agentKey?: string;
+  /**
+   * Tier B doctrine body — armed for first idle delivery via ManagedTerminalDrive.
+   * Never written into harness configs; typed only.
+   */
+  readonly firstTypedMessage?: string;
 };
 
 export type LocalHostEvent =
@@ -456,9 +465,15 @@ export class LocalSessionHost extends EventEmitter {
       if (input.harness?.trim()) {
         seatStateRuntime.bindHarness(bindingId, input.harness.trim(), epoch);
       }
+      const firstTyped = input.firstTypedMessage?.trim();
+      if (firstTyped) {
+        clearFirstTypedMessage(bindingId);
+        armFirstTypedMessage(bindingId, firstTyped);
+      }
       if (!this.liveRecords.has(rec)) {
         this.observerPlane.detach(bindingId, epoch);
         if (input.harness?.trim()) seatStateRuntime.unbind(bindingId);
+        clearFirstTypedMessage(bindingId);
         return this.summaryOf(rec);
       }
 
@@ -911,6 +926,7 @@ export class LocalSessionHost extends EventEmitter {
     // Drop headless grid for this exact generation (epoch-gated).
     this.observerPlane.detach(rec.bindingId, rec.epoch);
     seatStateRuntime.unbind(rec.bindingId);
+    clearFirstTypedMessage(rec.bindingId);
     if (!this.liveRecords.delete(rec) || this.liveRecords.size !== 0) return;
     const waiters = [...this.allExitedWaiters];
     this.allExitedWaiters.clear();

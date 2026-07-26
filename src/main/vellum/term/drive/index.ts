@@ -12,6 +12,7 @@ export {
 
 export {
   ManagedTerminalDrive,
+  DEFAULT_QUEUE_TIMEOUT_MS,
   type ClipboardSafeAssert,
   type DriveAttentionCallback,
   type DriveAttentionReason,

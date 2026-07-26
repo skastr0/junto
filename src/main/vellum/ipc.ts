@@ -37,8 +37,15 @@ import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { ManagedTerminalDrive } from "./term/drive";
+import { assertMacClipboardSafeForPaste } from "./term/drive/clipboard-safe";
+import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
+import {
+  peekFirstTypedMessage,
+  takeFirstTypedMessage,
+} from "./term/first-typed";
 import { setManagedPulseDeliver } from "./term/managed-pulse-bridge";
+import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
 import type { ControlLease } from "./term/local-host";
 import { isTrustedMainWebContents, trustedRendererIpc } from "./trusted-main-webcontents";
@@ -650,6 +657,8 @@ export const registerVellumIpc = (): void => {
           return ok;
         },
         isSeatIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
+        // Grok (and all seats): never paste when macOS clipboard holds an image.
+        assertClipboardSafe: assertMacClipboardSafeForPaste,
         onAttention: (bindingId, reason) => {
           broadcast(IPC_CHANNELS.agentSeatStateChanged, {
             bindingId,
@@ -659,9 +668,30 @@ export const registerVellumIpc = (): void => {
           });
         },
       });
+      const driveReady = (bindingId: string): boolean => {
+        const slot = seatStateRuntime.machine.getSlot(bindingId);
+        return isManagedTerminalReady({
+          harness: slot?.harness,
+          seatState: seatStateRuntime.getState(bindingId),
+          snapshot: terminalObserverPlane.snapshot(bindingId),
+        });
+      };
+      const writeManagedPrompt = (bindingId: string, text: string) =>
+        managedDrive.writePrompt(bindingId, text, {
+          ready: driveReady(bindingId),
+        });
       seatStateRuntime.subscribe((event) => {
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
         if (event.state === "idle") {
+          // Tier B doctrine: first typed message once seat is ready+idle.
+          // Peek first — only consume after a successful write so not-ready
+          // / queue-timeout can retry on the next idle event.
+          const first = peekFirstTypedMessage(event.bindingId);
+          if (first && driveReady(event.bindingId)) {
+            void writeManagedPrompt(event.bindingId, first).then((ok) => {
+              if (ok) takeFirstTypedMessage(event.bindingId);
+            });
+          }
           managedDrive.onSeatIdle(event.bindingId);
           messageDelivery.onManagedTerminalIdle(event.bindingId);
         }
@@ -670,9 +700,7 @@ export const registerVellumIpc = (): void => {
         }
       });
       // Kernel pulses for managed seats (not ACP).
-      setManagedPulseDeliver((bindingId, text) =>
-        managedDrive.writePrompt(bindingId, text, { ready: true }),
-      );
+      setManagedPulseDeliver((bindingId, text) => writeManagedPrompt(bindingId, text));
 
       // Message nudge channel: ether.messages → live ACP / herdr / managed terminal.
       // Retry only on session-live / stream-attach / seat-idle (no polling store).
@@ -692,9 +720,9 @@ export const registerVellumIpc = (): void => {
           },
           // Unmanaged raw terminal nodes: still no auto-submit.
           sendTerminalPaste: (_bindingId, _text, _messageId) => false,
-          // Managed agent seats: paste+CR via drive (idle-gated when Phase 2 lands).
+          // Managed agent seats: paste+CR via idle-gated drive + readiness.
           sendManagedTerminalPrompt: (bindingId, text) =>
-            managedDrive.writePrompt(bindingId, text, { ready: true }),
+            writeManagedPrompt(bindingId, text),
         },
         store: {
           listCanvasNames: () =>

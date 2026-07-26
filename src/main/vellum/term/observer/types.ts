@@ -47,6 +47,10 @@ export type SessionObserverOptions = {
   readonly epoch: string;
   readonly cols: number;
   readonly rows: number;
-  /** Unicode version pin — both grids must agree (plan trap: wide-char columns). */
-  readonly unicodeVersion?: "6" | "11";
+  /**
+   * Unicode version pin. Stock headless only has `"6"`. `"11"` requires
+   * `@xterm/addon-unicode11` on both headless and renderer — do not request
+   * it until that addon is loaded everywhere.
+   */
+  readonly unicodeVersion?: "6";
 };

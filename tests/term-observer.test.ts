@@ -135,10 +135,11 @@ describe("SessionObserver", () => {
       epoch: "e1",
       cols: 20,
       rows: 5,
-      unicodeVersion: "11",
+      unicodeVersion: "6",
     });
     try {
       // Fullwidth + CJK — column arithmetic must not throw / corrupt.
+      // Headless stock only has unicode v6 (same as renderer default).
       await feedAndWait(obs, "日本語テスト\r\n中文\r\n");
       const snap = await obs.snapshot();
       expect(snap.lines.length).toBe(5);

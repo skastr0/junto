@@ -34,6 +34,7 @@ import { factoryClaimTick } from "@shared/factory-tick";
 import { listPendingDeliveries } from "@shared/message-delivery";
 import { seatPaused } from "@shared/pause";
 import { messageDelivery } from "../work/message-delivery";
+import { ensureManagedSeatRunning } from "../term/ensure-managed-seat";
 import { managedPulseDeliver } from "../term/managed-pulse-bridge";
 import {
   checkTimers,
@@ -367,6 +368,13 @@ const makeKernelService = (
     for (const [canvasName, doc] of docs) {
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
+      // Start managed PTYs for actor seats before claim so idle gate can open.
+      for (const node of doc.nodes) {
+        if (node.ether?.entity?.kind !== "agent") continue;
+        if (!node.ether.terminal?.bindingId) continue;
+        if (seatPaused(state, doc, node.id)) continue;
+        ensureManagedSeatRunning(canvasName, doc, node);
+      }
       // Probe on the tracked doc; only touch authority when something claims.
       const probe = factoryClaimTick(doc, canvasName, undefined, {
         seatPaused: (nodeId) => seatPaused(state, doc, nodeId),
@@ -387,6 +395,13 @@ const makeKernelService = (
           const result = await Effect.runPromise(Effect.either(canvases.read(canvasName)));
           if (result._tag === "Right") {
             docs.set(canvasName, result.right.doc);
+            // Ensure claimed actors have a live PTY (claim may race first open).
+            for (const claim of probe.claimed) {
+              const actor = result.right.doc.nodes.find(
+                (n) => n.id === claim.actor || n.ether?.entity?.name === claim.actor,
+              );
+              if (actor) ensureManagedSeatRunning(canvasName, result.right.doc, actor);
+            }
             // Assignment messages on actor seats → managed drive mailbox.
             for (const pending of listPendingDeliveries(result.right.doc)) {
               messageDelivery.notifyAppended(

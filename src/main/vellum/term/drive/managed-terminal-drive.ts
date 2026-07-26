@@ -2,10 +2,9 @@
  * Managed-terminal drive — state-gated typing transport for agent seats.
  *
  * Owns: paste+CR recipe, idle gate, mid-turn queue, interrupt spacing, stall retry.
- * Does not own: PTY leases, seat state machine, clipboard osascript (hook only).
+ * Does not own: PTY leases, seat state machine (injected lookups).
  *
- * Phase 2 plugs `isSeatIdle` from the agent state machine. Until then callers
- * inject a lookup (tests: fake; production default: always-idle with TODO).
+ * Fail-closed: not idle → queue (bounded); never hang forever on the pulse path.
  */
 
 import {
@@ -32,7 +31,11 @@ export type DriveAttentionReason =
   | "clipboard-unsafe"
   | "prompt-stalled"
   | "write-failed"
-  | "not-ready";
+  | "not-ready"
+  | "queue-timeout";
+
+/** Default max wait for a mid-turn queued prompt before resolving false. */
+export const DEFAULT_QUEUE_TIMEOUT_MS = 30_000;
 
 export type DriveAttentionCallback = (
   bindingId: string,
@@ -48,17 +51,19 @@ export type ClipboardSafeAssert = () => boolean | Promise<boolean>;
 
 export type WritePromptOptions = {
   /**
-   * Hermes readiness: caller must pass `ready: true` from a positive UI signal
-   * (title/grid/hooks). Never gate on a byte-stream quiet-gap — the
-   * "Installing TUI dependencies…" window swallows Ctrl+C and kills the session.
-   * Default true for harnesses that are spawn-ready; Hermes callers must set it.
+   * Positive UI readiness (not a quiet-gap). When false, abort to attention
+   * without writing — Hermes install window swallows Ctrl+C and kills the session.
+   * Default true when omitted (caller responsibility to pass false when unready).
    */
   readonly ready?: boolean;
+  /** Override queue wait when seat is busy (default DEFAULT_QUEUE_TIMEOUT_MS). */
+  readonly queueTimeoutMs?: number;
 };
 
 type QueuedPrompt = {
   readonly text: string;
   readonly resolve: (ok: boolean) => void;
+  timer: ReturnType<typeof setTimeout> | undefined;
 };
 
 export type ManagedTerminalDriveOptions = {
@@ -69,6 +74,7 @@ export type ManagedTerminalDriveOptions = {
   readonly now?: () => number;
   readonly stallTimeoutMs?: number;
   readonly idleInterruptGapMs?: number;
+  readonly queueTimeoutMs?: number;
   /**
    * When true (default), after paste+CR arm a stall watch: no onTurnStart
    * within stallTimeoutMs → retry once → attention.
@@ -84,6 +90,7 @@ export class ManagedTerminalDrive {
   private readonly now: () => number;
   private readonly stallTimeoutMs: number;
   private readonly idleInterruptGapMs: number;
+  private readonly queueTimeoutMs: number;
   private readonly stallWatch: boolean;
 
   private readonly queues = new Map<string, QueuedPrompt[]>();
@@ -101,12 +108,13 @@ export class ManagedTerminalDrive {
     this.now = options.now ?? (() => Date.now());
     this.stallTimeoutMs = options.stallTimeoutMs ?? DEFAULT_PROMPT_STALL_MS;
     this.idleInterruptGapMs = options.idleInterruptGapMs ?? MIN_IDLE_INTERRUPT_GAP_MS;
+    this.queueTimeoutMs = options.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS;
     this.stallWatch = options.stallWatch ?? true;
   }
 
   /**
    * Deliver one submitted prompt when idle. Queues when the seat is busy;
-   * promise resolves when the write lands (or fails).
+   * promise resolves when the write lands, fails, or queue times out.
    * Returns false immediately for not-ready / clipboard-unsafe / write fail.
    */
   async writePrompt(
@@ -134,9 +142,35 @@ export class ManagedTerminalDrive {
     }
 
     if (!this.isSeatIdle(bindingId) || this.writing.has(bindingId)) {
+      const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
       return new Promise<boolean>((resolve) => {
+        const entry: QueuedPrompt = {
+          text,
+          resolve: (ok) => {
+            if (entry.timer !== undefined) clearTimeout(entry.timer);
+            entry.timer = undefined;
+            resolve(ok);
+          },
+          timer: undefined,
+        };
+        entry.timer = setTimeout(() => {
+          entry.timer = undefined;
+          // Drop this entry from the queue if still waiting.
+          const q = this.queues.get(bindingId);
+          if (q) {
+            const idx = q.indexOf(entry);
+            if (idx >= 0) {
+              q.splice(idx, 1);
+              if (q.length === 0) this.queues.delete(bindingId);
+              else this.queues.set(bindingId, q);
+            }
+          }
+          this.onAttention?.(bindingId, "queue-timeout");
+          resolve(false);
+        }, timeoutMs);
+        entry.timer.unref?.();
         const q = this.queues.get(bindingId) ?? [];
-        q.push({ text, resolve });
+        q.push(entry);
         this.queues.set(bindingId, q);
       });
     }
@@ -194,7 +228,10 @@ export class ManagedTerminalDrive {
     for (const timer of this.stallTimers.values()) clearTimeout(timer);
     this.stallTimers.clear();
     for (const q of this.queues.values()) {
-      for (const item of q) item.resolve(false);
+      for (const item of q) {
+        if (item.timer !== undefined) clearTimeout(item.timer);
+        item.resolve(false);
+      }
     }
     this.queues.clear();
     this.writing.clear();

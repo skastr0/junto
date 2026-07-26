@@ -1,9 +1,14 @@
 /**
  * One headless xterm per live local terminal session.
  * Fed from LocalSessionHost.observeData — every PTY byte with a seq.
+ *
+ * @xterm/headless is CommonJS with no ESM export map. electron-vite externalizes
+ * deps, so a named ESM import dies at app link time with
+ * "Named export 'Terminal' not found". Load via createRequire (works in Node +
+ * Electron main); Vite in-process interop hid this from unit tests.
  */
 
-import { Terminal } from "@xterm/headless";
+import { createRequire } from "node:module";
 import { sanitizeTitle } from "./sanitize";
 import {
   afterLastHorizontalRule,
@@ -20,12 +25,55 @@ import type {
   SessionObserverOptions,
 } from "./types";
 
-const DEFAULT_UNICODE: "6" | "11" = "11";
+const require = createRequire(import.meta.url);
+// CJS package: require() returns { Terminal }. Do not use ESM named import.
+// Structural typing only — full @xterm/headless types are ESM-named and break
+// the Electron main link when imported.
+type HeadlessTerminal = {
+  cols: number;
+  rows: number;
+  unicode: { activeVersion: string; versions: string[] };
+  buffer: {
+    active: {
+      baseY: number;
+      cursorY: number;
+      viewportY: number;
+      length: number;
+      getLine: (y: number) =>
+        | { translateToString: (trimRight?: boolean, start?: number, end?: number) => string }
+        | undefined;
+    };
+  };
+  parser: {
+    registerOscHandler: (
+      ident: number,
+      cb: (data: string) => boolean,
+    ) => { dispose: () => void };
+    registerCsiHandler: (
+      id: { prefix?: string; intermediates?: string; final: string },
+      cb: (params: Array<number | number[]>) => boolean,
+    ) => { dispose: () => void };
+  };
+  write: (data: string, cb?: () => void) => void;
+  resize: (cols: number, rows: number) => void;
+  dispose: () => void;
+};
+const { Terminal } = require("@xterm/headless") as {
+  Terminal: new (options?: Record<string, unknown>) => HeadlessTerminal;
+};
+
+/**
+ * Stock @xterm/headless ships only Unicode version "6". Version "11" requires
+ * @xterm/addon-unicode11 on *both* headless and renderer grids. Pin to "6"
+ * until that addon is loaded everywhere — a silent try/catch was a false
+ * guarantee (assignment always threw for "11").
+ */
+const DEFAULT_UNICODE = "6" as const;
 
 export class SessionObserver {
   readonly bindingId: string;
   readonly epoch: string;
-  private readonly term: Terminal;
+  private readonly term: HeadlessTerminal;
   private readonly disposables: Array<{ dispose: () => void }> = [];
   private readonly listeners = new Set<ObserverListener>();
   private title = "";
@@ -49,11 +97,17 @@ export class SessionObserver {
       allowProposedApi: true,
       scrollback: Math.max(rows * 4, 200),
     });
-    // Pin unicode version so wide-char column math is stable across tests + prod.
+    const wanted = opts.unicodeVersion ?? DEFAULT_UNICODE;
     try {
-      this.term.unicode.activeVersion = opts.unicodeVersion ?? DEFAULT_UNICODE;
-    } catch {
-      // Older headless builds may lack the API — leave default.
+      this.term.unicode.activeVersion = wanted;
+    } catch (err) {
+      // Never silent: false pin is worse than default.
+      console.warn(
+        `[term-observer] unicode.activeVersion=${JSON.stringify(wanted)} failed ` +
+          `(active=${JSON.stringify(this.term.unicode?.activeVersion)}; ` +
+          `versions=${JSON.stringify(this.term.unicode?.versions)}); ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
     }
     this.installHandlers();
   }

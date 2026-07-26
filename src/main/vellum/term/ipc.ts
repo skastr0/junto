@@ -89,6 +89,46 @@ export const registerTerminalIpc = (
 
   ipcMain.handle(IPC_CHANNELS.terminalCreate, async (event, input) => {
     assertTrusted(event);
+    // Edge-aware injection replan at spawn (document may be unconnected silence).
+    const canvasName =
+      typeof input?.canvasName === "string" ? input.canvasName.trim() : "";
+    const nodeId = typeof input?.nodeId === "string" ? input.nodeId.trim() : "";
+    const harness =
+      typeof input?.harness === "string" ? input.harness.trim() : undefined;
+    if (canvasName && nodeId && harness) {
+      try {
+        const { CanvasesService } = await import("../canvases");
+        const { AppRuntime } = await import("../../runtime");
+        const { Effect } = await import("effect");
+        const { launchForManagedSpawn } = await import("./managed-spawn-plan");
+        const read = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const canvases = yield* CanvasesService;
+            return yield* canvases.read(canvasName).pipe(Effect.either);
+          }),
+        );
+        if (read._tag === "Right") {
+          const planned = launchForManagedSpawn({
+            doc: read.right.doc,
+            nodeId,
+            harness,
+            documentLaunch: input.launch,
+            agentKey:
+              typeof input?.agentKey === "string" ? input.agentKey : undefined,
+            cwd: input.launch?.cwd,
+          });
+          return router.create({
+            ...input,
+            ...(planned.launch ? { launch: planned.launch } : {}),
+            ...(planned.plan?.firstTypedMessage
+              ? { firstTypedMessage: planned.plan.firstTypedMessage }
+              : {}),
+          });
+        }
+      } catch (err) {
+        console.error("[term] managed spawn replan failed; using document launch:", err);
+      }
+    }
     return router.create(input);
   });
 
