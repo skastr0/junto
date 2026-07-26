@@ -101,6 +101,12 @@ export const EtherTerminal = Schema.Struct({
    * seat was created via the harness picker — drives seat state + open path.
    */
   harness: Schema.optionalWith(Schema.String, { exact: true }),
+  /**
+   * Harness session/thread id for cold wake.
+   * Pin harnesses (Claude/Grok): minted at authoring, passed as --session-id.
+   * Capture harnesses (Codex/Hermes): written when runtime observes the id.
+   */
+  sessionId: Schema.optionalWith(Schema.String, { exact: true }),
 });
 export type EtherTerminal = typeof EtherTerminal.Type;
 

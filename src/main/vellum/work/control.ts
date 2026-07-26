@@ -645,16 +645,19 @@ const dispatchOp = (
           details: { path: "text", retryable: false },
         });
       }
-      // Authority: work-control is an agent surface. Role is never client-
-      // chosen — always "agent" so the nudge channel cannot be forced open
-      // by role=user spoof (message delivery only delivers foreign user msgs).
+      // Factory mail: deliver as *foreign* user text so the mailbox types it
+      // into the recipient's managed terminal. Own-echo still uses agent role
+      // for self-history; inter-seat mail must not use makeAgentMessage.
       const messageId = ulid();
       const contextId = caller.canvasName;
-      const message: Message = makeAgentMessage({
+      const from = caller.nodeId.trim() || "seat";
+      const body = `[factory mail from ${from}] ${text}`;
+      const message: Message = makeUserMessage({
         messageId,
-        text,
+        text: body,
         contextId,
         ...(decoded.right.taskId ? { taskId: decoded.right.taskId } : {}),
+        metadata: { factoryMail: true, fromSeat: from },
       });
       const result = yield* work.workMessageAppend(
         caller.canvasName,

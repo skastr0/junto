@@ -6,6 +6,7 @@
 import type { AgentSeatState, AgentSeatStateEvent } from "../../../../shared/agent-seat-state";
 import { terminalObserverPlane } from "../observer";
 import type { ObserverGridSnapshot } from "../observer/types";
+import { attachOscHookFeed } from "./hook-feed";
 import { SeatStateMachine } from "./seat-state-machine";
 import type { SeatHarnessId } from "./types";
 import { isSeatHarnessId } from "./rules";
@@ -22,6 +23,7 @@ export type SeatStateRuntimeOptions = {
 export class SeatStateRuntime {
   readonly machine: SeatStateMachine;
   private unsubObserver: (() => void) | undefined;
+  private unsubHookFeed: (() => void) | undefined;
   private readonly harnessByBinding = new Map<string, SeatHarnessId | string>();
   private readonly eventListeners = new Set<(event: AgentSeatStateEvent) => void>();
 
@@ -46,11 +48,17 @@ export class SeatStateRuntime {
     this.unsubObserver = terminalObserverPlane.subscribeAll((snap) => {
       this.onSnapshot(snap);
     });
+    // OSC → setHookState so hooks→OSC→grid rank is live (not dead API).
+    this.unsubHookFeed = attachOscHookFeed(this.machine, (listener) =>
+      terminalObserverPlane.subscribeAll(listener),
+    );
   }
 
   stop(): void {
     this.unsubObserver?.();
     this.unsubObserver = undefined;
+    this.unsubHookFeed?.();
+    this.unsubHookFeed = undefined;
     this.machine.dispose();
     this.harnessByBinding.clear();
     this.eventListeners.clear();

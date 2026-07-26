@@ -44,6 +44,11 @@ import {
   armFirstTypedMessage,
   clearFirstTypedMessage,
 } from "./first-typed";
+import {
+  extractSessionIdFromText,
+  recordCapturedSessionId,
+  clearCapturedSessionId,
+} from "./session-id-store";
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
 import { buildManagedSeatInject } from "./templates/seat-env";
 
@@ -174,6 +179,8 @@ type SessionRec = {
   nodeId?: string;
   /** Actor key when this generation is an agent seat (process-bind principal). */
   agentKey?: string;
+  /** Managed harness id when this generation is a managed agent seat. */
+  harness?: string;
   detached: boolean;
   createdAt: number;
   seq: bigint;
@@ -404,6 +411,7 @@ export class LocalSessionHost extends EventEmitter {
       canvasName: input.canvasName,
       nodeId: input.nodeId,
       agentKey,
+      harness,
       detached: !(input.canvasName && input.nodeId),
       createdAt: Date.now(),
       seq: 0n,
@@ -829,6 +837,11 @@ export class LocalSessionHost extends EventEmitter {
     this.pushJournal(rec, { seq: rec.seq, type: "output", data });
     // Single insertion point: every byte already flows here with a seq.
     this.observerPlane.feed(rec.bindingId, data, rec.seq);
+    // Capture-only harness session ids (Codex/Hermes) when emitted into the stream.
+    if (rec.agentKey || rec.harness) {
+      const sid = extractSessionIdFromText(data);
+      if (sid) recordCapturedSessionId(rec.bindingId, sid);
+    }
     try {
       this.emitEvent({
         type: "output",
@@ -959,6 +972,7 @@ export class LocalSessionHost extends EventEmitter {
     this.observerPlane.detach(rec.bindingId, rec.epoch);
     seatStateRuntime.unbind(rec.bindingId);
     clearFirstTypedMessage(rec.bindingId);
+    clearCapturedSessionId(rec.bindingId);
     if (!this.liveRecords.delete(rec) || this.liveRecords.size !== 0) return;
     const waiters = [...this.allExitedWaiters];
     this.allExitedWaiters.clear();

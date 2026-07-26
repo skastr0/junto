@@ -36,7 +36,7 @@ import { stampMessageDelivered } from "@shared/message-delivery";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
-import { ManagedTerminalDrive } from "./term/drive";
+import { GROK_MIN_POST_SPAWN_MS, ManagedTerminalDrive } from "./term/drive";
 import { assertMacClipboardSafeForPaste } from "./term/drive/clipboard-safe";
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
@@ -680,6 +680,20 @@ export const registerVellumIpc = (): void => {
         managedDrive.writePrompt(bindingId, text, {
           ready: driveReady(bindingId),
         });
+      // Grok ≥1.5s post-spawn before first paste (verified trap).
+      termPlane.host.on("event", (payload: {
+        type?: string;
+        bindingId?: string;
+        status?: string;
+      }) => {
+        if (payload.type !== "session" || payload.status !== "running") return;
+        const bindingId = payload.bindingId;
+        if (!bindingId) return;
+        const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;
+        if (harness === "grok") {
+          managedDrive.markSpawned(bindingId, GROK_MIN_POST_SPAWN_MS);
+        }
+      });
       seatStateRuntime.subscribe((event) => {
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
         if (event.state === "idle") {

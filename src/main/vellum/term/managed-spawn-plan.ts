@@ -68,6 +68,10 @@ export type SpawnPlanInput = {
   readonly model?: string;
   readonly effort?: string;
   readonly cwd?: string;
+  /** Pin/resume session id from ether.terminal.sessionId. */
+  readonly sessionId?: string;
+  /** When true, treat sessionId as resume rather than first pin. */
+  readonly resume?: boolean;
 };
 
 /**
@@ -84,6 +88,7 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
       ? nodeIsConnectedToWork(input.doc, input.nodeId)
       : false;
 
+  const sessionId = input.sessionId?.trim();
   const choices: ManagedLaunchChoices = {
     injection: {
       connected,
@@ -97,6 +102,11 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     ...(input.profile ? { profile: input.profile } : {}),
     ...(input.model ? { model: input.model } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
+    ...(sessionId && input.resume
+      ? { resumeId: sessionId }
+      : sessionId
+        ? { sessionId }
+        : {}),
     ...(input.cwd
       ? { cwd: input.cwd }
       : input.documentLaunch?.cwd
@@ -114,18 +124,32 @@ export const launchForManagedSpawn = (
   readonly launch: TerminalLaunch | undefined;
   readonly plan: ManagedLaunchPlan | undefined;
 } => {
-  const plan = planManagedSpawn(input);
+  // Pull sessionId from node terminal when doc+node present.
+  let sessionId = input.sessionId;
+  let resume = input.resume;
+  if (input.doc && input.nodeId && !sessionId) {
+    const node = input.doc.nodes.find((n) => n.id === input.nodeId);
+    const stored = node?.ether?.terminal?.sessionId?.trim();
+    if (stored) {
+      sessionId = stored;
+      // Re-spawn of an existing seat with a stored id is always resume-capable.
+      resume = input.resume ?? true;
+    }
+  }
+  const plan = planManagedSpawn({ ...input, sessionId, resume });
   if (!plan) {
     return { launch: input.documentLaunch, plan: undefined };
   }
-  // Unconnected: keep document argv (may already be clean harness defaults).
+  // Unconnected but may still need session pin/resume on argv.
   if (!plan.injection.inject) {
+    // Prefer planned launch when session/resume flags were applied.
+    if (sessionId) return { launch: plan.launch, plan };
     return {
       launch: input.documentLaunch ?? plan.launch,
       plan,
     };
   }
-  // Connected: use planned argv (Tier A flags applied).
+  // Connected: use planned argv (Tier A flags + session).
   return { launch: plan.launch, plan };
 };
 

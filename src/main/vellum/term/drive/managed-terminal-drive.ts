@@ -58,7 +58,15 @@ export type WritePromptOptions = {
   readonly ready?: boolean;
   /** Override queue wait when seat is busy (default DEFAULT_QUEUE_TIMEOUT_MS). */
   readonly queueTimeoutMs?: number;
+  /**
+   * Earliest epoch-ms at which paste is allowed (Grok ≥1.5s post-spawn).
+   * When now < readyAfterMs, queue until then or fail not-ready if no wait.
+   */
+  readonly readyAfterMs?: number;
 };
+
+/** Grok TUI trap: paste before ~1.5s post-spawn is swallowed. */
+export const GROK_MIN_POST_SPAWN_MS = 1_500;
 
 type QueuedPrompt = {
   readonly text: string;
@@ -99,6 +107,8 @@ export class ManagedTerminalDrive {
   private readonly stallTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly stallRetried = new Set<string>();
   private readonly awaitingTurn = new Set<string>();
+  /** bindingId → earliest write time (Grok post-spawn, etc.). */
+  private readonly readyAfter = new Map<string, number>();
 
   constructor(options: ManagedTerminalDriveOptions) {
     this.writeFn = options.write;
@@ -110,6 +120,11 @@ export class ManagedTerminalDrive {
     this.idleInterruptGapMs = options.idleInterruptGapMs ?? MIN_IDLE_INTERRUPT_GAP_MS;
     this.queueTimeoutMs = options.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS;
     this.stallWatch = options.stallWatch ?? true;
+  }
+
+  /** Mark a binding as just spawned — enforces min delay before first paste. */
+  markSpawned(bindingId: string, minDelayMs: number = GROK_MIN_POST_SPAWN_MS): void {
+    this.readyAfter.set(bindingId, this.now() + Math.max(0, minDelayMs));
   }
 
   /**
@@ -126,6 +141,17 @@ export class ManagedTerminalDrive {
     if (!ready) {
       this.onAttention?.(bindingId, "not-ready");
       return false;
+    }
+
+    const readyAfter =
+      opts.readyAfterMs ?? this.readyAfter.get(bindingId) ?? 0;
+    const waitMs = readyAfter - this.now();
+    if (waitMs > 0) {
+      await new Promise<void>((r) => {
+        const t = setTimeout(r, waitMs);
+        t.unref?.();
+      });
+      this.readyAfter.delete(bindingId);
     }
 
     if (this.assertClipboardSafe) {
@@ -238,6 +264,7 @@ export class ManagedTerminalDrive {
     this.lastIdleInterruptAt.clear();
     this.stallRetried.clear();
     this.awaitingTurn.clear();
+    this.readyAfter.clear();
   }
 
   /** Queued prompt count for one binding (tests / diagnostics). */

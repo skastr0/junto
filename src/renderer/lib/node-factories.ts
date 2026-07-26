@@ -104,6 +104,33 @@ export const makeManagedAgentNode = (
     options.effort,
   ].filter((p): p is string => Boolean(p && p.trim()));
   const label = options.label?.trim() || parts.join(" · ");
+  // Pin harnesses get a durable session id at birth for cold wake / --session-id.
+  const pinSession =
+    template.capabilityBadges.sessionId === "pin"
+      ? ulid().toLowerCase().replace(/_/g, "")
+      : undefined;
+  // Re-resolve argv with session pin when supported.
+  const launchWithSession: EtherTerminalLaunch = pinSession
+    ? (() => {
+        const pinned = resolveManagedLaunch(
+          options.harness,
+          {
+            ...(options.profile ? { profile: options.profile } : {}),
+            ...(options.model ? { model: options.model } : {}),
+            ...(options.effort ? { effort: options.effort } : {}),
+            ...(options.cwd ? { cwd: options.cwd } : {}),
+            sessionId: pinSession,
+            injection: { connected: false },
+          },
+          {},
+        );
+        return {
+          kind: "harness" as const,
+          argv: pinned.argv,
+          ...(pinned.cwd ? { cwd: pinned.cwd } : {}),
+        };
+      })()
+    : launch;
   return {
     id: `agent-${ulid()}`,
     type: "text",
@@ -119,7 +146,8 @@ export const makeManagedAgentNode = (
         bindingId: ulid(),
         label,
         harness: options.harness,
-        launch,
+        launch: launchWithSession,
+        ...(pinSession ? { sessionId: pinSession } : {}),
       },
     },
   };
