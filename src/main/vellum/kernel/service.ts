@@ -359,10 +359,8 @@ const makeKernelService = (
     for (const [canvasName, doc] of docs) {
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
-      // Start managed PTYs for actor seats before claim so idle gate can open.
+      // Start managedAgent surfaces before claim so idle gate can open.
       for (const node of doc.nodes) {
-        if (node.ether?.entity?.kind !== "agent") continue;
-        if (!node.ether.terminal?.bindingId) continue;
         if (seatPaused(state, doc, node.id)) continue;
         ensureManagedSeatRunning(canvasName, doc, node);
       }

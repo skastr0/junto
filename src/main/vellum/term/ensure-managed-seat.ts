@@ -4,6 +4,10 @@
  */
 
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import {
+  actorDeliverySurfaceOf,
+  isManagedAgentNode,
+} from "@shared/actor-surface";
 import { launchForManagedSpawn } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
 
@@ -12,38 +16,32 @@ export const ensureManagedSeatRunning = (
   doc: CanvasDoc,
   node: CanvasNode,
 ): boolean => {
-  const terminal = node.ether?.terminal;
-  const bindingId = terminal?.bindingId?.trim();
-  const harness = terminal?.harness?.trim();
-  if (!bindingId || !harness) return false;
+  // Kind-discriminated: only managedAgent surface starts harness PTYs.
+  const surface = actorDeliverySurfaceOf(node);
+  if (!surface || surface._tag !== "managedAgent") return false;
 
-  const live = termPlane.host.get(bindingId);
+  const live = termPlane.host.get(surface.bindingId);
   if (live?.status === "running" || live?.status === "starting") return true;
-
-  const agentKey =
-    node.ether?.entity?.kind === "agent"
-      ? node.ether.entity.name?.trim()
-      : undefined;
 
   const planned = launchForManagedSpawn({
     doc,
     nodeId: node.id,
-    harness,
-    documentLaunch: terminal?.launch,
-    agentKey,
-    cwd: terminal?.launch?.cwd,
+    harness: surface.harness,
+    documentLaunch: surface.launch,
+    agentKey: surface.agentKey,
+    cwd: surface.launch?.cwd,
   });
 
   try {
     termPlane.host.create({
-      bindingId,
-      hostId: "local",
-      launch: planned.launch ?? terminal?.launch,
+      bindingId: surface.bindingId,
+      hostId: surface.hostId,
+      launch: planned.launch ?? surface.launch,
       canvasName,
       nodeId: node.id,
-      label: terminal?.label,
-      harness,
-      ...(agentKey ? { agentKey } : {}),
+      label: node.ether?.terminal?.label,
+      harness: surface.harness,
+      agentKey: surface.agentKey,
       ...(planned.plan?.firstTypedMessage
         ? { firstTypedMessage: planned.plan.firstTypedMessage }
         : {}),
@@ -51,22 +49,21 @@ export const ensureManagedSeatRunning = (
     return true;
   } catch (err) {
     console.error(
-      `[term] ensureManagedSeatRunning failed for ${bindingId}:`,
+      `[term] ensureManagedSeatRunning failed for ${surface.bindingId}:`,
       err,
     );
     return false;
   }
 };
 
-/** Start every free managed actor on the canvas that has a terminal binding. */
+/** Start every managed actor seat on the canvas. */
 export const ensureManagedSeatsForCanvas = (
   canvasName: string,
   doc: CanvasDoc,
 ): number => {
   let started = 0;
   for (const node of doc.nodes) {
-    if (node.ether?.entity?.kind !== "agent") continue;
-    if (!node.ether.terminal?.bindingId || !node.ether.terminal.harness) continue;
+    if (!isManagedAgentNode(node)) continue;
     if (ensureManagedSeatRunning(canvasName, doc, node)) started += 1;
   }
   return started;

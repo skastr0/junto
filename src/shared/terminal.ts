@@ -3,6 +3,7 @@
 // Never put PIDs, sockets, tokens, scrollback, or engine handles in the document.
 
 import { Schema } from "effect";
+import { actorDeliverySurfaceOf } from "./actor-surface";
 import type { CanvasNode, EtherHerdr, EtherTerminal, EtherTerminalLaunch, TerminalOnDelete } from "./canvas";
 import { resolveHerdrOnDelete, resolveTerminalOnDelete } from "./canvas";
 
@@ -147,74 +148,58 @@ export type ResolvedTerminalBinding =
 
 /**
  * Resolve a canvas node to a terminal surface binding.
- * Native `ether.terminal` wins when present with entity.kind terminal.
- * Legacy herdr nodes remain a separate document form.
+ * Kind-discriminated via actor-surface sum — no "if terminal OR agent OR acp".
  */
 export const resolveTerminalBinding = (
   node: CanvasNode,
 ): ResolvedTerminalBinding | undefined => {
-  const ether = node.ether;
-  if (!ether) return undefined;
-  const entityKind = ether.entity?.kind;
-
-  if (entityKind === "terminal" || ether.terminal) {
-    const t = ether.terminal as EtherTerminal | undefined;
-    const bindingId = t?.bindingId?.trim();
-    if (!bindingId) {
-      // Partially authored terminal node — still native-shaped when kind says so.
-      if (entityKind !== "terminal") return undefined;
-      return undefined;
+  const surface = actorDeliverySurfaceOf(node);
+  if (surface) {
+    switch (surface._tag) {
+      case "managedAgent":
+        return {
+          kind: "native",
+          hostId: surface.hostId,
+          bindingId: surface.bindingId,
+          onDelete: resolveTerminalOnDelete(node.ether?.terminal),
+          launch: surface.launch as TerminalLaunch | undefined,
+          label: node.ether?.terminal?.label,
+          harness: surface.harness,
+          agentKey: surface.agentKey,
+        };
+      case "rawTerminal":
+        return {
+          kind: "native",
+          hostId: surface.hostId,
+          bindingId: surface.bindingId,
+          onDelete: resolveTerminalOnDelete(node.ether?.terminal),
+          launch: surface.launch as TerminalLaunch | undefined,
+          label: node.ether?.terminal?.label,
+        };
+      case "legacyHerdr": {
+        const herdr = node.ether?.herdr;
+        if (!herdr) return undefined;
+        return {
+          kind: "herdr",
+          hostId: surface.hostId,
+          herdr,
+          onDelete: resolveHerdrOnDelete(herdr),
+        };
+      }
+      default: {
+        const _e: never = surface;
+        return _e;
+      }
     }
-    const hostId =
-      (typeof ether.host === "string" && ether.host.length > 0
-        ? ether.host
-        : undefined) ?? "local";
-    const harness =
-      typeof t?.harness === "string" && t.harness.trim().length > 0
-        ? t.harness.trim()
-        : undefined;
-    const agentKey =
-      entityKind === "agent" &&
-      typeof ether.entity?.name === "string" &&
-      ether.entity.name.trim().length > 0
-        ? ether.entity.name.trim()
-        : undefined;
-    return {
-      kind: "native",
-      hostId,
-      bindingId,
-      onDelete: resolveTerminalOnDelete(t),
-      launch: t?.launch,
-      label: t?.label,
-      ...(harness ? { harness } : {}),
-      ...(agentKey ? { agentKey } : {}),
-    };
   }
 
-  if (entityKind === "herdr" || ether.herdr) {
-    const herdr = ether.herdr;
-    if (!herdr) return undefined;
-    const hostId =
-      (typeof herdr.host === "string" && herdr.host.length > 0
-        ? herdr.host
-        : typeof ether.host === "string" && ether.host.length > 0
-          ? ether.host
-          : "local");
-    return {
-      kind: "herdr",
-      hostId,
-      herdr,
-      onDelete: resolveHerdrOnDelete(herdr),
-    };
-  }
-
+  // Partially authored terminal (kind terminal, missing binding) — not an actor surface yet.
+  if (node.ether?.entity?.kind === "terminal") return undefined;
   return undefined;
 };
 
 export const isTerminalNode = (node: CanvasNode): boolean =>
-  resolveTerminalBinding(node) !== undefined ||
-  node.ether?.entity?.kind === "terminal" ||
-  node.ether?.entity?.kind === "herdr";
+  resolveTerminalBinding(node) !== undefined;
 
 /** Runtime summary for inventory / quit dialog (never canvas). */
 export type TerminalSessionSummary = {

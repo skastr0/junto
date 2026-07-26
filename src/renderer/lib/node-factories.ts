@@ -56,28 +56,10 @@ export const makeGroupNode = (
   height: Math.round(size?.height ?? 320),
 });
 
-// An agent node — profile name plus its live hermes readout (running/stopped,
-// model, version). Legacy hermes-bound form without a managed terminal.
-export const makeAgentNode = (
-  x: number,
-  y: number,
-  label: string,
-  key: string,
-  host = "local",
-): TextNode => ({
-  id: `agent-${ulid()}`,
-  type: "text",
-  text: label,
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 240,
-  height: 96,
-  ether: { entity: { kind: "agent", name: key }, host },
-});
-
 /**
- * Managed-terminal actor seat — harness picker authoring result.
- * Opens via ether.terminal (not ACP). Secrets never stored in launch.env.
+ * Managed-terminal actor seat — the only legal agent authoring form.
+ * Kind `agent` ⇒ required ports: entity.name + terminal.bindingId + terminal.harness.
+ * Opens via managed terminal (not ACP). Secrets never stored in launch.env.
  */
 export const makeManagedAgentNode = (
   x: number,
@@ -141,6 +123,28 @@ export const makeManagedAgentNode = (
       },
     },
   };
+};
+
+/**
+ * @deprecated Bare agents are illegal. Always creates a managed-terminal seat.
+ * Prefer makeManagedAgentNode with an explicit harness.
+ */
+export const makeAgentNode = (
+  x: number,
+  y: number,
+  label: string,
+  key: string,
+  host = "local",
+): TextNode => {
+  const parts = key.split(":");
+  const profile = parts.length > 1 ? parts.slice(1).join(":") : undefined;
+  // Default harness claude — legacy callers must not produce agent-without-terminal.
+  return makeManagedAgentNode(x, y, {
+    harness: "claude",
+    host,
+    ...(profile ? { profile } : {}),
+    label,
+  });
 };
 
 // A tasks node — task list; blocks only when edged with criteria.mode tasks.

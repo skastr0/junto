@@ -414,8 +414,12 @@ export const EtherNodeExtension = Schema.Struct({
   messages: Schema.optionalWith(EtherMessages, { exact: true }),
   // Work-surface binding for entity.kind === "herdr". Not an EntitySource.
   herdr: Schema.optionalWith(EtherHerdr, { exact: true }),
-  // Work-surface binding for entity.kind === "terminal". Not an EntitySource.
-  // Host lives in ether.host (station truth); do not duplicate host here.
+  /**
+   * Work-surface binding for entity.kind === "terminal" (raw geography) OR
+   * entity.kind === "agent" (managed seat). For **agent**, sanitize requires
+   * bindingId + harness — kind is the discriminant; ports are not optional-OR.
+   * Host lives in ether.host (station truth); do not duplicate host here.
+   */
   terminal: Schema.optionalWith(EtherTerminal, { exact: true }),
   // Work-surface binding for entity.kind === "page" on a link node. Not an EntitySource.
   browser: Schema.optionalWith(EtherBrowser, { exact: true }),
@@ -526,6 +530,49 @@ const workStoreDecoders: ReadonlyArray<{
 // inventing grants.
 const RETIRED_SOURCE_NAMES = new Set(["tower", "quasar", "booth"]);
 
+/**
+ * Kind-discriminated actor ports (PCMI component invariant).
+ *
+ * `entity.kind === "agent"` *means* a managed-terminal seat: name + terminal.bindingId
+ * + terminal.harness are required. Illegal half-agents are demoted to furniture —
+ * never left as "agent without terminal" for delivery code to OR-check.
+ */
+const sanitizeActorSurfacePorts = (
+  ether: Record<string, unknown>,
+): { readonly ether: Record<string, unknown>; readonly changed: boolean } => {
+  const entityIn = ether.entity;
+  if (entityIn === null || typeof entityIn !== "object" || Array.isArray(entityIn)) {
+    return { ether, changed: false };
+  }
+  const entity = entityIn as Record<string, unknown>;
+  if (entity.kind !== "agent") return { ether, changed: false };
+
+  const name = typeof entity.name === "string" ? entity.name.trim() : "";
+  const termIn = ether.terminal;
+  const term =
+    termIn !== null && typeof termIn === "object" && !Array.isArray(termIn)
+      ? (termIn as Record<string, unknown>)
+      : undefined;
+  const bindingId =
+    typeof term?.bindingId === "string" ? term.bindingId.trim() : "";
+  const harness = typeof term?.harness === "string" ? term.harness.trim() : "";
+
+  if (name && bindingId && harness) return { ether, changed: false };
+
+  // Demote: strip agent entity. Keep a well-formed terminal as raw geography
+  // if bindingId alone is present; otherwise drop the broken terminal key.
+  const next: Record<string, unknown> = { ...ether };
+  delete next.entity;
+  if (term && bindingId) {
+    // Drop incomplete harness — raw terminal does not require it.
+    const { harness: _h, ...termRest } = term;
+    next.terminal = { ...termRest, bindingId };
+  } else {
+    delete next.terminal;
+  }
+  return { ether: next, changed: true };
+};
+
 /** Drop invalid work stores + retired vocabulary before full decode. */
 export const sanitizeWorkStores = (input: unknown): unknown => {
   if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
@@ -539,7 +586,7 @@ export const sanitizeWorkStores = (input: unknown): unknown => {
         if (n.ether === null || typeof n.ether !== "object" || Array.isArray(n.ether)) return node;
         const etherIn = n.ether as Record<string, unknown>;
         let changed = false;
-        const ether: Record<string, unknown> = { ...etherIn };
+        let ether: Record<string, unknown> = { ...etherIn };
         for (const { key, decode } of workStoreDecoders) {
           if (!(key in ether)) continue;
           if (decode(ether[key])._tag === "Left") {
@@ -556,6 +603,11 @@ export const sanitizeWorkStores = (input: unknown): unknown => {
             ether.watch = watchRest;
             changed = true;
           }
+        }
+        const ports = sanitizeActorSurfacePorts(ether);
+        if (ports.changed) {
+          ether = ports.ether;
+          changed = true;
         }
         if (!changed) return node;
         anyChanged = true;
