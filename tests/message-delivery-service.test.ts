@@ -272,6 +272,99 @@ describe("MessageDeliveryService", () => {
     expect(payloads[0]).toBe("[message · user] do the thing · task task-42");
   });
 
+  it("managed terminal prompt uses sendManagedTerminalPrompt when wired", async () => {
+    const msg = userMsg("mt", "claim task");
+    const base = herdrDoc([msg]);
+    const doc: CanvasDoc = {
+      ...base,
+      nodes: [{
+        ...base.nodes[0]!,
+        id: "terminal",
+        ether: {
+          entity: { kind: "terminal" },
+          terminal: { bindingId: "bind-mt" },
+          messages: { items: [msg] },
+        },
+      }],
+    };
+    const store = makeStore({ c: doc });
+    const prompts: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        isAgentLive: () => false,
+        sendAgentPrompt: async () => false,
+        sendHerdrText: () => false,
+        sendTerminalPaste: () => {
+          throw new Error("paste path must not run when managed prompt is wired");
+        },
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          prompts.push(text);
+          return true;
+        },
+      },
+      store,
+      now: () => 42,
+    });
+    service.notifyAppended("c", "terminal", msg);
+    await waitUntil(() => prompts.length === 1);
+    expect(prompts[0]).toBe("[message · user] claim task");
+    await waitUntil(async () => {
+      const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
+      return live?.metadata?.deliveredAt === 42;
+    });
+  });
+
+  it("managed terminal idle gate leave pending until onManagedTerminalIdle", async () => {
+    const msg = userMsg("idle-gate", "wait");
+    const base = herdrDoc([msg]);
+    const doc: CanvasDoc = {
+      ...base,
+      nodes: [{
+        ...base.nodes[0]!,
+        id: "terminal",
+        ether: {
+          entity: { kind: "terminal" },
+          terminal: { bindingId: "bind-idle" },
+          messages: { items: [msg] },
+        },
+      }],
+    };
+    const store = makeStore({ c: doc });
+    let accept = false;
+    const prompts: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        isAgentLive: () => false,
+        sendAgentPrompt: async () => false,
+        sendHerdrText: () => false,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          if (!accept) return false;
+          prompts.push(text);
+          return true;
+        },
+      },
+      store,
+      now: () => 7,
+    });
+    service.notifyAppended("c", "terminal", msg);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(prompts).toEqual([]);
+    expect(
+      (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt,
+    ).toBeUndefined();
+
+    accept = true;
+    service.onManagedTerminalIdle("bind-idle");
+    await waitUntil(() => prompts.length === 1);
+    expect(prompts[0]).toContain("wait");
+    await waitUntil(async () => {
+      const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
+      return live?.metadata?.deliveredAt === 7;
+    });
+  });
+
   it("transport accept + stamp fail never re-sends on attach", async () => {
     const msg = userMsg("dup", "once only");
     const store = makeStore({ c: agentDoc([msg]) });

@@ -36,7 +36,9 @@ import { stampMessageDelivered } from "@shared/message-delivery";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
+import { ManagedTerminalDrive } from "./term/drive";
 import { termPlane } from "./term/plane";
+import type { ControlLease } from "./term/local-host";
 import { isTrustedMainWebContents, trustedRendererIpc } from "./trusted-main-webcontents";
 import type { WorkMetadata, Artifact, Message, TaskState } from "@shared/canvas";
 import {
@@ -610,8 +612,49 @@ export const registerVellumIpc = (): void => {
         );
       });
 
-      // Message nudge channel: ether.messages → live ACP / herdr terminal.input.
-      // Retry only on session-live / stream-attach (no polling, no queue store).
+      // Managed-terminal drive: process-local control leases for factory typing.
+      // Takeover is intentional — the factory owns control; UI attaches as observe.
+      const driveLeases = new Map<string, ControlLease>();
+      const ensureDriveLease = (bindingId: string): ControlLease | undefined => {
+        const existing = driveLeases.get(bindingId);
+        if (existing) {
+          // Epoch/session may have rotated — host.write rejects stale leases.
+          return existing;
+        }
+        const attached = termPlane.host.attach({
+          bindingId,
+          mode: "control",
+          takeover: true,
+        });
+        if (!attached.ok) return undefined;
+        driveLeases.set(bindingId, attached.lease);
+        return attached.lease;
+      };
+      const managedDrive = new ManagedTerminalDrive({
+        write: (bindingId, data) => {
+          let lease = ensureDriveLease(bindingId);
+          if (!lease) return false;
+          let ok = termPlane.host.write(lease, data);
+          if (!ok) {
+            // Lease may be stale after kill/recreate — re-attach once.
+            driveLeases.delete(bindingId);
+            lease = ensureDriveLease(bindingId);
+            if (!lease) return false;
+            ok = termPlane.host.write(lease, data);
+          }
+          return ok;
+        },
+        // TODO(phase-2): inject SeatIdleLookup from the agent state machine.
+        // Default true so the transport path is exercisable; Phase 2 must replace
+        // this before beta (typing into a permission dialog is the failure mode).
+        isSeatIdle: (_bindingId) => true,
+        onAttention: (_bindingId, _reason) => {
+          // Phase 3 surfaces attention on the node; keep soft until then.
+        },
+      });
+
+      // Message nudge channel: ether.messages → live ACP / herdr / managed terminal.
+      // Retry only on session-live / stream-attach / seat-idle (no polling store).
       messageDelivery.configure({
         transport: {
           isAgentLive: (agentKey) => chat.isLive(agentKey),
@@ -626,10 +669,11 @@ export const registerVellumIpc = (): void => {
             const written = herdr.sessions.inputTextProduct(streamId, text);
             return written.ok;
           },
-          // Native terminals never auto-submit shell text (no Enter). Delivery
-          // remains pending until a harness-aware path lands; returning false
-          // keeps at-most-once stamp logic from marking undeliverable messages done.
+          // Unmanaged raw terminal nodes: still no auto-submit.
           sendTerminalPaste: (_bindingId, _text, _messageId) => false,
+          // Managed agent seats: paste+CR via drive (idle-gated when Phase 2 lands).
+          sendManagedTerminalPrompt: (bindingId, text) =>
+            managedDrive.writePrompt(bindingId, text, { ready: true }),
         },
         store: {
           listCanvasNames: () =>

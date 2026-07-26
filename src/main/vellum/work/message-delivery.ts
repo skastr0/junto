@@ -24,6 +24,12 @@ export type MessageDeliveryTransport = {
   readonly sendHerdrText: (terminalId: string, text: string) => boolean;
   /** Paste without submitting. A future harness-aware transport may consume messageId. */
   readonly sendTerminalPaste?: (bindingId: string, text: string, messageId: string) => boolean;
+  /**
+   * Managed-terminal drive: paste+CR into an agent seat PTY, idle-gated.
+   * Prefer this over sendTerminalPaste for harness-bound native terminals.
+   * Returns true only when the prompt was accepted (on the wire or queued-then-written).
+   */
+  readonly sendManagedTerminalPrompt?: (bindingId: string, text: string) => Promise<boolean>;
 };
 
 export type MessageDeliveryStore = {
@@ -104,6 +110,17 @@ export class MessageDeliveryService {
 
   /** Native terminal session attached — offer pending messages as unsubmitted paste. */
   onTerminalAttached(bindingId: string): void {
+    void this.scanAndDeliver(
+      (target) => target.kind === "terminal" && target.bindingId === bindingId,
+    );
+  }
+
+  /**
+   * Managed seat became idle — re-drive pending for that binding.
+   * Phase 2 state machine (or ManagedTerminalDrive.onSeatIdle) should call this
+   * so idle-gated prompts that returned false while busy can land.
+   */
+  onManagedTerminalIdle(bindingId: string): void {
     void this.scanAndDeliver(
       (target) => target.kind === "terminal" && target.bindingId === bindingId,
     );
@@ -203,6 +220,10 @@ export class MessageDeliveryService {
       return transport.sendAgentPrompt(target.agentKey, payload);
     }
     if (target.kind === "terminal") {
+      // Prefer managed drive (paste+CR, idle-gated) when wired; else unsubmitted paste.
+      if (transport.sendManagedTerminalPrompt) {
+        return transport.sendManagedTerminalPrompt(target.bindingId, payload);
+      }
       return transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
     }
     // Terminal input is never implicitly submitted. Bracketed paste lets an
