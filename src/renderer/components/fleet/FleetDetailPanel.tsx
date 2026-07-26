@@ -13,10 +13,7 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import { setFleetAppearance } from "../../lib/fleet-appearance";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
 import { FLEET_COLORS, hostColor } from "../../lib/fleet-layout";
-import {
-  FLEET_MACHINE_ASSETS,
-  FLEET_MACHINE_AVATARS,
-} from "../../lib/fleet-machine-assets";
+import { FLEET_MACHINE_AVATARS } from "../../lib/fleet-machine-assets";
 import {
   FLEET_MACHINE_CATALOG,
   fleetMachineColor,
@@ -29,7 +26,6 @@ import { state$ } from "../../lib/state";
 import { HUE, withAlpha } from "../../lib/theme";
 import { getVellumApi } from "../../lib/vellum-api";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
-import { DitheredFleetObject } from "./DitheredFleetObject";
 
 const PLUGIN_TARGETS: ReadonlyArray<{
   readonly id: HostsInstallPluginTarget;
@@ -509,14 +505,14 @@ export function FleetDetailPanel({
   ccHostId,
   onClose,
   onClaimPeer,
-  ditherPixelSize,
 }: {
   readonly selection: FleetSelection;
   readonly probe?: FleetProbeState;
   readonly ccHostId: string;
   readonly onClose: () => void;
   readonly onClaimPeer: (peer: DiscoveredPeer) => void;
-  readonly ditherPixelSize: number;
+  /** @deprecated Detail uses static avatars — kept optional for call-site stability. */
+  readonly ditherPixelSize?: number;
 }) {
   const reach = selection.kind === "station" ? reachabilityLine(probe) : undefined;
   const stationModel =
@@ -527,10 +523,7 @@ export function FleetDetailPanel({
     selection.kind === "ghost"
       ? resolvePeerMachineModel(selection.peer)
       : undefined;
-  const HeaderIcon =
-    selection.kind === "cc"
-      ? Command
-      : undefined;
+  const markModel = stationModel ?? peerModel;
   const title =
     selection.kind === "cc"
       ? "Command Center"
@@ -558,7 +551,7 @@ export function FleetDetailPanel({
       <div className="fleet-detail__head">
         <div
           className={`fleet-detail__identity-mark${
-            stationModel || peerModel ? " fleet-detail__identity-mark--model" : ""
+            markModel || selection.kind === "cc" ? " fleet-detail__identity-mark--model" : ""
           }`}
           style={{
             color,
@@ -566,28 +559,23 @@ export function FleetDetailPanel({
             background: withAlpha(color, 0.07),
           }}
         >
-          {selection.kind === "station" && stationModel ? (
-            <DitheredFleetObject
-              color={color}
-              ditherPixelSize={ditherPixelSize}
-              focused
-              label={fleetMachineLabel(stationModel)}
-              motionSeed={`detail:${selection.host.id}`}
-              src={FLEET_MACHINE_ASSETS[stationModel]}
+          {markModel ? (
+            <img
+              className="fleet-detail__identity-avatar"
+              src={FLEET_MACHINE_AVATARS[markModel]}
+              alt=""
+              draggable={false}
             />
-          ) : selection.kind === "ghost" && peerModel ? (
-            <DitheredFleetObject
-              amberMix={0}
-              color={color}
-              ditherPixelSize={ditherPixelSize}
-              focused
-              label={fleetMachineLabel(peerModel)}
-              motionSeed={`detail:peer:${selection.peer.name}`}
-              src={FLEET_MACHINE_ASSETS[peerModel]}
+          ) : selection.kind === "cc" ? (
+            <img
+              className="fleet-detail__identity-avatar"
+              src={FLEET_MACHINE_AVATARS["command-core"]}
+              alt=""
+              draggable={false}
             />
-          ) : HeaderIcon ? (
-            <HeaderIcon size={18} strokeWidth={1.55} />
-          ) : null}
+          ) : (
+            <Command size={18} strokeWidth={1.55} />
+          )}
         </div>
         <div className="fleet-detail__identity">
           <span>{kind}</span>

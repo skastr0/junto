@@ -7,7 +7,17 @@ export interface FleetProbeState {
   readonly detail?: string;
 }
 
+/** Warm the lazy fleet chunk (three.js) before the operator clicks. */
+let fleetChunkPrefetch: Promise<unknown> | null = null;
+export const prefetchFleetChunk = (): void => {
+  if (fleetChunkPrefetch) return;
+  fleetChunkPrefetch = import("../components/fleet/FleetOverlay").catch(() => {
+    fleetChunkPrefetch = null;
+  });
+};
+
 export const openFleet = (): void => {
+  prefetchFleetChunk();
   state$.fleetOpen.set(true);
   // Load the fleet, then probe every remote host so edges show live link
   // state on open rather than waiting for manual "Test link" clicks.

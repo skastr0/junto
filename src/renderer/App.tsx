@@ -426,7 +426,13 @@ export function App() {
         <SettingsPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
         {fleetOpen ? (
-          <Suspense fallback={null}>
+          <Suspense
+            fallback={
+              <div className="fleet-chunk-fallback" role="status" aria-live="polite">
+                Opening Command Fleet…
+              </div>
+            }
+          >
             <FleetOverlay />
           </Suspense>
         ) : null}

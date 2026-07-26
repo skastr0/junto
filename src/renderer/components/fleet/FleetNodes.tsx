@@ -23,7 +23,10 @@ import type { DiscoveredPeer } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { FleetProbeState } from "../../lib/fleet-state";
 import { hostColor } from "../../lib/fleet-layout";
-import { FLEET_MACHINE_ASSETS } from "../../lib/fleet-machine-assets";
+import {
+  FLEET_MACHINE_ASSETS,
+  FLEET_MACHINE_AVATARS,
+} from "../../lib/fleet-machine-assets";
 import {
   fleetMachineColor,
   fleetMachineLabel,
@@ -98,6 +101,7 @@ export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlo
             focused={selected}
             label="Command Core"
             motionSeed={`command:${data.hostId}`}
+            poster={FLEET_MACHINE_AVATARS["command-core"]}
             src={FLEET_MACHINE_ASSETS["command-core"]}
           />
           <span className="fleet-machine__reticle" aria-hidden="true" />
@@ -191,6 +195,7 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
             focused={selected}
             label={modelLabel}
             motionSeed={host.id}
+            poster={FLEET_MACHINE_AVATARS[model]}
             src={FLEET_MACHINE_ASSETS[model]}
           />
           <span className="fleet-machine__reticle" aria-hidden="true" />
@@ -258,6 +263,7 @@ export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowN
             focused={selected}
             label={fleetMachineLabel(model)}
             motionSeed={`peer:${peer.name}`}
+            poster={FLEET_MACHINE_AVATARS[model]}
             src={FLEET_MACHINE_ASSETS[model]}
           />
           <span className="fleet-machine__reticle" aria-hidden="true" />

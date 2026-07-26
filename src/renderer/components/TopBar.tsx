@@ -6,7 +6,7 @@ import type { CanvasPauseState } from "@shared/pause";
 import { state$ } from "../lib/state";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
-import { openFleet } from "../lib/fleet-state";
+import { openFleet, prefetchFleetChunk } from "../lib/fleet-state";
 import { GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { Dropdown } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
@@ -340,6 +340,8 @@ export function TopBar({
         <FactoryPauseControl canvasName={canvasName} />
         <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="fleet"
           style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }}
+          onPointerEnter={prefetchFleetChunk}
+          onFocus={prefetchFleetChunk}
           onClick={() => { setHelpOpen(false); openFleet(); }}>
           <Radar size={15} />
         </button>

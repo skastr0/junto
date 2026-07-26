@@ -1,11 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Plus, RefreshCw } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
-import {
-  ditherPixelSize,
-  type FleetDitherLevel,
-} from "../../lib/fleet-layout";
+import { type FleetDitherLevel } from "../../lib/fleet-layout";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
@@ -85,10 +82,15 @@ function FleetOverlayInner() {
           ? { kind: "ghost", peer: selectedPeer }
           : null;
 
-  const claimPeer = (peer: DiscoveredPeer) => {
+  // Stable identity so FleetMap node `data.onSelect` does not thrash every probe tick.
+  const handleSelect = useCallback((id: string | null) => {
+    setSelectedId(id);
+  }, []);
+
+  const claimPeer = useCallback((peer: DiscoveredPeer) => {
     // MagicDNS name is the preferred endpoint — stable across tailnet IPs.
     setForm({ label: peer.name, endpoint: peer.name });
-  };
+  }, []);
 
   const updateDitherLevel = (level: FleetDitherLevel) => {
     setDitherLevel(level);
@@ -148,7 +150,7 @@ function FleetOverlayInner() {
             probes={probes}
             ccHostId={ccHostId}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={handleSelect}
             ditherLevel={ditherLevel}
             onDitherLevelChange={updateDitherLevel}
           />
@@ -160,7 +162,6 @@ function FleetOverlayInner() {
             ccHostId={ccHostId}
             onClose={() => setSelectedId(null)}
             onClaimPeer={claimPeer}
-            ditherPixelSize={ditherPixelSize(ditherLevel)}
           />
         ) : null}
       </div>

@@ -2409,11 +2409,54 @@ ol.note-md__list > .note-md__li::before {
   height: 100%;
   pointer-events: none;
 }
+.fleet-machine-object__poster {
+  position: absolute;
+  inset: 12% 14% 18%;
+  z-index: 0;
+  object-fit: contain;
+  pointer-events: none;
+  opacity: 0.88;
+  filter: saturate(0.7) brightness(0.95);
+}
+.fleet-machine-object--ready .fleet-machine-object__poster {
+  display: none;
+}
+.fleet-machine-object--ready canvas {
+  position: relative;
+  z-index: 1;
+}
 .fleet-machine-object--loading {
-  opacity: 0.46;
+  opacity: 0.72;
+}
+.fleet-machine-object--poster.fleet-machine-object--loading {
+  opacity: 0.92;
+}
+.fleet-machine-object--idle {
+  opacity: 0.88;
 }
 .fleet-machine-object--ready {
   filter: drop-shadow(0 0 7px color-mix(in srgb, var(--fleet-machine-color) 22%, transparent));
+}
+.fleet-chunk-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+.fleet-detail__identity-avatar {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
 }
 .fleet-station:hover .fleet-machine-object--ready,
 .fleet-ghost:hover .fleet-machine-object--ready,
