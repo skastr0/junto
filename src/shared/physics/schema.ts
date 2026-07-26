@@ -23,8 +23,7 @@ export const FactoryRole = Schema.Literal(
   "actor",
   "sink",
   "scheduler",
-  "region",
-  "furniture",
+  "geography",
 );
 export type FactoryRole = typeof FactoryRole.Type;
 

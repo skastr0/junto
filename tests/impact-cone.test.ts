@@ -3,7 +3,7 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { impactCone } from "../src/shared/impact";
 import { taskItem, claimed } from "./helpers/task-fixtures";
-import { furnitureSeat, seat } from "./helpers/physics-seats";
+import { geographySeat, seat } from "./helpers/physics-seats";
 
 const text = (
   id: string,
@@ -204,7 +204,7 @@ describe("impactCone — seeds, relays, attention leads", () => {
         }),
         seat("blocked", "actor", { label: "blocked worker" }),
         seat("lead", "actor", { label: "adjacent worker" }),
-        furnitureSeat("note1", "just a note"),
+        geographySeat("note1", "just a note"),
       ],
       edges: [
         {

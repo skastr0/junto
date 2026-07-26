@@ -10,7 +10,7 @@ import {
 import { groupMembers } from "../src/shared/graph";
 import type { ProofStamp, StampView } from "../src/shared/proof-stamps";
 import { taskItem, claimed } from "./helpers/task-fixtures";
-import { furnitureSeat, seat } from "./helpers/physics-seats";
+import { geographySeat, seat } from "./helpers/physics-seats";
 
 const text = (
   id: string,
@@ -229,14 +229,14 @@ describe("deriveExecutionGraph — no cascade", () => {
     expect(graph.blocked.has("c")).toBe(false);
   });
 
-  it("furniture and sinks never blocked; actors can be", () => {
+  it("geography and sinks never blocked; actors can be", () => {
     const doc: CanvasDoc = {
       nodes: [
         text("t1", "Checklist", {
           entity: { kind: "task" },
           tasks: { items: [claimed(taskItem("i1", "x", "input-required"), "actor1")] },
         }),
-        furnitureSeat("note1"),
+        geographySeat("note1"),
         seat("actor1", "actor"),
       ],
       edges: [

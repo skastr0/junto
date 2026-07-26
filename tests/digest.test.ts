@@ -111,7 +111,7 @@ team :: blocked · 2 members (1 blocked)
   Bar :: blocked · flag:blocker
 
 factory physics
-roles :: actors=1 sinks=1 schedulers=0 regions=1 furniture=2
+roles :: actors=1 sinks=1 schedulers=0 geography=3
 capabilities :: criteria=1 soft=3
 
 design
@@ -217,7 +217,7 @@ const expected2 = [
   "unnamed region :: idle · 0 members",
   "",
   "factory physics",
-  "roles :: actors=0 sinks=0 schedulers=0 regions=3 furniture=5",
+  "roles :: actors=0 sinks=0 schedulers=0 geography=8",
   "capabilities :: criteria=0 soft=0",
   "",
   "entities",
@@ -329,7 +329,7 @@ describe("digestCanvas — factory physics", () => {
     expect(out).toContain(
       [
         "factory physics",
-        "roles :: actors=2 sinks=2 schedulers=2 regions=1 furniture=1",
+        "roles :: actors=2 sinks=2 schedulers=2 geography=2",
         "capabilities :: criteria=2 soft=1",
       ].join("\n"),
     );
@@ -348,7 +348,7 @@ describe("digestCanvas — factory physics", () => {
         "edges :: 0",
         "",
         "factory physics",
-        "roles :: actors=0 sinks=0 schedulers=0 regions=0 furniture=0",
+        "roles :: actors=0 sinks=0 schedulers=0 geography=0",
         "capabilities :: criteria=0 soft=0",
         "",
       ].join("\n"),

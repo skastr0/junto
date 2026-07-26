@@ -106,16 +106,16 @@ describe("physics KindSpecs", () => {
     for (const kind of WELL_KNOWN_KINDS) {
       expect(roleOf(resolveSpec({ isGroup: false, kind }))).toBe(KindSpecs[kind].role);
     }
-    expect(roleOf(resolveSpec({ isGroup: true, kind: undefined }))).toBe("region");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: "note" }))).toBe("furniture");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: undefined }))).toBe("furniture");
+    expect(roleOf(resolveSpec({ isGroup: true, kind: undefined }))).toBe("geography");
+    expect(roleOf(resolveSpec({ isGroup: false, kind: "note" }))).toBe("geography");
+    expect(roleOf(resolveSpec({ isGroup: false, kind: undefined }))).toBe("geography");
   });
 
   it("kindsWithRole partitions WellKnownKind by KindSpecs.role", () => {
-    const allRoles = ["actor", "sink", "scheduler", "region", "furniture"] as const;
+    const allRoles = ["actor", "sink", "scheduler", "geography"] as const;
     const seen = new Set<WellKnownKind>();
     for (const role of allRoles) {
-      if (role === "region" || role === "furniture") {
+      if (role === "geography") {
         expect(kindsWithRole(role)).toEqual([]);
         continue;
       }
@@ -133,8 +133,7 @@ describe("physics phase membership", () => {
     expect(roleMayBeBlocked("actor")).toBe(true);
     expect(roleMayBeBlocked("sink")).toBe(false);
     expect(roleMayBeBlocked("scheduler")).toBe(false);
-    expect(roleMayBeBlocked("region")).toBe(false);
-    expect(roleMayBeBlocked("furniture")).toBe(false);
+    expect(roleMayBeBlocked("geography")).toBe(false);
   });
 
   it("every registry kind agrees: actors blockable, non-actors not", () => {
@@ -148,13 +147,14 @@ describe("physics phase membership", () => {
     expect(seatMayBeBlocked({ isGroup: false, kind: undefined })).toBe(false);
   });
 
-  it("furniture offers empty", () => {
-    const furniture = resolveSpec({ isGroup: false, kind: "label" });
-    expect(roleOf(furniture)).toBe("furniture");
-    expect(HashSet.size(furniture.offers)).toBe(0);
+  it("geography offers empty", () => {
+    const unknownKind = resolveSpec({ isGroup: false, kind: "label" });
+    expect(roleOf(unknownKind)).toBe("geography");
+    expect(HashSet.size(unknownKind.offers)).toBe(0);
 
-    const region = resolveSpec({ isGroup: true, kind: undefined });
-    expect(HashSet.size(region.offers)).toBe(0);
+    const group = resolveSpec({ isGroup: true, kind: undefined });
+    expect(roleOf(group)).toBe("geography");
+    expect(HashSet.size(group.offers)).toBe(0);
   });
 
   it("canvas WELL_KNOWN_ENTITY_KINDS includes watcher and timer", () => {
@@ -168,10 +168,9 @@ describe("physics GrantLaw (I8 — actor→actor OptIn)", () => {
     expect(grantLawBetween(canonicalRolePair("actor", "sink"))._tag).toBe("Full");
     expect(grantLawBetween(canonicalRolePair("actor", "actor"))._tag).toBe("OptIn");
     expect(grantLawForRoles("actor", "scheduler")._tag).toBe("None");
-    expect(grantLawForRoles("actor", "region")._tag).toBe("None");
-    expect(grantLawForRoles("actor", "furniture")._tag).toBe("None");
+    expect(grantLawForRoles("actor", "geography")._tag).toBe("None");
     expect(grantLawForRoles("sink", "actor")._tag).toBe("None");
-    expect(grantLawForRoles("furniture", "sink")._tag).toBe("None");
+    expect(grantLawForRoles("geography", "sink")._tag).toBe("None");
   });
 
   it("selectGrant: Full attenuates by mask; OptIn requires mask; None is empty", () => {
@@ -210,7 +209,7 @@ describe("physics GrantLaw (I8 — actor→actor OptIn)", () => {
     // OptIn without mask → empty (discovery); never Full
     expect(selectGrant(grantLawBetween(canonicalRolePair("actor", "actor")), undefined).isEmpty()).toBe(true);
     expect(selectGrant(grantLawForRoles("actor", "sink"), undefined).isFull()).toBe(true);
-    expect(selectGrant(grantLawForRoles("actor", "furniture"), undefined).isEmpty()).toBe(true);
+    expect(selectGrant(grantLawForRoles("actor", "geography"), undefined).isEmpty()).toBe(true);
   });
 });
 
@@ -401,7 +400,7 @@ describe("physics admitPure", () => {
     }
   });
 
-  it("denies role_law for furniture target with empty offers law", () => {
+  it("denies role_law for geography target with empty offers law", () => {
     const doc: CanvasDoc = {
       nodes: [textNode("agent", "agent"), textNode("note", undefined, 200, 0)],
       edges: [{ id: "e1", fromNode: "agent", toNode: "note" }],

@@ -754,16 +754,15 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
 };
 
 // Palette sections — derived from the same roleOf the capability kernel
-// uses (region + furniture fold into Geography: neither holds a seat nor
-// wields an ocap). Never a hand-maintained per-entry group list.
+// uses (geography holds no seat and wields no ocap). Never a hand-maintained
+// per-entry group list.
 type PaletteGroup = "Actors" | "Sinks" | "Schedulers" | "Geography";
 
 const PALETTE_GROUP_BY_ROLE: Record<FactoryRoleName, PaletteGroup> = {
   actor: "Actors",
   sink: "Sinks",
   scheduler: "Schedulers",
-  region: "Geography",
-  furniture: "Geography",
+  geography: "Geography",
 };
 
 const paletteGroupFor = (kind: string | undefined, isGroupNode: boolean): PaletteGroup =>

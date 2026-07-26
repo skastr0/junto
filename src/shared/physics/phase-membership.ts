@@ -18,7 +18,7 @@ import {
  * registry key that derives a role; membership consumers ask the role.
  *
  * Current law: only **actor** seats may enter the blocked set.
- * sink | scheduler | region | furniture never do.
+ * sink | scheduler | geography never do.
  */
 
 /** Exhaustive over FactoryRole — adding a role forces a decision here. */
@@ -27,8 +27,7 @@ export const roleMayBeBlocked = (role: FactoryRole): boolean =>
     Match.when("actor", () => true),
     Match.when("sink", () => false),
     Match.when("scheduler", () => false),
-    Match.when("region", () => false),
-    Match.when("furniture", () => false),
+    Match.when("geography", () => false),
     Match.exhaustive,
   );
 

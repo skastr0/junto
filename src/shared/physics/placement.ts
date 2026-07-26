@@ -141,7 +141,7 @@ export const resolveNodePlacement = (
   }
 
   if (hostId === topology.commandCenterHostId) {
-    // Non-executable nodes on the CC host are still furniture/region for role;
+    // Non-executable nodes on the CC host are still geography for role;
     // placement class is command_center only for seats that can execute.
     if (!isExecutableNode(node) && node.type === "group") {
       return {

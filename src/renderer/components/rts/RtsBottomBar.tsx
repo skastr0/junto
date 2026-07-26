@@ -463,7 +463,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
 
   return (
     <div className="rts-panel rts-panel--cmd">
-      <div className="rts-panel__label">command · {role !== "furniture" ? role : kind}</div>
+      <div className="rts-panel__label">command · {role !== "geography" ? role : kind}</div>
       <div className="rts-panel__body rts-cmd-shell">
         <div className="rts-cmd-head">
           <div className="rts-cmd__meta">{metaLine}</div>

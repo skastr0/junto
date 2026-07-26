@@ -66,24 +66,24 @@ describe("describeConnectPreview", () => {
     expect(preview.label).toBe("reach + phase only — no ports offered");
   });
 
-  it("furniture (plain note) -> actor(agent): furniture source is denied -> grantless", () => {
+  it("geography (plain note) -> actor(agent): geography source is denied -> grantless", () => {
     const preview = describeConnectPreview(textNode(undefined), textNode("agent"));
-    expect(preview.fromRole).toBe("furniture");
+    expect(preview.fromRole).toBe("geography");
     expect(preview.ports).toEqual([]);
     expect(preview.label).toBe("reach + phase only — no ports offered");
   });
 
-  it("region -> actor(agent): region source is denied -> grantless", () => {
+  it("region group -> actor(agent): geography source is denied -> grantless", () => {
     const preview = describeConnectPreview(regionNode as CanvasNode, textNode("agent"));
-    expect(preview.fromRole).toBe("region");
+    expect(preview.fromRole).toBe("geography");
     expect(preview.ports).toEqual([]);
     expect(preview.label).toBe("reach + phase only — no ports offered");
   });
 
-  it("undefined endpoints resolve to furniture on both sides -> grantless", () => {
+  it("undefined endpoints resolve to geography on both sides -> grantless", () => {
     const preview = describeConnectPreview(undefined, undefined);
-    expect(preview.fromRole).toBe("furniture");
-    expect(preview.toRole).toBe("furniture");
+    expect(preview.fromRole).toBe("geography");
+    expect(preview.toRole).toBe("geography");
     expect(preview.ports).toEqual([]);
   });
 });

@@ -52,7 +52,7 @@ export const seat = (
   };
 };
 
-export const furnitureSeat = (id: string, label = id): TextNode => ({
+export const geographySeat = (id: string, label = id): TextNode => ({
   id,
   type: "text",
   text: label,

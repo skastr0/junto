@@ -17,8 +17,7 @@ export type RolePair = Data.TaggedEnum<{
   ActorSink: {};
   ActorActor: {};
   ActorScheduler: {};
-  ActorRegion: {};
-  ActorFurniture: {};
+  ActorGeography: {};
   Denied: {
     readonly from: FactoryRole;
     readonly to: FactoryRole;
@@ -53,15 +52,14 @@ export const canonicalRolePair = (
     if (to === "sink") return RolePair.ActorSink();
     if (to === "actor") return RolePair.ActorActor();
     if (to === "scheduler") return RolePair.ActorScheduler();
-    if (to === "region") return RolePair.ActorRegion();
-    if (to === "furniture") return RolePair.ActorFurniture();
+    if (to === "geography") return RolePair.ActorGeography();
   }
   return RolePair.Denied({ from, to });
 };
 
 /**
  * Role-pair grant law (I8: actor→actor is OptIn / discovery-only).
- * ActorSink stays Full; scheduler/region/furniture/denied stay None.
+ * ActorSink stays Full; scheduler/geography/denied stay None.
  */
 export const grantLawBetween = (pair: RolePair): GrantLaw =>
   Match.value(pair).pipe(
@@ -69,8 +67,7 @@ export const grantLawBetween = (pair: RolePair): GrantLaw =>
       ActorSink: () => GrantLaw.Full(),
       ActorActor: () => GrantLaw.OptIn(),
       ActorScheduler: () => GrantLaw.None(),
-      ActorRegion: () => GrantLaw.None(),
-      ActorFurniture: () => GrantLaw.None(),
+      ActorGeography: () => GrantLaw.None(),
       Denied: () => GrantLaw.None(),
     }),
   );

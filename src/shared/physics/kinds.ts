@@ -61,12 +61,8 @@ export type ResolvedSpec = Data.TaggedEnum<{
     readonly role: FactoryRole;
     readonly offers: HashSet.HashSet<Port>;
   };
-  Region: {
-    readonly role: "region";
-    readonly offers: HashSet.HashSet<Port>;
-  };
-  Furniture: {
-    readonly role: "furniture";
+  Geography: {
+    readonly role: "geography";
     readonly kind: string | undefined;
     readonly offers: HashSet.HashSet<Port>;
   };
@@ -81,13 +77,10 @@ export type ResolveSpecInput = {
 
 /**
  * Derive a resolved physics spec from canvas node shape.
- * Groups → region; well-known kinds → KindSpecs; everything else → furniture.
+ * Well-known kinds → KindSpecs; groups and everything else → geography.
  */
 export const resolveSpec = (input: ResolveSpecInput): ResolvedSpec => {
-  if (input.isGroup) {
-    return ResolvedSpec.Region({ role: "region", offers: emptyOffers });
-  }
-  if (input.kind !== undefined && isWellKnownKind(input.kind)) {
+  if (!input.isGroup && input.kind !== undefined && isWellKnownKind(input.kind)) {
     const spec = KindSpecs[input.kind];
     return ResolvedSpec.Known({
       kind: spec.kind,
@@ -95,8 +88,8 @@ export const resolveSpec = (input: ResolveSpecInput): ResolvedSpec => {
       offers: spec.offers,
     });
   }
-  return ResolvedSpec.Furniture({
-    role: "furniture",
+  return ResolvedSpec.Geography({
+    role: "geography",
     kind: input.kind,
     offers: emptyOffers,
   });
@@ -106,8 +99,7 @@ export const roleOf = (spec: ResolvedSpec): FactoryRole =>
   Match.value(spec).pipe(
     Match.tagsExhaustive({
       Known: (s) => s.role,
-      Region: (s) => s.role,
-      Furniture: (s) => s.role,
+      Geography: (s) => s.role,
     }),
   );
 
@@ -115,8 +107,7 @@ export const offersOf = (spec: ResolvedSpec): HashSet.HashSet<Port> =>
   Match.value(spec).pipe(
     Match.tagsExhaustive({
       Known: (s) => s.offers,
-      Region: (s) => s.offers,
-      Furniture: (s) => s.offers,
+      Geography: (s) => s.offers,
     }),
   );
 

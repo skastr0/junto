@@ -39,16 +39,14 @@ const ROLE_ORDER: ReadonlyArray<FactoryRole> = [
   "actor",
   "sink",
   "scheduler",
-  "region",
-  "furniture",
+  "geography",
 ];
 
 const ROLE_COUNT_KEY: Record<FactoryRole, string> = {
   actor: "actors",
   sink: "sinks",
   scheduler: "schedulers",
-  region: "regions",
-  furniture: "furniture",
+  geography: "geography",
 };
 
 const titleOf = (node: CanvasNode): string => {
@@ -167,8 +165,7 @@ export const digestCanvas = (
       actor: 0,
       sink: 0,
       scheduler: 0,
-      region: 0,
-      furniture: 0,
+      geography: 0,
     };
     for (const node of doc.nodes) {
       const role = roleOf(
