@@ -5,7 +5,7 @@ import { clearGraphFilters, state$ } from "../lib/state";
 
 // EdgeLegend + CanvasHint removed per docs/rts-bottom-bar.md.
 // CanvasReadout removed — pure noise.
-// UsageHud (codexbar) lives in the station TopBar — left of the canvas switcher.
+// UsageHud (station usage rail) lives in the station TopBar — left of the canvas switcher.
 
 type EmptyReason = "search" | "flag" | "empty";
 

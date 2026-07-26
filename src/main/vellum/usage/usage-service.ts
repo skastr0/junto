@@ -1,15 +1,21 @@
 import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import { hasUsageQuotas, type UsageSnapshot, type UsageState } from "@shared/usage";
+import {
+  hasUsageQuotas,
+  preferNativeUsageSnapshots,
+  usageStateIsPartial,
+  type UsageSnapshot,
+  type UsageState,
+} from "@shared/usage";
 import { readUsageCache, writeUsageCache } from "./usage-cache";
 import { UsageSources } from "./usage-source";
 
 // Provider usage plane read service.
 //
-// Architecture (codexbar-first, no private CodexBar.app APIs, no serve):
+// Architecture (native harness homes first; codexbar optional):
 //   disk last-good  →  instant HUD paint (always show UI when we have quotas)
-//   primary fetch   →  commit as soon as usage --json returns
-//   enrich stage    →  multi-account codex as a second push
+//   primary fetch   →  fan-out all sources; prefer native over codexbar per provider
+//   enrich stage    →  multi-account codexbar as a second push
 //   failed live     →  KEEP last-good, mark stale + lastError (never blank the bar)
 //
 // Failures are total at the source envelope, never throws across IPC.
@@ -86,8 +92,9 @@ export const UsageServiceLive = Layer.effect(
     };
 
     const applyPrimary = (snapshots: ReadonlyArray<UsageSnapshot>): UsageState => {
-      const live: UsageState = { snapshots: [...snapshots] };
-      return hasUsageQuotas(live) ? commitLive(snapshots) : commitFailedLive(snapshots);
+      const ranked = preferNativeUsageSnapshots(snapshots);
+      const live: UsageState = { snapshots: [...ranked] };
+      return hasUsageQuotas(live) ? commitLive(ranked) : commitFailedLive(ranked);
     };
 
     const runEnrich = async (primary: ReadonlyArray<UsageSnapshot>): Promise<void> => {
@@ -115,7 +122,7 @@ export const UsageServiceLive = Layer.effect(
         }
         changed = true;
       }
-      if (changed) commitLive(next);
+      if (changed) commitLive(preferNativeUsageSnapshots(next));
     };
 
     const runRefresh = async (): Promise<UsageState> => {
@@ -152,18 +159,19 @@ export const UsageServiceLive = Layer.effect(
           .filter((snapshot) => snapshot.ok)
           .reduce((count, snapshot) => count + snapshot.quotas.filter((quota) => quota.status === "ok").length, 0);
         const staleNote = state.stale ? " · showing last-good" : "";
+        const partialNote = usageStateIsPartial(state) ? " · partial" : "";
         return available.length > 0
           ? {
               id: "usage",
               label: "Provider Usage",
               status: "ok" as const,
-              detail: `${available.map((entry) => entry.id).join(", ")} · ${okProviders} providers${staleNote}`,
+              detail: `${available.map((entry) => entry.id).join(", ")} · ${okProviders} providers${staleNote}${partialNote}`,
             }
           : {
               id: "usage",
               label: "Provider Usage",
               status: "warning" as const,
-              detail: "no usage sources detected (codexbar CLI absent?)",
+              detail: "no usage sources detected (harness homes / codexbar)",
             };
       }),
       current: Effect.sync(() => state),

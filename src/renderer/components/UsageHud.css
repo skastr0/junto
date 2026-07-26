@@ -1,5 +1,5 @@
 /* Compact usage rail — component-scoped (do not land in styles.css).
-   Sits in the station TopBar (codexbar), filling the old brand slot. */
+   Sits in the station TopBar (native usage + optional codexbar). */
 
 .usage-hud {
   --usage-hud-width: min(320px, 28vw);
@@ -128,6 +128,18 @@
   height: 100%;
   border-radius: inherit;
   transition: width 160ms ease-out;
+}
+
+.usage-hud__token-label {
+  max-width: 28px;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: rgba(237, 230, 218, 0.72);
 }
 
 .usage-hud__cell.is-error .usage-hud__bar {

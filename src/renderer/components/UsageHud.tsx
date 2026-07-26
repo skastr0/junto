@@ -1,17 +1,18 @@
 import { useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { ProviderQuota, UsageSnapshot, UsageState, UsageWindow } from "@shared/usage";
-import { worstWindow } from "@shared/usage";
+import { usageStateIsPartial, worstWindow } from "@shared/usage";
 import { state$ } from "../lib/state";
 import { GREEN, HUE } from "../lib/theme";
 import { FocusSurface } from "./FocusSurface";
 import { HarnessMark } from "./herdr/HarnessMark";
 import "./UsageHud.css";
 
-// Compact provider-usage rail: one [glyph / bar] cell per quota (vertical
-// split — icon above meter). Always paints: last-good (possibly stale)
-// when live is slow/fails; loading only before any last-good exists;
-// error chip only when live failed and we have never had quotas.
+// Compact station usage rail: one [glyph / bar] cell per quota (vertical
+// split — icon above meter). Native harness homes first; optional codexbar.
+// Always paints: last-good (possibly stale) when live is slow/fails;
+// loading only before any last-good exists; error chip only when live
+// failed and we have never had quotas. Partial = tokens without plan %.
 
 const EMPTY_USAGE: UsageState = { snapshots: [] };
 
@@ -53,6 +54,29 @@ const shortLimit = (window: UsageWindow | undefined): string => {
 
 const formatPercent = (value: number): string => `${Math.round(value)}%`;
 
+const asFiniteNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const formatTokens = (value: number): string => {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 10_000) return `${Math.round(value / 1_000)}k`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return String(Math.round(value));
+};
+
+/** Token/cost readout from extras when plan windows are absent. */
+const tokenSummary = (
+  quota: ProviderQuota,
+): { readonly totalTokens?: number; readonly costUsd?: number; readonly note?: string } => {
+  const extras = quota.extras;
+  if (extras === undefined) return {};
+  return {
+    totalTokens: asFiniteNumber(extras.totalTokens),
+    costUsd: asFiniteNumber(extras.costUsd),
+    note: typeof extras.note === "string" ? extras.note : undefined,
+  };
+};
+
 const providerLabel = (quota: ProviderQuota): string => {
   // Disambiguate multi-account same provider (e.g. two Codex logins).
   if (quota.account) {
@@ -64,7 +88,7 @@ const providerLabel = (quota: ProviderQuota): string => {
 
 function Cell({ quota }: { readonly quota: ProviderQuota }) {
   // Brand mark from harness-icons (same registry as herdr cards). Unknown
-  // codexbar providers fall back to a monogram inside HarnessMark.
+  // providers fall back to a monogram inside HarnessMark.
   const mark = <HarnessMark agent={quota.provider} size={12} />;
   if (quota.status === "error") {
     return (
@@ -75,14 +99,35 @@ function Cell({ quota }: { readonly quota: ProviderQuota }) {
     );
   }
   const worst = worstWindow(quota);
-  const used = worst?.usedPercent ?? 0;
-  const hue = usageHue(used);
-  return (
-    <span className="usage-hud__cell" title={`${quota.provider} ${formatPercent(used)}`}>
-      {mark}
-      <span className="usage-hud__bar">
-        <i style={{ width: `${Math.min(100, Math.max(0, used))}%`, background: hue }} />
+  if (worst !== undefined) {
+    const used = worst.usedPercent;
+    const hue = usageHue(used);
+    return (
+      <span className="usage-hud__cell" title={`${quota.provider} ${formatPercent(used)}`}>
+        {mark}
+        <span className="usage-hud__bar">
+          <i style={{ width: `${Math.min(100, Math.max(0, used))}%`, background: hue }} />
+        </span>
       </span>
+    );
+  }
+  const tokens = tokenSummary(quota);
+  if (tokens.totalTokens !== undefined) {
+    const label = formatTokens(tokens.totalTokens);
+    return (
+      <span
+        className="usage-hud__cell is-tokens"
+        title={`${quota.provider} ${label} tokens (7d)${tokens.note ? ` · ${tokens.note}` : ""}`}
+      >
+        {mark}
+        <span className="usage-hud__token-label">{label}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="usage-hud__cell is-empty" title={`${quota.provider}: no limit data`}>
+      {mark}
+      <span className="usage-hud__bar" />
     </span>
   );
 }
@@ -96,12 +141,29 @@ function Tooltip({
     <div className="usage-hud__tooltip" role="tooltip">
       {rows.map(({ quota }, i) => {
         const worst = worstWindow(quota);
+        const tokens = tokenSummary(quota);
         const limit =
-          quota.status === "error" ? "error" : shortLimit(worst);
+          quota.status === "error"
+            ? "error"
+            : worst !== undefined
+              ? shortLimit(worst)
+              : tokens.totalTokens !== undefined
+                ? "7d tokens"
+                : "—";
         const pct =
-          quota.status === "error" ? "—" : formatPercent(worst?.usedPercent ?? 0);
+          quota.status === "error"
+            ? "—"
+            : worst !== undefined
+              ? formatPercent(worst.usedPercent)
+              : tokens.totalTokens !== undefined
+                ? formatTokens(tokens.totalTokens)
+                : "—";
         const color =
-          quota.status === "error" ? HUE.crimson : usageHue(worst?.usedPercent ?? 0);
+          quota.status === "error"
+            ? HUE.crimson
+            : worst !== undefined
+              ? usageHue(worst.usedPercent)
+              : HUE.amber;
         return (
           <div key={`${quota.provider}:${quota.account ?? ""}:${i}`} className="usage-hud__tooltip-row">
             <strong>{providerLabel(quota)}</strong>
@@ -115,22 +177,31 @@ function Tooltip({
 }
 
 function DetailCard({ quota }: { readonly quota: ProviderQuota }) {
+  const tokens = tokenSummary(quota);
+  const billingMode =
+    quota.extras !== undefined && typeof quota.extras.billingMode === "string"
+      ? quota.extras.billingMode
+      : undefined;
+  const costTicks =
+    quota.extras !== undefined ? asFiniteNumber(quota.extras.costUsdTicks) : undefined;
   return (
     <article className={`usage-hud-detail__card${quota.status === "error" ? " is-error" : ""}`}>
       <header className="usage-hud-detail__card-head">
         <div>
           <div className="usage-hud-detail__provider">{providerLabel(quota)}</div>
           <div className="usage-hud-detail__plan">
-            {[quota.source, quota.plan].filter(Boolean).join(" · ") || "—"}
+            {[quota.source, quota.plan, billingMode].filter(Boolean).join(" · ") || "—"}
           </div>
         </div>
         {quota.creditsRemaining !== undefined ? (
           <div className="usage-hud-detail__credits">{quota.creditsRemaining} credits</div>
+        ) : tokens.costUsd !== undefined && tokens.costUsd > 0 ? (
+          <div className="usage-hud-detail__credits">${tokens.costUsd.toFixed(2)}</div>
         ) : null}
       </header>
       {quota.status === "error" ? (
         <div className="usage-hud-detail__error">{quota.error ?? "provider error"}</div>
-      ) : (
+      ) : quota.windows.length > 0 ? (
         quota.windows.map((window) => {
           const hue = usageHue(window.usedPercent);
           return (
@@ -156,6 +227,23 @@ function DetailCard({ quota }: { readonly quota: ProviderQuota }) {
             </div>
           );
         })
+      ) : (
+        <div className="usage-hud-detail__window">
+          <div className="usage-hud-detail__window-meta">
+            <span>7d tokens</span>
+            <strong style={{ color: HUE.amber }}>
+              {tokens.totalTokens !== undefined ? formatTokens(tokens.totalTokens) : "—"}
+            </strong>
+          </div>
+          {tokens.totalTokens !== undefined ? (
+            <div className="usage-hud-detail__pace">
+              in {formatTokens(asFiniteNumber(quota.extras?.inputTokens) ?? 0)} · out{" "}
+              {formatTokens(asFiniteNumber(quota.extras?.outputTokens) ?? 0)}
+              {costTicks !== undefined && costTicks > 0 ? ` · cost ticks ${formatTokens(costTicks)}` : ""}
+            </div>
+          ) : null}
+          {tokens.note ? <div className="usage-hud-detail__pace">{tokens.note}</div> : null}
+        </div>
       )}
     </article>
   );
@@ -171,13 +259,24 @@ function UsageDetail({
   const rows = visibleQuotas(state);
   const footerFetched =
     state.snapshots.find((snapshot) => snapshot.ok)?.fetchedAt ?? state.snapshots[0]?.fetchedAt;
+  const sourceIds = [
+    ...new Set(
+      state.snapshots.filter((snapshot) => snapshot.ok && snapshot.quotas.length > 0).map((s) => s.source),
+    ),
+  ];
+  const footerLabel =
+    sourceIds.length === 0
+      ? "station"
+      : usageStateIsPartial(state)
+        ? `${sourceIds.join(" · ")} · partial`
+        : sourceIds.join(" · ");
 
   return (
     <FocusSurface measure="document" height="resizable" layer="detail" label="Limits" onClose={onClose}>
       <div className="usage-hud-detail">
         <header className="usage-hud-detail__header">
           <div>
-            <div className="usage-hud-detail__eyebrow">limits</div>
+            <div className="usage-hud-detail__eyebrow">station usage</div>
             <strong>Providers</strong>
           </div>
           <button type="button" aria-label="Close limits" onClick={onClose}>
@@ -194,7 +293,7 @@ function UsageDetail({
           )}
         </div>
         <footer className="usage-hud-detail__footer">
-          <span>codexbar</span>
+          <span>{footerLabel}</span>
           <span>{footerFetched ? footerFetched.slice(0, 16).replace("T", " ") : "—"}</span>
         </footer>
       </div>
@@ -223,10 +322,12 @@ export function UsageHud() {
     const failed = state.snapshots.find((snapshot) => !snapshot.ok);
     const detail =
       failed?.reason === "cli-missing"
-        ? "codexbar missing"
-        : failed?.reason === "parse-error"
-          ? "usage parse error"
-          : (state.lastError ?? failed?.error)?.slice(0, 48) ?? "no provider quotas";
+        ? "usage source missing"
+        : failed?.reason === "source-missing"
+          ? "no harness usage data"
+          : failed?.reason === "parse-error"
+            ? "usage parse error"
+            : (state.lastError ?? failed?.error)?.slice(0, 48) ?? "no provider quotas";
     return (
       <div className="usage-hud" title={state.lastError ?? failed?.error ?? detail}>
         <button type="button" className="usage-hud__rail usage-hud__rail--error" aria-label={`Provider limits: ${detail}`}>

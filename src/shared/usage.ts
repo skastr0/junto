@@ -1,12 +1,12 @@
 import { Schema } from "effect";
 
 // Provider usage plane: normalized rate-limit/quota snapshots from pluggable
-// UsageSources (codexbar CLI first). A separate bounded context from the
-// entity snapshot plane — quotas never bind to canvas nodes. Envelope
-// semantics mirror entities.ts: a down source degrades to ok:false with a
-// reason, never a throw. The HUD always paints: last-good (possibly stale)
-// when live is slow or fails; only a quiet loading/error chip when no
-// last-good exists yet.
+// UsageSources (native harness homes first; optional codexbar). A separate
+// bounded context from the entity snapshot plane — quotas never bind to
+// canvas nodes. Envelope semantics mirror entities.ts: a down source
+// degrades to ok:false with a reason, never a throw. The HUD always paints:
+// last-good (possibly stale) when live is slow or fails; only a quiet
+// loading/error chip when no last-good exists yet.
 
 export const UsageWindowLabel = Schema.Literal("primary", "secondary", "tertiary", "extra");
 export type UsageWindowLabel = typeof UsageWindowLabel.Type;
@@ -49,11 +49,16 @@ export const ProviderQuota = Schema.Struct({
 });
 export type ProviderQuota = typeof ProviderQuota.Type;
 
-export const UsageUnavailableReason = Schema.Literal("cli-missing", "cli-error", "parse-error");
+export const UsageUnavailableReason = Schema.Literal(
+  "cli-missing",
+  "cli-error",
+  "parse-error",
+  "source-missing",
+);
 export type UsageUnavailableReason = typeof UsageUnavailableReason.Type;
 
 export const UsageSnapshot = Schema.Struct({
-  // Usage source id, e.g. "codexbar".
+  // Usage source id, e.g. "claude" | "grok" | "hermes" | "codex" | "codexbar".
   source: Schema.String,
   fetchedAt: Schema.String,
   ok: Schema.Boolean,
@@ -62,6 +67,45 @@ export const UsageSnapshot = Schema.Struct({
   quotas: Schema.Array(ProviderQuota),
 });
 export type UsageSnapshot = typeof UsageSnapshot.Type;
+
+/** Providers covered by native station sources — codexbar rows for these lose. */
+export const NATIVE_USAGE_PROVIDERS = ["claude", "codex", "grok", "hermes"] as const;
+
+/**
+ * Prefer native harness snapshots over codexbar for the same provider so the
+ * rail never double-paints Claude/Codex/Grok/Hermes when both are present.
+ */
+export const preferNativeUsageSnapshots = (
+  snapshots: ReadonlyArray<UsageSnapshot>,
+): ReadonlyArray<UsageSnapshot> => {
+  const nativeProviders = new Set<string>();
+  for (const snapshot of snapshots) {
+    if (snapshot.source === "codexbar" || !snapshot.ok) continue;
+    for (const quota of snapshot.quotas) {
+      if (quota.status === "ok") nativeProviders.add(quota.provider.toLowerCase());
+    }
+    // Empty ok native codex still claims the provider so codexbar can fill
+    // plan % when present — only strip when we actually painted a row.
+  }
+  return snapshots.map((snapshot) => {
+    if (snapshot.source !== "codexbar" || !snapshot.ok) return snapshot;
+    const quotas = snapshot.quotas.filter(
+      (quota) => !nativeProviders.has(quota.provider.toLowerCase()),
+    );
+    return quotas.length === snapshot.quotas.length ? snapshot : { ...snapshot, quotas };
+  });
+};
+
+/** True when any quota extras mark partial / tokens-only coverage. */
+export const usageStateIsPartial = (state: { readonly snapshots: ReadonlyArray<UsageSnapshot> }): boolean =>
+  state.snapshots.some(
+    (snapshot) =>
+      snapshot.ok &&
+      snapshot.quotas.some((quota) => {
+        const extras = quota.extras;
+        return extras !== undefined && extras.partial === true;
+      }),
+  );
 
 export const UsageState = Schema.Struct({
   snapshots: Schema.Array(UsageSnapshot),

@@ -58,7 +58,7 @@ import { workControlReadiness } from "./vellum/work/control";
 // layers are provided the base layer explicitly (Layer.provideMerge keeps its
 // inputs memoized: the SAME CanvasesService instance the rest of the app
 // uses, not a second independent document-plane instance).
-// UsageLive is already composed (UsageServiceLive + CodexBarSourcesLive) so
+// UsageLive is already composed (UsageServiceLive + StationUsageSourcesLive) so
 // it can sit in BaseLayer as one self-contained member.
 const HostsWithSshLive = Layer.provideMerge(
   HostsServiceLive,
