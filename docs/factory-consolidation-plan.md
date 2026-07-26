@@ -56,10 +56,15 @@ raw user-opened terminal is `geography/"terminal"`. `worker` is **reserved** for
 future native agent UI and must not appear in this migration's code, types, or
 tests.
 
-> The string `agent` is *reused*, not preserved. It was the ACP actor kind (D1);
-> it now names the Vellum-spawned template terminal. Every line of ACP still dies
-> (D3, D11). A builder that sees "keep `agent`" and spares `main/vellum/chat/` has
-> misread this plan. The kind survives by name only; nothing behind it does.
+> **ACP is a transport, never a kind.** It is not in the kind vocabulary and never
+> was — the `agent` kind that exists today is a node whose transport happened to
+> be ACP, and describing it as "the ACP kind" is the conflation this plan exists
+> to kill. `agent` now names the Vellum-spawned template terminal, whose transport
+> is a PTY. In the future ACP is the transport that will carry the `worker` node
+> (the native agent UI) — which is why `worker` is reserved and why ACP's removal
+> here is a removal of a *hidden node surface*, not a ruling against the protocol.
+> A builder that sees "keep `agent`" and therefore spares `main/vellum/chat/` has
+> misread this plan: rows D3 and D11 still delete every line of that surface.
 
 **What becomes unrepresentable** (construction-level, the far right of the
 gradient — not policed, structurally impossible):
@@ -131,9 +136,9 @@ owner).
 
 | # | dies | why it was alive | evidence |
 |---|---|---|---|
-| D1 | the ACP `agent` kind + `herdr` as actor kinds; one actor kind remains, named `agent`; `herdr` → `role: "geography"` | ACP was once the actor | `physics/kinds.ts:38-40` |
+| D1 | today's `agent` + `herdr` as separate actor kinds; one actor kind remains, named `agent`; `herdr` → `role: "geography"` | an ACP-backed node was once the actor | `physics/kinds.ts:38-40` |
 | D2 | `sanitizeActorSurfacePorts` — the decoder that deletes an actor's entity | invented to validate "one kind requires another kind's fields" | `canvas.ts:559-592` |
-| D3 | ACP subsystem, whole | hidden product surface, still compiled + reachable | `main/vellum/chat/` (+ IPC channels, renderer chat dir) |
+| D3 | the ACP-backed node surface, whole | hidden product surface, still compiled + reachable | `main/vellum/chat/` (+ IPC channels, renderer chat dir) |
 | D4 | Route tokens + the second admission path | Tier 3 for callers with no local Vellum | `work/route-tokens.ts`, `work/live-seat.ts:26,76`, `work/control.ts:194-266` |
 | D5 | `RuntimeTier`, `PORT_TIER_FLOOR`, `tierAllowsPort`, `ActorClass`, `External`/`Facility` placements | the retired Tier 1–4 model, gating ports inside physics | `physics/placement.ts:20-30,63-81`; `admit.ts:200-207` |
 | D6 | Opt-in prism plugin + its install plane + Fleet UI section | the retired opt-in tier | `packages/vellum-plugin/`, `main/vellum/plugin-install/` (12 files), `FleetDetailPanel.tsx:386-418`, `hosts/ipc.ts:562` |
