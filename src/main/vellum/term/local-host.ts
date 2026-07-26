@@ -35,6 +35,10 @@ import {
   type AppTerminalLease,
   type AppTerminalSpawnSpec,
 } from "../app-process-plane";
+import {
+  terminalObserverPlane,
+  type TerminalObserverPlane,
+} from "./observer";
 
 export type LocalHostCreateInput = {
   readonly bindingId: string;
@@ -188,6 +192,11 @@ export type LocalSessionHostOptions = {
    * host filesystem. Errors close admission.
    */
   readonly externalMaintenanceFence?: () => boolean;
+  /**
+   * Main-process screen observer plane. Defaults to the process singleton.
+   * Tests may inject an isolated plane.
+   */
+  readonly observerPlane?: TerminalObserverPlane;
 };
 
 type AllExitedWaiter = {
@@ -272,6 +281,7 @@ export class LocalSessionHost extends EventEmitter {
   private readonly shutdownGraceMs: number;
   private readonly lateExitGraceMs: number;
   private readonly externalMaintenanceFence: () => boolean;
+  private readonly observerPlane: TerminalObserverPlane;
 
   constructor(
     processAuthority: LocalTerminalProcessAuthority = appProcessPlane,
@@ -284,6 +294,7 @@ export class LocalSessionHost extends EventEmitter {
     this.lateExitGraceMs = Math.max(0, options.lateExitGraceMs ?? LATE_EXIT_GRACE_MS);
     this.externalMaintenanceFence =
       options.externalMaintenanceFence ?? (() => false);
+    this.observerPlane = options.observerPlane ?? terminalObserverPlane;
   }
 
   create(input: LocalHostCreateInput): TerminalSessionSummary {
@@ -380,7 +391,18 @@ export class LocalSessionHost extends EventEmitter {
         lease.io.onData((data) => this.observeData(rec, data)),
         lease.io.onError((error) => this.observeTerminalError(rec, error)),
       );
-      if (!this.liveRecords.has(rec)) return this.summaryOf(rec);
+      // Main-process screen truth: one headless grid per live generation.
+      // Independent of renderer mount lifetime (workers run with windows closed).
+      this.observerPlane.attach({
+        bindingId,
+        epoch,
+        cols,
+        rows,
+      });
+      if (!this.liveRecords.has(rec)) {
+        this.observerPlane.detach(bindingId, epoch);
+        return this.summaryOf(rec);
+      }
 
       this.bindProcessIdentity(rec);
       this.emitEvent({ type: "session", bindingId, epoch, status: "starting" });
@@ -524,6 +546,7 @@ export class LocalSessionHost extends EventEmitter {
       rec.rows = r;
       rec.seq = rec.seq + 1n;
       this.pushJournal(rec, { seq: rec.seq, type: "resize", cols: c, rows: r });
+      this.observerPlane.resize(rec.bindingId, c, r);
       this.emitEvent({
         type: "resize",
         bindingId: rec.bindingId,
@@ -699,6 +722,8 @@ export class LocalSessionHost extends EventEmitter {
     if (rec.killed || rec.status !== "running" || !this.liveRecords.has(rec)) return;
     rec.seq = rec.seq + 1n;
     this.pushJournal(rec, { seq: rec.seq, type: "output", data });
+    // Single insertion point: every byte already flows here with a seq.
+    this.observerPlane.feed(rec.bindingId, data, rec.seq);
     try {
       this.emitEvent({
         type: "output",
@@ -825,6 +850,8 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private removeLiveRecord(rec: SessionRec): void {
+    // Drop headless grid for this exact generation (epoch-gated).
+    this.observerPlane.detach(rec.bindingId, rec.epoch);
     if (!this.liveRecords.delete(rec) || this.liveRecords.size !== 0) return;
     const waiters = [...this.allExitedWaiters];
     this.allExitedWaiters.clear();
