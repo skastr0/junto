@@ -9,7 +9,9 @@ import {
   findContainingRegion,
   resolveHerdrSpawnDefaults,
   resolvePageSpawnDefaults,
+  resolveRegionCwd,
   stripEmptyRegionDefaults,
+  stripEmptyRegionPaths,
 } from "../src/shared/region-defaults";
 
 const baseDoc = (): CanvasDoc =>
@@ -30,6 +32,10 @@ const baseDoc = (): CanvasDoc =>
               defaults: {
                 herdr: { host: "local", session: null, workspaceId: "w-outer" },
                 page: { url: "https://outer.example", profile: "work", host: "studio" },
+                paths: {
+                  local: "/Users/op/outer",
+                  "remote-a": "/home/op/outer-remote",
+                },
               },
             },
           },
@@ -50,6 +56,9 @@ const baseDoc = (): CanvasDoc =>
                   session: "dev",
                   workspaceId: "w-inner",
                   tabId: "t1",
+                },
+                paths: {
+                  "remote-a": "/home/op/inner-project",
                 },
               },
             },
@@ -141,17 +150,55 @@ describe("region spawn defaults", () => {
       stripEmptyRegionDefaults({
         herdr: { host: "  ", workspaceId: "w1" },
         page: { url: "", profile: "  ", host: "" },
+        paths: { local: "  ", "": "/x" },
       }),
     ).toBeUndefined();
     expect(
       stripEmptyRegionDefaults({
         herdr: { host: "local", session: null, workspaceId: " w1 " },
         page: { url: " https://x ", profile: "", host: " studio " },
+        paths: { local: " /repo ", "  ": "/drop", remote: "" },
       }),
     ).toEqual({
       herdr: { host: "local", session: null, workspaceId: "w1" },
       page: { url: "https://x", host: "studio" },
+      paths: { local: "/repo" },
     });
+  });
+
+  it("resolveRegionCwd is host-keyed and walks outward", () => {
+    const doc = baseDoc();
+    // Inside inner: remote-a uses inner path; local walks out to outer.
+    expect(resolveRegionCwd(doc, 150, 150, "remote-a")).toBe("/home/op/inner-project");
+    expect(resolveRegionCwd(doc, 150, 150, "local")).toBe("/Users/op/outer");
+    // Outside inner, still in outer.
+    expect(resolveRegionCwd(doc, 50, 50, "local")).toBe("/Users/op/outer");
+    expect(resolveRegionCwd(doc, 50, 50, "remote-a")).toBe("/home/op/outer-remote");
+    // Unknown host / outside region.
+    expect(resolveRegionCwd(doc, 50, 50, "studio")).toBeUndefined();
+    expect(resolveRegionCwd(doc, -10, -10, "local")).toBeUndefined();
+  });
+
+  it("stripEmptyRegionPaths trims and drops blanks", () => {
+    expect(stripEmptyRegionPaths(undefined)).toBeUndefined();
+    expect(stripEmptyRegionPaths({ local: "  ", x: "" })).toBeUndefined();
+    expect(stripEmptyRegionPaths({ local: " /a ", remote: "/b" })).toEqual({
+      local: "/a",
+      remote: "/b",
+    });
+  });
+
+  it("round-trips paths through decode/serialize", () => {
+    const doc = baseDoc();
+    const again = Either.getOrThrow(decodeCanvasDoc(JSON.parse(serializeCanvas(doc))));
+    const outer = again.nodes.find((n) => n.id === "outer");
+    expect(outer?.type).toBe("group");
+    if (outer?.type === "group") {
+      expect(outer.ether?.region?.defaults?.paths).toEqual({
+        local: "/Users/op/outer",
+        "remote-a": "/home/op/outer-remote",
+      });
+    }
   });
 
   it("stripping ether leaves valid JSON Canvas", () => {

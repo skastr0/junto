@@ -174,6 +174,8 @@ export type EtherHostId = typeof EtherHostId.Type;
 // Applied only at create time (stamp source) — never a live parent scope.
 // Herdr stops before pane: pane is the instance; host/session/workspace are the place.
 // Page stamps start url + browser profile + physical host (cookies stay runtime).
+// Paths stamp actor cwd (agent/terminal) keyed by host — different machines
+// often need different absolute paths for the same logical project.
 export const EtherRegionHerdrDefaults = Schema.Struct({
   host: Schema.String,
   session: Schema.optionalWith(Schema.NullOr(Schema.String), { exact: true }),
@@ -189,9 +191,18 @@ export const EtherRegionPageDefaults = Schema.Struct({
 });
 export type EtherRegionPageDefaults = typeof EtherRegionPageDefaults.Type;
 
+/** host id → absolute cwd on that host for actor spawn. */
+export const EtherRegionPaths = Schema.Record({
+  key: Schema.String,
+  value: Schema.String,
+});
+export type EtherRegionPaths = typeof EtherRegionPaths.Type;
+
 export const EtherRegionDefaults = Schema.Struct({
   herdr: Schema.optionalWith(EtherRegionHerdrDefaults, { exact: true }),
   page: Schema.optionalWith(EtherRegionPageDefaults, { exact: true }),
+  /** Per-host default working directory for agents/terminals created inside. */
+  paths: Schema.optionalWith(EtherRegionPaths, { exact: true }),
 });
 export type EtherRegionDefaults = typeof EtherRegionDefaults.Type;
 
@@ -204,8 +215,10 @@ export type EtherRegionDefaults = typeof EtherRegionDefaults.Type;
 // ARMING deliberately does NOT live in the document: definitions travel with
 // the file; the switch that lets a pulse spend real agent turns exists only
 // in the running app, flipped by a human.
-// `defaults` is a create-time stamp source for herdr/page nodes placed inside
-// the region — bag-atomic (innermost region with a bag for that kind wins).
+// `defaults` is a create-time stamp source for herdr/page/path bags on nodes
+// placed inside the region. Herdr/page bags are bag-atomic (innermost region
+// with a bag for that kind wins). Paths are host-keyed: innermost region that
+// defines a path for the spawn host wins; missing hosts walk outward.
 export const EtherRegion = Schema.Struct({
   hold: Schema.optionalWith(Schema.Boolean, { exact: true }),
   instruction: Schema.optionalWith(Schema.String, { exact: true }),

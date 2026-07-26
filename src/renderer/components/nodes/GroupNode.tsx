@@ -2,19 +2,44 @@ import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { Lock, Pencil, ScrollText, Trash2 } from "lucide-react";
+import { FolderOpen, Lock, Pencil, ScrollText, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { resizeNode } from "../../lib/geometry";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
+import { RegionPathsModal } from "../RegionPathsModal";
 import { IconButton, ToolbarPill } from "../ui";
 
-function RegionToolbar({ nodeId, selected, onEdit }: { readonly nodeId: string; readonly selected: boolean; readonly onEdit: () => void }) {
+function RegionToolbar({
+  nodeId,
+  selected,
+  onEdit,
+  onPaths,
+  hasPaths,
+}: {
+  readonly nodeId: string;
+  readonly selected: boolean;
+  readonly onEdit: () => void;
+  readonly onPaths: () => void;
+  readonly hasPaths: boolean;
+}) {
   return <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
     <ToolbarPill>
       <IconButton className="nodrag nopan" aria-label="Edit region" title="edit region" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}><Pencil size={14} /></IconButton>
+      <IconButton
+        className="nodrag nopan"
+        aria-label="Region folder paths"
+        title={hasPaths ? "folder paths (set)" : "folder paths"}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onPaths();
+        }}
+      >
+        <FolderOpen size={14} style={hasPaths ? { color: HUE.amber } : undefined} />
+      </IconButton>
       <IconButton className="nodrag nopan" aria-label="Delete region" tone="danger" title="delete region" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); deleteNode(nodeId); }}><Trash2 size={14} /></IconButton>
     </ToolbarPill>
   </NodeToolbar>;
@@ -36,11 +61,16 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const hasBackground = Boolean(background);
   const backgroundStyle = node.type === "group" ? (node.backgroundStyle ?? "cover") : "cover";
   const [editing, setEditing] = useState(false);
+  const [pathsOpen, setPathsOpen] = useState(false);
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const [draft, setDraft] = useState(label);
   const inputRef = useRef<HTMLInputElement>(null);
   const armed = Boolean(use$(kernel$.armed[node.id]));
   const instruction = node.ether?.region?.instruction;
+  const pathMap = node.type === "group" ? node.ether?.region?.defaults?.paths : undefined;
+  const hasPaths = Boolean(
+    pathMap && Object.values(pathMap).some((p) => typeof p === "string" && p.trim().length > 0),
+  );
 
   useEffect(() => {
     if (!editing) return;
@@ -62,12 +92,20 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
 
   return <div className="vellum-group relative h-full w-full rounded-[14px]" style={{ border: `1px solid ${selected ? withAlpha(HUE.amber, 0.6) : stroke}`, backgroundImage: hasBackground ? `linear-gradient(135deg, ${withAlpha(tint, 0.1)}, rgba(13,12,11,0.5)), url(${JSON.stringify(background)})` : undefined, background: hasBackground ? undefined : node.color ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, rgba(13,12,11,0.25))` : "linear-gradient(135deg, rgba(33,27,21,0.22), rgba(11,11,10,0.12))", backgroundSize: hasBackground ? (backgroundStyle === "cover" ? "cover" : backgroundStyle === "ratio" ? "contain" : "auto") : undefined, backgroundRepeat: hasBackground && backgroundStyle === "repeat" ? "repeat" : "no-repeat", backgroundPosition: hasBackground ? "center" : undefined, boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none" }}>
     <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="vellum-resize-handle" lineClassName="vellum-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
-    <RegionToolbar nodeId={node.id} selected={selected} onEdit={() => setEditing(true)} />
+    <RegionToolbar
+      nodeId={node.id}
+      selected={selected}
+      onEdit={() => setEditing(true)}
+      onPaths={() => setPathsOpen(true)}
+      hasPaths={hasPaths}
+    />
     <div className="absolute left-2 top-2 flex items-center gap-1">
       <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} />
       {node.ether?.region?.hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
+      {hasPaths ? <span title="Region has host folder paths" style={{ display: "inline-flex", flexShrink: 0 }}><FolderOpen aria-label="Region has folder paths" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
       {instruction ? <span title={instruction} style={{ display: "inline-flex", flexShrink: 0 }}><ScrollText aria-label="Region has a pulse briefing" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
       {armed ? <span className="vellum-armed-dot" title="armed — pulses spend real agent turns" style={{ background: HUE.amber }} /> : null}
     </div>
+    {pathsOpen ? <RegionPathsModal nodeId={node.id} onClose={() => setPathsOpen(false)} /> : null}
   </div>;
 }

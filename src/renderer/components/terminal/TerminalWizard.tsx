@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { LOCAL_HOST_ID, TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
+import { resolveRegionCwd } from "@shared/region-defaults";
 import { makeTerminalNode } from "../../lib/node-factories";
 import { addNode } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
@@ -9,6 +10,8 @@ import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, FieldLabel, Select } from "../ui";
 
 type HostOpt = { readonly id: string; readonly label: string };
+
+const TERMINAL_SIZE = { width: 260, height: 110 } as const;
 
 export function TerminalWizard({
   anchor,
@@ -77,12 +80,20 @@ export function TerminalWizard({
   const create = () => {
     if (busy) return;
     setBusy(true);
+    const host = hostId || LOCAL_HOST_ID;
+    // Create-time cwd from containing region paths for the chosen host.
+    const cwd = resolveRegionCwd(
+      state$.doc.peek(),
+      anchor.x + TERMINAL_SIZE.width / 2,
+      anchor.y + TERMINAL_SIZE.height / 2,
+      host,
+    );
     const node = makeTerminalNode(
       anchor.x,
       anchor.y,
-      { kind: "shell" },
+      { kind: "shell", ...(cwd ? { cwd } : {}) },
       "terminal",
-      hostId || LOCAL_HOST_ID,
+      host,
     );
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);

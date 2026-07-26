@@ -1123,12 +1123,17 @@ describe("renderer graph mutations", () => {
     setRegionDefaults("region", {
       herdr: { host: "local", session: null, workspaceId: "w1" },
       page: { url: "https://example.com", profile: "work" },
+      paths: { local: "/Users/op/proj", "remote-a": "/home/op/proj" },
     });
     const withDefaults = state$.doc.peek().nodes[0];
     expect(withDefaults?.ether?.region?.hold).toBe(true);
     expect(withDefaults?.ether?.region?.instruction).toBe("pulse me");
     expect(withDefaults?.ether?.region?.defaults?.herdr?.host).toBe("local");
     expect(withDefaults?.ether?.region?.defaults?.page?.profile).toBe("work");
+    expect(withDefaults?.ether?.region?.defaults?.paths).toEqual({
+      local: "/Users/op/proj",
+      "remote-a": "/home/op/proj",
+    });
 
     setRegionDefaults("region", undefined);
     const cleared = state$.doc.peek().nodes[0];

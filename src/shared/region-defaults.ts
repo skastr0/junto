@@ -4,6 +4,7 @@
 // when regions nest, the smallest-area (innermost) region wins.
 // Defaults bags are bag-atomic per kind: the innermost region that defines
 // `defaults.herdr` (or `defaults.page`) supplies the whole bag — no field merge.
+// Paths are host-keyed: innermost region with a non-empty path for that host.
 
 import type {
   CanvasDoc,
@@ -11,6 +12,7 @@ import type {
   EtherRegionDefaults,
   EtherRegionHerdrDefaults,
   EtherRegionPageDefaults,
+  EtherRegionPaths,
   GroupNode,
 } from "./canvas";
 
@@ -73,6 +75,24 @@ const regionHasPageSpawnFields = (group: GroupNode): boolean => {
   return url.length > 0 || profile.length > 0 || host.length > 0;
 };
 
+/** True when the region bag has at least one non-empty host→path entry. */
+const regionHasPaths = (group: GroupNode): boolean => {
+  const paths = group.ether?.region?.defaults?.paths;
+  if (!paths) return false;
+  for (const [host, path] of Object.entries(paths)) {
+    if (host.trim() && path.trim()) return true;
+  }
+  return false;
+};
+
+/** True when the region bag defines a non-empty path for the given host id. */
+const regionHasPathForHost = (group: GroupNode, hostId: string): boolean => {
+  const host = hostId.trim();
+  if (!host) return false;
+  const path = group.ether?.region?.defaults?.paths?.[host]?.trim() ?? "";
+  return path.length > 0;
+};
+
 /**
  * Bag-atomic herdr spawn defaults from the innermost region that defines them.
  * Returns undefined when no containing region has a herdr defaults bag.
@@ -121,6 +141,39 @@ export const resolvePageSpawnDefaults = (
   };
 };
 
+/**
+ * Host-keyed actor cwd from the innermost containing region that defines a
+ * path for `hostId`. Walks outward when an inner region has paths for other
+ * hosts only. Create-time stamp for agent/terminal launch.cwd.
+ */
+export const resolveRegionCwd = (
+  doc: CanvasDoc,
+  x: number,
+  y: number,
+  hostId: string,
+): string | undefined => {
+  const host = hostId.trim();
+  if (!host) return undefined;
+  const region = findInnermostGroup(doc, x, y, (g) => regionHasPathForHost(g, host));
+  const path = region?.ether?.region?.defaults?.paths?.[host]?.trim();
+  return path || undefined;
+};
+
+/** Collapse blank host/path entries. Returns undefined when nothing remains. */
+export const stripEmptyRegionPaths = (
+  paths: EtherRegionPaths | undefined,
+): EtherRegionPaths | undefined => {
+  if (!paths) return undefined;
+  const next: Record<string, string> = {};
+  for (const [rawHost, rawPath] of Object.entries(paths)) {
+    const host = rawHost.trim();
+    const path = rawPath.trim();
+    if (!host || !path) continue;
+    next[host] = path;
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+};
+
 /** Full defaults bag on the innermost region that has a non-empty defaults bag. */
 export const resolveRegionDefaults = (
   doc: CanvasDoc,
@@ -130,7 +183,7 @@ export const resolveRegionDefaults = (
   const region = findInnermostGroup(doc, x, y, (g) => {
     const d = g.ether?.region?.defaults;
     if (!d) return false;
-    return regionHasHerdrHost(g) || regionHasPageSpawnFields(g);
+    return regionHasHerdrHost(g) || regionHasPageSpawnFields(g) || regionHasPaths(g);
   });
   return stripEmptyRegionDefaults(region?.ether?.region?.defaults);
 };
@@ -163,9 +216,11 @@ export const stripEmptyRegionDefaults = (
       ...(pageHost ? { host: pageHost } : {}),
     };
   }
-  if (!herdr && !page) return undefined;
+  const paths = stripEmptyRegionPaths(defaults.paths);
+  if (!herdr && !page && !paths) return undefined;
   return {
     ...(herdr ? { herdr } : {}),
     ...(page ? { page } : {}),
+    ...(paths ? { paths } : {}),
   };
 };

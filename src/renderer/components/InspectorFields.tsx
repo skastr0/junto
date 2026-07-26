@@ -679,6 +679,8 @@ function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
       if (!sessionTrim || sessionTrim === "default") sessionValue = null;
       else sessionValue = sessionTrim;
     }
+    // Preserve host→cwd paths bag — edited from the region paths modal, not here.
+    const paths = stored?.paths;
     const next: EtherRegionDefaults = {
       ...(hostTrim
         ? {
@@ -699,6 +701,7 @@ function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
             },
           }
         : {}),
+      ...(paths && Object.keys(paths).length > 0 ? { paths } : {}),
     };
     setRegionDefaults(node.id, Object.keys(next).length > 0 ? next : undefined);
   };
@@ -711,14 +714,28 @@ function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
     setPageUrl("");
     setPageProfile("");
     setPageHost("");
-    setRegionDefaults(node.id, undefined);
+    // clear defaults clears herdr/page only — keep host paths (region folder modal)
+    const paths = stored?.paths;
+    setRegionDefaults(
+      node.id,
+      paths && Object.keys(paths).length > 0 ? { paths } : undefined,
+    );
   };
 
   const onEnter = commitOnEnter(commit);
 
+  const pathCount = stored?.paths
+    ? Object.values(stored.paths).filter((p) => typeof p === "string" && p.trim()).length
+    : 0;
+
   return <div className="inspector-section">
     <div className="inspector-section__label">spawn defaults</div>
-    <div className="inspector-detail mb-1">Stamped onto new herdr/page nodes inside this region. Not live rebind — edit a node after create to override.</div>
+    <div className="inspector-detail mb-1">Stamped onto new herdr/page nodes inside this region. Actor folder paths are set from the region toolbar (folder icon). Not live rebind — edit a node after create to override.</div>
+    {pathCount > 0 ? (
+      <div className="inspector-detail mb-1" style={{ color: withAlpha(HUE.amber, 0.85) }}>
+        {pathCount} host folder path{pathCount === 1 ? "" : "s"} · region toolbar → folder
+      </div>
+    ) : null}
     <label className="inspector-editor">
       <span>herdr host</span>
       <input aria-label="Region herdr host default" value={host} placeholder="local · host id from Settings → Hosts" onChange={(e) => setHost(e.target.value)} onBlur={commit} onKeyDown={onEnter} />
