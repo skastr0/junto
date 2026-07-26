@@ -10,9 +10,14 @@ import {
 /**
  * Focused single-subject overlay shell.
  *
- * Portal to document.body so inspector backdrop-filter / canvas transforms
- * cannot clip or reparent `position: fixed`. One instance per caller state
- * slot — the shell does not coordinate siblings.
+ * Default: portal to document.body so inspector backdrop-filter / canvas
+ * transforms cannot clip or reparent `position: fixed`. One instance per
+ * caller state slot — the shell does not coordinate siblings.
+ *
+ * `contain="parent"`: render in place with absolute fill (parent must be
+ * positioned). WorkFocusShell uses this so the pinned stage dock stays
+ * interactive — a body portal at z-index 10000 would cover the dock and
+ * steal wheel/pointer from pinned PTYs when focus + pinned are both open.
  *
  * Measure constrains width for human readability (see focus-measure.ts).
  * Height policy picks immersive (agent work), fit (forms), or resizable
@@ -25,6 +30,7 @@ export function FocusSurface({
   measure,
   height = "immersive",
   layer = "work",
+  contain = "viewport",
   onClose,
   closeOnEscape = true,
   closeOnBackdrop = true,
@@ -35,6 +41,8 @@ export function FocusSurface({
   readonly measure: FocusMeasure;
   readonly height?: FocusHeight;
   readonly layer?: FocusLayer;
+  /** `viewport` = body portal (default). `parent` = absolute fill of parent. */
+  readonly contain?: "viewport" | "parent";
   readonly onClose: () => void;
   readonly closeOnEscape?: boolean;
   readonly closeOnBackdrop?: boolean;
@@ -83,12 +91,19 @@ export function FocusSurface({
     return () => observer.disconnect();
   }, [height, measure]);
 
-  return createPortal(
+  const root = (
     <div
       ref={rootRef}
-      className={`focus-surface focus-surface--layer-${layer} focus-surface--height-${height}`}
+      className={[
+        "focus-surface",
+        `focus-surface--layer-${layer}`,
+        `focus-surface--height-${height}`,
+        contain === "parent" ? "focus-surface--contain-parent" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       role="dialog"
-      aria-modal="true"
+      aria-modal={contain === "viewport" ? "true" : undefined}
       aria-label={label}
       style={focusMeasureCssVars(measure)}
     >
@@ -113,9 +128,11 @@ export function FocusSurface({
       >
         {children}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
+
+  if (contain === "parent") return root;
+  return createPortal(root, document.body);
 }
 
 // --- session size memory (resizable only) ------------------------------------

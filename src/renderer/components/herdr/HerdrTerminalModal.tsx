@@ -596,9 +596,37 @@ export function HerdrTerminalPanel({
         pushResize();
       }, RESIZE_DEBOUNCE_MS);
     };
+    /** Detect unpark / pin reflow so wheel hit-test geometry re-syncs. */
+    let lastHostBox = { w: 0, h: 0 };
+    let prevHostTiny = true;
     window.addEventListener("resize", scheduleResize);
     if (typeof ResizeObserver !== "undefined") {
-      resizeObs = new ResizeObserver(() => scheduleResize());
+      resizeObs = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        const w = entry?.contentRect.width ?? hostEl.getBoundingClientRect().width;
+        const h = entry?.contentRect.height ?? hostEl.getBoundingClientRect().height;
+        const nowReal = w >= 40 && h >= 40;
+        const nowTiny = !nowReal;
+        const grewBack = prevHostTiny && nowReal;
+        const sizeJump =
+          lastHostBox.w > 0 &&
+          nowReal &&
+          (Math.abs(w - lastHostBox.w) > 24 || Math.abs(h - lastHostBox.h) > 24);
+        prevHostTiny = nowTiny;
+        if (nowReal) lastHostBox = { w, h };
+        // Reuse stream hardFitBurst (settle + PTY nudge) on unpark / pin reflow.
+        if (grewBack || sizeJump) {
+          hardFitBurst();
+          scheduleResize();
+          try {
+            term.refresh(0, Math.max(0, term.rows - 1));
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        scheduleResize();
+      });
       resizeObs.observe(hostEl);
       // Focus panel + workbench panes reflow on pin/split/stored focusSize.
       const panelRoot = hostEl.closest(".herdr-terminal-panel");

@@ -84,11 +84,15 @@ export function WorkFocusShell() {
 
   if (!hasFocus) return null;
 
+  // contain=parent: fill .vellum-stage-main only. Body portal would cover the
+  // pinned dock sibling and break wheel/pointer on pinned PTYs whenever any
+  // focus surface is still open (multi-stream pin + focus).
   return (
     <FocusSurface
       measure={measure}
       height="immersive"
       layer="work"
+      contain="parent"
       label={active ? `Workbench · ${active.kind}` : "Workbench focus"}
       onClose={closeAllFocus}
       closeOnEscape={false}

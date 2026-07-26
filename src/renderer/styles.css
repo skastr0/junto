@@ -99,13 +99,28 @@ body {
   box-sizing: border-box;
   padding: 16px;
 }
+/* In-tree overlay (WorkFocusShell): only cover the canvas column so the
+   pinned stage dock stays above the hit-test layer for wheel/scroll. */
+.focus-surface.focus-surface--contain-parent {
+  position: absolute;
+  inset: 0;
+  /* Below station chrome siblings that live in stage-main if any; above canvas. */
+  z-index: 40;
+}
 
 html[data-vellum-platform="darwin"] .focus-surface {
   /* traffic lights + breathing room under hiddenInset titlebar */
   padding: 40px 16px 16px;
 }
+/* Parent-contained shell already sits under the real titlebar in stage-main. */
+html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent {
+  padding: 16px;
+}
 .focus-surface--layer-work { z-index: 10000; }
 .focus-surface--layer-detail { z-index: 60; }
+.focus-surface.focus-surface--contain-parent.focus-surface--layer-work {
+  z-index: 40;
+}
 .focus-surface--height-immersive {
   align-items: stretch;
 }
@@ -244,9 +259,12 @@ html[data-vellum-platform="darwin"] .focus-surface {
 
 /* Work-surface dock — pinned zone only (flex sibling of canvas column).
    Width from --workbench-pinned-width / flex basis (set by WorkSurfaceDock).
-   Focus-zone surfaces live in WorkFocusShell (centered FocusSurface). */
+   Focus-zone surfaces live in WorkFocusShell (parent-contained overlay on
+   stage-main). z-index keeps the dock above stage-main paint so pin + focus
+   multi-stream keeps wheel/scroll on the dock. */
 .work-surface-dock {
   position: relative;
+  z-index: 50;
   display: flex;
   flex-direction: column;
   flex: 0 0 var(--workbench-pinned-width, 45%);
@@ -2137,13 +2155,21 @@ ol.note-md__list > .note-md__li::before {
   padding: 6px 8px;
   box-sizing: border-box;
 }
+/* Match xterm default scroll (scroll, not auto) so the SmoothScrollableElement
+   scrollbar + wheel stay wired after pin remount / dock reflow. height:100%
+   fills the absolute host; do not set overflow hidden — that kills scrollback. */
 .native-terminal-surface__xterm .xterm-viewport {
   width: 100% !important;
   height: 100% !important;
-  overflow-y: auto !important;
+  overflow-y: scroll !important;
 }
 .native-terminal-surface__xterm .xterm-screen {
   width: 100% !important;
+}
+/* xterm 6 scrollable wrapper must fill the viewport for wheel hit-testing. */
+.native-terminal-surface__xterm .xterm-scrollable-element {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 /* =============================================================================

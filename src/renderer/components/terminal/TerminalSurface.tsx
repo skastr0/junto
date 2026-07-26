@@ -127,6 +127,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
    *
    * `forcePty`: always notify the PTY even when cols×rows match lastGeom
    * (attach/journal remount needs SIGWINCH so TUIs redraw).
+   *
+   * Always `term.refresh` after a successful measure — pin remount, tab
+   * unpark (1×1 → real box with same cols×rows), and dock drag leave the
+   * scrollable viewport desynced if we skip paint when geom is unchanged.
    */
   const pushResize = (opts?: { readonly forcePty?: boolean }): void => {
     const term = termRef.current;
@@ -145,6 +149,15 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       } catch {
         return;
       }
+    }
+
+    // Re-sync canvas + scroll area even when cols×rows are stable (unpark /
+    // pin settle). Without this, wheel scroll and the PTY view go dead after
+    // zone moves or tab keep-alive at 1×1.
+    try {
+      term.refresh(0, Math.max(0, term.rows - 1));
+    } catch {
+      // ignore — older paint paths still usable
     }
 
     const geomChanged =
@@ -196,6 +209,11 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       void api.terminalResize(lease, cols, rows);
       lastGeom.current = { cols, rows };
       setGeomLabel(`${cols}×${rows}`);
+      try {
+        term.refresh(0, Math.max(0, rows - 1));
+      } catch {
+        // ignore
+      }
     });
   };
 
@@ -223,16 +241,20 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const settleTimers: ReturnType<typeof setTimeout>[] = [];
-    const scheduleResize = (): void => {
+    /** Last real host box — detect pin reflow size jumps. */
+    let lastHostBox = { w: 0, h: 0 };
+    /** Previous RO sample was parked/invisible (<40px). Unpark needs force fit. */
+    let prevHostTiny = true;
+    const scheduleResize = (opts?: { readonly forcePty?: boolean }): void => {
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
-        pushResize();
+        pushResize(opts);
       }, RESIZE_DEBOUNCE_MS);
     };
-    const hardFitBurst = (): void => {
+    const hardFitBurst = (opts?: { readonly forcePty?: boolean }): void => {
       for (const ms of SETTLE_FITS_MS) {
-        settleTimers.push(setTimeout(() => pushResize(), ms));
+        settleTimers.push(setTimeout(() => pushResize(opts), ms));
       }
     };
 
@@ -241,8 +263,32 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       hardFitBurst();
     });
 
-    window.addEventListener("resize", scheduleResize);
-    const observer = new ResizeObserver(() => scheduleResize());
+    const onWindowResize = (): void => {
+      scheduleResize();
+    };
+    window.addEventListener("resize", onWindowResize);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      const w = entry?.contentRect.width ?? host.getBoundingClientRect().width;
+      const h = entry?.contentRect.height ?? host.getBoundingClientRect().height;
+      const nowReal = w >= 40 && h >= 40;
+      const nowTiny = !nowReal;
+      // Tab unpark: pane was 1×1 (parked), now real again — even if cols×rows match.
+      const grewBack = prevHostTiny && nowReal;
+      const sizeJump =
+        lastHostBox.w > 0 &&
+        nowReal &&
+        (Math.abs(w - lastHostBox.w) > 24 || Math.abs(h - lastHostBox.h) > 24);
+      prevHostTiny = nowTiny;
+      if (nowReal) lastHostBox = { w, h };
+      // Pin/dock reflow or unpark: force PTY + settle so scroll/viewport re-sync.
+      if (grewBack || sizeJump) {
+        hardFitBurst({ forcePty: true });
+        scheduleResize({ forcePty: true });
+        return;
+      }
+      scheduleResize();
+    });
     observer.observe(host);
     if (root) observer.observe(root);
     // Focus panel + workbench panes reflow on pin/split/stored focusSize.
@@ -259,7 +305,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     }
 
     return () => {
-      window.removeEventListener("resize", scheduleResize);
+      window.removeEventListener("resize", onWindowResize);
       observer.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
       for (const t of settleTimers) clearTimeout(t);
