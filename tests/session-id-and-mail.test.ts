@@ -26,18 +26,38 @@ describe("session id capture + pin", () => {
     );
   });
 
-  it("makeManagedAgentNode pins sessionId for claude/grok", () => {
-    const n = makeManagedAgentNode(0, 0, { harness: "claude" });
-    expect(n.ether?.terminal?.sessionId).toBeTruthy();
-    expect(n.ether?.terminal?.harness).toBe("claude");
-    expect(n.ether?.terminal?.bindingId).toBeTruthy();
-    const argv = n.ether?.terminal?.launch?.argv ?? [];
-    expect(argv).toContain("--session-id");
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  it("makeManagedAgentNode pins UUID sessionId for claude/grok", () => {
+    for (const harness of ["claude", "grok"] as const) {
+      const n = makeManagedAgentNode(0, 0, { harness });
+      const sid = n.ether?.terminal?.sessionId;
+      expect(sid).toMatch(UUID_RE);
+      expect(n.ether?.terminal?.harness).toBe(harness);
+      expect(n.ether?.terminal?.bindingId).toBeTruthy();
+      const argv = n.ether?.terminal?.launch?.argv ?? [];
+      expect(argv).toContain("--session-id");
+      expect(argv).toContain(sid);
+    }
+  });
+
+  it("makeManagedAgentNode does not pin sessionId for capture harnesses", () => {
+    for (const harness of ["codex", "hermes"] as const) {
+      const n = makeManagedAgentNode(0, 0, {
+        harness,
+        ...(harness === "hermes" ? { profile: "default" } : {}),
+      });
+      expect(n.ether?.terminal?.sessionId).toBeUndefined();
+      const argv = n.ether?.terminal?.launch?.argv ?? [];
+      expect(argv).not.toContain("--session-id");
+    }
   });
 
   it("spawn replan resumes stored sessionId", () => {
     const node = makeManagedAgentNode(0, 0, { harness: "claude" });
     const sid = node.ether!.terminal!.sessionId!;
+    expect(sid).toMatch(UUID_RE);
     const doc: CanvasDoc = { nodes: [node], edges: [] };
     const { launch } = launchForManagedSpawn({
       doc,
@@ -54,6 +74,7 @@ describe("session id capture + pin", () => {
         argv.includes("--session-id") ||
         argv.includes(sid),
     ).toBe(true);
+    expect(argv).toContain(sid);
   });
 
   it("capture store holds binding→session", () => {

@@ -104,10 +104,10 @@ export const makeManagedAgentNode = (
     options.effort,
   ].filter((p): p is string => Boolean(p && p.trim()));
   const label = options.label?.trim() || parts.join(" · ");
-  // Pin harnesses get a durable session id at birth for cold wake / --session-id.
+  // Pin harnesses (Claude/Grok) require a UUID for --session-id; ULIDs are rejected.
   const pinSession =
     template.capabilityBadges.sessionId === "pin"
-      ? ulid().toLowerCase().replace(/_/g, "")
+      ? crypto.randomUUID()
       : undefined;
   // Re-resolve argv with session pin when supported.
   const launchWithSession: EtherTerminalLaunch = pinSession
