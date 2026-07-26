@@ -362,8 +362,10 @@ export type PruneAuthorityResult = {
  * `retainGenerations` generations (including current). Live names live only
  * in the current generation; historical blobs are pure cost after that.
  *
- * Fail-soft: never throws for missing files mid-delete. Throws only when the
- * store layout itself is unusable (caller already treats that as corrupt).
+ * Safety: never delete document objects unless current.json is readable and
+ * its manifest is in the keep set with a fully decoded document list. If that
+ * contract cannot be met, abort with zero deletes (GC is optional; loss is not).
+ * Callers must serialize prune with authority writers (app mutex).
  */
 export const pruneAuthorityHistory = async (
   root: string = canvasAuthorityRoot(),
@@ -372,6 +374,24 @@ export const pruneAuthorityHistory = async (
   const retain = Math.max(1, Math.floor(retainGenerations));
   const manifestsDir = join(root, "manifests");
   const documentsDir = join(root, "documents");
+  const empty: PruneAuthorityResult = {
+    keptManifests: 0,
+    removedManifests: 0,
+    removedDocuments: 0,
+  };
+
+  // Fail closed: no current pointer ⇒ no document GC.
+  let currentManifestSha: string;
+  try {
+    const pointerRaw = await readFile(join(root, "current.json"), "utf8");
+    const pointerParsed = JSON.parse(pointerRaw) as unknown;
+    const pointerResult =
+      Schema.decodeUnknownEither(CanvasAuthorityPointerV1)(pointerParsed);
+    if (Either.isLeft(pointerResult)) return empty;
+    currentManifestSha = pointerResult.right.manifestSha256;
+  } catch {
+    return empty;
+  }
 
   let manifestNames: string[] = [];
   try {
@@ -379,10 +399,15 @@ export const pruneAuthorityHistory = async (
       name.endsWith(".json"),
     );
   } catch {
-    return { keptManifests: 0, removedManifests: 0, removedDocuments: 0 };
+    return empty;
   }
 
-  type Ranked = { readonly path: string; readonly generation: string; readonly sha256: string };
+  type Ranked = {
+    readonly path: string;
+    readonly generation: string;
+    readonly sha256: string;
+    readonly manifest: Manifest;
+  };
   const ranked: Ranked[] = [];
   for (const name of manifestNames) {
     const path = join(manifestsDir, name);
@@ -392,6 +417,9 @@ export const pruneAuthorityHistory = async (
     } catch {
       continue;
     }
+    const contentHash = sha256Hex(raw);
+    const stem = name.replace(/\.json$/, "");
+    if (contentHash !== stem) continue;
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw) as unknown;
@@ -400,54 +428,55 @@ export const pruneAuthorityHistory = async (
     }
     const decoded = Schema.decodeUnknownEither(CanvasAuthorityManifestV1)(parsed);
     if (Either.isLeft(decoded)) continue;
-    const hash = name.replace(/\.json$/, "");
     ranked.push({
       path,
       generation: decoded.right.generation,
-      sha256: hash,
+      sha256: contentHash,
+      manifest: decoded.right,
     });
   }
 
   ranked.sort((a, b) => compareAuthorityGeneration(b.generation, a.generation));
-  const keep = ranked.slice(0, retain);
-  const drop = ranked.slice(retain);
+  const keep: Ranked[] = ranked.slice(0, retain);
+  const drop: Ranked[] = ranked.slice(retain);
 
-  // Prefer current pointer's generation even if sort is weird — always keep it.
-  const pointerPath = join(root, "current.json");
-  try {
-    const pointerRaw = await readFile(pointerPath, "utf8");
-    const pointerParsed = JSON.parse(pointerRaw) as unknown;
-    const pointerResult =
-      Schema.decodeUnknownEither(CanvasAuthorityPointerV1)(pointerParsed);
-    if (Either.isRight(pointerResult)) {
-      const currentSha = pointerResult.right.manifestSha256;
-      if (!keep.some((entry) => entry.sha256 === currentSha)) {
-        const fromDrop = drop.find((entry) => entry.sha256 === currentSha);
-        if (fromDrop) {
-          keep.push(fromDrop);
-          drop.splice(drop.indexOf(fromDrop), 1);
-        }
-      }
+  // Current generation is always retained, even outside the rank window.
+  if (!keep.some((entry) => entry.sha256 === currentManifestSha)) {
+    const fromDrop = drop.find((entry) => entry.sha256 === currentManifestSha);
+    if (!fromDrop) {
+      // Pointer names a missing/undecodable manifest — refuse all deletes.
+      return empty;
     }
-  } catch {
-    /* pointer unreadable — still prune by generation rank */
+    keep.push(fromDrop);
+    drop.splice(drop.indexOf(fromDrop), 1);
   }
 
   const keepDocHashes = new Set<string>();
   for (const entry of keep) {
-    try {
-      const raw = await readFile(entry.path, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
-      const decoded = Schema.decodeUnknownEither(CanvasAuthorityManifestV1)(parsed);
-      if (Either.isLeft(decoded)) continue;
-      for (const doc of decoded.right.documents) keepDocHashes.add(doc.sha256);
-    } catch {
-      /* skip */
+    for (const doc of entry.manifest.documents) keepDocHashes.add(doc.sha256);
+  }
+  // Incomplete keep set ⇒ refuse document GC (never delete "unknowns").
+  if (keep.length === 0 || keepDocHashes.size === 0) return empty;
+
+  // Re-read current.json immediately before deletes; abort if pointer moved.
+  try {
+    const pointerRaw = await readFile(join(root, "current.json"), "utf8");
+    const pointerParsed = JSON.parse(pointerRaw) as unknown;
+    const pointerResult =
+      Schema.decodeUnknownEither(CanvasAuthorityPointerV1)(pointerParsed);
+    if (
+      Either.isLeft(pointerResult) ||
+      pointerResult.right.manifestSha256 !== currentManifestSha
+    ) {
+      return empty;
     }
+  } catch {
+    return empty;
   }
 
   let removedManifests = 0;
   for (const entry of drop) {
+    if (entry.sha256 === currentManifestSha) continue;
     try {
       await rm(entry.path, { force: true });
       removedManifests += 1;

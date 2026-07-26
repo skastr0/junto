@@ -507,10 +507,14 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
         if (stampedDirty) {
           await commitLiveAuthorityGeneration();
         } else {
-          // Drop historical content-addressed blobs left by tests/scripting
-          // and long-lived edit sessions. Best-effort; never block boot.
-          void pruneAuthorityHistory(authRoot).catch((error) => {
-            console.error("[canvases] authority history prune failed:", error);
+          // Serialize with authority writers — fire-and-forget GC races commits
+          // and can delete live generation document objects.
+          await withAuthorityMutex(async () => {
+            try {
+              await pruneAuthorityHistory(authRoot);
+            } catch (error) {
+              console.error("[canvases] authority history prune failed:", error);
+            }
           });
         }
       } catch (error) {

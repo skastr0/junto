@@ -91,7 +91,17 @@ describe("canvas authority store", () => {
         root,
       );
     }
-    // commit already prunes to AUTHORITY_HISTORY_RETAIN (5); force retain=2.
+    // After commits, auto-retain window must already bound history (≤5).
+    const afterCommitManifests = (await readdir(join(root, "manifests"))).filter(
+      (n) => n.endsWith(".json"),
+    );
+    const afterCommitDocs = (await readdir(join(root, "documents"))).filter((n) =>
+      n.endsWith(".canvas"),
+    );
+    expect(afterCommitManifests.length).toBeLessThanOrEqual(5);
+    expect(afterCommitDocs.length).toBeLessThanOrEqual(5);
+
+    // Force retain=2.
     const result = await pruneAuthorityHistory(root, 2);
     expect(result.keptManifests).toBeGreaterThanOrEqual(1);
     expect(result.removedManifests + result.removedDocuments).toBeGreaterThan(0);
@@ -106,9 +116,32 @@ describe("canvas authority store", () => {
     const loaded = await loadAuthoritySnapshot(root);
     expect(loaded?.pointer.generation).toBe("8");
     expect(loaded?.documents.has("solo")).toBe(true);
-    // At most retain window of manifests (plus possible current already in set).
     expect(manifests.length).toBeLessThanOrEqual(2);
     expect(docs.length).toBeLessThanOrEqual(2);
+  });
+
+  it("refuses document GC when current.json is corrupt", async () => {
+    root = await mkdtemp(join(tmpdir(), "vellum-authority-prune-bad-ptr-"));
+    await commitAuthorityGeneration(
+      {
+        generation: "1",
+        createdAt: "2026-07-24T00:00:00.000Z",
+        documents: new Map([
+          ["solo", new TextEncoder().encode('{"nodes":[],"edges":[]}\n')],
+        ]),
+      },
+      root,
+    );
+    await writeFile(join(root, "current.json"), "{not-json", "utf8");
+    const before = (await readdir(join(root, "documents"))).filter((n) =>
+      n.endsWith(".canvas"),
+    );
+    const result = await pruneAuthorityHistory(root, 1);
+    expect(result.removedDocuments).toBe(0);
+    const after = (await readdir(join(root, "documents"))).filter((n) =>
+      n.endsWith(".canvas"),
+    );
+    expect(after).toEqual(before);
   });
 });
 
