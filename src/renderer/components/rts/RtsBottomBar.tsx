@@ -654,7 +654,11 @@ function IdleHerdrButton({ queue }: { readonly queue: ReadonlyArray<IdleHerdrEnt
   );
 }
 
-function RegionMiddle({
+/**
+ * Permanent thin hotbar above the whole RTS triad: region slots 1–9.
+ * Always visible; never competes with the kind middle for vertical space.
+ */
+function RegionStrip({
   rollups,
   byId,
   idleQueue,
@@ -668,7 +672,7 @@ function RegionMiddle({
   const dragFrom = useRef<number | null>(null);
 
   // Chips from rollups (cold shell always includes every group on the open
-  // document — never gate the middle bar on IPC alone).
+  // document — never gate the strip on IPC alone).
   const slots = useMemo(() => {
     const ids = mergeSlotOrder(slotOrder, rollups.map((r) => r.regionId));
     return ids
@@ -691,82 +695,109 @@ function RegionMiddle({
     }
   }, [rollups]);
 
-  const jumpToRegion = (regionId: string) => {
-    focusNode(regionId);
-  };
-
-  // Middle is the nervous system: region chips always; the selected node's
-  // kind-specific actions (or the selected relation's pair controls) stack
-  // above them — the two-bar split (base/type left, kind middle).
   return (
-    <div className="rts-panel rts-panel--mid">
-      <div className="rts-panel__label">
-        regions · 1–9
+    <div className="rts-region-strip" role="region" aria-label="Region slots 1 to 9">
+      <div className="rts-region-strip__chrome">
+        <span className="rts-region-strip__label">regions · 1–9</span>
         <IdleHerdrButton queue={idleQueue} />
       </div>
-      <div className="rts-panel__body rts-mid-body">
-        <KindStrip />
-        {slots.length === 0 ? (
-          <div className="rts-quiet">No regions yet — group nodes, or Ctrl+1–9 on a selection.</div>
-        ) : (
-          <div className="rts-chips">
-            {slots.map(({ index, rollup }) => {
-              const mark = signalMark(rollup.severity);
-              const elevated = mark.kind !== "idle";
-              return (
-                <button
-                  key={rollup.regionId}
-                  type="button"
-                  className={`rts-chip${selectedNodeId === rollup.regionId ? " is-active" : ""}${elevated ? " is-hot" : ""}`}
+      {slots.length === 0 ? (
+        <div className="rts-region-strip__empty">
+          No regions yet — group nodes, or Ctrl+1–9 on a selection
+        </div>
+      ) : (
+        <div className="rts-region-strip__chips" role="toolbar" aria-label="Region hotbar">
+          {slots.map(({ index, rollup }) => {
+            const mark = signalMark(rollup.severity);
+            const elevated = mark.kind !== "idle";
+            return (
+              <button
+                key={rollup.regionId}
+                type="button"
+                className={`rts-chip rts-chip--strip${selectedNodeId === rollup.regionId ? " is-active" : ""}${elevated ? " is-hot" : ""}`}
+                style={
+                  elevated
+                    ? {
+                        borderColor: withAlpha(mark.hue, 0.55),
+                        boxShadow: `inset 0 0 0 1px ${withAlpha(mark.hue, 0.18)}, 0 0 10px ${withAlpha(mark.hue, 0.1)}`,
+                      }
+                    : undefined
+                }
+                draggable
+                aria-label={`Region slot ${index + 1}: ${rollup.label}, ${mark.label}, ${rollup.counts.total} members`}
+                onDragStart={() => {
+                  dragFrom.current = index;
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => {
+                  const from = dragFrom.current;
+                  dragFrom.current = null;
+                  if (from === null || from === index) return;
+                  const order = slots.map((s) => s.rollup.regionId);
+                  const [moved] = order.splice(from, 1);
+                  if (!moved) return;
+                  order.splice(index, 0, moved);
+                  state$.regionSlotOrder.set(order.slice(0, 9));
+                }}
+                onClick={() => focusNode(rollup.regionId)}
+                title={`${rollup.label} — ${mark.label}`}
+              >
+                <span
+                  className="rts-chip__slot"
                   style={
                     elevated
-                      ? {
-                          borderColor: withAlpha(mark.hue, 0.55),
-                          boxShadow: `inset 0 0 0 1px ${withAlpha(mark.hue, 0.18)}, 0 0 12px ${withAlpha(mark.hue, 0.12)}`,
-                        }
+                      ? { color: mark.hue, borderColor: withAlpha(mark.hue, 0.4) }
                       : undefined
                   }
-                  draggable
-                  aria-label={`Region slot ${index + 1}: ${rollup.label}, ${mark.label}, ${rollup.counts.total} members`}
-                  onDragStart={() => { dragFrom.current = index; }}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={() => {
-                    const from = dragFrom.current;
-                    dragFrom.current = null;
-                    if (from === null || from === index) return;
-                    const order = slots.map((s) => s.rollup.regionId);
-                    const [moved] = order.splice(from, 1);
-                    if (!moved) return;
-                    order.splice(index, 0, moved);
-                    state$.regionSlotOrder.set(order.slice(0, 9));
-                  }}
-                  onClick={() => jumpToRegion(rollup.regionId)}
-                  title={`${rollup.label} — ${mark.label}`}
                 >
-                  <span className="rts-chip__slot" style={elevated ? { color: mark.hue, borderColor: withAlpha(mark.hue, 0.4) } : undefined}>
-                    {index + 1}
+                  {index + 1}
+                </span>
+                <span
+                  className="rts-signal-mark"
+                  style={{ color: mark.hue }}
+                  aria-hidden
+                  title={mark.label}
+                >
+                  {elevated ? mark.symbol : "●"}
+                </span>
+                <span className="rts-chip__label">{rollup.label}</span>
+                <span className="rts-chip__counts">
+                  {rollup.counts.blocked > 0 ? (
+                    <span style={{ color: HUE.crimson }}>
+                      <b>{rollup.counts.blocked}</b>b
+                    </span>
+                  ) : null}
+                  {rollup.counts.attention > 0 ? (
+                    <span style={{ color: HUE.amber }}>
+                      <b>{rollup.counts.attention}</b>a
+                    </span>
+                  ) : null}
+                  {rollup.counts.working > 0 ? (
+                    <span style={{ color: HUE.cyan }}>
+                      <b>{rollup.counts.working}</b>w
+                    </span>
+                  ) : null}
+                  <span>
+                    <b>{rollup.counts.total}</b>
                   </span>
-                  <span
-                    className="rts-signal-mark"
-                    style={{ color: mark.hue }}
-                    aria-hidden
-                    title={mark.label}
-                  >
-                    {elevated ? mark.symbol : "●"}
-                  </span>
-                  <span className="rts-chip__label">{rollup.label}</span>
-                  <span className="rts-chip__counts">
-                    {rollup.counts.blocked > 0 ? <span style={{ color: HUE.crimson }}><b>{rollup.counts.blocked}</b>b</span> : null}
-                    {rollup.counts.attention > 0 ? <span style={{ color: HUE.amber }}><b>{rollup.counts.attention}</b>a</span> : null}
-                    {rollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}><b>{rollup.counts.working}</b>w</span> : null}
-                    <span><b>{rollup.counts.total}</b></span>
-                  </span>
-                  <RegionPauseDot regionId={rollup.regionId} />
-                </button>
-              );
-            })}
-          </div>
-        )}
+                </span>
+                <RegionPauseDot regionId={rollup.regionId} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Middle third: kind surface only — region chips live on the strip above. */
+function KindMiddle() {
+  return (
+    <div className="rts-panel rts-panel--mid">
+      <div className="rts-panel__label">kind</div>
+      <div className="rts-panel__body rts-mid-body">
+        <KindStrip />
       </div>
     </div>
   );
@@ -956,19 +987,22 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
   const selectedRegion = selectedNodeId ? byId.get(selectedNodeId) : undefined;
 
   return (
-    <div className="rts-bar" role="region" aria-label="RTS bottom bar">
-      <CommandCard regionRollup={selectedRegion} />
-      <RegionMiddle rollups={rollups} byId={byId} idleQueue={idleQueue} />
-      <div className="rts-right">
-        <OrphanNotices />
-        <StoppageRank />
-        <div className="rts-notify rts-notify--pulse">
-          <PulseTray embedded />
-        </div>
-        {/* Tools after minimap in DOM + high z-index so they stay clickable. */}
-        <div className="rts-minimap-slot">
-          <MinimapChrome>{minimap}</MinimapChrome>
-          {tools ? <div className="rts-field-tools-slot">{tools}</div> : null}
+    <div className="rts-shell" role="region" aria-label="RTS bottom bar">
+      <RegionStrip rollups={rollups} byId={byId} idleQueue={idleQueue} />
+      <div className="rts-bar">
+        <CommandCard regionRollup={selectedRegion} />
+        <KindMiddle />
+        <div className="rts-right">
+          <OrphanNotices />
+          <StoppageRank />
+          <div className="rts-notify rts-notify--pulse">
+            <PulseTray embedded />
+          </div>
+          {/* Tools after minimap in DOM + high z-index so they stay clickable. */}
+          <div className="rts-minimap-slot">
+            <MinimapChrome>{minimap}</MinimapChrome>
+            {tools ? <div className="rts-field-tools-slot">{tools}</div> : null}
+          </div>
         </div>
       </div>
     </div>

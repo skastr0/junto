@@ -442,7 +442,7 @@ export function App() {
           </Suspense>
         ) : null}
         <StationRoleGate />
-        {/* PulseTray mounts inside RtsBottomBar (right third, above minimap). */}
+        {/* PulseTray mounts inside RtsBottomBar (right triad, above minimap). */}
         <HerdrWizard />
         {/* HerdrTerminalModal is fallback only — WorkFocusShell owns herdr when registered. */}
         <HerdrTerminalModal />

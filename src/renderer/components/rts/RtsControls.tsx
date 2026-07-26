@@ -505,10 +505,10 @@ function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
 }
 
 /**
- * Middle-bar kind strip: the selected node's kind-specific actions (agent /
+ * Middle-bar kind surface: selected node's kind-specific actions (agent /
  * herdr / terminal / tasks / requests / watcher / timer), or the selected
- * relation's pair controls. Renders nothing when the selection has no
- * kind-specific surface.
+ * relation's pair controls. Empty selection and furniture get a quiet cue —
+ * never invent controls for a kind that has none.
  */
 export function KindStrip() {
   const doc = use$(state$.doc);
@@ -516,22 +516,56 @@ export function KindStrip() {
   const selectedNodeIds = use$(state$.selectedNodeIds);
   const selectedEdgeId = use$(state$.selectedEdgeId);
 
-  if (selectedNodeIds.length > 1) return null;
+  if (selectedNodeIds.length > 1) {
+    return (
+      <div className="rts-quiet rts-quiet--compact">
+        Multi-select · kind actions need a single node
+      </div>
+    );
+  }
 
   if (selectedEdgeId) {
     const edge = doc.edges.find((candidate) => candidate.id === selectedEdgeId);
-    return edge ? <EdgePairStrip edge={edge} /> : null;
+    return edge ? (
+      <EdgePairStrip edge={edge} />
+    ) : (
+      <div className="rts-quiet rts-quiet--compact">Select a node · or tap 1–9</div>
+    );
   }
 
-  if (!selectedNodeId) return null;
-  const node = doc.nodes.find((candidate) => candidate.id === selectedNodeId);
-  if (!node || node.type === "group") return null;
-  const kind = node.ether?.entity?.kind;
-  // Silence when the kind offers nothing (free notes, unknown kinds).
-  if (!kind) return null;
-  if (!["agent", "herdr", "terminal", "task", "requests", "watcher", "timer"].includes(kind)) {
-    return null;
+  if (!selectedNodeId) {
+    return (
+      <div className="rts-quiet rts-quiet--compact">Select a node · or tap 1–9</div>
+    );
   }
+
+  const node = doc.nodes.find((candidate) => candidate.id === selectedNodeId);
+  if (!node) {
+    return (
+      <div className="rts-quiet rts-quiet--compact">Select a node · or tap 1–9</div>
+    );
+  }
+
+  if (node.type === "group") {
+    return (
+      <div className="rts-quiet rts-quiet--compact">
+        Region · arm · pulse · rollcall live on the left
+      </div>
+    );
+  }
+
+  const kind = node.ether?.entity?.kind;
+  if (!kind) {
+    return (
+      <div className="rts-quiet rts-quiet--compact">No kind actions for this node</div>
+    );
+  }
+  if (!["agent", "herdr", "terminal", "task", "requests", "watcher", "timer"].includes(kind)) {
+    return (
+      <div className="rts-quiet rts-quiet--compact">No kind actions for this node</div>
+    );
+  }
+
   return (
     <div className="rts-kind-strip" role="toolbar" aria-label={`${kind} actions`}>
       <span className="rts-kind-strip__label">{kind}</span>

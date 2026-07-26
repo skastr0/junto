@@ -7,17 +7,103 @@
   box-shadow: none !important;
 }
 
-.rts-bar {
+/* Outer shell: region strip above the triad; fade owns the full stack. */
+.rts-shell {
   position: relative;
   width: 100%;
   z-index: 25;
-  display: grid;
-  /* Center (regions) slightly wider than command + minimap; wings matched. */
-  grid-template-columns: minmax(220px, 1fr) minmax(300px, 1.4fr) minmax(220px, 1fr);
-  gap: 8px;
-  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px 10px;
   pointer-events: none;
   background: linear-gradient(to top, rgba(12, 11, 10, 0.92) 55%, rgba(12, 11, 10, 0));
+}
+
+.rts-shell > * {
+  pointer-events: auto;
+}
+
+/* Thin permanent operational hotbar — slots 1–9, full width above the triad. */
+.rts-region-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  max-height: 40px;
+  padding: 3px 8px;
+  border: 1px solid rgba(237, 230, 218, 0.1);
+  border-radius: 8px;
+  background: rgba(12, 11, 10, 0.88);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.rts-region-strip__chrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.rts-region-strip__label {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(143, 163, 176, 0.85);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.rts-region-strip__empty {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  color: rgba(138, 131, 120, 0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rts-region-strip__chips {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.rts-region-strip .rts-idle-herdr {
+  margin-left: 0;
+}
+
+/* Strip chips stay one-line and compact so the row stays ~34–40px. */
+.rts-chip--strip {
+  max-width: 168px;
+  padding: 3px 6px;
+  flex-shrink: 0;
+}
+
+.rts-chip--strip .rts-chip__label {
+  max-width: 72px;
+}
+
+.rts-bar {
+  position: relative;
+  width: 100%;
+  display: grid;
+  /* Kind middle is the free tactical surface; wings stay matched. */
+  grid-template-columns: minmax(220px, 1fr) minmax(300px, 1.4fr) minmax(220px, 1fr);
+  gap: 8px;
+  padding: 0;
+  pointer-events: none;
+  background: transparent;
 }
 
 .rts-bar > * {
@@ -135,12 +221,12 @@
   line-height: 1;
 }
 
-/* SC2 idle-worker badge — middle panel label (RTS-009). Hidden when count=0. */
+/* SC2 idle-worker badge — region strip chrome (RTS-009). Hidden when count=0. */
 .rts-idle-herdr {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: auto;
+  margin-left: 0;
   padding: 1px 6px 1px 5px;
   border-radius: 4px;
   border: 1px solid rgba(232, 163, 61, 0.45);
@@ -632,7 +718,8 @@
 }
 
 /* Drop blur while the field is busy — backdrop-filter is compositor-heavy. */
-.react-flow.is-viewport-busy .rts-panel {
+.react-flow.is-viewport-busy .rts-panel,
+.react-flow.is-viewport-busy .rts-region-strip {
   backdrop-filter: none !important;
 }
 
@@ -796,13 +883,32 @@
 }
 
 @media (max-width: 900px) {
+  .rts-shell {
+    max-height: 45vh;
+    overflow: auto;
+  }
+
   .rts-bar {
     grid-template-columns: 1fr;
-    max-height: 40vh;
-    overflow: auto;
   }
 
   .rts-panel {
     max-height: none;
+  }
+
+  .rts-region-strip {
+    max-height: none;
+    flex-wrap: wrap;
+  }
+
+  .rts-region-strip__chips {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rts-region-strip,
+  .rts-chip {
+    transition: none;
   }
 }

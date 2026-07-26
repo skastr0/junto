@@ -13,11 +13,14 @@
   overflow: hidden;
 }
 
-/* Middle body stacks: kind strip (when a selection has one) above the chips. */
+/* Middle body: kind strip only (region chips live on the strip above). */
 .rts-mid-body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  height: 100%;
+  min-height: 0;
+  justify-content: center;
 }
 
 /* One-row kind strip: micro label + fixed keys, RTS bar language. */

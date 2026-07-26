@@ -1,10 +1,10 @@
 /**
- * RTS two-bar controls e2e.
+ * RTS shell controls e2e.
  *
- * The operator's ruling: left bar = type/base node actions per physics role
- * (pause, flags, region arm/pulse); middle bar = the selected node's
- * kind-specific actions (agent chat, herdr terminal, task board, …) above the
- * always-on region hotbar. Node/region pause toggles live here too.
+ * Layout: region strip (1–9) above the whole bar; left = type/base actions
+ * per physics role (pause, flags, region arm/pulse); middle = kind actions
+ * (agent chat, herdr terminal, task board, …); right = minimap. Node/region
+ * pause toggles live on left / chips.
  *
  * Boards install at runtime via window.vellum (authority-only boot); pattern
  * copied from pause-surface.spec.ts.
@@ -86,7 +86,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
   }, fixtureDoc);
 };
 
-test("rts two-bar controls: role actions left, kind actions middle, pause everywhere", async ({
+test("rts shell: role left, kind middle, region strip, pause everywhere", async ({
   vellum,
 }) => {
   const { page } = vellum;
@@ -106,12 +106,17 @@ test("rts two-bar controls: role actions left, kind actions middle, pause everyw
   await expect(leftPause).toHaveAttribute("data-paused", "false");
   await expect(page.locator(".rts-panel--cmd .rts-panel__label")).toContainText("actor");
 
-  // Middle bar: agent kind strip above the region hotbar.
+  // Middle bar: agent kind surface (region chips live on the strip above).
   // ACP chat is hard-hidden (LEGACY_SURFACES_HIDDEN) — strip still labels the kind.
   const kindStrip = page.locator(".rts-kind-strip");
   await expect(kindStrip).toBeVisible();
   await expect(kindStrip).toContainText("agent");
   await expect(kindStrip.getByRole("button", { name: "Open chat" })).toHaveCount(0);
+
+  // Permanent region strip above the triad.
+  const regionStrip = page.locator(".rts-region-strip");
+  await expect(regionStrip).toBeVisible();
+  await expect(regionStrip).toContainText("regions");
 
   // Floating node toolbar carries the same pause toggle.
   const toolbarPause = page.getByTestId("node-toolbar-pause");
@@ -153,8 +158,8 @@ test("rts two-bar controls: role actions left, kind actions middle, pause everyw
     page.locator(".react-flow__node", { hasText: "wire the loop" }).first(),
   ).toBeVisible();
 
-  // Region hotbar: the ops chip carries a pause dot; clicking pauses the region.
-  const regionDot = page.locator(".rts-chip__pause").first();
+  // Region strip: the ops chip carries a pause dot; clicking pauses the region.
+  const regionDot = regionStrip.locator(".rts-chip__pause").first();
   await expect(regionDot).toBeVisible();
   await expect(regionDot).toHaveAttribute("data-paused", "false");
   await regionDot.click();
