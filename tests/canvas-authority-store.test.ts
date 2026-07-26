@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
@@ -7,6 +7,7 @@ import {
   CanvasAuthorityError,
   commitAuthorityGeneration,
   loadAuthoritySnapshot,
+  pruneAuthorityHistory,
 } from "../src/main/vellum/canvas-authority/store";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { compareAuthorityGeneration } from "../src/shared/canvas-authority";
@@ -72,6 +73,42 @@ describe("canvas authority store", () => {
     expect(compareAuthorityGeneration("9", "10")).toBe(-1);
     expect(compareAuthorityGeneration("10", "10")).toBe(0);
     expect(compareAuthorityGeneration("100", "99")).toBe(1);
+  });
+
+  it("prunes historical document objects outside the retain window", async () => {
+    root = await mkdtemp(join(tmpdir(), "vellum-authority-prune-"));
+    const encoder = new TextEncoder();
+    // Distinct bodies so each generation gets a unique content hash.
+    for (let generation = 1; generation <= 8; generation += 1) {
+      await commitAuthorityGeneration(
+        {
+          generation: String(generation),
+          createdAt: `2026-07-24T00:00:0${generation}.000Z`,
+          documents: new Map([
+            ["solo", encoder.encode(`{"nodes":[],"edges":[],"g":${generation}}\n`)],
+          ]),
+        },
+        root,
+      );
+    }
+    // commit already prunes to AUTHORITY_HISTORY_RETAIN (5); force retain=2.
+    const result = await pruneAuthorityHistory(root, 2);
+    expect(result.keptManifests).toBeGreaterThanOrEqual(1);
+    expect(result.removedManifests + result.removedDocuments).toBeGreaterThan(0);
+
+    const docs = (await readdir(join(root, "documents"))).filter((n) =>
+      n.endsWith(".canvas"),
+    );
+    const manifests = (await readdir(join(root, "manifests"))).filter((n) =>
+      n.endsWith(".json"),
+    );
+    // Current generation must still load.
+    const loaded = await loadAuthoritySnapshot(root);
+    expect(loaded?.pointer.generation).toBe("8");
+    expect(loaded?.documents.has("solo")).toBe(true);
+    // At most retain window of manifests (plus possible current already in set).
+    expect(manifests.length).toBeLessThanOrEqual(2);
+    expect(docs.length).toBeLessThanOrEqual(2);
   });
 });
 

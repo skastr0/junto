@@ -9,9 +9,17 @@
  * 4. fsync manifests dir
  * 5. write current.json via tmp + rename
  * 6. fsync store root
+ * 7. best-effort prune of unreferenced history (see pruneAuthorityHistory)
  *
  * Corrupt current pointer fails closed — never scan manifests to guess.
+ *
+ * Document objects are content-addressed. Without GC, every canvas write
+ * leaves a new blob forever (hundreds of historical objects vs a few live
+ * names). pruneAuthorityHistory keeps only the last N generations.
  */
+
+/** Recent generations retained for forensics; current is always included. */
+export const AUTHORITY_HISTORY_RETAIN = 5;
 
 import { constants } from "node:fs";
 import {
@@ -20,7 +28,9 @@ import {
   mkdir,
   open,
   readFile,
+  readdir,
   rename,
+  rm,
   writeFile,
   type FileHandle,
 } from "node:fs/promises";
@@ -31,6 +41,7 @@ import { Either, Schema } from "effect";
 import {
   CanvasAuthorityManifestV1,
   CanvasAuthorityPointerV1,
+  compareAuthorityGeneration,
   type CanvasAuthorityManifestV1 as Manifest,
   type CanvasAuthorityPointerV1 as Pointer,
   type Sha256Hex,
@@ -331,7 +342,145 @@ export const commitAuthorityGeneration = async (
   await fsyncDir(root);
 
   const documents = new Map(entries);
+  // History GC is best-effort: a prune failure must never fail a successful commit.
+  try {
+    await pruneAuthorityHistory(root, AUTHORITY_HISTORY_RETAIN);
+  } catch (error) {
+    console.error("[canvas-authority] history prune failed after commit:", error);
+  }
   return { pointer, manifest, documents };
+};
+
+export type PruneAuthorityResult = {
+  readonly keptManifests: number;
+  readonly removedManifests: number;
+  readonly removedDocuments: number;
+};
+
+/**
+ * Drop document objects and manifests not needed for the last
+ * `retainGenerations` generations (including current). Live names live only
+ * in the current generation; historical blobs are pure cost after that.
+ *
+ * Fail-soft: never throws for missing files mid-delete. Throws only when the
+ * store layout itself is unusable (caller already treats that as corrupt).
+ */
+export const pruneAuthorityHistory = async (
+  root: string = canvasAuthorityRoot(),
+  retainGenerations: number = AUTHORITY_HISTORY_RETAIN,
+): Promise<PruneAuthorityResult> => {
+  const retain = Math.max(1, Math.floor(retainGenerations));
+  const manifestsDir = join(root, "manifests");
+  const documentsDir = join(root, "documents");
+
+  let manifestNames: string[] = [];
+  try {
+    manifestNames = (await readdir(manifestsDir)).filter((name) =>
+      name.endsWith(".json"),
+    );
+  } catch {
+    return { keptManifests: 0, removedManifests: 0, removedDocuments: 0 };
+  }
+
+  type Ranked = { readonly path: string; readonly generation: string; readonly sha256: string };
+  const ranked: Ranked[] = [];
+  for (const name of manifestNames) {
+    const path = join(manifestsDir, name);
+    let raw: string;
+    try {
+      raw = await readFile(path, "utf8");
+    } catch {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      continue;
+    }
+    const decoded = Schema.decodeUnknownEither(CanvasAuthorityManifestV1)(parsed);
+    if (Either.isLeft(decoded)) continue;
+    const hash = name.replace(/\.json$/, "");
+    ranked.push({
+      path,
+      generation: decoded.right.generation,
+      sha256: hash,
+    });
+  }
+
+  ranked.sort((a, b) => compareAuthorityGeneration(b.generation, a.generation));
+  const keep = ranked.slice(0, retain);
+  const drop = ranked.slice(retain);
+
+  // Prefer current pointer's generation even if sort is weird — always keep it.
+  const pointerPath = join(root, "current.json");
+  try {
+    const pointerRaw = await readFile(pointerPath, "utf8");
+    const pointerParsed = JSON.parse(pointerRaw) as unknown;
+    const pointerResult =
+      Schema.decodeUnknownEither(CanvasAuthorityPointerV1)(pointerParsed);
+    if (Either.isRight(pointerResult)) {
+      const currentSha = pointerResult.right.manifestSha256;
+      if (!keep.some((entry) => entry.sha256 === currentSha)) {
+        const fromDrop = drop.find((entry) => entry.sha256 === currentSha);
+        if (fromDrop) {
+          keep.push(fromDrop);
+          drop.splice(drop.indexOf(fromDrop), 1);
+        }
+      }
+    }
+  } catch {
+    /* pointer unreadable — still prune by generation rank */
+  }
+
+  const keepDocHashes = new Set<string>();
+  for (const entry of keep) {
+    try {
+      const raw = await readFile(entry.path, "utf8");
+      const parsed = JSON.parse(raw) as unknown;
+      const decoded = Schema.decodeUnknownEither(CanvasAuthorityManifestV1)(parsed);
+      if (Either.isLeft(decoded)) continue;
+      for (const doc of decoded.right.documents) keepDocHashes.add(doc.sha256);
+    } catch {
+      /* skip */
+    }
+  }
+
+  let removedManifests = 0;
+  for (const entry of drop) {
+    try {
+      await rm(entry.path, { force: true });
+      removedManifests += 1;
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  let removedDocuments = 0;
+  let documentNames: string[] = [];
+  try {
+    documentNames = (await readdir(documentsDir)).filter((name) =>
+      name.endsWith(".canvas"),
+    );
+  } catch {
+    documentNames = [];
+  }
+  for (const name of documentNames) {
+    const hash = name.replace(/\.canvas$/, "");
+    if (keepDocHashes.has(hash)) continue;
+    try {
+      await rm(join(documentsDir, name), { force: true });
+      removedDocuments += 1;
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  return {
+    keptManifests: keep.length,
+    removedManifests,
+    removedDocuments,
+  };
 };
 
 export const authorityStorePresent = async (

@@ -17,6 +17,7 @@ import {
   canvasAuthorityRoot,
   commitAuthorityGeneration,
   loadAuthoritySnapshot,
+  pruneAuthorityHistory,
 } from "./canvas-authority/store";
 
 export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
@@ -505,6 +506,12 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
         // I21: stamp commits only through the app-owned authority generation path.
         if (stampedDirty) {
           await commitLiveAuthorityGeneration();
+        } else {
+          // Drop historical content-addressed blobs left by tests/scripting
+          // and long-lived edit sessions. Best-effort; never block boot.
+          void pruneAuthorityHistory(authRoot).catch((error) => {
+            console.error("[canvases] authority history prune failed:", error);
+          });
         }
       } catch (error) {
         authorityBlocked =
