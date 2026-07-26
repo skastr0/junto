@@ -25,6 +25,7 @@ import {
   type WorkIds,
 } from "@shared/work";
 import { CanvasesService, CanvasError } from "../canvases";
+import { clearSeatBlockedByRequest } from "./blocked-seat";
 import { messageDelivery } from "./message-delivery";
 import { ulid } from "ulid";
 
@@ -288,6 +289,14 @@ export const WorkLive = Layer.effect(
               ids,
             );
             return { doc: result.doc, value: result.task };
+          }),
+        ).pipe(
+          Effect.tap((result) => {
+            // Escalate seats clear when the operator answers the request.
+            if (result.ok) {
+              clearSeatBlockedByRequest(canvas, taskId);
+            }
+            return Effect.void;
           }),
         ),
 

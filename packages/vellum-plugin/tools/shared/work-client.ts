@@ -25,6 +25,7 @@ export type WorkOpName =
   | "msg.list"
   | "msg.send"
   | "request.create"
+  | "request.escalate"
   | "artifact.publish";
 
 export interface WorkClientPaths {

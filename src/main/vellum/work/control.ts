@@ -30,6 +30,7 @@ import {
   MsgListArgs,
   MsgSendArgs,
   RequestCreateArgs,
+  RequestEscalateArgs,
   TasksClaimArgs,
   TasksListArgs,
   TasksUpdateArgs,
@@ -38,6 +39,7 @@ import {
   WorkOpName,
   decodeWorkRequest,
   encodeWorkFrame,
+  makeStopDirective,
   workErr,
   workOk,
   workControlDir,
@@ -50,6 +52,11 @@ import {
 } from "@shared/work-control";
 import { CanvasesService } from "../canvases";
 import { WorkService, type WorkOpResult } from "./service";
+import {
+  liveSeatBlock,
+  markSeatBlocked,
+  stopDirectiveFromBlock,
+} from "./blocked-seat";
 import { PausePlane } from "../pause-plane";
 import { seatPaused } from "@shared/pause";
 
@@ -59,6 +66,22 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "tasks.update",
   "msg.send",
   "request.create",
+  "request.escalate",
+  "artifact.publish",
+]);
+
+/**
+ * Ops refused while the seat is escalate-blocked. Meta discovery
+ * (ping/doctor/capabilities/onboard) stays open so agents can re-orient.
+ */
+const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
+  "tasks.list",
+  "tasks.claim",
+  "tasks.update",
+  "msg.list",
+  "msg.send",
+  "request.create",
+  "request.escalate",
   "artifact.publish",
 ]);
 import {
@@ -471,6 +494,29 @@ const dispatchOp = (
       }
     }
 
+    // Escalate-blocked seat: refuse work ops with a stop directive so harnesses
+    // without hooks (e.g. Codex) still stop thrashing. Auto-clears when the
+    // open request leaves input-required / is removed.
+    if (BLOCKED_ENFORCED_OPS.has(op)) {
+      const block = liveSeatBlock(caller.canvasName, caller.nodeId, board);
+      if (block) {
+        const directive = stopDirectiveFromBlock(block);
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "Blocked",
+          message: directive.message,
+          details: {
+            caller: caller.nodeId,
+            target: block.target,
+            requestId: block.requestId,
+            retryable: true,
+            next_step: directive.next_step,
+            hint: "stop — do not retry work ops until the operator answers",
+            stop_directive: directive,
+          },
+        });
+      }
+    }
+
     if (op === "capabilities") {
       const self = findNode(board, caller.nodeId)!;
       const connected = connectedCapabilities(board, caller.nodeId);
@@ -639,6 +685,53 @@ const dispatchOp = (
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
       return mapped.right;
+    }
+
+    if (op === "request.escalate") {
+      const decoded = decodeArgs(RequestEscalateArgs, args);
+      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const gate = requireTarget(
+        board,
+        caller.nodeId,
+        decoded.right.target,
+        op,
+      );
+      if ("type" in gate) return yield* Effect.fail(gate);
+      // File the request (same machinery as request.create), then mark the
+      // calling seat blocked and return a stop directive. Hold-until-answer
+      // is TODO — fire-and-block ships first.
+      const result = yield* work.workRequestCreate(
+        caller.canvasName,
+        decoded.right.target,
+        decoded.right.brief,
+        decoded.right.metadata,
+        caller.nodeId,
+        decoded.right.reason,
+      );
+      const mapped = fromWorkResult(result);
+      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      const task = mapped.right as { readonly id: string; readonly reason?: string };
+      const brief = decoded.right.brief.trim();
+      const block = markSeatBlocked({
+        canvasName: caller.canvasName,
+        nodeId: caller.nodeId,
+        requestId: task.id,
+        target: decoded.right.target,
+        brief,
+      });
+      const stop_directive = makeStopDirective({
+        requestId: block.requestId,
+        target: block.target,
+        brief: block.brief,
+      });
+      return {
+        request: mapped.right,
+        blocked: true,
+        stop_directive,
+        // Hold-until-answer not implemented: agent must stop and resume later.
+        hold: null,
+        note: "seat blocked; stop work until the operator answers (hold-until-answer TODO)",
+      };
     }
 
     if (op === "artifact.publish") {

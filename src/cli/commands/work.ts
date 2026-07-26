@@ -5,9 +5,11 @@ import {
   MsgListArgs,
   MsgSendArgs,
   RequestCreateArgs,
+  RequestEscalateArgs,
   TasksClaimArgs,
   TasksListArgs,
   TasksUpdateArgs,
+  type WorkOpName,
 } from "../../shared/work-control";
 import { materializeArtifactParts } from "../core/artifact-parts";
 import { DEFAULT_BATCH_CONCURRENCY, runMutationBatch } from "../core/batch";
@@ -37,7 +39,7 @@ const timeoutOption = Options.integer("timeout").pipe(
 
 /** Domain call — identity is process-bind on the server, not a payload claim. */
 const callDomain = <A>(
-  op: "tasks.list" | "tasks.claim" | "tasks.update" | "msg.list" | "msg.send" | "request.create" | "artifact.publish",
+  op: WorkOpName,
   item: A,
   timeout?: number,
 ) =>
@@ -151,6 +153,27 @@ const requestCreateCommand = Command.make(
 export const requestCommand = Command.make("request").pipe(
   Command.withDescription("Request ops"),
   Command.withSubcommands([requestCreateCommand]),
+);
+
+/**
+ * Escalate: file a request, mark the seat blocked, return a stop directive.
+ * Domain op: request.escalate. Hold-until-answer is TODO (fire-and-block).
+ */
+export const escalateCommand = Command.make(
+  "escalate",
+  { input: jsonInputArg, timeout: timeoutOption },
+  ({ input, timeout }) =>
+    executeJsonCommand(
+      "escalate",
+      Effect.gen(function* () {
+        const item = yield* loadJsonInput(RequestEscalateArgs, input);
+        return yield* callDomain("request.escalate", item, toUndefined(timeout));
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Escalate to the operator: create request, block seat, return stop directive",
+  ),
 );
 
 // --- artifact ---

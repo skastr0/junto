@@ -5,6 +5,7 @@ import {
   MsgListArgs,
   MsgSendArgs,
   RequestCreateArgs,
+  RequestEscalateArgs,
   TasksClaimArgs,
   TasksListArgs,
   TasksUpdateArgs,
@@ -116,6 +117,16 @@ export const requestCreateSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
+export const requestEscalateSchema: CommandSchemaContract = {
+  command_id: "request.escalate",
+  command: "escalate",
+  schema_id: "request.escalate.input/v1",
+  description:
+    "Escalate to the operator: create a request, block this seat, return a stop directive. Subsequent work ops return Blocked until the request is answered.",
+  schema: RequestEscalateArgs,
+  input_modes: inputModes,
+};
+
 export const artifactPublishSchema: CommandSchemaContract = {
   command_id: "artifact.publish",
   command: "artifact publish",
@@ -133,6 +144,7 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   msgListSchema,
   msgSendSchema,
   requestCreateSchema,
+  requestEscalateSchema,
   artifactPublishSchema,
 ];
 
@@ -188,6 +200,22 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       "request",
       "create",
       '{"target":"req1","brief":"approve deploy?","reason":"prod deploy is gated on operator sign-off","metadata":{"urgency":"high"}}',
+    ],
+  },
+  {
+    command_id: "request.escalate",
+    command: "escalate",
+    name: "block until answer",
+    description:
+      "File a request and block this seat. Server returns stop_directive; further work ops return Blocked.",
+    input: {
+      target: "req1",
+      brief: "need API key for staging",
+      reason: "cannot continue without operator secret",
+    },
+    args: [
+      "escalate",
+      '{"target":"req1","brief":"need API key for staging","reason":"cannot continue without operator secret"}',
     ],
   },
   {
@@ -329,6 +357,15 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,
       supports_concurrency_option: true,
     },
+  },
+  {
+    command_id: "request.escalate",
+    command: "escalate",
+    category: "workflow",
+    description:
+      "Escalate to operator: create request, block seat, return stop directive.",
+    schemas: [requestEscalateSchema],
+    examples: allExamples.filter((e) => e.command_id === "request.escalate"),
   },
   {
     command_id: "artifact.publish",

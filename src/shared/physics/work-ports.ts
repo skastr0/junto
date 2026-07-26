@@ -14,6 +14,10 @@ export type TargetWorkOpName = Exclude<
  * One port per target work op. Adding a WorkOpName requires a row here
  * (`satisfies` fails closed).
  */
+/**
+ * Target work op → edge Port. Escalate reuses the request.create capability
+ * (same edge + requests sink); the block/stop is work-plane seat state.
+ */
 export const PortForWorkOp = {
   "tasks.list": "tasks.list",
   "tasks.claim": "tasks.claim",
@@ -21,6 +25,7 @@ export const PortForWorkOp = {
   "msg.list": "msg.list",
   "msg.send": "msg.send",
   "request.create": "request.create",
+  "request.escalate": "request.create",
   "artifact.publish": "artifact.publish",
 } as const satisfies Record<TargetWorkOpName, Port>;
 
@@ -38,5 +43,6 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "msg.list",
   "msg.send",
   "request.create",
+  "request.escalate",
   "artifact.publish",
 ];

@@ -27,6 +27,7 @@ import {
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
+import { resetSeatBlocks } from "../src/main/vellum/work/blocked-seat";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   createMainAuthoringGate,
@@ -93,6 +94,16 @@ const seedDoc = (): CanvasDoc => ({
       },
     },
     {
+      id: "req",
+      type: "text",
+      x: 400,
+      y: 0,
+      width: 120,
+      height: 48,
+      text: "requests",
+      ether: { entity: { kind: "requests" }, requests: { items: [] } },
+    },
+    {
       id: "orphan-tasks",
       type: "text",
       x: 500,
@@ -103,7 +114,10 @@ const seedDoc = (): CanvasDoc => ({
       ether: { entity: { kind: "task" }, tasks: { items: [] } },
     },
   ],
-  edges: [{ id: "e1", fromNode: "agent", toNode: "tasks" }],
+  edges: [
+    { id: "e1", fromNode: "agent", toNode: "tasks" },
+    { id: "e2", fromNode: "agent", toNode: "req" },
+  ],
 });
 
 const call = (
@@ -187,10 +201,12 @@ const startTestServer = async (options: {
 };
 
 beforeEach(async () => {
+  resetSeatBlocks();
   await startTestServer();
 });
 
 afterEach(async () => {
+  resetSeatBlocks();
   while (rogueServers.length > 0) {
     const rogue = rogueServers.pop();
     if (rogue?.listening) {
@@ -506,6 +522,69 @@ describe("work control transport", () => {
     }
   });
 
+  it("escalate marks seat blocked; work ops return Blocked; resolve clears", async () => {
+    const server = servers[0]!;
+    const escalated = (await call(server.socketPath, {
+      token: token(),
+      op: "request.escalate",
+      args: {
+        target: "req",
+        brief: "need staging key",
+        reason: "cannot continue",
+      },
+    })) as {
+      ok: true;
+      data: {
+        blocked: boolean;
+        stop_directive: { action: string; requestId: string };
+        request: { id: string; state: string };
+      };
+    };
+    expect(escalated.ok).toBe(true);
+    expect(escalated.data.blocked).toBe(true);
+    expect(escalated.data.stop_directive.action).toBe("stop");
+    expect(escalated.data.request.state).toBe("input-required");
+    const requestId = escalated.data.request.id;
+    expect(escalated.data.stop_directive.requestId).toBe(requestId);
+
+    const blockedClaim = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.claim",
+      args: { target: "tasks", task: "t1" },
+    })) as {
+      ok: false;
+      error: {
+        type: string;
+        details?: { requestId?: string; stop_directive?: { action: string } };
+      };
+    };
+    expect(blockedClaim.ok).toBe(false);
+    expect(blockedClaim.error.type).toBe("Blocked");
+    expect(blockedClaim.error.details?.requestId).toBe(requestId);
+    expect(blockedClaim.error.details?.stop_directive?.action).toBe("stop");
+
+    // Meta discovery stays open while blocked.
+    const ping = (await call(server.socketPath, {
+      token: token(),
+      op: "ping",
+    })) as { ok: boolean };
+    expect(ping.ok).toBe(true);
+
+    // Resolve the request → seat unblocks.
+    const work = await runtimes[runtimes.length - 1]!.runPromise(WorkService);
+    const resolved = await runtimes[runtimes.length - 1]!.runPromise(
+      work.workRequestResolve("work-cli", "req", requestId, "here is the key", "completed"),
+    );
+    expect(resolved.ok).toBe(true);
+
+    const claimAfter = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.claim",
+      args: { target: "tasks", task: "t1" },
+    })) as { ok: boolean };
+    expect(claimAfter.ok).toBe(true);
+  });
+
   it("keeps reads available while returning typed RuntimeDown for authorial ops", async () => {
     const server = servers[0]!;
     const gate = authoringGates[0]!;
@@ -705,8 +784,13 @@ describe("work control transport", () => {
       data: { connected: Array<{ id: string; ops: string[] }> };
     };
     expect(res.ok).toBe(true);
-    expect(res.data.connected.map((c) => c.id)).toEqual(["tasks"]);
-    expect(res.data.connected[0]?.ops).toContain("tasks.claim");
+    expect(res.data.connected.map((c) => c.id)).toEqual(["req", "tasks"]);
+    expect(res.data.connected.find((c) => c.id === "tasks")?.ops).toContain(
+      "tasks.claim",
+    );
+    expect(res.data.connected.find((c) => c.id === "req")?.ops).toContain(
+      "request.escalate",
+    );
   });
 
   it("never echoes token in responses", async () => {

@@ -361,6 +361,7 @@ describe("work-control main authoring classification", () => {
       "msg.list": "read",
       "msg.send": "authorial",
       "request.create": "authorial",
+      "request.escalate": "authorial",
       "artifact.publish": "authorial",
     } as const satisfies Record<
       WorkOpName,
@@ -380,6 +381,9 @@ describe("work-control main authoring classification", () => {
     expect(mainAuthoringLabelForWorkOperation("msg.send")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("request.create")).toBe(
       "control.work.request-create",
+    );
+    expect(mainAuthoringLabelForWorkOperation("request.escalate")).toBe(
+      "control.work.request-escalate",
     );
     expect(mainAuthoringLabelForWorkOperation("artifact.publish")).toBe(
       "control.work.artifact-publish",

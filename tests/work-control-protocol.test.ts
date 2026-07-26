@@ -95,6 +95,7 @@ describe("work-control wire schemas", () => {
       "msg.list",
       "msg.send",
       "request.create",
+      "request.escalate",
       "artifact.publish",
     ]);
     expect(Either.isRight(ops)).toBe(true);

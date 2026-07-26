@@ -112,6 +112,7 @@ export const requiresConnection = (op: WorkOpName): boolean => {
     case "msg.list":
     case "msg.send":
     case "request.create":
+    case "request.escalate":
     case "artifact.publish":
       return true;
   }
@@ -122,7 +123,7 @@ const OPS_BY_KIND: Readonly<Record<string, ReadonlyArray<WorkOpName>>> = {
   task: ["tasks.list", "tasks.claim", "tasks.update", "msg.list", "msg.send"],
   agent: ["msg.list", "msg.send"],
   herdr: ["msg.list", "msg.send"],
-  requests: ["request.create", "msg.list", "msg.send"],
+  requests: ["request.create", "request.escalate", "msg.list", "msg.send"],
   artifacts: ["artifact.publish"],
 };
 

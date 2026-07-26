@@ -252,9 +252,12 @@ describe("physics PortGrant attenuation", () => {
 describe("physics work-ports", () => {
   it("covers every target WorkOpName", () => {
     for (const op of TARGET_WORK_OPS) {
-      expect(PortForWorkOp[op]).toBe(op);
+      expect(PortForWorkOp[op]).toBeDefined();
     }
     expect(Object.keys(PortForWorkOp).sort()).toEqual([...TARGET_WORK_OPS].sort());
+    // escalate reuses the request.create capability port
+    expect(PortForWorkOp["request.escalate"]).toBe("request.create");
+    expect(PortForWorkOp["request.create"]).toBe("request.create");
   });
 });
 

@@ -43,6 +43,7 @@ export const WorkOpName = Schema.Literal(
   "msg.list",
   "msg.send",
   "request.create",
+  "request.escalate",
   "artifact.publish",
 );
 export type WorkOpName = typeof WorkOpName.Type;
@@ -62,6 +63,7 @@ export const WorkErrorType = Schema.Literal(
   "ProtocolError",
   "InternalError",
   "Paused",
+  "Blocked",
 );
 export type WorkErrorType = typeof WorkErrorType.Type;
 
@@ -78,6 +80,10 @@ export const WorkErrorDetails = Schema.Struct({
   target: Schema.optionalWith(Schema.String, { exact: true }),
   caller: Schema.optionalWith(Schema.String, { exact: true }),
   missing: Schema.optionalWith(Schema.String, { exact: true }),
+  /** Open escalate request id when type === Blocked. */
+  requestId: Schema.optionalWith(Schema.String, { exact: true }),
+  /** Machine-readable stop instruction for harness tools (Blocked / escalate). */
+  stop_directive: Schema.optionalWith(Schema.Unknown, { exact: true }),
 });
 export type WorkErrorDetails = typeof WorkErrorDetails.Type;
 
@@ -208,6 +214,40 @@ export const RequestCreateArgs = Schema.Struct({
   ),
 });
 export type RequestCreateArgs = typeof RequestCreateArgs.Type;
+
+/**
+ * Escalate = request.create + seat-block + stop directive.
+ * Same input shape as request.create. Optional in-band hold for the operator
+ * answer is TODO (ship fire-and-block first).
+ */
+export const RequestEscalateArgs = RequestCreateArgs;
+export type RequestEscalateArgs = RequestCreateArgs;
+
+/** Wire/stop payload agents understand after escalate or while Blocked. */
+export type StopDirective = {
+  readonly action: "stop";
+  readonly reason: "awaiting_operator";
+  readonly requestId: string;
+  readonly target: string;
+  readonly brief: string;
+  readonly message: string;
+  readonly next_step: string;
+};
+
+export const makeStopDirective = (input: {
+  readonly requestId: string;
+  readonly target: string;
+  readonly brief: string;
+}): StopDirective => ({
+  action: "stop",
+  reason: "awaiting_operator",
+  requestId: input.requestId,
+  target: input.target,
+  brief: input.brief,
+  message: `Seat is blocked waiting on request ${input.requestId}. Stop work until the operator answers — do not thrash tools.`,
+  next_step:
+    "Wait for the operator to answer the request on the canvas, then retry work ops (or call vellum onboard).",
+});
 
 /** Wire form after CLI has inlined file bytes as base64 raw parts. */
 export const ArtifactPartWire = Schema.Union(

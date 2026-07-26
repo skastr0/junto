@@ -13,6 +13,7 @@ import {
 } from "./commands/discovery";
 import {
   artifactCommand,
+  escalateCommand,
   msgCommand,
   requestCommand,
   tasksCommand,
@@ -39,6 +40,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     tasksCommand,
     msgCommand,
     requestCommand,
+    escalateCommand,
     artifactCommand,
   ]),
 );
