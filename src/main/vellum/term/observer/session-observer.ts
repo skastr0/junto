@@ -118,7 +118,8 @@ export class SessionObserver {
   /** Feed PTY bytes. seq is the plane's journal sequence. */
   feed(data: string, seq: bigint): void {
     if (this.disposed) return;
-    this.seq = seq;
+    // Pin seq to the write that applied it — not the latest enqueued feed —
+    // so intermediate snapshots never claim a seq the grid has not absorbed.
     this.writeQueue = this.writeQueue
       .then(
         () =>
@@ -128,6 +129,7 @@ export class SessionObserver {
               return;
             }
             this.term.write(data, () => {
+              this.seq = seq;
               this.emitSnapshot();
               resolve();
             });

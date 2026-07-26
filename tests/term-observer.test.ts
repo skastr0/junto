@@ -170,6 +170,29 @@ describe("SessionObserver", () => {
       obs.dispose();
     }
   });
+
+  it("snapshot seq advances only after the write that owns it settles", async () => {
+    const obs = new SessionObserver({
+      bindingId: "b1",
+      epoch: "e1",
+      cols: 40,
+      rows: 10,
+    });
+    try {
+      const seen: bigint[] = [];
+      obs.subscribe((snap) => {
+        seen.push(snap.seq);
+      });
+      obs.feed("a", 1n);
+      obs.feed("b", 2n);
+      const final = await obs.snapshot();
+      expect(final.seq).toBe(2n);
+      // Intermediate emits must not jump ahead of the applied write.
+      expect(seen).toEqual([1n, 2n]);
+    } finally {
+      obs.dispose();
+    }
+  });
 });
 
 describe("TerminalObserverPlane", () => {
@@ -187,5 +210,18 @@ describe("TerminalObserverPlane", () => {
 
     plane.detach("b", "e1");
     expect(plane.get("b")).toBeUndefined();
+  });
+
+  it("subscribeAll receives snapshots from sessions attached earlier", async () => {
+    const plane = new TerminalObserverPlane();
+    plane.attach({ bindingId: "b", epoch: "e1", cols: 40, rows: 10 });
+    const seen: string[] = [];
+    plane.subscribeAll((snap) => {
+      seen.push(snap.signals.title);
+    });
+    plane.feed("b", "\x1b]0;late-sub\x07", 1n);
+    await plane.get("b")!.snapshot();
+    expect(seen).toContain("late-sub");
+    plane.disposeAll();
   });
 });

@@ -42,17 +42,16 @@ export class TerminalObserverPlane {
     }
     const observer = new SessionObserver(opts);
     this.byBinding.set(opts.bindingId, observer);
-    if (this.globalListeners.size > 0) {
-      observer.subscribe((snap) => {
-        for (const listener of this.globalListeners) {
-          try {
-            listener(snap);
-          } catch (err) {
-            console.error("[term-observer] global listener failed:", err);
-          }
+    // Always bridge — globalListeners may be empty at attach and filled later.
+    observer.subscribe((snap) => {
+      for (const listener of this.globalListeners) {
+        try {
+          listener(snap);
+        } catch (err) {
+          console.error("[term-observer] global listener failed:", err);
         }
-      });
-    }
+      }
+    });
     return observer;
   }
 
