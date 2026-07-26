@@ -846,13 +846,36 @@ function OrphanNotices() {
   const orphans = orphaned ?? [];
   if (orphans.length === 0) return null;
   return (
-    <div className="rts-notify" aria-label="Orphaned arming">
+    <div className="rts-notify-strip__group" aria-label="Orphaned arming">
       {orphans.map((key) => (
-        <div key={key} className="rts-orphan">
-          <span title={key} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{key}</span>
-          <button type="button" onClick={() => void disarmOrphan(key)}>disarm</button>
+        <div key={key} className="rts-orphan" title={key}>
+          <span className="rts-orphan__key">{key}</span>
+          <button type="button" onClick={() => void disarmOrphan(key)}>
+            disarm
+          </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Thin strip above the minimap only — stoppage / orphans / pulse.
+ * Parallel to the region strip (ops left+mid); keeps the minimap full-height.
+ */
+function NotifyStrip() {
+  return (
+    <div className="rts-notify-strip" role="region" aria-label="Notifications">
+      <div className="rts-notify-strip__chrome">
+        <span className="rts-notify-strip__label">notify</span>
+      </div>
+      <div className="rts-notify-strip__body">
+        <OrphanNotices />
+        <StoppageRank />
+        <div className="rts-notify-strip__pulse">
+          <PulseTray embedded />
+        </div>
+      </div>
     </div>
   );
 }
@@ -989,21 +1012,16 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
 
   return (
     <div className="rts-shell" role="region" aria-label="RTS bottom bar">
+      {/* Top row: ops strip spans command+kind; notify strip sits over minimap. */}
       <RegionStrip rollups={rollups} byId={byId} idleQueue={idleQueue} />
-      <div className="rts-bar">
-        <CommandCard regionRollup={selectedRegion} />
-        <KindMiddle />
-        <div className="rts-right">
-          <OrphanNotices />
-          <StoppageRank />
-          <div className="rts-notify rts-notify--pulse">
-            <PulseTray embedded />
-          </div>
-          {/* Tools after minimap in DOM + high z-index so they stay clickable. */}
-          <div className="rts-minimap-slot">
-            <MinimapChrome>{minimap}</MinimapChrome>
-            {tools ? <div className="rts-field-tools-slot">{tools}</div> : null}
-          </div>
+      <NotifyStrip />
+      <CommandCard regionRollup={selectedRegion} />
+      <KindMiddle />
+      <div className="rts-right">
+        {/* Tools after minimap in DOM + high z-index so they stay clickable. */}
+        <div className="rts-minimap-slot">
+          <MinimapChrome>{minimap}</MinimapChrome>
+          {tools ? <div className="rts-field-tools-slot">{tools}</div> : null}
         </div>
       </div>
     </div>

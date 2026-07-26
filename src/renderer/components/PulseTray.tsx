@@ -105,7 +105,7 @@ export function PulseTray({ embedded = false }: { readonly embedded?: boolean } 
   const visibleToasts = toasts.slice(0, MAX_VISIBLE_TOASTS);
   const hiddenCount = Math.max(0, toasts.length - MAX_VISIBLE_TOASTS);
 
-  // When embedded, lives in the RTS bar notification stack above the minimap
+  // When embedded, lives in the notify strip above the minimap column
   // (docs/rts-bottom-bar.md). Standalone fallback keeps absolute placement.
   return (
     <div

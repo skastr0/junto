@@ -7,14 +7,19 @@
   box-shadow: none !important;
 }
 
-/* Outer shell: region strip above the triad; fade owns the full stack. */
+/*
+ * Outer shell — one grid for the whole HUD:
+ *   row 1: region strip (col 1–2) | notify strip (col 3)
+ *   row 2: command | kind | minimap
+ */
 .rts-shell {
   position: relative;
   width: 100%;
   z-index: 25;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(300px, 1.4fr) minmax(220px, 1fr);
+  grid-template-rows: auto auto;
+  gap: 6px 8px;
   padding: 6px 10px 10px;
   pointer-events: none;
   background: linear-gradient(to top, rgba(12, 11, 10, 0.92) 55%, rgba(12, 11, 10, 0));
@@ -22,10 +27,12 @@
 
 .rts-shell > * {
   pointer-events: auto;
+  min-width: 0;
 }
 
-/* Thin permanent operational hotbar — slots 1–9, full width above the triad. */
-.rts-region-strip {
+/* Shared strip chrome (region ops + notify). */
+.rts-region-strip,
+.rts-notify-strip {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -40,14 +47,28 @@
   overflow: hidden;
 }
 
-.rts-region-strip__chrome {
+/* Thin permanent operational hotbar — slots 1–9 over command + kind only. */
+.rts-region-strip {
+  grid-column: 1 / span 2;
+  grid-row: 1;
+}
+
+/* Notifications over the minimap column only — never stacked inside it. */
+.rts-notify-strip {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.rts-region-strip__chrome,
+.rts-notify-strip__chrome {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
 }
 
-.rts-region-strip__label {
+.rts-region-strip__label,
+.rts-notify-strip__label {
   font-size: 8px;
   font-weight: 600;
   letter-spacing: 0.16em;
@@ -94,22 +115,7 @@
   max-width: 72px;
 }
 
-.rts-bar {
-  position: relative;
-  width: 100%;
-  display: grid;
-  /* Kind middle is the free tactical surface; wings stay matched. */
-  grid-template-columns: minmax(220px, 1fr) minmax(300px, 1.4fr) minmax(220px, 1fr);
-  gap: 8px;
-  padding: 0;
-  pointer-events: none;
-  background: transparent;
-}
-
-.rts-bar > * {
-  pointer-events: auto;
-}
-
+/* Triad panels live on row 2 of the shell grid. */
 .rts-panel {
   display: flex;
   flex-direction: column;
@@ -122,12 +128,18 @@
   backdrop-filter: blur(12px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   overflow: hidden; /* never scroll the bar panels */
+  grid-row: 2;
 }
 
 /* Command card: fixed height, no scroll; connect pops above. */
 .rts-panel--cmd {
   position: relative;
   overflow: visible;
+  grid-column: 1;
+}
+
+.rts-panel--mid {
+  grid-column: 2;
 }
 
 .rts-panel--cmd .rts-panel__body {
@@ -602,13 +614,15 @@
 }
 
 .rts-right {
+  grid-column: 3;
+  grid-row: 2;
   display: flex;
   flex-direction: column;
   gap: 0;
   min-height: 0;
   height: 120px;
   max-height: 120px;
-  /* Match command/region panel chrome so the three thirds align. */
+  /* Match command/kind panel chrome so the three thirds align. */
   border: 1px solid rgba(237, 230, 218, 0.1);
   border-radius: 8px;
   background: rgba(12, 11, 10, 0.88);
@@ -679,26 +693,110 @@
 /* Docked add-menu portals to document.body (fixed) — absolute popovers are
    clipped by .rts-right { overflow: hidden }. Placement lives in CanvasFieldTools. */
 
-.rts-notify {
+/* ── Notify strip (horizontal, one row, above minimap only) ─────────────── */
+
+.rts-notify-strip__body {
   display: flex;
-  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.rts-notify-strip__group {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 4px;
-  max-height: 72px;
-  overflow: auto;
+  flex-shrink: 0;
+}
+
+.rts-notify-strip__pulse {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.rts-notify-strip__pulse .pulse-tray {
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 4px !important;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
   pointer-events: auto;
 }
 
-.rts-notify:empty {
-  display: none;
-}
-
-.rts-notify--pulse:empty {
-  display: none;
-}
-
-.rts-notify--pulse .pulse-toast {
+.rts-notify-strip__pulse .pulse-toast {
   pointer-events: auto;
+  flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   animation: vellum-toast-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Compact stoppage into the strip: row of impact pills, no vertical stack. */
+.rts-notify-strip .rts-stoppage {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+.rts-notify-strip .rts-stoppage__label {
+  display: none;
+}
+
+.rts-notify-strip .rts-stoppage__list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow: visible;
+}
+
+.rts-notify-strip .rts-stoppage-row {
+  max-width: 132px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(196, 92, 92, 0.4);
+  background: rgba(196, 92, 92, 0.1);
+  opacity: 1;
+}
+
+.rts-notify-strip .rts-stoppage-row__line {
+  font-size: 9px;
+}
+
+/* Compact orphan pills. */
+.rts-notify-strip .rts-orphan {
+  gap: 4px;
+  padding: 2px 6px;
+  max-width: 140px;
+  flex-shrink: 0;
+}
+
+.rts-notify-strip .rts-orphan__key {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  font-size: 9px;
 }
 
 @keyframes vellum-toast-enter {
@@ -713,7 +811,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rts-notify--pulse .pulse-toast {
+  .rts-notify-strip__pulse .pulse-toast {
     animation: none;
   }
 }
@@ -732,7 +830,8 @@
 
 /* Drop blur while the field is busy — backdrop-filter is compositor-heavy. */
 .react-flow.is-viewport-busy .rts-panel,
-.react-flow.is-viewport-busy .rts-region-strip {
+.react-flow.is-viewport-busy .rts-region-strip,
+.react-flow.is-viewport-busy .rts-notify-strip {
   backdrop-filter: none !important;
 }
 
@@ -812,6 +911,7 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* Default stoppage block (used if rendered outside the notify strip). */
 .rts-stoppage {
   display: flex;
   flex-direction: column;
@@ -899,24 +999,33 @@
 
 @media (max-width: 900px) {
   .rts-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
     max-height: 45vh;
     overflow: auto;
   }
 
-  .rts-bar {
-    grid-template-columns: 1fr;
+  .rts-region-strip,
+  .rts-notify-strip,
+  .rts-panel--cmd,
+  .rts-panel--mid,
+  .rts-right {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .rts-panel {
     max-height: none;
   }
 
-  .rts-region-strip {
+  .rts-region-strip,
+  .rts-notify-strip {
     max-height: none;
     flex-wrap: wrap;
   }
 
-  .rts-region-strip__chips {
+  .rts-region-strip__chips,
+  .rts-notify-strip__body {
     flex-wrap: wrap;
   }
 }
