@@ -643,6 +643,16 @@ test("capture every surface for design review", async () => {
     if (await addItem.isVisible().catch(() => false)) {
       await addItem.click();
       await shot(page, "20-node-palette");
+      const claudeAgent = page.getByRole("button", {
+        name: "Add Claude Code agent",
+      });
+      if (await claudeAgent.isVisible().catch(() => false)) {
+        await claudeAgent.hover();
+        await page
+          .getByRole("menu", { name: "Claude Code models" })
+          .waitFor({ state: "visible" });
+        await shot(page, "20b-agent-cascade");
+      }
       const termWiz = page.getByRole("button", {
         name: "Add native terminal work surface",
       });

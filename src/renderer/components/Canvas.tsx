@@ -18,7 +18,8 @@ import {
 import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
-import { Ban, Bot, Boxes, Expand, Eye, FileText, Globe, Link2, ListChecks, Plus, ScanLine, SquareDashed, Terminal, Timer, Trash2 } from "lucide-react";
+import { Ban, Boxes, Expand, Eye, FileText, Globe, Link2, ListChecks, Plus, ScanLine, SquareDashed, Terminal, Timer, Trash2 } from "lucide-react";
+import { allTemplates, type HarnessId } from "@shared/managed-terminal-templates";
 import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
@@ -36,13 +37,14 @@ import { nodeTitle } from "../lib/presentation";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
-import { resolvePageSpawnDefaults } from "@shared/region-defaults";
+import { resolvePageSpawnDefaults, resolveRegionCwd } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import {
   makeArtifactsNode,
   makeFileNode,
   makeGroupNode,
   makeLinkNode,
+  makeManagedAgentNode,
   makePageNode,
   makeRequestsNode,
   makeTasksNode,
@@ -59,7 +61,12 @@ import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard } from "./terminal/TerminalWizard";
-import { HarnessPicker } from "./terminal/HarnessPicker";
+import {
+  AgentCascadeMenu,
+  type AgentSpawnChoices,
+} from "./terminal/AgentCascadeMenu";
+import { HarnessMark } from "./herdr/HarnessMark";
+import { openTerminal } from "../lib/terminal-actions";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
@@ -549,7 +556,7 @@ function useCanvasInteractions(
 
 interface AddActions {
   readonly create: (kind: "text" | "file" | "link" | "group") => void;
-  readonly addAgent: () => void;
+  readonly addAgent: (choices: AgentSpawnChoices) => void;
   readonly addWatcher: () => void;
   readonly addTimer: () => void;
   readonly addTasks: () => void;
@@ -611,10 +618,27 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
-  addAgent: () => {
-    const position = positionFor({ width: 260, height: 110 });
-    window.dispatchEvent(new CustomEvent("vellum:new-agent", { detail: position }));
+  addAgent: (choices) => {
+    const size = { width: 260, height: 110 };
+    const position = positionFor(size);
+    const host = state$.settings.station.hostId.peek() || "local";
+    // Create-time cwd stamp from containing region paths (host-keyed).
+    // Escape hatch: place outside the region, or edit launch.cwd after create.
+    const cwd = resolveRegionCwd(
+      state$.doc.peek(),
+      position.x + size.width / 2,
+      position.y + size.height / 2,
+      host,
+    );
+    const node = makeManagedAgentNode(position.x, position.y, {
+      ...choices,
+      host,
+      ...(cwd ? { cwd } : {}),
+    });
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
     dismiss();
+    void openTerminal(node);
   },
   addWatcher: () => {
     const position = positionFor({ width: 240, height: 96 });
@@ -753,23 +777,65 @@ type MenuEntry = {
   readonly ariaLabel: string;
   readonly group: PaletteGroup;
   readonly onSelect: () => void;
+  readonly harness?: HarnessId;
 };
 
 // Auto-focused filter + arrow/Enter selection. Typing narrows by label+sub;
-// Enter commits the highlighted row. Agent authoring opens HarnessPicker.
+// Enter commits the highlighted row. Managed agents are direct rows whose
+// pointer/focus cascade progressively exposes model and effort overrides.
 function AddMenu({ actions }: { readonly actions: AddActions }) {
   const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState(0);
+  const [agentCascade, setAgentCascade] = useState<{
+    readonly harness: HarnessId;
+    readonly anchor: HTMLButtonElement;
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cascadeCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
+    return () => {
+      if (cascadeCloseTimer.current) clearTimeout(cascadeCloseTimer.current);
+    };
   }, []);
 
+  const keepCascadeOpen = useCallback(() => {
+    if (!cascadeCloseTimer.current) return;
+    clearTimeout(cascadeCloseTimer.current);
+    cascadeCloseTimer.current = null;
+  }, []);
+
+  const closeCascadeSoon = useCallback(() => {
+    keepCascadeOpen();
+    cascadeCloseTimer.current = setTimeout(() => setAgentCascade(null), 140);
+  }, [keepCascadeOpen]);
+
+  const openCascade = useCallback(
+    (harness: HarnessId, anchor: HTMLButtonElement) => {
+      keepCascadeOpen();
+      setAgentCascade((current) =>
+        current?.harness === harness && current.anchor === anchor
+          ? current
+          : { harness, anchor },
+      );
+    },
+    [keepCascadeOpen],
+  );
+
   // Grouped Actors / Sinks / Schedulers / Geography — group membership is
-  // paletteGroupFor(kind, isGroup). Agent opens harness picker; terminal is shell.
+  // paletteGroupFor(kind, isGroup). Harnesses are first-class actor choices.
   const entries: ReadonlyArray<MenuEntry> = [
-    { key: "agent", label: "agent", sub: "harness picker · managed terminal", icon: <Bot size={14} />, ariaLabel: "Add managed agent", group: paletteGroupFor("agent", false), onSelect: () => actions.addAgent() },
+    ...allTemplates().map((template) => ({
+      key: `agent-${template.harness}`,
+      label: template.displayName,
+      sub: "",
+      icon: <HarnessMark agent={template.harness} size={18} />,
+      ariaLabel: `Add ${template.displayName} agent`,
+      group: paletteGroupFor("agent", false),
+      onSelect: () => actions.addAgent({ harness: template.harness }),
+      harness: template.harness,
+    })),
     { key: "terminal", label: "terminal", sub: "native shell · geography", icon: <Terminal size={14} />, ariaLabel: "Add native terminal work surface", group: paletteGroupFor("terminal", false), onSelect: () => actions.addTerminal() },
     ...(HERDR_SURFACE_HIDDEN
       ? []
@@ -805,7 +871,7 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
     }
   };
 
-  return <div className="node-palette__menu">
+  return <div className="node-palette__menu" onWheel={(event) => event.stopPropagation()}>
     <input
       ref={inputRef}
       autoFocus
@@ -830,16 +896,57 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
                   {showHeader ? <div className="node-palette__group-label">{entry.group}</div> : null}
                   <button
                     aria-label={entry.ariaLabel}
-                    className={index === activeIndex ? "is-active" : undefined}
-                    onMouseEnter={() => setHighlighted(index)}
+                    aria-haspopup={entry.harness ? "menu" : undefined}
+                    aria-expanded={
+                      entry.harness ? agentCascade?.harness === entry.harness : undefined
+                    }
+                    data-tooltip=""
+                    className={[
+                      index === activeIndex ? "is-active" : "",
+                      entry.harness ? "node-palette__agent-row" : "",
+                    ].filter(Boolean).join(" ") || undefined}
+                    onFocus={(event) => {
+                      if (entry.harness) openCascade(entry.harness, event.currentTarget);
+                    }}
+                    onBlur={() => {
+                      if (entry.harness) closeCascadeSoon();
+                    }}
+                    onMouseEnter={(event) => {
+                      setHighlighted(index);
+                      if (entry.harness) openCascade(entry.harness, event.currentTarget);
+                      else setAgentCascade(null);
+                    }}
+                    onMouseLeave={() => {
+                      if (entry.harness) closeCascadeSoon();
+                    }}
+                    onKeyDown={(event) => {
+                      if (!entry.harness || event.key !== "ArrowRight") return;
+                      event.preventDefault();
+                      openCascade(entry.harness, event.currentTarget);
+                      requestAnimationFrame(() => {
+                        document
+                          .querySelector<HTMLElement>(".agent-cascade__column")
+                          ?.focus();
+                      });
+                    }}
                     onClick={entry.onSelect}
                   >
-                    {entry.icon}<span><strong>{entry.label}</strong><small>{entry.sub}</small></span>
+                    {entry.icon}<span><strong>{entry.label}</strong>{entry.sub ? <small>{entry.sub}</small> : null}</span>
                   </button>
                 </Fragment>
               );
             });
           })()}
+    {agentCascade ? (
+      <AgentCascadeMenu
+        key={agentCascade.harness}
+        harness={agentCascade.harness}
+        anchor={agentCascade.anchor}
+        onSpawn={actions.addAgent}
+        onPointerEnter={keepCascadeOpen}
+        onPointerLeave={closeCascadeSoon}
+      />
+    ) : null}
   </div>;
 }
 
@@ -849,7 +956,11 @@ function CanvasFieldTools() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const [menuBox, setMenuBox] = useState<{ left: number; bottom: number } | null>(null);
+  const [menuBox, setMenuBox] = useState<{
+    readonly left: number;
+    readonly bottom: number;
+    readonly maxHeight: number;
+  } | null>(null);
   const dismiss = useCallback(() => { setOpen(false); }, []);
   useMenuDismiss(open, dismiss);
 
@@ -865,6 +976,7 @@ function CanvasFieldTools() {
       setMenuBox({
         left: Math.min(Math.max(8, rect.left), window.innerWidth - 198),
         bottom: Math.max(8, window.innerHeight - rect.top + 6),
+        maxHeight: Math.max(180, rect.top - 14),
       });
     };
     place();
@@ -904,7 +1016,13 @@ function CanvasFieldTools() {
           ? createPortal(
               <div
                 className="node-palette node-palette--context"
-                style={{ position: "fixed", left: menuBox.left, bottom: menuBox.bottom, zIndex: 60 }}
+                style={{
+                  position: "fixed",
+                  left: menuBox.left,
+                  bottom: menuBox.bottom,
+                  zIndex: 60,
+                  "--node-palette-max-height": `${menuBox.maxHeight}px`,
+                } as React.CSSProperties}
               >
                 <AddMenu actions={actions} />
               </div>,
@@ -929,14 +1047,49 @@ function CanvasFieldTools() {
 // creating the node exactly where you clicked.
 function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }; readonly onClose: () => void }) {
   const rf = useReactFlow<FlowNode, FlowEdge>();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState({ left: at.x, top: at.y });
   useMenuDismiss(true, onClose);
+  useLayoutEffect(() => {
+    const place = () => {
+      const rect = menuRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const gap = 5;
+      const margin = 8;
+      const left =
+        at.x + rect.width + gap <= window.innerWidth - margin
+          ? at.x + gap
+          : at.x - rect.width - gap;
+      const top =
+        at.y + rect.height + gap <= window.innerHeight - margin
+          ? at.y + gap
+          : at.y - rect.height - gap;
+      setPlacement({
+        left: Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin)),
+        top: Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin)),
+      });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [at.x, at.y]);
   const positionFor = (size: { width: number; height: number }) => {
     const point = rf.screenToFlowPosition({ x: at.x, y: at.y });
     return { x: Math.round(point.x - size.width / 2), y: Math.round(point.y - size.height / 2) };
   };
   const actions = makeAddActions(positionFor, onClose);
   return (
-    <div className="node-palette node-palette--context" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 340), zIndex: 40 }}>
+    <div
+      ref={menuRef}
+      className="node-palette node-palette--context"
+      style={{
+        position: "fixed",
+        left: placement.left,
+        top: placement.top,
+        zIndex: 40,
+        "--node-palette-max-height": "calc(100vh - 16px)",
+      } as React.CSSProperties}
+    >
       <AddMenu actions={actions} />
     </div>
   );
@@ -1208,17 +1361,12 @@ function CanvasGraph() {
   const connecting = useConnection((connection) => connection.inProgress);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [terminalAnchor, setTerminalAnchor] = useState<{ x: number; y: number } | null>(null);
-  const [agentAnchor, setAgentAnchor] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
     const openTerminal = (event: Event) =>
       setTerminalAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
-    const openAgent = (event: Event) =>
-      setAgentAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
     window.addEventListener("vellum:new-terminal", openTerminal);
-    window.addEventListener("vellum:new-agent", openAgent);
     return () => {
       window.removeEventListener("vellum:new-terminal", openTerminal);
-      window.removeEventListener("vellum:new-agent", openAgent);
     };
   }, []);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
@@ -1318,7 +1466,6 @@ function CanvasGraph() {
 
   return <>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
-    {agentAnchor ? <HarnessPicker anchor={agentAnchor} onClose={() => setAgentAnchor(null)} /> : null}
     <ReactFlow
       className={[
         connecting ? "is-connecting" : "",
