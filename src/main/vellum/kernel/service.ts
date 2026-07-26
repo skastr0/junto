@@ -284,17 +284,8 @@ const makeKernelService = (
   // No production private-source fetch — leave unset (undefined → unavailable).
   __setGlyphFetcherForTest(undefined);
 
-  // --- delivery: managed terminal first; ACP dormant fallback -----------------
+  // --- delivery: managed terminal only (ACP is not a product path) ------------
   __setDeliveryDepsForTest({
-    isLive: (agentKey) => chatService.isLive(agentKey),
-    openChat: async (agentKey) => {
-      const result = await chatService.chatOpen(agentKey);
-      if (!result.ok) throw new Error(result.error);
-    },
-    sendPrompt: async (agentKey, message, contextBlocks) => {
-      const result = await chatService.chatPrompt(agentKey, message, contextBlocks);
-      if (!result.ok) throw new Error(result.error);
-    },
     sendManagedTerminal: (bindingId, message) =>
       managedPulseDeliver(bindingId, message),
   });

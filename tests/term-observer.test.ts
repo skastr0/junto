@@ -153,6 +153,29 @@ describe("SessionObserver", () => {
     }
   });
 
+  it("attachScreen dumps full buffer for long-session reopen", async () => {
+    const obs = new SessionObserver({
+      bindingId: "b1",
+      epoch: "e1",
+      cols: 40,
+      rows: 5,
+      scrollback: 1000,
+    });
+    try {
+      // More lines than viewport — must all be retained for attach.
+      let blob = "";
+      for (let i = 0; i < 30; i++) blob += `line-${i}\r\n`;
+      await feedAndWait(obs, blob);
+      const screen = await obs.attachScreen();
+      expect(screen.lines.some((l) => l.includes("line-0"))).toBe(true);
+      expect(screen.lines.some((l) => l.includes("line-29"))).toBe(true);
+      expect(screen.lines.length).toBeGreaterThan(5);
+      expect(screen.bindingId).toBe("b1");
+    } finally {
+      obs.dispose();
+    }
+  });
+
   it("resize does not throw on mid-stream reflow", async () => {
     const obs = new SessionObserver({
       bindingId: "b1",

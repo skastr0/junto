@@ -11,6 +11,7 @@ import type {
 } from "./types";
 
 export type {
+  AttachScreen,
   ObserverGridSnapshot,
   ObserverListener,
   ObserverModes,
@@ -77,6 +78,11 @@ export class TerminalObserverPlane {
 
   snapshot(bindingId: string): ObserverGridSnapshot | undefined {
     return this.byBinding.get(bindingId)?.snapshotNow();
+  }
+
+  /** Full-buffer attach screen when a live observer exists. */
+  attachScreen(bindingId: string): import("./types").AttachScreen | undefined {
+    return this.byBinding.get(bindingId)?.attachScreenNow();
   }
 
   subscribeAll(listener: ObserverListener): () => void {

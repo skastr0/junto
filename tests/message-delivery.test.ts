@@ -29,6 +29,8 @@ const agentNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][nu
   height: 100,
   ether: {
     entity: { kind: "agent", name: "local:mira" },
+    // Managed terminal is the only agent delivery surface.
+    terminal: { bindingId: "bind-mira", harness: "claude" },
     messages: { items: [...messages] },
   },
 });
@@ -108,10 +110,11 @@ describe("message-delivery pure helpers", () => {
     expect(stampMessageDelivered(stamped!, "agent", "m-a", 99)).toBeNull();
   });
 
-  it("resolves agent, herdr, and native terminal targets; skips incomplete bindings", () => {
+  it("resolves managed agent, herdr, and native terminal; bare agent is unreachable", () => {
+    // Agents without ether.terminal.bindingId never fall back to ACP.
     expect(deliveryTargetOf(agentNode())).toEqual({
-      kind: "agent",
-      agentKey: "local:mira",
+      kind: "terminal",
+      bindingId: "bind-mira",
     });
     expect(deliveryTargetOf(herdrNode())).toEqual({
       kind: "herdr",
@@ -126,29 +129,9 @@ describe("message-delivery pure helpers", () => {
       y: 0,
       width: 10,
       height: 10,
-      ether: { entity: { kind: "agent" } },
+      ether: { entity: { kind: "agent", name: "local:orphan" } },
     };
     expect(deliveryTargetOf(bare)).toBeUndefined();
-  });
-
-  it("routes managed agent seats to terminal drive (not ACP)", () => {
-    const managed: CanvasDoc["nodes"][number] = {
-      id: "agent",
-      type: "text",
-      text: "claude",
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 80,
-      ether: {
-        entity: { kind: "agent", name: "local:claude" },
-        terminal: { bindingId: "bind-managed-1", harness: "claude" },
-      },
-    };
-    expect(deliveryTargetOf(managed)).toEqual({
-      kind: "terminal",
-      bindingId: "bind-managed-1",
-    });
   });
 
   it("lists only foreign pending messages on agent/herdr nodes", () => {
@@ -187,8 +170,8 @@ describe("message-delivery pure helpers", () => {
     const pending = listPendingDeliveries(doc);
     expect(pending.map((p) => p.message.messageId).sort()).toEqual(["h1", "p1"]);
     expect(pending.find((p) => p.message.messageId === "p1")?.target).toEqual({
-      kind: "agent",
-      agentKey: "local:mira",
+      kind: "terminal",
+      bindingId: "bind-mira",
     });
   });
 });

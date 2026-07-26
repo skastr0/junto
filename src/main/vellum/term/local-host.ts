@@ -533,6 +533,19 @@ export class LocalSessionHost extends EventEmitter {
         readonly lease: ControlLease;
         readonly cols: number;
         readonly rows: number;
+        /**
+         * Preferred long-session attach: full headless grid (scrollback + viewport).
+         * When present, renderer should apply this and ignore `journal`.
+         */
+        readonly screen?: {
+          readonly bindingId: string;
+          readonly epoch: string;
+          readonly cols: number;
+          readonly rows: number;
+          readonly seq: bigint;
+          readonly lines: readonly string[];
+        };
+        /** Legacy byte ring — only for sessions without an observer (should be rare). */
         readonly journal: readonly JournalEntry[];
         readonly status: SessionRec["status"];
         readonly pid?: number;
@@ -543,6 +556,23 @@ export class LocalSessionHost extends EventEmitter {
     if (rec.killed) {
       return { ok: false, message: "session interaction revoked during stop" };
     }
+
+    // Prefer full-grid attach over journal: long sessions must not depend on a
+    // truncating 512KB byte ring (mid-escape corruption under heavy output).
+    const screen = this.observerPlane.attachScreen(rec.bindingId);
+    const screenPayload = screen
+      ? {
+          bindingId: screen.bindingId,
+          epoch: screen.epoch,
+          cols: screen.cols,
+          rows: screen.rows,
+          seq: screen.seq,
+          lines: screen.lines,
+        }
+      : undefined;
+    // When screen is present, do not ship the journal — forces clients onto
+    // the correct path and avoids double-paint.
+    const journal = screenPayload ? ([] as const) : rec.journal.slice();
 
     if (input.mode === "control") {
       if (rec.controlLeaseId && !input.takeover) {
@@ -559,7 +589,8 @@ export class LocalSessionHost extends EventEmitter {
         },
         cols: rec.cols,
         rows: rec.rows,
-        journal: rec.journal.slice(),
+        ...(screenPayload ? { screen: screenPayload } : {}),
+        journal,
         status: rec.status,
         pid: rec.pid,
       };
@@ -575,7 +606,8 @@ export class LocalSessionHost extends EventEmitter {
       },
       cols: rec.cols,
       rows: rec.rows,
-      journal: rec.journal.slice(),
+      ...(screenPayload ? { screen: screenPayload } : {}),
+      journal,
       status: rec.status,
       pid: rec.pid,
     };

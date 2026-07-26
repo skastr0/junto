@@ -64,23 +64,20 @@ export type DeliveryTarget =
 
 /**
  * Resolve transport target from an agent/herdr/terminal node.
- * Managed agents (`entity.kind=agent` + `ether.terminal.bindingId`) prefer the
- * managed-terminal drive — never ACP chatPrompt. Bare agents (no terminal)
- * remain ACP targets for dormant/legacy paths.
+ *
+ * **Managed terminal is the only agent delivery surface.** An agent without
+ * `ether.terminal.bindingId` is unreachable — never ACP chatPrompt (that path
+ * is retired for product delivery; relitigating ACP here is forbidden).
  */
 export const deliveryTargetOf = (node: CanvasNode): DeliveryTarget | undefined => {
   const kind = node.ether?.entity?.kind;
   if (kind === "agent") {
-    // Managed terminal seat wins over ACP (terminal is the only v1 agent surface).
     const managedBinding = node.ether?.terminal?.bindingId?.trim();
-    if (managedBinding) {
-      return { kind: "terminal", bindingId: managedBinding };
-    }
-    const agentKey = node.ether?.entity?.name?.trim();
-    if (!agentKey) return undefined;
-    return { kind: "agent", agentKey };
+    if (!managedBinding) return undefined;
+    return { kind: "terminal", bindingId: managedBinding };
   }
   if (kind === "herdr") {
+    // Legacy herdr remains a distinct surface when present; not ACP.
     const terminalId = node.ether?.herdr?.terminalId?.trim();
     if (!terminalId) return undefined;
     return { kind: "herdr", terminalId };

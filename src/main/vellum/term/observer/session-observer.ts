@@ -91,11 +91,18 @@ export class SessionObserver {
     this.epoch = opts.epoch;
     const cols = Math.max(20, Math.min(300, opts.cols));
     const rows = Math.max(5, Math.min(120, opts.rows));
+    // Long sessions: retain a deep scrollback in the headless grid so attach
+    // can rebuild the screen without a truncating byte journal.
+    const scrollback = Math.max(
+      opts.scrollback ?? 50_000,
+      rows * 4,
+      200,
+    );
     this.term = new Terminal({
       cols,
       rows,
       allowProposedApi: true,
-      scrollback: Math.max(rows * 4, 200),
+      scrollback,
     });
     const wanted = opts.unicodeVersion ?? DEFAULT_UNICODE;
     try {
@@ -224,6 +231,48 @@ export class SessionObserver {
   /** Best-effort sync snapshot — may lag the last unflushed write by one tick. */
   snapshotNow(): ObserverGridSnapshot {
     return this.buildSnapshot();
+  }
+
+  /**
+   * Full-buffer dump for attach — all retained scrollback + viewport.
+   * Prefer this over journal replay for long-lived sessions.
+   */
+  async attachScreen(): Promise<import("./types").AttachScreen> {
+    await this.writeQueue;
+    return this.buildAttachScreen();
+  }
+
+  attachScreenNow(): import("./types").AttachScreen {
+    return this.buildAttachScreen();
+  }
+
+  private buildAttachScreen(): import("./types").AttachScreen {
+    const buf = this.term.buffer.active;
+    const cols = this.term.cols;
+    const rows = this.term.rows;
+    const lines: string[] = [];
+    // Full buffer length includes scrollback; this is the long-session source of truth.
+    for (let i = 0; i < buf.length; i++) {
+      const line = buf.getLine(i);
+      lines.push(line ? line.translateToString(true, 0, cols) : "");
+    }
+    // Drop pure trailing empties (keep at least viewport height).
+    while (lines.length > rows && lines[lines.length - 1] === "") {
+      lines.pop();
+    }
+    return {
+      bindingId: this.bindingId,
+      epoch: this.epoch,
+      cols,
+      rows,
+      seq: this.seq,
+      lines,
+      signals: {
+        title: this.title,
+        osc9: this.osc9,
+        modes: this.modes,
+      },
+    };
   }
 
   dispose(): void {

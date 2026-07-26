@@ -118,21 +118,25 @@ export const composePulseMessage = (summary: string, instruction?: string): stri
 // --- delivery (injectable for testability) ------------------------------------
 
 export interface PulseDeliverDeps {
-  readonly isLive: (agentKey: string) => boolean;
-  readonly openChat: (agentKey: string) => Promise<void>;
-  readonly sendPrompt: (
-    agentKey: string,
-    message: string,
-    contextBlocks?: ReadonlyArray<string>,
-  ) => Promise<void>;
   /**
-   * Managed-terminal seats (agent + ether.terminal.bindingId). Idle-gated
-   * paste+CR via ManagedTerminalDrive. Prefer over ACP when present.
+   * Managed-terminal seats only (agent + ether.terminal.bindingId).
+   * ACP openChat/chatPrompt is not a product delivery path — never fall back.
+   * Optional only so older tests that omit it simply deliver nothing.
    */
   readonly sendManagedTerminal?: (
     bindingId: string,
     message: string,
   ) => Promise<boolean>;
+  /** @deprecated Unused — ACP pulse delivery removed. Kept so old test stubs typecheck. */
+  readonly isLive?: (agentKey: string) => boolean;
+  /** @deprecated Unused. */
+  readonly openChat?: (agentKey: string) => Promise<void>;
+  /** @deprecated Unused. */
+  readonly sendPrompt?: (
+    agentKey: string,
+    message: string,
+    contextBlocks?: ReadonlyArray<string>,
+  ) => Promise<void>;
 }
 
 export interface FlagWriterDeps {
@@ -464,16 +468,10 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
               node.ether.entity.name === key,
           );
           const bindingId = agentNode?.ether?.terminal?.bindingId?.trim();
-          // Managed terminal is the v1 agent surface — never open ACP for it.
-          if (bindingId && deps.sendManagedTerminal) {
-            const sent = await deps.sendManagedTerminal(bindingId, fullMessage);
-            if (sent) ok.push(key);
-            continue;
-          }
-          // Dormant ACP path (hidden UI; kept for tests / revival).
-          if (!deps.isLive(key)) await deps.openChat(key);
-          await deps.sendPrompt(key, message, contextBlocks);
-          ok.push(key);
+          // No binding or no managed driver → skip (never ACP).
+          if (!bindingId || !deps.sendManagedTerminal) continue;
+          const sent = await deps.sendManagedTerminal(bindingId, fullMessage);
+          if (sent) ok.push(key);
         } catch {
           // Best-effort per agent: one failing delivery doesn't sink the rest.
         }

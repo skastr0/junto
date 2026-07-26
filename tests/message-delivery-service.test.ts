@@ -26,6 +26,7 @@ const agentDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
       height: 80,
       ether: {
         entity: { kind: "agent", name: "local:mira" },
+        terminal: { bindingId: "bind-mira", harness: "claude" },
         messages: { items: [...messages] },
       },
     },
@@ -98,20 +99,21 @@ const waitUntil = async (
 };
 
 describe("MessageDeliveryService", () => {
-  it("stamps deliveredAt through the store when agent is live", async () => {
+  it("stamps deliveredAt through the store when managed terminal drive accepts", async () => {
     const msg = userMsg("m1");
     const store = makeStore({ c: agentDoc([msg]) });
     const payloads: string[] = [];
-    const sendAgentPrompt = async (_key: string, text: string) => {
+    const sendManagedTerminalPrompt = async (_bindingId: string, text: string) => {
       payloads.push(text);
       return true;
     };
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => true,
-        sendAgentPrompt,
+        isAgentLive: () => false,
+        sendAgentPrompt: async () => false,
         sendHerdrText: () => false,
+        sendManagedTerminalPrompt,
       },
       store,
       now: () => 1_111,
@@ -130,7 +132,7 @@ describe("MessageDeliveryService", () => {
     const store = makeStore({ c: agentDoc([msg]) });
     let resolveSend!: (v: boolean) => void;
     let sendCount = 0;
-    const sendAgentPrompt = (_key: string, _text: string) => {
+    const sendManagedTerminalPrompt = (_bindingId: string, _text: string) => {
       sendCount += 1;
       return new Promise<boolean>((resolve) => {
         resolveSend = resolve;
@@ -139,9 +141,10 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => true,
-        sendAgentPrompt,
+        isAgentLive: () => false,
+        sendAgentPrompt: async () => false,
         sendHerdrText: () => false,
+        sendManagedTerminalPrompt,
       },
       store,
       now: () => 2,
@@ -167,12 +170,13 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => true,
-        sendAgentPrompt: async () => {
+        isAgentLive: () => false,
+        sendAgentPrompt: async () => false,
+        sendHerdrText: () => false,
+        sendManagedTerminalPrompt: async () => {
           sendCount += 1;
           return true;
         },
-        sendHerdrText: () => false,
       },
       store,
     });
@@ -181,6 +185,53 @@ describe("MessageDeliveryService", () => {
     expect(sendCount).toBe(0);
     const doc = await store.readDoc("c");
     expect(doc?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt).toBeUndefined();
+  });
+
+  it("agent without managed terminal binding is unreachable (no ACP fallback)", async () => {
+    const msg = userMsg("orphan", "hello");
+    const store = makeStore({
+      c: {
+        nodes: [
+          {
+            id: "agent",
+            type: "text",
+            text: "mira",
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+            ether: {
+              entity: { kind: "agent", name: "local:mira" },
+              messages: { items: [msg] },
+            },
+          },
+        ],
+        edges: [],
+      },
+    });
+    let agentSends = 0;
+    let managedSends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        isAgentLive: () => true,
+        sendAgentPrompt: async () => {
+          agentSends += 1;
+          return true;
+        },
+        sendHerdrText: () => false,
+        sendManagedTerminalPrompt: async () => {
+          managedSends += 1;
+          return true;
+        },
+      },
+      store,
+      now: () => 3,
+    });
+    service.notifyAppended("c", "agent", msg);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(agentSends).toBe(0);
+    expect(managedSends).toBe(0);
   });
 
   it("unreachable target leaves pending; attach triggers retry", async () => {
@@ -257,12 +308,13 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => true,
-        sendAgentPrompt: async (_key, text) => {
+        isAgentLive: () => false,
+        sendAgentPrompt: async () => false,
+        sendHerdrText: () => false,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
           payloads.push(text);
           return true;
         },
-        sendHerdrText: () => false,
       },
       store,
       now: () => 3,
@@ -373,12 +425,13 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        isAgentLive: () => true,
-        sendAgentPrompt: async () => {
+        isAgentLive: () => false,
+        sendAgentPrompt: async () => false,
+        sendHerdrText: () => false,
+        sendManagedTerminalPrompt: async () => {
           sendCount += 1;
           return true;
         },
-        sendHerdrText: () => false,
       },
       store: {
         ...store,
@@ -393,9 +446,9 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() => sendCount === 1);
     expect((await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt).toBeUndefined();
 
-    // Attach re-drive: stamp only, no second transport hit
+    // Idle re-drive: stamp only, no second transport hit
     stampOk = true;
-    service.onAgentLive("local:mira");
+    service.onManagedTerminalIdle("bind-mira");
     await waitUntil(async () => {
       const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
       return live?.metadata?.deliveredAt === 5;

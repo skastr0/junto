@@ -31,6 +31,15 @@ type AttachResult = {
   readonly lease?: { readonly leaseId: string; readonly epoch: string };
   readonly cols?: number;
   readonly rows?: number;
+  /** Preferred: full headless grid for long-session attach (no journal ring). */
+  readonly screen?: {
+    readonly bindingId?: string;
+    readonly epoch?: string;
+    readonly cols?: number;
+    readonly rows?: number;
+    readonly seq?: bigint;
+    readonly lines?: readonly string[];
+  };
   readonly journal?: readonly {
     readonly type: string;
     readonly data?: string;
@@ -363,9 +372,19 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         leaseRef.current = result.lease.leaseId;
         epochRef.current = result.lease.epoch;
         let lastSeq: bigint | undefined;
-        for (const item of result.journal ?? []) {
-          if (item.type === "output" && item.data) term.write(item.data);
-          if (item.seq !== undefined) lastSeq = item.seq;
+        // Prefer grid snapshot attach — correct after multi-hour sessions;
+        // byte journal is a truncating ring and can cut mid-escape.
+        const screenLines = result.screen?.lines;
+        if (screenLines && screenLines.length > 0) {
+          term.reset();
+          // Plain-text rebuild of retained scrollback + viewport.
+          term.write(screenLines.join("\r\n"));
+          if (result.screen?.seq !== undefined) lastSeq = result.screen.seq;
+        } else {
+          for (const item of result.journal ?? []) {
+            if (item.type === "output" && item.data) term.write(item.data);
+            if (item.seq !== undefined) lastSeq = item.seq;
+          }
         }
         attachDone = true;
         for (const event of pending) {

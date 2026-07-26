@@ -42,6 +42,25 @@ export type ObserverGridSnapshot = {
 
 export type ObserverListener = (snapshot: ObserverGridSnapshot) => void;
 
+/**
+ * Full-buffer attach payload for the renderer — replaces byte-journal replay.
+ * Survives long sessions without mid-escape ring truncation.
+ */
+export type AttachScreen = {
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly cols: number;
+  readonly rows: number;
+  /** PTY plane seq at serialization time. */
+  readonly seq: bigint;
+  /**
+   * Full active buffer lines top→bottom (scrollback + viewport).
+   * Plain text (SGR lost on attach) — content-correct for very long sessions.
+   */
+  readonly lines: readonly string[];
+  readonly signals: ObserverSignals;
+};
+
 export type SessionObserverOptions = {
   readonly bindingId: string;
   readonly epoch: string;
@@ -53,4 +72,10 @@ export type SessionObserverOptions = {
    * it until that addon is loaded everywhere.
    */
   readonly unicodeVersion?: "6";
+  /**
+   * Headless scrollback lines retained for long-session attach.
+   * Default large enough that multi-hour agent sessions do not lose history
+   * to a 512KB journal ring.
+   */
+  readonly scrollback?: number;
 };
