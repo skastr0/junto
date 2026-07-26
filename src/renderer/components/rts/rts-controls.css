@@ -13,14 +13,130 @@
   overflow: hidden;
 }
 
-/* Middle body: kind strip only (region chips live on the strip above). */
+/* Middle body: kind surface (region chips live on the strip above). */
 .rts-mid-body {
   display: flex;
   flex-direction: column;
   gap: 4px;
   height: 100%;
   min-height: 0;
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+/* Kind surface — identity glance + action strip + fields key. */
+.rts-kind-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  height: 100%;
+  justify-content: flex-start;
+}
+
+.rts-kind-id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.rts-kind-id--compact {
+  gap: 4px;
+}
+
+.rts-kind-id__avatar {
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid rgba(237, 230, 218, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.rts-kind-id__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rts-kind-id__avatar--mark {
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+}
+
+.rts-kind-id__text {
+  min-width: 0;
+  flex: 1;
+}
+
+.rts-kind-id__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ede6da;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.15;
+}
+
+.rts-kind-id__live {
+  margin-top: 1px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: rgba(143, 163, 176, 0.95);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+/* Placement chips reuse inspector section; compress chrome in the kind bar. */
+.rts-kind-place {
+  flex-shrink: 0;
+  min-width: 0;
+  max-height: 28px;
+  overflow: hidden;
+}
+
+.rts-kind-place .inspector-section {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.rts-kind-place .inspector-section__label {
+  display: none;
+}
+
+.rts-kind-place .inspector-flags {
+  margin: 0;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+/* Focus form for dense node/edge editors (not a sidebar). */
+.rts-kind-form-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(72vh, 640px);
+  overflow: hidden;
+  border: 1px solid rgba(237, 230, 218, 0.12);
+  border-radius: 10px;
+  background: rgba(12, 11, 10, 0.96);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+.rts-kind-form-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px 16px;
 }
 
 /* One-row kind strip: micro label + fixed keys, RTS bar language. */

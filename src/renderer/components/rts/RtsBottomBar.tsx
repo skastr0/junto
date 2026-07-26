@@ -57,7 +57,8 @@ import { openWorkDetail } from "../../lib/work-detail-open";
 import { ConnectEditor } from "../InspectorFields";
 import { PulseTray } from "../PulseTray";
 import { StoppageRank } from "./StoppageRank";
-import { EdgeCommandCard, KindStrip, PauseScopeKey, RegionPauseDot } from "./RtsControls";
+import { EdgeCommandCard, PauseScopeKey, RegionPauseDot } from "./RtsControls";
+import { KindSurface } from "./KindSurface";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -797,7 +798,7 @@ function KindMiddle() {
     <div className="rts-panel rts-panel--mid">
       <div className="rts-panel__label">kind</div>
       <div className="rts-panel__body rts-mid-body">
-        <KindStrip />
+        <KindSurface />
       </div>
     </div>
   );

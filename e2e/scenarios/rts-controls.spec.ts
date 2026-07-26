@@ -106,12 +106,15 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(leftPause).toHaveAttribute("data-paused", "false");
   await expect(page.locator(".rts-panel--cmd .rts-panel__label")).toContainText("actor");
 
-  // Middle bar: agent kind surface (region chips live on the strip above).
+  // Middle bar: kind surface (identity/actions + fields key).
   // ACP chat is hard-hidden (LEGACY_SURFACES_HIDDEN) — strip still labels the kind.
-  const kindStrip = page.locator(".rts-kind-strip");
+  const kindSurface = page.locator(".rts-kind-surface");
+  await expect(kindSurface).toBeVisible();
+  const kindStrip = kindSurface.locator(".rts-kind-strip");
   await expect(kindStrip).toBeVisible();
   await expect(kindStrip).toContainText("agent");
   await expect(kindStrip.getByRole("button", { name: "Open chat" })).toHaveCount(0);
+  await expect(kindStrip.getByRole("button", { name: "Open fields" })).toBeVisible();
 
   // Permanent region strip above the triad.
   const regionStrip = page.locator(".rts-region-strip");

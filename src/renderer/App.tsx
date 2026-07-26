@@ -32,7 +32,7 @@ import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
 import { KernelStatus } from "./components/KernelStatus";
-import { InspectorPanel } from "./components/InspectorPanel";
+
 import { SettingsPanel } from "./components/SettingsPanel";
 // Fleet pulls three.js + GLBs. Keep it out of the main chunk until open.
 const FleetOverlay = lazy(async () => {
@@ -426,7 +426,7 @@ export function App() {
         </ReactFlowProvider>
         <CanvasChrome />
         <KernelStatus />
-        <InspectorPanel />
+        {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
 
         <SettingsPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}

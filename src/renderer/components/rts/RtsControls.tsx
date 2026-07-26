@@ -52,7 +52,7 @@ import "./rts-controls.css";
 const ICON = 12;
 
 /** Same 26px square key as the command card (shared .rts-key chrome). */
-function Key({
+export function KindKey({
   label,
   title,
   active,
@@ -92,6 +92,9 @@ function Key({
     </button>
   );
 }
+
+/** @deprecated prefer KindKey — alias kept for local call sites during cutover */
+const Key = KindKey;
 
 // --- pause key (left panel base action; node + region scope) -----------------
 
@@ -409,7 +412,8 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-function NodeKindKeys({ node }: { readonly node: CanvasNode }) {
+/** Kind-specific action keys (agent/herdr/terminal/task/…). */
+export function KindActions({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
   switch (kind) {
     case "agent":
@@ -460,7 +464,7 @@ function NodeKindKeys({ node }: { readonly node: CanvasNode }) {
   }
 }
 
-function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
+export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
   const doc = use$(state$.doc);
   const execution = use$(kernel$.execution);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -569,7 +573,7 @@ export function KindStrip() {
   return (
     <div className="rts-kind-strip" role="toolbar" aria-label={`${kind} actions`}>
       <span className="rts-kind-strip__label">{kind}</span>
-      <NodeKindKeys node={node} />
+      <KindActions node={node} />
     </div>
   );
 }
