@@ -123,7 +123,7 @@ describe("managed spawn plan", () => {
     });
     expect(plan?.injection.inject).toBe(true);
     expect(plan?.injection.tier).toBe("A");
-    expect(launch?.argv.some((a) => a === "--append-system-prompt")).toBe(true);
+    expect(launch?.argv?.some((a) => a === "--append-system-prompt")).toBe(true);
   });
 
   it("unconnected replan stays silent", () => {
@@ -134,7 +134,7 @@ describe("managed spawn plan", () => {
       documentLaunch: { kind: "harness", argv: ["claude"] },
     });
     expect(plan?.injection.inject).toBe(false);
-    expect(launch?.argv.includes("--append-system-prompt")).toBe(false);
+    expect(launch?.argv?.includes("--append-system-prompt")).toBe(false);
   });
 
   it("connected codex arms firstTypedMessage", () => {
