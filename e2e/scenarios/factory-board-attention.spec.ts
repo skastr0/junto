@@ -131,8 +131,11 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await expect(term).toBeVisible();
   await expect(term.locator("text=/pid \\d+/")).toHaveCount(0);
 
-  await term.dblclick();
-  await expect(page.locator(".inspector-panel")).toBeVisible({ timeout: 10_000 });
+  // Kind surface fields form replaces the old sidebar inspector.
+  await term.click();
+  await expect(page.locator(".rts-kind-surface")).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Open fields" }).click();
+  await expect(page.locator(".rts-kind-form-panel")).toBeVisible({ timeout: 10_000 });
   await expect(page.locator("text=/browser access/i")).toHaveCount(0);
   await expect(page.locator("text=/vellum-browser/i")).toHaveCount(0);
   await expect(page.locator("text=/holds keys/i")).toHaveCount(0);
