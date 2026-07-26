@@ -95,7 +95,7 @@ const openRegionPaths = async (page: Page, regionNodeId: string) => {
   const region = page.getByTestId(`rf__node-${regionNodeId}`);
   await expect(region).toBeVisible({ timeout: 30_000 });
   await region.click({ position: { x: 24, y: 24 } });
-  const pathsBtn = page.getByRole("button", { name: "Region folder paths" });
+  const pathsBtn = page.getByRole("button", { name: /Region folder paths/i });
   await expect(pathsBtn).toBeVisible({ timeout: 10_000 });
   await pathsBtn.click();
   const dialog = page.getByRole("dialog", { name: "Region folder paths" });

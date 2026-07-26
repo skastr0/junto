@@ -25,23 +25,42 @@ function RegionToolbar({
   readonly onPaths: () => void;
   readonly hasPaths: boolean;
 }) {
+  // pointerdown stopPropagation keeps RF from starting a drag; action on click
+  // so Enter/Space on focused IconButton still fires (pointerdown-only is keyboard-dead).
+  const stopDrag = (event: React.PointerEvent | React.MouseEvent) => {
+    event.stopPropagation();
+  };
   return <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
     <ToolbarPill>
-      <IconButton className="nodrag nopan" aria-label="Edit region" title="edit region" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onEdit(); }}><Pencil size={14} /></IconButton>
       <IconButton
         className="nodrag nopan"
-        aria-label="Region folder paths"
+        aria-label="Edit region"
+        title="edit region"
+        onPointerDown={stopDrag}
+        onClick={(event) => { stopDrag(event); onEdit(); }}
+      >
+        <Pencil size={14} />
+      </IconButton>
+      <IconButton
+        className="nodrag nopan"
+        aria-label={hasPaths ? "Region folder paths (set)" : "Region folder paths"}
         title={hasPaths ? "folder paths (set)" : "folder paths"}
         tone={hasPaths ? "accent" : "default"}
-        onPointerDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onPaths();
-        }}
+        onPointerDown={stopDrag}
+        onClick={(event) => { stopDrag(event); onPaths(); }}
       >
         <FolderOpen size={14} />
       </IconButton>
-      <IconButton className="nodrag nopan" aria-label="Delete region" tone="danger" title="delete region" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); deleteNode(nodeId); }}><Trash2 size={14} /></IconButton>
+      <IconButton
+        className="nodrag nopan"
+        aria-label="Delete region"
+        tone="danger"
+        title="delete region"
+        onPointerDown={stopDrag}
+        onClick={(event) => { stopDrag(event); deleteNode(nodeId); }}
+      >
+        <Trash2 size={14} />
+      </IconButton>
     </ToolbarPill>
   </NodeToolbar>;
 }

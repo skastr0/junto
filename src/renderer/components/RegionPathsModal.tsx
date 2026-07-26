@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
@@ -49,7 +49,6 @@ export function RegionPathsModal({
   readonly nodeId: string;
   readonly onClose: () => void;
 }) {
-  const listId = useId();
   const node = use$(() => state$.doc.nodes.get().find((n) => n.id === nodeId));
   const storedPaths =
     node?.type === "group" ? node.ether?.region?.defaults?.paths : undefined;
@@ -111,10 +110,19 @@ export function RegionPathsModal({
       .catch(() => undefined);
   }, [nodeId, pathsFingerprint]);
 
-  const hostSelectOptions = useMemo(
-    () => hostOptions.map((h) => ({ value: h.id, label: h.label })),
-    [hostOptions],
-  );
+  /** Options for a row: all hosts, but mark/used hosts stay selectable only on their row. */
+  const optionsForRow = (rowKey: string, currentHost: string) => {
+    const usedByOther = new Set(
+      rows.filter((r) => r.key !== rowKey && r.host.trim()).map((r) => r.host.trim()),
+    );
+    const base = hostOptions
+      .filter((h) => h.id === currentHost || !usedByOther.has(h.id))
+      .map((h) => ({ value: h.id, label: h.label }));
+    if (currentHost && !base.some((o) => o.value === currentHost)) {
+      return [{ value: currentHost, label: currentHost }, ...base];
+    }
+    return base;
+  };
 
   if (!node || node.type !== "group") return null;
 
@@ -163,7 +171,6 @@ export function RegionPathsModal({
       layer="detail"
       label="Region folder paths"
       onClose={onClose}
-      panelClassName="region-paths-modal"
     >
       <OverlayHeader
         eyebrow="region · paths"
@@ -184,27 +191,21 @@ export function RegionPathsModal({
         }}
       >
         <p className="m-0 text-[11px] leading-relaxed text-dim">
-          Create-time only. Place an agent or terminal inside this region and it
-          stamps <span className="font-mono text-ink">launch.cwd</span> for that
-          host. Edit a seat after create to override.
+          Create-time only — agents and terminals inside this region stamp{" "}
+          <span className="font-mono text-ink">launch.cwd</span> for their host.
         </p>
 
-        <div
-          id={listId}
-          role="list"
-          aria-label="Host folder paths"
-          className="grid gap-3"
-        >
-          {rows.length === 0 ? (
-            <div
-              role="status"
-              className="rounded-[5px] border border-stroke bg-inset px-3 py-3 text-[11px] leading-relaxed text-dim"
-            >
-              No host paths yet. Add one so agents and terminals spawn in the
-              right folder on each machine.
-            </div>
-          ) : (
-            rows.map((row, index) => {
+        {rows.length === 0 ? (
+          <div
+            role="status"
+            className="rounded-[5px] border border-stroke bg-inset px-3 py-3 text-[11px] leading-relaxed text-dim"
+          >
+            No host paths yet. Add one so agents and terminals spawn in the
+            right folder on each machine.
+          </div>
+        ) : (
+          <div role="list" aria-label="Host folder paths" className="grid gap-3">
+            {rows.map((row, index) => {
               const hostLabel = `Host for path ${index + 1}`;
               const pathLabel = `Default path for ${row.host || `path ${index + 1}`}`;
               return (
@@ -219,11 +220,7 @@ export function RegionPathsModal({
                       <Select
                         aria-label={hostLabel}
                         value={row.host}
-                        options={
-                          hostSelectOptions.some((o) => o.value === row.host)
-                            ? hostSelectOptions
-                            : [{ value: row.host, label: row.host }, ...hostSelectOptions]
-                        }
+                        options={optionsForRow(row.key, row.host)}
                         onChange={(value) => updateRow(row.key, { host: value })}
                       />
                     </FieldLabel>
@@ -243,20 +240,21 @@ export function RegionPathsModal({
                     <Input
                       aria-label={pathLabel}
                       value={row.path}
-                      placeholder="/Users/you/Projects/app"
+                      placeholder="/path/to/project"
                       spellCheck={false}
                       autoComplete="off"
+                      autoFocus={index === 0}
                       onChange={(e) => updateRow(row.key, { path: e.target.value })}
                     />
                   </FieldLabel>
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button type="button" size="sm" variant="chrome" onClick={addRow}>
+          <Button type="button" size="sm" variant="chrome" onClick={addRow} autoFocus={rows.length === 0}>
             <Plus size={14} aria-hidden />
             add host
           </Button>
