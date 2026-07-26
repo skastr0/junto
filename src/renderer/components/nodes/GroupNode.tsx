@@ -32,13 +32,14 @@ function RegionToolbar({
         className="nodrag nopan"
         aria-label="Region folder paths"
         title={hasPaths ? "folder paths (set)" : "folder paths"}
+        tone={hasPaths ? "accent" : "default"}
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
           onPaths();
         }}
       >
-        <FolderOpen size={14} style={hasPaths ? { color: HUE.amber } : undefined} />
+        <FolderOpen size={14} />
       </IconButton>
       <IconButton className="nodrag nopan" aria-label="Delete region" tone="danger" title="delete region" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); deleteNode(nodeId); }}><Trash2 size={14} /></IconButton>
     </ToolbarPill>

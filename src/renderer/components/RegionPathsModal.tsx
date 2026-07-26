@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { Plus, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { stripEmptyRegionPaths } from "@shared/region-defaults";
@@ -7,7 +7,7 @@ import { setRegionDefaults } from "../lib/mutations";
 import { state$ } from "../lib/state";
 import { getVellumApi } from "../lib/vellum-api";
 import { FocusSurface } from "./FocusSurface";
-import { Button, Eyebrow, FieldLabel, Input, Select } from "./ui";
+import { Button, FieldLabel, IconButton, Input, OverlayHeader, Select } from "./ui";
 
 type HostOpt = { readonly id: string; readonly label: string };
 type PathRow = { readonly key: string; host: string; path: string };
@@ -27,9 +27,20 @@ const rowsFromPaths = (
     .map(([host, path]) => ({ key: nextRowKey(), host, path }));
 };
 
+const sortHosts = (opts: HostOpt[]): HostOpt[] =>
+  [...opts].sort((a, b) => {
+    if (a.id === LOCAL_HOST_ID) return -1;
+    if (b.id === LOCAL_HOST_ID) return 1;
+    return a.label.localeCompare(b.label);
+  });
+
 /**
  * Region host→cwd map editor. Create-time stamp source only — agents and
  * terminals placed inside the region inherit the path for their host.
+ *
+ * Surface chrome: FocusSurface form measure + OverlayHeader (same instrument
+ * as work-ledger / fleet overlays). Fields: Input / Select / FieldLabel /
+ * Button / IconButton — no hand-rolled controls.
  */
 export function RegionPathsModal({
   nodeId,
@@ -38,9 +49,20 @@ export function RegionPathsModal({
   readonly nodeId: string;
   readonly onClose: () => void;
 }) {
+  const listId = useId();
   const node = use$(() => state$.doc.nodes.get().find((n) => n.id === nodeId));
   const storedPaths =
     node?.type === "group" ? node.ether?.region?.defaults?.paths : undefined;
+  const pathsFingerprint = useMemo(
+    () =>
+      storedPaths
+        ? Object.entries(storedPaths)
+            .map(([h, p]) => `${h}\0${p}`)
+            .sort()
+            .join("\n")
+        : "",
+    [storedPaths],
+  );
   const regionLabel =
     node?.type === "group" ? (node.label?.trim() || "unnamed region") : "region";
 
@@ -51,7 +73,7 @@ export function RegionPathsModal({
 
   useEffect(() => {
     setRows(rowsFromPaths(storedPaths));
-  }, [nodeId, storedPaths]);
+  }, [nodeId, pathsFingerprint]);
 
   useEffect(() => {
     const api = getVellumApi();
@@ -84,15 +106,10 @@ export function RegionPathsModal({
           seen.add(row.host);
           merged.push({ id: row.host, label: row.host });
         }
-        merged.sort((a, b) => {
-          if (a.id === LOCAL_HOST_ID) return -1;
-          if (b.id === LOCAL_HOST_ID) return 1;
-          return a.label.localeCompare(b.label);
-        });
-        setHostOptions(merged);
+        setHostOptions(sortHosts(merged));
       })
       .catch(() => undefined);
-  }, [nodeId, storedPaths]);
+  }, [nodeId, pathsFingerprint]);
 
   const hostSelectOptions = useMemo(
     () => hostOptions.map((h) => ({ value: h.id, label: h.label })),
@@ -140,81 +157,119 @@ export function RegionPathsModal({
   };
 
   return (
-    <FocusSurface measure="form" height="fit" layer="detail" label="Region folder paths" onClose={onClose}>
-      <div className="grid gap-4 p-5">
-        <div>
-          <Eyebrow tone="steel">region · paths</Eyebrow>
-          <div className="mt-1 font-mono text-[16px] font-semibold text-ink">Folder paths</div>
-          <p className="mt-1 text-[11px] leading-relaxed text-dim">
-            Agents and terminals created inside <span className="text-ink">{regionLabel}</span>{" "}
-            spawn under the path for their host. Create-time only — edit a seat after create to override.
-          </p>
-        </div>
+    <FocusSurface
+      measure="form"
+      height="fit"
+      layer="detail"
+      label="Region folder paths"
+      onClose={onClose}
+      panelClassName="region-paths-modal"
+    >
+      <OverlayHeader
+        eyebrow="region · paths"
+        title="Folder paths"
+        status={`Actors in “${regionLabel}” open under the path for their host.`}
+        actions={
+          <IconButton aria-label="Close folder paths" title="Close" onClick={onClose}>
+            <X size={14} />
+          </IconButton>
+        }
+      />
 
-        <div className="grid gap-2">
+      <form
+        className="grid gap-4 p-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          save();
+        }}
+      >
+        <p className="m-0 text-[11px] leading-relaxed text-dim">
+          Create-time only. Place an agent or terminal inside this region and it
+          stamps <span className="font-mono text-ink">launch.cwd</span> for that
+          host. Edit a seat after create to override.
+        </p>
+
+        <div
+          id={listId}
+          role="list"
+          aria-label="Host folder paths"
+          className="grid gap-3"
+        >
           {rows.length === 0 ? (
-            <div className="rounded-[6px] border border-stroke bg-inset px-3 py-3 text-[11px] text-faint">
-              No host paths yet. Add one so actors spawn in the right folder.
+            <div
+              role="status"
+              className="rounded-[5px] border border-stroke bg-inset px-3 py-3 text-[11px] leading-relaxed text-dim"
+            >
+              No host paths yet. Add one so agents and terminals spawn in the
+              right folder on each machine.
             </div>
           ) : (
-            rows.map((row) => (
-              <div key={row.key} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_auto] items-end gap-2">
-                <FieldLabel>
-                  Host
-                  <Select
-                    aria-label={`Path host for row`}
-                    value={row.host}
-                    options={
-                      hostSelectOptions.some((o) => o.value === row.host)
-                        ? hostSelectOptions
-                        : [{ value: row.host, label: row.host }, ...hostSelectOptions]
-                    }
-                    onChange={(value) => updateRow(row.key, { host: value })}
-                  />
-                </FieldLabel>
-                <FieldLabel>
-                  Default path
-                  <Input
-                    aria-label={`Default path for ${row.host || "host"}`}
-                    value={row.path}
-                    placeholder="/Users/you/Projects/app"
-                    onChange={(e) => updateRow(row.key, { path: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        save();
-                      }
-                    }}
-                  />
-                </FieldLabel>
-                <Button
-                  size="sm"
-                  variant="subtle"
-                  aria-label="Remove path row"
-                  onClick={() => removeRow(row.key)}
+            rows.map((row, index) => {
+              const hostLabel = `Host for path ${index + 1}`;
+              const pathLabel = `Default path for ${row.host || `path ${index + 1}`}`;
+              return (
+                <div
+                  key={row.key}
+                  role="listitem"
+                  className="grid gap-2 rounded-[5px] border border-stroke/80 bg-raise/40 p-2.5"
                 >
-                  <Trash2 size={14} />
-                </Button>
-              </div>
-            ))
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
+                    <FieldLabel>
+                      Host
+                      <Select
+                        aria-label={hostLabel}
+                        value={row.host}
+                        options={
+                          hostSelectOptions.some((o) => o.value === row.host)
+                            ? hostSelectOptions
+                            : [{ value: row.host, label: row.host }, ...hostSelectOptions]
+                        }
+                        onChange={(value) => updateRow(row.key, { host: value })}
+                      />
+                    </FieldLabel>
+                    <IconButton
+                      tone="danger"
+                      size="md"
+                      className="mb-0.5"
+                      aria-label={`Remove path for ${row.host || `row ${index + 1}`}`}
+                      title="Remove path"
+                      onClick={() => removeRow(row.key)}
+                    >
+                      <Trash2 size={14} />
+                    </IconButton>
+                  </div>
+                  <FieldLabel>
+                    Default path
+                    <Input
+                      aria-label={pathLabel}
+                      value={row.path}
+                      placeholder="/Users/you/Projects/app"
+                      spellCheck={false}
+                      autoComplete="off"
+                      onChange={(e) => updateRow(row.key, { path: e.target.value })}
+                    />
+                  </FieldLabel>
+                </div>
+              );
+            })
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-2">
-          <Button size="sm" variant="subtle" onClick={addRow}>
-            <Plus size={14} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Button type="button" size="sm" variant="chrome" onClick={addRow}>
+            <Plus size={14} aria-hidden />
             add host
           </Button>
           <div className="flex gap-2">
-            <Button size="sm" variant="subtle" onClick={onClose}>
+            <Button type="button" size="sm" variant="subtle" onClick={onClose}>
               cancel
             </Button>
-            <Button size="sm" variant="primary" onClick={save}>
+            <Button type="submit" size="sm" variant="primary">
               save
             </Button>
           </div>
         </div>
-      </div>
+      </form>
     </FocusSurface>
   );
 }
