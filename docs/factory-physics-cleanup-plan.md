@@ -99,6 +99,9 @@ export const FactoryRole = Schema.Literal(
 );
 ```
 
+**CONFIRMED by operator ruling 2026-07-26** — the closed set is these four.
+Region, raw terminal, herdr, and note are all geography.
+
 `region` and `furniture` fold into `geography`. This is **behavior-preserving
 at the capability layer**, and that is grounded, not assumed: in
 `physics/laws.ts:53-58` both `ActorRegion` and `ActorFurniture` are produced,
@@ -138,6 +141,38 @@ export const KindSpecs = {
   timer:     { kind: "timer",     role: "scheduler", offers: emptyOffers },
 } as const satisfies Record<WellKnownKind, KindSpec>;
 ```
+
+### 1.2a Placement survives; the tier scale dies (ruling 2026-07-26)
+
+**Actors, sinks, and schedulers are ALL station-spawnable — fundamental to how
+the app works.** A node's host is a property of the node, never part of its
+identity. `physics/placement.ts` conflates two things and they must be split:
+
+- **SURVIVES** — `RuntimePlacement.Cc | Station{hostId}` (`placement.ts:56-64`):
+  which station runs this node. Host-picking, station status display, and node
+  migration all need exactly this.
+- **DIES** — `RuntimeTier = 1|2|3|4` (`:29-30`), `PORT_TIER_FLOOR` (`:63-75`),
+  `tierAllowsPort` (`:80-81`) and its enforcement (`admit.ts:200-207`), plus
+  `ActorClass` (`:20-25`, `command_center|station|external|facility` — the tier
+  scale under another name). `External` and `Facility` were tier concepts:
+  every participating node now runs under a Vellum app.
+
+**Route tokens die with them** (`work/route-tokens.ts`, `work/live-seat.ts`):
+every station runs the full Vellum app and owns its PTYs locally, so
+process-bind is always station-local. Route tokens existed for callers with no
+local Vellum — a retired tier. *(Inference from the ruling; flagged for operator
+confirmation rather than assumed.)*
+
+**Station-aware requirements this opens** (product work, not cleanup — tracked
+here so the cleanup does not foreclose them): station deploy **status checking**
+surfaced in the UI with the right host; **host configuration and picking** for
+new actor terminals — follow the existing precedent, `EtherRegionDefaults`
+(`canvas.ts:173-221`) already stamps create-time defaults and its paths are
+**host-keyed** (innermost region defining a path for the spawn host wins,
+missing hosts walk outward); **node migration between stations** (close session,
+clean up, reopen on the target with the right template — the seat survives, the
+session is respawned); and **per-station harness detection** so the picker only
+offers harnesses actually present on that host.
 
 ### 1.2b Three layers — the distinction that was never named
 
