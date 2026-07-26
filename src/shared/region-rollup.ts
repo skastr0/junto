@@ -1,8 +1,9 @@
-import { Schema } from "effect";
+import { Match, Schema } from "effect";
 import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
 import type { SnapshotState } from "./entities";
 import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
+import { resolveSpec } from "./physics";
 import type { WorkSurfaceActivity } from "./terminal";
 
 // Region severity rollups: the operational tier of the bottom-bar information
@@ -85,8 +86,19 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
   idle: 4,
 };
 
+// Rollcall ordering: message-bearing actor seats first, then the two work
+// stores an operator reads next, then everything else. Exhaustive over NodeSpec
+// — a new kind has to be ranked here rather than silently landing in "rest".
+// A raw terminal ranks with the rest: it carries no messages to read.
 const kindRank = (kind: string): number =>
-  kind === "agent" || kind === "herdr" ? 0 : kind === "task" || kind === "requests" ? 1 : 2;
+  Match.value(resolveSpec({ isGroup: false, kind })).pipe(
+    Match.tagsExhaustive({
+      Actor: (spec) => (spec.kind === "terminal" ? 2 : 0),
+      Sink: (spec) => (spec.kind === "task" || spec.kind === "requests" ? 1 : 2),
+      Scheduler: () => 2,
+      Geography: () => 2,
+    }),
+  );
 
 const workSurfaceContribution = (
   activity: WorkSurfaceActivity | undefined,
@@ -130,7 +142,10 @@ const deriveMember = (
   terminalStatusByNodeId: ReadonlyMap<string, WorkSurfaceActivity> | undefined,
 ): MemberStatus => {
   const entity = node.ether?.entity;
-  const kind = entity?.kind ?? (node.ether?.herdr ? "herdr" : "node");
+  // The authored entity kind, or none. Presence of a binding key (ether.herdr)
+  // is not a kind — a node is what it was authored as, never what a live
+  // attachment implies.
+  const kind = entity?.kind ?? "node";
   const flags = node.ether?.flags ?? [];
   const activity =
     entity?.kind === "agent" && entity.name !== undefined

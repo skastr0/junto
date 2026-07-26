@@ -1,4 +1,8 @@
+import { Match } from "effect";
 import type { CanvasDoc, CanvasNode } from "./canvas";
+// Leaf import, not the physics barrel: `physics/placement` imports this module,
+// so pulling the barrel in here would close a module-initialization cycle.
+import { resolveSpec } from "./physics/kinds";
 import type { HostId } from "./remote-hosts";
 
 /**
@@ -18,24 +22,26 @@ export type StationRole = (typeof STATION_ROLES)[number];
 /** Default host id for this machine when unset (matches seeded local host). */
 export const DEFAULT_STATION_HOST_ID = "local";
 
-/** Executable entity kinds that participate in host-scoped kernel/tool work. */
-export const EXECUTABLE_ENTITY_KINDS = [
-  "agent",
-  "herdr",
-  "terminal",
-  "page",
-  "watcher",
-  "timer",
-] as const;
-export type ExecutableEntityKind = (typeof EXECUTABLE_ENTITY_KINDS)[number];
-
-const EXECUTABLE_KIND_SET = new Set<string>(EXECUTABLE_ENTITY_KINDS);
-
 export const isStationRole = (value: unknown): value is StationRole =>
   value === "command-center" || value === "remote";
 
-export const isExecutableEntityKind = (value: unknown): value is ExecutableEntityKind =>
-  typeof value === "string" && EXECUTABLE_KIND_SET.has(value);
+/**
+ * Which entity kinds participate in host-scoped kernel/tool work, decided per
+ * role rather than by a hand-kept kind list: actors run, schedulers fire, and
+ * the browser page is the one sink with an executable surface. The work-store
+ * sinks (task/requests/artifacts) are documents — nothing to execute.
+ */
+export const isExecutableEntityKind = (value: unknown): boolean => {
+  if (typeof value !== "string") return false;
+  return Match.value(resolveSpec({ isGroup: false, kind: value })).pipe(
+    Match.tagsExhaustive({
+      Actor: () => true,
+      Sink: (spec) => spec.kind === "page",
+      Scheduler: () => true,
+      Geography: () => false,
+    }),
+  );
+};
 
 /**
  * Hermes agent keys are `<host>:<profile>`. Extract host when well-formed.

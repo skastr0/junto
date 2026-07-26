@@ -8,6 +8,7 @@ import {
   isWellKnownKind,
   resolveSpec,
   roleOf,
+  type ActorKindName,
   type CapabilityViewOptions,
 } from "@shared/physics";
 import { Either } from "effect";
@@ -23,9 +24,6 @@ import { Either } from "effect";
 // process-bind admission further restricts browser callers to agent|herdr;
 // native terminals remain actors for non-browser product surfaces.
 
-/** Physics actor kinds; protected process-bind admits the agent|herdr subset. */
-export type BrowserCallerKind = "agent" | "herdr" | "terminal";
-
 export type BrowserAuthzDenial =
   | "caller_missing"
   | "caller_wrong_kind"
@@ -35,7 +33,8 @@ export type BrowserAuthzDenial =
 export interface BrowserCallerPrincipal {
   readonly canvasName: string;
   readonly nodeId: string;
-  readonly kind: BrowserCallerKind;
+  /** The physics actor kinds — a caller is admitted by role, never by an ACL. */
+  readonly kind: ActorKindName;
   /** Stable sessions owner id for process-bound grants. */
   readonly auditOwnerId: string;
   /** Hermes agent key when kind is agent (entity.name). */
@@ -71,8 +70,8 @@ export const isBrowserCallerNode = (node: CanvasNode | undefined): boolean => {
   return roleOf(spec) === "actor";
 };
 
-/** Type-narrow well-known actor kinds (derived from physics KindSpecs). */
-export const isBrowserCallerKind = (kind: string | undefined): kind is BrowserCallerKind => {
+/** Type-narrow to the physics actor kinds. No hand-picked subset. */
+export const isBrowserCallerKind = (kind: string | undefined): kind is ActorKindName => {
   if (kind === undefined || !isWellKnownKind(kind)) return false;
   // Resolve as a non-group entity of that kind.
   return roleOf(resolveSpec({ kind, isGroup: false })) === "actor";

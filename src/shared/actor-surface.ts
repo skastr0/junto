@@ -11,7 +11,10 @@
  * ACP is not a tag. It is not a port. It is not a fallback.
  */
 
+import { Match } from "effect";
 import type { CanvasNode, EtherTerminal } from "./canvas";
+import { isGroup } from "./graph";
+import { resolveSpec, type ActorKindName } from "./physics";
 
 // ── Sum type ───────────────────────────────────────────────────────────────
 
@@ -81,64 +84,85 @@ export const isManagedAgentNode = (node: CanvasNode): node is ManagedAgentNode =
 
 /**
  * Decode the actor delivery surface from a canvas node.
- * Returns undefined only for non-actors or **illegal** agent/terminal shapes
- * (missing required ports for that kind). Never invents ACP.
+ *
+ * Role decides participation (only actors have a delivery surface) and the
+ * actor kind decides which surface — both from the one `resolveSpec` call, so
+ * this file never re-lists which kinds are actors. Returns undefined for
+ * non-actors and for **illegal** agent/terminal shapes (missing required ports
+ * for that kind). Never invents ACP.
  */
 export const actorDeliverySurfaceOf = (
   node: CanvasNode,
 ): ActorDeliverySurface | undefined => {
-  const kind = node.ether?.entity?.kind;
   const hostId =
     (typeof node.ether?.host === "string" && node.ether.host.trim().length > 0
       ? node.ether.host.trim()
       : undefined) ?? "local";
 
-  switch (kind) {
-    case "agent": {
-      // Agent *is* a managed terminal seat. No second surface.
-      const agentKey = node.ether?.entity?.name?.trim();
-      const bindingId = node.ether?.terminal?.bindingId?.trim();
-      const harness = node.ether?.terminal?.harness?.trim();
-      if (!agentKey || !bindingId || !harness) {
-        // Illegal document: agent without managed terminal ports.
-        // Callers treat as non-deliverable furniture until sanitize repairs/rejects.
-        return undefined;
+  const actorSurface = (kind: ActorKindName): ActorDeliverySurface | undefined => {
+    switch (kind) {
+      case "agent": {
+        // Agent *is* a managed terminal seat. No second surface.
+        const agentKey = node.ether?.entity?.name?.trim();
+        const bindingId = node.ether?.terminal?.bindingId?.trim();
+        const harness = node.ether?.terminal?.harness?.trim();
+        if (!agentKey || !bindingId || !harness) {
+          // Illegal document: agent without managed terminal ports.
+          // Callers treat as non-deliverable until sanitize repairs/rejects.
+          return undefined;
+        }
+        return {
+          _tag: "managedAgent",
+          nodeId: node.id,
+          agentKey,
+          bindingId,
+          harness,
+          launch: node.ether?.terminal?.launch,
+          hostId,
+        };
       }
-      return {
-        _tag: "managedAgent",
-        nodeId: node.id,
-        agentKey,
-        bindingId,
-        harness,
-        launch: node.ether?.terminal?.launch,
-        hostId,
-      };
+      case "terminal": {
+        const bindingId = node.ether?.terminal?.bindingId?.trim();
+        if (!bindingId) return undefined;
+        return {
+          _tag: "rawTerminal",
+          nodeId: node.id,
+          bindingId,
+          hostId,
+          launch: node.ether?.terminal?.launch,
+        };
+      }
+      case "herdr": {
+        const terminalId = node.ether?.herdr?.terminalId?.trim();
+        if (!terminalId) return undefined;
+        const herdrHost = node.ether?.herdr?.host?.trim();
+        return {
+          _tag: "legacyHerdr",
+          nodeId: node.id,
+          terminalId,
+          hostId: herdrHost && herdrHost.length > 0 ? herdrHost : hostId,
+        };
+      }
+      default: {
+        const exhaustive: never = kind;
+        return exhaustive;
+      }
     }
-    case "terminal": {
-      const bindingId = node.ether?.terminal?.bindingId?.trim();
-      if (!bindingId) return undefined;
-      return {
-        _tag: "rawTerminal",
-        nodeId: node.id,
-        bindingId,
-        hostId,
-        launch: node.ether?.terminal?.launch,
-      };
-    }
-    case "herdr": {
-      const terminalId = node.ether?.herdr?.terminalId?.trim();
-      if (!terminalId) return undefined;
-      const herdrHost = node.ether?.herdr?.host?.trim();
-      return {
-        _tag: "legacyHerdr",
-        nodeId: node.id,
-        terminalId,
-        hostId: herdrHost && herdrHost.length > 0 ? herdrHost : hostId,
-      };
-    }
-    default:
-      return undefined;
-  }
+  };
+
+  return Match.value(
+    resolveSpec({
+      isGroup: isGroup(node),
+      kind: node.ether?.entity?.kind,
+    }),
+  ).pipe(
+    Match.tagsExhaustive({
+      Actor: (spec) => actorSurface(spec.kind),
+      Sink: () => undefined,
+      Scheduler: () => undefined,
+      Geography: () => undefined,
+    }),
+  );
 };
 
 /** Exhaustive delivery target derived from the surface tag alone. */

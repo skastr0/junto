@@ -2,8 +2,12 @@ import { Data, HashMap, HashSet, Match } from "effect";
 import {
   isWellKnownKind,
   portSet,
+  WELL_KNOWN_KINDS,
+  type ActorKind,
   type FactoryRole,
   type Port,
+  type SchedulerKind,
+  type SinkKind,
   type WellKnownKind,
 } from "./schema";
 
@@ -18,7 +22,17 @@ export type KindSpec = {
 
 const emptyOffers: HashSet.HashSet<Port> = HashSet.empty();
 
-const msgOffers = portSet("msg.list", "msg.send");
+/**
+ * The actor inbox: the ports one actor offers another. Declared once — the
+ * kind table below and the edge-stamping migration both read this constant,
+ * so the rule cannot be restated (and drift) at the two layers.
+ */
+export const ACTOR_ACTOR_INBOX_PORTS: ReadonlyArray<Port> = [
+  "msg.list",
+  "msg.send",
+];
+
+const msgOffers = portSet(...ACTOR_ACTOR_INBOX_PORTS);
 const taskOffers = portSet(
   "tasks.list",
   "tasks.claim",
@@ -31,8 +45,29 @@ const artifactsOffers = portSet("artifact.publish");
 const pageOffers = portSet("browser.automate");
 
 /**
+ * The role a kind carries, decided by which literal group it was written into
+ * (`schema.ts`). A row cannot claim a role its kind group does not have.
+ */
+type RoleForKind<K extends WellKnownKind> = K extends ActorKind
+  ? "actor"
+  : K extends SinkKind
+    ? "sink"
+    : K extends SchedulerKind
+      ? "scheduler"
+      : never;
+
+type KindSpecTable = {
+  readonly [K in WellKnownKind]: {
+    readonly kind: K;
+    readonly role: RoleForKind<K>;
+    readonly offers: HashSet.HashSet<Port>;
+  };
+};
+
+/**
  * Exhaustive well-known kind table. Adding a WellKnownKind without a row is a
- * type error (`satisfies Record<WellKnownKind, KindSpec>`).
+ * type error, and so is giving a row a role its kind group does not carry
+ * (`satisfies KindSpecTable`).
  */
 export const KindSpecs = {
   agent: { kind: "agent", role: "actor", offers: msgOffers },
@@ -44,31 +79,43 @@ export const KindSpecs = {
   artifacts: { kind: "artifacts", role: "sink", offers: artifactsOffers },
   watcher: { kind: "watcher", role: "scheduler", offers: emptyOffers },
   timer: { kind: "timer", role: "scheduler", offers: emptyOffers },
-} as const satisfies Record<WellKnownKind, KindSpec>;
+} as const satisfies KindSpecTable;
 
 export const KindRegistry: HashMap.HashMap<WellKnownKind, KindSpec> =
   HashMap.fromIterable(
-    (Object.keys(KindSpecs) as WellKnownKind[]).map((kind) => [
-      kind,
-      KindSpecs[kind],
-    ]),
+    WELL_KNOWN_KINDS.map((kind) => [kind, KindSpecs[kind]] as const),
   );
 
-/** Resolved kind identity for Match.tagsExhaustive (roleOf, admit). */
-export type ResolvedSpec = Data.TaggedEnum<{
-  Known: {
-    readonly kind: WellKnownKind;
-    readonly role: FactoryRole;
+/**
+ * What a node **is** — the sum every capability decision matches on.
+ *
+ * One variant per role, each carrying only the kinds that role admits. There is
+ * no `role` string to compare and no kind list to re-declare: a call site that
+ * cares about actors writes an `Actor` arm, and adding a kind to a role group is
+ * a compile error at every non-exhaustive site.
+ */
+export type NodeSpec = Data.TaggedEnum<{
+  Actor: {
+    readonly kind: ActorKind;
+    readonly offers: HashSet.HashSet<Port>;
+  };
+  Sink: {
+    readonly kind: SinkKind;
+    readonly offers: HashSet.HashSet<Port>;
+  };
+  Scheduler: {
+    readonly kind: SchedulerKind;
     readonly offers: HashSet.HashSet<Port>;
   };
   Geography: {
-    readonly role: "geography";
+    /** Free-form: notes, files, links, groups, and any unknown authored kind. */
     readonly kind: string | undefined;
+    /** Always empty; geography offers no port. */
     readonly offers: HashSet.HashSet<Port>;
   };
 }>;
 
-export const ResolvedSpec = Data.taggedEnum<ResolvedSpec>();
+export const NodeSpec = Data.taggedEnum<NodeSpec>();
 
 export type ResolveSpecInput = {
   readonly isGroup: boolean;
@@ -76,37 +123,44 @@ export type ResolveSpecInput = {
 };
 
 /**
- * Derive a resolved physics spec from canvas node shape.
- * Well-known kinds → KindSpecs; groups and everything else → geography.
+ * The only resolution site. Canvas node shape → NodeSpec.
+ * Well-known kinds → their role variant; groups and everything else → geography.
  */
-export const resolveSpec = (input: ResolveSpecInput): ResolvedSpec => {
+export const resolveSpec = (input: ResolveSpecInput): NodeSpec => {
   if (!input.isGroup && input.kind !== undefined && isWellKnownKind(input.kind)) {
     const spec = KindSpecs[input.kind];
-    return ResolvedSpec.Known({
-      kind: spec.kind,
-      role: spec.role,
-      offers: spec.offers,
-    });
+    switch (spec.role) {
+      case "actor":
+        return NodeSpec.Actor({ kind: spec.kind, offers: spec.offers });
+      case "sink":
+        return NodeSpec.Sink({ kind: spec.kind, offers: spec.offers });
+      case "scheduler":
+        return NodeSpec.Scheduler({ kind: spec.kind, offers: spec.offers });
+      default: {
+        const exhaustive: never = spec;
+        return exhaustive;
+      }
+    }
   }
-  return ResolvedSpec.Geography({
-    role: "geography",
-    kind: input.kind,
-    offers: emptyOffers,
-  });
+  return NodeSpec.Geography({ kind: input.kind, offers: emptyOffers });
 };
 
-export const roleOf = (spec: ResolvedSpec): FactoryRole =>
+export const roleOf = (spec: NodeSpec): FactoryRole =>
   Match.value(spec).pipe(
     Match.tagsExhaustive({
-      Known: (s) => s.role,
-      Geography: (s) => s.role,
+      Actor: () => "actor" as const,
+      Sink: () => "sink" as const,
+      Scheduler: () => "scheduler" as const,
+      Geography: () => "geography" as const,
     }),
   );
 
-export const offersOf = (spec: ResolvedSpec): HashSet.HashSet<Port> =>
+export const offersOf = (spec: NodeSpec): HashSet.HashSet<Port> =>
   Match.value(spec).pipe(
     Match.tagsExhaustive({
-      Known: (s) => s.offers,
+      Actor: (s) => s.offers,
+      Sink: (s) => s.offers,
+      Scheduler: (s) => s.offers,
       Geography: (s) => s.offers,
     }),
   );

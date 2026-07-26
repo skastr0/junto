@@ -9,8 +9,8 @@ import {
   isPendingDelivery,
   listPendingDeliveries,
   stampMessageDelivered,
-  type DeliveryTarget,
 } from "@shared/message-delivery";
+import type { SurfaceDeliveryTarget } from "@shared/actor-surface";
 
 export type MessageDeliveryTransport = {
   /**
@@ -130,7 +130,7 @@ export class MessageDeliveryService {
   }
 
   private async scanAndDeliver(
-    match: (target: DeliveryTarget) => boolean,
+    match: (target: SurfaceDeliveryTarget) => boolean,
   ): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -209,7 +209,7 @@ export class MessageDeliveryService {
 
   private async deliver(
     transport: MessageDeliveryTransport,
-    target: DeliveryTarget,
+    target: SurfaceDeliveryTarget,
     payload: string,
     messageId: string,
   ): Promise<boolean> {

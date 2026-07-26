@@ -1,3 +1,4 @@
+import { Match } from "effect";
 import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
 import { buildConnectionIndex, resolveConnections, type Connection } from "./connections";
 import type { EntitySource, SnapshotState } from "./entities";
@@ -77,14 +78,26 @@ const formatStats = (stats: Record<string, string | number>): string => {
 };
 
 // A seed is an entity card whose identity resolves to nothing in the live
-// corpus yet — planned, not real. (Agents excepted: their hermes connection
-// is identity-declared, so they are never seeds. Work surfaces — herdr PTY,
-// browser page — are bound by construction, never seeds.)
-const isSeed = (node: CanvasNode, connections: ReadonlyArray<Connection>): boolean => {
-  const kind = node.ether?.entity?.kind;
-  if (kind === "herdr" || kind === "page") return false;
-  return node.ether?.entity !== undefined && kind !== "agent" && connections.length === 0;
-};
+// corpus yet — planned, not real. Exhaustive over NodeSpec so the exceptions
+// are stated once, per variant, instead of as a negation chain:
+//   agent  — hermes connection is identity-declared, never a seed
+//   herdr  — PTY bound by construction, never a seed
+//   page   — browser surface bound by construction, never a seed
+// A raw terminal has no declared identity to resolve, so it can still be a seed.
+const seedEligible = (node: CanvasNode): boolean =>
+  Match.value(
+    resolveSpec({ isGroup: isGroup(node), kind: node.ether?.entity?.kind }),
+  ).pipe(
+    Match.tagsExhaustive({
+      Actor: (spec) => spec.kind === "terminal",
+      Sink: (spec) => spec.kind !== "page",
+      Scheduler: () => true,
+      Geography: () => true,
+    }),
+  );
+
+const isSeed = (node: CanvasNode, connections: ReadonlyArray<Connection>): boolean =>
+  node.ether?.entity !== undefined && seedEligible(node) && connections.length === 0;
 
 /** Optional live inputs for trust plane + seat occupancy (never document truth). */
 export type DigestLiveViews = LiveTrustViews & {

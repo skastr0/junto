@@ -10,12 +10,13 @@ import {
   resolveSpec,
   roleOf,
   type FactoryRole,
+  type NodeSpecValue,
   type Port,
   type ScopeDenial,
   type TargetWorkOpName,
 } from "@shared/physics";
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
-import { Either } from "effect";
+import { Either, Match } from "effect";
 
 // Edges are the capability system. Kernel-enforced per call via factory physics
 // (admitPure + ports). Region co-members: {id, kind, title} visibility only.
@@ -118,18 +119,44 @@ export const requiresConnection = (op: WorkOpName): boolean => {
   }
 };
 
-/** Work-plane ops offered by kind (compat list; physics KindSpecs is authority). */
-const OPS_BY_KIND: Readonly<Record<string, ReadonlyArray<WorkOpName>>> = {
-  task: ["tasks.list", "tasks.claim", "tasks.update", "msg.list", "msg.send"],
-  agent: ["msg.list", "msg.send"],
-  herdr: ["msg.list", "msg.send"],
-  requests: ["request.create", "request.escalate", "msg.list", "msg.send"],
-  artifacts: ["artifact.publish"],
-};
+const NO_OPS: ReadonlyArray<WorkOpName> = [];
+const MSG_OPS: ReadonlyArray<WorkOpName> = ["msg.list", "msg.send"];
+
+/**
+ * Work-plane ops offered by a node, matched exhaustively on its NodeSpec.
+ * Role decides participation and the variant's kind picks the row, so adding a
+ * kind is a compile error here instead of a silent empty op list.
+ * (C6 replaces the sink rows with a total `OPS_BY_SINK` record.)
+ */
+const opsForSpec = (spec: NodeSpecValue): ReadonlyArray<WorkOpName> =>
+  Match.value(spec).pipe(
+    Match.tagsExhaustive({
+      Actor: (s) => (s.kind === "terminal" ? NO_OPS : MSG_OPS),
+      Sink: (s): ReadonlyArray<WorkOpName> => {
+        switch (s.kind) {
+          case "task":
+            return ["tasks.list", "tasks.claim", "tasks.update", "msg.list", "msg.send"];
+          case "requests":
+            return ["request.create", "request.escalate", "msg.list", "msg.send"];
+          case "artifacts":
+            return ["artifact.publish"];
+          case "page":
+            // browser.automate is an edge port, not a work-plane op.
+            return NO_OPS;
+          default: {
+            const exhaustive: never = s.kind;
+            return exhaustive;
+          }
+        }
+      },
+      Scheduler: () => NO_OPS,
+      Geography: () => NO_OPS,
+    }),
+  );
 
 export const opsForKind = (kind: string | undefined): ReadonlyArray<WorkOpName> => {
   if (!kind) return [];
-  return OPS_BY_KIND[kind] ?? [];
+  return opsForSpec(resolveSpec({ isGroup: false, kind }));
 };
 
 export const kindAllowsOp = (kind: string | undefined, op: WorkOpName): boolean =>

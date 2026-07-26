@@ -1,4 +1,6 @@
+import { Match } from "effect";
 import type { CanvasDoc, CanvasNode, EtherNodeExtension } from "./canvas";
+import { resolveSpec } from "./physics";
 
 // Merge a disk/work write into the operator's local document so freeform
 // geometry and graph structure are preserved while work stores (and their
@@ -8,10 +10,29 @@ import type { CanvasDoc, CanvasNode, EtherNodeExtension } from "./canvas";
 // added or removed). Work is authority for ether.tasks|requests|artifacts|
 // messages and for mirrored text on task/requests/artifacts nodes.
 
-const WORK_STORE_KINDS = new Set(["task", "requests", "artifacts"]);
+// Both predicates are exhaustive over NodeSpec, so the two lists can no longer
+// drift apart: a work store is a sink that holds a document (every sink but the
+// browser page); a work surface is a work store plus the actor seats that carry
+// a message inbox. A raw terminal has no inbox, so it is neither.
+const isWorkStoreKind = (kind: string | undefined): boolean =>
+  Match.value(resolveSpec({ isGroup: false, kind })).pipe(
+    Match.tagsExhaustive({
+      Actor: () => false,
+      Sink: (spec) => spec.kind !== "page",
+      Scheduler: () => false,
+      Geography: () => false,
+    }),
+  );
 
 const isWorkSurfaceKind = (kind: string | undefined): boolean =>
-  kind === "task" || kind === "requests" || kind === "artifacts" || kind === "agent" || kind === "herdr";
+  Match.value(resolveSpec({ isGroup: false, kind })).pipe(
+    Match.tagsExhaustive({
+      Actor: (spec) => spec.kind !== "terminal",
+      Sink: (spec) => spec.kind !== "page",
+      Scheduler: () => false,
+      Geography: () => false,
+    }),
+  );
 
 const mergeEther = (
   local: EtherNodeExtension | undefined,
@@ -35,7 +56,7 @@ const mergeNode = (local: CanvasNode, work: CanvasNode | undefined): CanvasNode 
   if (!work) return local;
   const kind = work.ether?.entity?.kind ?? local.ether?.entity?.kind;
   const ether = mergeEther(local.ether, work.ether);
-  if (local.type === "text" && work.type === "text" && WORK_STORE_KINDS.has(kind ?? "")) {
+  if (local.type === "text" && work.type === "text" && isWorkStoreKind(kind)) {
     return {
       ...local,
       text: work.text,

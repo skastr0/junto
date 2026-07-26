@@ -1,15 +1,10 @@
 import type { CanvasDoc, CanvasEdge } from "../canvas";
-import { resolveSpec, roleOf } from "./kinds";
-import type { Port } from "./schema";
+import { ACTOR_ACTOR_INBOX_PORTS, resolveSpec, roleOf } from "./kinds";
 
-/**
- * Ports stamped onto pre-existing actor↔actor edges that lack `ether.ports`.
- * Preserves the pre-S3 Full-default inbox behavior as an explicit mask (I8/I21).
- */
-export const ACTOR_ACTOR_INBOX_PORTS: ReadonlyArray<Port> = [
-  "msg.list",
-  "msg.send",
-];
+// Ports stamped onto pre-existing actor↔actor edges that lack `ether.ports`
+// come from the kind table's actor inbox (kinds.ts) — stamping preserves the
+// pre-S3 Full-default inbox behavior as an explicit mask (I8/I21) without
+// restating which ports that is.
 
 const nodeRole = (
   nodes: CanvasDoc["nodes"],

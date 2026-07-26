@@ -2,13 +2,19 @@
 // Phase (criteria) stays in execution-graph.ts. Occupancy / process-bind are live planes.
 
 export {
+  ACTOR_KINDS,
   ALL_PORTS,
+  ActorKind,
   EdgeId,
   FactoryRole,
   NodeId,
   Port,
   PortGrant,
   PortMode,
+  SCHEDULER_KINDS,
+  SINK_KINDS,
+  SchedulerKind,
+  SinkKind,
   WELL_KNOWN_KINDS,
   WellKnownKind,
   asEdgeId,
@@ -17,24 +23,32 @@ export {
   portSet,
 } from "./schema";
 export type {
+  ActorKind as ActorKindName,
   EdgeId as EdgeIdBrand,
   FactoryRole as FactoryRoleName,
   NodeId as NodeIdBrand,
   Port as PortName,
   PortMode as PortModeName,
+  SchedulerKind as SchedulerKindName,
+  SinkKind as SinkKindName,
   WellKnownKind as WellKnownKindName,
 } from "./schema";
 
 export {
+  ACTOR_ACTOR_INBOX_PORTS,
   KindRegistry,
   KindSpecs,
-  ResolvedSpec,
+  NodeSpec,
   lookupKindSpec,
   offersOf,
   resolveSpec,
   roleOf,
 } from "./kinds";
-export type { KindSpec, ResolveSpecInput, ResolvedSpec as ResolvedSpecValue } from "./kinds";
+export type {
+  KindSpec,
+  NodeSpec as NodeSpecValue,
+  ResolveSpecInput,
+} from "./kinds";
 
 export {
   GrantLaw,
@@ -56,10 +70,7 @@ export {
   seatMayBeBlocked,
 } from "./phase-membership";
 
-export {
-  ACTOR_ACTOR_INBOX_PORTS,
-  stampActorActorMsgPorts,
-} from "./stamp";
+export { stampActorActorMsgPorts } from "./stamp";
 
 export {
   Granted,

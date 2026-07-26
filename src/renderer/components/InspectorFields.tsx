@@ -21,7 +21,7 @@ import {
   undirectedEdgeKey,
   type FactoryRoleName,
   type PortName,
-  type ResolvedSpecValue,
+  type NodeSpecValue,
 } from "@shared/physics";
 import { addEdge, setEdgeCriteria, setEdgePorts } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
@@ -62,8 +62,8 @@ const readEdgePortMask = (
 
 /** Effective ports for caller → target: GrantLaw + mask → PortGrant ∩ offers. */
 const effectivePorts = (
-  caller: ResolvedSpecValue,
-  target: ResolvedSpecValue,
+  caller: NodeSpecValue,
+  target: NodeSpecValue,
   mask: HashSet.HashSet<PortName> | undefined,
 ): ReadonlyArray<PortName> => {
   const law = grantLawForRoles(roleOf(caller), roleOf(target));

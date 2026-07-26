@@ -6,7 +6,10 @@ import type { CanvasDoc, CanvasNode, Message } from "./canvas";
 import {
   actorDeliverySurfaceOf,
   deliveryTargetFromSurface,
+  type SurfaceDeliveryTarget,
 } from "./actor-surface";
+import { isGroup } from "./graph";
+import { resolveSpec, roleOf } from "./physics";
 
 /**
  * Strip C0/C1 controls (and DEL) so herdr terminal.input never carries
@@ -62,19 +65,15 @@ export const isPendingDelivery = (message: Message): boolean =>
   isForeignMessage(message) && !isMessageDelivered(message);
 
 /**
- * Wire target for MessageDeliveryTransport.
- * ACP / `kind: "agent"` is not a target — removed from the sum.
- * Derived only via {@link actorDeliverySurfaceOf} (kind-discriminated).
- */
-export type DeliveryTarget =
-  | { readonly kind: "herdr"; readonly terminalId: string }
-  | { readonly kind: "terminal"; readonly bindingId: string };
-
-/**
  * Resolve transport target from kind-discriminated actor surface.
  * No optional-field OR. No ACP. Illegal agent shapes → undefined.
+ *
+ * The wire target sum itself is {@link SurfaceDeliveryTarget}, declared once
+ * beside the surfaces it is derived from.
  */
-export const deliveryTargetOf = (node: CanvasNode): DeliveryTarget | undefined => {
+export const deliveryTargetOf = (
+  node: CanvasNode,
+): SurfaceDeliveryTarget | undefined => {
   const surface = actorDeliverySurfaceOf(node);
   if (!surface) return undefined;
   return deliveryTargetFromSurface(surface);
@@ -120,22 +119,28 @@ export const stampMessageDelivered = (
   };
 };
 
-/** Collect pending (foreign, unstamped) messages on reachable work surfaces. */
+/**
+ * Collect pending (foreign, unstamped) messages on reachable work surfaces.
+ * Participation is the actor role, asked of physics — not a kind list.
+ */
 export const listPendingDeliveries = (
   doc: CanvasDoc,
 ): ReadonlyArray<{
   readonly nodeId: string;
   readonly message: Message;
-  readonly target: DeliveryTarget;
+  readonly target: SurfaceDeliveryTarget;
 }> => {
   const out: Array<{
     nodeId: string;
     message: Message;
-    target: DeliveryTarget;
+    target: SurfaceDeliveryTarget;
   }> = [];
   for (const node of doc.nodes) {
-    const kind = node.ether?.entity?.kind;
-    if (kind !== "agent" && kind !== "herdr" && kind !== "terminal") continue;
+    const spec = resolveSpec({
+      isGroup: isGroup(node),
+      kind: node.ether?.entity?.kind,
+    });
+    if (roleOf(spec) !== "actor") continue;
     const target = deliveryTargetOf(node);
     if (!target) continue;
     for (const message of node.ether?.messages?.items ?? []) {

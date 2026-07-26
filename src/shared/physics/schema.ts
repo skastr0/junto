@@ -57,31 +57,34 @@ export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>
   HashSet.fromIterable(ports);
 
 // ---------------------------------------------------------------------------
-// Well-known kinds (physics registry keys)
+// Well-known kinds (physics registry keys), partitioned by the role they carry.
+//
+// The partition is the role. A kind belongs to exactly one group, and the group
+// it is written in *is* its role — `KindSpecs` cannot state a different one
+// (see kinds.ts `KindSpecTable`). This is what lets `NodeSpec` narrow `kind` per
+// role variant instead of every call site re-deciding from a parallel list.
 
-export const WellKnownKind = Schema.Literal(
-  "agent",
-  "terminal",
-  "herdr",
-  "page",
-  "task",
-  "requests",
-  "artifacts",
-  "watcher",
-  "timer",
-);
+export const ActorKind = Schema.Literal("agent", "terminal", "herdr");
+export type ActorKind = typeof ActorKind.Type;
+
+export const SinkKind = Schema.Literal("page", "task", "requests", "artifacts");
+export type SinkKind = typeof SinkKind.Type;
+
+export const SchedulerKind = Schema.Literal("watcher", "timer");
+export type SchedulerKind = typeof SchedulerKind.Type;
+
+export const WellKnownKind = Schema.Union(ActorKind, SinkKind, SchedulerKind);
 export type WellKnownKind = typeof WellKnownKind.Type;
 
+export const ACTOR_KINDS: ReadonlyArray<ActorKind> = ActorKind.literals;
+export const SINK_KINDS: ReadonlyArray<SinkKind> = SinkKind.literals;
+export const SCHEDULER_KINDS: ReadonlyArray<SchedulerKind> =
+  SchedulerKind.literals;
+
 export const WELL_KNOWN_KINDS: ReadonlyArray<WellKnownKind> = [
-  "agent",
-  "terminal",
-  "herdr",
-  "page",
-  "task",
-  "requests",
-  "artifacts",
-  "watcher",
-  "timer",
+  ...ACTOR_KINDS,
+  ...SINK_KINDS,
+  ...SCHEDULER_KINDS,
 ];
 
 export const isWellKnownKind = (kind: string): kind is WellKnownKind =>
