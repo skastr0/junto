@@ -429,12 +429,26 @@ Partial edits:
 - Renderer gate sites that read it: `TextNode.tsx:426`,
   `RtsControls.tsx:423`
 
-### 2.2 DELETE — herdr (commit C7, operator-gated)
+### 2.2 REPOINT — herdr becomes GEOGRAPHY (commit C7) — **REVISED 2026-07-26**
 
-`docs/managed-terminal-plan.md:43` rules *"Herdr: hands-off legacy toggle.
-Learn from, never fork/vendor."* A toggle is not a code path. Deleting the
-node kind does **not** violate that ruling — it removes Vellum's herdr
-*actor* surface while leaving the herdr project untouched.
+**Superseding ruling:** herdr is **not deleted and not "legacy"** — it becomes a
+**geography** node, called simply Herdr. It keeps its pane rendering and its
+agent-state display for operators who want panes without the factory; it holds
+no seat, no ports, no inbox, and never participates in the factory. No effort
+will be spent making it participate.
+
+So C7 is a **repoint, not a delete**: `herdr` moves from
+`role: "actor"` to `role: "geography"` in `KindSpecs` (`kinds.ts:40`) and loses
+its `msgOffers` (which was the duplicated actor-inbox declaration anyway, §1.2b).
+What still gets deleted is only herdr's **actor-side** plumbing: its
+`ProcessPrincipal` variant (`paneId`), its work-control admission path
+(`work.ts:396` `requireKind(node, ["agent","herdr"])`), its browser-grant
+principal branch (`edge-grant.ts:174-182`), and its seat/delivery participation.
+Its rendering, its control stream, and its state display stay.
+
+This is strictly less work than the original delete, and it removes the
+operator-gate: no data-preservation question arises because nothing is being
+removed from the operator's documents.
 
 - `src/main/vellum/herdr/` — 17 files (`plane.ts` ~1000 lines,
   `service.ts`, `service-map.ts` ~600 lines, `mirrors.ts`, `mirror.ts`,
@@ -698,18 +712,27 @@ cover (that is the correct end state, not a coverage loss).
 
 ---
 
-### C7 — Delete herdr · ~30 files + 3 directories · **operator-gated**
+### C7 — Repoint herdr to geography · **REVISED, ungated**
 
-**Changes**: everything in §2.2, plus the herdr half of every site C2/C3
-already touched (those became `seatOf` calls, so the herdr arm inside
-`seatOf` is the only remaining reference — a one-function deletion).
+**Changes**: everything in §2.2 — `herdr` moves to `role: "geography"` and loses
+its duplicated `msgOffers`; its actor-side plumbing (ProcessPrincipal `paneId`
+variant, work-control admission, browser-grant branch, seat/delivery
+participation) is deleted; its rendering, control stream, and agent-state
+display are **kept**. The herdr arm inside `seatOf` disappears with the role
+change rather than needing its own deletion.
 
-**>20 files justification**: same shape as C6 — deletion of a
-tightly-coupled subsystem (17 main-process files that only import each
-other) plus the removal of already-migrated call sites. Cannot be split
-green.
+**Scope**: materially smaller than the original delete — no directory removals,
+no renderer teardown.
 
-**Blocked on**: operator confirmation that no live herdr pane matters
+**Ungated**: the earlier operator gate ("does any live pane matter?") is moot —
+nothing is removed from the operator's documents. A herdr node stays a herdr
+node; it simply resolves to geography.
+
+**Acceptance**: a herdr node renders and shows agent state; `roleOf` returns
+`"geography"`; it holds no seat, offers no ports, and is refused by
+work-control admission and browser grant. The cement test asserts
+`kindsWithRole("actor") === ["terminal"]`, which now covers herdr by
+construction.
 (§2.2). Do not proceed on inference.
 
 **Acceptance**: `tests/` herdr suites deleted with the code;

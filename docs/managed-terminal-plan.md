@@ -40,7 +40,9 @@ Nothing ships as beta until this loop runs on all four v1 harnesses (with per-ha
 | **Tool surface is the station CLI, not MCP** | bash is universal → no per-harness MCP parity hole; process-bind identity already law |
 | **ACP is hidden, not removed** | dormant code, revives with the embedded-Worker/native-chat timeline (§14) |
 | **v1 harnesses: Claude Code, Codex, Grok, Hermes. OpenClaw out.** | OpenClaw's agent runs in a Gateway daemon, not the PTY tree — process-bind, interrupt, and injection all break by construction |
-| **Herdr: hands-off legacy toggle.** Learn from, never fork/vendor. | its detection design is portable; its config-writing installer is not |
+| **Herdr is a GEOGRAPHY node** (ruling 2026-07-26 — not "legacy", not deleted; just Herdr). Learn from, never fork/vendor. | it keeps its agent-state display for people who want panes without the factory. It holds no seat, no ports, no inbox, and no effort will be made to make it participate. Its detection design is portable; its config-writing installer is not |
+| **No tiers — a node is an ACTOR or it is GEOGRAPHY** (ruling 2026-07-26, supersedes Tier 1/2/3) | actor = a Vellum-spawned template terminal, the four harnesses, full stop. Everything else — raw terminals the user opens, herdr, pages, regions, notes — is geography. **Kind is fixed at node creation and never derived from what process happens to be running.** If answering "is this an actor?" would require runtime inspection, the design is wrong |
+| **A dead agent process never degrades to a clean shell** | an actor terminal whose harness exits goes to an explicit error/restart state. Otherwise an actor silently becomes geography — the exact ambiguity the no-tiers ruling removes. Process is mortal; kind is permanent |
 
 ## 4 · What already exists (verified by code read, 2026-07-26)
 
@@ -144,7 +146,7 @@ This is the piece the operator flagged as needing to be strong. **Two tiers, bec
   2. The CLI contract — call **`vellum onboard`** at session start and after compaction; the op table; errors (`ScopeError`, `ClaimConflict`, `RuntimeDown`, `Blocked`) are ground truth.
   3. Seat context — seat ref, connected targets.
 - **Then the task arrives as a typed prompt** carrying the task assignment. `vellum onboard` returns seat + role + connected targets + claimed task metadata — which is loop step 6 exactly.
-- **Plugin pruning** (`packages/vellum-plugin/`): delete `hooks/session-start.hook.ts`, the 12-harness `targets.hooks` list, and the global `rules/`+`skills/` lowering. Keep the doctrine *text* (it becomes the injected payload) and `tools/shared/work-client.ts` (already the socket client). The plugin survives only as the **opt-in tier**: a user who *wants* vellum tools in their own harness config installs it deliberately — and it must advertise an **empty tool list when no station socket is reachable**, so nothing outside Vellum sees phantom tools.
+- **Plugin: DROPPED entirely** (operator ruling 2026-07-26 — supersedes the earlier "prune to an opt-in tier"). There is no user-installed tool surface in anyone's harness config. `packages/vellum-plugin/` goes away; the doctrine *text* becomes the injected payload and `tools/shared/work-client.ts` folds into whatever needs the socket. Reason: an opt-in tier re-introduces the ambiguity the no-tiers ruling exists to kill — "this terminal has the integration, so is it an actor?" is a question with no good answer. Injection happens **only** through a Vellum-spawned template.
 
 **Acceptance:** loop steps 2 and 6. Unconnected agent → nothing injected, nothing typed. Connected agent → onboard called by the agent itself, task metadata in its context, visible in the TUI.
 
