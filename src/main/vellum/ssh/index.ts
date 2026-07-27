@@ -29,7 +29,10 @@ export {
   type SshReady,
 } from "./service";
 export { SshTransportLive } from "./live";
-export { makeScopedPromiseRunner, type ScopedPromiseRunner } from "./scoped-runner";
+export {
+  makeScopedPromiseRunner,
+  type ScopedPromiseRunner,
+} from "./scoped-runner";
 export {
   // Darwin freeform deploy compiler is intentionally not public: beta keeps
   // Darwin Remote deploy capability-gated, and the freeform bash -lc mint must
@@ -38,23 +41,8 @@ export {
   compileLinuxReleaseBridge,
   compileLinuxRemotePreflight,
   compileLinuxRemotePreflightSource,
-  compileRemotePlan,
-  compileRemotePlanSource,
-  compileRemoteSettingsRestore,
-  compileRemoteSettingsSnapshot,
-  compileRemoteSettingsStamp,
-  compileRemoteTopologyEvidencePresence,
-  compileRemoteTopologySealPresence,
   confineHerdrStagePath,
-  confineVellumDirectory,
-  confineVellumLeaf,
   HERDR_IMAGE_STAGE_DIR,
-  remotePlanPathFootprint,
-  remoteStationSettingsInstallPlan,
-  type ConfinedRemotePath,
-  type RemotePlan,
-  type RemotePlanStep,
-  type VellumLeafBasename,
 } from "./remote-plan";
 export {
   compileHermesAvatar,
