@@ -6,6 +6,7 @@ import {
   ReportRequest,
   STATION_API_MAX_EVENTS_PER_REPORT,
   STATION_API_PROTOCOL,
+  StationHostId,
   compareLogicalSequence,
   type ProjectResponse,
   type StationEventAck,
@@ -20,9 +21,14 @@ import {
 import {
   StationRepository,
   stationProjectionContentSha256,
-  type AcceptInboundResult,
   type StationRepositoryError,
 } from "./repository";
+import {
+  WorkRepository,
+  WorkRepositoryError,
+  WorkReplicationError,
+  stationEventFromWorkEvent,
+} from "../work/repository";
 import {
   StationPortfolioError,
   compileStationPortfolioBody,
@@ -38,6 +44,7 @@ export const STATION_PROPAGATION_MAX_REPORT_ROUNDS = 32;
 export const StationPropagationTarget = Schema.Struct({
   endpoint: SshEndpoint,
   stationInstallationId: InstallationId,
+  hostId: StationHostId,
 });
 export type StationPropagationTarget =
   typeof StationPropagationTarget.Type;
@@ -50,6 +57,7 @@ export class StationPropagationInvariantError extends Schema.TaggedError<Station
       "command-center-role-required",
       "station-identity-mismatch",
       "remote-configuration-required",
+      "station-host-mismatch",
       "command-center-mismatch",
       "database-unavailable",
       "invalid-generation",
@@ -67,6 +75,8 @@ export class StationPropagationInvariantError extends Schema.TaggedError<Station
 export type StationPropagationError =
   | CanvasError
   | StationRepositoryError
+  | WorkRepositoryError
+  | WorkReplicationError
   | StationPortfolioError
   | StationRemoteApiError
   | StationPropagationInvariantError;
@@ -299,6 +309,7 @@ type StationReportRoundReceipt = Omit<
 
 const synchronizeReportRound = (
   repository: Context.Tag.Service<typeof StationRepository>,
+  work: Context.Tag.Service<typeof WorkRepository>,
   remote: Context.Tag.Service<typeof StationRemoteApiClient>,
   target: StationPropagationTarget,
   commandCenterInstallationId: InstallationId,
@@ -306,6 +317,8 @@ const synchronizeReportRound = (
 ): Effect.Effect<
   StationReportRoundReceipt,
   | StationRepositoryError
+  | WorkRepositoryError
+  | WorkReplicationError
   | StationRemoteApiError
   | StationPropagationInvariantError
 > =>
@@ -318,6 +331,7 @@ const synchronizeReportRound = (
     if (remoteReceivedThrough.length > 0) {
       yield* repository.advancePeerAcks(
         target.stationInstallationId,
+        target.hostId,
         remoteReceivedThrough,
       );
     }
@@ -327,11 +341,14 @@ const synchronizeReportRound = (
         (acknowledgement) =>
           acknowledgement.home === commandCenterInstallationId,
       )?.through ?? ZERO_SEQUENCE;
-    const outbound = yield* repository.eventsAfter(
-      commandCenterInstallationId,
-      remoteCursor,
-      STATION_API_MAX_EVENTS_PER_REPORT,
-    );
+    const outbound = (
+      yield* work.eventsAfter({
+        eventHome: commandCenterInstallationId,
+        entityHome: target.hostId,
+        afterSeq: remoteCursor,
+        limit: STATION_API_MAX_EVENTS_PER_REPORT,
+      })
+    ).map(stationEventFromWorkEvent);
     yield* requireEventHomes(
       "report-outbound",
       outbound,
@@ -370,12 +387,17 @@ const synchronizeReportRound = (
       commandCenterInstallationId,
     );
 
-    const accepted: AcceptInboundResult = yield* repository.acceptInbound(
-      response.inbound,
-    );
+    const accepted = yield* work.acceptReplicated({
+      localEventHome: commandCenterInstallationId,
+      eventHome: target.stationInstallationId,
+      entityHome: target.hostId,
+      events: response.inbound,
+      causalConflict: "fail",
+    });
     if (response.acknowledgeOutbound.length > 0) {
       yield* repository.advancePeerAcks(
         target.stationInstallationId,
+        target.hostId,
         response.acknowledgeOutbound,
       );
     }
@@ -396,6 +418,7 @@ const synchronizeReportRound = (
 
 const synchronizeReport = (
   repository: Context.Tag.Service<typeof StationRepository>,
+  work: Context.Tag.Service<typeof WorkRepository>,
   remote: Context.Tag.Service<typeof StationRemoteApiClient>,
   target: StationPropagationTarget,
   commandCenterInstallationId: InstallationId,
@@ -403,6 +426,8 @@ const synchronizeReport = (
 ): Effect.Effect<
   StationReportSyncReceipt,
   | StationRepositoryError
+  | WorkRepositoryError
+  | WorkReplicationError
   | StationRemoteApiError
   | StationPropagationInvariantError
 > =>
@@ -420,6 +445,7 @@ const synchronizeReport = (
     ) {
       const receipt = yield* synchronizeReportRound(
         repository,
+        work,
         remote,
         target,
         commandCenterInstallationId,
@@ -473,6 +499,7 @@ export const StationPropagationLive = Layer.effect(
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const repository = yield* StationRepository;
+    const work = yield* WorkRepository;
     const remote = yield* StationRemoteApiClient;
 
     const synchronize = Effect.fn("StationPropagation.synchronize")(
@@ -505,6 +532,13 @@ export const StationPropagationLive = Layer.effect(
             "fleet propagation requires a configured Remote",
           );
         }
+        if (status.configuration.hostId !== target.hostId) {
+          return yield* invariant(
+            "status",
+            "station-host-mismatch",
+            "Remote configuration host does not match the enrolled fleet route",
+          );
+        }
         if (
           status.configuration.commandCenterInstallationId !==
             commandCenterInstallationId
@@ -533,6 +567,7 @@ export const StationPropagationLive = Layer.effect(
         );
         const report = yield* synchronizeReport(
           repository,
+          work,
           remote,
           target,
           commandCenterInstallationId,

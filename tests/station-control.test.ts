@@ -24,7 +24,6 @@ import {
   ProjectRequest,
   ReportRequest,
   STATION_API_PROTOCOL,
-  StationEvent,
   StationHostId,
   StatusRequest,
   type InstallationId as InstallationIdValue,
@@ -36,7 +35,6 @@ import {
 import {
   StationRepository,
   makeStationRepositoryLive,
-  stationEventContentSha256,
   stationProjectionContentSha256,
 } from "../src/main/vellum/station/repository";
 import {
@@ -52,6 +50,14 @@ import {
 } from "../src/main/vellum/station/control-client";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { Either } from "effect";
+import type { CanvasDoc } from "../src/shared/canvas";
+import { workTaskClaim, workTaskCreate } from "../src/shared/work";
+import {
+  WorkRepository,
+  WorkRepositoryLive,
+  stationEventFromWorkEvent,
+} from "../src/main/vellum/work/repository";
+import { compileStationPortfolioBody } from "../src/main/vellum/station/portfolio";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeHostId = Schema.decodeUnknownSync(StationHostId);
@@ -70,10 +76,13 @@ const NOW = "2026-07-27T15:00:00.000Z";
 const makeRuntime = (databasePath: string) => {
   const state = makeStateEngineLive(databasePath);
   const repository = Layer.provideMerge(
-    makeStationRepositoryLive({
-      makeInstallationId: () => LOCAL,
-      now: () => NOW,
-    }),
+    Layer.mergeAll(
+      makeStationRepositoryLive({
+        makeInstallationId: () => LOCAL,
+        now: () => NOW,
+      }),
+      WorkRepositoryLive,
+    ),
     state,
   );
   return ManagedRuntime.make(
@@ -130,9 +139,9 @@ const configureRequest = () =>
   });
 
 const projectRequest = () => {
-  const body = JSON.stringify({
-    canvases: [{ name: "factory", document: { nodes: [], edges: [] } }],
-  });
+  const body = compileStationPortfolioBody(
+    new Map([["factory", { nodes: [], edges: [] }]]),
+  );
   return ProjectRequest.make({
     protocol: STATION_API_PROTOCOL,
     op: "project",
@@ -307,7 +316,7 @@ describe("Station API control transport", () => {
     });
   });
 
-  it("exchanges logical event cursors idempotently without wall-clock ordering", async () => {
+  it("exchanges canonical work and ACKs only after durable materialization", async () => {
     const { runtime, server } = await makeServer();
     await sendStationControlRequest(
       pairRequest(),
@@ -317,38 +326,77 @@ describe("Station API control transport", () => {
       configureRequest(),
       requestOptions(server),
     );
-    const repository = await runtime.runPromise(StationRepository);
-    const outbound = await runtime.runPromise(
-      repository.appendOutbound({
-        kind: "work.result",
-        body: JSON.stringify({ taskId: "task-1", state: "done" }),
-        originAt: NOW,
+    const sourceRoot = await mkdtemp(
+      join(tmpdir(), "vellum-station-source-"),
+    );
+    roots.push(sourceRoot);
+    const sourceRuntime = ManagedRuntime.make(
+      Layer.provideMerge(
+        WorkRepositoryLive,
+        makeStateEngineLive(join(sourceRoot, "vellum.db")),
+      ),
+    );
+    const source = await sourceRuntime.runPromise(WorkRepository);
+    const remoteWork = await runtime.runPromise(WorkRepository);
+    const doc: CanvasDoc = {
+      nodes: [{
+        id: "tasks",
+        type: "text",
+        text: "station work",
+        x: 0,
+        y: 0,
+        width: 220,
+        height: 100,
+        ether: {
+          entity: { kind: "task" },
+          host: "studio",
+        },
+      }],
+      edges: [],
+    };
+    let message = 0;
+    const ids = {
+      id: () => "task-1",
+      messageId: () => `message-${++message}`,
+    };
+    const created = await sourceRuntime.runPromise(
+      source.mutate({
+        canvasName: "factory",
+        nodeId: "tasks",
+        entityHome: "studio",
+        eventHome: COMMAND_CENTER,
+        materialization: "on-disposition",
+        operation: "task.create",
+        authoredDoc: doc,
+        transform: (projected) => {
+          const result = workTaskCreate(
+            projected,
+            "factory",
+            "tasks",
+            "ship the station",
+            undefined,
+            ids,
+          );
+          return { doc: result.doc, value: result.task };
+        },
       }),
     );
-    const inboundBody = JSON.stringify({
-      taskId: "task-2",
-      state: "working",
-    });
-    const inbound = StationEvent.make({
-      identity: {
-        home: COMMAND_CENTER,
-        sequence: decodeSequence("1"),
-      },
-      kind: "work.command",
-      body: inboundBody,
-      contentSha256: stationEventContentSha256(
-        "work.command",
-        inboundBody,
-      ),
-      originAt: "2020-01-01T00:00:00.000Z",
-    });
+    const [command] = (
+      await sourceRuntime.runPromise(
+        source.eventsAfter({
+          eventHome: COMMAND_CENTER,
+          entityHome: "studio",
+          afterSeq: "0",
+        }),
+      )
+    ).map(stationEventFromWorkEvent);
 
     const first = await sendStationControlRequest(
       ReportRequest.make({
         protocol: STATION_API_PROTOCOL,
         op: "report",
         stationInstallationId: LOCAL,
-        outbound: [inbound],
+        outbound: [command!],
         acknowledgeInbound: [],
       }),
       requestOptions(server),
@@ -357,7 +405,68 @@ describe("Station API control transport", () => {
       ok: true,
       response: {
         op: "report",
-        inbound: [outbound],
+        inbound: [{
+          identity: { home: LOCAL, sequence: "1" },
+          kind: "work.event",
+        }],
+        acknowledgeOutbound: [
+          { home: COMMAND_CENTER, through: "1" },
+        ],
+      },
+    });
+
+    const applied = await runtime.runPromise(
+      remoteWork.readSnapshot("factory", "tasks"),
+    );
+    expect(applied.tasks.items[0]?.history[0]?.parts[0]).toEqual({
+      kind: "text",
+      text: "ship the station",
+    });
+    expect(applied.messages.items).toEqual([]);
+
+    await runtime.runPromise(
+      remoteWork.mutate({
+        canvasName: "factory",
+        nodeId: "tasks",
+        entityHome: "studio",
+        eventHome: LOCAL,
+        materialization: "immediate",
+        operation: "task.claim",
+        authoredDoc: doc,
+        transform: (projected) => {
+          const result = workTaskClaim(
+            projected,
+            "factory",
+            "tasks",
+            created.value.id,
+            "agent-studio",
+            ids,
+          );
+          return { doc: result.doc, value: result.task };
+        },
+      }),
+    );
+
+    const resultReport = await sendStationControlRequest(
+      ReportRequest.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "report",
+        stationInstallationId: LOCAL,
+        outbound: [],
+        acknowledgeInbound: [
+          { home: LOCAL, through: decodeSequence("1") },
+        ],
+      }),
+      requestOptions(server),
+    );
+    expect(resultReport).toMatchObject({
+      ok: true,
+      response: {
+        op: "report",
+        inbound: [{
+          identity: { home: LOCAL, sequence: "2" },
+          kind: "work.event",
+        }],
         acknowledgeOutbound: [
           { home: COMMAND_CENTER, through: "1" },
         ],
@@ -369,9 +478,9 @@ describe("Station API control transport", () => {
         protocol: STATION_API_PROTOCOL,
         op: "report",
         stationInstallationId: LOCAL,
-        outbound: [inbound],
+        outbound: [command!],
         acknowledgeInbound: [
-          { home: LOCAL, through: decodeSequence("1") },
+          { home: LOCAL, through: decodeSequence("2") },
         ],
       }),
       requestOptions(server),
@@ -386,6 +495,7 @@ describe("Station API control transport", () => {
         ],
       },
     });
+    await sourceRuntime.dispose();
   });
 
   it("fails malformed frames and unpaired report traffic closed", async () => {
@@ -410,6 +520,38 @@ describe("Station API control transport", () => {
       ok: false,
       error: { code: "request_rejected", retryable: false },
     });
+  });
+
+  it("returns a typed refusal for a SHA-valid non-portfolio projection", async () => {
+    const { server } = await makeServer();
+    await sendStationControlRequest(pairRequest(), requestOptions(server));
+    await sendStationControlRequest(configureRequest(), requestOptions(server));
+    const body = "{}";
+
+    const rejected = await sendStationControlRequest(
+      ProjectRequest.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "project",
+        stationInstallationId: LOCAL,
+        projection: {
+          scope: "full",
+          generation: decodeSequence("1"),
+          body,
+          contentSha256: stationProjectionContentSha256(body),
+          createdAt: NOW,
+        },
+      }),
+      requestOptions(server),
+    );
+    expect(rejected).toMatchObject({
+      ok: false,
+      error: { code: "request_rejected", retryable: false },
+    });
+
+    const repository = await runtimes.at(-1)!.runPromise(StationRepository);
+    expect(
+      await runtimes.at(-1)!.runPromise(repository.projection),
+    ).toBeUndefined();
   });
 
   it("does not expose repository access through the standalone client", async () => {

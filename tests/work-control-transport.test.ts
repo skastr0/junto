@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import {
   WORK_PROTOCOL_VERSION,
   decodeWorkResponse,
@@ -30,7 +30,15 @@ import {
 } from "../src/main/vellum/work/repository";
 import { workTaskCreate } from "../src/shared/work";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+import {
+  StationRepository,
+  StationRepositoryLive,
+} from "../src/main/vellum/station/repository";
+import {
+  ConfigureRequest,
+  STATION_API_PROTOCOL,
+  StationHostId,
+} from "../src/shared/station-api";
 import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 import { resetSeatBlocks } from "../src/main/vellum/work/blocked-seat";
@@ -132,6 +140,22 @@ const seedDoc = (): CanvasDoc => ({
 const seedCanonicalWork = async (
   runtime: ReturnType<typeof makeWorkTestRuntime>,
 ): Promise<void> => {
+  const stations = await runtime.runPromise(StationRepository);
+  const installationId = await runtime.runPromise(stations.installationId);
+  await runtime.runPromise(
+    stations.configure(
+      ConfigureRequest.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "configure",
+        installationId,
+        configuration: {
+          role: "command-center",
+          hostId: Schema.decodeUnknownSync(StationHostId)("local"),
+          supervisedPreferred: true,
+        },
+      }),
+    ),
+  );
   const canvases = await runtime.runPromise(CanvasesService);
   await runtime.runPromise(canvases.write("work-cli", seedDoc()));
   const authored = await runtime.runPromise(canvases.read("work-cli"));
@@ -556,6 +580,34 @@ describe("work control transport", () => {
         );
       }
     }
+
+    const doctor = (await call(server.socketPath, {
+      token: token(),
+      op: "doctor",
+    })) as {
+      ok: true;
+      data: {
+        protocol_version: string;
+        commands: {
+          counts: { pending: number; applied: number; rejected: number };
+          pending: ReadonlyArray<unknown>;
+          rejections: ReadonlyArray<unknown>;
+          truncated: { pending: boolean; rejections: boolean };
+        };
+      };
+    };
+    expect(doctor).toMatchObject({
+      ok: true,
+      data: {
+        protocol_version: WORK_PROTOCOL_VERSION,
+        commands: {
+          counts: { pending: 0, applied: 0, rejected: 0 },
+          pending: [],
+          rejections: [],
+          truncated: { pending: false, rejections: false },
+        },
+      },
+    });
   });
 
   it("escalate marks seat blocked; work ops return Blocked; resolve clears", async () => {
@@ -617,8 +669,12 @@ describe("work control transport", () => {
       token: token(),
       op: "tasks.claim",
       args: { target: "tasks", task: "t1" },
-    })) as { ok: boolean };
+    })) as {
+      ok: true;
+      data: { disposition: "applied" | "queued" };
+    };
     expect(claimAfter.ok).toBe(true);
+    expect(claimAfter.data.disposition).toBe("applied");
   });
 
   it("keeps reads available while returning typed RuntimeDown for authorial ops", async () => {

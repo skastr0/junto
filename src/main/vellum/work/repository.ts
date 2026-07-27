@@ -7,6 +7,7 @@ import {
   STATION_API_MAX_EVENTS_PER_REPORT,
   StationEvent,
   StationEventAck,
+  StationSha256,
   type InstallationId as InstallationIdValue,
   type LogicalSequence as LogicalSequenceValue,
   type StationEvent as StationEventValue,
@@ -43,7 +44,7 @@ import {
 export const COMMAND_CENTER_WORK_HOME = "vellum:command-center" as const;
 
 type WorkLane = "task" | "request";
-type WorkEntityKind = WorkLane | "message" | "artifact";
+type WorkEntityKind = WorkLane | "message" | "artifact" | "receipt";
 
 export type WorkEventIdentity = {
   readonly eventHome: string;
@@ -72,6 +73,7 @@ export class WorkReplicationError extends Schema.TaggedError<WorkReplicationErro
       "identity-conflict",
       "causal-conflict",
       "cursor-regression",
+      "sequence-gap",
       "batch-limit",
     ),
     eventHome: InstallationId,
@@ -103,6 +105,11 @@ export type WorkMutationInput<A> = {
   readonly nodeId: string;
   readonly entityHome: string;
   readonly eventHome: string;
+  /**
+   * Remote commands are durable outbox facts first. Their material state is
+   * promoted only by the owning Remote's ordered applied disposition.
+   */
+  readonly materialization?: "immediate" | "on-disposition";
   readonly operation: string;
   readonly authoredDoc: CanvasDoc;
   readonly transform: (projectedDoc: CanvasDoc) => {
@@ -114,16 +121,52 @@ export type WorkMutationInput<A> = {
 };
 
 export type AcceptReplicatedWorkInput = {
+  readonly localEventHome: InstallationIdValue;
   readonly eventHome: InstallationIdValue;
   readonly entityHome: string;
   readonly events: ReadonlyArray<StationEventValue>;
+  readonly causalConflict: "fail" | "reject-command";
   readonly receivedAt?: string;
 };
 
 export type AcceptReplicatedWorkResult = {
   readonly accepted: number;
   readonly idempotent: number;
+  readonly rejected: number;
   readonly acknowledgement: StationEventAckValue;
+};
+
+export type WorkRejection = {
+  readonly rejected: WorkEventIdentity;
+  readonly contentSha256: string;
+  readonly reason: "causal-conflict";
+  readonly message: string;
+  readonly reportedBy: string;
+  readonly receipt: WorkEventIdentity;
+  readonly receivedAt: string;
+};
+
+export type WorkPendingCommand = {
+  readonly command: WorkEventIdentity;
+  readonly canvasName: string;
+  readonly nodeId: string;
+  readonly entityKind: "task" | "request" | "artifact";
+  readonly entityId: string;
+  readonly operation: string;
+};
+
+export type WorkCommandStatus = {
+  readonly counts: {
+    readonly pending: number;
+    readonly applied: number;
+    readonly rejected: number;
+  };
+  readonly pending: ReadonlyArray<WorkPendingCommand>;
+  readonly rejections: ReadonlyArray<WorkRejection>;
+  readonly truncated: {
+    readonly pending: boolean;
+    readonly rejections: boolean;
+  };
 };
 
 export type WorkEventsAfterInput = {
@@ -152,6 +195,7 @@ export type WorkMutationResult<A> = {
   readonly value: A;
   readonly snapshot: WorkSnapshot;
   readonly projectedDoc: CanvasDoc;
+  readonly disposition: "applied" | "queued";
 };
 
 /**
@@ -340,6 +384,40 @@ type WorkEventRow = StateRow & {
 type ReceivedCursorRow = StateRow & {
   readonly home: string;
   readonly through_sequence: string;
+};
+
+type WorkRejectionRow = StateRow & {
+  readonly rejected_event_home: string;
+  readonly rejected_entity_home: string;
+  readonly rejected_seq: string;
+  readonly rejected_content_sha256: string;
+  readonly reason: string;
+  readonly message: string;
+  readonly reported_by: string;
+  readonly receipt_event_home: string;
+  readonly receipt_event_seq: string;
+  readonly received_at: string;
+};
+
+type PendingCommandRow = StateRow & {
+  readonly event_home: string;
+  readonly entity_home: string;
+  readonly seq: string;
+  readonly status: "pending" | "applied" | "rejected";
+  readonly acknowledged_by: string | null;
+  readonly resolved_at: string | null;
+};
+
+type PendingCommandDetailRow = PendingCommandRow & {
+  readonly canvas_name: string;
+  readonly node_id: string;
+  readonly entity_kind: "task" | "request" | "artifact";
+  readonly entity_id: string;
+  readonly operation: string;
+};
+
+type CountRow = StateRow & {
+  readonly count: number;
 };
 
 const jsonOptional = (value: unknown | undefined): string | null =>
@@ -608,6 +686,26 @@ const canonicalSequence = (raw: string): string => {
   }
   return raw;
 };
+
+const workRejectionFromRow = (
+  row: WorkRejectionRow,
+): WorkRejection => ({
+  rejected: {
+    eventHome: row.rejected_event_home,
+    entityHome: row.rejected_entity_home,
+    seq: canonicalSequence(row.rejected_seq),
+  },
+  contentSha256: row.rejected_content_sha256,
+  reason: "causal-conflict",
+  message: row.message,
+  reportedBy: row.reported_by,
+  receipt: {
+    eventHome: row.receipt_event_home,
+    entityHome: row.rejected_entity_home,
+    seq: canonicalSequence(row.receipt_event_seq),
+  },
+  receivedAt: row.received_at,
+});
 
 const nextSequence = (
   writer: StateWriter,
@@ -1369,6 +1467,70 @@ const materializeTaskChange = (
   }
 };
 
+const insertPendingCommand = (
+  writer: StateWriter,
+  event: WorkEventIdentity,
+): void => {
+  writer.run(
+    `
+      INSERT INTO work_pending_commands(
+        event_home,
+        entity_home,
+        seq,
+        status,
+        acknowledged_by,
+        resolved_at
+      ) VALUES (?, ?, ?, 'pending', NULL, NULL)
+    `,
+    [event.eventHome, event.entityHome, event.seq],
+  );
+};
+
+const assertNoPendingCommandForEntity = (
+  reader: StateReader,
+  input: {
+    readonly eventHome: string;
+    readonly entityHome: string;
+    readonly canvasName: string;
+    readonly nodeId: string;
+    readonly entityKind: "task" | "request" | "artifact";
+    readonly entityId: string;
+  },
+): void => {
+  const pending = reader.get<StateRow>(
+    `
+      SELECT 1 AS pending
+      FROM work_pending_commands AS command
+      JOIN work_events AS event
+        ON event.event_home = command.event_home
+       AND event.entity_home = command.entity_home
+       AND event.seq = command.seq
+      WHERE command.event_home = ?
+        AND command.entity_home = ?
+        AND command.status = 'pending'
+        AND event.canvas_name = ?
+        AND event.node_id = ?
+        AND event.entity_kind = ?
+        AND event.entity_id = ?
+      LIMIT 1
+    `,
+    [
+      input.eventHome,
+      input.entityHome,
+      input.canvasName,
+      input.nodeId,
+      input.entityKind,
+      input.entityId,
+    ],
+  );
+  if (pending !== undefined) {
+    throw new WorkError(
+      "invalid",
+      `${input.entityKind} "${input.entityId}" already has a pending Remote command`,
+    );
+  }
+};
+
 const writeTaskChange = (
   writer: StateWriter,
   input: {
@@ -1379,9 +1541,17 @@ const writeTaskChange = (
     readonly operation: string;
     readonly originAt: string;
     readonly receivedAt: string;
+    readonly materialization: "immediate" | "on-disposition";
     readonly change: TaskChange;
   },
 ): WorkEventIdentity => {
+  if (input.materialization === "on-disposition") {
+    assertNoPendingCommandForEntity(writer, {
+      ...input,
+      entityKind: input.change.lane,
+      entityId: input.change.after.id,
+    });
+  }
   const event = recordEvent(writer, {
     eventHome: input.eventHome,
     entityHome: input.entityHome,
@@ -1404,7 +1574,11 @@ const writeTaskChange = (
       task: input.change.after,
     },
   });
-  materializeTaskChange(writer, { ...input, event });
+  if (input.materialization === "immediate") {
+    materializeTaskChange(writer, { ...input, event });
+  } else {
+    insertPendingCommand(writer, event);
+  }
   return event;
 };
 
@@ -1474,9 +1648,17 @@ const insertArtifact = (
     readonly operation: string;
     readonly originAt: string;
     readonly receivedAt: string;
+    readonly materialization: "immediate" | "on-disposition";
     readonly artifact: ArtifactValue;
   },
 ): void => {
+  if (input.materialization === "on-disposition") {
+    assertNoPendingCommandForEntity(writer, {
+      ...input,
+      entityKind: "artifact",
+      entityId: input.artifact.artifactId,
+    });
+  }
   const event = recordEvent(writer, {
     eventHome: input.eventHome,
     entityHome: input.entityHome,
@@ -1490,7 +1672,11 @@ const insertArtifact = (
     predecessor: null,
     payload: { artifact: input.artifact },
   });
-  materializeArtifact(writer, { ...input, event });
+  if (input.materialization === "immediate") {
+    materializeArtifact(writer, { ...input, event });
+  } else {
+    insertPendingCommand(writer, event);
+  }
 };
 
 const applyMutationPlan = (
@@ -1503,6 +1689,7 @@ const applyMutationPlan = (
     readonly operation: string;
     readonly originAt: string;
     readonly receivedAt: string;
+    readonly materialization: "immediate" | "on-disposition";
     readonly plan: WorkMutationPlan;
   },
 ): void => {
@@ -1512,6 +1699,22 @@ const applyMutationPlan = (
     taskEvents.set(`${change.lane}\u0000${change.after.id}`, event);
   }
   for (const insert of input.plan.messageInserts) {
+    if (input.materialization === "on-disposition") {
+      if (insert.lane === null || insert.taskId === null) {
+        throw new WorkError(
+          "invalid",
+          "Command-Center inbox messages cannot be deferred to a Remote",
+        );
+      }
+      if (
+        !taskEvents.has(`${insert.lane}\u0000${insert.taskId}`)
+      ) {
+        throw new Error(
+          `${insert.lane} "${insert.taskId}" history changed without a task command`,
+        );
+      }
+      continue;
+    }
     if (insert.lane === null || insert.taskId === null) {
       insertInboxMessage(writer, { ...input, insert });
       continue;
@@ -1564,7 +1767,13 @@ const WorkEventPayloadEnvelope = Schema.Struct({
   entityHome: Schema.String.pipe(Schema.minLength(1)),
   canvasName: Schema.String.pipe(Schema.minLength(1)),
   nodeId: Schema.String.pipe(Schema.minLength(1)),
-  entityKind: Schema.Literal("task", "request", "message", "artifact"),
+  entityKind: Schema.Literal(
+    "task",
+    "request",
+    "message",
+    "artifact",
+    "receipt",
+  ),
   entityId: Schema.String.pipe(Schema.minLength(1)),
   operation: Schema.String.pipe(Schema.minLength(1)),
   predecessor: Schema.NullOr(WorkEventIdentitySchema),
@@ -1578,6 +1787,7 @@ type DecodedReplicatedWorkEvent = WorkEvent & {
   readonly envelope: WorkEventPayloadEnvelopeValue;
   readonly task?: TaskValue;
   readonly artifact?: ArtifactValue;
+  readonly disposition?: WorkCommandDispositionValue;
 };
 
 const TaskEventBody = Schema.Struct({
@@ -1587,6 +1797,31 @@ const TaskEventBody = Schema.Struct({
 
 const ArtifactEventBody = Schema.Struct({
   artifact: Artifact,
+});
+
+const AppliedCommandDisposition = Schema.Struct({
+  command: WorkEventIdentitySchema,
+  contentSha256: StationSha256,
+  disposition: Schema.Literal("applied"),
+  reportedBy: InstallationId,
+});
+
+const RejectedCommandDisposition = Schema.Struct({
+  command: WorkEventIdentitySchema,
+  contentSha256: StationSha256,
+  disposition: Schema.Literal("rejected"),
+  reason: Schema.Literal("causal-conflict"),
+  message: Schema.String.pipe(Schema.minLength(1)),
+  reportedBy: InstallationId,
+});
+const WorkCommandDisposition = Schema.Union(
+  AppliedCommandDisposition,
+  RejectedCommandDisposition,
+);
+type WorkCommandDispositionValue = typeof WorkCommandDisposition.Type;
+
+const DispositionEventBody = Schema.Struct({
+  disposition: WorkCommandDisposition,
 });
 
 const decodeLogicalSequence = Schema.decodeUnknownSync(LogicalSequence);
@@ -1701,7 +1936,10 @@ const decodeReplicatedWorkEvent = (
     contentSha256: source.contentSha256,
     source,
     envelope,
-  } satisfies Omit<DecodedReplicatedWorkEvent, "task" | "artifact">;
+  } satisfies Omit<
+    DecodedReplicatedWorkEvent,
+    "task" | "artifact" | "disposition"
+  >;
 
   if (
     envelope.entityKind === "task" ||
@@ -1721,6 +1959,26 @@ const decodeReplicatedWorkEvent = (
     return {
       _tag: "Success",
       event: { ...base, task: body.right.task },
+    };
+  }
+
+  if (envelope.entityKind === "receipt") {
+    const body = Schema.decodeUnknownEither(DispositionEventBody)(
+      envelope.body,
+    );
+    if (
+      Either.isLeft(body) ||
+      body.right.disposition.reportedBy !== source.identity.home ||
+      body.right.disposition.command.entityHome !== expectedEntityHome
+    ) {
+      return fail(
+        "invalid-payload",
+        "command disposition does not match its source route",
+      );
+    }
+    return {
+      _tag: "Success",
+      event: { ...base, disposition: body.right.disposition },
     };
   }
 
@@ -1853,11 +2111,273 @@ const rememberReplicatedEvent = (
   );
 };
 
+const selectLocalRejection = (
+  reader: StateReader,
+  event: DecodedReplicatedWorkEvent,
+  reportedBy: InstallationIdValue,
+): WorkRejectionRow | undefined =>
+  reader.get<WorkRejectionRow>(
+    `
+      SELECT
+        rejected_content_sha256,
+        reason,
+        message,
+        receipt_event_home,
+        receipt_event_seq
+      FROM work_rejections
+      WHERE rejected_event_home = ?
+        AND rejected_entity_home = ?
+        AND rejected_seq = ?
+        AND reported_by = ?
+    `,
+    [event.eventHome, event.homeStation, event.seq, reportedBy],
+  );
+
+const insertRejection = (
+  writer: StateWriter,
+  input: {
+    readonly rejected: WorkEventIdentity;
+    readonly rejectedContentSha256: string;
+    readonly rejectedPayloadJson: string | null;
+    readonly reason: "causal-conflict";
+    readonly message: string;
+    readonly reportedBy: InstallationIdValue;
+    readonly receipt: WorkEventIdentity;
+    readonly receivedAt: string;
+  },
+): void => {
+  writer.run(
+    `
+      INSERT INTO work_rejections(
+        rejected_event_home,
+        rejected_entity_home,
+        rejected_seq,
+        rejected_content_sha256,
+        rejected_payload_json,
+        reason,
+        message,
+        reported_by,
+        receipt_event_home,
+        receipt_event_seq,
+        received_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(
+        rejected_event_home,
+        rejected_entity_home,
+        rejected_seq,
+        reported_by
+      ) DO NOTHING
+    `,
+    [
+      input.rejected.eventHome,
+      input.rejected.entityHome,
+      input.rejected.seq,
+      input.rejectedContentSha256,
+      input.rejectedPayloadJson,
+      input.reason,
+      input.message,
+      input.reportedBy,
+      input.receipt.eventHome,
+      input.receipt.seq,
+      input.receivedAt,
+    ],
+  );
+};
+
+const recordCommandDisposition = (
+  writer: StateWriter,
+  input: {
+    readonly event: DecodedReplicatedWorkEvent;
+    readonly localEventHome: InstallationIdValue;
+    readonly disposition:
+      | { readonly _tag: "Applied" }
+      | {
+        readonly _tag: "Rejected";
+        readonly conflict: WorkReplicationError;
+      };
+    readonly receivedAt: string;
+  },
+): void => {
+  const command = {
+    eventHome: input.event.eventHome,
+    entityHome: input.event.homeStation,
+    seq: input.event.seq,
+  };
+  const receipt = recordEvent(writer, {
+    eventHome: input.localEventHome,
+    entityHome: input.event.homeStation,
+    canvasName: input.event.canvasName,
+    nodeId: input.event.nodeId,
+    entityKind: "receipt",
+    entityId:
+      `disposition:${input.event.eventHome}:${input.event.seq}`,
+    operation:
+      input.disposition._tag === "Applied"
+        ? "work.command-applied"
+        : "work.command-rejected",
+    originAt: input.receivedAt,
+    receivedAt: input.receivedAt,
+    predecessor: null,
+    payload: {
+      disposition: {
+        command,
+        contentSha256: input.event.contentSha256,
+        disposition:
+          input.disposition._tag === "Applied" ? "applied" : "rejected",
+        reportedBy: input.localEventHome,
+        ...(input.disposition._tag === "Rejected"
+          ? {
+            reason: "causal-conflict" as const,
+            message: input.disposition.conflict.message,
+          }
+          : {}),
+      },
+    },
+  });
+  if (input.disposition._tag === "Rejected") {
+    insertRejection(writer, {
+      rejected: command,
+      rejectedContentSha256: input.event.contentSha256,
+      rejectedPayloadJson: input.event.payloadJson,
+      reason: "causal-conflict",
+      message: input.disposition.conflict.message,
+      reportedBy: input.localEventHome,
+      receipt,
+      receivedAt: input.receivedAt,
+    });
+  }
+};
+
+const pendingCommand = (
+  reader: StateReader,
+  identity: WorkEventIdentity,
+): PendingCommandRow | undefined =>
+  reader.get<PendingCommandRow>(
+    `
+      SELECT
+        event_home,
+        entity_home,
+        seq,
+        status,
+        acknowledged_by,
+        resolved_at
+      FROM work_pending_commands
+      WHERE event_home = ? AND entity_home = ? AND seq = ?
+    `,
+    [identity.eventHome, identity.entityHome, identity.seq],
+  );
+
+const resolvePendingCommand = (
+  writer: StateWriter,
+  input: {
+    readonly command: WorkEventIdentity;
+    readonly status: "applied" | "rejected";
+    readonly acknowledgedBy: InstallationIdValue;
+    readonly resolvedAt: string;
+  },
+): void => {
+  const updated = writer.run(
+    `
+      UPDATE work_pending_commands
+      SET status = ?, acknowledged_by = ?, resolved_at = ?
+      WHERE event_home = ?
+        AND entity_home = ?
+        AND seq = ?
+        AND status = 'pending'
+    `,
+    [
+      input.status,
+      input.acknowledgedBy,
+      input.resolvedAt,
+      input.command.eventHome,
+      input.command.entityHome,
+      input.command.seq,
+    ],
+  );
+  if (Number(updated.changes) !== 1) {
+    throw new Error(
+      `pending command ${input.command.eventHome}/${input.command.entityHome}/${input.command.seq} could not be resolved`,
+    );
+  }
+};
+
 const materializeReplicatedWorkEvent = (
   writer: StateWriter,
   event: DecodedReplicatedWorkEvent,
   receivedAt: string,
+  remember = true,
 ): void => {
+  if (event.entityKind === "receipt") {
+    if (!remember) {
+      throw new Error("a disposition event cannot be a pending command");
+    }
+    rememberReplicatedEvent(writer, event, receivedAt);
+    const disposition = event.disposition!;
+    const pending = pendingCommand(writer, disposition.command);
+    const commandRow = selectWorkEvent(
+      writer,
+      disposition.command.eventHome,
+      disposition.command.entityHome,
+      disposition.command.seq,
+    );
+    if (
+      pending === undefined ||
+      pending.status !== "pending" ||
+      commandRow === undefined ||
+      commandRow.content_sha256 !== disposition.contentSha256
+    ) {
+      throw replicationError(
+        event.source.identity.home,
+        event.source.identity.sequence,
+        "identity-conflict",
+        "command disposition does not match one pending local command",
+      );
+    }
+
+    if (disposition.disposition === "applied") {
+      const decoded = decodeReplicatedWorkEvent(
+        stationEventFromWorkEvent(workEventFromRow(commandRow)),
+        disposition.command.eventHome,
+        disposition.command.entityHome,
+      );
+      if (decoded._tag === "Failure") throw decoded.error;
+      materializeReplicatedWorkEvent(
+        writer,
+        decoded.event,
+        receivedAt,
+        false,
+      );
+      resolvePendingCommand(writer, {
+        command: disposition.command,
+        status: "applied",
+        acknowledgedBy: disposition.reportedBy,
+        resolvedAt: receivedAt,
+      });
+      return;
+    }
+
+    insertRejection(writer, {
+      rejected: disposition.command,
+      rejectedContentSha256: disposition.contentSha256,
+      rejectedPayloadJson: commandRow.payload_json,
+      reason: disposition.reason,
+      message: disposition.message,
+      reportedBy: disposition.reportedBy,
+      receipt: {
+        eventHome: event.eventHome,
+        entityHome: event.homeStation,
+        seq: event.seq,
+      },
+      receivedAt,
+    });
+    resolvePendingCommand(writer, {
+      command: disposition.command,
+      status: "rejected",
+      acknowledgedBy: disposition.reportedBy,
+      resolvedAt: receivedAt,
+    });
+    return;
+  }
   if (event.entityKind === "artifact") {
     const existingHome = existingArtifactHome(
       writer,
@@ -1873,7 +2393,7 @@ const materializeReplicatedWorkEvent = (
         `artifact "${event.entityId}" already exists`,
       );
     }
-    rememberReplicatedEvent(writer, event, receivedAt);
+    if (remember) rememberReplicatedEvent(writer, event, receivedAt);
     materializeArtifact(writer, {
       canvasName: event.canvasName,
       nodeId: event.nodeId,
@@ -1950,7 +2470,7 @@ const materializeReplicatedWorkEvent = (
     );
   }
 
-  rememberReplicatedEvent(writer, event, receivedAt);
+  if (remember) rememberReplicatedEvent(writer, event, receivedAt);
   const identity = {
     eventHome: event.eventHome,
     entityHome: event.homeStation,
@@ -2002,6 +2522,16 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
     ) => Effect.Effect<
       AcceptReplicatedWorkResult,
       WorkRepositoryError | WorkReplicationError
+    >;
+    readonly rejectionsForRoute: (
+      entityHome: string,
+    ) => Effect.Effect<
+      ReadonlyArray<WorkRejection>,
+      WorkRepositoryError
+    >;
+    readonly commandStatus: Effect.Effect<
+      WorkCommandStatus,
+      WorkRepositoryError
     >;
     readonly subscribeChanges: (
       listener: (canvasName: string, nodeId: string) => void,
@@ -2088,6 +2618,7 @@ export const WorkRepositoryLive = Layer.effect(
               nodeId: input.nodeId,
               entityHome: input.entityHome,
               eventHome: input.eventHome,
+              materialization: input.materialization ?? "immediate",
               operation: input.operation,
               originAt,
               receivedAt,
@@ -2128,6 +2659,10 @@ export const WorkRepositoryLive = Layer.effect(
                   value: outcome.value,
                   snapshot: outcome.snapshot,
                   projectedDoc: outcome.projectedDoc,
+                  disposition:
+                    input.materialization === "on-disposition"
+                      ? "queued" as const
+                      : "applied" as const,
                 })
               : Effect.fail(outcome.error),
           ),
@@ -2195,9 +2730,169 @@ export const WorkRepositoryLive = Layer.effect(
           ),
         );
 
+    const rejectionsForRoute = (
+      entityHome: string,
+    ): Effect.Effect<ReadonlyArray<WorkRejection>, WorkRepositoryError> =>
+      state
+        .read("work.rejectionsForRoute", (reader) =>
+          reader
+            .all<WorkRejectionRow>(
+              `
+                SELECT
+                  rejected_event_home,
+                  rejected_entity_home,
+                  rejected_seq,
+                  rejected_content_sha256,
+                  reason,
+                  message,
+                  reported_by,
+                  receipt_event_home,
+                  receipt_event_seq,
+                  received_at
+                FROM work_rejections
+                WHERE rejected_entity_home = ?
+                ORDER BY
+                  received_at,
+                  reported_by,
+                  length(rejected_seq),
+                  rejected_seq
+              `,
+              [entityHome],
+            )
+            .map(workRejectionFromRow),
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            toRepositoryError("work.rejectionsForRoute", error),
+          ),
+        );
+
+    const commandStatus: Effect.Effect<
+      WorkCommandStatus,
+      WorkRepositoryError
+    > = state
+      .read("work.commandStatus", (reader) => {
+        const detailLimit = 100;
+        const pendingCount = Number(
+          reader.get<CountRow>(
+            `
+              SELECT count(*) AS count
+              FROM work_pending_commands
+              WHERE status = 'pending'
+            `,
+          )?.count ?? 0,
+        );
+        const appliedCount = Number(
+          reader.get<CountRow>(
+            `
+              SELECT count(*) AS count
+              FROM work_pending_commands
+              WHERE status = 'applied'
+            `,
+          )?.count ?? 0,
+        );
+        const rejectionCount = Number(
+          reader.get<CountRow>(
+            "SELECT count(*) AS count FROM work_rejections",
+          )?.count ?? 0,
+        );
+        const pending = reader
+          .all<PendingCommandDetailRow>(
+            `
+              SELECT
+                command.event_home,
+                command.entity_home,
+                command.seq,
+                command.status,
+                command.acknowledged_by,
+                command.resolved_at,
+                event.canvas_name,
+                event.node_id,
+                event.entity_kind,
+                event.entity_id,
+                event.operation
+              FROM work_pending_commands AS command
+              JOIN work_events AS event
+                ON event.event_home = command.event_home
+               AND event.entity_home = command.entity_home
+               AND event.seq = command.seq
+              WHERE command.status = 'pending'
+              ORDER BY
+                command.entity_home,
+                length(command.seq),
+                command.seq
+              LIMIT ?
+            `,
+            [detailLimit],
+          )
+          .map((row): WorkPendingCommand => ({
+            command: {
+              eventHome: row.event_home,
+              entityHome: row.entity_home,
+              seq: canonicalSequence(row.seq),
+            },
+            canvasName: row.canvas_name,
+            nodeId: row.node_id,
+            entityKind: row.entity_kind,
+            entityId: row.entity_id,
+            operation: row.operation,
+          }));
+        const rejections = reader
+          .all<WorkRejectionRow>(
+            `
+              SELECT
+                rejected_event_home,
+                rejected_entity_home,
+                rejected_seq,
+                rejected_content_sha256,
+                reason,
+                message,
+                reported_by,
+                receipt_event_home,
+                receipt_event_seq,
+                received_at
+              FROM work_rejections
+              ORDER BY
+                received_at DESC,
+                reported_by,
+                length(rejected_seq),
+                rejected_seq
+              LIMIT ?
+            `,
+            [detailLimit],
+          )
+          .map(workRejectionFromRow);
+        return {
+          counts: {
+            pending: pendingCount,
+            applied: appliedCount,
+            rejected: rejectionCount,
+          },
+          pending,
+          rejections,
+          truncated: {
+            pending: pendingCount > pending.length,
+            rejections: rejectionCount > rejections.length,
+          },
+        };
+      })
+      .pipe(
+        Effect.mapError((error) =>
+          toRepositoryError("work.commandStatus", error),
+        ),
+      );
+
     const acceptReplicated = Effect.fn(
       "WorkRepository.acceptReplicated",
     )(function* (input: AcceptReplicatedWorkInput) {
+      if (input.localEventHome === input.eventHome) {
+        return yield* replicationError(
+          input.eventHome,
+          decodeLogicalSequence("0"),
+          "event-home-mismatch",
+          "an installation cannot accept its own source stream",
+        );
+      }
       if (input.events.length > STATION_API_MAX_EVENTS_PER_REPORT) {
         return yield* replicationError(
           input.eventHome,
@@ -2254,9 +2949,42 @@ export const WorkRepositoryLive = Layer.effect(
           let through = cursor;
           let accepted = 0;
           let idempotent = 0;
+          let rejected = 0;
           const changed = new Set<string>();
 
           for (const event of decoded) {
+            const quarantined = selectLocalRejection(
+              writer,
+              event,
+              input.localEventHome,
+            );
+            if (quarantined !== undefined) {
+              if (
+                quarantined.rejected_content_sha256 !==
+                  event.contentSha256
+              ) {
+                throw replicationError(
+                  input.eventHome,
+                  event.source.identity.sequence,
+                  "identity-conflict",
+                  "rejected source sequence was retried with different work",
+                );
+              }
+              idempotent += 1;
+              if (BigInt(event.seq) > BigInt(through)) {
+                const expected = (BigInt(through) + 1n).toString();
+                if (event.seq !== expected) {
+                  throw replicationError(
+                    input.eventHome,
+                    event.source.identity.sequence,
+                    "sequence-gap",
+                    `expected route sequence ${expected}, received ${event.seq}`,
+                  );
+                }
+                through = event.seq;
+              }
+              continue;
+            }
             const existing = selectWorkEvent(
               writer,
               event.eventHome,
@@ -2277,6 +3005,18 @@ export const WorkRepositoryLive = Layer.effect(
                 );
               }
               idempotent += 1;
+              if (BigInt(event.seq) > BigInt(through)) {
+                const expected = (BigInt(through) + 1n).toString();
+                if (event.seq !== expected) {
+                  throw replicationError(
+                    input.eventHome,
+                    event.source.identity.sequence,
+                    "sequence-gap",
+                    `expected route sequence ${expected}, received ${event.seq}`,
+                  );
+                }
+                through = event.seq;
+              }
             } else {
               if (BigInt(event.seq) <= BigInt(cursor)) {
                 throw replicationError(
@@ -2286,11 +3026,50 @@ export const WorkRepositoryLive = Layer.effect(
                   "new work event falls behind the durable receive cursor",
                 );
               }
-              materializeReplicatedWorkEvent(writer, event, receivedAt);
-              accepted += 1;
-              changed.add(`${event.canvasName}\u0000${event.nodeId}`);
-            }
-            if (BigInt(event.seq) > BigInt(through)) {
+              const expected = (BigInt(through) + 1n).toString();
+              if (event.seq !== expected) {
+                throw replicationError(
+                  input.eventHome,
+                  event.source.identity.sequence,
+                  "sequence-gap",
+                  `expected route sequence ${expected}, received ${event.seq}`,
+                );
+              }
+              try {
+                materializeReplicatedWorkEvent(writer, event, receivedAt);
+                if (
+                  input.causalConflict === "reject-command" &&
+                  event.entityKind !== "receipt"
+                ) {
+                  recordCommandDisposition(writer, {
+                    event,
+                    localEventHome: input.localEventHome,
+                    disposition: { _tag: "Applied" },
+                    receivedAt,
+                  });
+                }
+                accepted += 1;
+                changed.add(`${event.canvasName}\u0000${event.nodeId}`);
+              } catch (error) {
+                if (
+                  error instanceof WorkReplicationError &&
+                  error.reason === "causal-conflict" &&
+                  input.causalConflict === "reject-command"
+                ) {
+                  recordCommandDisposition(writer, {
+                    event,
+                    localEventHome: input.localEventHome,
+                    disposition: {
+                      _tag: "Rejected",
+                      conflict: error,
+                    },
+                    receivedAt,
+                  });
+                  rejected += 1;
+                } else {
+                  throw error;
+                }
+              }
               through = event.seq;
             }
           }
@@ -2310,7 +3089,13 @@ export const WorkRepositoryLive = Layer.effect(
               [input.eventHome, through, receivedAt],
             );
           }
-          return { accepted, idempotent, through, changed: [...changed] };
+          return {
+            accepted,
+            idempotent,
+            rejected,
+            through,
+            changed: [...changed],
+          };
         })
         .pipe(
           Effect.mapError((error) =>
@@ -2327,6 +3112,7 @@ export const WorkRepositoryLive = Layer.effect(
       return {
         accepted: result.accepted,
         idempotent: result.idempotent,
+        rejected: result.rejected,
         acknowledgement: StationEventAck.make({
           home: input.eventHome,
           through: decodeLogicalSequence(result.through),
@@ -2340,6 +3126,8 @@ export const WorkRepositoryLive = Layer.effect(
       mutate,
       eventsAfter,
       acceptReplicated,
+      rejectionsForRoute,
+      commandStatus,
       subscribeChanges: (listener) => {
         listeners.add(listener);
         return () => {

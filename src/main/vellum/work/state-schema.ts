@@ -36,7 +36,9 @@ export const WORK_STATE_SCHEMA_SQL = `
     canvas_name TEXT NOT NULL CHECK (length(canvas_name) > 0),
     node_id TEXT NOT NULL CHECK (length(node_id) > 0),
     entity_kind TEXT NOT NULL
-      CHECK (entity_kind IN ('task', 'request', 'message', 'artifact')),
+      CHECK (
+        entity_kind IN ('task', 'request', 'message', 'artifact', 'receipt')
+      ),
     entity_id TEXT NOT NULL CHECK (length(entity_id) > 0),
     operation TEXT NOT NULL CHECK (length(operation) > 0),
     origin_at TEXT NOT NULL CHECK (length(origin_at) > 0),
@@ -46,6 +48,40 @@ export const WORK_STATE_SCHEMA_SQL = `
     PRIMARY KEY (event_home, entity_home, seq),
     FOREIGN KEY (event_home, entity_home)
       REFERENCES work_event_sequences(event_home, entity_home)
+      ON DELETE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_pending_commands (
+    event_home TEXT NOT NULL CHECK (length(event_home) > 0),
+    entity_home TEXT NOT NULL CHECK (length(entity_home) > 0),
+    seq TEXT NOT NULL
+      CHECK (
+        length(seq) > 0
+        AND seq NOT GLOB '*[^0-9]*'
+        AND (seq = '0' OR substr(seq, 1, 1) <> '0')
+      ),
+    status TEXT NOT NULL
+      CHECK (status IN ('pending', 'applied', 'rejected')),
+    acknowledged_by TEXT,
+    resolved_at TEXT,
+    PRIMARY KEY (event_home, entity_home, seq),
+    CHECK (
+      (
+        status = 'pending'
+        AND acknowledged_by IS NULL
+        AND resolved_at IS NULL
+      )
+      OR
+      (
+        status IN ('applied', 'rejected')
+        AND acknowledged_by IS NOT NULL
+        AND length(acknowledged_by) > 0
+        AND resolved_at IS NOT NULL
+        AND length(resolved_at) > 0
+      )
+    ),
+    FOREIGN KEY (event_home, entity_home, seq)
+      REFERENCES work_events(event_home, entity_home, seq)
       ON DELETE RESTRICT
   ) STRICT, WITHOUT ROWID;
 
@@ -266,8 +302,57 @@ export const WORK_STATE_SCHEMA_SQL = `
       ON DELETE RESTRICT
   ) STRICT, WITHOUT ROWID;
 
+  CREATE TABLE IF NOT EXISTS work_rejections (
+    rejected_event_home TEXT NOT NULL CHECK (length(rejected_event_home) > 0),
+    rejected_entity_home TEXT NOT NULL
+      CHECK (length(rejected_entity_home) > 0),
+    rejected_seq TEXT NOT NULL
+      CHECK (
+        length(rejected_seq) > 0
+        AND rejected_seq NOT GLOB '*[^0-9]*'
+        AND (rejected_seq = '0' OR substr(rejected_seq, 1, 1) <> '0')
+      ),
+    rejected_content_sha256 TEXT NOT NULL
+      CHECK (length(rejected_content_sha256) = 64),
+    rejected_payload_json TEXT,
+    reason TEXT NOT NULL CHECK (reason = 'causal-conflict'),
+    message TEXT NOT NULL CHECK (length(message) > 0),
+    reported_by TEXT NOT NULL CHECK (length(reported_by) > 0),
+    receipt_event_home TEXT NOT NULL CHECK (length(receipt_event_home) > 0),
+    receipt_event_seq TEXT NOT NULL
+      CHECK (
+        length(receipt_event_seq) > 0
+        AND receipt_event_seq NOT GLOB '*[^0-9]*'
+        AND (
+          receipt_event_seq = '0'
+          OR substr(receipt_event_seq, 1, 1) <> '0'
+        )
+      ),
+    received_at TEXT NOT NULL CHECK (length(received_at) > 0),
+    PRIMARY KEY (
+      rejected_event_home,
+      rejected_entity_home,
+      rejected_seq,
+      reported_by
+    ),
+    FOREIGN KEY (
+      receipt_event_home,
+      rejected_entity_home,
+      receipt_event_seq
+    ) REFERENCES work_events(event_home, entity_home, seq)
+      ON DELETE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
   CREATE INDEX IF NOT EXISTS work_events_route_order
     ON work_events(event_home, entity_home, length(seq), seq);
+  CREATE INDEX IF NOT EXISTS work_pending_commands_route
+    ON work_pending_commands(
+      event_home,
+      entity_home,
+      status,
+      length(seq),
+      seq
+    );
   CREATE INDEX IF NOT EXISTS work_tasks_node
     ON work_tasks(canvas_name, node_id, created_at, task_id);
   CREATE INDEX IF NOT EXISTS work_requests_node
@@ -284,6 +369,13 @@ export const WORK_STATE_SCHEMA_SQL = `
     ON work_messages(canvas_name, node_id, position);
   CREATE INDEX IF NOT EXISTS work_artifacts_node
     ON work_artifacts(canvas_name, node_id, artifact_id);
+  CREATE INDEX IF NOT EXISTS work_rejections_route
+    ON work_rejections(
+      rejected_entity_home,
+      reported_by,
+      length(rejected_seq),
+      rejected_seq
+    );
 
   CREATE TRIGGER IF NOT EXISTS work_tasks_home_immutable
   BEFORE UPDATE OF home_station ON work_tasks

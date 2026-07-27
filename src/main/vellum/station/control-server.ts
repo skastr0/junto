@@ -115,18 +115,18 @@ export const stationControlErrorEnvelope = (
 
   switch (tag) {
     case "StationPersistenceError":
+    case "WorkRepositoryError":
       code = "unavailable";
       message = "station state is temporarily unavailable";
       retryable = true;
       break;
     case "StationProjectionIntegrityError":
-    case "StationEventIntegrityError":
       code = "integrity_error";
       message = "station payload failed its integrity check";
       break;
     case "StationPairingConflictError":
-    case "StationEventIdentityConflictError":
     case "StationCursorError":
+    case "WorkReplicationError":
       code = "state_conflict";
       message = "station state conflicts with the request";
       break;
@@ -135,6 +135,7 @@ export const stationControlErrorEnvelope = (
     case "StationConfigurationError":
     case "StationMetadataError":
     case "StationApiInvariantError":
+    case "StationPortfolioError":
       code = "request_rejected";
       message = "station request was rejected";
       break;

@@ -348,7 +348,13 @@ export type WorkErrorCode =
 /** Success carries the written document + revision so the renderer can
  *  baseline without racing canvasChanged → flush → recovery-canvas. */
 export type WorkOpResult<T> =
-  | { readonly ok: true; readonly data: T; readonly doc: CanvasDoc; readonly revision: string }
+  | {
+      readonly ok: true;
+      readonly data: T;
+      readonly doc: CanvasDoc;
+      readonly revision: string;
+      readonly disposition: "applied" | "queued";
+    }
   | { readonly ok: false; readonly code: WorkErrorCode; readonly message: string };
 
 // --- glyph rows for kernel watchers / criteria (no live private browse) -----

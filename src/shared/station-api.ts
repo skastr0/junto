@@ -194,7 +194,13 @@ export const ProjectResponse = Schema.Struct({
 });
 export type ProjectResponse = typeof ProjectResponse.Type;
 
-/** Globally unique identity of an event within its originating installation. */
+/**
+ * Identity in one authenticated Station route.
+ *
+ * `home` is the source installation and `sequence` is monotonic for the
+ * source→target route. The report target supplies the other half of that
+ * identity, so two Remotes may each originate sequence 1 without collision.
+ */
 export const StationEventIdentity = Schema.Struct({
   home: InstallationId,
   sequence: LogicalSequence,
@@ -202,8 +208,10 @@ export const StationEventIdentity = Schema.Struct({
 export type StationEventIdentity = typeof StationEventIdentity.Type;
 
 /**
- * A cumulative acknowledgement: every event for `home` through `sequence` has
- * been accepted contiguously. Gaps may never be skipped.
+ * A cumulative transport acknowledgement: every event for `home` through
+ * `sequence` has been handled contiguously. A Remote command is handled only
+ * after an ordered durable applied/rejected disposition exists. Gaps may never
+ * be skipped; ACK timing never decides material authority.
  */
 export const StationEventAck = Schema.Struct({
   home: InstallationId,
@@ -229,7 +237,7 @@ export type StationEvent = typeof StationEvent.Type;
 /**
  * Command Center → Station half of the duplex report exchange.
  *
- * `outbound` carries CC-homed events beyond the Station's last ACK.
+ * `outbound` carries CC-originated events for this Station beyond its ACK.
  * `acknowledgeInbound` cumulatively ACKs Station-homed events accepted by CC.
  */
 export const ReportRequest = Schema.Struct({
@@ -248,8 +256,9 @@ export type ReportRequest = typeof ReportRequest.Type;
 /**
  * Station → Command Center half of the duplex report exchange.
  *
- * `inbound` carries Station-homed events beyond CC's last ACK.
- * `acknowledgeOutbound` cumulatively ACKs CC-homed events accepted by Station.
+ * `inbound` carries Station-originated events beyond CC's last ACK.
+ * `acknowledgeOutbound` cumulatively ACKs CC-originated events accepted by
+ * this Station.
  */
 export const ReportResponse = Schema.Struct({
   protocol: Schema.Literal(STATION_API_PROTOCOL),

@@ -5,7 +5,9 @@ import {
   Exit,
   Fiber,
   Layer,
+  Schema,
 } from "effect";
+import { StationHostId } from "@shared/station-api";
 import type { HostId } from "@shared/remote-hosts";
 import {
   StationFleetTargetRepository,
@@ -78,6 +80,9 @@ export const StationFleetPropagationLive = Layer.scoped(
                 propagation.synchronize({
                   endpoint,
                   stationInstallationId: target.stationInstallationId,
+                  hostId: Schema.decodeUnknownSync(StationHostId)(
+                    target.hostId,
+                  ),
                 })
               ),
               Effect.match({

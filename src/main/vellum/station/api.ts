@@ -19,6 +19,12 @@ import {
   type StationRepositoryError,
   type StationStatusFacts,
 } from "./repository";
+import {
+  WorkRepository,
+  WorkRepositoryError,
+  WorkReplicationError,
+  stationEventFromWorkEvent,
+} from "../work/repository";
 
 export class StationApiInvariantError extends Schema.TaggedError<StationApiInvariantError>()(
   "StationApiInvariantError",
@@ -37,6 +43,8 @@ export class StationApiInvariantError extends Schema.TaggedError<StationApiInvar
 
 export type StationApiError =
   | StationRepositoryError
+  | WorkRepositoryError
+  | WorkReplicationError
   | StationApiInvariantError;
 
 const ZERO_SEQUENCE = Schema.decodeUnknownSync(LogicalSequence)("0");
@@ -75,6 +83,7 @@ const requireReportTarget = (
 
 const handleReport = (
   repository: Context.Tag.Service<typeof StationRepository>,
+  work: Context.Tag.Service<typeof WorkRepository>,
   request: ReportRequest,
 ): Effect.Effect<ReportResponse, StationApiError> =>
   Effect.gen(function* () {
@@ -119,11 +128,18 @@ const handleReport = (
       }
     }
 
-    // These repository operations are independently transactional and
-    // idempotent. A transport retry safely completes either interrupted half.
-    yield* repository.acceptInbound(request.outbound);
+    // Materialization and the receive cursor commit together. A transport
+    // retry can never observe an ACK for work that was not durably applied.
+    yield* work.acceptReplicated({
+      localEventHome: localInstallationId,
+      eventHome: pairing.commandCenterInstallationId,
+      entityHome: configuration.configuration.hostId,
+      events: request.outbound,
+      causalConflict: "reject-command",
+    });
     yield* repository.advancePeerAcks(
       pairing.commandCenterInstallationId,
+      configuration.configuration.hostId,
       request.acknowledgeInbound,
     );
 
@@ -135,11 +151,14 @@ const handleReport = (
         entry.acknowledgement.home === localInstallationId,
     )?.acknowledgement.through ?? ZERO_SEQUENCE;
 
-    const inbound = yield* repository.eventsAfter(
-      localInstallationId,
-      peerCursor,
-      STATION_API_MAX_EVENTS_PER_REPORT,
-    );
+    const inbound = (
+      yield* work.eventsAfter({
+        eventHome: localInstallationId,
+        entityHome: configuration.configuration.hostId,
+        afterSeq: peerCursor,
+        limit: STATION_API_MAX_EVENTS_PER_REPORT,
+      })
+    ).map(stationEventFromWorkEvent);
     const acknowledgeOutbound = facts.receivedThrough.filter(
       (acknowledgement) =>
         acknowledgement.home === pairing.commandCenterInstallationId,
@@ -210,6 +229,7 @@ export const StationApiLive = Layer.effect(
   StationApiService,
   Effect.gen(function* () {
     const repository = yield* StationRepository;
+    const work = yield* WorkRepository;
 
     const handle = Effect.fn("StationApiService.handle")((
       request: StationApiRequest,
@@ -223,7 +243,7 @@ export const StationApiLive = Layer.effect(
         case "project":
           return handleProject(repository, request);
         case "report":
-          return handleReport(repository, request);
+          return handleReport(repository, work, request);
         case "status":
           return handleStatus(repository, readiness);
       }

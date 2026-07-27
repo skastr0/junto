@@ -316,12 +316,29 @@ const mapWorkCode = (
   }
 };
 
+type WorkMutationOutcome<T> = {
+  readonly value: T;
+  readonly disposition: "applied" | "queued";
+};
+
 const fromWorkResult = <T>(
   result: WorkOpResult<T>,
-): Either.Either<T, WorkErrorBody> => {
-  if (result.ok) return Either.right(result.data);
+): Either.Either<WorkMutationOutcome<T>, WorkErrorBody> => {
+  if (result.ok) {
+    return Either.right({
+      value: result.data,
+      disposition: result.disposition,
+    });
+  }
   return Either.left(mapWorkCode(result.code, result.message));
 };
+
+const exposeWorkMutation = <T extends object>(
+  outcome: WorkMutationOutcome<T>,
+): T & { readonly disposition: "applied" | "queued" } => ({
+  ...outcome.value,
+  disposition: outcome.disposition,
+});
 
 const decodeArgs = <A, I>(
   schema: Schema.Schema<A, I>,
@@ -411,11 +428,21 @@ const dispatchOp = (
     }
 
     if (op === "doctor") {
+      const commands = yield* work.commandStatus.pipe(
+        Effect.mapError(
+          (error): WorkErrorBody => ({
+            type: "InternalError",
+            message: error.message,
+            details: { retryable: true },
+          }),
+        ),
+      );
       return {
         ok: true,
         protocol_version: WORK_PROTOCOL_VERSION,
         version,
         socket: "up",
+        commands,
       };
     }
 
@@ -544,7 +571,7 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return mapped.right;
+      return exposeWorkMutation(mapped.right);
     }
 
     if (op === "tasks.update") {
@@ -561,7 +588,7 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return mapped.right;
+      return exposeWorkMutation(mapped.right);
     }
 
     if (op === "msg.list") {
@@ -627,7 +654,7 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return mapped.right;
+      return exposeWorkMutation(mapped.right);
     }
 
     if (op === "request.create") {
@@ -647,7 +674,7 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return mapped.right;
+      return exposeWorkMutation(mapped.right);
     }
 
     if (op === "request.escalate") {
@@ -673,7 +700,10 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      const task = mapped.right as { readonly id: string; readonly reason?: string };
+      const task = mapped.right.value as {
+        readonly id: string;
+        readonly reason?: string;
+      };
       const brief = decoded.right.brief.trim();
       const block = markSeatBlocked({
         canvasName: caller.canvasName,
@@ -688,7 +718,8 @@ const dispatchOp = (
         brief: block.brief,
       });
       return {
-        request: mapped.right,
+        request: mapped.right.value,
+        disposition: mapped.right.disposition,
         blocked: true,
         stop_directive,
         // Hold-until-answer not implemented: agent must stop and resume later.
@@ -727,11 +758,11 @@ const dispatchOp = (
         occupant: caller.occupant,
         sinkNodeId: decoded.right.target,
       });
-      const stamp = extractProofStamp(authority, mapped.right);
+      const stamp = extractProofStamp(authority, mapped.right.value);
       if (stamp) {
         globalStampRuntime.recordStamp(authority, stamp);
       }
-      return mapped.right;
+      return exposeWorkMutation(mapped.right);
     }
 
     // Exhaustiveness — Schema already gates ops

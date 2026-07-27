@@ -33,6 +33,7 @@ import {
   COMMAND_CENTER_WORK_HOME,
   WorkRepository,
   WorkRepositoryError,
+  type WorkCommandStatus,
 } from "./repository";
 import { ulid } from "ulid";
 
@@ -81,6 +82,7 @@ type WorkApplyOk<T> = {
   readonly value: T;
   readonly doc: CanvasDoc;
   readonly revision: string;
+  readonly disposition: "applied" | "queued";
 };
 
 const asResult = <T>(
@@ -88,11 +90,12 @@ const asResult = <T>(
 ): Effect.Effect<WorkOpResult<T>> =>
   effect.pipe(
     Effect.map(
-      ({ value, doc, revision }): WorkOpResult<T> => ({
+      ({ value, doc, revision, disposition }): WorkOpResult<T> => ({
         ok: true,
         data: value,
         doc,
         revision,
+        disposition,
       }),
     ),
     Effect.catchAll((err) =>
@@ -159,6 +162,10 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       nodeId: string,
       artifact: Artifact,
     ) => Effect.Effect<WorkOpResult<Artifact>>;
+    readonly commandStatus: Effect.Effect<
+      WorkCommandStatus,
+      WorkServiceError
+    >;
   }
 >() {}
 
@@ -181,17 +188,25 @@ export const WorkLive = Layer.effect(
         const eventHome = yield* stations.installationId.pipe(
           Effect.mapError(toWorkServiceError),
         );
-        if (options.messageHome) {
-          const station = yield* stations.configuration.pipe(
-            Effect.mapError(toWorkServiceError),
-          );
-          if (station?.configuration.role === "remote") {
-            return yield* new WorkServiceError({
-              code: "invalid",
-              message:
-                "messages are Command-Center-homed and cannot be authored on a Remote",
-            });
-          }
+        const station = yield* stations.configuration.pipe(
+          Effect.mapError(toWorkServiceError),
+        );
+        if (station === undefined) {
+          return yield* new WorkServiceError({
+            code: "invalid",
+            message:
+              "station role is not configured; choose Command Center or Remote before mutating work",
+          });
+        }
+        if (
+          options.messageHome &&
+          station.configuration.role === "remote"
+        ) {
+          return yield* new WorkServiceError({
+            code: "invalid",
+            message:
+              "messages are Command-Center-homed and cannot be authored on a Remote",
+          });
         }
         const read = yield* canvases
           .read(canvas)
@@ -203,14 +218,31 @@ export const WorkLive = Layer.effect(
             message: `node "${nodeId}" not found`,
           });
         }
+        const entityHome = options.messageHome
+          ? COMMAND_CENTER_WORK_HOME
+          : resolveNodeHostId(node);
+        if (
+          station.configuration.role === "remote" &&
+          entityHome !== station.configuration.hostId
+        ) {
+          return yield* new WorkServiceError({
+            code: "invalid",
+            message:
+              `Remote "${station.configuration.hostId}" cannot mutate work homed on "${entityHome}"`,
+          });
+        }
         const result = yield* repository
           .mutate({
             canvasName: canvas,
             nodeId,
-            entityHome: options.messageHome
-              ? COMMAND_CENTER_WORK_HOME
-              : resolveNodeHostId(node),
+            entityHome,
             eventHome,
+            materialization:
+              station.configuration.role === "command-center" &&
+                !options.messageHome &&
+                entityHome !== station.configuration.hostId
+                ? "on-disposition"
+                : "immediate",
             operation,
             authoredDoc: read.doc,
             transform: fn,
@@ -221,6 +253,7 @@ export const WorkLive = Layer.effect(
           doc: result.projectedDoc,
           // Work mutations do not advance authorial canvas revision.
           revision: read.revision,
+          disposition: result.disposition,
         };
       });
 
@@ -404,6 +437,9 @@ export const WorkLive = Layer.effect(
             },
           ),
         ),
+      commandStatus: repository.commandStatus.pipe(
+        Effect.mapError(toWorkServiceError),
+      ),
     });
   }),
 );

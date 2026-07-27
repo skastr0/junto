@@ -3,13 +3,21 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { StateEngine } from "../src/main/vellum/state/service";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
-import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+import {
+  StationRepository,
+  StationRepositoryLive,
+} from "../src/main/vellum/station/repository";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+import {
+  ConfigureRequest,
+  STATION_API_PROTOCOL,
+  StationHostId,
+} from "../src/shared/station-api";
 import {
   applyMirrorLaw,
   type CanvasDoc,
@@ -232,6 +240,22 @@ describe("CanvasesService SQLite authority", () => {
   it("keeps work rows out of authority while projecting committed work reads", async () => {
     await installEnv();
     runtime = makeCanvasRuntime(join(stateDir, "vellum.db"));
+    const stations = await runtime.runPromise(StationRepository);
+    const installationId = await runtime.runPromise(stations.installationId);
+    await runtime.runPromise(
+      stations.configure(
+        ConfigureRequest.make({
+          protocol: STATION_API_PROTOCOL,
+          op: "configure",
+          installationId,
+          configuration: {
+            role: "command-center",
+            hostId: Schema.decodeUnknownSync(StationHostId)("local"),
+            supervisedPreferred: true,
+          },
+        }),
+      ),
+    );
     const canvases = await runtime.runPromise(CanvasesService);
     const work = await runtime.runPromise(WorkService);
     await runtime.runPromise(canvases.write("work", taskSinkDoc()));
@@ -246,7 +270,10 @@ describe("CanvasesService SQLite authority", () => {
       work.workTaskCreate("work", "sink", "ship the SQLite cutover"),
     );
     unsubscribe();
-    expect(created.ok).toBe(true);
+    expect(created).toMatchObject({
+      ok: true,
+      disposition: "applied",
+    });
     expect(changed).toEqual(["work"]);
 
     const projected = await runtime.runPromise(canvases.read("work"));
