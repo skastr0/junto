@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Effect, Scope } from "effect";
 import { hostsSnapshot, setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import {
@@ -96,7 +97,7 @@ const installRemoteEntry = (
     endpoint,
     generation: 1,
     scope: {},
-    rootScope: undefined,
+    rootScope: Effect.runSync(Scope.make()),
     leaseMap: new Map(),
     reverseLease: new Map(),
   });

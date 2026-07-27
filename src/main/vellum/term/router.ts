@@ -46,14 +46,10 @@ import type {
 import { TermControlClient } from "./control-client";
 import type { TermControlClientShutdownReceipt } from "./control-client";
 
-/**
- * Lazy AppRuntime accessor — avoids importing main/runtime (Electron) when
- * unit tests only exercise the local router path.
- */
-const runAppPromise = async <A>(effect: Effect.Effect<A, unknown, never>): Promise<A> => {
-  const { AppRuntime } = await import("../../runtime");
-  return AppRuntime.runPromise(effect as Effect.Effect<A, unknown, never>);
-};
+const runScopePromise = <A>(
+  effect: Effect.Effect<A, unknown, never>,
+): Promise<A> =>
+  Effect.runPromise(effect as Effect.Effect<A, unknown, never>);
 
 // Effects that need SshTransport / Scope from RootLayer.
 const runLayered = async <A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> => {
@@ -1008,15 +1004,15 @@ export class TerminalRouter extends EventEmitter {
 
     // Own a forked scope so the SSH forward finalizers stay alive until we
     // explicitly closeRemotes() — same pattern as herdr mirror forwards.
-    const rootScope = await runAppPromise(Scope.make());
+    const rootScope = await runScopePromise(Scope.make());
     let scope: Scope.CloseableScope;
     try {
-      scope = await runAppPromise(
+      scope = await runScopePromise(
         Scope.fork(rootScope, ExecutionStrategy.sequential),
       );
     } catch (error) {
       const closed = await Promise.allSettled([
-        runAppPromise(Scope.close(rootScope, Exit.void)),
+        runScopePromise(Scope.close(rootScope, Exit.void)),
       ]);
       if (closed[0]?.status === "rejected") {
         this.diagnostics.push(
@@ -1106,7 +1102,7 @@ export class TerminalRouter extends EventEmitter {
       return remoteEntry;
     } catch (err) {
       const closed = await Promise.allSettled([
-        runAppPromise(Scope.close(rootScope, Exit.void)),
+        runScopePromise(Scope.close(rootScope, Exit.void)),
       ]);
       for (const outcome of closed) {
         if (outcome.status === "rejected") {
@@ -1168,18 +1164,13 @@ export class TerminalRouter extends EventEmitter {
       });
     }
 
-    // Production entries always carry rootScope. The narrow fallback keeps
-    // structural test doubles from accidentally invoking Effect with a forged
-    // scope while real authorities remain fail-closed.
     const current = (async (): Promise<RemoteCloseReceipt> => {
       // Let the control socket obtain its exact close witness before retiring
       // the SSH forward. Closing both concurrently can manufacture ECONNRESET
       // and turn a clean local teardown into an ambiguous transport error.
       const [clientOutcome] = await Promise.allSettled([clientFlight]);
       const [scopeOutcome] = await Promise.allSettled([
-        entry.rootScope === undefined
-          ? Promise.resolve()
-          : runAppPromise(Scope.close(entry.rootScope, Exit.void)),
+        runScopePromise(Scope.close(entry.rootScope, Exit.void)),
       ]);
       const diagnostics: string[] = [];
       const client = clientOutcome.status === "fulfilled"

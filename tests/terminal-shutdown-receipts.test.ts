@@ -12,6 +12,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IDisposable, IPty } from "node-pty";
+import { Effect, Scope } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAppProcessPlane } from "../src/main/vellum/app-process-plane";
 import { setHostsSnapshot, hostsSnapshot } from "../src/main/vellum/hosts/snapshot";
@@ -260,7 +261,7 @@ describe("terminal shutdown receipts", () => {
       endpoint: "studio.local",
       generation: 0,
       scope: {},
-      rootScope: undefined,
+      rootScope: Effect.runSync(Scope.make()),
       forward: {},
       leaseMap: new Map(),
       reverseLease: new Map(),
@@ -304,7 +305,7 @@ describe("terminal shutdown receipts", () => {
       endpoint: "studio.local",
       generation: 0,
       scope: {},
-      rootScope: undefined,
+      rootScope: Effect.runSync(Scope.make()),
       forward: {},
       leaseMap: new Map(),
       reverseLease: new Map(),
@@ -337,7 +338,7 @@ describe("terminal shutdown receipts", () => {
       endpoint: "studio.local",
       generation: 0,
       scope: {},
-      rootScope: undefined,
+      rootScope: Effect.runSync(Scope.make()),
       forward: {},
       leaseMap: new Map(),
       reverseLease: new Map(),
@@ -376,7 +377,7 @@ describe("terminal shutdown receipts", () => {
       endpoint: "studio.local",
       generation: 0,
       scope: {},
-      rootScope: undefined,
+      rootScope: Effect.runSync(Scope.make()),
       forward: {},
       leaseMap: new Map(),
       reverseLease: new Map(),

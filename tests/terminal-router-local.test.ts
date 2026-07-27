@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect, Scope } from "effect";
 import { LocalSessionHost } from "../src/main/vellum/term/local-host";
 import { TerminalRouter } from "../src/main/vellum/term/router";
 import {
@@ -126,8 +127,11 @@ describe("TerminalRouter local path", () => {
     const close = vi.fn();
     (router as unknown as { remotes: Map<string, unknown> }).remotes.set("studio", {
       client: { close },
+      forward: {},
       endpoint: "studio-old",
+      generation: 0,
       scope: {},
+      rootScope: Effect.runSync(Scope.make()),
       leaseMap: new Map([["lease", "remote-lease"]]),
       reverseLease: new Map([["remote-lease", "lease"]]),
     });

@@ -112,7 +112,7 @@ export const sessionPhaseIsOpen = (phase: SessionPhase): boolean =>
 /** Map product phase → existing TerminalSessionStatus wire vocab. */
 export const productStatusFromSessionPhase = (
   phase: SessionPhase,
-): "starting" | "running" | "exited" | "missing" => {
+): "starting" | "running" | "exited" => {
   switch (phase._tag) {
     case "Opening":
       return "starting";

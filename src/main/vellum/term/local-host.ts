@@ -187,7 +187,6 @@ type SessionRec = {
   bindingId: string;
   epoch: string;
   hostId: string;
-  status: "starting" | "running" | "exited";
   /**
    * Product session phase (shared domain with herdr control).
    * Write only while Live; Broken still "running" for inventory until exit.
@@ -222,6 +221,23 @@ type SessionRec = {
   sessionCaptureTail: string;
   /** Exact-record escalation; never follows a mutable binding lookup. */
   escalationTimer: ReturnType<typeof setTimeout> | undefined;
+};
+
+const sessionStatusOf = (
+  rec: Pick<SessionRec, "phase">,
+): "starting" | "running" | "exited" =>
+  productStatusFromSessionPhase(rec.phase);
+
+const activeSessionStatusOf = (
+  rec: Pick<SessionRec, "bindingId" | "epoch" | "phase">,
+): "starting" | "running" => {
+  const status = sessionStatusOf(rec);
+  if (status === "exited") {
+    throw new Error(
+      `closed terminal retained as active: ${rec.bindingId}@${rec.epoch}`,
+    );
+  }
+  return status;
 };
 
 export type LocalHostShutdownStraggler = {
@@ -470,7 +486,7 @@ export class LocalSessionHost extends EventEmitter {
     if (!bindingId) throw new Error("bindingId required");
 
     const prior = this.sessions.get(bindingId);
-    if (prior && prior.status !== "exited") {
+    if (prior && sessionStatusOf(prior) !== "exited") {
       this.killBinding(bindingId);
     }
 
@@ -495,7 +511,6 @@ export class LocalSessionHost extends EventEmitter {
       bindingId,
       epoch,
       hostId: input.hostId?.trim() || "local",
-      status: "starting",
       phase: SessionPhase.Opening({ surface: "native" }),
       lease: undefined,
       exitWitness: undefined,
@@ -562,7 +577,6 @@ export class LocalSessionHost extends EventEmitter {
       rec.backend = lease.backend;
       rec.exitWitness = lease.io.exited;
       rec.pid = lease.io.pidForDiagnostics;
-      rec.status = "running";
       rec.phase = SessionPhase.Live({ surface: "native" });
       // Retain the central plane's exact native-PTY exit witness before any
       // fallible presentation setup. Rejection is diagnostic only: authority
@@ -666,9 +680,9 @@ export class LocalSessionHost extends EventEmitter {
           readonly seq: bigint;
           readonly lines: readonly string[];
         };
-        /** Legacy byte ring — only for sessions without an observer (should be rare). */
+        /** Bounded byte ring for sessions without an observer. */
         readonly journal: readonly JournalEntry[];
-        readonly status: SessionRec["status"];
+        readonly status: "starting" | "running" | "exited";
         readonly pid?: number;
       }
     | { readonly ok: false; readonly message: string } {
@@ -712,7 +726,7 @@ export class LocalSessionHost extends EventEmitter {
         rows: rec.rows,
         ...(screenPayload ? { screen: screenPayload } : {}),
         journal,
-        status: rec.status,
+        status: sessionStatusOf(rec),
         pid: rec.pid,
       };
     }
@@ -729,7 +743,7 @@ export class LocalSessionHost extends EventEmitter {
       rows: rec.rows,
       ...(screenPayload ? { screen: screenPayload } : {}),
       journal,
-      status: rec.status,
+      status: sessionStatusOf(rec),
       pid: rec.pid,
     };
   }
@@ -837,7 +851,7 @@ export class LocalSessionHost extends EventEmitter {
 
   detachedRunning(): readonly TerminalSessionSummary[] {
     return [...this.sessions.values()]
-      .filter((s) => s.detached && (s.status === "running" || s.status === "starting"))
+      .filter((s) => s.detached && sessionStatusOf(s) !== "exited")
       .map((s) => this.summaryOf(s));
   }
 
@@ -877,7 +891,7 @@ export class LocalSessionHost extends EventEmitter {
     const stragglers = [...this.liveRecords].map((rec) => ({
       bindingId: rec.bindingId,
       epoch: rec.epoch,
-      status: rec.status,
+      status: activeSessionStatusOf(rec),
       ...(rec.pid === undefined ? {} : { pid: rec.pid }),
       ...(rec.termReceipt === undefined ? {} : { term: rec.termReceipt }),
       ...(rec.killReceipt === undefined ? {} : { kill: rec.killReceipt }),
@@ -895,13 +909,13 @@ export class LocalSessionHost extends EventEmitter {
   private killBinding(bindingId: string): boolean {
     const rec = this.sessions.get(bindingId);
     if (!rec) return false;
-    if (rec.status === "exited") return true;
+    if (sessionStatusOf(rec) === "exited") return true;
     this.requestStop(rec);
     return true;
   }
 
   private requestStop(rec: SessionRec): void {
-    if (rec.status === "exited") return;
+    if (sessionStatusOf(rec) === "exited") return;
     rec.killed = true;
     rec.controlLeaseId = undefined;
     if (rec.pid !== undefined) {
@@ -945,7 +959,11 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private observeData(rec: SessionRec, data: string): void {
-    if (rec.killed || rec.status !== "running" || !this.liveRecords.has(rec)) return;
+    if (
+      rec.killed ||
+      sessionStatusOf(rec) !== "running" ||
+      !this.liveRecords.has(rec)
+    ) return;
     rec.seq = rec.seq + 1n;
     this.pushJournal(rec, { seq: rec.seq, type: "output", data });
     // Single insertion point: every byte already flows here with a seq.
@@ -1002,7 +1020,6 @@ export class LocalSessionHost extends EventEmitter {
         console.error(`[term] identity unbind failed for ${rec.bindingId}@${rec.epoch}:`, error);
       }
     }
-    rec.status = "exited";
     rec.phase = SessionPhase.Closed({
       surface: "native",
       reason: signal !== undefined ? `signal_${signal}` : `exit_${code ?? "null"}`,
@@ -1031,7 +1048,6 @@ export class LocalSessionHost extends EventEmitter {
 
   private failBeforeOwnership(rec: SessionRec, error: unknown): void {
     this.removeLiveRecord(rec);
-    rec.status = "exited";
     rec.phase = SessionPhase.Closed({ surface: "native", reason: "spawn_failed" });
     rec.seq = rec.seq + 1n;
     const message = error instanceof Error ? error.message : String(error);
@@ -1154,7 +1170,12 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private bindProcessIdentity(rec: SessionRec): void {
-    if (!rec.pid || !rec.canvasName || !rec.nodeId || rec.status !== "running") return;
+    if (
+      !rec.pid ||
+      !rec.canvasName ||
+      !rec.nodeId ||
+      sessionStatusOf(rec) !== "running"
+    ) return;
     const identities = getProcessIdentityMap();
     // Unbind only this PID so a replaced epoch's late exit cannot wipe the new bind.
     identities.unbind(rec.pid);
@@ -1175,20 +1196,11 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private summaryOf(rec: SessionRec): TerminalSessionSummary {
-    const fromPhase = productStatusFromSessionPhase(rec.phase);
     return {
       bindingId: rec.bindingId,
       epoch: rec.epoch,
       hostId: rec.hostId,
-      // Prefer domain phase; fall back to legacy status field if phase lag.
-      status:
-        fromPhase === "missing"
-          ? rec.status === "starting"
-            ? "starting"
-            : rec.status === "running"
-              ? "running"
-              : "exited"
-          : fromPhase,
+      status: sessionStatusOf(rec),
       title: rec.title,
       cwd: rec.cwd,
       pid: rec.pid,
