@@ -774,12 +774,11 @@ export interface HostsDeployRemoteResult {
   readonly code?: string;
   readonly message?: string;
   readonly stages?: readonly string[];
-  readonly outcome?: "ready" | "failed" | "rolled-back" | "indeterminate";
+  readonly outcome?: "ready" | "failed" | "indeterminate";
   readonly packageState?: "present" | "previous" | "unknown";
   readonly role?: "remote" | "previous" | "unknown";
   readonly version?: string;
   readonly lastSeen?: string;
-  readonly rollback?: "not-required" | "restored" | "failed";
   readonly statusRecorded?: boolean;
   readonly recoveryAction?: HostsDeployRemoteRecoveryAction;
   /** Present only when one exact Linux target requires fresh OS authorization. */

@@ -71,7 +71,6 @@ const failedResult = (host: RemoteHost): ConfiguredRemoteDeployResult => ({
   outcome: "failed",
   packageState: "previous",
   role: "previous",
-  rollback: "not-required",
   configuration: { ok: false, detail: "capture failed" },
 });
 

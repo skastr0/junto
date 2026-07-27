@@ -46,7 +46,6 @@ const AppVersion = Schema.String.pipe(
 export const StationDeployOutcome = Schema.Literal(
   "ready",
   "failed",
-  "rolled-back",
   "indeterminate",
 );
 export type StationDeployOutcome = typeof StationDeployOutcome.Type;
@@ -61,7 +60,6 @@ export const StationDeployRecord = Schema.Struct({
   role: Schema.Literal("remote", "previous", "unknown"),
   version: AppVersion,
   lastSeen: Schema.optionalWith(DisplayTimestamp, { exact: true }),
-  rollback: Schema.Literal("not-required", "restored", "failed"),
   configurationOk: Schema.Boolean,
   detail: Diagnostic,
   stages: Schema.Array(Stage).pipe(Schema.maxItems(32)),
@@ -136,7 +134,6 @@ export const deployRecordFromResult = (input: {
   readonly role: StationDeployRecord["role"];
   readonly version?: string;
   readonly lastSeen?: string;
-  readonly rollback: StationDeployRecord["rollback"];
   readonly configurationOk: boolean;
   readonly detail: string;
   readonly stages?: ReadonlyArray<string>;
@@ -152,7 +149,6 @@ export const deployRecordFromResult = (input: {
     role: input.role,
     version: input.version?.trim() || "unknown",
     ...(input.lastSeen ? { lastSeen: input.lastSeen } : {}),
-    rollback: input.rollback,
     configurationOk: input.configurationOk,
     detail: input.detail.slice(0, 4_096),
     stages: (input.stages ?? [])
@@ -586,7 +582,6 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
             lastDeployVersion: latestDeployment.version,
             lastDeployAt: latestDeployment.at,
             lastDeployLastSeen: latestDeployment.lastSeen ?? "",
-            lastDeployRollback: latestDeployment.rollback,
           }
         : {}),
     },

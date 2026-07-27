@@ -24,7 +24,6 @@ type Ssh = Context.Tag.Service<typeof SshTransport>;
 export type ConfiguredRemoteDeployOutcome =
   | "ready"
   | "failed"
-  | "rolled-back"
   | "indeterminate";
 
 export type ConfiguredRemoteDeployResult = DeployRemoteResult & {
@@ -35,17 +34,14 @@ export type ConfiguredRemoteDeployResult = DeployRemoteResult & {
   /** Set by the service when durable attempt finalization was requested. */
   readonly statusRecorded?: boolean;
   readonly outcome: ConfiguredRemoteDeployOutcome;
+  /** `previous` is valid only when activation provably never started. */
   readonly packageState: "present" | "previous" | "unknown";
+  /** `previous` is valid only when activation provably never started. */
   readonly role: "remote" | "previous" | "unknown";
   readonly lastSeen?: string;
   readonly station?: StationSettings;
   /** Durable identity returned by the configured Remote Station API. */
   readonly stationInstallationId?: InstallationId;
-  /**
-   * Package rollback only. Station configuration is an app-owned database
-   * transition and is never compensated through host files.
-   */
-  readonly rollback: "not-required" | "restored" | "failed";
   readonly configuration: {
     readonly ok: boolean;
     readonly detail: string;
@@ -116,7 +112,6 @@ const failedBeforeMutation = (
   outcome: "failed",
   packageState: "previous",
   role: "previous",
-  rollback: "not-required",
   configuration: { ok: false, detail: "Station API not called" },
   ...(input.unsupportedTarget === undefined
     ? {}
@@ -134,21 +129,14 @@ const failedPackageResult = (
   deployed: DeployRemoteResult,
 ): ConfiguredRemoteDeployResult => {
   const disposition = deployed.disposition;
-  const rolledBack = disposition === "rolled-back";
   const notStarted = disposition === "not-started";
   return {
     ...deployed,
     ok: false,
     hostEndpoint: host.endpoint,
-    outcome: rolledBack
-      ? "rolled-back"
-      : notStarted
-        ? "failed"
-        : "indeterminate",
-    packageState:
-      rolledBack || notStarted ? "previous" : "unknown",
+    outcome: notStarted ? "failed" : "indeterminate",
+    packageState: notStarted ? "previous" : "unknown",
     role: "previous",
-    rollback: rolledBack ? "restored" : "not-required",
     configuration: {
       ok: false,
       detail: "Station API not called because package readiness was not proven",
@@ -179,7 +167,6 @@ const configurationFailure = (
     outcome: "indeterminate",
     packageState: "present",
     role: "unknown",
-    rollback: "not-required",
     configuration: { ok: false, detail },
   };
 };
@@ -262,7 +249,6 @@ export const deployConfiguredRemoteHost = (
             stationInstallationId:
               configured.right.stationInstallationId,
           }),
-      rollback: "not-required",
       configuration: {
         ok: true,
         detail: configured.right.detail,

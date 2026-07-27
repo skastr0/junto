@@ -12,7 +12,7 @@ import type { LinuxAdministratorCredential } from "./linux-administrator-credent
 export type RemoteDeploymentProgress = readonly string[];
 
 export type RemoteDeploymentDisposition =
-  "not-started" | "ready" | "rolled-back" | "indeterminate";
+  "not-started" | "ready" | "indeterminate";
 
 export type RemoteTargetPlatform = "darwin" | "linux";
 

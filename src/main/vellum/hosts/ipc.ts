@@ -364,7 +364,6 @@ export const projectDeployRemoteResult = (
   role: deploy.role,
   version: deploy.version,
   lastSeen: deploy.lastSeen,
-  rollback: deploy.rollback,
   statusRecorded: deploy.statusRecorded ?? false,
   ...(deploy.recoveryAction === undefined
     ? {}
@@ -865,7 +864,6 @@ export const registerHostsIpc = (
                           outcome: "indeterminate",
                           packageState: "previous",
                           role: "previous",
-                          rollback: "not-required",
                           configurationOk: false,
                           detail,
                           stages: [
@@ -900,7 +898,6 @@ export const registerHostsIpc = (
                           ...(result.lastSeen === undefined
                             ? {}
                             : { lastSeen: result.lastSeen }),
-                          rollback: result.rollback,
                           configurationOk: result.configuration.ok,
                           detail: result.detail,
                           stages: result.stages,

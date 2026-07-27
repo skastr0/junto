@@ -406,7 +406,6 @@ describe("Remote deployment dispatcher", () => {
       outcome: "failed",
       packageState: "previous",
       role: "previous",
-      rollback: "not-required",
       disposition: "not-started",
       unsupportedTarget: { platform: "linux" },
     });

@@ -144,7 +144,6 @@ describe("configured Remote deploy", () => {
       outcome: "ready",
       packageState: "present",
       role: "remote",
-      rollback: "not-required",
       station: successfulConfiguration.station,
       stationInstallationId:
         successfulConfiguration.stationInstallationId,
@@ -205,10 +204,10 @@ describe("configured Remote deploy", () => {
           deployPrepared: () =>
             Effect.succeed({
               ok: false,
-              detail: "package rolled back",
+              detail: "package readiness is indeterminate",
               code: "io",
-              stages: ["rollback"],
-              disposition: "rolled-back",
+              stages: ["activation began", "readiness failed"],
+              disposition: "indeterminate",
             }),
           configure,
         }),
@@ -217,10 +216,9 @@ describe("configured Remote deploy", () => {
 
     expect(result).toMatchObject({
       ok: false,
-      outcome: "rolled-back",
-      packageState: "previous",
+      outcome: "indeterminate",
+      packageState: "unknown",
       role: "previous",
-      rollback: "restored",
     });
     expect(configure).not.toHaveBeenCalled();
   });
@@ -250,7 +248,6 @@ describe("configured Remote deploy", () => {
       outcome: "indeterminate",
       packageState: "present",
       role: "unknown",
-      rollback: "not-required",
       configuration: {
         ok: false,
         detail: "Station control socket unavailable",

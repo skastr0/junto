@@ -275,7 +275,6 @@ export const makeHostsService = (
             outcome: "failed" as const,
             packageState: "previous" as const,
             role: "previous" as const,
-            rollback: "not-required" as const,
             configuration: {
               ok: false,
               detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
@@ -300,7 +299,6 @@ export const makeHostsService = (
             outcome: "failed" as const,
             packageState: "previous" as const,
             role: "previous" as const,
-            rollback: "not-required" as const,
             configuration: { ok: false, detail: hostResult.left.message },
           } satisfies ConfiguredRemoteDeployResult;
         }
@@ -318,7 +316,6 @@ export const makeHostsService = (
             outcome: "failed" as const,
             packageState: "previous" as const,
             role: "previous" as const,
-            rollback: "not-required" as const,
             configuration: { ok: false, detail },
           } satisfies ConfiguredRemoteDeployResult;
         }
@@ -342,7 +339,6 @@ export const makeHostsService = (
                   outcome: "failed" as const,
                   packageState: "previous" as const,
                   role: "previous" as const,
-                  rollback: "not-required" as const,
                   statusRecorded: false,
                   configuration: { ok: false, detail },
                 } satisfies ConfiguredRemoteDeployResult;
