@@ -412,8 +412,6 @@ export function FleetDetailPanel({
   readonly ccHostId: string;
   readonly onClose: () => void;
   readonly onClaimPeer: (peer: DiscoveredPeer) => void;
-  /** @deprecated Detail uses static avatars — kept optional for call-site stability. */
-  readonly ditherPixelSize?: number;
 }) {
   const reach = selection.kind === "station" ? reachabilityLine(probe) : undefined;
   const stationModel =

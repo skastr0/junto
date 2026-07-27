@@ -13,7 +13,12 @@ import {
   watcherMayTargetAgent,
 } from "../src/shared/station";
 import { defaultSettings, applySettingsPatch } from "../src/shared/settings";
-import { makeAgentNode, makeHerdrNode, makePageNode, makeWatcherNode } from "../src/renderer/lib/node-factories";
+import {
+  makeHerdrNode,
+  makeManagedAgentNode,
+  makePageNode,
+  makeWatcherNode,
+} from "../src/renderer/lib/node-factories";
 
 describe("station role settings", () => {
   it("defaults to unset role and local host id", () => {
@@ -35,7 +40,12 @@ describe("station role settings", () => {
 
 describe("node host assignment", () => {
   it("factories stamp host on executable nodes", () => {
-    const agent = makeAgentNode(0, 0, "codex", "local:codex");
+    const agent = makeManagedAgentNode(0, 0, {
+      harness: "claude",
+      host: "local",
+      profile: "codex",
+      label: "codex",
+    });
     const page = makePageNode(0, 0, "https://example.com");
     const watcher = makeWatcherNode(0, 0, "remote-a");
     const herdr = makeHerdrNode(0, 0, {

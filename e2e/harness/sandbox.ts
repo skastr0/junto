@@ -228,7 +228,7 @@ export const herdrTextNode = (input: {
   },
 });
 
-/** An agent-bound node matching makeAgentNode's shape.
+/** An agent-bound node for the scripted ACP scenario.
  * Double-click opens its ACP work surface. `key` is a hermes agent key
  * ("<host>:<profile>"). */
 export const agentTextNode = (input: {

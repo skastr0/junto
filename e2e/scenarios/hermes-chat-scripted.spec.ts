@@ -7,8 +7,7 @@ import { expect, launchVellum, test } from "../harness/launch";
 
 // Real spawn->ACP pipeline against a fake `hermes acp` on PATH — no demo
 // mode. The canvas node carries ether.entity {kind:"agent", name: AGENT_KEY}
-// directly (the same shape src/renderer/lib/node-factories.ts's
-// makeAgentNode produces), so opening it mounts the real ChatView without
+// directly, so opening it mounts the real ChatView without
 // depending on the hermes-fleet discovery poll to have landed first.
 
 const AGENT_KEY = "local:default";

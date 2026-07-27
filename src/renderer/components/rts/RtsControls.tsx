@@ -93,9 +93,6 @@ export function KindKey({
   );
 }
 
-/** @deprecated prefer KindKey — alias kept for local call sites during cutover */
-const Key = KindKey;
-
 // --- pause key (left panel base action; node + region scope) -----------------
 
 /**
@@ -130,7 +127,7 @@ export function PauseScopeKey({ scope }: { readonly scope: PauseScope }) {
 
   const noun = scope.kind;
   return (
-    <Key
+    <KindKey
       label={paused ? `Resume ${noun}` : `Pause ${noun}`}
       title={
         error
@@ -147,7 +144,7 @@ export function PauseScopeKey({ scope }: { readonly scope: PauseScope }) {
       onClick={toggle}
     >
       {paused ? <Play size={ICON} /> : <Pause size={ICON} />}
-    </Key>
+    </KindKey>
   );
 }
 
@@ -190,26 +187,26 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
           </div>
         </div>
         <div className="rts-cmd-keys" role="toolbar" aria-label="Relation actions">
-          <Key
+          <KindKey
             label="Toggle arrow at source"
             title="arrowhead on the from end"
             active={edge.fromEnd === "arrow"}
             onClick={() => toggleEdgeArrow(edgeId, "from")}
           >
             <ArrowLeft size={ICON} />
-          </Key>
-          <Key
+          </KindKey>
+          <KindKey
             label="Toggle arrow at target"
             title="arrowhead on the to end"
             active={edge.toEnd === "arrow"}
             onClick={() => toggleEdgeArrow(edgeId, "to")}
           >
             <ArrowRight size={ICON} />
-          </Key>
+          </KindKey>
           <span className="rts-cmd-keys__rule" aria-hidden />
-          <Key label="Delete relation" danger onClick={() => deleteEdges([edgeId])}>
+          <KindKey label="Delete relation" danger onClick={() => deleteEdges([edgeId])}>
             <Trash2 size={ICON} />
-          </Key>
+          </KindKey>
         </div>
       </div>
     </div>
@@ -282,16 +279,16 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
 
   return (
     <>
-      <Key
+      <KindKey
         label="Open work surface"
         title={`open · ${herdr.host}`}
         style={{ color: HUE.cyan }}
         onClick={() => openHerdrTerminal(node.id, herdr, nodeTitle(node))}
       >
         <OpenHerdrMark size={ICON} />
-      </Key>
+      </KindKey>
       {canMarkSeen ? (
-        <Key
+        <KindKey
           label="Mark seen"
           title="mark pane seen (done → idle)"
           style={{ color: HUE.amber }}
@@ -301,10 +298,10 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
           }}
         >
           <CheckCheck size={ICON} />
-        </Key>
+        </KindKey>
       ) : null}
       {canKill ? (
-        <Key
+        <KindKey
           label={killArmed ? "Confirm kill pane" : "Kill pane"}
           title={killArmed ? "click again to kill pane" : "arm kill pane (3s)"}
           danger
@@ -313,7 +310,7 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
           onClick={fireKill}
         >
           <SquareX size={ICON} />
-        </Key>
+        </KindKey>
       ) : null}
     </>
   );
@@ -348,22 +345,22 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
 
   return (
     <>
-      <Key
+      <KindKey
         label="Open task board"
         title="open the full task board"
         style={{ color: HUE.cyan }}
         onClick={() => openWorkDetail(node.id)}
       >
         <ListChecks size={ICON} />
-      </Key>
-      <Key
+      </KindKey>
+      <KindKey
         label={adding ? "Close add task" : "Add task"}
         title="submit a task to this sink"
         active={adding}
         onClick={() => setAdding((open) => !open)}
       >
         <Plus size={ICON} />
-      </Key>
+      </KindKey>
       {adding ? (
         <div className="rts-kind-pop">
           <label className="rts-kind-pop__field">
@@ -392,7 +389,7 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
   const doc = use$(state$.doc);
   const regionId = regionsContaining(doc, node.id)[0];
   return (
-    <Key
+    <KindKey
       label="Pulse now"
       title={
         regionId
@@ -408,7 +405,7 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
       }}
     >
       <Zap size={ICON} />
-    </Key>
+    </KindKey>
   );
 }
 
@@ -420,40 +417,40 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
       // Managed terminal is the only agent surface; ACP chat is hard-hidden.
       if (ACP_CHAT_SURFACE_HIDDEN) return null;
       return (
-        <Key
+        <KindKey
           label="Open chat"
           title="open the agent chat surface"
           style={{ color: HUE.cyan }}
           onClick={() => openAgentChatSurface(node)}
         >
           <MessageSquareText size={ICON} />
-        </Key>
+        </KindKey>
       );
     case "herdr":
       return <HerdrKindKeys node={node} />;
     case "terminal":
       return (
-        <Key
+        <KindKey
           label="Open terminal"
           title="open the terminal surface"
           style={{ color: HUE.cyan }}
           onClick={() => void openTerminal(node)}
         >
           <Terminal size={ICON} />
-        </Key>
+        </KindKey>
       );
     case "task":
       return <TaskKindKeys node={node} />;
     case "requests":
       return (
-        <Key
+        <KindKey
           label="Open request inbox"
           title="open the request inbox"
           style={{ color: HUE.cyan }}
           onClick={() => openWorkDetail(node.id)}
         >
           <Inbox size={ICON} />
-        </Key>
+        </KindKey>
       );
     case "watcher":
     case "timer":
@@ -486,14 +483,14 @@ export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
         {fromNode ? nodeTitle(fromNode) : "?"} → {toNode ? nodeTitle(toNode) : "?"}
       </span>
       <span className="rts-kind-strip__meta">{summary}</span>
-      <Key
+      <KindKey
         label={editorOpen ? "Close criteria editor" : "Edit stop criteria"}
         title="edit when this relation stops flow"
         active={editorOpen}
         onClick={() => setEditorOpen((open) => !open)}
       >
         <SlidersHorizontal size={ICON} />
-      </Key>
+      </KindKey>
       {editorOpen ? (
         <div className="rts-kind-pop rts-kind-pop--editor">
           <EdgeCriteriaEditor

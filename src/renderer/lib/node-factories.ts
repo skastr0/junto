@@ -153,28 +153,6 @@ export const makeManagedAgentNode = (
   };
 };
 
-/**
- * @deprecated Bare agents are illegal. Always creates a managed-terminal seat.
- * Prefer makeManagedAgentNode with an explicit harness.
- */
-export const makeAgentNode = (
-  x: number,
-  y: number,
-  label: string,
-  key: string,
-  host = "local",
-): TextNode => {
-  const parts = key.split(":");
-  const profile = parts.length > 1 ? parts.slice(1).join(":") : undefined;
-  // Default harness claude — legacy callers must not produce agent-without-terminal.
-  return makeManagedAgentNode(x, y, {
-    harness: "claude",
-    host,
-    ...(profile ? { profile } : {}),
-    label,
-  });
-};
-
 // A tasks node — task list; blocks only when edged with criteria.mode tasks.
 export const makeTasksNode = (x: number, y: number): TextNode => ({
   id: `task-${ulid()}`,

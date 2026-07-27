@@ -70,6 +70,10 @@ describe("factory physics architecture", () => {
       [/["'`]half-agent["'`]|\bhalfAgent\b/u, "an actor is legal or it is not; there is no half"],
       [/\bdemoteActor\b|["'`]demote["'`]/u, "the decoder never rewrites what a node is"],
       [/\bmanagedAgentKind\b|["'`]managed-agent["'`]/u, "managed-ness is not a kind"],
+      [
+        /\bmakeAgentNode\b/u,
+        "agent construction requires an explicit managed-terminal harness",
+      ],
       // Reserved as a KIND, not as a word: a fixture node may still be labelled
       // "worker". What must not appear is worker-as-a-node-kind.
       [
