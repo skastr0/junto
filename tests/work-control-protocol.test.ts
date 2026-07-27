@@ -3,10 +3,8 @@ import { Either, Schema } from "effect";
 import {
   TasksClaimArgs,
   WorkOpName,
-  WorkRequestEnvelope,
   decodeWorkRequest,
   decodeWorkResponse,
-  validateNodeRefString,
   workErr,
   workOk,
   WORK_PROTOCOL_VERSION,
@@ -34,7 +32,6 @@ describe("work-control wire schemas", () => {
   it("decodes a valid request envelope", () => {
     const raw = {
       token: "abc",
-      nodeRef: "vellum://canvas/demo?node=agent-1",
       op: "tasks.claim",
       args: { target: "tasks", task: "t1" },
     };
@@ -49,10 +46,22 @@ describe("work-control wire schemas", () => {
   it("rejects unknown ops", () => {
     const decoded = decodeWorkRequest({
       token: "t",
-      nodeRef: "vellum://canvas/demo?node=a",
       op: "tasks.create",
     });
     expect(Either.isLeft(decoded)).toBe(true);
+  });
+
+  it("rejects the retired client nodeRef field", () => {
+    const decoded = decodeWorkRequest({
+      token: "t",
+      nodeRef: "vellum://canvas/demo?node=agent-1",
+      op: "ping",
+    });
+    expect(Either.isLeft(decoded)).toBe(true);
+    if (Either.isLeft(decoded)) {
+      expect(decoded.left.message).toContain("nodeRef");
+      expect(decoded.left.message).toContain("unexpected");
+    }
   });
 
   it("round-trips response ok/err", () => {
@@ -64,23 +73,12 @@ describe("work-control wire schemas", () => {
     expect(err.error.type).toBe("AuthError");
   });
 
-  it("validates TasksClaimArgs and node refs", () => {
+  it("validates TasksClaimArgs", () => {
     const good = Schema.decodeUnknownEither(TasksClaimArgs)({
       target: "n7",
       task: "t1",
     });
     expect(Either.isRight(good)).toBe(true);
-
-    const ref = validateNodeRefString("vellum://canvas/demo?node=agent-1");
-    expect(ref.ok).toBe(true);
-    if (ref.ok) {
-      expect(ref.value.canvasName).toBe("demo");
-      expect(ref.value.nodeId).toBe("agent-1");
-    }
-
-    const bad = validateNodeRefString("not-a-ref");
-    expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.error.type).toBe("StaleNodeRef");
   });
 
   it("enumerates every WorkOpName", () => {

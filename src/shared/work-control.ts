@@ -1,5 +1,4 @@
 import { Either, Schema } from "effect";
-import { parseNodeRef } from "./node-ref";
 import { TaskState } from "./canvas";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
@@ -99,11 +98,6 @@ export type WorkErrorBody = typeof WorkErrorBody.Type;
 
 export const WorkRequestEnvelope = Schema.Struct({
   token: Schema.String,
-  /**
-   * Deprecated identity claim. Process-bind (Unix peer PID) is the principal.
-   * Accepted for wire compatibility but ignored for authorization.
-   */
-  nodeRef: Schema.optionalWith(Schema.String, { exact: true }),
   op: WorkOpName,
   args: Schema.optionalWith(Schema.Unknown, { exact: true }),
   id: Schema.optionalWith(Schema.String, { exact: true }),
@@ -131,7 +125,9 @@ export type WorkResponseErr = typeof WorkResponseErr.Type;
 export const WorkResponseEnvelope = Schema.Union(WorkResponseOk, WorkResponseErr);
 export type WorkResponseEnvelope = typeof WorkResponseEnvelope.Type;
 
-export const decodeWorkRequest = Schema.decodeUnknownEither(WorkRequestEnvelope);
+export const decodeWorkRequest = Schema.decodeUnknownEither(WorkRequestEnvelope, {
+  onExcessProperty: "error",
+});
 export const decodeWorkResponse = Schema.decodeUnknownEither(WorkResponseEnvelope);
 
 export const workOk = (
@@ -313,31 +309,6 @@ export type EmptyArgs = typeof EmptyArgs.Type;
 
 // ---------------------------------------------------------------------------
 // Helpers
-
-export const validateNodeRefString = (
-  input: string,
-):
-  | { readonly ok: true; readonly value: { readonly canvasName: string; readonly nodeId: string } }
-  | { readonly ok: false; readonly error: WorkErrorBody } => {
-  const parsed = parseNodeRef(input);
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      error: {
-        type: "StaleNodeRef",
-        message: parsed.error.message,
-        details: {
-          path: "nodeRef",
-          received: input,
-          hint: "use a canonical vellum://canvas/<name>?node=<id> reference",
-          next_step: "use a canonical vellum://canvas/<name>?node=<id> reference",
-          retryable: false,
-        },
-      },
-    };
-  }
-  return { ok: true, value: parsed.value };
-};
 
 export const stripTokenFromLog = (value: unknown): unknown => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return value;

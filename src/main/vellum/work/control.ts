@@ -188,12 +188,9 @@ export const workTokenMatches = (
 // ---------------------------------------------------------------------------
 // Admission: the local work-file token proves reach; process-bind proves who.
 
-export type WorkIdentityTier = "process-bind";
-
 export type WorkIdentityAdmission =
   | {
       readonly ok: true;
-      readonly tier: "process-bind";
       readonly peerPid: number;
       readonly principal: ProcessPrincipal;
     }
@@ -232,7 +229,6 @@ export const admitWorkIdentity = (input: {
     }
     return {
       ok: true,
-      tier: "process-bind",
       peerPid: identity.peerPid,
       principal: identity.principal,
     };
@@ -387,17 +383,12 @@ const requireTarget = (
   return { node: admitted.right.node };
 };
 
-/**
- * Work-control caller: canvas seat + admission tier.
- * I16: proof stamps only for process-bind (Tier 2). Route-token (Tier 3)
- * may use the work plane but must not mint trust-plane stamps.
- */
+/** Work-control caller resolved through the sole process-bind admission path. */
 type WorkCaller = {
   readonly canvasName: string;
   readonly nodeId: string;
   /** Occupant label for proof stamps / logs. */
   readonly occupant: string;
-  readonly tier: WorkIdentityTier;
 };
 
 const dispatchOp = (
@@ -728,20 +719,17 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      // I16: only process-bind (Tier 2) may mint proof stamps.
-      // Route-token (Tier 3) publishes artifacts without trust-plane stamps.
-      // Renderer IPC publish also does not write stamps (no side-door).
-      if (caller.tier === "process-bind") {
-        const authority = artifactPublishAuthority({
-          canvasName: caller.canvasName,
-          seat: caller.nodeId,
-          occupant: caller.occupant,
-          sinkNodeId: decoded.right.target,
-        });
-        const stamp = extractProofStamp(authority, mapped.right);
-        if (stamp) {
-          globalStampRuntime.recordStamp(authority, stamp);
-        }
+      // Work control admits process-bound callers only. Renderer IPC publish
+      // does not write stamps, so it cannot become a trust-plane side door.
+      const authority = artifactPublishAuthority({
+        canvasName: caller.canvasName,
+        seat: caller.nodeId,
+        occupant: caller.occupant,
+        sinkNodeId: decoded.right.target,
+      });
+      const stamp = extractProofStamp(authority, mapped.right);
+      if (stamp) {
+        globalStampRuntime.recordStamp(authority, stamp);
       }
       return mapped.right;
     }
@@ -1113,8 +1101,8 @@ export const startWorkControlServer = async (
 
       const req = decoded.right;
 
-      // Dual path: work-file token + process-bind (Tier 2), else route-token
-      // seat principal (Tier 3). Client-supplied nodeRef is never identity.
+      // The work-file token proves owner-local reach; process-bind is the sole
+      // caller identity.
       const admission = admitWorkIdentity({
         localToken: token,
         presentedToken: req.token,
@@ -1211,7 +1199,6 @@ export const startWorkControlServer = async (
                 canvasName: callerResolved.caller.canvasName,
                 nodeId: callerResolved.caller.nodeId,
                 occupant,
-                tier: admission.tier,
               };
               return options.run(
                 dispatchOp(req.op, req.args, caller, options.version).pipe(

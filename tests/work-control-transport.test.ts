@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { formatNodeRef } from "../src/shared/node-ref";
 import {
   WORK_PROTOCOL_VERSION,
   decodeWorkResponse,
@@ -268,8 +267,6 @@ afterEach(async () => {
   delete process.env.VELLUM_CANVASES_DIR;
   delete process.env.VELLUM_WORK_HOME;
 });
-
-const nodeRef = formatNodeRef({ canvasName: "work-cli", nodeId: "agent" });
 
 const token = (): string => {
   const workHome = process.env.VELLUM_WORK_HOME!;
@@ -658,31 +655,31 @@ describe("work control transport", () => {
     expect(admitted.ok).toBe(true);
   });
 
-  it("ignores forged nodeRef — process principal wins", async () => {
+  it("rejects the retired client nodeRef field", async () => {
     const server = servers[0]!;
-    // Client claims a different canvas/node; identity is process-bind only.
-    const forged = await call(server.socketPath, {
+    const response = (await call(server.socketPath, {
       token: token(),
       nodeRef: "vellum://canvas/other?node=impostor",
       op: "capabilities",
+    })) as {
+      ok: false;
+      error: {
+        type: string;
+        message: string;
+        details?: { path?: string; retryable?: boolean };
+      };
+    };
+    expect(response.ok).toBe(false);
+    expect(response.error.type).toBe("ProtocolError");
+    expect(response.error.message).toContain("nodeRef");
+    expect(response.error.message).toContain("unexpected");
+    expect(response.error.details).toMatchObject({
+      path: "request",
+      retryable: false,
     });
-    const decoded = decodeWorkResponse(forged);
-    expect(decoded._tag).toBe("Right");
-    if (decoded._tag === "Right") {
-      expect(decoded.right.ok).toBe(true);
-      if (decoded.right.ok) {
-        const data = decoded.right.data as {
-          node?: { id?: string };
-          connected?: ReadonlyArray<{ id: string }>;
-        };
-        // Still the process-bound agent card, not the forged impostor.
-        expect(data.node?.id).toBe("agent");
-        expect(data.connected?.some((c) => c.id === "tasks")).toBe(true);
-      }
-    }
   });
 
-  it("denies unbound peer regardless of nodeRef", async () => {
+  it("denies an unbound peer", async () => {
     // Spin a one-off server with empty process map.
     const root = await mkdtemp(join(tmpdir(), "vellum-work-unbound-"));
     roots.push(root);
@@ -707,7 +704,6 @@ describe("work control transport", () => {
     servers.push(unboundServer);
     const res = (await call(unboundServer.socketPath, {
       token: readFileSync(workControlTokenPath(workHome), "utf8").trim(),
-      nodeRef,
       op: "ping",
     })) as { ok: false; error: { type: string; message: string } };
     expect(res.ok).toBe(false);
@@ -719,7 +715,6 @@ describe("work control transport", () => {
     const server = servers[0]!;
     const res = (await call(server.socketPath, {
       token: "wrong-token-value-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      nodeRef,
       op: "ping",
     })) as { ok: false; error: { type: string } };
     expect(res.ok).toBe(false);
@@ -759,7 +754,6 @@ describe("work control transport", () => {
 
     const second = (await call(server.socketPath, {
       token: token(),
-      nodeRef,
       op: "ping",
     })) as { ok: boolean };
     expect(second.ok).toBe(true);
@@ -769,7 +763,6 @@ describe("work control transport", () => {
     const server = servers[0]!;
     const res = (await call(server.socketPath, {
       token: token(),
-      nodeRef,
       op: "tasks.list",
       args: { target: "orphan-tasks" },
     })) as { ok: false; error: { type: string; message: string; details?: { missing?: string } } };
@@ -782,7 +775,6 @@ describe("work control transport", () => {
     const server = servers[0]!;
     const res = (await call(server.socketPath, {
       token: token(),
-      nodeRef,
       op: "tasks.claim",
       args: { target: "tasks", task: "t1", actor: "agent" },
     })) as { ok: true; data: { id: string; state: string; metadata?: { claimedBy?: string } } };
@@ -795,13 +787,11 @@ describe("work control transport", () => {
     const server = servers[0]!;
     await call(server.socketPath, {
       token: token(),
-      nodeRef,
       op: "tasks.claim",
       args: { target: "tasks", task: "t1", actor: "agent" },
     });
     const res = (await call(server.socketPath, {
       token: token(),
-      nodeRef,
       op: "tasks.claim",
       args: { target: "tasks", task: "t1", actor: "other" },
     })) as { ok: false; error: { type: string; details?: { holder?: string } } };
@@ -814,7 +804,6 @@ describe("work control transport", () => {
     const server = servers[0]!;
     const res = (await call(server.socketPath, {
       token: token(),
-      nodeRef,
       op: "capabilities",
     })) as {
       ok: true;
@@ -834,7 +823,6 @@ describe("work control transport", () => {
     const server = servers[0]!;
     const res = await call(server.socketPath, {
       token: token(),
-      nodeRef,
       op: "onboard",
     });
     const raw = JSON.stringify(res);

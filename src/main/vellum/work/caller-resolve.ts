@@ -4,8 +4,8 @@ import { findNode, nodeKind } from "./authz";
 import { resolveSpec, roleOf } from "@shared/physics";
 import { isGroup } from "@shared/graph";
 
-// Resolve a process-bound principal to a concrete canvas caller node.
-// Agents never claim a nodeRef — main finds the live agent card(s).
+// Resolve a process-bound principal to a concrete canvas caller node. Caller
+// identity comes only from the main-owned process registration.
 //
 // Doctrine: resolution uses live in-process canvas authority only. Raw disk
 // scans must never mint capability from external file edits.
@@ -26,7 +26,7 @@ export type CallerResolveResult =
   | CallerResolveFailure;
 
 /**
- * Seat match for process-bind and route-token principals.
+ * Seat match for a process-bound principal.
  * When both id and role key are present, both must match (no id-only forge).
  */
 export const matchesPrincipal = (
