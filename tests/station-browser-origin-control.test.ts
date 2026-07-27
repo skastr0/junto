@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { request } from "node:http";
+import { Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CONTROL_REQUEST_ID_HEADER,
@@ -23,9 +24,12 @@ import type { StationBrowserRouter } from "../src/main/vellum/browser/station-ro
 import type { BrowserCapabilityRegistry } from "../src/main/vellum/browser/capabilities";
 import type { EdgeGrantService } from "../src/main/vellum/browser/edge-grant";
 import type { BrowserSessionService } from "../src/main/vellum/browser/sessions";
+import { InstallationId } from "../src/shared/station-api";
 
 const roots: string[] = [];
 const servers: BrowserControlServer[] = [];
+const commandInstallationId =
+  Schema.decodeUnknownSync(InstallationId)("command-a");
 
 afterEach(async () => {
   for (const server of servers.splice(0)) await server.close();
@@ -154,7 +158,7 @@ describe("host-qualified station browser origin control route", () => {
         target: StationBrowserDelegationTarget,
       ) => {
         events.push(`admit:${target.targetStationId}`);
-        return admitOperatorUiDelegation("command-a", target);
+        return admitOperatorUiDelegation(commandInstallationId, target);
       },
     };
     const routed: unknown[] = [];
@@ -219,7 +223,7 @@ describe("host-qualified station browser origin control route", () => {
     const stack = await start({
       preflight: async () => undefined,
       admit: async (target) =>
-        admitOperatorUiDelegation("command-a", target),
+        admitOperatorUiDelegation(commandInstallationId, target),
     }, routed);
     const missingId = await post(
       stack.home,

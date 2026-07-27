@@ -10,13 +10,16 @@ import {
   canonicalStationBrowserJson,
   decodeStationBrowserPinnedTrustRecord,
   StationBrowserKeyId,
-  StationBrowserStationId,
   StationBrowserTrustGeneration,
   STATION_BROWSER_TRUST_MAX_BYTES,
   STATION_BROWSER_TRUST_MAX_GENERATION,
   StationBrowserTrustTimestamp,
   type StationBrowserPinnedTrustRecord,
 } from "@shared/station-browser";
+import {
+  InstallationId,
+  type InstallationId as InstallationIdValue,
+} from "@shared/station-api";
 import {
   StateEngine,
   type StateEngineError,
@@ -29,7 +32,7 @@ import type { StationBrowserTrust } from "./station-delegation";
 export { STATION_BROWSER_TRUST_MAX_BYTES };
 
 const decodeKeyId = Schema.decodeUnknownSync(StationBrowserKeyId);
-const decodeStationId = Schema.decodeUnknownSync(StationBrowserStationId);
+const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeGeneration = Schema.decodeUnknownSync(
   StationBrowserTrustGeneration,
 );
@@ -105,7 +108,7 @@ const attempt = <A>(
 type OriginKeyRecord = Readonly<{
   generation: number;
   keyId: string;
-  originStationId: string;
+  originStationId: InstallationIdValue;
   createdAt: number;
   privateKeyPkcs8: Uint8Array;
   publicKeySpki: Uint8Array;
@@ -130,12 +133,19 @@ type PinnedTrustRow = StateRow & {
   readonly updated_at: number;
 };
 
+type AdmittedPinnedTrustRecord = Omit<
+  StationBrowserPinnedTrustRecord,
+  "originStationId"
+> & Readonly<{
+  originStationId: InstallationIdValue;
+}>;
+
 declare const originKeyBrand: unique symbol;
 export interface StationBrowserOriginKey {
   readonly [originKeyBrand]: never;
   readonly generation: number;
   readonly keyId: string;
-  readonly originStationId: string;
+  readonly originStationId: InstallationIdValue;
   readonly createdAt: number;
   readonly privateKey: KeyObject;
   readonly publicKey: KeyObject;
@@ -171,12 +181,12 @@ const originRecordFromRow = (row: OriginKeyRow): OriginKeyRecord => {
   const operation = "read-origin-key";
   let generation: number;
   let keyId: string;
-  let originStationId: string;
+  let originStationId: InstallationIdValue;
   let createdAt: number;
   try {
     generation = decodeGeneration(row.generation);
     keyId = decodeKeyId(row.key_id);
-    originStationId = decodeStationId(row.origin_station_id);
+    originStationId = decodeInstallationId(row.origin_station_id);
     createdAt = decodeTimestamp(row.created_at);
   } catch {
     return throwTrustError(
@@ -275,11 +285,11 @@ const materializeOriginKey = (
 };
 
 const createOriginRecord = (
-  originStationId: string,
+  originStationId: InstallationIdValue,
   generation: number,
   createdAt: number,
 ): OriginKeyRecord => {
-  const admittedOriginStationId = decodeStationId(originStationId);
+  const admittedOriginStationId = decodeInstallationId(originStationId);
   const admittedGeneration = decodeGeneration(generation);
   const admittedCreatedAt = decodeTimestamp(createdAt);
   const pair = generateKeyPairSync("ed25519");
@@ -356,10 +366,12 @@ const sameOriginRecord = (
   ) &&
   Buffer.from(left.publicKeySpki).equals(Buffer.from(right.publicKeySpki));
 
-const admitPinnedRecord = (value: unknown): StationBrowserPinnedTrustRecord => {
+const admitPinnedRecord = (value: unknown): AdmittedPinnedTrustRecord => {
   let record: StationBrowserPinnedTrustRecord;
+  let originInstallationId: InstallationIdValue;
   try {
     record = decodeStationBrowserPinnedTrustRecord(value);
+    originInstallationId = decodeInstallationId(record.originStationId);
   } catch {
     return throwTrustError(
       "invalid",
@@ -395,7 +407,10 @@ const admitPinnedRecord = (value: unknown): StationBrowserPinnedTrustRecord => {
       );
     }
   }
-  return Object.freeze({ ...record });
+  return Object.freeze({
+    ...record,
+    originStationId: originInstallationId,
+  });
 };
 
 export const decodeStationBrowserPinnedTrustFrame = (
@@ -431,7 +446,7 @@ export const decodeStationBrowserPinnedTrustFrame = (
 
 const pinnedRecordFromRow = (
   row: PinnedTrustRow,
-): StationBrowserPinnedTrustRecord =>
+): AdmittedPinnedTrustRecord =>
   admitPinnedRecord({
     version: 1,
     generation: row.generation,
@@ -454,7 +469,7 @@ const pinnedRecordFromRow = (
 
 const selectLatestPinnedRecord = (
   reader: StateReader,
-): StationBrowserPinnedTrustRecord | undefined => {
+): AdmittedPinnedTrustRecord | undefined => {
   const row = reader.get<PinnedTrustRow>(
     `SELECT
        generation,
@@ -473,7 +488,7 @@ const selectLatestPinnedRecord = (
 
 const insertPinnedRecord = (
   writer: StateWriter,
-  record: StationBrowserPinnedTrustRecord,
+  record: AdmittedPinnedTrustRecord,
 ): void => {
   writer.run(
     `INSERT INTO browser_pinned_origin_trust(
@@ -623,7 +638,7 @@ export class StationBrowserTrustRepository extends Context.Tag(
   StationBrowserTrustRepository,
   {
     readonly loadOrCreateOriginKey: (
-      originStationId: string,
+      originInstallationId: InstallationIdValue,
       now?: number,
     ) => Effect.Effect<StationBrowserOriginKey, StationBrowserTrustError>;
     readonly rotateOriginKey: (
@@ -660,10 +675,13 @@ export const makeStationBrowserTrustRepositoryLive = (): Layer.Layer<
 
       const loadOrCreateOriginKey = Effect.fn(
         "StationBrowserTrustRepository.loadOrCreateOriginKey",
-      )(function* (originStationId: string, now = Date.now()) {
+      )(function* (
+        originInstallationId: InstallationIdValue,
+        now = Date.now(),
+      ) {
         const admittedOriginStationId = yield* attempt(
           "load-or-create-origin-key",
-          () => decodeStationId(originStationId),
+          () => decodeInstallationId(originInstallationId),
         );
         const admittedNow = yield* attempt("load-or-create-origin-key", () =>
           decodeTimestamp(now),

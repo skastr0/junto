@@ -3,6 +3,7 @@ import { Effect, type Context } from "effect";
 import type { CanvasDoc } from "@shared/canvas";
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { StationRole } from "@shared/station";
+import type { InstallationId } from "@shared/station-api";
 import type { BrowserSessionService } from "./sessions";
 import type { PageTargetResolver } from "./page-target";
 import type { BrowserStationAdmissionAuthority } from "./station-admission";
@@ -34,6 +35,8 @@ export interface StationBrowserRuntimeRoutes {
 
 export interface StationBrowserRuntimeDeps {
   readonly home: string;
+  /** Stable identity of this SQLite installation, never a canvas host id. */
+  readonly installationId: InstallationId;
   readonly trust: Context.Tag.Service<
     typeof StationBrowserTrustRepository
   >;
@@ -93,7 +96,7 @@ export const prepareStationBrowserRuntimeRoutes = async (
   if (identity.role === "command-center") {
     // Validate custody before the control socket can become reachable.
     await Effect.runPromise(
-      deps.trust.loadOrCreateOriginKey(identity.hostId),
+      deps.trust.loadOrCreateOriginKey(deps.installationId),
     );
   } else {
     // A missing pin is an allowed, closed state. A malformed ledger is not.
@@ -142,7 +145,7 @@ export const prepareStationBrowserRuntimeRoutes = async (
         throw new StationBrowserRuntimeCompositionError();
       }
       const key = await Effect.runPromise(
-        deps.trust.loadOrCreateOriginKey(identity.hostId),
+        deps.trust.loadOrCreateOriginKey(deps.installationId),
       );
       return { keyId: key.keyId, privateKey: key.privateKey };
     },
@@ -159,6 +162,7 @@ export const prepareStationBrowserRuntimeRoutes = async (
           );
         }
         return makeAgentStationBrowserRouteAdmission({
+          originInstallationId: deps.installationId,
           stationId: identity.hostId,
           socket,
           readCanvas: deps.readCanvas,

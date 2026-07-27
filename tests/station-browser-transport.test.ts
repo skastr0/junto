@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import {
@@ -10,10 +10,13 @@ import {
   DARWIN_PACKAGED_BROWSER_EXECUTABLE,
 } from "../src/main/vellum/ssh/read-commands";
 import type { SshTransport } from "../src/main/vellum/ssh/service";
+import { InstallationId } from "../src/shared/station-api";
 
 const keys = generateKeyPairSync("ed25519");
+const commandInstallationId =
+  Schema.decodeUnknownSync(InstallationId)("command-a");
 const hosts = [{ id: "remote-a", label: "Remote A", kind: "remote" as const, endpoint: "remote-a", capabilities: ["browser"] as const }];
-const envelope = () => mintStationBrowserEnvelope(admitOperatorUiDelegation("command-a"), {
+const envelope = () => mintStationBrowserEnvelope(admitOperatorUiDelegation(commandInstallationId), {
   version: 1, requestId: "request-1", targetStationId: "remote-a", action: "doctor", issuedAt: 1_700_000_000_000, expiresAt: 1_700_000_030_000, nonce: "nonce-1",
 }, "fleet-1", keys.privateKey);
 const reply = JSON.stringify({ version: 1, requestId: "request-1", action: "doctor", ok: true, hostId: "remote-a", data: { role: "remote", browserReady: true }, error: null });

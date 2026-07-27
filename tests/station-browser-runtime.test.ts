@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Socket } from "node:net";
-import { Effect, type Context } from "effect";
+import { Effect, Schema, type Context } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import type { StationRole } from "../src/shared/station";
 import type { BrowserSessionService } from "../src/main/vellum/browser/sessions";
@@ -21,8 +21,12 @@ import {
   type StationBrowserOriginKey,
 } from "../src/main/vellum/browser/station-trust";
 import { decodeStationBrowserResponse } from "../src/shared/station-browser";
+import { InstallationId } from "../src/shared/station-api";
 
 const roots: string[] = [];
+const commandInstallationId = Schema.decodeUnknownSync(InstallationId)(
+  "11111111-1111-4111-8111-111111111111",
+);
 afterEach(async () => {
   for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true });
@@ -60,17 +64,22 @@ const trustHarness = (
   const originKey = {
     generation: 1,
     keyId: "ed25519-test-origin",
-    originStationId: "local",
+    originStationId: commandInstallationId,
     createdAt: 1,
     privateKey: pair.privateKey,
     publicKey: pair.publicKey,
   } as StationBrowserOriginKey;
   let originLoads = 0;
+  const loadedInstallationIds: string[] = [];
   let pinnedLoads = 0;
   const service = StationBrowserTrustRepository.of({
-    loadOrCreateOriginKey: () =>
+    loadOrCreateOriginKey: (originInstallationId) =>
       Effect.sync(() => {
         originLoads += 1;
+        loadedInstallationIds.push(originInstallationId);
+        if (originInstallationId !== commandInstallationId) {
+          throw new Error("origin key requested for the wrong installation");
+        }
         return originKey;
       }),
     rotateOriginKey: () =>
@@ -86,6 +95,7 @@ const trustHarness = (
   return {
     service,
     originLoads: () => originLoads,
+    loadedInstallationIds: () => loadedInstallationIds,
     pinnedLoads: () => pinnedLoads,
   };
 };
@@ -129,6 +139,7 @@ const deps = async (
   trust: Context.Tag.Service<typeof StationBrowserTrustRepository>,
 ) => ({
   home: await home(),
+  installationId: commandInstallationId,
   trust,
   sessions,
   readCanvas: async () => undefined,
@@ -168,7 +179,7 @@ describe("station browser production runtime composition", () => {
     expect(deniedTrust.originLoads()).toBe(0);
   });
 
-  it("publishes only the Command Center origin and revokes it on identity drift", async () => {
+  it("reopens the installation-bound Command Center origin across restart and revokes it on host identity drift", async () => {
     const harness = sessionHarness({
       hostId: "local",
       role: "command-center",
@@ -180,6 +191,21 @@ describe("station browser production runtime composition", () => {
     expect(routes.stationBrowserOrigin).toBeDefined();
     expect(routes.stationBrowserWrapper).toBeUndefined();
     expect(trust.originLoads()).toBe(1);
+    expect(trust.loadedInstallationIds()).toEqual([commandInstallationId]);
+
+    const restarted = sessionHarness({
+      hostId: "local",
+      role: "command-center",
+    });
+    const restartedRoutes = await prepareStationBrowserRuntimeRoutes(
+      await deps(restarted.sessions, trust.service),
+    );
+    expect(restartedRoutes.stationBrowserOrigin).toBeDefined();
+    expect(trust.originLoads()).toBe(2);
+    expect(trust.loadedInstallationIds()).toEqual([
+      commandInstallationId,
+      commandInstallationId,
+    ]);
 
     harness.setIdentity({ hostId: "remote-a", role: "remote" });
     expect(() =>
@@ -202,7 +228,7 @@ describe("station browser production runtime composition", () => {
 
     const keys = generateKeyPairSync("ed25519");
     const envelope = mintStationBrowserEnvelope(
-      admitOperatorUiDelegation("command-a"),
+      admitOperatorUiDelegation(commandInstallationId),
       {
         version: 1,
         requestId: "request-1",

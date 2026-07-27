@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   makeOperatorStationBrowserRouteAdmission,
@@ -12,9 +12,12 @@ import {
   type StationBrowserRouterDeps,
 } from "../src/main/vellum/browser/station-router";
 import type { StationBrowserResponse } from "../src/shared/station-browser";
+import { InstallationId } from "../src/shared/station-api";
 import type { SshTransport } from "../src/main/vellum/ssh/service";
 
 const keys = generateKeyPairSync("ed25519");
+const commandInstallationId =
+  Schema.decodeUnknownSync(InstallationId)("command-a");
 const pageRef = "vellum://canvas/work?node=page-1";
 const localHost = {
   id: "command-a",
@@ -30,7 +33,7 @@ const remoteHost = {
   capabilities: ["browser"] as const,
 };
 const admission = () =>
-  makeOperatorStationBrowserRouteAdmission("command-a");
+  makeOperatorStationBrowserRouteAdmission(commandInstallationId);
 
 const okResponse = (
   request: {

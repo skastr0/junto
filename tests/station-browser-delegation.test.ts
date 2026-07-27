@@ -1,22 +1,27 @@
 import { generateKeyPairSync } from "node:crypto";
 import type { Socket } from "node:net";
+import { Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { canonicalStationBrowserJson, decodeStationBrowserEnvelope, decodeStationBrowserRequest, decodeStationBrowserResponse, type StationBrowserAction, type StationBrowserRequest } from "../src/shared/station-browser";
+import { InstallationId } from "../src/shared/station-api";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { admitOperatorUiDelegation, makeAgentStationBrowserRouteAdmission, mintStationBrowserEnvelope, StationBrowserReplayCache, verifyStationBrowserEnvelope, type AdmittedDelegationWitness, type StationBrowserRouteAdmission } from "../src/main/vellum/browser/station-delegation";
 import { makeProcessIdentityMap, type ProcessIdentityMap } from "../src/main/vellum/process-identity";
 
 const keys = generateKeyPairSync("ed25519"); const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 }); const now = 1_700_000_000_000;
+const commandInstallationId = Schema.decodeUnknownSync(InstallationId)(
+  "11111111-1111-4111-8111-111111111111",
+);
 const pageRef = "vellum://canvas/work?node=page-1"; const agentRef = "vellum://canvas/work?node=agent-1";
 const base = (action: StationBrowserAction = "state"): Omit<StationBrowserRequest, "authority" | "originStationId" | "agentRef"> => ({ version: 1, requestId: "request-1", targetStationId: "remote-a", action, pageRef: action === "doctor" || action === "discover" || action === "list" ? undefined : pageRef, session: ["goto", "eval", "screenshot", "state", "close", "stop"].includes(action) ? { hostId: "remote-a", sessionId: "session-1", generation: "generation-1" } : undefined, issuedAt: now, expiresAt: now + 30_000, nonce: `nonce-${action}`, ...(action === "goto" ? { payload: { url: "https://example.com" } } : action === "eval" ? { payload: { code: "1+1" } } : {}) });
-const wire = (request: ReturnType<typeof base>) => ({ ...request, authority: "agent-edge", originStationId: "command-a", agentRef, pageRef: request.pageRef ?? null, session: request.session ?? null, payload: request.payload ?? null });
+const wire = (request: ReturnType<typeof base>) => ({ ...request, authority: "agent-edge", originStationId: commandInstallationId, agentRef, pageRef: request.pageRef ?? null, session: request.session ?? null, payload: request.payload ?? null });
 let agentWitness: AdmittedDelegationWitness;
 let admissionProcessMap: ProcessIdentityMap;
 let agentAdmission: StationBrowserRouteAdmission;
 let admissionCanvas: CanvasDoc;
 const admissionSocket = {} as Socket;
 const frame = (request = base()) => JSON.stringify(mintStationBrowserEnvelope(agentWitness, request, "fleet-1", keys.privateKey));
-const trust = { keyId: "fleet-1", publicKey: keys.publicKey, originStationId: "command-a" };
+const trust = { keyId: "fleet-1", publicKey: keys.publicKey, originStationId: commandInstallationId };
 const context = (changes = {}) => ({ stationId: "remote-a", now, role: "remote" as const, browserReady: true, resolvePage: () => ({ hostId: "remote-a", edgeAllowed: true, policyAllowed: true }), currentGeneration: () => "generation-1", allowAction: () => true, ...changes });
 beforeAll(async () => {
   admissionCanvas = {
@@ -53,6 +58,7 @@ beforeAll(async () => {
     throw new Error("test process could not be registered for process-bind");
   }
   agentAdmission = makeAgentStationBrowserRouteAdmission({
+    originInstallationId: commandInstallationId,
     stationId: "command-a",
     socket: admissionSocket,
     processMap: admissionProcessMap,
@@ -81,13 +87,18 @@ describe("station browser delegation", () => {
   });
   it("signs canonical bytes only from a main-admitted witness", () => {
     expect(canonicalStationBrowserJson({ b: 1, a: [true, "x"] })).toBe('{"a":[true,"x"],"b":1}');
-    expect(verifyStationBrowserEnvelope(frame(), trust, context(), new StationBrowserReplayCache())).toMatchObject({ ok: true, request: { authority: "agent-edge", agentRef } });
+    const signedFrame = frame();
+    expect(decodeStationBrowserEnvelope(signedFrame)).toMatchObject({
+      request: { originStationId: commandInstallationId },
+    });
+    expect(verifyStationBrowserEnvelope(signedFrame, trust, context(), new StationBrowserReplayCache())).toMatchObject({ ok: true, request: { authority: "agent-edge", agentRef, originStationId: commandInstallationId } });
     expect(() => mintStationBrowserEnvelope({} as never, base(), "fleet-1", keys.privateKey)).toThrow("main-admitted");
-    expect(mintStationBrowserEnvelope(admitOperatorUiDelegation("command-a"), base("doctor"), "fleet-1", keys.privateKey).request.agentRef).toBeNull();
+    expect(mintStationBrowserEnvelope(admitOperatorUiDelegation(commandInstallationId), base("doctor"), "fleet-1", keys.privateKey).request.agentRef).toBeNull();
   });
   it("requires live process-bind and a human edge before admitting agent delegation", async () => {
     if (false) {
       void makeAgentStationBrowserRouteAdmission({
+        originInstallationId: commandInstallationId,
         stationId: "command-a",
         // @ts-expect-error Caller locators cannot construct process-bound admission.
         canonicalAgentRef: agentRef,
@@ -142,6 +153,7 @@ describe("station browser delegation", () => {
       nodeId: "agent-1",
     })).toBe(true);
     const staleAdmission = makeAgentStationBrowserRouteAdmission({
+      originInstallationId: commandInstallationId,
       stationId: "command-a",
       socket: {} as Socket,
       processMap: staleMap,

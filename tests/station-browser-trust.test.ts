@@ -20,7 +20,10 @@ import {
   canonicalStationBrowserJson,
   type StationBrowserPinnedTrustRecord,
 } from "../src/shared/station-browser";
-import { RemoteConfiguration } from "../src/shared/station-api";
+import {
+  InstallationId,
+  RemoteConfiguration,
+} from "../src/shared/station-api";
 
 type TrustRuntime = ManagedRuntime.ManagedRuntime<
   StationBrowserTrustRepository,
@@ -29,6 +32,10 @@ type TrustRuntime = ManagedRuntime.ManagedRuntime<
 
 const roots: string[] = [];
 const runtimes: TrustRuntime[] = [];
+const commandInstallationId =
+  Schema.decodeUnknownSync(InstallationId)("command-a");
+const anotherInstallationId =
+  Schema.decodeUnknownSync(InstallationId)("another-command");
 
 const makeRuntime = async (
   prefix = "vellum-browser-trust-",
@@ -80,10 +87,10 @@ describe("station browser origin-key custody", () => {
     const { path, runtime } = await makeRuntime();
     const trust = await repository(runtime);
     const first = await runtime.runPromise(
-      trust.loadOrCreateOriginKey("command-a", 1_700_000_000_000),
+      trust.loadOrCreateOriginKey(commandInstallationId, 1_700_000_000_000),
     );
     const again = await runtime.runPromise(
-      trust.loadOrCreateOriginKey("command-a", 1_800_000_000_000),
+      trust.loadOrCreateOriginKey(commandInstallationId, 1_800_000_000_000),
     );
 
     expect(again.keyId).toBe(first.keyId);
@@ -95,7 +102,7 @@ describe("station browser origin-key custody", () => {
     const reopened = await reopenRuntime(path);
     const reopenedTrust = await repository(reopened);
     const persisted = await reopened.runPromise(
-      reopenedTrust.loadOrCreateOriginKey("command-a", 2),
+      reopenedTrust.loadOrCreateOriginKey(commandInstallationId, 2),
     );
     expect(persisted.keyId).toBe(first.keyId);
 
@@ -129,7 +136,7 @@ describe("station browser origin-key custody", () => {
     const { path, runtime } = await makeRuntime();
     const trust = await repository(runtime);
     const first = await runtime.runPromise(
-      trust.loadOrCreateOriginKey("command-a", 1),
+      trust.loadOrCreateOriginKey(commandInstallationId, 1),
     );
     const second = await runtime.runPromise(trust.rotateOriginKey(first, 2));
 
@@ -145,7 +152,9 @@ describe("station browser origin-key custody", () => {
       other.runtime.runPromise(otherTrust.rotateOriginKey(second, 4)),
     ).rejects.toThrow("current repository custody");
     await expect(
-      runtime.runPromise(trust.loadOrCreateOriginKey("another-command", 5)),
+      runtime.runPromise(
+        trust.loadOrCreateOriginKey(anotherInstallationId, 5),
+      ),
     ).rejects.toThrow("pinned to another station");
 
     await disposeRuntime(runtime);
@@ -211,7 +220,9 @@ describe("station browser origin-key custody", () => {
     const reopened = await reopenRuntime(path);
     const trust = await repository(reopened);
     await expect(
-      reopened.runPromise(trust.loadOrCreateOriginKey("command-a", 2)),
+      reopened.runPromise(
+        trust.loadOrCreateOriginKey(commandInstallationId, 2),
+      ),
     ).rejects.toThrow(/Ed25519|inconsistent|malformed/);
   });
 });
@@ -224,7 +235,7 @@ describe("station browser pinned trust ledger", () => {
     const remoteTrust = await repository(remote.runtime);
 
     const first = await origin.runtime.runPromise(
-      originTrust.loadOrCreateOriginKey("command-a", 1),
+      originTrust.loadOrCreateOriginKey(commandInstallationId, 1),
     );
     const firstRecord = pinnedTrustForOriginKey(first, null, 1);
     const installed = await remote.runtime.runPromise(
@@ -238,7 +249,7 @@ describe("station browser pinned trust ledger", () => {
       await remote.runtime.runPromise(remoteTrust.loadPinnedTrust),
     ).toMatchObject({
       keyId: first.keyId,
-      originStationId: "command-a",
+      originStationId: commandInstallationId,
     });
 
     await expect(
@@ -323,7 +334,7 @@ describe("station browser pinned trust ledger", () => {
     const originTrust = await repository(origin.runtime);
     const remoteTrust = await repository(remote.runtime);
     const key = await origin.runtime.runPromise(
-      originTrust.loadOrCreateOriginKey("command-a", 1),
+      originTrust.loadOrCreateOriginKey(commandInstallationId, 1),
     );
     await remote.runtime.runPromise(
       remoteTrust.installPinnedRecord(pinnedTrustForOriginKey(key, null, 1)),
@@ -335,7 +346,7 @@ describe("station browser pinned trust ledger", () => {
     const pinned = await reopened.runPromise(reopenedTrust.loadPinnedTrust);
     expect(pinned).toMatchObject({
       keyId: key.keyId,
-      originStationId: "command-a",
+      originStationId: commandInstallationId,
     });
     expect(pinned?.publicKey.asymmetricKeyType).toBe("ed25519");
 
@@ -357,7 +368,7 @@ describe("station browser pinned trust ledger", () => {
     const origin = await makeRuntime("vellum-browser-origin-");
     const trust = await repository(origin.runtime);
     const key = await origin.runtime.runPromise(
-      trust.loadOrCreateOriginKey("command-a", 1),
+      trust.loadOrCreateOriginKey(commandInstallationId, 1),
     );
     const record = pinnedTrustForOriginKey(key, null, 1);
     const frame = canonicalStationBrowserJson(record);
@@ -377,14 +388,14 @@ describe("station browser pinned trust ledger", () => {
     const origin = await makeRuntime("vellum-browser-origin-");
     const trust = await repository(origin.runtime);
     const key = await origin.runtime.runPromise(
-      trust.loadOrCreateOriginKey("command-a", 1),
+      trust.loadOrCreateOriginKey(commandInstallationId, 1),
     );
     const browserTrust = pinnedTrustForOriginKey(key, null, 1);
     const decoded = Schema.decodeUnknownSync(RemoteConfiguration)({
       role: "remote",
       hostId: "remote-a",
       agentHostId: "remote-a",
-      commandCenterInstallationId: "command-a",
+      commandCenterInstallationId: commandInstallationId,
       commandCenterRef: "command-a",
       supervisedPreferred: true,
       browserTrust,

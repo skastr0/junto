@@ -2,6 +2,7 @@ import { sign, verify, type KeyObject } from "node:crypto";
 import type { Socket } from "node:net";
 import type { CanvasDoc } from "@shared/canvas";
 import { canonicalStationBrowserJson, decodeStationBrowserEnvelope, isStationBrowserKeyId, STATION_BROWSER_CLOCK_SKEW_MS, STATION_BROWSER_MAX_TTL_MS, type StationBrowserDenial, type StationBrowserEnvelope, type StationBrowserRequest } from "@shared/station-browser";
+import type { InstallationId } from "@shared/station-api";
 import { formatNodeRef, parseNodeRef } from "@shared/node-ref";
 import { resolveNodeHostId } from "@shared/station";
 import {
@@ -34,7 +35,7 @@ export interface StationBrowserRouteAdmission {
 }
 type WitnessData = Readonly<{
   kind: "agent-edge" | "operator-ui";
-  stationId: string;
+  originInstallationId: InstallationId;
   agentRef?: string;
   target?: StationBrowserDelegationTarget;
 }>;
@@ -62,6 +63,9 @@ export class StationBrowserOriginAdmissionError extends Error {
 }
 
 export interface AgentStationBrowserRouteAdmissionOptions {
+  /** Stable Command Center database installation identity stamped on the wire. */
+  readonly originInstallationId: InstallationId;
+  /** Physical canvas-placement host id for the local Command Center process. */
   readonly stationId: string;
   readonly socket: Socket;
   readonly readCanvas: (name: string) => Promise<CanvasDoc | undefined>;
@@ -88,6 +92,7 @@ export const makeAgentStationBrowserRouteAdmission = (
   options: AgentStationBrowserRouteAdmissionOptions,
 ): StationBrowserRouteAdmission => {
   if (
+    !canonicalStationId(options.originInstallationId) ||
     !canonicalStationId(options.stationId) ||
     typeof options.readCanvas !== "function"
   ) {
@@ -225,7 +230,7 @@ export const makeAgentStationBrowserRouteAdmission = (
 
       return mintWitness({
         kind: "agent-edge",
-        stationId: options.stationId,
+        originInstallationId: options.originInstallationId,
         agentRef: formatNodeRef({
           canvasName: principal.canvasName,
           nodeId: principal.nodeId,
@@ -238,10 +243,10 @@ export const makeAgentStationBrowserRouteAdmission = (
 
 /** Main-process UI admission seam. It accepts no client principal. */
 export const makeOperatorStationBrowserRouteAdmission = (
-  stationId: string,
+  originInstallationId: InstallationId,
 ): StationBrowserRouteAdmission => {
-  if (!canonicalStationId(stationId)) {
-    throw new Error("main admission requires a canonical station reference");
+  if (!canonicalStationId(originInstallationId)) {
+    throw new Error("main admission requires a canonical installation identity");
   }
   return Object.freeze({
     preflight: async (): Promise<void> => undefined,
@@ -250,7 +255,7 @@ export const makeOperatorStationBrowserRouteAdmission = (
     ): Promise<AdmittedDelegationWitness> =>
       mintWitness({
         kind: "operator-ui",
-        stationId,
+        originInstallationId,
         target: Object.freeze({ ...target }),
       }),
   });
@@ -258,21 +263,21 @@ export const makeOperatorStationBrowserRouteAdmission = (
 
 /** Direct main-owned UI witness retained for transport-free protocol tests. */
 export const admitOperatorUiDelegation = (
-  stationId: string,
+  originInstallationId: InstallationId,
   target?: StationBrowserDelegationTarget,
 ): AdmittedDelegationWitness => {
-  if (!canonicalStationId(stationId)) {
-    throw new Error("main admission requires a canonical station reference");
+  if (!canonicalStationId(originInstallationId)) {
+    throw new Error("main admission requires a canonical installation identity");
   }
   return mintWitness({
     kind: "operator-ui",
-    stationId,
+    originInstallationId,
     ...(target === undefined
       ? {}
       : { target: Object.freeze({ ...target }) }),
   });
 };
-export interface StationBrowserTrust { readonly keyId: string; readonly publicKey: KeyObject; readonly originStationId: string }
+export interface StationBrowserTrust { readonly keyId: string; readonly publicKey: KeyObject; readonly originStationId: InstallationId }
 export interface StationBrowserVerificationContext { readonly stationId: string; readonly now: number; readonly role: "remote"; readonly browserReady: boolean; readonly resolvePage: (pageRef: string) => Readonly<{ hostId: string; edgeAllowed: boolean; policyAllowed: boolean }> | undefined; readonly currentGeneration: (request: StationBrowserRequest) => string | undefined; readonly allowAction: (request: StationBrowserRequest) => boolean }
 export class StationBrowserReplayCache { private readonly values = new Map<string, number>(); constructor(private readonly capacity = 1024) {} consume(key: string, acceptedUntil: number, now: number): "ok" | "replayed" | "capacity" { for (const [k, expiry] of this.values) if (expiry < now) this.values.delete(k); if (this.values.has(key)) return "replayed"; if (this.values.size >= this.capacity) return "capacity"; this.values.set(key, acceptedUntil); return "ok"; } }
 const signed = (request: StationBrowserRequest) => Buffer.from(canonicalStationBrowserJson(Object.fromEntries(Object.entries(request).filter(([, value]) => value !== null))));
@@ -296,7 +301,7 @@ export const bindStationBrowserRequest = (
   return {
     ...request,
     authority: data.kind,
-    originStationId: data.stationId,
+    originStationId: data.originInstallationId,
     agentRef: data.agentRef ?? null,
     pageRef: request.pageRef ?? null,
     session: request.session ?? null,
