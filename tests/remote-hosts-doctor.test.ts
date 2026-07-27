@@ -1,5 +1,11 @@
-import { Effect } from "effect";
+import { readFileSync } from "node:fs";
+import { Effect, Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  InstallationId,
+  STATION_API_PROTOCOL,
+  StatusResponse,
+} from "../src/shared/station-api";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import type { CliResult } from "../src/main/vellum/adapters/exec";
 import {
@@ -9,23 +15,84 @@ import {
   type HostCliRunner,
 } from "../src/main/vellum/hosts/doctor";
 import type { HostsRegistry } from "../src/main/vellum/hosts/registry";
+import type { StationRemote } from "../src/main/vellum/hosts/configure-remote";
 
+const installationId = Schema.decodeUnknownSync(InstallationId);
 const localHost = defaultRemoteHostsDocument().hosts[0]!;
 const unusedSsh = {} as Parameters<typeof testHostConnection>[0];
+
+const stationStatus = (
+  id: string,
+  input: {
+    readonly state?: "unenrolled" | "ready" | "degraded";
+    readonly configured?: boolean;
+    readonly ready?: boolean;
+  } = {},
+) =>
+  StatusResponse.make({
+    protocol: STATION_API_PROTOCOL,
+    op: "status",
+    installationId: installationId(`station-${id}`),
+    state: input.state ?? "ready",
+    ...(input.configured === false
+      ? {}
+      : {
+          configuration: {
+            role: "remote" as const,
+            hostId: id as never,
+            agentHostId: id as never,
+            commandCenterInstallationId:
+              installationId("cc-installation"),
+            commandCenterRef: "local",
+            supervisedPreferred: true,
+          },
+          configuredAt: "2026-07-27T12:00:00.000Z",
+        }),
+    receivedThrough: [],
+    readiness: {
+      database: true,
+      workControl: input.ready ?? true,
+      simulation: true,
+    },
+    observedAt: "2026-07-27T12:00:01.000Z",
+  });
+
+const remoteWithStatus = (
+  status: StationRemote["status"],
+): StationRemote =>
+  ({
+    status,
+    pair: () => Effect.die("pair must not run"),
+    configure: () => Effect.die("configure must not run"),
+    project: () => Effect.die("project must not run"),
+    report: () => Effect.die("report must not run"),
+  }) as StationRemote;
 
 afterEach(() => {
   delete process.env.VELLUM_SSH_EXECUTABLE;
 });
 
-describe("remote hosts doctor binary probes", () => {
-  it("executes exact Herdr and Hermes version argv", async () => {
+describe("remote hosts doctor", () => {
+  it("contains no remote settings or station-status file lane", () => {
+    const source = readFileSync(
+      new URL("../src/main/vellum/hosts/doctor.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toMatch(
+      /settings\.json|station-status\.json|remoteCat|homeDirectoryLookup/u,
+    );
+  });
+
+  it("executes exact local Herdr and Hermes version argv", async () => {
     process.env.VELLUM_SSH_EXECUTABLE = "/usr/bin/ssh";
-    const run = vi.fn<HostCliRunner>(async (command): Promise<CliResult> => ({
-      ok: true,
-      stdout: `${command} 1.0.0\n`,
-    }));
+    const run = vi.fn<HostCliRunner>(
+      async (command): Promise<CliResult> => ({
+        ok: true,
+        stdout: `${command} 1.0.0\n`,
+      }),
+    );
     const registry = {
-      path: () => "/tmp/vellum-hosts-test.json",
+      path: () => "/tmp/vellum.db",
       list: async () => [localHost],
     } as unknown as HostsRegistry;
 
@@ -42,17 +109,19 @@ describe("remote hosts doctor binary probes", () => {
       browserHostCount: "1",
       browserHostIds: "local",
     });
-    expect(report.detail).toContain("browser capability declared");
   });
 
   it("keeps a local-only Command Center healthy without an SSH client", async () => {
-    process.env.VELLUM_SSH_EXECUTABLE = "/definitely/not/an/ssh-client";
-    const run = vi.fn<HostCliRunner>(async (command): Promise<CliResult> => ({
-      ok: true,
-      stdout: `${command} 1.0.0\n`,
-    }));
+    process.env.VELLUM_SSH_EXECUTABLE =
+      "/definitely/not/an/ssh-client";
+    const run = vi.fn<HostCliRunner>(
+      async (command): Promise<CliResult> => ({
+        ok: true,
+        stdout: `${command} 1.0.0\n`,
+      }),
+    );
     const registry = {
-      path: () => "/tmp/vellum-hosts-test.json",
+      path: () => "/tmp/vellum.db",
       list: async () => [localHost],
     } as unknown as HostsRegistry;
 
@@ -61,14 +130,21 @@ describe("remote hosts doctor binary probes", () => {
     );
 
     expect(snapshot.check.status).toBe("ok");
-    expect(snapshot.check.detail).toContain("no remote ssh hosts configured");
+    expect(snapshot.check.detail).toContain(
+      "no remote ssh hosts configured",
+    );
     expect(snapshot.observations).toEqual([]);
   });
 
-  it("derives local connection success only from structured probe results", async () => {
-    const failedRun: HostCliRunner = async (command) => command === "herdr"
-      ? { ok: false, stdout: "", error: "probe exited unsuccessfully" }
-      : { ok: true, stdout: "hermes ready" };
+  it("derives local connection success only from structured probes", async () => {
+    const failedRun: HostCliRunner = async (command) =>
+      command === "herdr"
+        ? {
+            ok: false,
+            stdout: "",
+            error: "probe exited unsuccessfully",
+          }
+        : { ok: true, stdout: "hermes ready" };
 
     const failed = await Effect.runPromise(
       testHostConnection(unusedSsh, localHost, failedRun),
@@ -85,90 +161,52 @@ describe("remote hosts doctor binary probes", () => {
     expect(successful.ok).toBe(true);
   });
 
-  it("probes configured remote hosts concurrently", async () => {
+  it("probes Station APIs concurrently", async () => {
     process.env.VELLUM_SSH_EXECUTABLE = "/usr/bin/ssh";
     let active = 0;
     let maxActive = 0;
-    const ssh = {
-      warm: () =>
-        Effect.gen(function* () {
-          active += 1;
-          maxActive = Math.max(maxActive, active);
-          yield* Effect.sleep(20);
-          active -= 1;
-        }),
-      run: () => Effect.succeed({ stdout: "/Users/test", stderr: "" }),
-    } as unknown as Parameters<typeof runRemoteHostsDoctor>[1];
+    const remote = remoteWithStatus((endpoint) =>
+      Effect.gen(function* () {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        yield* Effect.sleep(20);
+        active -= 1;
+        return stationStatus(endpoint);
+      }),
+    );
     const registry = {
-      path: () => "/tmp/vellum-hosts-test.json",
-      list: async () => ["a", "b", "c"].map((id) => ({
-        id,
-        label: id.toUpperCase(),
-        kind: "remote" as const,
-        endpoint: id,
-        capabilities: ["herdr" as const],
-      })),
+      path: () => "/tmp/vellum.db",
+      list: async () =>
+        ["a", "b", "c"].map((id) => ({
+          id,
+          label: id.toUpperCase(),
+          kind: "remote" as const,
+          endpoint: id,
+          capabilities: [],
+        })),
     } as unknown as HostsRegistry;
 
     const report = await Effect.runPromise(
-      runRemoteHostsDoctor(registry, ssh),
+      runRemoteHostsDoctor(
+        registry,
+        unusedSsh,
+        async () => ({ ok: true, stdout: "" }),
+        remote,
+      ),
     );
 
     expect(maxActive).toBe(3);
-    expect(report.status).toBe("warning");
-    expect(report.detail).toContain("station settings unavailable");
+    expect(report.status).toBe("ok");
+    expect(report.detail).toContain("Station API ready");
   });
 
-  it("returns typed live Remote station observations without raw status payloads", async () => {
+  it("returns typed observations from Station API status", async () => {
     process.env.VELLUM_SSH_EXECUTABLE = "/usr/bin/ssh";
-    let call = 0;
-    const ssh = {
-      warm: () => Effect.void,
-      run: () => {
-        call += 1;
-        if (call === 1) {
-          return Effect.succeed({ stdout: "/Users/test", stderr: "" });
-        }
-        if (call === 2) {
-          return Effect.succeed({
-            stdout: JSON.stringify({
-              version: 1,
-              station: {
-                role: "remote",
-                hostId: "studio",
-              },
-            }),
-            stderr: "",
-          });
-        }
-        return Effect.succeed({
-          stdout: JSON.stringify({
-            version: 1,
-            lastPull: {
-              at: "2026-07-23T11:45:00.000Z",
-              status: "ok",
-              ok: true,
-              detail: "private pull detail",
-              commandCenterRef: "private-cc",
-              keptLocal: false,
-              pulledCount: 1,
-              failedCount: 0,
-            },
-            kernel: {
-              observedAt: "2026-07-23T11:59:30.000Z",
-              armedRegionCount: 1,
-              lastFireAt: "2026-07-23T11:58:00.000Z",
-              lastFireKind: "watcher",
-              lastFireDry: false,
-              orphanedArmingCount: 0,
-            },
-          }),
-          stderr: "",
-        });
-      },
-    } as unknown as Parameters<typeof runRemoteHostsDoctorSnapshot>[1];
+    const remote = remoteWithStatus(() =>
+      Effect.succeed(stationStatus("studio")),
+    );
     const registry = {
-      path: () => "/tmp/vellum-hosts-test.json",
+      path: () => "/tmp/vellum.db",
       list: async () => [
         {
           id: "studio",
@@ -181,7 +219,12 @@ describe("remote hosts doctor binary probes", () => {
     } as unknown as HostsRegistry;
 
     const snapshot = await Effect.runPromise(
-      runRemoteHostsDoctorSnapshot(registry, ssh),
+      runRemoteHostsDoctorSnapshot(
+        registry,
+        unusedSsh,
+        async () => ({ ok: true, stdout: "" }),
+        remote,
+      ),
     );
 
     expect(snapshot.check.status).toBe("ok");
@@ -194,13 +237,43 @@ describe("remote hosts doctor binary probes", () => {
         stationRole: "remote",
         stationHostId: "studio",
         statusState: "observed",
-        status: expect.objectContaining({
-          version: 1,
-          kernel: expect.objectContaining({ armedRegionCount: 1 }),
-        }),
       },
     ]);
-    expect(snapshot.check.detail).not.toContain("private pull detail");
-    expect(snapshot.check.detail).not.toContain("private-cc");
+    expect(snapshot.check.detail).toContain(
+      "readiness database=true work=true simulation=true",
+    );
+  });
+
+  it("marks a reachable but unconfigured Station as warning", async () => {
+    const remote = remoteWithStatus(() =>
+      Effect.succeed(
+        stationStatus("studio", {
+          state: "unenrolled",
+          configured: false,
+        }),
+      ),
+    );
+    const host = {
+      id: "studio",
+      label: "Studio",
+      kind: "remote" as const,
+      endpoint: "studio-box",
+      capabilities: [],
+    };
+
+    const result = await Effect.runPromise(
+      testHostConnection(
+        unusedSsh,
+        host,
+        async () => ({ ok: true, stdout: "" }),
+        remote,
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      reachability: "reachable",
+    });
+    expect(result.detail).toContain("configuration absent");
   });
 });

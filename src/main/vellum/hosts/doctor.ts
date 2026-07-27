@@ -1,13 +1,9 @@
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
-import { posix } from "node:path";
 import type { Context } from "effect";
 import { Effect } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import {
-  decodeStationStatusDocument,
-  type StationRemoteObservation,
-} from "@shared/station-status";
+import type { StationRemoteObservation } from "@shared/station-status";
 import {
   hermesKeyFor,
   hostHasCapability,
@@ -16,21 +12,26 @@ import {
 import { runCli, type CliResult } from "../adapters/exec";
 import {
   parseSshEndpoint,
-  SshTimeoutError,
   type SshError,
 } from "../ssh/domain";
-import { homeDirectoryLookup, oneShot } from "../ssh/program";
-import { remoteCat, remoteProductVersion } from "../ssh/read-commands";
+import { oneShot } from "../ssh/program";
+import { remoteProductVersion } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
+import {
+  makeStationRemoteApiClient,
+  type StationRemoteApiError,
+  StationRemoteApiClient,
+} from "../station/remote-client";
 import type { HostsRegistry } from "./registry";
 
 // Resolve via PATH floor used by the transport kernel (not a second spawn site).
 const openSshClientPath = (): string =>
-  process.env.VELLUM_SSH_EXECUTABLE || ["", "usr", "bin", "ssh"].join("/");
-const PROBE_TIMEOUT_MS = 10_000;
+  process.env.VELLUM_SSH_EXECUTABLE ||
+  ["", "usr", "bin", "ssh"].join("/");
 const HOST_PROBE_TOTAL_TIMEOUT_MS = 20_000;
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
+type StationRemote = Context.Tag.Service<typeof StationRemoteApiClient>;
 export type HostCliRunner = (
   command: string,
   args: ReadonlyArray<string>,
@@ -50,16 +51,25 @@ type RemoteHostProbeResult = {
 
 const binaryVersionArgs = (
   binary: "herdr" | "hermes",
-): ReadonlyArray<string> => binary === "herdr" ? ["--version"] : ["version"];
+): ReadonlyArray<string> =>
+  binary === "herdr" ? ["--version"] : ["version"];
 
 const classifySshFailure = (message: string): string => {
   if (/Permission denied|publickey|Authentication failed/i.test(message)) {
     return "Permission denied — check SSH keys / ssh-agent (`ssh <endpoint>` interactively).";
   }
-  if (/Could not resolve hostname|Name or service not known|nodename nor servname/i.test(message)) {
+  if (
+    /Could not resolve hostname|Name or service not known|nodename nor servname/i.test(
+      message,
+    )
+  ) {
     return "Unknown host — add a Host entry in ~/.ssh/config or use a resolvable hostname.";
   }
-  if (/Connection timed out|Operation timed out|ETIMEDOUT|ConnectTimeout/i.test(message)) {
+  if (
+    /Connection timed out|Operation timed out|ETIMEDOUT|ConnectTimeout/i.test(
+      message,
+    )
+  ) {
     return "Timeout — host unreachable (VPN/Tailscale down, wrong endpoint, or firewall).";
   }
   if (/Host key verification failed/i.test(message)) {
@@ -81,20 +91,31 @@ const describeSshError = (error: SshError): string => {
       return classifySshFailure(`ssh exited with code ${error.code}`);
     case "SshInputError":
       return `Invalid endpoint: ${error.message}`;
+    case "SshOutputLimitError":
+      return `SSH ${error.stream} exceeded ${error.limitBytes} bytes`;
     default:
       return classifySshFailure(error.message);
   }
+};
+
+const describeRemoteError = (error: StationRemoteApiError): string => {
+  if (error._tag.startsWith("Ssh")) {
+    return describeSshError(error as SshError);
+  }
+  return error.message;
 };
 
 const localBinary = async (
   binary: "herdr" | "hermes",
   run: HostCliRunner,
 ): Promise<{ ok: boolean; detail: string }> => {
-  const result = await run(binary, binaryVersionArgs(binary), 5_000).catch((error) => ({
-    ok: false as const,
-    stdout: "",
-    error: error instanceof Error ? error.message : String(error),
-  }));
+  const result = await run(binary, binaryVersionArgs(binary), 5_000).catch(
+    (error) => ({
+      ok: false as const,
+      stdout: "",
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
   if (!result.ok) {
     const err = result.error ?? "not found";
     if (/ENOENT|not found|command not found/i.test(err)) {
@@ -137,70 +158,9 @@ const remoteBinary = (
     ),
   );
 
-type RemoteFileRead =
-  | { readonly ok: true; readonly body: string }
-  | { readonly ok: false; readonly detail: string };
-
-const describeUnknownSsh = (error: unknown): string =>
-  error && typeof error === "object" && "_tag" in error
-    ? describeSshError(error as SshError)
-    : error instanceof Error
-      ? error.message
-      : String(error);
-
-const readRemoteText = (
-  ssh: Ssh,
-  endpoint: Parameters<typeof oneShot>[0],
-  path: string,
-): Effect.Effect<RemoteFileRead> =>
-  remoteCat(path).pipe(
-    Effect.flatMap((command) =>
-      ssh.run(oneShot(endpoint, command, { budget: "status" })),
-    ),
-    Effect.map(
-      (result): RemoteFileRead => ({ ok: true, body: result.stdout }),
-    ),
-    Effect.catchAll((error) =>
-      Effect.succeed({
-        ok: false as const,
-        detail: describeUnknownSsh(error),
-      }),
-    ),
-  );
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
-const decodeRemoteStationSettings = (
-  raw: string,
-):
-  | {
-      readonly ok: true;
-      readonly role: string;
-      readonly hostId: string;
-    }
-  | { readonly ok: false } => {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isRecord(parsed) || !isRecord(parsed.station)) return { ok: false };
-    if (
-      typeof parsed.station.role !== "string" ||
-      typeof parsed.station.hostId !== "string"
-    ) {
-      return { ok: false };
-    }
-    return {
-      ok: true,
-      role: parsed.station.role.slice(0, 64),
-      hostId: parsed.station.hostId.slice(0, 64),
-    };
-  } catch {
-    return { ok: false };
-  }
-};
-
 const probeSshHost = (
   ssh: Ssh,
+  remote: StationRemote,
   host: RemoteHost,
 ): Effect.Effect<RemoteHostProbeResult> =>
   Effect.gen(function* () {
@@ -220,95 +180,49 @@ const probeSshHost = (
     }
 
     const endpoint = yield* parseSshEndpoint(host.endpoint);
+    const station = yield* remote.status(endpoint);
+    const configuration = station.configuration;
+    const parts = [
+      `Station API ${station.state}`,
+      `installation ${station.installationId}`,
+    ];
+    let worst: "ok" | "warning" | "error" = "ok";
+    const problems: string[] = [];
+    const raise = (severity: "warning" | "error", problem: string) => {
+      if (severity === "error" || worst === "ok") worst = severity;
+      problems.push(problem);
+    };
 
-    yield* ssh.warm(endpoint).pipe(
-      Effect.timeoutFail({
-        duration: PROBE_TIMEOUT_MS,
-        onTimeout: () =>
-          new SshTimeoutError({
-            endpoint: host.endpoint!,
-            operation: "doctor-warm",
-            timeoutMs: PROBE_TIMEOUT_MS,
-          }),
-      }),
-    );
-
-    const home = yield* ssh.run(homeDirectoryLookup(endpoint));
-    const homePath = home.stdout.trim();
-    if (!homePath.startsWith("/")) {
-      return {
-        status: "error" as const,
-        detail: `${host.id}: remote home not writable/readable (got ${JSON.stringify(homePath)})`,
-        observation: {
-          hostId: host.id,
-          endpoint: host.endpoint,
-          reachability: "reachable" as const,
-          settingsState: "unavailable" as const,
-          statusState: "unavailable" as const,
-          observationError: "remote home is not a canonical absolute path",
-        },
-      };
-    }
-
-    const parts: string[] = [`auth ok · home ${homePath}`];
-    let warnings = 0;
-    const [settingsRead, statusRead] = yield* Effect.all(
-      [
-        readRemoteText(
-          ssh,
-          endpoint,
-          posix.join(homePath, ".vellum", "settings.json"),
-        ),
-        readRemoteText(
-          ssh,
-          endpoint,
-          posix.join(homePath, ".vellum", "station-status.json"),
-        ),
-      ],
-      { concurrency: "unbounded" },
-    );
-
-    const settings = settingsRead.ok
-      ? decodeRemoteStationSettings(settingsRead.body)
-      : undefined;
-    const stationStatus = statusRead.ok
-      ? (() => {
-          try {
-            return decodeStationStatusDocument(
-              JSON.parse(statusRead.body) as unknown,
-            );
-          } catch {
-            return undefined;
-          }
-        })()
-      : undefined;
-    const observationErrors: string[] = [];
-    if (!settingsRead.ok) {
-      observationErrors.push(`settings unavailable (${settingsRead.detail})`);
-      warnings += 1;
-    } else if (!settings?.ok) {
-      observationErrors.push("settings invalid");
-      warnings += 1;
-    }
-    if (!statusRead.ok) {
-      observationErrors.push(
-        `station status unavailable (${statusRead.detail})`,
+    if (configuration === undefined) {
+      parts.push("configuration absent");
+      raise("warning", "station is not configured");
+    } else {
+      parts.push(
+        `role ${configuration.role} · hostId ${configuration.hostId}`,
       );
-      warnings += 1;
-    } else if (!stationStatus) {
-      observationErrors.push("station status invalid");
-      warnings += 1;
+      if (
+        configuration.role !== "remote" ||
+        configuration.hostId !== host.id
+      ) {
+        raise(
+          "error",
+          `registered host ${host.id} does not match Station configuration`,
+        );
+      }
+    }
+
+    const ready = Object.entries(station.readiness)
+      .filter(([, value]) => !value)
+      .map(([name]) => name);
+    if (ready.length > 0) {
+      raise("warning", `not ready: ${ready.join(", ")}`);
     }
     parts.push(
-      settings?.ok
-        ? `station role ${settings.role || "unset"} · hostId ${settings.hostId}`
-        : "station settings unavailable",
+      `readiness database=${station.readiness.database} work=${station.readiness.workControl} simulation=${station.readiness.simulation}`,
     );
-    parts.push(
-      stationStatus
-        ? `station status observed ${stationStatus.kernel?.observedAt ?? "without kernel heartbeat"}`
-        : "station status unavailable",
-    );
+    if (station.projection) {
+      parts.push(`projection ${station.projection.generation}`);
+    }
 
     if (hostHasCapability(host, "browser")) {
       parts.push("browser capability declared");
@@ -316,65 +230,61 @@ const probeSshHost = (
     if (hostHasCapability(host, "herdr")) {
       const herdr = yield* remoteBinary(ssh, host.endpoint, "herdr");
       parts.push(herdr.detail);
-      if (!herdr.ok) warnings += 1;
+      if (!herdr.ok) raise("warning", herdr.detail);
     }
     if (hostHasCapability(host, "hermes")) {
       const hermes = yield* remoteBinary(ssh, host.endpoint, "hermes");
       parts.push(hermes.detail);
-      if (!hermes.ok) warnings += 1;
+      if (!hermes.ok) raise("warning", hermes.detail);
     }
 
     return {
-      status: (warnings > 0 ? "warning" : "ok") as "ok" | "warning",
+      status: worst,
       detail: `${host.label} (${host.endpoint}): ${parts.join(" · ")}`,
       observation: {
         hostId: host.id,
         endpoint: host.endpoint,
         reachability: "reachable" as const,
-        settingsState: settingsRead.ok
-          ? settings?.ok
-            ? ("observed" as const)
-            : ("invalid" as const)
-          : ("unavailable" as const),
-        ...(settings?.ok
-          ? {
-              stationRole: settings.role,
-              stationHostId: settings.hostId,
-            }
-          : {}),
-        statusState: statusRead.ok
-          ? stationStatus
-            ? ("observed" as const)
-            : ("invalid" as const)
-          : ("unavailable" as const),
-        ...(stationStatus ? { status: stationStatus } : {}),
-        ...(observationErrors.length > 0
-          ? { observationError: observationErrors.join("; ").slice(0, 1_024) }
-          : {}),
+        settingsState:
+          configuration === undefined
+            ? ("unavailable" as const)
+            : ("observed" as const),
+        ...(configuration === undefined
+          ? {}
+          : {
+              stationRole: configuration.role,
+              stationHostId: configuration.hostId,
+            }),
+        statusState: "observed" as const,
+        ...(problems.length === 0
+          ? {}
+          : { observationError: problems.join("; ").slice(0, 1_024) }),
       },
     };
   }).pipe(
-    Effect.catchAll((error) =>
-      Effect.succeed({
+    Effect.catchAll((error: StationRemoteApiError) => {
+      const detail = describeRemoteError(error);
+      return Effect.succeed({
         status: "error" as const,
-        detail: `${host.label}: ${describeUnknownSsh(error)}`,
+        detail: `${host.label}: ${detail}`,
         observation: {
           hostId: host.id,
           endpoint: host.endpoint ?? "",
           reachability: "unreachable" as const,
-          reachabilityError: describeUnknownSsh(error),
+          reachabilityError: detail,
           settingsState: "unavailable" as const,
           statusState: "unavailable" as const,
         },
-      }),
-    ),
+      });
+    }),
   );
 
 const boundedProbeSshHost = (
   ssh: Ssh,
+  remote: StationRemote,
   host: RemoteHost,
 ): Effect.Effect<RemoteHostProbeResult> =>
-  probeSshHost(ssh, host).pipe(
+  probeSshHost(ssh, remote, host).pipe(
     Effect.timeoutFail({
       duration: HOST_PROBE_TOTAL_TIMEOUT_MS,
       onTimeout: () => new Error("remote host doctor deadline exceeded"),
@@ -399,6 +309,7 @@ export const runRemoteHostsDoctorSnapshot = (
   registry: HostsRegistry,
   ssh: Ssh,
   run: HostCliRunner = runCli,
+  remote: StationRemote = makeStationRemoteApiClient(ssh),
 ): Effect.Effect<RemoteHostsDoctorSnapshot> =>
   Effect.gen(function* () {
     const hosts = yield* Effect.tryPromise({
@@ -420,19 +331,23 @@ export const runRemoteHostsDoctorSnapshot = (
         lines.push("local: browser capability declared");
       }
       if (hostHasCapability(local, "herdr")) {
-        const herdr = yield* Effect.promise(() => localBinary("herdr", run));
+        const herdr = yield* Effect.promise(() =>
+          localBinary("herdr", run),
+        );
         lines.push(`local: ${herdr.detail}`);
         if (!herdr.ok) raise("warning");
       }
       if (hostHasCapability(local, "hermes")) {
-        const hermes = yield* Effect.promise(() => localBinary("hermes", run));
+        const hermes = yield* Effect.promise(() =>
+          localBinary("hermes", run),
+        );
         lines.push(`local: ${hermes.detail}`);
         if (!hermes.ok) raise("warning");
       }
     }
 
-    const sshHosts = hosts.filter((host) => host.kind === "remote");
-    if (sshHosts.length > 0) {
+    const remoteHosts = hosts.filter((host) => host.kind === "remote");
+    if (remoteHosts.length > 0) {
       const clientPath = openSshClientPath();
       const sshBinaryOk = yield* Effect.tryPromise({
         try: async () => {
@@ -451,7 +366,7 @@ export const runRemoteHostsDoctorSnapshot = (
             status: "error" as const,
             detail,
           },
-          observations: sshHosts.map((host) => ({
+          observations: remoteHosts.map((host) => ({
             hostId: host.id,
             endpoint: host.endpoint ?? "",
             reachability: "unknown" as const,
@@ -464,14 +379,14 @@ export const runRemoteHostsDoctorSnapshot = (
     }
 
     const results =
-      sshHosts.length === 0
+      remoteHosts.length === 0
         ? []
         : yield* Effect.forEach(
-            sshHosts,
-            (host) => boundedProbeSshHost(ssh, host),
+            remoteHosts,
+            (host) => boundedProbeSshHost(ssh, remote, host),
             { concurrency: "unbounded" },
           );
-    if (sshHosts.length === 0) {
+    if (remoteHosts.length === 0) {
       lines.push("no remote ssh hosts configured");
     } else {
       for (const result of results) {
@@ -498,10 +413,12 @@ export const runRemoteHostsDoctorSnapshot = (
         metadata: {
           hostsPath: registry.path(),
           hostCount: String(hosts.length),
-          remoteHostCount: String(sshHosts.length),
+          remoteHostCount: String(remoteHosts.length),
           hermesKeys,
           browserHostCount: String(
-            hosts.filter((host) => hostHasCapability(host, "browser")).length,
+            hosts.filter((host) =>
+              hostHasCapability(host, "browser"),
+            ).length,
           ),
           browserHostIds,
         },
@@ -526,8 +443,9 @@ export const runRemoteHostsDoctor = (
   registry: HostsRegistry,
   ssh: Ssh,
   run: HostCliRunner = runCli,
+  remote: StationRemote = makeStationRemoteApiClient(ssh),
 ): Effect.Effect<ServiceCheck> =>
-  runRemoteHostsDoctorSnapshot(registry, ssh, run).pipe(
+  runRemoteHostsDoctorSnapshot(registry, ssh, run, remote).pipe(
     Effect.map((snapshot) => snapshot.check),
   );
 
@@ -535,32 +453,40 @@ export const testHostConnection = (
   ssh: Ssh,
   host: RemoteHost,
   run: HostCliRunner = runCli,
+  remote: StationRemote = makeStationRemoteApiClient(ssh),
 ): Effect.Effect<{
   readonly ok: boolean;
   readonly detail: string;
-  /** Raw SSH link truth from the probe observation. Distinct from `ok`, which
-   * is a strict all-checks-pass verdict — a reachable host with warnings
-   * (e.g. station status not yet written) is still `reachable` here. */
   readonly reachability?: "reachable" | "unreachable" | "unknown";
 }> =>
   host.kind === "local"
     ? Effect.gen(function* () {
-        const probes: Array<{ readonly ok: boolean; readonly detail: string }> = [];
+        const probes: Array<{
+          readonly ok: boolean;
+          readonly detail: string;
+        }> = [];
         if (hostHasCapability(host, "browser")) {
-          probes.push({ ok: true, detail: "browser capability declared" });
+          probes.push({
+            ok: true,
+            detail: "browser capability declared",
+          });
         }
         if (hostHasCapability(host, "herdr")) {
           probes.push(yield* Effect.promise(() => localBinary("herdr", run)));
         }
         if (hostHasCapability(host, "hermes")) {
-          probes.push(yield* Effect.promise(() => localBinary("hermes", run)));
+          probes.push(
+            yield* Effect.promise(() => localBinary("hermes", run)),
+          );
         }
         return {
           ok: probes.every((probe) => probe.ok),
-          detail: probes.map((probe) => probe.detail).join(" · ") || "local host ready",
+          detail:
+            probes.map((probe) => probe.detail).join(" · ") ||
+            "local host ready",
         };
       })
-    : probeSshHost(ssh, host).pipe(
+    : probeSshHost(ssh, remote, host).pipe(
         Effect.map((result) => ({
           ok: result.status === "ok",
           detail: result.detail,
