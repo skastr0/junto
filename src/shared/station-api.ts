@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { STATION_ROLES } from "./station";
+import { StationBrowserPinnedTrustRecord } from "./station-browser";
 
 /**
  * Station API v1.
@@ -108,8 +109,7 @@ export const CommandCenterConfiguration = Schema.Struct({
   hostId: StationHostId,
   supervisedPreferred: Schema.Boolean,
 });
-export type CommandCenterConfiguration =
-  typeof CommandCenterConfiguration.Type;
+export type CommandCenterConfiguration = typeof CommandCenterConfiguration.Type;
 
 export const RemoteConfiguration = Schema.Struct({
   role: Schema.Literal("remote"),
@@ -118,6 +118,9 @@ export const RemoteConfiguration = Schema.Struct({
   commandCenterInstallationId: InstallationId,
   commandCenterRef: CommandCenterRef,
   supervisedPreferred: Schema.Boolean,
+  browserTrust: Schema.optionalWith(StationBrowserPinnedTrustRecord, {
+    exact: true,
+  }),
 });
 export type RemoteConfiguration = typeof RemoteConfiguration.Type;
 
@@ -153,9 +156,7 @@ export type ConfigureResponse = typeof ConfigureResponse.Type;
 export const StationProjectionBody = Schema.Struct({
   scope: Schema.Literal("full"),
   generation: LogicalSequence,
-  body: Schema.String.pipe(
-    Schema.maxLength(STATION_API_MAX_PROJECTION_CHARS),
-  ),
+  body: Schema.String.pipe(Schema.maxLength(STATION_API_MAX_PROJECTION_CHARS)),
   contentSha256: StationSha256,
   createdAt: DisplayTimestamp,
 });
@@ -166,8 +167,7 @@ export const StationProjectionReference = Schema.Struct({
   contentSha256: StationSha256,
   receivedAt: DisplayTimestamp,
 });
-export type StationProjectionReference =
-  typeof StationProjectionReference.Type;
+export type StationProjectionReference = typeof StationProjectionReference.Type;
 
 export const ProjectRequest = Schema.Struct({
   protocol: Schema.Literal(STATION_API_PROTOCOL),
@@ -183,8 +183,7 @@ export const ProjectionInstallDecision = Schema.Literal(
   "stale",
   "conflict",
 );
-export type ProjectionInstallDecision =
-  typeof ProjectionInstallDecision.Type;
+export type ProjectionInstallDecision = typeof ProjectionInstallDecision.Type;
 
 export const ProjectResponse = Schema.Struct({
   protocol: Schema.Literal(STATION_API_PROTOCOL),
@@ -333,10 +332,9 @@ export const compareLogicalSequence = (
 };
 
 export const decideProjectionInstall = (
-  current: Pick<
-    StationProjectionReference,
-    "generation" | "contentSha256"
-  > | undefined,
+  current:
+    | Pick<StationProjectionReference, "generation" | "contentSha256">
+    | undefined,
   incoming: Pick<StationProjectionBody, "generation" | "contentSha256">,
 ): ProjectionInstallDecision => {
   if (current === undefined) return "install";
@@ -415,7 +413,9 @@ export const contiguousReceivedThrough = (
     through = admitted;
     next += 1n;
   }
-  return through === current.through ? current : { home: current.home, through };
+  return through === current.through
+    ? current
+    : { home: current.home, through };
 };
 
 export type CoalesceStationEventsDecision =
