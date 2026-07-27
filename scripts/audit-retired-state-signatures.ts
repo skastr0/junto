@@ -60,7 +60,7 @@ export const RETIRED_STATE_SIGNATURE_AUDIT_LIMITS: Readonly<
   maxExecutableBytes: 96 * 1024 * 1024,
 });
 
-/** Bun Linux helpers measured below 96 MiB; keep a finite 112 MiB release bound. */
+/** Measured Bun Linux runtime executables fit below 98 MiB; use a finite 112 MiB release bound. */
 export const LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES =
   112 * 1024 * 1024;
 
@@ -439,8 +439,20 @@ export const auditRetiredStateRuntimeBundle = async (
 export const auditLinuxRetiredStateRuntimeBundle = async (
   paths: LinuxRetiredStateRuntimeBundlePaths,
 ): Promise<LinuxRetiredStateRuntimeBundleAuditReceipt> => {
-  const base = await auditRetiredStateRuntimeBundle(paths);
-  const [installer, bridge] = await Promise.all([
+  const asar = auditRetiredStateAsar(paths.asarPath);
+  const [work, browser, station, installer, bridge] = await Promise.all([
+    auditRetiredStateFile(paths.workCliPath, {
+      label: "packaged vellum",
+      maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
+    }),
+    auditRetiredStateFile(paths.browserCliPath, {
+      label: "packaged vellum-browser",
+      maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
+    }),
+    auditRetiredStateFile(paths.stationCliPath, {
+      label: "packaged vellum-station",
+      maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
+    }),
     auditRetiredStateFile(paths.installerPath, {
       label: "packaged vellum-release-installer",
       maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
@@ -450,5 +462,5 @@ export const auditLinuxRetiredStateRuntimeBundle = async (
       maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
     }),
   ]);
-  return { ...base, installer, bridge };
+  return { asar, work, browser, station, installer, bridge };
 };

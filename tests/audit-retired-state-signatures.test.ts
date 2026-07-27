@@ -298,13 +298,18 @@ describe("complete Linux packaged runtime retired-state audit", () => {
     },
   );
 
-  it("keeps Linux helper scans finite", async () => {
+  it("keeps every Linux executable scan finite", async () => {
     const root = await makeTempRoot();
     const helper = join(root, "vellum-release-installer");
     await writeFile(helper, "safe");
-    await expect(auditRetiredStateFile(helper, {
-      maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
-    })).resolves.toMatchObject({ scannedBytes: 4 });
+    expect(auditRetiredStateBuffer(new Uint8Array(
+      LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
+    ), { maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES })).toMatchObject({
+      scannedBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
+    });
+    expect(() => auditRetiredStateBuffer(new Uint8Array(
+      LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES + 1,
+    ), { maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES })).toThrow(/scan bound/u);
     expect(LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES).toBe(112 * 1024 * 1024);
   });
 });
