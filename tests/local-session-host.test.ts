@@ -121,6 +121,37 @@ describe("LocalSessionHost", () => {
     });
   });
 
+  it("drives an unresolvable agent seat to the error state instead of a login shell", () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_900),
+    }));
+    const host = hostWith(fake);
+
+    const summary = host.createAgentSeat({
+      bindingId: "seat-unresolvable",
+      harness: "claude",
+      agentKey: "local:claude",
+      launch: { kind: "harness" },
+    });
+
+    // The state the node renders: exited, never a running shell.
+    expect(summary).toMatchObject({ bindingId: "seat-unresolvable", status: "exited" });
+    expect(summary.pid).toBeUndefined();
+    // No process was ever owned — the seat failed before ownership.
+    expect(fake.controllers).toHaveLength(0);
+    expect(host.runningCount()).toBe(0);
+
+    const attached = host.attach({ bindingId: "seat-unresolvable", mode: "observe" });
+    expect(attached.ok).toBe(true);
+    if (!attached.ok) return;
+    expect(attached.status).toBe("exited");
+    expect(
+      attached.journal
+        .map((entry) => (entry.type === "output" ? entry.data : ""))
+        .join(""),
+    ).toContain("failed to spawn: claude seat launch unresolvable");
+  });
+
   it("delegates terminal spawn to the central authority and observes its exact witness", async () => {
     const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
       pid: trackSyntheticPid(42_420 + index),
