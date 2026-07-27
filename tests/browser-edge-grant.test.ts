@@ -597,6 +597,31 @@ describe("browser edge-grant process-bind dual admit", () => {
     });
   });
 
+  it("denies a live stale process when its agent anchor conflicts with a reused node id", async () => {
+    const processMap = makeProcessIdentityMap();
+    expect(processMap.bind(process.pid, {
+      nodeId: "agent",
+      canvasName: "work",
+      agentKey: "local:retired",
+      bindingId: "bind-local-default",
+    })).toBe(true);
+    const { edgeGrant, capabilities } = makeStack(
+      canvasDoc(true),
+      undefined,
+      {
+        processMap,
+        readPeerPid: () => process.pid,
+      },
+    );
+
+    await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({
+      ok: false,
+      denial: "not_found",
+    });
+    expect(capabilities.stats().activeCapabilities).toBe(0);
+    processMap.clear();
+  });
+
   it("rejects a capability paired with a different registry principal", async () => {
     const doc = canvasDoc(true);
     const { handlers, edgeGrant, capabilities } = makeStack(doc);

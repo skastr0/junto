@@ -179,6 +179,29 @@ describe("process-bind (browser canvas resolution)", () => {
     }
   });
 
+  it("requires every supplied process anchor to match the current actor seat", () => {
+    const exact = resolveBrowserCallerFromProcess(board, "work", {
+      nodeId: "agent",
+      agentKey: "local:default",
+      bindingId: "term-bind-1",
+    });
+    expect(exact.ok).toBe(true);
+
+    const staleAgent = resolveBrowserCallerFromProcess(board, "work", {
+      nodeId: "agent",
+      agentKey: "local:retired",
+      bindingId: "term-bind-1",
+    });
+    expect(staleAgent).toMatchObject({ ok: false, denial: "not_found" });
+
+    const staleBinding = resolveBrowserCallerFromProcess(board, "work", {
+      nodeId: "agent",
+      agentKey: "local:default",
+      bindingId: "retired-binding",
+    });
+    expect(staleBinding).toMatchObject({ ok: false, denial: "not_found" });
+  });
+
   it("denies when no edge to a page", () => {
     const isolated = doc([text("agent", "agent", "local:default"), page("p1")], []);
     const resolved = resolveBrowserCallerFromProcess(isolated, "work", {

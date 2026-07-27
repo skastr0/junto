@@ -1,17 +1,16 @@
 import type { CanvasDoc } from "@shared/canvas";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
-import { resolveSpec, roleOf, type CapabilityViewOptions } from "@shared/physics";
-import { isGroup } from "@shared/graph";
+import type { CapabilityViewOptions } from "@shared/physics";
 import {
   connectedPageRefs,
   findNode,
   isPageNode,
-  nodeKind,
   resolveBrowserCaller,
   type BrowserCallerPrincipal,
 } from "./authz";
 import type { ProcessPrincipal } from "../process-identity";
+import { matchesProcessPrincipal } from "../process-principal-match";
 
 // Browser process-bind: map a registered process principal onto a canvas
 // actor node and its edge-reachable pages. Identity itself is owned by
@@ -35,26 +34,6 @@ export type BrowserProcessBindResult =
       readonly pageRefs: ReadonlyArray<NodeRefKey>;
     }
   | { readonly ok: false; readonly denial: BrowserProcessBindDenial; readonly message: string };
-
-const matchesProcessPrincipal = (
-  node: ReturnType<typeof findNode>,
-  principal: ProcessPrincipal,
-): boolean => {
-  if (!node) return false;
-  // One actor kind. The seat carries both a name and a binding, so a principal
-  // may anchor by any of node id, agent key, or binding — no kind branch.
-  if (roleOf(resolveSpec({ kind: nodeKind(node), isGroup: isGroup(node) })) !== "actor") {
-    return false;
-  }
-  if (principal.nodeId !== undefined) return node.id === principal.nodeId;
-  if (principal.agentKey !== undefined) {
-    return node.ether?.entity?.name === principal.agentKey;
-  }
-  if (principal.bindingId !== undefined) {
-    return node.ether?.terminal?.bindingId === principal.bindingId;
-  }
-  return false;
-};
 
 /**
  * Resolve a process principal against one canvas document into a browser

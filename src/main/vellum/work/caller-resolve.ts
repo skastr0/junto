@@ -1,8 +1,7 @@
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { ProcessPrincipal } from "../process-identity";
-import { findNode, nodeKind } from "./authz";
-import { resolveSpec, roleOf } from "@shared/physics";
-import { isGroup } from "@shared/graph";
+import { matchesProcessPrincipal } from "../process-principal-match";
+import { findNode } from "./authz";
 
 // Resolve a process-bound principal to a concrete canvas caller node. Caller
 // identity comes only from the main-owned process registration.
@@ -25,40 +24,6 @@ export type CallerResolveResult =
   | { readonly ok: true; readonly caller: ResolvedWorkCaller }
   | CallerResolveFailure;
 
-/**
- * Seat match for a process-bound principal.
- * When both id and role key are present, both must match (no id-only forge).
- */
-export const matchesPrincipal = (
-  node: CanvasNode,
-  principal: ProcessPrincipal,
-): boolean => {
-  // Role decides participation — one actor kind, asked of physics, never a
-  // kind string compared here.
-  if (roleOf(resolveSpec({ kind: nodeKind(node), isGroup: isGroup(node) })) !== "actor") {
-    return false;
-  }
-  if (principal.nodeId !== undefined && node.id !== principal.nodeId) return false;
-  if (
-    principal.agentKey !== undefined &&
-    node.ether?.entity?.name !== principal.agentKey
-  ) {
-    return false;
-  }
-  if (
-    principal.bindingId !== undefined &&
-    node.ether?.terminal?.bindingId !== principal.bindingId
-  ) {
-    return false;
-  }
-  // Need at least one positive anchor.
-  return (
-    principal.nodeId !== undefined ||
-    principal.agentKey !== undefined ||
-    principal.bindingId !== undefined
-  );
-};
-
 /** Resolve against one already-loaded document (tests / hot path). */
 export const resolveCallerOnDoc = (
   doc: CanvasDoc,
@@ -74,11 +39,11 @@ export const resolveCallerOnDoc = (
   }
   if (principal.nodeId !== undefined && principal.canvasName === canvasName) {
     const node = findNode(doc, principal.nodeId);
-    if (node && matchesPrincipal(node, principal)) {
+    if (node && matchesProcessPrincipal(node, principal)) {
       return { ok: true, caller: { canvasName, nodeId: node.id, node, doc } };
     }
   }
-  const hits = doc.nodes.filter((n) => matchesPrincipal(n, principal));
+  const hits = doc.nodes.filter((n) => matchesProcessPrincipal(n, principal));
   if (hits.length === 0) {
     return {
       ok: false,

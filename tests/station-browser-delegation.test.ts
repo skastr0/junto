@@ -133,6 +133,28 @@ describe("station browser delegation", () => {
       pageRef,
     })).resolves.toBeDefined();
   });
+  it("refuses signed Station delegation when a live binding conflicts with a reused node id", async () => {
+    const staleMap = makeProcessIdentityMap();
+    expect(staleMap.bind(process.pid, {
+      agentKey: "local:default",
+      bindingId: "retired-binding",
+      canvasName: "work",
+      nodeId: "agent-1",
+    })).toBe(true);
+    const staleAdmission = makeAgentStationBrowserRouteAdmission({
+      stationId: "command-a",
+      socket: {} as Socket,
+      processMap: staleMap,
+      readPeerPid: () => process.pid,
+      readCanvas: async (name) => name === "work" ? admissionCanvas : undefined,
+    });
+
+    await expect(staleAdmission.admit({
+      targetStationId: "remote-a",
+      pageRef,
+    })).rejects.toMatchObject({ denial: "not_found" });
+    staleMap.clear();
+  });
   it("binds a witness to exactly the router-admitted host and page", async () => {
     const admitted = await agentAdmission.admit({
       targetStationId: "remote-a",
