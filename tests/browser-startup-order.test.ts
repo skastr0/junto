@@ -97,12 +97,45 @@ describe("browser startup recovery gate", () => {
   });
 
   it("does not infer Linux Remote supervision for a Command Center with the unit installed", () => {
+    const ensureSupervised = indexSrc.slice(
+      indexSrc.indexOf("const ensureSupervised ="),
+      indexSrc.indexOf("const supervisor = await loadStationSupervisor();"),
+    );
     expect(indexSrc).toContain('if (process.platform === "linux")');
     expect(indexSrc).not.toContain('process.platform === "linux" && !headless');
     expect(indexSrc).toContain('station.role !== "remote"');
     expect(indexSrc).toContain("station.supervisedPreferred !== true");
-    expect(indexSrc).toContain("Layer.provide(SettingsLive, StateEngineLive)");
+    expect(ensureSupervised).toContain("await AppRuntime.runPromise(");
+    expect(ensureSupervised).toContain(
+      "Effect.flatMap(SettingsService, (settings) => settings.get)",
+    );
+    expect(indexSrc).not.toContain("StateEngineLive");
+    expect(indexSrc).not.toContain("SettingsLive");
+    expect(indexSrc).not.toContain("ManagedRuntime.make");
     expect(indexSrc).not.toContain('readFile(settingsPath(), "utf8")');
+  });
+
+  it("routes an accepted supervisor handoff through the app runtime disposal path", () => {
+    const ensureSupervised = indexSrc.slice(
+      indexSrc.indexOf("const ensureSupervised ="),
+      indexSrc.indexOf("} else if (!gotSingleInstanceLock)"),
+    );
+    const exitAfterDetach = indexSrc.slice(
+      indexSrc.indexOf("const exitAfterDetach ="),
+      indexSrc.indexOf("let quitPreparation:"),
+    );
+    const disposeRuntime = indexSrc.slice(
+      indexSrc.indexOf("const disposeRuntime ="),
+      indexSrc.indexOf(
+        "/** An app exit is authorized only after every owned local child reports exit. */",
+      ),
+    );
+
+    expect(ensureSupervised).toMatch(
+      /if \(handoff\.accepted\) \{[\s\S]*exitAfterDetach\(0, `\$\{supervisor\.metadata\.provider\}-handoff`\)/,
+    );
+    expect(exitAfterDetach).toContain("return disposeRuntime();");
+    expect(disposeRuntime).toContain("AppRuntime.dispose()");
   });
 
   it("preserves non-browser IPC before recovery without registering browser IPC", () => {

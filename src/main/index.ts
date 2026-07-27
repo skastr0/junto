@@ -16,7 +16,7 @@ import {
   shell,
   type IpcMainEvent,
 } from "electron";
-import { Context, Effect, Layer, ManagedRuntime } from "effect";
+import { Context, Effect } from "effect";
 import { classifyBrowserTarget } from "@shared/browser-policy";
 import {
   IPC_CHANNELS,
@@ -116,11 +116,7 @@ import {
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
 import { loadStationSupervisor } from "./vellum/supervision/select";
-import {
-  SettingsLive,
-  SettingsService,
-} from "./vellum/settings/service";
-import { StateEngineLive } from "./vellum/state/engine";
+import { SettingsService } from "./vellum/settings/service";
 import { StateEngine } from "./vellum/state/service";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
@@ -1044,16 +1040,12 @@ const ensureSupervised = async (): Promise<boolean> => {
   if (!app.isPackaged) return true; // dev runs are never rerouted
   // The Linux unit is a Remote/headless facility, never a role inference.
   // Read the canonical SQLite topology through the same typed settings
-  // component before deciding whether this process belongs to the Remote
-  // supervisor. The short-lived connection is closed before AppRuntime can
-  // acquire the sole long-lived main-process connection.
+  // component and the one app runtime before deciding whether this process
+  // belongs to the Remote supervisor.
   if (process.platform === "linux") {
-    const preflight = ManagedRuntime.make(
-      Layer.provide(SettingsLive, StateEngineLive),
-    );
     try {
       const station = (
-        await preflight.runPromise(
+        await AppRuntime.runPromise(
           Effect.flatMap(SettingsService, (settings) => settings.get),
         )
       ).station;
@@ -1063,8 +1055,6 @@ const ensureSupervised = async (): Promise<boolean> => {
       ) return true;
     } catch {
       return true;
-    } finally {
-      await preflight.dispose();
     }
   }
   const supervisor = await loadStationSupervisor();
