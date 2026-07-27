@@ -96,8 +96,6 @@ const writeKeyring = async (
 
 const createFixture = async (options: {
   readonly keyStatus?: "active" | "retired" | "revoked";
-  readonly downgradePolicy?: "forbid" | "explicit-rollback";
-  readonly minimumDowngradeVersion?: string;
   readonly testGates?: ReadonlyArray<string>;
   readonly unknownLicenseCount?: number;
   readonly dependencyLicense?: string;
@@ -344,9 +342,6 @@ const createFixture = async (options: {
       `https://releases.example.test/vellum-${VERSION}-ubuntu-24.04-x64-release.tar.gz`,
     minimumPeerVersion: VERSION,
     keyId: KEY_ID,
-    downgradePolicy: options.downgradePolicy ?? "forbid",
-    minimumDowngradeVersion:
-      options.minimumDowngradeVersion ?? VERSION,
   });
   await signLinuxReleaseMetadata({
     bundleDirectory: directory,
@@ -561,30 +556,11 @@ describe("signed Linux release bundle", () => {
     }
   });
 
-  it("requires an explicit signed rollback policy for downgrades", async () => {
-    const forbidden = await createFixture();
+  it("rejects every downgrade after cutover", async () => {
+    const fixture = await createFixture();
     await expect(
-      verifyFixture(forbidden.directory, {
-        installedVersion: "0.2.0",
-        allowExplicitRollback: true,
-      }),
+      verifyFixture(fixture.directory, { installedVersion: "0.2.0" }),
     ).rejects.toThrow(/downgrade/u);
-
-    const explicit = await createFixture({
-      downgradePolicy: "explicit-rollback",
-      minimumDowngradeVersion: "0.1.0",
-    });
-    await expect(
-      verifyFixture(explicit.directory, {
-        installedVersion: "0.2.0",
-      }),
-    ).rejects.toThrow(/downgrade/u);
-    await expect(
-      verifyFixture(explicit.directory, {
-        installedVersion: "0.2.0",
-        allowExplicitRollback: true,
-      }),
-    ).resolves.toMatchObject({ ok: true, version: VERSION });
   });
 
   it("blocks manifest creation with the intentionally empty production keyring", async () => {

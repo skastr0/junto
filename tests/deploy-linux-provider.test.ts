@@ -272,7 +272,6 @@ type AfterCommit =
   | "mismatch"
   | "malformed"
   | "refused"
-  | "rolled-back"
   | "disconnect";
 
 interface TranscriptPlan {
@@ -290,13 +289,6 @@ interface TranscriptPlan {
   readonly afterPassword?: AfterPassword;
   readonly afterPrepare?: AfterPrepare;
   readonly afterCommit?: AfterCommit;
-  readonly rollbackMismatch?:
-    | "providerNonce"
-    | "bridgeNonce"
-    | "helperChallenge"
-    | "fenceId"
-    | "inventorySha256"
-    | "cleanup";
   readonly cleanup?: "valid" | "mismatch" | "malformed" | "missing";
   readonly transactExit?: "zero" | "nonzero";
   readonly failRegularWriteAt?: number;
@@ -395,7 +387,7 @@ const rootArmed = (
 
 const operationFor = (
   plan: TranscriptPlan,
-): "install" | "adopt" | "noop" =>
+): "install" | "adopt" =>
   (plan.recovery === undefined
     ? plan.priorVersion ?? null
     : plan.recovery.projectedVersion) === null
@@ -403,9 +395,7 @@ const operationFor = (
     : (plan.recovery === undefined
         ? plan.priorVersion
         : plan.recovery.projectedVersion) === "1.2.3"
-      ? plan.currentReady
-        ? "noop"
-        : "adopt"
+      ? "adopt"
       : "install";
 
 const rootReady = (
@@ -489,7 +479,7 @@ const finalReady = (
   fenceId: request.fenceId,
   inventorySha256: request.inventorySha256,
   operation: prepared.operation,
-  changed: prepared.operation !== "noop",
+  changed: true,
   fromVersion: prepared.fromVersion,
   toVersion: stage.candidate.version,
   manifestSha256: stage.candidate.manifestSha256,
@@ -501,37 +491,6 @@ const finalReady = (
     generation,
     packageVersion: stage.candidate.version,
     receiptSha256: readinessReceiptSha256,
-  },
-});
-
-const rolledBack = (
-  stage: LinuxReleaseBridgeStageRequest,
-  prepared: Extract<
-    LinuxReleaseInstallerReceipt,
-    { readonly ok: true; readonly state: "root-ready" }
-  >,
-  request: Extract<
-    LinuxReleaseInstallerRequest,
-    { readonly kind: "commit" }
-  >,
-): Extract<
-  LinuxReleaseInstallerReceipt,
-  { readonly ok: false; readonly state: "rolled-back" }
-> => ({
-  schema: LINUX_RELEASE_INSTALLER_RECEIPT,
-  ok: false,
-  state: "rolled-back",
-  code: "install-failed",
-  transactionId: request.transactionId,
-  action: "retry-install",
-  providerNonce: request.providerNonce,
-  bridgeNonce: request.bridgeNonce,
-  helperChallenge: request.helperChallenge,
-  fenceId: request.fenceId,
-  inventorySha256: stage.candidate.inventorySha256,
-  cleanup: {
-    fence: "cleared",
-    journal: "cleared",
   },
 });
 
@@ -712,41 +671,6 @@ const makeTranscriptHarness = (
           value: encodeLinuxReleaseInstallerReceipt(
             refusal(request.transactionId, "retry-install"),
           ),
-        },
-      ];
-    }
-    if (plan.afterCommit === "rolled-back") {
-      events.push("rolled-back");
-      pendingCleanupReason = "installer-terminal";
-      const receipt = rolledBack(staged!, preparedReceipt, request);
-      const mismatched =
-        plan.rollbackMismatch === "providerNonce"
-          ? { ...receipt, providerNonce: "9".repeat(32) }
-          : plan.rollbackMismatch === "bridgeNonce"
-            ? { ...receipt, bridgeNonce: "9".repeat(32) }
-            : plan.rollbackMismatch === "helperChallenge"
-              ? { ...receipt, helperChallenge: "9".repeat(32) }
-              : plan.rollbackMismatch === "fenceId"
-                ? { ...receipt, fenceId: "9".repeat(32) }
-                : plan.rollbackMismatch === "inventorySha256"
-                  ? { ...receipt, inventorySha256: "9".repeat(64) }
-                  : plan.rollbackMismatch === "cleanup"
-                    ? {
-                        ...receipt,
-                        cleanup: {
-                          fence: "cleared" as const,
-                          journal: "retained" as const,
-                        },
-                      }
-                    : receipt;
-      return [
-        {
-          _tag: "line",
-          value: plan.rollbackMismatch === "cleanup"
-            ? `${JSON.stringify(mismatched)}\n`
-            : encodeLinuxReleaseInstallerReceipt(
-                mismatched as LinuxReleaseInstallerReceipt,
-              ),
         },
       ];
     }
@@ -1189,7 +1113,7 @@ describe("Linux Remote privileged deployment", () => {
     expect(ready).toMatchObject({
       ok: true,
       disposition: "ready",
-      detail: expect.stringContaining("already cache-bound"),
+      detail: expect.stringContaining("installed from the signed bundle"),
     });
     expect(harness.run).toHaveBeenCalledTimes(1);
     expect(harness.transactCalls).toHaveLength(1);
@@ -1221,7 +1145,7 @@ describe("Linux Remote privileged deployment", () => {
       ok: true,
       disposition: "ready",
       version: "1.2.3",
-      detail: expect.stringContaining("already cache-bound"),
+      detail: expect.stringContaining("installed from the signed bundle"),
     });
     expect(harness.commit()).toBeDefined();
     expect(harness.events).toContain("stage-cleared");
@@ -1474,37 +1398,7 @@ describe("Linux Remote privileged deployment", () => {
     expect(harness.events).toContain("stage-cleared");
   });
 
-  it.each([
-    "providerNonce",
-    "bridgeNonce",
-    "helperChallenge",
-    "fenceId",
-    "inventorySha256",
-    "cleanup",
-  ] as const)(
-    "rejects a rollback whose %s is not bound to ROOT_READY",
-    async (rollbackMismatch) => {
-      const route = heldRouteCut();
-      const harness = makeTranscriptHarness(preflight(), {
-        afterCommit: "rolled-back",
-        rollbackMismatch,
-      });
-      const provider = makeProvider(route.authority);
-
-      const receipt = await Effect.runPromise(
-        provider.deploy(providerInput(harness.ssh, credential())),
-      );
-
-      expect(receipt).toMatchObject({
-        ok: false,
-        code: "conflict",
-        disposition: "indeterminate",
-      });
-      expect(harness.commit()).toBeDefined();
-    },
-  );
-
-  it("distinguishes a pre-COMMIT refusal from a journal-proven rollback", async () => {
+  it("distinguishes a pre-COMMIT refusal from an indeterminate post-COMMIT refusal", async () => {
     const provider = makeProvider(heldRouteCut().authority);
     const refusedHarness = makeTranscriptHarness(preflight(), {
       afterPrepare: "refused",
@@ -1521,20 +1415,20 @@ describe("Linux Remote privileged deployment", () => {
     });
     expect(refusedHarness.commit()).toBeUndefined();
 
-    const rolledBackHarness = makeTranscriptHarness(preflight(), {
-      afterCommit: "rolled-back",
+    const postCommitHarness = makeTranscriptHarness(preflight(), {
+      afterCommit: "refused",
     });
-    const rolledBack = await Effect.runPromise(
+    const postCommit = await Effect.runPromise(
       provider.deploy(
-        providerInput(rolledBackHarness.ssh, credential()),
+        providerInput(postCommitHarness.ssh, credential()),
       ),
     );
-    expect(rolledBack).toMatchObject({
+    expect(postCommit).toMatchObject({
       ok: false,
-      code: "io",
-      disposition: "rolled-back",
+      code: "conflict",
+      disposition: "indeterminate",
     });
-    expect(rolledBackHarness.commit()).toBeDefined();
+    expect(postCommitHarness.commit()).toBeDefined();
   });
 
   it("requires exact package custody before asking for authorization", async () => {

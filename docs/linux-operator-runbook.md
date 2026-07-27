@@ -113,13 +113,13 @@ Vellum's sole durable product store is `~/.vellum/state/vellum.db`, owned by
 the running app through one `StateEngine` connection. Package operations do
 not own or rewrite it. Do not copy, archive, synchronize, or replace
 `~/.vellum`, `vellum.db`, its WAL, or its shared-memory file as an install,
-upgrade, rollback, or recovery procedure.
+upgrade, or recovery procedure.
 
 `StateEngine` implements the coherent SQLite `VACUUM INTO` primitive, but Linux
 v1 does not yet expose an operator backup, restore, import, CLI, or IPC surface
-for it. Do not synthesize one from filesystem commands. Package rollback
-changes signed application binaries only and must remain compatible with the
-current database schema.
+for it. Do not synthesize one from filesystem commands. Linux package cutover
+is one-way; forward repair uses a newer signed release and never changes
+product state.
 
 ## Fresh install
 
@@ -279,22 +279,20 @@ A Linux attempt:
   host, machine, boot, and a fresh helper challenge over that same finite SSH
   child;
 - sends `PREPARE` only after that root proof, and sends `COMMIT` only after the
-  root helper returns the exact candidate, maintenance cut, rollback fence,
+  root helper returns the exact candidate, maintenance cut, release fence,
   and pre-mutation receipt;
-- re-verifies from root-protected descriptors, caches the rollback artifact,
-  journals every package/activation phase, and serializes package mutation;
+- re-verifies from root-protected descriptors, journals every package/activation
+  phase, and serializes package mutation;
 - reaps the fixed sudo child, removes the exact descriptor-held staging
   directory, and emits a fully bound `STAGE_CLEARED` receipt only after that
   directory inode is proven unlinked;
 - reports ready only after the exact installed generation publishes the
   private work-control generation receipt; and
-- restores the prior cached package, service state, and lingering state when a
-  post-mutation check fails.
+- reports any post-`COMMIT` failure as indeterminate; forward repair requires a
+  newer signed release.
 
 The first managed attempt after a manual package bootstrap adopts the exact
-same signed installed release into the protected rollback cache before a later
-upgrade is permitted. A different-version upgrade never proceeds without that
-baseline.
+same signed installed release before a later upgrade is permitted.
 
 Persistent `NOPASSWD` grants are not part of the product contract. Do not add a
 Vellum sudoers rule, run the helper directly, pipe a password through a shell,
@@ -383,40 +381,13 @@ contain receipts and bounded status, never `~/.vellum` itself.
 5. Repeat every readiness and Doctor check. Do not discard the prior signed
    bundle yet.
 
-## Rollback
+## Post-COMMIT repair
 
-Rollback is a release operation, not a package-manager shortcut. The older
-bundle must still have valid metadata signed by a non-revoked key, and its
-manifest must explicitly permit rollback down to that version.
-Repeat the protected staging procedure into a fresh root-owned rollback
-directory. After the green rollback receipt, repeat the staged package size
-and SHA-256 checks immediately before `apt-get`.
-
-```sh
-/var/lib/vellum-release-stage/ROLLBACK_VERSION/vellum-linux-verify-x64 \
-  --bundle /var/lib/vellum-release-stage/ROLLBACK_VERSION \
-  --keyring /path/to/authenticated/release-keyring.json \
-  --trusted-keyring-revision AUTHENTICATED_KEYRING_REVISION \
-  --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
-  --trusted-key-id AUTHENTICATED_KEY_ID \
-  --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
-  --peer-version X.Y.Z \
-  --peer-station-browser-protocol 1 \
-  --peer-work-control-protocol vellum-work/v1 \
-  --installed-version CURRENT_VERSION \
-  --allow-explicit-rollback
-systemctl --user stop vellum-remote.service
-sudo apt-get install --allow-downgrades \
-  '/var/lib/vellum-release-stage/ROLLBACK_VERSION/Vellum Command-ROLLBACK_VERSION-x64-linux.deb'
-systemctl --user daemon-reload
-systemctl --user start vellum-remote.service
-```
-
-If signed policy forbids the downgrade, stop and obtain a separately
-authorized rollback release. Never modify the manifest, keyring, or package
-version locally to force it. The authorized rollback build must support the
-current SQLite schema. Never restore, downgrade, or replace product state as
-part of a binary rollback.
+Linux cutover never downgrades or activates an older binary. Any unexplained
+outcome after `COMMIT` is indeterminate: preserve the evidence, do not retry
+the prior package, and repair forward with a newer signed release. Never
+modify the manifest, keyring, or package version locally to force activation.
+Never restore, downgrade, or replace product state as part of repair.
 
 ## Browser profile lifecycle
 

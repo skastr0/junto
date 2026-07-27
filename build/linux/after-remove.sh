@@ -179,8 +179,8 @@ retire_legacy_sudoers_policy() {
   rm -f -- "$marker"
 }
 
-# Preserve journals and rollback caches. Retire only the exact historical
-# passwordless policy, and remove the helper only with package custody proof.
+# Preserve journals. Retire only the exact historical passwordless policy, and
+# remove the helper only with package custody proof.
 retire_legacy_sudoers_policy \
   "$SUDOERS_TARGET" \
   "$SUDOERS_MARKER" \

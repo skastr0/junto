@@ -25,7 +25,7 @@ execution, not the storage implementation.
 
 | Capability | Contract |
 |---|---|
-| Managed Remote install/update/rollback | `managedRemoteDeploy`, `managedRemoteUpdate`, and `managedRemoteRollback` remain false |
+| Managed Remote install/update | `managedRemoteDeploy` and `managedRemoteUpdate` remain false |
 | Darwin Remote deploy | `darwinRemoteDeploy` remains false |
 | Command Center transfer | `commandCenterTransfer` remains false |
 | In-app administrator-password deploy | No entry point |

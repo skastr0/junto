@@ -78,7 +78,7 @@ export interface LinuxReleaseFile {
 }
 
 export interface LinuxReleaseManifest {
-  readonly schema: "vellum/linux-release-manifest/v1";
+  readonly schema: "vellum/linux-release-manifest/v2";
   readonly release: {
     readonly product: "Vellum Command";
     readonly version: string;
@@ -104,15 +104,7 @@ export interface LinuxReleaseManifest {
     readonly workControl: "vellum-work/v1";
     readonly minimumPeerVersion: string;
   };
-  readonly downgrade:
-    | {
-      readonly policy: "forbid";
-      readonly minimumVersion: string;
-    }
-    | {
-      readonly policy: "explicit-rollback";
-      readonly minimumVersion: string;
-    };
+  readonly downgrade: { readonly policy: "forbid" };
   readonly trust: {
     readonly algorithm: "ed25519";
     readonly keyId: string;
@@ -181,7 +173,6 @@ export interface LinuxReleaseVerificationInput {
   readonly stationBrowserProtocol: number;
   readonly workControlProtocol: string;
   readonly installedVersion?: string;
-  readonly allowExplicitRollback?: boolean;
   readonly trustedKeyring: LinuxReleaseKeyring;
   readonly trustedKeyringRevision: number;
   readonly trustedKeyringSha256: string;
@@ -742,7 +733,7 @@ export const decodeLinuxReleaseManifest = (
     ],
     "Linux release manifest",
   );
-  if (manifest.schema !== "vellum/linux-release-manifest/v1") {
+  if (manifest.schema !== "vellum/linux-release-manifest/v2") {
     throw new Error("unsupported Linux release manifest");
   }
 
@@ -828,19 +819,9 @@ export const decodeLinuxReleaseManifest = (
   );
 
   const downgrade = record(manifest.downgrade, "downgrade policy");
-  exactKeys(downgrade, ["policy", "minimumVersion"], "downgrade policy");
-  if (
-    downgrade.policy !== "forbid" &&
-    downgrade.policy !== "explicit-rollback"
-  ) {
+  exactKeys(downgrade, ["policy"], "downgrade policy");
+  if (downgrade.policy !== "forbid") {
     throw new Error("unsupported downgrade policy");
-  }
-  const minimumVersion = requireSemver(
-    downgrade.minimumVersion,
-    "minimum downgrade version",
-  );
-  if (compareReleaseVersions(version, minimumVersion) < 0) {
-    throw new Error("release version is below its downgrade floor");
   }
 
   const trust = record(manifest.trust, "release trust policy");
@@ -882,7 +863,7 @@ export const decodeLinuxReleaseManifest = (
   }
 
   return {
-    schema: "vellum/linux-release-manifest/v1",
+    schema: "vellum/linux-release-manifest/v2",
     release: {
       product: "Vellum Command",
       version,
@@ -908,10 +889,7 @@ export const decodeLinuxReleaseManifest = (
       workControl: "vellum-work/v1",
       minimumPeerVersion,
     },
-    downgrade: {
-      policy: downgrade.policy,
-      minimumVersion,
-    },
+    downgrade: { policy: "forbid" },
     trust: {
       algorithm: "ed25519",
       keyId,
@@ -1857,21 +1835,8 @@ const validateCompatibility = (
       manifest.release.version,
       installed,
     );
-    if (
-      comparison < 0 &&
-      (manifest.downgrade.policy === "forbid" ||
-        input.allowExplicitRollback !== true)
-    ) {
+    if (comparison < 0) {
       throw new Error("release downgrade is outside signed policy");
-    }
-    if (
-      comparison < 0 &&
-      compareReleaseVersions(
-        manifest.release.version,
-        manifest.downgrade.minimumVersion,
-      ) < 0
-    ) {
-      throw new Error("release downgrade is below the signed floor");
     }
   }
 };
@@ -2091,8 +2056,6 @@ export const createLinuxReleaseManifest = async (input: {
   readonly downloadLocator: string;
   readonly minimumPeerVersion: string;
   readonly keyId: string;
-  readonly downgradePolicy: "forbid" | "explicit-rollback";
-  readonly minimumDowngradeVersion: string;
 }): Promise<LinuxReleaseManifest> => {
   const directory = path.resolve(input.bundleDirectory);
   const version = requireSemver(input.version, "release version");
@@ -2151,12 +2114,8 @@ export const createLinuxReleaseManifest = async (input: {
     input.minimumPeerVersion,
     "minimum peer version",
   );
-  const minimumDowngradeVersion = requireSemver(
-    input.minimumDowngradeVersion,
-    "minimum downgrade version",
-  );
   const manifest: LinuxReleaseManifest = {
-    schema: "vellum/linux-release-manifest/v1",
+    schema: "vellum/linux-release-manifest/v2",
     release: {
       product: "Vellum Command",
       version,
@@ -2182,10 +2141,7 @@ export const createLinuxReleaseManifest = async (input: {
       workControl: LINUX_RELEASE_PROTOCOLS.workControl,
       minimumPeerVersion,
     },
-    downgrade: {
-      policy: input.downgradePolicy,
-      minimumVersion: minimumDowngradeVersion,
-    },
+    downgrade: { policy: "forbid" },
     trust: {
       algorithm: "ed25519",
       keyId,

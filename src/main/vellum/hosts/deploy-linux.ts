@@ -1051,11 +1051,7 @@ const validateRootReady = (
       attempt.stage.candidate.inventorySha256 ||
     receipt.maintenance.activeTerminalSessions !== 0 ||
     (receipt.operation === "install" && plannedSameVersion) ||
-    ((receipt.operation === "adopt" || receipt.operation === "noop") &&
-      !plannedSameVersion) ||
-    (receipt.operation === "noop" &&
-      !recovering &&
-      (!preflight.currentReady || preflight.generation === undefined))
+    (receipt.operation === "adopt" && !plannedSameVersion)
   ) {
     throw new LinuxDeploymentProtocolError(
       "root-ready receipt changed the admitted Linux release authority",
@@ -1087,7 +1083,7 @@ const validateFinalReady = (
     receipt.inventorySha256 !==
       attempt.stage.candidate.inventorySha256 ||
     receipt.operation !== rootReady.operation ||
-    receipt.changed !== (rootReady.operation !== "noop") ||
+    receipt.changed !== true ||
     receipt.fromVersion !== rootReady.fromVersion ||
     receipt.toVersion !== admission.version ||
     receipt.manifestSha256 !== admission.manifestSha256 ||
@@ -1099,34 +1095,6 @@ const validateFinalReady = (
   ) {
     throw new LinuxDeploymentProtocolError(
       "final Linux readiness receipt changed the committed release authority",
-    );
-  }
-};
-
-const validateRolledBack = (
-  receipt: Extract<
-    LinuxReleaseInstallerReceipt,
-    { readonly ok: false; readonly state: "rolled-back" }
-  >,
-  rootReady: Extract<
-    LinuxReleaseInstallerReceipt,
-    { readonly ok: true; readonly state: "root-ready" }
-  >,
-  attempt: LinuxReleaseAttempt,
-  auth: LinuxReleaseBridgeAuthArmed,
-): void => {
-  if (
-    receipt.transactionId !== attempt.stage.transactionId ||
-    receipt.providerNonce !== attempt.stage.providerNonce ||
-    receipt.bridgeNonce !== auth.bridgeNonce ||
-    receipt.helperChallenge !== rootReady.helperChallenge ||
-    receipt.fenceId !== rootReady.fence.fenceId ||
-    receipt.inventorySha256 !== attempt.stage.candidate.inventorySha256 ||
-    receipt.cleanup.fence !== "cleared" ||
-    receipt.cleanup.journal !== "cleared"
-  ) {
-    throw new LinuxDeploymentProtocolError(
-      "Linux rollback receipt changed the committed release authority",
     );
   }
 };
@@ -1145,11 +1113,6 @@ type LinuxReleaseInstallerRefusal = Extract<
   { readonly ok: false; readonly state: "refused" }
 >;
 
-type LinuxReleaseInstallerRollback = Extract<
-  LinuxReleaseInstallerReceipt,
-  { readonly ok: false; readonly state: "rolled-back" }
->;
-
 type LinuxReleaseInstallerReady = Extract<
   LinuxReleaseInstallerReceipt,
   { readonly ok: true; readonly state: "ready" }
@@ -1163,11 +1126,6 @@ type LinuxReleaseSessionOutcome =
   | {
       readonly kind: "refused";
       readonly receipt: LinuxReleaseInstallerRefusal;
-      readonly cleanup: LinuxReleaseBridgeStageCleared;
-    }
-  | {
-      readonly kind: "rolled-back";
-      readonly receipt: LinuxReleaseInstallerRollback;
       readonly cleanup: LinuxReleaseBridgeStageCleared;
     }
   | {
@@ -1456,33 +1414,14 @@ const runReleaseSession = (
             exactInstallerReceipt(finalLine)
           );
           if (!final.ok) {
-            if (final.state !== "rolled-back") {
-              // Drain and validate bridge cleanup, but never turn a generic
-              // post-COMMIT refusal into a determinate result.
-              yield* takeCleanup("installer-terminal", false);
-              return yield* Effect.fail(
-                new LinuxDeploymentProtocolError(
-                  "Linux installer crossed COMMIT without a cleanup-bound rollback",
-                ),
-              );
-            }
-            yield* protocolStep(() =>
-              validateRolledBack(
-                final,
-                prepared,
-                attempt,
-                auth,
-              )
+            // Once COMMIT has crossed, an installer refusal is indeterminate:
+            // retain the forward-repair posture after bounded bridge cleanup.
+            yield* takeCleanup("installer-terminal", false);
+            return yield* Effect.fail(
+              new LinuxDeploymentProtocolError(
+                "Linux installer crossed COMMIT without final readiness; forward repair requires a newer signed release",
+              ),
             );
-            const cleanup = yield* takeCleanup(
-              "installer-terminal",
-              false,
-            );
-            return {
-              kind: "rolled-back" as const,
-              receipt: final,
-              cleanup,
-            };
           }
           if (final.state !== "ready") {
             return yield* Effect.fail(
@@ -1954,18 +1893,6 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             stages,
             admission.version,
             outcome.receipt,
-          );
-        }
-        if (outcome.kind === "rolled-back") {
-          return deployFailure(
-            providerInput,
-            stages,
-            "Linux package or readiness activation failed; the root-owned journal restored the prior package, service, linger, fence, and journal state",
-            {
-              code: "io",
-              disposition: "rolled-back",
-              version: admission.version,
-            },
           );
         }
         const receipt = outcome.receipt;

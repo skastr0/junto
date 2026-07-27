@@ -67,17 +67,8 @@ export const linuxReleaseToolMain = async (
         "--download-locator",
         "--minimum-peer-version",
         "--key-id",
-        "--downgrade-policy",
-        "--minimum-downgrade-version",
       ]),
     );
-    const downgradePolicy = required(parsed, "--downgrade-policy");
-    if (
-      downgradePolicy !== "forbid" &&
-      downgradePolicy !== "explicit-rollback"
-    ) {
-      throw new Error("invalid downgrade policy");
-    }
     const manifest = await createLinuxReleaseManifest({
       bundleDirectory: required(parsed, "--bundle"),
       version: required(parsed, "--version"),
@@ -87,11 +78,6 @@ export const linuxReleaseToolMain = async (
       downloadLocator: required(parsed, "--download-locator"),
       minimumPeerVersion: required(parsed, "--minimum-peer-version"),
       keyId: required(parsed, "--key-id"),
-      downgradePolicy,
-      minimumDowngradeVersion: required(
-        parsed,
-        "--minimum-downgrade-version",
-      ),
     });
     process.stdout.write(
       `${JSON.stringify({

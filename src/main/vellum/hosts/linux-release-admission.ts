@@ -354,7 +354,7 @@ export const authorizeProductionLinuxDeployBundle = (
       compareReleaseVersions(candidate.version, input.installedVersion) < 0)
   ) {
     throw new Error(
-      "automatic Linux deployment refuses a downgrade; use the human rollback ceremony",
+      "Linux deployment refuses a downgrade; forward repair requires a newer signed release",
     );
   }
   const admission: ProductionLinuxDeployBundleAdmission = Object.freeze({

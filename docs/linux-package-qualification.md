@@ -14,7 +14,7 @@ expectations and operator proof on real Ubuntu hardware.
 
 | Plane | Gate | Evidence |
 |---|---|---|
-| **Boot ready** | unit start, managed install/update/rollback, deploy preflight `ready=1` | `vellum-remote.service` active; private generation receipt `$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID` with body `${INVOCATION_ID}\n`; fresh `~/.vellum/work/` socket + token; launcher notified systemd (`Type=notify`) |
+| **Boot ready** | unit start, managed install/update, deploy preflight `ready=1` | `vellum-remote.service` active; private generation receipt `$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID` with body `${INVOCATION_ID}\n`; fresh `~/.vellum/work/` socket + token; launcher notified systemd (`Type=notify`) |
 | **Doctor observation** | release qualification / day-to-day ops | terminal, browser, canvas, display, sandbox, capability probes |
 
 Orphan contracts (must not reappear):
@@ -170,9 +170,10 @@ On a disposable Ubuntu 24.04 x86_64 host (or disposable VM with host kernel):
 
 ### C. Shared package integrity (both roles)
 
-1. Exercise install, same-version reinstall, upgrade, downgrade, remove, and
-   purge. Snapshot the test user's `~/.vellum` tree before each package action
-   and prove it is byte-for-byte unchanged afterward.
+1. Exercise install, same-version reinstall, upgrade, remove, and purge.
+   Exercise a downgrade only as a rejection: no older build may activate.
+   Snapshot the test user's `~/.vellum` tree before each package action and
+   prove it is byte-for-byte unchanged afterward.
 2. Inspect `/opt/Vellum Command` as root: every path remains root-owned; no
    regular file or directory is group/world writable.
 3. Confirm the package does not ship sudoers policy or
@@ -186,7 +187,7 @@ CI-only package construction without a disposable Ubuntu desktop/Remote host:
 - GUI Command Center install and interactive sandbox/PTY proof
 - Unattended Remote under real `systemd --user` + host kernel
 - Logout/login, linger, and reboot persistence decisions
-- Managed install/update/rollback against a live Remote with administrator
+- Managed install/update against a live Remote with administrator
   password ceremony
 - Cross-host fleet (macOS or Linux Command Center → Linux Remote) with live
   Station API projection/report convergence and edge-routed pulse

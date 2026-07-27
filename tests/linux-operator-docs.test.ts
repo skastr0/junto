@@ -32,7 +32,7 @@ describe("Linux v1 operator documentation", () => {
       "## Readiness and Doctor",
       "## Logs and bounded diagnostics",
       "## Upgrade",
-      "## Rollback",
+      "## Post-COMMIT repair",
       "## Browser profile lifecycle",
       "## Uninstall the package",
       "## Disaster recovery",
@@ -132,7 +132,7 @@ describe("Linux v1 operator documentation", () => {
       /Linux\s+v1 does not yet expose an operator backup, restore, import, CLI, or IPC surface/u,
     );
     expect(docs).toMatch(
-      /Never restore, downgrade, or replace product state as\s+part of a binary rollback/u,
+      /Never restore, downgrade, or replace product state as\s+part of repair/u,
     );
   });
 
@@ -160,6 +160,13 @@ describe("Linux v1 operator documentation", () => {
     ]) {
       expect(matrix).toContain(unsupported);
     }
+  });
+
+  it("qualifies downgrades only as one-way cutover rejections", async () => {
+    const qualification = await readDoc("linux-package-qualification.md");
+    expect(qualification).toContain(
+      "Exercise a downgrade only as a rejection: no older build may activate.",
+    );
   });
 
   it("documents custody, rotation, revocation, and the remaining human ceremony", async () => {

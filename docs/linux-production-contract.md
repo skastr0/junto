@@ -51,10 +51,9 @@ The following are release blockers:
 - dual read/write, legacy import, or rollback to a retired store.
 
 The only coherent backup mechanism implemented in `StateEngine` is `VACUUM
-INTO`; Linux v1 exposes no operator backup or restore command. A binary package
-rollback may activate a previous signed build only when that build supports
-the current SQLite schema. It changes binaries only and never restores,
-replaces, or downgrades product state.
+INTO`; Linux v1 exposes no operator backup or restore command. Linux release
+cutover is one-way: an older binary is never activated. Forward repair uses a
+newer signed release and never restores, replaces, or downgrades product state.
 
 ## Boot ready
 
@@ -145,8 +144,7 @@ Linux is production-ready only when:
 
 - the same qualified artifact runs as desktop Command Center and unattended
   Remote on native Ubuntu 24.04 x86_64;
-- package install/update and any allowed binary rollback complete without
-  readiness timeout;
+- package install/update complete without readiness timeout;
 - fresh install creates only the canonical SQLite state architecture;
 - pair/configure/project/report/status pass over the fixed command;
 - interrupted projection and report exchanges converge idempotently;

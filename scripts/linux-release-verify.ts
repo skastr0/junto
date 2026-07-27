@@ -24,17 +24,10 @@ const parseOptions = (
   readonly trustedKeyId: string;
   readonly trustedKeyFingerprintSha256: string;
   readonly installedVersion?: string;
-  readonly allowExplicitRollback: boolean;
 } => {
   const values = new Map<string, string>();
-  let allowExplicitRollback = false;
   for (let index = 0; index < args.length; index += 1) {
     const current = args[index];
-    if (current === "--allow-explicit-rollback") {
-      if (allowExplicitRollback) throw new Error("duplicate rollback option");
-      allowExplicitRollback = true;
-      continue;
-    }
     if (
       current !== "--bundle" &&
       current !== "--peer-version" &&
@@ -82,7 +75,7 @@ const parseOptions = (
     !/^[0-9]+$/u.test(stationBrowser)
   ) {
     throw new Error(
-      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-version X.Y.Z --peer-station-browser-protocol 1 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z] [--allow-explicit-rollback]",
+      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-version X.Y.Z --peer-station-browser-protocol 1 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z]",
     );
   }
   return {
@@ -98,7 +91,6 @@ const parseOptions = (
     ...(values.get("--installed-version") === undefined
       ? {}
       : { installedVersion: values.get("--installed-version") }),
-    allowExplicitRollback,
   };
 };
 
@@ -220,7 +212,6 @@ export const linuxReleaseVerifyMain = async (
     ...(options.installedVersion === undefined
       ? {}
       : { installedVersion: options.installedVersion }),
-    allowExplicitRollback: options.allowExplicitRollback,
   });
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
 };
