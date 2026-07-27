@@ -71,8 +71,6 @@ export {
   seatMayBeBlocked,
 } from "./phase-membership";
 
-export { stampActorActorMsgPorts } from "./stamp";
-
 export {
   Granted,
   ScopeDenial,

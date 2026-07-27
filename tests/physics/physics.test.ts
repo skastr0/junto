@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Either, HashMap, HashSet, Match, Option } from "effect";
 import type { CanvasDoc } from "../../src/shared/canvas";
-import { serializeCanvas, WELL_KNOWN_ENTITY_KINDS } from "../../src/shared/canvas";
+import { WELL_KNOWN_ENTITY_KINDS } from "../../src/shared/canvas";
 import {
-  ACTOR_ACTOR_INBOX_PORTS,
   ALL_PORTS,
   GrantLaw,
   KindSpecs,
@@ -28,7 +27,6 @@ import {
   routeAllowed,
   seatMayBeBlocked,
   selectGrant,
-  stampActorActorMsgPorts,
   undirectedEdgeKey,
   type NodePlacement,
   type Port,
@@ -546,64 +544,6 @@ describe("physics admitPure", () => {
     }
   });
 
-  it("stamped actor↔actor (msg.list+msg.send) admits msg.* as pre-S3 Full did", () => {
-    const raw: CanvasDoc = {
-      nodes: [
-        textNode("a1", "agent"),
-        textNode("a2", "agent", 200, 0),
-      ],
-      edges: [{ id: "e1", fromNode: "a1", toNode: "a2" }],
-    };
-    const stamped = stampActorActorMsgPorts(raw);
-    const view = canvasDocToCapabilityView(stamped);
-    for (const port of ["msg.list", "msg.send"] as const) {
-      const result = admitPure(view, asNodeId("a1"), asNodeId("a2"), port);
-      expect(Either.isRight(result), port).toBe(true);
-    }
-  });
-});
-
-describe("physics stampActorActorMsgPorts", () => {
-  it("stamps unported actor↔actor; never actor↔sink; idempotent byte-identical", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        textNode("a1", "agent"),
-        textNode("a2", "agent", 200, 0),
-        textNode("t1", "task", 400, 0),
-      ],
-      edges: [
-        { id: "aa", fromNode: "a1", toNode: "a2" },
-        { id: "as", fromNode: "a1", toNode: "t1" },
-      ],
-    };
-    const once = stampActorActorMsgPorts(doc);
-    const aa = once.edges.find((e) => e.id === "aa");
-    const as = once.edges.find((e) => e.id === "as");
-    expect(aa?.ether?.ports).toEqual([...ACTOR_ACTOR_INBOX_PORTS]);
-    expect(as?.ether?.ports).toBeUndefined();
-
-    const twice = stampActorActorMsgPorts(once);
-    expect(serializeCanvas(twice)).toBe(serializeCanvas(once));
-    // Second call returns same reference when already stamped
-    expect(twice).toBe(once);
-  });
-
-  it("does not overwrite authorial ports (including empty array)", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("a1", "agent"), textNode("a2", "agent", 200, 0)],
-      edges: [
-        {
-          id: "e1",
-          fromNode: "a1",
-          toNode: "a2",
-          ether: { ports: ["msg.send"] },
-        },
-      ],
-    };
-    const stamped = stampActorActorMsgPorts(doc);
-    expect(stamped).toBe(doc);
-    expect(stamped.edges[0]?.ether?.ports).toEqual(["msg.send"]);
-  });
 });
 
 describe("physics mask union (I7 — multi-edge masks combine as union)", () => {

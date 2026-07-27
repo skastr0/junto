@@ -7,7 +7,6 @@ import {
   CANVAS_NAME_INPUT_PATTERN,
   CANVAS_NAME_MAX_LENGTH,
 } from "@shared/canvas-name";
-import { stampActorActorMsgPorts } from "@shared/physics";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import {
   StateEngine,
@@ -157,8 +156,7 @@ type CanvasCommitCause =
   | "mutate"
   | "create"
   | "remove"
-  | "seed"
-  | "bootstrap-repair";
+  | "seed";
 
 type CommitOutcome = {
   readonly generation: string;
@@ -520,42 +518,6 @@ export const CanvasesLive = Layer.effect(
       // projection outputs are deliberately never consulted or imported.
     }
 
-    // Bootstrap repairs remain explicit history rather than hidden read-time
-    // rewrites: any actor↔actor message-port repair is one ordinary generation.
-    yield* state
-      .transaction("canvas.bootstrap-repair", (writer) => {
-        const current = readStoredAuthority(writer);
-        if (!current.hasHead) return;
-        const repaired = new Map<string, StoredCanvas>();
-        let changed = false;
-        const modifiedAt = new Date().toISOString();
-        for (const [name, entry] of current.documents) {
-          const stamped = stampActorActorMsgPorts(entry.doc);
-          if (stamped === entry.doc) {
-            repaired.set(name, entry);
-          } else {
-            changed = true;
-            repaired.set(
-              name,
-              normalizeCanvas(
-                name as CanvasName,
-                stamped,
-                modifiedAt,
-                "repair",
-              ),
-            );
-          }
-        }
-        if (changed) {
-          commitFullGeneration(
-            writer,
-            current,
-            repaired,
-            "bootstrap-repair",
-          );
-        }
-      })
-      .pipe(Effect.mapError(toCanvasError));
   });
 
   const ensureReady: Effect.Effect<void, CanvasError> = Effect.tryPromise({
