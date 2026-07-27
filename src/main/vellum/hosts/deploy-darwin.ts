@@ -50,6 +50,9 @@ const DEVELOPER_ID_REQUIREMENT =
   '=anchor apple generic and identifier "skastr0.vellum" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"';
 const DEPLOY_TIMEOUT_MS = 20 * 60 * 1000;
 const REMOTE_APP_PATH = `/Applications/${APP_BUNDLE_NAME}`;
+const DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT = 10;
+const DARWIN_DEPLOY_NOT_STARTED_EXIT = 12;
+const DARWIN_DEPLOY_INDETERMINATE_EXIT = 13;
 
 const shellLiteral = (value: string): string =>
   `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -449,9 +452,10 @@ export const classifyDeployTransferDisposition = (
   error: unknown,
 ): DeployRemoteResult["disposition"] => {
   if (!(error instanceof SshTransferExitError)) return "indeterminate";
-  if (error.code === 10) return "ready";
-  if (error.code === 8 || error.code === 9) return "indeterminate";
-  return "rolled-back";
+  if (error.code === DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT) return "ready";
+  if (error.code === DARWIN_DEPLOY_NOT_STARTED_EXIT || error.code === 3)
+    return "not-started";
+  return "indeterminate";
 };
 
 type RemoteDeployScriptCommands = {
@@ -570,13 +574,11 @@ UID_VALUE="$("$ID" -u)"
 DOMAIN="gui/$UID_VALUE"
 JOB="$DOMAIN/${LABEL}"
 LOCK_HELD=0
-ROLLBACK_ARMED=0
-COMMITTED=0
+ACTIVATION_STARTED=0
 APP_BACKED_UP=0
 PLIST_BACKED_UP=0
 NEW_APP_INSTALLED=0
 NEW_PLIST_INSTALLED=0
-OLD_JOB_PRESENT=0
 OLD_PID=""
 
 valid_pid() {
@@ -693,20 +695,15 @@ release_deploy_lock() {
   return 0
 }
 
-rollback_deploy() {
-  if [ "$ROLLBACK_ARMED" != "1" ] || [ "$COMMITTED" = "1" ]; then return 0; fi
-  "$LAUNCHCTL" bootout "$JOB" >/dev/null 2>&1 || true
-  if ! wait_until_job_and_executable_gone 30; then
-    echo "ROLLBACK_REFUSED_LIVE_GENERATION app_backup=$APP_PREVIOUS plist_backup=$PLIST_PREVIOUS" >&2
-    return 1
-  fi
+restore_pre_activation() {
+  if [ "$ACTIVATION_STARTED" = "1" ]; then return 0; fi
   if [ -e "$APP_PREVIOUS" ] || [ -L "$APP_PREVIOUS" ]; then
     if [ -e "$APP" ] || [ -L "$APP" ]; then
       /bin/rm -rf -- "$APP" || return 1
     fi
     /bin/mv "$APP_PREVIOUS" "$APP" || return 1
   elif [ "$APP_BACKED_UP" = "1" ]; then
-    echo "ROLLBACK_APP_BACKUP_MISSING $APP_PREVIOUS" >&2
+    echo "PRE_ACTIVATION_APP_BACKUP_MISSING $APP_PREVIOUS" >&2
     return 1
   elif [ "$NEW_APP_INSTALLED" = "1" ] && { [ -e "$APP" ] || [ -L "$APP" ]; }; then
     /bin/rm -rf -- "$APP" || return 1
@@ -717,19 +714,27 @@ rollback_deploy() {
     fi
     /bin/mv "$PLIST_PREVIOUS" "$PLIST" || return 1
   elif [ "$PLIST_BACKED_UP" = "1" ]; then
-    echo "ROLLBACK_PLIST_BACKUP_MISSING $PLIST_PREVIOUS" >&2
+    echo "PRE_ACTIVATION_PLIST_BACKUP_MISSING $PLIST_PREVIOUS" >&2
     return 1
   elif [ "$NEW_PLIST_INSTALLED" = "1" ] && { [ -e "$PLIST" ] || [ -L "$PLIST" ]; }; then
     /bin/rm -f -- "$PLIST" || return 1
   fi
-  if [ "$OLD_JOB_PRESENT" = "1" ]; then
-    [ -d "$APP" ] && [ -f "$PLIST" ] || return 1
-    "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" >/dev/null 2>&1 || return 1
-    RESTORED_PID="$("$LAUNCHCTL" kickstart -p "$JOB" 2>/dev/null)" || return 1
-    valid_pid "$RESTORED_PID" && exact_exe_has_pid "$RESTORED_PID" || return 1
-  fi
-  ROLLBACK_ARMED=0
   return 0
+}
+
+discard_previous_artifacts() {
+  /bin/rm -rf -- "$APP_PREVIOUS" || return 1
+  /bin/rm -f -- "$PLIST_PREVIOUS" || return 1
+  if [ -e "$APP_PREVIOUS" ] || [ -L "$APP_PREVIOUS" ] || [ -e "$PLIST_PREVIOUS" ] || [ -L "$PLIST_PREVIOUS" ]; then
+    return 1
+  fi
+  return 0
+}
+
+begin_candidate_activation() {
+  # The canonical app path is independently launchable as soon as the candidate
+  # is published there. Cross the one-way boundary before that first move.
+  ACTIVATION_STARTED=1
 }
 
 on_deploy_exit() {
@@ -737,22 +742,31 @@ on_deploy_exit() {
   trap - EXIT
   trap '' HUP INT TERM
   set +e
-  if [ "$EXIT_CODE" -ne 0 ] && ! rollback_deploy; then EXIT_CODE=9; fi
+  if [ "$EXIT_CODE" -ne 0 ]; then
+    if [ "$ACTIVATION_STARTED" = "1" ]; then
+      discard_previous_artifacts || echo "RETIRED_ARTIFACT_CLEANUP_FAILED app_backup=$APP_PREVIOUS plist_backup=$PLIST_PREVIOUS" >&2
+      echo "DEPLOY_FORWARD_REPAIR_REQUIRED app=$APP incoming=$IN plist=$PLIST" >&2
+      EXIT_CODE=${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
+    elif restore_pre_activation; then
+      echo "DEPLOY_NOT_STARTED" >&2
+      EXIT_CODE=${String(DARWIN_DEPLOY_NOT_STARTED_EXIT)}
+    else
+      echo "DEPLOY_PRE_ACTIVATION_CLEANUP_FAILED app=$APP incoming=$IN plist=$PLIST" >&2
+      EXIT_CODE=${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
+    fi
+  elif [ "$ACTIVATION_STARTED" = "1" ] && ! discard_previous_artifacts; then
+    echo "DEPLOY_FORWARD_REPAIR_REQUIRED app=$APP incoming=$IN plist=$PLIST" >&2
+    EXIT_CODE=${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
+  fi
   if [ "$EXIT_CODE" -ne 0 ]; then
     /bin/rm -rf -- "$IN" >/dev/null 2>&1 || true
     /bin/rm -f -- "$PLIST_IN" >/dev/null 2>&1 || true
   fi
   if ! release_deploy_lock; then
     echo "DEPLOY_LOCK_RELEASE_FAILED $DEPLOY_LOCK" >&2
-    if [ "$EXIT_CODE" -eq 0 ]; then EXIT_CODE=10; fi
+    if [ "$EXIT_CODE" -eq 0 ]; then EXIT_CODE=${String(DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT)}; fi
   fi
   exit "$EXIT_CODE"
-}
-
-commit_deploy() {
-  COMMITTED=1
-  /bin/rm -rf -- "$APP_PREVIOUS" >/dev/null 2>&1 || echo "APP_BACKUP_CLEANUP_FAILED $APP_PREVIOUS" >&2
-  /bin/rm -f -- "$PLIST_PREVIOUS" >/dev/null 2>&1 || echo "PLIST_BACKUP_CLEANUP_FAILED $PLIST_PREVIOUS" >&2
 }
 
 [ -x "$LSOF" ] || { echo "PROCESS_OBSERVER_UNAVAILABLE" >&2; exit 3; }
@@ -769,8 +783,10 @@ trap 'exit 130' HUP INT TERM
 /bin/chmod 600 "$DEPLOY_LOCK_OWNER"
 
 if [ -e "$APP_PREVIOUS" ] || [ -L "$APP_PREVIOUS" ] || [ -e "$PLIST_PREVIOUS" ] || [ -L "$PLIST_PREVIOUS" ]; then
-  echo "DEPLOY_RECOVERY_REQUIRED app_backup=$APP_PREVIOUS plist_backup=$PLIST_PREVIOUS" >&2
-  exit 8
+  if ! discard_previous_artifacts; then
+    echo "RETIRED_ARTIFACT_CLEANUP_FAILED app_backup=$APP_PREVIOUS plist_backup=$PLIST_PREVIOUS" >&2
+    exit 8
+  fi
 fi
 
 # Extract and verify the incoming signed artifact while the old generation is
@@ -821,7 +837,6 @@ REMOTE_BUNDLE_EXE="$("$PLUTIL" -extract CFBundleExecutable raw -o - "$IN/$BUNDLE
 # PID-producing launchctl operation and starts a loaded-but-idle old job so its
 # generation can be captured before bootout.
 if job_exists; then
-  OLD_JOB_PRESENT=1
   OLD_PID="$("$LAUNCHCTL" kickstart -p "$JOB")" || { echo "OLD_LAUNCHD_PID_NOT_PROVEN" >&2; exit 4; }
   valid_pid "$OLD_PID" || { echo "OLD_LAUNCHD_PID_INVALID $OLD_PID" >&2; exit 4; }
   OLD_IDENTITY_OK=0
@@ -836,7 +851,6 @@ fi
 
 # Ask both the app and launchd to retire the old generation. Neither command is
 # treated as proof; the bounded observation below is the destructive gate.
-ROLLBACK_ARMED=1
 "$OSASCRIPT" -e ${shellLiteral(`with timeout of 5 seconds
   tell application "${PRODUCT_NAME}" to quit
 end timeout`)} >/dev/null 2>&1 || true
@@ -853,8 +867,8 @@ fi
 remove_fixed_socket "$TERM_SOCK"
 remove_fixed_socket "$BROWSER_SOCK"
 
-# Preserve the exact old bundle and plist until the new generation proves
-# readiness. Any later failure runs rollback_deploy from the EXIT trap.
+# Preserve the old bundle and plist only through the pre-activation filesystem
+# transition. The first possible candidate launch is the irreversible boundary.
 if [ -e "$APP" ] || [ -L "$APP" ]; then
   /bin/mv "$APP" "$APP_PREVIOUS"
   APP_BACKED_UP=1
@@ -863,6 +877,7 @@ if [ -e "$PLIST" ] || [ -L "$PLIST" ]; then
   /bin/mv "$PLIST" "$PLIST_PREVIOUS"
   PLIST_BACKED_UP=1
 fi
+begin_candidate_activation
 NEW_APP_INSTALLED=1
 /bin/mv "$IN/$BUNDLE" "$APP"
 /bin/rm -rf -- "$IN"
@@ -873,6 +888,10 @@ test -x "$EXE"
 /usr/bin/printf '%s' ${shellLiteral(plistB64)} | /usr/bin/base64 -d > "$PLIST_IN"
 NEW_PLIST_INSTALLED=1
 /bin/mv "$PLIST_IN" "$PLIST"
+if ! discard_previous_artifacts; then
+  echo "ONE_WAY_CUTOVER_FORWARD_REPAIR app=$APP incoming=$IN plist=$PLIST" >&2
+  exit ${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
+fi
 if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
   "$LAUNCHCTL" load -w "$PLIST"
 fi
@@ -909,7 +928,6 @@ while [ "$WAIT_INDEX" -lt 60 ]; do
   if socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then BROWSER_OK=1; fi
   if [ "$TERM_OK" = "1" ] && [ "$BROWSER_OK" = "1" ]; then
     if job_exists && exact_exe_has_pid "$NEW_PID" && socket_owned_by_pid "$TERM_SOCK" "$NEW_PID" && socket_owned_by_pid "$BROWSER_SOCK" "$NEW_PID"; then
-      commit_deploy
       echo "STATION_READY pid=$NEW_PID term=1 browser=1"
       exit 0
     fi

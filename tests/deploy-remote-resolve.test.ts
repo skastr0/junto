@@ -192,8 +192,8 @@ describe("buildRemoteDeployScript", () => {
     expect(recursiveRemovals).toEqual([
       '/bin/rm -rf -- "$APP" || return 1',
       '/bin/rm -rf -- "$APP" || return 1',
+      '/bin/rm -rf -- "$APP_PREVIOUS" || return 1',
       '/bin/rm -rf -- "$IN" >/dev/null 2>&1 || true',
-      '/bin/rm -rf -- "$APP_PREVIOUS" >/dev/null 2>&1 || echo "APP_BACKUP_CLEANUP_FAILED $APP_PREVIOUS" >&2',
       '/bin/rm -rf -- "$IN"',
       '/bin/rm -rf -- "$IN"',
     ]);
@@ -287,7 +287,31 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain(
       'if job_exists && exact_exe_has_pid "$NEW_PID"',
     );
-    expect(script).toContain("rollback_deploy() {");
+  });
+
+  it("crosses a one-way boundary before launchd can start the candidate", () => {
+    const restoreStart = script.indexOf("restore_pre_activation() {");
+    const restoreEnd = script.indexOf(
+      "discard_previous_artifacts() {",
+      restoreStart,
+    );
+    const restore = script.slice(restoreStart, restoreEnd);
+    const activation = script.lastIndexOf("begin_candidate_activation");
+    const candidateInstall = script.lastIndexOf('/bin/mv "$IN/$BUNDLE" "$APP"');
+    const bootstrap = script.lastIndexOf(
+      'if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST"',
+    );
+    const postActivation = script.slice(activation);
+
+    expect(restore).toContain(
+      'if [ "$ACTIVATION_STARTED" = "1" ]; then return 0; fi',
+    );
+    expect(restore).not.toMatch(/\b(?:bootstrap|kickstart|load)\b/u);
+    expect(activation).toBeGreaterThan(0);
+    expect(candidateInstall).toBeGreaterThan(activation);
+    expect(bootstrap).toBeGreaterThan(activation);
+    expect(postActivation).not.toContain('/bin/mv "$APP_PREVIOUS" "$APP"');
+    expect(postActivation).not.toContain('/bin/mv "$PLIST_PREVIOUS" "$PLIST"');
   });
 
   it("quotes shell-active home characters and rejects non-canonical homes", () => {
@@ -389,12 +413,13 @@ describe("remote deploy transaction behavior", () => {
           'echo "$1" >> "$FAKE_STATE/launchctl.log"',
           'case "$1" in',
           '  print) test -f "$FAKE_STATE/loaded" ;;',
-          '  kickstart) test -f "$FAKE_STATE/loaded"; cat "$FAKE_STATE/pid" ;;',
+          "  kickstart)",
+          '    generation="$(cat "$FAKE_EXE" 2>/dev/null || echo missing)"',
+          '    printf \'%s\\n\' "$generation" >> "$FAKE_STATE/launched-generations.log"',
+          '    if [ "$FAKE_CANDIDATE_KICKSTART_FAIL" = "1" ] && [ "$generation" = "new-generation" ]; then exit 44; fi',
+          '    test -f "$FAKE_STATE/loaded"; cat "$FAKE_STATE/pid"',
+          "    ;;",
           "  bootout)",
-          '    bootouts="$(cat "$FAKE_STATE/bootout-count" 2>/dev/null || echo 0)"',
-          '    bootouts="$((bootouts + 1))"',
-          '    printf \'%s\\n\' "$bootouts" > "$FAKE_STATE/bootout-count"',
-          '    if [ "$FAKE_SIGNAL_DURING_ROLLBACK" = "1" ] && [ "$bootouts" -ge 2 ]; then kill -TERM "$PPID"; fi',
           '    rm -f "$FAKE_STATE/loaded" "$FAKE_STATE/pid"',
           "    ;;",
           "  bootstrap|load) touch \"$FAKE_STATE/loaded\"; printf '200\\n' > \"$FAKE_STATE/pid\" ;;",
@@ -502,7 +527,7 @@ describe("remote deploy transaction behavior", () => {
           FAKE_CODESIGN_FAIL: "0",
           FAKE_REMOTE_CDHASH: TEST_CDHASH,
           FAKE_LSOF_GLOBAL_ERROR: "0",
-          FAKE_SIGNAL_DURING_ROLLBACK: "0",
+          FAKE_CANDIDATE_KICKSTART_FAIL: "0",
           ...overrides,
         },
       });
@@ -557,8 +582,9 @@ describe("remote deploy transaction behavior", () => {
         const launchctlLog = existsSync(launchctlLogPath)
           ? readFileSync(launchctlLogPath, "utf8")
           : "";
-        expect(result.status).toBe(3);
+        expect(result.status).toBe(12);
         expect(result.stderr).toContain("REMOTE_SIGNATURE_GENERATION_MISMATCH");
+        expect(result.stderr).toContain("DEPLOY_NOT_STARTED");
         expect(launchctlLog).not.toContain("bootout");
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
           "old-generation",
@@ -613,21 +639,18 @@ describe("remote deploy transaction behavior", () => {
   );
 
   it(
-    "restores and restarts the old bundle despite a second termination signal",
+    "retains the candidate and never relaunches the old bundle after readiness failure",
     () => {
       const harness = makeHarness();
       try {
-        const result = harness.run({ FAKE_SIGNAL_DURING_ROLLBACK: "1" });
-        // Deploy trap may exit 2 (readiness timeout after rollback) or 130
-        // (TERM caught by HUP/INT/TERM trap). Both require EXIT rollback first.
-        expect([2, 130]).toContain(result.status);
-        if (result.status === 2) {
-          expect(result.stderr).toContain("CONTROL_SOCKET_TIMEOUT");
-        }
+        const result = harness.run();
+        expect(result.status).toBe(13);
+        expect(result.stderr).toContain("CONTROL_SOCKET_TIMEOUT");
+        expect(result.stderr).toContain("DEPLOY_FORWARD_REPAIR_REQUIRED");
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
-          "old-generation",
+          "new-generation",
         );
-        expect(readFileSync(harness.plistPath, "utf8")).toBe("old-plist");
+        expect(readFileSync(harness.plistPath, "utf8")).not.toBe("old-plist");
         expect(existsSync(`${harness.appPath}.previous`)).toBe(false);
         expect(existsSync(`${harness.plistPath}.previous`)).toBe(false);
         expect(existsSync(harness.runtime.lockPath)).toBe(false);
@@ -635,15 +658,59 @@ describe("remote deploy transaction behavior", () => {
           join(harness.state, "launchctl.log"),
           "utf8",
         );
-        expect(launchctlLog.match(/bootstrap/gu)).toHaveLength(2);
-        expect(launchctlLog).toMatch(
-          /bootout[\s\S]*bootstrap[\s\S]*bootout[\s\S]*bootstrap/u,
-        );
+        expect(launchctlLog.match(/bootstrap/gu)).toHaveLength(1);
+        expect(launchctlLog.match(/bootout/gu)).toHaveLength(1);
+        expect(
+          readFileSync(
+            join(harness.state, "launched-generations.log"),
+            "utf8",
+          )
+            .trim()
+            .split("\n"),
+        ).toEqual(["old-generation", "new-generation"]);
       } finally {
         harness.cleanup();
       }
     },
     // Headroom above the harness's own 30s spawnSync hang-safety net.
+    35_000,
+  );
+
+  it(
+    "cannot restore or launch the old bundle when candidate kickstart fails",
+    () => {
+      const harness = makeHarness();
+      try {
+        const result = harness.run({
+          FAKE_CANDIDATE_KICKSTART_FAIL: "1",
+        });
+        expect(result.status).toBe(13);
+        expect(result.stderr).toContain("NEW_LAUNCHD_PID_NOT_PROVEN");
+        expect(result.stderr).toContain("DEPLOY_FORWARD_REPAIR_REQUIRED");
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "new-generation",
+        );
+        expect(readFileSync(harness.plistPath, "utf8")).not.toBe("old-plist");
+        expect(existsSync(`${harness.appPath}.previous`)).toBe(false);
+        expect(existsSync(`${harness.plistPath}.previous`)).toBe(false);
+        expect(
+          readFileSync(
+            join(harness.state, "launched-generations.log"),
+            "utf8",
+          )
+            .trim()
+            .split("\n"),
+        ).toEqual(["old-generation", "new-generation"]);
+        const launchctlLog = readFileSync(
+          join(harness.state, "launchctl.log"),
+          "utf8",
+        );
+        expect(launchctlLog.match(/bootstrap/gu)).toHaveLength(1);
+        expect(launchctlLog.match(/bootout/gu)).toHaveLength(1);
+      } finally {
+        harness.cleanup();
+      }
+    },
     35_000,
   );
 });
@@ -756,18 +823,37 @@ describe("deploy transfer lifecycle", () => {
     expect(describeDeployTransferFailure(timeout)).toContain("STATION_PARTIAL");
   });
 
-  it("maps remote transaction exit receipts without overstating rollback", () => {
+  it("maps remote transaction exit receipts by cutover phase", () => {
     const failure = (code: number) =>
       new SshTransferExitError("remote" as never, code, "", "failed");
 
+    expect(classifyDeployTransferDisposition(failure(3))).toBe("not-started");
+    expect(classifyDeployTransferDisposition(failure(12))).toBe("not-started");
+    expect(classifyDeployTransferDisposition(failure(2))).toBe(
+      "indeterminate",
+    );
+    expect(classifyDeployTransferDisposition(failure(4))).toBe(
+      "indeterminate",
+    );
+    expect(classifyDeployTransferDisposition(failure(5))).toBe(
+      "indeterminate",
+    );
+    expect(classifyDeployTransferDisposition(failure(6))).toBe(
+      "indeterminate",
+    );
+    expect(classifyDeployTransferDisposition(failure(7))).toBe(
+      "indeterminate",
+    );
     expect(classifyDeployTransferDisposition(failure(8))).toBe(
       "indeterminate",
     );
     expect(classifyDeployTransferDisposition(failure(9))).toBe(
       "indeterminate",
     );
+    expect(classifyDeployTransferDisposition(failure(13))).toBe(
+      "indeterminate",
+    );
     expect(classifyDeployTransferDisposition(failure(10))).toBe("ready");
-    expect(classifyDeployTransferDisposition(failure(7))).toBe("rolled-back");
     expect(classifyDeployTransferDisposition(new Error("transport"))).toBe(
       "indeterminate",
     );

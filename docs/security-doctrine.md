@@ -560,8 +560,10 @@ Root or administrator authority is a real boundary.
 - Privileged mutation is bounded to an exact operator-requested transaction.
 - Vellum does not retain an administrator password as ambient fleet authority.
 - Installation and update inputs are verified before privileged mutation.
-- Partial installs, updates, and rollbacks are recoverable and honestly
-  reported.
+- Partial installs and updates are recoverable and honestly reported.
+- Once an update candidate may have opened the current SQLite database,
+  recovery is forward-only: Vellum retains or stops that candidate and never
+  restores or launches an older bundle against possibly advanced state.
 - Host-destructive APIs accept Vellum-owned resources or tightly bounded
   targets rather than arbitrary paths or PIDs.
 
