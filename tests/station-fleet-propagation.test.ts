@@ -49,6 +49,7 @@ const receipt = (
     },
   },
   report: {
+    rounds: 1,
     outboundSent: 0,
     inboundReceived: 0,
     inboundAccepted: 0,

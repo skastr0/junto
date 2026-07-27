@@ -9,6 +9,7 @@ import {
   type StationPropagationError,
   type StationPropagationReceipt,
 } from "./propagation";
+import { parseSshEndpoint } from "../ssh/domain";
 
 export type StationFleetPropagationResult =
   | {
@@ -52,10 +53,13 @@ export const StationFleetPropagationLive = Layer.effect(
         Effect.forEach(
           fleet,
           (target) =>
-            propagation.synchronize({
-              endpoint: target.endpoint,
-              stationInstallationId: target.stationInstallationId,
-            }).pipe(
+            parseSshEndpoint(target.endpoint).pipe(
+              Effect.flatMap((endpoint) =>
+                propagation.synchronize({
+                  endpoint,
+                  stationInstallationId: target.stationInstallationId,
+                })
+              ),
               Effect.match({
                 onFailure: (error): StationFleetPropagationResult => ({
                   ok: false,
