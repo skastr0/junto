@@ -58,7 +58,8 @@ export const registerSettingsIpc = (
   );
 
   // Topology (station role / host / CC ref / supervised) — dedicated channel.
-  // Generic settingsPatch refuses station keys; this path writes + seals.
+  // Generic settingsPatch refuses station keys; this path persists the
+  // normalized protected topology.
   ipcMain.handle(IPC_CHANNELS.settingsSetStationTopology, (_event, station: unknown) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {

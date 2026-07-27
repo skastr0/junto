@@ -156,8 +156,8 @@ const runRendererWorkAuthoring = <A>(
   });
 
 /**
- * Doctrine: only Command Center authors the canvas. Remote and seal-stripped
- * (role unset) must fail closed — never mint authorial power by defaulting to CC.
+ * Doctrine: only Command Center authors the canvas. Remote and unconfigured
+ * installations must fail closed — never mint authorial power by defaulting to CC.
  */
 const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
   const settings = yield* SettingsService;
@@ -167,7 +167,7 @@ const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
       new Error(
         current.station.role === "remote"
           ? "Remote station cannot mutate authorial canvases. Author on the Command Center."
-          : "Station role is unset or untrusted; authorial canvas mutation is refused until topology is sealed as Command Center.",
+          : "Station role is unset; authorial canvas mutation is refused until protected topology establishes this installation as Command Center.",
       ),
     );
   }

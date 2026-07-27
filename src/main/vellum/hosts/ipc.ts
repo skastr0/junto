@@ -490,7 +490,7 @@ export const registerHostsIpc = (
                 ok: false,
                 code: "validation",
                 message:
-                  "Only a sealed Command Center may mutate the host registry",
+                  "Only a Command Center with established protected topology may mutate the host registry",
               } satisfies HostsOpResult;
             }
             const hosts = yield* HostsService;
@@ -527,7 +527,7 @@ export const registerHostsIpc = (
                 ok: false,
                 code: "validation",
                 message:
-                  "Only a sealed Command Center may mutate the host registry",
+                  "Only a Command Center with established protected topology may mutate the host registry",
               } satisfies HostsOpResult;
             }
             if (typeof id !== "string" || id.length === 0) {

@@ -139,7 +139,7 @@ export const IPC_CHANNELS = {
   // user settings plane (app-owned SQLite state)
   settingsGet: "vellum:settings-get",
   settingsPatch: "vellum:settings-patch",
-  /** Dedicated station topology transition (role/host/CC ref) — seals on write. */
+  /** Dedicated transition for normalized protected station topology. */
   settingsSetStationTopology: "vellum:settings-set-station-topology",
   settingsReset: "vellum:settings-reset",
   // OS login item (Electron get/setLoginItemSettings)

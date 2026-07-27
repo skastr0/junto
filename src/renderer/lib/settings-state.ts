@@ -91,7 +91,7 @@ export const resetSettings = async (section?: SettingsSectionKey): Promise<boole
 
 /**
  * Topology transitions (role / hostId / CC ref / supervisedPreferred).
- * Uses the dedicated sealed IPC — never generic settingsPatch.
+ * Uses the dedicated protected-topology IPC — never generic settingsPatch.
  */
 export const setStationTopology = async (station: StationPatch): Promise<boolean> => {
   if (!window.vellum?.settingsSetStationTopology) {
