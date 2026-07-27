@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { app, session } from "electron";
-import { Effect } from "effect";
+import { Context, Effect, ManagedRuntime } from "effect";
 import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
@@ -20,6 +20,10 @@ import {
   makeBrowserProfileService,
   type BrowserProfilePendingWipe,
 } from "../../../src/main/vellum/browser/profiles";
+import {
+  makeStateEngineLive,
+  StateEngine,
+} from "../../../src/main/vellum/state/engine";
 import type { ResolvedPageTarget } from "../../../src/main/vellum/browser/page-target";
 import {
   BROWSER_UI_SESSION_OWNER,
@@ -44,10 +48,10 @@ const requiredArgument = (name: string): string => {
 const phase = requiredArgument("phase");
 const exactOrigin = requiredArgument("fixture-origin");
 const browserRoot = requiredArgument("browser-root");
+const stateDatabasePath = requiredArgument("state-db-path");
 const downloadPath = requiredArgument("download-path");
 const reportPath = requiredArgument("report-path");
 const markerInputPath = requiredArgument("marker-input-path");
-const configPath = join(browserRoot, "config.json");
 const EXPECTED_FAILPOINT_EXIT = 86;
 const REPORT_TIMEOUT_MS = 15_000;
 const DISK_MARKER_NAME = ".vellum-profile-wipe-sentinel";
@@ -64,6 +68,18 @@ type StorageKey = (typeof storageKeys)[number];
 type StorageStatus = "match" | "absent" | "mismatch";
 type StorageReport = Readonly<Record<StorageKey, StorageStatus>>;
 type DiskMarkers = Readonly<Record<"personal" | "work", string>>;
+type StateService = Context.Tag.Service<typeof StateEngine>;
+
+type PendingWipeRow = {
+  readonly wipe_id: string;
+  readonly profile_id: string;
+  readonly partition: string;
+  readonly requested_at: string;
+  readonly stage: string;
+  readonly storage_path: string;
+  readonly user_data_path: string;
+  readonly session_data_path: string;
+};
 
 function ensure(condition: unknown, code: string): asserts condition {
   if (!condition) throw new Error(code);
@@ -105,30 +121,57 @@ const writeReport = async (value: unknown): Promise<void> => {
   await rename(temporary, reportPath);
 };
 
-const decodePending = (value: unknown): BrowserProfilePendingWipe => {
-  ensure(isRecord(value) && value.phase === "wipe_pending", "pending_config_required");
-  const pending = value.pendingWipe;
-  ensure(isRecord(pending), "pending_record_required");
-  for (const key of [
-    "wipeId",
-    "profileId",
-    "partition",
-    "requestedAt",
-    "stage",
-    "storagePath",
-    "userDataPath",
-    "sessionDataPath",
-  ] as const) {
-    ensure(typeof pending[key] === "string", "pending_record_invalid");
-  }
-  ensure(isAbsolute(pending.storagePath as string), "pending_record_invalid");
-  ensure(isAbsolute(pending.userDataPath as string), "pending_record_invalid");
-  ensure(isAbsolute(pending.sessionDataPath as string), "pending_record_invalid");
-  return pending as unknown as BrowserProfilePendingWipe;
+const readPending = async (
+  state: StateService,
+): Promise<BrowserProfilePendingWipe | undefined> => {
+  const row = await Effect.runPromise(
+    state.read("browser-profile-wipe-fixture.pending", (reader) =>
+      reader.get<PendingWipeRow>(`
+        SELECT
+          wipe_id,
+          profile_id,
+          partition,
+          requested_at,
+          stage,
+          storage_path,
+          user_data_path,
+          session_data_path
+        FROM browser_profile_pending_wipe
+        WHERE singleton = 1
+      `),
+    ),
+  );
+  if (row === undefined) return undefined;
+  ensure(
+    row.stage === "live_clear_pending" ||
+      row.stage === "restart_delete_pending",
+    "pending_record_invalid",
+  );
+  ensure(
+    [row.storage_path, row.user_data_path, row.session_data_path].every(
+      (path) => isAbsolute(path) && resolve(path) === path,
+    ),
+    "pending_record_invalid",
+  );
+  return Object.freeze({
+    wipeId: row.wipe_id,
+    profileId: row.profile_id,
+    partition: row.partition,
+    requestedAt: row.requested_at,
+    stage: row.stage,
+    storagePath: row.storage_path,
+    userDataPath: row.user_data_path,
+    sessionDataPath: row.session_data_path,
+  });
 };
 
-const readPending = async (): Promise<BrowserProfilePendingWipe> =>
-  decodePending(JSON.parse(await readFile(configPath, "utf8")));
+const requirePending = async (
+  state: StateService,
+): Promise<BrowserProfilePendingWipe> => {
+  const pending = await readPending(state);
+  ensure(pending !== undefined, "pending_record_required");
+  return pending;
+};
 
 const readDiskMarkers = async (): Promise<DiskMarkers> => {
   const value = JSON.parse(await readFile(markerInputPath, "utf8")) as unknown;
@@ -303,7 +346,7 @@ const makeTarget = (
   exactOrigins: [exactOrigin],
 });
 
-const runPhaseA = async (): Promise<void> => {
+const runPhaseA = async (state: StateService): Promise<void> => {
   const gate = makeBrowserProfileGate();
   let sessions: BrowserSessionService | undefined;
   const capabilities = makeBrowserCapabilityRegistry({
@@ -327,7 +370,7 @@ const runPhaseA = async (): Promise<void> => {
     capabilities,
     profileGate: gate,
   });
-  const profiles = makeBrowserProfileService(browserRoot, {
+  const profiles = makeBrowserProfileService(state, browserRoot, {
     wipeLifecycle: storage,
     profileGate: gate,
   });
@@ -452,7 +495,7 @@ const runPhaseA = async (): Promise<void> => {
   );
   ensure(gate.disposition("personal") === "quiescing", "personal_gate_not_quiescing");
   ensure(gate.disposition("work") === "open", "work_gate_not_open");
-  const pending = await readPending();
+  const pending = await requirePending(state);
   ensure(pending.stage === "restart_delete_pending", "pending_stage_invalid");
   ensure(pending.storagePath === personalStorageRoot, "pending_target_mismatch");
   ensure(await pathExists(pending.storagePath), "live_target_missing");
@@ -467,6 +510,18 @@ const runPhaseA = async (): Promise<void> => {
       event.auditId === personalGrant.auditId && event.outcome === "revoked_profile_wipe",
   );
   ensure(revoked, "profile_revocation_audit_missing");
+  ensure(
+    state.info.path === stateDatabasePath,
+    "state_database_path_mismatch",
+  );
+  ensure(
+    await ownerOnly(dirname(stateDatabasePath), "directory"),
+    "state_directory_not_owner_only",
+  );
+  ensure(
+    await ownerOnly(stateDatabasePath, "file"),
+    "state_database_not_owner_only",
+  );
 
   await writeReport({
     version: 1,
@@ -490,7 +545,9 @@ const runPhaseA = async (): Promise<void> => {
     personalGate: "quiescing",
     workGate: "open",
     pendingStage: "restart_delete_pending",
+    pendingWipeId: pending.wipeId,
     targetMode: "owner_only",
+    stateDatabaseMode: "owner_only",
   });
   sessions.detachAllOnQuit("profile wipe phase A complete");
   capabilities.close();
@@ -523,8 +580,8 @@ const makeColdOnlyCapabilities = (counter: { capabilityControls: number }) => ({
   },
 });
 
-const runPhaseB = async (): Promise<void> => {
-  const pending = await readPending();
+const runPhaseB = async (state: StateService): Promise<void> => {
+  const pending = await requirePending(state);
   const quarantine = browserProfileQuarantinePath(pending.storagePath, pending.wipeId);
   ensure(quarantine !== undefined, "quarantine_path_invalid");
   ensure(await pathExists(pending.storagePath), "pre_crash_target_missing");
@@ -543,7 +600,7 @@ const runPhaseB = async (): Promise<void> => {
       },
     },
   });
-  const profiles = makeBrowserProfileService(browserRoot, {
+  const profiles = makeBrowserProfileService(state, browserRoot, {
     wipeLifecycle: storage,
     profileGate: gate,
   });
@@ -556,14 +613,15 @@ const runPhaseB = async (): Promise<void> => {
     sessionControl: "none",
     capabilityControl: "none",
     pendingStage: "restart_delete_pending",
+    pendingWipeId: pending.wipeId,
     exit: "from_failpoint",
   });
   await Effect.runPromise(profiles.recoverPendingWipe);
   throw new Error("failpoint_not_observed");
 };
 
-const runPhaseC = async (): Promise<void> => {
-  const pending = await readPending();
+const runPhaseC = async (state: StateService): Promise<void> => {
+  const pending = await requirePending(state);
   const quarantine = browserProfileQuarantinePath(pending.storagePath, pending.wipeId);
   ensure(quarantine !== undefined, "quarantine_path_invalid");
   const calls = { sessionConstructions: 0, sessionControls: 0, capabilityControls: 0 };
@@ -574,7 +632,7 @@ const runPhaseC = async (): Promise<void> => {
     capabilities: makeColdOnlyCapabilities(calls),
     profileGate: gate,
   });
-  const profiles = makeBrowserProfileService(browserRoot, {
+  const profiles = makeBrowserProfileService(state, browserRoot, {
     wipeLifecycle: storage,
     profileGate: gate,
   });
@@ -663,14 +721,30 @@ const runPhaseC = async (): Promise<void> => {
   );
   await flushProfile("personal");
   await flushProfile("work");
-  const finalConfigEncoded = await readFile(configPath, "utf8");
-  const finalConfig = JSON.parse(finalConfigEncoded) as unknown;
-  ensure(isRecord(finalConfig) && finalConfig.phase === "ready", "final_config_not_ready");
-  ensure(finalConfig.pendingWipe === undefined, "final_config_retained_journal");
-  ensure(!finalConfigEncoded.includes(pending.storagePath), "final_config_retained_target");
-  ensure(!finalConfigEncoded.includes(quarantine), "final_config_retained_quarantine");
+  const finalRegistry = await Effect.runPromise(profiles.readConfig);
+  ensure(
+    ["personal", "work"].every((profileId) =>
+      finalRegistry.profiles.some((profile) => profile.id === profileId),
+    ),
+    "final_profiles_missing",
+  );
+  ensure(
+    (await readPending(state)) === undefined,
+    "final_registry_retained_journal",
+  );
   ensure(await ownerOnly(browserRoot, "directory"), "browser_root_not_owner_only");
-  ensure(await ownerOnly(configPath, "file"), "browser_config_not_owner_only");
+  ensure(
+    state.info.path === stateDatabasePath,
+    "state_database_path_mismatch",
+  );
+  ensure(
+    await ownerOnly(dirname(stateDatabasePath), "directory"),
+    "state_directory_not_owner_only",
+  );
+  ensure(
+    await ownerOnly(stateDatabasePath, "file"),
+    "state_database_not_owner_only",
+  );
 
   await writeReport({
     version: 1,
@@ -691,16 +765,25 @@ const runPhaseC = async (): Promise<void> => {
     fiveBackendsWork: "match",
     personalDiskMarker: "absent",
     workDiskMarker: "match",
-    finalConfig: "ready_without_journal",
+    recoveredWipeId: pending.wipeId,
+    finalRegistry: "ready_without_journal",
+    finalProfiles: "personal_and_work",
     browserRootMode: "owner_only",
-    configMode: "owner_only",
+    stateDatabaseMode: "owner_only",
   });
   sessions.detachAllOnQuit("profile wipe phase C complete");
   capabilities.close();
 };
 
-for (const path of [browserRoot, downloadPath, reportPath, markerInputPath]) {
+for (const path of [
+  browserRoot,
+  stateDatabasePath,
+  downloadPath,
+  reportPath,
+  markerInputPath,
+]) {
   ensure(isAbsolute(path), "probe_path_not_absolute");
+  ensure(resolve(path) === path, "probe_path_not_canonical");
 }
 ensure(phase === "A" || phase === "B" || phase === "C", "probe_phase_invalid");
 const origin = new URL(exactOrigin);
@@ -710,19 +793,36 @@ ensure(
 );
 
 let quitting = false;
+let stateRuntime:
+  | ManagedRuntime.ManagedRuntime<StateEngine, unknown>
+  | undefined;
+let stateRuntimeDisposal: Promise<void> | undefined;
+
+const disposeStateRuntime = (): Promise<void> => {
+  if (stateRuntimeDisposal !== undefined) return stateRuntimeDisposal;
+  if (stateRuntime === undefined) return Promise.resolve();
+  stateRuntimeDisposal = stateRuntime.dispose();
+  return stateRuntimeDisposal;
+};
+
 for (const signalName of ["SIGTERM", "SIGINT"] as const) {
   process.on(signalName, () => {
     if (quitting) return;
     quitting = true;
-    app.quit();
+    void disposeStateRuntime().finally(() => app.quit());
   });
 }
 
 void app.whenReady().then(async () => {
   await mkdir(downloadPath, { recursive: true, mode: 0o700 });
-  if (phase === "A") await runPhaseA();
-  if (phase === "B") await runPhaseB();
-  if (phase === "C") await runPhaseC();
+  stateRuntime = ManagedRuntime.make(
+    makeStateEngineLive(stateDatabasePath),
+  );
+  const state = await stateRuntime.runPromise(StateEngine);
+  if (phase === "A") await runPhaseA(state);
+  if (phase === "B") await runPhaseB(state);
+  if (phase === "C") await runPhaseC(state);
+  await disposeStateRuntime();
   if (!quitting) {
     quitting = true;
     app.quit();
@@ -733,5 +833,6 @@ void app.whenReady().then(async () => {
       ? error.message
       : "phase_failed";
   await writeReport({ version: 1, phase, result: "failed", failure }).catch(() => undefined);
+  await disposeStateRuntime().catch(() => undefined);
   app.exit(2);
 });

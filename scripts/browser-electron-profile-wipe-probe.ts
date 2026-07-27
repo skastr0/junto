@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { browserProfileQuarantinePath } from "../src/main/vellum/browser/profile-storage";
 import {
@@ -49,7 +49,6 @@ type SentinelSet = Readonly<Record<StorageKey, string>>;
 interface PendingWipe {
   readonly wipeId: string;
   readonly storagePath: string;
-  readonly stage: string;
 }
 
 interface LaunchResult {
@@ -234,6 +233,7 @@ const launchElectron = async (options: {
   readonly root: string;
   readonly userData: string;
   readonly browserRoot: string;
+  readonly stateDatabasePath: string;
   readonly downloads: string;
   readonly reportPath: string;
   readonly markerInputPath: string;
@@ -244,6 +244,7 @@ const launchElectron = async (options: {
     `--phase=${options.phase}`,
     `--fixture-origin=${options.origin}`,
     `--browser-root=${options.browserRoot}`,
+    `--state-db-path=${options.stateDatabasePath}`,
     `--download-path=${options.downloads}`,
     `--report-path=${options.reportPath}`,
     `--marker-input-path=${options.markerInputPath}`,
@@ -310,25 +311,6 @@ const readReport = async (
     `${phase}_report_not_enum_only`,
   );
   return { encoded, value };
-};
-
-const decodePending = (encoded: string): PendingWipe => {
-  const value = JSON.parse(encoded) as unknown;
-  ensure(isRecord(value) && value.phase === "wipe_pending", "pending_config_invalid");
-  const pending = value.pendingWipe;
-  ensure(isRecord(pending), "pending_config_invalid");
-  ensure(
-    typeof pending.wipeId === "string" &&
-      typeof pending.storagePath === "string" &&
-      isAbsolute(pending.storagePath) &&
-      typeof pending.stage === "string",
-    "pending_config_invalid",
-  );
-  return {
-    wipeId: pending.wipeId,
-    storagePath: pending.storagePath,
-    stage: pending.stage,
-  };
 };
 
 const assertOwnerOnly = async (path: string, kind: "file" | "directory"): Promise<void> => {
@@ -408,6 +390,7 @@ const main = async (): Promise<void> => {
   const home = join(root, "home");
   const userData = join(root, "electron");
   const browserRoot = join(root, "browser");
+  const stateDatabasePath = join(root, "state", "vellum.db");
   const downloads = join(root, "downloads");
   const reports = {
     A: join(root, "reports", "phase-a.json"),
@@ -450,6 +433,7 @@ const main = async (): Promise<void> => {
       root,
       userData,
       browserRoot,
+      stateDatabasePath,
       downloads,
       reportPath: reports.A,
       markerInputPath,
@@ -475,36 +459,41 @@ const main = async (): Promise<void> => {
       workGate: "open",
       pendingStage: "restart_delete_pending",
       targetMode: "owner_only",
+      stateDatabaseMode: "owner_only",
     });
     assertExit(launchA, 0, "phase_A");
-    const configPath = join(browserRoot, "config.json");
-    const pendingAEncoded = await readFile(configPath, "utf8");
-    const pending = decodePending(pendingAEncoded);
-    ensure(pending.stage === "restart_delete_pending", "phase_A_journal_stage_invalid");
+    const wipeId = reportA.value.pendingWipeId;
+    ensure(typeof wipeId === "string", "phase_A_wipe_id_invalid");
+    const markersAfterA = await findDiskMarkers(userData);
+    ensure(markersAfterA.length === 2, "phase_A_marker_count_invalid");
+    const markerEntriesAfterA = await Promise.all(
+      markersAfterA.map(async (path) => ({
+        path,
+        value: await readFile(path, "utf8"),
+      })),
+    );
+    ensure(
+      new Set(markerEntriesAfterA.map(({ value }) => value)).size === 2 &&
+        markerEntriesAfterA.some(({ value }) => value === diskMarkers.personal) &&
+        markerEntriesAfterA.some(({ value }) => value === diskMarkers.work),
+      "phase_A_marker_contents_invalid",
+    );
+    const personalMarker = markerEntriesAfterA.find(
+      ({ value }) => value === diskMarkers.personal,
+    );
+    ensure(personalMarker !== undefined, "phase_A_personal_marker_missing");
+    const pending: PendingWipe = {
+      wipeId,
+      storagePath: dirname(personalMarker.path),
+    };
     const quarantine = browserProfileQuarantinePath(pending.storagePath, pending.wipeId);
     ensure(quarantine !== undefined, "quarantine_path_invalid");
     ensure(await pathExists(pending.storagePath), "phase_A_target_missing");
     ensure(!(await pathExists(quarantine)), "phase_A_quarantine_premature");
     await assertOwnerOnly(pending.storagePath, "directory");
-    const targetMarker = join(pending.storagePath, DISK_MARKER_NAME);
-    ensure(
-      (await readFile(targetMarker, "utf8")) === diskMarkers.personal,
-      "phase_A_target_marker_invalid",
-    );
-    await assertOwnerOnly(targetMarker, "file");
-    const markersAfterA = await findDiskMarkers(userData);
-    ensure(markersAfterA.length === 2, "phase_A_marker_count_invalid");
-    const markerValuesAfterA = await Promise.all(
-      markersAfterA.map((path) => readFile(path, "utf8")),
-    );
-    ensure(
-      new Set(markerValuesAfterA).size === 2 &&
-        markerValuesAfterA.includes(diskMarkers.personal) &&
-        markerValuesAfterA.includes(diskMarkers.work),
-      "phase_A_marker_contents_invalid",
-    );
-    await assertOwnerOnly(configPath, "file");
-    assertAbsent(secrets, [["phase_A_pending_config", pendingAEncoded]]);
+    await assertOwnerOnly(personalMarker.path, "file");
+    await assertOwnerOnly(dirname(stateDatabasePath), "directory");
+    await assertOwnerOnly(stateDatabasePath, "file");
     const prohibited = [...secrets, pending.storagePath, quarantine];
     assertAbsent(prohibited, publicLaunchArtifacts("phase_A", launchA, reportA.encoded));
 
@@ -516,6 +505,7 @@ const main = async (): Promise<void> => {
       root,
       userData,
       browserRoot,
+      stateDatabasePath,
       downloads,
       reportPath: reports.B,
       markerInputPath,
@@ -528,6 +518,7 @@ const main = async (): Promise<void> => {
       sessionControl: "none",
       capabilityControl: "none",
       pendingStage: "restart_delete_pending",
+      pendingWipeId: pending.wipeId,
       exit: "from_failpoint",
     });
     ensure(!(await pathExists(pending.storagePath)), "phase_B_target_survived");
@@ -539,13 +530,6 @@ const main = async (): Promise<void> => {
       "phase_B_quarantine_marker_invalid",
     );
     await assertOwnerOnly(quarantinedMarker, "file");
-    const pendingBEncoded = await readFile(configPath, "utf8");
-    const pendingB = decodePending(pendingBEncoded);
-    ensure(
-      pendingB.storagePath === pending.storagePath && pendingB.wipeId === pending.wipeId,
-      "phase_B_journal_changed",
-    );
-    assertAbsent(secrets, [["phase_B_pending_config", pendingBEncoded]]);
     assertAbsent(prohibited, publicLaunchArtifacts("phase_B", launchB, reportB.encoded));
 
     probeStage = "launch_C";
@@ -556,6 +540,7 @@ const main = async (): Promise<void> => {
       root,
       userData,
       browserRoot,
+      stateDatabasePath,
       downloads,
       reportPath: reports.C,
       markerInputPath,
@@ -577,9 +562,11 @@ const main = async (): Promise<void> => {
       fiveBackendsWork: "match",
       personalDiskMarker: "absent",
       workDiskMarker: "match",
-      finalConfig: "ready_without_journal",
+      recoveredWipeId: pending.wipeId,
+      finalRegistry: "ready_without_journal",
+      finalProfiles: "personal_and_work",
       browserRootMode: "owner_only",
-      configMode: "owner_only",
+      stateDatabaseMode: "owner_only",
     });
     assertExit(launchC, 0, "phase_C");
     ensure(!(await pathExists(quarantine)), "phase_C_quarantine_survived");
@@ -594,24 +581,13 @@ const main = async (): Promise<void> => {
       "phase_C_work_marker_invalid",
     );
     await assertOwnerOnly(markersAfterC[0]!, "file");
-    const finalConfigEncoded = await readFile(configPath, "utf8");
-    const finalConfig = JSON.parse(finalConfigEncoded) as unknown;
-    ensure(isRecord(finalConfig) && finalConfig.phase === "ready", "final_config_invalid");
-    ensure(finalConfig.pendingWipe === undefined, "final_config_journal_present");
-    const finalProfiles = finalConfig.profiles;
-    ensure(Array.isArray(finalProfiles), "final_profiles_invalid");
-    ensure(
-      ["personal", "work"].every((profile) =>
-        finalProfiles.some((entry: unknown) => isRecord(entry) && entry.id === profile),
-      ),
-      "final_profiles_missing",
-    );
     await assertOwnerOnly(browserRoot, "directory");
-    await assertOwnerOnly(configPath, "file");
-    assertAbsent(prohibited, [
-      ...publicLaunchArtifacts("phase_C", launchC, reportC.encoded),
-      ["final_config", finalConfigEncoded],
-    ]);
+    await assertOwnerOnly(dirname(stateDatabasePath), "directory");
+    await assertOwnerOnly(stateDatabasePath, "file");
+    assertAbsent(
+      prohibited,
+      publicLaunchArtifacts("phase_C", launchC, reportC.encoded),
+    );
 
     const success = JSON.stringify({
       ok: true,
