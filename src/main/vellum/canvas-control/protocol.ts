@@ -10,9 +10,7 @@ import { SnapshotState } from "@shared/entities";
  * Main-owned headless canvas protocol.
  *
  * One NDJSON request and one NDJSON response travel over an owner-only Unix
- * socket. There is deliberately no bearer file: read access is owner-local,
- * while the explicit authorial-write witness remains a deletion safety
- * ceremony rather than an identity claim.
+ * socket. The surface is projection-only: it cannot mutate authorial intent.
  */
 export const CANVAS_CONTROL_PROTOCOL_VERSION = "vellum-canvas-control/v1";
 export const CANVAS_CONTROL_HOME_ENV = "VELLUM_CANVAS_CONTROL_HOME";
@@ -38,15 +36,13 @@ export const canvasControlNameFrom = (raw: string): string => {
   return trimmed.toLowerCase();
 };
 
-export const CanvasControlOp = Schema.Literal("list", "read", "remove");
+export const CanvasControlOp = Schema.Literal("list", "read");
 export type CanvasControlOp = typeof CanvasControlOp.Type;
 
 export const CanvasControlErrorCode = Schema.Literal(
   "InputError",
   "CanvasError",
   "RuntimeDown",
-  "AuthorialWriteDenied",
-  "AuthoringClosed",
   "ProtocolError",
   "ResponseTooLarge",
   "InternalError",
@@ -114,12 +110,6 @@ export const CanvasControlReadArgs = Schema.Struct({
 });
 export type CanvasControlReadArgs = typeof CanvasControlReadArgs.Type;
 
-export const CanvasControlRemoveArgs = Schema.Struct({
-  name: BoundedCanvasName,
-  authorialWrite: Schema.optionalWith(Schema.Boolean, { exact: true }),
-});
-export type CanvasControlRemoveArgs = typeof CanvasControlRemoveArgs.Type;
-
 export const CanvasControlListEntry = Schema.Struct({
   name: Schema.String,
   modifiedAt: Schema.String,
@@ -138,11 +128,6 @@ export const CanvasControlReadData = Schema.Struct({
   snapshots: SnapshotState,
 });
 export type CanvasControlReadData = typeof CanvasControlReadData.Type;
-
-export const CanvasControlRemoveData = Schema.Struct({
-  name: Schema.String,
-});
-export type CanvasControlRemoveData = typeof CanvasControlRemoveData.Type;
 
 export const decodeCanvasControlRequest = Schema.decodeUnknownEither(
   CanvasControlRequestEnvelope,

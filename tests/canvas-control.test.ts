@@ -13,16 +13,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { defaultSettings, type Settings } from "../src/shared/settings";
 import {
   CanvasError,
   CanvasesService,
 } from "../src/main/vellum/canvases";
 import {
-  canvasControlAuthorialPermit,
   listCanvasesThroughControl,
   readCanvasThroughControl,
-  removeCanvasThroughControl,
 } from "../src/main/vellum/canvas-control/client";
 import {
   CANVAS_CONTROL_PROTOCOL_VERSION,
@@ -34,12 +31,6 @@ import {
   type CanvasControlServer,
   type CanvasControlServerRuntime,
 } from "../src/main/vellum/canvas-control/server";
-import { createMainAuthoringGate } from "../src/main/vellum/main-authoring-gate";
-import type {
-  ProcessIdentityMap,
-  ProcessPrincipal,
-} from "../src/main/vellum/process-identity";
-import { SettingsService } from "../src/main/vellum/settings/service";
 import { SnapshotsService } from "../src/main/vellum/snapshots";
 
 const roots: string[] = [];
@@ -61,38 +52,8 @@ const doc = (text = "hello"): CanvasDoc => ({
   edges: [],
 });
 
-const processMap = (
-  principal: () => ProcessPrincipal | undefined,
-): ProcessIdentityMap => ({
-  bind: () => false,
-  unbind: () => undefined,
-  unbindPrincipal: () => undefined,
-  unbindAgentKey: () => undefined,
-  unbindTerminalBinding: () => undefined,
-  resolve: () => principal(),
-  resolveInTree: () => principal(),
-  clear: () => undefined,
-  size: () => (principal() === undefined ? 0 : 1),
-  snapshot: () => [],
-  subscribe: () => () => undefined,
-});
-
-const commandCenterSettings = (): Settings => {
-  const settings = defaultSettings();
-  return {
-    ...settings,
-    station: {
-      ...settings.station,
-      role: "command-center",
-      hostId: "local",
-    },
-  };
-};
-
 const makeRuntime = (input: {
   readonly documents?: Map<string, CanvasDoc>;
-  readonly settings: () => Settings;
-  readonly afterRemoveCommit?: () => Promise<void>;
 }) => {
   const documents = input.documents ?? new Map([["portfolio", doc()]]);
   const modifiedAt = "2026-07-27T12:00:00.000Z";
@@ -127,17 +88,7 @@ const makeRuntime = (input: {
     write: () => Effect.fail(new CanvasError({ message: "not used" })),
     mutate: () => Effect.fail(new CanvasError({ message: "not used" })),
     create: () => Effect.fail(new CanvasError({ message: "not used" })),
-    remove: (name) =>
-      Effect.gen(function* () {
-        if (!documents.delete(name)) {
-          throw new CanvasError({ message: `canvas "${name}" is missing` });
-        }
-        if (input.afterRemoveCommit !== undefined) {
-          yield* Effect.promise(input.afterRemoveCommit);
-        }
-        for (const listener of listeners) listener(name);
-        return { name };
-      }),
+    remove: () => Effect.fail(new CanvasError({ message: "not used" })),
     ensureSeed: Effect.void,
     writeSidecar: () =>
       Effect.fail(new CanvasError({ message: "not used" })),
@@ -181,24 +132,10 @@ const makeRuntime = (input: {
     start: () => undefined,
     subscribe: () => () => undefined,
   });
-  const settings = SettingsService.of({
-    doctor: Effect.succeed({
-      id: "settings",
-      label: "Settings",
-      status: "ok",
-      detail: "test",
-    }),
-    get: Effect.sync(input.settings),
-    patch: () => Effect.succeed(input.settings()),
-    setStationTopology: () => Effect.succeed(input.settings()),
-    reset: () => Effect.succeed(input.settings()),
-    subscribe: () => () => undefined,
-  });
   return ManagedRuntime.make(
     Layer.mergeAll(
       Layer.succeed(CanvasesService, canvases),
       Layer.succeed(SnapshotsService, snapshots),
-      Layer.succeed(SettingsService, settings),
     ),
   );
 };
@@ -206,20 +143,13 @@ const makeRuntime = (input: {
 const start = async (input: {
   readonly documents?: Map<string, CanvasDoc>;
   readonly runtime?: CanvasControlServerRuntime;
-  readonly settings?: () => Settings;
-  readonly boundPrincipal?: () => ProcessPrincipal | undefined;
   readonly beforeRun?: () => void | Promise<void>;
-  readonly afterRemoveCommit?: () => Promise<void>;
 }) => {
   const root = await mkdtemp(join(tmpdir(), "vellum-canvas-control-"));
   roots.push(root);
   const controlHome = join(root, "canvas");
   const runtime = makeRuntime({
     ...(input.documents === undefined ? {} : { documents: input.documents }),
-    settings: input.settings ?? commandCenterSettings,
-    ...(input.afterRemoveCommit === undefined
-      ? {}
-      : { afterRemoveCommit: input.afterRemoveCommit }),
   });
   runtimes.push(runtime as ManagedRuntime.ManagedRuntime<unknown, never>);
   const server = await startCanvasControlServer(
@@ -229,10 +159,6 @@ const start = async (input: {
         await input.beforeRun?.();
         return runtime.runPromise(effect);
       },
-      authoringGate: createMainAuthoringGate(),
-      processMap: processMap(input.boundPrincipal ?? (() => undefined)),
-      readPeerPid: () => process.pid,
-      readParentPid: (pid) => (pid === process.pid ? 1 : undefined),
     },
     input.runtime,
   );
@@ -294,97 +220,25 @@ describe("canvas control", () => {
     expect(server.ready()).toBe(true);
   });
 
-  it("requires the explicit witness, rejects attached agents, checks Command Center role, then removes", async () => {
-    let bound: ProcessPrincipal | undefined;
-    let settings = commandCenterSettings();
-    const { controlHome } = await start({
-      settings: () => settings,
-      boundPrincipal: () => bound,
-    });
-
-    const missingWitness = await rawCall(
-      join(controlHome, "control.sock"),
+  it("has no headless authorial mutation operation", async () => {
+    const { controlHome, server } = await start({});
+    const response = await rawCall(
+      server.socketPath,
       encodeCanvasControlFrame({
         protocol_version: CANVAS_CONTROL_PROTOCOL_VERSION,
         op: "remove",
-        args: { name: "portfolio" },
-        id: "missing-witness",
+        args: { name: "portfolio", authorialWrite: true },
+        id: "retired-remove",
       }),
     );
-    expect(missingWitness._tag).toBe("Right");
-    if (missingWitness._tag === "Right" && !missingWitness.right.ok) {
-      expect(missingWitness.right.error.code).toBe("AuthorialWriteDenied");
-    }
 
-    const permit = canvasControlAuthorialPermit({
-      VELLUM_AUTHORIAL_WRITE: "1",
-    });
-    bound = { agentKey: "local:worker" };
-    const attachedAgent = await Effect.runPromise(
-      Effect.either(
-        removeCanvasThroughControl("portfolio", permit, { controlHome }),
-      ),
-    );
-    expect(attachedAgent._tag).toBe("Left");
-    if (attachedAgent._tag === "Left") {
-      expect(attachedAgent.left.message).toContain("attached agent");
+    expect(response._tag).toBe("Right");
+    if (response._tag === "Right" && !response.right.ok) {
+      expect(response.right.error.code).toBe("ProtocolError");
     }
-
-    bound = undefined;
-    settings = {
-      ...settings,
-      station: { ...settings.station, role: "remote" },
-    };
-    const remote = await Effect.runPromise(
-      Effect.either(
-        removeCanvasThroughControl("portfolio", permit, { controlHome }),
-      ),
-    );
-    expect(remote._tag).toBe("Left");
-    if (remote._tag === "Left") {
-      expect(remote.left.message).toContain("Remote");
-    }
-
-    settings = commandCenterSettings();
-    await expect(
-      Effect.runPromise(
-        removeCanvasThroughControl("portfolio", permit, { controlHome }),
-      ),
-    ).resolves.toEqual({ name: "portfolio" });
     await expect(
       Effect.runPromise(listCanvasesThroughControl({ controlHome })),
-    ).resolves.toEqual([]);
-  });
-
-  it("fails removal closed when peer ancestry cannot be proven", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-canvas-control-"));
-    roots.push(root);
-    const runtime = makeRuntime({ settings: commandCenterSettings });
-    runtimes.push(runtime as ManagedRuntime.ManagedRuntime<unknown, never>);
-    const server = await startCanvasControlServer({
-      controlHome: join(root, "canvas"),
-      run: (effect) => runtime.runPromise(effect),
-      authoringGate: createMainAuthoringGate(),
-      processMap: processMap(() => undefined),
-      readPeerPid: () => process.pid,
-      readParentPid: () => undefined,
-    });
-    servers.push(server);
-
-    const result = await Effect.runPromise(
-      Effect.either(
-        removeCanvasThroughControl(
-          "portfolio",
-          canvasControlAuthorialPermit({ VELLUM_AUTHORIAL_WRITE: "1" }),
-          { controlHome: server.controlHome },
-        ),
-      ),
-    );
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left.code).toBe("AuthorialWriteDenied");
-      expect(result.left.message).toContain("ancestry");
-    }
+    ).resolves.toHaveLength(1);
   });
 
   it("rejects oversized or multiple request frames and bounds responses", async () => {
@@ -583,54 +437,6 @@ describe("canvas control", () => {
     });
   });
 
-  it("keeps an admitted removal response alive across a bounded drain timeout", async () => {
-    const documents = new Map([["portfolio", doc()]]);
-    let signalCommitted!: () => void;
-    const committed = new Promise<void>((resolve) => {
-      signalCommitted = resolve;
-    });
-    let release!: () => void;
-    const blocker = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const { controlHome, server } = await start({
-      documents,
-      runtime: { shutdownDeadlineMs: 40 },
-      afterRemoveCommit: async () => {
-        signalCommitted();
-        await blocker;
-      },
-    });
-    const client = Effect.runPromise(
-      Effect.either(
-        removeCanvasThroughControl(
-          "portfolio",
-          canvasControlAuthorialPermit({ VELLUM_AUTHORIAL_WRITE: "1" }),
-          { controlHome },
-        ),
-      ),
-    );
-    let clientSettled = false;
-    void client.then(() => {
-      clientSettled = true;
-    });
-    await committed;
-    expect(documents.has("portfolio")).toBe(false);
-
-    const first = await server.close();
-    expect(first.clean).toBe(false);
-    expect(first.retainedLabels).toContain("dispatch:remove");
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(clientSettled).toBe(false);
-
-    release();
-    await expect(client).resolves.toMatchObject({
-      _tag: "Right",
-      right: { name: "portfolio" },
-    });
-    await expect(server.close()).resolves.toMatchObject({ clean: true });
-  });
-
   it("preserves a replacement socket path and retries cleanup after repair", async () => {
     const { server } = await start({
       runtime: { shutdownDeadlineMs: 40 },
@@ -671,7 +477,6 @@ describe("canvas control", () => {
       "digest.ts",
       "render.ts",
       "ref-cli.ts",
-      "canvas-rm.ts",
     ];
     for (const script of scripts) {
       const source = await readFile(join(process.cwd(), "scripts", script), "utf8");

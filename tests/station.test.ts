@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import {
-  allowAuthorialCliWrite,
-  AUTHORIAL_WRITE_ENV,
-} from "../src/shared/authorial-write";
-import {
   agentKeysForWatcher,
   assessSupervisedRuntime,
   isExecutableNode,
@@ -140,19 +136,6 @@ describe("watcher target rules", () => {
         agentHostId: "local",
       }),
     ).toBe(false);
-  });
-});
-
-describe("authorial write gate", () => {
-  it("denies CLI write without opt-in env", () => {
-    const gate = allowAuthorialCliWrite({});
-    expect(gate.ok).toBe(false);
-    if (!gate.ok) expect(gate.code).toBe("authorial_write_denied");
-  });
-
-  it("allows CLI write with VELLUM_AUTHORIAL_WRITE=1", () => {
-    const gate = allowAuthorialCliWrite({ [AUTHORIAL_WRITE_ENV]: "1" });
-    expect(gate.ok).toBe(true);
   });
 });
 

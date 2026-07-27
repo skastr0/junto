@@ -36,7 +36,6 @@ read-only for authorial intent. Current headless CLIs:
 | `bun run digest [name]` | agents + operators | print (and write `<name>.digest.txt`) a deterministic text projection of the board + live hermes snapshot data. |
 | `bun run render [name]` | agents + operators | write `<name>.svg` — a deep-field image of the board, for multimodal reading. |
 | `bun run canvas:ls [--json]` | agents + operators | list canvases with node/edge counts. |
-| `bun run canvas:rm <name>…` | **operator only** | delete canvas document(s) through the app-owned authoring API. Requires `VELLUM_AUTHORIAL_WRITE=1`. |
 
 To **read the board as an agent**: `bun run digest` (text) or `bun run render` then view the SVG (image).
 

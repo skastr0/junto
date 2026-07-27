@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
 import { Effect, Either, Schema } from "effect";
-import { allowAuthorialCliWrite } from "@shared/authorial-write";
 import {
   CANVAS_CONTROL_DEFAULT_TIMEOUT_MS,
   CANVAS_CONTROL_HOME_ENV,
@@ -11,7 +10,6 @@ import {
   CANVAS_CONTROL_PROTOCOL_VERSION,
   CanvasControlListData,
   CanvasControlReadData,
-  CanvasControlRemoveData,
   canvasControlDir,
   canvasControlNameFrom,
   canvasControlSocketPath,
@@ -21,7 +19,6 @@ import {
   type CanvasControlListData as CanvasControlListResult,
   type CanvasControlOp,
   type CanvasControlReadData as CanvasControlReadResult,
-  type CanvasControlRemoveData as CanvasControlRemoveResult,
 } from "./protocol";
 
 export class CanvasControlClientError extends Schema.TaggedError<CanvasControlClientError>()(
@@ -41,30 +38,6 @@ export interface CanvasControlClientOptions {
   readonly socketPath?: string;
   readonly timeoutMs?: number;
 }
-
-declare const canvasControlAuthorialPermitBrand: unique symbol;
-export type CanvasControlAuthorialPermit = Readonly<{
-  readonly [canvasControlAuthorialPermitBrand]: true;
-}>;
-
-const liveAuthorialPermits = new WeakSet<object>();
-
-/** Mint a process-local deletion permit only after the explicit CLI ceremony. */
-export const canvasControlAuthorialPermit = (
-  env: NodeJS.ProcessEnv = process.env,
-): CanvasControlAuthorialPermit => {
-  const gate = allowAuthorialCliWrite(env);
-  if (!gate.ok) {
-    throw new CanvasControlClientError({
-      code: "AuthorialWriteDenied",
-      message: gate.message,
-      retryable: false,
-    });
-  }
-  const permit = Object.freeze({}) as CanvasControlAuthorialPermit;
-  liveAuthorialPermits.add(permit);
-  return permit;
-};
 
 export const resolveCanvasControlHome = (
   home?: string,
@@ -319,27 +292,3 @@ export const readCanvasThroughControl = (
     ),
     Effect.flatMap((value) => decodeData(CanvasControlReadData, value)),
   );
-
-export const removeCanvasThroughControl = (
-  name: string,
-  permit: CanvasControlAuthorialPermit,
-  options: CanvasControlClientOptions = {},
-): Effect.Effect<CanvasControlRemoveResult, CanvasControlClientError> =>
-  liveAuthorialPermits.has(permit)
-    ? validatedCanvasName(name).pipe(
-        Effect.flatMap((canonicalName) =>
-          call(
-            "remove",
-            { name: canonicalName, authorialWrite: true },
-            options,
-          ),
-        ),
-        Effect.flatMap((value) => decodeData(CanvasControlRemoveData, value)),
-      )
-    : Effect.fail(
-        new CanvasControlClientError({
-          code: "AuthorialWriteDenied",
-          message: "canvas removal requires a live authorial-write permit",
-          retryable: false,
-        }),
-      );

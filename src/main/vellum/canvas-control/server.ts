@@ -3,11 +3,6 @@ import { createServer, type Server, type Socket } from "node:net";
 import { homedir } from "node:os";
 import { Effect, Either, Schema } from "effect";
 import {
-  MainAuthoringRefused,
-  mainAuthoringGate,
-  type MainAuthoringGate,
-} from "../main-authoring-gate";
-import {
   acquireControlListenerLease,
   captureControlSocketPathIdentity,
   controlListenerLeaseHeld,
@@ -19,14 +14,6 @@ import {
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
 import { CanvasesService, type CanvasError } from "../canvases";
-import {
-  getProcessIdentityMap,
-  readParentPid as readSystemParentPid,
-  readUnixPeerPid,
-  type PeerPidReader,
-  type ProcessIdentityMap,
-} from "../process-identity";
-import { SettingsService } from "../settings/service";
 import { SnapshotsService } from "../snapshots";
 import {
   CANVAS_CONTROL_MAX_REQUEST_BYTES,
@@ -34,7 +21,6 @@ import {
   CANVAS_CONTROL_HOME_ENV,
   CanvasControlListArgs,
   CanvasControlReadArgs,
-  CanvasControlRemoveArgs,
   canvasControlDir,
   canvasControlErr,
   canvasControlOk,
@@ -49,7 +35,6 @@ import {
 
 type CanvasControlServices =
   | CanvasesService
-  | SettingsService
   | SnapshotsService;
 
 export type RunCanvasControlEffect = <A, E>(
@@ -60,12 +45,6 @@ export interface CanvasControlServerOptions {
   readonly run: RunCanvasControlEffect;
   readonly home?: string;
   readonly controlHome?: string;
-  /** Test seam; production shares the process-global main authoring gate. */
-  readonly authoringGate?: MainAuthoringGate;
-  /** Test seams; production uses the shared registry and sealed peer reader. */
-  readonly processMap?: ProcessIdentityMap;
-  readonly readPeerPid?: PeerPidReader;
-  readonly readParentPid?: (pid: number) => number | undefined;
 }
 
 export interface CanvasControlServerRuntime {
@@ -103,7 +82,6 @@ export interface CanvasControlServer {
 const MAX_ACTIVE_CLIENTS = 32;
 const REQUEST_TIMEOUT_MS = 30_000;
 const SHUTDOWN_DEADLINE_MS = 5_000;
-const AUTHORIAL_ANCESTRY_MAX_DEPTH = 64;
 
 type CanvasControlFlightKind = "frame" | "dispatch" | "listener-close";
 
@@ -157,13 +135,6 @@ const canvasFailure = (
   readonly message: string;
   readonly retryable: boolean;
 } => {
-  if (error instanceof MainAuthoringRefused) {
-    return {
-      code: "AuthoringClosed",
-      message: error.message,
-      retryable: true,
-    };
-  }
   if (
     typeof error === "object" &&
     error !== null &&
@@ -220,63 +191,6 @@ const readEffect = (name: string) =>
     };
   });
 
-const removeEffect = (name: string) =>
-  Effect.flatMap(CanvasesService, (canvases) => canvases.remove(name));
-
-const commandCenterAuthorialAdmission = Effect.gen(function* () {
-  const settings = yield* SettingsService;
-  const current = yield* settings.get;
-  if (current.station.role === "command-center") {
-    return { allowed: true as const };
-  }
-  return {
-    allowed: false as const,
-    message:
-      current.station.role === "remote"
-        ? "Remote stations cannot remove authorial canvases"
-        : "station role is unset or untrusted; canvas removal requires a Command Center",
-  };
-});
-
-const admitUnboundOperatorProcess = (input: {
-  readonly peerPid: number;
-  readonly processMap: ProcessIdentityMap;
-  readonly readParentPid: (pid: number) => number | undefined;
-}):
-  | { readonly allowed: true }
-  | { readonly allowed: false; readonly message: string } => {
-  let current = input.peerPid;
-  const seen = new Set<number>();
-  for (let depth = 0; depth < AUTHORIAL_ANCESTRY_MAX_DEPTH; depth += 1) {
-    if (!Number.isSafeInteger(current) || current <= 0 || seen.has(current)) {
-      return {
-        allowed: false,
-        message: "canvas removal could not prove a stable operator process ancestry",
-      };
-    }
-    seen.add(current);
-    if (input.processMap.resolve(current) !== undefined) {
-      return {
-        allowed: false,
-        message: "attached agent processes cannot remove authorial canvases",
-      };
-    }
-    if (current === 1) return { allowed: true };
-    const parent = input.readParentPid(current);
-    if (parent === undefined || parent >= current) {
-      return {
-        allowed: false,
-        message: "canvas removal could not prove the local operator process ancestry",
-      };
-    }
-    current = parent;
-  }
-  return {
-    allowed: false,
-    message: "canvas removal process ancestry exceeded the safety bound",
-  };
-};
-
 export const startCanvasControlServer = async (
   options: CanvasControlServerOptions,
   runtime: CanvasControlServerRuntime = {},
@@ -318,10 +232,6 @@ export const startCanvasControlServer = async (
     SHUTDOWN_DEADLINE_MS,
     10,
   );
-  const authoringGate = options.authoringGate ?? mainAuthoringGate;
-  const processMap = options.processMap ?? getProcessIdentityMap();
-  const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
-  const readParentPid = options.readParentPid ?? readSystemParentPid;
   const sockets = new Map<Socket, CanvasControlPeer>();
   const flights = new Set<CanvasControlFlight>();
   const responseFlights = new WeakMap<Socket, Promise<void>>();
@@ -411,7 +321,6 @@ export const startCanvasControlServer = async (
 
   const dispatch = async (
     request: CanvasControlRequestEnvelope,
-    socket: Socket,
   ): Promise<CanvasControlResponseEnvelope> => {
     try {
       if (request.op === "list") {
@@ -449,63 +358,13 @@ export const startCanvasControlServer = async (
         );
       }
 
-      const args = decodeArgs(CanvasControlRemoveArgs, request.args);
-      if (!args.ok) {
-        return canvasControlErr(
-          "InputError",
-          args.message,
-          false,
-          request.op,
-          request.id,
-        );
-      }
-      if (args.value.authorialWrite !== true) {
-        return canvasControlErr(
-          "AuthorialWriteDenied",
-          "canvas removal requires the explicit operator authorial-write witness",
-          false,
-          request.op,
-          request.id,
-        );
-      }
-      const peerPid = readPeerPid(socket);
-      if (peerPid === undefined) {
-        return canvasControlErr(
-          "AuthorialWriteDenied",
-          "canvas removal could not attribute the local operator process",
-          false,
-          request.op,
-          request.id,
-        );
-      }
-      const operator = admitUnboundOperatorProcess({
-        peerPid,
-        processMap,
-        readParentPid,
-      });
-      if (!operator.allowed) {
-        return canvasControlErr(
-          "AuthorialWriteDenied",
-          operator.message,
-          false,
-          request.op,
-          request.id,
-        );
-      }
-      const station = await options.run(commandCenterAuthorialAdmission);
-      if (!station.allowed) {
-        return canvasControlErr(
-          "AuthorialWriteDenied",
-          station.message,
-          false,
-          request.op,
-          request.id,
-        );
-      }
-      const removed = await authoringGate.run("control.canvas.remove", () =>
-        options.run(removeEffect(args.value.name)),
+      return canvasControlErr(
+        "ProtocolError",
+        "unsupported canvas control operation",
+        false,
+        request.op,
+        request.id,
       );
-      return canvasControlOk(request.op, removed, request.id);
     } catch (error) {
       const failure = canvasFailure(error as CanvasError);
       return canvasControlErr(
@@ -590,7 +449,7 @@ export const startCanvasControlServer = async (
         const response = await retainOperation(
           "dispatch",
           `dispatch:${decoded.right.op}`,
-          () => dispatch(decoded.right, socket),
+          () => dispatch(decoded.right),
         );
         await send(socket, response);
       } catch {
