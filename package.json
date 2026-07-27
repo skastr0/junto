@@ -27,7 +27,6 @@
     "postinstall": "bun scripts/ensure-node-pty-perms.ts",
     "dev": "electron-vite dev",
     "build": "bash scripts/build-app.sh --fast",
-    "build:pack": "bun scripts/electron-security-policy.ts prepare-package && bun run electron:policy:validate && electron-vite build && electron-builder",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

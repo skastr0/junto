@@ -295,6 +295,7 @@ describe("electron-builder role-specific signing", () => {
     ) as {
       build: { mac: Record<string, unknown> };
       devDependencies: Record<string, string>;
+      scripts: Record<string, string>;
     };
     expect(packageJson.devDependencies["@electron/osx-sign"]).toBe("1.3.3");
     expect(packageJson.build.mac).toMatchObject({
@@ -306,6 +307,12 @@ describe("electron-builder role-specific signing", () => {
       hardenedRuntime: true,
       strictVerify: true,
     });
+    expect(packageJson.scripts).not.toHaveProperty("build:pack");
+    expect(
+      Object.values(packageJson.scripts).filter((script) =>
+        /\belectron-builder\b/u.test(script)
+      ),
+    ).toEqual([]);
 
     const [
       jitPlist,
