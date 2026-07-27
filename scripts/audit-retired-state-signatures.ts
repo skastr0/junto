@@ -28,6 +28,8 @@ export const RETIRED_PRODUCT_STATE_SIGNATURES = [
   "station_events",
   "station_outbound_sequences",
   "work_home_sequences",
+  "runtime/open-url",
+  "NodeRefRelay",
 ] as const;
 
 export type RetiredProductStateSignature =
