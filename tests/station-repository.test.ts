@@ -12,17 +12,19 @@ import {
 } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  serializeCanvas,
+  type CanvasDoc,
+} from "../src/shared/canvas";
+import {
   ConfigureRequest,
   InstallationId,
   LogicalSequence,
   PairRequest,
   ProjectRequest,
   STATION_API_PROTOCOL,
-  StationEvent,
   StationEventAck,
   StationHostId,
   type InstallationId as InstallationIdValue,
-  type StationEvent as StationEventValue,
 } from "../src/shared/station-api";
 import {
   StationBrowserPinnedTrustRecord,
@@ -33,9 +35,12 @@ import {
   SettingsService,
 } from "../src/main/vellum/settings/service";
 import {
+  compileStationPortfolioBody,
+  STATION_PORTFOLIO_PROTOCOL,
+} from "../src/main/vellum/station/portfolio";
+import {
   StationRepository,
   makeStationRepositoryLive,
-  stationEventContentSha256,
   stationProjectionContentSha256,
 } from "../src/main/vellum/station/repository";
 import {
@@ -180,25 +185,25 @@ const projectRequest = (
     },
   });
 
-const inboundEvent = (
-  home: InstallationIdValue,
-  sequence: string,
-  body: string,
-  originAt: string,
-): StationEventValue =>
-  StationEvent.make({
-    identity: {
-      home,
-      sequence: decodeSequence(sequence),
+const canvasDocument = (text: string): CanvasDoc => ({
+  nodes: [
+    {
+      id: "note",
+      type: "text",
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 100,
+      text,
     },
-    kind: "work.transition",
-    body,
-    contentSha256: stationEventContentSha256(
-      "work.transition",
-      body,
-    ),
-    originAt,
-  });
+  ],
+  edges: [],
+});
+
+const portfolioBody = (text: string): string =>
+  compileStationPortfolioBody(
+    new Map([["factory", canvasDocument(text)]]),
+  );
 
 describe("StationRepository", () => {
   it("mints one stable installation identity in the shared database", async () => {
@@ -329,6 +334,48 @@ describe("StationRepository", () => {
     expect(configured.configuration.role).toBe("remote");
     expect(configuredRetry.configuredAt).toBe(configured.configuredAt);
 
+    const rehome = await runtime.runPromise(
+      repository.configure(
+        ConfigureRequest.make({
+          protocol: STATION_API_PROTOCOL,
+          op: "configure",
+          installationId: local,
+          configuration: {
+            role: "remote",
+            hostId: decodeHostId("other-studio"),
+            agentHostId: decodeHostId("other-studio"),
+            commandCenterInstallationId: cc,
+            commandCenterRef: "cc.tailnet",
+            supervisedPreferred: true,
+            browserTrust: pinnedTrust("other-studio"),
+          },
+        }),
+      ).pipe(Effect.either),
+    );
+    expect(Either.isLeft(rehome)).toBe(true);
+    if (Either.isLeft(rehome)) {
+      expect(rehome.left).toMatchObject({
+        _tag: "StationConfigurationError",
+        reason: "host-immutable",
+      });
+    }
+    const retainedConfiguration = await runtime.runPromise(
+      repository.configuration,
+    );
+    expect(retainedConfiguration).toMatchObject({
+      configuration: {
+        role: "remote",
+        hostId: "studio",
+        agentHostId: "studio",
+      },
+      configuredAt: configured.configuredAt,
+    });
+    expect(
+      retainedConfiguration?.configuration.role === "remote"
+        ? retainedConfiguration.configuration.browserTrust
+        : undefined,
+    ).toBeUndefined();
+
     const facts = await runtime.runPromise(repository.statusFacts);
     expect(facts).toMatchObject({
       installationId: local,
@@ -345,15 +392,147 @@ describe("StationRepository", () => {
     await runtime.dispose();
   });
 
+  it("keeps configured roles immutable in both directions without side effects", async () => {
+    const ccPath = await testDatabase();
+    const ccLocal = decodeInstallationId("role-immutable-cc");
+    const ccPeer = decodeInstallationId("role-immutable-cc-peer");
+    const ccRuntime = makeRuntime(ccPath, ccLocal);
+    const ccRepository = await ccRuntime.runPromise(StationRepository);
+    const ccState = await ccRuntime.runPromise(StateEngine);
+    await ccRuntime.runPromise(
+      ccRepository.pair(pairRequest(ccLocal, ccPeer)),
+    );
+    const ccConfigured = await ccRuntime.runPromise(
+      ccRepository.configure(
+        ConfigureRequest.make({
+          protocol: STATION_API_PROTOCOL,
+          op: "configure",
+          installationId: ccLocal,
+          configuration: {
+            role: "command-center",
+            hostId: decodeHostId("shared"),
+            supervisedPreferred: true,
+          },
+        }),
+        "2026-07-27T12:01:00.000Z",
+      ),
+    );
+    const rejectedRemote = await ccRuntime.runPromise(
+      ccRepository
+        .configure(
+          ConfigureRequest.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "configure",
+            installationId: ccLocal,
+            configuration: {
+              role: "remote",
+              hostId: decodeHostId("shared"),
+              agentHostId: decodeHostId("shared"),
+              commandCenterInstallationId: ccPeer,
+              commandCenterRef: "cc.tailnet",
+              supervisedPreferred: false,
+              browserTrust: pinnedTrust("shared"),
+            },
+          }),
+          "2026-07-27T12:02:00.000Z",
+        )
+        .pipe(Effect.either),
+    );
+    expect(Either.isLeft(rejectedRemote)).toBe(true);
+    if (Either.isLeft(rejectedRemote)) {
+      expect(rejectedRemote.left).toMatchObject({
+        _tag: "StationConfigurationError",
+        reason: "role-immutable",
+      });
+    }
+    expect(await ccRuntime.runPromise(ccRepository.configuration))
+      .toEqual({
+        configuration: ccConfigured.configuration,
+        configuredAt: ccConfigured.configuredAt,
+      });
+    expect(
+      await ccRuntime.runPromise(
+        ccState.read("test.role-immutable-no-trust", (reader) =>
+          Number(
+            reader.get<StateRow & { readonly count: number }>(
+              `SELECT count(*) AS count
+                 FROM browser_pinned_origin_trust`,
+            )?.count ?? 0,
+          )
+        ),
+      ),
+    ).toBe(0);
+    await ccRuntime.dispose();
+
+    const remotePath = await testDatabase();
+    const remoteLocal = decodeInstallationId("role-immutable-remote");
+    const remotePeer = decodeInstallationId("role-immutable-remote-peer");
+    const remoteRuntime = makeRuntime(remotePath, remoteLocal);
+    const remoteRepository = await remoteRuntime.runPromise(
+      StationRepository,
+    );
+    await remoteRuntime.runPromise(
+      remoteRepository.pair(pairRequest(remoteLocal, remotePeer)),
+    );
+    const remoteTrust = pinnedTrust("role-immutable-remote");
+    const remoteConfigured = await remoteRuntime.runPromise(
+      remoteRepository.configure(
+        remoteConfigurationRequest(remoteLocal, remotePeer, {
+          browserTrust: remoteTrust,
+        }),
+        "2026-07-27T13:01:00.000Z",
+      ),
+    );
+    const rejectedCommandCenter = await remoteRuntime.runPromise(
+      remoteRepository
+        .configure(
+          ConfigureRequest.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "configure",
+            installationId: remoteLocal,
+            configuration: {
+              role: "command-center",
+              hostId: decodeHostId("studio"),
+              supervisedPreferred: false,
+            },
+          }),
+          "2026-07-27T13:02:00.000Z",
+        )
+        .pipe(Effect.either),
+    );
+    expect(Either.isLeft(rejectedCommandCenter)).toBe(true);
+    if (Either.isLeft(rejectedCommandCenter)) {
+      expect(rejectedCommandCenter.left).toMatchObject({
+        _tag: "StationConfigurationError",
+        reason: "role-immutable",
+      });
+    }
+    expect(await remoteRuntime.runPromise(remoteRepository.configuration))
+      .toEqual({
+        configuration: remoteConfigured.configuration,
+        configuredAt: remoteConfigured.configuredAt,
+      });
+    expect(
+      (await remoteRuntime.runPromise(remoteRepository.configuration))
+        ?.configuration,
+    ).toMatchObject({
+      role: "remote",
+      browserTrust: remoteTrust,
+    });
+    await remoteRuntime.dispose();
+  });
+
   it("installs only verified higher full projections transactionally", async () => {
     const path = await testDatabase();
     const local = decodeInstallationId("station-projection");
     const runtime = makeRuntime(path, local);
     const repository = await runtime.runPromise(StationRepository);
+    const state = await runtime.runPromise(StateEngine);
+    const currentBody = portfolioBody("current");
 
     const first = await runtime.runPromise(
       repository.installProjection(
-        projectRequest(local, "9007199254740993", '{"version":1}'),
+        projectRequest(local, "9007199254740993", currentBody),
         "2026-07-27T12:01:00.000Z",
       ),
     );
@@ -361,7 +540,7 @@ describe("StationRepository", () => {
 
     const idempotent = await runtime.runPromise(
       repository.installProjection(
-        projectRequest(local, "9007199254740993", '{"version":1}'),
+        projectRequest(local, "9007199254740993", currentBody),
         "2026-07-27T20:00:00.000Z",
       ),
     );
@@ -375,26 +554,38 @@ describe("StationRepository", () => {
 
     const stale = await runtime.runPromise(
       repository.installProjection(
-        projectRequest(local, "9007199254740992", '{"stale":true}'),
+        projectRequest(
+          local,
+          "9007199254740992",
+          portfolioBody("stale"),
+        ),
       ),
     );
     expect(stale.decision).toBe("stale");
 
     const conflict = await runtime.runPromise(
       repository.installProjection(
-        projectRequest(local, "9007199254740993", '{"conflict":true}'),
+        projectRequest(
+          local,
+          "9007199254740993",
+          portfolioBody("conflict"),
+        ),
       ),
     );
     expect(conflict.decision).toBe("conflict");
 
-    const invalid = projectRequest(local, "9007199254740994", "{}");
+    const invalid = projectRequest(
+      local,
+      "9007199254740994",
+      portfolioBody("integrity"),
+    );
     const integrityFailure = await runtime.runPromise(
       repository
         .installProjection({
           ...invalid,
           projection: {
             ...invalid.projection,
-            body: '{"tampered":true}',
+            body: portfolioBody("tampered"),
           },
         })
         .pipe(Effect.either),
@@ -406,12 +597,98 @@ describe("StationRepository", () => {
       );
     }
 
+    await runtime.runPromise(
+      state.transaction("test.seed-projection-cursors", (writer) => {
+        writer.run(
+          `INSERT INTO station_received_cursors(
+             home,
+             through_sequence,
+             updated_at
+           ) VALUES (?, '7', ?)`,
+          ["upstream", "2026-07-27T12:03:00.000Z"],
+        );
+        writer.run(
+          `INSERT INTO station_peer_ack_cursors(
+             peer_installation_id,
+             home,
+             through_sequence,
+             acknowledged_at
+           ) VALUES (?, ?, '5', ?)`,
+          ["peer", local, "2026-07-27T12:03:00.000Z"],
+        );
+      }),
+    );
+    const factsBeforeRefusal = await runtime.runPromise(
+      repository.statusFacts,
+    );
+
+    const malformedFailure = await runtime.runPromise(
+      repository
+        .installProjection(
+          projectRequest(
+            local,
+            "9007199254740994",
+            "{\"protocol\":",
+          ),
+        )
+        .pipe(Effect.either),
+    );
+    expect(Either.isLeft(malformedFailure)).toBe(true);
+    if (Either.isLeft(malformedFailure)) {
+      expect(malformedFailure.left).toMatchObject({
+        _tag: "StationPortfolioError",
+        operation: "decode",
+      });
+    }
+
+    const workCanvas: CanvasDoc = {
+      nodes: [
+        {
+          id: "tasks",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 100,
+          text: "tasks",
+          ether: { tasks: { items: [] } },
+        },
+      ],
+      edges: [],
+    };
+    const workBody = JSON.stringify({
+      protocol: STATION_PORTFOLIO_PROTOCOL,
+      documents: [
+        {
+          name: "factory",
+          body: serializeCanvas(workCanvas),
+        },
+      ],
+    });
+    const retiredWorkFailure = await runtime.runPromise(
+      repository
+        .installProjection(
+          projectRequest(local, "9007199254740994", workBody),
+        )
+        .pipe(Effect.either),
+    );
+    expect(Either.isLeft(retiredWorkFailure)).toBe(true);
+    if (Either.isLeft(retiredWorkFailure)) {
+      expect(retiredWorkFailure.left).toMatchObject({
+        _tag: "StationPortfolioError",
+        operation: "decode",
+      });
+    }
+
     const projection = await runtime.runPromise(repository.projection);
     expect(projection).toMatchObject({
       generation: "9007199254740993",
-      body: '{"version":1}',
+      body: currentBody,
       receivedAt: "2026-07-27T12:01:00.000Z",
     });
+    expect(await runtime.runPromise(repository.statusFacts)).toEqual(
+      factsBeforeRefusal,
+    );
     await runtime.dispose();
   });
 
@@ -591,142 +868,7 @@ describe("StationRepository", () => {
     await runtime.dispose();
   });
 
-  it("deduplicates inbound identities and advances only contiguous cursors", async () => {
-    const path = await testDatabase();
-    const local = decodeInstallationId("station-events");
-    const peer = decodeInstallationId("cc-events");
-    const runtime = makeRuntime(path, local);
-    const repository = await runtime.runPromise(StationRepository);
-
-    const second = inboundEvent(
-      peer,
-      "2",
-      '{"state":"second"}',
-      "2026-07-27T08:00:00.000Z",
-    );
-    const first = inboundEvent(
-      peer,
-      "1",
-      '{"state":"first"}',
-      "2026-07-27T20:00:00.000Z",
-    );
-    const gap = await runtime.runPromise(
-      repository.acceptInbound(
-        [second],
-        "2026-07-27T12:01:00.000Z",
-      ),
-    );
-    expect(gap.acknowledge).toEqual([{ home: peer, through: "0" }]);
-
-    const closed = await runtime.runPromise(
-      repository.acceptInbound(
-        [first],
-        "2026-07-27T12:02:00.000Z",
-      ),
-    );
-    expect(closed.acknowledge).toEqual([{ home: peer, through: "2" }]);
-
-    const retry = await runtime.runPromise(
-      repository.acceptInbound(
-        [{ ...first, originAt: "2026-07-27T23:00:00.000Z" }],
-        "2026-07-27T12:03:00.000Z",
-      ),
-    );
-    expect(retry).toMatchObject({ accepted: 0, idempotent: 1 });
-
-    const ordered = await runtime.runPromise(
-      repository.eventsAfter(peer, decodeSequence("0")),
-    );
-    expect(ordered.map((event) => event.identity.sequence)).toEqual([
-      "1",
-      "2",
-    ]);
-    expect(ordered[0]?.receivedAt).toBe(
-      "2026-07-27T12:02:00.000Z",
-    );
-
-    const conflicting = inboundEvent(
-      peer,
-      "2",
-      '{"state":"different"}',
-      "2026-07-27T21:00:00.000Z",
-    );
-    const atomicConflict = await runtime.runPromise(
-      repository
-        .acceptInbound([
-          inboundEvent(
-            peer,
-            "3",
-            '{"state":"third"}',
-            "2026-07-27T22:00:00.000Z",
-          ),
-          conflicting,
-        ])
-        .pipe(Effect.either),
-    );
-    expect(Either.isLeft(atomicConflict)).toBe(true);
-    if (Either.isLeft(atomicConflict)) {
-      expect(atomicConflict.left._tag).toBe(
-        "StationEventIdentityConflictError",
-      );
-    }
-    const afterConflict = await runtime.runPromise(
-      repository.eventsAfter(peer, decodeSequence("0")),
-    );
-    expect(afterConflict.map((event) => event.identity.sequence)).toEqual([
-      "1",
-      "2",
-    ]);
-    await runtime.dispose();
-  });
-
-  it("bounds gap-closing cursor work and advances the remainder on retry", async () => {
-    const path = await testDatabase();
-    const local = decodeInstallationId("station-cursor-window");
-    const peer = decodeInstallationId("cc-cursor-window");
-    const runtime = makeRuntime(path, local);
-    const repository = await runtime.runPromise(StationRepository);
-
-    const backlog = Array.from({ length: 256 }, (_, index) => {
-      const sequence = String(index + 2);
-      return inboundEvent(
-        peer,
-        sequence,
-        `{"sequence":${sequence}}`,
-        "2026-07-27T08:00:00.000Z",
-      );
-    });
-    const gap = await runtime.runPromise(
-      repository.acceptInbound(backlog),
-    );
-    expect(gap.acknowledge).toEqual([{ home: peer, through: "0" }]);
-
-    const firstWindow = await runtime.runPromise(
-      repository.acceptInbound([
-        inboundEvent(
-          peer,
-          "1",
-          '{"sequence":1}',
-          "2026-07-27T20:00:00.000Z",
-        ),
-      ]),
-    );
-    expect(firstWindow.acknowledge).toEqual([
-      { home: peer, through: "256" },
-    ]);
-
-    const retryRemainder = await runtime.runPromise(
-      repository.acceptInbound([backlog.at(-1)!]),
-    );
-    expect(retryRemainder).toMatchObject({
-      accepted: 0,
-      idempotent: 1,
-      acknowledge: [{ home: peer, through: "257" }],
-    });
-    await runtime.dispose();
-  });
-
-  it("allocates exact outbound numbers and never regresses peer ACKs", async () => {
+  it("advances peer ACKs only for canonical work emitted on that route", async () => {
     const path = await testDatabase();
     const local = decodeInstallationId("station-outbound");
     const peer = decodeInstallationId("cc-outbound");
@@ -735,24 +877,51 @@ describe("StationRepository", () => {
     const repository = await runtime.runPromise(StationRepository);
     const state = await runtime.runPromise(StateEngine);
 
-    const one = await runtime.runPromise(
-      repository.appendOutbound({
-        kind: "work.transition",
-        body: '{"step":1}',
-        originAt: "2026-07-27T12:00:00.000Z",
+    await runtime.runPromise(
+      state.transaction("test.seed-work-route", (writer) => {
+        writer.run(
+          `
+            INSERT INTO work_event_sequences(
+              event_home,
+              entity_home,
+              last_seq
+            ) VALUES (?, ?, '2')
+          `,
+          [local, "studio"],
+        );
+        for (const sequence of ["1", "2"]) {
+          writer.run(
+            `
+              INSERT INTO work_events(
+                event_home,
+                seq,
+                entity_home,
+                canvas_name,
+                node_id,
+                entity_kind,
+                entity_id,
+                operation,
+                origin_at,
+                received_at,
+                payload_json,
+                content_sha256
+              ) VALUES (?, ?, ?, 'factory', 'tasks', 'task', ?, ?, ?, ?, ?, ?)
+            `,
+            [
+              local,
+              sequence,
+              "studio",
+              `task-${sequence}`,
+              `task.step-${sequence}`,
+              "2026-07-27T12:00:00.000Z",
+              "2026-07-27T12:00:00.000Z",
+              `{"sequence":"${sequence}"}`,
+              sequence.repeat(64),
+            ],
+          );
+        }
       }),
     );
-    const two = await runtime.runPromise(
-      repository.appendOutbound({
-        kind: "work.transition",
-        body: '{"step":2}',
-        originAt: "2026-07-27T12:00:01.000Z",
-      }),
-    );
-    expect([one.identity.sequence, two.identity.sequence]).toEqual([
-      "1",
-      "2",
-    ]);
 
     const ackTwo = StationEventAck.make({
       home: local,
@@ -760,7 +929,7 @@ describe("StationRepository", () => {
     });
     const atomicAckFailure = await runtime.runPromise(
       repository
-        .advancePeerAcks(peer, [
+        .advancePeerAcks(peer, "studio", [
           StationEventAck.make({
             home: local,
             through: decodeSequence("1"),
@@ -781,6 +950,7 @@ describe("StationRepository", () => {
     const advanced = await runtime.runPromise(
       repository.advancePeerAcks(
         peer,
+        "studio",
         [ackTwo],
         "2026-07-27T12:01:00.000Z",
       ),
@@ -788,7 +958,7 @@ describe("StationRepository", () => {
     expect(advanced[0]?._tag).toBe("advanced");
 
     const regressed = await runtime.runPromise(
-      repository.advancePeerAcks(peer, [
+      repository.advancePeerAcks(peer, "studio", [
         StationEventAck.make({
           home: local,
           through: decodeSequence("1"),
@@ -797,7 +967,7 @@ describe("StationRepository", () => {
     );
     expect(regressed[0]?._tag).toBe("regression");
     await runtime.runPromise(
-      repository.advancePeerAcks(secondPeer, [
+      repository.advancePeerAcks(secondPeer, "studio", [
         StationEventAck.make({
           home: local,
           through: decodeSequence("1"),
@@ -807,7 +977,7 @@ describe("StationRepository", () => {
 
     const impossible = await runtime.runPromise(
       repository
-        .advancePeerAcks(peer, [
+        .advancePeerAcks(peer, "studio", [
           StationEventAck.make({
             home: local,
             through: decodeSequence("3"),
@@ -819,35 +989,6 @@ describe("StationRepository", () => {
     if (Either.isLeft(impossible)) {
       expect(impossible.left._tag).toBe("StationCursorError");
     }
-
-    await runtime.runPromise(
-      state.transaction("test.seed-large-sequence", (writer) => {
-        writer.run(
-          `UPDATE station_outbound_sequences
-              SET last_sequence = ?
-            WHERE home = ?`,
-          ["9007199254740992", local],
-        );
-      }),
-    );
-    const exact = await runtime.runPromise(
-      repository.appendOutbound({
-        kind: "work.transition",
-        body: '{"step":"exact"}',
-        originAt: "2026-07-27T12:00:02.000Z",
-      }),
-    );
-    expect(exact.identity.sequence).toBe("9007199254740993");
-    expect(
-      (
-        await runtime.runPromise(
-          repository.eventsAfter(
-            local,
-            decodeSequence("9007199254740992"),
-          ),
-        )
-      )[0]?.identity.sequence,
-    ).toBe("9007199254740993");
 
     const facts = await runtime.runPromise(repository.statusFacts);
     expect(facts.peerAcknowledgedThrough).toEqual([

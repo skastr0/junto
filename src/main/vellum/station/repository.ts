@@ -8,29 +8,23 @@ import {
   PairResponse,
   ProjectResponse,
   STATION_API_MAX_ACKS_PER_REPORT,
-  STATION_API_MAX_EVENTS_PER_REPORT,
   STATION_API_PROTOCOL,
   StationConfiguration,
-  StationEvent,
   StationEventAck,
   StationProjectionBody,
   StationProjectionReference,
   StationSha256,
-  coalesceStationEvents,
-  compareLogicalSequence,
   decideAckAdvance,
   decideProjectionInstall,
   type AckAdvanceDecision,
   type ConfigureRequest,
   type ConfigureResponse as ConfigureResponseValue,
   type InstallationId as InstallationIdValue,
-  type LogicalSequence as LogicalSequenceValue,
   type PairRequest,
   type PairResponse as PairResponseValue,
   type ProjectRequest,
   type ProjectResponse as ProjectResponseValue,
   type StationConfiguration as StationConfigurationValue,
-  type StationEvent as StationEventValue,
   type StationEventAck as StationEventAckValue,
   type StationProjectionBody as StationProjectionBodyValue,
   type StationProjectionReference as StationProjectionReferenceValue,
@@ -50,7 +44,6 @@ import {
   type StateEngineError,
   type StateReader,
   type StateRow,
-  type StateWriter,
 } from "../state/service";
 import {
   selectStationConfigurationRow,
@@ -58,6 +51,10 @@ import {
   writeStationConfiguration,
   type StationConfigurationRow,
 } from "./configuration-state";
+import {
+  decodeStationPortfolioBody,
+  StationPortfolioError,
+} from "./portfolio";
 
 export class StationPersistenceError extends Schema.TaggedError<StationPersistenceError>()(
   "StationPersistenceError",
@@ -98,6 +95,8 @@ export class StationConfigurationError extends Schema.TaggedError<StationConfigu
     reason: Schema.Literal(
       "pairing-required",
       "command-center-mismatch",
+      "host-immutable",
+      "role-immutable",
     ),
     message: Schema.String,
   },
@@ -109,26 +108,6 @@ export class StationProjectionIntegrityError extends Schema.TaggedError<StationP
     generation: LogicalSequence,
     declaredContentSha256: StationSha256,
     actualContentSha256: StationSha256,
-  },
-) {}
-
-export class StationEventIntegrityError extends Schema.TaggedError<StationEventIntegrityError>()(
-  "StationEventIntegrityError",
-  {
-    home: InstallationId,
-    sequence: LogicalSequence,
-    declaredContentSha256: StationSha256,
-    actualContentSha256: StationSha256,
-  },
-) {}
-
-export class StationEventIdentityConflictError extends Schema.TaggedError<StationEventIdentityConflictError>()(
-  "StationEventIdentityConflictError",
-  {
-    home: InstallationId,
-    sequence: LogicalSequence,
-    admittedContentSha256: StationSha256,
-    rejectedContentSha256: StationSha256,
   },
 ) {}
 
@@ -156,10 +135,9 @@ export type StationRepositoryError =
   | StationSelfPairingError
   | StationConfigurationError
   | StationProjectionIntegrityError
-  | StationEventIntegrityError
-  | StationEventIdentityConflictError
   | StationCursorError
   | StationMetadataError
+  | StationPortfolioError
   | StationBrowserTrustError;
 
 export type StationPairing = {
@@ -193,19 +171,6 @@ export type StationStatusFacts = {
   readonly peerAcknowledgedThrough: ReadonlyArray<StationPeerAcknowledgement>;
 };
 
-export type AppendStationEvent = Pick<
-  StationEventValue,
-  "kind" | "body" | "originAt"
-> & {
-  readonly receivedAt?: string;
-};
-
-export type AcceptInboundResult = {
-  readonly accepted: number;
-  readonly idempotent: number;
-  readonly acknowledge: ReadonlyArray<StationEventAckValue>;
-};
-
 export class StationRepository extends Context.Tag("@vellum/StationRepository")<
   StationRepository,
   {
@@ -237,23 +202,9 @@ export class StationRepository extends Context.Tag("@vellum/StationRepository")<
       request: ProjectRequest,
       receivedAt?: string,
     ) => Effect.Effect<ProjectResponseValue, StationRepositoryError>;
-    readonly appendOutbound: (
-      input: AppendStationEvent,
-    ) => Effect.Effect<StationEventValue, StationRepositoryError>;
-    readonly eventsAfter: (
-      home: InstallationIdValue,
-      through: LogicalSequenceValue,
-      limit?: number,
-    ) => Effect.Effect<
-      ReadonlyArray<StationEventValue>,
-      StationRepositoryError
-    >;
-    readonly acceptInbound: (
-      events: ReadonlyArray<StationEventValue>,
-      receivedAt?: string,
-    ) => Effect.Effect<AcceptInboundResult, StationRepositoryError>;
     readonly advancePeerAcks: (
       peerInstallationId: InstallationIdValue,
+      entityHome: string,
       acknowledgements: ReadonlyArray<StationEventAckValue>,
       acknowledgedAt?: string,
     ) => Effect.Effect<
@@ -287,17 +238,6 @@ type ProjectionRow = StateRow & {
   readonly received_at: string;
 };
 
-type EventRow = StateRow & {
-  readonly home: string;
-  readonly sequence: string;
-  readonly direction: string;
-  readonly kind: string;
-  readonly body: string;
-  readonly content_sha256: string;
-  readonly origin_at: string;
-  readonly received_at: string;
-};
-
 type CursorRow = StateRow & {
   readonly home: string;
   readonly through_sequence: string;
@@ -326,7 +266,6 @@ const decodeProjectionBody = Schema.decodeUnknownSync(StationProjectionBody);
 const decodeProjectionReference = Schema.decodeUnknownSync(
   StationProjectionReference,
 );
-const decodeEvent = Schema.decodeUnknownSync(StationEvent);
 const decodeAck = Schema.decodeUnknownSync(StationEventAck);
 
 const sha256 = (value: string): StationSha256Value =>
@@ -336,16 +275,6 @@ const sha256 = (value: string): StationSha256Value =>
 export const stationProjectionContentSha256 = (
   body: string,
 ): StationSha256Value => sha256(body);
-
-/**
- * Versioned canonical semantic event hash. Identity and timestamps are
- * deliberately excluded: retries may carry different receipt metadata.
- */
-export const stationEventContentSha256 = (
-  kind: string,
-  body: string,
-): StationSha256Value =>
-  sha256(JSON.stringify(["vellum/station-event/v1", kind, body]));
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -500,19 +429,6 @@ const projectionReferenceFromRow = (
     receivedAt: row.received_at,
   });
 
-const eventFromRow = (row: EventRow): StationEventValue =>
-  decodeEvent({
-    identity: {
-      home: row.home,
-      sequence: row.sequence,
-    },
-    kind: row.kind,
-    body: row.body,
-    contentSha256: row.content_sha256,
-    originAt: row.origin_at,
-    receivedAt: row.received_at,
-  });
-
 const ackFromRow = (row: CursorRow): StationEventAckValue =>
   decodeAck({
     home: row.home,
@@ -588,20 +504,6 @@ const verifyStoredProjection = (
     : StationProjectionIntegrityError.make({
         generation: decodeSequence(row.generation),
         declaredContentSha256: declared,
-        actualContentSha256: actual,
-      });
-};
-
-const validateEventHash = (
-  event: StationEventValue,
-): Effect.Effect<void, StationEventIntegrityError> => {
-  const actual = stationEventContentSha256(event.kind, event.body);
-  return actual === event.contentSha256
-    ? Effect.void
-    : StationEventIntegrityError.make({
-        home: event.identity.home,
-        sequence: event.identity.sequence,
-        declaredContentSha256: event.contentSha256,
         actualContentSha256: actual,
       });
 };
@@ -813,6 +715,25 @@ export const makeStationRepositoryLive = (
           );
           const decision = yield* engine
             .transaction("station.configure", (writer) => {
+              const currentRow = selectConfiguration(writer);
+              if (
+                currentRow !== undefined &&
+                currentRow.role !== request.configuration.role
+              ) {
+                return {
+                  _tag: "role-immutable" as const,
+                  admitted: currentRow.role,
+                };
+              }
+              if (
+                currentRow !== undefined &&
+                currentRow.host_id !== request.configuration.hostId
+              ) {
+                return {
+                  _tag: "host-immutable" as const,
+                  admitted: currentRow.host_id,
+                };
+              }
               if (request.configuration.role === "remote") {
                 const pairing = selectPairing(writer);
                 if (pairing === undefined) {
@@ -839,7 +760,6 @@ export const makeStationRepositoryLive = (
                 request.configuration,
                 selectLatestPinnedTrust(writer),
               );
-              const currentRow = selectConfiguration(writer);
               if (currentRow !== undefined) {
                 const current = configurationFromRow(
                   currentRow,
@@ -888,6 +808,22 @@ export const makeStationRepositoryLive = (
                 `but pairing admits ${decision.admitted}`,
             });
           }
+          if (decision._tag === "host-immutable") {
+            return yield* StationConfigurationError.make({
+              reason: "host-immutable",
+              message:
+                `installation host "${decision.admitted}" is immutable; ` +
+                `cannot reconfigure it as "${request.configuration.hostId}"`,
+            });
+          }
+          if (decision._tag === "role-immutable") {
+            return yield* StationConfigurationError.make({
+              reason: "role-immutable",
+              message:
+                `installation role "${decision.admitted}" is immutable; ` +
+                `cannot reconfigure it as "${request.configuration.role}"`,
+            });
+          }
           return ConfigureResponse.make({
             protocol: STATION_API_PROTOCOL,
             op: "configure",
@@ -926,6 +862,17 @@ export const makeStationRepositoryLive = (
             actualContentSha256: actual,
           });
         }
+        yield* Effect.try({
+          try: () =>
+            decodeStationPortfolioBody(request.projection.body),
+          catch: (error) =>
+            error instanceof StationPortfolioError
+              ? error
+              : StationPortfolioError.make({
+                  operation: "decode",
+                  message: "station portfolio could not be decoded",
+                }),
+        });
 
         const outcome = yield* engine
           .transaction("station.install-projection", (writer) => {
@@ -1012,351 +959,11 @@ export const makeStationRepositoryLive = (
         });
       });
 
-      const appendOutbound = Effect.fn("StationRepository.appendOutbound")(
-        function* (input: AppendStationEvent) {
-          const originAt = yield* admitTimestamp(
-            "append-outbound",
-            "originAt",
-            input.originAt,
-          );
-          const receivedAt = yield* admitTimestamp(
-            "append-outbound",
-            "receivedAt",
-            input.receivedAt ?? clock(),
-          );
-          const contentSha256 = stationEventContentSha256(
-            input.kind,
-            input.body,
-          );
-          // Parse before entering the transaction so malformed internal calls
-          // can never commit a row the wire contract cannot represent.
-          decodeEvent({
-            identity: { home: installationId, sequence: "0" },
-            kind: input.kind,
-            body: input.body,
-            contentSha256,
-            originAt,
-            receivedAt,
-          });
-
-          const outcome = yield* engine
-            .transaction("station.append-outbound", (writer) => {
-              const row = writer.get<
-                StateRow & { readonly last_sequence: string }
-              >(
-                `SELECT last_sequence
-                   FROM station_outbound_sequences
-                  WHERE home = ?`,
-                [installationId],
-              );
-              const next = (BigInt(row?.last_sequence ?? "0") + 1n)
-                .toString();
-              if (next.length > 32) {
-                return { _tag: "overflow" as const };
-              }
-              writer.run(
-                `INSERT INTO station_outbound_sequences(home, last_sequence)
-                 VALUES (?, ?)
-                 ON CONFLICT(home) DO UPDATE SET
-                   last_sequence = excluded.last_sequence`,
-                [installationId, next],
-              );
-              writer.run(
-                `INSERT INTO station_events(
-                   home,
-                   sequence,
-                   direction,
-                   kind,
-                   body,
-                   content_sha256,
-                   origin_at,
-                   received_at
-                 ) VALUES (?, ?, 'outbound', ?, ?, ?, ?, ?)`,
-                [
-                  installationId,
-                  next,
-                  input.kind,
-                  input.body,
-                  contentSha256,
-                  originAt,
-                  receivedAt,
-                ],
-              );
-              return {
-                _tag: "appended" as const,
-                event: decodeEvent({
-                  identity: {
-                    home: installationId,
-                    sequence: next,
-                  },
-                  kind: input.kind,
-                  body: input.body,
-                  contentSha256,
-                  originAt,
-                  receivedAt,
-                }),
-              };
-            })
-            .pipe(
-              Effect.mapError((error) =>
-                persistenceError("append-outbound", error),
-              ),
-            );
-          if (outcome._tag === "overflow") {
-            return yield* StationCursorError.make({
-              operation: "append-outbound",
-              message: "logical sequence exceeded the 32-digit contract",
-            });
-          }
-          return outcome.event;
-        },
-      );
-
-      const eventsAfter = Effect.fn("StationRepository.eventsAfter")(
-        function* (
-          home: InstallationIdValue,
-          through: LogicalSequenceValue,
-          limit = STATION_API_MAX_EVENTS_PER_REPORT,
-        ) {
-          if (
-            !Number.isSafeInteger(limit) ||
-            limit < 1 ||
-            limit > STATION_API_MAX_EVENTS_PER_REPORT
-          ) {
-            return yield* StationCursorError.make({
-              operation: "events-after",
-              message:
-                `limit must be an integer between 1 and ${STATION_API_MAX_EVENTS_PER_REPORT}`,
-            });
-          }
-          return yield* engine
-            .read("station.events-after", (reader) =>
-              reader
-                .all<EventRow>(
-                  `SELECT
-                     home,
-                     sequence,
-                     direction,
-                     kind,
-                     body,
-                     content_sha256,
-                     origin_at,
-                     received_at
-                   FROM station_events
-                   WHERE home = ?
-                     AND (
-                       length(sequence) > length(?)
-                       OR (
-                         length(sequence) = length(?)
-                         AND sequence > ?
-                       )
-                     )
-                   ORDER BY length(sequence), sequence
-                   LIMIT ?`,
-                  [home, through, through, through, limit],
-                )
-                .map(eventFromRow)
-            )
-            .pipe(
-              Effect.mapError((error) =>
-                persistenceError("events-after", error),
-              ),
-            );
-        },
-      );
-
-      const acceptInbound = Effect.fn("StationRepository.acceptInbound")(
-        function* (
-          events: ReadonlyArray<StationEventValue>,
-          receivedAt = clock(),
-        ) {
-          const admittedReceivedAt = yield* admitTimestamp(
-            "accept-inbound",
-            "receivedAt",
-            receivedAt,
-          );
-          if (events.length > STATION_API_MAX_EVENTS_PER_REPORT) {
-            return yield* StationCursorError.make({
-              operation: "accept-inbound",
-              message:
-                `event batch exceeds ${STATION_API_MAX_EVENTS_PER_REPORT}`,
-            });
-          }
-          for (const event of events) {
-            yield* admitTimestamp(
-              "accept-inbound",
-              "originAt",
-              event.originAt,
-            );
-            yield* validateEventHash(event);
-            if (event.identity.home === installationId) {
-              return yield* StationCursorError.make({
-                operation: "accept-inbound",
-                message:
-                  "an installation cannot accept its own outbound identity as inbound",
-              });
-            }
-          }
-          const coalesced = coalesceStationEvents(events);
-          if (coalesced._tag === "identity-conflict") {
-            return yield* StationEventIdentityConflictError.make({
-              home: coalesced.identity.home,
-              sequence: coalesced.identity.sequence,
-              admittedContentSha256:
-                coalesced.admittedContentSha256,
-              rejectedContentSha256:
-                coalesced.rejectedContentSha256,
-            });
-          }
-
-          const outcome = yield* engine
-            .transaction("station.accept-inbound", (writer) => {
-              let idempotent = 0;
-              for (const event of coalesced.events) {
-                const existing = writer.get<EventRow>(
-                  `SELECT
-                     home,
-                     sequence,
-                     direction,
-                     kind,
-                     body,
-                     content_sha256,
-                     origin_at,
-                     received_at
-                   FROM station_events
-                   WHERE home = ? AND sequence = ?`,
-                  [event.identity.home, event.identity.sequence],
-                );
-                if (existing === undefined) continue;
-                if (
-                  existing.direction !== "inbound" ||
-                  existing.content_sha256 !== event.contentSha256 ||
-                  existing.kind !== event.kind ||
-                  existing.body !== event.body
-                ) {
-                  return {
-                    _tag: "conflict" as const,
-                    event,
-                    admittedHash: decodeHash(
-                      existing.content_sha256,
-                    ),
-                  };
-                }
-                idempotent += 1;
-              }
-
-              for (const event of coalesced.events) {
-                const exists = writer.get<StateRow>(
-                  `SELECT home
-                     FROM station_events
-                    WHERE home = ? AND sequence = ?`,
-                  [event.identity.home, event.identity.sequence],
-                );
-                if (exists !== undefined) continue;
-                writer.run(
-                  `INSERT INTO station_events(
-                     home,
-                     sequence,
-                     direction,
-                     kind,
-                     body,
-                     content_sha256,
-                     origin_at,
-                     received_at
-                   ) VALUES (?, ?, 'inbound', ?, ?, ?, ?, ?)`,
-                  [
-                    event.identity.home,
-                    event.identity.sequence,
-                    event.kind,
-                    event.body,
-                    event.contentSha256,
-                    event.originAt,
-                    admittedReceivedAt,
-                  ],
-                );
-              }
-
-              const homes = [
-                ...new Set(
-                  coalesced.events.map((event) => event.identity.home),
-                ),
-              ].sort();
-              const acknowledge: StationEventAckValue[] = [];
-              for (const home of homes) {
-                const cursor = writer.get<CursorRow>(
-                  `SELECT home, through_sequence
-                     FROM station_received_cursors
-                    WHERE home = ?`,
-                  [home],
-                );
-                const current = cursor?.through_sequence ?? "0";
-                let next = BigInt(current) + 1n;
-                let through = current;
-                // Bound one synchronous transaction to one protocol batch.
-                // If closing a gap releases a larger backlog, the sender's
-                // retry advances the next window without blocking reads.
-                for (
-                  let step = 0;
-                  step < STATION_API_MAX_EVENTS_PER_REPORT;
-                  step += 1
-                ) {
-                  const admitted = writer.get<
-                    StateRow & { readonly sequence: string }
-                  >(
-                    `SELECT sequence
-                       FROM station_events
-                      WHERE direction = 'inbound'
-                        AND home = ?
-                        AND sequence = ?`,
-                    [home, next.toString()],
-                  );
-                  if (admitted === undefined) break;
-                  through = admitted.sequence;
-                  next += 1n;
-                }
-                writer.run(
-                  `INSERT INTO station_received_cursors(
-                     home,
-                     through_sequence,
-                     updated_at
-                   ) VALUES (?, ?, ?)
-                   ON CONFLICT(home) DO UPDATE SET
-                     through_sequence = excluded.through_sequence,
-                     updated_at = excluded.updated_at`,
-                  [home, through, admittedReceivedAt],
-                );
-                acknowledge.push(decodeAck({ home, through }));
-              }
-              return {
-                _tag: "accepted" as const,
-                accepted: coalesced.events.length - idempotent,
-                idempotent,
-                acknowledge,
-              };
-            })
-            .pipe(
-              Effect.mapError((error) =>
-                persistenceError("accept-inbound", error),
-              ),
-            );
-
-          if (outcome._tag === "conflict") {
-            return yield* StationEventIdentityConflictError.make({
-              home: outcome.event.identity.home,
-              sequence: outcome.event.identity.sequence,
-              admittedContentSha256: outcome.admittedHash,
-              rejectedContentSha256:
-                outcome.event.contentSha256,
-            });
-          }
-          return outcome;
-        },
-      );
-
       const advancePeerAcks = Effect.fn(
         "StationRepository.advancePeerAcks",
       )(function* (
         peerInstallationId: InstallationIdValue,
+        entityHome: string,
         acknowledgements: ReadonlyArray<StationEventAckValue>,
         acknowledgedAt = clock(),
       ) {
@@ -1370,6 +977,12 @@ export const makeStationRepositoryLive = (
             operation: "advance-peer-acks",
             message:
               "an installation cannot acknowledge events as its own peer",
+          });
+        }
+        if (entityHome.length === 0) {
+          return yield* StationCursorError.make({
+            operation: "advance-peer-acks",
+            message: "entity home must not be empty",
           });
         }
         if (acknowledgements.length > STATION_API_MAX_ACKS_PER_REPORT) {
@@ -1388,26 +1001,22 @@ export const makeStationRepositoryLive = (
         }
         const outcome = yield* engine
           .transaction("station.advance-peer-acks", (writer) => {
-            const emitted = writer.get<
-              StateRow & { readonly last_sequence: string }
-            >(
-              `SELECT last_sequence
-                 FROM station_outbound_sequences
-                WHERE home = ?`,
-              [installationId],
-            )?.last_sequence ?? "0";
-            const emittedSequence = decodeSequence(emitted);
             for (const proposed of acknowledgements) {
-              if (
-                compareLogicalSequence(
-                  proposed.through,
-                  emittedSequence,
-                ) > 0
-              ) {
+              if (proposed.through === "0") continue;
+              const emitted = writer.get<StateRow>(
+                `
+                  SELECT event_home
+                  FROM work_events
+                  WHERE event_home = ?
+                    AND entity_home = ?
+                    AND seq = ?
+                `,
+                [installationId, entityHome, proposed.through],
+              );
+              if (emitted === undefined) {
                 return {
                   _tag: "beyond-emitted" as const,
                   through: proposed.through,
-                  emitted: emittedSequence,
                 };
               }
             }
@@ -1458,8 +1067,7 @@ export const makeStationRepositoryLive = (
           return yield* StationCursorError.make({
             operation: "advance-peer-acks",
             message:
-              `peer acknowledged ${outcome.through}, but only ` +
-              `${outcome.emitted} has been emitted`,
+              `peer acknowledged ${outcome.through}, but that route event was not emitted`,
           });
         }
         return outcome.decisions;
@@ -1531,9 +1139,6 @@ export const makeStationRepositoryLive = (
         pair,
         configure,
         installProjection,
-        appendOutbound,
-        eventsAfter,
-        acceptInbound,
         advancePeerAcks,
         statusFacts,
       });
