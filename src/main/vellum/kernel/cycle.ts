@@ -21,8 +21,13 @@ import {
   DEFAULT_STATION_HOST_ID,
   isNodeEligibleOnStation,
   isStationRole,
+  resolveNodeHostId,
   type StationRole,
 } from "@shared/station";
+import type {
+  SchedulerClaimInput,
+  SchedulerClaimResult,
+} from "../scheduler/repository";
 import {
   detectPulses,
   evaluateWatcher,
@@ -158,6 +163,16 @@ export interface PhaseMirrorDeps {
   ) => void;
 }
 
+export interface TimerSchedulerDeps {
+  readonly claimInterval: (
+    input: SchedulerClaimInput,
+  ) => Promise<SchedulerClaimResult>;
+  readonly reconcileHome: (
+    homeStation: string,
+    activeTimerKeys: ReadonlyArray<string>,
+  ) => Promise<number>;
+}
+
 // Operator-set spacing rule (2026-07-15, replacing an agent-invented 6/hr
 // quota): a region that the operator armed fires as often as its watchers and
 // timers say — the only catastrophe worth suppressing is seconds-level
@@ -184,6 +199,7 @@ let deliveryDeps: PulseDeliverDeps | undefined = undefined;
 let pausedLookup: ((canvasName: string, sourceNodeId: string) => boolean) | undefined = undefined;
 let flagWriterDeps: FlagWriterDeps | undefined = undefined;
 let phaseMirrorDeps: PhaseMirrorDeps | undefined = undefined;
+let timerSchedulerDeps: TimerSchedulerDeps | undefined = undefined;
 let glyphFetcher: ((project: string) => Promise<ReadonlyArray<TowerGlyphRow> | undefined>) | undefined = undefined;
 
 // Test seams
@@ -217,6 +233,12 @@ export const __setPhaseMirrorForTest = (deps: PhaseMirrorDeps | undefined): void
   phaseMirrorDeps = deps;
 };
 
+export const __setTimerSchedulerForTest = (
+  deps: TimerSchedulerDeps | undefined,
+): void => {
+  timerSchedulerDeps = deps;
+};
+
 export const __setGlyphFetcherForTest = (fetcher: ((project: string) => Promise<ReadonlyArray<TowerGlyphRow> | undefined>) | undefined): void => {
   glyphFetcher = fetcher;
 };
@@ -229,7 +251,9 @@ export const __resetKernelMemoryForTest = (): void => {
   deliveryDeps = undefined;
   flagWriterDeps = undefined;
   phaseMirrorDeps = undefined;
+  timerSchedulerDeps = undefined;
   glyphFetcher = undefined;
+  nextFire.clear();
   lastGlyphIndex = null;
   executionByCanvas.clear();
   resetWatcherMemory();
@@ -727,28 +751,54 @@ export const runEvaluationCycle = async (): Promise<void> => {
 };
 
 // --- timer scheduling ----------------------------------------------------------
-// nextFire lives only in app memory, never the document. A timer node newly
-// seen (fresh add, or first tick after boot) is scheduled one interval out —
-// it never fires the instant it's discovered.
-const ensureTimerScheduled = (canvasName: string, nodeId: string, everyMinutes: number): void => {
-  const timerKey = `${canvasName}::${nodeId}`;
-  if (nextFire.has(timerKey)) return;
-  nextFire.set(timerKey, Date.now() + everyMinutes * 60_000);
-};
-
 // EtherTimer.everyMinutes is Schema.Number at the document level — the
 // schema validates SHAPE, not business range, and the UI editor's 5-minute
-// floor (renderer/lib/mutations.ts) is a UI-only guard a direct file edit
-// (the agent API, per AGENTS.md) bypasses entirely. Left unvalidated here,
-// 0/negative would compute a `due` in the past and fire every check (a
-// tight loop); NaN makes `now < due` permanently false (the skip-guard
-// never engages) so it ALSO fires every check, forever. Only a positive,
-// finite interval is schedulable.
+// floor is only a convenience. The main-side scheduler remains the authority
+// and admits only a positive, finite interval.
 export const isValidTimerInterval = (everyMinutes: number): boolean =>
-  Number.isFinite(everyMinutes) && everyMinutes > 0;
+  Number.isFinite(everyMinutes) &&
+  everyMinutes > 0 &&
+  Number.isSafeInteger(everyMinutes * 60_000);
 
-export const checkTimers = async (): Promise<void> => {
-  const now = Date.now();
+export const checkTimers = async (
+  nowEpochMs = Date.now(),
+): Promise<void> => {
+  const activeTimerKeys: string[] = [];
+  for (const [canvasName, doc] of docs.entries()) {
+    for (const node of doc.nodes) {
+      if (
+        node.type === "text" &&
+        node.ether?.timer !== undefined &&
+        isNodeEligibleOnStation(node, stationHostId)
+      ) {
+        activeTimerKeys.push(`${canvasName}::${node.id}`);
+      }
+    }
+  }
+
+  if (timerSchedulerDeps === undefined) {
+    for (const key of activeTimerKeys) nextFire.delete(key);
+    if (activeTimerKeys.length > 0) {
+      console.error(
+        "[kernel] durable timer scheduler unavailable — timers are disabled",
+      );
+    }
+    return;
+  }
+
+  try {
+    await timerSchedulerDeps.reconcileHome(
+      stationHostId,
+      activeTimerKeys,
+    );
+  } catch (error) {
+    console.error(
+      "[kernel] timer reconciliation failed — timers are disabled for this pass:",
+      error,
+    );
+    return;
+  }
+
   for (const [canvasName, doc] of docs.entries()) {
     for (const node of doc.nodes) {
       if (node.type !== "text") continue;
@@ -765,11 +815,55 @@ export const checkTimers = async (): Promise<void> => {
         console.error(`[kernel] invalid timer everyMinutes (${timer.everyMinutes}) on ${timerKey} — disabled until fixed`);
         continue;
       }
-      ensureTimerScheduled(canvasName, node.id, timer.everyMinutes);
-      const due = nextFire.get(timerKey);
-      if (due === undefined || now < due) continue;
-      nextFire.set(timerKey, now + timer.everyMinutes * 60_000);
-      firePulseForNode(canvasName, doc, node.id, "timer", `timer fired · every ${timer.everyMinutes}m`);
+      try {
+        const decision = await timerSchedulerDeps.claimInterval({
+          timerKey,
+          localStationId: stationHostId,
+          homeStationIds: [resolveNodeHostId(node)],
+          nowEpochMs,
+          everyMinutes: timer.everyMinutes,
+        });
+        if (decision._tag === "Ineligible") {
+          nextFire.delete(timerKey);
+          console.error(
+            `[kernel] timer ${timerKey} is ineligible (${decision.reason})`,
+          );
+          continue;
+        }
+        if (decision._tag === "Initialized") {
+          nextFire.set(
+            timerKey,
+            decision.state.nextDueAtEpochMs,
+          );
+          continue;
+        }
+        if (decision._tag === "NotDue") {
+          nextFire.set(timerKey, decision.state.nextDueAtEpochMs);
+          continue;
+        }
+
+        nextFire.set(
+          timerKey,
+          decision.nextState.nextDueAtEpochMs,
+        );
+        const coalesced =
+          decision.coalescedMissedSlots === "0"
+            ? ""
+            : ` · ${decision.coalescedMissedSlots} missed interval(s) coalesced`;
+        firePulseForNode(
+          canvasName,
+          doc,
+          node.id,
+          "timer",
+          `timer fired · every ${timer.everyMinutes}m${coalesced}`,
+        );
+      } catch (error) {
+        nextFire.delete(timerKey);
+        console.error(
+          `[kernel] timer claim failed for ${timerKey} — disabled for this pass:`,
+          error,
+        );
+      }
     }
   }
 };
@@ -796,8 +890,8 @@ export const getArmed = (): Map<string, boolean> => {
   return new Map(armed);
 };
 
-// Drops the DERIVED namespaced state for a canvas that's gone from disk
-// (deleted, or renamed out from under us) — watchers/nextFire/edge-detection
+// Drops the DERIVED namespaced state for a canvas that's gone from authority
+// (deleted or renamed) — watchers/nextFire/edge-detection
 // memory, keyed `${canvasName}::${id}`. ARMING is operator intent, not derived
 // state, so the in-memory `armed` map is deliberately NOT purged here: a
 // delete+recreate under the same name must resume armed (kernel-design.md §3),

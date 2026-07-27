@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   __resetDeliveryQueueForTest,
@@ -8,7 +8,9 @@ import {
   getPulseLog,
   isValidTimerInterval,
   __resetPulseLogForTest,
+  __setTimerSchedulerForTest,
 } from "../src/main/vellum/kernel/cycle";
+import { makeInMemoryTimerScheduler } from "./helpers/in-memory-timer-scheduler";
 
 // forge-review sdk-kernel-build fix 3 — an EtherTimer.everyMinutes of 0,
 // negative, NaN, or non-finite must degrade to an unknown-style no-op, never
@@ -64,9 +66,14 @@ const timerDoc = (nodeId: string, everyMinutes: number): CanvasDoc =>
   }) as unknown as CanvasDoc;
 
 describe("checkTimers — invalid everyMinutes degrades to a no-op", () => {
+  beforeEach(() => {
+    __setTimerSchedulerForTest(makeInMemoryTimerScheduler());
+  });
+
   afterEach(() => {
     __resetDeliveryQueueForTest();
     __resetPulseLogForTest();
+    __setTimerSchedulerForTest(undefined);
   });
 
   it("a zero interval never schedules a nextFire entry and logs a note instead of firing", async () => {
@@ -158,5 +165,29 @@ describe("checkTimers — invalid everyMinutes degrades to a no-op", () => {
 
     expect(getNextFire().has(`${canvasName}::${nodeId}`)).toBe(false);
     vi.restoreAllMocks();
+  });
+
+  it("uses the durable policy decision to coalesce a late timer into one pulse", async () => {
+    const canvasName = "timer-canvas-coalesced";
+    const nodeId = "timer-coalesced";
+    __setDocsForTest(
+      new Map([[canvasName, timerDoc(nodeId, 1)]]),
+    );
+
+    await checkTimers(1_000_000);
+    await checkTimers(1_250_000);
+    await checkTimers(1_250_000);
+    await Promise.resolve();
+
+    const records = getPulseLog().filter(
+      (record) => record.canvasName === canvasName,
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0]?.summary).toContain(
+      "3 missed interval(s) coalesced",
+    );
+    expect(getNextFire().get(`${canvasName}::${nodeId}`)).toBe(
+      1_300_000,
+    );
   });
 });

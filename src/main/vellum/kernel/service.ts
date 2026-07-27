@@ -29,6 +29,7 @@ import { StoreService } from "../../services/store";
 import { SettingsService } from "../settings/service";
 import { MainAuthoringRefused, mainAuthoringGate } from "../main-authoring-gate";
 import { PausePlane } from "../pause-plane";
+import { SchedulerRepository } from "../scheduler/repository";
 import { factoryClaimTick } from "@shared/factory-tick";
 import { listPendingDeliveries } from "@shared/message-delivery";
 import { seatPaused } from "@shared/pause";
@@ -55,6 +56,7 @@ import {
   __setGlyphFetcherForTest,
   __setPhaseMirrorForTest,
   __setSnapshotsForTest,
+  __setTimerSchedulerForTest,
 } from "./cycle";
 
 export interface PulseRegionOptions {
@@ -175,6 +177,7 @@ type SnapshotsShape = Context.Tag.Service<typeof SnapshotsService>;
 type StoreShape = Context.Tag.Service<typeof StoreService>;
 type PauseShape = Context.Tag.Service<typeof PausePlane>;
 type SettingsShape = Context.Tag.Service<typeof SettingsService>;
+type SchedulerShape = Context.Tag.Service<typeof SchedulerRepository>;
 type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
 
 const refreshStationScope = async (settings: SettingsShape): Promise<void> => {
@@ -196,6 +199,7 @@ const makeKernelService = (
   store: StoreShape,
   settings: SettingsShape,
   pause: PauseShape,
+  scheduler: SchedulerShape,
 ): KernelServiceShape => {
   const docs = new Map<string, CanvasDoc>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
@@ -291,6 +295,15 @@ const makeKernelService = (
   __setDeliveryDepsForTest({
     sendManagedTerminal: (bindingId, message) =>
       managedPulseDeliver(bindingId, message),
+  });
+
+  __setTimerSchedulerForTest({
+    claimInterval: (input) =>
+      Effect.runPromise(scheduler.claimInterval(input)),
+    reconcileHome: (homeStation, activeTimerKeys) =>
+      Effect.runPromise(
+        scheduler.reconcileHome(homeStation, activeTimerKeys),
+      ),
   });
 
   // --- flag mirror: CanvasesService.mutate, routed by (canvasName, nodeId).
@@ -609,6 +622,14 @@ export const KernelLive = Layer.effect(
     const store = yield* StoreService;
     const settings = yield* SettingsService;
     const pause = yield* PausePlane;
-    return makeKernelService(canvases, snapshots, store, settings, pause);
+    const scheduler = yield* SchedulerRepository;
+    return makeKernelService(
+      canvases,
+      snapshots,
+      store,
+      settings,
+      pause,
+      scheduler,
+    );
   }),
 );

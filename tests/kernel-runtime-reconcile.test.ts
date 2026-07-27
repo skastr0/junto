@@ -8,6 +8,7 @@ import {
   __setDeliveryDepsForTest,
   __setSnapshotsForTest,
   __setStationScopeForTest,
+  __setTimerSchedulerForTest,
   checkTimers,
   deliverPulse,
   getArmed,
@@ -21,6 +22,7 @@ import {
   setDocs,
   type PulseDeliverDeps,
 } from "../src/main/vellum/kernel/cycle";
+import { makeInMemoryTimerScheduler } from "./helpers/in-memory-timer-scheduler";
 
 // sdk-kernel-build fix 3 (arming is operator intent, survives canvas deletion
 // in-session) and fix 7 (stale watcher/timer entries on a STILL-LIVE canvas are
@@ -70,11 +72,13 @@ beforeEach(() => {
   resetWatcherMemory();
   // Fail-closed default is role "unset" (no fire). Delivery tests need CC scope.
   __setStationScopeForTest({ hostId: "local", role: "command-center" });
+  __setTimerSchedulerForTest(makeInMemoryTimerScheduler());
   __setSnapshotsForTest(snapshotsWithStat("signals", 3)); // below threshold -> pending
 });
 
 afterEach(() => {
   __setDeliveryDepsForTest(undefined);
+  __setTimerSchedulerForTest(undefined);
 });
 
 describe("fix 3 — arming survives canvas deletion; derived state does not", () => {

@@ -25,6 +25,7 @@ import {
 } from "./vellum/term/native-readiness";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
 import { PausePlaneLive } from "./vellum/pause-plane";
+import { SchedulerRepositoryLive } from "./vellum/scheduler/repository";
 import { WorkLive } from "./vellum/work/service";
 import { WorkRepositoryLive } from "./vellum/work/repository";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
@@ -73,6 +74,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     WorkRepositoryLive,
     UsageLive,
     SettingsLive,
+    SchedulerRepositoryLive,
     StationStatusLive,
     StationRepositoryLive,
     StationFleetTargetRepositoryLive,
