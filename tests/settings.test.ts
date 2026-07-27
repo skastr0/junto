@@ -39,18 +39,23 @@ describe("settings contract", () => {
     expect(settings.appearance.theme).toBe("deep-field");
     expect(settings.browser.maxVisibleSurfaces).toBe(2);
     expect(settings.browser.maxWarmSessions).toBe(3);
+    expect(settings.fleet.ditherLevel).toBe("fine");
   });
 
   it("applySettingsPatch merges ordinary and fleet sections", () => {
     const next = applySettingsPatch(defaultSettings(), {
       appearance: { reduceMotion: true },
       browser: { maxVisibleSurfaces: 4 },
-      fleet: { remoteManagedInstalls: true },
+      fleet: {
+        ditherLevel: "balanced",
+        remoteManagedInstalls: true,
+      },
     });
     expect(next.appearance.reduceMotion).toBe(true);
     expect(next.appearance.theme).toBe("deep-field");
     expect(next.browser.maxVisibleSurfaces).toBe(4);
     expect(next.browser.maxWarmSessions).toBe(3);
+    expect(next.fleet.ditherLevel).toBe("balanced");
     expect(next.fleet.remoteManagedInstalls).toBe(true);
   });
 
@@ -83,6 +88,11 @@ describe("settings contract", () => {
     expect(
       Either.isLeft(
         decodePatchInput({ browser: { maxVisibleSurfaces: 999 } }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodePatchInput({ fleet: { ditherLevel: "ultra" } }),
       ),
     ).toBe(true);
     expect(
@@ -190,7 +200,10 @@ describe("SQLite settings service", () => {
     await run(
       first.service.patch({
         appearance: { reduceMotion: true },
-        fleet: { remoteManagedInstalls: true },
+        fleet: {
+          ditherLevel: "coarse",
+          remoteManagedInstalls: true,
+        },
       }),
     );
 
@@ -198,6 +211,7 @@ describe("SQLite settings service", () => {
     const reloaded = await run(second.service.get);
     expect(reloaded.station.role).toBe("command-center");
     expect(reloaded.appearance.reduceMotion).toBe(true);
+    expect(reloaded.fleet.ditherLevel).toBe("coarse");
     expect(reloaded.fleet.remoteManagedInstalls).toBe(true);
   });
 

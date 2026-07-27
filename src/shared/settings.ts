@@ -80,11 +80,20 @@ export const AdvancedSettings = Schema.Struct({
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
+export const FleetDitherLevel = Schema.Literal(
+  "fine",
+  "balanced",
+  "coarse",
+);
+export type FleetDitherLevel = typeof FleetDitherLevel.Type;
+
 /**
  * Fleet operator prefs (not secrets). Kill-switch for remote package + plugin
  * installs; UI shows disabled buttons when false. Main re-gates every invoke.
  */
 export const FleetSettings = Schema.Struct({
+  /** Ordered-dither density for the Fleet map. */
+  ditherLevel: FleetDitherLevel,
   /**
    * When false (default), remote T2 deploy and remote T3 plugin install refuse
    * even if the release line enables them. Local plugin install is unaffected.
@@ -226,6 +235,7 @@ export const AdvancedPatch = Schema.Struct({
 export type AdvancedPatch = typeof AdvancedPatch.Type;
 
 export const FleetPatch = Schema.Struct({
+  ditherLevel: Schema.optionalWith(FleetDitherLevel, { exact: true }),
   remoteManagedInstalls: Schema.optionalWith(Schema.Boolean, { exact: true }),
 });
 export type FleetPatch = typeof FleetPatch.Type;
@@ -316,6 +326,7 @@ export const defaultAdvanced = (): AdvancedSettings => ({
 
 /** Fail-closed: remote package/plugin installs require explicit operator opt-in. */
 export const defaultFleet = (): FleetSettings => ({
+  ditherLevel: "fine",
   remoteManagedInstalls: false,
 });
 

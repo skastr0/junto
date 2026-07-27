@@ -5,6 +5,7 @@ import type { DiscoveredPeer } from "@shared/ipc";
 import { type FleetDitherLevel } from "../../lib/fleet-layout";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
+import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { FocusSurface } from "../FocusSurface";
@@ -14,17 +15,6 @@ import { FleetHostForm } from "./FleetHostForm";
 import { COMMAND_CENTER_ID, FleetMap, ghostNodeId } from "./FleetMap";
 
 type FormState = { readonly label?: string; readonly endpoint?: string } | null;
-const DITHER_STORAGE_KEY = "vellum:fleet:dither-level";
-
-const initialDitherLevel = (): FleetDitherLevel => {
-  try {
-    const stored = window.localStorage.getItem(DITHER_STORAGE_KEY);
-    if (stored === "fine" || stored === "balanced" || stored === "coarse") return stored;
-  } catch {
-    // A denied storage surface should never block the Fleet.
-  }
-  return "fine";
-};
 
 function FleetOverlayInner() {
   const hosts = use$(state$.fleetHosts);
@@ -34,7 +24,7 @@ function FleetOverlayInner() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(null);
   const [ccHostId, setCcHostId] = useState("");
-  const [ditherLevel, setDitherLevel] = useState<FleetDitherLevel>(initialDitherLevel);
+  const ditherLevel = use$(state$.settings.fleet.ditherLevel);
   const stations = hosts.filter((host) => host.kind === "remote");
   const reachable = stations.filter(
     (host) => probes[host.id]?.status === "reachable",
@@ -92,16 +82,9 @@ function FleetOverlayInner() {
     setForm({ label: peer.name, endpoint: peer.name });
   }, []);
 
-  const updateDitherLevel = (level: FleetDitherLevel) => {
-    setDitherLevel(level);
-    queueMicrotask(() => {
-      try {
-        window.localStorage.setItem(DITHER_STORAGE_KEY, level);
-      } catch {
-        // The live state remains authoritative for this session.
-      }
-    });
-  };
+  const updateDitherLevel = useCallback((level: FleetDitherLevel) => {
+    void patchSettings({ fleet: { ditherLevel: level } });
+  }, []);
 
   return (
     <FocusSurface

@@ -1,5 +1,25 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { extname, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+
+const rendererRoot = new URL("../src/renderer/", import.meta.url);
+
+const rendererSources = async (
+  directory: URL = rendererRoot,
+): Promise<ReadonlyArray<URL>> => {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map(async (entry): Promise<ReadonlyArray<URL>> => {
+      const path = new URL(entry.name, directory);
+      if (entry.isDirectory()) {
+        path.pathname = `${path.pathname}/`;
+        return rendererSources(path);
+      }
+      return [".ts", ".tsx"].includes(extname(entry.name)) ? [path] : [];
+    }),
+  );
+  return nested.flat();
+};
 
 describe("settings state architecture", () => {
   it("keeps the canonical repository on the pure StateEngine seam", async () => {
@@ -81,5 +101,36 @@ describe("settings state architecture", () => {
       'import { SETTINGS_STATE_SCHEMA_SQL } from "../settings/state-schema"',
     );
     expect(source).toContain("SETTINGS_STATE_SCHEMA_SQL,");
+  });
+
+  it("keeps product preferences out of renderer localStorage", async () => {
+    const main = new URL("../src/renderer/main.tsx", import.meta.url);
+    const offenders = (
+      await Promise.all(
+        (await rendererSources())
+          .filter((path) => path.href !== main.href)
+          .map(async (path) => ({
+            path,
+            source: await readFile(path, "utf8"),
+          })),
+      )
+    )
+      .filter(({ source }) => /\blocalStorage\b/u.test(source))
+      .map(({ path }) => relative(rendererRoot.pathname, path.pathname))
+      .sort();
+
+    expect(offenders).toEqual([]);
+
+    // The sole remaining reference is a DEV-gated render profiler switch,
+    // never a product preference or production write path.
+    const mainSource = await readFile(main, "utf8");
+    const executableMain = mainSource
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("//"))
+      .join("\n");
+    expect(mainSource).toContain("import.meta.env.DEV");
+    expect(mainSource.match(/\blocalStorage\b/gu)).toHaveLength(2);
+    expect(executableMain.match(/\blocalStorage\b/gu)).toHaveLength(1);
+    expect(executableMain).not.toContain("localStorage.setItem(");
   });
 });

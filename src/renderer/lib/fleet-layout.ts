@@ -1,4 +1,7 @@
+import type { FleetDitherLevel } from "@shared/settings";
 import { GREEN, HUE } from "./theme";
+
+export type { FleetDitherLevel } from "@shared/settings";
 
 // Pure fleet-overlay layout math. No React/Effect deps — unit-tested.
 // The Command Center node is NOT part of orbit input; the caller pins it at
@@ -88,9 +91,11 @@ export const FLEET_DITHER_LEVELS = [
   { id: "fine", label: "fine", pixelSize: 0.75 },
   { id: "balanced", label: "balanced", pixelSize: 1.25 },
   { id: "coarse", label: "coarse", pixelSize: 2 },
-] as const;
-
-export type FleetDitherLevel = (typeof FLEET_DITHER_LEVELS)[number]["id"];
+] as const satisfies ReadonlyArray<{
+  readonly id: FleetDitherLevel;
+  readonly label: string;
+  readonly pixelSize: number;
+}>;
 
 export const ditherPixelSize = (level: FleetDitherLevel): number =>
   FLEET_DITHER_LEVELS.find((candidate) => candidate.id === level)?.pixelSize ?? 0.75;
