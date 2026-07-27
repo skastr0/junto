@@ -49,6 +49,7 @@ import {
   stationReadinessMetadata,
 } from "./vellum/station-readiness";
 import { workControlReadiness } from "./vellum/work/control";
+import { StateEngineLive } from "./vellum/state/engine";
 
 // KernelLive requires CanvasesService/SnapshotsService/StoreService;
 // RegionRollupLive requires CanvasesService/SnapshotsService.
@@ -99,6 +100,7 @@ const SnapshotsWithProductsLive = Layer.provideMerge(
 );
 
 const BaseLayer = Layer.mergeAll(
+  StateEngineLive,
   StoreLive,
   FolderLive,
   PrismLive,
