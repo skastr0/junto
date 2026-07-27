@@ -42,10 +42,9 @@ test("browser access UI is process-bind + edges; no enable grant ceremony", asyn
     const node = page.locator(".react-flow__node", { hasText: AGENT_LABEL });
     await expect(node).toBeVisible({ timeout: 30_000 });
     await node.click();
+    await expect(node).toHaveClass(/selected/u);
 
-    await page.getByRole("tab", { name: "details" }).click();
-
-    // Instructional browser-access wall is gone; ceremony controls stay dead.
+    // The selected-seat inspector is live; ceremony controls stay dead.
     await expect(page.locator(".inspector-section", { hasText: "browser access" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /enable browser access/i })).toHaveCount(0);
     await expect(page.getByText(/no active grants/i)).toHaveCount(0);
