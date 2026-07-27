@@ -1,7 +1,6 @@
-// Side-effect only: in demo mode, defaults VELLUM_CANVASES_DIR before
-// canvases.ts (imported below, transitively) ever reads it. Must stay the
-// first import in this file — see the module's own header for why.
-import "./vellum/demo/canvases-env";
+// Establish demo-only SQLite and projection roots before runtime.ts can
+// acquire the app's sole StateEngine connection. This must stay first.
+import "./vellum/demo/isolation-env";
 
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
