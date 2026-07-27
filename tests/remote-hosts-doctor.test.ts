@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   InstallationId,
+  StationHostId,
   STATION_API_PROTOCOL,
   StatusResponse,
 } from "../src/shared/station-api";
@@ -16,8 +17,12 @@ import {
 } from "../src/main/vellum/hosts/doctor";
 import type { HostsRegistry } from "../src/main/vellum/hosts/registry";
 import type { StationRemote } from "../src/main/vellum/hosts/configure-remote";
+import { StationRemoteExecutionError } from "../src/main/vellum/station/remote-client";
+import { SshEndpoint } from "../src/main/vellum/ssh/domain";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
+const stationHostId = Schema.decodeUnknownSync(StationHostId);
+const sshEndpoint = Schema.decodeUnknownSync(SshEndpoint);
 const localHost = defaultRemoteHostsDocument().hosts[0]!;
 const unusedSsh = {} as Parameters<typeof testHostConnection>[0];
 
@@ -39,8 +44,8 @@ const stationStatus = (
       : {
           configuration: {
             role: "remote" as const,
-            hostId: id as never,
-            agentHostId: id as never,
+            hostId: stationHostId(id),
+            agentHostId: stationHostId(id),
             commandCenterInstallationId:
               installationId("cc-installation"),
             commandCenterRef: "local",
@@ -233,15 +238,61 @@ describe("remote hosts doctor", () => {
         hostId: "studio",
         endpoint: "studio-box",
         reachability: "reachable",
-        settingsState: "observed",
-        stationRole: "remote",
-        stationHostId: "studio",
-        statusState: "observed",
+        station: stationStatus("studio"),
       },
     ]);
     expect(snapshot.check.detail).toContain(
       "readiness database=true work=true simulation=true",
     );
+  });
+
+  it("keeps failed Station API observations fleet-blind", async () => {
+    process.env.VELLUM_SSH_EXECUTABLE = "/usr/bin/ssh";
+    const remote = remoteWithStatus(() =>
+      Effect.fail(
+        StationRemoteExecutionError.make({
+          endpoint: sshEndpoint("studio-box"),
+          operation: "status",
+          exitCode: 1,
+          message: "station runtime down",
+        }),
+      ),
+    );
+    const registry = {
+      path: () => "/tmp/vellum.db",
+      list: async () => [
+        {
+          id: "studio",
+          label: "Studio",
+          kind: "remote" as const,
+          endpoint: "studio-box",
+          capabilities: [],
+        },
+      ],
+    } as unknown as HostsRegistry;
+
+    const snapshot = await Effect.runPromise(
+      runRemoteHostsDoctorSnapshot(
+        registry,
+        unusedSsh,
+        async () => ({ ok: true, stdout: "" }),
+        remote,
+      ),
+    );
+
+    expect(snapshot.check.status).toBe("error");
+    expect(snapshot.observations).toEqual([
+      {
+        hostId: "studio",
+        endpoint: "studio-box",
+        reachability: "unreachable",
+        reachabilityError: "station runtime down",
+        observationError: "station runtime down",
+      },
+    ]);
+    expect(snapshot.observations[0]).not.toHaveProperty("station");
+    expect(snapshot.observations[0]).not.toHaveProperty("settingsState");
+    expect(snapshot.observations[0]).not.toHaveProperty("statusState");
   });
 
   it("marks a reachable but unconfigured Station as warning", async () => {

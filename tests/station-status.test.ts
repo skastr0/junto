@@ -1,17 +1,25 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   assessStationDoctor,
-  configureRecordFromResult,
+  decodeStationStatusDocument,
   defaultStationStatus,
   deployRecordFromResult,
   kernelRecordFromSnapshot,
-  projectionRecordFromResult,
-  pullRecordFromResult,
   STATION_KERNEL_STALE_AFTER_MS,
-  STATION_PULL_STALE_AFTER_MS,
   type StationRemoteObservation,
 } from "../src/shared/station-status";
-import { canvasPullResult } from "../src/shared/canvas-pull";
+import {
+  InstallationId,
+  LogicalSequence,
+  StationHostId,
+  StationSha256,
+  STATION_API_PROTOCOL,
+  StatusResponse,
+  type StationConfiguration,
+  type StationEventAck,
+  type StationProjectionReference,
+} from "../src/shared/station-api";
 import {
   agentKeysForWatcher,
   DEFAULT_STATION_HOST_ID,
@@ -20,263 +28,244 @@ import {
 } from "../src/shared/station";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 
+const installationId = Schema.decodeUnknownSync(InstallationId);
+const hostId = Schema.decodeUnknownSync(StationHostId);
+const logicalSequence = Schema.decodeUnknownSync(LogicalSequence);
+const stationSha256 = Schema.decodeUnknownSync(StationSha256);
+
+const commandCenterInstallationId = installationId("cc-installation");
+const configuredAt = "2026-07-23T11:00:00.000Z";
+const observedAt = "2026-07-23T11:59:30.000Z";
+
+const commandCenterConfiguration = (): StationConfiguration => ({
+  role: "command-center",
+  hostId: hostId("local"),
+  supervisedPreferred: false,
+});
+
+const remoteConfiguration = (
+  id: string,
+  input: {
+    readonly commandCenterInstallationId?: InstallationId;
+    readonly hostId?: string;
+  } = {},
+): StationConfiguration => ({
+  role: "remote",
+  hostId: hostId(input.hostId ?? id),
+  agentHostId: hostId(input.hostId ?? id),
+  commandCenterInstallationId:
+    input.commandCenterInstallationId ?? commandCenterInstallationId,
+  commandCenterRef: "local",
+  supervisedPreferred: true,
+});
+
+const projection = (generation = "3"): StationProjectionReference => ({
+  generation: logicalSequence(generation),
+  contentSha256: stationSha256("a".repeat(64)),
+  receivedAt: "2026-07-23T11:45:00.000Z",
+});
+
+const cursor = (home: string, through: string): StationEventAck => ({
+  home: installationId(home),
+  through: logicalSequence(through),
+});
+
+const stationStatus = (
+  id: string,
+  input: {
+    readonly installationId?: string;
+    readonly state?:
+      "unenrolled" | "paired" | "configured" | "ready" | "degraded";
+    readonly configured?: boolean;
+    readonly configuration?: StationConfiguration;
+    readonly projection?: StationProjectionReference | false;
+    readonly receivedThrough?: ReadonlyArray<StationEventAck>;
+    readonly databaseReady?: boolean;
+    readonly workControlReady?: boolean;
+    readonly simulationReady?: boolean;
+  } = {},
+) =>
+  StatusResponse.make({
+    protocol: STATION_API_PROTOCOL,
+    op: "status",
+    installationId: installationId(input.installationId ?? `station-${id}`),
+    state: input.state ?? "ready",
+    ...(input.configured === false
+      ? {}
+      : {
+          configuration: input.configuration ?? remoteConfiguration(id),
+          configuredAt,
+        }),
+    ...(input.projection === false
+      ? {}
+      : { projection: input.projection ?? projection() }),
+    receivedThrough: input.receivedThrough ?? [cursor("cc-installation", "12")],
+    readiness: {
+      database: input.databaseReady ?? true,
+      workControl: input.workControlReady ?? true,
+      simulation: input.simulationReady ?? true,
+    },
+    observedAt,
+  });
+
+const liveKernel = (
+  input: {
+    readonly observedAt?: string;
+    readonly armedRegionCount?: number;
+  } = {},
+) => ({
+  observedAt: input.observedAt ?? observedAt,
+  armedRegionCount: input.armedRegionCount ?? 0,
+  orphanedArmingCount: 0,
+});
+
+const localDoctorInput = () => ({
+  installationId: commandCenterInstallationId,
+  configuration: commandCenterConfiguration(),
+  configuredAt,
+  receivedThrough: [] as ReadonlyArray<StationEventAck>,
+  version: "0.1.0",
+  supervisedInstalled: "absent" as const,
+  status: defaultStationStatus(),
+  kernel: liveKernel(),
+  workControlReady: true,
+  simulationReady: true,
+  now: Date.parse("2026-07-23T12:00:00.000Z"),
+});
+
+const statusWithDeployment = (
+  deployment: ReturnType<typeof deployRecordFromResult>,
+) => {
+  const status = decodeStationStatusDocument({
+    version: 2,
+    deployments: { [deployment.hostId]: deployment },
+  });
+  if (status === undefined) {
+    throw new Error("test deployment must form a valid station status");
+  }
+  return status;
+};
+
+const observedRemote = (
+  input: Partial<StationRemoteObservation> = {},
+): StationRemoteObservation => ({
+  hostId: "studio",
+  endpoint: "studio-box",
+  reachability: "reachable",
+  station: stationStatus("studio"),
+  ...input,
+});
+
 describe("station status doctor", () => {
   const now = Date.parse("2026-07-23T12:00:00.000Z");
 
-  const observedRemote = (
-    input: Partial<StationRemoteObservation> = {},
-  ): StationRemoteObservation => ({
-    hostId: "studio",
-    endpoint: "studio-box",
-    reachability: "reachable",
-    settingsState: "observed",
-    stationRole: "remote",
-    stationHostId: "studio",
-    statusState: "observed",
-    status: defaultStationStatus(),
-    ...input,
+  it("accepts only the v2 operational-observation document", () => {
+    const kernel = liveKernel();
+
+    expect(defaultStationStatus()).toEqual({ version: 2 });
+    expect(
+      decodeStationStatusDocument({
+        version: 2,
+        kernel,
+      }),
+    ).toEqual({ version: 2, kernel });
+    expect(
+      decodeStationStatusDocument({
+        version: 2,
+        lastPull: { status: "ok" },
+      }),
+    ).toBeUndefined();
+    expect(decodeStationStatusDocument({ version: 1 })).toBeUndefined();
   });
 
-  it("warns when role is unset", () => {
+  it("warns when canonical station configuration is absent", () => {
     const check = assessStationDoctor({
-      role: "",
-      hostId: "local",
-      commandCenterRef: "",
-      supervisedPreferred: false,
+      installationId: commandCenterInstallationId,
+      receivedThrough: [],
       supervisedInstalled: "absent",
       status: defaultStationStatus(),
       workControlReady: true,
+      simulationReady: true,
     });
+
     expect(check.id).toBe("station");
     expect(check.status).toBe("warning");
-    expect(check.detail).toMatch(/role unset/i);
-  });
-
-  it("ok for Command Center with work control", () => {
-    const check = assessStationDoctor({
-      role: "command-center",
-      hostId: "local",
-      commandCenterRef: "",
-      supervisedPreferred: false,
-      supervisedInstalled: "absent",
-      status: defaultStationStatus(),
-      workControlReady: true,
-      version: "0.1.0",
-      kernel: {
-        observedAt: "2026-07-23T11:59:30.000Z",
-        armedRegionCount: 0,
-        orphanedArmingCount: 0,
-      },
-      now,
-    });
-    expect(check.status).toBe("ok");
-    expect(check.metadata?.role).toBe("command-center");
-    expect(check.metadata?.workControlReady).toBe("true");
-    expect(check.detail).toContain(
-      "Local station: installed yes · role command-center · version 0.1.0 · hostId local · last pull n/a · armed no (0) · last fire never · errors none",
+    expect(check.detail).toMatch(
+      /configuration (?:absent|unset)|not configured/i,
     );
   });
 
-  it("warns Remote without projection history when projection capability is on", () => {
-    const check = assessStationDoctor({
-      role: "remote",
-      hostId: "remote-a",
-      commandCenterRef: "laptop",
-      supervisedPreferred: true,
-      supervisedInstalled: "installed",
-      status: defaultStationStatus(),
-      workControlReady: true,
+  it("reports canonical Command Center identity and live API readiness", () => {
+    const check = assessStationDoctor(localDoctorInput());
+
+    expect(check.status).toBe("ok");
+    expect(check.detail).toMatch(/Command Center/i);
+    expect(check.detail).toContain("cc-installation");
+    expect(check.detail).toMatch(/host local/i);
+    expect(check.detail).toContain("work control ready");
+    expect(check.detail).toContain("simulation ready");
+    expect(check.metadata).toMatchObject({
+      installationId: "cc-installation",
+      role: "command-center",
+      hostId: "local",
+      workControlReady: "true",
+      simulationReady: "true",
     });
+  });
+
+  it("requires a canonical projection for a configured Remote", () => {
+    const check = assessStationDoctor({
+      ...localDoctorInput(),
+      configuration: remoteConfiguration("remote-a"),
+      supervisedInstalled: "installed",
+      kernel: liveKernel({ armedRegionCount: 1 }),
+    });
+
     expect(check.status).toBe("warning");
-    expect(check.detail).toMatch(/no projection apply/i);
-  });
-
-  it("records pull and configure into doctor metadata", () => {
-    const pull = pullRecordFromResult(
-      canvasPullResult({
-        ok: true,
-        status: "ok",
-        detail: "pulled 2",
-        commandCenterRef: "laptop",
-        pulled: [
-          { name: "a", bytes: 1, changed: true },
-          { name: "b", bytes: 2, changed: false },
-        ],
-        failed: [],
-        keptLocal: false,
-      }),
+    expect(check.detail).toMatch(
+      /projection (?:absent|missing)|no projection/i,
     );
-    const configure = configureRecordFromResult({
-      ok: true,
-      hostId: "remote-a",
-      detail: "configured",
-    });
-    const projection = projectionRecordFromResult({
-      hostId: "remote-a",
-      generation: "1",
-      manifestSha256: "a".repeat(64),
-      status: "applied",
-      detail: "applied",
-      at: "2026-07-23T11:00:00.000Z",
-    });
-    const check = assessStationDoctor({
-      role: "remote",
-      hostId: "remote-a",
-      commandCenterRef: "laptop",
-      supervisedPreferred: true,
-      supervisedInstalled: "installed",
-      status: {
-        version: 1,
-        lastPull: pull,
-        lastConfigure: configure,
-        lastProjection: projection,
-      },
-      workControlReady: true,
-    });
-    expect(check.status).toBe("ok");
-    expect(check.metadata?.lastPullStatus).toBe("ok");
-    expect(check.metadata?.lastConfigureOk).toBe("true");
-    expect(check.metadata?.lastProjectionStatus).toBe("applied");
   });
 
-  it("warns when work control is down", () => {
+  it("reports a Remote's live projection and per-home logical cursors", () => {
     const check = assessStationDoctor({
-      role: "command-center",
-      hostId: "local",
-      commandCenterRef: "",
-      supervisedPreferred: false,
-      supervisedInstalled: "absent",
-      status: defaultStationStatus(),
+      ...localDoctorInput(),
+      configuration: remoteConfiguration("remote-a"),
+      projection: projection("42"),
+      receivedThrough: [
+        cursor("cc-installation", "9"),
+        cursor("station-remote-a", "17"),
+      ],
+      supervisedInstalled: "installed",
+      kernel: liveKernel({ armedRegionCount: 1 }),
+    });
+
+    expect(check.status).toBe("ok");
+    expect(check.detail).toContain("projection 42");
+    expect(check.detail).toContain("logical cursors 2");
+    expect(check.metadata).toMatchObject({
+      projectionGeneration: "42",
+      receivedCursorCount: "2",
+    });
+  });
+
+  it("warns independently when work control or simulation is down", () => {
+    const workDown = assessStationDoctor({
+      ...localDoctorInput(),
       workControlReady: false,
     });
-    expect(check.status).toBe("warning");
-    expect(check.detail).toMatch(/work control not ready/i);
+    const simulationDown = assessStationDoctor({
+      ...localDoctorInput(),
+      simulationReady: false,
+    });
+
+    expect(workDown.status).toBe("warning");
+    expect(workDown.detail).toMatch(/work control not ready/i);
+    expect(simulationDown.status).toBe("warning");
+    expect(simulationDown.detail).toMatch(/simulation degraded/i);
   });
 
-  it("reports a ready Remote package, role, version, and last-seen receipt", () => {
-    const deployment = deployRecordFromResult({
-      hostId: "studio",
-      endpoint: "studio-box",
-      ok: true,
-      outcome: "ready",
-      packageState: "present",
-      role: "remote",
-      version: "0.1.0",
-      lastSeen: "2026-07-22T20:00:00.000Z",
-      rollback: "not-required",
-      configurationOk: true,
-      detail: "ready",
-      at: "2026-07-22T20:00:00.000Z",
-    });
-    const projection = projectionRecordFromResult({
-      hostId: "studio",
-      endpoint: "studio-box",
-      generation: "3",
-      manifestSha256: "a".repeat(64),
-      frameSha256: "b".repeat(64),
-      status: "applied",
-      detail: "applied",
-      at: "2026-07-23T11:45:00.000Z",
-    });
-    const check = assessStationDoctor({
-      role: "command-center",
-      hostId: "local",
-      commandCenterRef: "",
-      supervisedPreferred: false,
-      supervisedInstalled: "absent",
-      status: {
-        version: 1,
-        deployments: { studio: deployment },
-        projections: { studio: projection },
-        lastProjection: projection,
-      },
-      remoteObservations: [
-        observedRemote({
-          status: {
-            version: 1,
-            lastPull: {
-              at: "2026-07-23T11:45:00.000Z",
-              status: "ok",
-              ok: true,
-              detail: "pulled 2",
-              commandCenterRef: "local",
-              keptLocal: false,
-              pulledCount: 2,
-              failedCount: 0,
-            },
-            kernel: {
-              observedAt: "2026-07-23T11:59:30.000Z",
-              armedRegionCount: 1,
-              lastFireAt: "2026-07-23T11:58:00.000Z",
-              lastFireKind: "watcher",
-              lastFireDry: false,
-              orphanedArmingCount: 0,
-            },
-          },
-        }),
-      ],
-      workControlReady: true,
-      now,
-    });
-
-    expect(check.status).toBe("ok");
-    expect(check.detail).toMatch(
-      /Remote studio \(studio-box\): installed yes · role remote · version 0\.1\.0 · hostId studio · delivery proj applied gen 3 · armed yes \(1\) · last fire 2026-07-23T11:58:00\.000Z watcher live · reachability reachable · errors none/u,
-    );
-    expect(check.metadata).toMatchObject({
-      deploymentCount: "1",
-      lastDeployHostId: "studio",
-      lastDeployOutcome: "ready",
-      lastDeployPackageState: "present",
-      lastDeployRole: "remote",
-      lastDeployVersion: "0.1.0",
-      lastDeployLastSeen: "2026-07-22T20:00:00.000Z",
-      remoteCount: "1",
-      remoteFleetBlindCount: "0",
-      remoteStaleCount: "0",
-      "remote.studio.installed": "yes",
-      "remote.studio.role": "remote",
-      "remote.studio.version": "0.1.0",
-      "remote.studio.lastPullStatus": "ok",
-      "remote.studio.armed": "true",
-      "remote.studio.lastFireAt": "2026-07-23T11:58:00.000Z",
-      "remote.studio.reachability": "reachable",
-    });
-  });
-
-  it("lists a registered Remote without a managed install receipt instead of omitting it", () => {
-    const check = assessStationDoctor({
-      role: "command-center",
-      hostId: "local",
-      commandCenterRef: "",
-      supervisedPreferred: false,
-      supervisedInstalled: "absent",
-      status: defaultStationStatus(),
-      registeredRemoteEndpoints: { studio: "studio-box" },
-      remoteObservations: [
-        observedRemote({
-          settingsState: "unavailable",
-          statusState: "unavailable",
-          observationError: "station status files unavailable",
-        }),
-      ],
-      workControlReady: true,
-      now,
-    });
-
-    expect(check.status).toBe("warning");
-    expect(check.detail).toMatch(
-      /Remote studio \(studio-box\): installed no \(no managed install receipt\) · role unknown · version unknown · hostId studio · delivery unknown · armed unknown · last fire unknown · reachability reachable · errors registered but not installed by Command Center; fleet-blind: station status files unavailable/u,
-    );
-    expect(check.metadata).toMatchObject({
-      remoteCount: "1",
-      remoteFleetBlindCount: "1",
-      "remote.studio.installed": "no",
-      "remote.studio.state": "fleet-blind",
-    });
-  });
-
-  it("reports an unreachable registered Remote without treating its deploy receipt as live health", () => {
+  it("reports a managed Remote from its live Station API observation", () => {
     const deployment = deployRecordFromResult({
       hostId: "studio",
       endpoint: "studio-box",
@@ -292,38 +281,60 @@ describe("station status doctor", () => {
       at: "2026-07-23T11:55:00.000Z",
     });
     const check = assessStationDoctor({
-      role: "command-center",
-      hostId: "local",
-      commandCenterRef: "",
-      supervisedPreferred: false,
-      supervisedInstalled: "absent",
-      status: { version: 1, deployments: { studio: deployment } },
+      ...localDoctorInput(),
+      status: statusWithDeployment(deployment),
       remoteObservations: [
         observedRemote({
-          reachability: "unreachable",
-          reachabilityError: "Timeout — host unreachable",
-          settingsState: "unavailable",
-          statusState: "unavailable",
-          stationRole: undefined,
-          stationHostId: undefined,
-          status: undefined,
+          station: stationStatus("studio", {
+            projection: projection("3"),
+            receivedThrough: [
+              cursor("cc-installation", "12"),
+              cursor("station-studio", "7"),
+            ],
+          }),
         }),
       ],
-      workControlReady: true,
-      now,
     });
 
-    expect(check.status).toBe("error");
-    expect(check.detail).toMatch(/reachability unreachable/u);
-    expect(check.detail).toMatch(/fleet-blind: Timeout — host unreachable/u);
+    expect(check.status).toBe("ok");
+    expect(check.detail).toMatch(
+      /Remote studio \(studio-box\): Station API ready · installation station-studio · projection 3 · cursors 2 · errors none/u,
+    );
     expect(check.metadata).toMatchObject({
-      "remote.studio.installed": "yes",
-      "remote.studio.reachability": "unreachable",
-      "remote.studio.state": "error",
+      deploymentCount: "1",
+      lastDeployHostId: "studio",
+      lastDeployOutcome: "ready",
+      remoteCount: "1",
+      remoteFleetBlindCount: "0",
+      "remote.studio.installationId": "station-studio",
+      "remote.studio.role": "remote",
+      "remote.studio.projectionGeneration": "3",
+      "remote.studio.receivedCursorCount": "2",
+      "remote.studio.databaseReady": "true",
+      "remote.studio.workControlReady": "true",
+      "remote.studio.simulationReady": "true",
+      "remote.studio.reachability": "reachable",
     });
   });
 
-  it("defines and reports pull and kernel freshness independently", () => {
+  it("lists a live registered Remote without inventing a managed deployment", () => {
+    const check = assessStationDoctor({
+      ...localDoctorInput(),
+      registeredRemoteEndpoints: { studio: "studio-box" },
+      remoteObservations: [observedRemote()],
+    });
+
+    expect(check.status).toBe("warning");
+    expect(check.detail).toMatch(/no managed deployment receipt/u);
+    expect(check.detail).toMatch(/Station API ready/u);
+    expect(check.metadata).toMatchObject({
+      remoteCount: "1",
+      remoteFleetBlindCount: "0",
+      "remote.studio.state": "warning",
+    });
+  });
+
+  it("fails closed on live fleet configuration mismatch", () => {
     const deployment = deployRecordFromResult({
       hostId: "studio",
       endpoint: "studio-box",
@@ -332,59 +343,94 @@ describe("station status doctor", () => {
       packageState: "present",
       role: "remote",
       version: "0.1.0",
-      lastSeen: new Date(now - 60_000).toISOString(),
+      lastSeen: "2026-07-23T11:55:00.000Z",
       rollback: "not-required",
       configurationOk: true,
       detail: "ready",
-      at: new Date(now - 60_000).toISOString(),
+      at: "2026-07-23T11:55:00.000Z",
     });
-    const stalePullAt = new Date(now - STATION_PULL_STALE_AFTER_MS - 1).toISOString();
-    const staleKernelAt = new Date(now - STATION_KERNEL_STALE_AFTER_MS - 1).toISOString();
     const check = assessStationDoctor({
-      role: "command-center",
-      hostId: "local",
-      commandCenterRef: "",
-      supervisedPreferred: false,
-      supervisedInstalled: "absent",
-      status: { version: 1, deployments: { studio: deployment } },
+      ...localDoctorInput(),
+      status: statusWithDeployment(deployment),
+      registeredRemoteEndpoints: { studio: "studio-box" },
       remoteObservations: [
         observedRemote({
-          status: {
-            version: 1,
-            lastPull: {
-              at: stalePullAt,
-              status: "ok",
-              ok: true,
-              detail: "pulled",
-              commandCenterRef: "local",
-              keptLocal: false,
-              pulledCount: 1,
-              failedCount: 0,
-            },
-            kernel: {
-              observedAt: staleKernelAt,
-              armedRegionCount: 0,
-              orphanedArmingCount: 0,
-            },
-          },
+          station: stationStatus("studio", {
+            configuration: remoteConfiguration("studio", {
+              hostId: "wrong-host",
+            }),
+          }),
         }),
       ],
-      workControlReady: true,
-      now,
+    });
+
+    expect(check.status).toBe("error");
+    expect(check.detail).toMatch(
+      /Station API configuration does not match registry/i,
+    );
+    expect(check.metadata).toMatchObject({
+      "remote.studio.state": "error",
+    });
+  });
+
+  it("does not treat a deployment receipt as live health when the Remote is unreachable", () => {
+    const deployment = deployRecordFromResult({
+      hostId: "studio",
+      endpoint: "studio-box",
+      ok: true,
+      outcome: "ready",
+      packageState: "present",
+      role: "remote",
+      version: "0.1.0",
+      lastSeen: "2026-07-23T11:55:00.000Z",
+      rollback: "not-required",
+      configurationOk: true,
+      detail: "ready",
+      at: "2026-07-23T11:55:00.000Z",
+    });
+    const check = assessStationDoctor({
+      ...localDoctorInput(),
+      status: statusWithDeployment(deployment),
+      remoteObservations: [
+        observedRemote({
+          reachability: "unreachable",
+          reachabilityError: "Timeout — host unreachable",
+          station: undefined,
+        }),
+      ],
+    });
+
+    expect(check.status).toBe("error");
+    expect(check.detail).toMatch(/fleet-blind: Timeout — host unreachable/u);
+    expect(check.metadata).toMatchObject({
+      deploymentCount: "1",
+      "remote.studio.reachability": "unreachable",
+      "remote.studio.apiState": "unavailable",
+      "remote.studio.state": "error",
+    });
+  });
+
+  it("reports stale live kernel truth without any retired pull status", () => {
+    const staleKernelAt = new Date(
+      now - STATION_KERNEL_STALE_AFTER_MS - 1,
+    ).toISOString();
+    const check = assessStationDoctor({
+      ...localDoctorInput(),
+      configuration: remoteConfiguration("remote-a"),
+      projection: projection(),
+      supervisedInstalled: "installed",
+      kernel: liveKernel({
+        observedAt: staleKernelAt,
+        armedRegionCount: 0,
+      }),
     });
 
     expect(check.status).toBe("warning");
-    expect(check.detail).toMatch(/delivery proj never/u);
-    expect(check.detail).toMatch(/armed no \(0, stale\)/u);
-    expect(check.detail).toMatch(/no projection delivery recorded/u);
-    expect(check.detail).toMatch(/pull stale \(residual\)/u);
-    expect(check.detail).toMatch(/kernel status stale/u);
-    expect(check.detail).toMatch(/Remote not armed/u);
+    expect(check.detail).toMatch(/kernel armed 0 · last fire never · stale/u);
+    expect(check.detail).not.toMatch(/pull/u);
     expect(check.metadata).toMatchObject({
-      remoteStaleCount: "1",
-      "remote.studio.lastPullStale": "true",
-      "remote.studio.kernelStale": "true",
-      "remote.studio.state": "stale",
+      kernelObservedAt: staleKernelAt,
+      kernelArmedCount: "0",
     });
   });
 
@@ -449,13 +495,8 @@ describe("station status doctor", () => {
       detail: "inspect host",
     });
     const check = assessStationDoctor({
-      role: "command-center",
-      hostId: "local",
-      commandCenterRef: "",
-      supervisedPreferred: false,
-      supervisedInstalled: "absent",
-      status: { version: 1, deployments: { studio: deployment } },
-      workControlReady: true,
+      ...localDoctorInput(),
+      status: statusWithDeployment(deployment),
     });
 
     expect(check.status).toBe("error");
@@ -478,14 +519,9 @@ describe("station status doctor", () => {
       detail: "ready",
     });
     const check = assessStationDoctor({
-      role: "command-center",
-      hostId: "local",
-      commandCenterRef: "",
-      supervisedPreferred: false,
-      supervisedInstalled: "absent",
-      status: { version: 1, deployments: { studio: deployment } },
+      ...localDoctorInput(),
+      status: statusWithDeployment(deployment),
       registeredRemoteEndpoints: { studio: "new-box" },
-      workControlReady: true,
     });
 
     expect(check.status).toBe("warning");
