@@ -33,6 +33,7 @@ import {
 } from "../src/main/vellum/station/remote-client";
 import {
   StationPropagation,
+  STATION_PROPAGATION_MAX_REPORT_ROUNDS,
   StationPropagationInvariantError,
   StationPropagationLive,
 } from "../src/main/vellum/station/propagation";
@@ -85,6 +86,23 @@ const event = (
     ),
     originAt: NOW,
   });
+
+const eventRange = (
+  home: typeof InstallationId.Type,
+  first: number,
+  last: number,
+): ReadonlyArray<StationEventValue> =>
+  Array.from(
+    { length: last - first + 1 },
+    (_, index) => {
+      const sequence = first + index;
+      return event(
+        home,
+        String(sequence),
+        `{"sequence":${sequence}}`,
+      );
+    },
+  );
 
 const commandCenterConfiguration = {
   configuration: {
@@ -152,6 +170,10 @@ const makeCanvases = () =>
 type RepositoryOptions = {
   readonly outbound?: ReadonlyArray<StationEventValue>;
   readonly receivedThrough?: ReadonlyArray<StationEventAck>;
+  readonly eventsAfter?: (
+    home: typeof InstallationId.Type,
+    through: typeof LogicalSequence.Type,
+  ) => ReadonlyArray<StationEventValue>;
 };
 
 const makeRepository = (
@@ -177,13 +199,15 @@ const makeRepository = (
     readonly acknowledgements: ReadonlyArray<StationEventAck>;
   }> = [];
   const accepted: StationEventValue[] = [];
-  const facts: StationStatusFacts = {
+  let receivedThrough = [...(options.receivedThrough ?? [])];
+  const admitted = new Set<string>();
+  const facts = (): StationStatusFacts => ({
     installationId: COMMAND_CENTER,
     configuration: commandCenterConfiguration.configuration,
     configuredAt: commandCenterConfiguration.configuredAt,
-    receivedThrough: options.receivedThrough ?? [],
+    receivedThrough,
     peerAcknowledgedThrough: [],
-  };
+  });
 
   return {
     eventQueries,
@@ -201,15 +225,47 @@ const makeRepository = (
       eventsAfter: (home, through) =>
         Effect.sync(() => {
           eventQueries.push({ home, through });
-          return options.outbound ?? [];
+          return options.eventsAfter?.(home, through) ??
+            options.outbound ??
+            [];
         }),
       acceptInbound: (events) =>
         Effect.sync(() => {
           accepted.push(...events);
+          let acceptedCount = 0;
+          let idempotent = 0;
+          for (const item of events) {
+            const key =
+              `${item.identity.home}\u0000${item.identity.sequence}`;
+            if (admitted.has(key)) {
+              idempotent += 1;
+            } else {
+              admitted.add(key);
+              acceptedCount += 1;
+            }
+          }
+          for (const home of new Set(
+            events.map((item) => item.identity.home),
+          )) {
+            const last = events
+              .filter((item) => item.identity.home === home)
+              .at(-1);
+            if (last === undefined) continue;
+            receivedThrough = [
+              ...receivedThrough.filter(
+                (acknowledgement) =>
+                  acknowledgement.home !== home,
+              ),
+              {
+                home,
+                through: last.identity.sequence,
+              },
+            ];
+          }
           return {
-            accepted: events.length,
-            idempotent: 0,
-            acknowledge: [],
+            accepted: acceptedCount,
+            idempotent,
+            acknowledge: receivedThrough,
           };
         }),
       advancePeerAcks: (peer, acknowledgements) =>
@@ -220,7 +276,7 @@ const makeRepository = (
             cursor,
           }));
         }),
-      statusFacts: Effect.succeed(facts),
+      statusFacts: Effect.sync(facts),
     }),
   };
 };
@@ -396,6 +452,175 @@ describe("StationPropagation", () => {
       contentSha256: portfolioHash,
     });
     expect(receipt.projection.decision).toBe("install");
+  });
+
+  it("drains subsequent outbound and inbound pages from returned logical ACKs", async () => {
+    const outbound = eventRange(COMMAND_CENTER, 1, 257);
+    const inbound = eventRange(STATION, 1, 257);
+    const repository = makeRepository({
+      eventsAfter: (_home, through) => {
+        const offset = Number(through);
+        return outbound.slice(
+          offset,
+          offset + 256,
+        );
+      },
+    });
+    const requests: Array<
+      Parameters<typeof StationRemoteApiClient.Service["report"]>[1]
+    > = [];
+    let projectCalls = 0;
+    const remote = StationRemoteApiClient.of({
+      status: () =>
+        Effect.succeed(
+          remoteStatus({
+            projection: {
+              generation: decodeSequence("5"),
+              contentSha256: portfolioHash,
+              receivedAt: NOW,
+            },
+          }),
+        ),
+      pair: () => Effect.die("unused"),
+      configure: () => Effect.die("unused"),
+      project: () =>
+        Effect.sync(() => {
+          projectCalls += 1;
+          throw new Error("projection must run only when needed");
+        }),
+      report: (_endpoint, request) => {
+        requests.push(request);
+        const round = requests.length;
+        const through = round === 1 ? 256 : 257;
+        return Effect.succeed(
+          ReportResponse.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "report",
+            stationInstallationId: STATION,
+            inbound: round === 1
+              ? inbound.slice(0, 256)
+              : inbound.slice(256),
+            acknowledgeOutbound: [{
+              home: COMMAND_CENTER,
+              through: decodeSequence(String(through)),
+            }],
+          }),
+        );
+      },
+    });
+
+    const receipt = await runPropagation(repository.service, remote);
+
+    expect(projectCalls).toBe(0);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.outbound).toHaveLength(256);
+    expect(requests[0]?.outbound[0]?.identity.sequence).toBe("1");
+    expect(requests[0]?.acknowledgeInbound).toEqual([]);
+    expect(requests[1]?.outbound).toHaveLength(1);
+    expect(requests[1]?.outbound[0]?.identity.sequence).toBe("257");
+    expect(requests[1]?.acknowledgeInbound).toEqual([{
+      home: STATION,
+      through: decodeSequence("256"),
+    }]);
+    expect(repository.eventQueries).toEqual([
+      {
+        home: COMMAND_CENTER,
+        through: decodeSequence("0"),
+      },
+      {
+        home: COMMAND_CENTER,
+        through: decodeSequence("256"),
+      },
+    ]);
+    expect(receipt.report).toMatchObject({
+      rounds: 2,
+      outboundSent: 257,
+      inboundReceived: 257,
+      inboundAccepted: 257,
+      inboundIdempotent: 0,
+      hasMoreOutbound: false,
+      hasMoreInbound: false,
+    });
+  });
+
+  it("fails with a typed bound error when full report pages never converge", async () => {
+    const fullOutbound = eventRange(COMMAND_CENTER, 1, 256);
+    const fullInbound = eventRange(STATION, 1, 256);
+    const repository = makeRepository({
+      outbound: fullOutbound,
+    });
+    let projectCalls = 0;
+    let reportCalls = 0;
+    const remote = StationRemoteApiClient.of({
+      status: () => Effect.succeed(remoteStatus()),
+      pair: () => Effect.die("unused"),
+      configure: () => Effect.die("unused"),
+      project: (_endpoint, request) =>
+        Effect.sync(() => {
+          projectCalls += 1;
+          return {
+            protocol: STATION_API_PROTOCOL,
+            op: "project",
+            stationInstallationId: STATION,
+            decision: "install",
+            active: {
+              generation: request.projection.generation,
+              contentSha256: request.projection.contentSha256,
+              receivedAt: NOW,
+            },
+          };
+        }),
+      report: () =>
+        Effect.sync(() => {
+          reportCalls += 1;
+          return ReportResponse.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "report",
+            stationInstallationId: STATION,
+            inbound: fullInbound,
+            acknowledgeOutbound: [],
+          });
+        }),
+    });
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        Effect.gen(function* () {
+          const propagation = yield* StationPropagation;
+          return yield* propagation.synchronize({
+            endpoint: ENDPOINT,
+            stationInstallationId: STATION,
+          });
+        }).pipe(
+          Effect.provide(
+            StationPropagationLive.pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  Layer.succeed(CanvasesService, makeCanvases()),
+                  Layer.succeed(StationRepository, repository.service),
+                  Layer.succeed(StationRemoteApiClient, remote),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toBeInstanceOf(
+        StationPropagationInvariantError,
+      );
+      expect(result.left).toMatchObject({
+        operation: "report",
+        reason: "report-round-limit",
+      });
+    }
+    expect(projectCalls).toBe(1);
+    expect(reportCalls).toBe(
+      STATION_PROPAGATION_MAX_REPORT_ROUNDS,
+    );
   });
 
   it("rejects an unexpected Station identity before projection or report", async () => {

@@ -33,6 +33,7 @@ import {
 } from "./remote-client";
 
 const ZERO_SEQUENCE = Schema.decodeUnknownSync(LogicalSequence)("0");
+export const STATION_PROPAGATION_MAX_REPORT_ROUNDS = 32;
 
 export const StationPropagationTarget = Schema.Struct({
   endpoint: SshEndpoint,
@@ -57,6 +58,7 @@ export class StationPropagationInvariantError extends Schema.TaggedError<Station
       "projection-result-mismatch",
       "event-home-mismatch",
       "ack-home-mismatch",
+      "report-round-limit",
     ),
     message: Schema.String,
   },
@@ -75,6 +77,7 @@ export type StationProjectionSyncReceipt = {
 };
 
 export type StationReportSyncReceipt = {
+  readonly rounds: number;
   readonly outboundSent: number;
   readonly inboundReceived: number;
   readonly inboundAccepted: number;
@@ -289,14 +292,19 @@ const requireAckHomes = (
         ),
       );
 
-const synchronizeReport = (
+type StationReportRoundReceipt = Omit<
+  StationReportSyncReceipt,
+  "rounds"
+>;
+
+const synchronizeReportRound = (
   repository: Context.Tag.Service<typeof StationRepository>,
   remote: Context.Tag.Service<typeof StationRemoteApiClient>,
   target: StationPropagationTarget,
   commandCenterInstallationId: InstallationId,
   remoteReceivedThrough: ReadonlyArray<StationEventAck>,
 ): Effect.Effect<
-  StationReportSyncReceipt,
+  StationReportRoundReceipt,
   | StationRepositoryError
   | StationRemoteApiError
   | StationPropagationInvariantError
@@ -384,6 +392,69 @@ const synchronizeReport = (
       hasMoreInbound:
         response.inbound.length === STATION_API_MAX_EVENTS_PER_REPORT,
     };
+  }).pipe(Effect.withSpan("station.propagation.report-round"));
+
+const synchronizeReport = (
+  repository: Context.Tag.Service<typeof StationRepository>,
+  remote: Context.Tag.Service<typeof StationRemoteApiClient>,
+  target: StationPropagationTarget,
+  commandCenterInstallationId: InstallationId,
+  initialRemoteReceivedThrough: ReadonlyArray<StationEventAck>,
+): Effect.Effect<
+  StationReportSyncReceipt,
+  | StationRepositoryError
+  | StationRemoteApiError
+  | StationPropagationInvariantError
+> =>
+  Effect.gen(function* () {
+    let remoteReceivedThrough = initialRemoteReceivedThrough;
+    let outboundSent = 0;
+    let inboundReceived = 0;
+    let inboundAccepted = 0;
+    let inboundIdempotent = 0;
+
+    for (
+      let round = 1;
+      round <= STATION_PROPAGATION_MAX_REPORT_ROUNDS;
+      round += 1
+    ) {
+      const receipt = yield* synchronizeReportRound(
+        repository,
+        remote,
+        target,
+        commandCenterInstallationId,
+        remoteReceivedThrough,
+      );
+      outboundSent += receipt.outboundSent;
+      inboundReceived += receipt.inboundReceived;
+      inboundAccepted += receipt.inboundAccepted;
+      inboundIdempotent += receipt.inboundIdempotent;
+
+      if (!receipt.hasMoreOutbound && !receipt.hasMoreInbound) {
+        return {
+          rounds: round,
+          outboundSent,
+          inboundReceived,
+          inboundAccepted,
+          inboundIdempotent,
+          acknowledgeInbound: receipt.acknowledgeInbound,
+          acknowledgeOutbound: receipt.acknowledgeOutbound,
+          hasMoreOutbound: false,
+          hasMoreInbound: false,
+        };
+      }
+
+      // The response ACK is the only admissible cursor for the next outbound
+      // page. It was already persisted by the completed round; carrying it
+      // here also makes a lost outer receipt harmless on retry.
+      remoteReceivedThrough = receipt.acknowledgeOutbound;
+    }
+
+    return yield* invariant(
+      "report",
+      "report-round-limit",
+      `Station report did not converge within ${STATION_PROPAGATION_MAX_REPORT_ROUNDS} rounds`,
+    );
   }).pipe(Effect.withSpan("station.propagation.report"));
 
 export class StationPropagation extends Context.Tag(
