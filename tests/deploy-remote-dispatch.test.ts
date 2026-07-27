@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
+import { InstallationId } from "../src/shared/station-api";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
   decodeRemotePlatformEvidence,
@@ -22,6 +23,27 @@ const host: RemoteHost = {
   kind: "remote",
   endpoint: "studio-box",
   capabilities: ["terminal"],
+};
+
+const commandCenterInstallationId =
+  Schema.decodeUnknownSync(InstallationId)("cc-installation");
+const configuredDeployOptions = {
+  commandCenterInstallationId,
+  commandCenterRef: "local",
+  appVersion: "0.1.0",
+  browserTrust: {
+    version: 1 as const,
+    generation: 1,
+    keyId: "ed25519-command-center",
+    originStationId: commandCenterInstallationId,
+    status: "active" as const,
+    publicKeySpki: Buffer.from(
+      "bounded-public-key-material",
+      "utf8",
+    ).toString("base64"),
+    replacesKeyId: null,
+    updatedAt: 1_774_780_400_000,
+  },
 };
 
 type Ssh = Parameters<
@@ -343,33 +365,27 @@ describe("Remote deployment dispatcher", () => {
     expect(darwin.deploy).not.toHaveBeenCalled();
   });
 
-  it("gates configured-deploy settings mutation on target admission", async () => {
+  it("gates configured deploy and Station API mutation on target admission", async () => {
     const darwin = makeProvider("darwin");
     const dispatcher = makeRemoteDeploymentDispatcher({
       commandCenterPlatform: "darwin",
       providers: [darwin],
     });
-    const capture = vi.fn(() => Effect.die("capture must not run"));
-    const stamp = vi.fn(() => Effect.die("stamp must not run"));
-    const restore = vi.fn(() => Effect.die("restore must not run"));
-    const deploy = vi.fn(() => Effect.die("legacy deploy must not run"));
+    const configure = vi.fn(() => Effect.die("configure must not run"));
     const deployPrepared = vi.fn(() =>
       Effect.die("prepared deploy must not run"),
     );
     const operations: ConfiguredRemoteDeployOperations = {
       prepare: dispatcher.prepare,
       deployPrepared,
-      capture,
-      stamp,
-      restore,
-      deploy,
+      configure,
     };
 
     const result = await Effect.runPromise(
       deployConfiguredRemoteHost(
         makeSsh("Linux\n"),
         host,
-        { commandCenterRef: "local" },
+        configuredDeployOptions,
         operations,
       ),
     );
@@ -383,10 +399,7 @@ describe("Remote deployment dispatcher", () => {
       disposition: "not-started",
       unsupportedTarget: { platform: "linux" },
     });
-    expect(capture).not.toHaveBeenCalled();
-    expect(stamp).not.toHaveBeenCalled();
-    expect(restore).not.toHaveBeenCalled();
-    expect(deploy).not.toHaveBeenCalled();
+    expect(configure).not.toHaveBeenCalled();
     expect(deployPrepared).not.toHaveBeenCalled();
     expect(darwin.deploy).not.toHaveBeenCalled();
   });

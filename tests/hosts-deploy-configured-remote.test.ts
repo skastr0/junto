@@ -1,16 +1,39 @@
-import { Effect, Fiber } from "effect";
+import { readFileSync } from "node:fs";
+import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
+import { InstallationId } from "../src/shared/station-api";
+import type { StationBrowserPinnedTrustRecord } from "../src/shared/station-browser";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import { remoteStationSettingsFromScratch } from "../src/shared/remote-station-config";
+import { RemoteHostsError } from "../src/shared/remote-hosts";
+import type { ConfigureRemoteOptions } from "../src/main/vellum/hosts/configure-remote";
 import {
   deployConfiguredRemoteHost,
   type ConfiguredRemoteDeployOperations,
 } from "../src/main/vellum/hosts/deploy-configured-remote";
-import {
-  captureRemoteSettingsSnapshot,
-  restoreRemoteSettingsSnapshot,
-  stampRemoteSettingsSnapshot,
-} from "../src/main/vellum/hosts/remote-settings-transaction";
+
+const installationId = Schema.decodeUnknownSync(InstallationId);
+const commandCenterInstallationId = installationId("cc-installation");
+
+const browserTrust: StationBrowserPinnedTrustRecord = {
+  version: 1,
+  generation: 1,
+  keyId: "ed25519-command-center",
+  originStationId: commandCenterInstallationId,
+  status: "active",
+  publicKeySpki: Buffer.from(
+    "bounded-public-key-material",
+    "utf8",
+  ).toString("base64"),
+  replacesKeyId: null,
+  updatedAt: 1_774_780_400_000,
+};
+
+const options: ConfigureRemoteOptions = {
+  commandCenterInstallationId,
+  commandCenterRef: "local",
+  appVersion: "0.1.0",
+  browserTrust,
+};
 
 const host: RemoteHost = {
   id: "studio",
@@ -18,249 +41,178 @@ const host: RemoteHost = {
   label: "Studio",
   kind: "remote",
   endpoint: "studio-box",
-  capabilities: ["herdr", "hermes"],
+  capabilities: ["herdr", "hermes", "browser"],
 };
 
 type Ssh = Parameters<typeof deployConfiguredRemoteHost>[0];
+const unusedSsh = {} as Ssh;
 
-const presentSnapshot = (body: string, mode = "600"): string => {
-  const bytes = Buffer.from(body, "utf8");
-  return `PRESENT ${mode} ${bytes.byteLength}\n${bytes.toString("base64")}\n`;
-};
+const target = {
+  host: host as RemoteHost & {
+    readonly kind: "remote";
+    readonly endpoint: string;
+  },
+  endpoint: "studio-box",
+  platform: { platform: "darwin", kernelName: "Darwin" },
+  progress: ["target admitted"],
+} as const;
 
-const configuredSettingsBody = `${JSON.stringify(
-  remoteStationSettingsFromScratch({
-    remoteHostId: "studio",
+const successfulConfiguration = {
+  ok: true,
+  detail: "configured through Station API",
+  stationInstallationId: installationId("station-installation"),
+  configuredAt: "2026-07-27T12:00:02.000Z",
+  station: {
+    role: "remote" as const,
+    hostId: "studio",
     agentHostId: "fleet-studio",
     commandCenterRef: "local",
-  }),
-  null,
-  2,
-)}\n`;
-
-const makeSsh = (
-  responses: ReadonlyArray<
-    | { readonly stdout: string }
-    | { readonly error: { readonly _tag: string; readonly [key: string]: unknown } }
-  >,
-): { readonly ssh: Ssh; readonly calls: { count: number } } => {
-  const calls = { count: 0 };
-  const ssh = {
-    run: () => {
-      const response = responses[calls.count];
-      calls.count += 1;
-      if (!response) return Effect.die(new Error("unexpected SSH call"));
-      if ("error" in response) return Effect.fail(response.error as never);
-      return Effect.succeed({ stdout: response.stdout, stderr: "" });
-    },
-  } as unknown as Ssh;
-  return { ssh, calls };
+    supervisedPreferred: true,
+  },
 };
 
-const operations = (input: {
-  readonly deploy: ConfiguredRemoteDeployOperations["deploy"];
-  readonly stamp?: ConfiguredRemoteDeployOperations["stamp"];
-  readonly provisionBrowserTrust?: ConfiguredRemoteDeployOperations["provisionBrowserTrust"];
-}): ConfiguredRemoteDeployOperations => ({
-  capture: captureRemoteSettingsSnapshot,
-  restore: restoreRemoteSettingsSnapshot,
-  stamp: input.stamp ?? stampRemoteSettingsSnapshot,
-  deploy: input.deploy,
-  ...(input.provisionBrowserTrust === undefined
-    ? {}
-    : { provisionBrowserTrust: input.provisionBrowserTrust }),
+const operations = (
+  overrides: Partial<ConfiguredRemoteDeployOperations> = {},
+): ConfiguredRemoteDeployOperations => ({
+  prepare: () => Effect.succeed({ ok: true, target } as never),
+  deployPrepared: () =>
+    Effect.succeed({
+      ok: true,
+      detail: "package ready",
+      stages: ["target admitted", "package installed"],
+      disposition: "ready",
+      version: "0.1.0",
+    }),
+  configure: () => Effect.succeed(successfulConfiguration),
+  ...overrides,
 });
 
-describe("configured Remote deploy transaction", () => {
-  it("provisions browser trust after package and role readiness before publishing ready", async () => {
-    const browserHost: RemoteHost = {
-      ...host,
-      capabilities: ["herdr", "hermes", "browser"],
-    };
-    const { ssh } = makeSsh([
-      { stdout: "/Users/remote\n" },
-      { stdout: "ABSENT\n" },
-      { stdout: "STAMPED\n" },
-      { stdout: "/Users/remote\n" },
-      { stdout: presentSnapshot(configuredSettingsBody) },
-    ]);
+describe("configured Remote deploy", () => {
+  it("contains no remote settings, seal, snapshot, or trust side lane", () => {
+    const source = readFileSync(
+      new URL(
+        "../src/main/vellum/hosts/deploy-configured-remote.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(source).not.toMatch(
+      /settings\.json|topology\.(?:key|seal)|captureRemote|restoreRemote|provisionBrowserTrust/u,
+    );
+  });
+
+  it("installs the package before the one Station API configuration", async () => {
     const sequence: string[] = [];
-    const deploy = vi.fn(() =>
+    const deployPrepared = vi.fn((_ssh, _target, stationConfiguration) =>
       Effect.sync(() => {
         sequence.push("package");
+        expect(stationConfiguration).toEqual({
+          state: "applied",
+          remoteHostId: "studio",
+          commandCenterRef: "local",
+        });
         return {
           ok: true,
-          detail: "station ready",
+          detail: "package ready",
           stages: ["ready"],
           disposition: "ready" as const,
           version: "0.1.0",
         };
       }),
     );
-    const provisionBrowserTrust = vi.fn(() =>
+    const configure = vi.fn((_ssh, _host, received) =>
       Effect.sync(() => {
-        sequence.push("browser-trust");
-        return {
-          version: 1 as const,
-          ok: true as const,
-          keyId: `ed25519-${"a".repeat(24)}`,
-          generation: 1,
-          status: "active" as const,
-        };
+        sequence.push("configure");
+        expect(received.browserTrust).toEqual(browserTrust);
+        return successfulConfiguration;
       }),
     );
 
     const result = await Effect.runPromise(
       deployConfiguredRemoteHost(
-        ssh,
-        browserHost,
-        { commandCenterRef: "local" },
-        operations({ deploy, provisionBrowserTrust }),
+        unusedSsh,
+        host,
+        options,
+        operations({ deployPrepared, configure }),
       ),
     );
 
-    expect(sequence).toEqual(["package", "browser-trust"]);
-    expect(provisionBrowserTrust).toHaveBeenCalledWith(
-      ssh,
-      browserHost,
-      "local",
-    );
+    expect(sequence).toEqual(["package", "configure"]);
     expect(result).toMatchObject({
       ok: true,
       outcome: "ready",
       packageState: "present",
       role: "remote",
+      rollback: "not-required",
+      station: successfulConfiguration.station,
     });
   });
 
-  it("keeps the installed package and returns exact recovery when browser trust is unproven", async () => {
-    const browserHost: RemoteHost = {
-      ...host,
-      capabilities: ["herdr", "hermes", "browser"],
-    };
-    const { ssh } = makeSsh([
-      { stdout: "/Users/remote\n" },
-      { stdout: "ABSENT\n" },
-      { stdout: "STAMPED\n" },
-      { stdout: "/Users/remote\n" },
-      { stdout: presentSnapshot(configuredSettingsBody) },
-    ]);
-
+  it("stops before package and configuration when target admission fails", async () => {
+    const deployPrepared = vi.fn(() =>
+      Effect.die("package must not run"),
+    );
+    const configure = vi.fn(() =>
+      Effect.die("configure must not run"),
+    );
     const result = await Effect.runPromise(
       deployConfiguredRemoteHost(
-        ssh,
-        browserHost,
-        { commandCenterRef: "local" },
+        unusedSsh,
+        host,
+        options,
         operations({
-          deploy: () =>
+          prepare: () =>
             Effect.succeed({
-              ok: true,
-              detail: "station ready",
-              stages: ["ready"],
-              disposition: "ready" as const,
-              version: "0.1.0",
+              ok: false,
+              result: {
+                ok: false,
+                detail: "unsupported target",
+                code: "validation",
+                stages: ["target refused"],
+                disposition: "not-started",
+              },
             }),
-          provisionBrowserTrust: () =>
-            Effect.fail(new Error("wrapper unavailable")),
+          deployPrepared,
+          configure,
         }),
       ),
     );
 
     expect(result).toMatchObject({
       ok: false,
-      code: "conflict",
-      disposition: "indeterminate",
-      outcome: "indeterminate",
-      packageState: "present",
-      role: "remote",
-      recoveryAction: { kind: "provision-station-browser-trust" },
+      outcome: "failed",
+      packageState: "previous",
+      role: "previous",
+      disposition: "not-started",
     });
-    expect(result.detail).toMatch(/browser trust was not proven/u);
+    expect(deployPrepared).not.toHaveBeenCalled();
+    expect(configure).not.toHaveBeenCalled();
   });
 
-  it("CAS-stamps before launch and gates readiness on a final exact snapshot", async () => {
-    const { ssh, calls } = makeSsh([
-      { stdout: "/Users/remote\n" },
-      { stdout: "ABSENT\n" },
-      { stdout: "STAMPED\n" },
-      { stdout: "/Users/remote\n" },
-      { stdout: presentSnapshot(configuredSettingsBody) },
-    ]);
-    const stamp = vi.fn(stampRemoteSettingsSnapshot);
-    const deploy = vi.fn(() =>
-      Effect.succeed({
-        ok: true,
-        detail: "station ready",
-        stages: ["ready"],
-        disposition: "ready" as const,
-        version: "0.1.0",
-      }),
+  it("does not configure when package readiness is not proven", async () => {
+    const configure = vi.fn(() =>
+      Effect.die("configure must not run"),
     );
-
     const result = await Effect.runPromise(
       deployConfiguredRemoteHost(
-        ssh,
+        unusedSsh,
         host,
-        { commandCenterRef: "local" },
-        operations({ stamp, deploy }),
-      ),
-    );
-
-    expect(stamp).toHaveBeenCalledWith(
-      ssh,
-      host,
-      expect.any(Object),
-      expect.objectContaining({
-        remoteHostId: "studio",
-        agentHostId: "fleet-studio",
-        commandCenterRef: "local",
-        supervisedPreferred: true,
-      }),
-    );
-    expect(deploy).toHaveBeenCalledOnce();
-    expect(calls.count).toBe(5);
-    expect(result).toMatchObject({
-      ok: true,
-      hostEndpoint: "studio-box",
-      outcome: "ready",
-      packageState: "present",
-      role: "remote",
-      version: "0.1.0",
-      rollback: "not-required",
-      configuration: { ok: true },
-    });
-    expect(result.lastSeen).toMatch(/^\d{4}-\d{2}-\d{2}T/u);
-  });
-
-  it("restores the exact previous settings after a proven package rollback", async () => {
-    const previousBody = '{"station":{"role":"command-center"}}\n';
-    const { ssh, calls } = makeSsh([
-      { stdout: "/Users/remote\n" },
-      { stdout: presentSnapshot(previousBody, "640") },
-      { stdout: "STAMPED\n" },
-      { stdout: "RESTORED\n" },
-    ]);
-
-    const result = await Effect.runPromise(
-      deployConfiguredRemoteHost(
-        ssh,
-        host,
-        { commandCenterRef: "local" },
+        options,
         operations({
-          deploy: () =>
+          deployPrepared: () =>
             Effect.succeed({
               ok: false,
-              detail: "new generation failed; app rollback proven",
-              code: "io" as const,
-              stages: ["transfer"],
-              disposition: "rolled-back" as const,
-              version: "0.1.0",
+              detail: "package rolled back",
+              code: "io",
+              stages: ["rollback"],
+              disposition: "rolled-back",
             }),
+          configure,
         }),
       ),
     );
 
-    expect(calls.count).toBe(4);
     expect(result).toMatchObject({
       ok: false,
       outcome: "rolled-back",
@@ -268,239 +220,64 @@ describe("configured Remote deploy transaction", () => {
       role: "previous",
       rollback: "restored",
     });
-    expect(result.version).toBeUndefined();
-    expect(result.detail).toMatch(/prior Remote settings restored/u);
+    expect(configure).not.toHaveBeenCalled();
   });
 
-  it("returns indeterminate when conditional settings compensation is refused", async () => {
-    const { ssh } = makeSsh([
-      { stdout: "/Users/remote\n" },
-      { stdout: "ABSENT\n" },
-      { stdout: "STAMPED\n" },
-      {
-        error: {
-          _tag: "SshExitError",
-          endpoint: "studio-box",
-          operation: "settings-rollback",
-          code: 24,
-        },
-      },
-    ]);
-
+  it("keeps a ready package and reports indeterminate when API configuration fails", async () => {
     const result = await Effect.runPromise(
       deployConfiguredRemoteHost(
-        ssh,
+        unusedSsh,
         host,
-        { commandCenterRef: "local" },
+        options,
         operations({
-          deploy: () =>
-            Effect.succeed({
-              ok: false,
-              detail: "launch failed",
-              code: "io" as const,
-              stages: [],
-              disposition: "rolled-back" as const,
-            }),
+          configure: () =>
+            Effect.fail(
+              new RemoteHostsError(
+                "io",
+                "Station control socket unavailable",
+              ),
+            ),
         }),
       ),
     );
 
     expect(result).toMatchObject({
       ok: false,
+      code: "io",
+      disposition: "indeterminate",
       outcome: "indeterminate",
-      packageState: "previous",
+      packageState: "present",
       role: "unknown",
-      rollback: "failed",
-      code: "conflict",
-    });
-    expect(result.detail).toMatch(/Inspect the host before retrying/u);
-  });
-
-  it("does not launch or overwrite when the settings preimage changes before stamp", async () => {
-    const { ssh, calls } = makeSsh([
-      { stdout: "/Users/remote\n" },
-      { stdout: "ABSENT\n" },
-      {
-        error: {
-          _tag: "SshExitError",
-          endpoint: "studio-box",
-          operation: "settings-stamp",
-          code: 34,
-        },
+      rollback: "not-required",
+      configuration: {
+        ok: false,
+        detail: "Station control socket unavailable",
       },
-      { stdout: "/Users/remote\n" },
-      { stdout: presentSnapshot('{"external":"edit"}\n') },
-    ]);
-    const deploy = vi.fn(() =>
-      Effect.succeed({ ok: true, detail: "should not run", stages: [] }),
-    );
-
-    const result = await Effect.runPromise(
-      deployConfiguredRemoteHost(
-        ssh,
-        host,
-        { commandCenterRef: "local" },
-        operations({ deploy }),
-      ),
-    );
-
-    expect(deploy).not.toHaveBeenCalled();
-    expect(calls.count).toBe(5);
-    expect(result).toMatchObject({
-      ok: false,
-      outcome: "indeterminate",
-      packageState: "previous",
-      role: "unknown",
-      rollback: "failed",
-      code: "conflict",
     });
   });
 
-  it("retains the stamp when a returned result cannot prove package rollback", async () => {
-    const { ssh, calls } = makeSsh([
-      { stdout: "/Users/remote\n" },
-      { stdout: "ABSENT\n" },
-      { stdout: "STAMPED\n" },
-    ]);
-    const restore = vi.fn(restoreRemoteSettingsSnapshot);
-
+  it("rejects non-remote targets before running operations", async () => {
+    const prepare = vi.fn(() => Effect.die("prepare must not run"));
     const result = await Effect.runPromise(
       deployConfiguredRemoteHost(
-        ssh,
-        host,
-        { commandCenterRef: "local" },
+        unusedSsh,
         {
-          ...operations({
-            deploy: () =>
-              Effect.succeed({
-                ok: false,
-                detail: "SSH disconnected during activation",
-                code: "io" as const,
-                stages: [],
-                disposition: "indeterminate" as const,
-              }),
-          }),
-          restore,
+          id: "local",
+          label: "Local",
+          kind: "local",
+          capabilities: ["terminal"],
         },
+        options,
+        operations({ prepare }),
       ),
     );
 
-    expect(restore).not.toHaveBeenCalled();
-    expect(calls.count).toBe(3);
     expect(result).toMatchObject({
       ok: false,
-      outcome: "indeterminate",
-      packageState: "unknown",
-      rollback: "not-required",
-      role: "unknown",
+      code: "validation",
+      outcome: "failed",
+      packageState: "previous",
     });
-    expect(result.detail).toMatch(/Remote stamp was retained/u);
-  });
-
-  it("does not restore settings around a committed package with an uncleared deploy lock", async () => {
-    const { ssh, calls } = makeSsh([
-      { stdout: "/Users/remote\n" },
-      { stdout: "ABSENT\n" },
-      { stdout: "STAMPED\n" },
-      { stdout: "/Users/remote\n" },
-      { stdout: presentSnapshot(configuredSettingsBody) },
-    ]);
-
-    const result = await Effect.runPromise(
-      deployConfiguredRemoteHost(
-        ssh,
-        host,
-        { commandCenterRef: "local" },
-        operations({
-          deploy: () =>
-            Effect.succeed({
-              ok: false,
-              detail: "station ready; deploy lock release failed",
-              code: "io" as const,
-              stages: [],
-              disposition: "ready" as const,
-              version: "0.1.0",
-            }),
-        }),
-      ),
-    );
-
-    expect(calls.count).toBe(5);
-    expect(result).toMatchObject({
-      outcome: "indeterminate",
-      packageState: "present",
-      role: "remote",
-      rollback: "not-required",
-      version: "0.1.0",
-    });
-  });
-
-  it("withholds ready when settings change after package commit", async () => {
-    const { ssh } = makeSsh([
-      { stdout: "/Users/remote\n" },
-      { stdout: "ABSENT\n" },
-      { stdout: "STAMPED\n" },
-      { stdout: "/Users/remote\n" },
-      { stdout: presentSnapshot('{"external":"edit"}\n') },
-    ]);
-
-    const result = await Effect.runPromise(
-      deployConfiguredRemoteHost(
-        ssh,
-        host,
-        { commandCenterRef: "local" },
-        operations({
-          deploy: () =>
-            Effect.succeed({
-              ok: true,
-              detail: "station ready",
-              stages: [],
-              disposition: "ready" as const,
-              version: "0.1.0",
-            }),
-        }),
-      ),
-    );
-
-    expect(result).toMatchObject({
-      outcome: "indeterminate",
-      packageState: "present",
-      role: "unknown",
-      rollback: "not-required",
-      version: "0.1.0",
-    });
-  });
-
-  it("retains the stamp when the package commits before the deploy receipt returns", async () => {
-    const { ssh, calls } = makeSsh([
-      { stdout: "/Users/remote\n" },
-      { stdout: "ABSENT\n" },
-      { stdout: "STAMPED\n" },
-    ]);
-    let signalRemoteCommitted: (() => void) | undefined;
-    const remoteCommitted = new Promise<void>((resolve) => {
-      signalRemoteCommitted = resolve;
-    });
-    const deploy = () =>
-      Effect.sync(() => signalRemoteCommitted?.()).pipe(
-        // Models the remote script crossing commit_deploy, followed by a lost
-        // or interrupted SSH readiness receipt.
-        Effect.zipRight(Effect.never),
-      );
-    const restore = vi.fn(restoreRemoteSettingsSnapshot);
-
-    const fiber = Effect.runFork(
-      deployConfiguredRemoteHost(
-        ssh,
-        host,
-        { commandCenterRef: "local" },
-        { ...operations({ deploy }), restore },
-      ),
-    );
-    await remoteCommitted;
-    await Effect.runPromise(Fiber.interrupt(fiber));
-
-    expect(restore).not.toHaveBeenCalled();
-    expect(calls.count).toBe(3);
+    expect(prepare).not.toHaveBeenCalled();
   });
 });
