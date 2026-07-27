@@ -1,59 +1,163 @@
-import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
-import { serializeCanvas } from "../../src/shared/canvas";
-import { canvasDoc, readCanvasFile, textNode, writeCanvasFileRaw } from "../harness/sandbox";
+import { access, readdir } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  canvasDoc,
+  taskItem,
+  tasksNode,
+  textNode,
+} from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
-
-// App-owned UI edits must land on disk. External raw file edits must NOT mint
-// live factory intent (security doctrine Phase 3 first cut).
 
 const ORIGINAL_TEXT = "roundtrip original";
 const UI_EDITED_TEXT = "roundtrip edited via UI";
-const EXTERNAL_NODE_TEXT = "written by an external agent";
+const IPC_ADDED_TEXT = "created through the product IPC";
+const SEEDED_TASK_ID = "sqlite-seed-task";
 
 test.use({
   vellumOptions: {
     seedCanvases: {
-      roundtrip: canvasDoc([textNode("n1", ORIGINAL_TEXT, 0, 0)]),
+      roundtrip: canvasDoc([
+        textNode("n1", ORIGINAL_TEXT, 0, 0),
+        tasksNode({
+          id: "seeded-work",
+          x: 0,
+          y: 200,
+          items: [taskItem(SEEDED_TASK_ID, "seeded through WorkRepository")],
+        }),
+      ]),
     },
   },
 });
 
-test("UI edit -> file: editing note text in the inspector lands on disk", async ({ vellum }) => {
+const exists = async (path: string): Promise<boolean> =>
+  access(path).then(
+    () => true,
+    () => false,
+  );
+
+const expectNoFileAuthority = async (input: {
+  readonly root: string;
+  readonly homeDir: string;
+  readonly canvasesDir: string;
+}): Promise<void> => {
+  const canvasEntries = await readdir(input.canvasesDir, {
+    withFileTypes: true,
+  });
+  const unsupportedEntries = canvasEntries
+    .filter(
+      (entry) =>
+        !entry.isFile() ||
+        (!entry.name.endsWith(".digest.txt") && !entry.name.endsWith(".svg")),
+    )
+    .map((entry) => entry.name);
+  expect(unsupportedEntries).toEqual([]);
+
+  const retiredAuthorityPaths = [
+    join(input.canvasesDir, "roundtrip.canvas"),
+    join(input.root, "canvas-authority-v1"),
+    join(input.homeDir, ".vellum", "state", "canvas-authority-v1"),
+    join(input.homeDir, ".vellum", "state", "current.json"),
+  ];
+  for (const retiredPath of retiredAuthorityPaths) {
+    expect(await exists(retiredPath), retiredPath).toBe(false);
+  }
+};
+
+test("operator UI write round-trips through main IPC and survives renderer reload", async ({
+  vellum,
+}) => {
   const { page, sandbox } = vellum;
 
   const node = page.locator(".react-flow__node", { hasText: ORIGINAL_TEXT });
   await expect(node).toBeVisible({ timeout: 30_000 });
   await node.click();
+  await node.getByRole("button", { name: "Edit item" }).first().click();
 
-  const textarea = page.getByLabel("Note text");
+  const textarea = page.getByLabel("Edit note");
   await expect(textarea).toBeVisible();
   await textarea.fill(UI_EDITED_TEXT);
   await textarea.blur();
 
-  await expect(async () => {
-    const doc = await readCanvasFile(sandbox, "roundtrip");
-    const written = doc.nodes.find((n): n is TextNode => n.id === "n1" && n.type === "text");
-    expect(written?.text).toBe(UI_EDITED_TEXT);
-  }).toPass({ timeout: 10_000 });
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async (name) => {
+          const api = window.vellum;
+          if (!api) throw new Error("Vellum preload bridge is unavailable");
+          const result = await api.readCanvas(name);
+          const written = result.doc.nodes.find(
+            (candidate) => candidate.id === "n1",
+          );
+          return written?.type === "text" ? written.text : undefined;
+        }, "roundtrip"),
+      { timeout: 10_000 },
+    )
+    .toBe(UI_EDITED_TEXT);
+
+  await page.reload();
+  await expect(
+    page.locator(".react-flow__node", { hasText: UI_EDITED_TEXT }),
+  ).toBeVisible({ timeout: 30_000 });
+
+  await expectNoFileAuthority(sandbox);
 });
 
-test("external file edit does not hot-reload into live factory intent", async ({
+test("canvas list/read/write product paths never materialize a file authority", async ({
   vellum,
 }) => {
   const { page, sandbox } = vellum;
 
-  const original = page.locator(".react-flow__node", { hasText: ORIGINAL_TEXT });
-  await expect(original).toBeVisible({ timeout: 30_000 });
+  const result = await page.evaluate(
+    async ({ name, addedText }) => {
+      const api = window.vellum;
+      if (!api) throw new Error("Vellum preload bridge is unavailable");
 
-  const externalDoc: CanvasDoc = canvasDoc([
-    textNode("n1", ORIGINAL_TEXT, 0, 0),
-    textNode("n2", EXTERNAL_NODE_TEXT, 400, 0),
-  ]);
-  await writeCanvasFileRaw(sandbox, "roundtrip", serializeCanvas(externalDoc));
+      const before = await api.readCanvas(name);
+      const next = {
+        ...before.doc,
+        nodes: [
+          ...before.doc.nodes,
+          {
+            id: "n2",
+            type: "text" as const,
+            text: addedText,
+            x: 400,
+            y: 0,
+            width: 240,
+            height: 120,
+          },
+        ],
+      };
+      const write = await api.writeCanvas(name, next, before.revision);
+      const [after, listed] = await Promise.all([
+        api.readCanvas(name),
+        api.listCanvases(),
+      ]);
+      const seededTask = after.doc.nodes
+        .find((node) => node.id === "seeded-work")
+        ?.ether?.tasks?.items.find((task) => task.id === "sqlite-seed-task");
+      return {
+        beforeRevision: before.revision,
+        writeRevision: write.revision,
+        afterRevision: after.revision,
+        nodeTexts: after.doc.nodes.flatMap((node) =>
+          node.type === "text" ? [node.text] : [],
+        ),
+        listedNames: listed.map((canvas) => canvas.name),
+        seededTaskState: seededTask?.state,
+      };
+    },
+    { name: "roundtrip", addedText: IPC_ADDED_TEXT },
+  );
 
-  // Wait past the historical watch debounce; live UI must stay on app intent.
-  await page.waitForTimeout(700);
-  const added = page.locator(".react-flow__node", { hasText: EXTERNAL_NODE_TEXT });
-  await expect(added).toHaveCount(0);
-  await expect(original).toBeVisible();
+  expect(result.writeRevision).not.toBe(result.beforeRevision);
+  expect(result.afterRevision).toBe(result.writeRevision);
+  expect(result.nodeTexts).toContain(IPC_ADDED_TEXT);
+  expect(result.listedNames).toContain("roundtrip");
+  expect(result.seededTaskState).toBe("submitted");
+  await expect(
+    page.locator(".react-flow__node", { hasText: IPC_ADDED_TEXT }),
+  ).toBeVisible({ timeout: 10_000 });
+
+  await expectNoFileAuthority(sandbox);
 });

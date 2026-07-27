@@ -1,12 +1,13 @@
 /**
  * Per-test sandbox: a throwaway temp root holding the Electron user-data
- * dir, the VELLUM_CANVASES_DIR, and a sandboxed HOME — plus fixture canvas
- * builders/writers/readers. Nothing here ever reads or writes the operator's
- * real ~/.vellum or userData; every path lives under os.tmpdir().
+ * dir, the agent-facing canvases directory, and a sandboxed HOME — plus
+ * fixture builders. Nothing here ever reads or writes the operator's real
+ * ~/.vellum or userData; every path lives under os.tmpdir().
  */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import type {
   Task,
   Artifact,
@@ -15,11 +16,19 @@ import type {
   CanvasNode,
   TextNode,
 } from "../../src/shared/canvas";
-import { serializeCanvas } from "../../src/shared/canvas";
 import {
-  commitAuthorityGeneration,
-  loadAuthoritySnapshot,
-} from "../../src/main/vellum/canvas-authority/store";
+  CanvasesLive,
+  CanvasesService,
+} from "../../src/main/vellum/canvases";
+import {
+  makeStateEngineLive,
+} from "../../src/main/vellum/state/engine";
+import { resolveNodeHostId } from "../../src/shared/station";
+import {
+  stripWorkProjection,
+  WorkRepository,
+  WorkRepositoryLive,
+} from "../../src/main/vellum/work/repository";
 
 export interface Sandbox {
   readonly root: string;
@@ -31,14 +40,21 @@ export interface Sandbox {
 export const createSandbox = async (): Promise<Sandbox> => {
   const root = await mkdtemp(join(tmpdir(), "vellum-e2e-"));
   const userDataDir = join(root, "user-data");
-  const canvasesDir = join(root, "canvases");
   const homeDir = join(root, "home");
+  const vellumDir = join(homeDir, ".vellum");
+  const canvasesDir = join(vellumDir, "canvases");
+  const stateDir = join(vellumDir, "state");
   await Promise.all([
     mkdir(userDataDir, { recursive: true }),
     mkdir(canvasesDir, { recursive: true }),
-    mkdir(homeDir, { recursive: true }),
+    mkdir(stateDir, { recursive: true }),
   ]);
-  return { root, userDataDir, canvasesDir, homeDir };
+  return {
+    root,
+    userDataDir,
+    canvasesDir,
+    homeDir,
+  };
 };
 
 /** Best-effort recursive removal — never throws (temp cleanup is not load-bearing). */
@@ -46,44 +62,68 @@ export const destroySandbox = async (sandbox: Sandbox): Promise<void> => {
   await rm(sandbox.root, { recursive: true, force: true }).catch(() => undefined);
 };
 
-const canvasPath = (sandbox: Sandbox, name: string): string => join(sandbox.canvasesDir, `${name}.canvas`);
+const hasSeedWork = (node: CanvasNode): boolean => {
+  const ether = node.ether;
+  return (
+    (ether?.tasks?.items.length ?? 0) > 0 ||
+    (ether?.requests?.items.length ?? 0) > 0 ||
+    (ether?.messages?.items.length ?? 0) > 0 ||
+    (ether?.artifacts?.items.length ?? 0) > 0
+  );
+};
 
+/**
+ * Seed through the same scoped Effect services used by Electron, then close
+ * the SQLite owner before Electron starts. Fixture work containers are split
+ * into WorkRepository rows; no `.canvas`, manifest, pointer, or seal is ever
+ * created as an alternate authority.
+ */
 export const writeFixtureCanvas = async (
   sandbox: Sandbox,
   name: string,
   doc: CanvasDoc,
 ): Promise<void> => {
-  const serialized = serializeCanvas(doc);
-  // Seed the same sole durable authority store the app reads. The .canvas
-  // file remains an agent-facing projection only.
-  const authorityRoot = join(sandbox.root, "canvas-authority-v1");
-  const current = await loadAuthoritySnapshot(authorityRoot);
-  const documents = new Map(current?.documents ?? []);
-  documents.set(name, new TextEncoder().encode(serialized));
-  const generation = (BigInt(current?.pointer.generation ?? "0") + 1n).toString();
-  await commitAuthorityGeneration(
-    {
-      generation,
-      createdAt: new Date().toISOString(),
-      documents,
-    },
-    authorityRoot,
+  const previousCanvasesDir = process.env.VELLUM_CANVASES_DIR;
+  process.env.VELLUM_CANVASES_DIR = sandbox.canvasesDir;
+
+  const state = makeStateEngineLive(
+    join(sandbox.homeDir, ".vellum", "state", "vellum.db"),
   );
-  await writeFile(canvasPath(sandbox, name), serialized, "utf8");
-};
+  const repositories = Layer.provideMerge(WorkRepositoryLive, state);
+  const canvases = Layer.provideMerge(CanvasesLive, repositories);
+  const runtime = ManagedRuntime.make(canvases);
 
-/** Raw file replace — simulate an external process editing the .canvas file
- * outside app-owned write APIs (must not mint live factory intent). */
-export const writeCanvasFileRaw = async (
-  sandbox: Sandbox,
-  name: string,
-  contents: string,
-): Promise<void> => {
-  await writeFile(canvasPath(sandbox, name), contents, "utf8");
-};
+  try {
+    const [canvasService, workRepository] = await runtime.runPromise(
+      Effect.all([CanvasesService, WorkRepository]),
+    );
+    const authoredDoc = stripWorkProjection(doc);
+    await runtime.runPromise(canvasService.write(name, authoredDoc));
 
-export const readCanvasFile = async (sandbox: Sandbox, name: string): Promise<CanvasDoc> =>
-  JSON.parse(await readFile(canvasPath(sandbox, name), "utf8")) as CanvasDoc;
+    for (const node of doc.nodes.filter(hasSeedWork)) {
+      await runtime.runPromise(
+        workRepository.mutate({
+          canvasName: name,
+          nodeId: node.id,
+          entityHome: resolveNodeHostId(node),
+          operation: "e2e.seed",
+          authoredDoc,
+          transform: () => ({ doc, value: undefined }),
+        }),
+      );
+    }
+  } finally {
+    try {
+      await runtime.dispose();
+    } finally {
+      if (previousCanvasesDir === undefined) {
+        delete process.env.VELLUM_CANVASES_DIR;
+      } else {
+        process.env.VELLUM_CANVASES_DIR = previousCanvasesDir;
+      }
+    }
+  }
+};
 
 // --- fixture builders --------------------------------------------------------
 
