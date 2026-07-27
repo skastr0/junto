@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Effect } from "effect";
+import { Context, Effect, ManagedRuntime } from "effect";
 import { warmPoolEvictions } from "../src/shared/browser";
 import {
   BROWSER_CAPTURE_TIMEOUT_MS,
@@ -30,6 +30,8 @@ import {
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
 } from "../src/main/vellum/browser/profiles";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { StateEngine } from "../src/main/vellum/state/service";
 import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
 import {
   BrowserOwnerSessionTeardownFailure,
@@ -216,22 +218,42 @@ describe("BrowserSessionService", () => {
   let root: string;
   let clock: number;
   let idCounter: number;
+  let stateRuntime:
+    | ManagedRuntime.ManagedRuntime<StateEngine, unknown>
+    | undefined;
+  let state:
+    | Context.Tag.Service<typeof StateEngine>
+    | undefined;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-browser-sessions-"));
+    stateRuntime = ManagedRuntime.make(
+      makeStateEngineLive(join(root, "vellum.db")),
+    );
+    state = await stateRuntime.runPromise(StateEngine);
     clock = 0;
     idCounter = 0;
   });
 
   afterEach(async () => {
+    await stateRuntime?.dispose();
+    stateRuntime = undefined;
+    state = undefined;
     await rm(root, { recursive: true, force: true });
   });
+
+  const makeProfileService = (): BrowserProfileServiceApi => {
+    if (state === undefined) {
+      throw new Error("test StateEngine is not initialized");
+    }
+    return makeBrowserProfileService(state, root);
+  };
 
   const makeService = (adapter: BrowserViewAdapter) => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
     );
@@ -243,7 +265,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
     );
@@ -274,7 +296,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => candidates.shift() ?? "valid-fallback",
     );
@@ -311,7 +333,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       hostAuthority,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -342,7 +364,7 @@ describe("BrowserSessionService", () => {
         findHost: (hostId) => hostId === remote.id ? remote : undefined,
         station: () => ({ hostId: remote.id, role: "command-center" }),
       },
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
     );
@@ -357,20 +379,21 @@ describe("BrowserSessionService", () => {
   it("rechecks host capability and the canvas target immediately before adapter creation", async () => {
     const { adapter, views } = makeSpyAdapter();
     let browserDeclared = true;
-    const local = (): RemoteHost => ({
-      id: "local",
-      label: "local",
-      kind: "local",
+    const stationed = (): RemoteHost => ({
+      id: "studio",
+      label: "studio",
+      kind: "remote",
+      endpoint: "studio",
       capabilities: browserDeclared ? ["browser"] : ["terminal"],
     });
     const hostAuthority: BrowserHostCapabilityAuthority = {
-      findHost: (hostId) => hostId === "local" ? local() : undefined,
-      station: () => ({ hostId: "local", role: "command-center" }),
+      findHost: (hostId) => hostId === "studio" ? stationed() : undefined,
+      station: () => ({ hostId: "studio", role: "remote" }),
     };
     const service = new BrowserSessionService(
       adapter,
       hostAuthority,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -378,7 +401,7 @@ describe("BrowserSessionService", () => {
       undefined,
       undefined,
     );
-    const original = target("removed-capability");
+    const original = target("removed-capability", { hostId: "studio" });
 
     expect(await service.open(original, undefined, async () => {
       browserDeclared = false;
@@ -390,10 +413,14 @@ describe("BrowserSessionService", () => {
     expect(views).toHaveLength(0);
 
     browserDeclared = true;
-    expect(await service.open(target("host-changed"), undefined, async () => ({
-      ok: true,
-      data: target("host-changed", { hostId: "studio" }),
-    }))).toMatchObject({
+    expect(await service.open(
+      target("host-changed", { hostId: "studio" }),
+      undefined,
+      async () => ({
+        ok: true,
+        data: target("host-changed", { hostId: "other" }),
+      }),
+    )).toMatchObject({
       ok: false,
       code: "invalid",
     });
@@ -415,7 +442,7 @@ describe("BrowserSessionService", () => {
     const qualified = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       (url) => new URL(url).origin === "http://127.0.0.1:49152",
@@ -669,7 +696,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
     );
@@ -697,7 +724,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
     );
@@ -718,7 +745,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => candidates.shift() ?? `fallback-${++idCounter}`,
       undefined,
@@ -749,7 +776,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -865,7 +892,7 @@ describe("BrowserSessionService", () => {
     const firstService = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       generator,
     );
@@ -873,7 +900,7 @@ describe("BrowserSessionService", () => {
     const restarted = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       generator,
     );
@@ -916,7 +943,7 @@ describe("BrowserSessionService", () => {
         return { ...view, destroy: () => { destroys += 1; } };
       },
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `timeout-session-${++idCounter}`,
     );
@@ -1199,15 +1226,26 @@ describe("BrowserSessionService", () => {
   });
 
   it("rejects powerful operations above the global active ceiling", async () => {
-    const profileService = makeBrowserProfileService(root);
-    const config = await import("node:fs/promises").then(async ({ readFile, writeFile }) => {
-      await Effect.runPromise(profileService.ensureDefaults);
-      const path = join(root, "config.json");
-      const parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
-      parsed.maxWarmSessions = 32;
-      await writeFile(path, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-      return profileService;
-    });
+    const profileService = makeProfileService();
+    await Effect.runPromise(profileService.ensureDefaults);
+    if (state === undefined) {
+      throw new Error("test StateEngine is not initialized");
+    }
+    await Effect.runPromise(
+      state.transaction("test.browser-sessions.pool-limit", (writer) => {
+        writer.run(
+          `
+            UPDATE browser_profile_settings
+            SET max_warm_sessions = ?
+            WHERE singleton = 1
+          `,
+          [32],
+        );
+      }),
+    );
+    expect(
+      (await Effect.runPromise(profileService.readConfig)).maxWarmSessions,
+    ).toBe(32);
     const views: Array<{ events: BrowserViewEvents }> = [];
     const adapter: BrowserViewAdapter = (_partition, events) => {
       const operation = deferred<unknown>();
@@ -1227,7 +1265,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      config,
+      profileService,
       () => ++clock,
       () => `global-session-${++idCounter}`,
     );
@@ -1568,7 +1606,7 @@ describe("BrowserSessionService", () => {
   });
 
   it("invalidates only the matching pending profile within one owner", async () => {
-    const base = makeBrowserProfileService(root);
+    const base = makeProfileService();
     await Effect.runPromise(base.ensureDefaults);
     const gate = new BrowserProfileGate();
     const personalPartition = deferred<string>();
@@ -1641,7 +1679,7 @@ describe("BrowserSessionService", () => {
   });
 
   it("revalidates the profile epoch after a paused touch and before adapter construction", async () => {
-    const base = makeBrowserProfileService(root);
+    const base = makeProfileService();
     await Effect.runPromise(base.ensureDefaults);
     const gate = new BrowserProfileGate();
     const pausedTouch = deferred<void>();
@@ -1680,7 +1718,7 @@ describe("BrowserSessionService", () => {
   });
 
   it("revalidates the profile epoch after a paused pool-limits lookup", async () => {
-    const base = makeBrowserProfileService(root);
+    const base = makeProfileService();
     await Effect.runPromise(base.ensureDefaults);
     const gate = new BrowserProfileGate();
     const pausedLimits = deferred<{
@@ -1721,7 +1759,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -1783,7 +1821,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -1823,7 +1861,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -1850,7 +1888,7 @@ describe("BrowserSessionService", () => {
     const timed = new BrowserSessionService(
       secondAdapter.adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -2045,7 +2083,7 @@ describe("BrowserSessionService", () => {
     service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -2071,7 +2109,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -2117,7 +2155,7 @@ describe("BrowserSessionService", () => {
   });
 
   it("retains and invalidates a delayed automation open before reporting clean", async () => {
-    const base = makeBrowserProfileService(root);
+    const base = makeProfileService();
     await Effect.runPromise(base.ensureDefaults);
     const partition = deferred<string>();
     let partitionReads = 0;
@@ -2180,7 +2218,7 @@ describe("BrowserSessionService", () => {
   });
 
   it("times out unclean while an invalidated automation open remains pending", async () => {
-    const base = makeBrowserProfileService(root);
+    const base = makeProfileService();
     await Effect.runPromise(base.ensureDefaults);
     const partition = deferred<string>();
     let partitionReads = 0;
@@ -2357,7 +2395,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -2386,7 +2424,7 @@ describe("BrowserSessionService", () => {
   });
 
   it("invalidates a delayed UI opener and drains its actual admitted promise", async () => {
-    const base = makeBrowserProfileService(root);
+    const base = makeProfileService();
     await Effect.runPromise(base.ensureDefaults);
     const partition = deferred<string>();
     let partitionReads = 0;
@@ -2426,7 +2464,7 @@ describe("BrowserSessionService", () => {
   });
 
   it("retains a confirmed profile wipe across an unclean bounded drain", async () => {
-    const base = makeBrowserProfileService(root);
+    const base = makeProfileService();
     const wipe = deferred<{ readonly status: "complete" }>();
     let wipeStarts = 0;
     const profiles: BrowserProfileServiceApi = {
@@ -2488,7 +2526,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -2539,7 +2577,7 @@ describe("BrowserSessionService", () => {
     const service = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(root),
+      makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
       undefined,
@@ -2599,7 +2637,7 @@ describe("BrowserSessionService", () => {
   });
 
   it("exposes typed profile-wipe recovery receipts and preserves domain failures", async () => {
-    const base = makeBrowserProfileService(root);
+    const base = makeProfileService();
     let outcome: "complete" | "restart_required" = "complete";
     const profiles: BrowserProfileServiceApi = {
       ...base,
