@@ -13,6 +13,7 @@ import {
   type WorkIds,
 } from "../src/shared/work";
 import {
+  COMMAND_CENTER_WORK_HOME,
   WorkRepository,
   WorkRepositoryLive,
   stationEventFromWorkEvent,
@@ -654,6 +655,7 @@ describe("WorkRepository station replication", () => {
     const ccCanvases = await commandCenter.runPromise(CanvasesService);
     const ccRepository = await commandCenter.runPromise(WorkRepository);
     const ccStations = await commandCenter.runPromise(StationRepository);
+    const remoteWork = await remote.runPromise(WorkService);
     const remoteRepository = await remote.runPromise(WorkRepository);
     const remoteStations = await remote.runPromise(StationRepository);
     const cc = await commandCenter.runPromise(ccStations.installationId);
@@ -765,6 +767,34 @@ describe("WorkRepository station replication", () => {
         }),
       ),
     );
+    const remoteInbox = await remote.runPromise(
+      remoteWork.workMessageAppend("remote-inbox", "agent", null, {
+        messageId: "remote-inbox-message",
+        role: "user",
+        parts: [{ kind: "text", text: "must stay on Command Center" }],
+      }),
+    );
+    expect(remoteInbox).toMatchObject({
+      ok: false,
+      code: "invalid",
+      message: expect.stringContaining(
+        "messages are Command-Center-homed",
+      ),
+    });
+    expect(
+      await remote.runPromise(
+        events(
+          remoteRepository,
+          station,
+          COMMAND_CENTER_WORK_HOME,
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      (await remote.runPromise(
+        remoteRepository.readSnapshot("remote-inbox", "agent"),
+      )).messages.items,
+    ).toEqual([]);
 
     const queued = await commandCenter.runPromise(
       ccWork.workTaskCreate(canvas, node, "explicitly routed"),
