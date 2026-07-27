@@ -268,8 +268,8 @@ export const buildDoctorReport = Effect.gen(function* () {
       registeredHosts._tag === "Right"
         ? Object.fromEntries(
             registeredHosts.right.flatMap((host) =>
-              host.kind === "remote" && host.endpoint
-                ? [[host.id, host.endpoint] as const]
+              host.kind === "remote" && host.sshEndpoint
+                ? [[host.id, host.sshEndpoint] as const]
                 : [],
             ),
           )

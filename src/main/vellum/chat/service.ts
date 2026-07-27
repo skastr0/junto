@@ -67,10 +67,10 @@ const remoteHermesRoutes = (
       .filter(
         (host) =>
           host.kind === "remote" &&
-          host.endpoint !== undefined &&
+          host.sshEndpoint !== undefined &&
           hostHasCapability(host, "hermes"),
       )
-      .map((host) => [hermesKeyFor(host), host.endpoint!] as const),
+      .map((host) => [hermesKeyFor(host), host.sshEndpoint!] as const),
   );
 
 interface OpenInFlight {

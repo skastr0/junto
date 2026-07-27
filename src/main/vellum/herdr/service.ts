@@ -108,7 +108,7 @@ const captureServerRoute = (hostId: string): HerdrServerRoute | undefined => {
   return Object.freeze({
     hostId,
     kind: host.kind,
-    endpoint: host.kind === "remote" ? host.endpoint ?? null : null,
+    endpoint: host.kind === "remote" ? host.sshEndpoint ?? null : null,
   });
 };
 

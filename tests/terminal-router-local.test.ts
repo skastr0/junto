@@ -122,7 +122,7 @@ describe("TerminalRouter local path", () => {
     const router = new TerminalRouter(local);
     setHostsSnapshot([
       ...initialHosts,
-      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio-new", capabilities: ["terminal"] },
+      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio-new", capabilities: ["terminal"] },
     ]);
     const close = vi.fn();
     (router as unknown as { remotes: Map<string, unknown> }).remotes.set("studio", {
@@ -147,15 +147,15 @@ describe("TerminalRouter local path", () => {
     const router = new TerminalRouter(local);
     setHostsSnapshot([
       ...initialHosts,
-      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio-a", capabilities: ["terminal"] },
+      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio-a", capabilities: ["terminal"] },
     ]);
     const gates = new Map<string, () => void>();
     const cleanup: string[] = [];
-    (router as unknown as { connectRemote: (...args: unknown[]) => Promise<never> }).connectRemote = async (
-      _hostId,
-      endpoint,
-      _generation,
-      admit,
+    (router as unknown as { connectRemote: (...args: unknown[]) => Promise<never> }).connectRemote = (async (
+      _hostId: unknown,
+      endpoint: unknown,
+      _generation: unknown,
+      admit: unknown,
     ) => {
       await new Promise<void>((resolve) => gates.set(endpoint as string, resolve));
       if (!(admit as () => boolean)()) {
@@ -163,13 +163,13 @@ describe("TerminalRouter local path", () => {
         throw new Error("connection revoked");
       }
       throw new Error("test connection should not be admitted");
-    };
+    }) as (...args: unknown[]) => Promise<never>;
 
     const creatingA = router.create({ bindingId: "remote-a", hostId: "studio" });
     await Promise.resolve();
     setHostsSnapshot([
       ...initialHosts,
-      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio-b", capabilities: ["terminal"] },
+      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio-b", capabilities: ["terminal"] },
     ]);
     const creatingB = router.create({ bindingId: "remote-b", hostId: "studio" });
     await Promise.resolve();

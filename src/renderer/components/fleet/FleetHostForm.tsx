@@ -72,7 +72,7 @@ export function FleetHostForm({
         id: slugifyHostId(trimmedLabel),
         label: trimmedLabel,
         kind: "remote",
-        endpoint: trimmedEndpoint,
+        sshEndpoint: trimmedEndpoint,
         capabilities: [...capabilities],
       });
       if (result.ok) {

@@ -66,14 +66,14 @@ const resolveRemoteEndpoint = (
     return parseSshEndpoint(route.endpoint);
   }
   const host = findHostById(hostId);
-  if (!host || host.kind !== "remote" || !host.endpoint) {
+  if (!host || host.kind !== "remote" || !host.sshEndpoint) {
     return Effect.fail(
       new SshInputError({
         message: `herdr host ${hostId} is not a configured ssh endpoint`,
       }),
     );
   }
-  return parseSshEndpoint(host.endpoint);
+  return parseSshEndpoint(host.sshEndpoint);
 };
 
 export interface HerdrStreamSpec {

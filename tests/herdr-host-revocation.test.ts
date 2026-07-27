@@ -31,7 +31,7 @@ const remoteHost = (id: string, endpoint: string): RemoteHost => ({
   id,
   label: id,
   kind: "remote",
-  endpoint,
+  sshEndpoint: endpoint,
   capabilities: ["herdr"],
 });
 
@@ -74,7 +74,7 @@ describe("herdr host revocation at the reconciliation choke point", () => {
       calls.length = 0;
 
       setHostsSnapshot(
-        withStudio.map((host) => (host.id === "studio" ? { ...host, endpoint: "studio-b" } : host)),
+        withStudio.map((host) => (host.id === "studio" ? { ...host, sshEndpoint: "studio-b" } : host)),
       );
 
       expect(calls).toEqual(["detach:studio", "release:studio", "teardown:studio-a"]);

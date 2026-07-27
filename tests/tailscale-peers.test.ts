@@ -60,7 +60,7 @@ describe("tailscale-peers match", () => {
 
   it("matches host id remote-a to MagicDNS peer", () => {
     const host = resolveTailscaleHostForQuery(
-      { hostId: "remote-a", endpoint: "remote-a" },
+      { hostId: "remote-a", sshEndpoint: "remote-a" },
       snap,
     );
     expect(host).toBe("remote-a.example.ts.net");
@@ -68,7 +68,7 @@ describe("tailscale-peers match", () => {
 
   it("matches user@endpoint form", () => {
     const host = resolveTailscaleHostForQuery(
-      { hostId: "mini", endpoint: "me@remote-a" },
+      { hostId: "mini", sshEndpoint: "me@remote-a" },
       snap,
     );
     expect(host).toBe("remote-a.example.ts.net");
@@ -76,7 +76,7 @@ describe("tailscale-peers match", () => {
 
   it("does not invent a peer for unknown host", () => {
     expect(
-      resolveTailscaleHostForQuery({ hostId: "nowhere", endpoint: "nowhere" }, snap),
+      resolveTailscaleHostForQuery({ hostId: "nowhere", sshEndpoint: "nowhere" }, snap),
     ).toBeUndefined();
   });
 
@@ -106,12 +106,12 @@ describe("tailscale-peers match", () => {
       },
     });
     expect(
-      resolveTailscaleHostForQuery({ hostId: "nowhere", endpoint: "nowhere" }, bare),
+      resolveTailscaleHostForQuery({ hostId: "nowhere", sshEndpoint: "nowhere" }, bare),
     ).toBeUndefined();
   });
 
   it("short substring hostId does not steal Mac mini", () => {
-    const hit = resolveTailscaleHostForQuery({ hostId: "mac", endpoint: "mac" }, snap);
+    const hit = resolveTailscaleHostForQuery({ hostId: "mac", sshEndpoint: "mac" }, snap);
     // score floor should reject weak substring-only matches
     expect(hit).toBeUndefined();
   });

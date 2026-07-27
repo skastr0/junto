@@ -680,12 +680,12 @@ export class TerminalRouter extends EventEmitter {
       throw new Error("terminal route maintenance unavailable");
     }
     const host = findHostById(hostId);
-    if (!host || host.kind !== "remote" || !host.endpoint) {
+    if (!host || host.kind !== "remote" || !host.sshEndpoint) {
       throw new Error("terminal route maintenance requires a remote host");
     }
     const cut: HostMaintenanceCut = {
       hostId,
-      endpoint: host.endpoint,
+      endpoint: host.sshEndpoint,
       generation: this.generation,
       phase: "acquiring",
     };
@@ -704,7 +704,7 @@ export class TerminalRouter extends EventEmitter {
     const current = findHostById(cut.hostId);
     if (
       current?.kind !== "remote" ||
-      current.endpoint !== cut.endpoint ||
+      current.sshEndpoint !== cut.endpoint ||
       this.generation !== cut.generation
     ) {
       throw new Error("terminal route maintenance target changed");
@@ -942,12 +942,12 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<RemoteEntry> {
     this.assertRouteAdmission(hostId, maintenanceCut);
     const host = findHostById(hostId);
-    if (!host || host.kind !== "remote" || !host.endpoint) {
+    if (!host || host.kind !== "remote" || !host.sshEndpoint) {
       const stale = this.remotes.get(hostId);
       if (stale) await this.closeRemoteEntry(hostId, stale);
       throw new Error(`host ${hostId} is not a remote SSH endpoint`);
     }
-    const endpoint = host.endpoint;
+    const endpoint = host.sshEndpoint;
     const existing = this.remotes.get(hostId);
     if (existing) {
       if (existing.endpoint === endpoint && existing.generation === this.generation) {
@@ -972,7 +972,7 @@ export class TerminalRouter extends EventEmitter {
       this.routeAdmissionOpen(hostId, maintenanceCut) &&
       this.connecting.get(hostId)?.promise === promise &&
       findHostById(hostId)?.kind === "remote" &&
-      findHostById(hostId)?.endpoint === endpoint &&
+      findHostById(hostId)?.sshEndpoint === endpoint &&
       generation === this.generation,
     );
     promise = dialing.finally(() => {
@@ -1125,7 +1125,7 @@ export class TerminalRouter extends EventEmitter {
     const host = findHostById(hostId);
     if (
       host?.kind === "remote" &&
-      host.endpoint === entry.endpoint &&
+      host.sshEndpoint === entry.endpoint &&
       entry.generation === this.generation &&
       !this.quiescing
     ) {

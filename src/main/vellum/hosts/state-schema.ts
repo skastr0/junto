@@ -19,7 +19,7 @@ export const HOSTS_STATE_SCHEMA_SQL = `
       CHECK (length(label) BETWEEN 1 AND 64),
     kind TEXT NOT NULL
       CHECK (kind IN ('local', 'remote')),
-    endpoint TEXT UNIQUE,
+    ssh_endpoint TEXT UNIQUE,
     capability_mask INTEGER,
     hermes_id TEXT
       CHECK (
@@ -39,7 +39,7 @@ export const HOSTS_STATE_SCHEMA_SQL = `
       (
         kind = 'local'
         AND id = 'local'
-        AND endpoint IS NULL
+        AND ssh_endpoint IS NULL
         AND capability_mask IS NULL
         AND sort_order = 0
       )
@@ -47,8 +47,10 @@ export const HOSTS_STATE_SCHEMA_SQL = `
       (
         kind = 'remote'
         AND id <> 'local'
-        AND endpoint IS NOT NULL
-        AND length(endpoint) BETWEEN 1 AND 255
+        AND (
+          ssh_endpoint IS NULL
+          OR length(ssh_endpoint) BETWEEN 1 AND 255
+        )
         AND capability_mask BETWEEN 1 AND 15
         AND sort_order > 0
       )

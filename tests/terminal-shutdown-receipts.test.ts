@@ -199,7 +199,7 @@ describe("terminal shutdown receipts", () => {
         id: "studio",
         label: "Studio",
         kind: "remote",
-        endpoint: "studio.local",
+        sshEndpoint: "studio.local",
         capabilities: ["terminal"],
       },
     ]);
@@ -258,7 +258,7 @@ describe("terminal shutdown receipts", () => {
         drainOnQuit: () => clientDrain,
         close: vi.fn(),
       },
-      endpoint: "studio.local",
+      sshEndpoint: "studio.local",
       generation: 0,
       scope: {},
       rootScope: Effect.runSync(Scope.make()),
@@ -302,7 +302,7 @@ describe("terminal shutdown receipts", () => {
       });
     (router as unknown as { remotes: Map<string, unknown> }).remotes.set("studio", {
       client: { beginShutdown: vi.fn(), drainOnQuit, close: vi.fn() },
-      endpoint: "studio.local",
+      sshEndpoint: "studio.local",
       generation: 0,
       scope: {},
       rootScope: Effect.runSync(Scope.make()),
@@ -335,7 +335,7 @@ describe("terminal shutdown receipts", () => {
       });
     const entry = {
       client: { beginShutdown: vi.fn(), drainOnQuit, close: vi.fn() },
-      endpoint: "studio.local",
+      sshEndpoint: "studio.local",
       generation: 0,
       scope: {},
       rootScope: Effect.runSync(Scope.make()),
@@ -374,7 +374,7 @@ describe("terminal shutdown receipts", () => {
     const drainOnQuit = vi.fn(() => Promise.resolve(clientReceipt));
     (router as unknown as { remotes: Map<string, unknown> }).remotes.set("studio", {
       client: { beginShutdown: vi.fn(), drainOnQuit, close: vi.fn() },
-      endpoint: "studio.local",
+      sshEndpoint: "studio.local",
       generation: 0,
       scope: {},
       rootScope: Effect.runSync(Scope.make()),

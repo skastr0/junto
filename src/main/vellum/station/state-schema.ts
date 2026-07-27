@@ -128,8 +128,6 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
           AND host_id GLOB '[A-Za-z0-9]*'
           AND host_id NOT GLOB '*[^A-Za-z0-9._-]*'
         ),
-      endpoint TEXT NOT NULL UNIQUE
-        CHECK (length(endpoint) BETWEEN 1 AND 255),
       station_installation_id TEXT NOT NULL UNIQUE
         CHECK (
           length(station_installation_id) BETWEEN 1 AND 128

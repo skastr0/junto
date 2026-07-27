@@ -26,7 +26,7 @@ const remote = (id: string, endpoint = "shared-box"): RemoteHost => ({
   id,
   label: id,
   kind: "remote",
-  endpoint,
+  sshEndpoint: endpoint,
   capabilities: [],
 });
 
@@ -50,7 +50,7 @@ const failedResult = (host: RemoteHost): ConfiguredRemoteDeployResult => ({
   ok: false,
   detail: "capture failed",
   code: "io",
-  hostEndpoint: host.endpoint,
+  hostEndpoint: host.sshEndpoint,
   stages: [],
   disposition: "not-started",
   outcome: "failed",

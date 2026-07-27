@@ -323,7 +323,7 @@ describe("BrowserSessionService", () => {
       id: "studio",
       label: "studio",
       kind: "remote",
-      endpoint: "studio",
+      sshEndpoint: "studio",
       capabilities: ["browser"],
     };
     const hostAuthority: BrowserHostCapabilityAuthority = {
@@ -355,7 +355,7 @@ describe("BrowserSessionService", () => {
       id: "studio",
       label: "studio",
       kind: "remote",
-      endpoint: "studio",
+      sshEndpoint: "studio",
       capabilities: ["browser"],
     };
     const service = new BrowserSessionService(
@@ -383,7 +383,7 @@ describe("BrowserSessionService", () => {
       id: "studio",
       label: "studio",
       kind: "remote",
-      endpoint: "studio",
+      sshEndpoint: "studio",
       capabilities: browserDeclared ? ["browser"] : ["terminal"],
     });
     const hostAuthority: BrowserHostCapabilityAuthority = {

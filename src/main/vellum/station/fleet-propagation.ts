@@ -15,10 +15,12 @@ import {
 } from "./fleet-target-repository";
 import {
   StationPropagation,
+  StationPropagationInvariantError,
   type StationPropagationError,
   type StationPropagationReceipt,
 } from "./propagation";
 import { parseSshEndpoint } from "../ssh/domain";
+import { sshEndpointForHostId } from "../hosts/snapshot";
 
 export type StationFleetPropagationResult =
   | {
@@ -74,8 +76,28 @@ export const StationFleetPropagationLive = Layer.scoped(
       Effect.flatMap((fleet) =>
         Effect.forEach(
           fleet,
-          (target) =>
-            parseSshEndpoint(target.endpoint).pipe(
+          (target) => {
+            const route = sshEndpointForHostId(target.hostId);
+            if (route === undefined) {
+              return Effect.succeed({
+                ok: false as const,
+                hostId: target.hostId,
+                error: StationPropagationInvariantError.make({
+                  operation: "synchronize",
+                  reason: "station-host-mismatch",
+                  message:
+                    `host ${JSON.stringify(target.hostId)} has no enrolled SSH route`,
+                }),
+              } satisfies StationFleetPropagationResult);
+            }
+            return parseSshEndpoint(route).pipe(
+              Effect.mapError((error) =>
+                StationPropagationInvariantError.make({
+                  operation: "synchronize",
+                  reason: "station-host-mismatch",
+                  message: error.message,
+                })
+              ),
               Effect.flatMap((endpoint) =>
                 propagation.synchronize({
                   endpoint,
@@ -97,7 +119,8 @@ export const StationFleetPropagationLive = Layer.scoped(
                   receipt,
                 }),
               }),
-            ),
+            );
+          },
           { concurrency: 4 },
         )
       ),

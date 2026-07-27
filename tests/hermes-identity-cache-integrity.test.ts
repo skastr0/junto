@@ -41,13 +41,13 @@ import {
 } from "../src/shared/remote-hosts";
 
 const host = (
-  endpoint: string,
+  sshEndpoint: string,
   options: { readonly id?: string; readonly hermesId?: string } = {},
 ): RemoteHost => ({
   id: options.id ?? "studio-product",
   label: "Studio",
   kind: "remote",
-  endpoint,
+  sshEndpoint,
   capabilities: ["hermes"],
   hermesId: options.hermesId ?? "studio-canonical",
 });

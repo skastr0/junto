@@ -49,7 +49,7 @@ describe("hermes fleet host identity", () => {
     hermesId: "fleet-render",
     label: "Render Display",
     kind: "remote",
-    endpoint: "render-ssh",
+    sshEndpoint: "render-ssh",
     capabilities: ["hermes"],
   };
 

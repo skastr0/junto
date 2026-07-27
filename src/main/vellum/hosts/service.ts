@@ -139,8 +139,8 @@ export const makeHostsService = (
 ): Context.Tag.Service<typeof HostsService> => {
   const mutationLocks = new Map<string, Effect.Semaphore>();
   const mutationTarget = (host: RemoteHostT): string =>
-    host.kind === "remote" && host.endpoint
-      ? `remote:${host.endpoint}`
+    host.kind === "remote" && host.sshEndpoint
+      ? `remote:${host.sshEndpoint}`
       : `local:${host.id}`;
   const mutationLockFor = (target: string): Effect.Semaphore => {
     const existing = mutationLocks.get(target);
@@ -335,7 +335,7 @@ export const makeHostsService = (
                   detail,
                   code: admission.left.code,
                   message: detail,
-                  hostEndpoint: host.endpoint,
+                  hostEndpoint: host.sshEndpoint,
                   stages: [],
                   disposition: "not-started" as const,
                   outcome: "failed" as const,

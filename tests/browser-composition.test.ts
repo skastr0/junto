@@ -192,7 +192,7 @@ describe("browser composition (no ceremony)", () => {
                   id: "studio",
                   label: "studio",
                   kind: "remote",
-                  endpoint: "studio",
+                  sshEndpoint: "studio",
                   capabilities: ["browser"],
                 }
               : undefined,

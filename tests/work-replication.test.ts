@@ -574,7 +574,7 @@ describe("WorkRepository station replication", () => {
             id: route,
             label: route,
             kind: "remote",
-            endpoint: route,
+            sshEndpoint: route,
             capabilities: ["terminal", "browser", "hermes"],
           },
         }),

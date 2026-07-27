@@ -125,7 +125,7 @@ const stationAuthority = (hostId: string): BrowserHostCapabilityAuthority => ({
           id,
           label: id,
           kind: id === "local" ? "local" : "remote",
-          ...(id === "local" ? {} : { endpoint: id }),
+          ...(id === "local" ? {} : { sshEndpoint: id }),
           capabilities: ["browser"],
         }
       : undefined,

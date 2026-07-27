@@ -66,7 +66,7 @@ describe("herdr-service-map url", () => {
       resolveHostBase({
         hostId: "remote-a",
         kind: "remote",
-        endpoint: "me@remote-a",
+        sshEndpoint: "me@remote-a",
         tailscaleHost: "100.64.1.2",
       }),
     ).toBe("100.64.1.2");
@@ -74,7 +74,7 @@ describe("herdr-service-map url", () => {
       resolveHostBase({
         hostId: "remote-a",
         kind: "remote",
-        endpoint: "me@remote-a",
+        sshEndpoint: "me@remote-a",
       }),
     ).toBe("remote-a");
   });

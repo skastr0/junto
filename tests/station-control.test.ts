@@ -183,7 +183,7 @@ const configureRequest = () =>
       id: "studio",
       label: "Studio Mini",
       kind: "remote",
-      endpoint: "studio",
+      sshEndpoint: "studio",
       capabilities: ["terminal", "browser", "hermes"],
     },
   });

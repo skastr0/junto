@@ -220,7 +220,7 @@ export class HerdrMirrorRegistry {
     return prevHerdr.filter((prevHost) => {
       if (!currHerdrIds.has(prevHost.id)) return true; // removed (or lost herdr capability)
       const currHost = hosts.find((h) => h.id === prevHost.id);
-      return currHost?.endpoint !== prevHost.endpoint; // same id, endpoint changed
+      return currHost?.sshEndpoint !== prevHost.sshEndpoint; // same id, endpoint changed
     });
   }
 
@@ -280,8 +280,8 @@ export class HerdrMirrorRegistry {
     // Tear down the OLD shared ControlMaster last — after every consumer
     // (control streams, observers, mirror forward) has already released it.
     for (const host of revoked) {
-      if (host.kind === "remote" && host.endpoint) {
-        this.revocation?.teardownEndpoint(host.endpoint);
+      if (host.kind === "remote" && host.sshEndpoint) {
+        this.revocation?.teardownEndpoint(host.sshEndpoint);
       }
     }
   }

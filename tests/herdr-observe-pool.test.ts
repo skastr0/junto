@@ -30,7 +30,7 @@ beforeEach(() => {
       id: "remote-a",
       label: "Test remote",
       kind: "remote",
-      endpoint: "remote-a",
+      sshEndpoint: "remote-a",
       capabilities: ["herdr"],
     },
   ]);

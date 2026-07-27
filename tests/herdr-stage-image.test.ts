@@ -67,7 +67,7 @@ describe("herdr stage-image (vellum-owned)", () => {
           id: "studio",
           label: "studio",
           kind: "remote",
-          endpoint: "studio",
+          sshEndpoint: "studio",
           capabilities: ["herdr"],
         },
       ]);

@@ -62,14 +62,14 @@ const resolveHermesEndpoint = (
   const endpoint = sshEndpointForHermesId(hermesId);
   if (!endpoint) {
     const byId = resolveHermesRemoteHost(hermesId);
-    if (!byId?.endpoint) {
+    if (!byId?.sshEndpoint) {
       return Effect.fail(
         new SshInputError({
           message: `hermes host ${hermesId} is not a configured remote endpoint`,
         }),
       );
     }
-    return parseSshEndpoint(byId.endpoint);
+    return parseSshEndpoint(byId.sshEndpoint);
   }
   return parseSshEndpoint(endpoint);
 };
@@ -140,14 +140,14 @@ export const HermesTransportLive = Layer.effect(
     ): Effect.Effect<CliResult> => {
       if (host === "local") return local(args, localTimeoutMs);
       const resolved = resolveHermesRemoteHost(host);
-      if (!resolved || resolved.kind !== "remote" || !resolved.endpoint) {
+      if (!resolved || resolved.kind !== "remote" || !resolved.sshEndpoint) {
         return Effect.succeed({
           ok: false,
           stdout: "",
           error: `unknown hermes host: ${host}`,
         });
       }
-      return parseSshEndpoint(resolved.endpoint).pipe(
+      return parseSshEndpoint(resolved.sshEndpoint).pipe(
         Effect.flatMap((endpoint) => remoteArgv(endpoint, args, budget)),
         Effect.catchAll((error) =>
           Effect.succeed({

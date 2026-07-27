@@ -207,7 +207,7 @@ describe("Station API wire schemas", () => {
           id: "studio",
           label: "Studio",
           kind: "remote",
-          endpoint: "studio",
+          sshEndpoint: "studio",
           capabilities: ["browser", "browser"],
         },
       }),

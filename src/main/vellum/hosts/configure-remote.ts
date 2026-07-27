@@ -122,7 +122,7 @@ const sameHostRegistration = (
   left.id === right.id &&
   left.label === right.label &&
   left.kind === right.kind &&
-  left.endpoint === right.endpoint &&
+  left.sshEndpoint === right.sshEndpoint &&
   left.hermesId === right.hermesId &&
   left.appearance?.color === right.appearance?.color &&
   left.appearance?.glyph === right.appearance?.glyph &&
@@ -152,7 +152,7 @@ export const configureRemoteHost = (
         ),
       );
     }
-    if (!host.endpoint) {
+    if (!host.sshEndpoint) {
       return yield* Effect.fail(
         new RemoteHostsError(
           "validation",
@@ -161,7 +161,7 @@ export const configureRemoteHost = (
       );
     }
 
-    const endpoint = yield* parseSshEndpoint(host.endpoint).pipe(
+    const endpoint = yield* parseSshEndpoint(host.sshEndpoint).pipe(
       Effect.mapError(
         (error) =>
           new RemoteHostsError(
@@ -240,7 +240,6 @@ export const configureRemoteHost = (
         host: {
           ...host,
           kind: "remote",
-          endpoint: host.endpoint,
         },
       },
       "Station configure",
@@ -275,7 +274,7 @@ export const configureRemoteHost = (
 
     return {
       ok: true,
-      detail: `${host.label} (${host.endpoint}): configured through Station API (${plan.summary})`,
+      detail: `${host.label} (${host.sshEndpoint}): configured through Station API (${plan.summary})`,
       station,
       stationInstallationId: status.installationId,
       configuredAt: configured.configuredAt,

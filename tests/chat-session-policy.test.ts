@@ -172,7 +172,7 @@ describe("ChatService remote session policy", () => {
         hermesId: "studio",
         label: "Studio",
         kind: "remote",
-        endpoint: "studio-old",
+        sshEndpoint: "studio-old",
         capabilities: ["hermes"],
       },
     ]);
@@ -204,7 +204,7 @@ describe("ChatService remote session policy", () => {
         hermesId: "studio",
         label: "Renamed Studio",
         kind: "remote",
-        endpoint: "studio-old",
+        sshEndpoint: "studio-old",
         capabilities: ["hermes"],
       },
     ]);
@@ -217,7 +217,7 @@ describe("ChatService remote session policy", () => {
         hermesId: "studio",
         label: "Renamed Studio",
         kind: "remote",
-        endpoint: "studio-new",
+        sshEndpoint: "studio-new",
         capabilities: ["hermes"],
       },
     ]);

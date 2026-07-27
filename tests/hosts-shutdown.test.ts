@@ -260,7 +260,7 @@ describe("host IPC shutdown admission", () => {
     const request = {
       kind: "linux-administrator-password",
       hostId: "studio",
-      endpoint: "studio-box",
+      sshEndpoint: "studio-box",
       version: "1.2.3",
       manifestSha256: sha,
       debSha256: sha,

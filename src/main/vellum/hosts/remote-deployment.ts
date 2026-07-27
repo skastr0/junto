@@ -69,7 +69,7 @@ export type RemoteDeploymentStationConfiguration =
 
 export type DeployableRemoteHost = RemoteHost & {
   readonly kind: "remote";
-  readonly endpoint: string;
+  readonly sshEndpoint: string;
 };
 
 export type RemoteDeploymentTarget = {

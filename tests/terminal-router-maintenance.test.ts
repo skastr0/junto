@@ -12,11 +12,11 @@ const initialHosts = hostsSnapshot();
 const routers: TerminalRouter[] = [];
 const localHosts: LocalSessionHost[] = [];
 
-const remoteHost = (endpoint = "studio.example") => ({
+const remoteHost = (sshEndpoint = "studio.example") => ({
   id: "studio",
   label: "Studio",
   kind: "remote" as const,
-  endpoint,
+  sshEndpoint,
   capabilities: ["terminal" as const],
 });
 

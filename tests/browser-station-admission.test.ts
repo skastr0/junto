@@ -75,7 +75,7 @@ const remoteHost = (): RemoteHost => ({
   id: "studio",
   label: "Studio",
   kind: "remote",
-  endpoint: "studio",
+  sshEndpoint: "studio",
   capabilities: ["browser", "terminal"],
 });
 
@@ -292,7 +292,7 @@ describe("browser station admission", () => {
         id: "other",
         label: "Other",
         kind: "remote" as const,
-        endpoint: "other",
+        sshEndpoint: "other",
         capabilities: ["terminal" as const],
       },
     ];

@@ -186,7 +186,7 @@ describe("remote hosts doctor", () => {
           id,
           label: id.toUpperCase(),
           kind: "remote" as const,
-          endpoint: id,
+          sshEndpoint: id,
           capabilities: [],
         })),
     } as unknown as HostsRegistry;
@@ -215,7 +215,7 @@ describe("remote hosts doctor", () => {
           id: "studio",
           label: "Studio",
           kind: "remote" as const,
-          endpoint: "studio-box",
+          sshEndpoint: "studio-box",
           capabilities: ["browser" as const],
         },
       ],
@@ -261,7 +261,7 @@ describe("remote hosts doctor", () => {
           id: "studio",
           label: "Studio",
           kind: "remote" as const,
-          endpoint: "studio-box",
+          sshEndpoint: "studio-box",
           capabilities: [],
         },
       ],
@@ -304,7 +304,7 @@ describe("remote hosts doctor", () => {
       id: "studio",
       label: "Studio",
       kind: "remote" as const,
-      endpoint: "studio-box",
+      sshEndpoint: "studio-box",
       capabilities: [],
     };
 

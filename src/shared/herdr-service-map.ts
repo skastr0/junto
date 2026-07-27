@@ -195,7 +195,7 @@ export interface HostReachability {
   readonly hostId: string;
   readonly kind: "local" | "remote";
   /** SSH endpoint / MagicDNS name when remote (e.g. remote-a). */
-  readonly endpoint?: string;
+  readonly sshEndpoint?: string;
   /** Optional Tailscale IP or MagicDNS override. */
   readonly tailscaleHost?: string;
 }
@@ -208,7 +208,7 @@ export const resolveHostBase = (host: HostReachability): string | undefined => {
   if (host.kind === "local" || host.hostId === "local") return "127.0.0.1";
   const ts = host.tailscaleHost?.trim();
   if (ts) return stripUser(ts);
-  const endpoint = host.endpoint?.trim();
+  const endpoint = host.sshEndpoint?.trim();
   if (!endpoint) return undefined;
   return stripUser(endpoint);
 };

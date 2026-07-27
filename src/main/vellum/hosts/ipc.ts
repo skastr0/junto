@@ -88,7 +88,7 @@ const bindConfiguredRemoteTarget = (
     if (
       host === undefined ||
       host.kind !== "remote" ||
-      host.endpoint === undefined
+      host.sshEndpoint === undefined
     ) {
       return yield* Effect.fail(
         new RemoteHostsError(
@@ -101,7 +101,6 @@ const bindConfiguredRemoteTarget = (
     yield* fleetTargets
       .bind({
         hostId: host.id,
-        endpoint: host.endpoint,
         stationInstallationId,
       })
       .pipe(
@@ -135,10 +134,8 @@ const pruneFleetTargetsAgainstHosts = (
     );
     for (const target of targets) {
       const host = hosts.find((candidate) => candidate.id === target.hostId);
-      if (
-        host?.kind === "remote" &&
-        host.endpoint === target.endpoint
-      ) {
+      // Identity is hostId + installation; route lives on the registry.
+      if (host?.kind === "remote") {
         continue;
       }
       yield* fleetTargets.remove(target.hostId).pipe(
@@ -367,7 +364,7 @@ const enrolledTokens = (
   for (const host of hosts) {
     tokens.add(host.id.toLowerCase());
     if (host.hermesId) tokens.add(host.hermesId.toLowerCase());
-    const endpointToken = endpointHostToken(host.endpoint);
+    const endpointToken = endpointHostToken(host.sshEndpoint);
     if (endpointToken) {
       tokens.add(endpointToken.toLowerCase());
       const label = firstDnsLabelOf(endpointToken);
@@ -833,7 +830,7 @@ export const registerHostsIpc = (
                       .recordDeployment(
                         deployRecordFromResult({
                           hostId: host.id,
-                          endpoint: host.endpoint ?? "",
+                          endpoint: host.sshEndpoint ?? "",
                           ok: false,
                           outcome: "indeterminate",
                           packageState: "previous",
@@ -863,7 +860,7 @@ export const registerHostsIpc = (
                       .recordDeployment(
                         deployRecordFromResult({
                           hostId: host.id,
-                          endpoint: host.endpoint ?? "",
+                          endpoint: host.sshEndpoint ?? "",
                           ok: result.ok,
                           outcome: result.outcome,
                           packageState: result.packageState,

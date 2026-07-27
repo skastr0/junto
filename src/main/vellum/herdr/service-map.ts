@@ -348,9 +348,9 @@ export class HerdrServiceMap {
     const reach: HostReachability = {
       hostId,
       kind: "remote",
-      endpoint:
-        host?.kind === "remote" && host.endpoint
-          ? host.endpoint
+      sshEndpoint:
+        host?.kind === "remote" && host.sshEndpoint
+          ? host.sshEndpoint
           : hostId,
       tailscaleHost: this.resolveTailscaleHost?.(hostId),
     };

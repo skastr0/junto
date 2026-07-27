@@ -11,7 +11,7 @@ const host = (overrides: Partial<RemoteHost> = {}): RemoteHost => ({
   id: "workstation",
   label: "Workstation",
   kind: "remote",
-  endpoint: "workstation",
+  sshEndpoint: "workstation",
   capabilities: ["terminal"],
   ...overrides,
 });

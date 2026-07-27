@@ -161,7 +161,7 @@ const probeSshHost = (
   host: RemoteHost,
 ): Effect.Effect<RemoteHostProbeResult> =>
   Effect.gen(function* () {
-    if (!host.endpoint) {
+    if (!host.sshEndpoint) {
       return {
         status: "error" as const,
         detail: `${host.id}: remote host missing endpoint`,
@@ -175,7 +175,7 @@ const probeSshHost = (
       };
     }
 
-    const endpoint = yield* parseSshEndpoint(host.endpoint);
+    const endpoint = yield* parseSshEndpoint(host.sshEndpoint);
     const station = yield* remote.status(endpoint);
     const configuration = station.configuration;
     const parts = [
@@ -224,22 +224,22 @@ const probeSshHost = (
       parts.push("browser capability declared");
     }
     if (hostHasCapability(host, "herdr")) {
-      const herdr = yield* remoteBinary(ssh, host.endpoint, "herdr");
+      const herdr = yield* remoteBinary(ssh, host.sshEndpoint, "herdr");
       parts.push(herdr.detail);
       if (!herdr.ok) raise("warning", herdr.detail);
     }
     if (hostHasCapability(host, "hermes")) {
-      const hermes = yield* remoteBinary(ssh, host.endpoint, "hermes");
+      const hermes = yield* remoteBinary(ssh, host.sshEndpoint, "hermes");
       parts.push(hermes.detail);
       if (!hermes.ok) raise("warning", hermes.detail);
     }
 
     return {
       status: worst,
-      detail: `${host.label} (${host.endpoint}): ${parts.join(" · ")}`,
+      detail: `${host.label} (${host.sshEndpoint}): ${parts.join(" · ")}`,
       observation: {
         hostId: host.id,
-        endpoint: host.endpoint,
+        endpoint: host.sshEndpoint,
         reachability: "reachable" as const,
         station,
         ...(problems.length === 0
@@ -255,7 +255,7 @@ const probeSshHost = (
         detail: `${host.label}: ${detail}`,
         observation: {
           hostId: host.id,
-          endpoint: host.endpoint ?? "",
+          endpoint: host.sshEndpoint ?? "",
           reachability: "unreachable" as const,
           reachabilityError: detail,
           observationError: detail,
@@ -280,7 +280,7 @@ const boundedProbeSshHost = (
         detail: `${host.label}: probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
         observation: {
           hostId: host.id,
-          endpoint: host.endpoint ?? "",
+          endpoint: host.sshEndpoint ?? "",
           reachability: "unreachable" as const,
           reachabilityError: `probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
           observationError:
@@ -352,7 +352,7 @@ export const runRemoteHostsDoctorSnapshot = (
           },
           observations: remoteHosts.map((host) => ({
             hostId: host.id,
-            endpoint: host.endpoint ?? "",
+            endpoint: host.sshEndpoint ?? "",
             reachability: "unknown" as const,
             reachabilityError: detail,
             observationError: detail,

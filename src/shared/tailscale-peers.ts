@@ -19,7 +19,7 @@ export interface TailscaleStatusSnapshot {
 export interface TailscaleMatchQuery {
   readonly hostId: string;
   /** SSH endpoint (alias or user@host). */
-  readonly endpoint?: string;
+  readonly sshEndpoint?: string;
 }
 
 const stripTrailingDot = (s: string): string => s.replace(/\.+$/, "");
@@ -102,7 +102,7 @@ const candidateTokens = (query: TailscaleMatchQuery): ReadonlyArray<string> => {
   const tokens = new Set<string>();
   const id = query.hostId.trim().toLowerCase();
   if (id && id !== "local") tokens.add(id);
-  const ep = endpointHostToken(query.endpoint);
+  const ep = endpointHostToken(query.sshEndpoint);
   if (ep) {
     tokens.add(ep.toLowerCase());
     tokens.add(firstDnsLabel(ep));

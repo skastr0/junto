@@ -405,7 +405,7 @@ describe("HerdrStreamManager remote scope lifecycle", () => {
   it("has no kill capability, coalesces natural-exit/detach, and awaits the close receipt", async () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument().hosts,
-      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
+      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio", capabilities: ["herdr"] },
     ]);
     try {
       const child = new FakeRemoteClient();
@@ -467,7 +467,7 @@ describe("HerdrStreamManager remote scope lifecycle", () => {
     vi.useFakeTimers();
     setHostsSnapshot([
       ...defaultRemoteHostsDocument().hosts,
-      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
+      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio", capabilities: ["herdr"] },
     ]);
     try {
       const child = new FakeRemoteClient();
@@ -507,7 +507,7 @@ describe("HerdrStreamManager remote scope lifecycle", () => {
   it("preserves a rejected remote close as an explicit failure receipt", async () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument().hosts,
-      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
+      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio", capabilities: ["herdr"] },
     ]);
     try {
       const child = new FakeRemoteClient();
@@ -538,7 +538,7 @@ describe("HerdrStreamManager remote scope lifecycle", () => {
   it("retries a timed-out remote receipt and converges on a later close witness", async () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument().hosts,
-      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
+      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio", capabilities: ["herdr"] },
     ]);
     try {
       const child = new FakeRemoteClient();
@@ -574,7 +574,7 @@ describe("HerdrStreamManager host revocation", () => {
   it("detachByHost detaches every stream for that host only, without re-pooling", () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument().hosts,
-      { id: "studio", label: "Studio", kind: "remote", endpoint: "studio", capabilities: ["herdr"] },
+      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio", capabilities: ["herdr"] },
     ]);
     try {
       const localChildren: FakeProcess[] = [];

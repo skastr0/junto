@@ -168,7 +168,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         <div className="fleet-detail__section-label">Identity</div>
         <div className="fleet-detail__kv">
           <span>endpoint</span>
-          <span>{host.endpoint ?? "—"}</span>
+          <span>{host.sshEndpoint ?? "—"}</span>
           <span>kind</span>
           <span>{host.kind}</span>
           {host.hermesId ? (

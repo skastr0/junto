@@ -358,7 +358,7 @@ describe("HerdrService with mock runner", () => {
         id: "studio",
         label: "studio",
         kind: "remote",
-        endpoint: "studio",
+        sshEndpoint: "studio",
         capabilities: ["herdr"],
       },
     ]);

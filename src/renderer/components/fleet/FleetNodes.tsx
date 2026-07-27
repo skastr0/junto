@@ -203,7 +203,7 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
         </div>
         <div className="fleet-node__copy fleet-machine__copy">
           <div className="fleet-station__label">{host.label}</div>
-          <div className="fleet-node__meta">{host.endpoint ?? host.kind}</div>
+          <div className="fleet-node__meta">{host.sshEndpoint ?? host.kind}</div>
           <div className={`fleet-node__signal fleet-node__signal--${probe?.status ?? "unknown"}`}>
             {probeLabel(probe)}
           </div>

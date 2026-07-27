@@ -55,7 +55,7 @@ const host: RemoteHost = {
   id: "studio",
   label: "Studio",
   kind: "remote",
-  endpoint: "studio-box",
+  sshEndpoint: "studio-box",
   capabilities: ["terminal"],
 };
 

@@ -1774,7 +1774,7 @@ const deployDarwinRemote = (
 
     return {
       ok: true,
-      detail: `${host.label} (${host.endpoint}): ${streamed.right.detail}`,
+      detail: `${host.label} (${host.sshEndpoint}): ${streamed.right.detail}`,
       stages,
       disposition: "ready",
       version: localApp.version,

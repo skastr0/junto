@@ -131,7 +131,7 @@ export const resolveRemoteDeploymentTarget = (
         ),
       };
     }
-    if (host.kind !== "remote" || !host.endpoint) {
+    if (host.kind !== "remote" || !host.sshEndpoint) {
       return {
         ok: false,
         result: remoteDeploymentFailure(
@@ -142,7 +142,7 @@ export const resolveRemoteDeploymentTarget = (
     }
     const remoteHost = host as DeployableRemoteHost;
 
-    const endpoint = yield* parseSshEndpoint(host.endpoint).pipe(Effect.either);
+    const endpoint = yield* parseSshEndpoint(host.sshEndpoint).pipe(Effect.either);
     if (endpoint._tag === "Left") {
       return {
         ok: false,

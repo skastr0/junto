@@ -545,7 +545,7 @@ function HostsSection() {
     setDraft({
       id: host.id,
       label: host.label,
-      endpoint: host.endpoint ?? "",
+      endpoint: host.sshEndpoint ?? "",
       terminal: host.capabilities.includes("terminal"),
       browser: host.capabilities.includes("browser"),
       herdr: host.capabilities.includes("herdr"),
@@ -592,7 +592,7 @@ function HostsSection() {
         id,
         label,
         kind: "remote",
-        endpoint,
+        sshEndpoint: endpoint,
         capabilities,
         ...(draft.hermesId.trim() ? { hermesId: draft.hermesId.trim() } : {}),
       });
@@ -819,7 +819,7 @@ function HostsSection() {
               <div className="settings-host-card__head">
                 <strong>{host.label}</strong>
                 <span className="settings-host-card__meta">
-                  {host.kind === "local" ? "local" : host.endpoint}
+                  {host.kind === "local" ? "local" : host.sshEndpoint}
                   {" · "}
                   {host.capabilities.join(", ")}
                   {host.hermesId ? ` · hermes ${host.hermesId}` : ""}

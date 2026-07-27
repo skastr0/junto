@@ -983,13 +983,13 @@ export const HerdrPlaneLive = Layer.scoped(
       if (!host || host.kind === "local" || hostId === "local") {
         return runCli(executable, args, timeoutMs);
       }
-      if (!host.endpoint) {
+      if (!host.sshEndpoint) {
         return { ok: false, stdout: "", error: `host ${hostId} has no ssh endpoint` };
       }
       try {
         const result = await runOwned(
           Effect.gen(function* () {
-            const endpoint = yield* parseSshEndpoint(host.endpoint!);
+            const endpoint = yield* parseSshEndpoint(host.sshEndpoint!);
             const command = yield* remoteHostProbe(argv);
             return yield* ssh.run(oneShot(endpoint, command, { budget: "status" }));
           }).pipe(
@@ -1041,8 +1041,8 @@ export const HerdrPlaneLive = Layer.scoped(
         tailscalePeerCache.resolveHost(hostId) ??
         (() => {
           const h = findHostById(hostId);
-          if (h?.kind === "remote" && h.endpoint) {
-            const ep = h.endpoint;
+          if (h?.kind === "remote" && h.sshEndpoint) {
+            const ep = h.sshEndpoint;
             const at = ep.lastIndexOf("@");
             return at >= 0 ? ep.slice(at + 1) : ep;
           }

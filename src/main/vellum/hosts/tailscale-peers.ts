@@ -49,8 +49,8 @@ export class TailscalePeerCache {
   resolveHost(hostId: string): string | undefined {
     if (hostId === "local") return undefined;
     const host = findHostById(hostId);
-    const endpoint = host?.kind === "remote" ? host.endpoint : undefined;
-    const query = { hostId, endpoint };
+    const sshEndpoint = host?.kind === "remote" ? host.sshEndpoint : undefined;
+    const query = { hostId, sshEndpoint };
 
     const age = this.now() - this.fetchedAt;
     if (this.snapshot && age < this.ttlMs) {

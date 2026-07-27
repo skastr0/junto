@@ -29,7 +29,7 @@ describe("HostServiceMap × Tailscale integration", () => {
   it("remote pane composes MagicDNS URL when Tailscale peer resolves", async () => {
     const status = parseTailscaleStatusJson(tsStatus);
     const tsHost = resolveTailscaleHostForQuery(
-      { hostId: "remote-a", endpoint: "remote-a" },
+      { hostId: "remote-a", sshEndpoint: "remote-a" },
       status,
     );
     expect(tsHost).toBe("remote-a.example.ts.net");

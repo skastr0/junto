@@ -131,7 +131,7 @@ describe("CanvasesService Station projection", () => {
               id: "studio",
               label: "Studio Mini",
               kind: "remote",
-              endpoint: "studio",
+              sshEndpoint: "studio",
               capabilities: ["terminal", "browser", "hermes"],
             },
           }),

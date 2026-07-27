@@ -238,7 +238,7 @@ describe("SSH policy surface", () => {
         id: "studio",
         label: "studio",
         kind: "remote",
-        endpoint: "studio",
+        sshEndpoint: "studio",
         capabilities: ["hermes"],
       },
     ]);
@@ -281,7 +281,7 @@ describe("SSH policy surface", () => {
         hermesId: "fleet-a",
         label: "studio",
         kind: "remote",
-        endpoint: "studio",
+        sshEndpoint: "studio",
         capabilities: ["hermes"],
       },
     ]);

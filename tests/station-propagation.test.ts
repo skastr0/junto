@@ -385,7 +385,7 @@ const configureRemote = async (
             id: hostId,
             label: hostId,
             kind: "remote",
-            endpoint: hostId,
+            sshEndpoint: hostId,
             capabilities: ["terminal", "browser", "hermes"],
           },
         }),

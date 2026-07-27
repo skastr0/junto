@@ -641,7 +641,7 @@ export interface HostsOpResult {
     readonly id: string;
     readonly label: string;
     readonly kind: "local" | "remote";
-    readonly endpoint?: string;
+    readonly sshEndpoint?: string;
     readonly capabilities: ReadonlyArray<"browser" | "terminal" | "herdr" | "hermes">;
     readonly hermesId?: string;
     readonly appearance?: {

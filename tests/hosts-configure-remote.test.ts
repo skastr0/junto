@@ -28,7 +28,7 @@ const remoteHost: RemoteHost = {
   hermesId: "fleet-studio",
   label: "Studio",
   kind: "remote",
-  endpoint: "studio-box",
+  sshEndpoint: "studio-box",
   capabilities: ["herdr", "hermes", "browser"],
 };
 

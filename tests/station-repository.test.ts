@@ -121,7 +121,7 @@ const remoteConfigurationRequest = (
       id: "studio",
       label: "Studio Mini",
       kind: "remote",
-      endpoint: "studio",
+      sshEndpoint: "studio",
       capabilities: options.capabilities ?? [
         "terminal",
         "browser",
@@ -258,7 +258,7 @@ describe("StationRepository", () => {
         id: "other-studio",
         label: "Other Studio",
         kind: "remote",
-        endpoint: "other-studio",
+        sshEndpoint: "other-studio",
         capabilities: ["browser"],
       },
     });
@@ -477,7 +477,7 @@ describe("StationRepository", () => {
             id: "other-studio",
             label: "Other Studio",
             kind: "remote",
-            endpoint: "other-studio",
+            sshEndpoint: "other-studio",
             capabilities: ["browser", "hermes"],
           },
         }),
@@ -554,7 +554,7 @@ describe("StationRepository", () => {
               id: "shared",
               label: "Shared",
               kind: "remote",
-              endpoint: "shared",
+              sshEndpoint: "shared",
               capabilities: ["browser", "hermes"],
             },
           }),
@@ -852,7 +852,7 @@ describe("StationRepository", () => {
       id: "studio",
       label: "Studio Mini",
       kind: "remote",
-      endpoint: "studio",
+      sshEndpoint: "studio",
       capabilities: ["terminal", "browser", "hermes"],
     });
     expect(findHostById("studio")).toEqual(configured.host);
@@ -891,7 +891,7 @@ describe("StationRepository", () => {
             readonly id: string;
             readonly label: string;
             readonly kind: string;
-            readonly endpoint: string | null;
+            readonly ssh_endpoint: string | null;
             readonly capability_mask: number | null;
             readonly sort_order: number;
           }
@@ -900,7 +900,7 @@ describe("StationRepository", () => {
              id,
              label,
              kind,
-             endpoint,
+             ssh_endpoint,
              capability_mask,
              sort_order
              FROM host_registry
@@ -919,7 +919,7 @@ describe("StationRepository", () => {
       id: "studio",
       label: "Studio Mini",
       kind: "remote",
-      endpoint: "studio",
+      ssh_endpoint: "studio",
       capability_mask: 11,
       sort_order: 1,
     });

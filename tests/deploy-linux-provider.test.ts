@@ -121,7 +121,7 @@ const host: RemoteHost = {
   id: "studio",
   label: "Studio",
   kind: "remote",
-  endpoint: String(endpoint),
+  sshEndpoint: String(endpoint),
   capabilities: ["terminal", "browser"],
 };
 

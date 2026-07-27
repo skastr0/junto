@@ -20,7 +20,7 @@ const loadAdapter = async () => {
       id: "remote-a",
       label: "remote-a",
       kind: "remote",
-      endpoint: "remote-a",
+      sshEndpoint: "remote-a",
       capabilities: ["hermes"],
     },
   ]);

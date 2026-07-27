@@ -62,7 +62,7 @@ const LEGACY_GLYPH_MODELS: Readonly<Record<string, FleetMachineModelId>> = {
 };
 
 const detectedAppleModel = (host: RemoteHost): FleetMachineModelId | undefined => {
-  const identity = [host.id, host.label, host.endpoint, host.hermesId]
+  const identity = [host.id, host.label, host.sshEndpoint, host.hermesId]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

@@ -105,7 +105,7 @@ const failedBeforeMutation = (
   detail,
   code: input.code ?? "io",
   message: detail,
-  hostEndpoint: host.endpoint,
+  hostEndpoint: host.sshEndpoint,
   stages: input.stages ?? [],
   disposition: "not-started",
   outcome: "failed",
@@ -132,7 +132,7 @@ const failedPackageResult = (
   return {
     ...deployed,
     ok: false,
-    hostEndpoint: host.endpoint,
+    hostEndpoint: host.sshEndpoint,
     outcome: notStarted ? "failed" : "indeterminate",
     packageState: notStarted ? "previous" : "unknown",
     role: "previous",
@@ -161,7 +161,7 @@ const configurationFailure = (
         ? error.code
         : (error.code ?? "conflict"),
     message: detail,
-    hostEndpoint: host.endpoint,
+    hostEndpoint: host.sshEndpoint,
     disposition: "indeterminate",
     outcome: "indeterminate",
     packageState: "present",
@@ -186,7 +186,7 @@ export const deployConfiguredRemoteHost = (
   operations: ConfiguredRemoteDeployOperations = defaultOperations,
 ): Effect.Effect<ConfiguredRemoteDeployResult, never> =>
   Effect.gen(function* () {
-    if (host.kind !== "remote" || !host.endpoint) {
+    if (host.kind !== "remote" || !host.sshEndpoint) {
       return failedBeforeMutation(
         host,
         `${host.label}: host is not a registered Remote endpoint`,
@@ -234,7 +234,7 @@ export const deployConfiguredRemoteHost = (
       ok: true,
       detail,
       message: deployed.message ?? detail,
-      hostEndpoint: host.endpoint,
+      hostEndpoint: host.sshEndpoint,
       disposition: "ready",
       outcome: "ready",
       packageState: "present",

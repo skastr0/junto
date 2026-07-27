@@ -23,7 +23,7 @@ const host: RemoteHost = {
   hermesId: "fleet-studio",
   label: "Studio",
   kind: "remote",
-  endpoint: "studio-box",
+  sshEndpoint: "studio-box",
   capabilities: ["herdr", "hermes", "browser"],
 };
 
@@ -33,7 +33,7 @@ const unusedSsh = {} as Ssh;
 const target = {
   host: host as RemoteHost & {
     readonly kind: "remote";
-    readonly endpoint: string;
+    readonly sshEndpoint: string;
   },
   endpoint: "studio-box",
   platform: { platform: "darwin", kernelName: "Darwin" },

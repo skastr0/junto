@@ -66,13 +66,13 @@ export const findHostByHermesId = (hermesId: string): RemoteHost | undefined =>
 export const sshEndpointForHostId = (id: string): string | undefined => {
   const host = findHostById(id);
   if (!host || host.kind !== "remote") return undefined;
-  return host.endpoint;
+  return host.sshEndpoint;
 };
 
 export const sshEndpointForHermesId = (hermesId: string): string | undefined => {
   const host = findHostByHermesId(hermesId);
   if (!host || host.kind !== "remote") return undefined;
-  return host.endpoint;
+  return host.sshEndpoint;
 };
 
 /** Load durable registry into the sync snapshot (boot + after mutations). */

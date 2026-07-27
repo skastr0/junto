@@ -44,7 +44,7 @@ type HostRow = {
   readonly id: string;
   readonly label: string;
   readonly kind: string;
-  readonly endpoint: string | null;
+  readonly ssh_endpoint: string | null;
   readonly capability_mask: number | null;
   readonly hermes_id: string | null;
   readonly appearance_color: string | null;
@@ -111,10 +111,10 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
           `only id "${LOCAL_HOST_ID}" may use kind local (got ${host.id})`,
         );
       }
-      if (host.endpoint) {
+      if (host.sshEndpoint) {
         throw new RemoteHostsError(
           "validation",
-          `local host ${host.id} must not set endpoint`,
+          `local host ${host.id} must not set sshEndpoint`,
         );
       }
     } else {
@@ -124,31 +124,27 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
           `host id "${LOCAL_HOST_ID}" must use kind local`,
         );
       }
-      if (!host.endpoint) {
-        throw new RemoteHostsError(
-          "validation",
-          `remote host ${host.id} requires endpoint`,
-        );
-      }
       if (host.capabilities.length === 0) {
         throw new RemoteHostsError(
           "validation",
           `remote host ${host.id} requires at least one capability`,
         );
       }
-      if (!isSupportedSshDestination(host.endpoint)) {
-        throw new RemoteHostsError(
-          "validation",
-          `remote host ${host.id} endpoint must be an SSH config alias, user@host, or IPv6 literal; configure custom ports in ~/.ssh/config`,
-        );
+      if (host.sshEndpoint !== undefined) {
+        if (!isSupportedSshDestination(host.sshEndpoint)) {
+          throw new RemoteHostsError(
+            "validation",
+            `remote host ${host.id} sshEndpoint must be an SSH config alias, user@host, or IPv6 literal; configure custom ports in ~/.ssh/config`,
+          );
+        }
+        if (endpoints.has(host.sshEndpoint)) {
+          throw new RemoteHostsError(
+            "validation",
+            "duplicate remote sshEndpoint",
+          );
+        }
+        endpoints.add(host.sshEndpoint);
       }
-      if (endpoints.has(host.endpoint)) {
-        throw new RemoteHostsError(
-          "validation",
-          "duplicate remote endpoint",
-        );
-      }
-      endpoints.add(host.endpoint);
     }
 
     if (hostHasCapability(host, "hermes")) {
@@ -223,7 +219,7 @@ const rowToHost = (row: HostRow): RemoteHost => {
     id: row.id,
     label: row.label,
     kind: "remote",
-    endpoint: row.endpoint ?? "",
+    ...(row.ssh_endpoint === null ? {} : { sshEndpoint: row.ssh_endpoint }),
     capabilities: [...capabilitiesFromMask(row.capability_mask)],
     ...(row.hermes_id === null ? {} : { hermesId: row.hermes_id }),
     ...(row.appearance_color === null && row.appearance_glyph === null
@@ -248,7 +244,7 @@ const readStoredDocument = (reader: StateReader): RemoteHostsDocument => {
         id,
         label,
         kind,
-        endpoint,
+        ssh_endpoint,
         capability_mask,
         hermes_id,
         appearance_color,
@@ -277,7 +273,7 @@ const writeHost = (
         id,
         label,
         kind,
-        endpoint,
+        ssh_endpoint,
         capability_mask,
         hermes_id,
         effective_hermes_id,
@@ -289,7 +285,7 @@ const writeHost = (
       ON CONFLICT(id) DO UPDATE SET
         label = excluded.label,
         kind = excluded.kind,
-        endpoint = excluded.endpoint,
+        ssh_endpoint = excluded.ssh_endpoint,
         capability_mask = excluded.capability_mask,
         hermes_id = excluded.hermes_id,
         effective_hermes_id = excluded.effective_hermes_id,
@@ -301,7 +297,7 @@ const writeHost = (
       host.id,
       host.label,
       host.kind,
-      host.kind === "remote" ? (host.endpoint ?? null) : null,
+      host.kind === "remote" ? (host.sshEndpoint ?? null) : null,
       mask,
       host.hermesId ?? null,
       effectiveHermesId,
@@ -514,10 +510,10 @@ export const makeHostsRegistry = (
           `host id "${LOCAL_HOST_ID}" and kind local are an immutable pair`,
         );
       }
-      if (host.kind === "local" && host.endpoint !== undefined) {
+      if (host.kind === "local" && host.sshEndpoint !== undefined) {
         throw new RemoteHostsError(
           "validation",
-          "the local host cannot carry an enrollment endpoint",
+          "the local host cannot carry an enrollment sshEndpoint",
         );
       }
 

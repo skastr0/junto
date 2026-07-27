@@ -35,12 +35,12 @@ export const HostLabel = Schema.String.pipe(
 export type HostLabel = typeof HostLabel.Type;
 
 /** SSH config alias, user@host, or IPv6 literal. Custom ports belong in ~/.ssh/config. */
-export const HostEndpoint = Schema.String.pipe(
+export const HostSshEndpoint = Schema.String.pipe(
   Schema.minLength(1),
   Schema.maxLength(255),
   Schema.pattern(/^(?!-)[A-Za-z0-9._:@%+\[\]-]+$/),
 );
-export type HostEndpoint = typeof HostEndpoint.Type;
+export type HostSshEndpoint = typeof HostSshEndpoint.Type;
 
 /**
  * Optional alternate id used in hermes agent keys (`<hermesId>:<profile>`).
@@ -57,7 +57,8 @@ export const RemoteHost = Schema.Struct({
   id: HostId,
   label: HostLabel,
   kind: HostKind,
-  endpoint: Schema.optionalWith(HostEndpoint, { exact: true }),
+  /** Optional SSH route. Local rows omit it; remotes may omit until enrolled with a route. */
+  sshEndpoint: Schema.optionalWith(HostSshEndpoint, { exact: true }),
   capabilities: Schema.Array(HostCapability).pipe(
     Schema.minItems(1),
     Schema.maxItems(4),

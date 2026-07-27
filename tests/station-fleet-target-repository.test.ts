@@ -12,7 +12,7 @@ import {
   makeStateEngineLive,
   type StateEngineError,
 } from "../src/main/vellum/state/engine";
-import { HostEndpoint, HostId } from "../src/shared/remote-hosts";
+import { HostId } from "../src/shared/remote-hosts";
 import { InstallationId } from "../src/shared/station-api";
 
 type FleetRuntime = ManagedRuntime.ManagedRuntime<
@@ -21,7 +21,6 @@ type FleetRuntime = ManagedRuntime.ManagedRuntime<
 >;
 
 const decodeHostId = Schema.decodeUnknownSync(HostId);
-const decodeEndpoint = Schema.decodeUnknownSync(HostEndpoint);
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 
 const roots: string[] = [];
@@ -51,11 +50,9 @@ const repository = (
 
 const identity = (
   hostId: string,
-  endpoint: string,
   installationId: string,
 ): StationFleetTargetIdentity => ({
   hostId: decodeHostId(hostId),
-  endpoint: decodeEndpoint(endpoint),
   stationInstallationId: decodeInstallationId(installationId),
 });
 
@@ -78,16 +75,8 @@ describe("StationFleetTargetRepository", () => {
   it("persists canonical targets and lists them in host order", async () => {
     const { path, runtime } = await makeRuntime();
     const fleet = await repository(runtime);
-    const mini = identity(
-      "mini",
-      "operator@mini",
-      "station-mini",
-    );
-    const studio = identity(
-      "studio",
-      "studio-tailnet",
-      "station-studio",
-    );
+    const mini = identity("mini", "station-mini");
+    const studio = identity("studio", "station-studio");
 
     await runtime.runPromise(fleet.bind(studio));
     const boundMini = await runtime.runPromise(fleet.bind(mini));
@@ -118,11 +107,7 @@ describe("StationFleetTargetRepository", () => {
   it("makes exact retries idempotent without rewriting identity metadata", async () => {
     const { runtime } = await makeRuntime();
     const fleet = await repository(runtime);
-    const target = identity(
-      "mini",
-      "operator@mini",
-      "station-mini",
-    );
+    const target = identity("mini", "station-mini");
 
     const first = await runtime.runPromise(
       fleet.bind(target, "2026-07-27T12:30:00.000Z"),
@@ -136,39 +121,13 @@ describe("StationFleetTargetRepository", () => {
     expect(await runtime.runPromise(fleet.list)).toHaveLength(1);
   });
 
-  it.each([
-    {
-      title: "one host is presented with another endpoint",
-      rejected: identity(
-        "mini",
-        "operator@other-mini",
-        "station-mini",
-      ),
-    },
-    {
-      title: "one endpoint is presented as another host",
-      rejected: identity(
-        "studio",
-        "operator@mini",
-        "station-studio",
-      ),
-    },
-    {
-      title: "one installation is presented as another host",
-      rejected: identity(
-        "studio",
-        "operator@studio",
-        "station-mini",
-      ),
-    },
-  ])("fails closed when $title", async ({ rejected }) => {
+  it("fails closed when one installation is presented as another host", async () => {
     const { runtime } = await makeRuntime();
     const fleet = await repository(runtime);
     const admitted = await runtime.runPromise(
-      fleet.bind(
-        identity("mini", "operator@mini", "station-mini"),
-      ),
+      fleet.bind(identity("mini", "station-mini")),
     );
+    const rejected = identity("studio", "station-mini");
 
     expect(
       await runtime.runPromise(
@@ -188,16 +147,8 @@ describe("StationFleetTargetRepository", () => {
   it("retires an active target without erasing its immutable host binding", async () => {
     const { path, runtime } = await makeRuntime();
     const fleet = await repository(runtime);
-    const first = identity(
-      "mini",
-      "operator@mini",
-      "station-mini",
-    );
-    const replacement = identity(
-      "mini",
-      "operator@new-mini",
-      "station-new-mini",
-    );
+    const first = identity("mini", "station-mini");
+    const replacement = identity("mini", "station-new-mini");
 
     expect(await runtime.runPromise(fleet.remove(first.hostId))).toBe(false);
     const admitted = await runtime.runPromise(fleet.bind(first));
@@ -239,16 +190,8 @@ describe("StationFleetTargetRepository", () => {
   it("rejects direct host replacement without mutating the admitted row", async () => {
     const { runtime } = await makeRuntime();
     const fleet = await repository(runtime);
-    const first = identity(
-      "mini",
-      "operator@mini",
-      "station-mini",
-    );
-    const replacement = identity(
-      "mini",
-      "operator@new-mini",
-      "station-new-mini",
-    );
+    const first = identity("mini", "station-mini");
+    const replacement = identity("mini", "station-new-mini");
     const admitted = await runtime.runPromise(
       fleet.bind(first, "2026-07-27T12:30:00.000Z"),
     );
@@ -282,11 +225,7 @@ describe("StationFleetTargetRepository", () => {
   it("rejects invalid display timestamps before opening a write", async () => {
     const { runtime } = await makeRuntime();
     const fleet = await repository(runtime);
-    const target = identity(
-      "mini",
-      "operator@mini",
-      "station-mini",
-    );
+    const target = identity("mini", "station-mini");
 
     expect(
       await runtime.runPromise(

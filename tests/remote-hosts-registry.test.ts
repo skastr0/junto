@@ -103,7 +103,7 @@ describe("remote hosts registry", () => {
       id: "studio",
       label: "Studio",
       kind: "remote",
-      endpoint: "studio",
+      sshEndpoint: "studio",
       capabilities: ["hermes", "herdr"],
       appearance: { color: "amber", glyph: "S" },
     });
@@ -134,7 +134,7 @@ describe("remote hosts registry", () => {
         id: "local",
         label: "Forged remote",
         kind: "remote",
-        endpoint: "forged",
+        sshEndpoint: "forged",
         capabilities: ["hermes"],
       }),
     ).rejects.toMatchObject({ code: "validation" });
@@ -143,7 +143,7 @@ describe("remote hosts registry", () => {
       id: "render",
       label: "Render",
       kind: "remote",
-      endpoint: "render",
+      sshEndpoint: "render",
       capabilities: ["terminal"],
     });
     await cold.remove("studio");
@@ -151,14 +151,14 @@ describe("remote hosts registry", () => {
       id: "render",
       label: "Render updated",
       kind: "remote",
-      endpoint: "render",
+      sshEndpoint: "render",
       capabilities: ["terminal", "herdr"],
     });
     await cold.upsert({
       id: "build",
       label: "Build",
       kind: "remote",
-      endpoint: "build",
+      sshEndpoint: "build",
       capabilities: ["terminal"],
     });
     expect((await cold.list()).map((host) => host.id)).toEqual([
@@ -180,7 +180,7 @@ describe("remote hosts registry", () => {
         id: "studio",
         label: "Studio",
         kind: "remote",
-        endpoint: "studio",
+        sshEndpoint: "studio",
         capabilities: ["hermes"],
       });
     } finally {
@@ -206,7 +206,7 @@ describe("remote hosts registry", () => {
       id: "studio",
       label: "Studio",
       kind: "remote",
-      endpoint: "shared",
+      sshEndpoint: "shared",
       capabilities: ["hermes"],
       hermesId: "compute",
     });
@@ -216,19 +216,19 @@ describe("remote hosts registry", () => {
         id: "render",
         label: "Render",
         kind: "remote",
-        endpoint: "shared",
+        sshEndpoint: "shared",
         capabilities: ["herdr"],
       }),
     ).rejects.toMatchObject({
       code: "validation",
-      message: expect.stringContaining("duplicate remote endpoint"),
+      message: expect.stringContaining("duplicate remote sshEndpoint"),
     });
     await expect(
       registry.upsert({
         id: "render",
         label: "Render",
         kind: "remote",
-        endpoint: "render",
+        sshEndpoint: "render",
         capabilities: ["hermes"],
         hermesId: "compute",
       }),
@@ -265,7 +265,7 @@ describe("remote hosts registry", () => {
           id: "studio",
           label: "Studio",
           kind: "remote",
-          endpoint: "studio",
+          sshEndpoint: "studio",
           capabilities: ["hermes"],
           legacyToken: "retired-host-credential",
         }),
@@ -288,7 +288,7 @@ describe("remote hosts registry", () => {
         id: "fleet-1",
         label: "Fleet One",
         kind: "remote",
-        endpoint: "fleet-1",
+        sshEndpoint: "fleet-1",
         capabilities: ["herdr", "hermes"],
         hermesId: "f1",
       },
@@ -319,7 +319,7 @@ describe("remote hosts registry", () => {
         id: "studio",
         label: "Studio",
         kind: "remote",
-        endpoint: "studio-ssh",
+        sshEndpoint: "studio-ssh",
         capabilities: ["herdr", "hermes"],
       });
     } finally {
@@ -339,7 +339,7 @@ describe("remote hosts registry", () => {
           id: "render",
           label: "Render",
           kind: "remote",
-          endpoint: "render-ssh",
+          sshEndpoint: "render-ssh",
           capabilities: ["herdr"],
         });
         const rejected = yield* Effect.either(
@@ -347,7 +347,7 @@ describe("remote hosts registry", () => {
             id: "duplicate",
             label: "Duplicate",
             kind: "remote",
-            endpoint: "render-ssh",
+            sshEndpoint: "render-ssh",
             capabilities: ["herdr"],
           }),
         );
@@ -412,7 +412,7 @@ describe("remote hosts registry", () => {
         id: "studio",
         label: "Studio",
         kind: "remote",
-        endpoint: "studio",
+        sshEndpoint: "studio",
         capabilities: ["herdr"],
       }),
     );
@@ -449,7 +449,7 @@ describe("remote hosts registry", () => {
             id: "studio",
             label: "Studio",
             kind: "remote",
-            endpoint: "studio-ssh",
+            sshEndpoint: "studio-ssh",
             capabilities: ["herdr"],
           },
         ])
@@ -493,7 +493,7 @@ describe("remote hosts registry", () => {
           id: "studio",
           label: "Studio",
           kind: "remote" as const,
-          endpoint: "studio-a",
+          sshEndpoint: "studio-a",
           capabilities: ["herdr" as const],
         },
       ];
@@ -505,7 +505,7 @@ describe("remote hosts registry", () => {
       expect(started).toHaveLength(3);
 
       setHostsSnapshot(withStudio.map((host) =>
-        host.id === "studio" ? { ...host, endpoint: "studio-b" } : host,
+        host.id === "studio" ? { ...host, sshEndpoint: "studio-b" } : host,
       ));
       expect(started.slice(-2)).toEqual(["local", "studio"]);
       expect(disposed.slice(-2)).toEqual(["local", "studio"]);
@@ -529,7 +529,7 @@ describe("remote hosts registry", () => {
         id: "wrong-port",
         label: "Wrong port",
         kind: "remote",
-        endpoint: "example.com:2222",
+        sshEndpoint: "example.com:2222",
         capabilities: ["herdr"],
       }),
     ).rejects.toMatchObject({
@@ -541,7 +541,7 @@ describe("remote hosts registry", () => {
         id: "empty-user",
         label: "Empty user",
         kind: "remote",
-        endpoint: "@example.com",
+        sshEndpoint: "@example.com",
         capabilities: ["herdr"],
       }),
     ).rejects.toMatchObject({ code: "validation" });
@@ -550,7 +550,7 @@ describe("remote hosts registry", () => {
         id: "bracketed-ipv6",
         label: "Bracketed IPv6",
         kind: "remote",
-        endpoint: "ops@[2001:db8::10]",
+        sshEndpoint: "ops@[2001:db8::10]",
         capabilities: ["hermes"],
       }),
     ).rejects.toMatchObject({ code: "validation" });
@@ -559,21 +559,21 @@ describe("remote hosts registry", () => {
       id: "ipv6",
       label: "IPv6",
       kind: "remote",
-      endpoint: "ops@2001:db8::10",
+      sshEndpoint: "ops@2001:db8::10",
       capabilities: ["hermes"],
     });
-    expect(ipv6.find((host) => host.id === "ipv6")?.endpoint).toBe(
+    expect(ipv6.find((host) => host.id === "ipv6")?.sshEndpoint).toBe(
       "ops@2001:db8::10",
     );
     const scopedIpv6 = await registry.upsert({
       id: "scoped-ipv6",
       label: "Scoped IPv6",
       kind: "remote",
-      endpoint: "ops@fe80::1%lo0",
+      sshEndpoint: "ops@fe80::1%lo0",
       capabilities: ["herdr"],
     });
     expect(
-      scopedIpv6.find((host) => host.id === "scoped-ipv6")?.endpoint,
+      scopedIpv6.find((host) => host.id === "scoped-ipv6")?.sshEndpoint,
     ).toBe("ops@fe80::1%lo0");
   });
 
@@ -587,7 +587,7 @@ describe("remote hosts registry", () => {
         id: "studio",
         label: "Studio",
         kind: "remote",
-        endpoint: "studio",
+        sshEndpoint: "studio",
         capabilities: ["browser", "browser"],
       }),
     ).rejects.toMatchObject({

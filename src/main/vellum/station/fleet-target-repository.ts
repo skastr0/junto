@@ -1,6 +1,5 @@
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import {
-  HostEndpoint,
   HostId,
   type HostId as HostIdValue,
 } from "@shared/remote-hosts";
@@ -15,9 +14,9 @@ import {
   type StateRow,
 } from "../state/service";
 
+/** Fleet identity is host + station installation only. SSH routes live on the host registry. */
 export const StationFleetTargetIdentity = Schema.Struct({
   hostId: HostId,
-  endpoint: HostEndpoint,
   stationInstallationId: InstallationId,
 });
 export type StationFleetTargetIdentity =
@@ -112,7 +111,6 @@ export class StationFleetTargetRepository extends Context.Tag(
 
 type FleetTargetRow = StateRow & {
   readonly host_id: string;
-  readonly endpoint: string;
   readonly station_installation_id: string;
   readonly bound_at: string;
   readonly retired_at: string | null;
@@ -130,7 +128,6 @@ const targetFromRow = (row: FleetTargetRow): StationFleetTarget => {
   try {
     return decodeTarget({
       hostId: row.host_id,
-      endpoint: row.endpoint,
       stationInstallationId: row.station_installation_id,
       boundAt: row.bound_at,
     });
@@ -151,7 +148,6 @@ const selectByHostId = (
   reader.get<FleetTargetRow>(
     `SELECT
        host_id,
-       endpoint,
        station_installation_id,
        bound_at,
        retired_at
@@ -168,7 +164,6 @@ const selectBindingByHostId = (
   reader.get<FleetTargetRow>(
     `SELECT
        host_id,
-       endpoint,
        station_installation_id,
        bound_at,
        retired_at
@@ -184,18 +179,15 @@ const selectIdentityCollisions = (
   reader.all<FleetTargetRow>(
     `SELECT
        host_id,
-       endpoint,
        station_installation_id,
        bound_at,
        retired_at
      FROM station_fleet_targets
      WHERE host_id = ?
-        OR endpoint = ?
         OR station_installation_id = ?
      ORDER BY host_id`,
     [
       identity.hostId,
-      identity.endpoint,
       identity.stationInstallationId,
     ],
   );
@@ -240,7 +232,7 @@ const admitIdentity = (
         operation: "bind",
         field: "identity",
         message:
-          "fleet target identity must contain a valid host, SSH endpoint, and Station installation id",
+          "fleet target identity must contain a valid host and Station installation id",
       });
 };
 
@@ -249,7 +241,6 @@ const sameIdentity = (
   identity: StationFleetTargetIdentity,
 ): boolean =>
   target.hostId === identity.hostId &&
-  target.endpoint === identity.endpoint &&
   target.stationInstallationId === identity.stationInstallationId;
 
 export type StationFleetTargetRepositoryOptions = {
@@ -327,13 +318,11 @@ export const makeStationFleetTargetRepositoryLive = (
               writer.run(
                 `INSERT INTO station_fleet_targets(
                    host_id,
-                   endpoint,
                    station_installation_id,
                    bound_at
-                 ) VALUES (?, ?, ?, ?)`,
+                 ) VALUES (?, ?, ?)`,
                 [
                   target.hostId,
-                  target.endpoint,
                   target.stationInstallationId,
                   target.boundAt,
                 ],
@@ -385,7 +374,6 @@ export const makeStationFleetTargetRepositoryLive = (
             .all<FleetTargetRow>(
               `SELECT
                  host_id,
-                 endpoint,
                  station_installation_id,
                  bound_at,
                  retired_at

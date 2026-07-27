@@ -233,7 +233,7 @@ const hostGenerations = new Map<HermesHostId, number>();
 const remoteAuthoritySignature = (host: RemoteHost): string | undefined => {
   if (
     host.kind !== "remote" ||
-    !host.endpoint ||
+    !host.sshEndpoint ||
     !hostHasCapability(host, "hermes")
   ) {
     return undefined;
@@ -241,7 +241,7 @@ const remoteAuthoritySignature = (host: RemoteHost): string | undefined => {
   return JSON.stringify({
     id: host.id,
     hermesId: hermesKeyFor(host),
-    endpoint: host.endpoint,
+    endpoint: host.sshEndpoint,
   });
 };
 

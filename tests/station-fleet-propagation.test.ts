@@ -1,6 +1,10 @@
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { HostEndpoint, HostId } from "../src/shared/remote-hosts";
+import {
+  defaultRemoteHostsDocument,
+  HostId,
+  type RemoteHost,
+} from "../src/shared/remote-hosts";
 import {
   InstallationId,
   LogicalSequence,
@@ -19,9 +23,9 @@ import {
   StationPropagationInvariantError,
   type StationPropagationReceipt,
 } from "../src/main/vellum/station/propagation";
+import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
 
 const hostId = Schema.decodeUnknownSync(HostId);
-const endpoint = Schema.decodeUnknownSync(HostEndpoint);
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const sequence = Schema.decodeUnknownSync(LogicalSequence);
 const sha256 = Schema.decodeUnknownSync(StationSha256);
@@ -31,9 +35,16 @@ const target = (
   station: string,
 ): StationFleetTarget => ({
   hostId: hostId(host),
-  endpoint: endpoint(`${host}.example`),
   stationInstallationId: installationId(station),
   boundAt: "2026-07-27T00:00:00.000Z",
+});
+
+const remoteHost = (id: string, sshEndpoint: string): RemoteHost => ({
+  id,
+  label: id,
+  kind: "remote",
+  sshEndpoint,
+  capabilities: ["terminal"],
 });
 
 const receipt = (
@@ -65,6 +76,11 @@ describe("StationFleetPropagation", () => {
   it("isolates one unavailable Remote from the rest of the fleet pass", async () => {
     const first = target("studio", "station-studio");
     const second = target("render", "station-render");
+    setHostsSnapshot([
+      ...defaultRemoteHostsDocument().hosts,
+      remoteHost("studio", "studio.example"),
+      remoteHost("render", "render.example"),
+    ]);
     const targets = StationFleetTargetRepository.of({
       list: Effect.succeed([first, second]),
       bind: () => Effect.die("unused"),
@@ -105,6 +121,7 @@ describe("StationFleetPropagation", () => {
       });
     } finally {
       await runtime.dispose();
+      setHostsSnapshot(defaultRemoteHostsDocument().hosts);
     }
   });
 });
