@@ -1,6 +1,10 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { UsageSnapshot, UsageState } from "../src/shared/usage";
+import {
+  UsageCache,
+  UsageCacheError,
+} from "../src/main/vellum/usage/usage-cache";
 import { UsageSources, type UsageSource } from "../src/main/vellum/usage/usage-source";
 import { UsageService, UsageServiceLive } from "../src/main/vellum/usage/usage-service";
 
@@ -54,6 +58,25 @@ const fakeSource = (
 let runtime: ManagedRuntime.ManagedRuntime<UsageService, never>;
 let sources: Array<UsageSource & { readonly fetchCount: number }>;
 
+const emptyCache = UsageCache.of({
+  loadLastGood: Effect.succeed(undefined),
+  saveLastGood: () => Effect.void,
+});
+
+const makeUsageRuntime = (
+  sourceValues: ReadonlyArray<UsageSource>,
+  cache = emptyCache,
+): ManagedRuntime.ManagedRuntime<UsageService, never> =>
+  ManagedRuntime.make(
+    Layer.provideMerge(
+      UsageServiceLive,
+      Layer.mergeAll(
+        Layer.succeed(UsageSources, sourceValues),
+        Layer.succeed(UsageCache, cache),
+      ),
+    ),
+  );
+
 beforeEach(() => {
   sources = [
     fakeSource("alpha", {
@@ -64,9 +87,7 @@ beforeEach(() => {
       fetch: () => missingSnapshot("beta"),
     }) as UsageSource & { readonly fetchCount: number },
   ];
-  runtime = ManagedRuntime.make(
-    Layer.provideMerge(UsageServiceLive, Layer.succeed(UsageSources, sources)),
-  );
+  runtime = makeUsageRuntime(sources);
 });
 
 afterEach(async () => {
@@ -115,9 +136,7 @@ describe("UsageService", () => {
       }) as UsageSource & { readonly fetchCount: number },
     ];
     await runtime.dispose();
-    runtime = ManagedRuntime.make(
-      Layer.provideMerge(UsageServiceLive, Layer.succeed(UsageSources, sources)),
-    );
+    runtime = makeUsageRuntime(sources);
     const usage = await runtime.runPromise(UsageService);
     const good = await runtime.runPromise(usage.refresh());
     expect(good.stale).toBe(false);
@@ -142,9 +161,7 @@ describe("UsageService", () => {
       }) as UsageSource & { readonly fetchCount: number },
     ];
     await runtime.dispose();
-    runtime = ManagedRuntime.make(
-      Layer.provideMerge(UsageServiceLive, Layer.succeed(UsageSources, sources)),
-    );
+    runtime = makeUsageRuntime(sources);
     const usage = await runtime.runPromise(UsageService);
 
     const first = runtime.runPromise(usage.refresh());
@@ -172,6 +189,29 @@ describe("UsageService", () => {
     expect(state.snapshots).toHaveLength(2);
   });
 
+  it("keeps successful live state when durable cache persistence fails", async () => {
+    await runtime.dispose();
+    const failingCache = UsageCache.of({
+      loadLastGood: Effect.succeed(undefined),
+      saveLastGood: () =>
+        Effect.fail(
+          UsageCacheError.make({
+            operation: "save-last-good",
+            message: "database unavailable",
+            cause: new Error("database unavailable"),
+          }),
+        ),
+    });
+    runtime = makeUsageRuntime(sources, failingCache);
+
+    const usage = await runtime.runPromise(UsageService);
+    const live = await runtime.runPromise(usage.refresh());
+
+    expect(live.stale).toBe(false);
+    expect(live.snapshots[0]?.quotas).toHaveLength(2);
+    expect(await runtime.runPromise(usage.current)).toEqual(live);
+  });
+
   it("doctor reports ok when a source is present and warning when none are", async () => {
     const usage = await runtime.runPromise(UsageService);
     await runtime.runPromise(usage.refresh());
@@ -189,9 +229,7 @@ describe("UsageService", () => {
         fetch: () => missingSnapshot("ghost"),
       }) as UsageSource & { readonly fetchCount: number },
     ];
-    runtime = ManagedRuntime.make(
-      Layer.provideMerge(UsageServiceLive, Layer.succeed(UsageSources, absent)),
-    );
+    runtime = makeUsageRuntime(absent);
     const usage2 = await runtime.runPromise(UsageService);
     const warnCheck = await runtime.runPromise(usage2.doctor);
     expect(warnCheck.status).toBe("warning");

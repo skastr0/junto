@@ -7,7 +7,7 @@ import {
   type UsageSnapshot,
   type UsageState,
 } from "@shared/usage";
-import { readUsageCache, writeUsageCache } from "./usage-cache";
+import { UsageCache } from "./usage-cache";
 import { UsageSources } from "./usage-source";
 
 // Provider usage plane read service.
@@ -42,15 +42,27 @@ const liveErrorMessage = (snapshots: ReadonlyArray<UsageSnapshot>): string | und
   return failed.error ?? failed.reason ?? "usage refresh failed";
 };
 
-export const UsageServiceLive = Layer.effect(
+export const UsageServiceLive = Layer.scoped(
   UsageService,
   Effect.gen(function* () {
     const sources = yield* UsageSources;
-    // Instant paint from disk when available (always stale until live lands).
-    let state: UsageState = readUsageCache() ?? emptyState;
+    const cache = yield* UsageCache;
+    // Instant paint from SQLite when available (always stale until live lands).
+    // Cache faults are non-fatal at this read-plane boundary.
+    let state: UsageState =
+      (yield* cache.loadLastGood.pipe(
+        Effect.catchAll(() => Effect.succeed(undefined)),
+      )) ?? emptyState;
     let started = false;
     const listeners = new Set<(state: UsageState) => void>();
     let inFlight: Promise<UsageState> | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (pollTimer !== undefined) clearInterval(pollTimer);
+      }),
+    );
 
     const notify = (next: UsageState): UsageState => {
       state = next;
@@ -59,13 +71,19 @@ export const UsageServiceLive = Layer.effect(
     };
 
     /** Commit a successful live payload (has quotas) — persist + clear stale. */
-    const commitLive = (snapshots: ReadonlyArray<UsageSnapshot>): UsageState => {
+    const commitLive = async (
+      snapshots: ReadonlyArray<UsageSnapshot>,
+    ): Promise<UsageState> => {
       const next: UsageState = {
         snapshots: [...snapshots],
         stale: false,
         lastLiveAt: new Date().toISOString(),
       };
-      writeUsageCache(next);
+      // Usage is an observational HUD. A persistence fault must not turn a
+      // successful provider poll into a service failure.
+      await Effect.runPromise(
+        cache.saveLastGood(next).pipe(Effect.catchAll(() => Effect.void)),
+      );
       return notify(next);
     };
 
@@ -91,10 +109,14 @@ export const UsageServiceLive = Layer.effect(
       });
     };
 
-    const applyPrimary = (snapshots: ReadonlyArray<UsageSnapshot>): UsageState => {
+    const applyPrimary = async (
+      snapshots: ReadonlyArray<UsageSnapshot>,
+    ): Promise<UsageState> => {
       const ranked = preferNativeUsageSnapshots(snapshots);
       const live: UsageState = { snapshots: [...ranked] };
-      return hasUsageQuotas(live) ? commitLive(ranked) : commitFailedLive(ranked);
+      return hasUsageQuotas(live)
+        ? await commitLive(ranked)
+        : commitFailedLive(ranked);
     };
 
     const runEnrich = async (primary: ReadonlyArray<UsageSnapshot>): Promise<void> => {
@@ -122,7 +144,7 @@ export const UsageServiceLive = Layer.effect(
         }
         changed = true;
       }
-      if (changed) commitLive(preferNativeUsageSnapshots(next));
+      if (changed) await commitLive(preferNativeUsageSnapshots(next));
     };
 
     const runRefresh = async (): Promise<UsageState> => {
@@ -132,7 +154,7 @@ export const UsageServiceLive = Layer.effect(
           { concurrency: "unbounded" },
         ),
       );
-      const committed = applyPrimary(snapshots);
+      const committed = await applyPrimary(snapshots);
       // Multi-account enrich must not delay first paint.
       void runEnrich(snapshots);
       return committed;
@@ -181,7 +203,8 @@ export const UsageServiceLive = Layer.effect(
         started = true;
         // Immediate first poll — never wait for the interval.
         void refresh();
-        setInterval(() => void refresh(), POLL_INTERVAL_MS).unref();
+        pollTimer = setInterval(() => void refresh(), POLL_INTERVAL_MS);
+        pollTimer.unref();
       },
       subscribe: (listener) => {
         listeners.add(listener);
