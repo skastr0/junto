@@ -16,6 +16,10 @@ type PresenceRow = {
   readonly present: number;
 };
 
+type SqlRow = {
+  readonly sql: string | null;
+};
+
 const tableExists = (
   database: StateCutoverDatabase,
   tableName: string,
@@ -53,6 +57,33 @@ const tableHasColumn = (
     )?.present ?? 0,
   ) === 1;
 
+const tableHasColumns = (
+  database: StateCutoverDatabase,
+  tableName: string,
+  columns: ReadonlyArray<string>,
+): boolean =>
+  tableExists(database, tableName) &&
+  columns.every((column) =>
+    tableHasColumn(database, tableName, column)
+  );
+
+const tableDefinitionContains = (
+  database: StateCutoverDatabase,
+  tableName: string,
+  fragment: string,
+): boolean => {
+  const row = database
+    .prepare(
+      `
+        SELECT sql
+        FROM sqlite_schema
+        WHERE type = 'table' AND name = ?
+      `,
+    )
+    .get(tableName) as SqlRow | undefined;
+  return row?.sql?.includes(fragment) ?? false;
+};
+
 const resetObsoleteSchedulerSchema = (
   database: StateCutoverDatabase,
 ): void => {
@@ -71,6 +102,158 @@ const resetObsoleteSchedulerSchema = (
   `);
 };
 
+const resetObsoleteStationEventSchema = (
+  database: StateCutoverDatabase,
+): void => {
+  if (
+    !tableExists(database, "station_events") &&
+    !tableExists(database, "station_outbound_sequences")
+  ) {
+    return;
+  }
+
+  // The retired generic event log used a producer-global sequence domain.
+  // Its cursors cannot be interpreted as canonical route-local Work cursors.
+  database.exec(`
+    DROP TABLE IF EXISTS station_events;
+    DROP TABLE IF EXISTS station_outbound_sequences;
+    DROP TABLE IF EXISTS station_received_cursors;
+    DROP TABLE IF EXISTS station_peer_ack_cursors;
+  `);
+};
+
+const resetObsoleteFleetTargetSchema = (
+  database: StateCutoverDatabase,
+): void => {
+  if (
+    !tableExists(database, "station_fleet_targets") ||
+    tableHasColumn(database, "station_fleet_targets", "retired_at")
+  ) {
+    return;
+  }
+
+  // A deleted row cannot preserve the host→installation authority required
+  // to reject unsafe fresh-install replacement. Pre-release fleet bindings
+  // are discarded once; the current shape retains retired identity tombstones.
+  database.exec("DROP TABLE station_fleet_targets");
+};
+
+const resetObsoleteWorkSchema = (
+  database: StateCutoverDatabase,
+): void => {
+  const hasEvents = tableExists(database, "work_events");
+  const obsolete =
+    tableExists(database, "work_home_sequences") ||
+    (hasEvents &&
+      (
+        !tableHasColumns(database, "work_event_sequences", [
+          "event_home",
+          "entity_home",
+          "last_seq",
+        ]) ||
+        !tableHasColumns(database, "work_events", [
+          "event_home",
+          "entity_home",
+          "seq",
+          "entity_kind",
+          "payload_json",
+          "content_sha256",
+        ]) ||
+        !tableDefinitionContains(
+          database,
+          "work_events",
+          "'receipt'",
+        ) ||
+        !tableHasColumns(database, "work_pending_commands", [
+          "event_home",
+          "entity_home",
+          "seq",
+          "status",
+          "acknowledged_by",
+          "resolved_at",
+        ]) ||
+        !tableDefinitionContains(
+          database,
+          "work_pending_commands",
+          "'applied'",
+        ) ||
+        !tableDefinitionContains(
+          database,
+          "work_pending_commands",
+          "'rejected'",
+        ) ||
+        !tableHasColumns(database, "work_tasks", [
+          "home_station",
+          "event_home",
+          "event_seq",
+        ]) ||
+        !tableHasColumns(database, "work_requests", [
+          "home_station",
+          "event_home",
+          "event_seq",
+        ]) ||
+        !tableHasColumns(database, "work_task_messages", [
+          "parent_lane",
+          "entity_home",
+          "event_home",
+          "event_seq",
+        ]) ||
+        !tableHasColumns(database, "work_messages", [
+          "home_station",
+          "event_home",
+          "event_seq",
+        ]) ||
+        !tableDefinitionContains(
+          database,
+          "work_messages",
+          "vellum:command-center",
+        ) ||
+        !tableHasColumns(database, "work_artifacts", [
+          "home_station",
+          "event_home",
+          "event_seq",
+        ]) ||
+        !tableHasColumns(database, "work_task_transitions", [
+          "home_station",
+          "event_home",
+          "event_seq",
+        ]) ||
+        !tableHasColumns(database, "work_rejections", [
+          "rejected_event_home",
+          "rejected_entity_home",
+          "rejected_seq",
+          "reported_by",
+          "receipt_event_home",
+          "receipt_event_seq",
+        ]) ||
+        !tableDefinitionContains(
+          database,
+          "work_rejections",
+          "causal-conflict",
+        )
+      ));
+  if (!obsolete) return;
+
+  // The pre-replication work schema assigned one sequence per semantic home
+  // and has incompatible event/material columns. There is no supported import
+  // or dual-read path: this pre-release shape is retired as one domain.
+  database.exec(`
+    DROP TABLE IF EXISTS station_received_cursors;
+    DROP TABLE IF EXISTS station_peer_ack_cursors;
+    DROP TABLE IF EXISTS work_rejections;
+    DROP TABLE IF EXISTS work_pending_commands;
+    DROP TABLE IF EXISTS work_task_transitions;
+    DROP TABLE IF EXISTS work_task_messages;
+    DROP TABLE IF EXISTS work_messages;
+    DROP TABLE IF EXISTS work_artifacts;
+    DROP TABLE IF EXISTS work_requests;
+    DROP TABLE IF EXISTS work_tasks;
+    DROP TABLE IF EXISTS work_events;
+    DROP TABLE IF EXISTS work_event_sequences;
+    DROP TABLE IF EXISTS work_home_sequences;
+  `);
+};
+
 /**
  * Apply bounded irreversible transitions to the one current schema.
  *
@@ -82,4 +265,7 @@ export const applyIrreversibleStateCutovers = (
   database: StateCutoverDatabase,
 ): void => {
   resetObsoleteSchedulerSchema(database);
+  resetObsoleteStationEventSchema(database);
+  resetObsoleteFleetTargetSchema(database);
+  resetObsoleteWorkSchema(database);
 };

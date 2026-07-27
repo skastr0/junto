@@ -3,13 +3,18 @@
  *
  * Station intent is deliberately small: one installation identity, at most
  * one paired Command Center, one selected role/configuration, and one complete
- * replaceable projection. Events and cursors are logical-numbered per home;
- * timestamps are retained only as display metadata.
+ * replaceable projection. Canonical events live in the Work schema; Station
+ * retains only transport cursors over those route-local logical sequences.
+ * Timestamps are display metadata.
  *
  * This module is SQL-only so StateEngine can compose it without importing the
  * repository or the station wire contract.
  */
 export const STATION_STATE_SCHEMA_STATEMENTS = [
+  `DROP INDEX IF EXISTS station_events_direction_home_order`,
+  `DROP INDEX IF EXISTS station_events_home_order`,
+  `DROP TABLE IF EXISTS station_events`,
+  `DROP TABLE IF EXISTS station_outbound_sequences`,
   `
     CREATE TABLE IF NOT EXISTS station_installation (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -88,44 +93,6 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
     ) STRICT
   `,
   `
-    CREATE TABLE IF NOT EXISTS station_outbound_sequences (
-      home TEXT PRIMARY KEY CHECK (length(home) BETWEEN 1 AND 128),
-      last_sequence TEXT NOT NULL
-        CHECK (
-          length(last_sequence) BETWEEN 1 AND 32
-          AND last_sequence NOT GLOB '*[^0-9]*'
-          AND (
-            last_sequence = '0'
-            OR substr(last_sequence, 1, 1) <> '0'
-          )
-        )
-    ) STRICT, WITHOUT ROWID
-  `,
-  `
-    CREATE TABLE IF NOT EXISTS station_events (
-      home TEXT NOT NULL CHECK (length(home) BETWEEN 1 AND 128),
-      sequence TEXT NOT NULL
-        CHECK (
-          length(sequence) BETWEEN 1 AND 32
-          AND sequence NOT GLOB '*[^0-9]*'
-          AND (sequence = '0' OR substr(sequence, 1, 1) <> '0')
-        ),
-      direction TEXT NOT NULL CHECK (direction IN ('outbound', 'inbound')),
-      kind TEXT NOT NULL CHECK (length(kind) BETWEEN 1 AND 64),
-      body TEXT NOT NULL,
-      content_sha256 TEXT NOT NULL
-        CHECK (
-          length(content_sha256) = 64
-          AND content_sha256 NOT GLOB '*[^a-f0-9]*'
-        ),
-      origin_at TEXT NOT NULL
-        CHECK (length(origin_at) BETWEEN 1 AND 64),
-      received_at TEXT NOT NULL
-        CHECK (length(received_at) BETWEEN 1 AND 64),
-      PRIMARY KEY (home, sequence)
-    ) STRICT, WITHOUT ROWID
-  `,
-  `
     CREATE TABLE IF NOT EXISTS station_received_cursors (
       home TEXT PRIMARY KEY CHECK (length(home) BETWEEN 1 AND 128),
       through_sequence TEXT NOT NULL
@@ -178,16 +145,13 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
           AND station_installation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
         ),
       bound_at TEXT NOT NULL
-        CHECK (length(bound_at) BETWEEN 1 AND 64)
+        CHECK (length(bound_at) BETWEEN 1 AND 64),
+      retired_at TEXT
+        CHECK (
+          retired_at IS NULL
+          OR length(retired_at) BETWEEN 1 AND 64
+        )
     ) STRICT, WITHOUT ROWID
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS station_events_direction_home_order
-      ON station_events(direction, home, length(sequence), sequence)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS station_events_home_order
-      ON station_events(home, length(sequence), sequence)
   `,
 ] as const;
 
