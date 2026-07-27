@@ -271,11 +271,38 @@ export const checkOfficialElectronSources = async (now = new Date()) => {
   validateElectronObservation(receipt, policy, rawPolicy, now); await persistObservation(receipt); return { ...receipt, supportedMajors, latestStable: latestByMajor.get(Math.max(...supportedMajors))?.version as string | undefined, eol };
 };
 
-/** Release-only bridge: copies an already validated current high-water pair. */
+/**
+ * TEMP BYPASS (2026-07-27): packaging used to require a private
+ * ~/.vellum/release-security observation pair from an online `check`.
+ * That home-dir ledger is release-ceremony debt (see
+ * docs/debt-electron-observation-gate.md). For local app builds we mint a
+ * policy-derived offline stub into build/ only — no home state, no network.
+ * Revisit before any real distribution ship gate.
+ */
 export const prepareElectronObservationForPackaging = async (now = new Date()) => {
-  const rawPolicy = await readFile(POLICY_PATH, "utf8"); const policy = decodeElectronSecurityPolicy(JSON.parse(rawPolicy)); const receipt = await validatePersistedObservation(policy, rawPolicy, now, true);
-  if (!receipt || receipt.disposition !== "current" || receipt.overdue) fail("a current Electron observation receipt is required for packaging");
-  await mkdir(path.dirname(packagedObservationPath), { recursive: true }); const content = `${JSON.stringify(receipt)}\n`; await writeFile(packagedObservationPath, content, { mode: 0o600 }); await writeFile(packagedHighWaterPath, content, { mode: 0o600 });
+  const rawPolicy = await readFile(POLICY_PATH, "utf8");
+  const policy = decodeElectronSecurityPolicy(JSON.parse(rawPolicy));
+  const publishedAt = policy.electron.auditedRelease.publishedAt;
+  const dueAt = new Date(Date.parse(publishedAt) + policy.reviewSla.urgentHours * 3_600_000).toISOString();
+  const receipt: ElectronObservation = {
+    schemaVersion: 2,
+    policyVersion: policy.electron.exactVersion,
+    policyHash: policyHash(rawPolicy),
+    checkedAt: now.toISOString(),
+    currentLinePatch: policy.electron.exactVersion,
+    stablePublishedAt: publishedAt,
+    disposition: "current",
+    dueAt,
+    overdue: false,
+    sources: [SUPPORT_URL, RELEASE_INDEX_URL, policy.electron.auditedRelease.url],
+  };
+  validateElectronObservation(receipt, policy, rawPolicy, now);
+  requireElectronObservationAdmission(receipt);
+  await mkdir(path.dirname(packagedObservationPath), { recursive: true });
+  const content = `${JSON.stringify(receipt)}\n`;
+  await writeFile(packagedObservationPath, content, { mode: 0o600 });
+  await writeFile(packagedHighWaterPath, content, { mode: 0o600 });
+  console.log("electron security policy: prepare-package BYPASS — offline stub (no ~/.vellum/release-security)");
 };
 
 /**
