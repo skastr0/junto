@@ -289,14 +289,14 @@ and active, not which storage implementation exists:
 One durable row has one home. Re-homing is an explicit move; it is never a
 dual-read or dual-write interval.
 
-Startup accepts exactly the current composed schema. Inside one transaction,
-Vellum applies only its bounded irreversible cutovers, executes the current
-DDL, and compares the normalized actual `sqlite_schema` (tables, constraints,
-indexes, and triggers) with a fresh in-memory compile of that same DDL. Only an
-exact match is stamped and committed. Unknown objects and unrecognized stale
-shapes fail closed; they do not activate a compatibility reader or fallback.
-The transient in-memory compiler contains no product data and is not an
-authority connection.
+Startup accepts only a fresh database or exactly the current composed schema.
+Inside one transaction, Vellum executes the current DDL and compares the
+normalized actual `sqlite_schema` (tables, constraints, indexes, and triggers)
+with a fresh in-memory compile of that same DDL. Only an exact match is stamped
+and committed. Every non-current shape fails closed; startup contains no
+obsolete-schema recognition, repair, compatibility reader, or fallback. The
+transient in-memory compiler contains no product data and is not an authority
+connection.
 
 Canvas confidentiality follows the operator's operating-system account, disk,
 backup, and export choices. Vellum does not become a general secret-management

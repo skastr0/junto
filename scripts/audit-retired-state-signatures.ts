@@ -21,6 +21,12 @@ export const RETIRED_PRODUCT_STATE_SIGNATURES = [
   "VELLUM_HOSTS_PATH",
   "VELLUM_STATION_STATUS_PATH",
   "VELLUM_CANVAS_AUTHORITY_DIR",
+  "applyIrreversibleStateCutovers",
+  "runtime_store_values",
+  "state_metadata",
+  "station_events",
+  "station_outbound_sequences",
+  "work_home_sequences",
 ] as const;
 
 export type RetiredProductStateSignature =
