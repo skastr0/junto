@@ -1,9 +1,4 @@
-import {
-  applySettingsPatch,
-  defaultSettings,
-  type Settings,
-  type StationSettings,
-} from "./settings";
+import type { StationSettings } from "./settings";
 import { isValidStationHostId } from "./station";
 
 /**
@@ -81,41 +76,4 @@ export const planRemoteStationConfig = (
     station,
     summary: `role=remote · hostId=${station.hostId} · agentHostId=${station.agentHostId} · commandCenterRef=${station.commandCenterRef} · supervisedPreferred=${station.supervisedPreferred}`,
   };
-};
-
-/**
- * Merge Remote station fields into an existing Settings document.
- * Preserves appearance/canvas/kernel/…; only stamps station.
- */
-export const mergeRemoteStationSettings = (
-  current: Settings,
-  input: RemoteStationConfigInput,
-): Settings => {
-  const station = planRemoteStationFields(input);
-  return applySettingsPatch(current, { station });
-};
-
-/**
- * Merge onto defaults when the remote has no settings document yet.
- */
-export const remoteStationSettingsFromScratch = (
-  input: RemoteStationConfigInput,
-): Settings => mergeRemoteStationSettings(defaultSettings(), input);
-
-/**
- * True when settings.station already matches the planned Remote stamp.
- */
-export const remoteStationAlreadyConfigured = (
-  settings: Settings,
-  input: RemoteStationConfigInput,
-): boolean => {
-  const planned = planRemoteStationFields(input);
-  const s = settings.station;
-  return (
-    s.role === planned.role &&
-    s.hostId === planned.hostId &&
-    s.agentHostId === planned.agentHostId &&
-    s.commandCenterRef === planned.commandCenterRef &&
-    s.supervisedPreferred === planned.supervisedPreferred
-  );
 };

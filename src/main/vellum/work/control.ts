@@ -797,8 +797,6 @@ export interface WorkControlServerOptions {
   readonly processMap?: ProcessIdentityMap;
   /** Test seam for peer PID (defaults to Unix LOCAL_PEERPID / SO_PEERCRED). */
   readonly readPeerPid?: PeerPidReader;
-  /** Canvases directory for principal → node resolution. */
-  readonly canvasesDir?: string;
   /** Test seam; production uses the process-global main authoring authority. */
   readonly authoringGate?: MainAuthoringGate;
 }
@@ -972,8 +970,6 @@ export const startWorkControlServer = async (
   const processMap = options.processMap ?? getProcessIdentityMap();
   const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
   const authoringGate = options.authoringGate ?? mainAuthoringGate;
-  // Legacy option retained for callers; live authority no longer scans this path.
-  void options.canvasesDir;
 
   const shutdownGraceMs = boundedRuntimeValue(
     runtime.shutdownGraceMs,

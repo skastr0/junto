@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  mergeRemoteStationSettings,
   planRemoteStationConfig,
   planRemoteStationFields,
-  remoteStationAlreadyConfigured,
-  remoteStationSettingsFromScratch,
 } from "../src/shared/remote-station-config";
-import { applySettingsPatch, defaultSettings } from "../src/shared/settings";
 
 describe("remote station config planner", () => {
   const input = {
@@ -61,42 +57,6 @@ describe("remote station config planner", () => {
         agentHostId: "-bad",
       }),
     ).toThrow(/invalid agent host id/);
-  });
-
-  it("merge preserves non-station sections", () => {
-    const current = applySettingsPatch(defaultSettings(), {
-      appearance: { theme: "system", reduceMotion: true },
-      canvas: { defaultCanvas: "main" },
-    });
-    const next = mergeRemoteStationSettings(current, input);
-    expect(next.appearance.theme).toBe("system");
-    expect(next.appearance.reduceMotion).toBe(true);
-    expect(next.canvas.defaultCanvas).toBe("main");
-    expect(next.station.role).toBe("remote");
-    expect(next.station.hostId).toBe("studio");
-    expect(next.station.agentHostId).toBe("studio");
-    expect(next.station.commandCenterRef).toBe("local");
-    expect(next.station.supervisedPreferred).toBe(true);
-  });
-
-  it("from-scratch is defaults + remote station stamp", () => {
-    const settings = remoteStationSettingsFromScratch(input);
-    expect(settings.version).toBe(defaultSettings().version);
-    expect(settings.appearance).toEqual(defaultSettings().appearance);
-    expect(settings.station.role).toBe("remote");
-    expect(settings.station.hostId).toBe("studio");
-  });
-
-  it("alreadyConfigured matches planned stamp only", () => {
-    const configured = remoteStationSettingsFromScratch(input);
-    expect(remoteStationAlreadyConfigured(configured, input)).toBe(true);
-    expect(
-      remoteStationAlreadyConfigured(configured, {
-        ...input,
-        commandCenterRef: "other",
-      }),
-    ).toBe(false);
-    expect(remoteStationAlreadyConfigured(defaultSettings(), input)).toBe(false);
   });
 
   it("plan summary is glanceable", () => {

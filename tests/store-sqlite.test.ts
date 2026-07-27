@@ -162,43 +162,4 @@ describe("StoreService SQLite state", () => {
     expect(result.preserved).toEqual({ value: 1 });
   });
 
-  test("drops the obsolete legacy-import table on reopen", async () => {
-    const root = await makeRoot();
-    const first = makeRuntime(root);
-    await first.runPromise(
-      Effect.flatMap(StateEngine, (state) =>
-        state.transaction("test.seed-obsolete-store-table", (writer) => {
-          writer.run(
-            `
-              CREATE TABLE runtime_store_legacy_import (
-                singleton INTEGER PRIMARY KEY
-              ) STRICT
-            `,
-          );
-        }),
-      ),
-    );
-    await disposeRuntime(first);
-
-    const second = makeRuntime(root);
-    const tables = await second.runPromise(
-      Effect.flatMap(StateEngine, (state) =>
-        state.read("test.runtime-store-tables", (reader) =>
-          reader
-            .all<{ name: string }>(
-              `
-                SELECT name
-                FROM sqlite_master
-                WHERE type = 'table'
-                  AND name LIKE 'runtime_store_%'
-                ORDER BY name
-              `,
-            )
-            .map((row) => row.name),
-        ),
-      ),
-    );
-
-    expect(tables).toEqual(["runtime_store_values"]);
-  });
 });

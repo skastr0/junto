@@ -482,7 +482,6 @@ const main = async () => {
       version: "acceptance",
       workHome,
       home: root,
-      canvasesDir: canvases,
       processMap,
       run: (effect) => runtime.runPromise(effect),
     });

@@ -53,7 +53,6 @@ describe("main authoring architecture", () => {
       "ipc.canvas.create",
       "ipc.canvas.delete",
       "ipc.canvas.portfolio",
-      "ipc.canvas.pull",
       "ipc.canvas.write",
       "ipc.work.artifact-publish",
       "ipc.work.message-append",
