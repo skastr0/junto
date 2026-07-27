@@ -41,16 +41,40 @@ describe("managed-terminal templates (data)", () => {
     expect(isHarnessId("openclaw")).toBe(false);
   });
 
-  it("marks injection tiers honestly (A: claude/grok, B: codex/hermes)", () => {
+  it("marks injection tiers and release capability badges honestly", () => {
     expect(CLAUDE_TEMPLATE.injectionSpec.tier).toBe("A");
     expect(GROK_TEMPLATE.injectionSpec.tier).toBe("A");
     expect(CODEX_TEMPLATE.injectionSpec.tier).toBe("B");
     expect(HERMES_TEMPLATE.injectionSpec.tier).toBe("B");
     expect(CLAUDE_TEMPLATE.capabilityBadges.instructionInjection).toBe("A");
+    expect(CLAUDE_TEMPLATE.capabilityBadges.hooks).toBe(false);
+    expect(GROK_TEMPLATE.capabilityBadges.hooks).toBe(false);
     expect(CODEX_TEMPLATE.capabilityBadges.hooks).toBe(false);
+    expect(HERMES_TEMPLATE.capabilityBadges.hooks).toBe(false);
     expect(HERMES_TEMPLATE.capabilityBadges.effortAtSpawn).toBe(false);
     expect(GROK_TEMPLATE.capabilityBadges.requiresGitCwd).toBe(true);
     expect(HERMES_TEMPLATE.capabilityBadges.remote).toBe(true);
+    expect(CLAUDE_TEMPLATE.capabilityBadges.labels).toEqual(
+      expect.arrayContaining(["OSC + grid"]),
+    );
+    expect(GROK_TEMPLATE.capabilityBadges.labels).toEqual(
+      expect.arrayContaining(["OSC + grid"]),
+    );
+    expect(HERMES_TEMPLATE.capabilityBadges.labels).toEqual(
+      expect.arrayContaining(["OSC + grid"]),
+    );
+    expect(CLAUDE_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("hooks");
+    expect(GROK_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("hooks");
+    expect(HERMES_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("hooks");
+    expect(CLAUDE_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");
+    expect(GROK_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");
+    expect(HERMES_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");
+    expect(CLAUDE_TEMPLATE.capabilityBadges.stateFeed).toBe("OSC → grid");
+    expect(GROK_TEMPLATE.capabilityBadges.stateFeed).toBe("OSC → grid");
+    expect(HERMES_TEMPLATE.capabilityBadges.stateFeed).toBe("OSC (--tui only) → grid");
+    expect(GROK_TEMPLATE.capabilityBadges.attentionSource).toBe(
+      "OSC title Action Required + footer/grid",
+    );
   });
 
   it("shares the mandatory spawn env scrub list", () => {
