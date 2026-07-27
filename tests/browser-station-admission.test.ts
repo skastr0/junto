@@ -1,41 +1,75 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Context, Effect, ManagedRuntime } from "effect";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
-import { defaultSettings, type Settings } from "../src/shared/settings";
+import { Schema } from "effect";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  STATION_PULL_ADMISSION_VERSION,
-  STATION_PULL_STALE_AFTER_MS,
-  type StationStatusDocument,
-} from "../src/shared/station-status";
+  InstallationId,
+  LogicalSequence,
+  StationConfiguration,
+  type StationConfiguration as StationConfigurationValue,
+} from "../src/shared/station-api";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
+  BROWSER_STATION_ADMISSION_TTL_MS,
   prepareBrowserStationAdmissionAuthority,
 } from "../src/main/vellum/browser/station-admission";
-import { makeSettingsService } from "../src/main/vellum/settings/service";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { StateEngine } from "../src/main/vellum/state/service";
-import type {
-  StationStatusChange,
-} from "../src/main/vellum/station-status-store";
 import {
-  readLocalCanvasMirrorWitness,
-  stationSettingsWitness,
-} from "../src/main/vellum/station-witness";
+  stationProjectionContentSha256,
+  type StationProjection,
+  type StationStatusFacts,
+} from "../src/main/vellum/station/repository";
 
-const now = Date.parse("2026-07-23T12:00:00.000Z");
+const installationId = Schema.decodeUnknownSync(InstallationId);
+const logicalSequence = Schema.decodeUnknownSync(LogicalSequence);
+const stationConfiguration = Schema.decodeUnknownSync(StationConfiguration);
 
-const remoteSettings = (): Settings => ({
-  ...defaultSettings(),
-  station: {
+const commandCenterInstallationId = installationId("command-installation");
+const remoteInstallationId = installationId("remote-installation");
+const projectionBody = JSON.stringify({ canvases: [] });
+const contentSha256 = stationProjectionContentSha256(projectionBody);
+const receivedAt = "2026-07-27T15:00:01.000Z";
+
+const remoteConfiguration = (): StationConfigurationValue =>
+  stationConfiguration({
     role: "remote",
     hostId: "studio",
     agentHostId: "studio",
-    commandCenterRef: "command",
+    commandCenterInstallationId,
+    commandCenterRef: "command.tailnet",
     supervisedPreferred: true,
+  });
+
+const commandCenterConfiguration = (): StationConfigurationValue =>
+  stationConfiguration({
+    role: "command-center",
+    hostId: "local",
+    supervisedPreferred: false,
+  });
+
+const projection = (): StationProjection => ({
+  scope: "full",
+  generation: logicalSequence("7"),
+  body: projectionBody,
+  contentSha256,
+  createdAt: "2026-07-27T15:00:00.000Z",
+  receivedAt,
+});
+
+const remoteFacts = (): StationStatusFacts => ({
+  installationId: remoteInstallationId,
+  pairing: {
+    commandCenterInstallationId,
+    stationLabel: "Studio",
+    appVersion: "0.1.0",
+    pairedAt: "2026-07-27T14:00:00.000Z",
   },
+  configuration: remoteConfiguration(),
+  configuredAt: "2026-07-27T14:30:00.000Z",
+  projection: {
+    generation: logicalSequence("7"),
+    contentSha256,
+    receivedAt,
+  },
+  receivedThrough: [],
+  peerAcknowledgedThrough: [],
 });
 
 const remoteHost = (): RemoteHost => ({
@@ -46,194 +80,214 @@ const remoteHost = (): RemoteHost => ({
   capabilities: ["browser", "terminal"],
 });
 
-describe("Remote browser station admission", () => {
-  let root = "";
-  let canvasesDir = "";
-  let settings: Settings;
-  let status: StationStatusDocument;
+type StationRead = Readonly<{
+  facts: StationStatusFacts;
+  projection?: StationProjection;
+}>;
+
+describe("browser station admission", () => {
+  let station: StationRead;
+  let stationReadError: Error | undefined;
   let hosts: ReadonlyArray<RemoteHost>;
-  let statusListeners: Set<(change: StationStatusChange) => void>;
   let hostListeners: Set<
     (
       next: ReadonlyArray<RemoteHost>,
       previous: ReadonlyArray<RemoteHost>,
     ) => void
   >;
-  let state: Context.Tag.Service<typeof StateEngine>;
-  let closeState: (() => Promise<void>) | undefined;
 
-  beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-browser-station-"));
-    canvasesDir = join(root, "canvases");
-    const stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum.db")),
-    );
-    state = await stateRuntime.runPromise(StateEngine);
-    closeState = () => stateRuntime.dispose();
-    process.env.VELLUM_CANVASES_DIR = canvasesDir;
-    settings = remoteSettings();
-    const doc: CanvasDoc = { nodes: [], edges: [] };
-    await mkdir(canvasesDir, { recursive: true });
-    await writeFile(join(canvasesDir, "work.canvas"), serializeCanvas(doc), "utf8");
-    const mirror = await readLocalCanvasMirrorWitness();
-    status = {
-      version: 1,
-      lastPull: {
-        at: new Date(now - 30_000).toISOString(),
-        status: "ok",
-        ok: true,
-        detail: "complete",
-        commandCenterRef: settings.station.commandCenterRef,
-        keptLocal: false,
-        pulledCount: 1,
-        failedCount: 0,
-        admission: {
-          version: STATION_PULL_ADMISSION_VERSION,
-          stationHostId: settings.station.hostId,
-          stationConfigSha256: stationSettingsWitness(settings.station),
-          canvasMirrorSha256: mirror.sha256,
-          canvasCount: mirror.canvasCount,
-        },
-      },
-    };
+  beforeEach(() => {
+    station = { facts: remoteFacts(), projection: projection() };
+    stationReadError = undefined;
     hosts = [remoteHost()];
-    statusListeners = new Set();
     hostListeners = new Set();
   });
 
-  afterEach(async () => {
-    delete process.env.VELLUM_CANVASES_DIR;
-    await closeState?.();
-    closeState = undefined;
-    await rm(root, { recursive: true, force: true });
-  });
-
-  const makeService = async () => {
-    const service = await Effect.runPromise(
-      makeSettingsService(state, {
-        probeSupervised: async () => "absent",
-      }),
-    );
-    await Effect.runPromise(
-      service.setStationTopology(settings.station),
-    );
-    return service;
-  };
-
-  const prepare = async () => {
-    const service = await makeService();
-    const authority = await prepareBrowserStationAdmissionAuthority(service, {
-      now: () => now,
-      readStatus: async () => status,
-      readMirror: readLocalCanvasMirrorWitness,
-      findHost: (hostId) => hosts.find((host) => host.id === hostId),
-      subscribeStatus: (listener) => {
-        statusListeners.add(listener);
-        return () => statusListeners.delete(listener);
+  const prepare = () =>
+    prepareBrowserStationAdmissionAuthority({
+      readStation: async () => {
+        if (stationReadError !== undefined) throw stationReadError;
+        return station;
       },
-      subscribeHosts: (listener) => {
+      findHost: (hostId: string) => hosts.find((host) => host.id === hostId),
+      subscribeHosts: (
+        listener: (
+          next: ReadonlyArray<RemoteHost>,
+          previous: ReadonlyArray<RemoteHost>,
+        ) => void,
+      ) => {
         hostListeners.add(listener);
         return () => hostListeners.delete(listener);
       },
     });
-    return { authority, service };
-  };
 
-  it("admits only the exact fresh complete pull and mirror", async () => {
-    const { authority } = await prepare();
-    await expect(authority.admit()).resolves.toEqual({
+  it("admits an exact Remote configuration, pairing, host, and full projection", async () => {
+    const authority = await prepare();
+    expect(BROWSER_STATION_ADMISSION_TTL_MS).toBe(5_000);
+
+    const first = await authority.admit();
+    expect(first).toEqual({
       ok: true,
-      maxTtlMs: STATION_PULL_STALE_AFTER_MS - 30_000,
+      maxTtlMs: BROWSER_STATION_ADMISSION_TTL_MS,
     });
+    await expect(authority.admit()).resolves.toEqual(first);
 
-    await writeFile(
-      join(canvasesDir, "work.canvas"),
-      serializeCanvas({
-        nodes: [
-          {
-            id: "changed",
-            type: "text",
-            text: "changed",
-            x: 0,
-            y: 0,
-            width: 100,
-            height: 40,
-          },
-        ],
-        edges: [],
-      }),
-      "utf8",
-    );
-    await expect(authority.admit()).resolves.toMatchObject({
-      ok: false,
-      message: expect.stringMatching(/does not match/i),
-    });
+    authority.close();
+  });
+
+  it("requires canonical configuration even on Command Center", async () => {
+    station = {
+      facts: {
+        installationId: commandCenterInstallationId,
+        configuration: commandCenterConfiguration(),
+        configuredAt: "2026-07-27T14:30:00.000Z",
+        receivedThrough: [],
+        peerAcknowledgedThrough: [],
+      },
+    };
+    const authority = await prepare();
+    await expect(authority.admit()).resolves.toEqual({ ok: true });
+
+    station = {
+      facts: {
+        installationId: commandCenterInstallationId,
+        receivedThrough: [],
+        peerAcknowledgedThrough: [],
+      },
+    };
+    await expect(authority.admit()).resolves.toMatchObject({ ok: false });
     authority.close();
   });
 
   it.each([
     {
-      label: "partial",
-      mutate: (pull: NonNullable<StationStatusDocument["lastPull"]>) => ({
-        ...pull,
-        ok: false,
-        status: "partial" as const,
-        failedCount: 1,
+      label: "missing pairing",
+      mutate: (current: StationRead): StationRead => ({
+        ...current,
+        facts: { ...current.facts, pairing: undefined },
       }),
-      message: /not a complete/i,
     },
     {
-      label: "kept local",
-      mutate: (pull: NonNullable<StationStatusDocument["lastPull"]>) => ({
-        ...pull,
-        ok: false,
-        status: "unreachable" as const,
-        keptLocal: true,
+      label: "pairing for another Command Center",
+      mutate: (current: StationRead): StationRead => ({
+        ...current,
+        facts: {
+          ...current.facts,
+          pairing: {
+            ...current.facts.pairing!,
+            commandCenterInstallationId: installationId("other-command"),
+          },
+        },
       }),
-      message: /not a complete/i,
     },
     {
-      label: "future",
-      mutate: (pull: NonNullable<StationStatusDocument["lastPull"]>) => ({
-        ...pull,
-        at: new Date(now + 1).toISOString(),
+      label: "missing status projection reference",
+      mutate: (current: StationRead): StationRead => ({
+        ...current,
+        facts: { ...current.facts, projection: undefined },
       }),
-      message: /future/i,
     },
     {
-      label: "stale",
-      mutate: (pull: NonNullable<StationStatusDocument["lastPull"]>) => ({
-        ...pull,
-        at: new Date(now - STATION_PULL_STALE_AFTER_MS).toISOString(),
+      label: "missing installed projection",
+      mutate: (current: StationRead): StationRead => ({
+        facts: current.facts,
       }),
-      message: /stale/i,
     },
-  ])("fails closed for a $label pull receipt", async ({ mutate, message }) => {
-    status = {
-      version: 1,
-      lastPull: mutate(status.lastPull!),
-    };
-    const { authority } = await prepare();
-    await expect(authority.admit()).resolves.toMatchObject({
-      ok: false,
-      message: expect.stringMatching(message),
-    });
+    {
+      label: "different projection generation",
+      mutate: (current: StationRead): StationRead => ({
+        ...current,
+        projection: {
+          ...current.projection!,
+          generation: logicalSequence("8"),
+        },
+      }),
+    },
+    {
+      label: "different projection hash",
+      mutate: (current: StationRead): StationRead => ({
+        ...current,
+        projection: {
+          ...current.projection!,
+          contentSha256: stationProjectionContentSha256(
+            JSON.stringify({ canvases: [{ id: "different" }] }),
+          ),
+        },
+      }),
+    },
+    {
+      label: "different projection receipt",
+      mutate: (current: StationRead): StationRead => ({
+        ...current,
+        projection: {
+          ...current.projection!,
+          receivedAt: "2026-07-27T15:00:02.000Z",
+        },
+      }),
+    },
+  ])("fails closed for a Remote with $label", async ({ mutate }) => {
+    station = mutate(station);
+    const authority = await prepare();
+
+    await expect(authority.admit()).resolves.toMatchObject({ ok: false });
     authority.close();
   });
 
-  it("publishes only admission-relevant status, settings, and host changes", async () => {
-    const { authority, service } = await prepare();
-    const listener = vi.fn();
-    authority.subscribe(listener);
+  it.each([
+    {
+      label: "no enrolled host",
+      host: undefined,
+    },
+    {
+      label: "a different host identity",
+      host: { ...remoteHost(), id: "other" },
+    },
+    {
+      label: "a local host row",
+      host: { ...remoteHost(), kind: "local" as const },
+    },
+    {
+      label: "no browser capability",
+      host: { ...remoteHost(), capabilities: ["terminal" as const] },
+    },
+  ])("fails closed when the configured Remote resolves to $label", async ({ host }) => {
+    hosts = host === undefined ? [] : [host];
+    const authority = await prepare();
 
-    const current = status;
-    for (const statusListener of statusListeners) {
-      statusListener({ kind: "kernel", previous: current, current });
-    }
-    await Effect.runPromise(
-      service.patch({ appearance: { reduceMotion: true } }),
-    );
-    const unrelated = [
+    await expect(authority.admit()).resolves.toMatchObject({ ok: false });
+    authority.close();
+  });
+
+  it("fails closed when canonical station state cannot be read", async () => {
+    stationReadError = new Error("database unavailable");
+    const authority = await prepare();
+
+    await expect(authority.admit()).resolves.toMatchObject({ ok: false });
+    authority.close();
+  });
+
+  it("rejects an admission whose host authority changes during the repository read", async () => {
+    let resolveStation!: (value: StationRead) => void;
+    const pending = new Promise<StationRead>((resolve) => {
+      resolveStation = resolve;
+    });
+    const authority = await prepareBrowserStationAdmissionAuthority({
+      readStation: async () => pending,
+      findHost: (hostId: string) =>
+        hosts.find((host) => host.id === hostId),
+      subscribeHosts: (
+        listener: (
+          next: ReadonlyArray<RemoteHost>,
+          previous: ReadonlyArray<RemoteHost>,
+        ) => void,
+      ) => {
+        hostListeners.add(listener);
+        return () => hostListeners.delete(listener);
+      },
+    });
+
+    const admission = authority.admit();
+    const changed = [
       ...hosts,
       {
         id: "other",
@@ -244,54 +298,33 @@ describe("Remote browser station admission", () => {
       },
     ];
     for (const hostListener of hostListeners) {
-      hostListener(unrelated, hosts);
+      hostListener(changed, hosts);
     }
-    expect(listener).not.toHaveBeenCalled();
+    resolveStation(station);
 
-    for (const statusListener of statusListeners) {
-      statusListener({ kind: "pull", previous: current, current });
-    }
-    // Established pairing freezes commandCenterRef/hostId/role; only
-    // supervisedPreferred may change — still an admission-relevant settings event.
-    await Effect.runPromise(
-      service.setStationTopology({ supervisedPreferred: false }),
-    );
-    const previousHosts = hosts;
-    hosts = [{ ...remoteHost(), capabilities: ["terminal"] }];
-    for (const hostListener of hostListeners) {
-      hostListener(hosts, previousHosts);
-    }
-    expect(listener).toHaveBeenCalledTimes(3);
-    await expect(authority.admit()).resolves.toMatchObject({ ok: false });
+    await expect(admission).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/changed/i),
+    });
     authority.close();
   });
 
-  it("preserves Command Center admission without a pull receipt", async () => {
-    settings = {
-      ...defaultSettings(),
-      station: {
-        role: "command-center",
-        hostId: "local",
-        commandCenterRef: "",
-        supervisedPreferred: false,
-      },
-    };
-    const service = await makeService();
-    const readStatus = vi.fn(async () => {
-      throw new Error("must not read");
-    });
-    const authority = await prepareBrowserStationAdmissionAuthority(service, {
-      now: () => now,
-      readStatus,
-      readMirror: async () => {
-        throw new Error("must not read");
-      },
-      findHost: () => undefined,
-      subscribeStatus: () => () => undefined,
-      subscribeHosts: () => () => undefined,
-    });
-    await expect(authority.admit()).resolves.toEqual({ ok: true });
-    expect(readStatus).not.toHaveBeenCalled();
+  it("publishes enrolled-host authority changes and unsubscribes on close", async () => {
+    const authority = await prepare();
+    const listener = vi.fn();
+    authority.subscribe(listener);
+
+    const previous = hosts;
+    hosts = [{ ...remoteHost(), capabilities: ["terminal"] }];
+    for (const hostListener of hostListeners) {
+      hostListener(hosts, previous);
+    }
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    await expect(authority.admit()).resolves.toMatchObject({ ok: false });
+
     authority.close();
+    expect(hostListeners.size).toBe(0);
+    await expect(authority.admit()).resolves.toMatchObject({ ok: false });
   });
 });

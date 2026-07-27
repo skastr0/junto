@@ -1,16 +1,75 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { defaultSettings } from "../src/shared/settings";
 import {
-  STATION_PULL_STALE_AFTER_MS,
-  STATION_STATUS_VERSION,
-  type StationStatusDocument,
-} from "../src/shared/station-status";
+  InstallationId,
+  LogicalSequence,
+  StationConfiguration,
+  type StationConfiguration as StationConfigurationValue,
+} from "../src/shared/station-api";
 import {
-  stationCanvasPullReadiness,
-  stationCanvasPullMatchesMirror,
+  stationProjectionInstalledForReadiness,
   supervisorAlignedForReadiness,
 } from "../src/main/runtime";
-import { stationSettingsWitness } from "../src/main/vellum/station-witness";
+import {
+  stationProjectionContentSha256,
+  type StationProjection,
+  type StationStatusFacts,
+} from "../src/main/vellum/station/repository";
+
+const installationId = Schema.decodeUnknownSync(InstallationId);
+const logicalSequence = Schema.decodeUnknownSync(LogicalSequence);
+const stationConfiguration = Schema.decodeUnknownSync(StationConfiguration);
+
+const commandCenterInstallationId = installationId("command-installation");
+const remoteInstallationId = installationId("remote-installation");
+const body = JSON.stringify({ canvases: [] });
+const contentSha256 = stationProjectionContentSha256(body);
+const receivedAt = "2026-07-27T15:00:01.000Z";
+
+const remoteConfiguration = (): StationConfigurationValue =>
+  stationConfiguration({
+    role: "remote",
+    hostId: "studio",
+    agentHostId: "studio",
+    commandCenterInstallationId,
+    commandCenterRef: "command.tailnet",
+    supervisedPreferred: true,
+  });
+
+const commandCenterConfiguration = (): StationConfigurationValue =>
+  stationConfiguration({
+    role: "command-center",
+    hostId: "local",
+    supervisedPreferred: false,
+  });
+
+const projection = (): StationProjection => ({
+  scope: "full",
+  generation: logicalSequence("7"),
+  body,
+  contentSha256,
+  createdAt: "2026-07-27T15:00:00.000Z",
+  receivedAt,
+});
+
+const remoteFacts = (): StationStatusFacts => ({
+  installationId: remoteInstallationId,
+  pairing: {
+    commandCenterInstallationId,
+    stationLabel: "Studio",
+    appVersion: "0.1.0",
+    pairedAt: "2026-07-27T14:00:00.000Z",
+  },
+  configuration: remoteConfiguration(),
+  configuredAt: "2026-07-27T14:30:00.000Z",
+  projection: {
+    generation: logicalSequence("7"),
+    contentSha256,
+    receivedAt,
+  },
+  receivedThrough: [],
+  peerAcknowledgedThrough: [],
+});
 
 describe("station readiness runtime facts", () => {
   it.each([
@@ -36,101 +95,63 @@ describe("station readiness runtime facts", () => {
     },
   );
 
-  it("requires a fresh pull admitted for the exact current Remote settings", () => {
-    const station = {
-      ...defaultSettings().station,
-      role: "remote" as const,
-      hostId: "studio",
-      commandCenterRef: "command-center",
-      supervisedPreferred: true,
-    };
-    const now = Date.parse("2026-07-23T08:00:00.000Z");
-    const status: StationStatusDocument = {
-      version: STATION_STATUS_VERSION,
-      lastPull: {
-        at: new Date(now).toISOString(),
-        status: "ok",
-        ok: true,
-        detail: "complete",
-        commandCenterRef: station.commandCenterRef,
-        keptLocal: false,
-        pulledCount: 1,
-        failedCount: 0,
-        admission: {
-          version: 1,
-          stationHostId: station.hostId,
-          stationConfigSha256: stationSettingsWitness(station),
-          canvasMirrorSha256: "a".repeat(64),
-          canvasCount: 1,
-        },
-      },
-    };
+  it("requires the exact active full projection for a Remote", () => {
+    const facts = remoteFacts();
+    const installed = projection();
 
-    expect(stationCanvasPullReadiness(station, status, now)).toBe("fresh");
     expect(
-      stationCanvasPullMatchesMirror(status, {
-        sha256: "a".repeat(64),
-        canvasCount: 1,
-      }),
+      stationProjectionInstalledForReadiness(facts, installed),
     ).toBe(true);
     expect(
-      stationCanvasPullMatchesMirror(status, {
-        sha256: "b".repeat(64),
-        canvasCount: 1,
+      stationProjectionInstalledForReadiness(
+        { ...facts, projection: undefined },
+        installed,
+      ),
+    ).toBe(false);
+    expect(
+      stationProjectionInstalledForReadiness(facts, undefined),
+    ).toBe(false);
+    expect(
+      stationProjectionInstalledForReadiness(facts, {
+        ...installed,
+        generation: logicalSequence("8"),
       }),
     ).toBe(false);
     expect(
-      stationCanvasPullReadiness(
-        station,
-        status,
-        now + STATION_PULL_STALE_AFTER_MS + 1,
-      ),
-    ).toBe("stale");
+      stationProjectionInstalledForReadiness(facts, {
+        ...installed,
+        contentSha256: stationProjectionContentSha256(
+          JSON.stringify({ canvases: [{ id: "different" }] }),
+        ),
+      }),
+    ).toBe(false);
     expect(
-      stationCanvasPullReadiness(
-        station,
-        {
-          ...status,
-          lastPull: {
-            ...status.lastPull!,
-            at: new Date(now + 1).toISOString(),
-          },
-        },
-        now,
-      ),
-    ).toBe("stale");
-    expect(
-      stationCanvasPullReadiness(
-        station,
-        {
-          ...status,
-          lastPull: { ...status.lastPull!, admission: undefined },
-        },
-        now,
-      ),
-    ).toBe("missing");
-    expect(
-      stationCanvasPullReadiness(
-        { ...station, hostId: "different-seat" },
-        status,
-        now,
-      ),
-    ).toBe("missing");
-    expect(
-      stationCanvasPullReadiness(
-        { ...station, commandCenterRef: "different-command-center" },
-        status,
-        now,
-      ),
-    ).toBe("missing");
+      stationProjectionInstalledForReadiness(facts, {
+        ...installed,
+        receivedAt: "2026-07-27T15:00:02.000Z",
+      }),
+    ).toBe(false);
   });
 
-  it("does not require a canvas pull on Command Center", () => {
+  it("does not require a projection on a configured Command Center", () => {
+    const commandCenterFacts: StationStatusFacts = {
+      installationId: commandCenterInstallationId,
+      configuration: commandCenterConfiguration(),
+      configuredAt: "2026-07-27T14:30:00.000Z",
+      receivedThrough: [],
+      peerAcknowledgedThrough: [],
+    };
     expect(
-      stationCanvasPullReadiness(
-        { ...defaultSettings().station, role: "command-center" },
-        { version: STATION_STATUS_VERSION },
+      stationProjectionInstalledForReadiness(commandCenterFacts, undefined),
+    ).toBe(true);
+    expect(
+      stationProjectionInstalledForReadiness(
+        {
+          ...commandCenterFacts,
+          configuration: undefined,
+        },
+        undefined,
       ),
-    ).toBe("not-required");
+    ).toBe(false);
   });
 });
