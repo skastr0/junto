@@ -884,22 +884,22 @@ describe("work control transport", () => {
     expect(res.error.details?.holder).toBe("agent");
   });
 
-  it("capabilities lists connected ops only", async () => {
+  it("capabilities lists only canonical held grants", async () => {
     const server = servers[0]!;
     const res = (await call(server.socketPath, {
       token: token(),
       op: "capabilities",
     })) as {
       ok: true;
-      data: { connected: Array<{ id: string; ops: string[] }> };
+      data: { connected: Array<{ id: string; grants: string[] }> };
     };
     expect(res.ok).toBe(true);
     expect(res.data.connected.map((c) => c.id)).toEqual(["req", "tasks"]);
-    expect(res.data.connected.find((c) => c.id === "tasks")?.ops).toContain(
+    expect(res.data.connected.find((c) => c.id === "tasks")?.grants).toContain(
       "tasks.claim",
     );
-    expect(res.data.connected.find((c) => c.id === "req")?.ops).toContain(
-      "request.escalate",
+    expect(res.data.connected.find((c) => c.id === "req")?.grants).toContain(
+      "request.create",
     );
   });
 

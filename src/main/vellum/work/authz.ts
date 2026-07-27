@@ -302,10 +302,9 @@ export const heldGrantsOnEdge = (
 
 export type ConnectedCapability = VisibleNode & {
   readonly summary: string;
-  readonly ops: ReadonlyArray<WorkOpName>;
-  /** Derived factory role of the target (additive). */
+  /** Derived factory role of the target. */
   readonly role: FactoryRole;
-  /** Ports held via the undirected edge (additive). */
+  /** Canonical ports held via the undirected edge. */
   readonly grants: ReadonlyArray<Port>;
 };
 
@@ -327,12 +326,13 @@ export const connectedCapabilities = (
     const node = findNode(doc, other);
     if (!node) continue;
     const kind = nodeKind(node);
-    const ops = opsForKind(kind);
     const grants = heldGrantsOnEdge(doc, callerId, other);
     out.push({
       ...summarizeNode(node),
-      summary: ops.length > 0 ? ops.join(", ") : "connected (no work ops)",
-      ops,
+      summary:
+        grants.length > 0
+          ? grants.join(", ")
+          : "connected (no held grants)",
       role: factoryRoleOfNode(node),
       grants,
     });

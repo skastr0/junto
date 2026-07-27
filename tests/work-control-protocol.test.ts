@@ -184,14 +184,14 @@ describe("work authz — edges as capability", () => {
     expect(kindAllowsOp("agent", "msg.send")).toBe(true);
   });
 
-  it("connectedCapabilities lists ops on edge targets only", () => {
+  it("connectedCapabilities lists held grants on edge targets only", () => {
     const caps = connectedCapabilities(board, "agent");
     expect(caps).toHaveLength(1);
     expect(caps[0]?.id).toBe("tasks");
-    expect(caps[0]?.ops).toContain("tasks.claim");
+    expect(caps[0]?.grants).toContain("tasks.claim");
   });
 
-  it("connectedCapabilities includes additive role + held grants", () => {
+  it("connectedCapabilities includes role + held grants", () => {
     const caps = connectedCapabilities(board, "agent");
     expect(caps[0]?.role).toBe("sink");
     expect(caps[0]?.grants).toEqual(

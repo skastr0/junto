@@ -537,14 +537,12 @@ const dispatchOp = (
           kind: c.kind,
           title: c.title,
           summary: c.summary,
-          // Additive: role + held port grants (ops list remains for compat).
           role: c.role,
           grants: c.grants,
         })),
         co_members: regionVisibility(board, caller.nodeId),
         capabilities: {
           protocol_version: WORK_PROTOCOL_VERSION,
-          ops: connected.flatMap((c) => c.ops),
           connected,
         },
       };
