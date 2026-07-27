@@ -3,10 +3,9 @@ import { Schema } from "effect";
 /**
  * Durable work-domain contracts.
  *
- * These schemas describe work independently of either persistence adapter:
- * the temporary JSON Canvas embedding and the SQLite repository both consume
- * this one model. Persistence location is deliberately absent from the
- * component.
+ * These schemas define the values stored in normalized SQLite work rows and
+ * assembled into runtime projections. Storage location and single-home
+ * routing remain repository concerns rather than fields on each component.
  */
 
 export const TextPart = Schema.Struct({
@@ -126,10 +125,9 @@ export const WorkMessages = Schema.Struct({
 export type WorkMessages = typeof WorkMessages.Type;
 
 /**
- * Transitional document-store names.
- *
- * JSON Canvas still embeds these containers until WorkService is rewired.
- * They alias the durable work component rather than defining a second model.
+ * Canonical work-lane values exposed at the runtime projection boundary.
+ * These names identify projected lane contents; they are not document
+ * durability or a second persistence model.
  */
 export const EtherTasks = WorkTasks;
 export type EtherTasks = WorkTasks;

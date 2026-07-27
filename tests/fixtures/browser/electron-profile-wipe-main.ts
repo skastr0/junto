@@ -721,7 +721,7 @@ const runPhaseC = async (state: StateService): Promise<void> => {
   );
   await flushProfile("personal");
   await flushProfile("work");
-  const finalRegistry = await Effect.runPromise(profiles.readConfig);
+  const finalRegistry = await Effect.runPromise(profiles.readState);
   ensure(
     ["personal", "work"].every((profileId) =>
       finalRegistry.profiles.some((profile) => profile.id === profileId),

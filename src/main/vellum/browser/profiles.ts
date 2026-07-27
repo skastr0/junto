@@ -94,8 +94,8 @@ export interface BrowserProfileRecord {
   readonly lastUsedAt?: string;
 }
 
-/** Public ready-state view retained for existing browser consumers. */
-export interface BrowserConfigFile {
+/** Current operational browser-profile state persisted by StateEngine. */
+export interface BrowserProfileRegistryState {
   readonly defaultProfile: string;
   readonly canvasDefaults: Readonly<Record<string, string>>;
   readonly maxWarmSessions: number;
@@ -159,14 +159,20 @@ export interface BrowserProfileServiceOptions {
 
 export interface BrowserProfileServiceApi {
   readonly doctor: Effect.Effect<ServiceCheck>;
-  readonly initialize: Effect.Effect<BrowserConfigFile, BrowserProfileError>;
+  readonly initialize: Effect.Effect<
+    BrowserProfileRegistryState,
+    BrowserProfileError
+  >;
   readonly ensureDefaults: Effect.Effect<
-    BrowserConfigFile,
+    BrowserProfileRegistryState,
     BrowserProfileError
   >;
   /** Cold-start only: call once before any browser partition is admitted. */
   readonly recoverPendingWipe: Effect.Effect<void, BrowserProfileError>;
-  readonly readConfig: Effect.Effect<BrowserConfigFile, BrowserProfileError>;
+  readonly readState: Effect.Effect<
+    BrowserProfileRegistryState,
+    BrowserProfileError
+  >;
   readonly listProfiles: Effect.Effect<
     ReadonlyArray<BrowserProfileRecord>,
     BrowserProfileError
@@ -194,11 +200,11 @@ export class BrowserProfileService extends Context.Tag(
   "@vellum/BrowserProfileService",
 )<BrowserProfileService, BrowserProfileServiceApi>() {}
 
-interface BrowserProfileStateReady extends BrowserConfigFile {
+interface BrowserProfileStateReady extends BrowserProfileRegistryState {
   readonly phase: "ready";
 }
 
-interface BrowserProfileStatePending extends BrowserConfigFile {
+interface BrowserProfileStatePending extends BrowserProfileRegistryState {
   readonly phase: "wipe_pending";
   readonly pendingWipe: BrowserProfilePendingWipe;
 }
@@ -457,7 +463,7 @@ const readStoredState = (
     FROM browser_profile_pending_wipe
     WHERE singleton = 1
   `);
-  const base: BrowserConfigFile = {
+  const base: BrowserProfileRegistryState = {
     defaultProfile: settings.default_profile,
     canvasDefaults,
     maxWarmSessions: settings.max_warm_sessions,
@@ -538,26 +544,26 @@ const requireReady = (
   return config;
 };
 
-const asOperationalConfig = (
-  config: BrowserProfileState,
-): BrowserConfigFile => {
-  if (config.phase === "ready") return config;
-  const pendingId = config.pendingWipe.profileId;
-  const profiles = config.profiles.filter(
+const asOperationalState = (
+  state: BrowserProfileState,
+): BrowserProfileRegistryState => {
+  if (state.phase === "ready") return state;
+  const pendingId = state.pendingWipe.profileId;
+  const profiles = state.profiles.filter(
     (profile) => profile.id !== pendingId,
   );
   return {
     defaultProfile:
-      config.defaultProfile === pendingId
+      state.defaultProfile === pendingId
         ? profiles[0]!.id
-        : config.defaultProfile,
+        : state.defaultProfile,
     canvasDefaults: Object.fromEntries(
-      Object.entries(config.canvasDefaults).filter(
+      Object.entries(state.canvasDefaults).filter(
         ([, profile]) => profile !== pendingId,
       ),
     ),
-    maxWarmSessions: config.maxWarmSessions,
-    maxVisibleSurfaces: config.maxVisibleSurfaces,
+    maxWarmSessions: state.maxWarmSessions,
+    maxVisibleSurfaces: state.maxVisibleSurfaces,
     profiles,
   };
 };
@@ -876,7 +882,7 @@ export const makeBrowserProfileService = (
   };
 
   const initialize = load.pipe(
-    Effect.map(({ config }) => asOperationalConfig(config)),
+    Effect.map(({ config }) => asOperationalState(config)),
   );
 
   const doctor = load.pipe(
@@ -924,7 +930,7 @@ export const makeBrowserProfileService = (
         }
       }),
     ),
-    readConfig: initialize,
+    readState: initialize,
     listProfiles: initialize.pipe(
       Effect.map((config) => config.profiles),
     ),
@@ -1200,13 +1206,13 @@ export const makeBrowserProfileService = (
             }),
           );
         }
-        const config = asOperationalConfig(
+        const state = asOperationalState(
           (yield* load).config,
         );
         return canvasName
-          ? config.canvasDefaults[canvasName] ??
-              config.defaultProfile
-          : config.defaultProfile;
+          ? state.canvasDefaults[canvasName] ??
+              state.defaultProfile
+          : state.defaultProfile;
       }),
     partitionName: (profileId) =>
       Effect.gen(function* () {

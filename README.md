@@ -274,7 +274,7 @@ Connection states: connected · degraded · lost · failed · reconnect. Clipboa
 | **Membership** | Center-in-rect geometry (flat; no nested groups) — derived, never stored |
 | **Watcher** | Predicate → pulse (`glyphs_done` · `glyphs_entered_state` · `stat_threshold`) |
 | **Timer** | `everyMinutes` pulse |
-| **Arming** | Per canvas::region switch in app store — **not in the document** |
+| **Arming** | Per canvas::region switch in app-owned SQLite runtime state — **not in the document** |
 | **Pulse** | Watcher/timer → edge-connected eligible agents; manual region pulse may target eligible members |
 | **Host-scoped fire** | Remote stations only fire nodes on their hostId |
 
@@ -500,7 +500,7 @@ only. Hosts are enrolled through Settings.
 | **Membership** | Center-in-rect (flat) — derived |
 | **Watcher** | `glyphs_done` · `glyphs_entered_state` · `stat_threshold` → pulse |
 | **Timer** | `everyMinutes` pulse |
-| **Arming** | App store switch — **not in the document** |
+| **Arming** | App-owned SQLite runtime-state switch — **not in the document** |
 | **Pulse** | Edge-routed watcher/timer delivery; manual region pulse may target eligible members |
 | **Host-scoped fire** | Remotes fire only their hostId |
 

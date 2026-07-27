@@ -761,10 +761,10 @@ export class BrowserSessionService {
 
   private async resolvePoolLimits(): Promise<BrowserPoolLimits> {
     if (this.poolLimits) return this.poolLimits();
-    const config = await Effect.runPromise(this.profiles.readConfig);
+    const state = await Effect.runPromise(this.profiles.readState);
     return {
-      maxVisibleSurfaces: config.maxVisibleSurfaces,
-      maxWarmSessions: config.maxWarmSessions,
+      maxVisibleSurfaces: state.maxVisibleSurfaces,
+      maxWarmSessions: state.maxWarmSessions,
     };
   }
 
@@ -1204,13 +1204,13 @@ export class BrowserSessionService {
     BrowserResult<ReadonlyArray<{ id: string; label?: string; default?: boolean }>>
   > {
     try {
-      const config = await Effect.runPromise(this.profiles.readConfig);
+      const state = await Effect.runPromise(this.profiles.readState);
       return {
         ok: true,
-        data: config.profiles.map((profile) => ({
+        data: state.profiles.map((profile) => ({
           id: profile.id,
           ...(profile.label !== undefined ? { label: profile.label } : {}),
-          ...(profile.id === config.defaultProfile ? { default: true } : {}),
+          ...(profile.id === state.defaultProfile ? { default: true } : {}),
         })),
       };
     } catch (error) {

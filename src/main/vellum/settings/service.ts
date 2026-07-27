@@ -306,7 +306,7 @@ const publishAfterCommit = (
  * Build one service instance over the already-open StateEngine.
  *
  * Initialization is eager so IPC and control surfaces cannot observe an
- * unimported or half-present settings aggregate.
+ * uninitialized or half-present settings aggregate.
  */
 export const makeSettingsService = (
   state: StateService,

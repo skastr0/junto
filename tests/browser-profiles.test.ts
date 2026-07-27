@@ -269,7 +269,7 @@ describe("browser profile registry", () => {
       await chmod(path, 0o755);
     }
 
-    await run(registry.readConfig);
+    await run(registry.readState);
     for (const path of [
       registryRoot,
       join(registryRoot, "profiles"),
@@ -295,7 +295,7 @@ describe("browser profile registry", () => {
       join(registryRoot, "profiles", "work"),
     );
 
-    const result = await runEither(registry.readConfig);
+    const result = await runEither(registry.readState);
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isLeft(result)) {
       expect(result.left.code).toBe("corrupt");
@@ -321,7 +321,7 @@ describe("browser profile registry", () => {
       );
     });
 
-    const result = await runEither(registry.readConfig);
+    const result = await runEither(registry.readState);
 
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isLeft(result)) {
@@ -542,7 +542,7 @@ describe("browser profile registry", () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
       ),
     );
-    const final = await run(registry.readConfig);
+    const final = await run(registry.readState);
     expect(final.defaultProfile).toBe("work");
     expect(final.canvasDefaults).toEqual({
       workbench: "work",
@@ -874,11 +874,11 @@ describe("browser profile registry", () => {
       );
     });
 
-    const config = await run(registry.readConfig);
-    expect(config.maxWarmSessions).toBe(
+    const state = await run(registry.readState);
+    expect(state.maxWarmSessions).toBe(
       BROWSER_MAX_WARM_SESSIONS_HARD,
     );
-    expect(config.maxVisibleSurfaces).toBe(
+    expect(state.maxVisibleSurfaces).toBe(
       BROWSER_MAX_VISIBLE_SURFACES_HARD,
     );
   });

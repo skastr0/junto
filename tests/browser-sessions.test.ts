@@ -1244,7 +1244,7 @@ describe("BrowserSessionService", () => {
       }),
     );
     expect(
-      (await Effect.runPromise(profileService.readConfig)).maxWarmSessions,
+      (await Effect.runPromise(profileService.readState)).maxWarmSessions,
     ).toBe(32);
     const views: Array<{ events: BrowserViewEvents }> = [];
     const adapter: BrowserViewAdapter = (_partition, events) => {
