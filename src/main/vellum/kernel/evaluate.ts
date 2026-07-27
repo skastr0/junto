@@ -1,5 +1,5 @@
 // Pure watcher evaluation. Nothing in this module touches the document,
-// IPC, or chat — it takes already-fetched snapshots + a glyph index and
+// IPC, or delivery — it takes already-fetched snapshots + a glyph index and
 // returns a derived verdict. cycle.ts owns the loop that keeps
 // those inputs fresh and turns a fired verdict into a region pulse.
 //

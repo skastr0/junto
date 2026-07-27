@@ -1197,7 +1197,7 @@ export const startWorkControlServer = async (
               retryable: admission.reason === "peer_pid_unavailable",
               next_step:
                 admission.reason === "process_unbound"
-                  ? "open the agent chat in Vellum so its process is registered"
+                  ? "open the agent's terminal in Vellum so its process is registered"
                   : "ensure the CLI runs as a child of a live Vellum agent process",
               missing: "process-bind",
             },

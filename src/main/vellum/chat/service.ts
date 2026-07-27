@@ -21,23 +21,20 @@ import {
   type SpawnFn,
 } from "./acp-client";
 import { buildAcpSpawnTarget, resolveSessionCwd, type AcpSpawnTarget } from "./spawn";
-import { getProcessIdentityMap } from "../process-identity";
 
 // One live ACP session per agent node ("<host>:<profile>"). ChatService owns
 // spawn/initialize/session lifecycle and the ACP <-> ChatEvent projection;
 // the IPC layer (chat/ipc.ts, wired by the orchestrator) is a thin
 // pass-through onto this class.
 //
-// Local ACP children are process-bound: their OS pid is registered so work
-// and browser control can admit the agent without a forgeable nodeRef claim.
+// ACP is a transport, never a kind: this surface holds no seat, mints no
+// principal, and takes part in no factory decision.
 
 interface AgentSession {
   readonly client: AcpClient;
   readonly generation: number;
   /** Hermes host id from the agent key (local | configured remote). */
   readonly host: string;
-  /** Local child pid registered for process-bind (undefined when remote). */
-  boundPid?: number;
   sessionId: string;
   models: ReadonlyArray<ChatModelChoice>;
   promptInFlight: boolean;
@@ -141,8 +138,6 @@ export class ChatService {
   private readonly authorityRestartInFlight = new Map<string, Promise<ChatOpenResult>>();
   private readonly generations = new Map<string, number>();
   private eventSink: ((event: ChatEvent) => void) | undefined;
-  /** Fires when a session is live (new open or already-open fast path). */
-  private sessionLiveHook: ((agentKey: string) => void) | undefined;
   private idleTimer: ReturnType<typeof setInterval> | undefined;
   private unsubscribeHostsSnapshot: (() => void) | undefined;
   private readonly clients = new Set<AcpClient>();
@@ -174,20 +169,6 @@ export class ChatService {
 
   setEventSink(sink: (event: ChatEvent) => void): void {
     this.eventSink = sink;
-  }
-
-  /** Optional live-session hook — message delivery retries pending nudges here. */
-  setSessionLiveHook(hook: ((agentKey: string) => void) | undefined): void {
-    this.sessionLiveHook = hook;
-  }
-
-  private notifySessionLive(agentKey: string): void {
-    if (this.closing) return;
-    try {
-      this.sessionLiveHook?.(agentKey);
-    } catch {
-      // Hook must never sink chat open.
-    }
   }
 
   /** Test / shutdown seam. */
@@ -402,46 +383,6 @@ export class ChatService {
     );
   }
 
-  /**
-   * Optional canvas pin for the next local bind (set by callers that know the
-   * agent card). Cleared after bind. Reduces multi-canvas ambiguous matches.
-   */
-  private pendingBindPin:
-    | { readonly canvasName: string; readonly nodeId: string }
-    | undefined;
-
-  setAgentBindPin(
-    pin: { readonly canvasName: string; readonly nodeId: string } | undefined,
-  ): void {
-    this.pendingBindPin = pin;
-  }
-
-  private bindLocalProcess(agentKey: string, session: AgentSession): void {
-    if (!this.isLocalHost(session.host)) return;
-    const pid = session.client.childPid;
-    if (pid === undefined) return;
-    const map = getProcessIdentityMap();
-    // Drop any prior bind for this agentKey before attaching the new child.
-    map.unbindAgentKey(agentKey);
-    const pin = this.pendingBindPin;
-    this.pendingBindPin = undefined;
-    const principal = {
-      kind: "agent" as const,
-      agentKey,
-      ...(pin !== undefined
-        ? { canvasName: pin.canvasName, nodeId: pin.nodeId }
-        : {}),
-    };
-    if (!map.bind(pid, principal)) return;
-    session.boundPid = pid;
-  }
-
-  private unbindLocalProcess(session: AgentSession | undefined): void {
-    if (session?.boundPid === undefined) return;
-    getProcessIdentityMap().unbind(session.boundPid);
-    session.boundPid = undefined;
-  }
-
   /** In-flight close per agent — second close joins; open waits. */
   private readonly closeFlights = new Map<
     string,
@@ -500,9 +441,6 @@ export class ChatService {
       return Promise.resolve([]);
     }
 
-    // Revoke process-bind immediately; keep the session entry until teardown
-    // settles so a concurrent open/close cannot race a half-closed seat.
-    this.unbindLocalProcess(session);
     const flight = this.closeClient(session.client).then((receipts) => {
       if (this.sessions.get(agentKey) === session) {
         this.sessions.delete(agentKey);
@@ -559,7 +497,6 @@ export class ChatService {
   }
 
   private abandonSession(agentKey: string, session: AgentSession): void {
-    this.unbindLocalProcess(session);
     if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
     void this.closeClient(session.client);
   }
@@ -617,10 +554,6 @@ export class ChatService {
       resumeSessionId,
       environmentOverlay,
     )
-      .then((result) => {
-        if (result.ok) this.notifySessionLive(agentKey);
-        return result;
-      })
       .finally(() => {
         const current = this.openInFlight.get(agentKey);
         if (current?.generation === generation) this.openInFlight.delete(agentKey);
@@ -640,13 +573,11 @@ export class ChatService {
   async chatOpen(
     agentKey: string,
     resumeSessionId?: string,
-    bindPin?: { readonly canvasName: string; readonly nodeId: string },
   ): Promise<ChatOpenResult> {
     if (this.closing) return { ok: false, error: "chat service is closing" };
     if (this.isDeleteTombstoned(agentKey)) {
       return { ok: false, error: "agent is being deleted" };
     }
-    if (bindPin !== undefined) this.setAgentBindPin(bindPin);
     const authorityRestart = this.authorityRestartInFlight.get(agentKey);
     if (authorityRestart !== undefined) return authorityRestart;
     // Never open a replacement seat while close/teardown is in flight.
@@ -659,7 +590,6 @@ export class ChatService {
     const existing = this.sessions.get(agentKey);
     if (existing && !existing.client.closed && existing.sessionId !== "") {
       this.touch(existing);
-      this.notifySessionLive(agentKey);
       return { ok: true, sessionId: existing.sessionId, resumed: false, models: existing.models };
     }
 
@@ -797,8 +727,6 @@ export class ChatService {
       const init = await session.client.start();
       const supersededAfterStart = this.supersededOpen(agentKey, session);
       if (supersededAfterStart !== undefined) return supersededAfterStart;
-      // Process-bind local ACP children so work/browser CLIs admit by peer PID.
-      this.bindLocalProcess(agentKey, session);
       authSuffix = describeAuthMethods(init.authMethods);
       const cwd = resolveSessionCwd(
         this.isLocalHost(target.host) ? "local" : target.host,
@@ -875,9 +803,6 @@ export class ChatService {
       return { turn: { ok: false, error: describeError(err) }, reply: "" };
     } finally {
       session.promptInFlight = false;
-      // Transport re-available for pending message nudges (idle re-drive).
-      // Does not re-open chat; only notifies listeners that the turn slot is free.
-      if (this.isCurrent(agentKey, session)) this.notifySessionLive(agentKey);
     }
   }
 
@@ -1058,7 +983,6 @@ export class ChatService {
     event: AcpLifecycleEvent,
   ): void {
     if (!this.isCurrent(agentKey, session)) return;
-    this.unbindLocalProcess(session);
     this.sessions.delete(agentKey);
     void this.closeClient(session.client);
     const message = event.kind === "error" ? event.message : `agent process exited (code ${event.code ?? "unknown"})`;

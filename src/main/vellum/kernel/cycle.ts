@@ -1,6 +1,6 @@
 // The kernel loop + delivery cycle. This handles evaluation over multiple
 // canvases with per-canvas isolation and injectable dependencies for
-// testability. All side-effects (glyph fetching, chat delivery, document
+// testability. All side-effects (glyph fetching, pulse delivery, document
 // writes) are behind injectable seams.
 
 import { ulid } from "ulid";
@@ -95,7 +95,7 @@ const findContainingRegionId = (doc: CanvasDoc, nodeId: string): string | undefi
 
 // Region members bound to a hermes agent, in document order. Membership
 // itself is geometry-derived (never persisted); the hermes binding's
-// ref.key is the chat-state agent key.
+// ref.key is the agent key.
 const agentKeysInRegion = (doc: CanvasDoc, regionId: string): ReadonlyArray<string> => {
   const region = doc.nodes.find((node): node is GroupNode => node.id === regionId && node.type === "group");
   if (!region) return [];
@@ -111,7 +111,7 @@ const agentKeysInRegion = (doc: CanvasDoc, regionId: string): ReadonlyArray<stri
 
 // --- pulse message ------------------------------------------------------------
 // "[pulse] <summary>" + optional region.instruction. Live execution context
-// (edges, blocked reasons, task lists) is a separate ACP context block so the
+// (edges, blocked reasons, task lists) is appended as its own block so the
 // operator briefing stays distinct from derived graph state.
 export const composePulseMessage = (summary: string, instruction?: string): string =>
   instruction ? `[pulse] ${summary}\n\n${instruction}` : `[pulse] ${summary}`;
@@ -121,23 +121,13 @@ export const composePulseMessage = (summary: string, instruction?: string): stri
 export interface PulseDeliverDeps {
   /**
    * Managed-terminal seats only (agent + ether.terminal.bindingId).
-   * ACP openChat/chatPrompt is not a product delivery path — never fall back.
-   * Optional only so older tests that omit it simply deliver nothing.
+   * The one delivery path. Optional only so older tests that omit it simply
+   * deliver nothing.
    */
   readonly sendManagedTerminal?: (
     bindingId: string,
     message: string,
   ) => Promise<boolean>;
-  /** @deprecated Unused — ACP pulse delivery removed. Kept so old test stubs typecheck. */
-  readonly isLive?: (agentKey: string) => boolean;
-  /** @deprecated Unused. */
-  readonly openChat?: (agentKey: string) => Promise<void>;
-  /** @deprecated Unused. */
-  readonly sendPrompt?: (
-    agentKey: string,
-    message: string,
-    contextBlocks?: ReadonlyArray<string>,
-  ) => Promise<void>;
 }
 
 export interface FlagWriterDeps {
@@ -273,8 +263,8 @@ export const getKernelSnapshot = (): KernelSnapshot => {
 // --- arming + state tracking -------------------------------------------------
 
 // The most recent LIVE activation for a (canvas, region). A `dry: false`
-// record marks a genuine live activation (openChat/sendPrompt actually got
-// invoked, real cost incurred) even when every bound agent's turn ultimately
+// record marks a genuine live activation (the seat transport actually got
+// driven, real cost incurred) even when every bound agent's turn ultimately
 // failed — a flapping-but-failing region still restarts its spacing window
 // ("failed" is not "free"). Scoped per (canvas, region): region ids are
 // document-local, so the same id on two canvases is two distinct regions with
@@ -501,8 +491,8 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
 }
 
 // --- pulse delivery queue (decoupled from the evaluation cycle) --------------
-// A live pulse spends a real agent chat turn, and chatPrompt is bounded only by
-// a 15-minute IPC ceiling (a turn may run tools for many minutes). If the
+// A live pulse spends a real agent turn, bounded only by a 15-minute IPC
+// ceiling (a turn may run tools for many minutes). If the
 // evaluation cycle AWAITED delivery inline, one slow/hung agent would freeze
 // watcher + timer detection across the WHOLE canvas — every region, not just
 // the busy one, and defeating the 30s safety interval — until that turn

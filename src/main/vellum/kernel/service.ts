@@ -1,9 +1,9 @@
 // KernelService — the Effect Tag + Live layer that runs kernel evaluation
 // continuously over EVERY hydrated canvas, window-optional. This module owns
 // lifecycle (hydration, doc resync, the 30s safety interval), binds cycle.ts's
-// injectable seams to concrete main-side collaborators (ChatService,
-// CanvasesService, StoreService), and persists
-// arming through StoreService. See kernel-design.md for the full design.
+// injectable seams to concrete main-side collaborators (CanvasesService,
+// StoreService), and persists arming through StoreService. See
+// kernel-design.md for the full design.
 //
 // cycle.ts/evaluate.ts are the pure loop + evaluator (ported verbatim from
 // the renderer in an earlier batch); this file is the only thing that binds
@@ -24,7 +24,6 @@ import type {
   WatcherRuntimeState,
 } from "@shared/ipc";
 import { CanvasesService } from "../canvases";
-import { ChatServiceContext, type ChatService } from "../chat/service";
 import { SnapshotsService } from "../snapshots";
 import { StoreService } from "../../services/store";
 import { SettingsService } from "../settings/service";
@@ -199,7 +198,6 @@ const makeKernelService = (
   canvases: CanvasesShape,
   snapshots: SnapshotsShape,
   store: StoreShape,
-  chatService: ChatService,
   settings: SettingsShape,
   pause: PauseShape,
 ): KernelServiceShape => {
@@ -284,7 +282,7 @@ const makeKernelService = (
   // No production private-source fetch — leave unset (undefined → unavailable).
   __setGlyphFetcherForTest(undefined);
 
-  // --- delivery: managed terminal only (ACP is not a product path) ------------
+  // --- delivery: managed terminal seats, the one delivery path ----------------
   __setDeliveryDepsForTest({
     sendManagedTerminal: (bindingId, message) =>
       managedPulseDeliver(bindingId, message),
@@ -604,9 +602,8 @@ export const KernelLive = Layer.effect(
     const canvases = yield* CanvasesService;
     const snapshots = yield* SnapshotsService;
     const store = yield* StoreService;
-    const chat = yield* ChatServiceContext;
     const settings = yield* SettingsService;
     const pause = yield* PausePlane;
-    return makeKernelService(canvases, snapshots, store, chat, settings, pause);
+    return makeKernelService(canvases, snapshots, store, settings, pause);
   }),
 );

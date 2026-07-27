@@ -1,8 +1,7 @@
 // Message delivery — one-way nudge from ether.messages onto live transports.
 // Actor targets come from kind-discriminated surfaces (managed terminal seats
 // and raw geography shells). Geography holds no inbox, so a herdr pane is not
-// a delivery target. ACP is not a transport. No delivery daemon, no retry
-// queue, no polling.
+// a delivery target. No delivery daemon, no retry queue, no polling.
 
 import type { CanvasDoc, Message } from "@shared/canvas";
 import {
@@ -86,14 +85,6 @@ export class MessageDeliveryService {
   notifyAppended(canvas: string, nodeId: string, message: Message): void {
     if (!isPendingDelivery(message)) return;
     void this.attemptOne(canvas, nodeId, message);
-  }
-
-  /**
-   * @deprecated ACP is not a delivery surface. No-op retained so call sites compile
-   * until chat IPC is fully retired from factory paths.
-   */
-  onAgentLive(_agentKey: string): void {
-    // Intentionally empty — managed seats redrive via onManagedTerminalIdle.
   }
 
   /** Native terminal session attached — offer pending messages as unsubmitted paste. */

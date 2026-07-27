@@ -446,12 +446,11 @@ export interface NodeRefOpenedDelivery extends NodeRefOpenedEvent {
 
 export interface ChatApi {
   // Spawn/attach the agent's ACP session. resumeSessionId reattaches a prior
-  // conversation (hermes advertises loadSession + resume). Optional bindPin
-  // pins process-bind identity to a canvas agent node for work-control authz.
+  // conversation (hermes advertises loadSession + resume). The session mints no
+  // principal: ACP is a transport and holds no factory identity.
   readonly chatOpen: (
     agentKey: string,
     resumeSessionId?: string,
-    bindPin?: { readonly canvasName: string; readonly nodeId: string },
   ) => Promise<ChatOpenResult>;
   // One turn: prompt text plus optional context blocks (node digests) sent as
   // additional content blocks. Resolves when the turn ends; streaming arrives

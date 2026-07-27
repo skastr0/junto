@@ -463,7 +463,6 @@ function pushStatus(agentKey: string, text: string, level: "info" | "error"): vo
 export async function openChat(
   agentKey: string,
   resumeSessionId?: string,
-  bindPin?: { readonly canvasName: string; readonly nodeId: string },
 ): Promise<void> {
   ensureAgent(agentKey);
   chatState$[agentKey].assign({ status: "connecting", error: undefined, authMethods: undefined });
@@ -475,7 +474,7 @@ export async function openChat(
     return;
   }
   try {
-    const result: ChatOpenResult = await api.chatOpen(agentKey, resumeSessionId, bindPin);
+    const result: ChatOpenResult = await api.chatOpen(agentKey, resumeSessionId);
     if (result.ok) {
       chatState$[agentKey].assign({
         status: "live",

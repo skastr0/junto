@@ -557,7 +557,6 @@ export const registerVellumIpc = (): void => {
       const snapshots = yield* SnapshotsService;
       const usage = yield* UsageService;
       const kernel = yield* KernelService;
-      const chat = yield* ChatServiceContext;
       const herdr = yield* HerdrPlane;
       const pause = yield* PausePlane;
       const settingsForSeed = yield* SettingsService;
@@ -766,7 +765,6 @@ export const registerVellumIpc = (): void => {
         seatPaused: (canvas, doc, nodeId) =>
           seatPaused(pause.stateFor(canvas), doc, nodeId),
       });
-      chat.setSessionLiveHook((agentKey) => messageDelivery.onAgentLive(agentKey));
       // A canvas flipping to playing (or a node/region unpausing inside a
       // playing canvas) re-drives every message held pending while paused.
       pause.subscribe((canvas) => {

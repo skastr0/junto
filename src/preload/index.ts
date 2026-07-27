@@ -496,8 +496,8 @@ const vellumApi: VellumApi = {
 };
 
 const chatApi: VellumChatApi = {
-  chatOpen: (agentKey, resumeSessionId, bindPin) =>
-    invoke(IPC_CHANNELS.chatOpen, IPC_TIMEOUT_MS, agentKey, resumeSessionId, bindPin),
+  chatOpen: (agentKey, resumeSessionId) =>
+    invoke(IPC_CHANNELS.chatOpen, IPC_TIMEOUT_MS, agentKey, resumeSessionId),
   chatPrompt: (agentKey, text, contextBlocks) =>
     invoke(IPC_CHANNELS.chatPrompt, CHAT_TURN_TIMEOUT_MS, agentKey, text, contextBlocks),
   chatPermission: (agentKey, requestId, optionId) =>
