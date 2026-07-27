@@ -1,3 +1,4 @@
+import { STORE_STATE_SCHEMA_SQL } from "../../services/store-state-schema";
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
 
@@ -61,6 +62,7 @@ export const CANVAS_STATE_SCHEMA_SQL = `
 export const STATE_SCHEMA_FRAGMENTS = [
   STATE_METADATA_SCHEMA_SQL,
   CANVAS_STATE_SCHEMA_SQL,
+  STORE_STATE_SCHEMA_SQL,
   USAGE_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_SQL,
 ] as const;
