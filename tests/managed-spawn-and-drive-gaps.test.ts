@@ -208,6 +208,28 @@ describe("managed spawn plan", () => {
     expect(launch?.argv).not.toContain("default");
   });
 
+  it("preserves inline Claude picker flags and permission values", () => {
+    const { launch } = launchForManagedSpawn({
+      doc: baseDoc(true),
+      nodeId: "worker",
+      harness: "claude",
+      documentLaunch: {
+        kind: "harness",
+        argv: [
+          "claude",
+          "--model=opus",
+          "--effort=high",
+          "--permission-mode=plan",
+        ],
+      },
+    });
+    expect(launch?.argv).toEqual(expect.arrayContaining([
+      "--model", "opus", "--effort", "high", "--permission-mode", "plan",
+      "--append-system-prompt",
+    ]));
+    expect(launch?.argv).not.toContain("--model=opus");
+  });
+
   it("recovers Hermes profile from the agent key", () => {
     const { launch } = launchForManagedSpawn({
       doc: baseDoc(true),
@@ -237,6 +259,42 @@ describe("managed spawn plan", () => {
     expect(launch?.argv).toEqual(expect.arrayContaining([
       "resume", "thread_123", "-m", "gpt-5", "-c",
       'model_reasoning_effort="high"', "-a", "never",
+    ]));
+  });
+
+  it("recovers Codex inline effort and inline approval flags", () => {
+    const { launch } = launchForManagedSpawn({
+      doc: baseDoc(true),
+      nodeId: "worker",
+      harness: "codex",
+      documentLaunch: {
+        kind: "harness",
+        argv: [
+          "codex",
+          "-m=gpt-5",
+          "-c",
+          'model_reasoning_effort="ultra"',
+          "-a=never",
+        ],
+      },
+    });
+    expect(launch?.argv).toEqual(expect.arrayContaining([
+      "-m", "gpt-5", "-c", 'model_reasoning_effort="ultra"', "-a", "never",
+    ]));
+  });
+
+  it("recovers Hermes --yolo permission mode for long-running seats", () => {
+    const { launch } = launchForManagedSpawn({
+      doc: baseDoc(true),
+      nodeId: "worker",
+      harness: "hermes",
+      documentLaunch: {
+        kind: "harness",
+        argv: ["hermes", "chat", "--tui", "--yolo"],
+      },
+    });
+    expect(launch?.argv).toEqual(expect.arrayContaining([
+      "--yolo",
     ]));
   });
 });

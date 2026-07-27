@@ -374,8 +374,15 @@ interface DeliverPulseResult {
   readonly dry: boolean;
 }
 
-const pulseDeliveryKey = (params: DeliverPulseParams): string =>
-  `${params.canvasName}::${params.sourceNodeId}::${params.kind}::${params.regionId ?? ""}::${params.forceDry === true ? "force-dry" : "auto"}::${params.summary}`;
+// Scheduled activations coalesce by source. A timer's summary can change as
+// missed slots accumulate, but there is still only one useful pending turn for
+// that timer; manual operator pulses never enter the retry plane.
+const scheduledPulseKey = (
+  params: DeliverPulseParams,
+): string | undefined =>
+  params.kind === "manual"
+    ? undefined
+    : `${params.canvasName}::${params.sourceNodeId}::${params.kind}`;
 
 const pendingPulseDeliveries = new Map<string, DeliverPulseParams>();
 const queuedPulseDeliveryKeys = new Set<string>();
@@ -384,7 +391,8 @@ const setPendingPulseDelivery = (
   params: DeliverPulseParams,
   shouldRetry: boolean,
 ): void => {
-  const key = pulseDeliveryKey(params);
+  const key = scheduledPulseKey(params);
+  if (key === undefined) return;
   if (!shouldRetry) {
     pendingPulseDeliveries.delete(key);
     return;
@@ -403,30 +411,46 @@ const setWatcherLastFiredAt = (
   watchers.set(key, { ...prior, lastFiredAt: at });
 };
 
+const scheduledPulseSourceExists = (
+  params: DeliverPulseParams,
+): boolean => {
+  const source = docs
+    .get(params.canvasName)
+    ?.nodes.find((node) => node.id === params.sourceNodeId);
+  if (source?.type !== "text") return false;
+  if (params.kind === "watcher") return source.ether?.watch !== undefined;
+  if (params.kind === "timer") return source.ether?.timer !== undefined;
+  return false;
+};
+
+const scheduledPulseCanWait = (
+  params: DeliverPulseParams,
+): boolean => {
+  if (
+    scheduledPulseKey(params) === undefined ||
+    params.forceDry === true ||
+    !scheduledPulseSourceExists(params) ||
+    params.regionId === undefined ||
+    !(armed.get(`${params.canvasName}::${params.regionId}`) ?? false) ||
+    (pausedLookup?.(params.canvasName, params.sourceNodeId) ?? false)
+  ) {
+    return false;
+  }
+  const lastLiveAt = lastLiveActivationAt(
+    params.canvasName,
+    params.regionId,
+  );
+  return (
+    lastLiveAt === undefined ||
+    Date.now() - lastLiveAt >= MIN_LIVE_PULSE_SPACING_MS
+  );
+};
+
 // Single funnel for every pulse — watcher fire, timer tick, or manual. A
 // regionless source (no containing group) always resolves dry with
 // delivered: [] since there is no arming key to check.
 export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverPulseResult> {
   const deps = params.deps ?? deliveryDeps;
-  if (!deps) {
-    // No delivery deps configured — record dry pulse only
-    appendPulseRecord({
-      id: `pulse-${ulid()}`,
-      at: Date.now(),
-      sourceNodeId: params.sourceNodeId,
-      kind: params.kind,
-      summary: params.summary,
-      delivered: [],
-      dry: true,
-      canvasName: params.canvasName,
-      ...(params.regionId !== undefined ? { regionId: params.regionId } : {}),
-    });
-    setPendingPulseDelivery(params, false);
-    return {
-      delivered: false,
-      dry: true,
-    };
-  }
 
   const { regionId } = params;
   const armedKey = regionId !== undefined ? `${params.canvasName}::${regionId}` : undefined;
@@ -439,7 +463,6 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
   const paused = pausedLookup?.(params.canvasName, params.sourceNodeId) ?? false;
   const dry = paused || !wantsLive || cooling;
 
-  let attemptedLiveSeats = false;
   let delivered: ReadonlyArray<string> = [];
   if (!dry) {
     const doc = docs.get(params.canvasName);
@@ -498,8 +521,6 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
         );
       }
 
-      attemptedLiveSeats = keys.length > 0 && deps.sendManagedTerminal !== undefined;
-
       let contextBlocks: ReadonlyArray<string> | undefined;
       if (params.regionId !== undefined && region?.type === "group") {
         const memberIds = groupMembers(doc).get(params.regionId) ?? [];
@@ -529,7 +550,7 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
             ? actorDeliverySurfaceOf(agentNode)
             : undefined;
           if (!surface || surface._tag !== "managedAgent") continue;
-          if (!deps.sendManagedTerminal) continue;
+          if (!deps?.sendManagedTerminal) continue;
           const sent = await deps.sendManagedTerminal(
             surface.bindingId,
             fullMessage,
@@ -546,19 +567,26 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
   // A pulse that found no deliverable seat did not spend a live turn yet.
   // It stays dry until the retry path actually drives at least one seat.
   const finalDry = dry || delivered.length === 0;
-  const shouldRetry = attemptedLiveSeats && delivered.length === 0 && !params.forceDry;
+  const shouldRetry =
+    delivered.length === 0 &&
+    scheduledPulseCanWait(params);
   setPendingPulseDelivery(params, shouldRetry);
 
-  if (!finalDry && delivered.length > 0) {
-    setWatcherLastFiredAt(params.canvasName, params.sourceNodeId, Date.now());
+  const at = Date.now();
+  if (params.kind === "watcher" && delivered.length > 0) {
+    setWatcherLastFiredAt(params.canvasName, params.sourceNodeId, at);
   }
 
   appendPulseRecord({
     id: `pulse-${ulid()}`,
-    at: Date.now(),
+    at,
     sourceNodeId: params.sourceNodeId,
     kind: params.kind,
-    summary: cooling ? `${params.summary} (cooldown · 5m min spacing)` : params.summary,
+    summary: cooling
+      ? `${params.summary} (cooldown · 5m min spacing)`
+      : shouldRetry
+        ? `${params.summary} (delivery pending)`
+        : params.summary,
     delivered,
     dry: finalDry,
     canvasName: params.canvasName,
@@ -592,22 +620,44 @@ const drainPulseDeliveries = async (): Promise<void> => {
     while (pulseDeliveryQueue.length > 0) {
       const params = pulseDeliveryQueue.shift();
       if (params === undefined) break;
-      queuedPulseDeliveryKeys.delete(pulseDeliveryKey(params));
-      // Error capture: a failing — or forever-pending — delivery never sinks
-      // the drain; the next queued pulse still gets its turn.
-      await deliverPulse(params).catch(() => undefined);
+      const key = scheduledPulseKey(params);
+      try {
+        // Error capture: a failing — or forever-pending — delivery never sinks
+        // the drain; the next queued pulse still gets its turn.
+        await deliverPulse(params);
+      } catch {
+        setPendingPulseDelivery(params, scheduledPulseCanWait(params));
+      } finally {
+        // Keep the key held through the await: later kernel cycles must not
+        // enqueue a duplicate while this transport decision is unresolved.
+        if (key !== undefined) queuedPulseDeliveryKeys.delete(key);
+      }
     }
   } finally {
     deliveryDraining = false;
   }
 };
 
-const enqueuePulseDelivery = (params: DeliverPulseParams): void => {
-  const key = pulseDeliveryKey(params);
-  if (queuedPulseDeliveryKeys.has(key)) return;
+const enqueuePulseDelivery = (
+  params: DeliverPulseParams,
+  fromPending = false,
+): boolean => {
+  const key = scheduledPulseKey(params);
+  if (key === undefined) {
+    pulseDeliveryQueue.push(params);
+    void drainPulseDeliveries();
+    return true;
+  }
+  if (
+    queuedPulseDeliveryKeys.has(key) ||
+    (!fromPending && pendingPulseDeliveries.has(key))
+  ) {
+    return false;
+  }
   queuedPulseDeliveryKeys.add(key);
   pulseDeliveryQueue.push(params);
   void drainPulseDeliveries();
+  return true;
 };
 
 // Enqueues a region pulse for the node and returns immediately — the actual
@@ -630,6 +680,7 @@ export const __resetDeliveryQueueForTest = (): void => {
   pulseDeliveryQueue.length = 0;
   deliveryDraining = false;
   queuedPulseDeliveryKeys.clear();
+  pendingPulseDeliveries.clear();
 };
 
 // --- flagOnUnsatisfied (level watchers only) ----------------------------------
@@ -934,8 +985,12 @@ export const __getPendingPulseDeliveryCountForTest = (): number => {
 };
 
 export const retryPendingPulseDeliveries = (): void => {
-  for (const params of pendingPulseDeliveries.values()) {
-    enqueuePulseDelivery(params);
+  for (const [key, params] of [...pendingPulseDeliveries]) {
+    if (queuedPulseDeliveryKeys.has(key)) continue;
+    pendingPulseDeliveries.delete(key);
+    if (!enqueuePulseDelivery(params, true)) {
+      pendingPulseDeliveries.set(key, params);
+    }
   }
 };
 
@@ -952,6 +1007,9 @@ export const purgeCanvasMemory = (canvasName: string): void => {
   const prefix = `${canvasName}::`;
   for (const key of watchers.keys()) if (key.startsWith(prefix)) watchers.delete(key);
   for (const key of nextFire.keys()) if (key.startsWith(prefix)) nextFire.delete(key);
+  for (const [key, params] of pendingPulseDeliveries) {
+    if (params.canvasName === canvasName) pendingPulseDeliveries.delete(key);
+  }
   executionByCanvas.delete(canvasName);
   // evaluate.ts's edge-detection memory (seenLevelStatus/seenGlyphState) is
   // namespaced the same way and grows unbounded across the app's lifetime

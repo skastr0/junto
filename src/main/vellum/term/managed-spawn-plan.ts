@@ -91,9 +91,26 @@ const valueForFlag = (
   flag: string | undefined,
 ): string | undefined => {
   if (!flag) return undefined;
-  const index = argv.lastIndexOf(flag);
-  const value = index >= 0 ? argv[index + 1]?.trim() : undefined;
-  return value || undefined;
+  for (let i = argv.length - 1; i >= 0; i -= 1) {
+    const token = argv[i];
+    if (token === flag) {
+      const value = argv[i + 1]?.trim();
+      if (value && value.length > 0) return value;
+      continue;
+    }
+    const inline = `${flag}=`;
+    if (token.startsWith(inline)) {
+      const value = token.slice(inline.length).trim();
+      if (value.length > 0) return value;
+    }
+  }
+  return undefined;
+};
+
+const parseEffortConfig = (argvValue: string | undefined, key: string): string | undefined => {
+  if (!argvValue) return undefined;
+  const match = argvValue.match(new RegExp(`^${key}=(?:\"([^\"]+)\"|(.+))$`));
+  return match?.[1] ?? match?.[2] ?? undefined;
 };
 
 /**
@@ -112,36 +129,39 @@ const recoverDocumentLaunchChoices = (
   const argv = launch.argv;
   const spec = templateFor(harness).argvSpec;
 
+  const effort = spec.effortConfigKey
+    ? parseEffortConfig(valueForFlag(argv, spec.effortFlag), spec.effortConfigKey)
+    : valueForFlag(argv, spec.effortFlag);
+
+  const permissionMode = spec.permissionModeFlag === "--yolo"
+    ? (argv.includes("--yolo") ? "yolo" : undefined)
+    : valueForFlag(argv, spec.permissionModeFlag);
+
   switch (harness) {
     case "claude":
       return {
         ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
-        ...(valueForFlag(argv, spec.effortFlag) ? { effort: valueForFlag(argv, spec.effortFlag) } : {}),
-        ...(valueForFlag(argv, spec.permissionModeFlag)
-          ? { permissionMode: valueForFlag(argv, spec.permissionModeFlag) }
-          : {}),
+        ...(effort ? { effort } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
       };
     case "codex": {
       const effortArg = valueForFlag(argv, "-c");
-      const effort = effortArg?.match(/^model_reasoning_effort=(?:\"([^\"]+)\"|(.+))$/)?.[1]
-        ?? effortArg?.match(/^model_reasoning_effort=(?:\"([^\"]+)\"|(.+))$/)?.[2];
+      const codexEffort = effortArg
+        ? parseEffortConfig(effortArg, spec.effortConfigKey ?? "model_reasoning_effort")
+        : undefined;
       return {
         ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
-        ...(effort ? { effort } : {}),
-        ...(valueForFlag(argv, spec.permissionModeFlag)
-          ? { permissionMode: valueForFlag(argv, spec.permissionModeFlag) }
-          : {}),
+        ...(codexEffort ? { effort: codexEffort } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
       };
     }
     case "grok":
       return {
         ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
-        ...(valueForFlag(argv, spec.effortFlag)
-          ? { effort: valueForFlag(argv, spec.effortFlag) }
+        ...(effort
+          ? { effort }
           : {}),
-        ...(valueForFlag(argv, spec.permissionModeFlag)
-          ? { permissionMode: valueForFlag(argv, spec.permissionModeFlag) }
-          : {}),
+        ...(permissionMode ? { permissionMode } : {}),
       };
     case "hermes":
       return {
@@ -149,7 +169,7 @@ const recoverDocumentLaunchChoices = (
           ? { profile: valueForFlag(argv, spec.profileFlag) }
           : {}),
         ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
-        ...(argv.includes("--yolo") ? { permissionMode: "yolo" } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
       };
   }
 };
