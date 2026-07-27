@@ -57,7 +57,7 @@ describe("fetchAgentIdentity — remote-a negative-cache regression", () => {
     // First call ever for this host: ssh fails outright (no previous entry
     // to fall back on).
     runCliMock.mockResolvedValueOnce(fail());
-    const first = await fetchAgentIdentity(operations, "remote-a:profile-13");
+    const first = await fetchAgentIdentity(operations, "remote-a:profile-13", "local");
     expect(first).toBeNull();
     expect(runCliMock).toHaveBeenCalledTimes(1);
 
@@ -66,7 +66,7 @@ describe("fetchAgentIdentity — remote-a negative-cache regression", () => {
     // hammering ssh on every call while down.
     vi.setSystemTime(5_000);
     runCliMock.mockResolvedValueOnce(ok(scriptOutput([["profile-13", "PROFILE-13", "@profile-13:remote-a.ts.net", "room", "true"]])));
-    const second = await fetchAgentIdentity(operations, "remote-a:profile-13");
+    const second = await fetchAgentIdentity(operations, "remote-a:profile-13", "local");
     expect(second).toBeNull();
     expect(runCliMock).toHaveBeenCalledTimes(1); // still not retried yet
 
@@ -74,7 +74,7 @@ describe("fetchAgentIdentity — remote-a negative-cache regression", () => {
     // recovers immediately once ssh succeeds again. This is the "retry
     // recovers" behavior: no 10-minute wait for a transient blip.
     vi.setSystemTime(31_000);
-    const third = await fetchAgentIdentity(operations, "remote-a:profile-13");
+    const third = await fetchAgentIdentity(operations, "remote-a:profile-13", "local");
     expect(runCliMock).toHaveBeenCalledTimes(2);
     expect(third).toEqual({
       key: "remote-a:profile-13",
@@ -95,7 +95,7 @@ describe("fetchAgentIdentity — remote-a negative-cache regression", () => {
     runCliMock.mockResolvedValueOnce(
       ok(scriptOutput([["profile-13", "PROFILE-13", "@profile-13:remote-a.ts.net", "room-a", "true"]])),
     );
-    const initial = await fetchAgentIdentity(operations, "remote-a:profile-13");
+    const initial = await fetchAgentIdentity(operations, "remote-a:profile-13", "local");
     expect(initial?.displayName).toBe("PROFILE-13");
     expect(runCliMock).toHaveBeenCalledTimes(1);
 
@@ -103,7 +103,11 @@ describe("fetchAgentIdentity — remote-a negative-cache regression", () => {
     // refetch, and this time ssh fails (remote-a blipped off the tailnet).
     vi.setSystemTime(11 * 60 * 1000);
     runCliMock.mockResolvedValueOnce(fail());
-    const duringOutage = await fetchAgentIdentity(operations, "remote-a:profile-13");
+    const duringOutage = await fetchAgentIdentity(
+      operations,
+      "remote-a:profile-13",
+      "local",
+    );
     expect(runCliMock).toHaveBeenCalledTimes(2);
     // Old bug: this would be null (empty Map cached as truth). Fixed: the
     // previous successful batch is still served.
@@ -121,7 +125,11 @@ describe("fetchAgentIdentity — remote-a negative-cache regression", () => {
     runCliMock.mockResolvedValueOnce(
       ok(scriptOutput([["profile-13", "PROFILE-13", "@profile-13:remote-a.ts.net", "room-b", "true"]])),
     );
-    const recovered = await fetchAgentIdentity(operations, "remote-a:profile-13");
+    const recovered = await fetchAgentIdentity(
+      operations,
+      "remote-a:profile-13",
+      "local",
+    );
     expect(runCliMock).toHaveBeenCalledTimes(3);
     expect(recovered?.homeRoomName).toBe("room-b");
   });
@@ -133,13 +141,13 @@ describe("fetchAgentIdentity — remote-a negative-cache regression", () => {
     vi.setSystemTime(0);
 
     runCliMock.mockResolvedValueOnce(ok(""));
-    const first = await fetchAgentIdentity(operations, "remote-a:ghost");
+    const first = await fetchAgentIdentity(operations, "remote-a:ghost", "local");
     expect(first).toBeNull();
     expect(runCliMock).toHaveBeenCalledTimes(1);
 
     // Still within the real 10-minute TTL: served from cache, no second call.
     vi.setSystemTime(60_000);
-    const second = await fetchAgentIdentity(operations, "remote-a:ghost");
+    const second = await fetchAgentIdentity(operations, "remote-a:ghost", "local");
     expect(second).toBeNull();
     expect(runCliMock).toHaveBeenCalledTimes(1);
   });

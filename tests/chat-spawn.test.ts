@@ -45,10 +45,10 @@ describe("buildAcpSpawnTarget", () => {
 
 describe("resolveSessionCwd", () => {
   it("local -> the real user home dir", () => {
-    expect(resolveSessionCwd("local")).toBe(homedir());
+    expect(resolveSessionCwd(true)).toBe(homedir());
   });
 
   it("remote-a -> '.', which sshd resolves to the remote user's home dir", () => {
-    expect(resolveSessionCwd("remote-a")).toBe(".");
+    expect(resolveSessionCwd(false)).toBe(".");
   });
 });

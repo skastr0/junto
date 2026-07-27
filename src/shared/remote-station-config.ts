@@ -18,9 +18,9 @@ export type RemoteStationConfigInput = {
   readonly remoteHostId: string;
   /**
    * Effective Hermes agent-key prefix for this station. Configure/deploy pass
-   * `hermesKeyFor(host)`; direct callers may omit it when it equals hostId.
+   * the exact `hermesKeyFor(host)`. It is never inferred from a physical id.
    */
-  readonly agentHostId?: string;
+  readonly agentHostId: string;
   /** How the Remote finds the Command Center (usually the CC station.hostId). */
   readonly commandCenterRef: string;
   /** Prefer LaunchAgent supervised run. Defaults true for Remote. */
@@ -41,9 +41,7 @@ export const planRemoteStationFields = (
 ): StationSettings => {
   const remoteHostId = input.remoteHostId.trim();
   const agentHostId =
-    input.agentHostId === undefined
-      ? remoteHostId
-      : input.agentHostId.trim();
+    typeof input.agentHostId === "string" ? input.agentHostId.trim() : "";
   const commandCenterRef = input.commandCenterRef.trim();
   if (!isValidStationHostId(remoteHostId)) {
     throw new Error(`invalid remote host id: ${JSON.stringify(input.remoteHostId)}`);

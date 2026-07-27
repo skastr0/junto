@@ -5,9 +5,9 @@ export type HermesProfileName = string & {
 };
 
 /**
- * Hermes host ids are canonical agent-key strings from the remote-host
- * registry (`local`, or exactly hermesKeyFor(host)). Product ids are not an
- * alternate route when a remote declares a distinct hermesId.
+ * Hermes host ids are canonical agent-key prefixes. The configured station
+ * self id and every enrolled remote's exact hermesKeyFor(host) are identities,
+ * not aliases for one another.
  */
 export type HermesHostId = string;
 
@@ -23,37 +23,36 @@ export interface HermesStationIdentity {
 }
 
 export const resolveHermesStationIdentity = (station: {
+  readonly role: string;
   readonly hostId: string;
   readonly agentHostId?: string;
-}): HermesStationIdentity => ({
-  hostId: station.hostId,
-  agentHostId: station.agentHostId ?? station.hostId,
-});
+}): HermesStationIdentity => {
+  if (station.role === "remote" && station.agentHostId === undefined) {
+    throw new Error("Remote station is missing its canonical Hermes host identity");
+  }
+  return {
+    hostId: station.hostId,
+    // Command Center and pre-configuration identity is the physical station
+    // host id. A Remote's separately configured Hermes id is mandatory above.
+    agentHostId:
+      station.role === "remote" ? station.agentHostId! : station.hostId,
+  };
+};
 
 /**
- * `local` remains the legacy on-machine alias. The configured self Hermes key
- * is also local only inside that exact station process; no other HostId is
- * admitted by this predicate.
+ * A Hermes key is local only when its host prefix is the station's exact
+ * configured self identity. The string `local` has no special meaning here:
+ * it is local only for a station whose canonical identity is literally local.
  */
 export const isLocalHermesHost = (
   host: HermesHostId,
   station: HermesStationIdentity,
-): boolean => host === "local" || host === station.agentHostId;
+): boolean => host === station.agentHostId;
 
 export const canonicalLocalAgentKey = (
   station: HermesStationIdentity,
   profile: HermesProfileName,
 ): string => `${station.agentHostId}:${profile}`;
-
-/** Translate this station's canonical agent key for local-only adapters. */
-export const localAdapterAgentKey = (
-  key: string,
-  station: HermesStationIdentity,
-): string => {
-  const parsed = parseAgentKey(key);
-  if (!parsed || !isLocalHermesHost(parsed.host, station)) return key;
-  return `local:${parsed.profile}`;
-};
 
 const PROFILE_NAME_RE = /^[A-Za-z0-9_-]+$/;
 

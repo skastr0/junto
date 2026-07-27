@@ -20,6 +20,7 @@ import {
 import {
   fetchAgentAvatar,
   fetchAgentIdentity,
+  invalidateHermesIdentityHost,
   type HermesIdentityOperations,
 } from "../adapters/hermes-identity";
 import { appProcessPlane } from "../app-process-plane";
@@ -41,7 +42,6 @@ import {
 import {
   isLocalHermesHost,
   isDefaultHermesProfile,
-  localAdapterAgentKey,
   resolveHermesStationIdentity,
   type HermesProfileName,
   type HermesStationIdentity,
@@ -382,8 +382,8 @@ export const HermesPlaneLive = Layer.scoped(
     };
 
     const spawnAcp: SpawnFn = (target: AcpSpawnTarget) => {
-      // Only the legacy local alias and this station's configured Hermes self
-      // key are direct children. Every other key remains registry/SSH-backed.
+      // Only this station's exact configured Hermes self key is a direct
+      // child. Every other key remains registry/SSH-backed.
       if (!isLocalHermesHost(target.host, stationIdentity)) {
         const child = new EffectAcpChild(
           runPromise,
@@ -425,6 +425,8 @@ export const HermesPlaneLive = Layer.scoped(
       ) {
         return;
       }
+      invalidateHermesIdentityHost(previousIdentity.agentHostId);
+      invalidateHermesIdentityHost(nextIdentity.agentHostId);
       stationIdentity = nextIdentity;
       chat.reconcileHostLocality((host) =>
         isLocalHermesHost(host, previousIdentity));
@@ -436,17 +438,13 @@ export const HermesPlaneLive = Layer.scoped(
       chat,
       shutdown,
       fetchBundle: () => fetchHermesBundle(operations, stationIdentity),
-      fetchAgentIdentity: async (key) => {
-        const adapterKey = localAdapterAgentKey(key, stationIdentity);
-        const identity = await fetchAgentIdentity(operations, adapterKey);
-        return identity === null || adapterKey === key
-          ? identity
-          : { ...identity, key };
-      },
+      fetchAgentIdentity: (key) =>
+        fetchAgentIdentity(operations, key, stationIdentity.agentHostId),
       fetchAgentAvatar: (key) =>
         fetchAgentAvatar(
           operations,
-          localAdapterAgentKey(key, stationIdentity),
+          key,
+          stationIdentity.agentHostId,
         ),
       fetchAgentMessage: (key, text) => chat.agentMessage(key, text),
     });

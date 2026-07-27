@@ -22,4 +22,5 @@ export const buildAcpSpawnTarget = (agentKey: string): AcpSpawnTarget | undefine
 // home dir (proven live). Over ssh there is no second round-trip needed to
 // learn the remote home path: a non-interactive ssh command starts in the
 // target user's $HOME by default, so "." already resolves there.
-export const resolveSessionCwd = (host: HermesHostId): string => (host === "local" ? homedir() : ".");
+export const resolveSessionCwd = (isLocal: boolean): string =>
+  isLocal ? homedir() : ".";

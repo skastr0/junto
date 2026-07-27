@@ -26,8 +26,8 @@ vi.mock("node:os", async (importOriginal) => {
 
 import type { CliResult } from "../src/main/vellum/adapters/exec";
 import {
-  fetchAgentAvatar,
-  fetchAgentIdentity,
+  fetchAgentAvatar as fetchAgentAvatarForHost,
+  fetchAgentIdentity as fetchAgentIdentityForHost,
   invalidateHermesIdentityHost,
   type HermesIdentityOperations,
 } from "../src/main/vellum/adapters/hermes-identity";
@@ -67,6 +67,16 @@ const avatarResult = (content: string): CliResult =>
 
 const avatarUri = (content: string): string =>
   `data:image/png;base64,${Buffer.from(content, "utf8").toString("base64")}`;
+
+const SELF_HOST = "local";
+const fetchAgentIdentity = (
+  operations: HermesIdentityOperations,
+  key: string,
+) => fetchAgentIdentityForHost(operations, key, SELF_HOST);
+const fetchAgentAvatar = (
+  operations: HermesIdentityOperations,
+  key: string,
+) => fetchAgentAvatarForHost(operations, key, SELF_HOST);
 
 const deferred = <A>() => {
   let resolve!: (value: A) => void;
@@ -245,7 +255,11 @@ describe("Hermes identity cache authority", () => {
     restartedSnapshot.setHostsSnapshot(snapshotWith(host("studio-a")));
 
     await expect(
-      restartedAdapter.fetchAgentAvatar(operations, "studio-canonical:agent"),
+      restartedAdapter.fetchAgentAvatar(
+        operations,
+        "studio-canonical:agent",
+        SELF_HOST,
+      ),
     ).resolves.toBe(avatarUri("post-restart-avatar"));
     expect(avatar).toHaveBeenCalledTimes(2);
   });

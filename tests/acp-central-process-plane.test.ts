@@ -132,7 +132,7 @@ describe("local ACP central process ownership", () => {
       spawnedLease = lease;
       return { kind: "local-process", lease, processPlane };
     };
-    const chat = new ChatService(spawnAcp);
+    const chat = new ChatService(spawnAcp, (host) => host === "local");
 
     const opening = chat.chatOpen("local:default");
     await waitForWrites(child, 1);

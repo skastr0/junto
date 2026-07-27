@@ -120,7 +120,7 @@ const runArm = (
     fakeCanvases,
     fakeSnapshots,
     makeKernelState(opts, writes),
-    Layer.succeed(ChatServiceContext, new ChatService(noSpawn)),
+    Layer.succeed(ChatServiceContext, new ChatService(noSpawn, (host) => host === "local")),
     fakeSettings,
     Layer.succeed(SchedulerRepository, {
       claimInterval: () =>

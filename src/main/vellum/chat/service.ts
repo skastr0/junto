@@ -30,7 +30,7 @@ import { buildAcpSpawnTarget, resolveSessionCwd, type AcpSpawnTarget } from "./s
 interface AgentSession {
   readonly client: AcpClient;
   readonly generation: number;
-  /** Hermes host id from the agent key (local | configured remote). */
+  /** Exact Hermes host id from the agent key (station self | enrolled remote). */
   readonly host: string;
   sessionId: string;
   models: ReadonlyArray<ChatModelChoice>;
@@ -58,7 +58,6 @@ const idleEvictMs = (): number => {
 };
 
 export type HermesHostLocality = AcpHostLocality;
-const defaultHermesHostLocality: HermesHostLocality = (host) => host === "local";
 
 const remoteHermesRoutes = (
   hosts: ReadonlyArray<RemoteHost>,
@@ -147,7 +146,7 @@ export class ChatService {
 
   constructor(
     private readonly spawnFn: SpawnFn,
-    private readonly isLocalHost: HermesHostLocality = defaultHermesHostLocality,
+    private readonly isLocalHost: HermesHostLocality,
   ) {
     // Sweep idle remote sessions on a fixed interval. Unref so the timer
     // alone cannot keep the process alive during headless tests / quit.
@@ -616,9 +615,7 @@ export class ChatService {
       const supersededAfterStart = this.supersededOpen(agentKey, session);
       if (supersededAfterStart !== undefined) return supersededAfterStart;
       authSuffix = describeAuthMethods(init.authMethods);
-      const cwd = resolveSessionCwd(
-        this.isLocalHost(target.host) ? "local" : target.host,
-      );
+      const cwd = resolveSessionCwd(this.isLocalHost(target.host));
 
       if (resumeSessionId) {
         const resumed = await this.tryResumeSession(

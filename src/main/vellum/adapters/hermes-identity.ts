@@ -102,11 +102,14 @@ const readEnvFields = (dir: string): { matrixUserId?: string; homeRoomName?: str
 
 const hasLocalAvatar = (dir: string): boolean => existsSync(join(dir, "assets", "profile-picture.png"));
 
-const buildLocalIdentity = (profile: string): AgentIdentity => {
+const buildLocalIdentity = (
+  selfHost: HermesHostId,
+  profile: string,
+): AgentIdentity => {
   const dir = localProfileDir(profile);
   const env = readEnvFields(dir);
   return {
-    key: `local:${profile}`,
+    key: `${selfHost}:${profile}`,
     displayName: readDisplayName(dir),
     matrixUserId: env.matrixUserId,
     homeRoomName: env.homeRoomName,
@@ -114,15 +117,17 @@ const buildLocalIdentity = (profile: string): AgentIdentity => {
   };
 };
 
-const fetchLocalIdentityBatch = async (): Promise<Map<string, AgentIdentity>> => {
+const fetchLocalIdentityBatch = async (
+  selfHost: HermesHostId,
+): Promise<Map<string, AgentIdentity>> => {
   const identities = new Map<string, AgentIdentity>();
-  identities.set("default", buildLocalIdentity("default"));
+  identities.set("default", buildLocalIdentity(selfHost, "default"));
   const profilesDir = join(LOCAL_HERMES_ROOT, "profiles");
   if (existsSync(profilesDir)) {
     try {
       for (const entry of readdirSync(profilesDir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
-        identities.set(entry.name, buildLocalIdentity(entry.name));
+        identities.set(entry.name, buildLocalIdentity(selfHost, entry.name));
       }
     } catch {
       // profiles dir unreadable — default profile identity still stands
@@ -198,7 +203,7 @@ const AVATAR_CACHE_DIR = join(homedir(), ".vellum", "cache", "avatars");
 // namespace on restart prevents an undeletable pre-removal avatar from ever
 // becoming authoritative when the same route is later re-added.
 const AVATAR_PROCESS_NAMESPACE = randomUUID();
-const LOCAL_AUTHORITY = "local";
+const SELF_AUTHORITY = "station-self";
 
 // A failed fetch (ssh down, tailnet blip) must never be cached as if it were
 // a legitimate empty result — that poisons every profile on the host for the
@@ -242,12 +247,16 @@ const remoteAuthoritySignature = (host: RemoteHost): string | undefined => {
 
 /**
  * Resolve the exact current routing authority for a Hermes agent-key host.
- * Local identity is intentionally filesystem-owned and does not depend on
- * the remote-host registry. Every remote read must pass this boundary before
- * touching either memory or disk cache state.
+ * The station's explicitly supplied self identity is filesystem-owned and
+ * independent of the remote-host registry. There is no globally special
+ * `local` alias. Every remote read must pass this boundary before touching
+ * either memory or disk cache state.
  */
-const currentHostAuthority = (host: HermesHostId): string | undefined => {
-  if (host === "local") return LOCAL_AUTHORITY;
+const currentHostAuthority = (
+  host: HermesHostId,
+  selfHost: HermesHostId,
+): string | undefined => {
+  if (host === selfHost) return SELF_AUTHORITY;
   const registered = findHostByHermesId(host);
   if (!registered || hermesKeyFor(registered) !== host) return undefined;
   return remoteAuthoritySignature(registered);
@@ -300,6 +309,7 @@ subscribeHostsSnapshot((hosts, previous) => {
 const fetchHostBatch = (
   operations: HermesIdentityOperations,
   host: HermesHostId,
+  selfHost: HermesHostId,
   authority: string,
 ): Promise<Map<string, AgentIdentity>> => {
   const inFlight = hostFetchInFlight.get(host);
@@ -312,14 +322,14 @@ const fetchHostBatch = (
     return inFlight.promise;
   }
 
-  const run = host === "local"
-    ? fetchLocalIdentityBatch
+  const run = host === selfHost
+    ? () => fetchLocalIdentityBatch(selfHost)
     : () => fetchRemoteIdentityBatch(operations, host);
   const promise = run()
     .then((identities) => {
       if (
         generationFor(host) !== generation ||
-        currentHostAuthority(host) !== authority
+        currentHostAuthority(host, selfHost) !== authority
       ) {
         return new Map<string, AgentIdentity>();
       }
@@ -350,11 +360,12 @@ const fetchHostBatch = (
 export const fetchAgentIdentity = async (
   operations: HermesIdentityOperations,
   key: string,
+  selfHost: HermesHostId,
 ): Promise<AgentIdentity | null> => {
   const parsed = parseAgentKey(key);
   if (!parsed) return null;
 
-  const authority = currentHostAuthority(parsed.host);
+  const authority = currentHostAuthority(parsed.host, selfHost);
   if (authority === undefined) {
     invalidateHermesIdentityHost(parsed.host);
     return null;
@@ -372,8 +383,13 @@ export const fetchAgentIdentity = async (
     invalidateHermesIdentityHost(parsed.host);
   }
 
-  const identities = await fetchHostBatch(operations, parsed.host, authority);
-  if (currentHostAuthority(parsed.host) !== authority) return null;
+  const identities = await fetchHostBatch(
+    operations,
+    parsed.host,
+    selfHost,
+    authority,
+  );
+  if (currentHostAuthority(parsed.host, selfHost) !== authority) return null;
   return identities.get(parsed.profile) ?? null;
 };
 
@@ -428,11 +444,12 @@ const fetchRemoteAvatarBuffer = async (
 export const fetchAgentAvatar = async (
   operations: HermesIdentityOperations,
   key: string,
+  selfHost: HermesHostId,
 ): Promise<string | null> => {
   const parsed = parseAgentKey(key);
   if (!parsed) return null;
 
-  const authority = currentHostAuthority(parsed.host);
+  const authority = currentHostAuthority(parsed.host, selfHost);
   if (authority === undefined) {
     invalidateHermesIdentityHost(parsed.host);
     return null;
@@ -464,12 +481,12 @@ export const fetchAgentAvatar = async (
   }
 
   const buf =
-    parsed.host === "local"
+    parsed.host === selfHost
       ? readLocalAvatarBuffer(parsed.profile)
       : await fetchRemoteAvatarBuffer(operations, parsed.host, parsed.profile);
   if (
     generationFor(parsed.host) !== generation ||
-    currentHostAuthority(parsed.host) !== authority
+    currentHostAuthority(parsed.host, selfHost) !== authority
   ) {
     return null;
   }

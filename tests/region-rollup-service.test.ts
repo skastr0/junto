@@ -196,7 +196,7 @@ describe("RegionRollupService — activity wiring", () => {
 
   it("isLive does not fabricate harness work", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const chat = new ChatService(spawnFn);
+    const chat = new ChatService(spawnFn, (host) => host === "local");
     await openHappyPath(chat, children, "local:default");
 
     const runtime = makeRuntime(chat, new Map([["ops", docActivity]]));
@@ -213,7 +213,7 @@ describe("RegionRollupService — activity wiring", () => {
 
   it("hasPendingPermission maps to permission:pending/attention, outranking the live session", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const chat = new ChatService(spawnFn);
+    const chat = new ChatService(spawnFn, (host) => host === "local");
     const child = await openHappyPath(chat, children, "local:default");
 
     child.stdout.emit(
@@ -241,7 +241,7 @@ describe("RegionRollupService — activity wiring", () => {
 
 describe("RegionRollupService — error channel", () => {
   it("an unknown canvas name fails with CanvasError, not a fabricated rollup", async () => {
-    const chat = new ChatService(noSpawn);
+    const chat = new ChatService(noSpawn, (host) => host === "local");
     const runtime = makeRuntime(chat, new Map([["ops", docActivity]]));
     try {
       const result = await runtime.runPromise(

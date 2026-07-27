@@ -341,7 +341,7 @@ describe("ChatService — a stalled session/new times out and tears the session 
   it("rejects ok:false after the 30s session/new budget, kills the child, and a retry opens cleanly", async () => {
     vi.useFakeTimers();
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
 
     const openPromise = service.chatOpen("local:default");
     const child = children[0]!;
@@ -381,7 +381,7 @@ describe("ChatService — a stalled session/new times out and tears the session 
 describe("ChatService — racing chatOpen calls join the in-flight handshake", () => {
   it("two chatOpen calls fired before the handshake settles share one child and both get the real sessionId", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
 
     const first = service.chatOpen("local:default");
     const second = service.chatOpen("local:default"); // racing call — must NOT see the empty-sessionId session
@@ -401,7 +401,7 @@ describe("ChatService — racing chatOpen calls join the in-flight handshake", (
 
   it("a third chatOpen after the session is live returns the same result without a second spawn", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
 
     const openPromise = service.chatOpen("local:default");
     const child = children[0]!;
@@ -421,7 +421,7 @@ describe("ChatService — a stalled session/prompt clears promptInFlight instead
   it("times out after the 840s prompt budget, tears the session down, and a fresh open+prompt recovers", async () => {
     vi.useFakeTimers();
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
 
     const openPromise = service.chatOpen("local:default");
     const child = children[0]!;

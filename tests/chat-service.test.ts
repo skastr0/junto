@@ -122,7 +122,7 @@ afterEach(() => {
 describe("chatOpen", () => {
   it("spawns local:default, sends session/new with the real home dir, and maps models", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
 
     const { result, child } = await openHappyPath(service, children);
 
@@ -205,7 +205,7 @@ describe("chatOpen", () => {
 
   it("is idempotent per key: a second chatOpen while live returns the same session without respawning", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     await openHappyPath(service, children);
 
     const second = await service.chatOpen("local:default");
@@ -221,7 +221,7 @@ describe("chatOpen", () => {
 
   it("resumes via session/load when resumeSessionId is given", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
 
     const openPromise = service.chatOpen("local:default", "old-session");
     const child = children[0]!;
@@ -246,7 +246,7 @@ describe("chatOpen", () => {
 
   it("falls back to session/new when session/load answers with no session (null result)", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
 
     const openPromise = service.chatOpen("local:default", "gone-session");
     const child = children[0]!;
@@ -264,7 +264,7 @@ describe("chatOpen", () => {
 
   it("rejects an invalid agent key without spawning", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const result = await service.chatOpen("not-a-valid-key");
     expect(result).toEqual({ ok: false, error: "invalid agent key: not-a-valid-key" });
     expect(children).toHaveLength(0);
@@ -272,7 +272,7 @@ describe("chatOpen", () => {
 
   it("surfaces authMethods in the error when session/new fails (creds missing)", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
 
     const openPromise = service.chatOpen("local:default");
     const child = children[0]!;
@@ -291,7 +291,7 @@ describe("chatOpen", () => {
 describe("chatPrompt", () => {
   it("sends session/prompt with text + context blocks and resolves stopReason", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
 
     const promptPromise = service.chatPrompt("local:default", "reply with pong", ["node digest here"]);
@@ -311,7 +311,7 @@ describe("chatPrompt", () => {
 
   it("rejects a concurrent second prompt with ok:false 'turn in flight'", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
 
     const first = service.chatPrompt("local:default", "one");
@@ -325,7 +325,7 @@ describe("chatPrompt", () => {
   });
 
   it("rejects with ok:false when no session is open", async () => {
-    const service = new ChatService(noSpawn);
+    const service = new ChatService(noSpawn, (host) => host === "local");
     const result = await service.chatPrompt("local:default", "hi");
     expect(result).toEqual({ ok: false, error: "chat session not open — call chatOpen first" });
   });
@@ -334,7 +334,7 @@ describe("chatPrompt", () => {
 describe("permission requests", () => {
   it("surfaces session/request_permission as a permission_request ChatEvent, and chatPermission answers it", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
 
     const events: ChatEvent[] = [];
@@ -369,7 +369,7 @@ describe("permission requests", () => {
 
   it("answers with ok:false for an unknown requestId", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     await openHappyPath(service, children);
 
     expect(await service.chatPermission("local:default", "nope", "allow_once")).toEqual({ ok: false });
@@ -377,7 +377,7 @@ describe("permission requests", () => {
 
   it("rejects an unknown agent -> client method with -32601", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
     child.written.length = 0;
 
@@ -397,7 +397,7 @@ describe("permission requests", () => {
 describe("chatSetModel", () => {
   it("sends session/set_model and resolves ok:true on success", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
 
     const setPromise = service.chatSetModel("local:default", "model-b");
@@ -411,7 +411,7 @@ describe("chatSetModel", () => {
 
   it("maps a -32601 JSON-RPC error to ok:false error:'unsupported'", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
 
     const setPromise = service.chatSetModel("local:default", "model-b");
@@ -425,7 +425,7 @@ describe("chatSetModel", () => {
 describe("chatClose", () => {
   it("kills the child and a later chatOpen spawns a fresh one", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     await openHappyPath(service, children);
     const child = children[0]!;
     child.kill.mockImplementation((_signal?: NodeJS.Signals) => {
@@ -449,7 +449,7 @@ describe("chatClose", () => {
   });
 
   it("is a no-op ok:true when nothing is open", async () => {
-    const service = new ChatService(noSpawn);
+    const service = new ChatService(noSpawn, (host) => host === "local");
     expect(await service.chatClose("local:default")).toEqual({
       ok: true,
       clean: true,
@@ -459,7 +459,7 @@ describe("chatClose", () => {
   it("retains an unclean tombstone so a second empty close stays ok:false clean:false", async () => {
     vi.useFakeTimers();
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     await openHappyPath(service, children);
     // Child never emits exit/close — first close hits the absolute bound (unclean).
     const first = service.chatClose("local:default");
@@ -482,7 +482,7 @@ describe("chatClose", () => {
 
   it("delete tombstone blocks chatOpen until release", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     expect(service.admitDeleteTombstone("local:default")).toEqual({ ok: true });
     await expect(service.chatOpen("local:default")).resolves.toEqual({
       ok: false,
@@ -498,7 +498,7 @@ describe("chatClose", () => {
 describe("NodeDeleteService lease", () => {
   it("begin locks + tombstones + closes; finish committed releases fence", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const chat = new ChatService(spawnFn);
+    const chat = new ChatService(spawnFn, (host) => host === "local");
     const deletes = new NodeDeleteService(chat);
     await openHappyPath(chat, children);
     const child = children[0]!;
@@ -531,7 +531,7 @@ describe("NodeDeleteService lease", () => {
 
   it("finish aborted releases tombstone without requiring a second admit", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const chat = new ChatService(spawnFn);
+    const chat = new ChatService(spawnFn, (host) => host === "local");
     const deletes = new NodeDeleteService(chat);
 
     const began = await deletes.beginNodeDelete([
@@ -549,7 +549,7 @@ describe("NodeDeleteService lease", () => {
 
   it("refuses a second begin while the first lease still holds the key", async () => {
     const { spawnFn } = fakeSpawn();
-    const chat = new ChatService(spawnFn);
+    const chat = new ChatService(spawnFn, (host) => host === "local");
     const deletes = new NodeDeleteService(chat);
 
     const first = await deletes.beginNodeDelete([
@@ -576,7 +576,7 @@ describe("NodeDeleteService lease", () => {
   });
 
   it("finish is idempotent for unknown lease ids", () => {
-    const chat = new ChatService(noSpawn);
+    const chat = new ChatService(noSpawn, (host) => host === "local");
     const deletes = new NodeDeleteService(chat);
     expect(deletes.finishNodeDelete("missing-lease", "aborted")).toEqual({ ok: true });
   });
@@ -585,7 +585,7 @@ describe("NodeDeleteService lease", () => {
 describe("crash / event projection", () => {
   it("returns one-shot inspector replies through ACP stdin without process argv", async () => {
     const { spawnFn, children, calls } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
 
     const pending = service.agentMessage("local:default", "credential-shaped prompt");
@@ -608,7 +608,7 @@ describe("crash / event projection", () => {
 
   it("an unexpected exit emits error then status:closed, and the session becomes unusable", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
 
     const events: ChatEvent[] = [];
@@ -626,7 +626,7 @@ describe("crash / event projection", () => {
 
   it("forwards session/update notifications verbatim, tagged with kind = sessionUpdate", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
 
     const events: ChatEvent[] = [];
@@ -646,7 +646,7 @@ describe("crash / event projection", () => {
 describe("closeAll convergence", () => {
   it("awaits a terminal child, reports a clean receipt, and refuses new work", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
     child.kill.mockImplementation((signal?: NodeJS.Signals) => {
       if (signal === "SIGTERM") child.emit("close", 0);
@@ -674,7 +674,7 @@ describe("closeAll convergence", () => {
   it("waits through SIGKILL and returns an unclean receipt at the absolute bound", async () => {
     vi.useFakeTimers();
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
 
     const shutdown = service.closeAll();
@@ -707,7 +707,7 @@ describe("closeAll convergence", () => {
 
   it("drains active prompt and model operations before resolving", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
     const prompt = service.chatPrompt("local:default", "still running");
     const model = service.chatSetModel("local:default", "model-b");
@@ -726,7 +726,7 @@ describe("closeAll convergence", () => {
 
   it("contains a throwing event sink while lifecycle cleanup continues", async () => {
     const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     const { child } = await openHappyPath(service, children);
     service.setEventSink(() => { throw new Error("renderer observer failed"); });
 

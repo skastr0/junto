@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
@@ -23,6 +25,7 @@ import {
 } from "../src/main/vellum/kernel/cycle";
 
 const station = resolveHermesStationIdentity({
+  role: "remote",
   hostId: "studio",
   agentHostId: "fleet-studio",
 });
@@ -177,6 +180,7 @@ describe("canonical Hermes station identity", () => {
     );
     const parsed = parseAgentKey("fleet-studio:default");
     expect(parsed && isLocalHermesHost(parsed.host, station)).toBe(true);
+    expect(isLocalHermesHost("local", station)).toBe(false);
   });
 
   it("keeps Command Center cross-host delivery on the non-local fleet route", async () => {
@@ -205,5 +209,33 @@ describe("canonical Hermes station identity", () => {
     );
     const parsed = parseAgentKey("fleet-render:default");
     expect(parsed && isLocalHermesHost(parsed.host, station)).toBe(false);
+  });
+
+  it("has no source-level local alias or canonical-to-local rewrite seam", () => {
+    const domain = readFileSync(
+      join(process.cwd(), "src/main/vellum/hermes/domain.ts"),
+      "utf8",
+    );
+    const plane = readFileSync(
+      join(process.cwd(), "src/main/vellum/hermes/plane.ts"),
+      "utf8",
+    );
+    const identityAdapter = readFileSync(
+      join(process.cwd(), "src/main/vellum/adapters/hermes-identity.ts"),
+      "utf8",
+    );
+    const chat = readFileSync(
+      join(process.cwd(), "src/main/vellum/chat/service.ts"),
+      "utf8",
+    );
+
+    expect(domain).not.toContain("localAdapterAgentKey");
+    expect(plane).not.toContain("localAdapterAgentKey");
+    expect(identityAdapter).not.toMatch(/host\s*===\s*["']local["']/u);
+    expect(identityAdapter).not.toMatch(/key:\s*`local:/u);
+    expect(chat).not.toContain("defaultHermesHostLocality");
+    expect(domain).not.toMatch(
+      /host\s*===\s*["']local["']\s*\|\|\s*host\s*===\s*station\.agentHostId/u,
+    );
   });
 });

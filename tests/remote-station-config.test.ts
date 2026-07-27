@@ -7,6 +7,7 @@ import {
 describe("remote station config planner", () => {
   const input = {
     remoteHostId: "studio",
+    agentHostId: "studio",
     commandCenterRef: "local",
   } as const;
 
@@ -40,14 +41,31 @@ describe("remote station config planner", () => {
 
   it("rejects empty commandCenterRef", () => {
     expect(() =>
-      planRemoteStationFields({ remoteHostId: "studio", commandCenterRef: "  " }),
+      planRemoteStationFields({
+        remoteHostId: "studio",
+        agentHostId: "studio",
+        commandCenterRef: "  ",
+      }),
     ).toThrow(/commandCenterRef is required/);
   });
 
   it("rejects invalid remote host id", () => {
     expect(() =>
-      planRemoteStationFields({ remoteHostId: "-bad", commandCenterRef: "local" }),
+      planRemoteStationFields({
+        remoteHostId: "-bad",
+        agentHostId: "studio",
+        commandCenterRef: "local",
+      }),
     ).toThrow(/invalid remote host id/);
+  });
+
+  it("requires the canonical Hermes identity instead of inferring hostId", () => {
+    expect(() =>
+      planRemoteStationFields({
+        remoteHostId: "studio",
+        commandCenterRef: "local",
+      } as never),
+    ).toThrow(/invalid agent host id/);
   });
 
   it("rejects an explicitly invalid agent host id", () => {

@@ -31,11 +31,6 @@ export interface HermesFleetOperations {
   readonly version: (host: HermesHostId) => Promise<CliResult>;
 }
 
-const DEFAULT_STATION_IDENTITY: HermesStationIdentity = {
-  hostId: "local",
-  agentHostId: "local",
-};
-
 const listHermesHosts = (
   station: HermesStationIdentity,
 ): ReadonlyArray<HermesHost> =>
@@ -134,7 +129,7 @@ const fetchHost = async (
 
 export const fetchHermesBundle = async (
   operations: HermesFleetOperations,
-  station: HermesStationIdentity = DEFAULT_STATION_IDENTITY,
+  station: HermesStationIdentity,
 ): Promise<SnapshotBundle> => {
   const fetchedAt = new Date().toISOString();
   const hosts = listHermesHosts(station);

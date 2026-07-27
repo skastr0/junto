@@ -32,7 +32,7 @@ afterEach(() => {
 describe("ChatService remote session policy", () => {
   it("evicts idle remote sessions but never busy ones", async () => { // async: closeCurrent settles teardown
     process.env.VELLUM_ACP_IDLE_MS = "1000";
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     service.stopIdleSweep();
 
     // Inject two live remote sessions by reaching into private state via open
@@ -97,7 +97,7 @@ describe("ChatService remote session policy", () => {
   it("enforces per-host remote ceiling by closing LRU idle peer", async () => {
     process.env.VELLUM_ACP_MAX_REMOTE_SESSIONS_PER_HOST = "1";
     process.env.VELLUM_ACP_IDLE_MS = "0"; // disable idle sweep noise
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     service.stopIdleSweep();
 
     const anyService = service as unknown as {
@@ -148,7 +148,7 @@ describe("ChatService remote session policy", () => {
       const child = makeChild();
       children.push(child);
       return spawnedLocalAcp(child);
-    });
+    }, (host) => host === "local");
     service.stopIdleSweep();
 
     // The first child deliberately never answers initialize, keeping its
@@ -176,7 +176,7 @@ describe("ChatService remote session policy", () => {
         capabilities: ["hermes"],
       },
     ]);
-    const service = new ChatService(spawnFn);
+    const service = new ChatService(spawnFn, (host) => host === "local");
     service.stopIdleSweep();
     const anyService = service as unknown as {
       sessions: Map<string, unknown>;

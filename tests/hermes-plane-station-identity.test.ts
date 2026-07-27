@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings, type Settings } from "../src/shared/settings";
 import {
   defaultRemoteHostsDocument,
@@ -65,14 +65,16 @@ describe("HermesPlane station identity hydration", () => {
         return () => listeners.delete(listener);
       },
     });
+    const identityBatch = vi.fn(() => Effect.succeed({ ok: true, stdout: "" }));
+    const avatar = vi.fn(() => Effect.succeed({ ok: false, stdout: "" }));
     const transport = HermesTransport.of({
       profiles: () => Effect.succeed({ ok: true, stdout: PROFILE_TABLE }),
       version: () => Effect.succeed({
         ok: true,
         stdout: "Hermes Agent v0.18.2",
       }),
-      identityBatch: () => Effect.succeed({ ok: true, stdout: "" }),
-      avatar: () => Effect.succeed({ ok: false, stdout: "" }),
+      identityBatch,
+      avatar,
       connectAcp: () => Effect.die("unexpected ACP connection"),
     });
     const dependencies = Layer.merge(
@@ -81,17 +83,30 @@ describe("HermesPlane station identity hydration", () => {
     );
     const layer = Layer.provide(HermesPlaneLive, dependencies);
 
-    const bundle = await Effect.runPromise(
+    const result = await Effect.runPromise(
       Effect.gen(function* () {
         const plane = yield* HermesPlane;
-        return yield* Effect.promise(() => plane.fetchBundle());
+        return yield* Effect.promise(async () => ({
+          bundle: await plane.fetchBundle(),
+          canonicalIdentity:
+            await plane.fetchAgentIdentity("fleet-new:default"),
+          aliasIdentity: await plane.fetchAgentIdentity("local:default"),
+          aliasAvatar: await plane.fetchAgentAvatar("local:default"),
+        }));
       }).pipe(
         Effect.provide(layer),
         Effect.scoped,
       ),
     );
 
-    expect(bundle.entities.map((entity) => entity.key))
+    expect(result.bundle.entities.map((entity) => entity.key))
       .toEqual(["fleet-new:default"]);
+    expect(result.canonicalIdentity).toMatchObject({
+      key: "fleet-new:default",
+    });
+    expect(result.aliasIdentity).toBeNull();
+    expect(result.aliasAvatar).toBeNull();
+    expect(identityBatch).not.toHaveBeenCalled();
+    expect(avatar).not.toHaveBeenCalled();
   });
 });
