@@ -709,13 +709,12 @@ export const smokePackagedRuntime = async (
     await waitUntil("control startup", STARTUP_TIMEOUT_MS, async () => {
       const terminal = lifecycle.terminal();
       if (terminal !== undefined) {
-        const [registryCreated, tokenCreated, socketCreated] = await Promise.all([
-          pathExists(path.join(controlDir(controlHome), "config.json")),
+        const [tokenCreated, socketCreated] = await Promise.all([
           pathExists(controlTokenPath(controlHome)),
           pathExists(controlSocketPath(controlHome)),
         ]);
         throw new Error(
-          `packaged Vellum closed before control startup (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"}, phase=${output.startupMarker()}, registry=${String(registryCreated)}, token=${String(tokenCreated)}, socket=${String(socketCreated)})`,
+          `packaged Vellum closed before control startup (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"}, phase=${output.startupMarker()}, token=${String(tokenCreated)}, socket=${String(socketCreated)})`,
         );
       }
       try {
