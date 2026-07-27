@@ -19,6 +19,10 @@ import {
   makeFakeTerminalProcessAuthority,
   type FakeTerminalProcessAuthority,
 } from "./helpers/fake-terminal-process-authority";
+import {
+  getCapturedSessionId,
+  resetSessionIdStoreForTest,
+} from "../src/main/vellum/term/session-id-store";
 
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();
@@ -30,6 +34,7 @@ const trackSyntheticPid = (pid: number): number => {
 
 beforeEach(() => {
   syntheticEpochs.clear();
+  resetSessionIdStoreForTest();
   setProcessEpochReaderForTests({
     snapshot: () => [...syntheticEpochs].map(([pid, startKey]) => ({
       pid,
@@ -191,6 +196,24 @@ describe("LocalSessionHost", () => {
     await vi.waitFor(() => expect(host.get("bind-test-1")?.status).toBe("exited"));
     expect(outputs.join("")).toContain("vellum-pty-ok");
     expect(host.runningCount()).toBe(0);
+  });
+
+  it("captures a labeled harness session split across PTY chunks without accepting a bare UUID", () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({ pid: trackSyntheticPid(42_430) }));
+    const host = hostWith(fake);
+    host.createAgentSeat({
+      bindingId: "codex-session-capture",
+      harness: "codex",
+      agentKey: "local:codex",
+      launch: { kind: "harness", argv: ["/usr/local/bin/codex"] },
+    });
+
+    fake.controllers[0]?.emitData("tool id 550e8400-e29b-41d4-a716-446655440000\nCODEX_");
+    fake.controllers[0]?.emitData("THREAD_ID=3e6433af-b0ea-5718-8d29-27a68c9839fb\n");
+
+    expect(getCapturedSessionId("codex-session-capture")).toBe(
+      "3e6433af-b0ea-5718-8d29-27a68c9839fb",
+    );
   });
 
   it("enforces control leases and routes IO only through the lease facade", () => {

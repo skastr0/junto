@@ -50,6 +50,7 @@ import {
   extractSessionIdFromText,
   recordCapturedSessionId,
   clearCapturedSessionId,
+  getCapturedSessionId,
 } from "./session-id-store";
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
 import { buildManagedSeatInject } from "./templates/seat-env";
@@ -217,6 +218,8 @@ type SessionRec = {
   killed: boolean;
   termReceipt: AppProcessSignalReceipt | undefined;
   killReceipt: AppProcessSignalReceipt | undefined;
+  /** Bounded carryover for a harness session marker split across PTY chunks. */
+  sessionCaptureTail: string;
   /** Exact-record escalation; never follows a mutable binding lookup. */
   escalationTimer: ReturnType<typeof setTimeout> | undefined;
 };
@@ -265,6 +268,7 @@ type AllExitedWaiter = {
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
 const MAX_JOURNAL_BYTES = 512 * 1024;
+const SESSION_CAPTURE_TAIL_BYTES = 1024;
 const SHUTDOWN_GRACE_MS = 1500;
 const KILL_GRACE_MS = 400;
 const LATE_EXIT_GRACE_MS = 1500;
@@ -516,6 +520,7 @@ export class LocalSessionHost extends EventEmitter {
       killed: false,
       termReceipt: undefined,
       killReceipt: undefined,
+      sessionCaptureTail: "",
       escalationTimer: undefined,
     };
     this.sessions.set(bindingId, rec);
@@ -945,10 +950,16 @@ export class LocalSessionHost extends EventEmitter {
     this.pushJournal(rec, { seq: rec.seq, type: "output", data });
     // Single insertion point: every byte already flows here with a seq.
     this.observerPlane.feed(rec.bindingId, data, rec.seq);
-    // Capture-only harness session ids (Codex/Hermes) when emitted into the stream.
-    if (rec.agentKey || rec.harness) {
-      const sid = extractSessionIdFromText(data);
+    // Capture-only harness session ids (Codex/Hermes) when emitted into the
+    // stream. PTY chunks are arbitrary; retain a bounded tail so a labeled
+    // source split across writes remains parseable. The first authenticated
+    // capture wins, preventing later terminal output from replacing a root
+    // harness id with a nested or unrelated session marker.
+    if ((rec.agentKey || rec.harness) && !getCapturedSessionId(rec.bindingId)) {
+      const captureText = `${rec.sessionCaptureTail}${data}`;
+      const sid = extractSessionIdFromText(captureText);
       if (sid) recordCapturedSessionId(rec.bindingId, sid);
+      rec.sessionCaptureTail = captureText.slice(-SESSION_CAPTURE_TAIL_BYTES);
     }
     try {
       this.emitEvent({

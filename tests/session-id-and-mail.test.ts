@@ -14,16 +14,29 @@ import {
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 
 describe("session id capture + pin", () => {
-  it("extracts UUID and CODEX/HERMES env forms", () => {
+  it("extracts only session-labeled IDs and prefers structured fields", () => {
     expect(
       extractSessionIdFromText("session 550e8400-e29b-41d4-a716-446655440000 ok"),
     ).toBe("550e8400-e29b-41d4-a716-446655440000");
+    expect(
+      extractSessionIdFromText("tool emitted 550e8400-e29b-41d4-a716-446655440000"),
+    ).toBeUndefined();
     expect(extractSessionIdFromText("CODEX_THREAD_ID=thread_abc12345")).toBe(
       "thread_abc12345",
     );
     expect(extractSessionIdFromText("HERMES_SESSION_ID=hs_xyz99999")).toBe(
       "hs_xyz99999",
     );
+    expect(
+      extractSessionIdFromText(
+        'unrelated 550e8400-e29b-41d4-a716-446655440000 {"session_id":"3e6433af-b0ea-5718-8d29-27a68c9839fb"}',
+      ),
+    ).toBe("3e6433af-b0ea-5718-8d29-27a68c9839fb");
+    expect(
+      extractSessionIdFromText(
+        "session: 550e8400-e29b-41d4-a716-446655440000 CODEX_THREAD_ID=3e6433af-b0ea-5718-8d29-27a68c9839fb",
+      ),
+    ).toBe("3e6433af-b0ea-5718-8d29-27a68c9839fb");
   });
 
   const UUID_RE =
