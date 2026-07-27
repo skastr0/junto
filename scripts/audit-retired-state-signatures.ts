@@ -34,6 +34,7 @@ export const RETIRED_PRODUCT_STATE_SIGNATURES = [
   "CanvasControlRemove",
   "removeCanvasThroughControl",
   "canvas:rm",
+  "control.canvas.remove",
   "managedRemoteUpdate",
   "managedRemoteRollback",
 ] as const;

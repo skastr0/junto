@@ -26,7 +26,6 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.request-create",
   "control.work.request-escalate",
   "control.work.artifact-publish",
-  "control.canvas.remove",
   "delivery.message-stamp",
   "kernel.flag-mirror",
   "kernel.phase-mirror",
