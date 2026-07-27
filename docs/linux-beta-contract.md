@@ -57,7 +57,10 @@ The beta has no file-store compatibility:
 - no `settings.json`, `hosts.json`, or `station-status.json` state;
 - no content-addressed projection store, manifest, or pointer file;
 - no topology/hosts key or seal;
-- no `incoming.frame`, `applied.ack`, staging directory, or packaged bridge;
+- no `incoming.frame`, `applied.ack`, staging directory, or bridge substitute
+  for Station API product state; the packaged release bridge exists only for
+  signed package transport and remains inactive while managed deployment is
+  disabled;
 - no SSH file write/read for configuration, projection, report, or status;
 - no direct database open by `vellum-station` or another helper;
 - no importer, dual read/write, feature flag, or rollback to those paths.

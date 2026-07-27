@@ -4,7 +4,7 @@
  * The Command Center admits a complete signed release bundle locally, proves
  * the fixed Remote platform, holds a host-scoped terminal route cut, and then
  * streams the bundle to one preinstalled root-owned helper. No candidate path,
- * package-manager command, rollback path, or sudo argv is caller-controlled.
+ * package-manager command, repair path, or sudo argv is caller-controlled.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -544,7 +544,7 @@ const preflightDetail = (
     case "systemd-user":
       return "the Remote systemd user manager or unit state is malformed";
     case "disk":
-      return "the Remote has insufficient bounded spool, install, and rollback space";
+      return "the Remote has insufficient bounded staging, install, and forward-repair reserve";
     case "package":
       return "the installed Vellum package state is malformed";
     case "version":
@@ -1298,7 +1298,7 @@ const runReleaseSession = (
             if (armed.state !== "refused") {
               return yield* Effect.fail(
                 new LinuxDeploymentProtocolError(
-                  "Linux installer returned rollback before COMMIT",
+                  "Linux installer returned an unexpected non-refusal state before COMMIT",
                 ),
               );
             }
@@ -1542,7 +1542,7 @@ const sessionFailure = (
   deployFailure(
     input,
     stages,
-    "the staged Linux release did not produce exact cleanup, rollback, or readiness evidence",
+    "the staged Linux release did not produce exact cleanup, readiness, or forward-repair evidence",
     {
       code: "conflict",
       disposition: "indeterminate",
@@ -1702,7 +1702,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           return deployFailure(
             providerInput,
             stages,
-            "the Remote has insufficient bounded spool, install, and rollback space",
+            "the Remote has insufficient bounded staging, install, and forward-repair reserve",
             {
               code: "validation",
               disposition: "not-started",
