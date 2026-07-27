@@ -2,17 +2,19 @@ import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { Either } from "effect";
 import {
+  decodeStationControlEnvelope,
+  decodeStationControlRequest,
+  stationControlErr,
+  type StationControlEnvelope,
+} from "@shared/station-api-envelope";
+import {
   STATION_CONTROL_MAX_FRAME_BYTES,
   STATION_CONTROL_HOME_ENV,
   STATION_CONTROL_REQUEST_TIMEOUT_MS,
-  decodeStationControlEnvelope,
-  decodeStationControlRequest,
   encodeStationControlFrame,
   stationControlDir,
-  stationControlErr,
   stationControlSocketPath,
-  type StationControlEnvelope,
-} from "@shared/station-control";
+} from "@shared/station-ssh-control";
 
 export interface StationControlClientOptions {
   readonly home?: string;

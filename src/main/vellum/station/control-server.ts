@@ -5,21 +5,21 @@ import {
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { homedir } from "node:os";
-import { Effect, Either } from "effect";
+import { Either } from "effect";
+import {
+  decodeStationControlRequest,
+  stationControlErr,
+  type StationControlEnvelope,
+} from "@shared/station-api-envelope";
 import {
   STATION_CONTROL_MAX_CLIENTS,
   STATION_CONTROL_MAX_FRAME_BYTES,
   STATION_CONTROL_HOME_ENV,
   STATION_CONTROL_REQUEST_TIMEOUT_MS,
-  decodeStationControlRequest,
   encodeStationControlFrame,
   stationControlDir,
-  stationControlErr,
-  stationControlOk,
   stationControlSocketPath,
-  type StationControlEnvelope,
-  type StationControlErrorCode,
-} from "@shared/station-control";
+} from "@shared/station-ssh-control";
 import type {
   StationApiRequest,
   StationReadiness,
@@ -35,18 +35,21 @@ import {
   removeOwnedControlSocketPath,
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
-import {
-  StationApiService,
-  type StationApiError,
-} from "./api";
+// OpenSSH local-socket transport adapter for the Station API.
+// Framing + peer authority live here; request execution goes through
+// `dispatcher.ts` (sole path to StationApiService.handle).
 import type {
   StationControlPeerAdmission,
   StationControlPeerAuthority,
 } from "./peer-authority";
+import {
+  admitOpenSshPeer,
+  dispatchStationApiRequest,
+  stationControlErrorEnvelope,
+  type RunStationApi,
+} from "./dispatcher";
 
-type RunStationApi = <A, E>(
-  effect: Effect.Effect<A, E, StationApiService>,
-) => Promise<A>;
+export type { RunStationApi };
 
 export interface StationControlServerOptions {
   readonly run: RunStationApi;
@@ -106,55 +109,8 @@ export const resolveStationControlHome = (
     : stationControlDir(home ?? homedir());
 };
 
-const errorTag = (error: unknown): string | undefined =>
-  typeof error === "object" &&
-    error !== null &&
-    "_tag" in error &&
-    typeof error._tag === "string"
-    ? error._tag
-    : undefined;
-
-export const stationControlErrorEnvelope = (
-  error: StationApiError | unknown,
-): StationControlEnvelope => {
-  const tag = errorTag(error);
-  let code: StationControlErrorCode;
-  let message: string;
-  let retryable = false;
-
-  switch (tag) {
-    case "StationPersistenceError":
-    case "WorkRepositoryError":
-      code = "unavailable";
-      message = "station state is temporarily unavailable";
-      retryable = true;
-      break;
-    case "StationProjectionIntegrityError":
-      code = "integrity_error";
-      message = "station payload failed its integrity check";
-      break;
-    case "StationPairingConflictError":
-    case "StationCursorError":
-    case "WorkReplicationError":
-      code = "state_conflict";
-      message = "station state conflicts with the request";
-      break;
-    case "StationIdentityMismatchError":
-    case "StationSelfPairingError":
-    case "StationPairingTopologyError":
-    case "StationConfigurationError":
-    case "StationMetadataError":
-    case "StationApiInvariantError":
-    case "StationPortfolioError":
-      code = "request_rejected";
-      message = "station request was rejected";
-      break;
-    default:
-      code = "internal_error";
-      message = "station request failed";
-  }
-  return stationControlErr(code, message, retryable);
-};
+/** @deprecated Prefer importing from `./dispatcher` — re-exported for tests. */
+export { stationControlErrorEnvelope };
 
 const writeEnvelope = (
   socket: Socket,
@@ -292,6 +248,8 @@ export const startStationControlServer = async (
       );
     }, STATION_CONTROL_REQUEST_TIMEOUT_MS);
 
+    const transportAdmission = admitOpenSshPeer(peerAdmission);
+
     const dispatch = async (
       request: StationApiRequest,
     ): Promise<void> => {
@@ -320,17 +278,13 @@ export const startStationControlServer = async (
             simulation: false,
           };
         }
-        const outcome = await options.run(
-          Effect.flatMap(StationApiService, (service) =>
-            service.handle(request, readiness).pipe(Effect.either)
-          ),
+        const envelope = await dispatchStationApiRequest(
+          transportAdmission,
+          request,
+          readiness,
+          options.run,
         );
-        writeEnvelope(
-          socket,
-          Either.isLeft(outcome)
-            ? stationControlErrorEnvelope(outcome.left)
-            : stationControlOk(outcome.right),
-        );
+        writeEnvelope(socket, envelope);
       } catch (error) {
         writeEnvelope(socket, stationControlErrorEnvelope(error));
       }

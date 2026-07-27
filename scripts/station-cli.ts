@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
-import {
-  STATION_CONTROL_MAX_FRAME_BYTES,
-  stationControlErr,
-} from "../src/shared/station-control";
+import { stationControlErr } from "../src/shared/station-api-envelope";
+import { STATION_CONTROL_MAX_FRAME_BYTES } from "../src/shared/station-ssh-control";
 import { sendStationControlRequest } from "../src/main/vellum/station/control-client";
 
 const write = (value: unknown): void => {

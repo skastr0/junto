@@ -19,7 +19,7 @@ import {
 import {
   stationControlDir,
   stationControlSocketPath,
-} from "../src/shared/station-control";
+} from "../src/shared/station-ssh-control";
 import { STATION_API_PROTOCOL } from "../src/shared/station-api";
 import {
   createAppProcessPlane,

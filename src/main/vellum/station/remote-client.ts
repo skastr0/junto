@@ -15,11 +15,12 @@ import {
   type StationApiResponse,
 } from "@shared/station-api";
 import {
-  STATION_CONTROL_MAX_FRAME_BYTES,
   StationControlErrorCode,
   decodeStationControlEnvelope,
   type StationControlEnvelope,
-} from "@shared/station-control";
+} from "@shared/station-api-envelope";
+import { STATION_CONTROL_MAX_FRAME_BYTES } from "@shared/station-ssh-control";
+// OpenSSH outbound adapter (transfer + remote vellum-station).
 import {
   SshEndpoint,
   type SshError,

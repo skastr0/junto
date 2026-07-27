@@ -12,7 +12,7 @@ import {
 import {
   stationControlErr,
   stationControlOk,
-} from "../src/shared/station-control";
+} from "../src/shared/station-api-envelope";
 import {
   SshEndpoint,
 } from "../src/main/vellum/ssh/domain";

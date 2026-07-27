@@ -22,7 +22,7 @@ import {
   decideProjectionInstall,
   type StationSha256,
 } from "../src/shared/station-api";
-import { decodeStationControlRequest } from "../src/shared/station-control";
+import { decodeStationControlRequest } from "../src/shared/station-api-envelope";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeSequence = Schema.decodeUnknownSync(LogicalSequence);

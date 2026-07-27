@@ -31,7 +31,7 @@ import {
 import {
   decodeStationControlEnvelope,
   type StationControlEnvelope,
-} from "../src/shared/station-control";
+} from "../src/shared/station-api-envelope";
 import {
   StationRepository,
   makeStationRepositoryLive,
