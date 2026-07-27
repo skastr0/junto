@@ -15,10 +15,23 @@ export const RETIRED_PRODUCT_STATE_SIGNATURES = [
   "hosts.seal",
   "incoming.frame",
   "applied.ack",
+  "usage-state.json",
+  "origin-key.json",
+  "VELLUM_SETTINGS_PATH",
+  "VELLUM_HOSTS_PATH",
+  "VELLUM_STATION_STATUS_PATH",
+  "VELLUM_CANVAS_AUTHORITY_DIR",
 ] as const;
 
 export type RetiredProductStateSignature =
   (typeof RETIRED_PRODUCT_STATE_SIGNATURES)[number];
+
+export const RETIRED_PRODUCT_STATE_COMPOUND_SIGNATURES = [
+  {
+    label: "VELLUM_BROWSER_DIR + config.json",
+    signatures: ["VELLUM_BROWSER_DIR", "config.json"],
+  },
+] as const;
 
 export type RetiredStateSignatureAuditLimits = {
   readonly maxAsarEntries: number;
@@ -102,6 +115,16 @@ const signatureBytes = RETIRED_PRODUCT_STATE_SIGNATURES.map(
   }),
 );
 
+const compoundSignatureBytes =
+  RETIRED_PRODUCT_STATE_COMPOUND_SIGNATURES.map(
+    ({ label, signatures }) => ({
+      label,
+      bytes: signatures.map((signature) =>
+        Buffer.from(signature, "utf8")
+      ),
+    }),
+  );
+
 const requirePositiveSafeInteger = (
   name: string,
   value: number,
@@ -147,15 +170,19 @@ const resolvedLimits = (
 
 const firstRetiredSignature = (
   bytes: Uint8Array,
-): RetiredProductStateSignature | undefined => {
+): string | undefined => {
   const buffer = Buffer.from(
     bytes.buffer,
     bytes.byteOffset,
     bytes.byteLength,
   );
-  return signatureBytes.find(({ bytes: signature }) =>
+  const exact = signatureBytes.find(({ bytes: signature }) =>
     buffer.indexOf(signature) !== -1
   )?.signature;
+  if (exact !== undefined) return exact;
+  return compoundSignatureBytes.find(({ bytes: signatures }) =>
+    signatures.every((signature) => buffer.indexOf(signature) !== -1)
+  )?.label;
 };
 
 /**

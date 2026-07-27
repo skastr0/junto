@@ -11,3 +11,5 @@ blob-report/
 .local/
 *.digest.txt
 src/main/vellum/plugin-install/payloads/.pack-tmp/
+build/electron-observation.json
+build/electron-observation-high-water.json

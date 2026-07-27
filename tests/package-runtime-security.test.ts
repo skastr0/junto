@@ -19,8 +19,8 @@ import { signingProfileForPath } from "../scripts/electron-builder-sign.mjs";
 const manifestPaths = MACOS_RUNTIME_POLICY.machO.map((entry) => entry.path);
 
 describe("macOS packaged runtime policy", () => {
-  it("pins 26 Mach-O objects and only the four exact Electron JIT roles", () => {
-    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(26);
+  it("pins 27 Mach-O objects and only the four exact Electron JIT roles", () => {
+    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(27);
     expect(
       MACOS_RUNTIME_POLICY.machO
         .filter((entry) => entry.profile === "jit")
@@ -37,6 +37,11 @@ describe("macOS packaged runtime policy", () => {
         (entry) => entry.path === "Contents/Resources/bin/vellum-browser",
       ),
     ).toMatchObject({ identifier: "vellum-browser", profile: "none" });
+    expect(
+      MACOS_RUNTIME_POLICY.machO.find(
+        (entry) => entry.path === "Contents/Resources/bin/vellum-station",
+      ),
+    ).toMatchObject({ identifier: "vellum-station", profile: "none" });
     expect(
       MACOS_RUNTIME_POLICY.machO.find(
         (entry) =>
@@ -67,7 +72,7 @@ describe("macOS packaged runtime policy", () => {
 
     const missing = structuredClone(rawRuntimePolicy);
     missing.machO.pop();
-    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 26/u);
+    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 27/u);
 
     const duplicate = structuredClone(rawRuntimePolicy);
     duplicate.machO[1].path = duplicate.machO[0].path;
@@ -302,7 +307,14 @@ describe("electron-builder role-specific signing", () => {
       strictVerify: true,
     });
 
-    const [jitPlist, emptyPlist, signer, buildScript] = await Promise.all([
+    const [
+      jitPlist,
+      emptyPlist,
+      signer,
+      buildScript,
+      macAudit,
+      linuxAudit,
+    ] = await Promise.all([
       readFile(new URL("../build/entitlements.mac.plist", import.meta.url), "utf8"),
       readFile(
         new URL("../build/entitlements.mac.inherit.plist", import.meta.url),
@@ -310,6 +322,8 @@ describe("electron-builder role-specific signing", () => {
       ),
       readFile(new URL("../scripts/electron-builder-sign.mjs", import.meta.url), "utf8"),
       readFile(new URL("../scripts/package-app-macos.sh", import.meta.url), "utf8"),
+      readFile(new URL("../scripts/audit-packaged-app.ts", import.meta.url), "utf8"),
+      readFile(new URL("../scripts/audit-linux-package.ts", import.meta.url), "utf8"),
     ]);
     expect(jitPlist).toContain("com.apple.security.cs.allow-jit");
     expect(emptyPlist).toContain("<dict/>");
@@ -324,5 +338,16 @@ describe("electron-builder role-specific signing", () => {
     expect(buildScript).toContain(
       'bun "$SCRIPT_DIR/packaged-runtime-smoke.ts" "$APP_SRC"',
     );
+    for (const audit of [macAudit, linuxAudit]) {
+      expect(audit).toContain("auditRetiredStateAsar");
+      expect(audit).toContain("auditRetiredStateFile");
+      for (const executable of [
+        "vellum",
+        "vellum-browser",
+        "vellum-station",
+      ]) {
+        expect(audit).toContain(executable);
+      }
+    }
   });
 });

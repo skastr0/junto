@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { createPackage } from "@electron/asar";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  RETIRED_PRODUCT_STATE_COMPOUND_SIGNATURES,
   RETIRED_PRODUCT_STATE_SIGNATURES,
   RetiredStateSignatureAuditError,
   auditRetiredStateAsar,
@@ -87,6 +88,30 @@ describe("retired product-state signature boundary", () => {
       scannedBytes: current.byteLength,
     });
   });
+
+  it.each(RETIRED_PRODUCT_STATE_COMPOUND_SIGNATURES)(
+    "rejects the retired compound signature $label",
+    ({ label, signatures }) => {
+      expect(() =>
+        auditRetiredStateBuffer(
+          Buffer.from(signatures.join("\0current-runtime\0")),
+          { label: "app.asar:out/main/index.js" },
+        )
+      ).toThrowError(
+        expect.objectContaining({
+          code: "retired-signature",
+          message: expect.stringContaining(label),
+        }),
+      );
+      for (const signature of signatures) {
+        expect(() =>
+          auditRetiredStateBuffer(Buffer.from(signature), {
+            label: "one current runtime token",
+          })
+        ).not.toThrow();
+      }
+    },
+  );
 
   it("bounds executable buffers and regular-file reads before accepting them", async () => {
     const root = await makeTempRoot();

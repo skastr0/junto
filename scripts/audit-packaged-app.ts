@@ -23,6 +23,10 @@ import {
 import rawPolicy from "./package-security-policy.json";
 import { requireElectronObservationAdmission, validateElectronArtifactPath, validateElectronObservation, validateElectronSecurityPolicy, decodeElectronObservation, decodeElectronSecurityPolicy } from "./electron-security-policy";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
+import {
+  auditRetiredStateAsar,
+  auditRetiredStateFile,
+} from "./audit-retired-state-signatures";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -254,9 +258,9 @@ export const validateMacOSRuntimePolicy = (
   ) {
     throw new Error("macOS runtime policy must expose only empty and allow-jit profiles");
   }
-  if (value.machO.length !== 26) {
+  if (value.machO.length !== 27) {
     throw new Error(
-      `macOS runtime policy must name exactly 26 Mach-O objects, got ${value.machO.length}`,
+      `macOS runtime policy must name exactly 27 Mach-O objects, got ${value.machO.length}`,
     );
   }
 
@@ -295,6 +299,7 @@ export const validateMacOSRuntimePolicy = (
   for (const cliPath of [
     "Contents/Resources/bin/vellum",
     "Contents/Resources/bin/vellum-browser",
+    "Contents/Resources/bin/vellum-station",
   ] as const) {
     const cli = value.machO.find(
       (entry) => isRecord(entry) && entry.path === cliPath,
@@ -906,16 +911,30 @@ export const auditPackagedApp = async (
     policy.productName,
   );
   const appAsarPath = path.join(contentsPath, "Resources", "app.asar");
-  const browserCliPath = path.join(
+  const binPath = path.join(
     contentsPath,
     "Resources",
     "bin",
-    "vellum-browser",
   );
+  const workCliPath = path.join(binPath, "vellum");
+  const browserCliPath = path.join(binPath, "vellum-browser");
+  const stationCliPath = path.join(binPath, "vellum-station");
   await requireRegularFile(infoPlistPath);
   await requireExecutable(mainExecutablePath);
   await requireRegularFile(appAsarPath);
+  await requireExecutable(workCliPath);
   await requireExecutable(browserCliPath);
+  await requireExecutable(stationCliPath);
+  auditRetiredStateAsar(appAsarPath);
+  await Promise.all([
+    auditRetiredStateFile(workCliPath, { label: "packaged vellum" }),
+    auditRetiredStateFile(browserCliPath, {
+      label: "packaged vellum-browser",
+    }),
+    auditRetiredStateFile(stationCliPath, {
+      label: "packaged vellum-station",
+    }),
+  ]);
 
   runFixedCommand("/usr/bin/codesign", [
     "--verify",
