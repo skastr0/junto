@@ -27,22 +27,11 @@ import {
 //     is human inventory, never worker stoppage. Tasks are claimed by the
 //     pulling worker; requests are claimed by their raiser at creation.
 //   - criteria proof / approval → blocks until trust view clears
-//   - retired: glyphs, wip, depends phase, dependency cascade/relay
 //
-// Propagation (no cascade):
+// Evaluation (no cascade):
 //   - phase "blocks" + generates → mark toNode blocked (actors only)
-//   - manual blocker flag marks that actor only (no outbound push)
-//   - clear criteria → relates (never "depends")
-
-export type GlyphRow = {
-  readonly glyphId: string;
-  readonly orbit: string;
-  readonly title: string;
-  readonly state: string;
-};
-
-/** Map project key → glyph rows. Optional; only for legacy callers / watchers. */
-export type GlyphView = ReadonlyMap<string, ReadonlyArray<GlyphRow> | undefined>;
+//   - manual blocker flag marks that actor only
+//   - no criteria → relates
 
 /** Optional live views for proof/approval criteria (runtime, not document). */
 export type LiveTrustViews = {
@@ -211,9 +200,6 @@ const evalApprovalCriteria = (
   };
 };
 
-/** Glyph-project collection retired with glyphs/wip criteria — always empty. */
-export const edgeGlyphProjects = (_doc: CanvasDoc): ReadonlySet<string> => new Set();
-
 export const evaluateEdge = (
   edge: CanvasEdge,
   fromNode: CanvasNode | undefined,
@@ -256,7 +242,6 @@ export const clearingStampsForDoc = (
 
 export const deriveExecutionGraph = (
   doc: CanvasDoc,
-  glyphs: GlyphView = new Map(),
   trust: LiveTrustViews = {},
 ): ExecutionGraph => {
   const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));

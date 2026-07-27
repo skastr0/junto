@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 import { Effect } from "effect";
 import { digestCanvas } from "../src/shared/digest";
-import { buildGlyphView } from "../src/shared/glyph-view";
 import { readCanvasThroughControl } from "../src/main/vellum/canvas-control/client";
 import { writeCanvasProjectionSidecar } from "../src/main/vellum/canvas-control/sidecars";
 
@@ -28,9 +27,8 @@ const main = async () => {
     throw new DigestExit(errorMessage(result.left));
   }
   const { doc, name, snapshots } = result.right;
-  const glyphs = buildGlyphView(doc, new Map());
 
-  const digest = digestCanvas(name, doc, snapshots, glyphs);
+  const digest = digestCanvas(name, doc, snapshots);
   process.stdout.write(digest);
 
   await writeCanvasProjectionSidecar(name, "digest.txt", digest);

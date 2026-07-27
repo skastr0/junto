@@ -1,5 +1,5 @@
 import type { CanvasDoc, CanvasNode, EtherEdgeKind } from "./canvas";
-import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
+import { deriveExecutionGraph } from "./execution-graph";
 import { isGroup } from "./graph";
 
 // Headless deep-field render of a canvas to SVG — the "screenshot for agents"
@@ -56,9 +56,9 @@ const nodeTitle = (node: CanvasNode): string => {
 
 const center = (node: CanvasNode) => ({ x: node.x + node.width / 2, y: node.y + node.height / 2 });
 
-export const renderCanvasSvg = (doc: CanvasDoc, glyphs?: GlyphView): string => {
+export const renderCanvasSvg = (doc: CanvasDoc): string => {
   const nodesById = new Map(doc.nodes.map((n) => [n.id, n] as const));
-  const graph = deriveExecutionGraph(doc, glyphs ?? new Map());
+  const graph = deriveExecutionGraph(doc);
   const blocked = graph.blocked;
   const activeEdges = graph.blockedEdgeIds;
 

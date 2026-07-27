@@ -20,8 +20,8 @@ import { spawnedLocalAcp } from "./helpers/acp-child";
 
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
-// Service-level glue tests: activity wiring from the ACP chat plane, the
-// CanvasError channel for unknown canvases, and the TTL glyph cache.
+// Service-level glue tests: activity wiring from the ACP chat plane and the
+// CanvasError channel for unknown canvases.
 // The ACP fakes mirror tests/chat-service.test.ts.
 
 class FakeChild extends EventEmitter implements AcpChildLike {
@@ -93,16 +93,6 @@ const docActivity: CanvasDoc = {
     { id: "p1", type: "text", text: "name twin", x: 10, y: 110, width: 100, height: 40, ether: { entity: { kind: "project", name: "local:default" } } },
   ],
   edges: [],
-};
-
-// wip-criteria edge p1 -> p2 puts "prism" into projectsNeedingGlyphs.
-const docCache: CanvasDoc = {
-  nodes: [
-    { ...region },
-    { id: "p1", type: "text", text: "prism", x: 10, y: 10, width: 100, height: 40, ether: { entity: { kind: "project", name: "prism" } } },
-    { id: "p2", type: "text", text: "vellum", x: 10, y: 60, width: 100, height: 40, ether: { entity: { kind: "project", name: "vellum" } } },
-  ],
-  edges: [{ id: "e1", fromNode: "p1", toNode: "p2", ether: { criteria: { mode: "tasks" } } }],
 };
 
 // --- stubbed planes (kernel-arming-transaction idiom) -------------------------

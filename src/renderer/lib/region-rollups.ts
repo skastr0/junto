@@ -10,7 +10,7 @@ import { chatCoarse$ } from "./chat-state";
 import { herdr$ } from "./herdr-state";
 import { viewportBusy$ } from "./viewport-busy";
 
-// Coarse poll of window.vellum.regionRollups for glyph/graph enrichment.
+// Coarse poll of window.vellum.regionRollups for main-process graph enrichment.
 // Client always re-derives with herdr$ meta + chat activity so chips match
 // HerdrCard/inspector (same status source). Live IPC never blanks herdr.
 
@@ -49,7 +49,7 @@ const herdrCoarseKey = (
 
 /**
  * Per-region, per-member: keep the worse severity between `client` (herdr/chat)
- * and `live` (main IPC, glyphs/graph). Region severity/counts recomputed.
+ * and `live` (main IPC graph). Region severity/counts recomputed.
  */
 const fuseWorst = (
   client: ReadonlyArray<RegionRollup>,

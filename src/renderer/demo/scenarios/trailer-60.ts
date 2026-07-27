@@ -119,7 +119,7 @@ const SHOWER_TEXTS = [
   "booth review",
   "signal: forge",
   "glyph done",
-  "edge: depends",
+  "edge: blocks",
   "mirror fresh",
   "pane split",
   "typecheck 0",

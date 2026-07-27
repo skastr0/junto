@@ -24,7 +24,7 @@ export type FlowEdge = Edge<EdgeData>;
 
 export { searchText } from "./presentation";
 
-// Live overlay from the kernel cycle (glyph-aware phases + blocked closure).
+// Live overlay from the kernel cycle (derived phases + blocked closure).
 // When absent, toFlow falls back to pure deriveExecutionGraph(doc) which
 // resolves tasks criteria from the document and soft-relates otherwise.
 export type ExecutionOverlay = Pick<
@@ -49,8 +49,8 @@ export const createFlowIdentityCache = (): FlowIdentityCache => ({
   edges: new Map(),
 });
 
-// CanvasDoc -> React Flow. Optional kernel execution overlay carries live
-// glyph/WIP phase so the canvas does not re-derive with an empty GlyphView.
+// CanvasDoc -> React Flow. Optional kernel execution overlay carries the
+// main-process phase snapshot so the canvas does not re-derive it.
 // Optional identity cache reuses prior FlowNode/FlowEdge objects when the
 // doc node ref + blocked (or source edge ref + phase/detail/rippling) are
 // unchanged so React re-renders only the nodes that actually changed.
@@ -64,7 +64,7 @@ export const toFlow = (
   // kernel tick that already supplies phase/blocked.
   let fallback: ReturnType<typeof deriveExecutionGraph> | null = null;
   const getFallback = () => {
-    if (!fallback) fallback = deriveExecutionGraph(doc, new Map());
+    if (!fallback) fallback = deriveExecutionGraph(doc);
     return fallback;
   };
 

@@ -1,7 +1,7 @@
 import { Match, Schema } from "effect";
 import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
 import type { SnapshotState } from "./entities";
-import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
+import { deriveExecutionGraph } from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
 import { resolveSpec } from "./physics";
 import type { WorkSurfaceActivity } from "./terminal";
@@ -13,7 +13,7 @@ import type { WorkSurfaceActivity } from "./terminal";
 //
 // Pure, side-effect-free, derived from (document + optional live inputs).
 // Never persisted. INVARIANT (mirror of the edge law): unknown or missing
-// live data invents NOTHING — absent snapshots/glyphs/activity only narrow
+// live data invents NOTHING — absent snapshots/activity only narrow
 // what can be derived; they never fabricate blocks, attention, or work.
 
 // The severity ladder, worst first. A member lands in the WORST tier it
@@ -71,7 +71,6 @@ export interface RegionRollupInput {
   // yet — a down adapter would cry wolf on every bound node. Accepted so the
   // digest and the app service share one input shape.
   readonly snapshots?: SnapshotState;
-  readonly glyphs?: GlyphView;
   readonly agentActivity?: ReadonlyMap<string, AgentActivity>;
   // Backend-neutral harness activity by canvas node id. Session liveness alone
   // never means work: only an explicit harness state contributes severity.
@@ -137,7 +136,6 @@ const regionLabel = (group: GroupNode): string => (group.label ?? "").trim() || 
 const deriveMember = (
   node: CanvasNode,
   graph: ReturnType<typeof deriveExecutionGraph>,
-  glyphs: GlyphView | undefined,
   agentActivity: ReadonlyMap<string, AgentActivity> | undefined,
   terminalStatusByNodeId: ReadonlyMap<string, WorkSurfaceActivity> | undefined,
 ): MemberStatus => {
@@ -201,7 +199,6 @@ const regionMembers = (
   nodeById: ReadonlyMap<string, CanvasNode>,
   indexById: ReadonlyMap<string, number>,
   graph: ReturnType<typeof deriveExecutionGraph>,
-  glyphs: GlyphView | undefined,
   agentActivity: ReadonlyMap<string, AgentActivity> | undefined,
   terminalStatusByNodeId: ReadonlyMap<string, WorkSurfaceActivity> | undefined,
 ): MemberStatus[] =>
@@ -211,7 +208,7 @@ const regionMembers = (
       return member === undefined
         ? undefined
         : {
-            status: deriveMember(member, graph, glyphs, agentActivity, terminalStatusByNodeId),
+            status: deriveMember(member, graph, agentActivity, terminalStatusByNodeId),
             index: indexById.get(id) ?? 0,
           };
     })
@@ -238,8 +235,8 @@ const countBySeverity = (members: ReadonlyArray<MemberStatus>): RegionRollup["co
 // groupMembers(doc) participate — groups never contain groups, and nodes
 // outside every region are ignored.
 export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<RegionRollup> => {
-  const { doc, glyphs, agentActivity, terminalStatusByNodeId } = input;
-  const graph = deriveExecutionGraph(doc, glyphs ?? new Map());
+  const { doc, agentActivity, terminalStatusByNodeId } = input;
+  const graph = deriveExecutionGraph(doc);
   const membersByRegion = groupMembers(doc);
   const indexById = new Map(doc.nodes.map((node, index) => [node.id, index] as const));
   const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
@@ -252,7 +249,6 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
       nodeById,
       indexById,
       graph,
-      glyphs,
       agentActivity,
       terminalStatusByNodeId,
     );

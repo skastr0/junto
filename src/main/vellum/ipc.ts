@@ -9,7 +9,6 @@ import {
 import type { CanvasDoc } from "@shared/canvas";
 import { seatPaused, type PauseScope } from "@shared/pause";
 import { digestCanvas } from "@shared/digest";
-import { buildGlyphView } from "@shared/glyph-view";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
@@ -249,9 +248,7 @@ export const registerVellumIpc = (): void => {
         const snapshots = yield* SnapshotsService;
         const result = yield* canvases.read(name);
         const state = yield* snapshots.current;
-        // Private glyph browse excised — empty view keeps criteria non-generating.
-        const glyphs = buildGlyphView(result.doc, new Map());
-        const digest = digestCanvas(name, result.doc, state, glyphs);
+        const digest = digestCanvas(name, result.doc, state);
         const path = yield* canvases.writeSidecar(name, "digest.txt", digest);
         return { digest, path };
       }),

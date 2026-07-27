@@ -57,9 +57,9 @@ export function CanvasInteractionMap({ onClose }: { readonly onClose: () => void
         <HelpMapPrimer>
           <HelpMapPrimerBlock lead="execution graph">
             edges carry optional criteria. Live data derives phase:{" "}
-            <em>blocks</em> · <em>depends</em> · soft <em>relates</em>. Blocks stop
-            sinks and relay through outbound blocks/depends; relates never stop work.
-            Notes and agents are never members of the blocked set.
+            <em>blocks</em> or soft <em>relates</em>. A generating edge stops only
+            its connected actor agent and never relays through another edge. Sinks,
+            schedulers, and geography never enter the blocked set; relates never stops work.
           </HelpMapPrimerBlock>
           <HelpMapPrimerBlock lead="factory physics">
             the canvas is a factory floor. Drawn edges mint capability (ocaps); ports

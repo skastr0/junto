@@ -5,7 +5,6 @@ import type { EntitySource, SnapshotState } from "./entities";
 import {
   clearingStampsForDoc,
   deriveExecutionGraph,
-  type GlyphView,
   type LiveTrustViews,
 } from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
@@ -18,7 +17,7 @@ import { resolveSpec, roleOf, type FactoryRole } from "./physics";
 import { deriveRegionRollups } from "./region-rollup";
 
 // Deterministic text projection of a canvas + snapshots for agent consumption.
-// Contract: same doc + same snapshots (+ same glyph/trust views) -> byte-identical
+// Contract: same doc + same snapshots (+ same trust views) -> byte-identical
 // output. No timestamps, no randomness. Sections: regions (with members),
 // region rollups (severity), factory physics (role counts + soft/criteria
 // edges), design (topology + empty seats — I13), completion (stamped /
@@ -109,7 +108,6 @@ export const digestCanvas = (
   name: string,
   doc: CanvasDoc,
   snapshots: SnapshotState,
-  glyphs?: GlyphView,
   live?: DigestLiveViews,
 ): string => {
   const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
@@ -123,7 +121,7 @@ export const digestCanvas = (
     ...(live?.stamps ? { stamps: live.stamps } : {}),
     ...(live?.approvals ? { approvals: live.approvals } : {}),
   };
-  const graph = deriveExecutionGraph(doc, glyphs ?? new Map(), trust);
+  const graph = deriveExecutionGraph(doc, trust);
 
   const lines: string[] = [
     `canvas :: ${name}`,
@@ -147,10 +145,10 @@ export const digestCanvas = (
 
   // region rollups — severity bubbled up per region (the bottom bar's
   // operational tier). Headless: no agent activity input, so the section
-  // stays a pure function of doc + snapshots + glyph view.
+  // stays a pure function of doc + snapshots.
   if (groups.length > 0) {
     const rollupLines = ["region rollups"];
-    for (const rollup of deriveRegionRollups({ doc, snapshots, glyphs })) {
+    for (const rollup of deriveRegionRollups({ doc, snapshots })) {
       const buckets = [
         rollup.counts.blocked > 0 ? `${rollup.counts.blocked} blocked` : "",
         rollup.counts.attention > 0 ? `${rollup.counts.attention} attention` : "",

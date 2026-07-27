@@ -1,24 +1,16 @@
 import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
-import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
+import { deriveExecutionGraph } from "./execution-graph";
 
 // Derived state. Never persisted — recomputed from the document so the
 // authored canvas document cannot go incoherent.
 //
 // blockedClosure / blockedEdgeIds are thin wrappers over deriveExecutionGraph.
-// Callers with a live GlyphView should prefer deriveExecutionGraph directly
-// so glyph-bound criteria can resolve; without a view, criteria edges that
-// need glyph data stay non-generating (relates); tasks/requests criteria
-// still evaluate from the document alone.
 
-export const blockedClosure = (
-  doc: CanvasDoc,
-  glyphs?: GlyphView,
-): ReadonlySet<string> => deriveExecutionGraph(doc, glyphs ?? new Map()).blocked;
+export const blockedClosure = (doc: CanvasDoc): ReadonlySet<string> =>
+  deriveExecutionGraph(doc).blocked;
 
-export const blockedEdgeIds = (
-  doc: CanvasDoc,
-  glyphs?: GlyphView,
-): ReadonlySet<string> => deriveExecutionGraph(doc, glyphs ?? new Map()).blockedEdgeIds;
+export const blockedEdgeIds = (doc: CanvasDoc): ReadonlySet<string> =>
+  deriveExecutionGraph(doc).blockedEdgeIds;
 
 export const isGroup = (node: CanvasNode): node is GroupNode => node.type === "group";
 

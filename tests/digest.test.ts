@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
-import type { GlyphView } from "../src/shared/execution-graph";
 import { digestCanvas } from "../src/shared/digest";
 
 const doc: CanvasDoc = {
@@ -192,10 +191,6 @@ const doc2: CanvasDoc = {
   edges: [],
 };
 
-const glyphs2: GlyphView = new Map([
-  ["prism", [{ glyphId: "g-1", orbit: "forge", title: "work", state: "building" }]],
-]);
-
 // Array-of-lines (not a template literal) so the trailing separator space on
 // the memberless regions line stays visible.
 const expected2 = [
@@ -234,7 +229,7 @@ const expected2 = [
 
 describe("digestCanvas — region rollups formatting", () => {
   it("pins singular counts, empty region, multi-bucket join, and member lines", () => {
-    expect(digestCanvas("fixture2", doc2, { bundles: [] }, glyphs2)).toBe(expected2);
+    expect(digestCanvas("fixture2", doc2, { bundles: [] })).toBe(expected2);
   });
 });
 
@@ -405,7 +400,7 @@ describe("digestCanvas — design vs completion (I13/I16)", () => {
   };
 
   it("I13: empty-seat fixture appears under design, never under completion", () => {
-    const out = digestCanvas("trust", trustDoc, { bundles: [] }, undefined, {
+    const out = digestCanvas("trust", trustDoc, { bundles: [] }, {
       occupancy: new Map([["agent1", "empty"]]),
     });
     expect(out).toContain("design");
@@ -436,7 +431,7 @@ describe("digestCanvas — design vs completion (I13/I16)", () => {
         ],
       ],
     ]);
-    const out = digestCanvas("trust", trustDoc, { bundles: [] }, undefined, {
+    const out = digestCanvas("trust", trustDoc, { bundles: [] }, {
       stamps,
       occupancy: new Map([["agent1", "empty"]]),
     });
@@ -448,7 +443,7 @@ describe("digestCanvas — design vs completion (I13/I16)", () => {
     expect(out).toContain("build · seat=agent1 · edge=e-proof · refs=art-build-1,log://run");
     expect(out).toContain("cleared");
     expect(out).toContain("proof edge e-proof · step=build");
-    // Cleared proof → soft relates (depends phase retired)
+    // Cleared proof → soft relates.
     expect(out).toContain("proofs --relates--> ship");
     // I13: the word "empty seats" must not appear under completion block
     const completionBlock = out.slice(out.indexOf("\ncompletion\n"));
@@ -488,4 +483,3 @@ describe("digestCanvas — design vs completion (I13/I16)", () => {
     expect(out).toContain('missing proof step "build"');
   });
 });
-

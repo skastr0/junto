@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { Task, CanvasDoc } from "../src/shared/canvas";
-import type { GlyphRow, GlyphView } from "../src/shared/execution-graph";
 import { deriveRegionRollups, type AgentActivity } from "../src/shared/region-rollup";
 import type { WorkSurfaceActivity } from "../src/shared/terminal";
 import { taskItem, claimed } from "./helpers/task-fixtures";
@@ -49,8 +48,6 @@ const taskNode = (
   label: string,
   items: ReadonlyArray<Task>,
 ): Node => node(id, x, y, label, { entity: { kind: "task" }, tasks: { items: [...items] } });
-
-const glyphRow = (state: string): GlyphRow => ({ glyphId: "g-1", orbit: "forge", title: "work", state });
 
 const activityOf = (...entries: Array<[string, AgentActivity]>): ReadonlyMap<string, AgentActivity> =>
   new Map(entries);
@@ -196,16 +193,6 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.members[0]).toMatchObject({ severity: "working", reasons: ["activity:working"] });
   });
 
-  it("glyph WIP no longer elevates furniture/project notes (retired)", () => {
-    const doc: CanvasDoc = {
-      nodes: [group("r", 0, 0, 500, 500, "ops"), projectNode("p", 10, 10, "prism", "prism")],
-      edges: [],
-    };
-    const glyphs: GlyphView = new Map([["prism", [glyphRow("done"), glyphRow("building"), glyphRow("reviewing")]]]);
-    const [rollup] = deriveRegionRollups({ doc, glyphs });
-    expect(rollup?.members[0]).toMatchObject({ severity: "idle", reasons: [] });
-  });
-
   it("parked via flag", () => {
     const doc: CanvasDoc = {
       nodes: [group("r", 0, 0, 500, 500, "ops"), node("n", 10, 10, "later", { flags: ["parked"] })],
@@ -258,7 +245,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
   });
 });
 
-describe("deriveRegionRollups — graceful degradation", () => {
+describe("deriveRegionRollups — absent live inputs", () => {
   const doc: CanvasDoc = {
     nodes: [
       group("r", 0, 0, 500, 500, "ops"),
@@ -269,30 +256,11 @@ describe("deriveRegionRollups — graceful degradation", () => {
     edges: [{ id: "e1", fromNode: "p", toNode: "q", ether: { criteria: { mode: "tasks" } } }],
   };
 
-  it("missing activity and glyphs invent nothing: every member idle, edge stays relates", () => {
+  it("missing activity invents nothing: every member idle, edge stays relates", () => {
     const [rollup] = deriveRegionRollups({ doc });
     expect(rollup?.severity).toBe("idle");
     expect(rollup?.counts).toEqual({ total: 3, blocked: 0, attention: 0, working: 0 });
     expect(rollup?.members.every((member) => member.severity === "idle" && member.reasons.length === 0)).toBe(true);
-  });
-
-  it("a glyph view that lacks the project key still invents nothing", () => {
-    const glyphs: GlyphView = new Map([["other-project", [glyphRow("building")]]]);
-    const [rollup] = deriveRegionRollups({ doc, glyphs });
-    expect(rollup?.severity).toBe("idle");
-    expect(rollup?.members.every((member) => member.severity === "idle")).toBe(true);
-  });
-
-  it("undefined rows for the project key mean data unavailable, not work", () => {
-    const glyphs: GlyphView = new Map([["prism", undefined]]);
-    const [rollup] = deriveRegionRollups({ doc, glyphs });
-    expect(rollup?.members.find((member) => member.nodeId === "p")?.severity).toBe("idle");
-  });
-
-  it("non-WIP glyph states do not count as work", () => {
-    const glyphs: GlyphView = new Map([["prism", [glyphRow("done"), glyphRow("backlog")]]]);
-    const [rollup] = deriveRegionRollups({ doc, glyphs });
-    expect(rollup?.members.find((member) => member.nodeId === "p")?.severity).toBe("idle");
   });
 
   it("activity on a non-agent node is ignored", () => {
@@ -473,7 +441,7 @@ describe("deriveRegionRollups — derivation edges", () => {
     expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, working: 0 });
   });
 
-  it("a non-project node whose name collides with a glyph-view key does not become working", () => {
+  it("unknown entity kinds remain inert without explicit activity", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
@@ -482,9 +450,7 @@ describe("deriveRegionRollups — derivation edges", () => {
       ],
       edges: [],
     };
-    // The view knows "prism" and it is hot — but only kind "project" reads it.
-    const glyphs: GlyphView = new Map([["prism", [glyphRow("building")]]]);
-    const [rollup] = deriveRegionRollups({ doc, glyphs });
+    const [rollup] = deriveRegionRollups({ doc });
     expect(rollup?.members.every((member) => member.severity === "idle" && member.reasons.length === 0)).toBe(
       true,
     );

@@ -31,8 +31,8 @@ export type { WatcherRuntimeState, PulseRecord, ExecutionSnapshot };
 // the kernel refuses to silently disarm, so the renderer must show them.
 //
 // `execution` is the open canvas's live edge phase + blocked closure from the
-// kernel cycle (glyph-aware). Canvas toFlow consumes it so criteria edges
-// paint blocks/depends without the renderer re-fetching glyph browse.
+// kernel cycle. Canvas toFlow consumes it so criteria edges use the same
+// derived snapshot as pulse context and phase mirroring.
 export const kernel$ = observable<{
   watchers: Record<string, WatcherRuntimeState>;
   armed: Record<string, boolean>;

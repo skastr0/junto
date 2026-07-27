@@ -1,6 +1,5 @@
 import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import type { GlyphRow } from "@shared/execution-graph";
 import { deriveRegionRollups, type AgentActivity, type RegionRollup } from "@shared/region-rollup";
 import { CanvasesService, type CanvasError } from "./canvases";
 import { ChatServiceContext, type ChatService } from "./chat/service";
@@ -22,8 +21,7 @@ export const herdrAgentStatusActivity = (status: string): WorkSurfaceActivity =>
 };
 
 // Region severity rollups for the RTS bottom bar. Derived per request from
-// the document + snapshots + ACP chat plane + herdr mirrors. No private-source
-// glyph browse — empty glyphs; agent/herdr activity still live.
+// the document + snapshots + ACP chat plane + herdr mirrors.
 export class RegionRollupService extends Context.Tag("@vellum/RegionRollupService")<
   RegionRollupService,
   {
@@ -55,8 +53,6 @@ export const makeRegionRollupLive = (
             const { doc } = yield* canvases.read(canvasName);
             const state = yield* snapshots.current;
 
-            const glyphs = new Map<string, ReadonlyArray<GlyphRow>>();
-
             const agentActivity = new Map<string, AgentActivity>();
             for (const node of doc.nodes) {
               const entity = node.ether?.entity;
@@ -85,7 +81,6 @@ export const makeRegionRollupLive = (
             return deriveRegionRollups({
               doc,
               snapshots: state,
-              glyphs,
               agentActivity,
               terminalStatusByNodeId,
             });

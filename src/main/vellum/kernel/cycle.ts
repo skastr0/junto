@@ -8,9 +8,7 @@ import { applyPhaseMirror, type CanvasDoc, type EdgePhase, type GroupNode } from
 import {
   composeRegionExecutionContext,
   deriveExecutionGraph,
-  edgeGlyphProjects,
   type BlockedReason,
-  type GlyphView,
 } from "@shared/execution-graph";
 import { groupMembers, isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
@@ -248,13 +246,13 @@ export const __resetKernelMemoryForTest = (): void => {
   snapshots = { bundles: [] };
   armed = new Map();
   pulseLog = [];
+  pendingPulseDeliveries.clear();
   deliveryDeps = undefined;
   flagWriterDeps = undefined;
   phaseMirrorDeps = undefined;
   timerSchedulerDeps = undefined;
   glyphFetcher = undefined;
   nextFire.clear();
-  lastGlyphIndex = null;
   executionByCanvas.clear();
   resetWatcherMemory();
 };
@@ -370,10 +368,20 @@ export interface DeliverPulseParams {
   readonly deps?: PulseDeliverDeps;
 }
 
+interface DeliverPulseResult {
+  readonly delivered: boolean;
+  readonly dry: boolean;
+}
+
+const pulseDeliveryKey = (params: DeliverPulseParams): string =>
+  `${params.canvasName}::${params.sourceNodeId}::${params.kind}::${params.regionId ?? ""}::${params.forceDry === true ? "force-dry" : "auto"}::${params.summary}`;
+
+const pendingPulseDeliveries = new Map<string, DeliverPulseParams>();
+
 // Single funnel for every pulse — watcher fire, timer tick, or manual. A
 // regionless source (no containing group) always resolves dry with
 // delivered: [] since there is no arming key to check.
-export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
+export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverPulseResult> {
   const deps = params.deps ?? deliveryDeps;
   if (!deps) {
     // No delivery deps configured — record dry pulse only
@@ -388,7 +396,11 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
       canvasName: params.canvasName,
       ...(params.regionId !== undefined ? { regionId: params.regionId } : {}),
     });
-    return;
+    setPendingPulseDelivery(params, false);
+    return {
+      delivered: false,
+      dry: true,
+    };
   }
 
   const { regionId } = params;
@@ -402,6 +414,7 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
   const paused = pausedLookup?.(params.canvasName, params.sourceNodeId) ?? false;
   const dry = paused || !wantsLive || cooling;
 
+  let attemptedLiveSeats = false;
   let delivered: ReadonlyArray<string> = [];
   if (!dry) {
     const doc = docs.get(params.canvasName);
@@ -460,11 +473,12 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
         );
       }
 
+      attemptedLiveSeats = keys.length > 0 && deps.sendManagedTerminal !== undefined;
+
       let contextBlocks: ReadonlyArray<string> | undefined;
       if (params.regionId !== undefined && region?.type === "group") {
         const memberIds = groupMembers(doc).get(params.regionId) ?? [];
-        const glyphView = lastGlyphIndex ?? new Map();
-        const graph = deriveExecutionGraph(doc, glyphView as GlyphView);
+        const graph = deriveExecutionGraph(doc);
         const executionContext = composeRegionExecutionContext(
           doc,
           params.regionId,
@@ -504,6 +518,14 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
     }
   }
 
+  const finalDry = dry || (!attemptedLiveSeats && !params.forceDry);
+  const shouldRetry = attemptedLiveSeats && delivered.length === 0 && !params.forceDry;
+  setPendingPulseDelivery(params, shouldRetry);
+
+  if (!finalDry && delivered.length > 0) {
+    setWatcherLastFiredAt(params.canvasName, params.sourceNodeId, Date.now());
+  }
+
   appendPulseRecord({
     id: `pulse-${ulid()}`,
     at: Date.now(),
@@ -511,10 +533,15 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
     kind: params.kind,
     summary: cooling ? `${params.summary} (cooldown · 5m min spacing)` : params.summary,
     delivered,
-    dry,
+    dry: finalDry,
     canvasName: params.canvasName,
     ...(regionId !== undefined ? { regionId } : {}),
   });
+
+  return {
+    delivered: delivered.length > 0,
+    dry: finalDry,
+  };
 }
 
 // --- pulse delivery queue (decoupled from the evaluation cycle) --------------
@@ -597,7 +624,7 @@ const applyFlagOnUnsatisfied = (canvasName: string, doc: CanvasDoc, nodeId: stri
   }
 };
 
-// --- glyph index (bridges the pure evaluator to the browse cache) ------------
+// --- watcher glyph index (bridges its pure evaluator to the browse cache) ----
 // Only fetches for projects a watcher in the current doc actually scopes to
 // — never every bound project. A slow/hung fetch is bounded so a cycle
 // never stalls the loop; the abandoned request still warms the cache
@@ -605,17 +632,13 @@ const applyFlagOnUnsatisfied = (canvasName: string, doc: CanvasDoc, nodeId: stri
 // change) tends to land it.
 const GLYPH_FETCH_TIMEOUT_MS = 2_000;
 
-// Last glyph index built for the cycle — also used by pulse delivery so
-// execution context sees the same rows as watcher evaluation.
-let lastGlyphIndex: GlyphIndex | null = null;
-
 // Per-canvas derived execution graphs (recomputed each evaluation cycle).
 const executionByCanvas = new Map<string, ExecutionSnapshot>();
 
 export const getExecutionByCanvas = (): ReadonlyMap<string, ExecutionSnapshot> => executionByCanvas;
 
-const snapshotFromGraph = (doc: CanvasDoc, glyphs: GlyphView): ExecutionSnapshot => {
-  const graph = deriveExecutionGraph(doc, glyphs);
+const snapshotFromGraph = (doc: CanvasDoc): ExecutionSnapshot => {
+  const graph = deriveExecutionGraph(doc);
   const phaseByEdgeId: Record<string, EdgePhase> = {};
   const detailByEdgeId: Record<string, string> = {};
   for (const [id, phase] of graph.phaseByEdgeId) phaseByEdgeId[id] = phase;
@@ -631,7 +654,7 @@ const snapshotFromGraph = (doc: CanvasDoc, glyphs: GlyphView): ExecutionSnapshot
   };
 };
 
-const relevantGlyphProjects = (doc: CanvasDoc): ReadonlySet<string> => {
+const relevantWatcherProjects = (doc: CanvasDoc): ReadonlySet<string> => {
   const projects = new Set<string>();
   for (const node of doc.nodes) {
     if (node.type !== "text") continue;
@@ -639,8 +662,6 @@ const relevantGlyphProjects = (doc: CanvasDoc): ReadonlySet<string> => {
     if (!watch?.project) continue;
     if (watch.kind === "glyphs_done" || watch.kind === "glyphs_entered_state") projects.add(watch.project);
   }
-  // Edge criteria (glyphs / wip) need the same browse rows.
-  for (const project of edgeGlyphProjects(doc)) projects.add(project);
   return projects;
 };
 
@@ -659,21 +680,6 @@ const fetchGlyphsBounded = async (project: string): Promise<ReadonlyArray<TowerG
 // project a watcher scopes to.
 const MAX_CONCURRENT_GLYPH_FETCHES = 4;
 
-const buildGlyphIndex = async (doc: CanvasDoc): Promise<GlyphIndex> => {
-  const projects = Array.from(relevantGlyphProjects(doc));
-  const index = new Map<string, ReadonlyArray<TowerGlyphRow>>();
-  for (let i = 0; i < projects.length; i += MAX_CONCURRENT_GLYPH_FETCHES) {
-    const batch = projects.slice(i, i + MAX_CONCURRENT_GLYPH_FETCHES);
-    await Promise.all(
-      batch.map(async (project) => {
-        const glyphRows = await fetchGlyphsBounded(project);
-        if (glyphRows !== undefined) index.set(project, glyphRows);
-      }),
-    );
-  }
-  return index;
-};
-
 // --- evaluation cycle (multi-canvas with per-canvas isolation) ---------------
 
 // Watcher runtime state tracking (keyed by canvasName::nodeId)
@@ -684,10 +690,10 @@ const nextFire = new Map<string, number>();
 // Exported for tests: lets a test drive exactly one evaluation pass and assert
 // it completes even while a delivery pends.
 export const runEvaluationCycle = async (): Promise<void> => {
-  // Union of watcher-scoped + edge-criteria projects across all canvases.
+  // Union of watcher-scoped projects across all canvases.
   const allProjects = new Set<string>();
   for (const doc of docs.values()) {
-    for (const project of relevantGlyphProjects(doc)) allProjects.add(project);
+    for (const project of relevantWatcherProjects(doc)) allProjects.add(project);
   }
 
   const index = new Map<string, ReadonlyArray<TowerGlyphRow>>();
@@ -697,18 +703,15 @@ export const runEvaluationCycle = async (): Promise<void> => {
     await Promise.all(
       batch.map(async (project) => {
         const glyphRows = await fetchGlyphsBounded(project);
-        // Record presence even when undefined so criteria can distinguish
-        // "not fetched" (missing key → relates) vs explicit unavailability.
         if (glyphRows !== undefined) index.set(project, glyphRows);
       }),
     );
   }
-  lastGlyphIndex = index;
 
   // Evaluate each canvas with per-canvas isolation
   for (const [canvasName, doc] of docs.entries()) {
     try {
-      const execution = snapshotFromGraph(doc, index);
+      const execution = snapshotFromGraph(doc);
       executionByCanvas.set(canvasName, execution);
 
       // Mirror derived phase into stored kind for criteria edges (offline

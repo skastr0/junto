@@ -3,9 +3,7 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import {
   composeRegionExecutionContext,
   deriveExecutionGraph,
-  edgeGlyphProjects,
   evaluateEdge,
-  type GlyphView,
 } from "../src/shared/execution-graph";
 import { groupMembers } from "../src/shared/graph";
 import type { ProofStamp, StampView } from "../src/shared/proof-stamps";
@@ -126,7 +124,7 @@ describe("evaluateEdge — authorial modes", () => {
 });
 
 describe("deriveExecutionGraph — no cascade", () => {
-  it("claimed input-required blocks the claimant only; no relay through second hop", () => {
+  it("claimed input-required blocks the claimant only; no second-hop propagation", () => {
     const doc: CanvasDoc = {
       nodes: [
         text("t1", "Checklist", {
@@ -143,7 +141,7 @@ describe("deriveExecutionGraph — no cascade", () => {
           toNode: "a1",
           ether: { criteria: { mode: "tasks" } },
         },
-        // would have been depends-relay under old model
+        // An actor has no task inventory, so this criteria edge relates.
         {
           id: "e2",
           fromNode: "a1",
@@ -249,9 +247,6 @@ describe("deriveExecutionGraph — no cascade", () => {
     expect(graph.blocked.has("actor1")).toBe(true);
   });
 
-  it("edgeGlyphProjects is empty (glyphs criteria retired)", () => {
-    expect(edgeGlyphProjects({ nodes: [], edges: [] }).size).toBe(0);
-  });
 });
 
 describe("composeRegionExecutionContext", () => {
@@ -315,7 +310,7 @@ describe("evaluateEdge — proof / approval", () => {
       nodes: [from, seat("down", "actor", { label: "Downstream" })],
       edges: [edge],
     };
-    expect(deriveExecutionGraph(doc, new Map(), { stamps: new Map() }).blocked.has("down")).toBe(
+    expect(deriveExecutionGraph(doc, { stamps: new Map() }).blocked.has("down")).toBe(
       true,
     );
 
