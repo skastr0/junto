@@ -114,7 +114,7 @@ The fleet protocol has five bounded, schema-decoded operations:
 | Verb | Purpose |
 |---|---|
 | `pair` | Bind one Remote installation to one Command Center installation |
-| `configure` | Commit Remote topology and projected browser trust |
+| `configure` | Commit Remote topology (role, host identity, supervision) |
 | `project` | Install one complete replace-only canvas projection |
 | `report` | Exchange canonical Work events and dispositions after cumulative route ACK cursors |
 | `status` | Report installation identity, configuration, projection, cursors, and readiness |

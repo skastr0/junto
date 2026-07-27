@@ -14,7 +14,8 @@ necessarily impossible in a future release.
 | Remote supervision | Supported | packaged systemd user service (`Type=notify`) |
 | Remote boot ready | Supported | private generation receipt `$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID` + work control (not Doctor planes; not `station-ready.json`) |
 | Login persistence | Optional | explicit administrator-approved user lingering |
-| Station-browser protocol | Supported | version `1` |
+| Station API | Supported | five verbs only (`pair`, `configure`, `project`, `report`, `status`); OpenSSH transport |
+| Browser automation | Supported | host-local (Tier 2); actor and page on the same installation; never Station API |
 | Work-control protocol | Supported | `vellum-work/v1`, owner-local Unix socket |
 | Linux arm64 / aarch64 | Unsupported | no v1 artifact or qualification |
 | musl / Alpine | Unsupported | glibc is required |

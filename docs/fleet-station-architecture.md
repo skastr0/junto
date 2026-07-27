@@ -62,11 +62,13 @@ unreachable. Neither side invents synchronization.
 ## Station API boundary
 
 `pair`, `configure`, `project`, `report`, and `status` are the complete fleet
-protocol. Each request and response is bounded and decoded with Effect Schema.
-An unconfigured installation rejects every work mutation. Once configured,
-role and host identity cannot change. Removing a fleet target preserves the
-host-to-installation tombstone; exact reactivation is permitted, but silently
-substituting a fresh installation is not.
+protocol. The contract is transport-neutral; OpenSSH is the current adapter.
+Browser operations are never Station API verbs. Each request and response is
+bounded and decoded with Effect Schema. Identifiers are routing facts, not
+credentials. An unconfigured installation rejects every work mutation. Once
+configured, role and host identity cannot change. Removing a fleet target
+preserves the host-to-installation tombstone; exact reactivation is permitted,
+but silently substituting a fresh installation is not.
 
 OpenSSH authenticates and transports the fixed `vellum-station` command. The
 helper relays to the app's owner-local Station control socket. It accepts no
@@ -76,7 +78,8 @@ executable and its stable, bounded process ancestry contains the root-owned
 system sshd executable. The process chain is re-observed before decode and
 dispatch; a direct local helper or a process named `sshd` has no authority.
 There are no SSH file writes or reads in the coordination protocol, no Station
-bearer credential, and no local fallback.
+bearer credential, and no local fallback. Tailscale may supply connectivity; it
+is not authority.
 
 `configure` is Remote-only on this wire. Command Center selection exists only
 in the local main-process settings path; paired and Command Center states are

@@ -148,11 +148,13 @@ describe("Linux v1 operator documentation", () => {
       "glibc 2.39",
       "X11/Xvfb",
       "Wayland/XWayland",
-      "version `1`",
+      "five verbs only",
+      "host-local",
       "`vellum-work/v1`",
     ]) {
       expect(matrix).toContain(supported);
     }
+    expect(matrix).not.toContain("Station-browser protocol");
     for (const unsupported of [
       "Linux arm64 / aarch64",
       "musl / Alpine",

@@ -476,15 +476,25 @@ special disclosure ceremony for an operator-owned resource.
 
 ### Command Center-to-Station protocol
 
-Fleet coordination is a typed request/response protocol with exactly five
-verbs: `pair`, `configure`, `project`, `report`, and `status`.
+Fleet coordination is a transport-neutral typed request/response protocol with
+exactly five verbs: `pair`, `configure`, `project`, `report`, and `status`.
+Browser operations are never Station API verbs. There is no Station-browser
+protocol, browser PKI, or browser session-handle exchange on this wire.
 
-For the OpenSSH route, Command Center invokes the fixed `vellum-station`
-command and exchanges one bounded JSON request on stdin for one bounded JSON
-response on stdout. The helper connects to the Remote app's owner-local control
-socket; the Remote main process validates the request and owns every database
-transaction. SSH never writes settings, projections, acknowledgements, status,
-or database files.
+The current transport adapter is OpenSSH. Command Center invokes the fixed
+`vellum-station` command and exchanges one bounded JSON request on stdin for
+one bounded JSON response on stdout. The helper connects to the Remote app's
+owner-local control socket; the Remote main process validates the request and
+owns every database transaction. SSH never writes settings, projections,
+acknowledgements, status, or database files.
+
+Tailscale (or other mesh/VPN) may supply network reachability to the enrolled
+SSH endpoint. It is optional connectivity, not Vellum authority and not a
+Station credential plane.
+
+A future public transport, if shipped, is authenticated HTTPS — not plain
+HTTP. That remains a future ship unit; the five verbs and their semantics do
+not change with the adapter.
 
 The owner-only socket is transport containment, not sufficient authority.
 Remote main reads the socket's kernel peer PID and requires the peer itself to
@@ -497,6 +507,9 @@ and before dispatch. Direct same-account socket clients and direct local
 `vellum-station` invocations are denied before even `status` disclosure.
 OpenSSH's authenticated operator account is the authority for this route; no
 second Vellum credential or compatibility path exists.
+
+Installation, host, factory, actor, and resource identifiers on this protocol
+are routing facts, not credentials.
 
 Authenticated transport does not grant role-promotion authority. The Station
 wire's `configure` request contains only `RemoteConfiguration`; Command Center
@@ -599,6 +612,15 @@ other Stations or Command Center administration.
 
 Web content is untrusted even when the operator and attached agent are trusted.
 
+Browser automation is host-local (Tier 2). The actor and the page node must
+share the same installation. The enrolled host capability `"browser"` means
+that installation may physically host browser pages and owner-local browser
+control; it is not a remote RPC grant and never appears on the Station API.
+
+There is no Station-browser protocol, browser PKI, projected browser trust,
+Command Center browser session handle, or cross-installation browser relay.
+A page on a Remote is driven only by actors and tools on that Remote.
+
 Browser pages must remain isolated from Electron, Node, filesystem, shell,
 canvas, fleet credentials, and other profiles except through explicit
 Vellum-owned operations allowed by current intent.
@@ -614,9 +636,9 @@ grants that page capability.
 
 Vellum can promise:
 
-> No agent or Station lacking the required current edge may control that
-> browser surface through a Vellum API, CLI, socket, relay, or automation
-> surface.
+> No agent lacking the required current edge on the same installation may
+> control that browser surface through a Vellum API, CLI, socket, or
+> automation surface.
 
 Vellum cannot promise that arbitrary malicious same-user code, an operating
 system compromise, or an unknown browser or kernel vulnerability cannot reach

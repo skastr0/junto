@@ -1,12 +1,16 @@
-# macOS Remote station — end-to-end (terminals + browser plane)
+# macOS Remote station — end-to-end (terminals + host-local browser)
 
 Command Center (this Mac) deploys the **same** `Vellum Command.app` to a **macOS**
-remote (e.g. Mac mini), starts it under LaunchAgent, and uses SSH unix-forwards
-for capability sockets.
+remote (e.g. Mac mini), starts it under LaunchAgent, and uses SSH for the
+Station API and for terminal capability sockets.
 
 Linux is **out of scope** for this path (separate Electron/Linux station track).
 Darwin managed deploy remains release-gated; this checklist qualifies the path
 before that capability may be enabled.
+
+Browser automation is host-local on the Remote. Command Center does not forward
+or relay browser control sockets; a page on the Remote is driven only by actors
+on that installation when the host declares the `"browser"` capability.
 
 ## Prerequisites
 
@@ -17,7 +21,7 @@ before that capability may be enabled.
 2. **Remote** is macOS, SSH works (`ssh <endpoint>` BatchMode), user can write
    `/Applications` (or admin once), GUI session available for LaunchAgent/`open`.
 3. Remote host registered in Settings → Hosts with capabilities including
-   `terminal` (and later browser routing).
+   `terminal` (and `browser` when that Remote should host pages locally).
 
 ## Operator flow
 
@@ -33,7 +37,7 @@ before that capability may be enabled.
    app bundle + LaunchAgent, start it, configure through Station API, and wait
    for:
    - `~/.vellum/term/control.sock`
-   - `~/.vellum/browser/control.sock` (best-effort; term alone still succeeds)
+   - `~/.vellum/browser/control.sock` (best-effort host-local plane; term alone still succeeds)
    - the Station API status to report database/work/simulation readiness
 5. Canvas → New terminal → **Host** = remote → Start → Open.
 6. CC quit does **not** kill remote PTYs (local quit only). Explicit Kill does.
@@ -45,9 +49,9 @@ CC TerminalRouter(hostId)
   → SSH forward remote ~/.vellum/term/control.sock
   → TermControlClient (NDJSON + token)
 
-CC (future) browser host routing
-  → SSH forward remote ~/.vellum/browser/control.sock
-  → WebContentsView lives on Remote (needs BrowserWindow — deploy starts GUI app)
+Remote host-local browser (same installation as page + actor)
+  → ~/.vellum/browser/control.sock on the Remote only
+  → WebContentsView on that Remote (needs BrowserWindow — deploy starts GUI app)
 
 CC fleet coordination
   → SSH fixed command vellum-station
@@ -56,12 +60,16 @@ CC fleet coordination
   → ~/.vellum/state/vellum.db
 ```
 
+Station API verbs remain `pair`, `configure`, `project`, `report`, and
+`status` only. Browser ops never use that wire.
+
 ## Why not `--vellum-headless` on deploy
 
 `WebContentsView` is parented under `BrowserWindow.contentView`. Headless skips
 `createWindow()`, so host-local browser automation cannot attach. Deploy starts
-the normal app so the browser plane can run. A future offscreen window can restore
-true headless Remote.
+the normal app so the browser plane can run on that installation. A future
+offscreen window can restore true headless Remote without inventing remote
+browser RPC.
 
 ## Smoke checklist
 
@@ -73,8 +81,9 @@ true headless Remote.
 - [ ] Quit CC → remote shell still running (ssh/process list)
 - [ ] Reopen CC → reattach same binding
 - [ ] Kill from card ends remote process
-- [ ] Browser: open a page surface on Remote when host routing is wired
+- [ ] Host-local browser: open a page on the Remote when that host declares `browser`
 - [ ] No settings, host, status, projection, manifest, ACK, or seal file appears
+- [ ] No browserTrust / commandCenterRef / Station-browser protocol residue
 
 ## Failure modes
 

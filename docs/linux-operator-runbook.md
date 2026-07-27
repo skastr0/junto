@@ -62,9 +62,10 @@ not qualified in v1.
    the staged directory is not entirely root-owned and non-writable by the
    station user. The verifier's exact-inventory check rejects symlinks,
    undeclared files, missing files, and changed bytes in this protected copy.
-4. From the Command Center, record the peer product version, station-browser
-   protocol, and work-control protocol. Linux v1 expects station-browser `1`
-   and work-control `vellum-work/v1`.
+4. From the Command Center, record the peer product version and work-control
+   protocol. Linux v1 expects work-control `vellum-work/v1`. The verifier still
+   accepts `--peer-station-browser-protocol 1` as a release-manifest peer pin
+   (not a fleet browser API).
 5. Check the verifier against the independently authenticated hash, then run
    it as the ordinary station user with the independently authenticated trust
    values:
@@ -315,7 +316,6 @@ Deployment failures expose one bounded recovery action in Settings:
 | bootstrap Linux release installer | install the current signed package with the fresh-install procedure, then retry |
 | active Vellum terminals | close the counted sessions, confirm their work is preserved, then retry |
 | restore live-work observation | restore the product observation path through this runbook or support; do not bypass the route cut |
-| provision station browser trust | provision trust from Command Center, then retry |
 | retry Linux release install | let the current serialized attempt finish, then retry |
 | repair Linux release transaction | stop and preserve the root journal/cache; use the bounded recovery procedure or support |
 
@@ -390,6 +390,9 @@ modify the manifest, keyring, or package version locally to force activation.
 Never restore, downgrade, or replace product state as part of repair.
 
 ## Browser profile lifecycle
+
+Browser automation is host-local: the actor and page share the installation
+that hosts the profile. Profiles never travel on the Station API.
 
 Persistent browser profiles live under Vellum's owner-only profile registry.
 Closing or stopping a browser session does not erase its profile. Browser
