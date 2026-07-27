@@ -319,7 +319,6 @@ type OutputAction =
 
 const refusal = (
   transactionId: string | null,
-  action: "send-a-new-bounded-frame" = "send-a-new-bounded-frame",
 ): Extract<
   LinuxReleaseInstallerReceipt,
   { readonly ok: false; readonly state: "refused" }
@@ -329,7 +328,7 @@ const refusal = (
   state: "refused",
   code: "protocol",
   transactionId,
-  action,
+  action: "send-a-new-bounded-frame",
 });
 
 const bridgeAuth = (
