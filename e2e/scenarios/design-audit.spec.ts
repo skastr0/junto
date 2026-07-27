@@ -715,17 +715,12 @@ test("capture the empty field state", async () => {
 });
 
 // Fleet manager — seed an enrolled fleet (local + four remotes, two with
-// custom appearance) via VELLUM_HOSTS_PATH. With no key/seal beside it the
-// registry bootstrap-admits the document. The fake ssh binary answers the
-// reachability probes, so edges settle into the reachable state with latency.
+// custom appearance) into the sandbox's SQLite database. The fake ssh binary
+// answers reachability probes, so edges settle into reachable state.
 test("capture the fleet manager overlay", async () => {
-  const hostsDir = await mkdtemp(join(tmpdir(), "vellum-e2e-hosts-"));
-  const hostsPath = join(hostsDir, "hosts.json");
-  await writeFile(
-    hostsPath,
-    JSON.stringify({
-      version: 1,
-      hosts: [
+  const vellum = await launchVellum({
+    seedCanvases: { fleet: canvasDoc([]) },
+    seedHosts: [
         {
           id: "local",
           label: "local",
@@ -765,12 +760,6 @@ test("capture the fleet manager overlay", async () => {
           appearance: { glyph: "artifact-vault" },
         },
       ],
-    }),
-    "utf8",
-  );
-  const vellum = await launchVellum({
-    seedCanvases: { fleet: canvasDoc([]) },
-    extraEnv: { VELLUM_HOSTS_PATH: hostsPath },
   });
   try {
     const { page } = vellum;

@@ -23,6 +23,9 @@ import {
 import {
   makeStateEngineLive,
 } from "../../src/main/vellum/state/engine";
+import { StateEngine } from "../../src/main/vellum/state/service";
+import { makeHostsRegistry } from "../../src/main/vellum/hosts/registry";
+import type { RemoteHost } from "../../src/shared/remote-hosts";
 import { resolveNodeHostId } from "../../src/shared/station";
 import {
   stripWorkProjection,
@@ -122,6 +125,27 @@ export const writeFixtureCanvas = async (
         process.env.VELLUM_CANVASES_DIR = previousCanvasesDir;
       }
     }
+  }
+};
+
+/** Seed enrolled hosts into the same explicit SQLite database Electron opens. */
+export const writeFixtureHosts = async (
+  sandbox: Sandbox,
+  hosts: ReadonlyArray<RemoteHost>,
+): Promise<void> => {
+  const runtime = ManagedRuntime.make(
+    makeStateEngineLive(
+      join(sandbox.homeDir, ".vellum", "state", "vellum.db"),
+    ),
+  );
+  try {
+    const state = await runtime.runPromise(StateEngine);
+    const registry = makeHostsRegistry(state);
+    for (const host of hosts) {
+      await registry.upsert(host);
+    }
+  } finally {
+    await runtime.dispose();
   }
 };
 

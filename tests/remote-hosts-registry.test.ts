@@ -1,7 +1,6 @@
 import {
   mkdtemp,
   rm,
-  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -77,33 +76,13 @@ afterEach(async () => {
   setHostsSnapshot(defaultRemoteHostsDocument().hosts);
   delete process.env.VELLUM_ACP_VERBOSE;
   delete process.env.VELLUM_DEBUG;
-  delete process.env.VELLUM_HOSTS_PATH;
   delete process.env.VELLUM_STATE_DB;
 });
 
 describe("remote hosts registry", () => {
-  it("constructs fresh SQLite state local-only and never reads hosts.json", async () => {
+  it("constructs fresh SQLite state with only the local host", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-empty-"));
     dirs.push(root);
-    const legacyPath = join(root, "hosts.json");
-    process.env.VELLUM_HOSTS_PATH = legacyPath;
-    await writeFile(
-      legacyPath,
-      `${JSON.stringify({
-        version: 1,
-        hosts: [
-          ...defaultRemoteHostsDocument().hosts,
-          {
-            id: "forged",
-            label: "Forged",
-            kind: "remote",
-            endpoint: "forged",
-            capabilities: ["hermes"],
-          },
-        ],
-      })}\n`,
-      "utf8",
-    );
     const { registry, state } = await testRegistry(join(root, "vellum.db"));
 
     const hosts = await registry.list();

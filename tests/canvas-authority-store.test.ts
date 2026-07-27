@@ -50,9 +50,8 @@ const taskSinkDoc = (): CanvasDoc =>
 
 describe("CanvasesService authority store", () => {
   let canvasesDir = "";
-  let authorityDir = "";
+  let stateDir = "";
   let previousCanvases: string | undefined;
-  let previousAuthority: string | undefined;
   const makeCanvasRuntime = (path: string) => {
     const repositories = Layer.provideMerge(
       WorkRepositoryLive,
@@ -65,11 +64,9 @@ describe("CanvasesService authority store", () => {
 
   const installEnv = async (): Promise<void> => {
     canvasesDir = await mkdtemp(join(tmpdir(), "vellum-canvases-"));
-    authorityDir = await mkdtemp(join(tmpdir(), "vellum-auth-live-"));
+    stateDir = await mkdtemp(join(tmpdir(), "vellum-state-live-"));
     previousCanvases = process.env.VELLUM_CANVASES_DIR;
-    previousAuthority = process.env.VELLUM_CANVAS_AUTHORITY_DIR;
     process.env.VELLUM_CANVASES_DIR = canvasesDir;
-    process.env.VELLUM_CANVAS_AUTHORITY_DIR = authorityDir;
   };
 
   const restoreEnv = async (): Promise<void> => {
@@ -79,15 +76,10 @@ describe("CanvasesService authority store", () => {
     }
     if (previousCanvases === undefined) delete process.env.VELLUM_CANVASES_DIR;
     else process.env.VELLUM_CANVASES_DIR = previousCanvases;
-    if (previousAuthority === undefined) {
-      delete process.env.VELLUM_CANVAS_AUTHORITY_DIR;
-    } else {
-      process.env.VELLUM_CANVAS_AUTHORITY_DIR = previousAuthority;
-    }
     if (canvasesDir) await rm(canvasesDir, { recursive: true, force: true });
-    if (authorityDir) await rm(authorityDir, { recursive: true, force: true });
+    if (stateDir) await rm(stateDir, { recursive: true, force: true });
     canvasesDir = "";
-    authorityDir = "";
+    stateDir = "";
   };
 
   afterEach(async () => {
@@ -96,7 +88,7 @@ describe("CanvasesService authority store", () => {
 
   it("commits sequential authority generations on write and create", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "vellum.db"));
     const canvases = await runtime.runPromise(CanvasesService);
 
     await runtime.runPromise(canvases.write("alpha", noteDoc("one")));
@@ -123,13 +115,13 @@ describe("CanvasesService authority store", () => {
 
   it("reloads the live map from the authority store across restart", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "vellum.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("alpha", noteDoc("authority-wins")));
     await runtime.dispose();
     runtime = undefined;
 
-    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "vellum.db"));
     const reloaded = await runtime.runPromise(CanvasesService);
     const list = await runtime.runPromise(reloaded.list);
     expect(list.map((row) => row.name)).toEqual(["alpha"]);
@@ -144,7 +136,7 @@ describe("CanvasesService authority store", () => {
 
   it("keeps work rows out of authority while projecting committed work reads", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "vellum.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     const work = await runtime.runPromise(WorkService);
     await runtime.runPromise(canvases.write("work", taskSinkDoc()));
@@ -179,7 +171,7 @@ describe("CanvasesService authority store", () => {
 
   it("starts empty when the authority pointer is absent", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "vellum.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     const list = await runtime.runPromise(canvases.list);
     expect(list).toEqual([]);
@@ -192,7 +184,7 @@ describe("CanvasesService authority store", () => {
 
   it("remove drops the document from the next authority generation", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "vellum.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.create("keep"));
     await runtime.runPromise(canvases.create("drop"));
@@ -208,7 +200,7 @@ describe("CanvasesService authority store", () => {
 
   it("deduplicates identical maps and preserves a valid empty head", async () => {
     await installEnv();
-    const database = join(authorityDir, "vellum.db");
+    const database = join(stateDir, "vellum.db");
     runtime = makeCanvasRuntime(database);
     const canvases = await runtime.runPromise(CanvasesService);
     const doc = noteDoc("same");

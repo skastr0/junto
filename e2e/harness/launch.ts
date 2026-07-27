@@ -23,10 +23,12 @@ import { dirname, join } from "node:path";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { CanvasDoc } from "../../src/shared/canvas";
+import type { RemoteHost } from "../../src/shared/remote-hosts";
 import {
   createSandbox,
   destroySandbox,
   writeFixtureCanvas,
+  writeFixtureHosts,
   type Sandbox,
 } from "./sandbox";
 import { startRendererServer, type RendererServer } from "./renderer-server";
@@ -56,8 +58,10 @@ const SYSTEM_PATH_FLOOR = `${NODE_BIN_DIR}:/usr/bin:/bin:/usr/sbin:/sbin`;
 
 export interface LaunchOptions {
   readonly demo?: boolean;
-  /** canvas name -> document, written to the sandbox's canvases dir before launch. */
+  /** Canvas name -> document, seeded into the sandbox's SQLite database. */
   readonly seedCanvases?: Readonly<Record<string, CanvasDoc>>;
+  /** Enrolled fleet rows seeded into the sandbox's explicit SQLite database. */
+  readonly seedHosts?: ReadonlyArray<RemoteHost>;
   readonly extraEnv?: Readonly<Record<string, string>>;
 }
 
@@ -450,6 +454,9 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
   try {
     for (const [name, doc] of Object.entries(options.seedCanvases ?? {})) {
       await writeFixtureCanvas(sandbox, name, doc);
+    }
+    if (options.seedHosts !== undefined) {
+      await writeFixtureHosts(sandbox, options.seedHosts);
     }
 
     server = await startRendererServer(RENDERER_DIR);

@@ -650,13 +650,9 @@ test("still 03 — five region factory map", async () => {
 test("still 04 — six machine fleet manager", async () => {
   await mkdir(SHOTS, { recursive: true });
 
-  const hostsDir = await mkdtemp(join(tmpdir(), "vellum-mkt-hosts-"));
-  const hostsPath = join(hostsDir, "hosts.json");
-  await writeFile(
-    hostsPath,
-    JSON.stringify({
-      version: 1,
-      hosts: [
+  const vellum = await launchVellum({
+    seedCanvases: { fleet: canvasDoc([]) },
+    seedHosts: [
         {
           id: "local",
           label: "local",
@@ -704,13 +700,6 @@ test("still 04 — six machine fleet manager", async () => {
           appearance: { glyph: "artifact-vault" },
         },
       ],
-    }),
-    "utf8",
-  );
-
-  const vellum = await launchVellum({
-    seedCanvases: { fleet: canvasDoc([]) },
-    extraEnv: { VELLUM_HOSTS_PATH: hostsPath },
   });
 
   try {
