@@ -25,6 +25,7 @@ import {
   type StateWriter,
 } from "./service";
 import { isDemoMode } from "../demo/mode";
+import { applyIrreversibleStateCutovers } from "./cutover";
 
 export {
   StateEngine,
@@ -141,7 +142,20 @@ const openStateEngine = (
           PRAGMA busy_timeout = ${STATE_BUSY_TIMEOUT_MS};
           PRAGMA trusted_schema = OFF;
         `);
-        database.exec(STATE_SCHEMA_SQL);
+        database.exec("BEGIN IMMEDIATE");
+        try {
+          applyIrreversibleStateCutovers(database);
+          database.exec(STATE_SCHEMA_SQL);
+          database.exec("COMMIT");
+        } catch (error) {
+          try {
+            database.exec("ROLLBACK");
+          } catch {
+            // Preserve the schema failure. A failed rollback makes opening
+            // fail closed and the connection is closed below.
+          }
+          throw error;
+        }
       } catch (error) {
         database.close();
         throw error;
