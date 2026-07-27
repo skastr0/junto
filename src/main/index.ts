@@ -63,6 +63,10 @@ import {
   startStationControlServer,
   type StationControlServer,
 } from "./vellum/station/control-server";
+import {
+  startCanvasControlServer,
+  type CanvasControlServer,
+} from "./vellum/canvas-control";
 import { KernelService } from "./vellum/kernel/service";
 import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
 import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum/browser/station-admission";
@@ -347,6 +351,7 @@ let browserControl: BrowserControlServer | undefined;
 let uninstallBrowserReadinessProbe: (() => void) | undefined;
 let workControl: WorkControlServer | undefined;
 let stationControl: StationControlServer | undefined;
+let canvasControl: CanvasControlServer | undefined;
 type HerdrPlaneService = Context.Tag.Service<typeof HerdrPlane>;
 type HermesPlaneService = Context.Tag.Service<typeof HermesPlane>;
 let herdrPlaneService: HerdrPlaneService | undefined;
@@ -357,6 +362,9 @@ let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"
 let workControlShutdown: Promise<Awaited<ReturnType<WorkControlServer["drainOnQuit"]>>> | undefined;
 let stationControlShutdown:
   | Promise<Awaited<ReturnType<StationControlServer["close"]>>>
+  | undefined;
+let canvasControlShutdown:
+  | Promise<Awaited<ReturnType<CanvasControlServer["close"]>>>
   | undefined;
 let hostOperationsDrain:
   | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
@@ -1239,6 +1247,17 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       ...controlHomeInput,
       explicitHome: process.env.VELLUM_BROWSER_HOME,
     });
+    try {
+      canvasControl = await startCanvasControlServer({
+        home: termControlHome,
+        run: (effect) => AppRuntime.runPromise(effect),
+      });
+      if (shutdownAdmissionClosed) canvasControl.beginShutdown();
+    } catch (error) {
+      console.error("[canvas-control] failed to start:", error);
+      exitAfterDetach(1, "canvas-control-startup-failure");
+      return;
+    }
     // Every installation owns one scheduler and Station API listener. Kernel
     // start is idempotent with the IPC startup path; invoking it here makes the
     // headless/zero-window station contract explicit before readiness opens.
@@ -1555,6 +1574,9 @@ const detachRuntimeOnQuit = (reason: string): void => {
     throw new Error("runtime detach blocked before signal durability commit");
   }
   runtimeDetachedForQuit = true;
+  // Canvas control cannot reopen. Cut it only after the renderer/document
+  // durability boundary is irreversible, never during a recoverable precommit.
+  canvasControl?.beginShutdown();
   beginShutdownAdmission(reason);
   nodeRefOwnerReady = false;
   nodeRefDrainRequested = false;
@@ -1623,6 +1645,23 @@ const requireCleanStationControlShutdown = async (): Promise<void> => {
     );
   }
   stationControl = undefined;
+};
+
+const requireCleanCanvasControlShutdown = async (): Promise<void> => {
+  if (canvasControl === undefined && canvasControlShutdown === undefined) {
+    return;
+  }
+  const receipt = await (canvasControlShutdown ??= canvasControl?.close());
+  if (receipt === undefined) return;
+  if (!receipt.clean) {
+    canvasControlShutdown = undefined;
+    throw new Error(
+      `canvas control shutdown retained ${
+        receipt.retainedLabels.join(", ") || "transport state"
+      }`,
+    );
+  }
+  canvasControl = undefined;
 };
 
 const requireCleanHostOperationsShutdown = async (): Promise<void> => {
@@ -1715,6 +1754,7 @@ const requireCleanAppProcessShutdown = async (): Promise<void> => {
 
 const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   await requireCleanTermPlaneShutdown(reason);
+  await requireCleanCanvasControlShutdown();
   await requireCleanStationControlShutdown();
   await requireCleanWorkControlShutdown();
   await requireCleanHostOperationsShutdown();
