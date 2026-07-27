@@ -29,7 +29,7 @@ import {
 
 // Hermes fleet identity, avatar, and messaging adapter. Agent keys are
 // "<host>:<profile>" where host is a registry hermes id (local, or a remote
-// host's hermesId / id from ~/.vellum/hosts.json).
+// host's persisted hermesId / id).
 //
 // SECURITY: only ever reads/forwards displayName, matrixUserId,
 // homeRoomName, and hasAvatar. MATRIX_ACCESS_TOKEN, MATRIX_DEVICE_ID,

@@ -154,9 +154,9 @@ export const IPC_CHANNELS = {
   // OS login item (Electron get/setLoginItemSettings — not settings.json)
   loginItemGet: "vellum:login-item-get",
   loginItemSet: "vellum:login-item-set",
-  // remote host registry (~/.vellum/hosts.json)
+  // remote host registry (app-owned SQLite state)
   hostsList: "vellum:hosts-list",
-  /** Tailscale peers visible on the mesh but not yet enrolled in hosts.json. */
+  /** Tailscale peers visible on the mesh but not yet enrolled. */
   hostsDiscoverPeers: "vellum:hosts-discover-peers",
   hostsUpsert: "vellum:hosts-upsert",
   hostsRemove: "vellum:hosts-remove",

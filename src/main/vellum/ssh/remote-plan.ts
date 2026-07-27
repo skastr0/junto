@@ -40,9 +40,6 @@ export const VELLUM_LEAF_BASENAMES = [
   "settings.json",
   "topology.key",
   "topology.seal",
-  "hosts.json",
-  "hosts.key",
-  "hosts.seal",
 ] as const;
 export type VellumLeafBasename = (typeof VELLUM_LEAF_BASENAMES)[number];
 

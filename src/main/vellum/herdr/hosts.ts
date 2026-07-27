@@ -1,4 +1,4 @@
-// Herdr hosts resolve from the durable remote-host registry (~/.vellum/hosts.json).
+// Herdr hosts resolve from the durable app-owned StateEngine registry.
 // Only local is seeded; remotes are user-authored via Settings → Hosts.
 
 import {

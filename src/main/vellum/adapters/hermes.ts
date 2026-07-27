@@ -10,7 +10,7 @@ import { hostsSnapshot } from "../hosts/snapshot";
 import type { CliResult } from "./exec";
 
 // The Hermes fleet adapter: each profile on each host is one agent node.
-// Hosts come from the durable remote-host registry (~/.vellum/hosts.json).
+// Hosts come from the durable app-owned StateEngine registry.
 // A failed host makes the bundle partial/unhealthy while successful host facts
 // remain present for freshness-aware consumers. `hermes profile list` has no
 // --json, so its table is parsed; `hermes version` gives a host-level version

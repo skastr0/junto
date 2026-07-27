@@ -8,7 +8,6 @@ export {
 export {
   getDefaultHostsRegistry,
   makeHostsRegistry,
-  remoteHostsFilePath,
   resetDefaultHostsRegistryForTests,
   type HostsRegistry,
 } from "./registry";

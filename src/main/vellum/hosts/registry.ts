@@ -1,13 +1,9 @@
-import { constants } from "node:fs";
-import { mkdir, open, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { homedir, hostname } from "node:os";
+import { hostname } from "node:os";
 import { isIP } from "node:net";
-import { Either, Schema } from "effect";
+import { Context, Effect, Schema } from "effect";
 import {
   LOCAL_HOST_ID,
   REMOTE_HOSTS_VERSION,
-  RemoteHostsDocument,
   RemoteHostsError,
   defaultRemoteHostsDocument,
   hermesKeyFor,
@@ -16,12 +12,58 @@ import {
   projectHostsWithCodeDefaultLocal,
   type HostCapability,
   type RemoteHost,
-  type RemoteHostsDocument as RemoteHostsDocumentT,
+  type RemoteHostsDocument,
 } from "@shared/remote-hosts";
-import { admitHostsDocument, writeHostsSeal } from "./hosts-seal";
+import {
+  StateEngine,
+  StateEngineError,
+  type StateReader,
+  type StateWriter,
+} from "../state/service";
 
-const decodeDocument = Schema.decodeUnknownEither(RemoteHostsDocument);
-const MAX_BYTES = 64 * 1024;
+const HERMES_CAPABILITY_BIT = 8;
+const MAX_HOSTS = 32;
+
+const CAPABILITY_BITS = {
+  terminal: 1,
+  browser: 2,
+  herdr: 4,
+  hermes: HERMES_CAPABILITY_BIT,
+} as const satisfies Record<HostCapability, number>;
+
+const CAPABILITIES_IN_STORAGE_ORDER = [
+  "terminal",
+  "browser",
+  "herdr",
+  "hermes",
+] as const satisfies ReadonlyArray<HostCapability>;
+
+type StateService = Context.Tag.Service<typeof StateEngine>;
+
+type HostRow = {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: string;
+  readonly endpoint: string | null;
+  readonly capability_mask: number | null;
+  readonly hermes_id: string | null;
+  readonly appearance_color: string | null;
+  readonly appearance_glyph: string | null;
+  readonly sort_order: number;
+};
+
+type RegistryStateRow = {
+  readonly singleton: number;
+};
+
+export class HostsStateError extends Schema.TaggedError<HostsStateError>()(
+  "HostsStateError",
+  {
+    operation: Schema.String,
+    message: Schema.String,
+    cause: Schema.Defect,
+  },
+) {}
 
 const isSupportedSshDestination = (endpoint: string): boolean => {
   const at = endpoint.indexOf("@");
@@ -37,17 +79,24 @@ const isSupportedSshDestination = (endpoint: string): boolean => {
   return isIP(destination) === 6;
 };
 
-export const remoteHostsFilePath = (): string =>
-  process.env.VELLUM_HOSTS_PATH || join(homedir(), ".vellum", "hosts.json");
-
 const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
+  if (hosts.length > MAX_HOSTS) {
+    throw new RemoteHostsError(
+      "validation",
+      `host registry exceeds the ${MAX_HOSTS}-host ceiling`,
+    );
+  }
+
   const ids = new Set<string>();
+  const endpoints = new Set<string>();
   const hermesKeys = new Set<string>();
+
   for (const host of hosts) {
     if (ids.has(host.id)) {
       throw new RemoteHostsError("validation", `duplicate host id: ${host.id}`);
     }
     ids.add(host.id);
+
     if (new Set(host.capabilities).size !== host.capabilities.length) {
       throw new RemoteHostsError(
         "validation",
@@ -56,22 +105,50 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
     }
 
     if (host.kind === "local") {
+      if (host.id !== LOCAL_HOST_ID) {
+        throw new RemoteHostsError(
+          "validation",
+          `only id "${LOCAL_HOST_ID}" may use kind local (got ${host.id})`,
+        );
+      }
       if (host.endpoint) {
         throw new RemoteHostsError(
           "validation",
           `local host ${host.id} must not set endpoint`,
         );
       }
-    } else if (!host.endpoint) {
-      throw new RemoteHostsError(
-        "validation",
-        `remote host ${host.id} requires endpoint`,
-      );
-    } else if (!isSupportedSshDestination(host.endpoint)) {
-      throw new RemoteHostsError(
-        "validation",
-        `remote host ${host.id} endpoint must be an SSH config alias, user@host, or IPv6 literal; configure custom ports in ~/.ssh/config`,
-      );
+    } else {
+      if (host.id === LOCAL_HOST_ID) {
+        throw new RemoteHostsError(
+          "validation",
+          `host id "${LOCAL_HOST_ID}" must use kind local`,
+        );
+      }
+      if (!host.endpoint) {
+        throw new RemoteHostsError(
+          "validation",
+          `remote host ${host.id} requires endpoint`,
+        );
+      }
+      if (host.capabilities.length === 0) {
+        throw new RemoteHostsError(
+          "validation",
+          `remote host ${host.id} requires at least one capability`,
+        );
+      }
+      if (!isSupportedSshDestination(host.endpoint)) {
+        throw new RemoteHostsError(
+          "validation",
+          `remote host ${host.id} endpoint must be an SSH config alias, user@host, or IPv6 literal; configure custom ports in ~/.ssh/config`,
+        );
+      }
+      if (endpoints.has(host.endpoint)) {
+        throw new RemoteHostsError(
+          "validation",
+          "duplicate remote endpoint",
+        );
+      }
+      endpoints.add(host.endpoint);
     }
 
     if (hostHasCapability(host, "hermes")) {
@@ -84,26 +161,9 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
       }
       hermesKeys.add(key);
     }
-
-    // local is reserved as the sole kind=local host (routing id).
-    if (host.kind === "local" && host.id !== LOCAL_HOST_ID) {
-      throw new RemoteHostsError(
-        "validation",
-        `only id "${LOCAL_HOST_ID}" may use kind local (got ${host.id})`,
-      );
-    }
-    if (host.id === LOCAL_HOST_ID && host.kind !== "local") {
-      throw new RemoteHostsError(
-        "validation",
-        `host id "${LOCAL_HOST_ID}" must use kind local`,
-      );
-    }
   }
-  // Local is a code default at projection time — disk may omit it or carry
-  // presentation-only fields. Remotes are the only enrollment rows.
 };
 
-/** Dynamic this-machine label (OS hostname); presentation overrides still win. */
 const thisMachineLabel = (): string => {
   try {
     const name = hostname().trim();
@@ -113,127 +173,231 @@ const thisMachineLabel = (): string => {
   }
 };
 
-/**
- * Runtime view of a hosts document: local caps/id from code defaults;
- * remotes unchanged. Does not rewrite disk.
- */
 const projectDocument = (
-  document: RemoteHostsDocumentT,
-): RemoteHostsDocumentT => ({
-  ...document,
+  document: RemoteHostsDocument,
+): RemoteHostsDocument => ({
+  version: REMOTE_HOSTS_VERSION,
   hosts: projectHostsWithCodeDefaultLocal(document.hosts, {
     label: thisMachineLabel(),
   }),
 });
 
-const atomicWrite = async (
-  path: string,
-  document: RemoteHostsDocumentT,
-): Promise<void> => {
-  await mkdir(dirname(path), { recursive: true });
-  const body = `${JSON.stringify(document, null, 2)}\n`;
-  if (Buffer.byteLength(body, "utf8") > MAX_BYTES) {
-    throw new RemoteHostsError(
-      "validation",
-      `hosts document exceeds ${MAX_BYTES} byte ceiling`,
-    );
+const capabilityMask = (host: RemoteHost): number | null => {
+  if (host.kind === "local") return null;
+  return host.capabilities.reduce(
+    (mask, capability) => mask | CAPABILITY_BITS[capability],
+    0,
+  );
+};
+
+const capabilitiesFromMask = (
+  mask: number | null,
+): ReadonlyArray<HostCapability> => {
+  if (mask === null) return [];
+  return CAPABILITIES_IN_STORAGE_ORDER.filter(
+    (capability) => (mask & CAPABILITY_BITS[capability]) !== 0,
+  );
+};
+
+const rowToHost = (row: HostRow): RemoteHost => {
+  if (row.kind === "local") {
+    return makeLocalHost({
+      label: row.label,
+      ...(row.hermes_id === null ? {} : { hermesId: row.hermes_id }),
+      ...(row.appearance_color === null && row.appearance_glyph === null
+        ? {}
+        : {
+            appearance: {
+              ...(row.appearance_color === null
+                ? {}
+                : { color: row.appearance_color }),
+              ...(row.appearance_glyph === null
+                ? {}
+                : { glyph: row.appearance_glyph }),
+            },
+          }),
+    });
   }
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, body, {
-    encoding: "utf8",
-    flag: "wx",
-    mode: 0o600,
+
+  return {
+    id: row.id,
+    label: row.label,
+    kind: "remote",
+    endpoint: row.endpoint ?? "",
+    capabilities: [...capabilitiesFromMask(row.capability_mask)],
+    ...(row.hermes_id === null ? {} : { hermesId: row.hermes_id }),
+    ...(row.appearance_color === null && row.appearance_glyph === null
+      ? {}
+      : {
+          appearance: {
+            ...(row.appearance_color === null
+              ? {}
+              : { color: row.appearance_color }),
+            ...(row.appearance_glyph === null
+              ? {}
+              : { glyph: row.appearance_glyph }),
+          },
+        }),
+  };
+};
+
+const readStoredDocument = (reader: StateReader): RemoteHostsDocument => {
+  const hosts = reader
+    .all<HostRow>(`
+      SELECT
+        id,
+        label,
+        kind,
+        endpoint,
+        capability_mask,
+        hermes_id,
+        appearance_color,
+        appearance_glyph,
+        sort_order
+      FROM host_registry
+      ORDER BY sort_order
+    `)
+    .map(rowToHost);
+  validateHosts(hosts);
+  return { version: REMOTE_HOSTS_VERSION, hosts };
+};
+
+const writeHost = (
+  writer: StateWriter,
+  host: RemoteHost,
+  sortOrder: number,
+): void => {
+  const mask = capabilityMask(host);
+  const effectiveHermesId = hostHasCapability(host, "hermes")
+    ? hermesKeyFor(host)
+    : null;
+  writer.run(
+    `
+      INSERT INTO host_registry(
+        id,
+        label,
+        kind,
+        endpoint,
+        capability_mask,
+        hermes_id,
+        effective_hermes_id,
+        appearance_color,
+        appearance_glyph,
+        sort_order
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        label = excluded.label,
+        kind = excluded.kind,
+        endpoint = excluded.endpoint,
+        capability_mask = excluded.capability_mask,
+        hermes_id = excluded.hermes_id,
+        effective_hermes_id = excluded.effective_hermes_id,
+        appearance_color = excluded.appearance_color,
+        appearance_glyph = excluded.appearance_glyph,
+        sort_order = excluded.sort_order
+    `,
+    [
+      host.id,
+      host.label,
+      host.kind,
+      host.kind === "remote" ? (host.endpoint ?? null) : null,
+      mask,
+      host.hermesId ?? null,
+      effectiveHermesId,
+      host.appearance?.color ?? null,
+      host.appearance?.glyph ?? null,
+      sortOrder,
+    ],
+  );
+};
+
+const stateError = (
+  operation: string,
+  error: StateEngineError,
+): HostsStateError =>
+  HostsStateError.make({
+    operation,
+    message: error.message,
+    cause: error,
   });
-  await rename(tmp, path);
-};
 
-/** Persist document body and reseal app-owned enrollment integrity material. */
-const atomicWriteAndSeal = async (
-  path: string,
-  document: RemoteHostsDocumentT,
-): Promise<void> => {
-  await atomicWrite(path, document);
-  await writeHostsSeal(path, document);
-};
-
-export const loadRemoteHostsDocument = async (
-  path: string = remoteHostsFilePath(),
-): Promise<RemoteHostsDocumentT> => {
-  let file: Awaited<ReturnType<typeof open>> | undefined;
-  try {
-    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const info = await file.stat();
-    if (!info.isFile()) {
-      throw new RemoteHostsError("io", "hosts path is not a regular file");
-    }
-    if (info.size > MAX_BYTES) {
-      throw new RemoteHostsError("io", "hosts file exceeds size ceiling");
-    }
-    // Older builds inherited the login umask and could leave hosts.json
-    // group/world-readable. Repair the already-open regular-file inode before
-    // reading it so a path swap cannot redirect chmod or the read.
-    await file.chmod(0o600);
-    const raw = await file.readFile("utf8");
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw) as unknown;
-    } catch (error) {
-      throw new RemoteHostsError(
-        "validation",
-        `hosts.json unreadable (${error instanceof Error ? error.message : String(error)})`,
+const toRemoteHostsError = (
+  error: HostsStateError | RemoteHostsError,
+): RemoteHostsError =>
+  error instanceof RemoteHostsError
+    ? error
+    : new RemoteHostsError(
+        "io",
+        `hosts database ${error.operation} failed: ${error.message}`,
       );
-    }
-    const decoded = decodeDocument(parsed);
-    if (Either.isLeft(decoded)) {
-      throw new RemoteHostsError(
-        "validation",
-        `hosts.json schema invalid: ${decoded.left.message}`,
-      );
-    }
-    // Admit the on-disk document (seal covers body as stored). Local station
-    // capabilities are never enrollment data — project code defaults in memory.
-    validateHosts(decoded.right.hosts);
-    const admitted = await admitHostsDocument(path, decoded.right);
-    if (admitted.outcome === "stripped") {
-      // Persist fail-closed local-only so disk and live view agree.
-      const stripped = projectDocument(admitted.document);
-      await atomicWrite(path, stripped);
-      return stripped;
-    }
-    return projectDocument(admitted.document);
-  } catch (error) {
-    if (error instanceof RemoteHostsError) throw error;
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      const fresh = projectDocument(defaultRemoteHostsDocument());
-      // First create: seal so later offline membership mint fails closed.
-      await atomicWriteAndSeal(path, fresh);
-      return fresh;
-    }
-    throw new RemoteHostsError(
-      "io",
-      error instanceof Error ? error.message : String(error),
-    );
-  } finally {
-    await file?.close();
-  }
-};
 
-export const saveRemoteHostsDocument = async (
-  document: RemoteHostsDocumentT,
-  path: string = remoteHostsFilePath(),
-): Promise<RemoteHostsDocumentT> => {
-  if (document.version !== REMOTE_HOSTS_VERSION) {
-    throw new RemoteHostsError(
-      "validation",
-      `unsupported hosts document version: ${document.version}`,
-    );
-  }
-  // Always persist the projected local row (code-default caps + dynamic label)
-  // so disk never becomes a second source of truth for this-machine surfaces.
-  const projected = projectDocument(document);
-  validateHosts(projected.hosts);
-  await atomicWriteAndSeal(path, projected);
-  return projected;
+const stateMutationError = (
+  operation: string,
+  error: StateEngineError,
+): RemoteHostsError =>
+  error.cause instanceof RemoteHostsError
+    ? error.cause
+    : toRemoteHostsError(stateError(operation, error));
+
+const registryState = (
+  reader: StateReader,
+): RegistryStateRow | undefined =>
+  reader.get<RegistryStateRow>(`
+    SELECT singleton
+    FROM host_registry_state
+    WHERE singleton = 1
+  `);
+
+const initializeRegistry = (
+  state: StateService,
+): Effect.Effect<void, HostsStateError> =>
+  Effect.gen(function* () {
+    const initialized = yield* state
+      .read("hosts.initialized", registryState)
+      .pipe(Effect.mapError((error) => stateError("initialize-read", error)));
+    if (initialized !== undefined) return;
+
+    const initializedAt = new Date().toISOString();
+    yield* state
+      .transaction("hosts.initialize", (writer) => {
+        if (registryState(writer) !== undefined) return;
+        const existing = writer.get<{ readonly count: number }>(
+          "SELECT count(*) AS count FROM host_registry",
+        )?.count ?? 0;
+        if (existing !== 0) {
+          throw new Error(
+            "host registry rows exist without initialization metadata",
+          );
+        }
+        writeHost(writer, defaultRemoteHostsDocument().hosts[0]!, 0);
+        writer.run(
+          `
+            INSERT INTO host_registry_state(
+              singleton,
+              version,
+              initialized_at
+            )
+            VALUES (1, 1, ?)
+          `,
+          [initializedAt],
+        );
+      })
+      .pipe(Effect.mapError((error) => stateError("initialize-write", error)));
+  }).pipe(Effect.withSpan("hosts.initialize"));
+
+/**
+ * The registry retains its Promise contract for existing transport callers,
+ * but Effect's default Promise runner wraps typed failures in FiberFailure.
+ * Keep domain errors intact at this boundary so callers can branch on
+ * RemoteHostsError.code without inspecting Effect internals.
+ */
+const runRegistryEffect = async <A>(
+  effect: Effect.Effect<A, RemoteHostsError>,
+): Promise<A> => {
+  const result = await Effect.runPromise(Effect.either(effect));
+  if (result._tag === "Left") throw result.left;
+  return result.right;
 };
 
 export interface HostsRegistry {
@@ -250,119 +414,153 @@ export interface HostsRegistry {
 }
 
 export const makeHostsRegistry = (
-  path: string = remoteHostsFilePath(),
+  state: StateService,
 ): HostsRegistry => {
-  let cached: RemoteHostsDocumentT | undefined;
-  let inFlight: Promise<RemoteHostsDocumentT> | null = null;
-  let writeChain: Promise<unknown> = Promise.resolve();
+  let initialization: Promise<void> | undefined;
 
-  const ensure = async (): Promise<RemoteHostsDocumentT> => {
-    if (cached) return cached;
-    if (inFlight) return inFlight;
-    const promise = loadRemoteHostsDocument(path)
-      .then((document) => {
-        cached = document;
-        return document;
-      })
-      .finally(() => {
-        if (inFlight === promise) inFlight = null;
-      });
-    inFlight = promise;
-    return promise;
+  const ensure = (): Promise<void> => {
+    if (initialization) return initialization;
+    initialization = runRegistryEffect(
+      initializeRegistry(state).pipe(Effect.mapError(toRemoteHostsError)),
+    ).catch((error) => {
+      initialization = undefined;
+      throw error;
+    });
+    return initialization;
   };
 
-  const withWrite = <A>(fn: () => Promise<A>): Promise<A> => {
-    const run = writeChain.then(fn, fn);
-    writeChain = run.then(
-      () => undefined,
-      () => undefined,
+  const load = async (): Promise<RemoteHostsDocument> => {
+    await ensure();
+    return runRegistryEffect(
+      state
+        .read("hosts.list", readStoredDocument)
+        .pipe(
+          Effect.map(projectDocument),
+          Effect.mapError((error) =>
+            toRemoteHostsError(stateError("list", error))
+          ),
+        ),
     );
-    return run;
   };
 
   return {
-    path: () => path,
-    list: async () => (await ensure()).hosts,
-    get: async (id) => (await ensure()).hosts.find((host) => host.id === id),
+    path: () => state.info.path,
+    list: async () => (await load()).hosts,
+    get: async (id) => (await load()).hosts.find((host) => host.id === id),
     findByHermesId: async (hermesId) =>
-      (await ensure()).hosts.find(
+      (await load()).hosts.find(
         (host) =>
           hostHasCapability(host, "hermes") && hermesKeyFor(host) === hermesId,
       ),
     withCapability: async (capability) =>
-      (await ensure()).hosts.filter((host) => hostHasCapability(host, capability)),
-    upsert: (host) =>
-      withWrite(async () => {
-        const current = await ensure();
-        // Local is not enrollable: ignore caller-supplied caps; keep presentation.
-        const entry =
-          host.id === LOCAL_HOST_ID || host.kind === "local"
-            ? makeLocalHost({
-                label: host.label,
-                hermesId: host.hermesId,
-                appearance: host.appearance,
-              })
-            : host;
-        const nextHosts = [...current.hosts];
-        const index = nextHosts.findIndex((row) => row.id === entry.id);
-        if (index >= 0) nextHosts[index] = entry;
-        else nextHosts.push(entry);
-        const next = await saveRemoteHostsDocument(
-          { version: REMOTE_HOSTS_VERSION, hosts: nextHosts },
-          path,
+      (await load()).hosts.filter((host) =>
+        hostHasCapability(host, capability)
+      ),
+    upsert: async (host) => {
+      await ensure();
+      if (
+        (host.kind === "local" && host.id !== LOCAL_HOST_ID) ||
+        (host.id === LOCAL_HOST_ID && host.kind !== "local")
+      ) {
+        throw new RemoteHostsError(
+          "validation",
+          `host id "${LOCAL_HOST_ID}" and kind local are an immutable pair`,
         );
-        cached = next;
-        return next.hosts;
-      }),
-    remove: (id) =>
-      withWrite(async () => {
-        if (id === LOCAL_HOST_ID) {
-          throw new RemoteHostsError(
-            "conflict",
-            "cannot remove the local station host",
-          );
-        }
-        const current = await ensure();
-        if (!current.hosts.some((host) => host.id === id)) {
-          throw new RemoteHostsError("not_found", `unknown host: ${id}`);
-        }
-        const next = await saveRemoteHostsDocument(
-          {
-            version: REMOTE_HOSTS_VERSION,
-            hosts: current.hosts.filter((host) => host.id !== id),
-          },
-          path,
+      }
+      if (host.kind === "local" && host.endpoint !== undefined) {
+        throw new RemoteHostsError(
+          "validation",
+          "the local host cannot carry an enrollment endpoint",
         );
-        cached = next;
-        return next.hosts;
-      }),
-    reload: () =>
-      withWrite(async () => {
-        // A reload is an ordered disk boundary, not merely a cache clear. Wait
-        // for an earlier initial read, then force a fresh read after all prior
-        // writes so callers cannot publish an older routing snapshot.
-        if (inFlight) {
-          try {
-            await inFlight;
-          } catch {
-            // The fresh read below is the retry and owns the surfaced error.
-          }
-        }
-        cached = undefined;
-        return (await ensure()).hosts;
-      }),
+      }
+
+      const next = await runRegistryEffect(
+        state
+          .transaction("hosts.upsert", (writer) => {
+            const current = readStoredDocument(writer);
+            const entry =
+              host.id === LOCAL_HOST_ID
+                ? makeLocalHost({
+                    label: host.label,
+                    hermesId: host.hermesId,
+                    appearance: host.appearance,
+                  })
+                : host;
+            const nextHosts = [...current.hosts];
+            const index = nextHosts.findIndex((row) => row.id === entry.id);
+            if (index >= 0) nextHosts[index] = entry;
+            else nextHosts.push(entry);
+            validateHosts(nextHosts);
+
+            const currentOrder = writer.get<{ readonly sort_order: number }>(
+              "SELECT sort_order FROM host_registry WHERE id = ?",
+              [entry.id],
+            )?.sort_order;
+            const maxOrder = writer.get<{
+              readonly max_order: number | null;
+            }>(
+              "SELECT max(sort_order) AS max_order FROM host_registry",
+            )?.max_order ?? 0;
+            writeHost(writer, entry, currentOrder ?? maxOrder + 1);
+            return readStoredDocument(writer);
+          })
+          .pipe(
+            Effect.map(projectDocument),
+            Effect.mapError((error) => stateMutationError("upsert", error)),
+          ),
+      );
+      return next.hosts;
+    },
+    remove: async (id) => {
+      await ensure();
+      if (id === LOCAL_HOST_ID) {
+        throw new RemoteHostsError(
+          "conflict",
+          "cannot remove the local station host",
+        );
+      }
+
+      const next = await runRegistryEffect(
+        state
+          .transaction("hosts.remove", (writer) => {
+            const current = readStoredDocument(writer);
+            if (!current.hosts.some((host) => host.id === id)) {
+              throw new RemoteHostsError(
+                "not_found",
+                `unknown host: ${id}`,
+              );
+            }
+            writer.run("DELETE FROM host_registry WHERE id = ?", [id]);
+            return readStoredDocument(writer);
+          })
+          .pipe(
+            Effect.map(projectDocument),
+            Effect.mapError((error) => stateMutationError("remove", error)),
+          ),
+      );
+      return next.hosts;
+    },
+    reload: async () => (await load()).hosts,
   };
 };
 
-/** Process-wide default registry (overridable in tests via VELLUM_HOSTS_PATH). */
 let defaultRegistry: HostsRegistry | undefined;
 
-export const getDefaultHostsRegistry = (): HostsRegistry => {
-  if (!defaultRegistry) defaultRegistry = makeHostsRegistry();
+export const getDefaultHostsRegistry = (
+  state?: StateService,
+): HostsRegistry => {
+  if (!defaultRegistry && state) {
+    defaultRegistry = makeHostsRegistry(state);
+  }
+  if (!defaultRegistry) {
+    throw new RemoteHostsError(
+      "io",
+      "hosts registry requested before StateEngine hydration",
+    );
+  }
   return defaultRegistry;
 };
 
-/** Test seam — reset the process-wide registry after pointing VELLUM_HOSTS_PATH. */
 export const resetDefaultHostsRegistryForTests = (): void => {
   defaultRegistry = undefined;
 };

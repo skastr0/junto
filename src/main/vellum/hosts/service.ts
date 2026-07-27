@@ -35,6 +35,7 @@ import {
   type HostsRegistry,
 } from "./registry";
 import { setHostsSnapshot } from "./snapshot";
+import { StateEngine } from "../state/service";
 
 const decodeHost = Schema.decodeUnknownEither(RemoteHost);
 
@@ -186,7 +187,7 @@ export const makeHostsService = (
         });
         setHostsSnapshot(hosts);
         return hosts;
-      }),
+      }).pipe(Effect.uninterruptible),
     remove: (id) =>
       Effect.gen(function* () {
         const hosts = yield* Effect.tryPromise({
@@ -195,7 +196,7 @@ export const makeHostsService = (
         });
         setHostsSnapshot(hosts);
         return hosts;
-      }),
+      }).pipe(Effect.uninterruptible),
     test: (id) =>
       Effect.gen(function* () {
         const host = yield* Effect.tryPromise({
@@ -384,16 +385,17 @@ export const HostsServiceLive = Layer.effect(
   HostsService,
   Effect.gen(function* () {
     const ssh = yield* SshTransport;
-    const registry = getDefaultHostsRegistry();
-    // Layer acquisition is the normal-boot barrier: the persisted document is
+    const state = yield* StateEngine;
+    const registry = getDefaultHostsRegistry(state);
+    // Layer acquisition is the normal-boot barrier: the persisted database is
     // visible to synchronous Herdr/Hermes routing before this layer can feed
     // either transport or plane.
     yield* loadHostsIntoRoutingSnapshot(() => registry.reload()).pipe(
       Effect.catchAll(() =>
         Effect.sync(() => {
-          // An invalid/unreadable user registry must not brick the local app.
-          // Keep the file untouched; list and Doctor retry it and surface the
-          // exact error, while synchronous product routing fails closed to local.
+          // A corrupt/unavailable database must not mint stale remote routing
+          // or brick this-machine surfaces. Registry methods still surface the
+          // typed failure while synchronous routing fails closed to local.
           setHostsSnapshot(defaultRemoteHostsDocument().hosts);
         }),
       ),

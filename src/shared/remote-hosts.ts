@@ -1,13 +1,8 @@
 import { Schema } from "effect";
 
-// Durable remote-host registry under ~/.vellum/hosts.json.
-// The document is the product surface for multi-host fleets. Source only seeds
-// the immutable local host — remote machines are user-authored, never product
-// constants.
-//
-// Enrollment integrity: app-owned hosts.key + hosts.seal (HMAC) admit the
-// document on load. Offline plaintext edits after a seal exists fail closed to
-// local-only. See hosts/hosts-seal.ts and docs/protected-topology-migration.md.
+// Durable remote-host enrollment lives in the app-owned StateEngine database.
+// Source only synthesizes the immutable local host — remote machines are
+// enrolled through product APIs, never source constants or editable files.
 
 export const REMOTE_HOSTS_VERSION = 1 as const;
 
@@ -92,9 +87,9 @@ export type RemoteHostsDocument = typeof RemoteHostsDocument.Type;
 export const LOCAL_HOST_ID = "local" as const;
 
 /**
- * Surfaces this Vellum process always owns. Never read from hosts.json for
- * gating: disk may store a local row for presentation (label/hermesId/appearance)
- * but capabilities for local are always this code default.
+ * Surfaces this Vellum process always owns. Persisted state may store a local
+ * row for presentation (label/hermesId/appearance), but capabilities for local
+ * are always this code default.
  */
 export const LOCAL_STATION_CAPABILITIES: ReadonlyArray<HostCapability> = [
   TERMINAL_HOST_CAPABILITY,
