@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import {
   app,
@@ -72,12 +71,11 @@ import { SshTransport } from "./vellum/ssh";
 import { configurePeerPidHelperRoots } from "./vellum/process-identity";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
-  acknowledgeNodeRefRelay,
-  claimLatestNodeRefRelay,
+  canonicalNodeRefUri,
+  latestNodeRefUri,
   makeNodeRefIngress,
-  publishNodeRefOpenUrl,
-  type NodeRefRelayRecord,
 } from "./vellum/node-ref-ingress";
+import type { NodeRefKey } from "@shared/node-ref";
 import { resolveNodeRef } from "./vellum/node-ref-resolver";
 import {
   createQuitPreparationArbiter,
@@ -162,16 +160,14 @@ const nodeRefIngress = makeNodeRefIngress((ref) =>
   ),
 );
 
-const nodeRefRelayDirectory = (): string =>
-  join(app.getPath("userData"), "runtime", "open-url");
-
 let nodeRefOwnerReady = false;
-let nodeRefDrainRequested = false;
-let nodeRefDrainRunning: Promise<void> | undefined;
-let nodeRefRelayWatcher: FSWatcher | undefined;
-let activeNodeRefRelay: NodeRefRelayRecord | undefined;
-let activeNodeRefNeedsRetry = false;
-let nodeRefPublicationTail: Promise<void> = Promise.resolve();
+let pendingNodeRefUri: NodeRefKey | undefined;
+let activeNodeRefDelivery:
+  | {
+      readonly id: string;
+      readonly uri: NodeRefKey;
+    }
+  | undefined;
 let disconnectNodeRefIngress = (): void => undefined;
 
 const reportNodeRefResult = (result: Awaited<ReturnType<typeof nodeRefIngress.accept>>): void => {
@@ -180,127 +176,61 @@ const reportNodeRefResult = (result: Awaited<ReturnType<typeof nodeRefIngress.ac
   }
 };
 
-const flushNodeRefPublications = async (): Promise<void> => {
-  for (;;) {
-    const observed = nodeRefPublicationTail;
-    await observed;
-    if (observed === nodeRefPublicationTail) return;
-  }
-};
-
-const acknowledgeActiveNodeRef = async (record: NodeRefRelayRecord): Promise<void> => {
-  if (activeNodeRefRelay?.id !== record.id) return;
-  try {
-    const removed = await acknowledgeNodeRefRelay(nodeRefRelayDirectory(), record.id);
-    if (!removed || activeNodeRefRelay?.id !== record.id) return;
-    activeNodeRefRelay = undefined;
-    activeNodeRefNeedsRetry = false;
-  } catch {
-    console.error("[node-ref] durable delivery acknowledgement failed");
-  }
-};
-
-const activateNodeRefRelay = async (record: NodeRefRelayRecord): Promise<void> => {
-  const result = await nodeRefIngress.accept(record.uri);
-  if (activeNodeRefRelay?.id !== record.id) return;
-  if (result.ok) {
-    activeNodeRefNeedsRetry = false;
-    return;
-  }
-  if (result.code === "superseded") return;
-  reportNodeRefResult(result);
-  if (result.code === "invalid") {
-    await acknowledgeActiveNodeRef(record);
-    return;
-  }
-  // A canvas read can recover without changing the durable locator. Missing
-  // or concurrently edited documents therefore retry on the next owner wake
-  // and expire under the relay TTL instead of being silently lost.
-  activeNodeRefNeedsRetry = true;
-};
-
-const startNodeRefRelayWatcher = (): void => {
-  if (shutdownAdmissionClosed) return;
-  if (nodeRefRelayWatcher !== undefined) return;
-  try {
-    const watcher = watch(nodeRefRelayDirectory(), { persistent: false }, () => {
-      requestNodeRefDrain();
-    });
-    watcher.on("error", () => {
-      if (nodeRefRelayWatcher === watcher) nodeRefRelayWatcher = undefined;
-      watcher.close();
-      console.error("[node-ref] durable relay watcher stopped");
-    });
-    nodeRefRelayWatcher = watcher;
-    // The watch is now armed; one final scan closes the scan-before-watch
-    // startup race. Subsequent record renames wake the serialized drain.
-    nodeRefDrainRequested = true;
-  } catch {
-    console.error("[node-ref] durable relay watcher unavailable");
-  }
-};
-
-const drainNodeRefRelays = async (): Promise<void> => {
-  do {
-    nodeRefDrainRequested = false;
-    let newest: NodeRefRelayRecord | undefined;
-    try {
-      newest = await claimLatestNodeRefRelay(nodeRefRelayDirectory());
-      startNodeRefRelayWatcher();
-    } catch {
-      console.error("[node-ref] durable relay drain failed");
-      return;
-    }
-    if (newest === undefined) continue;
-    if (activeNodeRefRelay?.id !== newest.id) {
-      activeNodeRefRelay = newest;
-      activeNodeRefNeedsRetry = false;
-      await activateNodeRefRelay(newest);
-    } else if (activeNodeRefNeedsRetry) {
-      await activateNodeRefRelay(newest);
-    }
-  } while (nodeRefDrainRequested);
-};
-
-function requestNodeRefDrain(): void {
-  if (shutdownAdmissionClosed) return;
-  nodeRefDrainRequested = true;
-  if (!nodeRefOwnerReady || nodeRefDrainRunning !== undefined) return;
-  const run = drainNodeRefRelays().catch(() => {
-    console.error("[node-ref] durable relay activation failed");
-  });
-  nodeRefDrainRunning = run.finally(() => {
-    nodeRefDrainRunning = undefined;
-    if (nodeRefDrainRequested) requestNodeRefDrain();
-  });
-  void nodeRefDrainRunning;
-}
-
-const queueNodeRefPublication = (
-  event: { readonly preventDefault: () => void },
-  uri: string,
-): void => {
-  const publication = publishNodeRefOpenUrl(event, uri, nodeRefRelayDirectory());
-  nodeRefPublicationTail = Promise.allSettled([nodeRefPublicationTail, publication]).then(
-    () => undefined,
-  );
-  void publication.then(
+const activatePendingNodeRef = (): void => {
+  if (!nodeRefOwnerReady || shutdownAdmissionClosed) return;
+  const uri = pendingNodeRefUri;
+  if (uri === undefined) return;
+  pendingNodeRefUri = undefined;
+  const delivery = { id: randomUUID(), uri } as const;
+  activeNodeRefDelivery = delivery;
+  void nodeRefIngress.accept(uri).then(
     (result) => {
-      if (result.kind === "invalid") {
-        console.error(`[node-ref] locator rejected (${result.code})`);
-        return;
-      }
-      requestNodeRefDrain();
+      if (activeNodeRefDelivery?.id !== delivery.id) return;
+      if (result.ok || result.code === "superseded") return;
+      activeNodeRefDelivery = undefined;
+      reportNodeRefResult(result);
     },
-    () => console.error("[node-ref] durable locator publication failed"),
+    () => {
+      if (activeNodeRefDelivery?.id === delivery.id) {
+        activeNodeRefDelivery = undefined;
+      }
+      console.error("[node-ref] owner-memory activation failed");
+    },
   );
 };
 
-// macOS may emit this before ready. Prevent native handling synchronously,
-// then durably publish canonical syntax before any launchd handoff.
+const queueNodeRefUri = (uri: string): void => {
+  pendingNodeRefUri = undefined;
+  const canonical = canonicalNodeRefUri(uri);
+  if (canonical === undefined) {
+    activeNodeRefDelivery = undefined;
+    if (nodeRefOwnerReady) {
+      void nodeRefIngress.accept(uri).then(reportNodeRefResult);
+    } else {
+      console.error("[node-ref] locator rejected (invalid)");
+    }
+    return;
+  }
+  pendingNodeRefUri = canonical;
+  activatePendingNodeRef();
+};
+
+const retryActiveNodeRef = (): void => {
+  const active = activeNodeRefDelivery;
+  if (active === undefined) return;
+  pendingNodeRefUri = active.uri;
+  activatePendingNodeRef();
+};
+
+// macOS may emit this before ready. Native handling is prevented synchronously;
+// the latest canonical target waits in the eventual owner's bounded memory.
 app.on("open-url", (event, uri) => {
-  queueNodeRefPublication(event, uri);
+  event.preventDefault();
+  queueNodeRefUri(uri);
 });
+
+const startupNodeRefUri = latestNodeRefUri(process.argv);
+if (startupNodeRefUri !== undefined) queueNodeRefUri(startupNodeRefUri);
 
 // Explicit headless mode keeps the runtime, watchers, kernel, and local UDS
 // services alive without creating a renderer. It replaces the former dev CDP
@@ -869,27 +799,20 @@ const createWindow = () => {
     if (disconnectNodeRefIngress === disconnect) disconnectNodeRefIngress = () => undefined;
   };
   const acknowledgeDelivery = (event: IpcMainEvent, deliveryId: unknown): void => {
-    const record = activeNodeRefRelay;
+    const delivery = activeNodeRefDelivery;
     if (
       !isTrustedMainWebContents(event.sender) ||
       typeof deliveryId !== "string" ||
-      record?.id !== deliveryId
+      delivery?.id !== deliveryId
     ) {
       return;
     }
-    void acknowledgeActiveNodeRef(record).then(requestNodeRefDrain).catch(() => {
-      console.error("[node-ref] delivery acknowledgement callback failed");
-    });
+    activeNodeRefDelivery = undefined;
   };
   ipcMain.on(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
   mainWindow.webContents.on("did-start-loading", () => {
     disconnect();
-    const record = activeNodeRefRelay;
-    if (record !== undefined) {
-      void activateNodeRefRelay(record).catch(() => {
-        console.error("[node-ref] renderer reload activation failed");
-      });
-    }
+    retryActiveNodeRef();
   });
   mainWindow.webContents.on("did-finish-load", () => {
     if (!isTrustedMainWebContents(mainWindow.webContents)) return;
@@ -898,13 +821,13 @@ const createWindow = () => {
       if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
         throw new Error("renderer unavailable");
       }
-      const record = activeNodeRefRelay;
-      if (record === undefined || record.uri !== target.ref) {
-        throw new Error("durable delivery unavailable");
+      const delivery = activeNodeRefDelivery;
+      if (delivery === undefined || delivery.uri !== target.ref) {
+        throw new Error("node-reference delivery unavailable");
       }
       const payload: NodeRefOpenedDelivery = {
         ...target,
-        deliveryId: record.id,
+        deliveryId: delivery.id,
       };
       mainWindow.webContents.send(IPC_CHANNELS.nodeRefOpened, payload);
       // Never surface/focus during E2E focus isolation — that steals macOS
@@ -1059,21 +982,15 @@ const ensureSupervised = async (): Promise<boolean> => {
   if (observation.state === "absent" || observation.state === "unsupported" ||
       observation.state === "unknown" || observation.state === "degraded") return true;
   if (observation.state === "active" && observation.ownership === "current") return true;
-  // Valid locators were published in the early event handler. A storage
-  // failure drops only that locator; it never weakens launchd ownership or
-  // prevents the app itself from starting. The next instance receives them.
-  await flushNodeRefPublications();
   // Release the lock so the supervisor's new instance can take it.
   app.releaseSingleInstanceLock();
   const handoff = await supervisor.requestHandoff();
   if (handoff.accepted) {
-    await flushNodeRefPublications();
     exitAfterDetach(0, `${supervisor.metadata.provider}-handoff`);
     return false;
   }
   // Handoff failed — reclaim the lock and run unsupervised
-  // rather than leaving the operator with nothing. Durable relay records stay
-  // intact for whichever process owns the lock.
+  // rather than leaving the operator with nothing.
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return false;
@@ -1107,8 +1024,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 } else if (!gotSingleInstanceLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
-    requestNodeRefDrain();
+  app.on("second-instance", (_event, commandLine) => {
+    const uri = latestNodeRefUri(commandLine);
+    if (uri !== undefined) queueNodeRefUri(uri);
     const existing = currentTrustedMainWindow();
     if (!existing) {
       // Windowless keep-alive: Spotlight/`open -a` must not leave a dead UI.
@@ -1162,7 +1080,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     }
 
     nodeRefOwnerReady = true;
-    requestNodeRefDrain();
+    activatePendingNodeRef();
 
     // Warm the resolved spawn environment (login-shell PATH + static floor) so
     // process.env.PATH is fixed before any adapter/service spawns a CLI. Never
@@ -1451,7 +1369,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     if (!headless) createWindow();
 
     app.on("activate", () => {
-      requestNodeRefDrain();
+      retryActiveNodeRef();
       if (!headless && currentTrustedMainWindow() === undefined) createWindow();
     });
   })
@@ -1485,9 +1403,8 @@ const beginShutdownAdmission = (reason: string): void => {
   if (shutdownAdmissionClosed) return;
   shutdownAdmissionClosed = true;
   nodeRefOwnerReady = false;
-  nodeRefDrainRequested = false;
-  nodeRefRelayWatcher?.close();
-  nodeRefRelayWatcher = undefined;
+  pendingNodeRefUri = undefined;
+  activeNodeRefDelivery = undefined;
   disconnectNodeRefIngress();
   disconnectNodeRefIngress = () => undefined;
   unsubscribeCanvasEdgeGrants?.();
@@ -1560,9 +1477,8 @@ const detachRuntimeOnQuit = (reason: string): void => {
   canvasControl?.beginShutdown();
   beginShutdownAdmission(reason);
   nodeRefOwnerReady = false;
-  nodeRefDrainRequested = false;
-  nodeRefRelayWatcher?.close();
-  nodeRefRelayWatcher = undefined;
+  pendingNodeRefUri = undefined;
+  activeNodeRefDelivery = undefined;
   disconnectNodeRefIngress();
   disconnectNodeRefIngress = () => undefined;
 };
@@ -1879,8 +1795,6 @@ app.on("before-quit", (event) => {
         },
         destroyRenderer: destroyQuiescedRenderer,
         detachRuntime: () => {
-          nodeRefRelayWatcher?.close();
-          nodeRefRelayWatcher = undefined;
           detachRuntimeOnQuit("before-quit");
         },
         disposeRuntime,

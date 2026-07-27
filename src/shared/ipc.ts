@@ -429,7 +429,7 @@ export interface NodeRefOpenedEvent {
 }
 
 // Internal main -> preload envelope. The delivery id never crosses the
-// context bridge; it acknowledges one durable open-url relay record exactly.
+// context bridge; it acknowledges the owner's current in-memory delivery.
 export interface NodeRefOpenedDelivery extends NodeRefOpenedEvent {
   readonly deliveryId: string;
 }
