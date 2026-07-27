@@ -453,8 +453,8 @@ export interface SettingsOpResult {
   readonly message?: string;
 }
 
-/** Hard ceiling for the durable settings file (prefs stay small). */
-export const SETTINGS_MAX_FILE_BYTES = 64 * 1024;
+/** Hard ceiling for the serialized settings payload (prefs stay small). */
+export const SETTINGS_MAX_SERIALIZED_BYTES = 64 * 1024;
 
 export const settingsOpOk = (settings: Settings): SettingsOpResult => ({
   ok: true,

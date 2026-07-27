@@ -1087,7 +1087,7 @@ const ensureSupervised = async (): Promise<boolean> => {
 
 // Single-instance lock — under a permanent/launchd deployment a second launch
 // (Spotlight, `open`, a KeepAlive race) must NOT start a second process that
-// would race the same ~/.vellum/canvases document plane via app-owned writes.
+// would race the same app-owned StateEngine connection and control sockets.
 // The second process exits immediately; the first focuses its window — or, when
 // the factory is windowless on macOS, recreates the surface (mirror activate).
 const packagedSandboxDisablingSwitch = findPackagedSandboxDisablingSwitch({

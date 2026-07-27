@@ -471,7 +471,7 @@ const makeKernelService = (
   // App-owned create/write/mutate -> reread into the map; delete -> drop +
   // purge its namespaced in-memory state. subscribeChanges only reports a
   // name, not the kind of change, so list() is the source of truth for
-  // "still there". External disk edits do not notify this path.
+  // "still there". Every authority commit notifies this path.
   const resyncCanvas = async (name: string): Promise<void> => {
     const summaries = await Effect.runPromise(canvases.list);
     if (!summaries.some((summary) => summary.name === name)) {

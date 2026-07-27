@@ -12,8 +12,8 @@ export const EMPTY_SNAPSHOTS: SnapshotState = { bundles: [] };
 export const EMPTY_USAGE: UsageState = { snapshots: [] };
 export const EMPTY_SETTINGS: Settings = defaultSettings();
 
-// The document plane lives here as the single source of truth for persistence
-// and derived graph state. React Flow keeps its own copy for smooth
+// The renderer holds the live document projection and derived graph state.
+// SQLite authority remains in main. React Flow keeps its own copy for smooth
 // interaction; structural mutations bump `docVersion` to re-sync it.
 export const state$ = observable({
   canvases: [] as ReadonlyArray<CanvasSummary>,
@@ -44,7 +44,7 @@ export const state$ = observable({
   snapshots: EMPTY_SNAPSHOTS as SnapshotState,
   // Provider usage plane (codexbar). Fail-open empty until first push/boot load.
   usage: EMPTY_USAGE as UsageState,
-  // User settings document (main owns disk; renderer holds live mirror).
+  // User settings document (main owns the SQLite row; renderer holds a live projection).
   settings: EMPTY_SETTINGS as Settings,
   settingsOpen: false,
   settingsLoading: false,

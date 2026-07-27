@@ -2,7 +2,7 @@ import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import { CommandCenterConfiguration } from "@shared/station-api";
 import {
-  SETTINGS_MAX_FILE_BYTES,
+  SETTINGS_MAX_SERIALIZED_BYTES,
   SettingsError,
   defaultSection,
   defaultSettings,
@@ -227,11 +227,11 @@ const encodedPreferences = (settings: Settings): string =>
 
 const ensureBounded = (settings: Settings): void => {
   const bytes = Buffer.byteLength(JSON.stringify(settings), "utf8");
-  if (bytes > SETTINGS_MAX_FILE_BYTES) {
+  if (bytes > SETTINGS_MAX_SERIALIZED_BYTES) {
     throw new SettingsError({
       code: "validation",
       message:
-        `settings document exceeds ${SETTINGS_MAX_FILE_BYTES} byte ceiling`,
+        `settings document exceeds ${SETTINGS_MAX_SERIALIZED_BYTES} byte ceiling`,
     });
   }
 };

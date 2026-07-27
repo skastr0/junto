@@ -1,6 +1,7 @@
 // Pure helpers for the one-way message nudge channel.
 // Actor delivery is kind-discriminated (actor-surface sum) — never ACP.
-// Document stays the source of truth: delivered = metadata.deliveredAt stamped.
+// The runtime projection carries delivery state from normalized message rows:
+// delivered = metadata.deliveredAt stamped.
 
 import type { CanvasDoc, CanvasNode, Message } from "./canvas";
 import {

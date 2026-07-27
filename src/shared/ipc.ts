@@ -600,7 +600,7 @@ export interface VellumApi {
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
-  // User settings document (Effect Schema aggregate; main owns the file).
+  // User settings document (main owns the SQLite row; renderer holds a live projection).
   readonly settingsGet: () => Promise<SettingsOpResult>;
   readonly settingsPatch: (patch: SettingsPatch) => Promise<SettingsOpResult>;
   /**
