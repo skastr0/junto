@@ -2,9 +2,10 @@ import { Context, Effect } from "effect";
 import type { UsageSnapshot } from "@shared/usage";
 
 // The IoC seam of the provider usage plane. A UsageSource is a pluggable
-// origin of quota data (codexbar CLI first; a vellum-native reader later).
-// fetch is TOTAL: every failure mode folds into the UsageSnapshot envelope
-// (ok:false + reason) so the service and the renderer can fail open.
+// origin of quota data. Beta: codexbar only; native harness readers exist
+// but are unwired (WIP post-beta). fetch is TOTAL: every failure mode folds
+// into the UsageSnapshot envelope (ok:false + reason) so the service and
+// the renderer can fail open (hide the bar when nothing is available).
 export interface UsageSource {
   readonly id: string;
   // Cheap presence probe (CLI on PATH, credentials resolvable).

@@ -9,10 +9,9 @@ import { HarnessMark } from "./herdr/HarnessMark";
 import "./UsageHud.css";
 
 // Compact station usage rail: one [glyph / bar] cell per quota (vertical
-// split — icon above meter). Native harness homes first; optional codexbar.
-// Always paints: last-good (possibly stale) when live is slow/fails;
-// loading only before any last-good exists; error chip only when live
-// failed and we have never had quotas. Partial = tokens without plan %.
+// split — icon above meter). Beta = codexbar only (natives unwired).
+// Fail open: paint only when there are quotas; hide entirely when codexbar
+// is missing or the poll has nothing to show (no loading/error chrome).
 
 const EMPTY_USAGE: UsageState = { snapshots: [] };
 
@@ -310,32 +309,8 @@ export function UsageHud() {
   const rows = useMemo(() => visibleQuotas(state), [state]);
   const stale = state.stale === true;
 
-  // Never had quotas: loading (first boot) or hard error after a failed live.
-  if (rows.length === 0) {
-    if (state.snapshots.length === 0) {
-      return (
-        <div className="usage-hud" title="Loading provider limits…">
-          <div className="usage-hud__rail usage-hud__rail--loading" aria-busy="true" aria-label="Loading provider limits" />
-        </div>
-      );
-    }
-    const failed = state.snapshots.find((snapshot) => !snapshot.ok);
-    const detail =
-      failed?.reason === "cli-missing"
-        ? "usage source missing"
-        : failed?.reason === "source-missing"
-          ? "no harness usage data"
-          : failed?.reason === "parse-error"
-            ? "usage parse error"
-            : (state.lastError ?? failed?.error)?.slice(0, 48) ?? "no provider quotas";
-    return (
-      <div className="usage-hud" title={state.lastError ?? failed?.error ?? detail}>
-        <button type="button" className="usage-hud__rail usage-hud__rail--error" aria-label={`Provider limits: ${detail}`}>
-          <span className="usage-hud__error-label">{detail}</span>
-        </button>
-      </div>
-    );
-  }
+  // Fail open: no quotas → no chrome (missing CLI, empty poll, first boot).
+  if (rows.length === 0) return null;
 
   const staleTitle = stale
     ? `Last-good limits${state.lastLiveAt ? ` · ${state.lastLiveAt.slice(0, 16).replace("T", " ")}` : ""}${state.lastError ? ` · ${state.lastError}` : ""}`

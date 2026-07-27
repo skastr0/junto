@@ -12,12 +12,14 @@ import { UsageSources } from "./usage-source";
 
 // Provider usage plane read service.
 //
-// Architecture (plan-window native wins; codexbar optional + fills gaps):
-//   disk last-good  →  instant HUD paint (always show UI when we have quotas)
-//   primary fetch   →  fan-out all sources; preferNativeUsageSnapshots ranks
+// Architecture (beta = codexbar only; natives unwired — WIP post-beta):
+//   disk last-good  →  instant HUD paint when cached quotas match active sources
+//   primary fetch   →  fan-out active sources; preferNativeUsageSnapshots ranks
+//                      (no-op with a single source; ready when natives return)
 //   enrich stage    →  multi-account codexbar as a second push
-//   failed live     →  KEEP last-good, mark stale + lastError (never blank the bar)
+//   failed live     →  KEEP last-good when present; else empty (HUD hides)
 //
+// Fail open: no codexbar / no quotas → empty state, no error chrome.
 // Failures are total at the source envelope, never throws across IPC.
 
 export class UsageService extends Context.Tag("@vellum/UsageService")<
@@ -47,12 +49,29 @@ export const UsageServiceLive = Layer.scoped(
   Effect.gen(function* () {
     const sources = yield* UsageSources;
     const cache = yield* UsageCache;
+    const activeSourceIds = new Set(sources.map((source) => source.id));
+
+    /** Drop snapshots from sources not in the live registry (e.g. cached natives while beta is codexbar-only). */
+    const keepActive = (snapshots: ReadonlyArray<UsageSnapshot>): ReadonlyArray<UsageSnapshot> =>
+      snapshots.filter((snapshot) => activeSourceIds.has(snapshot.source));
+
     // Instant paint from SQLite when available (always stale until live lands).
     // Cache faults are non-fatal at this read-plane boundary.
-    let state: UsageState =
+    const cached =
       (yield* cache.loadLastGood.pipe(
         Effect.catchAll(() => Effect.succeed(undefined)),
-      )) ?? emptyState;
+      )) ?? undefined;
+    let state: UsageState = emptyState;
+    if (cached !== undefined) {
+      const snapshots = keepActive(cached.snapshots);
+      if (hasUsageQuotas({ snapshots })) {
+        state = {
+          snapshots: [...snapshots],
+          stale: true,
+          ...(cached.lastLiveAt !== undefined ? { lastLiveAt: cached.lastLiveAt } : {}),
+        };
+      }
+    }
     let started = false;
     const listeners = new Set<(state: UsageState) => void>();
     let inFlight: Promise<UsageState> | null = null;
@@ -89,7 +108,8 @@ export const UsageServiceLive = Layer.scoped(
 
     /**
      * Live returned nothing useful. Never wipe last-good quotas — mark stale
-     * and keep painting the previous rows.
+     * and keep painting the previous rows. With no last-good: empty state so
+     * the HUD hides (fail open — no error chip for missing CLI / empty poll).
      */
     const commitFailedLive = (snapshots: ReadonlyArray<UsageSnapshot>): UsageState => {
       const error = liveErrorMessage(snapshots);
@@ -101,9 +121,8 @@ export const UsageServiceLive = Layer.scoped(
           ...(error !== undefined ? { lastError: error } : {}),
         });
       }
-      // No last-good yet: surface the failure envelope so the HUD can chip it.
       return notify({
-        snapshots: [...snapshots],
+        ...emptyState,
         stale: true,
         ...(error !== undefined ? { lastError: error } : {}),
       });
@@ -112,7 +131,7 @@ export const UsageServiceLive = Layer.scoped(
     const applyPrimary = async (
       snapshots: ReadonlyArray<UsageSnapshot>,
     ): Promise<UsageState> => {
-      const ranked = preferNativeUsageSnapshots(snapshots);
+      const ranked = preferNativeUsageSnapshots(keepActive(snapshots));
       const live: UsageState = { snapshots: [...ranked] };
       return hasUsageQuotas(live)
         ? await commitLive(ranked)
@@ -144,7 +163,7 @@ export const UsageServiceLive = Layer.scoped(
         }
         changed = true;
       }
-      if (changed) await commitLive(preferNativeUsageSnapshots(next));
+      if (changed) await commitLive(preferNativeUsageSnapshots(keepActive(next)));
     };
 
     const runRefresh = async (): Promise<UsageState> => {
@@ -193,7 +212,7 @@ export const UsageServiceLive = Layer.scoped(
               id: "usage",
               label: "Provider Usage",
               status: "warning" as const,
-              detail: "no usage sources detected (harness homes / codexbar)",
+              detail: "codexbar not on PATH (usage bar hidden)",
             };
       }),
       current: Effect.sync(() => state),

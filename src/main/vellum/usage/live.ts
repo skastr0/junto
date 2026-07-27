@@ -7,7 +7,8 @@ import { UsageServiceLive } from "./usage-service";
 // sources and durable cache as ONE already-composed member (Layer.mergeAll
 // does not thread one member's output to satisfy another's requirement — see
 // runtime.ts).
-// Registry = native harness homes (claude/codex/grok/hermes) + optional codexbar.
+//
+// Beta registry = codexbar only (natives unwired — see native-sources.ts WIP).
 export const UsageLive = Layer.provideMerge(
   UsageServiceLive,
   Layer.mergeAll(StationUsageSourcesLive, UsageCacheLive),

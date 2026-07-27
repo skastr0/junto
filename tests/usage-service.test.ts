@@ -233,6 +233,49 @@ describe("UsageService", () => {
     const usage2 = await runtime.runPromise(UsageService);
     const warnCheck = await runtime.runPromise(usage2.doctor);
     expect(warnCheck.status).toBe("warning");
-    expect(warnCheck.detail.toLowerCase()).toContain("no usage sources");
+    expect(warnCheck.detail.toLowerCase()).toContain("codexbar");
+  });
+
+  it("fail-open: all sources missing with no last-good yields empty (HUD hides)", async () => {
+    await runtime.dispose();
+    sources = [
+      fakeSource("codexbar", {
+        present: false,
+        fetch: () => missingSnapshot("codexbar"),
+      }) as UsageSource & { readonly fetchCount: number },
+    ];
+    runtime = makeUsageRuntime(sources);
+    const usage = await runtime.runPromise(UsageService);
+    const state = await runtime.runPromise(usage.refresh());
+    expect(state.snapshots).toEqual([]);
+    expect(state.stale).toBe(true);
+    expect(state.lastError).toBeTruthy();
+  });
+
+  it("drops cached snapshots from sources not in the live registry", async () => {
+    await runtime.dispose();
+    const seed: UsageState = {
+      snapshots: [
+        okSnapshot("claude", ["claude"]),
+        okSnapshot("codexbar", ["cursor"]),
+      ],
+      lastLiveAt: "2026-07-17T00:00:00.000Z",
+    };
+    const cache = UsageCache.of({
+      loadLastGood: Effect.succeed(seed),
+      saveLastGood: () => Effect.void,
+    });
+    sources = [
+      fakeSource("codexbar", {
+        fetch: () => okSnapshot("codexbar", ["cursor", "gemini"]),
+      }) as UsageSource & { readonly fetchCount: number },
+    ];
+    runtime = makeUsageRuntime(sources, cache);
+    const usage = await runtime.runPromise(UsageService);
+    const current = await runtime.runPromise(usage.current);
+    // Native cache rows filtered out; only codexbar last-good paints.
+    expect(current.snapshots.map((s) => s.source)).toEqual(["codexbar"]);
+    expect(current.stale).toBe(true);
+    expect(current.snapshots[0]?.quotas.map((q) => q.provider)).toEqual(["cursor"]);
   });
 });

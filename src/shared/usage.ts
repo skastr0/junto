@@ -1,12 +1,12 @@
 import { Schema } from "effect";
 
 // Provider usage plane: normalized rate-limit/quota snapshots from pluggable
-// UsageSources (native harness homes first; optional codexbar). A separate
-// bounded context from the entity snapshot plane — quotas never bind to
-// canvas nodes. Envelope semantics mirror entities.ts: a down source
-// degrades to ok:false with a reason, never a throw. The HUD always paints:
-// last-good (possibly stale) when live is slow or fails; only a quiet
-// loading/error chip when no last-good exists yet.
+// UsageSources. Beta: codexbar only (native readers exist but are unwired —
+// WIP post-beta). A separate bounded context from the entity snapshot plane —
+// quotas never bind to canvas nodes. Envelope semantics mirror entities.ts:
+// a down source degrades to ok:false with a reason, never a throw.
+// HUD fail-open: paint last-good when present; hide entirely when no quotas
+// (missing codexbar, empty poll) — no error chrome.
 
 export const UsageWindowLabel = Schema.Literal("primary", "secondary", "tertiary", "extra");
 export type UsageWindowLabel = typeof UsageWindowLabel.Type;

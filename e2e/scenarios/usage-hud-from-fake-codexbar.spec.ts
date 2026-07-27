@@ -6,11 +6,10 @@ import { expect, launchVellum, test } from "../harness/launch";
 
 // Real spawn->parse pipeline against a fake `codexbar` on PATH — no demo
 // mode. Two separate launches (codexbar's scenario is fixed per process):
-// healthy quotas paint the rail, then a malformed-JSON scenario shows the
-// typed parse-error degrade (UsageHud.tsx honest selectors — no HUD text
-// invented here that the component doesn't actually render).
+// healthy quotas paint the rail; malformed / missing data fail open (HUD
+// hidden — no error chip).
 
-test("usage HUD renders fake codexbar quotas, then degrades on malformed output", async () => {
+test("usage HUD renders fake codexbar quotas, then hides on malformed output", async () => {
   const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-e2e-codexbar-"));
 
   const healthyScenarioPath = join(scenarioDir, "healthy.json");
@@ -43,8 +42,8 @@ test("usage HUD renders fake codexbar quotas, then degrades on malformed output"
     extraEnv: { FAKE_CODEXBAR_SCENARIO: malformedScenarioPath },
   });
   try {
-    const errorChip = malformed.page.getByRole("button", { name: /Provider limits: usage parse error/ });
-    await expect(errorChip).toBeVisible({ timeout: 30_000 });
+    // Fail open: no quotas → no usage bar chrome at all.
+    await expect(malformed.page.locator(".usage-hud")).toHaveCount(0, { timeout: 30_000 });
   } finally {
     await malformed.close();
   }

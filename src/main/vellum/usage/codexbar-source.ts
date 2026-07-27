@@ -10,11 +10,9 @@ import type {
 import { parseJson, runCli } from "../adapters/exec";
 import { UsageSources, type UsageSource } from "./usage-source";
 
-// codexbar CLI as an *optional* UsageSource. Native plan-window sources
-// (Claude cache, etc.) win for that provider; tokens-only native (Grok/
-// Hermes) yields so codexbar plan % can paint. Codex native is a stub —
-// multi-account codexbar still fills. Missing CLI degrades to cli-missing
-// (fail open) — the rail does not depend on it.
+// codexbar CLI — sole production UsageSource for beta (natives unwired).
+// Missing CLI → cli-missing envelope → UsageService empty state → HUD hides
+// (fail open). Multi-account Codex is a second-stage enrich after primary paint.
 
 const DETECT_TIMEOUT_MS = 10_000;
 // Observed worst-case fetch is ~20s for 12 enabled providers; 90s leaves

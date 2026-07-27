@@ -510,7 +510,7 @@ export interface VellumApi {
   ) => Promise<CanvasReadResult>;
   readonly getSnapshots: () => Promise<SnapshotState>;
   readonly refreshSnapshots: (hints?: ReadonlyArray<BindingHint>) => Promise<SnapshotState>;
-  // Provider usage plane (codexbar CLI first). Fail-open: empty / ok:false
+  // Provider usage plane (beta: codexbar only). Fail-open: empty / hide HUD
   // snapshots when the CLI is absent — renderer hides the HUD.
   readonly getUsage: () => Promise<UsageState>;
   readonly refreshUsage: () => Promise<UsageState>;

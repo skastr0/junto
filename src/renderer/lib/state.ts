@@ -42,7 +42,7 @@ export const state$ = observable({
   // region membership can re-poll without forcing a React Flow rebuild.
   docEpoch: 0,
   snapshots: EMPTY_SNAPSHOTS as SnapshotState,
-  // Provider usage plane (codexbar). Fail-open empty until first push/boot load.
+  // Provider usage plane (beta: codexbar). Fail-open empty until first quotas.
   usage: EMPTY_USAGE as UsageState,
   // User settings document (main owns the SQLite row; renderer holds a live projection).
   settings: EMPTY_SETTINGS as Settings,
