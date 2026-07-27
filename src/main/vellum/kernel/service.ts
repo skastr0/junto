@@ -357,6 +357,7 @@ const makeKernelService = (
   const runCycle = async (): Promise<void> => {
     await refreshStationScope(settings);
     __setSnapshotsForTest(await Effect.runPromise(snapshots.current));
+    await runClaimTicks();
     await Promise.all([runEvaluationCycle(), checkTimers()]);
     await runClaimTicks();
     // Sweep stale watcher/timer runtime entries for nodes removed on a still-
