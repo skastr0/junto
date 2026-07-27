@@ -351,7 +351,7 @@ export const compileLinuxReleaseBridge = (): Effect.Effect<
 > => makeRemoteCommand(LINUX_RELEASE_BRIDGE_PATH, []);
 
 /**
- * Darwin app stream receiver: product deploy script as `bash -lc <source>`.
+ * Darwin app stream receiver: product deploy script as `/bin/bash -lc <source>`.
  *
  * **Beta residual (Cut 3):** not on the public `ssh` barrel. Product load of
  * the Darwin provider is refused first via `RELEASE_CAPABILITIES.darwinRemoteDeploy`
@@ -379,7 +379,9 @@ export const compileDarwinRemoteDeployScript = (
   }
   // Product markers from buildRemoteDeployScript — refuse arbitrary shell.
   if (
-    !remoteScript.includes("commit_deploy") ||
+    !remoteScript.includes("begin_candidate_activation()") ||
+    !remoteScript.includes("UNBOUND_DEPLOY_PATH_PRESENT") ||
+    !remoteScript.includes("IN_STATION_EXE=") ||
     !remoteScript.includes("STATION_READY") ||
     !remoteScript.includes("CONTROL_SOCKET_TIMEOUT")
   ) {
@@ -389,5 +391,5 @@ export const compileDarwinRemoteDeployScript = (
       }),
     );
   }
-  return makeRemoteCommand("bash", ["-lc", remoteScript]);
+  return makeRemoteCommand("/bin/bash", ["-lc", remoteScript]);
 };

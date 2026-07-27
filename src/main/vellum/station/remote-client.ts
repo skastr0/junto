@@ -29,7 +29,11 @@ import {
   SshTransferExitError,
   SshTransport,
 } from "../ssh/service";
-import { remoteVellumStation } from "../ssh/read-commands";
+import {
+  RemotePlatformProbeError,
+  remoteVellumStation,
+  resolveRemotePackagedPlatform,
+} from "../ssh/read-commands";
 
 const STATION_REMOTE_INPUT_CHUNK_BYTES = 512 * 1024;
 export const STATION_REMOTE_TRANSFER_TIMEOUT_MS = 60_000;
@@ -93,6 +97,7 @@ export class StationRemoteExecutionError extends Schema.TaggedError<StationRemot
 
 export type StationRemoteApiError =
   | SshError
+  | RemotePlatformProbeError
   | StationRemoteProtocolError
   | StationRemoteRejectedError
   | StationRemoteExecutionError;
@@ -298,8 +303,11 @@ const invokeRemote = (
   request: StationApiRequest,
 ): Effect.Effect<StationApiResponse, StationRemoteApiError> =>
   Effect.gen(function* () {
+    // Resolve the current host first. No Station frame is sent until a closed
+    // platform witness selects one immutable packaged executable.
+    const platform = yield* resolveRemotePackagedPlatform(ssh, endpoint);
+    const command = yield* remoteVellumStation(platform);
     const bytes = yield* encodeRequest(endpoint, request);
-    const command = yield* remoteVellumStation();
     const outcome = yield* ssh
       .transfer(
         sharedStream(endpoint, command, "agent"),

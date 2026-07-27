@@ -17,6 +17,12 @@ import {
   linuxUnpackedArtifactName,
 } from "../scripts/finalize-linux-package";
 import { LINUX_DEB_DEPENDENCIES } from "../scripts/audit-linux-package";
+import {
+  DARWIN_PACKAGED_BROWSER_EXECUTABLE,
+  DARWIN_PACKAGED_STATION_EXECUTABLE,
+  LINUX_PACKAGED_BROWSER_EXECUTABLE,
+  LINUX_PACKAGED_STATION_EXECUTABLE,
+} from "../src/main/vellum/ssh/read-commands";
 
 const script = async (name: string) =>
   readFile(new URL(`../scripts/${name}`, import.meta.url), "utf8");
@@ -136,6 +142,33 @@ describe("native package pipeline contract", () => {
     expect(mac).toContain('bunx electron-builder --mac');
     expect(mac).toContain('notarize-app.sh');
     expect(mac).toContain('electron-security-policy.ts" validate');
+  });
+
+  it("aligns remote control transport with immutable package resources on both platforms", async () => {
+    expect(DARWIN_PACKAGED_STATION_EXECUTABLE).toBe(
+      "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-station",
+    );
+    expect(DARWIN_PACKAGED_BROWSER_EXECUTABLE).toBe(
+      "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-browser",
+    );
+    expect(LINUX_PACKAGED_STATION_EXECUTABLE).toBe(
+      "/opt/Vellum Command/resources/bin/vellum-station",
+    );
+    expect(LINUX_PACKAGED_BROWSER_EXECUTABLE).toBe(
+      "/opt/Vellum Command/resources/bin/vellum-browser",
+    );
+
+    const afterInstall = await readFile(
+      new URL("../build/linux/after-install.sh", import.meta.url),
+      "utf8",
+    );
+    expect(afterInstall).toContain(
+      'STATION_CLI="$APP_DIR/resources/bin/vellum-station"',
+    );
+    expect(afterInstall).toContain(
+      'BROWSER_CLI="$APP_DIR/resources/bin/vellum-browser"',
+    );
+    expect(afterInstall).toContain("APP_DIR='/opt/Vellum Command'");
   });
 
   it("exports only fixed Linux artifact-root identity", () => {

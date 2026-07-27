@@ -18,6 +18,10 @@ import {
 } from "../src/main/vellum/ssh/domain";
 import { createSshProgramCompiler } from "../src/main/vellum/ssh/program";
 import {
+  DARWIN_PACKAGED_STATION_EXECUTABLE,
+  RemotePlatformProbeError,
+} from "../src/main/vellum/ssh/read-commands";
+import {
   SshTransferExitError,
   type SshTransport,
 } from "../src/main/vellum/ssh/service";
@@ -39,6 +43,7 @@ const COMMAND_CENTER = decodeInstallationId("command-center");
 const HASH = decodeSha256("a".repeat(64));
 
 type Transfer = typeof SshTransport.Service["transfer"];
+type Run = typeof SshTransport.Service["run"];
 
 const collectInput = <E, R>(
   input: Stream.Stream<Uint8Array, E, R>,
@@ -60,8 +65,13 @@ const collectInput = <E, R>(
 
 const fakeSsh = (
   transfer: Transfer,
+  run: Run = (() =>
+    Effect.succeed({
+      stdout: "Darwin\n",
+      stderr: "",
+    })) as Run,
 ): typeof SshTransport.Service =>
-  ({ transfer }) as unknown as typeof SshTransport.Service;
+  ({ run, transfer }) as unknown as typeof SshTransport.Service;
 
 const successFrame = (response: unknown): string =>
   `${JSON.stringify(stationControlOk(response as never))}\n`;
@@ -71,6 +81,7 @@ describe("StationRemoteApiClient", () => {
     let request: unknown;
     let chunkSizes: ReadonlyArray<number> = [];
     let program: unknown;
+    let probeProgram: unknown;
     let timeoutMs = 0;
     const response = StatusResponse.make({
       protocol: STATION_API_PROTOCOL,
@@ -93,17 +104,23 @@ describe("StationRemoteApiClient", () => {
       },
       observedAt: "2026-07-27T12:00:00.000Z",
     });
-    const ssh = fakeSsh(((candidate, input, timeout) => {
-      program = candidate;
-      timeoutMs = timeout;
-      return collectInput(input).pipe(
-        Effect.map((collected) => {
-          request = JSON.parse(collected.body) as unknown;
-          chunkSizes = collected.chunks;
-          return { stdout: successFrame(response), stderr: "" };
-        }),
-      );
-    }) as Transfer);
+    const ssh = fakeSsh(
+      ((candidate, input, timeout) => {
+        program = candidate;
+        timeoutMs = timeout;
+        return collectInput(input).pipe(
+          Effect.map((collected) => {
+            request = JSON.parse(collected.body) as unknown;
+            chunkSizes = collected.chunks;
+            return { stdout: successFrame(response), stderr: "" };
+          }),
+        );
+      }) as Transfer,
+      ((candidate) => {
+        probeProgram = candidate;
+        return Effect.succeed({ stdout: "Darwin\n", stderr: "" });
+      }) as Run,
+    );
 
     const result = await Effect.runPromise(
       makeStationRemoteApiClient(ssh).status(ENDPOINT),
@@ -116,13 +133,22 @@ describe("StationRemoteApiClient", () => {
     });
     expect(chunkSizes).toEqual([expect.any(Number)]);
     expect(timeoutMs).toBe(60_000);
-    const compiled = createSshProgramCompiler({
+    const compiler = createSshProgramCompiler({
       controlDir: "/tmp/vellum-ssh",
       envExecutable: "/usr/bin/env",
       sshExecutable: "/usr/bin/ssh",
-      environment: {},
-    }).stream(program as never);
-    expect(String(compiled.command)).toContain("vellum-station");
+      environment: { PATH: "/tmp/attacker" },
+    });
+    const probe = compiler.oneShot(probeProgram as never);
+    const compiled = compiler.stream(program as never);
+    expect(String(probe.command)).toContain("/usr/bin/uname");
+    expect(probe.input).toBeUndefined();
+    expect(String(compiled.command)).toContain(
+      DARWIN_PACKAGED_STATION_EXECUTABLE,
+    );
+    expect(String(compiled.command)).not.toMatch(
+      /(?:^|[ '"])vellum-station(?:[ '"]|$)/u,
+    );
     expect(String(compiled.command)).not.toContain("/bin/sh");
   });
 
@@ -175,6 +201,31 @@ describe("StationRemoteApiClient", () => {
     expect(response.decision).toBe("install");
     expect(chunks.length).toBeGreaterThan(1);
     expect(Math.max(...chunks)).toBeLessThanOrEqual(512 * 1024);
+  });
+
+  it("never sends a Station frame when current platform evidence is not supported", async () => {
+    let transferred = false;
+    const ssh = fakeSsh(
+      ((..._args: Parameters<Transfer>) => {
+        transferred = true;
+        return Effect.die("Station frame must not be transferred");
+      }) as Transfer,
+      (() =>
+        Effect.succeed({
+          stdout: "FreeBSD\n",
+          stderr: "",
+        })) as Run,
+    );
+
+    const outcome = await Effect.runPromise(
+      Effect.either(makeStationRemoteApiClient(ssh).status(ENDPOINT)),
+    );
+
+    expect(Either.isLeft(outcome)).toBe(true);
+    if (Either.isLeft(outcome)) {
+      expect(outcome.left).toBeInstanceOf(RemotePlatformProbeError);
+    }
+    expect(transferred).toBe(false);
   });
 
   it("preserves typed Station rejection envelopes from non-zero remote exits", async () => {

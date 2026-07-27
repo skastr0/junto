@@ -1,7 +1,10 @@
 import { Effect, Schema } from "effect";
 
 const ENDPOINT_PATTERN = /^(?!-)[A-Za-z0-9._:@%+\[\]-]+$/;
-const EXECUTABLE_PATTERN = /^(?!-)[^\s\u0000-\u001f\u007f]+$/u;
+// OpenSSH receives one shell-quoted argv record, so an absolute package path
+// may contain ordinary spaces (for example `Vellum Command.app`). Control
+// characters and leading option syntax remain non-admissible.
+const EXECUTABLE_PATTERN = /^(?!-)[^\u0000-\u001f\u007f]+$/u;
 
 export const SshEndpoint = Schema.String.pipe(
   Schema.minLength(1),

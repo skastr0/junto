@@ -22,7 +22,11 @@ import {
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
 import type { SshEndpoint } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
-import { remoteTestFileExists } from "../ssh/read-commands";
+import {
+  DARWIN_PACKAGED_BROWSER_EXECUTABLE,
+  DARWIN_PACKAGED_STATION_EXECUTABLE,
+  remoteTestFileExists,
+} from "../ssh/read-commands";
 import { compileDarwinRemoteDeployScript } from "../ssh/remote-plan";
 import { SshTransferExitError, SshTransport } from "../ssh/service";
 import {
@@ -50,9 +54,20 @@ const DEVELOPER_ID_REQUIREMENT =
   '=anchor apple generic and identifier "skastr0.vellum" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"';
 const DEPLOY_TIMEOUT_MS = 20 * 60 * 1000;
 const REMOTE_APP_PATH = `/Applications/${APP_BUNDLE_NAME}`;
+const REMOTE_STATION_EXECUTABLE =
+  `${REMOTE_APP_PATH}/Contents/Resources/bin/vellum-station`;
+const REMOTE_BROWSER_EXECUTABLE =
+  `${REMOTE_APP_PATH}/Contents/Resources/bin/vellum-browser`;
 const DARWIN_DEPLOY_READY_WITH_LOCK_WARNING_EXIT = 10;
 const DARWIN_DEPLOY_NOT_STARTED_EXIT = 12;
 const DARWIN_DEPLOY_INDETERMINATE_EXIT = 13;
+
+if (
+  REMOTE_STATION_EXECUTABLE !== DARWIN_PACKAGED_STATION_EXECUTABLE ||
+  REMOTE_BROWSER_EXECUTABLE !== DARWIN_PACKAGED_BROWSER_EXECUTABLE
+) {
+  throw new Error("Darwin deployment and Station transport paths diverged");
+}
 
 const shellLiteral = (value: string): string =>
   `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -208,19 +223,50 @@ export const admitLocalAppBundle = async (
     "MacOS",
     PRODUCT_NAME,
   );
-  const [plistMetadata, executableMetadata] = await Promise.all([
+  const stationExecutablePath = join(
+    canonicalPath,
+    "Contents",
+    "Resources",
+    "bin",
+    "vellum-station",
+  );
+  const browserExecutablePath = join(
+    canonicalPath,
+    "Contents",
+    "Resources",
+    "bin",
+    "vellum-browser",
+  );
+  const [
+    plistMetadata,
+    executableMetadata,
+    stationExecutableMetadata,
+    browserExecutableMetadata,
+  ] = await Promise.all([
     lstat(infoPlistPath),
     lstat(executablePath),
+    lstat(stationExecutablePath),
+    lstat(browserExecutablePath),
   ]);
   if (
     !plistMetadata.isFile() ||
     plistMetadata.isSymbolicLink() ||
     !executableMetadata.isFile() ||
-    executableMetadata.isSymbolicLink()
+    executableMetadata.isSymbolicLink() ||
+    !stationExecutableMetadata.isFile() ||
+    stationExecutableMetadata.isSymbolicLink() ||
+    !browserExecutableMetadata.isFile() ||
+    browserExecutableMetadata.isSymbolicLink()
   ) {
-    throw new Error("local bundle identity files must be regular files");
+    throw new Error(
+      "local bundle identity and packaged control helpers must be regular files",
+    );
   }
-  await access(executablePath, fsConstants.X_OK);
+  await Promise.all([
+    access(executablePath, fsConstants.X_OK),
+    access(stationExecutablePath, fsConstants.X_OK),
+    access(browserExecutablePath, fsConstants.X_OK),
+  ]);
 
   await runBundleAdmissionCommand("/usr/bin/codesign", [
     "--verify",
@@ -466,7 +512,9 @@ type RemoteDeployScriptCommands = {
   readonly uuidgen: string;
   readonly tar: string;
   readonly codesign: string;
+  readonly find: string;
   readonly plutil: string;
+  readonly stat: string;
   readonly osascript: string;
   readonly sleep: string;
 };
@@ -488,7 +536,9 @@ const PRODUCTION_DEPLOY_SCRIPT_RUNTIME: RemoteDeployScriptRuntime = {
     uuidgen: "/usr/bin/uuidgen",
     tar: "/usr/bin/tar",
     codesign: "/usr/bin/codesign",
+    find: "/usr/bin/find",
     plutil: "/usr/bin/plutil",
+    stat: "/usr/bin/stat",
     osascript: "/usr/bin/osascript",
     sleep: "/bin/sleep",
   },
@@ -512,6 +562,10 @@ const buildRemoteDeployScriptWithRuntime = (
   }
   const remoteAppPath = runtime.appPath;
   const remoteExecutablePath = `${remoteAppPath}/Contents/MacOS/${PRODUCT_NAME}`;
+  const remoteStationExecutablePath =
+    `${remoteAppPath}/Contents/Resources/bin/vellum-station`;
+  const remoteBrowserExecutablePath =
+    `${remoteAppPath}/Contents/Resources/bin/vellum-browser`;
   const appParentPath = dirname(remoteAppPath);
   const plistPath = `${remoteHome}/Library/LaunchAgents/${LABEL}.plist`;
   const logDir = `${remoteHome}/Library/Logs/${PRODUCT_NAME}`;
@@ -548,7 +602,9 @@ LSOF=${shellLiteral(runtime.commands.lsof)}
 UUIDGEN=${shellLiteral(runtime.commands.uuidgen)}
 TAR=${shellLiteral(runtime.commands.tar)}
 CODESIGN=${shellLiteral(runtime.commands.codesign)}
+FIND=${shellLiteral(runtime.commands.find)}
 PLUTIL=${shellLiteral(runtime.commands.plutil)}
+STAT=${shellLiteral(runtime.commands.stat)}
 OSASCRIPT=${shellLiteral(runtime.commands.osascript)}
 SLEEP=${shellLiteral(runtime.commands.sleep)}
 test "$("$UNAME" -s)" = "Darwin" || { echo "REMOTE_NOT_DARWIN $("$UNAME" -s)" >&2; exit 3; }
@@ -557,17 +613,26 @@ IN=${shellLiteral(incomingPath)}
 BUNDLE=${shellLiteral(APP_BUNDLE_NAME)}
 EXE=${shellLiteral(remoteExecutablePath)}
 IN_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/MacOS/${PRODUCT_NAME}`)}
+STATION_EXE=${shellLiteral(remoteStationExecutablePath)}
+IN_STATION_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/Resources/bin/vellum-station`)}
+BROWSER_EXE=${shellLiteral(remoteBrowserExecutablePath)}
+IN_BROWSER_EXE=${shellLiteral(`${incomingPath}/${APP_BUNDLE_NAME}/Contents/Resources/bin/vellum-browser`)}
 TERM_SOCK=${shellLiteral(termSock)}
 BROWSER_SOCK=${shellLiteral(browserSock)}
 PLIST=${shellLiteral(plistPath)}
 PLIST_IN=${shellLiteral(`${plistPath}.incoming`)}
-PLIST_PREVIOUS=${shellLiteral(`${plistPath}.previous`)}
+FORBIDDEN_PLIST_PREVIOUS=${shellLiteral(`${plistPath}.previous`)}
+FORBIDDEN_PLIST_REJECTED=${shellLiteral(`${plistPath}.rejected`)}
 LOGDIR=${shellLiteral(logDir)}
 APP_PARENT=${shellLiteral(appParentPath)}
-APP_PREVIOUS=${shellLiteral(`${remoteAppPath}.previous`)}
+FORBIDDEN_APP_PREVIOUS=${shellLiteral(`${remoteAppPath}.previous`)}
+FORBIDDEN_APP_REJECTED=${shellLiteral(`${remoteAppPath}.rejected`)}
 DEPLOY_LOCK=${shellLiteral(runtime.lockPath)}
 DEPLOY_LOCK_OWNER=${shellLiteral(`${runtime.lockPath}/owner`)}
-LSOF_ERROR=${shellLiteral(`${runtime.lockPath}/lsof.error`)}
+RETIRED_APP=${shellLiteral(`${runtime.lockPath}/retired-app`)}
+RETIRED_PLIST=${shellLiteral(`${runtime.lockPath}/retired-plist`)}
+RETIRED_TERM_SOCKET=${shellLiteral(`${runtime.lockPath}/retired-term-socket`)}
+RETIRED_BROWSER_SOCKET=${shellLiteral(`${runtime.lockPath}/retired-browser-socket`)}
 EXPECTED_CDHASH=${shellLiteral(expectedCdHash.toLowerCase())}
 DEVELOPER_ID_REQUIREMENT=${shellLiteral(DEVELOPER_ID_REQUIREMENT)}
 UID_VALUE="$("$ID" -u)"
@@ -575,10 +640,19 @@ DOMAIN="gui/$UID_VALUE"
 JOB="$DOMAIN/${LABEL}"
 LOCK_HELD=0
 ACTIVATION_STARTED=0
-APP_BACKED_UP=0
-PLIST_BACKED_UP=0
-NEW_APP_INSTALLED=0
-NEW_PLIST_INSTALLED=0
+IN_CREATED=0
+PLIST_IN_CREATED=0
+IN_ID=""
+PLIST_IN_ID=""
+APP_ID=""
+APP_CONTENTS_ID=""
+PLIST_ID=""
+CANDIDATE_APP_ID=""
+PUBLISHED_APP_ID=""
+PUBLISHED_PLIST_ID=""
+RETIRED_APP_ID=""
+LOCK_ID=""
+LOCK_OWNER_ID=""
 OLD_PID=""
 
 valid_pid() {
@@ -588,31 +662,200 @@ valid_pid() {
   [ "$1" -gt 1 ]
 }
 
+path_identity() {
+  "$STAT" -f '%d:%i:%u:%HT' "$1"
+}
+
+owned_directory_identity() {
+  OWNED_PATH="$1"
+  [ -d "$OWNED_PATH" ] && [ ! -L "$OWNED_PATH" ] || return 1
+  OWNED_IDENTITY="$(path_identity "$OWNED_PATH")" || return 1
+  case "$OWNED_IDENTITY" in
+    *:"$UID_VALUE":Directory) ;;
+    *) return 1 ;;
+  esac
+  /usr/bin/printf '%s' "$OWNED_IDENTITY"
+}
+
+owned_file_identity() {
+  OWNED_PATH="$1"
+  [ -f "$OWNED_PATH" ] && [ ! -L "$OWNED_PATH" ] || return 1
+  OWNED_IDENTITY="$(path_identity "$OWNED_PATH")" || return 1
+  case "$OWNED_IDENTITY" in
+    *:"$UID_VALUE":"Regular File") ;;
+    *) return 1 ;;
+  esac
+  /usr/bin/printf '%s' "$OWNED_IDENTITY"
+}
+
+owned_socket_identity() {
+  OWNED_PATH="$1"
+  [ -S "$OWNED_PATH" ] && [ ! -L "$OWNED_PATH" ] || return 1
+  OWNED_IDENTITY="$(path_identity "$OWNED_PATH")" || return 1
+  case "$OWNED_IDENTITY" in
+    *:"$UID_VALUE":Socket) ;;
+    *) return 1 ;;
+  esac
+  /usr/bin/printf '%s' "$OWNED_IDENTITY"
+}
+
+same_directory_identity() {
+  [ -n "$2" ] &&
+    [ "$(owned_directory_identity "$1" 2>/dev/null || true)" = "$2" ]
+}
+
+same_file_identity() {
+  [ -n "$2" ] &&
+    [ "$(owned_file_identity "$1" 2>/dev/null || true)" = "$2" ]
+}
+
+same_socket_identity() {
+  [ -n "$2" ] &&
+    [ "$(owned_socket_identity "$1" 2>/dev/null || true)" = "$2" ]
+}
+
+remove_bound_directory() {
+  REMOVE_PATH="$1"
+  REMOVE_IDENTITY="$2"
+  same_directory_identity "$REMOVE_PATH" "$REMOVE_IDENTITY" || return 1
+  /bin/rm -rf -- "$REMOVE_PATH" || return 1
+  [ ! -e "$REMOVE_PATH" ] && [ ! -L "$REMOVE_PATH" ]
+}
+
+remove_bound_file() {
+  REMOVE_PATH="$1"
+  REMOVE_IDENTITY="$2"
+  same_file_identity "$REMOVE_PATH" "$REMOVE_IDENTITY" || return 1
+  /bin/rm -f -- "$REMOVE_PATH" || return 1
+  [ ! -e "$REMOVE_PATH" ] && [ ! -L "$REMOVE_PATH" ]
+}
+
+remove_bound_socket() {
+  REMOVE_PATH="$1"
+  REMOVE_IDENTITY="$2"
+  same_socket_identity "$REMOVE_PATH" "$REMOVE_IDENTITY" || return 1
+  /bin/rm -f -- "$REMOVE_PATH" || return 1
+  [ ! -e "$REMOVE_PATH" ] && [ ! -L "$REMOVE_PATH" ]
+}
+
+bundle_has_only_contents() {
+  BUNDLE_ROOT="$1"
+  BUNDLE_ROOT_ENTRIES="$("$FIND" "$BUNDLE_ROOT" -mindepth 1 -maxdepth 1 -print)" || return 1
+  [ "$BUNDLE_ROOT_ENTRIES" = "$BUNDLE_ROOT/Contents" ]
+}
+
+remove_bound_app_bundle() {
+  REMOVE_APP_PATH="$1"
+  REMOVE_APP_IDENTITY="$2"
+  REMOVE_CONTENTS_IDENTITY="$3"
+  same_directory_identity "$REMOVE_APP_PATH" "$REMOVE_APP_IDENTITY" &&
+    bundle_has_only_contents "$REMOVE_APP_PATH" &&
+    same_directory_identity "$REMOVE_APP_PATH/Contents" "$REMOVE_CONTENTS_IDENTITY" ||
+    return 1
+  /bin/rm -rf -- "$REMOVE_APP_PATH" || return 1
+  [ ! -e "$REMOVE_APP_PATH" ] && [ ! -L "$REMOVE_APP_PATH" ]
+}
+
+admit_existing_app() {
+  APP_ID="$(owned_directory_identity "$APP" 2>/dev/null || true)"
+  [ -n "$APP_ID" ] || {
+    echo "EXISTING_APP_NOT_OWNED $APP" >&2
+    return 1
+  }
+  APP_CONTENTS_ID="$(owned_directory_identity "$APP/Contents" 2>/dev/null || true)"
+  [ -n "$APP_CONTENTS_ID" ] || {
+    echo "EXISTING_APP_CONTENTS_NOT_OWNED $APP/Contents" >&2
+    return 1
+  }
+  [ -f "$APP/Contents/Info.plist" ] &&
+    [ ! -L "$APP/Contents/Info.plist" ] &&
+    [ -f "$EXE" ] &&
+    [ ! -L "$EXE" ] &&
+    [ -x "$EXE" ] || {
+      echo "EXISTING_APP_IDENTITY_FILES_INVALID $APP" >&2
+      return 1
+    }
+  "$CODESIGN" --verify --deep --strict --verbose=2 -R "$DEVELOPER_ID_REQUIREMENT" "$APP" || {
+    echo "EXISTING_APP_SIGNATURE_INVALID $APP" >&2
+    return 1
+  }
+  EXISTING_BUNDLE_ID="$("$PLUTIL" -extract CFBundleIdentifier raw -o - "$APP/Contents/Info.plist")" || return 1
+  EXISTING_BUNDLE_EXE="$("$PLUTIL" -extract CFBundleExecutable raw -o - "$APP/Contents/Info.plist")" || return 1
+  [ "$EXISTING_BUNDLE_ID" = "${LABEL}" ] &&
+    [ "$EXISTING_BUNDLE_EXE" = "${PRODUCT_NAME}" ] || {
+      echo "EXISTING_APP_PRODUCT_IDENTITY_MISMATCH $APP" >&2
+      return 1
+    }
+  bundle_has_only_contents "$APP" || {
+    echo "EXISTING_APP_ROOT_SHAPE_INVALID $APP" >&2
+    return 1
+  }
+  same_directory_identity "$APP" "$APP_ID" || {
+    echo "EXISTING_APP_CHANGED_DURING_ADMISSION $APP" >&2
+    return 1
+  }
+  same_directory_identity "$APP/Contents" "$APP_CONTENTS_ID" || {
+    echo "EXISTING_APP_CONTENTS_CHANGED_DURING_ADMISSION $APP/Contents" >&2
+    return 1
+  }
+}
+
+admit_existing_plist() {
+  PLIST_ID="$(owned_file_identity "$PLIST" 2>/dev/null || true)"
+  [ -n "$PLIST_ID" ] || {
+    echo "EXISTING_PLIST_NOT_OWNED $PLIST" >&2
+    return 1
+  }
+  EXISTING_PLIST_LABEL="$("$PLUTIL" -extract Label raw -o - "$PLIST")" || return 1
+  EXISTING_PLIST_EXE="$("$PLUTIL" -extract ProgramArguments.0 raw -o - "$PLIST")" || return 1
+  if "$PLUTIL" -extract ProgramArguments.1 raw -o - "$PLIST" >/dev/null 2>&1; then
+    echo "EXISTING_PLIST_ARGUMENTS_INVALID $PLIST" >&2
+    return 1
+  fi
+  [ "$EXISTING_PLIST_LABEL" = "${LABEL}" ] &&
+    [ "$EXISTING_PLIST_EXE" = "$EXE" ] || {
+      echo "EXISTING_PLIST_PRODUCT_IDENTITY_MISMATCH $PLIST" >&2
+      return 1
+    }
+  same_file_identity "$PLIST" "$PLIST_ID" || {
+    echo "EXISTING_PLIST_CHANGED_DURING_ADMISSION $PLIST" >&2
+    return 1
+  }
+}
+
 job_exists() {
   "$LAUNCHCTL" print "$JOB" >/dev/null 2>&1
 }
 
 exact_exe_pids() {
-  ALL_LSOF_OUTPUT="$("$LSOF" -n -d txt -Fp -Fn 2>"$LSOF_ERROR")" || return 2
-  [ ! -s "$LSOF_ERROR" ] || return 2
+  ALL_LSOF_OUTPUT="$("$LSOF" -n -d txt -Fp -Fn 2>&1)" || return 2
   printf '%s\n' "$ALL_LSOF_OUTPUT" | /usr/bin/awk -v exe="$EXE" '
+    /^$/ { next }
     /^p[0-9]+$/ { pid = substr($0, 2); next }
+    /^ftxt$/ { next }
     /^n/ {
       name = substr($0, 2)
       if ((name == exe || name == exe " (deleted)") && !seen[pid]++) print pid
+      next
     }
+    { invalid = 1 }
+    END { if (invalid) exit 2 }
   '
 }
 
 exact_exe_has_pid() {
-  PID_LSOF_OUTPUT="$("$LSOF" -n -a -p "$1" -d txt -Fn 2>"$LSOF_ERROR")" || return 1
-  [ ! -s "$LSOF_ERROR" ] || return 1
+  PID_LSOF_OUTPUT="$("$LSOF" -n -a -p "$1" -d txt -Fn 2>&1)" || return 1
   printf '%s\n' "$PID_LSOF_OUTPUT" | /usr/bin/awk -v exe="$EXE" '
+    /^$/ { next }
+    /^p[0-9]+$/ { next }
+    /^ftxt$/ { next }
     /^n/ {
       name = substr($0, 2)
       if (name == exe || name == exe " (deleted)") found = 1
+      next
     }
-    END { exit(found ? 0 : 1) }
+    { invalid = 1 }
+    END { exit(found && !invalid ? 0 : 1) }
   '
 }
 
@@ -641,19 +884,53 @@ first_signing_authority() {
   '
 }
 
-remove_fixed_socket() {
+retire_stale_socket() {
   SOCKET_PATH="$1"
-  if [ -e "$SOCKET_PATH" ] || [ -L "$SOCKET_PATH" ]; then
-    if [ ! -S "$SOCKET_PATH" ]; then
-      echo "CONTROL_PATH_NOT_SOCKET $SOCKET_PATH" >&2
-      exit 5
-    fi
-    /bin/rm -f -- "$SOCKET_PATH"
+  RETIRED_SOCKET_PATH="$2"
+  if [ ! -e "$SOCKET_PATH" ] && [ ! -L "$SOCKET_PATH" ]; then return 0; fi
+  SOCKET_ID="$(owned_socket_identity "$SOCKET_PATH" 2>/dev/null || true)"
+  [ -n "$SOCKET_ID" ] || {
+    echo "CONTROL_PATH_NOT_OWNED_SOCKET $SOCKET_PATH" >&2
+    return 1
+  }
+  if SOCKET_LSOF_OUTPUT="$("$LSOF" -n -a -U -Fp -- "$SOCKET_PATH" 2>&1)"; then
+    SOCKET_LSOF_STATUS=0
+  else
+    SOCKET_LSOF_STATUS=$?
   fi
-  if [ -e "$SOCKET_PATH" ] || [ -L "$SOCKET_PATH" ]; then
-    echo "CONTROL_SOCKET_REMOVE_FAILED $SOCKET_PATH" >&2
-    exit 5
+  case "$SOCKET_LSOF_STATUS" in
+    0|1) ;;
+    *)
+      echo "CONTROL_SOCKET_OBSERVATION_FAILED $SOCKET_PATH" >&2
+      return 1
+      ;;
+  esac
+  if /usr/bin/printf '%s\n' "$SOCKET_LSOF_OUTPUT" | /usr/bin/grep -E -q '^p[1-9][0-9]*$'; then
+    echo "CONTROL_SOCKET_STILL_LIVE $SOCKET_PATH" >&2
+    return 1
   fi
+  if [ -n "$SOCKET_LSOF_OUTPUT" ]; then
+    echo "CONTROL_SOCKET_OBSERVATION_AMBIGUOUS $SOCKET_PATH" >&2
+    return 1
+  fi
+  same_socket_identity "$SOCKET_PATH" "$SOCKET_ID" || {
+    echo "CONTROL_SOCKET_CHANGED_BEFORE_RETIREMENT $SOCKET_PATH" >&2
+    return 1
+  }
+  [ ! -e "$RETIRED_SOCKET_PATH" ] && [ ! -L "$RETIRED_SOCKET_PATH" ] || return 1
+  /bin/mv -n "$SOCKET_PATH" "$RETIRED_SOCKET_PATH"
+  [ ! -e "$SOCKET_PATH" ] && [ ! -L "$SOCKET_PATH" ] || {
+    echo "CONTROL_SOCKET_RETIREMENT_COLLISION $SOCKET_PATH" >&2
+    return 1
+  }
+  same_socket_identity "$RETIRED_SOCKET_PATH" "$SOCKET_ID" || {
+    echo "CONTROL_SOCKET_CHANGED_DURING_RETIREMENT $RETIRED_SOCKET_PATH" >&2
+    return 1
+  }
+  remove_bound_socket "$RETIRED_SOCKET_PATH" "$SOCKET_ID" || {
+    echo "CONTROL_SOCKET_RETIREMENT_FAILED $RETIRED_SOCKET_PATH" >&2
+    return 1
+  }
 }
 
 socket_owned_by_pid() {
@@ -681,59 +958,44 @@ wait_until_job_and_executable_gone() {
 
 release_deploy_lock() {
   if [ "$LOCK_HELD" != "1" ]; then return 0; fi
+  same_directory_identity "$DEPLOY_LOCK" "$LOCK_ID" || return 1
   CURRENT_LOCK_TOKEN="$(/bin/cat "$DEPLOY_LOCK_OWNER" 2>/dev/null || true)"
-  if [ -n "$CURRENT_LOCK_TOKEN" ] && [ "$CURRENT_LOCK_TOKEN" = "$LOCK_TOKEN" ]; then
-    /bin/rm -f -- "$LSOF_ERROR" || return 1
-    /bin/rm -f -- "$DEPLOY_LOCK_OWNER" || return 1
-    /bin/rmdir "$DEPLOY_LOCK" || return 1
-  elif [ ! -e "$DEPLOY_LOCK_OWNER" ] && [ ! -L "$DEPLOY_LOCK_OWNER" ]; then
-    /bin/rmdir "$DEPLOY_LOCK" 2>/dev/null || return 1
-  else
-    return 1
-  fi
+  [ -n "$CURRENT_LOCK_TOKEN" ] &&
+    [ "$CURRENT_LOCK_TOKEN" = "$LOCK_TOKEN" ] || return 1
+  same_file_identity "$DEPLOY_LOCK_OWNER" "$LOCK_OWNER_ID" || return 1
+  [ ! -e "$RETIRED_APP" ] && [ ! -L "$RETIRED_APP" ] &&
+    [ ! -e "$RETIRED_PLIST" ] && [ ! -L "$RETIRED_PLIST" ] &&
+    [ ! -e "$RETIRED_TERM_SOCKET" ] && [ ! -L "$RETIRED_TERM_SOCKET" ] &&
+    [ ! -e "$RETIRED_BROWSER_SOCKET" ] && [ ! -L "$RETIRED_BROWSER_SOCKET" ] || return 1
+  remove_bound_file "$DEPLOY_LOCK_OWNER" "$LOCK_OWNER_ID" || return 1
+  same_directory_identity "$DEPLOY_LOCK" "$LOCK_ID" || return 1
+  /bin/rmdir "$DEPLOY_LOCK" || return 1
+  [ ! -e "$DEPLOY_LOCK" ] && [ ! -L "$DEPLOY_LOCK" ] || return 1
   LOCK_HELD=0
   return 0
 }
 
-restore_pre_activation() {
-  if [ "$ACTIVATION_STARTED" = "1" ]; then return 0; fi
-  if [ -e "$APP_PREVIOUS" ] || [ -L "$APP_PREVIOUS" ]; then
-    if [ -e "$APP" ] || [ -L "$APP" ]; then
-      /bin/rm -rf -- "$APP" || return 1
+cleanup_staging() {
+  if [ "$PLIST_IN_CREATED" = "1" ]; then
+    if [ -e "$PLIST_IN" ] || [ -L "$PLIST_IN" ]; then
+      remove_bound_file "$PLIST_IN" "$PLIST_IN_ID" || return 1
     fi
-    /bin/mv "$APP_PREVIOUS" "$APP" || return 1
-  elif [ "$APP_BACKED_UP" = "1" ]; then
-    echo "PRE_ACTIVATION_APP_BACKUP_MISSING $APP_PREVIOUS" >&2
-    return 1
-  elif [ "$NEW_APP_INSTALLED" = "1" ] && { [ -e "$APP" ] || [ -L "$APP" ]; }; then
-    /bin/rm -rf -- "$APP" || return 1
+    PLIST_IN_CREATED=0
+    PLIST_IN_ID=""
   fi
-  if [ -e "$PLIST_PREVIOUS" ] || [ -L "$PLIST_PREVIOUS" ]; then
-    if [ -e "$PLIST" ] || [ -L "$PLIST" ]; then
-      /bin/rm -f -- "$PLIST" || return 1
+  if [ "$IN_CREATED" = "1" ]; then
+    if [ -e "$IN" ] || [ -L "$IN" ]; then
+      remove_bound_directory "$IN" "$IN_ID" || return 1
     fi
-    /bin/mv "$PLIST_PREVIOUS" "$PLIST" || return 1
-  elif [ "$PLIST_BACKED_UP" = "1" ]; then
-    echo "PRE_ACTIVATION_PLIST_BACKUP_MISSING $PLIST_PREVIOUS" >&2
-    return 1
-  elif [ "$NEW_PLIST_INSTALLED" = "1" ] && { [ -e "$PLIST" ] || [ -L "$PLIST" ]; }; then
-    /bin/rm -f -- "$PLIST" || return 1
-  fi
-  return 0
-}
-
-discard_previous_artifacts() {
-  /bin/rm -rf -- "$APP_PREVIOUS" || return 1
-  /bin/rm -f -- "$PLIST_PREVIOUS" || return 1
-  if [ -e "$APP_PREVIOUS" ] || [ -L "$APP_PREVIOUS" ] || [ -e "$PLIST_PREVIOUS" ] || [ -L "$PLIST_PREVIOUS" ]; then
-    return 1
+    IN_CREATED=0
+    IN_ID=""
   fi
   return 0
 }
 
 begin_candidate_activation() {
-  # The canonical app path is independently launchable as soon as the candidate
-  # is published there. Cross the one-way boundary before that first move.
+  # Retiring an admitted old resource is the irreversible boundary. No code
+  # after this point can restore or launch the old generation.
   ACTIVATION_STARTED=1
 }
 
@@ -744,23 +1006,18 @@ on_deploy_exit() {
   set +e
   if [ "$EXIT_CODE" -ne 0 ]; then
     if [ "$ACTIVATION_STARTED" = "1" ]; then
-      discard_previous_artifacts || echo "RETIRED_ARTIFACT_CLEANUP_FAILED app_backup=$APP_PREVIOUS plist_backup=$PLIST_PREVIOUS" >&2
       echo "DEPLOY_FORWARD_REPAIR_REQUIRED app=$APP incoming=$IN plist=$PLIST" >&2
       EXIT_CODE=${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
-    elif restore_pre_activation; then
+    elif ! cleanup_staging; then
+      echo "DEPLOY_STAGING_CLEANUP_REFUSED incoming=$IN plist_incoming=$PLIST_IN" >&2
+      EXIT_CODE=${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
+    else
       echo "DEPLOY_NOT_STARTED" >&2
       EXIT_CODE=${String(DARWIN_DEPLOY_NOT_STARTED_EXIT)}
-    else
-      echo "DEPLOY_PRE_ACTIVATION_CLEANUP_FAILED app=$APP incoming=$IN plist=$PLIST" >&2
-      EXIT_CODE=${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
     fi
-  elif [ "$ACTIVATION_STARTED" = "1" ] && ! discard_previous_artifacts; then
-    echo "DEPLOY_FORWARD_REPAIR_REQUIRED app=$APP incoming=$IN plist=$PLIST" >&2
+  elif ! cleanup_staging; then
+    echo "DEPLOY_STAGING_CLEANUP_REFUSED incoming=$IN plist_incoming=$PLIST_IN" >&2
     EXIT_CODE=${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
-  fi
-  if [ "$EXIT_CODE" -ne 0 ]; then
-    /bin/rm -rf -- "$IN" >/dev/null 2>&1 || true
-    /bin/rm -f -- "$PLIST_IN" >/dev/null 2>&1 || true
   fi
   if ! release_deploy_lock; then
     echo "DEPLOY_LOCK_RELEASE_FAILED $DEPLOY_LOCK" >&2
@@ -776,26 +1033,69 @@ if ! /bin/mkdir "$DEPLOY_LOCK" 2>/dev/null; then
   echo "DEPLOY_ALREADY_IN_PROGRESS $DEPLOY_LOCK" >&2
   exit 8
 fi
+/bin/chmod 700 "$DEPLOY_LOCK"
+LOCK_ID="$(owned_directory_identity "$DEPLOY_LOCK" 2>/dev/null || true)"
+[ -n "$LOCK_ID" ] || {
+  echo "DEPLOY_LOCK_IDENTITY_INVALID $DEPLOY_LOCK" >&2
+  exit 8
+}
 LOCK_HELD=1
 trap on_deploy_exit EXIT
 trap 'exit 130' HUP INT TERM
-/usr/bin/printf '%s\n' "$LOCK_TOKEN" > "$DEPLOY_LOCK_OWNER"
+set -C
+if { exec 9> "$DEPLOY_LOCK_OWNER"; }; then
+  set +C
+else
+  set +C
+  echo "DEPLOY_LOCK_OWNER_CREATE_REFUSED $DEPLOY_LOCK_OWNER" >&2
+  exit 8
+fi
+LOCK_OWNER_ID="$(owned_file_identity "$DEPLOY_LOCK_OWNER" 2>/dev/null || true)"
+[ -n "$LOCK_OWNER_ID" ] || {
+  exec 9>&-
+  echo "DEPLOY_LOCK_OWNER_IDENTITY_INVALID $DEPLOY_LOCK_OWNER" >&2
+  exit 8
+}
+/usr/bin/printf '%s\n' "$LOCK_TOKEN" >&9
+exec 9>&-
 /bin/chmod 600 "$DEPLOY_LOCK_OWNER"
+same_file_identity "$DEPLOY_LOCK_OWNER" "$LOCK_OWNER_ID" || {
+  echo "DEPLOY_LOCK_OWNER_CHANGED_DURING_CREATION $DEPLOY_LOCK_OWNER" >&2
+  exit 8
+}
 
-if [ -e "$APP_PREVIOUS" ] || [ -L "$APP_PREVIOUS" ] || [ -e "$PLIST_PREVIOUS" ] || [ -L "$PLIST_PREVIOUS" ]; then
-  if ! discard_previous_artifacts; then
-    echo "RETIRED_ARTIFACT_CLEANUP_FAILED app_backup=$APP_PREVIOUS plist_backup=$PLIST_PREVIOUS" >&2
+for UNBOUND_PATH in \
+  "$IN" \
+  "$PLIST_IN" \
+  "$FORBIDDEN_APP_PREVIOUS" \
+  "$FORBIDDEN_PLIST_PREVIOUS" \
+  "$FORBIDDEN_APP_REJECTED" \
+  "$FORBIDDEN_PLIST_REJECTED"
+do
+  if [ -e "$UNBOUND_PATH" ] || [ -L "$UNBOUND_PATH" ]; then
+    echo "UNBOUND_DEPLOY_PATH_PRESENT $UNBOUND_PATH" >&2
     exit 8
   fi
-fi
+done
 
 # Extract and verify the incoming signed artifact while the old generation is
 # still running. Archive or signature failures therefore leave it untouched.
 /bin/mkdir -p "$APP_PARENT"
-/bin/rm -rf -- "$IN"
-/bin/mkdir -p "$IN/$BUNDLE"
+/bin/mkdir "$IN"
+IN_ID="$(owned_directory_identity "$IN" 2>/dev/null || true)"
+[ -n "$IN_ID" ] || { echo "INCOMING_IDENTITY_INVALID $IN" >&2; exit 8; }
+IN_CREATED=1
+/bin/mkdir "$IN/$BUNDLE"
 "$TAR" -C "$IN/$BUNDLE" -xf -
 test -x "$IN_EXE"
+test -f "$IN_STATION_EXE" && test ! -L "$IN_STATION_EXE" && test -x "$IN_STATION_EXE" || {
+  echo "INCOMING_STATION_HELPER_INVALID $IN_STATION_EXE" >&2
+  exit 3
+}
+test -f "$IN_BROWSER_EXE" && test ! -L "$IN_BROWSER_EXE" && test -x "$IN_BROWSER_EXE" || {
+  echo "INCOMING_BROWSER_HELPER_INVALID $IN_BROWSER_EXE" >&2
+  exit 3
+}
 "$CODESIGN" --verify --deep --strict --verbose=2 -R "$DEVELOPER_ID_REQUIREMENT" "$IN/$BUNDLE"
 REMOTE_CODESIGN_METADATA="$("$CODESIGN" -d --verbose=4 "$IN/$BUNDLE" 2>&1)" || {
   echo "REMOTE_SIGNATURE_METADATA_UNAVAILABLE" >&2
@@ -832,11 +1132,81 @@ REMOTE_SIGNED_AUTHORITY="$(first_signing_authority "$REMOTE_CODESIGN_METADATA")"
 REMOTE_BUNDLE_ID="$("$PLUTIL" -extract CFBundleIdentifier raw -o - "$IN/$BUNDLE/Contents/Info.plist")"
 REMOTE_BUNDLE_EXE="$("$PLUTIL" -extract CFBundleExecutable raw -o - "$IN/$BUNDLE/Contents/Info.plist")"
 [ "$REMOTE_BUNDLE_ID" = "${LABEL}" ] && [ "$REMOTE_BUNDLE_EXE" = "${PRODUCT_NAME}" ]
+bundle_has_only_contents "$IN/$BUNDLE" || {
+  echo "INCOMING_BUNDLE_ROOT_SHAPE_INVALID $IN/$BUNDLE" >&2
+  exit 3
+}
+CANDIDATE_APP_ID="$(owned_directory_identity "$IN/$BUNDLE" 2>/dev/null || true)"
+[ -n "$CANDIDATE_APP_ID" ] || {
+  echo "INCOMING_BUNDLE_IDENTITY_INVALID $IN/$BUNDLE" >&2
+  exit 3
+}
+same_directory_identity "$IN/$BUNDLE" "$CANDIDATE_APP_ID" || {
+  echo "INCOMING_BUNDLE_CHANGED_DURING_ADMISSION $IN/$BUNDLE" >&2
+  exit 3
+}
+
+# Materialize and admit the next launchd document before quiescing the current
+# generation. The fixed incoming path was proven absent above and exclusive
+# creation prevents a silent overwrite.
+/bin/mkdir -p "$(/usr/bin/dirname "$PLIST")" "$LOGDIR"
+set -C
+if { exec 8> "$PLIST_IN"; }; then
+  set +C
+else
+  set +C
+  echo "PLIST_INCOMING_CREATE_REFUSED $PLIST_IN" >&2
+  exit 3
+fi
+PLIST_IN_CREATED=1
+PLIST_IN_ID="$(owned_file_identity "$PLIST_IN" 2>/dev/null || true)"
+[ -n "$PLIST_IN_ID" ] || {
+  exec 8>&-
+  echo "PLIST_INCOMING_IDENTITY_INVALID $PLIST_IN" >&2
+  exit 3
+}
+if ! /usr/bin/printf '%s' ${shellLiteral(plistB64)} |
+  /usr/bin/base64 -d >&8; then
+  exec 8>&-
+  echo "PLIST_INCOMING_WRITE_FAILED $PLIST_IN" >&2
+  exit 3
+fi
+exec 8>&-
+/bin/chmod 644 "$PLIST_IN"
+same_file_identity "$PLIST_IN" "$PLIST_IN_ID" || {
+  echo "PLIST_INCOMING_CHANGED_DURING_CREATION $PLIST_IN" >&2
+  exit 3
+}
+NEXT_PLIST_LABEL="$("$PLUTIL" -extract Label raw -o - "$PLIST_IN")"
+NEXT_PLIST_EXE="$("$PLUTIL" -extract ProgramArguments.0 raw -o - "$PLIST_IN")"
+if "$PLUTIL" -extract ProgramArguments.1 raw -o - "$PLIST_IN" >/dev/null 2>&1; then
+  echo "PLIST_INCOMING_ARGUMENTS_INVALID $PLIST_IN" >&2
+  exit 3
+fi
+[ "$NEXT_PLIST_LABEL" = "${LABEL}" ] && [ "$NEXT_PLIST_EXE" = "$EXE" ] || {
+  echo "PLIST_INCOMING_PRODUCT_IDENTITY_MISMATCH $PLIST_IN" >&2
+  exit 3
+}
+same_file_identity "$PLIST_IN" "$PLIST_IN_ID" || {
+  echo "PLIST_INCOMING_CHANGED_DURING_ADMISSION $PLIST_IN" >&2
+  exit 3
+}
+
+if [ -e "$APP" ] || [ -L "$APP" ]; then
+  admit_existing_app || exit 4
+fi
+if [ -e "$PLIST" ] || [ -L "$PLIST" ]; then
+  admit_existing_plist || exit 4
+fi
 
 # print output is intentionally never parsed. kickstart -p is the documented
 # PID-producing launchctl operation and starts a loaded-but-idle old job so its
 # generation can be captured before bootout.
 if job_exists; then
+  [ -n "$APP_ID" ] || {
+    echo "LAUNCHD_JOB_WITHOUT_ADMITTED_APP $JOB" >&2
+    exit 4
+  }
   OLD_PID="$("$LAUNCHCTL" kickstart -p "$JOB")" || { echo "OLD_LAUNCHD_PID_NOT_PROVEN" >&2; exit 4; }
   valid_pid "$OLD_PID" || { echo "OLD_LAUNCHD_PID_INVALID $OLD_PID" >&2; exit 4; }
   OLD_IDENTITY_OK=0
@@ -864,34 +1234,239 @@ fi
 
 # Stale sockets are removed only after the old job and exact executable are
 # both absent. Their later existence therefore witnesses a new listener.
-remove_fixed_socket "$TERM_SOCK"
-remove_fixed_socket "$BROWSER_SOCK"
+retire_stale_socket "$TERM_SOCK" "$RETIRED_TERM_SOCKET" || exit 5
+retire_stale_socket "$BROWSER_SOCK" "$RETIRED_BROWSER_SOCKET" || exit 5
 
-# Preserve the old bundle and plist only through the pre-activation filesystem
-# transition. The first possible candidate launch is the irreversible boundary.
-if [ -e "$APP" ] || [ -L "$APP" ]; then
-  /bin/mv "$APP" "$APP_PREVIOUS"
-  APP_BACKED_UP=1
-fi
-if [ -e "$PLIST" ] || [ -L "$PLIST" ]; then
-  /bin/mv "$PLIST" "$PLIST_PREVIOUS"
-  PLIST_BACKED_UP=1
-fi
 begin_candidate_activation
-NEW_APP_INSTALLED=1
-/bin/mv "$IN/$BUNDLE" "$APP"
-/bin/rm -rf -- "$IN"
-test -x "$EXE"
 
-/bin/mkdir -p "$(/usr/bin/dirname "$PLIST")" "$LOGDIR"
-/bin/rm -f -- "$PLIST_IN"
-/usr/bin/printf '%s' ${shellLiteral(plistB64)} | /usr/bin/base64 -d > "$PLIST_IN"
-NEW_PLIST_INSTALLED=1
-/bin/mv "$PLIST_IN" "$PLIST"
-if ! discard_previous_artifacts; then
-  echo "ONE_WAY_CUTOVER_FORWARD_REPAIR app=$APP incoming=$IN plist=$PLIST" >&2
-  exit ${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
+# Permanently retire only resources admitted above. Moving into the freshly
+# minted 0700 lock directory lets us re-check dev:inode before deletion; no
+# rollback generation or fixed previous tree exists.
+if [ -n "$APP_ID" ]; then
+  [ ! -e "$RETIRED_APP" ] && [ ! -L "$RETIRED_APP" ] || {
+    echo "APP_RETIREMENT_TARGET_COLLISION $RETIRED_APP" >&2
+    exit 5
+  }
+  /bin/mkdir "$RETIRED_APP"
+  RETIRED_APP_ID="$(owned_directory_identity "$RETIRED_APP" 2>/dev/null || true)"
+  [ -n "$RETIRED_APP_ID" ] || {
+    echo "APP_RETIREMENT_ROOT_IDENTITY_INVALID $RETIRED_APP" >&2
+    exit 5
+  }
+  same_directory_identity "$APP" "$APP_ID" || {
+    echo "EXISTING_APP_CHANGED_BEFORE_RETIREMENT $APP" >&2
+    exit 5
+  }
+  bundle_has_only_contents "$APP" || {
+    echo "EXISTING_APP_ROOT_SHAPE_CHANGED_BEFORE_RETIREMENT $APP" >&2
+    exit 5
+  }
+  same_directory_identity "$APP/Contents" "$APP_CONTENTS_ID" || {
+    echo "EXISTING_APP_CONTENTS_CHANGED_BEFORE_RETIREMENT $APP/Contents" >&2
+    exit 5
+  }
+  /bin/mv -n "$APP/Contents" "$RETIRED_APP/Contents"
+  [ ! -e "$APP/Contents" ] && [ ! -L "$APP/Contents" ] &&
+    [ -e "$RETIRED_APP/Contents" ] || {
+      echo "EXISTING_APP_RETIREMENT_COLLISION $APP" >&2
+      exit 5
+    }
+  same_directory_identity "$RETIRED_APP/Contents" "$APP_CONTENTS_ID" || {
+    echo "EXISTING_APP_CONTENTS_CHANGED_DURING_RETIREMENT $RETIRED_APP/Contents" >&2
+    exit 5
+  }
+  bundle_has_only_contents "$RETIRED_APP" || {
+    echo "APP_RETIREMENT_ROOT_SHAPE_INVALID $RETIRED_APP" >&2
+    exit 5
+  }
+  same_directory_identity "$APP" "$APP_ID" || {
+    echo "EXISTING_APP_ROOT_CHANGED_DURING_RETIREMENT $APP" >&2
+    exit 5
+  }
+  /bin/rmdir "$APP" || {
+    echo "EXISTING_APP_ROOT_NOT_EMPTY_AFTER_RETIREMENT $APP" >&2
+    exit 5
+  }
+  [ ! -e "$APP" ] && [ ! -L "$APP" ] || {
+    echo "EXISTING_APP_ROOT_REAPPEARED_AFTER_RETIREMENT $APP" >&2
+    exit 5
+  }
+  same_directory_identity "$RETIRED_APP/Contents" "$APP_CONTENTS_ID" &&
+    bundle_has_only_contents "$RETIRED_APP" || {
+      echo "APP_RETIREMENT_CONTENT_CHANGED_BEFORE_DELETION $RETIRED_APP" >&2
+      exit 5
+    }
+  remove_bound_app_bundle "$RETIRED_APP" "$RETIRED_APP_ID" "$APP_CONTENTS_ID" || {
+    echo "EXISTING_APP_RETIREMENT_FAILED $RETIRED_APP" >&2
+    exit 5
+  }
 fi
+if [ -n "$PLIST_ID" ]; then
+  same_file_identity "$PLIST" "$PLIST_ID" || {
+    echo "EXISTING_PLIST_CHANGED_BEFORE_RETIREMENT $PLIST" >&2
+    exit 5
+  }
+  [ ! -e "$RETIRED_PLIST" ] && [ ! -L "$RETIRED_PLIST" ] || {
+    echo "PLIST_RETIREMENT_TARGET_COLLISION $RETIRED_PLIST" >&2
+    exit 5
+  }
+  /bin/mv -n "$PLIST" "$RETIRED_PLIST"
+  [ ! -e "$PLIST" ] && [ ! -L "$PLIST" ] || {
+    echo "EXISTING_PLIST_RETIREMENT_COLLISION $PLIST" >&2
+    exit 5
+  }
+  same_file_identity "$RETIRED_PLIST" "$PLIST_ID" || {
+    echo "EXISTING_PLIST_CHANGED_DURING_RETIREMENT $RETIRED_PLIST" >&2
+    exit 5
+  }
+  remove_bound_file "$RETIRED_PLIST" "$PLIST_ID" || {
+    echo "EXISTING_PLIST_RETIREMENT_FAILED $RETIRED_PLIST" >&2
+    exit 5
+  }
+fi
+
+same_directory_identity "$IN/$BUNDLE" "$CANDIDATE_APP_ID" || {
+  echo "INCOMING_BUNDLE_CHANGED_BEFORE_PUBLICATION $IN/$BUNDLE" >&2
+  exit 5
+}
+if [ -e "$APP" ] || [ -L "$APP" ]; then
+  echo "UNADMITTED_APP_APPEARED_BEFORE_PUBLICATION $APP" >&2
+  exit 5
+fi
+/bin/mkdir "$APP"
+PUBLISHED_APP_ID="$(owned_directory_identity "$APP" 2>/dev/null || true)"
+[ -n "$PUBLISHED_APP_ID" ] || {
+  echo "PUBLISHED_APP_ROOT_IDENTITY_INVALID $APP" >&2
+  exit 5
+}
+same_directory_identity "$IN/$BUNDLE" "$CANDIDATE_APP_ID" || {
+  echo "INCOMING_BUNDLE_CHANGED_AT_PUBLICATION $IN/$BUNDLE" >&2
+  exit 5
+}
+/bin/mv -n "$IN/$BUNDLE/Contents" "$APP/Contents"
+[ ! -e "$IN/$BUNDLE/Contents" ] && [ ! -L "$IN/$BUNDLE/Contents" ] &&
+  [ -e "$APP/Contents" ] || {
+    echo "INCOMING_BUNDLE_PUBLICATION_COLLISION $APP" >&2
+    exit 5
+  }
+same_directory_identity "$APP" "$PUBLISHED_APP_ID" || {
+  echo "PUBLISHED_APP_ROOT_CHANGED_DURING_PUBLICATION $APP" >&2
+  exit 5
+}
+same_directory_identity "$IN/$BUNDLE" "$CANDIDATE_APP_ID" || {
+  echo "INCOMING_BUNDLE_ROOT_CHANGED_DURING_PUBLICATION $IN/$BUNDLE" >&2
+  exit 5
+}
+/bin/rmdir "$IN/$BUNDLE" || {
+  echo "INCOMING_BUNDLE_ROOT_NOT_EMPTY_AFTER_PUBLICATION $IN/$BUNDLE" >&2
+  exit 5
+}
+same_directory_identity "$IN" "$IN_ID" || {
+  echo "INCOMING_ROOT_CHANGED_BEFORE_RETIREMENT $IN" >&2
+  exit 5
+}
+/bin/rmdir "$IN" || {
+  echo "INCOMING_ROOT_NOT_EMPTY_AFTER_PUBLICATION $IN" >&2
+  exit 5
+}
+IN_CREATED=0
+IN_ID=""
+"$CODESIGN" --verify --deep --strict --verbose=2 -R "$DEVELOPER_ID_REQUIREMENT" "$APP" || {
+  echo "PUBLISHED_APP_SIGNATURE_INVALID $APP" >&2
+  exit 5
+}
+PUBLISHED_CODESIGN_METADATA="$("$CODESIGN" -d --verbose=4 "$APP" 2>&1)" || {
+  echo "PUBLISHED_SIGNATURE_METADATA_UNAVAILABLE" >&2
+  exit 5
+}
+PUBLISHED_SIGNED_EXE="$(single_metadata_value "$PUBLISHED_CODESIGN_METADATA" "Executable")" || exit 5
+PUBLISHED_SIGNED_ID="$(single_metadata_value "$PUBLISHED_CODESIGN_METADATA" "Identifier")" || exit 5
+PUBLISHED_SIGNED_TEAM="$(single_metadata_value "$PUBLISHED_CODESIGN_METADATA" "TeamIdentifier")" || exit 5
+PUBLISHED_SIGNED_CDHASH="$(single_metadata_value "$PUBLISHED_CODESIGN_METADATA" "CDHash")" || exit 5
+PUBLISHED_SIGNED_AUTHORITY="$(first_signing_authority "$PUBLISHED_CODESIGN_METADATA")" || exit 5
+[ "$PUBLISHED_SIGNED_EXE" = "$EXE" ] &&
+  [ "$PUBLISHED_SIGNED_ID" = "${LABEL}" ] &&
+  [ "$PUBLISHED_SIGNED_TEAM" = "${TEAM_IDENTIFIER}" ] &&
+  [ "$PUBLISHED_SIGNED_AUTHORITY" = "${SIGNING_AUTHORITY}" ] &&
+  [ "$(/usr/bin/printf '%s' "$PUBLISHED_SIGNED_CDHASH" | /usr/bin/tr '[:upper:]' '[:lower:]')" = "$EXPECTED_CDHASH" ] || {
+    echo "PUBLISHED_SIGNATURE_IDENTITY_MISMATCH $APP" >&2
+    exit 5
+  }
+PUBLISHED_BUNDLE_ID="$("$PLUTIL" -extract CFBundleIdentifier raw -o - "$APP/Contents/Info.plist")"
+PUBLISHED_BUNDLE_EXE="$("$PLUTIL" -extract CFBundleExecutable raw -o - "$APP/Contents/Info.plist")"
+[ "$PUBLISHED_BUNDLE_ID" = "${LABEL}" ] &&
+  [ "$PUBLISHED_BUNDLE_EXE" = "${PRODUCT_NAME}" ] || {
+    echo "PUBLISHED_APP_PRODUCT_IDENTITY_MISMATCH $APP" >&2
+    exit 5
+  }
+same_directory_identity "$APP" "$PUBLISHED_APP_ID" || {
+  echo "PUBLISHED_APP_CHANGED_AFTER_ADMISSION $APP" >&2
+  exit 5
+}
+test -x "$EXE" || { echo "PUBLISHED_EXECUTABLE_INVALID $EXE" >&2; exit 5; }
+test -f "$STATION_EXE" && test ! -L "$STATION_EXE" && test -x "$STATION_EXE" || {
+  echo "PUBLISHED_STATION_HELPER_INVALID $STATION_EXE" >&2
+  exit 5
+}
+test -f "$BROWSER_EXE" && test ! -L "$BROWSER_EXE" && test -x "$BROWSER_EXE" || {
+  echo "PUBLISHED_BROWSER_HELPER_INVALID $BROWSER_EXE" >&2
+  exit 5
+}
+
+same_file_identity "$PLIST_IN" "$PLIST_IN_ID" || {
+  echo "PLIST_INCOMING_CHANGED_BEFORE_PUBLICATION $PLIST_IN" >&2
+  exit 5
+}
+if [ -e "$PLIST" ] || [ -L "$PLIST" ]; then
+  echo "UNADMITTED_PLIST_APPEARED_BEFORE_PUBLICATION $PLIST" >&2
+  exit 5
+fi
+set -C
+if { exec 3> "$PLIST"; }; then
+  set +C
+else
+  set +C
+  echo "PLIST_PUBLICATION_CREATE_REFUSED $PLIST" >&2
+  exit 5
+fi
+PUBLISHED_PLIST_ID="$(owned_file_identity "$PLIST" 2>/dev/null || true)"
+[ -n "$PUBLISHED_PLIST_ID" ] || {
+  exec 3>&-
+  echo "PUBLISHED_PLIST_IDENTITY_INVALID $PLIST" >&2
+  exit 5
+}
+/bin/cat "$PLIST_IN" >&3 || {
+  exec 3>&-
+  echo "PUBLISHED_PLIST_WRITE_FAILED $PLIST" >&2
+  exit 5
+}
+exec 3>&-
+/bin/chmod 644 "$PLIST"
+same_file_identity "$PLIST" "$PUBLISHED_PLIST_ID" || {
+  echo "PUBLISHED_PLIST_CHANGED_DURING_PUBLICATION $PLIST" >&2
+  exit 5
+}
+PUBLISHED_PLIST_LABEL="$("$PLUTIL" -extract Label raw -o - "$PLIST")"
+PUBLISHED_PLIST_EXE="$("$PLUTIL" -extract ProgramArguments.0 raw -o - "$PLIST")"
+if "$PLUTIL" -extract ProgramArguments.1 raw -o - "$PLIST" >/dev/null 2>&1; then
+  echo "PUBLISHED_PLIST_ARGUMENTS_INVALID $PLIST" >&2
+  exit 5
+fi
+[ "$PUBLISHED_PLIST_LABEL" = "${LABEL}" ] &&
+  [ "$PUBLISHED_PLIST_EXE" = "$EXE" ] || {
+    echo "PUBLISHED_PLIST_PRODUCT_IDENTITY_MISMATCH $PLIST" >&2
+    exit 5
+  }
+same_file_identity "$PLIST_IN" "$PLIST_IN_ID" || {
+  echo "PLIST_INCOMING_CHANGED_AFTER_PUBLICATION $PLIST_IN" >&2
+  exit 5
+}
+remove_bound_file "$PLIST_IN" "$PLIST_IN_ID" || {
+  echo "PLIST_INCOMING_RETIREMENT_FAILED $PLIST_IN" >&2
+  exit 5
+}
+PLIST_IN_CREATED=0
+PLIST_IN_ID=""
 if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
   "$LAUNCHCTL" load -w "$PLIST"
 fi
@@ -1002,7 +1577,7 @@ const streamAppToRemote = (
             const lease = appProcessPlane.spawnChild({
               source: "hosts.deploy-remote.tar",
               purpose: "stream app bundle to remote host",
-              command: "tar",
+              command: "/usr/bin/tar",
               args: ["-C", input.localApp.appPath, "-cf", "-", "."],
             });
             return {

@@ -90,14 +90,16 @@ describe("named deploy compilers", () => {
 
   it("admits a product Darwin deploy script and refuses free-form shell", () => {
     const product = [
-      "commit_deploy() { :; }",
+      "begin_candidate_activation() { :; }",
+      'echo "UNBOUND_DEPLOY_PATH_PRESENT" >&2',
+      "IN_STATION_EXE=/fixed",
       'echo "STATION_READY pid=1 term=1 browser=1"',
       'echo "CONTROL_SOCKET_TIMEOUT" >&2',
     ].join("\n");
     const parts = inspectRemoteCommand(
       run(compileDarwinRemoteDeployScript(product)),
     );
-    expect(parts.executable).toBe("bash");
+    expect(parts.executable).toBe("/bin/bash");
     expect(parts.args[0]).toBe("-lc");
     expect(parts.args[1]).toBe(product);
 

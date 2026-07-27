@@ -9,11 +9,95 @@
  * Doctrine: brand means “safe product operation,” not merely “created by Vellum.”
  */
 
-import { Effect } from "effect";
-import { makeRemoteCommand, type RemoteCommand, SshInputError } from "./domain";
+import type { Context } from "effect";
+import { Effect, Schema } from "effect";
+import {
+  makeRemoteCommand,
+  type RemoteCommand,
+  type SshEndpoint,
+  type SshError,
+  SshInputError,
+} from "./domain";
+import { oneShot } from "./program";
+import { SshTransport } from "./service";
 
 // Clean absolute POSIX path: no shell metacharacters, no `..`, no NULs.
 const SAFE_ABS_PATH = /^\/(?:[A-Za-z0-9._+-]+\/)*[A-Za-z0-9._+-]+$/u;
+
+export const DARWIN_PACKAGED_STATION_EXECUTABLE =
+  "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-station";
+export const DARWIN_PACKAGED_BROWSER_EXECUTABLE =
+  "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-browser";
+export const LINUX_PACKAGED_STATION_EXECUTABLE =
+  "/opt/Vellum Command/resources/bin/vellum-station";
+export const LINUX_PACKAGED_BROWSER_EXECUTABLE =
+  "/opt/Vellum Command/resources/bin/vellum-browser";
+
+const RemotePackagedPlatformTypeId: unique symbol = Symbol(
+  "@vellum/ssh/RemotePackagedPlatform",
+);
+
+/**
+ * Runtime witness minted only from one current, exact `uname -s` observation.
+ * A platform string supplied by a caller cannot select a remote executable.
+ */
+export interface RemotePackagedPlatform {
+  readonly [RemotePackagedPlatformTypeId]:
+    typeof RemotePackagedPlatformTypeId;
+}
+
+type RemotePackagedPlatformName = "darwin" | "linux";
+
+const remotePackagedPlatforms = new WeakMap<
+  RemotePackagedPlatform,
+  RemotePackagedPlatformName
+>();
+
+type Ssh = Context.Tag.Service<typeof SshTransport>;
+
+export class RemotePlatformProbeError extends Schema.TaggedError<RemotePlatformProbeError>()(
+  "RemotePlatformProbeError",
+  {
+    endpoint: Schema.String,
+    reason: Schema.Literal("malformed", "unsupported"),
+    message: Schema.String,
+  },
+) {}
+
+const mintRemotePackagedPlatform = (
+  platform: RemotePackagedPlatformName,
+): RemotePackagedPlatform => {
+  const witness = Object.freeze({
+    [RemotePackagedPlatformTypeId]: RemotePackagedPlatformTypeId,
+  }) as RemotePackagedPlatform;
+  remotePackagedPlatforms.set(witness, platform);
+  return witness;
+};
+
+const decodeRemotePackagedPlatform = (
+  endpoint: SshEndpoint,
+  output: string,
+): Effect.Effect<RemotePackagedPlatform, RemotePlatformProbeError> => {
+  if (output === "Darwin\n") {
+    return Effect.succeed(mintRemotePackagedPlatform("darwin"));
+  }
+  if (output === "Linux\n") {
+    return Effect.succeed(mintRemotePackagedPlatform("linux"));
+  }
+  const canonicalUnsupported =
+    output.endsWith("\n") &&
+    output.indexOf("\n") === output.length - 1 &&
+    /^[A-Za-z][A-Za-z0-9._-]{0,31}\n$/u.test(output);
+  return Effect.fail(
+    RemotePlatformProbeError.make({
+      endpoint,
+      reason: canonicalUnsupported ? "unsupported" : "malformed",
+      message: canonicalUnsupported
+        ? "remote platform does not have a Vellum packaged executable"
+        : "remote platform probe did not return one canonical uname record",
+    }),
+  );
+};
 
 const admitReadPath = (path: string): Effect.Effect<string, SshInputError> => {
   if (
@@ -61,7 +145,27 @@ const admitCliArgs = (
 
 /** Fixed OS probe: `uname -s`. */
 export const remoteUname = (): Effect.Effect<RemoteCommand, SshInputError> =>
-  makeRemoteCommand("uname", ["-s"]);
+  makeRemoteCommand("/usr/bin/uname", ["-s"]);
+
+/**
+ * Resolve the installed product platform from the target itself. The probe
+ * carries no Station request or browser delegation, and malformed/unsupported
+ * evidence fails before either payload can cross SSH.
+ */
+export const resolveRemotePackagedPlatform = (
+  ssh: Ssh,
+  endpoint: SshEndpoint,
+): Effect.Effect<
+  RemotePackagedPlatform,
+  SshError | RemotePlatformProbeError
+> =>
+  Effect.gen(function* () {
+    const command = yield* remoteUname();
+    const observed = yield* ssh.run(
+      oneShot(endpoint, command, { budget: "short" }),
+    );
+    return yield* decodeRemotePackagedPlatform(endpoint, observed.stdout);
+  }).pipe(Effect.withSpan("ssh.remote-packaged-platform"));
 
 /**
  * Read a confined absolute path with `/bin/cat`.
@@ -184,17 +288,55 @@ export const remoteHostProbe = (
   );
 };
 
-/** Fixed station-browser stdin wrapper: `vellum-browser station`. */
-export const remoteVellumBrowserStation = (): Effect.Effect<
+/**
+ * Fixed packaged station-browser wrapper. The executable comes only from a
+ * current platform witness; PATH and user-installed symlinks are never read.
+ */
+export const remoteVellumBrowserStation = (
+  platform: RemotePackagedPlatform,
+): Effect.Effect<
   RemoteCommand,
   SshInputError
-> => makeRemoteCommand("vellum-browser", ["station"]);
+> => {
+  const observed = remotePackagedPlatforms.get(platform);
+  if (observed === undefined) {
+    return Effect.fail(
+      new SshInputError({
+        message: "remote packaged platform witness is invalid",
+      }),
+    );
+  }
+  return makeRemoteCommand(
+    observed === "darwin"
+      ? DARWIN_PACKAGED_BROWSER_EXECUTABLE
+      : LINUX_PACKAGED_BROWSER_EXECUTABLE,
+    ["station"],
+  );
+};
 
 /**
  * Fixed Station API stdin wrapper. Fleet traffic is one typed request on
- * stdin and one typed response on stdout; no remote path or shell is exposed.
+ * stdin and one typed response on stdout. Only the immutable packaged resource
+ * selected by current host evidence can receive that request.
  */
-export const remoteVellumStation = (): Effect.Effect<
+export const remoteVellumStation = (
+  platform: RemotePackagedPlatform,
+): Effect.Effect<
   RemoteCommand,
   SshInputError
-> => makeRemoteCommand("vellum-station", []);
+> => {
+  const observed = remotePackagedPlatforms.get(platform);
+  if (observed === undefined) {
+    return Effect.fail(
+      new SshInputError({
+        message: "remote packaged platform witness is invalid",
+      }),
+    );
+  }
+  return makeRemoteCommand(
+    observed === "darwin"
+      ? DARWIN_PACKAGED_STATION_EXECUTABLE
+      : LINUX_PACKAGED_STATION_EXECUTABLE,
+    [],
+  );
+};

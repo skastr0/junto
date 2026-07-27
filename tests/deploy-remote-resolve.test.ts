@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { createServer } from "node:net";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -9,8 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -179,6 +179,18 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain("APP='/Applications/Vellum Command.app'");
     expect(script).toContain("IN='/Applications/Vellum Command.app.incoming'");
     expect(script).toContain(
+      "STATION_EXE='/Applications/Vellum Command.app/Contents/Resources/bin/vellum-station'",
+    );
+    expect(script).toContain(
+      "BROWSER_EXE='/Applications/Vellum Command.app/Contents/Resources/bin/vellum-browser'",
+    );
+    expect(script).toContain(
+      'test -f "$IN_STATION_EXE" && test ! -L "$IN_STATION_EXE" && test -x "$IN_STATION_EXE"',
+    );
+    expect(script).toContain(
+      'test -f "$IN_BROWSER_EXE" && test ! -L "$IN_BROWSER_EXE" && test -x "$IN_BROWSER_EXE"',
+    );
+    expect(script).toContain(
       "TERM_SOCK='/Users/remote station/.vellum/term/control.sock'",
     );
     expect(script).toContain(
@@ -190,13 +202,16 @@ describe("buildRemoteDeployScript", () => {
       .map((line) => line.trim())
       .filter((line) => line.startsWith("/bin/rm -rf"));
     expect(recursiveRemovals).toEqual([
-      '/bin/rm -rf -- "$APP" || return 1',
-      '/bin/rm -rf -- "$APP" || return 1',
-      '/bin/rm -rf -- "$APP_PREVIOUS" || return 1',
-      '/bin/rm -rf -- "$IN" >/dev/null 2>&1 || true',
-      '/bin/rm -rf -- "$IN"',
-      '/bin/rm -rf -- "$IN"',
+      '/bin/rm -rf -- "$REMOVE_PATH" || return 1',
+      '/bin/rm -rf -- "$REMOVE_APP_PATH" || return 1',
     ]);
+    expect(script).toContain(
+      'same_directory_identity "$REMOVE_PATH" "$REMOVE_IDENTITY" || return 1',
+    );
+    expect(script).toContain('/bin/rmdir "$DEPLOY_LOCK" || return 1');
+    expect(script).not.toContain(
+      'remove_bound_directory "$DEPLOY_LOCK" "$LOCK_ID"',
+    );
     expect(script).toContain('"$TAR" -C "$IN/$BUNDLE" -xf -');
     expect(script).toContain(
       "DEPLOY_LOCK='/Applications/.vellum-command-deploy.lock'",
@@ -207,6 +222,15 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain(
       '"$CODESIGN" --verify --deep --strict --verbose=2 -R "$DEVELOPER_ID_REQUIREMENT"',
     );
+    const provider = readFileSync(
+      new URL(
+        "../src/main/vellum/hosts/deploy-darwin.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(provider).toContain('command: "/usr/bin/tar"');
+    expect(provider).not.toContain('command: "tar"');
   });
 
   it("proves the old job and exact executable gone before replacement", () => {
@@ -224,11 +248,11 @@ describe("buildRemoteDeployScript", () => {
       boundedProof,
     );
     const socketRemoval = script.indexOf(
-      'remove_fixed_socket "$TERM_SOCK"',
+      'retire_stale_socket "$TERM_SOCK" "$RETIRED_TERM_SOCKET"',
       proofFailure,
     );
     const appTransition = script.indexOf(
-      '/bin/mv "$APP" "$APP_PREVIOUS"',
+      '/bin/mv -n "$APP/Contents" "$RETIRED_APP/Contents"',
       socketRemoval,
     );
 
@@ -256,13 +280,15 @@ describe("buildRemoteDeployScript", () => {
     );
     expect(script).toContain('exact_exe_has_pid "$NEW_PID"');
     expect(script).not.toContain("/usr/bin/open");
-    expect(script).not.toMatch(/"\$EXE"[^\n]*&/u);
+    expect(script).not.toMatch(/^\s*"\$EXE"(?:\s|$)/mu);
   });
 
   it("cannot accept preexisting or wrong-owner control sockets as ready", () => {
-    const termRemoval = script.lastIndexOf('remove_fixed_socket "$TERM_SOCK"');
+    const termRemoval = script.lastIndexOf(
+      'retire_stale_socket "$TERM_SOCK" "$RETIRED_TERM_SOCKET"',
+    );
     const browserRemoval = script.lastIndexOf(
-      'remove_fixed_socket "$BROWSER_SOCK"',
+      'retire_stale_socket "$BROWSER_SOCK" "$RETIRED_BROWSER_SOCKET"',
     );
     const bootstrap = script.lastIndexOf(
       'if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST"',
@@ -290,28 +316,50 @@ describe("buildRemoteDeployScript", () => {
   });
 
   it("crosses a one-way boundary before launchd can start the candidate", () => {
-    const restoreStart = script.indexOf("restore_pre_activation() {");
-    const restoreEnd = script.indexOf(
-      "discard_previous_artifacts() {",
-      restoreStart,
-    );
-    const restore = script.slice(restoreStart, restoreEnd);
     const activation = script.lastIndexOf("begin_candidate_activation");
-    const candidateInstall = script.lastIndexOf('/bin/mv "$IN/$BUNDLE" "$APP"');
+    const oldAppRetirement = script.lastIndexOf(
+      '/bin/mv -n "$APP/Contents" "$RETIRED_APP/Contents"',
+    );
+    const candidateInstall = script.lastIndexOf(
+      '/bin/mv -n "$IN/$BUNDLE/Contents" "$APP/Contents"',
+    );
     const bootstrap = script.lastIndexOf(
       'if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST"',
     );
     const postActivation = script.slice(activation);
 
-    expect(restore).toContain(
-      'if [ "$ACTIVATION_STARTED" = "1" ]; then return 0; fi',
-    );
-    expect(restore).not.toMatch(/\b(?:bootstrap|kickstart|load)\b/u);
+    expect(script).not.toContain("restore_pre_activation");
+    expect(script).not.toContain("discard_previous_artifacts");
+    expect(script).not.toContain("APP_BACKED_UP");
+    expect(script).not.toContain("PLIST_BACKED_UP");
     expect(activation).toBeGreaterThan(0);
+    expect(oldAppRetirement).toBeGreaterThan(activation);
     expect(candidateInstall).toBeGreaterThan(activation);
     expect(bootstrap).toBeGreaterThan(activation);
-    expect(postActivation).not.toContain('/bin/mv "$APP_PREVIOUS" "$APP"');
-    expect(postActivation).not.toContain('/bin/mv "$PLIST_PREVIOUS" "$PLIST"');
+    expect(postActivation).not.toMatch(
+      /\/bin\/mv[^\n]*"\$RETIRED_APP[^\n]*"\$APP/u,
+    );
+    expect(postActivation).not.toMatch(
+      /\/bin\/mv[^\n]*"\$RETIRED_PLIST[^\n]*"\$PLIST/u,
+    );
+  });
+
+  it("uses denial-only collision guards and exclusively binds every control write", () => {
+    expect(script).toContain(
+      'echo "UNBOUND_DEPLOY_PATH_PRESENT $UNBOUND_PATH" >&2',
+    );
+    expect(script).not.toMatch(
+      /\/bin\/(?:rm|mv)[^\n]*"\$FORBIDDEN_(?:APP|PLIST)_(?:PREVIOUS|REJECTED)"/u,
+    );
+    expect(script).toContain('if { exec 9> "$DEPLOY_LOCK_OWNER"; }; then');
+    expect(script).toContain(
+      'LOCK_OWNER_ID="$(owned_file_identity "$DEPLOY_LOCK_OWNER"',
+    );
+    expect(script).toContain('if { exec 8> "$PLIST_IN"; }; then');
+    expect(script).toContain(
+      'PLIST_IN_ID="$(owned_file_identity "$PLIST_IN"',
+    );
+    expect(script).not.toContain("LSOF_ERROR=");
   });
 
   it("quotes shell-active home characters and rejects non-canonical homes", () => {
@@ -368,7 +416,7 @@ describe("buildRemoteDeployScript", () => {
 
 describe("remote deploy transaction behavior", () => {
   const makeHarness = () => {
-    const root = mkdtempSync(join(tmpdir(), "vellum-deploy-test-"));
+    const root = mkdtempSync("/tmp/vellum-deploy-test-");
     const bin = join(root, "bin");
     const state = join(root, "state");
     const remoteHome = join(root, "Users", "remote");
@@ -384,6 +432,12 @@ describe("remote deploy transaction behavior", () => {
       "Library",
       "LaunchAgents",
       "skastr0.vellum.plist",
+    );
+    const termSocketPath = join(
+      remoteHome,
+      ".vellum",
+      "term",
+      "control.sock",
     );
     mkdirSync(bin, { recursive: true });
     mkdirSync(state, { recursive: true });
@@ -431,7 +485,19 @@ describe("remote deploy transaction behavior", () => {
         "lsof",
         [
           "is_pid=0",
-          'for arg in "$@"; do if [ "$arg" = "-p" ]; then is_pid=1; fi; done',
+          "is_socket=0",
+          'socket_path="${@: -1}"',
+          'for arg in "$@"; do',
+          '  if [ "$arg" = "-p" ]; then is_pid=1; fi',
+          '  if [ "$arg" = "-U" ]; then is_socket=1; fi',
+          "done",
+          'if [ "$is_socket" = "1" ]; then',
+          '  if [ -n "$FAKE_LIVE_SOCKET" ] && [ "$socket_path" = "$FAKE_LIVE_SOCKET" ]; then',
+          "    printf 'p999\\n'",
+          "    exit 0",
+          "  fi",
+          "  exit 1",
+          "fi",
           'if [ "$is_pid" = "0" ] && [ "$FAKE_LSOF_GLOBAL_ERROR" = "1" ]; then',
           '  echo "observer failed" >&2',
           "  exit 1",
@@ -461,9 +527,17 @@ describe("remote deploy transaction behavior", () => {
           '  previous="$arg"',
           "done",
           'test -n "$target"',
-          'mkdir -p "$target/Contents/MacOS" "$target/Contents/Resources"',
+          'mkdir -p "$target/Contents/MacOS" "$target/Contents/Resources/bin"',
           "printf 'new-generation' > \"$target/Contents/MacOS/Vellum Command\"",
           'chmod 755 "$target/Contents/MacOS/Vellum Command"',
+          'if [ "$FAKE_MISSING_CONTROL_HELPER" != "station" ]; then',
+          "  printf 'station-helper' > \"$target/Contents/Resources/bin/vellum-station\"",
+          '  chmod 755 "$target/Contents/Resources/bin/vellum-station"',
+          "fi",
+          'if [ "$FAKE_MISSING_CONTROL_HELPER" != "browser" ]; then',
+          "  printf 'browser-helper' > \"$target/Contents/Resources/bin/vellum-browser\"",
+          '  chmod 755 "$target/Contents/Resources/bin/vellum-browser"',
+          "fi",
           "printf 'new-info' > \"$target/Contents/Info.plist\"",
           'touch "$FAKE_STATE/tar-ran"',
         ].join("\n"),
@@ -471,9 +545,10 @@ describe("remote deploy transaction behavior", () => {
       codesign: executable(
         "codesign",
         [
+          'target="${@: -1}"',
+          'if [ "$FAKE_EXISTING_APP_INVALID" = "1" ] && [ "$target" = "$FAKE_APP" ]; then exit 1; fi',
           'if [ "$FAKE_CODESIGN_FAIL" = "1" ]; then exit 1; fi',
           'if [ "$1" = "-d" ]; then',
-          '  target="${@: -1}"',
           '  echo "Executable=$target/Contents/MacOS/Vellum Command" >&2',
           '  echo "Identifier=skastr0.vellum" >&2',
           '  echo "CodeDirectory v=20500 flags=0x10000(runtime)" >&2',
@@ -486,14 +561,57 @@ describe("remote deploy transaction behavior", () => {
           "fi",
         ].join("\n"),
       ),
+      find: executable(
+        "find",
+        [
+          'target="$1"',
+          'if [ "$FAKE_SWAP_APP_CONTENTS" = "1" ] && [ "$target" = "$FAKE_APP" ]; then',
+          '  count_path="$FAKE_STATE/app-find-count"',
+          '  count="$(cat "$count_path" 2>/dev/null || echo 0)"',
+          "  count=$((count + 1))",
+          '  printf \'%s\\n\' "$count" > "$count_path"',
+          '  if [ "$count" = "2" ]; then',
+          '    /bin/mv "$target/Contents" "$FAKE_STATE/admitted-contents"',
+          '    /bin/mkdir "$target/Contents"',
+          '    printf \'foreign\' > "$target/Contents/foreign-marker"',
+          "  fi",
+          "fi",
+          'exec /usr/bin/find "$@"',
+        ].join("\n"),
+      ),
       plutil: executable(
         "plutil",
         [
+          'target="${@: -1}"',
           'case "$*" in',
           '  *CFBundleIdentifier*) echo "skastr0.vellum" ;;',
           '  *CFBundleExecutable*) echo "Vellum Command" ;;',
+          '  *ProgramArguments.1*) exit 1 ;;',
+          '  *ProgramArguments.0*)',
+          '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "/unowned/executable"; else echo "$FAKE_EXE"; fi',
+          "    ;;",
+          '  *Label*)',
+          '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "unowned.label"; else echo "skastr0.vellum"; fi',
+          "    ;;",
           "  *) exit 1 ;;",
           "esac",
+        ].join("\n"),
+      ),
+      stat: executable(
+        "stat",
+        [
+          'if [ "$(/usr/bin/uname -s)" = "Darwin" ]; then exec /usr/bin/stat "$@"; fi',
+          'target="${@: -1}"',
+          'raw="$(/usr/bin/stat -c \'%d:%i:%u:%F\' -- "$target")"',
+          'prefix="${raw%:*}"',
+          'kind="${raw##*:}"',
+          'case "$kind" in',
+          '  directory) kind="Directory" ;;',
+          '  "regular file") kind="Regular File" ;;',
+          '  socket) kind="Socket" ;;',
+          '  *) kind="Unsupported" ;;',
+          "esac",
+          'printf \'%s:%s\\n\' "$prefix" "$kind"',
         ].join("\n"),
       ),
       osascript: executable("osascript", "exit 0"),
@@ -528,6 +646,13 @@ describe("remote deploy transaction behavior", () => {
           FAKE_REMOTE_CDHASH: TEST_CDHASH,
           FAKE_LSOF_GLOBAL_ERROR: "0",
           FAKE_CANDIDATE_KICKSTART_FAIL: "0",
+          FAKE_MISSING_CONTROL_HELPER: "none",
+          FAKE_EXISTING_APP_INVALID: "0",
+          FAKE_EXISTING_PLIST_INVALID: "0",
+          FAKE_LIVE_SOCKET: "",
+          FAKE_SWAP_APP_CONTENTS: "0",
+          FAKE_APP: appPath,
+          FAKE_PLIST: plistPath,
           ...overrides,
         },
       });
@@ -537,6 +662,7 @@ describe("remote deploy transaction behavior", () => {
       appPath,
       executablePath,
       plistPath,
+      termSocketPath,
       runtime,
       run,
       cleanup: () => rmSync(root, { recursive: true, force: true }),
@@ -565,6 +691,36 @@ describe("remote deploy transaction behavior", () => {
         expect(existsSync(join(harness.state, "loaded"))).toBe(true);
       } finally {
         harness.cleanup();
+      }
+    },
+    35_000,
+  );
+
+  it(
+    "refuses a fresh candidate missing either canonical control helper before stopping the old job",
+    () => {
+      for (const helper of ["station", "browser"]) {
+        const harness = makeHarness();
+        try {
+          const result = harness.run({
+            FAKE_MISSING_CONTROL_HELPER: helper,
+          });
+          const launchctlLogPath = join(
+            harness.state,
+            "launchctl.log",
+          );
+          const launchctlLog = existsSync(launchctlLogPath)
+            ? readFileSync(launchctlLogPath, "utf8")
+            : "";
+          expect(result.status, result.stderr).toBe(12);
+          expect(result.stderr).toContain("DEPLOY_NOT_STARTED");
+          expect(launchctlLog).not.toContain("bootout");
+          expect(readFileSync(harness.executablePath, "utf8")).toBe(
+            "old-generation",
+          );
+        } finally {
+          harness.cleanup();
+        }
       }
     },
     35_000,
@@ -618,15 +774,145 @@ describe("remote deploy transaction behavior", () => {
   );
 
   it(
+    "preserves every preexisting fixed transaction path without inspecting or deleting it",
+    () => {
+      for (const targetFor of [
+        (h: ReturnType<typeof makeHarness>) => `${h.appPath}.incoming`,
+        (h: ReturnType<typeof makeHarness>) => `${h.appPath}.previous`,
+        (h: ReturnType<typeof makeHarness>) => `${h.appPath}.rejected`,
+        (h: ReturnType<typeof makeHarness>) => `${h.plistPath}.incoming`,
+        (h: ReturnType<typeof makeHarness>) => `${h.plistPath}.previous`,
+        (h: ReturnType<typeof makeHarness>) => `${h.plistPath}.rejected`,
+      ]) {
+        const harness = makeHarness();
+        try {
+          const target = targetFor(harness);
+          writeFileSync(target, "foreign-transaction-state");
+          const result = harness.run();
+
+          expect(result.status).toBe(12);
+          expect(result.stderr).toContain("UNBOUND_DEPLOY_PATH_PRESENT");
+          expect(readFileSync(target, "utf8")).toBe(
+            "foreign-transaction-state",
+          );
+          expect(existsSync(join(harness.state, "tar-ran"))).toBe(false);
+          expect(readFileSync(harness.executablePath, "utf8")).toBe(
+            "old-generation",
+          );
+        } finally {
+          harness.cleanup();
+        }
+      }
+    },
+    35_000,
+  );
+
+  it(
+    "preserves an unadmitted existing app and launchd document",
+    () => {
+      for (const invalid of [
+        { FAKE_EXISTING_APP_INVALID: "1" },
+        { FAKE_EXISTING_PLIST_INVALID: "1" },
+      ]) {
+        const harness = makeHarness();
+        try {
+          const result = harness.run(invalid);
+          const launchctlLogPath = join(harness.state, "launchctl.log");
+          const launchctlLog = existsSync(launchctlLogPath)
+            ? readFileSync(launchctlLogPath, "utf8")
+            : "";
+
+          expect(result.status).toBe(12);
+          expect(result.stderr).toContain("DEPLOY_NOT_STARTED");
+          expect(readFileSync(harness.executablePath, "utf8")).toBe(
+            "old-generation",
+          );
+          expect(readFileSync(harness.plistPath, "utf8")).toBe("old-plist");
+          expect(launchctlLog).not.toContain("bootout");
+        } finally {
+          harness.cleanup();
+        }
+      }
+    },
+    35_000,
+  );
+
+  it(
+    "refuses to delete a substituted child beneath the admitted app root",
+    () => {
+      const harness = makeHarness();
+      try {
+        const result = harness.run({ FAKE_SWAP_APP_CONTENTS: "1" });
+        const substitutedMarker = join(
+          harness.appPath,
+          "Contents",
+          "foreign-marker",
+        );
+
+        expect(result.status).toBe(13);
+        expect(result.stderr).toContain(
+          "EXISTING_APP_CONTENTS_CHANGED_BEFORE_RETIREMENT",
+        );
+        expect(result.stderr).toContain("DEPLOY_FORWARD_REPAIR_REQUIRED");
+        expect(readFileSync(substitutedMarker, "utf8")).toBe("foreign");
+        expect(
+          readFileSync(
+            join(
+              harness.state,
+              "admitted-contents",
+              "MacOS",
+              "Vellum Command",
+            ),
+            "utf8",
+          ),
+        ).toBe("old-generation");
+      } finally {
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
+
+  it(
+    "refuses and preserves a live same-owner control socket",
+    async () => {
+      const harness = makeHarness();
+      const server = createServer();
+      mkdirSync(dirname(harness.termSocketPath), { recursive: true });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(harness.termSocketPath, () => {
+          server.off("error", reject);
+          resolve();
+        });
+      });
+
+      try {
+        const result = harness.run({
+          FAKE_LIVE_SOCKET: harness.termSocketPath,
+        });
+        expect(result.status).toBe(12);
+        expect(result.stderr).toContain("CONTROL_SOCKET_STILL_LIVE");
+        expect(existsSync(harness.termSocketPath)).toBe(true);
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "old-generation",
+        );
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
+
+  it(
     "never replaces the app when executable observation is ambiguous",
     () => {
       const harness = makeHarness();
       try {
         const result = harness.run({ FAKE_LSOF_GLOBAL_ERROR: "1" });
         expect(result.status).not.toBe(0);
-        expect(result.stderr).toMatch(
-          /PROCESS_OBSERVATION_FAILED|ROLLBACK_REFUSED_LIVE_GENERATION/u,
-        );
+        expect(result.stderr).toContain("PROCESS_OBSERVATION_FAILED");
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
           "old-generation",
         );

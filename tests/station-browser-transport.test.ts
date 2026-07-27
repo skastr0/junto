@@ -2,13 +2,13 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import {
-  STATION_BROWSER_WRAPPER,
-  STATION_BROWSER_WRAPPER_ARGS,
-  StationBrowserTransportError,
   dispatchStationBrowser,
 } from "../src/main/vellum/browser/station-transport";
 import { admitOperatorUiDelegation, mintStationBrowserEnvelope } from "../src/main/vellum/browser/station-delegation";
 import { createSshProgramCompiler } from "../src/main/vellum/ssh/program";
+import {
+  DARWIN_PACKAGED_BROWSER_EXECUTABLE,
+} from "../src/main/vellum/ssh/read-commands";
 import type { SshTransport } from "../src/main/vellum/ssh/service";
 
 const keys = generateKeyPairSync("ed25519");
@@ -18,21 +18,48 @@ const envelope = () => mintStationBrowserEnvelope(admitOperatorUiDelegation("com
 }, "fleet-1", keys.privateKey);
 const reply = JSON.stringify({ version: 1, requestId: "request-1", action: "doctor", ok: true, hostId: "remote-a", data: { role: "remote", browserReady: true }, error: null });
 
-const fakeSsh = (stdout = reply): { readonly ssh: typeof SshTransport.Service; readonly programs: unknown[] } => {
+const fakeSsh = (
+  stdout = reply,
+  platform = "Darwin\n",
+): { readonly ssh: typeof SshTransport.Service; readonly programs: unknown[] } => {
   const programs: unknown[] = [];
-  return { programs, ssh: { run: (program: unknown) => { programs.push(program); return Effect.succeed({ stdout, stderr: "" }); } } as unknown as typeof SshTransport.Service };
+  return {
+    programs,
+    ssh: {
+      run: (program: unknown) => {
+        programs.push(program);
+        return Effect.succeed({
+          stdout: programs.length === 1 ? platform : stdout,
+          stderr: "",
+        });
+      },
+    } as unknown as typeof SshTransport.Service,
+  };
 };
 
 describe("station browser restricted SSH transport", () => {
   it("derives the remote endpoint from the signed target and invokes only the fixed wrapper with bounded stdin", async () => {
     const { ssh, programs } = fakeSsh();
     await expect(Effect.runPromise(dispatchStationBrowser(ssh, hosts, envelope()))).resolves.toMatchObject({ ok: true, hostId: "remote-a" });
-    expect(programs).toHaveLength(1);
-    const compiled = createSshProgramCompiler({ controlDir: "/tmp/vellum-ssh", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} }).oneShot(programs[0] as never);
+    expect(programs).toHaveLength(2);
+    const compiler = createSshProgramCompiler({
+      controlDir: "/tmp/vellum-ssh",
+      envExecutable: "/usr/bin/env",
+      sshExecutable: "/usr/bin/ssh",
+      environment: { PATH: "/tmp/attacker" },
+    });
+    const probe = compiler.oneShot(programs[0] as never);
+    const compiled = compiler.oneShot(programs[1] as never);
+    expect(String(probe.command)).toContain("/usr/bin/uname");
+    expect(probe.input).toBeUndefined();
     expect(String(compiled.command)).toContain("BatchMode=yes");
     expect(String(compiled.command)).toContain("ClearAllForwardings=yes");
-    expect(STATION_BROWSER_WRAPPER).toBe("vellum-browser");
-    expect(STATION_BROWSER_WRAPPER_ARGS).toEqual(["station"]);
+    expect(String(compiled.command)).toContain(
+      DARWIN_PACKAGED_BROWSER_EXECUTABLE,
+    );
+    expect(String(compiled.command)).not.toMatch(
+      /(?:^|[ '"])vellum-browser(?:[ '"]|$)/u,
+    );
     expect(new TextDecoder().decode(compiled.input)).toContain('"targetStationId":"remote-a"');
   });
 
@@ -50,5 +77,24 @@ describe("station browser restricted SSH transport", () => {
       const { ssh } = fakeSsh(stdout);
       await expect(Effect.runPromise(dispatchStationBrowser(ssh, hosts, envelope()))).rejects.toThrow("remote browser station returned an invalid response");
     }
+  });
+
+  it("never sends a signed delegation when platform evidence is unsupported", async () => {
+    const { ssh, programs } = fakeSsh(reply, "FreeBSD\n");
+
+    await expect(
+      Effect.runPromise(dispatchStationBrowser(ssh, hosts, envelope())),
+    ).rejects.toThrow(
+      "remote platform does not have a Vellum packaged executable",
+    );
+
+    expect(programs).toHaveLength(1);
+    const probe = createSshProgramCompiler({
+      controlDir: "/tmp/vellum-ssh",
+      envExecutable: "/usr/bin/env",
+      sshExecutable: "/usr/bin/ssh",
+      environment: { PATH: "/tmp/attacker" },
+    }).oneShot(programs[0] as never);
+    expect(probe.input).toBeUndefined();
   });
 });

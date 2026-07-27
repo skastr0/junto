@@ -1,7 +1,15 @@
-import { Effect, Either } from "effect";
+import { Effect, Either, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { inspectRemoteCommand } from "../src/main/vellum/ssh/domain";
 import {
+  inspectRemoteCommand,
+  SshEndpoint,
+} from "../src/main/vellum/ssh/domain";
+import {
+  DARWIN_PACKAGED_BROWSER_EXECUTABLE,
+  DARWIN_PACKAGED_STATION_EXECUTABLE,
+  LINUX_PACKAGED_BROWSER_EXECUTABLE,
+  LINUX_PACKAGED_STATION_EXECUTABLE,
+  RemotePlatformProbeError,
   remoteCat,
   remoteHermesCli,
   remoteHerdrCli,
@@ -11,7 +19,9 @@ import {
   remoteUname,
   remoteVellumBrowserStation,
   remoteVellumStation,
+  resolveRemotePackagedPlatform,
 } from "../src/main/vellum/ssh/read-commands";
+import type { SshTransport } from "../src/main/vellum/ssh/service";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): A => {
   const result = Effect.runSync(Effect.either(effect));
@@ -19,10 +29,22 @@ const run = <A, E>(effect: Effect.Effect<A, E>): A => {
   return result.right;
 };
 
+const ENDPOINT = Schema.decodeUnknownSync(SshEndpoint)("remote");
+
+const observedPlatform = (stdout: string) =>
+  run(
+    resolveRemotePackagedPlatform(
+      {
+        run: () => Effect.succeed({ stdout, stderr: "" }),
+      } as unknown as typeof SshTransport.Service,
+      ENDPOINT,
+    ),
+  );
+
 describe("ssh read-commands product constructors", () => {
   it("fixes executables for named product CLIs", () => {
     expect(inspectRemoteCommand(run(remoteUname()))).toEqual({
-      executable: "uname",
+      executable: "/usr/bin/uname",
       args: ["-s"],
     });
     expect(
@@ -104,17 +126,69 @@ describe("ssh read-commands product constructors", () => {
     expect(ts.executable).toBe("tailscale");
   });
 
-  it("mints only the fixed station-browser delegation wrapper", () => {
-    expect(inspectRemoteCommand(run(remoteVellumBrowserStation()))).toEqual({
-      executable: "vellum-browser",
+  it("mints only exact packaged Station and browser wrappers from current host evidence", () => {
+    const darwin = observedPlatform("Darwin\n");
+    const linux = observedPlatform("Linux\n");
+
+    expect(
+      inspectRemoteCommand(run(remoteVellumBrowserStation(darwin))),
+    ).toEqual({
+      executable: DARWIN_PACKAGED_BROWSER_EXECUTABLE,
       args: ["station"],
+    });
+    expect(inspectRemoteCommand(run(remoteVellumStation(darwin)))).toEqual({
+      executable: DARWIN_PACKAGED_STATION_EXECUTABLE,
+      args: [],
+    });
+    expect(
+      inspectRemoteCommand(run(remoteVellumBrowserStation(linux))),
+    ).toEqual({
+      executable: LINUX_PACKAGED_BROWSER_EXECUTABLE,
+      args: ["station"],
+    });
+    expect(inspectRemoteCommand(run(remoteVellumStation(linux)))).toEqual({
+      executable: LINUX_PACKAGED_STATION_EXECUTABLE,
+      args: [],
     });
   });
 
-  it("mints the Station API wrapper without a path or arguments", () => {
-    expect(inspectRemoteCommand(run(remoteVellumStation()))).toEqual({
-      executable: "vellum-station",
-      args: [],
-    });
+  it("refuses malformed/unsupported platform evidence and forged witnesses without a PATH fallback", () => {
+    for (const output of [
+      "Darwin",
+      "Darwin\nextra\n",
+      " darwin\n",
+      "FreeBSD\n",
+      "",
+    ]) {
+      const result = Effect.runSync(
+        Effect.either(
+          resolveRemotePackagedPlatform(
+            {
+              run: () => Effect.succeed({ stdout: output, stderr: "" }),
+            } as unknown as typeof SshTransport.Service,
+            ENDPOINT,
+          ),
+        ),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left).toBeInstanceOf(RemotePlatformProbeError);
+      }
+    }
+
+    expect(
+      Either.isLeft(
+        Effect.runSync(
+          Effect.either(remoteVellumStation({} as never)),
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        Effect.runSync(
+          Effect.either(remoteVellumBrowserStation({} as never)),
+        ),
+      ),
+    ).toBe(true);
   });
 });

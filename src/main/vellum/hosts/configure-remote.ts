@@ -57,6 +57,7 @@ export type ConfigureRemoteResult = {
 const remoteErrorCode = (
   error: StationRemoteApiError,
 ): "io" | "validation" | "conflict" => {
+  if (error._tag === "RemotePlatformProbeError") return "validation";
   if (error._tag === "StationRemoteRejectedError") {
     if (error.code === "state_conflict") return "conflict";
     if (
@@ -73,6 +74,7 @@ const remoteErrorCode = (
 
 const remoteErrorMessage = (error: StationRemoteApiError): string => {
   switch (error._tag) {
+    case "RemotePlatformProbeError":
     case "StationRemoteRejectedError":
     case "StationRemoteProtocolError":
     case "StationRemoteExecutionError":
