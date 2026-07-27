@@ -1,13 +1,15 @@
 import type {
+  CanvasDoc,
+  CanvasNode,
+  TextNode,
+} from "./canvas";
+import type {
   WorkMetadata,
   Task,
   Artifact,
-  CanvasDoc,
-  CanvasNode,
   Message,
   TaskState,
-  TextNode,
-} from "./canvas";
+} from "./work-model";
 import {
   canTransitionTaskState,
   claimedByOf,

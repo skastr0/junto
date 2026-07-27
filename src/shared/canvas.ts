@@ -1,6 +1,35 @@
 import { Schema } from "effect";
 import { HarnessId } from "./managed-terminal-templates";
 import { Port } from "./physics/schema";
+import {
+  EtherArtifacts,
+  EtherMessages,
+  EtherRequests,
+  EtherTasks,
+} from "./work-model";
+
+export {
+  Artifact,
+  DataPart,
+  EtherArtifacts,
+  EtherMessages,
+  EtherRequests,
+  EtherTasks,
+  Message,
+  MessageRole,
+  Part,
+  RawPart,
+  Task,
+  TaskState,
+  TextPart,
+  UrlPart,
+  WorkArtifacts,
+  WorkMessages,
+  WorkMetadata,
+  WorkRequests,
+  WorkSnapshot,
+  WorkTasks,
+} from "./work-model";
 
 // JSON Canvas 1.0 (https://jsoncanvas.org/spec/1.0/) plus the namespaced
 // `ether` extension. Invariant: a document stripped of every `ether` key must
@@ -264,115 +293,11 @@ export const EtherTimer = Schema.Struct({
 });
 export type EtherTimer = typeof EtherTimer.Type;
 
-// work plane — document-local tasks / requests / artifacts / messages.
+// work plane — temporary document-local tasks / requests / artifacts / messages.
 // State lives in the document. Incomplete tasks and pending requests do NOT
 // auto-seed blocks — only an edge whose criteria mode is "tasks" can turn
 // them into a generating relation. Old checklist {id,text,done} is dead:
 // invalid store keys are dropped on read (graceful degradation), never mapped.
-
-export const TextPart = Schema.Struct({
-  kind: Schema.Literal("text"),
-  text: Schema.String,
-});
-export type TextPart = typeof TextPart.Type;
-
-export const UrlPart = Schema.Struct({
-  kind: Schema.Literal("url"),
-  url: Schema.String,
-  mediaType: Schema.optionalWith(Schema.String, { exact: true }),
-});
-export type UrlPart = typeof UrlPart.Type;
-
-export const DataPart = Schema.Struct({
-  kind: Schema.Literal("data"),
-  data: Schema.Unknown,
-});
-export type DataPart = typeof DataPart.Type;
-
-export const RawPart = Schema.Struct({
-  kind: Schema.Literal("raw"),
-  bytesBase64: Schema.String,
-  mediaType: Schema.optionalWith(Schema.String, { exact: true }),
-});
-export type RawPart = typeof RawPart.Type;
-
-export const Part = Schema.Union(TextPart, UrlPart, DataPart, RawPart);
-export type Part = typeof Part.Type;
-
-export const MessageRole = Schema.Literal("user", "agent");
-export type MessageRole = typeof MessageRole.Type;
-
-export const WorkMetadata = Schema.Record({ key: Schema.String, value: Schema.Unknown });
-export type WorkMetadata = typeof WorkMetadata.Type;
-
-export const Message = Schema.Struct({
-  messageId: Schema.String,
-  role: MessageRole,
-  parts: Schema.Array(Part),
-  taskId: Schema.optionalWith(Schema.String, { exact: true }),
-  contextId: Schema.optionalWith(Schema.String, { exact: true }),
-  referenceTaskIds: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
-  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
-});
-export type Message = typeof Message.Type;
-
-export const TaskState = Schema.Literal(
-  "submitted",
-  "working",
-  "input-required",
-  "completed",
-  "canceled",
-  "failed",
-  "rejected",
-  "auth-required",
-);
-export type TaskState = typeof TaskState.Type;
-
-export const Task = Schema.Struct({
-  id: Schema.String,
-  state: TaskState,
-  history: Schema.Array(Message),
-  artifactIds: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
-  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
-  /** Why the raiser raised this (first-class, set at creation). */
-  reason: Schema.optionalWith(Schema.String, { exact: true }),
-  /** The operator's answer (first-class, stamped on resolve). */
-  response: Schema.optionalWith(Schema.String, { exact: true }),
-});
-export type Task = typeof Task.Type;
-
-export const Artifact = Schema.Struct({
-  artifactId: Schema.String,
-  name: Schema.optionalWith(Schema.String, { exact: true }),
-  parts: Schema.Array(Part),
-  taskId: Schema.optionalWith(Schema.String, { exact: true }),
-  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
-});
-export type Artifact = typeof Artifact.Type;
-
-/** Tasks node store (entity.kind === "task"). */
-export const EtherTasks = Schema.Struct({
-  items: Schema.Array(Task),
-});
-export type EtherTasks = typeof EtherTasks.Type;
-
-/** Requests node store (entity.kind === "requests") — items live around input-required. */
-export const EtherRequests = Schema.Struct({
-  items: Schema.Array(Task),
-});
-export type EtherRequests = typeof EtherRequests.Type;
-
-/** Artifacts node store (entity.kind === "artifacts"). */
-export const EtherArtifacts = Schema.Struct({
-  items: Schema.Array(Artifact),
-});
-export type EtherArtifacts = typeof EtherArtifacts.Type;
-
-/** Per-actor message inbox (entity.kind === "agent"). */
-export const EtherMessages = Schema.Struct({
-  items: Schema.Array(Message),
-});
-export type EtherMessages = typeof EtherMessages.Type;
 
 // Edge criteria. Absence → soft relates (capability only; never stoppage).
 // glyphs/wip retired — stripped on sanitize. No depends cascade.

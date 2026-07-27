@@ -5,7 +5,7 @@ import type {
   Message,
   Part,
   TaskState,
-} from "./canvas";
+} from "./work-model";
 
 // Display + transition helpers for the work plane. Pure — no I/O.
 
