@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, extname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -28,6 +28,18 @@ const files = sourceRoots.flatMap(sourceFiles);
 const display = (path: string): string => relative(root, path);
 
 describe("SSH architecture", () => {
+  it("has no projection drop-file transport", () => {
+    expect(existsSync(join(root, "src/main/vellum/projection"))).toBe(false);
+
+    const remotePlan = readFileSync(
+      join(root, "src/main/vellum/ssh/remote-plan.ts"),
+      "utf8",
+    );
+    expect(remotePlan).not.toContain("incoming.frame");
+    expect(remotePlan).not.toContain("applied.ack");
+    expect(remotePlan).not.toContain("projection-frame-deliver");
+  });
+
   it("keeps OpenSSH process construction inside the transport kernel", () => {
     const forbidden = [
       /\b(?:spawn|spawnSync|exec|execSync|execFile|execFileSync|runCli)\s*\(\s*["'`](?:\/[^"'`]+\/)?ssh(?:\s|["'`])/u,
@@ -67,8 +79,7 @@ describe("SSH architecture", () => {
       "src/main/vellum/herdr/plane.ts",
       "src/main/vellum/hermes/transport.ts",
       "src/main/vellum/hosts/doctor.ts",
-      // Remote station pull + host configure: product policy over shared SSH kernel.
-      "src/main/vellum/canvas-pull.ts",
+      // Host configure is product policy over the shared SSH kernel.
       "src/main/vellum/hosts/configure-remote.ts",
       // Platform admission probes uname; Darwin renders the installer command.
       "src/main/vellum/hosts/remote-platform.ts",
@@ -84,16 +95,6 @@ describe("SSH architecture", () => {
       // Fleet trust provisioning renders one fixed wrapper with a canonical
       // Ed25519 public record on bounded stdin.
       "src/main/vellum/browser/station-trust.ts",
-      // Command Center projection push: home lookup + named frame-deliver recipe.
-      "src/main/vellum/projection/remote-delivery.ts",
-      "src/main/vellum/projection/product-push.ts",
-      // Remote drop path constants + apply (reads confined plan path names only).
-      "src/main/vellum/projection/incoming.ts",
-      // Owner-only ack receipt path constants only; no command construction.
-      "src/main/vellum/projection/ack.ts",
-      // Command Center projection pull: named home lookup + remoteCat recipe,
-      // never hand-authored shell (mirrors remote-delivery.ts's push side).
-      "src/main/vellum/projection/reconcile.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {

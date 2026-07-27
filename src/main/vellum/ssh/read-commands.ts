@@ -1,7 +1,7 @@
 /**
  * Closed allowlisted remote command constructors for product modules.
  *
- * Product code (hosts/, hermes/, herdr/, canvas-pull/, term/, browser/) must
+ * Product code (hosts/, hermes/, herdr/, term/, browser/) must
  * mint RemoteCommands only through these factories or named plan compilers in
  * remote-plan.ts / hermes-remote-plan.ts. Free-form executable+args (including
  * `/bin/sh -c …`) is unrepresentable here — that is the seal.

@@ -37,15 +37,8 @@ import type {
   StationPatch,
 } from "./settings";
 import type { UsageState } from "./usage";
-import type { CanvasPullResult } from "./canvas-pull";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
 import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
-export type {
-  CanvasPullResult,
-  CanvasPullStatus,
-  CanvasPullFileResult,
-  CanvasPullFileFailure,
-} from "./canvas-pull";
 
 export const IPC_CHANNELS = {
   doctor: "chassis:doctor",
@@ -58,8 +51,6 @@ export const IPC_CHANNELS = {
   writeCanvas: "vellum:write-canvas",
   createCanvas: "vellum:create-canvas",
   deleteCanvas: "vellum:delete-canvas",
-  /** Remote station: pull canvases from Command Center over SSH (read-only). */
-  pullCanvases: "vellum:pull-canvases",
   exportDigest: "vellum:export-digest",
   generatePortfolio: "vellum:generate-portfolio",
   getSnapshots: "vellum:get-snapshots",
@@ -512,8 +503,6 @@ export interface VellumApi {
   ) => Promise<CanvasWriteResult>;
   readonly createCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly deleteCanvas: (name: string) => Promise<{ name: string }>;
-  /** Remote-only: pull full canvases from Command Center into local ~/.vellum/canvases. */
-  readonly pullCanvases: () => Promise<CanvasPullResult>;
   readonly exportDigest: (name: string) => Promise<DigestResult>;
   // Merge live hermes agents onto the named canvas as identity cards.
   // Preserves existing nodes; appends agents not already present.

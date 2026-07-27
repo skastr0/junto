@@ -242,18 +242,6 @@ export const registerVellumIpc = (): void => {
     ),
   );
 
-  // Beta: raw canvas-pull is removed. Fleet intent is projection push only.
-  privilegedIpc.handle(IPC_CHANNELS.pullCanvases, () =>
-    runMainAuthoring("ipc.canvas.pull", () =>
-      Promise.resolve({
-        status: "failed" as const,
-        detail:
-          "canvas-pull is disabled; use station projection push from Command Center",
-        files: [] as const,
-      }),
-    ),
-  );
-
   privilegedIpc.handle(IPC_CHANNELS.exportDigest, (_event, name: string) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
