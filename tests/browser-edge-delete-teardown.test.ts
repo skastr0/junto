@@ -278,7 +278,7 @@ describe("browser edge-delete session teardown", () => {
       TARGET_P1,
       TARGET_P2,
     ]);
-    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const principal: ProcessPrincipal = { agentKey: "local:default" };
     const admission = await edgeGrant.admitPrincipal(principal);
     expect(admission.ok).toBe(true);
     if (!admission.ok) return;
@@ -362,7 +362,7 @@ describe("browser edge-delete session teardown", () => {
   it("deleting the only edge fully revokes; next admit names missing edge", async () => {
     const previous = twoPageDoc([{ id: "e1", from: "agent", to: "p1" }]);
     const { sessions, capabilities, edgeGrant, setDoc } = makeStack(previous, [TARGET_P1]);
-    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const principal: ProcessPrincipal = { agentKey: "local:default" };
     const admission = await edgeGrant.admitPrincipal(principal);
     expect(admission.ok).toBe(true);
     if (!admission.ok) return;
@@ -404,7 +404,7 @@ describe("browser edge-delete session teardown", () => {
   it("unrelated canvas change without lost edges leaves sessions alive", async () => {
     const previous = twoPageDoc([{ id: "e1", from: "agent", to: "p1" }]);
     const { sessions, capabilities, edgeGrant } = makeStack(previous, [TARGET_P1]);
-    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const principal: ProcessPrincipal = { agentKey: "local:default" };
     const admission = await edgeGrant.admitPrincipal(principal);
     expect(admission.ok).toBe(true);
     if (!admission.ok) return;

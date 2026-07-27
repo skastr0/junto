@@ -187,7 +187,6 @@ const startTestServer = async (options: {
 
   const processMap = makeProcessIdentityMap();
   processMap.bind(TEST_PEER_PID, {
-    kind: "agent",
     agentKey: "local:agent",
   });
 

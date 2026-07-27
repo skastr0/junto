@@ -18,7 +18,7 @@ export type InstallCapabilityKind =
   | "deployRemote"
   | "installPluginRemote"
   | "installPluginLocal"
-  | "routeTokenAdmin";
+;
 
 export type HostsInstallCapabilities = {
   readonly ok: true;
@@ -29,7 +29,6 @@ export type HostsInstallCapabilities = {
     readonly managedRemoteRollback: boolean;
     readonly darwinRemoteDeploy: boolean;
     readonly pluginInstall: boolean;
-    readonly routeTokens: boolean;
   };
   readonly operator: {
     readonly remoteManagedInstalls: boolean;
@@ -38,13 +37,11 @@ export type HostsInstallCapabilities = {
     readonly deployRemote: boolean;
     readonly installPluginRemote: boolean;
     readonly installPluginLocal: boolean;
-    readonly routeTokenAdmin: boolean;
   };
   readonly detail: {
     readonly deployRemote?: string;
     readonly installPluginRemote?: string;
     readonly installPluginLocal?: string;
-    readonly routeTokenAdmin?: string;
   };
 };
 
@@ -99,24 +96,12 @@ export const computeInstallCapabilities = (
     pluginLocalDetail = NOT_COMMAND_CENTER_DETAIL;
   }
 
-  let routeDetail: string | undefined;
-  if (!release.routeTokens) {
-    routeDetail = ROUTE_TOKENS_DISABLED_DETAIL;
-  } else if (!operatorOn) {
-    // Same kill-switch as remote plugin/deploy — route-token is Tier-3 seat identity.
-    routeDetail = REMOTE_INSTALLS_OPERATOR_DISABLED_DETAIL;
-  } else if (!cc) {
-    routeDetail = NOT_COMMAND_CENTER_DETAIL;
-  }
-
   const deployRemote = releaseDeploy && operatorOn && cc;
   const installPluginRemote =
     release.pluginInstall === true && operatorOn && cc;
   // Local plugin writes this station's harness trees — CC only (no Remote self-write).
   const installPluginLocal =
     release.pluginInstall === true && cc;
-  const routeTokenAdmin =
-    release.routeTokens === true && operatorOn && cc;
 
   return {
     ok: true,
@@ -127,7 +112,6 @@ export const computeInstallCapabilities = (
       managedRemoteRollback: release.managedRemoteRollback,
       darwinRemoteDeploy: release.darwinRemoteDeploy,
       pluginInstall: release.pluginInstall,
-      routeTokens: release.routeTokens,
     },
     operator: {
       remoteManagedInstalls: operatorOn,
@@ -136,7 +120,6 @@ export const computeInstallCapabilities = (
       deployRemote,
       installPluginRemote,
       installPluginLocal,
-      routeTokenAdmin,
     },
     detail: {
       ...(deployDetail !== undefined ? { deployRemote: deployDetail } : {}),
@@ -146,7 +129,6 @@ export const computeInstallCapabilities = (
       ...(pluginLocalDetail !== undefined
         ? { installPluginLocal: pluginLocalDetail }
         : {}),
-      ...(routeDetail !== undefined ? { routeTokenAdmin: routeDetail } : {}),
     },
   };
 };

@@ -249,10 +249,7 @@ const occupantKeyForPrincipal = (
   principal: ProcessPrincipal,
   suffix: string,
 ): string => {
-  const base =
-    principal.kind === "agent"
-      ? `agent:${principal.agentKey ?? principal.nodeId ?? "unknown"}`
-      : `terminal:${principal.bindingId ?? principal.nodeId ?? "unknown"}`;
+  const base = `agent:${principal.agentKey ?? principal.bindingId ?? principal.nodeId ?? "unknown"}`;
   return `${base}@${suffix}`;
 };
 

@@ -179,10 +179,8 @@ const fail = (denial: EdgeGrantDenial, message: string): EdgeGrantResult => ({
  * fails to produce a key. */
 const processKeyOf = (principal: ProcessPrincipal): string => {
   const anchor = `${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
-  if (principal.kind === "agent") {
-    return `agent:${principal.agentKey ?? ""}:${anchor}`;
-  }
-  return `terminal:${principal.bindingId ?? ""}:${anchor}`;
+  const seat = principal.agentKey ?? principal.bindingId ?? "";
+  return `agent:${seat}:${anchor}`;
 };
 
 const sameTargetSignature = (

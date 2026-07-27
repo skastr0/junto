@@ -135,14 +135,16 @@ export const actorDeliverySurfaceOf = (
   );
 };
 
-/** Exhaustive delivery target derived from the surface tag alone. */
+/**
+ * The wire delivery target. One actor kind ⇒ one surface ⇒ one target shape,
+ * so there is no discriminant left to carry.
+ */
 export type SurfaceDeliveryTarget = {
-  readonly kind: "terminal";
   readonly bindingId: string;
 };
 
 export const deliveryTargetFromSurface = (
   surface: ActorDeliverySurface,
 ): SurfaceDeliveryTarget => {
-  return { kind: "terminal", bindingId: surface.bindingId };
+  return { bindingId: surface.bindingId };
 };

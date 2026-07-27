@@ -126,7 +126,6 @@ export const makeAgentStationBrowserRouteAdmission = (
     }
     const principal = identity.principal;
     if (
-      principal.kind !== "agent" ||
       principal.canvasName === undefined ||
       principal.nodeId === undefined
     ) {
@@ -185,7 +184,7 @@ export const makeAgentStationBrowserRouteAdmission = (
         principal,
         { topology: { commandCenterHostId: options.stationId } },
       );
-      if (!resolved.ok || resolved.principal.kind !== "agent") {
+      if (!resolved.ok) {
         throw new StationBrowserOriginAdmissionError(
           resolved.ok ? "caller_wrong_kind" : resolved.denial,
           resolved.ok

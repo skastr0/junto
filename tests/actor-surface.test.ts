@@ -68,7 +68,6 @@ describe("actorDeliverySurfaceOf — kind-discriminated sum", () => {
       hostId: "local",
     });
     expect(deliveryTargetFromSurface(s!)).toEqual({
-      kind: "terminal",
       bindingId: "bind-1",
     });
     expect(isManagedAgentNode(managedAgent())).toBe(true);
@@ -93,7 +92,6 @@ describe("actorDeliverySurfaceOf — kind-discriminated sum", () => {
 
   it("deliveryTargetOf is surface-derived only (no agent key target)", () => {
     expect(deliveryTargetOf(managedAgent())).toEqual({
-      kind: "terminal",
       bindingId: "bind-1",
     });
   });

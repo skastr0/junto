@@ -1,3 +1,4 @@
+import { isPageNode } from "./authz";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   chmodSync,
@@ -205,14 +206,16 @@ const appendPageRowsFromDoc = (
 ): boolean => {
   if (!isUtf8WithinLimit(canvasName, BROWSER_MAX_METADATA_BYTES)) return true;
   for (const node of doc.nodes) {
-    if (node.type !== "link" || node.ether?.entity?.kind !== "page") continue;
+    // Role/kind question goes to the physics-backed predicate; the `link`
+    // check stays because it narrows the node union for `url` below.
+    if (node.type !== "link" || !isPageNode(node)) continue;
     if (
       !isUtf8WithinLimit(node.id, BROWSER_MAX_METADATA_BYTES) ||
       !isUtf8WithinLimit(node.url, BROWSER_MAX_URL_BYTES)
     ) {
       continue;
     }
-    const profile = node.ether.browser?.profile;
+    const profile = node.ether?.browser?.profile;
     if (profile !== undefined && !isUtf8WithinLimit(profile, BROWSER_MAX_METADATA_BYTES)) {
       continue;
     }

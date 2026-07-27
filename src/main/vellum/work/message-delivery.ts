@@ -90,7 +90,7 @@ export class MessageDeliveryService {
   /** Native terminal session attached — offer pending messages as unsubmitted paste. */
   onTerminalAttached(bindingId: string): void {
     void this.scanAndDeliver(
-      (target) => target.kind === "terminal" && target.bindingId === bindingId,
+      (target) => target.bindingId === bindingId,
     );
   }
 
@@ -101,7 +101,7 @@ export class MessageDeliveryService {
    */
   onManagedTerminalIdle(bindingId: string): void {
     void this.scanAndDeliver(
-      (target) => target.kind === "terminal" && target.bindingId === bindingId,
+      (target) => target.bindingId === bindingId,
     );
   }
 

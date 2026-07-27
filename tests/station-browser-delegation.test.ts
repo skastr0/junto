@@ -46,7 +46,6 @@ beforeAll(async () => {
   };
   admissionProcessMap = makeProcessIdentityMap();
   if (!admissionProcessMap.bind(process.pid, {
-    kind: "agent",
     agentKey: "local:default",
     canvasName: "work",
     nodeId: "agent-1",
@@ -102,7 +101,6 @@ describe("station browser delegation", () => {
     })).rejects.toMatchObject({ denial: "process_unbound" });
 
     expect(admissionProcessMap.bind(process.pid, {
-      kind: "agent",
       agentKey: "local:default",
     })).toBe(true);
     await expect(agentAdmission.admit({
@@ -112,7 +110,6 @@ describe("station browser delegation", () => {
 
     admissionProcessMap.clear();
     expect(admissionProcessMap.bind(process.pid, {
-      kind: "agent",
       agentKey: "local:default",
       canvasName: "work",
       nodeId: "agent-1",

@@ -1150,7 +1150,6 @@ export class LocalSessionHost extends EventEmitter {
     // Managed actor seats bind as agent so work-control process-bind matches the card.
     if (rec.agentKey) {
       identities.bind(rec.pid, {
-        kind: "agent",
         agentKey: rec.agentKey,
         canvasName: rec.canvasName,
         nodeId: rec.nodeId,
@@ -1158,7 +1157,6 @@ export class LocalSessionHost extends EventEmitter {
       return;
     }
     identities.bind(rec.pid, {
-      kind: "terminal",
       bindingId: rec.bindingId,
       canvasName: rec.canvasName,
       nodeId: rec.nodeId,

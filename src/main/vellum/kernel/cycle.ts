@@ -12,7 +12,8 @@ import {
   type BlockedReason,
   type GlyphView,
 } from "@shared/execution-graph";
-import { groupMembers } from "@shared/graph";
+import { groupMembers, isGroup } from "@shared/graph";
+import { resolveSpec, roleOf } from "@shared/physics";
 import type { TowerGlyphRow } from "@shared/ipc";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import {
@@ -93,6 +94,11 @@ const findContainingRegionId = (doc: CanvasDoc, nodeId: string): string | undefi
   return best?.id;
 };
 
+/** Role decides who is a seat — never a kind string compared here. */
+const isActorNode = (node: CanvasDoc["nodes"][number]): boolean =>
+  roleOf(resolveSpec({ kind: node.ether?.entity?.kind, isGroup: isGroup(node) })) ===
+  "actor";
+
 // Region members bound to a hermes agent, in document order. Membership
 // itself is geometry-derived (never persisted); the hermes binding's
 // ref.key is the agent key.
@@ -104,7 +110,7 @@ const agentKeysInRegion = (doc: CanvasDoc, regionId: string): ReadonlyArray<stri
   for (const node of doc.nodes) {
     if (!memberIds.has(node.id)) continue;
     const entity = node.ether?.entity;
-    if (entity?.kind === "agent" && entity.name) keys.push(entity.name);
+    if (isActorNode(node) && entity?.name) keys.push(entity.name);
   }
   return keys;
 };
@@ -404,8 +410,7 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
             : agentKeysInRegion(doc, params.regionId).filter((key) => {
                 if (stationRole === "command-center") return true;
                 const agentNode = doc.nodes.find(
-                  (node) =>
-                    node.ether?.entity?.kind === "agent" && node.ether.entity.name === key,
+                  (node) => isActorNode(node) && node.ether?.entity?.name === key,
                 );
                 return (
                   agentNode !== undefined &&
@@ -424,8 +429,8 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
           (key) =>
             !doc.nodes.some(
               (node) =>
-                node.ether?.entity?.kind === "agent" &&
-                node.ether.entity.name === key &&
+                isActorNode(node) &&
+                node.ether?.entity?.name === key &&
                 lookup(params.canvasName, node.id),
             ),
         );
@@ -454,9 +459,7 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<void> {
       for (const key of keys) {
         try {
           const agentNode = doc.nodes.find(
-            (node) =>
-              node.ether?.entity?.kind === "agent" &&
-              node.ether.entity.name === key,
+            (node) => isActorNode(node) && node.ether?.entity?.name === key,
           );
           // Agent kind ⇒ managedAgent surface (sum type); not optional terminal OR.
           const surface = agentNode

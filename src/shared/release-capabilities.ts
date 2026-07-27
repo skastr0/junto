@@ -21,7 +21,6 @@ export type ReleaseCapabilities = {
   /** Tier-3 harness plugin install via packager (local + remote SSH apply). */
   readonly pluginInstall: boolean;
   /** Route-token mint/rotate/revoke for Tier-3 work-plane seats. */
-  readonly routeTokens: boolean;
 };
 
 export const RELEASE_CAPABILITIES: ReleaseCapabilities = Object.freeze({
@@ -33,7 +32,6 @@ export const RELEASE_CAPABILITIES: ReleaseCapabilities = Object.freeze({
   darwinRemoteDeploy: false,
   commandCenterTransfer: false,
   pluginInstall: true,
-  routeTokens: true,
 });
 
 /** Human-readable denial for managed Remote deploy (install/update/rollback). */

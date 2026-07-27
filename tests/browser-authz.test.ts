@@ -170,7 +170,6 @@ describe("process-bind (browser canvas resolution)", () => {
 
   it("maps a process principal to edge-reachable pages", () => {
     const resolved = resolveBrowserCallerFromProcess(board, "work", {
-      kind: "agent",
       agentKey: "local:default",
     });
     expect(resolved.ok).toBe(true);
@@ -183,7 +182,6 @@ describe("process-bind (browser canvas resolution)", () => {
   it("denies when no edge to a page", () => {
     const isolated = doc([text("agent", "agent", "local:default"), page("p1")], []);
     const resolved = resolveBrowserCallerFromProcess(isolated, "work", {
-      kind: "agent",
       agentKey: "local:default",
     });
     expect(resolved.ok).toBe(false);
@@ -196,7 +194,6 @@ describe("process-bind (browser canvas resolution)", () => {
       [{ id: "e1", fromNode: "term", toNode: "p1" }],
     );
     const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
-      kind: "agent",
       bindingId: "bind-xyz",
       canvasName: "work",
       nodeId: "term",
@@ -215,7 +212,6 @@ describe("process-bind (browser canvas resolution)", () => {
       [{ id: "e1", fromNode: "term", toNode: "p1" }],
     );
     const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
-      kind: "agent",
       bindingId: "bind-xyz",
     });
     expect(resolved.ok).toBe(true);
@@ -228,7 +224,6 @@ describe("process-bind (browser canvas resolution)", () => {
       [{ id: "e1", fromNode: "term", toNode: "p1" }],
     );
     const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
-      kind: "agent",
       bindingId: "some-other-binding",
     });
     expect(resolved.ok).toBe(false);
@@ -243,7 +238,6 @@ describe("process-bind (browser canvas resolution)", () => {
     // Geography holds no seat: the only principal kinds are the actor kinds,
     // and a herdr node matches neither.
     const resolved = resolveBrowserCallerFromProcess(herdrBoard, "work", {
-      kind: "agent",
       bindingId: "pane-1",
       canvasName: "work",
       nodeId: "herdr",
@@ -256,7 +250,7 @@ describe("process-bind (browser canvas resolution)", () => {
 describe("process identity map", () => {
   it("admits peer PID and ancestor walk", () => {
     const map = makeProcessIdentityMap();
-    expect(map.bind(process.pid, { kind: "agent", agentKey: "local:default" })).toBe(true);
+    expect(map.bind(process.pid, { agentKey: "local:default" })).toBe(true);
     const fakeSocket = {} as Socket;
     const ok = admitProcessIdentity(fakeSocket, map, () => process.pid);
     expect(ok.ok).toBe(true);

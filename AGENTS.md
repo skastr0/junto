@@ -174,8 +174,16 @@ host-destructive call? If yes, the change is not done.*
 seat. Roles derive from entity kind — never authorial `ether.role`. Capability,
 phase, and attention/occupancy are separate planes.
 
+- **The law:** four roles, and **exactly one actor kind — `agent`**, the
+  Vellum-spawned template terminal. A raw user-opened terminal is
+  `geography/"terminal"`; `worker` is reserved for a future native agent UI and
+  must not appear as a kind. Geography holds no seat, no ports, no inbox, and no
+  work claim — but it *may* display agent state, because display is not a factory
+  power. Placement (`Cc | Station{hostId}`) is data: it never gates a port.
 - **PR test:** no host capability without connected edge + port + process-bind.
 - **Full doctrine:** [`docs/architecture-factory-physics.md`](docs/architecture-factory-physics.md).
+- **Cement:** [`tests/factory-physics-architecture.test.ts`](tests/factory-physics-architecture.test.ts)
+  holds the three invariants no type can hold.
 
 ## Discipline
 

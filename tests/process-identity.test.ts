@@ -27,7 +27,7 @@ describe("process identity epoch", () => {
     const pid = process.pid;
     expect(processAlive(pid)).toBe(true);
     expect(readProcessStartKey(pid)).toBeTruthy();
-    expect(map.bind(pid, { kind: "agent", agentKey: "local:default" })).toBe(true);
+    expect(map.bind(pid, { agentKey: "local:default" })).toBe(true);
     expect(map.resolve(pid)?.agentKey).toBe("local:default");
     map.unbindAgentKey("local:default");
     expect(map.resolve(pid)).toBeUndefined();
@@ -36,8 +36,8 @@ describe("process identity epoch", () => {
   it("refuses to overwrite a live PID with a different principal", () => {
     const map = makeProcessIdentityMap();
     const pid = process.pid;
-    expect(map.bind(pid, { kind: "agent", agentKey: "local:a" })).toBe(true);
-    expect(map.bind(pid, { kind: "agent", agentKey: "local:b" })).toBe(false);
+    expect(map.bind(pid, { agentKey: "local:a" })).toBe(true);
+    expect(map.bind(pid, { agentKey: "local:b" })).toBe(false);
     expect(map.resolve(pid)?.agentKey).toBe("local:a");
     map.clear();
   });
@@ -45,9 +45,9 @@ describe("process identity epoch", () => {
   it("unbindAgentKey clears prior binds before rebind", () => {
     const map = makeProcessIdentityMap();
     const pid = process.pid;
-    map.bind(pid, { kind: "agent", agentKey: "local:a" });
+    map.bind(pid, { agentKey: "local:a" });
     map.unbindAgentKey("local:a");
-    expect(map.bind(pid, { kind: "agent", agentKey: "local:a" })).toBe(true);
+    expect(map.bind(pid, { agentKey: "local:a" })).toBe(true);
     map.clear();
   });
 
@@ -67,7 +67,7 @@ describe("process identity epoch", () => {
 
   it("rejects terminal principals without a canvas anchor", () => {
     const map = makeProcessIdentityMap();
-    expect(map.bind(process.pid, { kind: "terminal", bindingId: "term-1" })).toBe(false);
+    expect(map.bind(process.pid, { bindingId: "term-1" })).toBe(false);
   });
 });
 
@@ -107,7 +107,7 @@ describe("process identity peer PID (real UDS)", () => {
 
   it("admits via injected peer reader and process map", () => {
     const map = makeProcessIdentityMap();
-    map.bind(process.pid, { kind: "agent", agentKey: "local:default" });
+    map.bind(process.pid, { agentKey: "local:default" });
     const fake = {} as import("node:net").Socket;
     const result = admitProcessIdentity(fake, map, () => process.pid);
     expect(result.ok).toBe(true);

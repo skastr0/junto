@@ -628,9 +628,7 @@ void app.whenReady().then(async () => {
   if (probePeerPid === undefined) {
     throw new Error("dedicated browser probe could not resolve its live launcher process");
   }
-  const processBoundPrincipal: ProcessPrincipal = Object.freeze({
-    kind: "agent",
-    agentKey: "browser-containment-probe",
+  const processBoundPrincipal: ProcessPrincipal = Object.freeze({ agentKey: "browser-containment-probe",
     canvasName,
     nodeId: "probe-agent",
   });
@@ -638,9 +636,7 @@ void app.whenReady().then(async () => {
   if (!processMap.bind(probePeerPid, processBoundPrincipal)) {
     throw new Error("dedicated browser probe could not register its live launcher process");
   }
-  if (!processMap.bind(terminalPeerPid, {
-    kind: "terminal",
-    bindingId: "browser-containment-terminal-peer",
+  if (!processMap.bind(terminalPeerPid, { bindingId: "browser-containment-terminal-peer",
     canvasName,
     nodeId: "probe-terminal",
   })) {

@@ -461,7 +461,7 @@ const main = async () => {
   await runtime.runPromise(canvasesSvc.write(CANVAS, seed()));
   // Bind the acceptance runner PID. CLI children walk PPID to this process.
   const processMap = makeProcessIdentityMap();
-  processMap.bind(process.pid, { kind: "agent", agentKey: "local:default" });
+  processMap.bind(process.pid, { agentKey: "local:default" });
 
   let server: Awaited<ReturnType<typeof startWorkControlServer>> | undefined;
   let primaryFailed = false;

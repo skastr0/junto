@@ -113,7 +113,6 @@ describe("message-delivery pure helpers", () => {
   it("resolves the agent seat; bare agent, herdr and raw terminals are unreachable", () => {
     // Agents without ether.terminal.bindingId never fall back to ACP.
     expect(deliveryTargetOf(agentNode())).toEqual({
-      kind: "terminal",
       bindingId: "bind-mira",
     });
     // Geography holds no inbox — neither a herdr pane nor a raw user terminal
@@ -169,7 +168,6 @@ describe("message-delivery pure helpers", () => {
     const pending = listPendingDeliveries(doc);
     expect(pending.map((p) => p.message.messageId).sort()).toEqual(["p1"]);
     expect(pending.find((p) => p.message.messageId === "p1")?.target).toEqual({
-      kind: "terminal",
       bindingId: "bind-mira",
     });
   });

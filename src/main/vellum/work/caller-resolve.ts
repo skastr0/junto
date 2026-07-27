@@ -1,6 +1,8 @@
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { ProcessPrincipal } from "../process-identity";
 import { findNode, nodeKind } from "./authz";
+import { resolveSpec, roleOf } from "@shared/physics";
+import { isGroup } from "@shared/graph";
 
 // Resolve a process-bound principal to a concrete canvas caller node.
 // Agents never claim a nodeRef — main finds the live agent card(s).
@@ -31,25 +33,30 @@ export const matchesPrincipal = (
   node: CanvasNode,
   principal: ProcessPrincipal,
 ): boolean => {
-  const kind = nodeKind(node);
-  if (principal.kind === "agent") {
-    if (kind !== "agent") return false;
-    if (principal.nodeId !== undefined && node.id !== principal.nodeId) {
-      return false;
-    }
-    if (
-      principal.agentKey !== undefined &&
-      node.ether?.entity?.name !== principal.agentKey
-    ) {
-      return false;
-    }
-    // Need at least one positive anchor.
-    return (
-      principal.nodeId !== undefined || principal.agentKey !== undefined
-    );
+  // Role decides participation — one actor kind, asked of physics, never a
+  // kind string compared here.
+  if (roleOf(resolveSpec({ kind: nodeKind(node), isGroup: isGroup(node) })) !== "actor") {
+    return false;
   }
-  // Terminal principals are process-bind only; never mint as route-token seats.
-  return false;
+  if (principal.nodeId !== undefined && node.id !== principal.nodeId) return false;
+  if (
+    principal.agentKey !== undefined &&
+    node.ether?.entity?.name !== principal.agentKey
+  ) {
+    return false;
+  }
+  if (
+    principal.bindingId !== undefined &&
+    node.ether?.terminal?.bindingId !== principal.bindingId
+  ) {
+    return false;
+  }
+  // Need at least one positive anchor.
+  return (
+    principal.nodeId !== undefined ||
+    principal.agentKey !== undefined ||
+    principal.bindingId !== undefined
+  );
 };
 
 /** Resolve against one already-loaded document (tests / hot path). */
@@ -76,10 +83,7 @@ export const resolveCallerOnDoc = (
     return {
       ok: false,
       code: "not_found",
-      message:
-        principal.kind === "agent"
-          ? `no agent node for ${principal.agentKey ?? "unknown"} on canvas "${canvasName}"`
-          : `no terminal node for binding ${principal.bindingId ?? "unknown"} on canvas "${canvasName}"`,
+      message: `no agent node for ${principal.agentKey ?? principal.bindingId ?? "unknown"} on canvas "${canvasName}"`,
     };
   }
   if (hits.length > 1) {
@@ -119,10 +123,7 @@ export const resolveCallerAcrossCanvases = (
     return {
       ok: false,
       code: "not_found",
-      message:
-        principal.kind === "agent"
-          ? `no agent node for ${principal.agentKey ?? "unknown"} on any live canvas`
-          : `no terminal node for binding ${principal.bindingId ?? "unknown"} on any live canvas`,
+      message: `no agent node for ${principal.agentKey ?? principal.bindingId ?? "unknown"} on any live canvas`,
     };
   }
   if (hits.length > 1) {

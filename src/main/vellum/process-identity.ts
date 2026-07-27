@@ -16,13 +16,15 @@ import { resolveSystemPs } from "./platform-executables";
 //
 // Client-supplied nodeRef / capability secrets are not identity.
 
-export type ProcessPrincipalKind = "agent" | "terminal";
-
+/**
+ * One principal. There is one actor kind, so there is one principal shape —
+ * no discriminant, and every anchor optional but at least one required by
+ * `bind`. (Was three kinds x three optional ids; see the consolidation plan D7.)
+ */
 export interface ProcessPrincipal {
-  readonly kind: ProcessPrincipalKind;
-  /** Hermes agent key (`local:profile`) when kind is agent. */
+  /** Agent key (`local:profile`) of the seat this process belongs to. */
   readonly agentKey?: string;
-  /** Stable native terminal binding when kind is terminal. */
+  /** Stable managed-terminal binding for the seat. */
   readonly bindingId?: string;
   /** Optional canvas anchor when known at bind time. */
   readonly canvasName?: string;
@@ -58,7 +60,6 @@ export interface ProcessIdentityMap {
 }
 
 const samePrincipal = (a: ProcessPrincipal, b: ProcessPrincipal): boolean =>
-  a.kind === b.kind &&
   a.agentKey === b.agentKey &&
   a.bindingId === b.bindingId &&
   a.canvasName === b.canvasName &&
@@ -110,11 +111,14 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
 
   const bind = (pid: number, principal: ProcessPrincipal): boolean => {
     if (!Number.isInteger(pid) || pid <= 0) return false;
-    if (principal.kind === "agent" && !principal.agentKey) return false;
-    if (
-      principal.kind === "terminal" &&
-      (!principal.bindingId || !principal.canvasName || !principal.nodeId)
-    ) return false;
+    // At least one anchor, or the principal names nobody. A binding-only
+    // principal must additionally be canvas-pinned: an agent key is unique to a
+    // seat, a raw binding is not, so it needs the node to be unambiguous.
+    if (!principal.agentKey) {
+      if (!principal.bindingId || !principal.canvasName || !principal.nodeId) {
+        return false;
+      }
+    }
     if (!processAlive(pid)) return false;
     const startKey = readProcessStartKey(pid);
     if (startKey === undefined) return false;
@@ -145,7 +149,7 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
 
   const unbindAgentKey = (agentKey: string): void => {
     for (const [pid, record] of byPid) {
-      if (record.principal.kind === "agent" && record.principal.agentKey === agentKey) {
+      if (record.principal.agentKey === agentKey) {
         unbind(pid);
       }
     }
@@ -153,7 +157,7 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
 
   const unbindTerminalBinding = (bindingId: string): void => {
     for (const [pid, record] of byPid) {
-      if (record.principal.kind === "terminal" && record.principal.bindingId === bindingId) {
+      if (record.principal.bindingId === bindingId) {
         unbind(pid);
       }
     }

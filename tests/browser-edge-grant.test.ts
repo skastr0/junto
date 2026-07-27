@@ -236,7 +236,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     // Live authority path: listCanvasDocuments / listDocuments — no .canvas write.
     const { handlers, edgeGrant, capabilities } = makeStack(doc);
       const token = rotateControlToken(join(root, "token"));
-      const processPrincipal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+      const processPrincipal: ProcessPrincipal = { agentKey: "local:default" };
       const requestId = "a".repeat(32);
 
     const denied = await dispatchControlRequest(
@@ -324,7 +324,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { handlers, edgeGrant } = makeStack(doc);
     const token = rotateControlToken(join(root, "token"));
-    const processPrincipal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const processPrincipal: ProcessPrincipal = { agentKey: "local:default" };
     const denied = await dispatchControlRequest(
       handlers,
       token,
@@ -393,7 +393,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     // Cross-host studio→render therefore never reaches physical_host_mismatch —
     // physics withholds the browser.automate edge (surfaces as not_connected).
     await expect(
-      edgeGrant.admitPrincipal({ kind: "agent", agentKey: "local:default" }),
+      edgeGrant.admitPrincipal({ agentKey: "local:default" }),
     ).resolves.toMatchObject({
       ok: false,
       denial: "not_connected",
@@ -439,7 +439,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     });
 
     await expect(
-      edgeGrant.admitPrincipal({ kind: "agent", agentKey: "local:default" }),
+      edgeGrant.admitPrincipal({ agentKey: "local:default" }),
     ).resolves.toMatchObject({ ok: true, targetCount: 1 });
     expect(capabilities.stats().activeCapabilities).toBe(1);
   });
@@ -478,7 +478,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     });
 
     await expect(
-      edgeGrant.admitPrincipal({ kind: "agent", agentKey: "local:default" }),
+      edgeGrant.admitPrincipal({ agentKey: "local:default" }),
     ).resolves.toMatchObject({ ok: false, denial: "physical_host_mismatch" });
     expect(capabilities.stats().activeCapabilities).toBe(0);
   });
@@ -489,7 +489,6 @@ describe("browser edge-grant process-bind dual admit", () => {
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
 
     const terminalPrincipal: ProcessPrincipal = {
-      kind: "agent",
       agentKey: "local:terminal",
       bindingId: "terminal-binding",
       canvasName: "work",
@@ -513,7 +512,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const admittedSocket = await edgeGrant.admitSocket({} as Socket);
     expect(admittedSocket).toMatchObject({ ok: true, targetCount: 1 });
     if (!admittedSocket.ok) return;
-    expect(admittedSocket.principal).toMatchObject({ kind: "agent" });
+    expect(admittedSocket.principal).toMatchObject({ agentKey: "local:terminal" });
 
     const token = rotateControlToken(join(root, "terminal-token"));
     const admitted = await dispatchControlRequest(
@@ -557,7 +556,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { handlers, edgeGrant, capabilities } = makeStack(doc);
     const token = rotateControlToken(join(root, "token"));
-    const processPrincipal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const processPrincipal: ProcessPrincipal = { agentKey: "local:default" };
     const actual = await edgeGrant.admitPrincipal(processPrincipal);
     expect(actual.ok).toBe(true);
     if (!actual.ok) return;
@@ -616,7 +615,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { edgeGrant } = makeStack(doc);
 
-    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const principal: ProcessPrincipal = { agentKey: "local:default" };
     const first = await edgeGrant.admitPrincipal(principal);
     const second = await edgeGrant.admitPrincipal(principal);
     expect(first.ok).toBe(true);
@@ -650,7 +649,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const doc = canvasDoc(true);
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { edgeGrant, capabilities } = makeStack(doc);
-    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const principal: ProcessPrincipal = { agentKey: "local:default" };
     const admission = await edgeGrant.admitPrincipal(principal);
     expect(admission.ok).toBe(true);
     if (!admission.ok) return;
@@ -700,7 +699,6 @@ describe("browser edge-grant process-bind dual admit", () => {
     });
     const before = Date.now();
     const admission = await edgeGrant.admitPrincipal({
-      kind: "agent",
       agentKey: "local:default",
     });
     expect(admission.ok).toBe(true);
@@ -723,7 +721,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const doc = canvasDoc(true);
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const processMap = makeProcessIdentityMap();
-    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const principal: ProcessPrincipal = { agentKey: "local:default" };
     expect(processMap.bind(process.pid, principal)).toBe(true);
     const { edgeGrant, capabilities } = makeStack(doc, undefined, {
       processMap,
@@ -773,7 +771,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       return { ok: true, data: TARGET };
     };
     const { edgeGrant, capabilities } = makeStack(doc, resolvePageTarget);
-    const principal: ProcessPrincipal = { kind: "agent", agentKey: "local:default" };
+    const principal: ProcessPrincipal = { agentKey: "local:default" };
 
     const staleAdmission = edgeGrant.admitPrincipal(principal);
     await resolutionStarted;

@@ -66,7 +66,6 @@ describe("factoryClaimTick agent nudge", () => {
     );
     expect(isPendingDelivery(items[0]!)).toBe(true);
     expect(deliveryTargetOf(actor)).toEqual({
-      kind: "terminal",
       bindingId: "bind-1",
     });
   });

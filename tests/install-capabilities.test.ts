@@ -15,9 +15,7 @@ describe("computeInstallCapabilities", () => {
       RELEASE_CAPABILITIES.pluginInstall,
     );
     // route-token admin requires kill-switch on
-    expect(caps.effective.routeTokenAdmin).toBe(false);
     expect(caps.detail.installPluginRemote).toMatch(/turned off/i);
-    expect(caps.detail.routeTokenAdmin).toMatch(/turned off/i);
   });
 
   it("enables remote plugin + route admin when operator opts in on CC", () => {
@@ -27,9 +25,6 @@ describe("computeInstallCapabilities", () => {
     });
     expect(caps.effective.installPluginRemote).toBe(
       RELEASE_CAPABILITIES.pluginInstall,
-    );
-    expect(caps.effective.routeTokenAdmin).toBe(
-      RELEASE_CAPABILITIES.routeTokens,
     );
     // managed deploy still frozen by RELEASE in this line
     expect(caps.effective.deployRemote).toBe(false);
@@ -43,8 +38,6 @@ describe("computeInstallCapabilities", () => {
     });
     expect(caps.effective.installPluginRemote).toBe(false);
     expect(caps.effective.installPluginLocal).toBe(false);
-    expect(caps.effective.routeTokenAdmin).toBe(false);
-    expect(caps.detail.routeTokenAdmin).toMatch(/Command Center/i);
     expect(caps.detail.installPluginLocal).toMatch(/Command Center/i);
   });
 
