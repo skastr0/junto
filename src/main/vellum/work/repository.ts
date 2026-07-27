@@ -2793,7 +2793,15 @@ export const WorkRepositoryLive = Layer.effect(
         );
         const rejectionCount = Number(
           reader.get<CountRow>(
-            "SELECT count(*) AS count FROM work_rejections",
+            `
+              SELECT count(*) AS count
+              FROM work_rejections AS rejection
+              JOIN work_pending_commands AS command
+                ON command.event_home = rejection.rejected_event_home
+               AND command.entity_home = rejection.rejected_entity_home
+               AND command.seq = rejection.rejected_seq
+               AND command.status = 'rejected'
+            `,
           )?.count ?? 0,
         );
         const pending = reader
@@ -2851,12 +2859,17 @@ export const WorkRepositoryLive = Layer.effect(
                 receipt_event_home,
                 receipt_event_seq,
                 received_at
-              FROM work_rejections
+              FROM work_rejections AS rejection
+              JOIN work_pending_commands AS command
+                ON command.event_home = rejection.rejected_event_home
+               AND command.entity_home = rejection.rejected_entity_home
+               AND command.seq = rejection.rejected_seq
+               AND command.status = 'rejected'
               ORDER BY
-                received_at DESC,
-                reported_by,
-                length(rejected_seq),
-                rejected_seq
+                rejection.received_at DESC,
+                rejection.reported_by,
+                length(rejection.rejected_seq),
+                rejection.rejected_seq
               LIMIT ?
             `,
             [detailLimit],

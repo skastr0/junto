@@ -991,6 +991,14 @@ describe("WorkRepository station replication", () => {
       rejected: 1,
       acknowledgement: { home: cc, through: "2" },
     });
+    expect(
+      await remote.runPromise(remoteRepository.commandStatus),
+    ).toMatchObject({
+      counts: { pending: 0, applied: 0, rejected: 0 },
+      pending: [],
+      rejections: [],
+      truncated: { pending: false, rejections: false },
+    });
 
     const orderedRemoteFacts = await remote.runPromise(
       events(remoteRepository, station, route, "1"),
