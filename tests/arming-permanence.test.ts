@@ -8,20 +8,27 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // expects permanent MUST survive a full SQLite runtime restart. Orphaned
 // arm-intent is surfaced, never dropped.
 
-import { StoreLive, StoreService } from "../src/main/services/store";
 import { computeOrphanedArming } from "../src/main/vellum/kernel/service";
+import {
+  KernelStateRepository,
+  KernelStateRepositoryLive,
+} from "../src/main/vellum/kernel/repository";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import type { CanvasDoc } from "../src/shared/canvas";
 
 let root = "";
 
-const runStore = <A>(
-  use: (svc: typeof StoreService.Service) => Effect.Effect<A, unknown>,
+const runKernelState = <A>(
+  use: (
+    repository: typeof KernelStateRepository.Service,
+  ) => Effect.Effect<A, unknown>,
 ) => {
   const state = makeStateEngineLive(join(root, "vellum.db"));
-  const runtime = ManagedRuntime.make(Layer.provideMerge(StoreLive, state));
+  const runtime = ManagedRuntime.make(
+    Layer.provideMerge(KernelStateRepositoryLive, state),
+  );
   return runtime
-    .runPromise(Effect.flatMap(StoreService, use))
+    .runPromise(Effect.flatMap(KernelStateRepository, use))
     .finally(() => runtime.dispose());
 };
 
@@ -33,50 +40,20 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe("StoreService — durable operator intent", () => {
-  it("missing state reads as an empty store", async () => {
+describe("KernelStateRepository — durable operator intent", () => {
+  it("missing state reads as no armed regions", async () => {
     await expect(
-      runStore((s) => s.get("kernel.armed")),
-    ).resolves.toBeUndefined();
+      runKernelState((repository) => repository.listArmedRegions),
+    ).resolves.toEqual([]);
   });
 
   it("arming survives a complete SQLite runtime restart", async () => {
-    await runStore((s) => s.set("kernel.armed", { "ether::r1": true }));
-    await expect(runStore((s) => s.get("kernel.armed"))).resolves.toEqual({
-      "ether::r1": true,
-    });
-  });
-
-  it("serializes overlapping kernel debug and arming writes without losing unrelated keys", async () => {
-    const entries = [
-      ["kernel.debug", { pulseLog: [{ kind: "manual" }] }],
-      ["kernel.armed", { "ether::r1": true }],
-      ...Array.from(
-        { length: 32 },
-        (_, index) => [`concurrency.probe.${index}`, index] as const,
-      ),
-    ] as const;
-
-    await runStore((store) =>
-      Effect.all(
-        entries.map(([key, value]) => store.set(key, value)),
-        { concurrency: "unbounded" },
-      ),
+    await runKernelState((repository) =>
+      repository.setRegionArmed("ether", "r1", true)
     );
-
-    await runStore((store) =>
-      Effect.gen(function* () {
-        expect(yield* store.get("kernel.debug")).toEqual({
-          pulseLog: [{ kind: "manual" }],
-        });
-        expect(yield* store.get("kernel.armed")).toEqual({
-          "ether::r1": true,
-        });
-        for (let index = 0; index < 32; index += 1) {
-          expect(yield* store.get(`concurrency.probe.${index}`)).toBe(index);
-        }
-      }),
-    );
+    await expect(
+      runKernelState((repository) => repository.listArmedRegions),
+    ).resolves.toEqual([{ canvasName: "ether", regionId: "r1" }]);
   });
 });
 

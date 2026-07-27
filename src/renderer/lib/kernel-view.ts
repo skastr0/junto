@@ -7,7 +7,7 @@
 //
 // LAWS (src/shared/canvas.ts): watcher runtime state is derived, never
 // written to the document. ARMING lives only in the running app (main-process
-// StoreService, kernel-design.md §3), never the file. A disarmed pulse is a
+// typed kernel state repository, kernel-design.md §3), never an export. A disarmed pulse is a
 // DRY pulse — logged, no agent turns.
 
 import { observable, observe } from "@legendapp/state";

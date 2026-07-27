@@ -10,7 +10,6 @@ import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { FolderLive, FolderService } from "./services/folder";
 import { PrismLive, PrismService } from "./services/prism";
-import { StoreLive, StoreService } from "./services/store";
 import { CanvasesLive, CanvasesService } from "./vellum/canvases";
 import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum/hermes/plane";
 import { HermesTransportLive } from "./vellum/hermes/transport";
@@ -24,7 +23,9 @@ import {
   probeNativeTerminalReadiness,
 } from "./vellum/term/native-readiness";
 import { KernelLive, KernelService } from "./vellum/kernel/service";
+import { KernelStateRepositoryLive } from "./vellum/kernel/repository";
 import { PausePlaneLive } from "./vellum/pause-plane";
+import { FactoryPauseRepositoryLive } from "./vellum/pause/repository";
 import { SchedulerRepositoryLive } from "./vellum/scheduler/repository";
 import { WorkLive } from "./vellum/work/service";
 import { WorkRepositoryLive } from "./vellum/work/repository";
@@ -70,7 +71,8 @@ import {
 // by more than one product plane.
 const StateRepositoriesLive = Layer.provideMerge(
   Layer.mergeAll(
-    StoreLive,
+    KernelStateRepositoryLive,
+    FactoryPauseRepositoryLive,
     WorkRepositoryLive,
     UsageLive,
     SettingsLive,
@@ -241,7 +243,6 @@ export const buildDoctorReport = Effect.gen(function* () {
     catch: () => undefined,
   }).pipe(Effect.ignore);
 
-  const store = yield* StoreService;
   const folder = yield* FolderService;
   const prism = yield* PrismService;
   const codex = yield* CodexService;
@@ -342,7 +343,6 @@ export const buildDoctorReport = Effect.gen(function* () {
 
   const serviceResults = yield* Effect.all(
     [
-      store.doctor,
       folder.doctor,
       prism.doctor,
       codex.doctor,

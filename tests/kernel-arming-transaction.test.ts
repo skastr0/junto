@@ -1,7 +1,7 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-// sdk-kernel-build fix 1 — arming is TRANSACTIONAL: the store write lands
+// Arming is transactional: the typed SQLite repository write lands
 // before the in-memory arming map is mutated, so a failed persist leaves
 // memory and disk in sync (the change did not stick) and the caller learns
 // { ok:false } instead of the old fire-and-forget that diverged them and
@@ -9,17 +9,19 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { CanvasesService } from "../src/main/vellum/canvases";
 import { SnapshotsService } from "../src/main/vellum/snapshots";
-import { StoreError, StoreService } from "../src/main/services/store";
 import { ChatService, ChatServiceContext } from "../src/main/vellum/chat/service";
 import type { SpawnFn } from "../src/main/vellum/chat/acp-client";
 import { KernelLive, KernelService } from "../src/main/vellum/kernel/service";
+import {
+  KernelStatePersistenceError,
+  KernelStateRepository,
+} from "../src/main/vellum/kernel/repository";
 import { SchedulerRepository } from "../src/main/vellum/scheduler/repository";
 import { PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { __resetKernelMemoryForTest, getArmed } from "../src/main/vellum/kernel/cycle";
 import { SettingsService } from "../src/main/vellum/settings/service";
 import { defaultSettings } from "../src/shared/settings";
 
-const ARMED_STORE_KEY = "kernel.armed";
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
 const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "" });
@@ -61,24 +63,42 @@ const fakeSnapshots = Layer.succeed(
   }),
 );
 
-// A store whose set() can be forced to fail, recording every successful write
-// so the test can assert what actually reached disk.
-const makeStore = (opts: { setFails?: boolean }, sets: Array<{ key: string; value: unknown }>) =>
+type ArmingWrite = {
+  readonly canvasName: string;
+  readonly regionId: string;
+  readonly armed: boolean;
+};
+
+// A repository whose write can be forced to fail, recording every successful
+// domain mutation so the test can assert what actually reached persistence.
+const makeKernelState = (
+  opts: { setFails?: boolean },
+  writes: ArmingWrite[],
+) =>
   Layer.succeed(
-    StoreService,
-    StoreService.of({
-      doctor: Effect.succeed(check("store")),
-      get: <T>(_key: string) => Effect.succeed(undefined as T | undefined),
-      set: <T>(key: string, value: T) =>
+    KernelStateRepository,
+    KernelStateRepository.of({
+      listArmedRegions: Effect.succeed([]),
+      setRegionArmed: (canvasName, regionId, armed) =>
         opts.setFails
-          ? Effect.fail(new StoreError({ message: "disk full" }))
-          : Effect.sync(() => void sets.push({ key, value })),
+          ? Effect.fail(
+              KernelStatePersistenceError.make({
+                operation: "set region armed",
+                message: "disk full",
+                cause: new Error("disk full"),
+              }),
+            )
+          : Effect.sync(() =>
+              void writes.push({ canvasName, regionId, armed })
+            ),
+      replaceDebugPulseRing: () => Effect.void,
+      readDebugPulseRing: Effect.succeed([]),
     }),
   );
 
 const runArm = (
   opts: { setFails?: boolean },
-  sets: Array<{ key: string; value: unknown }>,
+  writes: ArmingWrite[],
   canvasName: string,
   regionId: string,
   armed: boolean,
@@ -100,7 +120,7 @@ const runArm = (
   const deps = Layer.mergeAll(
     fakeCanvases,
     fakeSnapshots,
-    makeStore(opts, sets),
+    makeKernelState(opts, writes),
     Layer.succeed(ChatServiceContext, new ChatService(noSpawn)),
     fakeSettings,
     Layer.succeed(SchedulerRepository, {
@@ -129,25 +149,32 @@ afterEach(() => {
 });
 
 describe("KernelService.armRegion — transactional persist-then-mutate", () => {
-  it("a successful store write persists the record AND flips the in-memory map", async () => {
-    const sets: Array<{ key: string; value: unknown }> = [];
-    const result = await runArm({}, sets, "ether", "r1", true);
+  it("a successful repository write persists the row and flips the in-memory map", async () => {
+    const writes: ArmingWrite[] = [];
+    const result = await runArm({}, writes, "ether", "r1", true);
 
     expect(result).toEqual({ ok: true });
-    const armedWrite = sets.filter((s) => s.key === ARMED_STORE_KEY).at(-1);
-    expect(armedWrite?.value).toEqual({ "ether::r1": true });
+    expect(writes).toEqual([
+      { canvasName: "ether", regionId: "r1", armed: true },
+    ]);
     expect(getArmed().get("ether::r1")).toBe(true);
   });
 
-  it("a FAILED store write returns { ok:false } and leaves the in-memory map untouched (persist-first)", async () => {
-    const sets: Array<{ key: string; value: unknown }> = [];
-    const result = await runArm({ setFails: true }, sets, "ether", "r1", true);
+  it("a failed repository write returns { ok:false } and leaves memory untouched", async () => {
+    const writes: ArmingWrite[] = [];
+    const result = await runArm(
+      { setFails: true },
+      writes,
+      "ether",
+      "r1",
+      true,
+    );
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/not saved/i);
     // Memory untouched — proves setArmed ran only AFTER a durable write, never before.
     expect(getArmed().has("ether::r1")).toBe(false);
-    expect(sets.filter((s) => s.key === ARMED_STORE_KEY)).toEqual([]);
+    expect(writes).toEqual([]);
   });
 
   it("disarm is an explicit act: a successful write persists the key's removal and clears memory", async () => {
@@ -155,12 +182,13 @@ describe("KernelService.armRegion — transactional persist-then-mutate", () => 
     await runArm({}, [], "ether", "r1", true);
     expect(getArmed().get("ether::r1")).toBe(true);
 
-    const sets: Array<{ key: string; value: unknown }> = [];
-    const result = await runArm({}, sets, "ether", "r1", false);
+    const writes: ArmingWrite[] = [];
+    const result = await runArm({}, writes, "ether", "r1", false);
 
     expect(result).toEqual({ ok: true });
-    const armedWrite = sets.filter((s) => s.key === ARMED_STORE_KEY).at(-1);
-    expect(armedWrite?.value).toEqual({});
+    expect(writes).toEqual([
+      { canvasName: "ether", regionId: "r1", armed: false },
+    ]);
     expect(getArmed().get("ether::r1")).toBeFalsy();
   });
 });

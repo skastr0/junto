@@ -1,49 +1,120 @@
 import { Context, Effect, Either, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { StoreError, StoreService } from "../src/main/services/store";
-import { PausePlane, PausePlaneLive } from "../src/main/vellum/pause-plane";
-import { PAUSED_CANVAS } from "../src/shared/pause";
+import {
+  FactoryPausePersistenceError,
+  FactoryPauseRepository,
+  type PauseMemberScope,
+} from "../src/main/vellum/pause/repository";
+import {
+  PausePlane,
+  PausePlaneLive,
+} from "../src/main/vellum/pause-plane";
+import {
+  PAUSED_CANVAS,
+  type CanvasPauseState,
+} from "../src/shared/pause";
 
-// Focused suite for the pause plane itself (fake StoreService): born-paused
-// default, everPlayed latch, corrupt-store fail-closed refusing writes, and
-// the node/region scope round-trip. The pure law lives in tests/pause.test.ts.
-
-const PAUSE_STORE_KEY = "factory.pause";
-
-const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "" });
-
-type SetRecord = { readonly key: string; readonly value: unknown };
-
-type StoreBehavior = {
-  readonly initial?: Record<string, unknown>;
-  readonly getFails?: boolean;
-  readonly setFails?: boolean;
+type RepositoryBehavior = {
+  readonly initial?: ReadonlyMap<string, CanvasPauseState>;
+  readonly loadFails?: boolean;
+  readonly writeFails?: boolean;
 };
 
-const makeStore = (behavior: StoreBehavior, sets: SetRecord[]) =>
-  Layer.succeed(
-    StoreService,
-    StoreService.of({
-      doctor: Effect.succeed(check("store")),
-      get: <T>(key: string) =>
-        behavior.getFails
-          ? Effect.fail(new StoreError({ message: "corrupt json" }))
-          : Effect.succeed(behavior.initial?.[key] as T | undefined),
-      set: <T>(key: string, value: T) =>
-        behavior.setFails
-          ? Effect.fail(new StoreError({ message: "disk full" }))
-          : Effect.sync(() => void sets.push({ key, value })),
+type Write =
+  | {
+      readonly kind: "canvas";
+      readonly canvas: string;
+      readonly playing: boolean;
+    }
+  | {
+      readonly kind: "member";
+      readonly canvas: string;
+      readonly scope: PauseMemberScope;
+      readonly paused: boolean;
+    };
+
+const failure = (operation: string) =>
+  FactoryPausePersistenceError.make({
+    operation,
+    message: operation === "load" ? "database corrupt" : "disk full",
+    cause: new Error(operation),
+  });
+
+const withMember = (
+  values: ReadonlyArray<string>,
+  id: string,
+  present: boolean,
+): ReadonlyArray<string> => {
+  const rest = values.filter((value) => value !== id);
+  return present ? [...rest, id] : rest;
+};
+
+const makeRepository = (
+  behavior: RepositoryBehavior,
+  writes: Write[],
+): Layer.Layer<FactoryPauseRepository> => {
+  const states = new Map(behavior.initial ?? []);
+  return Layer.succeed(
+    FactoryPauseRepository,
+    FactoryPauseRepository.of({
+      loadAll: behavior.loadFails
+        ? Effect.fail(failure("load"))
+        : Effect.succeed(new Map(states)),
+      setPlaying: (canvas, playing) => {
+        if (behavior.writeFails) return Effect.fail(failure("write"));
+        return Effect.sync(() => {
+          const current = states.get(canvas) ?? PAUSED_CANVAS;
+          const next = {
+            ...current,
+            playing,
+            everPlayed: current.everPlayed || playing,
+          };
+          states.set(canvas, next);
+          writes.push({ kind: "canvas", canvas, playing });
+          return next;
+        });
+      },
+      setMemberPaused: (canvas, scope, paused) => {
+        if (behavior.writeFails) return Effect.fail(failure("write"));
+        return Effect.sync(() => {
+          const current = states.get(canvas) ?? PAUSED_CANVAS;
+          const next =
+            scope.kind === "node"
+              ? {
+                  ...current,
+                  pausedNodes: withMember(
+                    current.pausedNodes,
+                    scope.id,
+                    paused,
+                  ),
+                }
+              : {
+                  ...current,
+                  pausedRegions: withMember(
+                    current.pausedRegions,
+                    scope.id,
+                    paused,
+                  ),
+                };
+          states.set(canvas, next);
+          writes.push({ kind: "member", canvas, scope, paused });
+          return next;
+        });
+      },
     }),
   );
+};
 
 type Plane = Context.Tag.Service<typeof PausePlane>;
 
 const withPlane = async <A>(
-  behavior: StoreBehavior,
-  sets: SetRecord[],
+  behavior: RepositoryBehavior,
+  writes: Write[],
   use: (plane: Plane) => Promise<A>,
 ): Promise<A> => {
-  const runtime = ManagedRuntime.make(Layer.provide(PausePlaneLive, makeStore(behavior, sets)));
+  const runtime = ManagedRuntime.make(
+    Layer.provide(PausePlaneLive, makeRepository(behavior, writes)),
+  );
   try {
     const plane = await runtime.runPromise(PausePlane);
     await runtime.runPromise(plane.start);
@@ -60,14 +131,25 @@ describe("PausePlane — born paused", () => {
     });
   });
 
-  it("hydrates persisted records; start is idempotent", async () => {
+  it("hydrates normalized records; start is idempotent", async () => {
     await withPlane(
-      { initial: { [PAUSE_STORE_KEY]: { ether: { playing: true, everPlayed: true } } } },
+      {
+        initial: new Map([
+          [
+            "ether",
+            {
+              playing: true,
+              everPlayed: true,
+              pausedNodes: [],
+              pausedRegions: [],
+            },
+          ],
+        ]),
+      },
       [],
       async (plane) => {
         expect(plane.stateFor("ether").playing).toBe(true);
         expect(plane.stateFor("ether").everPlayed).toBe(true);
-        // Second start must not re-read or reset anything.
         await Effect.runPromise(plane.start);
         expect(plane.stateFor("ether").playing).toBe(true);
       },
@@ -77,33 +159,40 @@ describe("PausePlane — born paused", () => {
 
 describe("PausePlane — setPlaying", () => {
   it("playing stamps everPlayed, and the latch survives pausing again", async () => {
-    const sets: SetRecord[] = [];
-    await withPlane({}, sets, async (plane) => {
+    const writes: Write[] = [];
+    await withPlane({}, writes, async (plane) => {
       const seen: string[] = [];
       const unsubscribe = plane.subscribe((canvas) => seen.push(canvas));
 
       await Effect.runPromise(plane.setPlaying("ether", true));
-      expect(plane.stateFor("ether")).toMatchObject({ playing: true, everPlayed: true });
+      expect(plane.stateFor("ether")).toMatchObject({
+        playing: true,
+        everPlayed: true,
+      });
 
       await Effect.runPromise(plane.setPlaying("ether", false));
-      expect(plane.stateFor("ether")).toMatchObject({ playing: false, everPlayed: true });
+      expect(plane.stateFor("ether")).toMatchObject({
+        playing: false,
+        everPlayed: true,
+      });
 
       expect(seen).toEqual(["ether", "ether"]);
+      expect(writes).toEqual([
+        { kind: "canvas", canvas: "ether", playing: true },
+        { kind: "canvas", canvas: "ether", playing: false },
+      ]);
       unsubscribe();
-
-      // Store-first persistence: the paused-but-everPlayed record reached disk.
-      const last = sets.at(-1);
-      expect(last?.key).toBe(PAUSE_STORE_KEY);
-      expect(last?.value).toEqual({ ether: { everPlayed: true } });
     });
   });
 
-  it("a FAILED store write is a typed error and leaves memory untouched", async () => {
-    await withPlane({ setFails: true }, [], async (plane) => {
-      const result = await Effect.runPromise(Effect.either(plane.setPlaying("ether", true)));
+  it("a failed repository write is typed and leaves memory untouched", async () => {
+    await withPlane({ writeFails: true }, [], async (plane) => {
+      const result = await Effect.runPromise(
+        Effect.either(plane.setPlaying("ether", true)),
+      );
       expect(Either.isLeft(result)).toBe(true);
       if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("PauseStoreError");
+        expect(result.left._tag).toBe("PauseStateError");
         expect(result.left.message).toMatch(/not saved/i);
       }
       expect(plane.stateFor("ether")).toEqual(PAUSED_CANVAS);
@@ -111,22 +200,23 @@ describe("PausePlane — setPlaying", () => {
   });
 });
 
-describe("PausePlane — corrupt store fails closed", () => {
-  it("every canvas reads paused and writes refuse — the file is never clobbered", async () => {
+describe("PausePlane — corrupt state fails closed", () => {
+  it("every canvas reads paused and writes refuse without touching the repository", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      const sets: SetRecord[] = [];
-      await withPlane({ getFails: true }, sets, async (plane) => {
+      const writes: Write[] = [];
+      await withPlane({ loadFails: true }, writes, async (plane) => {
         expect(plane.stateFor("ether")).toEqual(PAUSED_CANVAS);
 
-        const result = await Effect.runPromise(Effect.either(plane.setPlaying("ether", true)));
+        const result = await Effect.runPromise(
+          Effect.either(plane.setPlaying("ether", true)),
+        );
         expect(Either.isLeft(result)).toBe(true);
         if (Either.isLeft(result)) {
-          expect(result.left._tag).toBe("PauseStoreError");
+          expect(result.left._tag).toBe("PauseStateError");
           expect(result.left.message).toMatch(/unreadable/i);
         }
-        // Refused before the store was touched — never clobbered.
-        expect(sets).toEqual([]);
+        expect(writes).toEqual([]);
         expect(plane.stateFor("ether")).toEqual(PAUSED_CANVAS);
       });
     } finally {
@@ -140,19 +230,34 @@ describe("PausePlane — scope pause round-trip", () => {
     await withPlane({}, [], async (plane) => {
       await Effect.runPromise(plane.setPlaying("ether", true));
 
-      await Effect.runPromise(plane.setScopePaused("ether", { kind: "node", id: "n1" }, true));
-      await Effect.runPromise(plane.setScopePaused("ether", { kind: "region", id: "r1" }, true));
+      await Effect.runPromise(
+        plane.setScopePaused("ether", { kind: "node", id: "n1" }, true),
+      );
+      await Effect.runPromise(
+        plane.setScopePaused("ether", { kind: "region", id: "r1" }, true),
+      );
       expect(plane.stateFor("ether").pausedNodes).toEqual(["n1"]);
       expect(plane.stateFor("ether").pausedRegions).toEqual(["r1"]);
 
-      await Effect.runPromise(plane.setScopePaused("ether", { kind: "node", id: "n1" }, false));
-      await Effect.runPromise(plane.setScopePaused("ether", { kind: "region", id: "r1" }, false));
+      await Effect.runPromise(
+        plane.setScopePaused("ether", { kind: "node", id: "n1" }, false),
+      );
+      await Effect.runPromise(
+        plane.setScopePaused("ether", { kind: "region", id: "r1" }, false),
+      );
       expect(plane.stateFor("ether").pausedNodes).toEqual([]);
       expect(plane.stateFor("ether").pausedRegions).toEqual([]);
 
-      await Effect.runPromise(plane.setScopePaused("ether", { kind: "canvas" }, true));
-      expect(plane.stateFor("ether")).toMatchObject({ playing: false, everPlayed: true });
-      await Effect.runPromise(plane.setScopePaused("ether", { kind: "canvas" }, false));
+      await Effect.runPromise(
+        plane.setScopePaused("ether", { kind: "canvas" }, true),
+      );
+      expect(plane.stateFor("ether")).toMatchObject({
+        playing: false,
+        everPlayed: true,
+      });
+      await Effect.runPromise(
+        plane.setScopePaused("ether", { kind: "canvas" }, false),
+      );
       expect(plane.stateFor("ether").playing).toBe(true);
     });
   });

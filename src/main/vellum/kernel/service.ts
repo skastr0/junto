@@ -2,7 +2,7 @@
 // continuously over EVERY hydrated canvas, window-optional. This module owns
 // lifecycle (hydration, doc resync, the 30s safety interval), binds cycle.ts's
 // injectable seams to concrete main-side collaborators (CanvasesService,
-// StoreService), and persists arming through StoreService. See
+// KernelStateRepository), and persists arming through normalized SQLite rows. See
 // kernel-design.md for the full design.
 //
 // cycle.ts/evaluate.ts are the pure loop + evaluator (ported verbatim from
@@ -25,11 +25,11 @@ import type {
 } from "@shared/ipc";
 import { CanvasesService } from "../canvases";
 import { SnapshotsService } from "../snapshots";
-import { StoreService } from "../../services/store";
 import { SettingsService } from "../settings/service";
 import { MainAuthoringRefused, mainAuthoringGate } from "../main-authoring-gate";
 import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
+import { KernelStateRepository } from "./repository";
 import { factoryClaimTick } from "@shared/factory-tick";
 import { listPendingDeliveries } from "@shared/message-delivery";
 import { seatPaused } from "@shared/pause";
@@ -98,7 +98,6 @@ const SAFETY_INTERVAL_MS = 30_000;
 // the next full cycle (worst case SAFETY_INTERVAL_MS later). Cheap: just an
 // array-length comparison, no evaluation work.
 const PULSE_LOG_POLL_MS = 3_000;
-const ARMED_STORE_KEY = "kernel.armed";
 const KNOWN_FLAGS: ReadonlySet<string> = new Set(["blocker", "parked", "attention"]);
 export const KERNEL_OBSERVATION_PREFIX = "[vellum:kernel-observation] ";
 
@@ -174,7 +173,7 @@ export const computeOrphanedArming = (
 
 type CanvasesShape = Context.Tag.Service<typeof CanvasesService>;
 type SnapshotsShape = Context.Tag.Service<typeof SnapshotsService>;
-type StoreShape = Context.Tag.Service<typeof StoreService>;
+type KernelStateShape = Context.Tag.Service<typeof KernelStateRepository>;
 type PauseShape = Context.Tag.Service<typeof PausePlane>;
 type SettingsShape = Context.Tag.Service<typeof SettingsService>;
 type SchedulerShape = Context.Tag.Service<typeof SchedulerRepository>;
@@ -196,7 +195,7 @@ const refreshStationScope = async (settings: SettingsShape): Promise<void> => {
 const makeKernelService = (
   canvases: CanvasesShape,
   snapshots: SnapshotsShape,
-  store: StoreShape,
+  kernelState: KernelStateShape,
   settings: SettingsShape,
   pause: PauseShape,
   scheduler: SchedulerShape,
@@ -273,7 +272,7 @@ const makeKernelService = (
     // Durable debug state shares the app-owned SQLite connection. It is useful
     // after restart, but external processes must never open the live database.
     void Effect.runPromise(
-      store.set("kernel.debug", { pulseLog: snapshot.pulseLog.slice(-20) }),
+      kernelState.replaceDebugPulseRing(snapshot.pulseLog),
     ).catch(() => undefined);
     // The packaged headless probe observes the main process over its bounded
     // stdout transport. This keeps the database single-owner even while the
@@ -499,38 +498,27 @@ const makeKernelService = (
   const refreshWithIdentityHints = () =>
     Effect.flatMap(snapshots.current, (state) => snapshots.refresh(identityHints(docs.values(), state)));
 
-  // --- arming: StoreService-persisted, cycle.ts's in-memory map is the hot read
+  // --- arming: normalized SQLite rows, cycle.ts's in-memory map is the hot read
 
-  // Durable-intent invariant: a store that cannot be READ must not boot the
+  // Durable-intent invariant: state that cannot be READ must not boot the
   // kernel silently disarmed — that is a silent disarm wearing an error's
   // clothes. On load failure the fault is surfaced in every snapshot, armed
-  // regions are explicitly NOT resumed, and nothing is overwritten (store.set
-  // reads first, so the corrupt file also cannot be clobbered by later
-  // writes). The kernel itself keeps running.
+  // regions are explicitly NOT resumed, and writes are refused. The kernel
+  // itself keeps running.
   const hydrateArming = async (): Promise<void> => {
-    const result = await Effect.runPromise(Effect.either(store.get<Record<string, true>>(ARMED_STORE_KEY)));
+    const result = await Effect.runPromise(
+      Effect.either(kernelState.listArmedRegions),
+    );
     if (result._tag === "Left") {
       armingFault =
         `arming state unreadable (${result.left.message}) — armed regions were NOT resumed and arming ` +
-        `changes will fail until the store file is repaired or removed; nothing was overwritten`;
+        `changes will fail until the SQLite state is repaired; nothing was overwritten`;
       console.error(`[kernel] ${armingFault}`);
       return;
     }
-    for (const key of Object.keys(result.right ?? {})) setArmed(key, true);
-  };
-
-  // The armed record as it would be persisted, computed WITHOUT mutating the
-  // in-memory map — the transactional-arming precondition. armRegion writes
-  // this to the store first and only calls setArmed after the write lands, so
-  // a failed persist leaves memory and disk in sync (nothing changed) instead
-  // of the old order (setArmed first, then persist) that diverged them on a
-  // store write error.
-  const armedRecordWith = (key: string, value: boolean): Record<string, true> => {
-    const out: Record<string, true> = {};
-    for (const [k, v] of getArmed()) if (v) out[k] = true;
-    if (value) out[key] = true;
-    else delete out[key];
-    return out;
+    for (const armed of result.right) {
+      setArmed(armedStoreKey(armed.canvasName, armed.regionId), true);
+    }
   };
 
   return KernelService.of({
@@ -570,15 +558,17 @@ const makeKernelService = (
 
     armRegion: (canvasName, regionId, armedValue) =>
       Effect.gen(function* () {
-        // Fail fast under a boot-time arming fault: the store could not be
+        // Fail fast under a boot-time arming fault: SQLite state could not be
         // read, so armed regions were NOT resumed and no write may proceed
-        // (the corrupt file must not be clobbered). The caller surfaces this.
+        // (the corrupt rows must not be clobbered). The caller surfaces this.
         if (armingFault !== undefined) {
           return { ok: false, error: armingFault } as const;
         }
         const key = armedStoreKey(canvasName, regionId);
         // Persist FIRST (memory untouched on failure), then mutate memory.
-        const stored = yield* Effect.either(store.set(ARMED_STORE_KEY, armedRecordWith(key, armedValue)));
+        const stored = yield* Effect.either(
+          kernelState.setRegionArmed(canvasName, regionId, armedValue),
+        );
         if (stored._tag === "Left") {
           return {
             ok: false,
@@ -619,14 +609,14 @@ export const KernelLive = Layer.effect(
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const snapshots = yield* SnapshotsService;
-    const store = yield* StoreService;
+    const kernelState = yield* KernelStateRepository;
     const settings = yield* SettingsService;
     const pause = yield* PausePlane;
     const scheduler = yield* SchedulerRepository;
     return makeKernelService(
       canvases,
       snapshots,
-      store,
+      kernelState,
       settings,
       pause,
       scheduler,

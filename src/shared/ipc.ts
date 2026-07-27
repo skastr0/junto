@@ -318,19 +318,19 @@ export interface KernelSnapshot {
   readonly orphanedArming?: ReadonlyArray<string>;
 }
 
-// armRegion is transactional: the store write happens BEFORE the in-memory
+// armRegion is transactional: the typed SQLite write happens BEFORE in-memory
 // arming map mutates, so a failed persist leaves memory and disk in sync and
 // the caller learns the change did not stick. ok:false carries the reason
-// (store write failure, or a boot-time arming fault) for the renderer to
+// (SQLite write failure, or a boot-time arming fault) for the renderer to
 // surface inline near the arming control — never swallowed.
 export interface ArmRegionResult {
   readonly ok: boolean;
   readonly error?: string;
 }
 
-// factoryPauseSet is store-first (pause-plane.ts persist): ok carries the
+// factoryPauseSet is SQLite-first (pause-plane.ts persist): ok carries the
 // fresh post-write state so the renderer never re-derives; a refused write
-// (store fault, failed persist) changed nothing anywhere and carries the
+// (state fault, failed persist) changed nothing anywhere and carries the
 // reason for the operator to see inline — never swallowed.
 export type FactoryPauseSetResult =
   | { readonly ok: true; readonly state: CanvasPauseState }

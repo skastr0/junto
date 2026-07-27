@@ -24,7 +24,7 @@ import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 // - Never store secrets here (full document is IPC-broadcast to all windows).
 // - BrowserPrefs (maxVisible/maxWarm) is the sole durable SoT for those limits;
 //   BrowserProfileService keeps profile identity/dirs/wipe only.
-// - Kernel arming stays in StoreService — not a preference.
+// - Kernel arming has normalized runtime-state rows — not a preference.
 
 export const SETTINGS_VERSION = 1 as const;
 

@@ -4,7 +4,6 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import { CodexService } from "./services/codex";
 import { FolderService } from "./services/folder";
 import { PrismService } from "./services/prism";
-import { StoreService } from "./services/store";
 import { AppRuntime, buildDoctorReport } from "./runtime";
 import type { BrowserSessionService } from "./vellum/browser/sessions";
 import { registerVellumBrowserIpc, registerVellumIpc } from "./vellum/ipc";
@@ -33,8 +32,6 @@ export const registerIpcHandlers = (): void => {
     const entries = await AppRuntime.runPromise(
       Effect.gen(function* () {
         const folder = yield* FolderService;
-        const store = yield* StoreService;
-        yield* store.set("lastFolder", root);
         return yield* folder.readDirectory(root);
       }),
     );
