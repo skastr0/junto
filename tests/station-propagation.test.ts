@@ -591,6 +591,20 @@ describe("StationPropagation canonical work replication", () => {
       )).tasks.items,
     ).toEqual([]);
 
+    // The Remote continues working while the response is lost. Its result is
+    // causally downstream of the command that CC has not materialized yet.
+    // Replay must return the applied disposition first, then this claim.
+    await remote.runtime.runPromise(
+      claimTask(remoteWork, {
+        doc,
+        nodeId,
+        route: host,
+        eventHome: remote.installationId,
+        taskId: created.value.id,
+        actor: "lost-response:worker",
+      }),
+    );
+
     const recovered = await commandCenter.runPromise(
       propagation.synchronize(
         target(remote.endpoint, remote.installationId, host),
@@ -599,16 +613,22 @@ describe("StationPropagation canonical work replication", () => {
     expect(recovered.report).toMatchObject({
       rounds: 1,
       outboundSent: 0,
-      inboundReceived: 1,
-      inboundAccepted: 1,
+      inboundReceived: 2,
+      inboundAccepted: 2,
     });
     expect(
       (await commandCenter.runPromise(
         ccWork.readSnapshot("factory", nodeId),
-      )).tasks.items[0]?.id,
-    ).toBe(created.value.id);
+      )).tasks.items[0],
+    ).toMatchObject({
+      id: created.value.id,
+      state: "working",
+      metadata: { claimedBy: "lost-response:worker" },
+    });
     expect(remote.route.requests.map((request) => request.outbound.length))
       .toEqual([1, 0]);
+    expect(remote.route.responses.map((response) => response.inbound.length))
+      .toEqual([1, 2]);
   });
 
   it("pages more than 256 commands and dispositions without skipping a cursor", async () => {
