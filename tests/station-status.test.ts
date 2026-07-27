@@ -242,10 +242,13 @@ describe("station status doctor", () => {
 
     expect(check.status).toBe("ok");
     expect(check.detail).toContain("projection 42");
-    expect(check.detail).toContain("logical cursors 2");
+    expect(check.detail).toContain(
+      "logical cursors cc-installation:9,station-remote-a:17",
+    );
     expect(check.metadata).toMatchObject({
       projectionGeneration: "42",
       receivedCursorCount: "2",
+      receivedThrough: "cc-installation:9,station-remote-a:17",
     });
   });
 
@@ -310,6 +313,8 @@ describe("station status doctor", () => {
       "remote.studio.role": "remote",
       "remote.studio.projectionGeneration": "3",
       "remote.studio.receivedCursorCount": "2",
+      "remote.studio.receivedThrough":
+        "cc-installation:12,station-studio:7",
       "remote.studio.databaseReady": "true",
       "remote.studio.workControlReady": "true",
       "remote.studio.simulationReady": "true",
@@ -367,6 +372,30 @@ describe("station status doctor", () => {
     expect(check.status).toBe("error");
     expect(check.detail).toMatch(
       /Station API configuration does not match registry/i,
+    );
+    expect(check.metadata).toMatchObject({
+      "remote.studio.state": "error",
+    });
+  });
+
+  it("fails closed on a Remote bound to another Command Center", () => {
+    const check = assessStationDoctor({
+      ...localDoctorInput(),
+      registeredRemoteEndpoints: { studio: "studio-box" },
+      remoteObservations: [
+        observedRemote({
+          station: stationStatus("studio", {
+            configuration: remoteConfiguration("studio", {
+              commandCenterInstallationId: installationId("other-cc"),
+            }),
+          }),
+        }),
+      ],
+    });
+
+    expect(check.status).toBe("error");
+    expect(check.detail).toMatch(
+      /Station API configuration names another Command Center/i,
     );
     expect(check.metadata).toMatchObject({
       "remote.studio.state": "error",
