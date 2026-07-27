@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   AlertTriangle,
@@ -57,7 +65,9 @@ import { openWorkDetail } from "../../lib/work-detail-open";
 import { ConnectEditor } from "../InspectorFields";
 import { PulseTray } from "../PulseTray";
 import { StoppageRank } from "./StoppageRank";
-import { EdgeCommandCard, PauseScopeKey, RegionPauseDot } from "./RtsControls";
+import { EdgeCommandCard, PauseScopeKey } from "./RtsControls";
+import { ensurePauseState, pause$, regionPausedIn } from "../../lib/pause-state";
+import { ActivityMark } from "../ActivityMark";
 import { KindSurface } from "./KindSurface";
 import "./RtsBottomBar.css";
 
@@ -656,7 +666,79 @@ function IdleHerdrButton({ queue }: { readonly queue: ReadonlyArray<IdleHerdrEnt
 }
 
 /**
- * Permanent thin hotbar above the whole RTS triad: region slots 1–9.
+ * Region hotbar chip: slot digit + name only.
+ * Severity/pause live in surface language (wash, pulse, moving border) +
+ * house ActivityMark for live states — never count badges or pause glyphs.
+ */
+function RegionChip({
+  index,
+  rollup,
+  selected,
+  onDragStart,
+  onDragOver,
+  onDrop,
+}: {
+  readonly index: number;
+  readonly rollup: RegionRollup;
+  readonly selected: boolean;
+  readonly onDragStart: () => void;
+  readonly onDragOver: (event: DragEvent) => void;
+  readonly onDrop: () => void;
+}) {
+  const mark = signalMark(rollup.severity);
+  const paused = use$(() => regionPausedIn(pause$.state.get(), rollup.regionId));
+  const live = mark.mode === "wave" && !paused;
+  // Parked severity or explicit pause scope both dim the chip; pause wins for motion.
+  const sev = paused ? "paused" : mark.kind;
+
+  const chipStyle = {
+    ["--rts-chip-hue" as string]: mark.hue,
+    ["--rts-chip-hue-soft" as string]: withAlpha(mark.hue, 0.14),
+    ["--rts-chip-hue-mid" as string]: withAlpha(mark.hue, 0.45),
+    ["--rts-chip-hue-glow" as string]: withAlpha(mark.hue, 0.22),
+  } as CSSProperties;
+
+  return (
+    <button
+      type="button"
+      className={[
+        "rts-chip",
+        "rts-chip--strip",
+        selected ? "is-active" : "",
+        `is-sev-${sev}`,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      data-severity={sev}
+      style={chipStyle}
+      draggable
+      aria-label={`Region slot ${index + 1}: ${rollup.label}, ${paused ? "paused" : mark.label}`}
+      aria-pressed={selected}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onClick={() => focusNode(rollup.regionId)}
+      title={`${rollup.label} — ${paused ? "paused" : mark.label}`}
+    >
+      <span className="rts-chip__slot" aria-hidden>
+        {index + 1}
+      </span>
+      {live ? (
+        <ActivityMark
+          mode="wave"
+          tone={mark.tone === "violet" ? "steel" : mark.tone}
+          label={mark.label}
+          size="inline"
+          className="rts-chip__activity"
+        />
+      ) : null}
+      <span className="rts-chip__label">{rollup.label}</span>
+    </button>
+  );
+}
+
+/**
+ * Permanent thin hotbar above command + kind: region slots 1–9.
  * Always visible; never competes with the kind middle for vertical space.
  */
 function RegionStrip({
@@ -670,7 +752,13 @@ function RegionStrip({
 }) {
   const selectedNodeId = use$(state$.selectedNodeId);
   const slotOrder = use$(state$.regionSlotOrder);
+  const canvasName = use$(state$.canvasName);
   const dragFrom = useRef<number | null>(null);
+
+  // Pause wash on chips needs the pause plane; refresh when canvas opens.
+  useEffect(() => {
+    if (canvasName) ensurePauseState(canvasName);
+  }, [canvasName]);
 
   // Chips from rollups (cold shell always includes every group on the open
   // document — never gate the strip on IPC alone).
@@ -698,96 +786,37 @@ function RegionStrip({
 
   return (
     <div className="rts-region-strip" role="region" aria-label="Region slots 1 to 9">
-      <div className="rts-region-strip__chrome">
-        <span className="rts-region-strip__label">regions · 1–9</span>
-        <IdleHerdrButton queue={idleQueue} />
-      </div>
       {slots.length === 0 ? (
         <div className="rts-region-strip__empty">
           No regions yet — group nodes, or Ctrl+1–9 on a selection
         </div>
       ) : (
         <div className="rts-region-strip__chips" role="toolbar" aria-label="Region hotbar">
-          {slots.map(({ index, rollup }) => {
-            const mark = signalMark(rollup.severity);
-            const elevated = mark.kind !== "idle";
-            return (
-              <button
-                key={rollup.regionId}
-                type="button"
-                className={`rts-chip rts-chip--strip${selectedNodeId === rollup.regionId ? " is-active" : ""}${elevated ? " is-hot" : ""}`}
-                style={
-                  elevated
-                    ? {
-                        borderColor: withAlpha(mark.hue, 0.55),
-                        boxShadow: `inset 0 0 0 1px ${withAlpha(mark.hue, 0.18)}, 0 0 10px ${withAlpha(mark.hue, 0.1)}`,
-                      }
-                    : undefined
-                }
-                draggable
-                aria-label={`Region slot ${index + 1}: ${rollup.label}, ${mark.label}, ${rollup.counts.total} members`}
-                onDragStart={() => {
-                  dragFrom.current = index;
-                }}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => {
-                  const from = dragFrom.current;
-                  dragFrom.current = null;
-                  if (from === null || from === index) return;
-                  const order = slots.map((s) => s.rollup.regionId);
-                  const [moved] = order.splice(from, 1);
-                  if (!moved) return;
-                  order.splice(index, 0, moved);
-                  state$.regionSlotOrder.set(order.slice(0, 9));
-                }}
-                onClick={() => focusNode(rollup.regionId)}
-                title={`${rollup.label} — ${mark.label}`}
-              >
-                <span
-                  className="rts-chip__slot"
-                  style={
-                    elevated
-                      ? { color: mark.hue, borderColor: withAlpha(mark.hue, 0.4) }
-                      : undefined
-                  }
-                >
-                  {index + 1}
-                </span>
-                <span
-                  className="rts-signal-mark"
-                  style={{ color: mark.hue }}
-                  aria-hidden
-                  title={mark.label}
-                >
-                  {elevated ? mark.symbol : "●"}
-                </span>
-                <span className="rts-chip__label">{rollup.label}</span>
-                <span className="rts-chip__counts">
-                  {rollup.counts.blocked > 0 ? (
-                    <span style={{ color: HUE.crimson }}>
-                      <b>{rollup.counts.blocked}</b>b
-                    </span>
-                  ) : null}
-                  {rollup.counts.attention > 0 ? (
-                    <span style={{ color: HUE.amber }}>
-                      <b>{rollup.counts.attention}</b>a
-                    </span>
-                  ) : null}
-                  {rollup.counts.working > 0 ? (
-                    <span style={{ color: HUE.cyan }}>
-                      <b>{rollup.counts.working}</b>w
-                    </span>
-                  ) : null}
-                  <span>
-                    <b>{rollup.counts.total}</b>
-                  </span>
-                </span>
-                <RegionPauseDot regionId={rollup.regionId} />
-              </button>
-            );
-          })}
+          {slots.map(({ index, rollup }) => (
+            <RegionChip
+              key={rollup.regionId}
+              index={index}
+              rollup={rollup}
+              selected={selectedNodeId === rollup.regionId}
+              onDragStart={() => {
+                dragFrom.current = index;
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => {
+                const from = dragFrom.current;
+                dragFrom.current = null;
+                if (from === null || from === index) return;
+                const order = slots.map((s) => s.rollup.regionId);
+                const [moved] = order.splice(from, 1);
+                if (!moved) return;
+                order.splice(index, 0, moved);
+                state$.regionSlotOrder.set(order.slice(0, 9));
+              }}
+            />
+          ))}
         </div>
       )}
+      <IdleHerdrButton queue={idleQueue} />
     </div>
   );
 }

@@ -116,10 +116,10 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(kindStrip.getByRole("button", { name: "Open chat" })).toHaveCount(0);
   await expect(kindStrip.getByRole("button", { name: "Open fields" })).toBeVisible();
 
-  // Permanent region strip above the triad.
+  // Permanent region strip above command+kind (slot + name chips).
   const regionStrip = page.locator(".rts-region-strip");
   await expect(regionStrip).toBeVisible();
-  await expect(regionStrip).toContainText("regions");
+  await expect(regionStrip.locator(".rts-chip--strip").first()).toBeVisible();
 
   // Floating node toolbar carries the same pause toggle.
   const toolbarPause = page.getByTestId("node-toolbar-pause");
@@ -161,13 +161,17 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
     page.locator(".react-flow__node", { hasText: "wire the loop" }).first(),
   ).toBeVisible();
 
-  // Region strip: the ops chip carries a pause dot; clicking pauses the region.
-  const regionDot = regionStrip.locator(".rts-chip__pause").first();
-  await expect(regionDot).toBeVisible();
-  await expect(regionDot).toHaveAttribute("data-paused", "false");
-  await regionDot.click();
-  await expect(regionDot).toHaveAttribute("data-paused", "true");
+  // Region strip chip: select region → left command pause toggles pause surface.
+  const regionChip = regionStrip.locator(".rts-chip--strip").first();
+  await expect(regionChip).toBeVisible();
+  await regionChip.click();
+  const regionPause = page.getByTestId("rts-pause-region");
+  await expect(regionPause).toBeVisible();
+  await expect(regionPause).toHaveAttribute("data-paused", "false");
+  await regionPause.click();
+  await expect(regionPause).toHaveAttribute("data-paused", "true");
+  await expect(regionChip).toHaveAttribute("data-severity", "paused");
   await page.screenshot({ path: join(SHOTS, "04-region-paused.png"), fullPage: false });
-  await regionDot.click();
-  await expect(regionDot).toHaveAttribute("data-paused", "false");
+  await regionPause.click();
+  await expect(regionPause).toHaveAttribute("data-paused", "false");
 });

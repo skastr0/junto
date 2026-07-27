@@ -101,18 +101,186 @@
 }
 
 .rts-region-strip .rts-idle-herdr {
-  margin-left: 0;
-}
-
-/* Strip chips stay one-line and compact so the row stays ~34–40px. */
-.rts-chip--strip {
-  max-width: 168px;
-  padding: 3px 6px;
+  margin-left: auto;
   flex-shrink: 0;
 }
 
+/* Strip chips: slot + name only. Severity is surface language. */
+.rts-chip--strip {
+  --rts-chip-hue: rgba(237, 230, 218, 0.55);
+  --rts-chip-hue-soft: rgba(255, 255, 255, 0.03);
+  --rts-chip-hue-mid: rgba(237, 230, 218, 0.18);
+  --rts-chip-hue-glow: transparent;
+  position: relative;
+  isolation: isolate;
+  max-width: 148px;
+  padding: 4px 8px 4px 6px;
+  flex-shrink: 0;
+  gap: 6px;
+  border-color: var(--rts-chip-hue-mid);
+  background: var(--rts-chip-hue-soft);
+  overflow: hidden;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+}
+
 .rts-chip--strip .rts-chip__label {
-  max-width: 72px;
+  max-width: 96px;
+}
+
+.rts-chip--strip .rts-chip__slot {
+  color: var(--rts-chip-hue);
+  border-color: var(--rts-chip-hue-mid);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.rts-chip--strip .rts-chip__activity {
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+/* Severity wash + motion (counts/pause/glyphs removed). */
+.rts-chip--strip.is-sev-idle {
+  --rts-chip-hue: rgba(143, 163, 176, 0.85);
+  --rts-chip-hue-soft: rgba(255, 255, 255, 0.03);
+  --rts-chip-hue-mid: rgba(237, 230, 218, 0.12);
+}
+
+.rts-chip--strip.is-sev-working {
+  box-shadow:
+    inset 0 0 0 1px var(--rts-chip-hue-glow),
+    0 0 12px var(--rts-chip-hue-glow);
+  animation: rts-chip-breathe 1.8s ease-in-out infinite;
+}
+
+/* Moving border — rotating conic sweep for working regions. */
+.rts-chip--strip.is-sev-working::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--rts-chip-angle, 0deg),
+    transparent 0deg,
+    transparent 220deg,
+    var(--rts-chip-hue) 280deg,
+    transparent 340deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: rts-chip-border-spin 2.2s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.rts-chip--strip.is-sev-working > * {
+  position: relative;
+  z-index: 1;
+}
+
+.rts-chip--strip.is-sev-attention {
+  box-shadow:
+    inset 0 0 0 1px var(--rts-chip-hue-glow),
+    0 0 14px var(--rts-chip-hue-glow);
+  animation: rts-chip-pulse 1.25s ease-in-out infinite;
+}
+
+.rts-chip--strip.is-sev-blocked {
+  box-shadow:
+    inset 0 0 0 1px var(--rts-chip-hue-glow),
+    0 0 16px var(--rts-chip-hue-glow);
+  animation: rts-chip-pulse 0.95s ease-in-out infinite;
+}
+
+.rts-chip--strip.is-sev-parked {
+  opacity: 0.78;
+}
+
+.rts-chip--strip.is-sev-paused {
+  opacity: 0.62;
+  border-style: dashed;
+  animation: none;
+}
+
+.rts-chip--strip.is-sev-paused::before {
+  display: none;
+}
+
+.rts-chip--strip.is-active {
+  border-color: rgba(232, 163, 61, 0.65);
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 163, 61, 0.22),
+    0 0 12px rgba(232, 163, 61, 0.14);
+}
+
+.rts-chip--strip.is-active.is-sev-working,
+.rts-chip--strip.is-active.is-sev-attention,
+.rts-chip--strip.is-active.is-sev-blocked {
+  /* Keep selection rim readable over severity glow. */
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 163, 61, 0.35),
+    0 0 14px var(--rts-chip-hue-glow);
+}
+
+@property --rts-chip-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes rts-chip-border-spin {
+  to {
+    --rts-chip-angle: 360deg;
+  }
+}
+
+@keyframes rts-chip-breathe {
+  0%,
+  100% {
+    background-color: var(--rts-chip-hue-soft);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--rts-chip-hue) 18%, transparent);
+  }
+}
+
+@keyframes rts-chip-pulse {
+  0%,
+  100% {
+    background-color: var(--rts-chip-hue-soft);
+    filter: brightness(1);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--rts-chip-hue) 22%, transparent);
+    filter: brightness(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rts-chip--strip.is-sev-working,
+  .rts-chip--strip.is-sev-attention,
+  .rts-chip--strip.is-sev-blocked {
+    animation: none;
+  }
+
+  .rts-chip--strip.is-sev-working::before {
+    animation: none;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--rts-chip-hue-mid);
+    -webkit-mask: none;
+    mask: none;
+    padding: 0;
+  }
 }
 
 /* Triad panels live on row 2 of the shell grid. */
