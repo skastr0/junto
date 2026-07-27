@@ -129,6 +129,7 @@ const start = async (
     version: "test",
     home,
     edgeGrant,
+    listCanvasDocuments: async () => [],
     stationBrowserOrigin: {
       router,
       admissionForSocket: () => admission,

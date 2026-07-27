@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -220,7 +220,6 @@ describe("browser edge-grant process-bind dual admit", () => {
     const listCanvasDocuments = async () => [{ name: "work", doc }];
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      canvasesDir: join(root, "canvases"),
       resolvePageTarget,
       listCanvasDocuments,
       station: () => sessions.stationIdentity(),
@@ -232,7 +231,6 @@ describe("browser edge-grant process-bind dual admit", () => {
       capabilities,
       resolvePageTarget,
       version: "0.0.0-test",
-      canvasesDir: join(root, "canvases"),
       listDocuments: listCanvasDocuments,
       shotsDir: join(root, "shots"),
       edgeGrant,
@@ -242,7 +240,6 @@ describe("browser edge-grant process-bind dual admit", () => {
 
   it("admits protected list routes via process principal without capability secret", async () => {
     const doc = canvasDoc(true);
-    // Live authority path: listCanvasDocuments / listDocuments — no .canvas write.
     const { handlers, edgeGrant, capabilities } = makeStack(doc);
       const token = rotateControlToken(join(root, "token"));
       const processPrincipal: ProcessPrincipal = { agentKey: "local:default" };
@@ -328,9 +325,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("denies process principals with no edge to a page", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(false);
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { handlers, edgeGrant } = makeStack(doc);
     const token = rotateControlToken(join(root, "token"));
     const processPrincipal: ProcessPrincipal = { agentKey: "local:default" };
@@ -358,8 +353,40 @@ describe("browser edge-grant process-bind dual admit", () => {
     }
   });
 
+  it("fails closed when canonical document authority is unavailable", async () => {
+    const capabilities = makeBrowserCapabilityRegistry();
+    registries.push(capabilities);
+    const authority = stationAuthority("local");
+    const edgeGrant = makeEdgeGrantService({
+      capabilities,
+      listCanvasDocuments: async () => {
+        throw new Error("database unavailable");
+      },
+      resolvePageTarget: async () => ({ ok: true, data: TARGET }),
+      station: authority.station,
+      admitBrowserHost: (hostId) => {
+        const host = authority.findHost(hostId);
+        return host === undefined
+          ? {
+              ok: false as const,
+              code: "unsupported_capability" as const,
+              reason: "host-not-registered" as const,
+              message: "missing",
+            }
+          : { ok: true as const, host };
+      },
+    });
+
+    await expect(
+      edgeGrant.admitPrincipal({ agentKey: "local:default" }),
+    ).resolves.toMatchObject({
+      ok: false,
+      denial: "canvas_unreadable",
+    });
+    expect(capabilities.stats().activeCapabilities).toBe(0);
+  });
+
   it("refuses a cross-host page edge before minting browser authority", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const base = canvasDoc(true);
     const doc: CanvasDoc = {
       ...base,
@@ -371,14 +398,12 @@ describe("browser edge-grant process-bind dual admit", () => {
         },
       })),
     };
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
-
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
     const authority = stationAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      canvasesDir: join(root, "canvases"),
+      listCanvasDocuments: async () => [{ name: "work", doc }],
       resolvePageTarget: async (candidate) =>
         candidate === REF_PAGE
           ? { ok: true, data: { ...TARGET, hostId: "render" } }
@@ -411,7 +436,6 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("mints only when the Remote caller, document page, and resolved target share its host", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const base = canvasDoc(true);
     const doc: CanvasDoc = {
       ...base,
@@ -420,14 +444,12 @@ describe("browser edge-grant process-bind dual admit", () => {
         ether: { ...node.ether, host: "studio" },
       })),
     };
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
-
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
     const authority = stationAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      canvasesDir: join(root, "canvases"),
+      listCanvasDocuments: async () => [{ name: "work", doc }],
       resolvePageTarget: async (candidate) =>
         candidate === REF_PAGE
           ? { ok: true, data: { ...TARGET, hostId: "studio" } }
@@ -454,7 +476,6 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("refuses a resolver result that disagrees with its same-host page node", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const base = canvasDoc(true);
     const doc: CanvasDoc = {
       ...base,
@@ -463,14 +484,12 @@ describe("browser edge-grant process-bind dual admit", () => {
         ether: { ...node.ether, host: "studio" },
       })),
     };
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
-
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
     const authority = stationAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      canvasesDir: join(root, "canvases"),
+      listCanvasDocuments: async () => [{ name: "work", doc }],
       resolvePageTarget: async () => ({ ok: true, data: { ...TARGET, hostId: "render" } }),
       station: authority.station,
       admitBrowserHost: (hostId) => {
@@ -493,9 +512,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("admits a registered agent seat on protected routes via its human page edge", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const doc = terminalCanvasDoc();
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
 
     const terminalPrincipal: ProcessPrincipal = {
       agentKey: "local:terminal",
@@ -560,9 +577,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("rejects a capability paired with a different registry principal", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { handlers, edgeGrant, capabilities } = makeStack(doc);
     const token = rotateControlToken(join(root, "token"));
     const processPrincipal: ProcessPrincipal = { agentKey: "local:default" };
@@ -619,9 +634,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("reuses admission cache and remints after canvas invalidation", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { edgeGrant } = makeStack(doc);
 
     const principal: ProcessPrincipal = { agentKey: "local:default" };
@@ -654,9 +667,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("immediately revokes the affected cached grant and its active lease", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { edgeGrant, capabilities } = makeStack(doc);
     const principal: ProcessPrincipal = { agentKey: "local:default" };
     const admission = await edgeGrant.admitPrincipal(principal);
@@ -698,9 +709,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("caps Remote edge authority to the remaining pull freshness", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const { edgeGrant, capabilities } = makeStack(doc, undefined, {
       processMap: makeProcessIdentityMap(),
       readPeerPid: () => process.pid,
@@ -726,9 +735,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("revokes only an exited process binding and remints for its replacement", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
     const processMap = makeProcessIdentityMap();
     const principal: ProcessPrincipal = { agentKey: "local:default" };
     expect(processMap.bind(process.pid, principal)).toBe(true);
@@ -756,9 +763,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("does not mint from a graph invalidated during async admission", async () => {
-    await mkdir(join(root, "canvases"), { recursive: true });
     const doc = canvasDoc(true);
-    await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
 
     let releaseResolution!: () => void;
     const resolutionGate = new Promise<void>((resolve) => {

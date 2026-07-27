@@ -258,7 +258,6 @@ describe("browser edge-delete session teardown", () => {
     let liveDoc = doc;
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      canvasesDir: join(root, "canvases"),
       resolvePageTarget,
       listCanvasDocuments: async () => [{ name: "work", doc: liveDoc }],
       station: () => sessions.stationIdentity(),

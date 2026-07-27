@@ -2,7 +2,6 @@ import { isPageNode } from "./authz";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   chmodSync,
-  constants as fsConstants,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -15,7 +14,6 @@ import {
   lstat,
   mkdir,
   open as openFile,
-  opendir,
   unlink,
 } from "node:fs/promises";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
@@ -24,7 +22,6 @@ import type { Socket } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Either, Schema } from "effect";
-import { decodeCanvasDoc } from "@shared/canvas";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   CONTROL_CAPABILITY_HEADER,
@@ -150,35 +147,8 @@ export const tokenMatches = (presented: string | undefined, expected: string): b
 };
 
 // ---------------------------------------------------------------------------
-// Page-node listing: link nodes upgraded to entity.kind "page" across every
-// .canvas document. Read-only; a corrupt canvas degrades to zero rows for that
-// file rather than failing the listing (canvas-ls precedent).
-
-const readBoundedCanvasSource = async (
-  path: string,
-  remainingBytes: number,
-): Promise<{ readonly source: string; readonly bytes: number } | undefined> => {
-  const maxBytes = Math.min(BROWSER_MAX_CANVAS_SOURCE_BYTES, remainingBytes);
-  if (maxBytes <= 0) return undefined;
-  const admitted = await lstat(path);
-  if (!admitted.isFile() || admitted.size > maxBytes) return undefined;
-
-  const handle = await openFile(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  try {
-    const current = await handle.stat();
-    if (!current.isFile() || current.size > maxBytes) return undefined;
-    const buffer = Buffer.alloc(current.size);
-    let offset = 0;
-    while (offset < buffer.byteLength) {
-      const { bytesRead } = await handle.read(buffer, offset, buffer.byteLength - offset, offset);
-      if (bytesRead === 0) break;
-      offset += bytesRead;
-    }
-    return { source: buffer.subarray(0, offset).toString("utf8"), bytes: offset };
-  } finally {
-    await handle.close();
-  }
-};
+// Page-node listing reads only canonical documents supplied by the app-owned
+// SQLite authority. The browser plane has no filesystem discovery path.
 
 const boundedRuntimeValue = (value: number | undefined, hardLimit: number): number =>
   value !== undefined && Number.isInteger(value) && value > 0
@@ -252,16 +222,14 @@ const appendPageRowsFromDoc = (
 };
 
 /**
- * List page nodes across canvases. Prefer `listDocuments` (live authority) so
- * production never readdir()s ~/.vellum/canvases when CanvasesService is SoT.
- * Directory scan remains for tests that only pass a canvasesDir of .canvas files.
+ * List page nodes across canonical canvas documents. Authority failures fail
+ * closed to an empty listing; there is no secondary store to consult.
  */
 export const listPageNodes = async (
-  canvasesDir: string,
+  listDocuments: ListCanvasDocuments,
   sessions?: BrowserSessionService,
   runtime: PageListRuntime = {},
   owner = BROWSER_UI_SESSION_OWNER,
-  listDocuments?: ListCanvasDocuments,
 ): Promise<ReadonlyArray<PageNodeRow>> => {
   const maxDirectoryEntries = boundedRuntimeValue(
     runtime.maxDirectoryEntries,
@@ -277,72 +245,30 @@ export const listPageNodes = async (
     responseNodes: 3, // envelope object + ok boolean + data array
   };
 
-  if (listDocuments !== undefined) {
-    try {
-      const documents = await listDocuments();
-      let directoryEntries = 0;
-      let scannedBytes = 0;
-      for (const { name, doc } of [...documents].sort((a, b) =>
-        a.name.localeCompare(b.name),
-      )) {
-        directoryEntries += 1;
-        if (directoryEntries > maxDirectoryEntries) break;
-        // Bound by serialized JSON length when docs come from live authority.
-        let sourceBytes = 0;
-        try {
-          sourceBytes = utf8ByteLength(JSON.stringify(doc));
-        } catch {
-          continue;
-        }
-        if (sourceBytes > BROWSER_MAX_CANVAS_SOURCE_BYTES) continue;
-        if (scannedBytes + sourceBytes > maxScanBytes) continue;
-        scannedBytes += sourceBytes;
-        if (!appendPageRowsFromDoc(name, doc, sessions, owner, rows, budget)) {
-          return rows;
-        }
+  try {
+    const documents = await listDocuments();
+    let documentCount = 0;
+    let scannedBytes = 0;
+    for (const { name, doc } of [...documents].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      documentCount += 1;
+      if (documentCount > maxDirectoryEntries) break;
+      let sourceBytes = 0;
+      try {
+        sourceBytes = utf8ByteLength(JSON.stringify(doc));
+      } catch {
+        continue;
       }
-    } catch {
-      // live authority unavailable — empty listing rather than dual-scan disk
-    }
-    return rows;
-  }
-
-  await mkdir(canvasesDir, { recursive: true });
-  const directory = await opendir(canvasesDir);
-  const files: string[] = [];
-  let directoryEntries = 0;
-  for await (const entry of directory) {
-    directoryEntries += 1;
-    if (directoryEntries > maxDirectoryEntries) break;
-    if (entry.isFile() && entry.name.endsWith(".canvas")) files.push(entry.name);
-  }
-  let scannedBytes = 0;
-  for (const file of files.sort()) {
-    try {
-      const canvasName = file.slice(0, -".canvas".length);
-      const admitted = await readBoundedCanvasSource(
-        join(canvasesDir, file),
-        maxScanBytes - scannedBytes,
-      );
-      if (admitted === undefined) continue;
-      scannedBytes += admitted.bytes;
-      const decoded = decodeCanvasDoc(JSON.parse(admitted.source));
-      if (Either.isLeft(decoded)) continue;
-      if (
-        !appendPageRowsFromDoc(
-          canvasName,
-          decoded.right,
-          sessions,
-          owner,
-          rows,
-          budget,
-        )
-      ) {
+      if (sourceBytes > BROWSER_MAX_CANVAS_SOURCE_BYTES) continue;
+      if (scannedBytes + sourceBytes > maxScanBytes) continue;
+      scannedBytes += sourceBytes;
+      if (!appendPageRowsFromDoc(name, doc, sessions, owner, rows, budget)) {
         return rows;
       }
-    } catch {
-      // unreadable/corrupt canvas — skip, listing must not crash
     }
+  } catch {
+    return [];
   }
   return rows;
 };
@@ -389,9 +315,8 @@ export interface ControlDeps {
   readonly capabilities: BrowserCapabilityRegistry;
   readonly resolvePageTarget: PageTargetResolver;
   readonly version: string;
-  readonly canvasesDir: string;
-  /** Live-authority docs; when set, GET /pages skips .canvas directory scan. */
-  readonly listDocuments?: ListCanvasDocuments;
+  /** Canonical SQLite-backed authority for GET /pages. */
+  readonly listDocuments: ListCanvasDocuments;
   readonly shotsDir: string;
   readonly screenshotFiles?: {
     readonly ensureDirectory?: (path: string) => Promise<void>;
@@ -761,11 +686,10 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
 
     "GET /pages": withoutBody("pages", async (lease, signal) => {
       const rows = await listPageNodes(
-        deps.canvasesDir,
+        deps.listDocuments,
         deps.sessions,
         {},
         lease.auditId,
-        deps.listDocuments,
       );
       const filtered: PageNodeRow[] = [];
       for (const row of rows) {
@@ -1553,10 +1477,8 @@ export const startBrowserControlServer = async (
     readonly resolvePageTarget: PageTargetResolver;
     readonly version: string;
     readonly home?: string;
-    /** Enables process-bind + edge admission without capability ceremony. */
-    readonly readCanvas?: (name: string) => Promise<CanvasDoc | undefined>;
-    /** Live-authority docs for page listing + edge-grant (no .canvas readdir). */
-    readonly listCanvasDocuments?: ListCanvasDocuments;
+    /** Canonical SQLite-backed documents for page listing and edge admission. */
+    readonly listCanvasDocuments: ListCanvasDocuments;
     readonly edgeGrant?: EdgeGrantService;
     readonly stationBrowserWrapper?: StationBrowserWrapper;
     readonly stationBrowserOrigin?: StationBrowserOriginControlRoute;
@@ -1569,19 +1491,14 @@ export const startBrowserControlServer = async (
   await ensureScreenshotDirectory(controlShotsDir(home));
 
   let token = "";
-  const canvasesDir = join(home, ".vellum", "canvases");
   const edgeGrant =
     options.edgeGrant ??
     makeEdgeGrantService({
       capabilities: options.capabilities,
-      canvasesDir,
       resolvePageTarget: options.resolvePageTarget,
       station: () => options.sessions.stationIdentity(),
       admitBrowserHost: (hostId) => options.sessions.admitAutomationHost(hostId),
-      ...(options.listCanvasDocuments === undefined
-        ? {}
-        : { listCanvasDocuments: options.listCanvasDocuments }),
-      ...(options.readCanvas === undefined ? {} : { readCanvas: options.readCanvas }),
+      listCanvasDocuments: options.listCanvasDocuments,
     });
   const maxActiveHandlers = boundedRuntimeValue(
     runtime.maxActiveHandlers,
@@ -1648,10 +1565,7 @@ export const startBrowserControlServer = async (
     capabilities: options.capabilities,
     resolvePageTarget: options.resolvePageTarget,
     version: options.version,
-    canvasesDir,
-    ...(options.listCanvasDocuments === undefined
-      ? {}
-      : { listDocuments: options.listCanvasDocuments }),
+    listDocuments: options.listCanvasDocuments,
     shotsDir: controlShotsDir(home),
     edgeGrant,
     ...(options.stationBrowserWrapper === undefined

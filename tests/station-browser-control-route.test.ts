@@ -26,7 +26,7 @@ const handlers = (handle: (frame: string, signal?: AbortSignal) => Promise<strin
       message: "not used",
     }),
     version: "test",
-    canvasesDir: "/not-used",
+    listDocuments: async () => [],
     shotsDir: "/not-used",
     stationBrowserWrapper: { handle },
   });
@@ -108,7 +108,7 @@ describe("station browser owner-local control route", () => {
         message: "not used",
       }),
       version: "test",
-      canvasesDir: "/not-used",
+      listDocuments: async () => [],
       shotsDir: "/not-used",
     });
     const missing = await dispatchControlRequest(

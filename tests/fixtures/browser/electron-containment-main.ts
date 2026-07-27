@@ -604,6 +604,10 @@ void app.whenReady().then(async () => {
       `dedicated browser probe canvas is invalid: ${fixtureCanvas.left.message}`,
     );
   }
+  const listCanvasDocuments = async () => [{
+    name: canvasName,
+    doc: fixtureCanvas.right,
+  }];
   await canvasRuntime.runPromise(
     canvases.write(canvasName, fixtureCanvas.right),
   );
@@ -686,8 +690,8 @@ void app.whenReady().then(async () => {
   }
   const processBoundEdgeGrant = makeEdgeGrantService({
     capabilities,
-    canvasesDir: join(controlHome, ".vellum", "canvases"),
     resolvePageTarget,
+    listCanvasDocuments,
     processMap,
     station: LOCAL_BROWSER_TEST_AUTHORITY.station,
     admitBrowserHost: (hostId) =>
@@ -757,6 +761,7 @@ void app.whenReady().then(async () => {
     resolvePageTarget,
     version: app.getVersion(),
     home: controlHome,
+    listCanvasDocuments,
     edgeGrant: admittingEdgeGrant(
       admissionTuples,
       processBoundEdgeGrant,

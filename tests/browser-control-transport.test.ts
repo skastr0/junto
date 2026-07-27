@@ -73,6 +73,25 @@ const resolvePageTarget: PageTargetResolver = async (ref) =>
         },
       }
     : { ok: false, code: "not_found", message: "page not found" };
+const listCanvasDocuments = async () => [{
+  name: "work",
+  doc: {
+    nodes: [{
+      id: "cli-node",
+      type: "link" as const,
+      url: "https://example.com/",
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 300,
+      ether: {
+        entity: { kind: "page" as const },
+        browser: { profile: "personal" },
+      },
+    }],
+    edges: [],
+  },
+}];
 
 /** Transport tests: admit every socket with a pre-minted internal lease. */
 const admittingEdgeGrant = (
@@ -206,6 +225,7 @@ const startStack = async (
       version: "transport-test",
       home: root,
       edgeGrant,
+      listCanvasDocuments,
     },
     runtime,
   );
@@ -458,6 +478,7 @@ describe("browser control Unix transport", () => {
         version: "transport-test",
         home: root,
         edgeGrant,
+        listCanvasDocuments,
       },
       {
         chmodSocket: chmodSync,
@@ -675,6 +696,7 @@ describe("browser control Unix transport", () => {
         version: "transport-test",
         home: root,
         edgeGrant,
+        listCanvasDocuments,
       },
       {
         chmodSocket: chmodSync,
@@ -763,6 +785,7 @@ describe("browser control Unix transport", () => {
           resolvePageTarget,
           version: "transport-test",
           home: root,
+          listCanvasDocuments,
         },
         runtime,
       ),
@@ -792,6 +815,7 @@ describe("browser control Unix transport", () => {
           resolvePageTarget,
           version: "transport-test",
           home: root,
+          listCanvasDocuments,
         },
         runtime,
       ),

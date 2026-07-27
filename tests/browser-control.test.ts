@@ -35,6 +35,7 @@ import {
   rotateControlToken,
   tokenMatches,
 } from "../src/main/vellum/browser/control";
+import type { CanvasDoc } from "../src/shared/canvas";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
@@ -333,7 +334,25 @@ describe("control route handlers", () => {
       capabilities,
       resolvePageTarget,
       version: "0.0.0-test",
-      canvasesDir: join(root, "canvases"),
+      listDocuments: async () => [{
+        name: "work",
+        doc: {
+          nodes: [{
+            id: "n1",
+            type: "link",
+            url: DEFAULT_TARGET.url,
+            x: 0,
+            y: 0,
+            width: 400,
+            height: 300,
+            ether: {
+              entity: { kind: "page" },
+              browser: { profile: DEFAULT_TARGET.profile },
+            },
+          }],
+          edges: [],
+        },
+      }],
       shotsDir: join(root, "shots"),
       ...(screenshotFiles === undefined ? {} : { screenshotFiles }),
     });
@@ -536,27 +555,6 @@ describe("control route handlers", () => {
   });
 
   it("lists only bound owner generations and rebinds a closed warm session", async () => {
-    const canvasesDir = join(root, "canvases");
-    await mkdir(canvasesDir, { recursive: true });
-    await writeFile(
-      join(canvasesDir, "work.canvas"),
-      JSON.stringify({
-        nodes: [{
-          id: "n1",
-          type: "link",
-          url: DEFAULT_TARGET.url,
-          x: 0,
-          y: 0,
-          width: 400,
-          height: 300,
-          ether: {
-            entity: { kind: "page" },
-            browser: { profile: DEFAULT_TARGET.profile },
-          },
-        }],
-        edges: [],
-      }),
-    );
     const { call, sessions, capabilities, grant } = makeStack();
     const opened = await call("POST", "/open", { ref: REF });
     if (!opened.envelope.ok) throw new Error("open failed");
@@ -1069,38 +1067,28 @@ describe("control route handlers", () => {
 });
 
 describe("listPageNodes", () => {
-  let root: string;
-  beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-control-pages-"));
-  });
-  afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
-  });
-
   it("lists canonical page refs with nullable live handles", async () => {
-    const dir = join(root, "canvases");
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, "work.canvas"),
-      JSON.stringify({
-        nodes: [
-          {
-            id: "p1",
-            type: "link",
-            url: "https://mail.example.com",
-            x: 0,
-            y: 0,
-            width: 400,
-            height: 300,
-            ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-          },
-          { id: "l1", type: "link", url: "https://plain.example.com", x: 0, y: 0, width: 1, height: 1 },
-        ],
-        edges: [],
-      }),
-    );
-    await writeFile(join(dir, "broken.canvas"), "{not json");
-    expect(await listPageNodes(dir)).toEqual([
+    expect(
+      await listPageNodes(async () => [{
+        name: "work",
+        doc: {
+          nodes: [
+            {
+              id: "p1",
+              type: "link",
+              url: "https://mail.example.com",
+              x: 0,
+              y: 0,
+              width: 400,
+              height: 300,
+              ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
+            },
+            { id: "l1", type: "link", url: "https://plain.example.com", x: 0, y: 0, width: 1, height: 1 },
+          ],
+          edges: [],
+        },
+      }]),
+    ).toEqual([
       {
         ref: "vellum://canvas/work?node=p1",
         sessionId: null,
@@ -1113,10 +1101,8 @@ describe("listPageNodes", () => {
     ]);
   });
 
-  it("bounds directory admission and aggregate canvas bytes at exact N/N+1", async () => {
-    const dir = join(root, "canvases");
-    await mkdir(dir, { recursive: true });
-    const source = JSON.stringify({
+  it("bounds document admission and aggregate canonical bytes at exact N/N+1", async () => {
+    const doc: CanvasDoc = {
       nodes: [{
         id: "page",
         type: "link",
@@ -1128,51 +1114,58 @@ describe("listPageNodes", () => {
         ether: { entity: { kind: "page" } },
       }],
       edges: [],
-    });
-    await writeFile(join(dir, "a.canvas"), source);
-    await writeFile(join(dir, "b.canvas"), source);
-    const sourceBytes = utf8ByteLength(source);
+    };
+    const sourceBytes = utf8ByteLength(JSON.stringify(doc));
+    const documents = async () => [
+      { name: "a", doc },
+      { name: "b", doc },
+    ];
 
-    expect(await listPageNodes(dir, undefined, { maxScanBytes: sourceBytes - 1 }))
+    expect(await listPageNodes(documents, undefined, { maxScanBytes: sourceBytes - 1 }))
       .toEqual([]);
-    expect(await listPageNodes(dir, undefined, { maxScanBytes: sourceBytes }))
+    expect(await listPageNodes(documents, undefined, { maxScanBytes: sourceBytes }))
       .toHaveLength(1);
-    expect(await listPageNodes(dir, undefined, { maxDirectoryEntries: 1 }))
+    expect(await listPageNodes(documents, undefined, { maxDirectoryEntries: 1 }))
       .toHaveLength(1);
   });
 
-  it("caps page rows, source files, fields, and the encoded response budget", async () => {
-    const dir = join(root, "canvases");
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "oversized.canvas"), Buffer.alloc(BROWSER_MAX_CANVAS_SOURCE_BYTES + 1));
-    await mkdir(join(dir, "directory.canvas"));
-    const linkedSource = join(root, "linked-source.canvas");
-    await writeFile(linkedSource, JSON.stringify({ nodes: [], edges: [] }));
-    await symlink(linkedSource, join(dir, "linked.canvas"));
-    await writeFile(
-      join(dir, "bounded.canvas"),
-      JSON.stringify({
-        nodes: [
-          {
-            id: "x".repeat(BROWSER_MAX_METADATA_BYTES + 1),
-            type: "link", url: "https://example.com", x: 0, y: 0, width: 1, height: 1,
-            ether: { entity: { kind: "page" } },
-          },
-          {
-            id: "url-too-long", type: "link",
-            url: `https://example.com/${"x".repeat(BROWSER_MAX_URL_BYTES)}`,
-            x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "page" } },
-          },
-          {
-            id: "good", type: "link", url: "https://good.example.com",
-            x: 0, y: 0, width: 1, height: 1,
-            ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-          },
-        ],
-        edges: [],
-      }),
-    );
-    const boundedRows = await listPageNodes(dir);
+  it("caps page rows, documents, fields, and the encoded response budget", async () => {
+    const bounded: CanvasDoc = {
+      nodes: [
+        {
+          id: "x".repeat(BROWSER_MAX_METADATA_BYTES + 1),
+          type: "link", url: "https://example.com", x: 0, y: 0, width: 1, height: 1,
+          ether: { entity: { kind: "page" } },
+        },
+        {
+          id: "url-too-long", type: "link",
+          url: `https://example.com/${"x".repeat(BROWSER_MAX_URL_BYTES)}`,
+          x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "page" } },
+        },
+        {
+          id: "good", type: "link", url: "https://good.example.com",
+          x: 0, y: 0, width: 1, height: 1,
+          ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
+        },
+      ],
+      edges: [],
+    };
+    const oversized: CanvasDoc = {
+      nodes: [{
+        id: "oversized",
+        type: "text" as const,
+        text: "x".repeat(BROWSER_MAX_CANVAS_SOURCE_BYTES + 1),
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+      }],
+      edges: [],
+    };
+    const boundedRows = await listPageNodes(async () => [
+      { name: "oversized", doc: oversized },
+      { name: "bounded", doc: bounded },
+    ]);
     expect(boundedRows).toEqual([{
       ref: "vellum://canvas/bounded?node=good",
       sessionId: null,
@@ -1183,11 +1176,10 @@ describe("listPageNodes", () => {
       profile: "personal",
     }]);
 
-    await rm(join(dir, "bounded.canvas"));
-    for (let fileIndex = 0; fileIndex < 8; fileIndex += 1) {
-      await writeFile(
-        join(dir, `pages-${fileIndex}.canvas`),
-        JSON.stringify({
+    const documents: ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }> =
+      Array.from({ length: 8 }, (_, fileIndex) => ({
+        name: `pages-${fileIndex}`,
+        doc: {
           nodes: Array.from({ length: 400 }, (_, rowIndex) => ({
             id: `p-${fileIndex}-${rowIndex}`,
             type: "link",
@@ -1196,24 +1188,25 @@ describe("listPageNodes", () => {
             ether: { entity: { kind: "page" } },
           })),
           edges: [],
-        }),
-      );
-    }
-    const rows = await listPageNodes(dir);
+        },
+      }));
+    const rows = await listPageNodes(async () => documents);
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.length).toBeLessThanOrEqual(BROWSER_MAX_LIST_ROWS);
     expect(rows.length).toBeLessThan(3_200);
     expect(JSON.parse(encodeControlEnvelope(controlOk(rows)))).toMatchObject({ ok: true });
   });
 
-  it("returns empty for a missing canvases directory", async () => {
-    expect(await listPageNodes(join(root, "nowhere"))).toEqual([]);
+  it("fails closed when canonical document authority is unavailable", async () => {
+    expect(
+      await listPageNodes(async () => {
+        throw new Error("database unavailable");
+      }),
+    ).toEqual([]);
   });
 
-  it("lists page nodes from listDocuments without scanning .canvas files", async () => {
-    const dir = join(root, "canvases-absent");
-    // No mkdir / writeFile under dir — authority path must not readdir.
-    const doc = {
+  it("lists page nodes from the canonical document provider", async () => {
+    const doc: CanvasDoc = {
       nodes: [
         {
           id: "p1",
@@ -1238,11 +1231,10 @@ describe("listPageNodes", () => {
       edges: [],
     };
     const rows = await listPageNodes(
-      dir,
+      async () => [{ name: "work", doc }],
       undefined,
       {},
       "vellum-ui",
-      async () => [{ name: "work", doc }],
     );
     expect(rows).toEqual([
       {
