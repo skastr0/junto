@@ -55,23 +55,10 @@ const stateEngineError = (
       cause,
     });
 
-/**
- * Resolve the sole app database.
- *
- * Test overrides follow the existing canvas hermeticity convention so a test
- * that redirects VELLUM_CANVASES_DIR cannot touch the operator's real state.
- */
+/** Resolve the sole app database. Tests may override that database explicitly. */
 export const stateDatabasePath = (): string => {
   if (process.env.VELLUM_STATE_DB) {
     return resolve(process.env.VELLUM_STATE_DB);
-  }
-  if (process.env.VELLUM_CANVAS_AUTHORITY_DIR) {
-    return resolve(
-      join(dirname(process.env.VELLUM_CANVAS_AUTHORITY_DIR), "vellum.db"),
-    );
-  }
-  if (process.env.VELLUM_CANVASES_DIR) {
-    return resolve(join(process.env.VELLUM_CANVASES_DIR, "..", "vellum.db"));
   }
   return resolve(join(homedir(), ".vellum", "state", "vellum.db"));
 };
