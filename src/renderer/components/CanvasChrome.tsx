@@ -1,5 +1,4 @@
 import { use$ } from "@legendapp/state/react";
-import { Plus } from "lucide-react";
 import { searchText } from "../lib/presentation";
 import { clearGraphFilters, state$ } from "../lib/state";
 
@@ -9,16 +8,39 @@ import { clearGraphFilters, state$ } from "../lib/state";
 
 type EmptyReason = "search" | "flag" | "empty";
 
+/** Open the docked field-tools add menu (same surface as the bottom-right trigger). */
+const openAddItemMenu = (): void => {
+  const trigger = document.querySelector<HTMLButtonElement>(".node-palette--docked .node-palette__trigger");
+  if (!trigger) return;
+  if (trigger.getAttribute("aria-expanded") === "true") return;
+  trigger.click();
+};
+
 function CanvasEmpty({ reason, searchQuery, filterLabel, hasNodes }: { readonly reason?: EmptyReason; readonly searchQuery: string; readonly filterLabel: string; readonly hasNodes: boolean }) {
   if (hasNodes && !reason) return null;
   const isSearch = reason === "search";
   const isFiltered = reason === "flag";
+  const isEmpty = !isSearch && !isFiltered;
   return (
     <div className="field-empty pointer-events-none absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2">
-      <div className="field-empty__reticle"><span /><span /><span /><span /></div>
-      <div className="field-empty__eyebrow">{isSearch ? "no matching node" : isFiltered ? "filter returned nothing" : <><Plus size={12} /> awaiting first node</>}</div>
-      <div className="field-empty__title">{isSearch || isFiltered ? "canvas quiet" : "empty canvas"}</div>
-      <div className="field-empty__copy">{isSearch ? <>No node matches<br /><strong>{searchQuery}</strong>.</> : isFiltered ? <>No nodes matched<br /><strong>{filterLabel}</strong>.</> : <>Right-click or click Add item<br />to create your first node.</>}</div>
+      {isEmpty ? (
+        <button
+          type="button"
+          className="field-empty__reticle field-empty__reticle--action pointer-events-auto"
+          aria-label="Add item"
+          title="Add item"
+          onClick={openAddItemMenu}
+        >
+          <span /><span /><span /><span />
+        </button>
+      ) : (
+        <div className="field-empty__reticle" aria-hidden><span /><span /><span /><span /></div>
+      )}
+      {isSearch || isFiltered ? (
+        <div className="field-empty__eyebrow">{isSearch ? "no matching node" : "filter returned nothing"}</div>
+      ) : null}
+      <div className="field-empty__title">{isEmpty ? "empty canvas" : "canvas quiet"}</div>
+      <div className="field-empty__copy">{isSearch ? <>No node matches<br /><strong>{searchQuery}</strong>.</> : isFiltered ? <>No nodes matched<br /><strong>{filterLabel}</strong>.</> : <>Right-click or click the reticle<br />to create your first node.</>}</div>
       {isFiltered ? <button type="button" className="field-empty__clear pointer-events-auto" aria-label="Clear filters" onClick={clearGraphFilters}>clear filters</button> : null}
     </div>
   );
