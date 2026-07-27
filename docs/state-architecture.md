@@ -184,12 +184,15 @@ catch-up policy in schema and tests before runtime integration.
 
 ## Backup and recovery
 
-The coherent backup primitive inside `StateEngine` is `VACUUM INTO` to a new
-owner-only file. It may run while the app owns the live database. Linux v1
-does not currently expose that primitive through an operator, CLI, IPC, or
-restore surface. Copying or replacing `vellum.db`, its WAL, its shared-memory
-file, or the wider `~/.vellum` directory is not a product backup or recovery
-workflow.
+The coherent backup primitive inside `StateEngine` is `VACUUM INTO` to a fresh
+UUID-named, owner-only file under the engine-owned `state/backups/` directory.
+The capability accepts no destination path: an operator, renderer, helper, or
+future integration cannot redirect it into an arbitrary host directory or
+cause StateEngine to change permissions outside its private state root. It may
+run while the app owns the live database. Linux v1 does not currently expose
+that primitive through an operator, CLI, IPC, or restore surface. Copying or
+replacing `vellum.db`, its WAL, its shared-memory file, or the wider
+`~/.vellum` directory is not a product backup or recovery workflow.
 
 Any app-owned backup protects only the current SQLite architecture. It does
 not preserve or restore a retired JSON, manifest, seal, or projection-file

@@ -64,6 +64,16 @@ export type StateEngineInfo = {
   readonly schemaSha256: string;
 };
 
+/**
+ * Evidence for a coherent backup minted inside StateEngine's private state
+ * directory. Callers can move or export this file through a separately
+ * authorized product surface, but cannot choose where StateEngine writes.
+ */
+export type StateBackupReceipt = {
+  readonly path: string;
+  readonly schemaSha256: string;
+};
+
 export class StateEngine extends Context.Tag("@vellum/StateEngine")<
   StateEngine,
   {
@@ -92,11 +102,12 @@ export class StateEngine extends Context.Tag("@vellum/StateEngine")<
       options?: { readonly chunkRows?: number },
     ) => Effect.Effect<void, StateEngineError>;
     /**
-     * Create a coherent live backup. SQLite refuses an existing destination,
-     * so this operation never silently overwrites an operator file.
+     * Create a coherent live backup at an engine-minted, owner-only path.
+     * There is deliberately no caller-selected destination capability.
      */
-    readonly backup: (
-      destination: string,
-    ) => Effect.Effect<{ readonly path: string }, StateEngineError>;
+    readonly backup: () => Effect.Effect<
+      StateBackupReceipt,
+      StateEngineError
+    >;
   }
 >() {}

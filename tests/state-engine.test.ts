@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -10,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
@@ -386,7 +387,7 @@ describe("StateEngine", () => {
     expect(count).toBe(17);
   });
 
-  test("VACUUM INTO captures WAL commits, passes integrity checks, and refuses overwrite", async () => {
+  test("VACUUM INTO captures WAL commits in fresh engine-owned backup files", async () => {
     const root = await makeTempDir("vellum-state-backup-");
     const livePath = join(root, "live", "vellum.db");
     const runtime = makeRuntime(livePath);
@@ -427,8 +428,16 @@ describe("StateEngine", () => {
     expect(shm.isFile()).toBe(true);
     expect(shm.mode & 0o777).toBe(0o600);
 
-    const backupPath = join(root, "backups", "vellum.db");
-    await runtime.runPromise(engine.backup(backupPath));
+    const firstReceipt = await runtime.runPromise(engine.backup());
+    const backupPath = firstReceipt.path;
+    expect(firstReceipt.schemaSha256).toBe(engine.info.schemaSha256);
+    expect(dirname(backupPath)).toBe(join(root, "live", "backups"));
+    expect(basename(backupPath)).toMatch(
+      /^vellum-backup-[a-f0-9-]{36}\.db$/u,
+    );
+    expect((await lstat(join(root, "live", "backups"))).mode & 0o777).toBe(
+      0o700,
+    );
     expect((await lstat(backupPath)).mode & 0o777).toBe(0o600);
 
     const backup = new DatabaseSync(backupPath, {
@@ -463,12 +472,48 @@ describe("StateEngine", () => {
       backup.close();
     }
 
-    const beforeRefusal = await readFile(backupPath);
-    const second = await runtime.runPromise(
-      Effect.either(engine.backup(backupPath)),
-    );
-    expect(second._tag).toBe("Left");
-    expect(await readFile(backupPath)).toEqual(beforeRefusal);
+    const firstBytes = await readFile(backupPath);
+    const secondReceipt = await runtime.runPromise(engine.backup());
+    expect(secondReceipt.path).not.toBe(backupPath);
+    expect(await readFile(backupPath)).toEqual(firstBytes);
+    expect((await lstat(secondReceipt.path)).mode & 0o777).toBe(0o600);
+  });
+
+  test("caller input cannot redirect backup writes or chmod a shared directory", async () => {
+    const root = await makeTempDir("vellum-state-backup-authority-");
+    const shared = join(root, "shared");
+    await mkdir(shared, { mode: 0o755 });
+    await chmod(shared, 0o755);
+    const forgedPath = join(shared, "forged.db");
+    const runtime = makeRuntime(join(root, "owned", "vellum.db"));
+    const engine = await runtime.runPromise(StateEngine);
+
+    const forgedBackup = engine.backup as unknown as (
+      ignoredDestination: string,
+    ) => ReturnType<typeof engine.backup>;
+    const receipt = await runtime.runPromise(forgedBackup(forgedPath));
+
+    expect((await lstat(shared)).mode & 0o777).toBe(0o755);
+    expect(await readdir(shared)).toEqual([]);
+    expect(dirname(receipt.path)).toBe(join(root, "owned", "backups"));
+    expect((await lstat(receipt.path)).mode & 0o777).toBe(0o600);
+  });
+
+  test("rejects a symlinked backup directory without touching its target", async () => {
+    const root = await makeTempDir("vellum-state-backup-symlink-");
+    const stateDirectory = join(root, "state");
+    const external = join(root, "external");
+    await mkdir(external, { mode: 0o755 });
+    await chmod(external, 0o755);
+    const runtime = makeRuntime(join(stateDirectory, "vellum.db"));
+    const engine = await runtime.runPromise(StateEngine);
+    await symlink(external, join(stateDirectory, "backups"));
+
+    const result = await runtime.runPromise(Effect.either(engine.backup()));
+
+    expect(result._tag).toBe("Left");
+    expect((await lstat(external)).mode & 0o777).toBe(0o755);
+    expect(await readdir(external)).toEqual([]);
   });
 
   test("rejects an unknown schema object before committing current DDL", async () => {
@@ -645,6 +690,19 @@ describe("StateEngine", () => {
       "state database is not a regular file",
     );
     expect(await readFile(target, "utf8")).toBe("keep");
+  });
+
+  test("refuses a dangling database symlink without creating its target", async () => {
+    const root = await makeTempDir("vellum-state-dangling-symlink-");
+    const target = join(root, "operator-file");
+    const databasePath = join(root, "vellum.db");
+    await symlink(target, databasePath);
+
+    const runtime = makeRuntime(databasePath);
+    await expect(runtime.runPromise(StateEngine)).rejects.toThrow(
+      "state database is not a regular file",
+    );
+    expect(await readdir(root)).toEqual(["vellum.db"]);
   });
 
   test("refuses a symlinked state directory without creating a database", async () => {

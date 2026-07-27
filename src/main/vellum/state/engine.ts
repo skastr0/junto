@@ -1,8 +1,13 @@
+import { randomUUID } from "node:crypto";
 import {
   chmodSync,
-  existsSync,
+  closeSync,
+  constants,
+  fchmodSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -17,6 +22,7 @@ import { STATE_SCHEMA_SQL } from "./schema";
 import {
   StateEngine,
   StateEngineError,
+  type StateBackupReceipt,
   type StateBindings,
   type StateEngineInfo,
   type StateReader,
@@ -32,6 +38,7 @@ import {
 export {
   StateEngine,
   StateEngineError,
+  type StateBackupReceipt,
   type StateBindings,
   type StateEngineInfo,
   type StateInputValue,
@@ -45,6 +52,8 @@ export {
 const STATE_DIRECTORY_MODE = 0o700;
 const STATE_FILE_MODE = 0o600;
 const STATE_BUSY_TIMEOUT_MS = 5_000;
+const STATE_BACKUP_DIRECTORY = "backups";
+const STATE_BACKUP_FILE_PREFIX = "vellum-backup-";
 export const STATE_BULK_CHUNK_ROWS = 64;
 
 const stateEngineError = (
@@ -80,12 +89,71 @@ const assertRealDirectory = (path: string): void => {
   chmodSync(path, STATE_DIRECTORY_MODE);
 };
 
-const assertRegularOrMissing = (path: string): void => {
-  if (!existsSync(path)) return;
-  const info = lstatSync(path);
-  if (!info.isFile() || info.isSymbolicLink()) {
-    throw new Error(`state database is not a regular file: ${path}`);
+const assertRegularOrMissing = (path: string): boolean => {
+  try {
+    const info = lstatSync(path);
+    if (!info.isFile() || info.isSymbolicLink()) {
+      throw new Error(`state database is not a regular file: ${path}`);
+    }
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return false;
+    }
+    throw error;
   }
+};
+
+const makeOwnerOnlyWithoutFollowing = (path: string): void => {
+  const descriptor = openSync(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW,
+  );
+  try {
+    const opened = fstatSync(descriptor);
+    if (!opened.isFile()) {
+      throw new Error(`state backup is not a regular file: ${path}`);
+    }
+    fchmodSync(descriptor, STATE_FILE_MODE);
+    const linked = lstatSync(path);
+    if (
+      !linked.isFile() ||
+      linked.isSymbolicLink() ||
+      linked.dev !== opened.dev ||
+      linked.ino !== opened.ino
+    ) {
+      throw new Error(`state backup path changed during creation: ${path}`);
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+};
+
+const assertPrivateBackupDirectory = (stateDirectory: string): string => {
+  const path = join(stateDirectory, STATE_BACKUP_DIRECTORY);
+  try {
+    mkdirSync(path, { mode: STATE_DIRECTORY_MODE });
+  } catch (error) {
+    if (
+      typeof error !== "object" ||
+      error === null ||
+      !("code" in error) ||
+      error.code !== "EEXIST"
+    ) {
+      throw error;
+    }
+  }
+  const info = lstatSync(path);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new Error(`state backup path is not a real directory: ${path}`);
+  }
+  chmodSync(path, STATE_DIRECTORY_MODE);
+  return path;
 };
 
 const applyBindings = <A>(
@@ -288,21 +356,27 @@ const openStateEngine = (
           }
         }).pipe(Effect.withSpan(`state.${operation}`));
 
-      const backup = (
-        destination: string,
-      ): Effect.Effect<{ readonly path: string }, StateEngineError> =>
+      const backup = (): Effect.Effect<
+        StateBackupReceipt,
+        StateEngineError
+      > =>
         Effect.try({
           try: () => {
             requireOpen();
-            const target = resolve(destination);
-            assertRealDirectory(dirname(target));
-            assertRegularOrMissing(target);
-            if (existsSync(target)) {
+            const backupDirectory = assertPrivateBackupDirectory(directory);
+            const target = join(
+              backupDirectory,
+              `${STATE_BACKUP_FILE_PREFIX}${randomUUID()}.db`,
+            );
+            if (assertRegularOrMissing(target)) {
               throw new Error(`backup destination already exists: ${target}`);
             }
             prepare("VACUUM INTO ?").run(target);
-            chmodSync(target, STATE_FILE_MODE);
-            return { path: target };
+            makeOwnerOnlyWithoutFollowing(target);
+            return {
+              path: target,
+              schemaSha256: schemaIdentity.actualSchemaSha256,
+            };
           },
           catch: (error) => stateEngineError("backup", error),
         }).pipe(Effect.withSpan("state.backup"));
