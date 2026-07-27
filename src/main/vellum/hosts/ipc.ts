@@ -539,6 +539,40 @@ export const registerHostsIpc = (
     ),
   );
 
+  // Effective deploy capabilities (RELEASE ∩ operator kill-switch ∩ role).
+  // Computed straight from settings: there is no install plane behind this.
+  ipcMain.handle(IPC_CHANNELS.hostsInstallCapabilities, () =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const settingsSvc = yield* SettingsService;
+            const doc = yield* settingsSvc.get;
+            return computeInstallCapabilities({
+              stationRole: doc.station.role,
+              remoteManagedInstalls: doc.fleet.remoteManagedInstalls,
+              release: RELEASE_CAPABILITIES,
+              platform: process.platform,
+            });
+          }).pipe(
+            Effect.catchAll((error) =>
+              Effect.succeed({
+                ok: false as const,
+                code: "io" as const,
+                message: error instanceof Error ? error.message : String(error),
+              }),
+            ),
+          ),
+        ),
+      ),
+      (error) => ({
+        ok: false as const,
+        code: "io" as const,
+        message: error.message,
+      }),
+    ),
+  );
+
   // Install/update Vellum.app on remote over SSH + start headless station.
   // Gated by RELEASE_CAPABILITIES and operator kill-switch (effective.deployRemote).
   ipcMain.handle(IPC_CHANNELS.hostsDeployRemote, (_event, input: unknown) =>

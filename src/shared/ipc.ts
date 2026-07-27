@@ -168,15 +168,10 @@ export const IPC_CHANNELS = {
   /** Effective install capabilities (RELEASE ∩ operator ∩ role) for UI gates. */
   hostsInstallCapabilities: "vellum:hosts-install-capabilities",
   /** Compile + apply factory plugin (local or remote SSH). */
-  hostsInstallPlugin: "vellum:hosts-install-plugin",
   /** Route-token list (no secrets). */
-  routeTokenList: "vellum:route-token-list",
   /** Mint route-token — plaintext returned once. */
-  routeTokenMint: "vellum:route-token-mint",
   /** Rotate route-token — new plaintext once. */
-  routeTokenRotate: "vellum:route-token-rotate",
   /** Revoke route-token. */
-  routeTokenRevoke: "vellum:route-token-revoke",
   // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
   // The opaque challenge is generation identity, never product authority.
   rendererSurfaceChallenge: "vellum:renderer-surface-challenge",
@@ -649,19 +644,6 @@ export interface VellumApi {
   /** SoT for Deploy / Install plugin / route-token button enablement. */
   readonly hostsInstallCapabilities: () => Promise<HostsInstallCapabilitiesResult>;
   /** Install factory plugin for one or more harness targets. */
-  readonly hostsInstallPlugin: (
-    input: HostsInstallPluginInput,
-  ) => Promise<HostsInstallPluginResult>;
-  readonly routeTokenList: () => Promise<RouteTokenListResult>;
-  readonly routeTokenMint: (
-    input: RouteTokenMintInput,
-  ) => Promise<RouteTokenMintResult>;
-  readonly routeTokenRotate: (
-    input: RouteTokenIdInput,
-  ) => Promise<RouteTokenMintResult>;
-  readonly routeTokenRevoke: (
-    input: RouteTokenIdInput,
-  ) => Promise<RouteTokenRevokeResult>;
 }
 
 export interface HostsOpResult {
@@ -791,73 +773,6 @@ export type HostsInstallCapabilitiesResult =
       readonly message?: string;
     };
 
-export type HostsInstallPluginTarget =
-  | "claude-code"
-  | "codex-cli"
-  | "grok"
-  | "hermes";
-
-export type HostsInstallPluginInput = {
-  readonly mode: "local" | "remote";
-  /** Required when mode is remote. */
-  readonly hostId?: string;
-  readonly targets: ReadonlyArray<HostsInstallPluginTarget>;
-  readonly scope?: "global" | "project";
-};
-
-export type HostsInstallPluginResult = {
-  readonly ok: boolean;
-  readonly detail: string;
-  readonly code?: string;
-  readonly message?: string;
-  readonly results?: ReadonlyArray<{
-    readonly target: string;
-    readonly packageId: string;
-    readonly applied: number;
-    readonly skipped: number;
-    /** Config-region fragments not materialised (incomplete install honesty). */
-    readonly regionsSkipped?: number;
-  }>;
-};
-
-export type RouteTokenMintInput = {
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly kind: "agent" | "terminal";
-  readonly agentKey?: string;
-  readonly bindingId?: string;
-};
-
-export type RouteTokenIdInput = {
-  readonly id: string;
-};
-
-export type RouteTokenListResult = {
-  readonly ok: boolean;
-  readonly tokens?: ReadonlyArray<{
-    readonly id: string;
-    readonly principal: RouteTokenMintInput;
-    readonly createdAt: number;
-    readonly revokedAt?: number;
-  }>;
-  readonly code?: string;
-  readonly message?: string;
-};
-
-/** Mint/rotate success includes plaintext token once — never re-listed. */
-export type RouteTokenMintResult = {
-  readonly ok: boolean;
-  readonly id?: string;
-  readonly token?: string;
-  readonly code?: string;
-  readonly message?: string;
-};
-
-export type RouteTokenRevokeResult = {
-  readonly ok: boolean;
-  readonly code?: string;
-  readonly message?: string;
-};
 
 /** Result of hostsDeployRemote — Remote station install/update and readiness probe. */
 export interface HostsDeployRemoteResult {

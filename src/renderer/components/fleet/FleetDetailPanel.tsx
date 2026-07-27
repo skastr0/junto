@@ -7,7 +7,7 @@ import {
   type CSSProperties,
 } from "react";
 import { Command, WandSparkles, X } from "lucide-react";
-import type { HostsInstallPluginTarget, DiscoveredPeer } from "@shared/ipc";
+import type { DiscoveredPeer } from "@shared/ipc";
 import type { HostsInstallCapabilities } from "@shared/install-capabilities";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { setFleetAppearance } from "../../lib/fleet-appearance";
@@ -26,20 +26,6 @@ import { state$ } from "../../lib/state";
 import { HUE, withAlpha } from "../../lib/theme";
 import { getVellumApi } from "../../lib/vellum-api";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
-
-const PLUGIN_TARGETS: ReadonlyArray<{
-  readonly id: HostsInstallPluginTarget;
-  readonly label: string;
-}> = [
-  { id: "claude-code", label: "Claude Code" },
-  { id: "codex-cli", label: "Codex CLI" },
-  { id: "grok", label: "Grok" },
-  { id: "hermes", label: "Hermes" },
-];
-
-const ALL_PLUGIN_TARGETS: ReadonlyArray<HostsInstallPluginTarget> = PLUGIN_TARGETS.map(
-  (target) => target.id,
-);
 
 export type FleetSelection =
   | { readonly kind: "cc" }
@@ -102,14 +88,11 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   const remoteManagedInstalls = use$(state$.settings.fleet.remoteManagedInstalls);
   const stationRole = use$(state$.settings.station.role);
   const [actionBusy, setActionBusy] = useState<
-    "" | "configure" | "deploy" | "remove" | "install-plugins"
+    "" | "configure" | "deploy" | "remove"
   >("");
   const [actionLine, setActionLine] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [caps, setCaps] = useState<HostsInstallCapabilities | null>(null);
-  const [pluginTargets, setPluginTargets] = useState<ReadonlySet<HostsInstallPluginTarget>>(
-    () => new Set(ALL_PLUGIN_TARGETS),
-  );
   const reach = reachabilityLine(probe);
   const probing = probe?.status === "probing";
   const resolvedModel = resolveFleetMachineModel(host);
@@ -138,22 +121,11 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
 
   // Fail-closed when capabilities unknown: gated actions stay disabled.
   const deployEnabled = caps?.effective.deployRemote === true;
-  const pluginRemoteEnabled = caps?.effective.installPluginRemote === true;
   const deployDetail = caps?.detail.deployRemote;
-  const pluginDetail = caps?.detail.installPluginRemote;
 
   const saveAppearance = (appearance: { color?: string; glyph?: string }) => {
     setActionLine("");
     setFleetAppearance(host, appearance, setActionLine);
-  };
-
-  const togglePluginTarget = (target: HostsInstallPluginTarget) => {
-    setPluginTargets((prev) => {
-      const next = new Set(prev);
-      if (next.has(target)) next.delete(target);
-      else next.add(target);
-      return next;
-    });
   };
 
   const runAction = async (kind: "configure" | "deploy" | "remove") => {
@@ -189,41 +161,6 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     }
   };
 
-  const installPlugins = async () => {
-    const api = getVellumApi();
-    if (!api?.hostsInstallPlugin || !pluginRemoteEnabled) return;
-    const targets = ALL_PLUGIN_TARGETS.filter((target) => pluginTargets.has(target));
-    if (targets.length === 0) {
-      setActionLine("Select at least one plugin target.");
-      return;
-    }
-    setActionBusy("install-plugins");
-    setActionLine("installing factory plugins…");
-    try {
-      const result = await api.hostsInstallPlugin({
-        mode: "remote",
-        hostId: host.id,
-        targets,
-      });
-      if (result.results && result.results.length > 0) {
-        // Counts only — never surface tokens or package secrets.
-        setActionLine(
-          result.results
-            .map((row) => `${row.target}: applied ${row.applied}, skipped ${row.skipped}`)
-            .join(" · "),
-        );
-      } else {
-        setActionLine(
-          result.detail ||
-            (result.ok ? "plugins installed" : (result.message ?? "install failed")),
-        );
-      }
-    } catch (error) {
-      setActionLine(error instanceof Error ? error.message : String(error));
-    } finally {
-      setActionBusy("");
-    }
-  };
 
   return (
     <div className="fleet-detail__body">
@@ -383,42 +320,6 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <p className="fleet-detail__note">{deployDetail}</p>
           ) : null}
 
-          <div className="fleet-detail__section-label">Install factory plugins</div>
-          <div
-            className="fleet-detail__plugin-targets"
-            role="group"
-            aria-label="Factory plugin targets"
-          >
-            {PLUGIN_TARGETS.map(({ id, label }) => (
-              <label key={id}>
-                <input
-                  type="checkbox"
-                  checked={pluginTargets.has(id)}
-                  disabled={actionBusy !== "" || !pluginRemoteEnabled}
-                  aria-label={`Install ${label}`}
-                  onChange={() => togglePluginTarget(id)}
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-          <Button
-            size="xs"
-            disabled={
-              actionBusy !== "" ||
-              !pluginRemoteEnabled ||
-              pluginTargets.size === 0
-            }
-            title={pluginDetail}
-            {...activateOnPointerUp(() => void installPlugins())}
-          >
-            {actionBusy === "install-plugins"
-              ? "installing…"
-              : "Install factory plugins"}
-          </Button>
-          {!pluginRemoteEnabled && pluginDetail ? (
-            <p className="fleet-detail__note">{pluginDetail}</p>
-          ) : null}
 
           {confirmRemove ? (
             <Button
