@@ -230,7 +230,6 @@ describe("configureRemoteHost", () => {
         hostId: "local",
         commandCenterRef: "",
         supervisedPreferred: false,
-        topologyIntegrity: "ok" as const,
       },
     };
     const { ssh, writes } = makeSsh({

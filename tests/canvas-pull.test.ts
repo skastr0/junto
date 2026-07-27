@@ -192,7 +192,6 @@ const makePullRuntime = async (input: {
       hostId: input.hostId ?? "local",
       commandCenterRef: input.commandCenterRef,
       supervisedPreferred: input.role === "remote",
-      topologyIntegrity: "ok",
     }),
   );
   return { runtime, root };

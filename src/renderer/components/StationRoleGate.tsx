@@ -9,15 +9,12 @@ import { Eyebrow } from "./ui/Eyebrow";
 // state$.settingsError used when patch fails
 
 /**
- * First-run / unset role gate, or integrity-failed recovery lock.
- * Role is never inferred — the human must pick Command Center or Remote before
- * using the station as a fleet participant. Integrity failure is not first-run:
- * the CC picker is refused until a transfer/recovery ceremony.
+ * First-run / unset role gate. Role is never inferred — the human must pick
+ * Command Center or Remote before using the station as a fleet participant.
  */
 export function StationRoleGate() {
   const settings = use$(state$.settings);
   const role = settings?.station?.role ?? "";
-  const integrity = settings?.station?.topologyIntegrity ?? "ok";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [remoteRef, setRemoteRef] = useState("");
@@ -48,58 +45,6 @@ export function StationRoleGate() {
 
   // Settings not loaded yet.
   if (settings === undefined) return null;
-
-  // Integrity breach: recovery-locked — not the first-run CC picker.
-  if (integrity === "failed") {
-    return createPortal(
-      <div
-        className="station-role-gate station-role-gate--integrity-failed"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Topology integrity failed"
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 10050,
-          display: "grid",
-          placeItems: "center",
-          background: "rgba(0, 0, 0, 0.72)",
-          backdropFilter: "blur(2px)",
-        }}
-      >
-        <div
-          style={{
-            width: "min(520px, 92vw)",
-            borderRadius: 12,
-            border: `1px solid ${withAlpha(HUE.crimson, 0.45)}`,
-            background: RAISE,
-            padding: "28px 28px 22px",
-            boxShadow: "0 24px 80px rgba(0,0,0,0.55)",
-          }}
-        >
-          <Eyebrow tone="amber" className="text-[11px] mb-2">
-            VELLUM COMMAND · RECOVERY LOCKED
-          </Eyebrow>
-          <h1 style={{ color: INK, fontSize: 20, margin: "0 0 8px", fontWeight: 600 }}>
-            Topology integrity failed
-          </h1>
-          <p style={{ color: DIM, fontSize: 13, lineHeight: 1.5, margin: "0 0 12px" }}>
-            The station topology seal could not be verified (MAC mismatch, missing key/seal
-            pair, or corrupt seal). This is not first-run onboarding — Command Center and
-            Remote promotion are refused until an explicit transfer or recovery ceremony.
-          </p>
-          <p style={{ color: DIM, fontSize: 12, lineHeight: 1.5, margin: 0 }}>
-            Do not edit <span style={{ color: INK, fontFamily: "var(--font-mono, monospace)" }}>
-              settings.json
-            </span>{" "}
-            to invent a role. Restore from a known-good station or run the Command Center
-            transfer ceremony when available.
-          </p>
-        </div>
-      </div>,
-      document.body,
-    );
-  }
 
   // Role already chosen — gate closed.
   if (role === "command-center" || role === "remote") return null;

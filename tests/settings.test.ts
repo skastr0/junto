@@ -5,15 +5,17 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, Either, ManagedRuntime } from "effect";
+import { Effect, Either, ManagedRuntime, Schema } from "effect";
 import {
   SETTINGS_VERSION,
+  StationSettings,
   applySettingsPatch,
   defaultSettings,
 } from "../src/shared/settings";
 import {
   applyAndValidatePatch,
   decodePatchInput,
+  decodeStationTopologyPatch,
   migrateSettingsDocument,
 } from "../src/main/vellum/settings/migrate";
 import {
@@ -87,6 +89,39 @@ describe("settings contract", () => {
     for (const input of [{ version: 99 }, { version: 0 }, []]) {
       expect(Either.isLeft(migrateSettingsDocument(input))).toBe(true);
     }
+  });
+
+  it("rejects the retired topologyIntegrity field at every decode boundary", () => {
+    const retiredStation = {
+      ...defaultSettings().station,
+      topologyIntegrity: "ok",
+    };
+    expect("topologyIntegrity" in defaultSettings().station).toBe(false);
+    expect(
+      Either.isLeft(
+        Schema.decodeUnknownEither(StationSettings)(retiredStation),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        migrateSettingsDocument({
+          version: 1,
+          station: retiredStation,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodePatchInput({
+          station: { topologyIntegrity: "ok" },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeStationTopologyPatch({ topologyIntegrity: "ok" }),
+      ),
+    ).toBe(true);
   });
 
   it("patch decoding and aggregate validation reject invalid limits", () => {
@@ -359,8 +394,22 @@ describe("SQLite settings service", () => {
       agentHostId: "fleet-box",
       commandCenterRef: "cc",
       supervisedPreferred: false,
-      topologyIntegrity: "ok",
     });
+  });
+
+  it("rejects the retired topologyIntegrity field instead of ignoring it", async () => {
+    const { service } = await openService();
+    const result = await runEither(
+      service.setStationTopology({
+        role: "command-center",
+        topologyIntegrity: "ok",
+      }),
+    );
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.message).toContain("topologyIntegrity is retired");
+    }
+    expect((await run(service.get)).station.role).toBe("");
   });
 
   it("reset preserves protected topology and refuses station reset", async () => {
@@ -414,6 +463,34 @@ describe("SQLite settings service", () => {
     const result = await runEither(service.get);
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isLeft(result)) expect(result.left.code).toBe("corrupt");
+  });
+
+  it("rejects a canonical topology row carrying the retired field", async () => {
+    const { service, state } = await openService();
+    const current = await run(service.get);
+    await run(
+      state.transaction("test.settings.retiredTopologyIntegrity", (writer) => {
+        writer.run(
+          `
+            UPDATE settings_station_topology
+            SET body = ?
+            WHERE singleton = 1
+          `,
+          [
+            JSON.stringify({
+              ...current.station,
+              topologyIntegrity: "ok",
+            }),
+          ],
+        );
+      }),
+    );
+    const result = await runEither(service.get);
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.code).toBe("corrupt");
+      expect(result.left.message).toContain("topologyIntegrity is retired");
+    }
   });
 
   it("does not reinterpret row loss as a fresh database", async () => {

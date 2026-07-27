@@ -14,8 +14,8 @@ import { isValidStationHostId } from "./station";
  * commandCenterRef=<this CC host id or configured ref>, supervisedPreferred
  * when possible. Remote is a role on that machine — not a third binary.
  *
- * No I/O. Main-process SSH writer merges this payload into the remote
- * ~/.vellum/settings.json document.
+ * No I/O. The station configuration transport applies this value through the
+ * app-owned settings service.
  */
 
 export type RemoteStationConfigInput = {
@@ -70,7 +70,6 @@ export const planRemoteStationFields = (
     agentHostId,
     commandCenterRef,
     supervisedPreferred: input.supervisedPreferred ?? true,
-    topologyIntegrity: "ok",
   };
 };
 
@@ -104,9 +103,7 @@ export const remoteStationSettingsFromScratch = (
 ): Settings => mergeRemoteStationSettings(defaultSettings(), input);
 
 /**
- * True when settings.station already matches the planned Remote stamp and
- * integrity is ok. Seal presence is a separate check on the SSH path —
- * seals absent is not success (force re-stamp).
+ * True when settings.station already matches the planned Remote stamp.
  */
 export const remoteStationAlreadyConfigured = (
   settings: Settings,
@@ -119,7 +116,6 @@ export const remoteStationAlreadyConfigured = (
     s.hostId === planned.hostId &&
     s.agentHostId === planned.agentHostId &&
     s.commandCenterRef === planned.commandCenterRef &&
-    s.supervisedPreferred === planned.supervisedPreferred &&
-    s.topologyIntegrity === "ok"
+    s.supervisedPreferred === planned.supervisedPreferred
   );
 };

@@ -407,19 +407,10 @@ export const makeSettingsService = (
               message: "canonical settings rows are missing",
             });
           }
-          if (current.station.topologyIntegrity === "failed") {
-            throw new SettingsError({
-              message:
-                "Topology integrity failed — recovery requires an explicit Command Center transfer ceremony; Settings cannot promote this station to command-center or remote",
-              code: "validation",
-            });
-          }
-
           const requested = decoded.right;
           const established =
-            current.station.topologyIntegrity === "ok" &&
-            (current.station.role === "command-center" ||
-              current.station.role === "remote");
+            current.station.role === "command-center" ||
+            current.station.role === "remote";
           if (established) {
             const frozen: ReadonlyArray<{
               readonly key: string;
@@ -462,10 +453,7 @@ export const makeSettingsService = (
           }
 
           const validated = applyAndValidatePatch(current, {
-            station: {
-              ...requested,
-              topologyIntegrity: "ok",
-            },
+            station: requested,
           });
           if (Either.isLeft(validated)) throw validated.left;
           const previousRole = current.station.role;

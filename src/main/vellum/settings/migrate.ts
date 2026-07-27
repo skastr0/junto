@@ -86,6 +86,11 @@ const softHealStation = (
   if (Object.prototype.hasOwnProperty.call(sectionRaw, "agentHostId")) {
     healed.agentHostId = sectionRaw.agentHostId;
   }
+  // Carry this retired key through to the canonical station schema so it is
+  // rejected, never silently stripped by the soft-heal transport.
+  if (Object.prototype.hasOwnProperty.call(sectionRaw, "topologyIntegrity")) {
+    healed.topologyIntegrity = sectionRaw.topologyIntegrity;
+  }
   return healed;
 };
 

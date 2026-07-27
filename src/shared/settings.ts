@@ -17,8 +17,8 @@ import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 // - **prefs** — appearance/canvas/kernel/browser/audio/advanced/fleet.
 //   Generic settingsPatch mutates only their canonical row.
 // - **topology** — station.role / hostId / agentHostId / commandCenterRef /
-//   supervisedPreferred / topologyIntegrity. Mutations go through
-//   settingsSetStationTopology only; generic settingsPatch cannot write its row.
+//   supervisedPreferred. Mutations go through settingsSetStationTopology only;
+//   generic settingsPatch cannot write its row.
 //
 // Invariants:
 // - Never store secrets here (full document is IPC-broadcast to all windows).
@@ -110,17 +110,23 @@ export type StationHostIdSetting = typeof StationHostIdSetting.Type;
 export const StationReachability = Schema.String.pipe(Schema.maxLength(255));
 export type StationReachability = typeof StationReachability.Type;
 
-/**
- * Topology seal admit outcome mirrored into durable station topology.
- * Distinct from first-run role "" — integrity-failed must not open the CC picker.
- * - ok: seal admits (or sealed first-run empty role)
- * - failed: MAC/asymmetric/corrupt — recovery-locked
- * - bootstrap-pending: seals intentionally cleared pending first admit
- */
-export const TopologyIntegrity = Schema.Literal("ok", "failed", "bootstrap-pending");
-export type TopologyIntegrity = typeof TopologyIntegrity.Type;
+const WithoutRetiredTopologyIntegrity = Schema.Unknown.pipe(
+  Schema.filter(
+    (value) =>
+      !(
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        Object.prototype.hasOwnProperty.call(value, "topologyIntegrity")
+      ),
+    {
+      message: () =>
+        "topologyIntegrity is retired and must not be supplied",
+    },
+  ),
+);
 
-export const StationSettings = Schema.Struct({
+const StationSettingsValue = Schema.Struct({
   /** "" until the human picks a role at onboarding. */
   role: StationRoleSetting,
   /** This machine's host id in the fleet registry (usually "local" on first box). */
@@ -136,12 +142,10 @@ export const StationSettings = Schema.Struct({
   commandCenterRef: StationReachability,
   /** Prefer LaunchAgent supervised run (especially Remote). */
   supervisedPreferred: Schema.Boolean,
-  /**
-   * Seal integrity gate. Fail-closed loads write "failed" and reseal so the
-   * ordinary first-run path cannot mint Command Center after a seal breach.
-   */
-  topologyIntegrity: TopologyIntegrity,
 });
+export const StationSettings = WithoutRetiredTopologyIntegrity.pipe(
+  Schema.compose(StationSettingsValue, { strict: false }),
+);
 export type StationSettings = typeof StationSettings.Type;
 
 // RTS UI SFX — per-clip enable + volume under a master mute/gain.
@@ -228,15 +232,16 @@ export const FleetPatch = Schema.Struct({
 });
 export type FleetPatch = typeof FleetPatch.Type;
 
-export const StationPatch = Schema.Struct({
+const StationPatchValue = Schema.Struct({
   role: Schema.optionalWith(StationRoleSetting, { exact: true }),
   hostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
   agentHostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
   commandCenterRef: Schema.optionalWith(StationReachability, { exact: true }),
   supervisedPreferred: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  // App-owned only — generic patches / topology picker must not clear "failed".
-  topologyIntegrity: Schema.optionalWith(TopologyIntegrity, { exact: true }),
 });
+export const StationPatch = WithoutRetiredTopologyIntegrity.pipe(
+  Schema.compose(StationPatchValue, { strict: false }),
+);
 export type StationPatch = typeof StationPatch.Type;
 
 export const SfxClipPatch = Schema.Struct({
@@ -321,7 +326,6 @@ export const defaultStation = (): StationSettings => ({
   hostId: DEFAULT_STATION_HOST_ID,
   commandCenterRef: "",
   supervisedPreferred: false,
-  topologyIntegrity: "ok",
 });
 
 const defaultClip = (volume: number): SfxClipPrefs => ({ enabled: true, volume });
