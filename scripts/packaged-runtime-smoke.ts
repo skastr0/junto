@@ -20,6 +20,11 @@ import {
   controlTokenPath,
 } from "../src/shared/browser-control";
 import {
+  stationControlDir,
+  stationControlSocketPath,
+} from "../src/shared/station-control";
+import { STATION_API_PROTOCOL } from "../src/shared/station-api";
+import {
   createAppProcessPlane,
   type AppChildIo,
   type AppProcessDrainResult,
@@ -210,6 +215,7 @@ const runFixed = (
     readonly env?: NodeJS.ProcessEnv;
     readonly timeout?: number;
     readonly maxBuffer?: number;
+    readonly input?: string;
   } = {},
 ): { readonly status: number | null; readonly stdout: string; readonly stderr: string } => {
   const result = spawnSync(executable, args, {
@@ -217,6 +223,7 @@ const runFixed = (
     shell: false,
     timeout: options.timeout ?? 10_000,
     maxBuffer: options.maxBuffer ?? 256 * 1024,
+    ...(options.input === undefined ? {} : { input: options.input }),
     ...(options.env === undefined ? {} : { env: options.env }),
   });
   if (result.error !== undefined) {
@@ -583,6 +590,7 @@ const ensureDirectory = async (directory: string): Promise<void> => {
 export interface PackagedRuntimeSmokeReceipt {
   readonly ok: true;
   readonly doctor: "ok";
+  readonly station: "ok";
   readonly processRoles: ReadonlyArray<string>;
   readonly tcpListeners: 0;
   readonly debugAuthority: false;
@@ -608,7 +616,8 @@ export const smokePackagedRuntime = async (
   preflightRuntime(appPath);
   const executable = path.join(appPath, "Contents", "MacOS", "Vellum Command");
   const browserCli = path.join(appPath, "Contents", "Resources", "bin", "vellum-browser");
-  await Promise.all([stat(executable), stat(browserCli)]);
+  const stationCli = path.join(appPath, "Contents", "Resources", "bin", "vellum-station");
+  await Promise.all([stat(executable), stat(browserCli), stat(stationCli)]);
 
   const realHome = homedir();
   const realRoots = [
@@ -714,6 +723,16 @@ export const smokePackagedRuntime = async (
           requireOwnerMode(controlDir(controlHome), "0700", "directory"),
           requireOwnerMode(controlTokenPath(controlHome), "0600", "file"),
           requireOwnerMode(controlSocketPath(controlHome), "0600", "socket"),
+          requireOwnerMode(
+            stationControlDir(controlHome),
+            "0700",
+            "directory",
+          ),
+          requireOwnerMode(
+            stationControlSocketPath(stationControlDir(controlHome)),
+            "0600",
+            "socket",
+          ),
         ]);
         return true;
       } catch (error) {
@@ -735,6 +754,38 @@ export const smokePackagedRuntime = async (
       throw new Error("packaged vellum-browser doctor failed");
     }
     parseDoctorReceipt(doctor.stdout.trim());
+
+    const stationStatus = runFixed(stationCli, [], {
+      env: childEnvironment,
+      timeout: 15_000,
+      input: `${JSON.stringify({
+        protocol: STATION_API_PROTOCOL,
+        op: "status",
+      })}\n`,
+    });
+    if (stationStatus.status !== 0) {
+      throw new Error("packaged vellum-station status failed");
+    }
+    const stationEnvelope = JSON.parse(stationStatus.stdout) as {
+      readonly ok?: unknown;
+      readonly response?: {
+        readonly op?: unknown;
+        readonly readiness?: {
+          readonly database?: unknown;
+          readonly workControl?: unknown;
+          readonly simulation?: unknown;
+        };
+      };
+    };
+    if (
+      stationEnvelope.ok !== true ||
+      stationEnvelope.response?.op !== "status" ||
+      stationEnvelope.response.readiness?.database !== true ||
+      stationEnvelope.response.readiness.workControl !== true ||
+      stationEnvelope.response.readiness.simulation !== true
+    ) {
+      throw new Error("packaged vellum-station returned degraded readiness");
+    }
 
     let runtimeRows: ReadonlyArray<ProcessRow> = [];
     await waitUntil("process roles", STARTUP_TIMEOUT_MS, () => {
@@ -789,10 +840,17 @@ export const smokePackagedRuntime = async (
     let shutdownSurvivorKinds: ReadonlyArray<string> = [];
     try {
       await waitUntil("shutdown cleanup", SHUTDOWN_TIMEOUT_MS, async () => {
-        shutdownSocketGone = await lstat(controlSocketPath(controlHome)).then(
-          () => false,
-          (error: NodeJS.ErrnoException) => error.code === "ENOENT",
-        );
+        shutdownSocketGone = (
+          await Promise.all([
+            controlSocketPath(controlHome),
+            stationControlSocketPath(stationControlDir(controlHome)),
+          ].map((socketPath) =>
+            lstat(socketPath).then(
+              () => false,
+              (error: NodeJS.ErrnoException) => error.code === "ENOENT",
+            )
+          ))
+        ).every(Boolean);
         const survivors = survivingProcessRows(
           knownRows,
           currentProcessRows(),
@@ -826,6 +884,7 @@ export const smokePackagedRuntime = async (
     success = {
       ok: true,
       doctor: "ok",
+      station: "ok",
       processRoles: processRoles(rootPid, runtimeRows),
       tcpListeners: 0,
       debugAuthority: false,
