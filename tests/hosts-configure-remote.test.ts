@@ -1,14 +1,44 @@
-import { Effect, Either } from "effect";
-import { describe, expect, it } from "vitest";
-import { configureRemoteHost } from "../src/main/vellum/hosts/configure-remote";
-import { migrateSettingsDocument } from "../src/main/vellum/settings/migrate";
+import { Effect, Schema } from "effect";
+import { describe, expect, it, vi } from "vitest";
 import {
-  mergeRemoteStationSettings,
-  planRemoteStationFields,
-  remoteStationAlreadyConfigured,
-} from "../src/shared/remote-station-config";
+  ConfigureResponse,
+  InstallationId,
+  PairResponse,
+  STATION_API_PROTOCOL,
+  StatusResponse,
+} from "../src/shared/station-api";
+import type { StationBrowserPinnedTrustRecord } from "../src/shared/station-browser";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import { defaultSettings } from "../src/shared/settings";
+import {
+  configureRemoteHost,
+  type ConfigureRemoteOptions,
+  type StationRemote,
+} from "../src/main/vellum/hosts/configure-remote";
+
+const installationId = Schema.decodeUnknownSync(InstallationId);
+const commandCenterInstallationId = installationId("cc-installation");
+const remoteInstallationId = installationId("station-installation");
+
+const browserTrust: StationBrowserPinnedTrustRecord = {
+  version: 1,
+  generation: 1,
+  keyId: "ed25519-command-center",
+  originStationId: commandCenterInstallationId,
+  status: "active",
+  publicKeySpki: Buffer.from(
+    "bounded-public-key-material",
+    "utf8",
+  ).toString("base64"),
+  replacesKeyId: null,
+  updatedAt: 1_774_780_400_000,
+};
+
+const options: ConfigureRemoteOptions = {
+  commandCenterInstallationId,
+  commandCenterRef: "local",
+  appVersion: "0.1.0",
+  browserTrust,
+};
 
 const remoteHost: RemoteHost = {
   id: "studio",
@@ -16,7 +46,7 @@ const remoteHost: RemoteHost = {
   label: "Studio",
   kind: "remote",
   endpoint: "studio-box",
-  capabilities: ["herdr", "hermes"],
+  capabilities: ["herdr", "hermes", "browser"],
 };
 
 const localHost: RemoteHost = {
@@ -26,248 +56,163 @@ const localHost: RemoteHost = {
   capabilities: ["herdr", "hermes"],
 };
 
-const planned = planRemoteStationFields({
-  remoteHostId: "studio",
-  agentHostId: "fleet-studio",
-  commandCenterRef: "local",
-});
-
-const planInput = {
-  remoteHostId: "studio",
-  agentHostId: "fleet-studio",
-  commandCenterRef: "local",
-} as const;
-
 type Ssh = Parameters<typeof configureRemoteHost>[0];
+const unusedSsh = {} as Ssh;
 
-const settingsMatchPlan = (raw: string | null | undefined): boolean => {
-  if (raw === undefined || raw === null || raw.trim().length === 0) return false;
-  try {
-    const migrated = migrateSettingsDocument(JSON.parse(raw) as unknown);
-    if (Either.isLeft(migrated)) return false;
-    return remoteStationAlreadyConfigured(migrated.right, planInput);
-  } catch {
-    return false;
-  }
-};
-
-/**
- * Sequential mock:
- * warm → home → cat existing
- *   | match → seal presence (SEALED early-return | UNSEALED refuse)
- *   | non-match with settings → refuse (no further calls)
- *   | settings absent → topology evidence (ABSENT write | EVIDENCE refuse)
- *   → write → probe cat
- */
-const makeSsh = (options?: {
-  readonly existingRaw?: string | null;
-  readonly homeOutput?: string;
-  readonly failWarm?: boolean;
-  readonly failWrite?: boolean;
-  /** When settings match plan: SEALED early-return vs UNSEALED refuse. */
-  readonly topologySealed?: boolean;
-  /**
-   * When settings are absent: ABSENT (pristine enroll) vs EVIDENCE (refuse).
-   * Defaults to ABSENT.
-   */
-  readonly topologyEvidence?: "ABSENT" | "EVIDENCE";
-}): { readonly ssh: Ssh; readonly writes: string[]; readonly calls: { calls: number } } => {
-  const writes: string[] = [];
-  const calls = { calls: 0 };
-  const match = settingsMatchPlan(options?.existingRaw);
-  const settingsPresent =
-    options?.existingRaw !== undefined &&
-    options?.existingRaw !== null &&
-    options.existingRaw.trim().length > 0;
-
-  const ssh = {
-    warm: () =>
-      options?.failWarm
-        ? Effect.fail({
-            _tag: "SshTimeoutError",
-            endpoint: "studio-box",
-            operation: "warm",
-            timeoutMs: 1,
-        } as never)
-        : Effect.void,
-    run: () =>
-      Effect.gen(function* () {
-        calls.calls += 1;
-        // 1: homeDirectoryLookup
-        if (calls.calls === 1) {
-          return { stdout: options?.homeOutput ?? "/Users/remote\n", stderr: "" };
-        }
-        // 2: cat existing settings
-        if (calls.calls === 2) {
-          if (options?.existingRaw === undefined || options.existingRaw === null) {
-            return yield* Effect.fail({
-              _tag: "SshExitError",
-              endpoint: "studio-box",
-              operation: "cat",
-              code: 1,
-            } as never);
-          }
-          return { stdout: options.existingRaw, stderr: "" };
-        }
-
-        if (match) {
-          // 3: topology seal presence probe
-          if (calls.calls === 3) {
-            return {
-              stdout: options?.topologySealed ? "SEALED\n" : "UNSEALED\n",
-              stderr: "",
-            };
-          }
-          return yield* Effect.fail(
-            new Error(`unexpected SSH call after match path: #${calls.calls}`),
-          );
-        }
-
-        if (settingsPresent) {
-          return yield* Effect.fail(
-            new Error(`unexpected SSH call after non-matching settings refuse: #${calls.calls}`),
-          );
-        }
-
-        // Settings absent: 3 = topology evidence probe
-        if (calls.calls === 3) {
-          return {
-            stdout: `${options?.topologyEvidence ?? "ABSENT"}\n`,
-            stderr: "",
-          };
-        }
-        if ((options?.topologyEvidence ?? "ABSENT") === "EVIDENCE") {
-          return yield* Effect.fail(
-            new Error(`unexpected SSH call after topology evidence refuse: #${calls.calls}`),
-          );
-        }
-        // 4: write (pristine enroll)
-        if (calls.calls === 4) {
-          if (options?.failWrite) {
-            return yield* Effect.fail({
-              _tag: "SshExitError",
-              endpoint: "studio-box",
-              operation: "write",
-              code: 1,
-            } as never);
-          }
-          writes.push("written");
-          return { stdout: "", stderr: "" };
-        }
-        // 5: probe cat
-        const next = mergeRemoteStationSettings(defaultSettings(), planInput);
-        return {
-          stdout: `${JSON.stringify(next, null, 2)}\n`,
-          stderr: "",
-        };
-      }),
-  } as unknown as Ssh;
-
-  return { ssh, writes, calls };
+const makeRemote = (
+  input: {
+    readonly state?: "unenrolled" | "paired" | "configured" | "ready";
+    readonly responseHostId?: string;
+  } = {},
+) => {
+  const calls: string[] = [];
+  const status = vi.fn(() =>
+    Effect.sync(() => {
+      calls.push("status");
+      return StatusResponse.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "status",
+        installationId: remoteInstallationId,
+        state: input.state ?? "unenrolled",
+        receivedThrough: [],
+        readiness: {
+          database: true,
+          workControl: true,
+          simulation: true,
+        },
+        observedAt: "2026-07-27T12:00:00.000Z",
+      });
+    }),
+  );
+  const pair = vi.fn((_endpoint, request) =>
+    Effect.sync(() => {
+      calls.push("pair");
+      return PairResponse.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "pair",
+        commandCenterInstallationId:
+          request.commandCenterInstallationId,
+        stationInstallationId: request.stationInstallationId,
+        pairedAt: "2026-07-27T12:00:01.000Z",
+      });
+    }),
+  );
+  const configure = vi.fn((_endpoint, request) =>
+    Effect.sync(() => {
+      calls.push("configure");
+      const configuration =
+        request.configuration.role === "remote"
+          ? {
+              ...request.configuration,
+              hostId:
+                (input.responseHostId ??
+                  request.configuration.hostId) as typeof request.configuration.hostId,
+            }
+          : request.configuration;
+      return ConfigureResponse.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "configure",
+        installationId: request.installationId,
+        configuration,
+        configuredAt: "2026-07-27T12:00:02.000Z",
+      });
+    }),
+  );
+  const remote = {
+    status,
+    pair,
+    configure,
+    project: () => Effect.die("project must not run"),
+    report: () => Effect.die("report must not run"),
+  } as StationRemote;
+  return { remote, calls, status, pair, configure };
 };
 
 describe("configureRemoteHost", () => {
-  it("rejects local hosts", async () => {
-    const { ssh } = makeSsh();
+  it("rejects local hosts before contacting a Station", async () => {
+    const { remote, status } = makeRemote();
     const result = await Effect.runPromise(
       Effect.either(
-        configureRemoteHost(ssh, localHost, { commandCenterRef: "local" }),
+        configureRemoteHost(unusedSsh, localHost, options, remote),
       ),
     );
+
     expect(result._tag).toBe("Left");
     if (result._tag === "Left") {
       expect(result.left.code).toBe("validation");
-      expect(result.left.message).toMatch(/local/);
+      expect(result.left.message).toMatch(/local/u);
     }
+    expect(status).not.toHaveBeenCalled();
   });
 
-  it("writes Remote station stamp when remote is pristine (no settings, no seal evidence)", async () => {
-    const { ssh, writes } = makeSsh({ existingRaw: null, topologyEvidence: "ABSENT" });
+  it("uses status, pair, and configure as the sole durable lane", async () => {
+    const { remote, calls, pair, configure } = makeRemote();
     const result = await Effect.runPromise(
-      configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
+      configureRemoteHost(unusedSsh, remoteHost, options, remote),
     );
-    expect(result.ok).toBe(true);
-    expect(writes).toEqual(["written"]);
-    expect(result.station).toEqual(planned);
-    expect(result.detail).toMatch(/configured studio/);
-  });
 
-  it("is idempotent when remote already matches plan AND topology seals present", async () => {
-    const existing = mergeRemoteStationSettings(defaultSettings(), planInput);
-    const { ssh, writes } = makeSsh({
-      existingRaw: `${JSON.stringify(existing, null, 2)}\n`,
-      topologySealed: true,
-    });
-    const result = await Effect.runPromise(
-      configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
+    expect(calls).toEqual(["status", "pair", "configure"]);
+    expect(pair).toHaveBeenCalledWith(
+      "studio-box",
+      expect.objectContaining({
+        protocol: STATION_API_PROTOCOL,
+        commandCenterInstallationId,
+        stationInstallationId: remoteInstallationId,
+        stationLabel: "Studio",
+        appVersion: "0.1.0",
+      }),
     );
-    expect(result.ok).toBe(true);
-    expect(writes).toEqual([]);
-    expect(result.detail).toMatch(/already configured/);
-  });
-
-  it("refuses when settings match but topology seals are incomplete", async () => {
-    const existing = mergeRemoteStationSettings(defaultSettings(), planInput);
-    const { ssh, writes } = makeSsh({
-      existingRaw: `${JSON.stringify(existing, null, 2)}\n`,
-      topologySealed: false,
-    });
-    const result = await Effect.runPromise(
-      configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
+    expect(configure).toHaveBeenCalledWith(
+      "studio-box",
+      expect.objectContaining({
+        installationId: remoteInstallationId,
+        configuration: {
+          role: "remote",
+          hostId: "studio",
+          agentHostId: "fleet-studio",
+          commandCenterInstallationId,
+          commandCenterRef: "local",
+          supervisedPreferred: true,
+          browserTrust,
+        },
+      }),
     );
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe("conflict");
-    expect(writes).toEqual([]);
-    expect(result.detail).toMatch(/seals are incomplete|refuse overwrite/i);
-  });
-
-  it("refuses enroll when remote already has non-matching settings", async () => {
-    const existing = {
-      ...defaultSettings(),
-      appearance: { ...defaultSettings().appearance, theme: "system" as const },
+    expect(result).toMatchObject({
+      ok: true,
+      stationInstallationId: remoteInstallationId,
+      configuredAt: "2026-07-27T12:00:02.000Z",
       station: {
-        role: "" as const,
-        hostId: "local",
-        commandCenterRef: "",
-        supervisedPreferred: false,
+        role: "remote",
+        hostId: "studio",
+        agentHostId: "fleet-studio",
+        commandCenterRef: "local",
+        supervisedPreferred: true,
       },
-    };
-    const { ssh, writes } = makeSsh({
-      existingRaw: `${JSON.stringify(existing, null, 2)}\n`,
     });
-    const result = await Effect.runPromise(
-      configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe("conflict");
-    expect(writes).toEqual([]);
-    expect(result.detail).toMatch(/already has settings|refuse enroll/i);
   });
 
-  it("refuses enroll when settings are absent but topology evidence remains", async () => {
-    const { ssh, writes } = makeSsh({
-      existingRaw: null,
-      topologyEvidence: "EVIDENCE",
-    });
+  it("replays the typed ceremony when the Station reports ready", async () => {
+    const { remote, calls } = makeRemote({ state: "ready" });
     const result = await Effect.runPromise(
-      configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
+      configureRemoteHost(unusedSsh, remoteHost, options, remote),
     );
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe("conflict");
-    expect(writes).toEqual([]);
-    expect(result.detail).toMatch(/topology\.key\/seal evidence|not pristine/i);
+
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual(["status", "pair", "configure"]);
   });
 
-  it("surfaces SSH warm failures on the error channel", async () => {
-    const { ssh } = makeSsh({ failWarm: true });
+  it("fails closed when the configure receipt changes the host", async () => {
+    const { remote } = makeRemote({ responseHostId: "other" });
     const result = await Effect.runPromise(
       Effect.either(
-        configureRemoteHost(ssh, remoteHost, { commandCenterRef: "local" }),
+        configureRemoteHost(unusedSsh, remoteHost, options, remote),
       ),
     );
+
     expect(result._tag).toBe("Left");
     if (result._tag === "Left") {
-      expect(result.left.code).toBe("io");
+      expect(result.left.code).toBe("conflict");
+      expect(result.left.message).toMatch(/different Remote configuration/u);
     }
   });
 });
