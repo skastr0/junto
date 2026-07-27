@@ -173,8 +173,7 @@ const probeSshHost = (
           endpoint: "",
           reachability: "unknown" as const,
           reachabilityError: "remote host missing endpoint",
-          settingsState: "unavailable" as const,
-          statusState: "unavailable" as const,
+          observationError: "remote host missing endpoint",
         },
       };
     }
@@ -245,17 +244,7 @@ const probeSshHost = (
         hostId: host.id,
         endpoint: host.endpoint,
         reachability: "reachable" as const,
-        settingsState:
-          configuration === undefined
-            ? ("unavailable" as const)
-            : ("observed" as const),
-        ...(configuration === undefined
-          ? {}
-          : {
-              stationRole: configuration.role,
-              stationHostId: configuration.hostId,
-            }),
-        statusState: "observed" as const,
+        station,
         ...(problems.length === 0
           ? {}
           : { observationError: problems.join("; ").slice(0, 1_024) }),
@@ -272,8 +261,7 @@ const probeSshHost = (
           endpoint: host.endpoint ?? "",
           reachability: "unreachable" as const,
           reachabilityError: detail,
-          settingsState: "unavailable" as const,
-          statusState: "unavailable" as const,
+          observationError: detail,
         },
       });
     }),
@@ -298,8 +286,8 @@ const boundedProbeSshHost = (
           endpoint: host.endpoint ?? "",
           reachability: "unreachable" as const,
           reachabilityError: `probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
-          settingsState: "unavailable" as const,
-          statusState: "unavailable" as const,
+          observationError:
+            `probe timed out after ${HOST_PROBE_TOTAL_TIMEOUT_MS}ms`,
         },
       }),
     ),
@@ -371,8 +359,7 @@ export const runRemoteHostsDoctorSnapshot = (
             endpoint: host.endpoint ?? "",
             reachability: "unknown" as const,
             reachabilityError: detail,
-            settingsState: "unavailable" as const,
-            statusState: "unavailable" as const,
+            observationError: detail,
           })),
         } satisfies RemoteHostsDoctorSnapshot;
       }

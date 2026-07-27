@@ -12,7 +12,6 @@
 /** Loose booleans so tests/product can flip flags without type-narrowing traps. */
 export type ReleaseCapabilities = {
   readonly freshRemoteEnrollment: boolean;
-  readonly stationProjection: boolean;
   readonly managedRemoteDeploy: boolean;
   readonly managedRemoteUpdate: boolean;
   readonly managedRemoteRollback: boolean;
@@ -25,7 +24,6 @@ export type ReleaseCapabilities = {
 
 export const RELEASE_CAPABILITIES: ReleaseCapabilities = Object.freeze({
   freshRemoteEnrollment: true,
-  stationProjection: true,
   managedRemoteDeploy: false,
   managedRemoteUpdate: false,
   managedRemoteRollback: false,

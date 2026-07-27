@@ -5,10 +5,7 @@ import { assessSupervisedRuntime } from "@shared/station";
 import {
   assessStationDoctor,
   kernelRecordFromSnapshot,
-  STATION_PULL_STALE_AFTER_MS,
-  type StationStatusDocument,
 } from "@shared/station-status";
-import type { StationSettings } from "@shared/settings";
 import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { FolderLive, FolderService } from "./services/folder";
@@ -40,14 +37,9 @@ import { HostsService, HostsServiceLive } from "./vellum/hosts";
 import { SshTransportLive } from "./vellum/ssh";
 import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
 import {
-  readStationStatus,
   StationStatusLive,
+  StationStatusService,
 } from "./vellum/station-status-store";
-import {
-  readLocalCanvasMirrorWitness,
-  stationSettingsWitness,
-  type CanvasMirrorWitness,
-} from "./vellum/station-witness";
 import {
   createStationReadinessCoordinator,
   stationReadinessMetadata,
@@ -58,7 +50,10 @@ import {
   StationFleetTargetRepositoryLive,
 } from "./vellum/station/fleet-target-repository";
 import {
+  StationRepository,
   StationRepositoryLive,
+  type StationProjection,
+  type StationStatusFacts,
 } from "./vellum/station/repository";
 import { StationApiLive } from "./vellum/station/api";
 import { StationRemoteApiClientLive } from "./vellum/station/remote-client";
@@ -172,56 +167,29 @@ export const supervisorAlignedForReadiness = (
   input: Parameters<typeof assessSupervisedRuntime>[0],
 ): boolean => assessSupervisedRuntime(input).aligned;
 
-export const stationCanvasPullReadiness = (
-  station: StationSettings,
-  status: StationStatusDocument,
-  now: number = Date.now(),
-): "fresh" | "stale" | "missing" | "not-required" => {
-  if (station.role !== "remote") return "not-required";
-  const pull = status.lastPull;
-  if (
-    pull === undefined ||
-    !pull.ok ||
-    pull.keptLocal ||
-    pull.failedCount !== 0 ||
-    (pull.status !== "ok" && pull.status !== "empty") ||
-    pull.admission === undefined ||
-    pull.commandCenterRef !== station.commandCenterRef ||
-    pull.admission.stationHostId !== station.hostId ||
-    pull.admission.stationConfigSha256 !== stationSettingsWitness(station)
-  ) {
-    return "missing";
-  }
-  const observed = Date.parse(pull.at);
-  if (
-    !Number.isFinite(now) ||
-    !Number.isFinite(observed) ||
-    observed > now ||
-    now - observed > STATION_PULL_STALE_AFTER_MS
-  ) {
-    return "stale";
-  }
-  return "fresh";
-};
-
-export const stationCanvasPullMatchesMirror = (
-  status: StationStatusDocument,
-  mirror: CanvasMirrorWitness,
+export const stationProjectionInstalledForReadiness = (
+  facts: StationStatusFacts,
+  projection: StationProjection | undefined,
 ): boolean => {
-  const pull = status.lastPull;
-  const admission = pull?.admission;
-  if (pull === undefined || admission === undefined) return false;
-  return admission.canvasMirrorSha256 === mirror.sha256 &&
-    admission.canvasCount === mirror.canvasCount &&
-    pull.pulledCount === mirror.canvasCount &&
-    (pull.status !== "empty" || mirror.canvasCount === 0) &&
-    (pull.status !== "ok" || mirror.canvasCount > 0);
+  if (facts.configuration === undefined) return false;
+  if (facts.configuration.role === "command-center") return true;
+  return (
+    facts.projection !== undefined &&
+    projection !== undefined &&
+    projection.scope === "full" &&
+    projection.generation === facts.projection.generation &&
+    projection.contentSha256 === facts.projection.contentSha256 &&
+    projection.receivedAt === facts.projection.receivedAt
+  );
 };
 
 export interface CurrentStationReadinessOptions {
   /** Tests and callers with a current supervisor observation may supply it. */
   readonly supervisorAligned?: boolean;
-  readonly now?: number;
+  readonly station?: Readonly<{
+    facts: StationStatusFacts;
+    projection?: StationProjection;
+  }>;
 }
 
 /** Deep product-path assessment for Doctor; it never gates station boot. */
@@ -229,46 +197,37 @@ export const assessCurrentStationReadiness = (
   options: CurrentStationReadinessOptions = {},
 ) =>
   Effect.gen(function* () {
-    const settings = yield* SettingsService;
     const prism = yield* PrismService;
+    const repository = yield* StationRepository;
+    const kernel = yield* KernelService;
     const stationInfo = yield* prism.stationInfo;
-    const settingsDoc = yield* settings.get;
-    const statusDoc = yield* Effect.promise(() => readStationStatus());
+    const station = options.station ??
+      (yield* Effect.all({
+        facts: repository.statusFacts,
+        projection: repository.projection,
+      }));
+    const configuration = station.facts.configuration;
     const supervisorAligned = options.supervisorAligned ??
       supervisorAlignedForReadiness({
-        role: settingsDoc.station.role,
-        hostId: settingsDoc.station.hostId,
-        supervisedPreferred: settingsDoc.station.supervisedPreferred,
+        role: configuration?.role ?? "",
+        hostId: configuration?.hostId ?? "unconfigured",
+        supervisedPreferred: configuration?.supervisedPreferred ?? false,
         supervisedInstalled: yield* Effect.promise(() => probeSupervisedRuntime()),
       });
-    let canvasPull = stationCanvasPullReadiness(
-      settingsDoc.station,
-      statusDoc,
-      options.now,
-    );
-    if (canvasPull === "fresh" && settingsDoc.station.role === "remote") {
-      const mirror = yield* Effect.either(
-        Effect.tryPromise({
-          try: readLocalCanvasMirrorWitness,
-          catch: (error) => error instanceof Error ? error : new Error(String(error)),
-        }),
-      );
-      if (
-        mirror._tag === "Left" ||
-        !stationCanvasPullMatchesMirror(statusDoc, mirror.right)
-      ) {
-        canvasPull = "missing";
-      }
-    }
+    const simulationReady = kernel.getSnapshot().fault === undefined;
     return yield* Effect.promise(() =>
       createStationReadinessCoordinator().assess({
         version: stationInfo.version,
-        role: settingsDoc.station.role,
-        hostId: settingsDoc.station.hostId,
+        ...(configuration === undefined ? {} : { configuration }),
         packageIdentity: stationInfo.name,
         supervisorAligned,
-        canvasPull,
+        projectionInstalled: stationProjectionInstalledForReadiness(
+          station.facts,
+          station.projection,
+        ),
+        databaseReady: true,
         workControlReady: workControlReadiness.ready(),
+        simulationReady,
       }),
     );
   });
@@ -291,6 +250,8 @@ export const buildDoctorReport = Effect.gen(function* () {
   const usage = yield* UsageService;
   const settings = yield* SettingsService;
   const hosts = yield* HostsService;
+  const stationRepository = yield* StationRepository;
+  const stationStatus = yield* StationStatusService;
 
   const station = yield* prism.stationInfo;
   // One bounded SSH pass feeds both the host service row and the station fleet
@@ -298,8 +259,11 @@ export const buildDoctorReport = Effect.gen(function* () {
   // observations from two different moments as one report.
   const hostsDoctorSnapshot = yield* hosts.doctorSnapshot;
   const stationCheck = yield* Effect.gen(function* () {
-    const settingsDoc = yield* settings.get;
-    const statusDoc = yield* Effect.promise(() => readStationStatus());
+    const stationState = yield* Effect.all({
+      facts: stationRepository.statusFacts,
+      projection: stationRepository.projection,
+      observations: stationStatus.read,
+    });
     const registeredHosts = yield* Effect.either(hosts.list);
     const registeredRemoteEndpoints =
       registeredHosts._tag === "Right"
@@ -313,27 +277,41 @@ export const buildDoctorReport = Effect.gen(function* () {
         : undefined;
     const supervisedInstalled = yield* Effect.promise(() => probeSupervisedRuntime());
     const workControlReady = workControlReadiness.ready();
+    const kernelRecord = kernelRecordFromSnapshot(kernel.getSnapshot());
+    const configuration = stationState.facts.configuration;
     const supervisorAligned = supervisorAlignedForReadiness({
-      role: settingsDoc.station.role,
-      hostId: settingsDoc.station.hostId,
-      supervisedPreferred: settingsDoc.station.supervisedPreferred,
+      role: configuration?.role ?? "",
+      hostId: configuration?.hostId ?? "unconfigured",
+      supervisedPreferred: configuration?.supervisedPreferred ?? false,
       supervisedInstalled,
     });
     const stationDoctor = assessStationDoctor({
-      role: settingsDoc.station.role,
-      hostId: settingsDoc.station.hostId,
-      commandCenterRef: settingsDoc.station.commandCenterRef,
+      installationId: stationState.facts.installationId,
+      ...(configuration === undefined ? {} : { configuration }),
+      ...(stationState.facts.configuredAt === undefined
+        ? {}
+        : { configuredAt: stationState.facts.configuredAt }),
+      ...(stationState.facts.projection === undefined
+        ? {}
+        : { projection: stationState.facts.projection }),
+      receivedThrough: stationState.facts.receivedThrough,
       version: station.version,
-      supervisedPreferred: settingsDoc.station.supervisedPreferred,
       supervisedInstalled,
-      status: statusDoc,
-      kernel: kernelRecordFromSnapshot(kernel.getSnapshot()),
+      status: stationState.observations,
+      kernel: kernelRecord,
       registeredRemoteEndpoints,
       remoteObservations: hostsDoctorSnapshot.observations,
       workControlReady,
+      simulationReady: kernelRecord.fault === undefined,
     });
     const readiness = yield* assessCurrentStationReadiness({
       supervisorAligned,
+      station: {
+        facts: stationState.facts,
+        ...(stationState.projection === undefined
+          ? {}
+          : { projection: stationState.projection }),
+      },
     });
     return {
       ...stationDoctor,

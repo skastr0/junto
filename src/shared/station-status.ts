@@ -1,167 +1,108 @@
+import { Either, Schema } from "effect";
 import type { ServiceCheck } from "./contracts";
-import type { CanvasPullResult, CanvasPullStatus } from "./canvas-pull";
 import type { KernelSnapshot } from "./ipc";
 import {
+  DisplayTimestamp,
+  InstallationId,
+  StationHostId,
+  type StationConfiguration as StationConfigurationValue,
+  type StationEventAck as StationEventAckValue,
+  type StationProjectionReference as StationProjectionReferenceValue,
+  type StatusResponse as StatusResponseValue,
+} from "./station-api";
+import {
   assessSupervisedRuntime,
-  type StationRole,
   type SupervisedInstallState,
 } from "./station";
-import { RELEASE_CAPABILITIES } from "./release-capabilities";
 
 /**
- * Durable, local-only station fleet status (not authorial canvas).
- * Written after Remote pull / Configure-as-Remote; read by doctor.
+ * Durable operational observations. Authoritative station configuration,
+ * projections, and logical cursors live in StationRepository instead.
  */
+export const STATION_STATUS_VERSION = 2 as const;
 
-export const STATION_STATUS_VERSION = 1 as const;
-
-/**
- * Pulls are manual today, so freshness cannot pretend a tighter scheduler
- * exists. One day is the explicit operator policy: older last-known canvases
- * remain usable, but Doctor calls them stale.
- */
-export const STATION_PULL_STALE_AFTER_MS = 24 * 60 * 60 * 1_000;
-
-/**
- * The running kernel mirrors a heartbeat at least every 30 seconds. Four
- * missed heartbeats (two minutes) is the point where armed/fire state stops
- * being presented as live truth.
- */
+/** A kernel observation older than this is display history, not live truth. */
 export const STATION_KERNEL_STALE_AFTER_MS = 2 * 60 * 1_000;
 
-export const STATION_PULL_ADMISSION_VERSION = 1 as const;
+/** Deployment sightings are operator history and use a deliberately broad SLA. */
+export const STATION_DEPLOYMENT_STALE_AFTER_MS = 24 * 60 * 60 * 1_000;
 
-export type StationPullAdmissionWitness = {
-  readonly version: typeof STATION_PULL_ADMISSION_VERSION;
-  /** Physical Remote identity at the successful pull boundary. */
-  readonly stationHostId: string;
-  /** SHA-256 of the complete station configuration tuple. */
-  readonly stationConfigSha256: string;
-  /** SHA-256 of canonical names + exact bytes in the local canvas mirror. */
-  readonly canvasMirrorSha256: string;
-  readonly canvasCount: number;
-};
+const NonNegativeInteger = Schema.Number.pipe(
+  Schema.int(),
+  Schema.nonNegative(),
+);
+const Diagnostic = Schema.String.pipe(Schema.maxLength(4_096));
+const Stage = Schema.String.pipe(Schema.maxLength(512));
+const Endpoint = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(255),
+);
+const AppVersion = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(128),
+);
 
-export type StationPullRecord = {
-  readonly at: string;
-  readonly status: CanvasPullStatus;
-  readonly ok: boolean;
-  readonly detail: string;
-  readonly commandCenterRef: string;
-  readonly keptLocal: boolean;
-  readonly pulledCount: number;
-  readonly failedCount: number;
-  /**
-   * Present only after a complete Remote pull committed and the local mirror
-   * was observed under the same station configuration. Descriptive legacy
-   * pull rows intentionally decode without it and are never admission proof.
-   */
-  readonly admission?: StationPullAdmissionWitness;
-};
+export const StationDeployOutcome = Schema.Literal(
+  "ready",
+  "failed",
+  "rolled-back",
+  "indeterminate",
+);
+export type StationDeployOutcome = typeof StationDeployOutcome.Type;
 
-export type StationConfigureRecord = {
-  readonly at: string;
-  readonly ok: boolean;
-  readonly hostId: string;
-  readonly detail: string;
-  /**
-   * Expected remote `stationSettingsWitness` after a successful configure.
-   * Projection push stamps frames with this as `targetWitness`; inventory-only
-   * hosts without it are not delivery targets.
-   */
-  readonly stationWitness?: string;
-};
+export const StationDeployRecord = Schema.Struct({
+  at: DisplayTimestamp,
+  hostId: StationHostId,
+  endpoint: Endpoint,
+  ok: Schema.Boolean,
+  outcome: StationDeployOutcome,
+  packageState: Schema.Literal("present", "previous", "unknown"),
+  role: Schema.Literal("remote", "previous", "unknown"),
+  version: AppVersion,
+  lastSeen: Schema.optionalWith(DisplayTimestamp, { exact: true }),
+  rollback: Schema.Literal("not-required", "restored", "failed"),
+  configurationOk: Schema.Boolean,
+  detail: Diagnostic,
+  stages: Schema.Array(Stage).pipe(Schema.maxItems(32)),
+});
+export type StationDeployRecord = typeof StationDeployRecord.Type;
 
-export type StationDeployOutcome =
-  | "ready"
-  | "failed"
-  | "rolled-back"
-  | "indeterminate";
+export const StationKernelRecord = Schema.Struct({
+  observedAt: DisplayTimestamp,
+  armedRegionCount: NonNegativeInteger,
+  lastFireAt: Schema.optionalWith(DisplayTimestamp, { exact: true }),
+  lastFireKind: Schema.optionalWith(
+    Schema.Literal("watcher", "timer", "manual"),
+    { exact: true },
+  ),
+  lastFireDry: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  fault: Schema.optionalWith(
+    Schema.String.pipe(Schema.maxLength(1_024)),
+    { exact: true },
+  ),
+  orphanedArmingCount: NonNegativeInteger,
+});
+export type StationKernelRecord = typeof StationKernelRecord.Type;
 
-export type StationDeployRecord = {
-  readonly at: string;
-  readonly hostId: string;
-  /** Registered SSH mutation target this observation belongs to. */
-  readonly endpoint: string;
-  readonly ok: boolean;
-  readonly outcome: StationDeployOutcome;
-  readonly packageState: "present" | "previous" | "unknown";
-  readonly role: "remote" | "previous" | "unknown";
-  readonly version: string;
-  readonly lastSeen?: string;
-  readonly rollback: "not-required" | "restored" | "failed";
-  readonly configurationOk: boolean;
-  readonly detail: string;
-  readonly stages: ReadonlyArray<string>;
-};
+const Deployments = Schema.Record({
+  key: StationHostId,
+  value: StationDeployRecord,
+});
 
-export type StationKernelRecord = {
-  readonly observedAt: string;
-  readonly armedRegionCount: number;
-  readonly lastFireAt?: string;
-  readonly lastFireKind?: "watcher" | "timer" | "manual";
-  readonly lastFireDry?: boolean;
-  readonly fault?: string;
-  readonly orphanedArmingCount: number;
-};
-
-/**
- * Command Center → Station projection delivery receipt (Cut 5 / 7.1).
- * Distinct from lastPull (Remote canvas-pull path). Tracks push intent
- * reachability truth: pending → applied | rejected | unreachable.
- */
-export type StationProjectionDeliveryStatus =
-  | "applied"
-  | "pending"
-  | "staged"
-  | "unreachable"
-  | "rejected";
-
-export type StationProjectionRecord = {
-  readonly at: string;
-  readonly hostId: string;
-  /** Registered SSH endpoint when the target is remote; omitted for local/test. */
-  readonly endpoint?: string;
-  readonly generation: string;
-  readonly manifestSha256: string;
-  readonly frameSha256?: string;
-  readonly status: StationProjectionDeliveryStatus;
-  readonly ok: boolean;
-  readonly detail: string;
-};
-
-export type StationStatusDocument = {
-  readonly version: typeof STATION_STATUS_VERSION;
-  readonly lastPull?: StationPullRecord;
-  readonly lastConfigure?: StationConfigureRecord;
-  /**
-   * Latest configure receipt per enrolled host id (includes expected
-   * stationWitness after successful configure).
-   */
-  readonly configures?: Readonly<Record<string, StationConfigureRecord>>;
-  /** Bounded, non-authorial heartbeat for SSH-readable fleet diagnostics. */
-  readonly kernel?: StationKernelRecord;
-  /** Latest durable deployment receipt for each registered Remote host. */
-  readonly deployments?: Readonly<Record<string, StationDeployRecord>>;
-  /**
-   * Most recent projection delivery attempt (any host). Doctor / Settings
-   * surface this as reachability truth; not live canvas authority.
-   */
-  readonly lastProjection?: StationProjectionRecord;
-  /** Latest projection delivery receipt per enrolled host id. */
-  readonly projections?: Readonly<Record<string, StationProjectionRecord>>;
-};
+export const StationStatusDocument = Schema.Struct({
+  version: Schema.Literal(STATION_STATUS_VERSION),
+  kernel: Schema.optionalWith(StationKernelRecord, { exact: true }),
+  deployments: Schema.optionalWith(Deployments, { exact: true }),
+});
+export type StationStatusDocument = typeof StationStatusDocument.Type;
 
 export type StationRemoteObservation = {
   readonly hostId: string;
   readonly endpoint: string;
   readonly reachability: "reachable" | "unreachable" | "unknown";
   readonly reachabilityError?: string;
-  readonly settingsState: "observed" | "unavailable" | "invalid";
-  readonly stationRole?: string;
-  readonly stationHostId?: string;
-  readonly statusState: "observed" | "unavailable" | "invalid";
-  readonly status?: StationStatusDocument;
+  /** Exact typed response from the Remote's Station API. */
+  readonly station?: StatusResponseValue;
   readonly observationError?: string;
 };
 
@@ -169,377 +110,20 @@ export const defaultStationStatus = (): StationStatusDocument => ({
   version: STATION_STATUS_VERSION,
 });
 
-export const stationStatusPath = (home: string): string =>
-  `${home}/.vellum/station-status.json`;
+const decodeStatus = Schema.decodeUnknownEither(StationStatusDocument, {
+  onExcessProperty: "error",
+});
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
-const isFiniteNonNegativeInteger = (value: unknown): value is number =>
-  typeof value === "number" &&
-  Number.isFinite(value) &&
-  Number.isInteger(value) &&
-  value >= 0;
-
-const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
-
-const decodePullAdmissionWitness = (
-  value: unknown,
-): StationPullAdmissionWitness | undefined => {
-  if (
-    !isRecord(value) ||
-    value.version !== STATION_PULL_ADMISSION_VERSION ||
-    typeof value.stationHostId !== "string" ||
-    value.stationHostId.length === 0 ||
-    value.stationHostId.length > 64 ||
-    typeof value.stationConfigSha256 !== "string" ||
-    !SHA256_HEX_PATTERN.test(value.stationConfigSha256) ||
-    typeof value.canvasMirrorSha256 !== "string" ||
-    !SHA256_HEX_PATTERN.test(value.canvasMirrorSha256) ||
-    !isFiniteNonNegativeInteger(value.canvasCount)
-  ) {
-    return undefined;
-  }
-  return {
-    version: STATION_PULL_ADMISSION_VERSION,
-    stationHostId: value.stationHostId,
-    stationConfigSha256: value.stationConfigSha256,
-    canvasMirrorSha256: value.canvasMirrorSha256,
-    canvasCount: value.canvasCount,
-  };
-};
-
-const decodePullRecord = (value: unknown): StationPullRecord | undefined => {
-  if (!isRecord(value)) return undefined;
-  const status = value.status;
-  const admission =
-    value.admission === undefined
-      ? undefined
-      : decodePullAdmissionWitness(value.admission);
-  if (
-    typeof value.at !== "string" ||
-    !["ok", "partial", "empty", "unreachable", "misconfigured", "skipped_not_remote"].includes(
-      String(status),
-    ) ||
-    typeof value.ok !== "boolean" ||
-    typeof value.detail !== "string" ||
-    typeof value.commandCenterRef !== "string" ||
-    typeof value.keptLocal !== "boolean" ||
-    !isFiniteNonNegativeInteger(value.pulledCount) ||
-    !isFiniteNonNegativeInteger(value.failedCount) ||
-    (value.admission !== undefined && admission === undefined)
-  ) {
-    return undefined;
-  }
-  return {
-    at: value.at,
-    status: status as CanvasPullStatus,
-    ok: value.ok,
-    detail: value.detail.slice(0, 4_096),
-    commandCenterRef: value.commandCenterRef.slice(0, 255),
-    keptLocal: value.keptLocal,
-    pulledCount: value.pulledCount,
-    failedCount: value.failedCount,
-    ...(admission === undefined ? {} : { admission }),
-  };
-};
-
-const decodeConfigureRecord = (
-  value: unknown,
-): StationConfigureRecord | undefined => {
-  if (
-    !isRecord(value) ||
-    typeof value.at !== "string" ||
-    typeof value.ok !== "boolean" ||
-    typeof value.hostId !== "string" ||
-    typeof value.detail !== "string" ||
-    (value.stationWitness !== undefined &&
-      (typeof value.stationWitness !== "string" ||
-        !SHA256_HEX_PATTERN.test(value.stationWitness)))
-  ) {
-    return undefined;
-  }
-  return {
-    at: value.at,
-    ok: value.ok,
-    hostId: value.hostId.slice(0, 64),
-    detail: value.detail.slice(0, 4_096),
-    ...(typeof value.stationWitness === "string"
-      ? { stationWitness: value.stationWitness }
-      : {}),
-  };
-};
-
-const decodeKernelRecord = (
-  value: unknown,
-): StationKernelRecord | undefined => {
-  if (
-    !isRecord(value) ||
-    typeof value.observedAt !== "string" ||
-    !isFiniteNonNegativeInteger(value.armedRegionCount) ||
-    !isFiniteNonNegativeInteger(value.orphanedArmingCount)
-  ) {
-    return undefined;
-  }
-  if (
-    value.lastFireAt !== undefined &&
-    typeof value.lastFireAt !== "string"
-  ) {
-    return undefined;
-  }
-  if (
-    value.lastFireKind !== undefined &&
-    value.lastFireKind !== "watcher" &&
-    value.lastFireKind !== "timer" &&
-    value.lastFireKind !== "manual"
-  ) {
-    return undefined;
-  }
-  if (
-    value.lastFireDry !== undefined &&
-    typeof value.lastFireDry !== "boolean"
-  ) {
-    return undefined;
-  }
-  if (value.fault !== undefined && typeof value.fault !== "string") {
-    return undefined;
-  }
-  return {
-    observedAt: value.observedAt,
-    armedRegionCount: value.armedRegionCount,
-    ...(typeof value.lastFireAt === "string"
-      ? { lastFireAt: value.lastFireAt }
-      : {}),
-    ...(value.lastFireKind === "watcher" ||
-    value.lastFireKind === "timer" ||
-    value.lastFireKind === "manual"
-      ? { lastFireKind: value.lastFireKind }
-      : {}),
-    ...(typeof value.lastFireDry === "boolean"
-      ? { lastFireDry: value.lastFireDry }
-      : {}),
-    ...(typeof value.fault === "string"
-      ? { fault: value.fault.slice(0, 1_024) }
-      : {}),
-    orphanedArmingCount: value.orphanedArmingCount,
-  };
-};
-
-const decodeDeployRecord = (
-  value: unknown,
-): StationDeployRecord | undefined => {
-  if (
-    !isRecord(value) ||
-    typeof value.at !== "string" ||
-    typeof value.hostId !== "string" ||
-    typeof value.endpoint !== "string" ||
-    typeof value.ok !== "boolean" ||
-    !["ready", "failed", "rolled-back", "indeterminate"].includes(
-      String(value.outcome),
-    ) ||
-    !["present", "previous", "unknown"].includes(
-      String(value.packageState),
-    ) ||
-    !["remote", "previous", "unknown"].includes(String(value.role)) ||
-    typeof value.version !== "string" ||
-    !["not-required", "restored", "failed"].includes(
-      String(value.rollback),
-    ) ||
-    typeof value.configurationOk !== "boolean" ||
-    typeof value.detail !== "string" ||
-    !Array.isArray(value.stages) ||
-    value.stages.length > 32 ||
-    !value.stages.every((stage) => typeof stage === "string") ||
-    (value.lastSeen !== undefined && typeof value.lastSeen !== "string")
-  ) {
-    return undefined;
-  }
-  return {
-    at: value.at,
-    hostId: value.hostId.slice(0, 64),
-    endpoint: value.endpoint.slice(0, 255),
-    ok: value.ok,
-    outcome: value.outcome as StationDeployOutcome,
-    packageState: value.packageState as StationDeployRecord["packageState"],
-    role: value.role as StationDeployRecord["role"],
-    version: value.version.slice(0, 128),
-    ...(typeof value.lastSeen === "string"
-      ? { lastSeen: value.lastSeen }
-      : {}),
-    rollback: value.rollback as StationDeployRecord["rollback"],
-    configurationOk: value.configurationOk,
-    detail: value.detail.slice(0, 4_096),
-    stages: value.stages.map((stage) => stage.slice(0, 512)),
-  };
-};
-
-const PROJECTION_STATUSES = new Set<string>([
-  "applied",
-  "pending",
-  "staged",
-  "unreachable",
-  "rejected",
-]);
-
-const GENERATION_PATTERN = /^(0|[1-9][0-9]*)$/;
-
-const decodeProjectionRecord = (
-  value: unknown,
-): StationProjectionRecord | undefined => {
-  if (
-    !isRecord(value) ||
-    typeof value.at !== "string" ||
-    typeof value.hostId !== "string" ||
-    value.hostId.length === 0 ||
-    value.hostId.length > 64 ||
-    typeof value.generation !== "string" ||
-    !GENERATION_PATTERN.test(value.generation) ||
-    value.generation.length > 32 ||
-    typeof value.manifestSha256 !== "string" ||
-    !SHA256_HEX_PATTERN.test(value.manifestSha256) ||
-    !PROJECTION_STATUSES.has(String(value.status)) ||
-    typeof value.ok !== "boolean" ||
-    typeof value.detail !== "string" ||
-    (value.endpoint !== undefined && typeof value.endpoint !== "string") ||
-    (value.frameSha256 !== undefined &&
-      (typeof value.frameSha256 !== "string" ||
-        !SHA256_HEX_PATTERN.test(value.frameSha256)))
-  ) {
-    return undefined;
-  }
-  return {
-    at: value.at,
-    hostId: value.hostId.slice(0, 64),
-    ...(typeof value.endpoint === "string"
-      ? { endpoint: value.endpoint.slice(0, 255) }
-      : {}),
-    generation: value.generation,
-    manifestSha256: value.manifestSha256,
-    ...(typeof value.frameSha256 === "string"
-      ? { frameSha256: value.frameSha256 }
-      : {}),
-    status: value.status as StationProjectionDeliveryStatus,
-    ok: value.ok,
-    detail: value.detail.slice(0, 4_096),
-  };
-};
-
-/**
- * Decode the owner-local or SSH-read status mirror without trusting its shape.
- * Unknown fields are dropped; an invalid known field rejects the document so
- * Doctor reports corruption instead of inventing health.
- */
+/** Strict boundary decode: retired pull/configure/projection fields are errors. */
 export const decodeStationStatusDocument = (
   value: unknown,
 ): StationStatusDocument | undefined => {
-  if (!isRecord(value) || value.version !== STATION_STATUS_VERSION) {
-    return undefined;
-  }
-  const lastPull =
-    value.lastPull === undefined
-      ? undefined
-      : decodePullRecord(value.lastPull);
-  const lastConfigure =
-    value.lastConfigure === undefined
-      ? undefined
-      : decodeConfigureRecord(value.lastConfigure);
-  const kernel =
-    value.kernel === undefined
-      ? undefined
-      : decodeKernelRecord(value.kernel);
-  const lastProjection =
-    value.lastProjection === undefined
-      ? undefined
-      : decodeProjectionRecord(value.lastProjection);
-  if (
-    (value.lastPull !== undefined && !lastPull) ||
-    (value.lastConfigure !== undefined && !lastConfigure) ||
-    (value.kernel !== undefined && !kernel) ||
-    (value.lastProjection !== undefined && !lastProjection)
-  ) {
-    return undefined;
-  }
-
-  let configures: Record<string, StationConfigureRecord> | undefined;
-  if (value.configures !== undefined) {
-    if (!isRecord(value.configures)) return undefined;
-    const entries = Object.entries(value.configures);
-    if (entries.length > 32) return undefined;
-    configures = {};
-    for (const [hostId, raw] of entries) {
-      const configure = decodeConfigureRecord(raw);
-      if (!configure || configure.hostId !== hostId) return undefined;
-      configures[hostId] = configure;
-    }
-  }
-
-  let deployments: Record<string, StationDeployRecord> | undefined;
-  if (value.deployments !== undefined) {
-    if (!isRecord(value.deployments)) return undefined;
-    const entries = Object.entries(value.deployments);
-    if (entries.length > 32) return undefined;
-    deployments = {};
-    for (const [hostId, raw] of entries) {
-      const deployment = decodeDeployRecord(raw);
-      if (!deployment || deployment.hostId !== hostId) return undefined;
-      deployments[hostId] = deployment;
-    }
-  }
-
-  let projections: Record<string, StationProjectionRecord> | undefined;
-  if (value.projections !== undefined) {
-    if (!isRecord(value.projections)) return undefined;
-    const entries = Object.entries(value.projections);
-    if (entries.length > 32) return undefined;
-    projections = {};
-    for (const [hostId, raw] of entries) {
-      const projection = decodeProjectionRecord(raw);
-      if (!projection || projection.hostId !== hostId) return undefined;
-      projections[hostId] = projection;
-    }
-  }
-
-  return {
-    version: STATION_STATUS_VERSION,
-    ...(lastPull ? { lastPull } : {}),
-    ...(lastConfigure ? { lastConfigure } : {}),
-    ...(configures ? { configures } : {}),
-    ...(kernel ? { kernel } : {}),
-    ...(deployments ? { deployments } : {}),
-    ...(lastProjection ? { lastProjection } : {}),
-    ...(projections ? { projections } : {}),
-  };
+  const decoded = decodeStatus(value);
+  return Either.isRight(decoded) ? decoded.right : undefined;
 };
 
-export const pullRecordFromResult = (
-  result: CanvasPullResult,
-  admission?: StationPullAdmissionWitness,
-): StationPullRecord => ({
-  at: result.pulledAt,
-  status: result.status,
-  ok: result.ok,
-  detail: result.detail,
-  commandCenterRef: result.commandCenterRef,
-  keptLocal: result.keptLocal,
-  pulledCount: result.pulled.length,
-  failedCount: result.failed.length,
-  ...(admission === undefined ? {} : { admission }),
-});
-
-export const configureRecordFromResult = (input: {
-  readonly ok: boolean;
-  readonly hostId: string;
-  readonly detail: string;
-  readonly at?: string;
-  readonly stationWitness?: string;
-}): StationConfigureRecord => ({
-  at: input.at ?? new Date().toISOString(),
-  ok: input.ok,
-  hostId: input.hostId,
-  detail: input.detail,
-  ...(input.stationWitness && SHA256_HEX_PATTERN.test(input.stationWitness)
-    ? { stationWitness: input.stationWitness }
-    : {}),
+const decodeDeploy = Schema.decodeUnknownSync(StationDeployRecord, {
+  onExcessProperty: "error",
 });
 
 export const deployRecordFromResult = (input: {
@@ -556,48 +140,29 @@ export const deployRecordFromResult = (input: {
   readonly detail: string;
   readonly stages?: ReadonlyArray<string>;
   readonly at?: string;
-}): StationDeployRecord => ({
-  at: input.at ?? new Date().toISOString(),
-  hostId: input.hostId,
-  endpoint: input.endpoint,
-  ok: input.ok,
-  outcome: input.outcome,
-  packageState: input.packageState,
-  role: input.role,
-  version: input.version?.trim() || "unknown",
-  ...(input.lastSeen ? { lastSeen: input.lastSeen } : {}),
-  rollback: input.rollback,
-  configurationOk: input.configurationOk,
-  detail: input.detail.slice(0, 4_096),
-  stages: (input.stages ?? []).slice(-32).map((stage) => stage.slice(0, 512)),
-});
-
-export const projectionRecordFromResult = (input: {
-  readonly hostId: string;
-  readonly endpoint?: string;
-  readonly generation: string;
-  readonly manifestSha256: string;
-  readonly frameSha256?: string;
-  readonly status: StationProjectionDeliveryStatus;
-  readonly detail: string;
-  readonly at?: string;
-}): StationProjectionRecord => ({
-  at: input.at ?? new Date().toISOString(),
-  hostId: input.hostId.slice(0, 64),
-  ...(input.endpoint ? { endpoint: input.endpoint.slice(0, 255) } : {}),
-  generation: input.generation,
-  manifestSha256: input.manifestSha256,
-  ...(input.frameSha256 ? { frameSha256: input.frameSha256 } : {}),
-  status: input.status,
-  // staged = SSH drop succeeded (not yet applied on Remote). applied = installed.
-  ok: input.status === "applied" || input.status === "staged",
-  detail: input.detail.slice(0, 4_096),
-});
+}): StationDeployRecord =>
+  decodeDeploy({
+    at: input.at ?? new Date().toISOString(),
+    hostId: input.hostId,
+    endpoint: input.endpoint,
+    ok: input.ok,
+    outcome: input.outcome,
+    packageState: input.packageState,
+    role: input.role,
+    version: input.version?.trim() || "unknown",
+    ...(input.lastSeen ? { lastSeen: input.lastSeen } : {}),
+    rollback: input.rollback,
+    configurationOk: input.configurationOk,
+    detail: input.detail.slice(0, 4_096),
+    stages: (input.stages ?? [])
+      .slice(-32)
+      .map((stage) => stage.slice(0, 512)),
+  });
 
 /**
- * Project the live kernel into the only facts fleet Doctor needs. Canvas
- * names, node ids, summaries, agent keys, and instructions never cross into
- * this durable status mirror.
+ * Project the live kernel into the bounded operational facts Doctor needs.
+ * Canvas names, node ids, agent identities, instructions, and tokens never
+ * enter the observation table.
  */
 export const kernelRecordFromSnapshot = (
   snapshot: KernelSnapshot,
@@ -628,22 +193,21 @@ export const kernelRecordFromSnapshot = (
 };
 
 export type StationDoctorInput = {
-  readonly role: string;
-  readonly hostId: string;
-  readonly commandCenterRef: string;
+  readonly installationId: InstallationId;
+  readonly configuration?: StationConfigurationValue;
+  readonly configuredAt?: string;
+  readonly projection?: StationProjectionReferenceValue;
+  readonly receivedThrough: ReadonlyArray<StationEventAckValue>;
   readonly version?: string;
-  readonly supervisedPreferred: boolean;
   readonly supervisedInstalled: SupervisedInstallState;
+  /** Durable deployment and kernel observations only. */
   readonly status: StationStatusDocument;
-  /** Current in-process kernel truth for this station. */
+  /** Current in-process kernel truth, preferred over the durable heartbeat. */
   readonly kernel?: StationKernelRecord;
-  /** Current registry endpoints; omitted only when the registry cannot be read. */
   readonly registeredRemoteEndpoints?: Readonly<Record<string, string>>;
-  /** SSH observations for registered Remotes; omitted when host probing failed globally. */
   readonly remoteObservations?: ReadonlyArray<StationRemoteObservation>;
-  /** Work control socket present and token file readable (agent CLI plane). */
   readonly workControlReady: boolean;
-  /** Deterministic freshness seam for Doctor tests. */
+  readonly simulationReady: boolean;
   readonly now?: number;
 };
 
@@ -653,10 +217,18 @@ const timestampIsStale = (
   thresholdMs: number,
 ): boolean => {
   const observed = Date.parse(value);
-  return !Number.isFinite(observed) || now - observed > thresholdMs;
+  return (
+    !Number.isFinite(now) ||
+    !Number.isFinite(observed) ||
+    observed > now ||
+    now - observed > thresholdMs
+  );
 };
 
-const boundedDiagnostic = (value: string | undefined, fallback: string): string => {
+const boundedDiagnostic = (
+  value: string | undefined,
+  fallback: string,
+): string => {
   const normalized = value?.replaceAll(/\s+/gu, " ").trim();
   return (normalized || fallback).slice(0, 512);
 };
@@ -669,122 +241,95 @@ type RemoteProjection = {
   readonly error: boolean;
 };
 
-/**
- * Pure doctor check for station fleet + agent tooling readiness.
- */
+const localConfigurationDetail = (
+  configuration: StationConfigurationValue | undefined,
+): string =>
+  configuration === undefined
+    ? "configuration absent"
+    : configuration.role === "command-center"
+      ? `Command Center · host ${configuration.hostId}`
+      : `Remote · host ${configuration.hostId} · CC ${configuration.commandCenterRef}`;
+
+/** Pure Doctor projection over canonical repository and Station API facts. */
 export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => {
-  const role = input.role;
   const now = input.now ?? Date.now();
+  const configuration = input.configuration;
+  const role = configuration?.role ?? "";
+  const hostId = configuration?.hostId ?? "unconfigured";
   const supervised = assessSupervisedRuntime({
-    role: input.role,
-    hostId: input.hostId,
-    supervisedPreferred: input.supervisedPreferred,
+    role,
+    hostId,
+    supervisedPreferred: configuration?.supervisedPreferred ?? false,
     supervisedInstalled: input.supervisedInstalled,
   });
 
-  const lines: string[] = [];
+  const lines = [
+    `installation ${input.installationId}`,
+    localConfigurationDetail(configuration),
+    supervised.detail,
+  ];
   let worst: "ok" | "warning" | "error" = "ok";
-  const raise = (status: "ok" | "warning" | "error") => {
+  const raise = (status: "warning" | "error") => {
     if (status === "error") worst = "error";
-    else if (status === "warning" && worst === "ok") worst = "warning";
+    else if (worst === "ok") worst = "warning";
   };
 
-  if (role === "") {
-    lines.push("role unset — complete station onboarding");
-    raise("warning");
-  } else if (role === "command-center") {
-    lines.push(`Command Center · host ${input.hostId}`);
-  } else if (role === "remote") {
-    lines.push(`Remote · host ${input.hostId}`);
-    if (input.commandCenterRef.trim().length === 0) {
-      lines.push("commandCenterRef empty");
-      raise("warning");
-    } else {
-      lines.push(`CC ref ${input.commandCenterRef.trim()}`);
-    }
-  } else {
-    lines.push(`role ${role}`);
-  }
-
-  lines.push(supervised.detail);
+  if (configuration === undefined) raise("warning");
   if (supervised.status === "warning") raise("warning");
 
-  if (input.workControlReady) {
-    lines.push("work control ready");
-  } else {
-    lines.push("work control not ready — is Vellum running?");
+  if (input.workControlReady) lines.push("work control ready");
+  else {
+    lines.push("work control not ready");
+    raise("warning");
+  }
+  if (input.simulationReady) lines.push("simulation ready");
+  else {
+    lines.push("simulation degraded");
     raise("warning");
   }
 
-  const pull = input.status.lastPull;
-  const pullStale =
-    pull !== undefined &&
-    timestampIsStale(pull.at, now, STATION_PULL_STALE_AFTER_MS);
-  const projectionPrimary =
-    RELEASE_CAPABILITIES.stationProjection === true;
-  // Prefer lastProjection / ack generation over lastPull for Remote readiness
-  // when the projection capability is on (pull is residual fallback only).
-  if (projectionPrimary && role === "remote") {
-    const proj = input.status.lastProjection;
-    if (proj) {
-      lines.push(
-        `last projection ${proj.status} · gen ${proj.generation} · ${proj.at}`,
-      );
-      if (proj.status === "rejected" || proj.status === "unreachable") {
-        raise("warning");
-      }
-      if (proj.status === "pending") raise("warning");
-      if (proj.status === "staged") {
-        lines.push("projection staged (awaiting apply/ack)");
-      }
+  if (configuration?.role === "remote") {
+    if (input.projection === undefined) {
+      lines.push("projection absent");
+      raise("warning");
     } else {
-      lines.push("no projection apply recorded yet");
+      lines.push(
+        `projection ${input.projection.generation} · received ${input.projection.receivedAt}`,
+      );
+    }
+  }
+  const localCursors = input.receivedThrough
+    .map((cursor) => `${cursor.home}:${cursor.through}`)
+    .join(",");
+  lines.push(`logical cursors ${localCursors || "none"}`);
+
+  const localKernel = input.kernel ?? input.status.kernel;
+  if (localKernel !== undefined) {
+    const stale = timestampIsStale(
+      localKernel.observedAt,
+      now,
+      STATION_KERNEL_STALE_AFTER_MS,
+    );
+    lines.push(
+      `kernel armed ${localKernel.armedRegionCount} · last fire ${localKernel.lastFireAt ?? "never"}${stale ? " · stale" : ""}`,
+    );
+    if (stale) raise("warning");
+    if (localKernel.fault) {
+      lines.push(`kernel fault ${boundedDiagnostic(localKernel.fault, "unknown")}`);
+      raise("error");
+    }
+    if (localKernel.orphanedArmingCount > 0) {
+      lines.push(
+        `${localKernel.orphanedArmingCount} orphaned armed region(s)`,
+      );
       raise("warning");
     }
-    if (pull) {
-      lines.push(
-        `last pull ${pull.status}${pull.ok ? "" : " (failed)"}${pullStale ? " (stale)" : ""} · residual`,
-      );
-    }
-  } else if (pull) {
-    lines.push(
-      `last pull ${pull.status}${pull.ok ? "" : " (failed)"}${pullStale ? " (stale)" : ""} · ${pull.pulledCount} file(s) · ${pull.at}`,
-    );
-    if (pullStale) raise("warning");
-    if (!pull.ok && pull.status === "unreachable") raise("warning");
-    if (!pull.ok && pull.status === "misconfigured") raise("warning");
-    if (!pull.ok && pull.status === "partial") raise("warning");
-  } else if (role === "remote") {
-    lines.push("no canvas pull recorded yet");
-    raise("warning");
   }
 
-  const configure = input.status.lastConfigure;
-  if (configure) {
-    lines.push(
-      `last configure ${configure.ok ? "ok" : "failed"} · ${configure.hostId} · ${configure.at}`,
-    );
-    if (!configure.ok) raise("warning");
-  }
-
-  const lastProjection = input.status.lastProjection;
-  // Remote + projection-primary already surfaced lastProjection above.
-  if (lastProjection && !(projectionPrimary && role === "remote")) {
-    lines.push(
-      `last projection ${lastProjection.status} · gen ${lastProjection.generation} · host ${lastProjection.hostId} · ${lastProjection.at}`,
-    );
-    if (lastProjection.status === "rejected") raise("warning");
-    if (lastProjection.status === "unreachable") raise("warning");
-    if (lastProjection.status === "pending") raise("warning");
-    if (lastProjection.status === "staged") {
-      // staged is delivery-ok but not fully applied yet — soft note, no raise
-    }
-  }
-
-  const deployments = Object.values(input.status.deployments ?? {}).sort((a, b) =>
-    a.hostId.localeCompare(b.hostId),
+  const deployments = Object.values(input.status.deployments ?? {}).sort(
+    (left, right) => left.hostId.localeCompare(right.hostId),
   );
-  const deploymentByHost = new Map(
+  const deploymentByHost = new Map<string, StationDeployRecord>(
     deployments.map((deployment) => [deployment.hostId, deployment] as const),
   );
   const observationByHost = new Map(
@@ -795,7 +340,7 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
   const registryKnown =
     input.registeredRemoteEndpoints !== undefined ||
     input.remoteObservations !== undefined;
-  const registeredEndpoints = new Map<string, string>(
+  const registeredEndpoints = new Map(
     Object.entries(input.registeredRemoteEndpoints ?? {}),
   );
   for (const observation of input.remoteObservations ?? []) {
@@ -810,22 +355,18 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
   }
 
   for (const deployment of deployments) {
-    const registeredEndpoint = registeredEndpoints.get(deployment.hostId);
-    if (registryKnown) {
-      if (registeredEndpoint === undefined) {
-        lines.push(
-          `Remote ${deployment.hostId}: stale deployment receipt (host no longer registered)`,
-        );
-        raise("warning");
-        continue;
-      }
-      if (registeredEndpoint !== deployment.endpoint) {
-        lines.push(
-          `Remote ${deployment.hostId}: stale deployment receipt (registered endpoint changed)`,
-        );
-        raise("warning");
-        continue;
-      }
+    const endpoint = registeredEndpoints.get(deployment.hostId);
+    if (!registryKnown) continue;
+    if (endpoint === undefined) {
+      lines.push(
+        `Remote ${deployment.hostId}: stale deployment receipt (host no longer registered)`,
+      );
+      raise("warning");
+    } else if (endpoint !== deployment.endpoint) {
+      lines.push(
+        `Remote ${deployment.hostId}: stale deployment receipt (registered endpoint changed)`,
+      );
+      raise("warning");
     }
   }
 
@@ -834,267 +375,102 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       !registryKnown ||
       registeredEndpoints.get(deployment.hostId) === deployment.endpoint,
   );
-  const latestDeployment = [...activeDeployments].sort((a, b) =>
-    b.at.localeCompare(a.at),
+  const latestDeployment = [...activeDeployments].sort((left, right) =>
+    right.at.localeCompare(left.at)
   )[0];
 
-  if (input.version !== undefined || input.kernel !== undefined) {
-    const localErrors: string[] = [];
-    const localKernel = input.kernel;
-    const localKernelStale =
-      localKernel !== undefined &&
-      timestampIsStale(
-        localKernel.observedAt,
-        now,
-        STATION_KERNEL_STALE_AFTER_MS,
-      );
-    if (localKernelStale) localErrors.push("kernel status stale");
-    if (localKernel?.fault) {
-      localErrors.push(boundedDiagnostic(localKernel.fault, "kernel fault"));
-      raise("error");
-    }
-    if ((localKernel?.orphanedArmingCount ?? 0) > 0) {
-      localErrors.push(
-        `${localKernel!.orphanedArmingCount} orphaned armed region(s)`,
-      );
-      raise("warning");
-    }
-    if (role === "remote" && localKernel?.armedRegionCount === 0) {
-      localErrors.push("Remote not armed");
-      raise("warning");
-    }
-    if (localKernelStale) raise("warning");
-    if (role === "remote" && pullStale) localErrors.push("pull stale");
-    if (role === "remote" && pull === undefined) {
-      localErrors.push("no canvas pull recorded");
-    }
-
-    const localLastPull =
-      role !== "remote"
-        ? "n/a"
-        : pull
-          ? `${pull.status} ${pull.at}${pullStale ? " (stale)" : ""}`
-          : "never";
-    const localArmed =
-      localKernel === undefined
-        ? "unknown"
-        : `${localKernel.armedRegionCount > 0 ? "yes" : "no"} (${localKernel.armedRegionCount}${localKernelStale ? ", stale" : ""})`;
-    const localLastFire =
-      localKernel?.lastFireAt
-        ? `${localKernel.lastFireAt} ${localKernel.lastFireKind ?? "unknown"} ${localKernel.lastFireDry ? "dry" : "live"}`
-        : localKernel
-          ? "never"
-          : "unknown";
-    lines.push(
-      `Local station: installed yes · role ${role || "unset"} · version ${input.version ?? "unknown"} · hostId ${input.hostId} · last pull ${localLastPull} · armed ${localArmed} · last fire ${localLastFire} · errors ${localErrors.join("; ") || "none"}`,
-    );
-  }
-
-  const remoteProjections: RemoteProjection[] = [];
-  for (const [hostId, endpoint] of [...registeredEndpoints].sort(([left], [right]) =>
-    left.localeCompare(right),
-  )) {
-    const candidateDeployment = deploymentByHost.get(hostId);
-    const deployment =
-      candidateDeployment?.endpoint === endpoint
-        ? candidateDeployment
-        : undefined;
-    const candidateObservation = observationByHost.get(hostId);
-    const observation =
-      candidateObservation?.endpoint === endpoint
-        ? candidateObservation
-        : undefined;
-
-    const errors: string[] = [];
+  const remotes: RemoteProjection[] = [];
+  for (
+    const [remoteHostId, endpoint] of [...registeredEndpoints].sort(
+      ([left], [right]) => left.localeCompare(right),
+    )
+  ) {
+    const deployment = deploymentByHost.get(remoteHostId)?.endpoint === endpoint
+      ? deploymentByHost.get(remoteHostId)
+      : undefined;
+    const observation = observationByHost.get(remoteHostId)?.endpoint === endpoint
+      ? observationByHost.get(remoteHostId)
+      : undefined;
+    const station = observation?.station;
+    const problems: string[] = [];
     let hardError = false;
     let fleetBlind = false;
     let stale = false;
 
-    const installed =
-      deployment?.packageState === "present"
-        ? "yes"
-        : deployment?.packageState === "unknown"
-          ? "unknown"
-          : "no";
-    if (!deployment) {
-      errors.push("registered but not installed by Command Center");
+    if (deployment === undefined) {
+      problems.push("registered but no managed deployment receipt");
     } else {
       if (deployment.outcome === "indeterminate") {
-        errors.push(
+        problems.push(
           `deploy indeterminate (last seen ${deployment.lastSeen ?? "never"})`,
         );
         hardError = true;
       } else if (deployment.outcome !== "ready") {
-        errors.push(`deploy ${deployment.outcome}`);
+        problems.push(`deploy ${deployment.outcome}`);
+      }
+      if (deployment.packageState !== "present") {
+        problems.push(`package state ${deployment.packageState}`);
       }
       if (
-        deployment.lastSeen &&
+        deployment.lastSeen !== undefined &&
         timestampIsStale(
           deployment.lastSeen,
           now,
-          STATION_PULL_STALE_AFTER_MS,
+          STATION_DEPLOYMENT_STALE_AFTER_MS,
         )
       ) {
-        errors.push("install observation stale");
+        problems.push("deployment observation stale");
         stale = true;
       }
-      if (deployment.packageState !== "present") {
-        errors.push(`package state ${deployment.packageState}`);
-      }
-      if (deployment.version === "unknown") errors.push("version unknown");
     }
 
-    const reachability = observation?.reachability ?? "unknown";
-    if (reachability === "unreachable") {
-      hardError = true;
-      fleetBlind = true;
-      errors.push(
+    if (observation?.reachability === "unreachable") {
+      problems.push(
         `fleet-blind: ${boundedDiagnostic(
-          observation?.reachabilityError,
+          observation.reachabilityError,
           "Remote unreachable",
         )}`,
       );
-    } else if (observation === undefined) {
+      hardError = true;
       fleetBlind = true;
-      errors.push("fleet-blind: Remote status not observed");
+    } else if (station === undefined) {
+      problems.push(
+        `fleet-blind: ${boundedDiagnostic(
+          observation?.observationError,
+          "Station API status unavailable",
+        )}`,
+      );
+      fleetBlind = true;
     } else {
-      if (observation.settingsState === "invalid") {
+      if (
+        station.configuration?.role !== "remote" ||
+        station.configuration.hostId !== remoteHostId
+      ) {
+        problems.push("Station API configuration does not match registry");
         hardError = true;
-        errors.push("Remote settings invalid");
-      } else if (observation.settingsState !== "observed") {
-        fleetBlind = true;
-      }
-      if (observation.statusState === "invalid") {
-        hardError = true;
-        errors.push("Remote station status invalid");
-      } else if (observation.statusState !== "observed") {
-        fleetBlind = true;
       }
       if (
-        observation.settingsState !== "observed" ||
-        observation.statusState !== "observed"
+        configuration?.role === "command-center" &&
+        station.configuration?.role === "remote" &&
+        station.configuration.commandCenterInstallationId !==
+          input.installationId
       ) {
-        errors.push(
-          `fleet-blind: ${boundedDiagnostic(
-            observation.observationError,
-            "station status files unavailable",
-          )}`,
+        problems.push(
+          "Station API configuration names another Command Center",
         );
+        hardError = true;
+      }
+      const notReady = Object.entries(station.readiness)
+        .filter(([, ready]) => !ready)
+        .map(([name]) => name);
+      if (notReady.length > 0) {
+        problems.push(`not ready: ${notReady.join(", ")}`);
+      }
+      if (station.state === "degraded") problems.push("Station API degraded");
+      if (station.projection === undefined) {
+        problems.push("projection absent");
       }
     }
-
-    const observedRole =
-      observation?.settingsState === "observed"
-        ? observation.stationRole
-        : undefined;
-    const remoteRole =
-      observedRole ??
-      (deployment?.role === "remote" ? "remote" : "unknown");
-    if (observedRole !== undefined && observedRole !== "remote") {
-      errors.push(`role ${observedRole || "unset"} (expected remote)`);
-      hardError = true;
-    }
-    if (
-      observation?.settingsState === "observed" &&
-      observation.stationHostId !== undefined &&
-      observation.stationHostId !== hostId
-    ) {
-      errors.push(
-        `hostId ${observation.stationHostId} (expected ${hostId})`,
-      );
-      hardError = true;
-    }
-
-    const remoteStatus =
-      observation?.statusState === "observed"
-        ? observation.status
-        : undefined;
-    const remotePull = remoteStatus?.lastPull;
-    const remotePullStale =
-      remotePull !== undefined &&
-      timestampIsStale(
-        remotePull.at,
-        now,
-        STATION_PULL_STALE_AFTER_MS,
-      );
-    // Local CC projection receipt for this host (authoritative for push path).
-    const hostProjection = input.status.projections?.[hostId];
-    if (projectionPrimary) {
-      if (hostProjection) {
-        if (
-          hostProjection.status === "rejected" ||
-          hostProjection.status === "unreachable"
-        ) {
-          errors.push(`projection ${hostProjection.status}`);
-        } else if (hostProjection.status === "pending") {
-          errors.push("projection pending");
-        } else if (hostProjection.status === "staged") {
-          errors.push("projection staged (awaiting remote ack)");
-        }
-      } else if (remoteStatus) {
-        errors.push("no projection delivery recorded");
-      }
-      // residual pull: report stale only, never invent pull requirement
-      if (remotePullStale) {
-        errors.push("pull stale (residual)");
-        stale = true;
-      }
-    } else if (remotePullStale) {
-      errors.push("pull stale");
-      stale = true;
-    } else if (remoteStatus && !remotePull) {
-      errors.push("no canvas pull recorded");
-    }
-    const lastPullText = projectionPrimary
-      ? hostProjection
-        ? `proj ${hostProjection.status} gen ${hostProjection.generation}`
-        : remoteStatus
-          ? "proj never"
-          : "unknown"
-      : remotePull
-        ? `${remotePull.status} ${remotePull.at}${remotePullStale ? " (stale)" : ""}`
-        : remoteStatus
-          ? "never"
-          : "unknown";
-
-    const remoteKernel = remoteStatus?.kernel;
-    const remoteKernelStale =
-      remoteKernel !== undefined &&
-      timestampIsStale(
-        remoteKernel.observedAt,
-        now,
-        STATION_KERNEL_STALE_AFTER_MS,
-      );
-    if (remoteKernelStale) {
-      errors.push("kernel status stale");
-      stale = true;
-    }
-    if (remoteStatus && !remoteKernel) {
-      errors.push("fleet-blind: kernel status unavailable");
-      fleetBlind = true;
-    }
-    if (remoteKernel?.armedRegionCount === 0) {
-      errors.push("Remote not armed");
-    }
-    if (remoteKernel?.fault) {
-      errors.push(boundedDiagnostic(remoteKernel.fault, "kernel fault"));
-      hardError = true;
-    }
-    if ((remoteKernel?.orphanedArmingCount ?? 0) > 0) {
-      errors.push(
-        `${remoteKernel!.orphanedArmingCount} orphaned armed region(s)`,
-      );
-    }
-    const armedText =
-      remoteKernel === undefined
-        ? "unknown"
-        : `${remoteKernel.armedRegionCount > 0 ? "yes" : "no"} (${remoteKernel.armedRegionCount}${remoteKernelStale ? ", stale" : ""})`;
-    const lastFireText =
-      remoteKernel?.lastFireAt
-        ? `${remoteKernel.lastFireAt} ${remoteKernel.lastFireKind ?? "unknown"} ${remoteKernel.lastFireDry ? "dry" : "live"}`
-        : remoteKernel
-          ? "never"
-          : "unknown";
 
     const state = hardError
       ? "error"
@@ -1102,118 +478,96 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         ? "fleet-blind"
         : stale
           ? "stale"
-          : errors.length > 0
+          : problems.length > 0
             ? "warning"
             : "ok";
     if (hardError) raise("error");
-    else if (fleetBlind || stale || errors.length > 0) raise("warning");
+    else if (fleetBlind || stale || problems.length > 0) raise("warning");
 
-    const metadataPrefix = `remote.${hostId}.`;
-    remoteProjections.push({
+    const prefix = `remote.${remoteHostId}.`;
+    remotes.push({
       line:
-        `Remote ${hostId} (${endpoint}): installed ${
-          installed === "no" && !deployment
-            ? "no (no managed install receipt)"
-            : installed
-        } · role ${remoteRole} · version ${deployment?.version ?? "unknown"} · hostId ${hostId} · ` +
-        `${projectionPrimary ? "delivery" : "last pull"} ${lastPullText} · armed ${armedText} · last fire ${lastFireText} · reachability ${reachability} · errors ${errors.join("; ") || "none"}`,
+        `Remote ${remoteHostId} (${endpoint}): Station API ${station?.state ?? "unavailable"} · ` +
+        `installation ${station?.installationId ?? "unknown"} · ` +
+        `projection ${station?.projection?.generation ?? "absent"} · ` +
+        `cursors ${station?.receivedThrough.length ?? 0} · ` +
+        `errors ${problems.join("; ") || "none"}`,
       metadata: {
-        [`${metadataPrefix}installed`]: installed,
-        [`${metadataPrefix}role`]: remoteRole,
-        [`${metadataPrefix}version`]: deployment?.version ?? "unknown",
-        [`${metadataPrefix}lastPullStatus`]: remotePull?.status ?? "unknown",
-        [`${metadataPrefix}lastPullAt`]: remotePull?.at ?? "",
-        [`${metadataPrefix}lastPullStale`]: remotePullStale ? "true" : "false",
-        [`${metadataPrefix}armed`]:
-          remoteKernel === undefined
-            ? "unknown"
-            : remoteKernel.armedRegionCount > 0
-              ? "true"
-              : "false",
-        [`${metadataPrefix}armedCount`]:
-          remoteKernel === undefined
-            ? ""
-            : String(remoteKernel.armedRegionCount),
-        [`${metadataPrefix}kernelObservedAt`]:
-          remoteKernel?.observedAt ?? "",
-        [`${metadataPrefix}kernelStale`]:
-          remoteKernelStale ? "true" : "false",
-        [`${metadataPrefix}lastFireAt`]:
-          remoteKernel?.lastFireAt ?? "",
-        [`${metadataPrefix}reachability`]: reachability,
-        [`${metadataPrefix}state`]: state,
-        [`${metadataPrefix}errorCount`]: String(errors.length),
+        [`${prefix}state`]: state,
+        [`${prefix}reachability`]: observation?.reachability ?? "unknown",
+        [`${prefix}apiState`]: station?.state ?? "unavailable",
+        [`${prefix}installationId`]: station?.installationId ?? "",
+        [`${prefix}role`]: station?.configuration?.role ?? "unknown",
+        [`${prefix}projectionGeneration`]:
+          station?.projection?.generation ?? "",
+        [`${prefix}receivedCursorCount`]: String(
+          station?.receivedThrough.length ?? 0,
+        ),
+        [`${prefix}receivedThrough`]:
+          station?.receivedThrough
+            .map((cursor) => `${cursor.home}:${cursor.through}`)
+            .join(",") ?? "",
+        [`${prefix}databaseReady`]:
+          station?.readiness.database === true ? "true" : "false",
+        [`${prefix}workControlReady`]:
+          station?.readiness.workControl === true ? "true" : "false",
+        [`${prefix}simulationReady`]:
+          station?.readiness.simulation === true ? "true" : "false",
+        [`${prefix}errorCount`]: String(problems.length),
       },
       fleetBlind,
       stale,
       error: hardError,
     });
   }
-  lines.push(...remoteProjections.map((projection) => projection.line));
+  lines.push(...remotes.map((remote) => remote.line));
 
-  const roleKey = role.length > 0 ? role : "unset";
   const remoteMetadata = Object.assign(
     {},
-    ...remoteProjections.map((projection) => projection.metadata),
+    ...remotes.map((remote) => remote.metadata),
   ) as Record<string, string>;
+
   return {
     id: "station",
     label: "Station",
     status: worst,
     detail: lines.join(" · "),
     metadata: {
-      role: roleKey,
-      hostId: input.hostId,
-      commandCenterRef: input.commandCenterRef,
+      installationId: input.installationId,
+      configurationState:
+        configuration === undefined ? "unconfigured" : "configured",
+      role: role || "unset",
+      hostId,
+      configuredAt: input.configuredAt ?? "",
+      projectionGeneration: input.projection?.generation ?? "",
+      projectionContentSha256: input.projection?.contentSha256 ?? "",
+      receivedCursorCount: String(input.receivedThrough.length),
+      receivedThrough: localCursors,
       workControlReady: input.workControlReady ? "true" : "false",
+      simulationReady: input.simulationReady ? "true" : "false",
       supervisedPreferred: supervised.metadata.supervisedPreferred,
       supervisedInstalled: supervised.metadata.supervisedInstalled,
       supervisedAligned: supervised.metadata.supervisedAligned,
-      ...(pull
+      ...(localKernel
         ? {
-            lastPullStatus: pull.status,
-            lastPullOk: pull.ok ? "true" : "false",
-            lastPullAt: pull.at,
-            lastPullKeptLocal: pull.keptLocal ? "true" : "false",
-            lastPullStale: pullStale ? "true" : "false",
-          }
-        : {}),
-      ...(input.kernel
-        ? {
-            kernelObservedAt: input.kernel.observedAt,
-            kernelArmedCount: String(input.kernel.armedRegionCount),
-            kernelLastFireAt: input.kernel.lastFireAt ?? "",
-          }
-        : {}),
-      ...(configure
-        ? {
-            lastConfigureOk: configure.ok ? "true" : "false",
-            lastConfigureHostId: configure.hostId,
-            lastConfigureAt: configure.at,
-          }
-        : {}),
-      ...(lastProjection
-        ? {
-            lastProjectionStatus: lastProjection.status,
-            lastProjectionOk: lastProjection.ok ? "true" : "false",
-            lastProjectionGeneration: lastProjection.generation,
-            lastProjectionManifestSha256: lastProjection.manifestSha256,
-            lastProjectionHostId: lastProjection.hostId,
-            lastProjectionAt: lastProjection.at,
-            lastProjectionDetail: lastProjection.detail.slice(0, 512),
+            kernelObservedAt: localKernel.observedAt,
+            kernelArmedCount: String(localKernel.armedRegionCount),
+            kernelLastFireAt: localKernel.lastFireAt ?? "",
           }
         : {}),
       deploymentCount: String(activeDeployments.length),
-      staleDeploymentCount: String(deployments.length - activeDeployments.length),
-      remoteCount: String(remoteProjections.length),
+      staleDeploymentCount: String(
+        deployments.length - activeDeployments.length,
+      ),
+      remoteCount: String(remotes.length),
       remoteFleetBlindCount: String(
-        remoteProjections.filter((projection) => projection.fleetBlind).length,
+        remotes.filter((remote) => remote.fleetBlind).length,
       ),
       remoteStaleCount: String(
-        remoteProjections.filter((projection) => projection.stale).length,
+        remotes.filter((remote) => remote.stale).length,
       ),
       remoteErrorCount: String(
-        remoteProjections.filter((projection) => projection.error).length,
+        remotes.filter((remote) => remote.error).length,
       ),
       ...remoteMetadata,
       ...(latestDeployment
@@ -1232,7 +586,3 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
     },
   };
 };
-
-/** Type guard for StationRole from settings string. */
-export const asStationRoleLabel = (role: string): StationRole | "" =>
-  role === "command-center" || role === "remote" ? role : "";

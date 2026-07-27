@@ -16,13 +16,10 @@ import {
   endpointHostToken,
   type TailscalePeer,
 } from "@shared/tailscale-peers";
-import {
-  configureRecordFromResult,
-  deployRecordFromResult,
-} from "@shared/station-status";
+import { deployRecordFromResult } from "@shared/station-status";
 import { AppRuntime } from "../../runtime";
 import { SettingsService } from "../settings/service";
-import { recordStationDeployment } from "../station-status-store";
+import { StationStatusService } from "../station-status-store";
 import type { ConfiguredRemoteDeployResult } from "./deploy-configured-remote";
 import type { ConfigureRemoteOptions } from "./configure-remote";
 import {
@@ -805,6 +802,7 @@ export const registerHostsIpc = (
               Effect.gen(function* () {
                 const settingsSvc = yield* SettingsService;
                 const hosts = yield* HostsService;
+                const stationStatus = yield* StationStatusService;
 
                 const settingsResult = yield* Effect.either(settingsSvc.get);
                 if (settingsResult._tag === "Left") {
@@ -858,75 +856,67 @@ export const registerHostsIpc = (
                   onAdmitted: (host) => {
                     const admittedAt = new Date().toISOString();
                     const detail = `${host.label}: deployment admitted; completion receipt pending`;
-                    return Effect.tryPromise({
-                      try: () =>
-                        recordStationDeployment(
-                          deployRecordFromResult({
-                            hostId: host.id,
-                            endpoint: host.endpoint ?? "",
-                            ok: false,
-                            outcome: "indeterminate",
-                            packageState: "previous",
-                            role: "previous",
-                            rollback: "not-required",
-                            configurationOk: false,
-                            detail,
-                            stages: [
-                              "durable deployment admission recorded",
-                            ],
-                            at: admittedAt,
-                          }),
-                          configureRecordFromResult({
-                            ok: false,
-                            hostId: host.id,
-                            detail,
-                            at: admittedAt,
-                          }),
+                    return stationStatus
+                      .recordDeployment(
+                        deployRecordFromResult({
+                          hostId: host.id,
+                          endpoint: host.endpoint ?? "",
+                          ok: false,
+                          outcome: "indeterminate",
+                          packageState: "previous",
+                          role: "previous",
+                          rollback: "not-required",
+                          configurationOk: false,
+                          detail,
+                          stages: [
+                            "durable deployment admission recorded",
+                          ],
+                          at: admittedAt,
+                        }),
+                      )
+                      .pipe(
+                        Effect.mapError((error) =>
+                          new RemoteHostsError(
+                            "io",
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
+                          )
                         ),
-                      catch: (error) =>
-                        new RemoteHostsError(
-                          "io",
-                          error instanceof Error
-                            ? error.message
-                            : String(error),
-                        ),
-                    });
+                      );
                   },
                   onCompleted: (host, result) => {
                     const recordedAt = new Date().toISOString();
-                    return Effect.tryPromise({
-                      try: () =>
-                        recordStationDeployment(
-                          deployRecordFromResult({
-                            hostId: host.id,
-                            endpoint: host.endpoint ?? "",
-                            ok: result.ok,
-                            outcome: result.outcome,
-                            packageState: result.packageState,
-                            role: result.role,
-                            version: result.version,
-                            lastSeen: result.lastSeen,
-                            rollback: result.rollback,
-                            configurationOk: result.configuration.ok,
-                            detail: result.detail,
-                            stages: result.stages,
-                            at: recordedAt,
-                          }),
-                          configureRecordFromResult({
-                            ok: result.outcome === "ready",
-                            hostId: host.id,
-                            detail: result.configuration.detail,
-                            at: recordedAt,
-                          }),
+                    return stationStatus
+                      .recordDeployment(
+                        deployRecordFromResult({
+                          hostId: host.id,
+                          endpoint: host.endpoint ?? "",
+                          ok: result.ok,
+                          outcome: result.outcome,
+                          packageState: result.packageState,
+                          role: result.role,
+                          version: result.version,
+                          ...(result.lastSeen === undefined
+                            ? {}
+                            : { lastSeen: result.lastSeen }),
+                          rollback: result.rollback,
+                          configurationOk: result.configuration.ok,
+                          detail: result.detail,
+                          stages: result.stages,
+                          at: recordedAt,
+                        }),
+                      )
+                      .pipe(
+                        Effect.mapError((error) =>
+                          new RemoteHostsError(
+                            "io",
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
+                          )
                         ),
-                      catch: (error) =>
-                        new RemoteHostsError(
-                          "io",
-                          error instanceof Error
-                            ? error.message
-                            : String(error),
-                        ),
-                    });
+                      );
                   },
                 });
                 if (!deploy.ok) return projectDeployRemoteResult(deploy);

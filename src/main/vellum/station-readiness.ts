@@ -11,6 +11,7 @@ import {
   probeNativeTerminalReadiness,
   type NativeTerminalReadiness,
 } from "./term/native-readiness";
+import type { StationConfiguration } from "@shared/station-api";
 
 export const STATION_READINESS_VERSION = 1 as const;
 const READINESS_TIMEOUT_MS = 5_000;
@@ -61,12 +62,15 @@ export const installBrowserProductPathProbe = (
 
 export type StationReadinessComponents = Readonly<{
   version: StationReadinessComponentState;
+  configuration: StationReadinessComponentState;
   role: StationReadinessComponentState;
   host: StationReadinessComponentState;
   package: StationReadinessComponentState;
   supervisor: StationReadinessComponentState;
-  canvasPull: StationReadinessComponentState;
+  projection: StationReadinessComponentState;
+  database: StationReadinessComponentState;
   work: StationReadinessComponentState;
+  simulation: StationReadinessComponentState;
   terminal: StationReadinessComponentState;
   browserTransport: StationReadinessComponentState;
   browserComposition: StationReadinessComponentState;
@@ -83,13 +87,14 @@ export type StationReadinessReport = Readonly<{
 
 export interface StationReadinessInput {
   readonly version: string;
-  readonly role: string;
-  readonly hostId: string;
+  readonly configuration?: StationConfiguration;
   /** Package identity is intentionally a label, never an install path. */
   readonly packageIdentity: string;
   readonly supervisorAligned: boolean;
-  readonly canvasPull: "fresh" | "stale" | "missing" | "not-required";
+  readonly projectionInstalled: boolean;
+  readonly databaseReady: boolean;
   readonly workControlReady: boolean;
+  readonly simulationReady: boolean;
 }
 
 export interface StationReadinessCoordinatorOptions {
@@ -169,6 +174,7 @@ export const createStationReadinessCoordinator = (
     if (flight !== undefined) return flight;
     flight = (async () => {
       const abort = new AbortController();
+      const hostId = input.configuration?.hostId ?? "";
       const [terminal, browser] = await Promise.all([
         settleBefore(terminalProbe(), timeoutMs, abort).catch(() => undefined),
         (options.browser ?? installedBrowserProbe) === undefined
@@ -181,7 +187,7 @@ export const createStationReadinessCoordinator = (
           ? browserUnavailable("unsupported")
           : browser === undefined
             ? browserUnavailable("failed")
-            : browser.version !== STATION_READINESS_VERSION || browser.hostId !== input.hostId
+            : browser.version !== STATION_READINESS_VERSION || browser.hostId !== hostId
               ? browserUnavailable("failed")
               : {
                   browserTransport: browser.transport,
@@ -192,12 +198,26 @@ export const createStationReadinessCoordinator = (
                 };
       const components: StationReadinessComponents = {
         version: validIdentity(input.version) ? "ready" : "degraded",
-        role: input.role === "remote" || input.role === "command-center" ? "ready" : "degraded",
-        host: validHost(input.hostId) ? "ready" : "degraded",
+        configuration: input.configuration === undefined
+          ? "degraded"
+          : "ready",
+        role:
+          input.configuration?.role === "remote" ||
+              input.configuration?.role === "command-center"
+            ? "ready"
+            : "degraded",
+        host: validHost(hostId) ? "ready" : "degraded",
         package: validIdentity(input.packageIdentity) ? "ready" : "degraded",
         supervisor: input.supervisorAligned ? "ready" : "degraded",
-        canvasPull: input.canvasPull === "fresh" || input.canvasPull === "not-required" ? "ready" : "degraded",
+        projection:
+          input.configuration?.role === "command-center" ||
+              (input.configuration?.role === "remote" &&
+                input.projectionInstalled)
+            ? "ready"
+            : "degraded",
+        database: input.databaseReady ? "ready" : "failed",
         work: input.workControlReady ? "ready" : "degraded",
+        simulation: input.simulationReady ? "ready" : "degraded",
         terminal: terminal === undefined ? "failed" : stateFromTerminal(terminal),
         ...browserComponents,
       };

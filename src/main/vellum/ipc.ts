@@ -56,7 +56,7 @@ import {
   type MainAuthoringFinalOperation,
   type MainAuthoringLabel,
 } from "./main-authoring-gate";
-import { recordStationKernel } from "./station-status-store";
+import { StationStatusService } from "./station-status-store";
 import { StationFleetPropagation } from "./station/fleet-propagation";
 
 const broadcast = (channel: string, payload: unknown) => {
@@ -549,6 +549,7 @@ export const registerVellumIpc = (): void => {
       const pause = yield* PausePlane;
       const settingsForSeed = yield* SettingsService;
       const fleetPropagation = yield* StationFleetPropagation;
+      const stationStatus = yield* StationStatusService;
       const stationForSeed = yield* settingsForSeed.get;
       // Fresh Command Center (or unset) may seed. Remote never authors a seed.
       if (stationForSeed.station.role !== "remote") {
@@ -573,8 +574,10 @@ export const registerVellumIpc = (): void => {
         broadcast(IPC_CHANNELS.kernelChanged, snapshot);
         // Fleet Doctor reads this bounded heartbeat over SSH. Never persist
         // canvas names, node ids, agent identities, instructions, or tokens.
-        void recordStationKernel(kernelRecordFromSnapshot(snapshot)).catch(
-          () => undefined,
+        Effect.runFork(
+          stationStatus
+            .recordKernel(kernelRecordFromSnapshot(snapshot))
+            .pipe(Effect.ignore),
         );
       });
 

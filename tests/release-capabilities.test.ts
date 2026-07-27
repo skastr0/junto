@@ -6,9 +6,9 @@ import {
 } from "../src/shared/release-capabilities";
 
 describe("RELEASE_CAPABILITIES beta surface", () => {
-  it("enables enrollment and projection; freezes managed deploy paths", () => {
+  it("keeps projection canonical and freezes managed deploy paths", () => {
     expect(RELEASE_CAPABILITIES.freshRemoteEnrollment).toBe(true);
-    expect(RELEASE_CAPABILITIES.stationProjection).toBe(true);
+    expect("stationProjection" in RELEASE_CAPABILITIES).toBe(false);
     expect(RELEASE_CAPABILITIES.managedRemoteDeploy).toBe(false);
     expect(RELEASE_CAPABILITIES.managedRemoteUpdate).toBe(false);
     expect(RELEASE_CAPABILITIES.managedRemoteRollback).toBe(false);

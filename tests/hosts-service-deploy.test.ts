@@ -11,7 +11,6 @@ import type { ConfigureRemoteOptions } from "../src/main/vellum/hosts/configure-
 vi.mock("@shared/release-capabilities", () => ({
   RELEASE_CAPABILITIES: Object.freeze({
     freshRemoteEnrollment: true,
-    stationProjection: true,
     managedRemoteDeploy: true,
     managedRemoteUpdate: true,
     managedRemoteRollback: true,
