@@ -35,9 +35,12 @@ import {
 } from "./edge-revocation";
 
 // Edge-grant admission for process-bound callers:
-//   peer PID → registered principal → canvas agent|herdr node → edges → pages
+//   peer PID → registered principal → canvas actor node → edges → pages
 //   mint a short-lived capability under the hood so existing handlers keep
 //   their lease model. Agents never present nodeRef or capability secrets.
+//
+// Who may hold a grant is decided by the factory role of the caller's node
+// (`isBrowserCallerNode`), never by a kind ACL in this file.
 
 export const EDGE_GRANT_TTL_MS = 15 * 60 * 1_000;
 export const EDGE_GRANT_MAX_USES = 4_096;
@@ -171,14 +174,18 @@ const fail = (denial: EdgeGrantDenial, message: string): EdgeGrantResult => ({
   message,
 });
 
+/** Cache key for a bound process. Total over principal kinds — a caller that
+ * physics admits as an actor must be revocable here, so there is no kind that
+ * fails to produce a key. */
 const processKeyOf = (principal: ProcessPrincipal): string => {
+  const anchor = `${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
   if (principal.kind === "agent") {
-    return `agent:${principal.agentKey ?? ""}:${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
+    return `agent:${principal.agentKey ?? ""}:${anchor}`;
   }
   if (principal.kind === "herdr") {
-    return `herdr:${principal.paneId ?? ""}:${principal.canvasName ?? ""}:${principal.nodeId ?? ""}`;
+    return `herdr:${principal.paneId ?? ""}:${anchor}`;
   }
-  throw new Error("native terminal principals cannot hold browser grants");
+  return `terminal:${principal.bindingId ?? ""}:${anchor}`;
 };
 
 const sameTargetSignature = (
@@ -214,7 +221,6 @@ export const makeEdgeGrantService = (
   const capabilityPrincipals = new Map<string, BrowserAutomationPrincipal>();
   let lastReceipts: ReadonlyArray<EdgeRevocationReceipt> = Object.freeze([]);
   processMap.subscribe((principal) => {
-    if (principal.kind === "terminal") return;
     const cacheKey = processKeyOf(principal);
     revokeCacheEntry(cacheKey);
     capabilityPrincipals.delete(cacheKey);
@@ -502,13 +508,6 @@ export const makeEdgeGrantService = (
   const admitPrincipal = async (
     principal: ProcessPrincipal,
   ): Promise<EdgeGrantResult> => {
-    if (principal.kind === "terminal") {
-      return fail(
-        "caller_wrong_kind",
-        "native terminal processes cannot wield browser authority — use a live agent or herdr process",
-      );
-    }
-
     const admissionStartedAt = changeSequence;
     const docs = await loadDocs();
     if (docs.length === 0) {
@@ -523,7 +522,7 @@ export const makeEdgeGrantService = (
     }> = [];
 
     let lastDenial: EdgeGrantDenial = "not_found";
-    let lastMessage = "no matching agent|herdr node for connecting process";
+    let lastMessage = "no matching actor node for connecting process";
 
     for (const { name, doc } of docs) {
       const resolved = resolveBrowserCallerFromProcess(doc, name, principal);
@@ -553,7 +552,7 @@ export const makeEdgeGrantService = (
     if (matches.length > 1) {
       return fail(
         "ambiguous",
-        "connecting process matches multiple canvas nodes — keep one agent|herdr card per process",
+        "connecting process matches multiple canvas nodes — keep one actor card per process",
       );
     }
 

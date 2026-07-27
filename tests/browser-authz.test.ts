@@ -188,7 +188,7 @@ describe("process-bind (browser canvas resolution)", () => {
     if (!resolved.ok) expect(resolved.denial).toBe("not_connected");
   });
 
-  it("denies a terminal process principal even when edged to a page", () => {
+  it("admits a terminal process principal edged to a page — role decides, not a kind ACL", () => {
     const terminalBoard = doc(
       [text("term", "terminal", undefined, { bindingId: "bind-xyz" }), page("p1")],
       [{ id: "e1", fromNode: "term", toNode: "p1" }],
@@ -199,11 +199,38 @@ describe("process-bind (browser canvas resolution)", () => {
       canvasName: "work",
       nodeId: "term",
     });
-    expect(resolved.ok).toBe(false);
-    if (!resolved.ok) {
-      expect(resolved.denial).toBe("caller_wrong_kind");
-      expect(resolved.message).toMatch(/live agent or herdr process/i);
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) {
+      expect(resolved.principal.nodeId).toBe("term");
+      expect(resolved.principal.kind).toBe("terminal");
+      expect(resolved.pageRefs).toEqual(["vellum://canvas/work?node=p1"]);
     }
+  });
+
+  it("resolves a terminal principal by bindingId with no node anchor", () => {
+    const terminalBoard = doc(
+      [text("term", "terminal", undefined, { bindingId: "bind-xyz" }), page("p1")],
+      [{ id: "e1", fromNode: "term", toNode: "p1" }],
+    );
+    const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
+      kind: "terminal",
+      bindingId: "bind-xyz",
+    });
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) expect(resolved.principal.nodeId).toBe("term");
+  });
+
+  it("refuses a terminal principal whose binding matches no terminal node", () => {
+    const terminalBoard = doc(
+      [text("term", "terminal", undefined, { bindingId: "bind-xyz" }), page("p1")],
+      [{ id: "e1", fromNode: "term", toNode: "p1" }],
+    );
+    const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
+      kind: "terminal",
+      bindingId: "some-other-binding",
+    });
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) expect(resolved.denial).toBe("not_found");
   });
 
   it("maps a live herdr process principal when edged to a page", () => {

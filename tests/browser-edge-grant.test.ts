@@ -483,7 +483,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     expect(capabilities.stats().activeCapabilities).toBe(0);
   });
 
-  it("denies a registered native terminal on protected routes despite a human page edge", async () => {
+  it("admits a registered native terminal on protected routes via its human page edge", async () => {
     await mkdir(join(root, "canvases"), { recursive: true });
     const doc = terminalCanvasDoc();
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
@@ -507,16 +507,15 @@ describe("browser edge-grant process-bind dual admit", () => {
     );
 
     // admitSocket is the product gate: Unix peer PID → main-owned process map
-    // → browser edge grant. The terminal is live and registered, but its page
-    // edge cannot mint authority.
-    await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({
-      ok: false,
-      denial: "caller_wrong_kind",
-      message: expect.stringMatching(/live agent or herdr process/i),
-    });
+    // → browser edge grant. A terminal is an actor, so the human page edge is
+    // the whole authority — no kind ACL sits behind it.
+    const admittedSocket = await edgeGrant.admitSocket({} as Socket);
+    expect(admittedSocket).toMatchObject({ ok: true, targetCount: 1 });
+    if (!admittedSocket.ok) return;
+    expect(admittedSocket.principal).toMatchObject({ kind: "terminal" });
 
     const token = rotateControlToken(join(root, "terminal-token"));
-    const denied = await dispatchControlRequest(
+    const admitted = await dispatchControlRequest(
       handlers,
       token,
       {
@@ -533,21 +532,18 @@ describe("browser edge-grant process-bind dual admit", () => {
         principal: terminalPrincipal,
       },
     );
-    expect(denied).toMatchObject({
-      status: 403,
-      envelope: {
-        ok: false,
-        error: {
-          _tag: "forbidden",
-          message: expect.stringMatching(/live agent or herdr process/i),
-        },
-      },
-    });
-    expect(capabilities.stats()).toMatchObject({
-      activeCapabilities: 0,
-      activeLeases: 0,
-    });
+    expect(admitted.status).toBe(200);
+    expect(admitted.envelope.ok).toBe(true);
+    if (admitted.envelope.ok) {
+      const rows = admitted.envelope.data as ReadonlyArray<{ ref: string }>;
+      expect(rows.map((r) => r.ref)).toEqual([REF_PAGE]);
+    }
+    expect(capabilities.stats().activeCapabilities).toBeGreaterThan(0);
+
+    // Grant revocation must follow the terminal process out, exactly as it does
+    // for an agent — an admitted kind that is never revoked is the worse bug.
     processMap.clear();
+    expect(capabilities.stats()).toMatchObject({ activeCapabilities: 0 });
     await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({
       ok: false,
       denial: "process_unbound",

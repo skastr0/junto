@@ -20,9 +20,10 @@ import { Either } from "effect";
 //   Everything else: invisible / ScopeError naming the missing edge
 //
 // Capability leases remain a transitional transport; human-drawn edges are
-// the product authority for agents that already run on the canvas. Protected
-// process-bind admission further restricts browser callers to agent|herdr;
-// native terminals remain actors for non-browser product surfaces.
+// the product authority for agents that already run on the canvas. Eligibility
+// is the factory role and nothing else — no plane below this one keeps a kind
+// ACL, so a kind that stops being an actor stops being a browser caller with
+// no edit here.
 
 export type BrowserAuthzDenial =
   | "caller_missing"
@@ -81,9 +82,9 @@ export const isPageNode = (node: CanvasNode | undefined): boolean =>
   node !== undefined && node.type === "link" && nodeKind(node) === "page";
 
 /**
- * Resolve a canvas actor against the browser port. This is graph physics only:
- * the protected process-bind boundary separately restricts live browser
- * principals to agent|herdr. Region membership alone is never enough.
+ * Resolve a canvas actor against the browser port. Graph physics decides, and
+ * it is the only decision: the process-bind boundary adds liveness, never a
+ * narrower kind set. Region membership alone is never enough.
  */
 export const resolveBrowserCaller = (
   doc: CanvasDoc,
