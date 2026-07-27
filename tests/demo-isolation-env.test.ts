@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const originalDemo = process.env.VELLUM_DEMO;
+const originalE2E = process.env.VELLUM_E2E;
 const originalStateDatabase = process.env.VELLUM_STATE_DB;
 const originalProjectionRoot = process.env.VELLUM_CANVASES_DIR;
 
@@ -15,12 +16,14 @@ const restore = (name: string, value: string | undefined): void => {
 beforeEach(() => {
   vi.resetModules();
   delete process.env.VELLUM_DEMO;
+  delete process.env.VELLUM_E2E;
   delete process.env.VELLUM_STATE_DB;
   delete process.env.VELLUM_CANVASES_DIR;
 });
 
 afterEach(() => {
   restore("VELLUM_DEMO", originalDemo);
+  restore("VELLUM_E2E", originalE2E);
   restore("VELLUM_STATE_DB", originalStateDatabase);
   restore("VELLUM_CANVASES_DIR", originalProjectionRoot);
   vi.resetModules();
@@ -68,6 +71,33 @@ describe("demo runtime isolation", () => {
 
     expect(process.env.VELLUM_STATE_DB).toBeUndefined();
     expect(process.env.VELLUM_CANVASES_DIR).toBeUndefined();
+  });
+
+  it("does not let an ordinary product environment redirect authority", async () => {
+    process.env.VELLUM_STATE_DB = "/tmp/vellum-untrusted-override/state.db";
+
+    await import("../src/main/vellum/demo/isolation-env");
+    const { stateDatabasePath } = await import(
+      "../src/main/vellum/state/engine"
+    );
+
+    expect(process.env.VELLUM_STATE_DB).toBe(
+      "/tmp/vellum-untrusted-override/state.db",
+    );
+    expect(stateDatabasePath()).toBe(
+      join(homedir(), ".vellum", "state", "vellum.db"),
+    );
+  });
+
+  it("honors the explicit E2E isolation contract", async () => {
+    process.env.VELLUM_E2E = "1";
+    process.env.VELLUM_STATE_DB = "/tmp/vellum-e2e/state.db";
+
+    const { stateDatabasePath } = await import(
+      "../src/main/vellum/state/engine"
+    );
+
+    expect(stateDatabasePath()).toBe("/tmp/vellum-e2e/state.db");
   });
 
   it("runs before the runtime import in the Electron entry point", () => {

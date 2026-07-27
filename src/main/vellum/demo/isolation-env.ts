@@ -1,6 +1,6 @@
 /**
  * Side-effect-only demo isolation boundary. This must run before runtime.ts:
- * StateEngine uses VELLUM_STATE_DB as its canonical database override, while
+ * Demo mode admits VELLUM_STATE_DB as its isolated database override, while
  * VELLUM_CANVASES_DIR names only the derivative digest/SVG output root.
  *
  * Explicit overrides remain authoritative so hermetic launchers can provide

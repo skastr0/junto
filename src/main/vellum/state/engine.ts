@@ -24,6 +24,7 @@ import {
   type StateRow,
   type StateWriter,
 } from "./service";
+import { isDemoMode } from "../demo/mode";
 
 export {
   StateEngine,
@@ -55,9 +56,16 @@ const stateEngineError = (
       cause,
     });
 
-/** Resolve the sole app database. Tests may override that database explicitly. */
+const allowsStateDatabaseOverride = (): boolean =>
+  isDemoMode() || process.env.VELLUM_E2E === "1";
+
+/**
+ * Resolve the sole app database. Process-level redirection is confined to the
+ * explicit demo and E2E launch modes; ordinary product startup always owns the
+ * canonical database under the operator's home.
+ */
 export const stateDatabasePath = (): string => {
-  if (process.env.VELLUM_STATE_DB) {
+  if (allowsStateDatabaseOverride() && process.env.VELLUM_STATE_DB) {
     return resolve(process.env.VELLUM_STATE_DB);
   }
   return resolve(join(homedir(), ".vellum", "state", "vellum.db"));
