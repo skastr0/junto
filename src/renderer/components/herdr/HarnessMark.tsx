@@ -36,18 +36,29 @@ export function HarnessMark({
       title={`${tile.displayName}${focused ? " · focused in herdr" : ""}`}
     >
       {tile.glyph ? (
-        <svg viewBox={tile.viewBox} width={inner} height={inner} fill={tile.hue}>
-          {tile.paths.map((d) => (
-            <path key={d} d={d} fillRule={tile.fillRule} clipRule={tile.fillRule} />
+        <svg
+          viewBox={tile.viewBox}
+          width={inner}
+          height={inner}
+          fill={tile.hue}
+          style={{ display: "block", flex: "none" }}
+          aria-hidden
+        >
+          {tile.paths.map((d, index) => (
+            <path key={`${index}-${d.slice(0, 24)}`} d={d} fillRule={tile.fillRule} clipRule={tile.fillRule} />
           ))}
         </svg>
       ) : tile.known ? (
         <span
           style={{
+            display: "grid",
+            placeItems: "center",
             color: tile.hue,
-            fontSize: Math.round((size * 12) / 28),
-            fontWeight: 600,
+            fontSize: Math.round((size * 11) / 28),
+            fontWeight: 650,
             lineHeight: 1,
+            width: "100%",
+            height: "100%",
           }}
         >
           {tile.displayName.charAt(0).toUpperCase()}

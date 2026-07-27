@@ -64,11 +64,16 @@ describe("repository coverage", () => {
     expect(GLYPHS.googlegemini.hex).toBe("#8E75B2");
     expect(GLYPHS.openai.viewBox).toBe("0 0 20 20");
     expect(typeof GLYPHS.openai.d).toBe("string");
-    // kimi and windsurf are skipped by the generated set; curated-only.
+    // kimi, windsurf, hermes are skipped by the generated set; curated-only.
     expect(PROVIDER_MARKS.kimi).toBeUndefined();
     expect(PROVIDER_MARKS.windsurf).toBeUndefined();
+    expect(PROVIDER_MARKS.hermes).toBeUndefined();
     expect(harnessGlyphFor("kimi")).toBe(GLYPHS.kimi);
     expect(harnessGlyphFor("windsurf")).toBe(GLYPHS.windsurf);
+    expect(harnessGlyphFor("hermes")).toBe(GLYPHS.hermes);
+    expect(GLYPHS.hermes.fillRule).toBe("evenodd");
+    expect(Array.isArray(GLYPHS.hermes.d)).toBe(true);
+    expect((GLYPHS.hermes.d as ReadonlyArray<string>).length).toBeGreaterThan(0);
   });
 });
 
@@ -78,6 +83,7 @@ describe("harnessGlyphFor", () => {
     expect(harnessGlyphFor("  KIMI ")).toBe(GLYPHS.kimi);
     expect(harnessGlyphFor("OpenCode")).toBe(GLYPHS.opencode);
     expect(harnessGlyphFor("GROK")).toBe(GLYPHS.grok);
+    expect(harnessGlyphFor("Hermes")).toBe(GLYPHS.hermes);
     expect(harnessGlyphFor("Cursor")).toBe(GLYPHS.cursor);
     expect(harnessGlyphFor("windsurf")).toBe(GLYPHS.windsurf);
     // canonical provider ids pass through without aliases
@@ -106,6 +112,9 @@ describe("harnessGlyphFor", () => {
     expect(harnessGlyphFor("openai")).toBe(GLYPHS.openai);
     expect(harnessGlyphFor("open code")).toBe(GLYPHS.opencode);
     expect(harnessGlyphFor("open code go")).toBe(GLYPHS.opencodego);
+    expect(harnessGlyphFor("Hermes Agent")).toBe(GLYPHS.hermes);
+    expect(harnessGlyphFor("Nous Research")).toBe(GLYPHS.hermes);
+    expect(harnessGlyphFor("nous")).toBe(GLYPHS.hermes);
   });
 
   it("resolves codexbar provider ids, and chatgpt lands on openai — not codex", () => {

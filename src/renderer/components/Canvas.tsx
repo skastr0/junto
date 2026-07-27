@@ -824,7 +824,7 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
       key: `agent-${template.harness}`,
       label: template.displayName,
       sub: "",
-      icon: <HarnessMark agent={template.harness} size={18} />,
+      icon: <HarnessMark agent={template.harness} size={20} />,
       ariaLabel: `Add ${template.displayName} agent`,
       group: paletteGroupFor("agent", false),
       onSelect: () => actions.addAgent({ harness: template.harness }),
@@ -923,7 +923,8 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
                     }}
                     onClick={entry.onSelect}
                   >
-                    {entry.icon}<span><strong>{entry.label}</strong>{entry.sub ? <small>{entry.sub}</small> : null}</span>
+                    <span className="node-palette__icon" aria-hidden>{entry.icon}</span>
+                    <span><strong>{entry.label}</strong>{entry.sub ? <small>{entry.sub}</small> : null}</span>
                   </button>
                 </Fragment>
               );
@@ -941,6 +942,17 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
     ) : null}
   </div>;
 }
+
+// Canvas chrome insets for palette placement — stay between station top bar
+// and the docked field tools / RTS bottom chrome, never over either.
+const NODE_PALETTE_WIDTH = 268;
+const NODE_PALETTE_MARGIN = 8;
+
+const stationBarBottom = (): number => {
+  const bar = document.querySelector(".station-bar");
+  if (!(bar instanceof HTMLElement)) return 72;
+  return bar.getBoundingClientRect().bottom + NODE_PALETTE_MARGIN;
+};
 
 // Docked above the bottom-right minimap with fit-all — not scattered top chrome.
 // Menu portals to body: .rts-right overflow:hidden would clip an absolute popover.
@@ -964,11 +976,15 @@ function CanvasFieldTools() {
     const place = () => {
       const rect = triggerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      // Anchor above the trigger; keep 190px menu on-screen horizontally.
+      // Anchor above the trigger; clamp height under the station top bar.
+      const topLimit = stationBarBottom();
       setMenuBox({
-        left: Math.min(Math.max(8, rect.left), window.innerWidth - 198),
-        bottom: Math.max(8, window.innerHeight - rect.top + 6),
-        maxHeight: Math.max(180, rect.top - 14),
+        left: Math.min(
+          Math.max(NODE_PALETTE_MARGIN, rect.left),
+          window.innerWidth - NODE_PALETTE_WIDTH - NODE_PALETTE_MARGIN,
+        ),
+        bottom: Math.max(NODE_PALETTE_MARGIN, window.innerHeight - rect.top + 6),
+        maxHeight: Math.max(140, rect.top - topLimit),
       });
     };
     place();
@@ -1040,25 +1056,31 @@ function CanvasFieldTools() {
 function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }; readonly onClose: () => void }) {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const menuRef = useRef<HTMLDivElement>(null);
-  const [placement, setPlacement] = useState({ left: at.x, top: at.y });
+  const [placement, setPlacement] = useState({
+    left: at.x,
+    top: at.y,
+    maxHeight: Math.max(140, window.innerHeight - 88),
+  });
   useMenuDismiss(true, onClose);
   useLayoutEffect(() => {
     const place = () => {
       const rect = menuRef.current?.getBoundingClientRect();
       if (!rect) return;
       const gap = 5;
-      const margin = 8;
+      const margin = NODE_PALETTE_MARGIN;
+      const topLimit = stationBarBottom();
       const left =
         at.x + rect.width + gap <= window.innerWidth - margin
           ? at.x + gap
           : at.x - rect.width - gap;
-      const top =
+      const preferredTop =
         at.y + rect.height + gap <= window.innerHeight - margin
           ? at.y + gap
           : at.y - rect.height - gap;
       setPlacement({
         left: Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin)),
-        top: Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin)),
+        top: Math.max(topLimit, Math.min(preferredTop, window.innerHeight - rect.height - margin)),
+        maxHeight: Math.max(140, window.innerHeight - topLimit - margin * 2),
       });
     };
     place();
@@ -1079,7 +1101,7 @@ function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }
         left: placement.left,
         top: placement.top,
         zIndex: 40,
-        "--node-palette-max-height": "calc(100vh - 16px)",
+        "--node-palette-max-height": `${placement.maxHeight}px`,
       } as React.CSSProperties}
     >
       <AddMenu actions={actions} />
@@ -1118,10 +1140,10 @@ function MultiSelectMenu({ at, onClose }: { readonly at: { x: number; y: number 
   return (
     <div className="node-palette node-palette--context" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 200), zIndex: 40 }}>
       <div className="node-palette__menu">
-        <button aria-label="Create region from selection" onClick={() => run(createRegionFromSelection)}><SquareDashed size={14} /><span><strong>create region</strong><small>from selection</small></span></button>
-        <button aria-label="Flag blocker" onClick={() => run((ids) => setFlagForNodes(ids, "blocker"))}><Ban size={14} /><span><strong>flag blocker</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
-        <button aria-label="Clear flags" onClick={() => run((ids) => setFlagForNodes(ids, null))}><Ban size={14} /><span><strong>clear flags</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
-        <button aria-label={`Delete ${count} nodes`} onClick={() => run((ids) => deleteNodes(ids))}><Trash2 size={14} /><span><strong>delete {count} node{count === 1 ? "" : "s"}</strong></span></button>
+        <button aria-label="Create region from selection" onClick={() => run(createRegionFromSelection)}><span className="node-palette__icon" aria-hidden><SquareDashed size={14} /></span><span><strong>create region</strong><small>from selection</small></span></button>
+        <button aria-label="Flag blocker" onClick={() => run((ids) => setFlagForNodes(ids, "blocker"))}><span className="node-palette__icon" aria-hidden><Ban size={14} /></span><span><strong>flag blocker</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
+        <button aria-label="Clear flags" onClick={() => run((ids) => setFlagForNodes(ids, null))}><span className="node-palette__icon" aria-hidden><Ban size={14} /></span><span><strong>clear flags</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
+        <button aria-label={`Delete ${count} nodes`} onClick={() => run((ids) => deleteNodes(ids))}><span className="node-palette__icon" aria-hidden><Trash2 size={14} /></span><span><strong>delete {count} node{count === 1 ? "" : "s"}</strong></span></button>
       </div>
     </div>
   );
@@ -1156,7 +1178,7 @@ function TargetConnectMenu({
             onClose();
           }}
         >
-          <Link2 size={14} />
+          <span className="node-palette__icon" aria-hidden><Link2 size={14} /></span>
           <span>
             <strong>{label}</strong>
             <small>{count} → {title}</small>
