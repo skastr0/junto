@@ -61,8 +61,6 @@ export interface BrowserComposition {
   readonly bindControlShutdown: (control: BrowserControlShutdownPort) => void;
   /** Close all browser-domain admission and return one aggregate receipt. */
   readonly drainOnQuit: (reason?: string) => Promise<BrowserCompositionShutdownReceipt>;
-  /** Compatibility alias; callers must await the authoritative receipt. */
-  readonly close: (reason?: string) => Promise<BrowserCompositionShutdownReceipt>;
 }
 
 export type BrowserControlShutdownReceipt = RuntimeBrowserControlShutdownReceipt;
@@ -95,7 +93,6 @@ export interface BrowserCompositionShutdownReceipt {
 interface BrowserShutdownCoordinator {
   readonly bindControlShutdown: (control: BrowserControlShutdownPort) => void;
   readonly drainOnQuit: (reason?: string) => Promise<BrowserCompositionShutdownReceipt>;
-  readonly close: (reason?: string) => Promise<BrowserCompositionShutdownReceipt>;
 }
 
 const CONTROL_RETAINED_COUNT_KEYS = [
@@ -439,7 +436,6 @@ export const makeBrowserShutdownCoordinator = (input: {
   return Object.freeze({
     bindControlShutdown,
     drainOnQuit,
-    close: drainOnQuit,
   });
 };
 
@@ -569,7 +565,6 @@ export const startBrowserComposition = async (
       registry,
       bindControlShutdown: shutdown.bindControlShutdown,
       drainOnQuit: shutdown.drainOnQuit,
-      close: shutdown.close,
     });
     await Effect.runPromise(profiles.recoverPendingWipe);
     await activate(composition);

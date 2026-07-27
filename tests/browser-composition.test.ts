@@ -203,7 +203,8 @@ describe("browser composition (no ceremony)", () => {
     const composition = await starting;
     expect(activated).toBe(true);
     expect(adapterCalls).toBe(0);
-    await composition.close("test complete");
+    expect(composition).not.toHaveProperty("close");
+    await composition.drainOnQuit("test complete");
     await stateRuntime.dispose();
     await rm(root, { recursive: true, force: true });
   });
