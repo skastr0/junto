@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import {
-  CommandCenterConfiguration,
   ConfigureResponse,
   DisplayTimestamp,
   InstallationId,
@@ -20,7 +19,6 @@ import {
   type AckAdvanceDecision,
   type ConfigureRequest,
   type ConfigureResponse as ConfigureResponseValue,
-  type CommandCenterConfiguration as CommandCenterConfigurationValue,
   type InstallationId as InstallationIdValue,
   type PairRequest,
   type PairResponse as PairResponseValue,
@@ -105,12 +103,10 @@ export class StationConfigurationError extends Schema.TaggedError<StationConfigu
   {
     reason: Schema.Literal(
       "pairing-required",
-      "pairing-present",
       "command-center-mismatch",
       "host-immutable",
       "role-immutable",
       "remote-only",
-      "command-center-invalid",
     ),
     message: Schema.String,
   },
@@ -186,11 +182,6 @@ export type StationStatusFacts = {
   readonly peerAcknowledgedThrough: ReadonlyArray<StationPeerAcknowledgement>;
 };
 
-export type ConfigureCommandCenterInput = {
-  readonly installationId: InstallationIdValue;
-  readonly configuration: CommandCenterConfigurationValue;
-};
-
 export class StationRepository extends Context.Tag("@vellum/StationRepository")<
   StationRepository,
   {
@@ -218,14 +209,6 @@ export class StationRepository extends Context.Tag("@vellum/StationRepository")<
       request: ConfigureRequest,
       configuredAt?: string,
     ) => Effect.Effect<ConfigureResponseValue, StationRepositoryError>;
-    /**
-     * Main-process-only local role selection. This input is deliberately not a
-     * Station API request and cannot cross the SSH/control wire.
-     */
-    readonly configureCommandCenter: (
-      input: ConfigureCommandCenterInput,
-      configuredAt?: string,
-    ) => Effect.Effect<StationConfigurationRecord, StationRepositoryError>;
     readonly installProjection: (
       request: ProjectRequest,
       receivedAt?: string,
@@ -902,117 +885,6 @@ export const makeStationRepositoryLive = (
         },
       );
 
-      const configureCommandCenter = Effect.fn(
-        "StationRepository.configureCommandCenter",
-      )(function* (
-        input: ConfigureCommandCenterInput,
-        configuredAt = clock(),
-      ) {
-        const decodedConfiguration = Schema.decodeUnknownEither(
-          CommandCenterConfiguration,
-        )(
-          input.configuration,
-        );
-        if (Either.isLeft(decodedConfiguration)) {
-          return yield* StationConfigurationError.make({
-            reason: "command-center-invalid",
-            message: "local Command Center configuration is invalid",
-          });
-        }
-        const configuration = decodedConfiguration.right;
-        const admittedConfiguredAt = yield* admitTimestamp(
-          "configure-command-center",
-          "configuredAt",
-          configuredAt,
-        );
-        yield* ensureLocalIdentity(
-          "configure-command-center",
-          installationId,
-          input.installationId,
-        );
-        const decision = yield* engine
-          .transaction("station.configure-command-center", (writer) => {
-            if (selectPairing(writer) !== undefined) {
-              return { _tag: "pairing-present" as const };
-            }
-            const currentRow = selectConfiguration(writer);
-            if (
-              currentRow !== undefined &&
-              currentRow.role !== "command-center"
-            ) {
-              return {
-                _tag: "role-immutable" as const,
-                admitted: currentRow.role,
-              };
-            }
-            if (
-              currentRow !== undefined &&
-              currentRow.host_id !== configuration.hostId
-            ) {
-              return {
-                _tag: "host-immutable" as const,
-                admitted: currentRow.host_id,
-              };
-            }
-            if (currentRow !== undefined) {
-              const current = configurationFromRow(currentRow);
-              if (
-                sameConfiguration(
-                  current.configuration,
-                  configuration,
-                )
-              ) {
-                return {
-                  _tag: "configured" as const,
-                  configuredAt: current.configuredAt,
-                };
-              }
-            }
-            writeStationConfiguration(
-              writer,
-              configuration,
-              admittedConfiguredAt,
-            );
-            return {
-              _tag: "configured" as const,
-              configuredAt: admittedConfiguredAt,
-            };
-          })
-          .pipe(
-            Effect.mapError((error) =>
-              persistenceError("configure-command-center", error),
-            ),
-          );
-
-        if (decision._tag === "pairing-present") {
-          return yield* StationConfigurationError.make({
-            reason: "pairing-present",
-            message:
-              "a paired installation cannot become Command Center",
-          });
-        }
-        if (decision._tag === "host-immutable") {
-          return yield* StationConfigurationError.make({
-            reason: "host-immutable",
-            message:
-              `installation host "${decision.admitted}" is immutable; ` +
-              `cannot reconfigure it as "${configuration.hostId}"`,
-          });
-        }
-        if (decision._tag === "role-immutable") {
-          return yield* StationConfigurationError.make({
-            reason: "role-immutable",
-            message:
-              `installation role "${decision.admitted}" is immutable; ` +
-              `cannot reconfigure it as "command-center"`,
-          });
-        }
-        return {
-          configuration,
-          configuredAt: decision.configuredAt,
-        };
-      });
-
       const installProjection = Effect.fn(
         "StationRepository.installProjection",
       )(function* (request: ProjectRequest, receivedAt = clock()) {
@@ -1317,7 +1189,6 @@ export const makeStationRepositoryLive = (
         projection: readProjection,
         pair,
         configureRemote,
-        configureCommandCenter,
         installProjection,
         advancePeerAcks,
         statusFacts,

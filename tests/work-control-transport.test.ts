@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import {
   WORK_PROTOCOL_VERSION,
   decodeWorkResponse,
@@ -30,15 +30,11 @@ import {
 } from "../src/main/vellum/work/repository";
 import { workTaskCreate } from "../src/shared/work";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { StationRepositoryLive } from "../src/main/vellum/station/repository";
 import {
-  StationRepository,
-  StationRepositoryLive,
-} from "../src/main/vellum/station/repository";
-import {
-  ConfigureRequest,
-  STATION_API_PROTOCOL,
-  StationHostId,
-} from "../src/shared/station-api";
+  SettingsLive,
+  SettingsService,
+} from "../src/main/vellum/settings/service";
 import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 import { resetSeatBlocks } from "../src/main/vellum/work/blocked-seat";
@@ -54,7 +50,11 @@ const rogueServers: NetServer[] = [];
 const makeWorkTestRuntime = (root: string) => {
   const stateLive = makeStateEngineLive(join(root, "state", "vellum.db"));
   const repositoriesLive = Layer.provideMerge(
-    Layer.mergeAll(WorkRepositoryLive, StationRepositoryLive),
+    Layer.mergeAll(
+      WorkRepositoryLive,
+      StationRepositoryLive,
+      SettingsLive,
+    ),
     stateLive,
   );
   const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
@@ -140,19 +140,13 @@ const seedDoc = (): CanvasDoc => ({
 const seedCanonicalWork = async (
   runtime: ReturnType<typeof makeWorkTestRuntime>,
 ): Promise<void> => {
-  const stations = await runtime.runPromise(StationRepository);
-  const installationId = await runtime.runPromise(stations.installationId);
+  const settings = await runtime.runPromise(SettingsService);
   await runtime.runPromise(
-    stations.configureCommandCenter(
-      {
-        installationId,
-        configuration: {
-          role: "command-center",
-          hostId: Schema.decodeUnknownSync(StationHostId)("local"),
-          supervisedPreferred: true,
-        },
-      },
-    ),
+    settings.setStationTopology({
+      role: "command-center",
+      hostId: "local",
+      supervisedPreferred: true,
+    }),
   );
   const canvases = await runtime.runPromise(CanvasesService);
   await runtime.runPromise(canvases.write("work-cli", seedDoc()));

@@ -479,6 +479,7 @@ export const makeSettingsService = (
           }
           const configuration = Schema.decodeUnknownEither(
             CommandCenterConfiguration,
+            { onExcessProperty: "error" },
           )({
             role: "command-center",
             hostId: validated.right.station.hostId,

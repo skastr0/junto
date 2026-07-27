@@ -126,16 +126,11 @@ const remoteConfigurationRequest = (
     },
   });
 
-const commandCenterConfigurationRequest = (
-  local: InstallationIdValue,
-) => ({
-    installationId: local,
-    configuration: {
-      role: "command-center" as const,
-      hostId: decodeHostId("command"),
-      supervisedPreferred: true,
-    },
-  });
+const commandCenterTopology = () => ({
+  role: "command-center" as const,
+  hostId: "command",
+  supervisedPreferred: true,
+});
 
 const pinnedTrust = (
   originStationId: string,
@@ -279,10 +274,9 @@ describe("StationRepository", () => {
     const commandRepository = await commandRuntime.runPromise(
       StationRepository,
     );
+    const commandSettings = await commandRuntime.runPromise(SettingsService);
     await commandRuntime.runPromise(
-      commandRepository.configureCommandCenter(
-        commandCenterConfigurationRequest(command),
-      ),
+      commandSettings.setStationTopology(commandCenterTopology()),
     );
     const pairResult = await commandRuntime.runPromise(
       commandRepository.pair(
@@ -504,20 +498,19 @@ describe("StationRepository", () => {
     const ccPeer = decodeInstallationId("role-immutable-cc-peer");
     const ccRuntime = makeRuntime(ccPath, ccLocal);
     const ccRepository = await ccRuntime.runPromise(StationRepository);
+    const ccSettings = await ccRuntime.runPromise(SettingsService);
     const ccState = await ccRuntime.runPromise(StateEngine);
-    const ccConfigured = await ccRuntime.runPromise(
-      ccRepository.configureCommandCenter(
-        {
-          installationId: ccLocal,
-          configuration: {
-            role: "command-center",
-            hostId: decodeHostId("shared"),
-            supervisedPreferred: true,
-          },
-        },
-        "2026-07-27T12:01:00.000Z",
-      ),
+    await ccRuntime.runPromise(
+      ccSettings.setStationTopology({
+        role: "command-center",
+        hostId: "shared",
+        supervisedPreferred: true,
+      }),
     );
+    const ccConfigured = await ccRuntime.runPromise(
+      ccRepository.configuration,
+    );
+    expect(ccConfigured).toBeDefined();
     const rejectedRemote = await ccRuntime.runPromise(
       ccRepository
         .configureRemote(
@@ -547,10 +540,7 @@ describe("StationRepository", () => {
       });
     }
     expect(await ccRuntime.runPromise(ccRepository.configuration))
-      .toEqual({
-        configuration: ccConfigured.configuration,
-        configuredAt: ccConfigured.configuredAt,
-      });
+      .toEqual(ccConfigured);
     expect(
       await ccRuntime.runPromise(
         ccState.read("test.role-immutable-no-trust", (reader) =>
@@ -572,6 +562,7 @@ describe("StationRepository", () => {
     const remoteRepository = await remoteRuntime.runPromise(
       StationRepository,
     );
+    const remoteSettings = await remoteRuntime.runPromise(SettingsService);
     await remoteRuntime.runPromise(
       remoteRepository.pair(pairRequest(remoteLocal, remotePeer)),
     );
@@ -585,25 +576,21 @@ describe("StationRepository", () => {
       ),
     );
     const rejectedCommandCenter = await remoteRuntime.runPromise(
-      remoteRepository
-        .configureCommandCenter(
-          {
-            installationId: remoteLocal,
-            configuration: {
-              role: "command-center",
-              hostId: decodeHostId("studio"),
-              supervisedPreferred: false,
-            },
-          },
-          "2026-07-27T13:02:00.000Z",
-        )
+      remoteSettings
+        .setStationTopology({
+          role: "command-center",
+          hostId: "studio",
+          supervisedPreferred: false,
+        })
         .pipe(Effect.either),
     );
     expect(Either.isLeft(rejectedCommandCenter)).toBe(true);
     if (Either.isLeft(rejectedCommandCenter)) {
       expect(rejectedCommandCenter.left).toMatchObject({
-        _tag: "StationConfigurationError",
-        reason: "pairing-present",
+        code: "validation",
+        message: expect.stringContaining(
+          "Remote topology is configured only",
+        ),
       });
     }
     expect(await remoteRuntime.runPromise(remoteRepository.configuration))
@@ -799,11 +786,17 @@ describe("StationRepository", () => {
     const settings = await runtime.runPromise(SettingsService);
 
     const configured = await runtime.runPromise(
-      repository.configureCommandCenter(
-        commandCenterConfigurationRequest(local),
-      ),
+      settings.setStationTopology(commandCenterTopology()),
     );
-    expect(configured.configuration).toEqual({
+    expect(configured.station).toEqual({
+      role: "command-center",
+      hostId: "command",
+      commandCenterRef: "",
+      supervisedPreferred: true,
+    });
+    expect(
+      (await runtime.runPromise(repository.configuration))?.configuration,
+    ).toEqual({
       role: "command-center",
       hostId: "command",
       supervisedPreferred: true,

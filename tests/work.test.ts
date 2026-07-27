@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   workMessageAppend,
@@ -319,19 +319,19 @@ import {
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { StationRepositoryLive } from "../src/main/vellum/station/repository";
 import {
-  StationRepository,
-  StationRepositoryLive,
-} from "../src/main/vellum/station/repository";
-import {
-  ConfigureRequest,
-  STATION_API_PROTOCOL,
-  StationHostId,
-} from "../src/shared/station-api";
+  SettingsLive,
+  SettingsService,
+} from "../src/main/vellum/settings/service";
 
 const stateLive = makeStateEngineLive(join(mockCanvasesHome, "state", "vellum.db"));
 const repositoriesLive = Layer.provideMerge(
-  Layer.mergeAll(WorkRepositoryLive, StationRepositoryLive),
+  Layer.mergeAll(
+    WorkRepositoryLive,
+    StationRepositoryLive,
+    SettingsLive,
+  ),
   stateLive,
 );
 const canvasesLive = Layer.provideMerge(
@@ -346,19 +346,13 @@ let canvases: Context.Tag.Service<typeof CanvasesService>;
 let repository: Context.Tag.Service<typeof WorkRepository>;
 
 beforeAll(async () => {
-  const stations = await workRuntime.runPromise(StationRepository);
-  const installationId = await workRuntime.runPromise(stations.installationId);
+  const settings = await workRuntime.runPromise(SettingsService);
   await workRuntime.runPromise(
-    stations.configureCommandCenter(
-      {
-        installationId,
-        configuration: {
-          role: "command-center",
-          hostId: Schema.decodeUnknownSync(StationHostId)("local"),
-          supervisedPreferred: true,
-        },
-      },
-    ),
+    settings.setStationTopology({
+      role: "command-center",
+      hostId: "local",
+      supervisedPreferred: true,
+    }),
   );
   work = await workRuntime.runPromise(WorkService);
   canvases = await workRuntime.runPromise(CanvasesService);

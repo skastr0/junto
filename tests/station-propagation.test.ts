@@ -55,6 +55,10 @@ import {
   makeStationRepositoryLive,
 } from "../src/main/vellum/station/repository";
 import {
+  SettingsLive,
+  SettingsService,
+} from "../src/main/vellum/settings/service";
+import {
   WorkRepository,
   WorkRepositoryLive,
   stationEventFromWorkEvent,
@@ -97,12 +101,13 @@ const repositoriesAt = (
   installationId: InstallationIdValue,
 ) =>
   Layer.provideMerge(
-    Layer.merge(
+    Layer.mergeAll(
       makeStationRepositoryLive({
         makeInstallationId: () => installationId,
         now: () => NOW,
       }),
       WorkRepositoryLive,
+      SettingsLive,
     ),
     makeStateEngineLive(databasePath),
   );
@@ -384,22 +389,17 @@ const configureRemote = async (
   );
 };
 
-const configureCommandCenter = async (
+const selectCommandCenter = async (
   runtime: CommandCenterRuntime,
 ): Promise<void> => {
   await runtime.runPromise(
     Effect.gen(function* () {
-      const repository = yield* StationRepository;
-      yield* repository.configureCommandCenter(
-        {
-          installationId: COMMAND_CENTER,
-          configuration: {
-            role: "command-center",
-            hostId: decodeHostId("command"),
-            supervisedPreferred: true,
-          },
-        },
-      );
+      const settings = yield* SettingsService;
+      yield* settings.setStationTopology({
+        role: "command-center",
+        hostId: "command",
+        supervisedPreferred: true,
+      });
     }),
   );
 };
@@ -452,7 +452,7 @@ describe("StationPropagation canonical work replication", () => {
       remoteClient,
     );
     runtimes.push(commandCenter);
-    await configureCommandCenter(commandCenter);
+    await selectCommandCenter(commandCenter);
 
     const ccWork = await commandCenter.runPromise(WorkRepository);
     const remoteWork = await remote.runtime.runPromise(WorkRepository);
@@ -550,7 +550,7 @@ describe("StationPropagation canonical work replication", () => {
       remoteClient,
     );
     runtimes.push(commandCenter);
-    await configureCommandCenter(commandCenter);
+    await selectCommandCenter(commandCenter);
 
     const ccWork = await commandCenter.runPromise(WorkRepository);
     const remoteWork = await remote.runtime.runPromise(WorkRepository);
@@ -647,7 +647,7 @@ describe("StationPropagation canonical work replication", () => {
       remoteClient,
     );
     runtimes.push(commandCenter);
-    await configureCommandCenter(commandCenter);
+    await selectCommandCenter(commandCenter);
 
     const ccWork = await commandCenter.runPromise(WorkRepository);
     for (let index = 0; index < count; index += 1) {
@@ -733,7 +733,7 @@ describe("StationPropagation canonical work replication", () => {
       remoteClient,
     );
     runtimes.push(commandCenter);
-    await configureCommandCenter(commandCenter);
+    await selectCommandCenter(commandCenter);
 
     const ccWork = await commandCenter.runPromise(WorkRepository);
     await commandCenter.runPromise(

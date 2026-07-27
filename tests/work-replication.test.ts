@@ -32,6 +32,10 @@ import {
   StationRepository,
   StationRepositoryLive,
 } from "../src/main/vellum/station/repository";
+import {
+  SettingsLive,
+  SettingsService,
+} from "../src/main/vellum/settings/service";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 
@@ -64,7 +68,11 @@ const serviceRuntime = () => {
   roots.push(root);
   const state = makeStateEngineLive(join(root, "vellum.db"));
   const repositories = Layer.provideMerge(
-    Layer.mergeAll(WorkRepositoryLive, StationRepositoryLive),
+    Layer.mergeAll(
+      WorkRepositoryLive,
+      StationRepositoryLive,
+      SettingsLive,
+    ),
     state,
   );
   const canvases = Layer.provideMerge(CanvasesLive, repositories);
@@ -460,6 +468,7 @@ describe("WorkRepository station replication", () => {
     const ccCanvases = await commandCenter.runPromise(CanvasesService);
     const ccRepository = await commandCenter.runPromise(WorkRepository);
     const ccStations = await commandCenter.runPromise(StationRepository);
+    const ccSettings = await commandCenter.runPromise(SettingsService);
     const remoteWork = await remote.runPromise(WorkService);
     const remoteRepository = await remote.runPromise(WorkRepository);
     const remoteStations = await remote.runPromise(StationRepository);
@@ -530,16 +539,11 @@ describe("WorkRepository station replication", () => {
     });
 
     await commandCenter.runPromise(
-      ccStations.configureCommandCenter(
-        {
-          installationId: cc,
-          configuration: {
-            role: "command-center",
-            hostId: stationHost("command"),
-            supervisedPreferred: true,
-          },
-        },
-      ),
+      ccSettings.setStationTopology({
+        role: "command-center",
+        hostId: "command",
+        supervisedPreferred: true,
+      }),
     );
     await remote.runPromise(
       remoteStations.pair(
