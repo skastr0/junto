@@ -380,6 +380,46 @@ describe("browser profile registry", () => {
     expect(results.filter(Either.isLeft)).toHaveLength(1);
   });
 
+  it("does not create a physical profile for a rejected database write", async () => {
+    const registry = await service();
+    await run(registry.initialize);
+    await mutate("test.browser-fill-profile-capacity", (writer) => {
+      for (let index = 2; index < 64; index += 1) {
+        writer.run(
+          `
+            INSERT INTO browser_profiles(
+              id,
+              label,
+              created_at,
+              last_used_at,
+              sort_order
+            )
+            VALUES (?, NULL, ?, NULL, ?)
+          `,
+          [`capacity-${index}`, FIXED_TIME, index],
+        );
+      }
+    });
+
+    const result = await runEither(
+      registry.createProfile("overflow"),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.code).toBe("forbidden");
+    }
+    await expect(
+      access(
+        join(
+          registryRoot,
+          "profiles",
+          "overflow",
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("publishes a recreated profile to its gate only after commit", async () => {
     const stateService = await freshState();
     const gate = new BrowserProfileGate();

@@ -960,9 +960,6 @@ export const makeBrowserProfileService = (
               : {}),
             createdAt: now().toISOString(),
           };
-          yield* fileEffect(() =>
-            prepareProfileDirectories(loaded.root, [record])
-          );
           yield* databaseTransaction(
             "browser-profiles.create",
             (writer) => {
@@ -1000,6 +997,11 @@ export const makeBrowserProfileService = (
                 maxOrder + 1,
               );
             },
+          );
+          // SQLite is the authority. The directory is a repairable physical
+          // projection and must never appear for a rejected database write.
+          yield* fileEffect(() =>
+            prepareProfileDirectories(loaded.root, [record])
           );
           let admitted = false;
           try {
