@@ -93,7 +93,7 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
 const kindRank = (kind: string): number =>
   Match.value(resolveSpec({ isGroup: false, kind })).pipe(
     Match.tagsExhaustive({
-      Actor: (spec) => (spec.kind === "terminal" ? 2 : 0),
+      Actor: () => 0,
       Sink: (spec) => (spec.kind === "task" || spec.kind === "requests" ? 1 : 2),
       Scheduler: () => 2,
       Geography: () => 2,

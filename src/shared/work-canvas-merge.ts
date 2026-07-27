@@ -27,7 +27,7 @@ const isWorkStoreKind = (kind: string | undefined): boolean =>
 const isWorkSurfaceKind = (kind: string | undefined): boolean =>
   Match.value(resolveSpec({ isGroup: false, kind })).pipe(
     Match.tagsExhaustive({
-      Actor: (spec) => spec.kind !== "terminal",
+      Actor: () => true,
       Sink: (spec) => spec.kind !== "page",
       Scheduler: () => false,
       Geography: () => false,

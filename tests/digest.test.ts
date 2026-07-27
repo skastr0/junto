@@ -37,9 +37,10 @@ const doc: CanvasDoc = {
       y: 300,
       width: 100,
       height: 50,
-      // Actor seat (registry kind) so task criteria can place it in the blocked set.
+      // Actor seat (the one actor kind) so task criteria can place it in the
+      // blocked set. A raw `terminal` is geography and would not count as one.
       ether: {
-        entity: { kind: "terminal" },
+        entity: { kind: "agent" },
       },
     },
     {
@@ -124,7 +125,7 @@ topology :: soft=3 tasks=1
 entities
 Foo :: project
 Bar :: orbit
-Baz :: terminal
+Baz :: agent
 Ops :: task
   tasks: 0/1 settled
 
@@ -147,7 +148,6 @@ impact
 seeds
 Foo
 Bar
-Baz
 Ops
 
 sources
@@ -329,7 +329,8 @@ describe("digestCanvas — factory physics", () => {
     expect(out).toContain(
       [
         "factory physics",
-        "roles :: actors=2 sinks=2 schedulers=2 geography=2",
+        // One actor kind: the `tty` node is a raw terminal, hence geography.
+        "roles :: actors=1 sinks=2 schedulers=2 geography=3",
         "capabilities :: criteria=2 soft=1",
       ].join("\n"),
     );

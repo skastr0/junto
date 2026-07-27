@@ -1,7 +1,8 @@
 import type { CanvasDoc } from "@shared/canvas";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
-import type { CapabilityViewOptions } from "@shared/physics";
+import { resolveSpec, roleOf, type CapabilityViewOptions } from "@shared/physics";
+import { isGroup } from "@shared/graph";
 import {
   connectedPageRefs,
   findNode,
@@ -40,14 +41,15 @@ const matchesProcessPrincipal = (
   principal: ProcessPrincipal,
 ): boolean => {
   if (!node) return false;
-  const kind = nodeKind(node);
-  if (principal.kind === "agent") {
-    if (kind !== "agent") return false;
-    if (principal.nodeId !== undefined) return node.id === principal.nodeId;
+  // One actor kind. The seat carries both a name and a binding, so a principal
+  // may anchor by any of node id, agent key, or binding — no kind branch.
+  if (roleOf(resolveSpec({ kind: nodeKind(node), isGroup: isGroup(node) })) !== "actor") {
+    return false;
+  }
+  if (principal.nodeId !== undefined) return node.id === principal.nodeId;
+  if (principal.agentKey !== undefined) {
     return node.ether?.entity?.name === principal.agentKey;
   }
-  if (kind !== "terminal") return false;
-  if (principal.nodeId !== undefined) return node.id === principal.nodeId;
   if (principal.bindingId !== undefined) {
     return node.ether?.terminal?.bindingId === principal.bindingId;
   }

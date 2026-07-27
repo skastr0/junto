@@ -173,8 +173,30 @@ const herdrBinding = (
 };
 
 /**
- * Resolve a canvas node to a terminal surface binding: the geography herdr
- * pane first, then the actor delivery sum. No "if terminal OR agent OR acp".
+ * A raw user-opened terminal: geography, not an actor. It hosts a PTY and
+ * renders like any terminal, but holds no seat, no harness, and no inbox —
+ * which is exactly why it resolves here and not through the actor surface.
+ */
+const rawTerminalBinding = (node: CanvasNode): ResolvedTerminalBinding | undefined => {
+  if (node.ether?.entity?.kind !== "terminal") return undefined;
+  const bindingId = node.ether.terminal?.bindingId?.trim();
+  // Partially authored terminal (no binding yet) — nothing to attach to.
+  if (!bindingId) return undefined;
+  const nodeHost = typeof node.ether.host === "string" ? node.ether.host.trim() : "";
+  return {
+    kind: "native",
+    hostId: nodeHost.length > 0 ? nodeHost : "local",
+    bindingId,
+    onDelete: resolveTerminalOnDelete(node.ether.terminal),
+    launch: node.ether.terminal?.launch as TerminalLaunch | undefined,
+    label: node.ether.terminal?.label,
+  };
+};
+
+/**
+ * Resolve a canvas node to a terminal surface binding: the two geography panes
+ * (herdr, raw terminal) first, then the one actor seat. No "if terminal OR
+ * agent OR acp".
  */
 export const resolveTerminalBinding = (
   node: CanvasNode,
@@ -182,39 +204,21 @@ export const resolveTerminalBinding = (
   const herdr = herdrBinding(node);
   if (herdr) return herdr;
 
-  const surface = actorDeliverySurfaceOf(node);
-  if (surface) {
-    switch (surface._tag) {
-      case "managedAgent":
-        return {
-          kind: "native",
-          hostId: surface.hostId,
-          bindingId: surface.bindingId,
-          onDelete: resolveTerminalOnDelete(node.ether?.terminal),
-          launch: surface.launch as TerminalLaunch | undefined,
-          label: node.ether?.terminal?.label,
-          harness: surface.harness,
-          agentKey: surface.agentKey,
-        };
-      case "rawTerminal":
-        return {
-          kind: "native",
-          hostId: surface.hostId,
-          bindingId: surface.bindingId,
-          onDelete: resolveTerminalOnDelete(node.ether?.terminal),
-          launch: surface.launch as TerminalLaunch | undefined,
-          label: node.ether?.terminal?.label,
-        };
-      default: {
-        const _e: never = surface;
-        return _e;
-      }
-    }
-  }
+  const raw = rawTerminalBinding(node);
+  if (raw) return raw;
 
-  // Partially authored terminal (kind terminal, missing binding) — not an actor surface yet.
-  if (node.ether?.entity?.kind === "terminal") return undefined;
-  return undefined;
+  const surface = actorDeliverySurfaceOf(node);
+  if (!surface) return undefined;
+  return {
+    kind: "native",
+    hostId: surface.hostId,
+    bindingId: surface.bindingId,
+    onDelete: resolveTerminalOnDelete(node.ether?.terminal),
+    launch: surface.launch as TerminalLaunch | undefined,
+    label: node.ether?.terminal?.label,
+    harness: surface.harness,
+    agentKey: surface.agentKey,
+  };
 };
 
 export const isTerminalNode = (node: CanvasNode): boolean =>

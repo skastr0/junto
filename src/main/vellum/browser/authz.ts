@@ -99,12 +99,12 @@ export const resolveBrowserCaller = (
   const kind = nodeKind(node);
   if (!isBrowserCallerKind(kind)) return { ok: false, denial: "caller_wrong_kind" };
 
+  // One actor kind, and it carries both: the agent seat *is* a managed terminal,
+  // so name and binding come off the same node rather than one per kind.
   const agentKey =
-    kind === "agent" && typeof node.ether?.entity?.name === "string"
-      ? node.ether.entity.name
-      : undefined;
+    typeof node.ether?.entity?.name === "string" ? node.ether.entity.name : undefined;
   const bindingId =
-    kind === "terminal" && typeof node.ether?.terminal?.bindingId === "string"
+    typeof node.ether?.terminal?.bindingId === "string"
       ? node.ether.terminal.bindingId
       : undefined;
 

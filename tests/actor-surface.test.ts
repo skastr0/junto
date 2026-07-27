@@ -6,6 +6,7 @@ import {
   isManagedAgentNode,
 } from "../src/shared/actor-surface";
 import { deliveryTargetOf } from "../src/shared/message-delivery";
+import { resolveTerminalBinding } from "../src/shared/terminal";
 
 const managedAgent = (): CanvasNode => ({
   id: "w1",
@@ -79,12 +80,15 @@ describe("actorDeliverySurfaceOf — kind-discriminated sum", () => {
     expect(isManagedAgentNode(illegalAgent())).toBe(false);
   });
 
-  it("terminal kind ⇒ rawTerminal (geography), not managedAgent", () => {
-    const s = actorDeliverySurfaceOf(rawShell());
-    expect(s?._tag).toBe("rawTerminal");
-    if (s?._tag === "rawTerminal") {
-      expect(s.bindingId).toBe("bind-shell");
-    }
+  it("terminal kind is geography — no actor surface, no inbox, still a terminal", () => {
+    // Geography holds no delivery surface: a raw shell is not an actor seat.
+    expect(actorDeliverySurfaceOf(rawShell())).toBeUndefined();
+    expect(deliveryTargetOf(rawShell())).toBeUndefined();
+    // It still resolves as a terminal to attach to — geography hosts a PTY.
+    expect(resolveTerminalBinding(rawShell())).toMatchObject({
+      kind: "native",
+      bindingId: "bind-shell",
+    });
   });
 
   it("deliveryTargetOf is surface-derived only (no agent key target)", () => {

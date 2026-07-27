@@ -44,10 +44,10 @@ describe("describeConnectPreview", () => {
     expect(preview.label).toBe("reach + phase only — no ports offered");
   });
 
-  it("actor(terminal) -> actor(terminal): OptIn discovery (and terminal offers nothing) -> grantless", () => {
+  it("geography(terminal) -> geography(terminal): a raw shell is not an actor -> grantless", () => {
     const preview = describeConnectPreview(textNode("terminal"), textNode("terminal"));
-    expect(preview.fromRole).toBe("actor");
-    expect(preview.toRole).toBe("actor");
+    expect(preview.fromRole).toBe("geography");
+    expect(preview.toRole).toBe("geography");
     expect(preview.ports).toEqual([]);
     expect(preview.label).toBe("reach + phase only — no ports offered");
   });

@@ -144,8 +144,8 @@ const terminalCanvasDoc = (): CanvasDoc => ({
       width: 120,
       height: 48,
       ether: {
-        entity: { kind: "terminal" },
-        terminal: { bindingId: "terminal-binding" },
+        entity: { kind: "agent", name: "local:terminal" },
+        terminal: { bindingId: "terminal-binding", harness: "claude" },
       },
     },
     {
@@ -483,13 +483,14 @@ describe("browser edge-grant process-bind dual admit", () => {
     expect(capabilities.stats().activeCapabilities).toBe(0);
   });
 
-  it("admits a registered native terminal on protected routes via its human page edge", async () => {
+  it("admits a registered agent seat on protected routes via its human page edge", async () => {
     await mkdir(join(root, "canvases"), { recursive: true });
     const doc = terminalCanvasDoc();
     await writeFile(join(root, "canvases", "work.canvas"), JSON.stringify(doc), "utf8");
 
     const terminalPrincipal: ProcessPrincipal = {
-      kind: "terminal",
+      kind: "agent",
+      agentKey: "local:terminal",
       bindingId: "terminal-binding",
       canvasName: "work",
       nodeId: "terminal",
@@ -507,12 +508,12 @@ describe("browser edge-grant process-bind dual admit", () => {
     );
 
     // admitSocket is the product gate: Unix peer PID → main-owned process map
-    // → browser edge grant. A terminal is an actor, so the human page edge is
-    // the whole authority — no kind ACL sits behind it.
+    // → browser edge grant. The agent seat is the one actor, so the human page
+    // edge is the whole authority — no kind ACL sits behind it.
     const admittedSocket = await edgeGrant.admitSocket({} as Socket);
     expect(admittedSocket).toMatchObject({ ok: true, targetCount: 1 });
     if (!admittedSocket.ok) return;
-    expect(admittedSocket.principal).toMatchObject({ kind: "terminal" });
+    expect(admittedSocket.principal).toMatchObject({ kind: "agent" });
 
     const token = rotateControlToken(join(root, "terminal-token"));
     const admitted = await dispatchControlRequest(

@@ -37,8 +37,8 @@ const text = (
     ...(kind === "herdr"
       ? { herdr: { host: "local", paneId: "pane-1" } }
       : {}),
-    ...(kind === "terminal"
-      ? { terminal: { bindingId: extra?.bindingId ?? "term-bind-1" } }
+    ...(kind === "agent" || kind === "terminal"
+      ? { terminal: { bindingId: extra?.bindingId ?? "term-bind-1", harness: "claude" as const } }
       : {}),
   },
 });
@@ -80,7 +80,7 @@ describe("browser edge authz", () => {
     [
       text("agent", "agent", "local:default"),
       text("herdr", "herdr"),
-      text("term", "terminal"),
+      text("term", "agent", "local:term"),
       page("p1"),
       page("p2"),
       text("tasks", "task"),
@@ -92,7 +92,7 @@ describe("browser edge authz", () => {
     ],
   );
 
-  it("resolves agent and terminal callers via physics actors; herdr is geography", () => {
+  it("resolves the agent seat via physics actors; herdr and raw terminals are geography", () => {
     const agent = resolveBrowserCaller(board, "work", "agent");
     expect(agent.ok).toBe(true);
     if (agent.ok) {
@@ -108,7 +108,7 @@ describe("browser edge authz", () => {
     const term = resolveBrowserCaller(board, "work", "term");
     expect(term.ok).toBe(true);
     if (term.ok) {
-      expect(term.principal.kind).toBe("terminal");
+      expect(term.principal.kind).toBe("agent");
       expect(term.principal.bindingId).toBe("term-bind-1");
     }
 
@@ -119,7 +119,8 @@ describe("browser edge authz", () => {
 
   it("classifies caller kinds via physics role, not an ACL set", () => {
     expect(isBrowserCallerKind("agent")).toBe(true);
-    expect(isBrowserCallerKind("terminal")).toBe(true);
+    // A raw user-opened terminal is geography, not a caller.
+    expect(isBrowserCallerKind("terminal")).toBe(false);
     expect(isBrowserCallerKind("herdr")).toBe(false);
     expect(isBrowserCallerKind("page")).toBe(false);
     expect(isBrowserCallerKind("task")).toBe(false);
@@ -140,7 +141,7 @@ describe("browser edge authz", () => {
     expect(callerMayAccessPage(board, "agent", "p2")).toBe(false);
   });
 
-  it("admits terminal as browser caller when edged to a page", () => {
+  it("admits the agent seat as browser caller when edged to a page", () => {
     expect(callerMayAccessPage(board, "term", "p1")).toBe(true);
     expect(connectedPageNodeIds(board, "term")).toEqual(["p1"]);
     expect(callerMayAccessPage(board, "term", "p2")).toBe(false);
@@ -189,13 +190,13 @@ describe("process-bind (browser canvas resolution)", () => {
     if (!resolved.ok) expect(resolved.denial).toBe("not_connected");
   });
 
-  it("admits a terminal process principal edged to a page — role decides, not a kind ACL", () => {
+  it("admits an agent process principal edged to a page — role decides, not a kind ACL", () => {
     const terminalBoard = doc(
-      [text("term", "terminal", undefined, { bindingId: "bind-xyz" }), page("p1")],
+      [text("term", "agent", "local:term", { bindingId: "bind-xyz" }), page("p1")],
       [{ id: "e1", fromNode: "term", toNode: "p1" }],
     );
     const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
-      kind: "terminal",
+      kind: "agent",
       bindingId: "bind-xyz",
       canvasName: "work",
       nodeId: "term",
@@ -203,18 +204,18 @@ describe("process-bind (browser canvas resolution)", () => {
     expect(resolved.ok).toBe(true);
     if (resolved.ok) {
       expect(resolved.principal.nodeId).toBe("term");
-      expect(resolved.principal.kind).toBe("terminal");
+      expect(resolved.principal.kind).toBe("agent");
       expect(resolved.pageRefs).toEqual(["vellum://canvas/work?node=p1"]);
     }
   });
 
-  it("resolves a terminal principal by bindingId with no node anchor", () => {
+  it("resolves an agent principal by bindingId with no node anchor", () => {
     const terminalBoard = doc(
-      [text("term", "terminal", undefined, { bindingId: "bind-xyz" }), page("p1")],
+      [text("term", "agent", "local:term", { bindingId: "bind-xyz" }), page("p1")],
       [{ id: "e1", fromNode: "term", toNode: "p1" }],
     );
     const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
-      kind: "terminal",
+      kind: "agent",
       bindingId: "bind-xyz",
     });
     expect(resolved.ok).toBe(true);
@@ -223,11 +224,11 @@ describe("process-bind (browser canvas resolution)", () => {
 
   it("refuses a terminal principal whose binding matches no terminal node", () => {
     const terminalBoard = doc(
-      [text("term", "terminal", undefined, { bindingId: "bind-xyz" }), page("p1")],
+      [text("term", "agent", "local:term", { bindingId: "bind-xyz" }), page("p1")],
       [{ id: "e1", fromNode: "term", toNode: "p1" }],
     );
     const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
-      kind: "terminal",
+      kind: "agent",
       bindingId: "some-other-binding",
     });
     expect(resolved.ok).toBe(false);
@@ -242,7 +243,7 @@ describe("process-bind (browser canvas resolution)", () => {
     // Geography holds no seat: the only principal kinds are the actor kinds,
     // and a herdr node matches neither.
     const resolved = resolveBrowserCallerFromProcess(herdrBoard, "work", {
-      kind: "terminal",
+      kind: "agent",
       bindingId: "pane-1",
       canvasName: "work",
       nodeId: "herdr",

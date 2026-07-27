@@ -127,8 +127,9 @@ describe("resolveTerminalBinding", () => {
 });
 
 describe("station + capabilities", () => {
-  it("treats terminal as executable kind", () => {
-    expect(isExecutableEntityKind("terminal")).toBe(true);
+  it("treats the agent seat as executable; a raw terminal is geography", () => {
+    expect(isExecutableEntityKind("agent")).toBe(true);
+    expect(isExecutableEntityKind("terminal")).toBe(false);
   });
 
   it("exposes honest capability presets", () => {

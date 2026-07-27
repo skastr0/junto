@@ -71,7 +71,6 @@ type KindSpecTable = {
  */
 export const KindSpecs = {
   agent: { kind: "agent", role: "actor", offers: msgOffers },
-  terminal: { kind: "terminal", role: "actor", offers: emptyOffers },
   page: { kind: "page", role: "sink", offers: pageOffers },
   task: { kind: "task", role: "sink", offers: taskOffers },
   requests: { kind: "requests", role: "sink", offers: requestsOffers },

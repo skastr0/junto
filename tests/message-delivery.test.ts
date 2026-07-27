@@ -110,15 +110,16 @@ describe("message-delivery pure helpers", () => {
     expect(stampMessageDelivered(stamped!, "agent", "m-a", 99)).toBeNull();
   });
 
-  it("resolves managed agent and native terminal; bare agent and herdr are unreachable", () => {
+  it("resolves the agent seat; bare agent, herdr and raw terminals are unreachable", () => {
     // Agents without ether.terminal.bindingId never fall back to ACP.
     expect(deliveryTargetOf(agentNode())).toEqual({
       kind: "terminal",
       bindingId: "bind-mira",
     });
-    // Geography holds no inbox, so a herdr pane is not a delivery target.
+    // Geography holds no inbox — neither a herdr pane nor a raw user terminal
+    // is a delivery target.
     expect(deliveryTargetOf(herdrNode())).toBeUndefined();
-    expect(deliveryTargetOf(terminalNode())).toEqual({ kind: "terminal", bindingId: "binding-1" });
+    expect(deliveryTargetOf(terminalNode())).toBeUndefined();
     const bare: CanvasDoc["nodes"][number] = {
       id: "x",
       type: "text",

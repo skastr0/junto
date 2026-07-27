@@ -33,20 +33,15 @@ export type ManagedAgentSurface = {
   readonly hostId: string;
 };
 
-export type RawTerminalSurface = {
-  readonly _tag: "rawTerminal";
-  readonly nodeId: string;
-  readonly bindingId: string;
-  readonly hostId: string;
-  readonly launch: EtherTerminal["launch"];
-};
-
 /**
  * Every product path that *delivers* to an actor seat must switch on this.
  * Adding a surface without a case is a compile error at call sites that
  * use `Match` / exhaustive switch.
+ *
+ * One actor kind ⇒ one surface. A raw user-opened terminal is geography: it
+ * holds no inbox, so it is not a delivery target.
  */
-export type ActorDeliverySurface = ManagedAgentSurface | RawTerminalSurface;
+export type ActorDeliverySurface = ManagedAgentSurface;
 
 // ── Narrowed document nodes ────────────────────────────────────────────────
 
@@ -118,17 +113,6 @@ export const actorDeliverySurfaceOf = (
           hostId,
         };
       }
-      case "terminal": {
-        const bindingId = node.ether?.terminal?.bindingId?.trim();
-        if (!bindingId) return undefined;
-        return {
-          _tag: "rawTerminal",
-          nodeId: node.id,
-          bindingId,
-          hostId,
-          launch: node.ether?.terminal?.launch,
-        };
-      }
       default: {
         const exhaustive: never = kind;
         return exhaustive;
@@ -160,13 +144,5 @@ export type SurfaceDeliveryTarget = {
 export const deliveryTargetFromSurface = (
   surface: ActorDeliverySurface,
 ): SurfaceDeliveryTarget => {
-  switch (surface._tag) {
-    case "managedAgent":
-    case "rawTerminal":
-      return { kind: "terminal", bindingId: surface.bindingId };
-    default: {
-      const _exhaustive: never = surface;
-      return _exhaustive;
-    }
-  }
+  return { kind: "terminal", bindingId: surface.bindingId };
 };

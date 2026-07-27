@@ -281,9 +281,9 @@ describe("physics admitPure", () => {
     }
   });
 
-  it("admits a terminal as an actor for browser.automate", () => {
+  it("admits an agent seat — the one actor kind — for browser.automate", () => {
     const doc: CanvasDoc = {
-      nodes: [textNode("seat", "terminal"), pageNode("p1")],
+      nodes: [textNode("seat", "agent"), pageNode("p1")],
       edges: [{ id: "e1", fromNode: "seat", toNode: "p1" }],
     };
     const view = canvasDocToCapabilityView(doc);

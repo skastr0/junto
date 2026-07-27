@@ -132,7 +132,7 @@ const MSG_OPS: ReadonlyArray<WorkOpName> = ["msg.list", "msg.send"];
 const opsForSpec = (spec: NodeSpecValue): ReadonlyArray<WorkOpName> =>
   Match.value(spec).pipe(
     Match.tagsExhaustive({
-      Actor: (s) => (s.kind === "terminal" ? NO_OPS : MSG_OPS),
+      Actor: () => MSG_OPS,
       Sink: (s): ReadonlyArray<WorkOpName> => opsForSink(s.kind),
       Scheduler: () => NO_OPS,
       Geography: () => NO_OPS,

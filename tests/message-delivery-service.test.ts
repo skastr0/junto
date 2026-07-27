@@ -45,8 +45,8 @@ const terminalDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
       width: 100,
       height: 80,
       ether: {
-        entity: { kind: "terminal" },
-        terminal: { bindingId: "bind-term" },
+        entity: { kind: "agent", name: "local:claude" },
+        terminal: { bindingId: "bind-term", harness: "claude" },
         messages: { items: [...messages] },
       },
     },
@@ -256,7 +256,11 @@ describe("MessageDeliveryService", () => {
       ...base,
       nodes: [{
         ...base.nodes[0]!, id: "terminal",
-        ether: { entity: { kind: "terminal" }, terminal: { bindingId: "binding-1" }, messages: { items: [msg] } },
+        ether: {
+          entity: { kind: "agent", name: "local:claude" },
+          terminal: { bindingId: "binding-1", harness: "claude" },
+          messages: { items: [msg] },
+        },
       }],
     };
     const store = makeStore({ c: doc });
@@ -309,8 +313,8 @@ describe("MessageDeliveryService", () => {
         ...base.nodes[0]!,
         id: "terminal",
         ether: {
-          entity: { kind: "terminal" },
-          terminal: { bindingId: "bind-mt" },
+          entity: { kind: "agent", name: "local:claude" },
+          terminal: { bindingId: "bind-mt", harness: "claude" },
           messages: { items: [msg] },
         },
       }],
@@ -349,8 +353,8 @@ describe("MessageDeliveryService", () => {
         ...base.nodes[0]!,
         id: "terminal",
         ether: {
-          entity: { kind: "terminal" },
-          terminal: { bindingId: "bind-idle" },
+          entity: { kind: "agent", name: "local:claude" },
+          terminal: { bindingId: "bind-idle", harness: "claude" },
           messages: { items: [msg] },
         },
       }],

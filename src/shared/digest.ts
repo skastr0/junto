@@ -89,7 +89,7 @@ const seedEligible = (node: CanvasNode): boolean =>
     resolveSpec({ isGroup: isGroup(node), kind: node.ether?.entity?.kind }),
   ).pipe(
     Match.tagsExhaustive({
-      Actor: (spec) => spec.kind === "terminal",
+      Actor: () => false,
       Sink: (spec) => spec.kind !== "page",
       Scheduler: () => true,
       Geography: (spec) => spec.kind !== "herdr",
