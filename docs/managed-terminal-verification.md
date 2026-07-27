@@ -4,6 +4,10 @@ Status: executed-probe verification of the managed-terminal design. 2026-07-26.
 Method: every item below was verified by **running the real harness TUI in a PTY** (or reading source with file:line receipts) — not doc reads. 63/63 probe items have executed receipts.
 Raw evidence: [`research/managed-terminal-probes/`](research/managed-terminal-probes/) — per-harness full reports, gap-fill rounds, and [`journal-verdicts.md`](research/managed-terminal-probes/journal-verdicts.md) (compact per-item verdicts with pointers). Probe artifacts (`.bin` PTY captures, hook payload dumps) lived in the session scratchpad; the reports quote the load-bearing bytes.
 
+Scope: this map verifies mechanisms exposed by the harness binaries, not
+Vellum's current wiring or release status. Current release capability is
+recorded by the managed-terminal template badges.
+
 The design being verified: **one agent surface** — a Vellum-spawned PTY running the harness's full interactive TUI (never headless), per-session injection via flags/env only (zero writes to user configs), the station CLI as the tool surface (process-bind), state-gated PTY typing as the drive channel, Ctrl+C interrupt, resume-by-id cold wake. Harness templates v1: Claude Code, Codex, Grok, Hermes.
 
 Versions probed: claude 2.1.220 · codex-cli 0.145.0 · grok build (grok-4.5 era, 2026-07) · hermes (2026-07, gpt-5.4/5.5 era) · herdr master @ c0fb777 (Apache-2.0). Re-verify on major harness updates — several load-bearing behaviors are undocumented.
@@ -81,7 +85,7 @@ Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `
 From [`herdr-study.md`](research/managed-terminal-probes/herdr-study.md) (master @ c0fb777, Apache-2.0; learn-never-fork):
 - Detection = declarative TOML rule engine, 13 named regions (incl. `prompt_box_body` — literally the "input box idle" predicate), 4 states, priority-ranked, per-harness manifests (all four v1 harnesses covered).
 - **Settled-idle debounce, port verbatim**: 300ms tick → 100ms holding, 3 confirmations, 700ms cap, 800ms blocker heartbeat, 3s post-change grace; debounce ONLY the Working→Idle drop — visible idle chrome publishes immediately.
-- Herdr **reversed its own hooks decision** for Claude/Codex (screen+OSC won; hooks kept only for session-id) — and its hook install writes user configs (exactly Vellum's banned move). Vellum's flag-injected hooks avoid that trade.
+- Herdr **reversed its own hooks decision** for Claude/Codex (screen+OSC won; hooks kept only for session-id) — and its hook install writes user configs (exactly Vellum's banned move). The target design could use per-invocation hooks without user-config writes; current Vellum ships no per-harness hook injection and relies on OSC/grid.
 - Herdr typing has **no gating, no chunking, no dialog avoidance** — a prompt sent while blocked goes into the dialog. Vellum's state-gated typing is strictly stronger. Take the 5s `agent_prompt_stalled` check.
 - OSC titles are untrusted model output: sanitize (256-char cap, strip controls), clear retained evidence on agent change.
 - Skip: config writing, remote unsigned manifest auto-update, literal pattern strings (re-derive from our own e2e captures).

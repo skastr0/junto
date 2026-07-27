@@ -178,9 +178,13 @@ Replaces the Codex Bar dependency; per-station, cross-account, and Linux-viable.
 
 ---
 
-## 9 · Per-harness capability matrix (the template spec)
+## 9 · Verified harness mechanism matrix (target template spec)
 
-Every row verified — see [`managed-terminal-verification.md`](managed-terminal-verification.md) for receipts.
+Every row below is backed by harness probes — see
+[`managed-terminal-verification.md`](managed-terminal-verification.md) for
+receipts. This is not a current Vellum implementation matrix. Release truth
+lives in `src/shared/managed-terminal-templates.ts`: hooks are currently off
+for all four harnesses, and Codex/Hermes cold wake is unavailable.
 
 | | Claude Code | Codex | Grok | Hermes |
 |---|---|---|---|---|
