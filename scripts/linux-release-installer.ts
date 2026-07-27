@@ -819,7 +819,7 @@ const recoverInterruptedTransaction = async (
   observedLease: LinuxReleaseMaintenanceLease,
 ): Promise<void> => {
   const journal = interrupted.journal;
-  let lease: LinuxReleaseMaintenanceLease | undefined = observedLease;
+  const lease = observedLease;
   if (!PRE_MUTATION_PHASES.has(journal.phase) &&
     !ABORTED_RESOLUTION_PHASES.has(journal.phase) &&
     !CLEARED_FENCE_PHASES.has(journal.phase)) {
@@ -881,16 +881,13 @@ const recoverInterruptedTransaction = async (
       await lease.acknowledge(observedAuthority);
     }
   }
-  let recovering = journal;
+  const recovering = journal;
   const authority = observedAuthority;
-  // The only recoverable nonterminal transaction is an aborted pre-mutation
-  // cleanup. Candidate mutation phases are quarantined and retained above.
-  const resolution = "aborted" as const;
   if (authority === undefined) {
-    if (!CLEAR_STARTED_PHASES.has(journal.phase)) {
+    if (journal.phase !== "aborted-fence-clear-started") {
       throw new InstallerError(
         "unsafe-state",
-        "published recovery fence authority is unavailable",
+        "aborted recovery fence authority is unavailable",
       );
     }
     try {
@@ -903,28 +900,12 @@ const recoverInterruptedTransaction = async (
           "cleared recovery fence generation is not exact",
         );
       }
-      if (resolution !== "aborted") {
-        const expectedVersion = recovering.toVersion;
-        if (expectedVersion === null) {
-          throw new InstallerError(
-            "unsafe-state",
-            "cleared recovery fence has no authoritative package generation",
-          );
-        }
-        await host.verifyCurrentReadiness(
-          invocation,
-          expectedVersion,
-          lease.peer.generation,
-        );
-      }
       await fenceControl.proveAbsent(recovering.fence.record);
-      recovering = phaseJournal(
+      const cleared = phaseJournal(
         recovering,
-        resolution === "aborted"
-          ? "aborted-fence-cleared"
-          : "fence-cleared",
+        "aborted-fence-cleared",
       );
-      await host.writeJournal(recovering);
+      await host.writeJournal(cleared);
       await host.clearJournal();
       return;
     } finally {
@@ -932,10 +913,9 @@ const recoverInterruptedTransaction = async (
     }
   }
   try {
-    let recoveryGeneration: string | undefined = lease?.peer.generation;
+    const recoveryGeneration = lease.peer.generation;
     if (
       recovering.fence.postGeneration !== null &&
-      recoveryGeneration !== undefined &&
       recovering.fence.postGeneration !== recoveryGeneration
     ) {
       throw new InstallerError(
@@ -943,63 +923,27 @@ const recoverInterruptedTransaction = async (
         "recovered fence generation changed after acknowledgment",
       );
     }
-    if (resolution !== "aborted") {
-      const expectedVersion = recovering.toVersion;
-      if (
-        expectedVersion === null
-      ) {
-        throw new InstallerError(
-          "unsafe-state",
-          "recovered fence requires an authoritative active generation",
-        );
-      }
-      if (recoveryGeneration === undefined) {
-        recoveryGeneration = await host.currentServiceGeneration(invocation);
-      }
-      await host.verifyCurrentReadiness(
-        invocation,
-        expectedVersion,
-        recoveryGeneration,
-      );
-    } else if (recoveryGeneration === undefined) {
-      // Aborted without a live TermControl lease: postGeneration still required.
-      recoveryGeneration = recovering.fence.postGeneration ??
-        await host.currentServiceGeneration(invocation);
-    }
-    const postGeneration = recoveryGeneration ??
-      await host.currentServiceGeneration(invocation);
-    const acknowledgedPhase: LinuxReleaseInstallerJournalPhase =
-      resolution === "aborted"
-        ? "aborted-acknowledged"
-        : "postrestart-acknowledged";
-    const clearStartedPhase: LinuxReleaseInstallerJournalPhase =
-      resolution === "aborted"
-        ? "aborted-fence-clear-started"
-        : "fence-clear-started";
-    const clearedPhase: LinuxReleaseInstallerJournalPhase =
-      resolution === "aborted"
-        ? "aborted-fence-cleared"
-        : "fence-cleared";
-    if (!CLEAR_STARTED_PHASES.has(recovering.phase)) {
-      recovering = {
+    let clearing = recovering;
+    if (clearing.phase !== "aborted-fence-clear-started") {
+      clearing = {
         ...recovering,
         owner: invocation.process,
         fence: {
           ...recovering.fence,
-          postGeneration,
+          postGeneration: recoveryGeneration,
         },
-        phase: acknowledgedPhase,
+        phase: "aborted-acknowledged",
       };
-      await host.writeJournal(recovering);
-      recovering = phaseJournal(recovering, clearStartedPhase);
-      await host.writeJournal(recovering);
+      await host.writeJournal(clearing);
+      clearing = phaseJournal(clearing, "aborted-fence-clear-started");
+      await host.writeJournal(clearing);
     }
     await fenceControl.clear(authority);
-    recovering = phaseJournal(recovering, clearedPhase);
-    await host.writeJournal(recovering);
+    clearing = phaseJournal(clearing, "aborted-fence-cleared");
+    await host.writeJournal(clearing);
     await host.clearJournal();
   } finally {
-    await lease?.release().catch(() => undefined);
+    await lease.release().catch(() => undefined);
   }
 };
 

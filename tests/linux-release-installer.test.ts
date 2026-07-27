@@ -1359,6 +1359,40 @@ describe("Linux privileged release installer", () => {
     expect(fixture.fence.events).not.toContain("clear");
   });
 
+  it("cleans an interrupted aborted fence clear before installing the candidate", async () => {
+    const fixture = await createFixture();
+    await fixture.host.ensureLayout();
+    const prior = bundle("1.0.0", "78".repeat(16));
+    const fence = {
+      ...journalFence(
+        prior,
+        prior.request.transactionId,
+        "install",
+        "aborted-fence-clear-started",
+      ),
+      postGeneration: generation,
+    };
+    await fixture.host.writeJournal({
+      schema: "vellum/linux-release-installer-journal/v3",
+      transactionId: prior.request.transactionId,
+      operation: "install",
+      owner: fixture.invocation.process,
+      target: prior.request.target,
+      fence,
+      manifestSha256: prior.candidate.manifestSha256,
+      debSha256: prior.candidate.debSha256,
+      sourceRevision: revision,
+      fromVersion: null,
+      toVersion: "1.0.0",
+      phase: "aborted-fence-clear-started",
+    });
+    const { receipt } = await install(fixture, "2.0.0", "79".repeat(16));
+    expect(receipt).toMatchObject({ ok: true, state: "ready", operation: "install" });
+    expect(fixture.fence.events).toContain("clear");
+    expect(fixture.machine.events).toContain("install:2.0.0");
+    expect(fixture.machine.events).not.toContain("quarantine");
+  });
+
   it("refuses a malformed durable journal before package execution", async () => {
     const fixture = await createFixture();
     await fixture.host.ensureLayout();
