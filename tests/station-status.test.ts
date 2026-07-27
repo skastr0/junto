@@ -128,8 +128,11 @@ const localDoctorInput = () => ({
   supervisedInstalled: "absent" as const,
   status: defaultStationStatus(),
   kernel: liveKernel(),
-  workControlReady: true,
-  simulationReady: true,
+  readiness: {
+    database: true,
+    workControl: true,
+    simulation: true,
+  },
   now: Date.parse("2026-07-23T12:00:00.000Z"),
 });
 
@@ -184,8 +187,11 @@ describe("station status doctor", () => {
       receivedThrough: [],
       supervisedInstalled: "absent",
       status: defaultStationStatus(),
-      workControlReady: true,
-      simulationReady: true,
+      readiness: {
+        database: true,
+        workControl: true,
+        simulation: true,
+      },
     });
 
     expect(check.id).toBe("station");
@@ -202,12 +208,14 @@ describe("station status doctor", () => {
     expect(check.detail).toMatch(/Command Center/i);
     expect(check.detail).toContain("cc-installation");
     expect(check.detail).toMatch(/host local/i);
+    expect(check.detail).toContain("database ready");
     expect(check.detail).toContain("work control ready");
     expect(check.detail).toContain("simulation ready");
     expect(check.metadata).toMatchObject({
       installationId: "cc-installation",
       role: "command-center",
       hostId: "local",
+      databaseReady: "true",
       workControlReady: "true",
       simulationReady: "true",
     });
@@ -252,21 +260,49 @@ describe("station status doctor", () => {
     });
   });
 
-  it("warns independently when work control or simulation is down", () => {
-    const workDown = assessStationDoctor({
-      ...localDoctorInput(),
-      workControlReady: false,
-    });
-    const simulationDown = assessStationDoctor({
-      ...localDoctorInput(),
-      simulationReady: false,
-    });
+  it.each([
+    {
+      component: "database" as const,
+      detail: /database unavailable/i,
+      metadata: "databaseReady" as const,
+      severity: "error" as const,
+    },
+    {
+      component: "workControl" as const,
+      detail: /work control not ready/i,
+      metadata: "workControlReady" as const,
+      severity: "warning" as const,
+    },
+    {
+      component: "simulation" as const,
+      detail: /simulation degraded/i,
+      metadata: "simulationReady" as const,
+      severity: "warning" as const,
+    },
+  ])(
+    "reports canonical severity when $component readiness is false",
+    ({ component, detail, metadata, severity }) => {
+      const input = localDoctorInput();
+      const check = assessStationDoctor({
+        ...input,
+        readiness: {
+          ...input.readiness,
+          [component]: false,
+        },
+      });
 
-    expect(workDown.status).toBe("warning");
-    expect(workDown.detail).toMatch(/work control not ready/i);
-    expect(simulationDown.status).toBe("warning");
-    expect(simulationDown.detail).toMatch(/simulation degraded/i);
-  });
+      expect(check.status).toBe(severity);
+      expect(check.detail).toMatch(detail);
+      expect(check.metadata).toMatchObject({
+        databaseReady: component === "database" ? "false" : "true",
+        workControlReady:
+          component === "workControl" ? "false" : "true",
+        simulationReady:
+          component === "simulation" ? "false" : "true",
+      });
+      expect(check.metadata?.[metadata]).toBe("false");
+    },
+  );
 
   it("reports a managed Remote from its live Station API observation", () => {
     const deployment = deployRecordFromResult({
