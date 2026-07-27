@@ -5,7 +5,8 @@
  * then asserts the product contracts that unit tests cannot: durable mutation,
  * live projection, and blocked-edge paint from runtime state.
  *
- * Isolation: throwaway VELLUM_STATE_DB + HOME (harness/launch.ts).
+ * Isolation: throwaway HOME (harness/launch.ts), so the app's canonical
+ * $HOME/.vellum/state/vellum.db remains hermetic without a database override.
  * Run: `bun run test:e2e` (builds) or `bun run test:e2e:fast` (uses out/).
  */
 import type { Task, Artifact, Message } from "../../src/shared/canvas";

@@ -23,7 +23,7 @@ import {
   type StateRow,
   type StateWriter,
 } from "./service";
-import { isDemoMode } from "../demo/mode";
+import { demoStateDatabasePath } from "../demo/runtime-isolation";
 import { verifyAndStampStateSchema } from "./schema-identity";
 
 export {
@@ -56,22 +56,17 @@ const stateEngineError = (
       cause,
     });
 
-const allowsStateDatabaseOverride = (): boolean =>
-  isDemoMode() ||
-  process.env.VELLUM_E2E === "1" ||
-  process.env.VITEST === "true";
-
 /**
- * Resolve the sole app database. Process-level redirection is confined to the
- * explicit demo, E2E, and Vitest isolation modes; ordinary product startup
- * always owns the canonical database under the operator's home.
+ * Resolve the sole product database. Demo mode receives only a process-minted
+ * ephemeral database; no environment variable can redirect product authority.
+ * Tests that exercise a StateEngine directly inject a path into
+ * makeStateEngineLive instead of creating a second runtime convention.
  */
-export const stateDatabasePath = (): string => {
-  if (allowsStateDatabaseOverride() && process.env.VELLUM_STATE_DB) {
-    return resolve(process.env.VELLUM_STATE_DB);
-  }
-  return resolve(join(homedir(), ".vellum", "state", "vellum.db"));
-};
+export const stateDatabasePath = (): string =>
+  resolve(
+    demoStateDatabasePath() ??
+      join(homedir(), ".vellum", "state", "vellum.db"),
+  );
 
 const assertRealDirectory = (path: string): void => {
   mkdirSync(path, { recursive: true, mode: STATE_DIRECTORY_MODE });

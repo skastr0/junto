@@ -159,9 +159,7 @@ const seedFixture = async (
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
       HOME: root,
-      VELLUM_E2E: "1",
       VELLUM_CANVASES_DIR: canvasesDir,
-      VELLUM_STATE_DB: stateDatabase,
     },
   });
   const close = await probeSupervisor.waitForClose(
@@ -223,7 +221,6 @@ const spawnApp = (
       VELLUM_BROWSER_DIR: join(fixture.root, "browser"),
       VELLUM_BROWSER_HOME: fixture.userDataDir,
       VELLUM_CANVASES_DIR: fixture.canvasesDir,
-      VELLUM_STATE_DB: fixture.stateDatabase,
       VELLUM_KERNEL_OBSERVATIONS: "1",
       VELLUM_WORK_HOME: join(fixture.root, "work-control"),
     },

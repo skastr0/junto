@@ -529,7 +529,7 @@ serve catalog lives in Settings.
 | `VELLUM_WORK_HOME` | Override work control dir |
 | `VELLUM_BROWSER_HOME` | Override browser control home |
 | `VELLUM_AUTHORIAL_WRITE` | Allow `canvas:rm` |
-| `VELLUM_DEMO` | Demo mode |
+| `VELLUM_DEMO` | Demo mode; by default SQLite and sidecars live in a process-owned OS-temporary directory removed on shutdown |
 
 ---
 

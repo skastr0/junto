@@ -1,7 +1,3 @@
-// Establish demo-only SQLite and projection roots before runtime.ts can
-// acquire the app's sole StateEngine connection. This must stay first.
-import "./vellum/demo/isolation-env";
-
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
@@ -30,6 +26,7 @@ import {
 } from "./vellum/adapters/exec";
 import { appProcessPlane } from "./vellum/app-process-plane";
 import { AppRuntime } from "./runtime";
+import { releaseDemoRuntimeIsolation } from "./vellum/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
 import { resolveControlHome } from "./vellum/control-home";
@@ -1752,6 +1749,7 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
 const disposeRuntime = (): Promise<void> => {
   runtimeDispose ??= drainRuntimeOnQuit(shutdownReason)
     .then(() => AppRuntime.dispose())
+    .finally(releaseDemoRuntimeIsolation)
     .catch((error) => {
       console.error("[runtime] dispose failed:", error);
     });

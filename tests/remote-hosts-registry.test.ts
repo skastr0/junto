@@ -44,6 +44,7 @@ import { SshTransport } from "../src/main/vellum/ssh/service";
 import { acpVerboseLogging } from "../src/main/vellum/chat/acp-client";
 
 const dirs: string[] = [];
+const originalHome = process.env.HOME;
 const stateDisposers: Array<() => Promise<void>> = [];
 const stateByPath = new Map<
   string,
@@ -76,8 +77,8 @@ afterEach(async () => {
   setHostsSnapshot(defaultRemoteHostsDocument().hosts);
   delete process.env.VELLUM_ACP_VERBOSE;
   delete process.env.VELLUM_DEBUG;
-  delete process.env.VELLUM_E2E;
-  delete process.env.VELLUM_STATE_DB;
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
 });
 
 describe("remote hosts registry", () => {
@@ -270,9 +271,8 @@ describe("remote hosts registry", () => {
   it("hydrates persisted hosts before the first normal-boot route", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-boot-"));
     dirs.push(root);
-    const databasePath = join(root, "vellum.db");
-    process.env.VELLUM_E2E = "1";
-    process.env.VELLUM_STATE_DB = databasePath;
+    process.env.HOME = root;
+    const databasePath = join(root, ".vellum", "state", "vellum.db");
     const setupRuntime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     try {
       const state = await setupRuntime.runPromise(StateEngine);

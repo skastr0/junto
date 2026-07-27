@@ -6,7 +6,8 @@
  * try/finally per spec.
  *
  * Isolation invariants (never relaxed):
- *  - throwaway --user-data-dir + explicit VELLUM_STATE_DB per test (sandbox.ts)
+ *  - throwaway --user-data-dir + HOME per test (sandbox.ts); the app still
+ *    resolves its one canonical $HOME/.vellum/state/vellum.db
  *  - HOME sandboxed to the same temp root + SHELL=/bin/sh, so the adapters'
  *    login-shell PATH probe (src/main/vellum/adapters/exec.ts) cannot
  *    resolve the operator's real CLIs
@@ -466,12 +467,6 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
       HOME: sandbox.homeDir,
       SHELL: "/bin/sh",
       VELLUM_CANVASES_DIR: sandbox.canvasesDir,
-      VELLUM_STATE_DB: join(
-        sandbox.homeDir,
-        ".vellum",
-        "state",
-        "vellum.db",
-      ),
       VELLUM_E2E: "1",
       // Match electron-vite's real development contract exactly. It supplies
       // the loopback authority without a trailing slash; using a normalized
