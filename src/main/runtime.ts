@@ -61,9 +61,6 @@ import { StationApiLive } from "./vellum/station/api";
 import { StationRemoteApiClientLive } from "./vellum/station/remote-client";
 import { StationPropagationLive } from "./vellum/station/propagation";
 import { StationFleetPropagationLive } from "./vellum/station/fleet-propagation";
-import {
-  StationBrowserTrustRepositoryLive,
-} from "./vellum/browser/station-trust";
 
 // Keep this exact layer value as the sole database owner in the runtime graph.
 // Effect memoizes layers by reference, so every repository below receives the
@@ -80,7 +77,6 @@ const StateRepositoriesLive = Layer.provideMerge(
     StationStatusLive,
     StationRepositoryLive,
     StationFleetTargetRepositoryLive,
-    StationBrowserTrustRepositoryLive,
   ),
   StateEngineLive,
 );

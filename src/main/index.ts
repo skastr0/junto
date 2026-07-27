@@ -66,10 +66,6 @@ import {
 import { KernelService } from "./vellum/kernel/service";
 import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
 import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum/browser/station-admission";
-import { prepareStationBrowserRuntimeRoutes } from "./vellum/browser/station-runtime";
-import { StationBrowserTrustRepository } from "./vellum/browser/station-trust";
-import { StationRepository } from "./vellum/station/repository";
-import { SshTransport } from "./vellum/ssh";
 import { configurePeerPidHelperRoots } from "./vellum/process-identity";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
@@ -1280,29 +1276,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           if (admissionCleanupRan) acquiredCanvasUnsubscribe();
           else canvasUnsubscribe = acquiredCanvasUnsubscribe;
 
-          const { ssh, stationBrowserTrust, installationId } =
-            await AppRuntime.runPromise(
-              Effect.gen(function* () {
-                const stations = yield* StationRepository;
-                return yield* Effect.all({
-                  ssh: SshTransport,
-                  stationBrowserTrust: StationBrowserTrustRepository,
-                  installationId: stations.installationId,
-                });
-              }),
-            );
-          const stationBrowserRoutes =
-            await prepareStationBrowserRuntimeRoutes({
-              home: browserControlHome,
-              installationId,
-              trust: stationBrowserTrust,
-              sessions: composition.sessions,
-              readCanvas: readCanvasFromCanvases,
-              resolvePageTarget: resolveBrowserPageTarget,
-              stationAdmission,
-              hosts: hostsSnapshot,
-              ssh,
-            });
           browserControl = await startBrowserControlServer({
             sessions: composition.sessions,
             capabilities: composition.registry,
@@ -1311,7 +1284,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             home: browserControlHome,
             edgeGrant,
             listCanvasDocuments,
-            ...stationBrowserRoutes,
           });
           const productPath = makeElectronBrowserReadinessProductPath({
             compositionHost: browserCompositionHost,

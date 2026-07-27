@@ -29,21 +29,7 @@ const commandCenterInstallationId =
   Schema.decodeUnknownSync(InstallationId)("cc-installation");
 const configuredDeployOptions = {
   commandCenterInstallationId,
-  commandCenterRef: "local",
   appVersion: "0.1.0",
-  browserTrust: {
-    version: 1 as const,
-    generation: 1,
-    keyId: "ed25519-command-center",
-    originInstallationId: commandCenterInstallationId,
-    status: "active" as const,
-    publicKeySpki: Buffer.from(
-      "bounded-public-key-material",
-      "utf8",
-    ).toString("base64"),
-    replacesKeyId: null,
-    updatedAt: 1_774_780_400_000,
-  },
 };
 
 type Ssh = Parameters<

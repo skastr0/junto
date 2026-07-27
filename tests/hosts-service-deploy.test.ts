@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import { RemoteHostsError } from "../src/shared/remote-hosts";
 import { InstallationId } from "../src/shared/station-api";
-import type { StationBrowserPinnedTrustRecord } from "../src/shared/station-browser";
 import type { ConfigureRemoteOptions } from "../src/main/vellum/hosts/configure-remote";
 
 // Admission/serialization tests need the managed-deploy path open. Product
@@ -42,21 +41,9 @@ const registryFor = (
 
 const commandCenterInstallationId =
   Schema.decodeUnknownSync(InstallationId)("command-center");
-const browserTrust: StationBrowserPinnedTrustRecord = {
-  version: 1,
-  generation: 1,
-  keyId: "ed25519-command-center",
-  originInstallationId: commandCenterInstallationId,
-  status: "active",
-  publicKeySpki: Buffer.from("public-key-material").toString("base64"),
-  replacesKeyId: null,
-  updatedAt: 1,
-};
 const configureOptions: ConfigureRemoteOptions = {
   commandCenterInstallationId,
-  commandCenterRef: "local",
   appVersion: "0.1.0",
-  browserTrust,
 };
 
 const failedResult = (host: RemoteHost): ConfiguredRemoteDeployResult => ({

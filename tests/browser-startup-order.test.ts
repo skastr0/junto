@@ -48,11 +48,8 @@ describe("browser startup recovery gate", () => {
     expect(activation).toContain("edgeGrant.clear()");
   });
 
-  it("composes station browser routes before exposing the owner-local control socket", () => {
+  it("starts host-local browser control without remote Station-browser routes", () => {
     const activation = indexSrc.slice(indexSrc.indexOf("async (composition) =>"));
-    const routes = activation.indexOf(
-      "await prepareStationBrowserRuntimeRoutes({",
-    );
     const control = activation.indexOf(
       "browserControl = await startBrowserControlServer({",
     );
@@ -60,18 +57,15 @@ describe("browser startup recovery gate", () => {
       "composition.bindControlShutdown(browserControl)",
     );
 
-    expect(routes).toBeGreaterThanOrEqual(0);
-    expect(control).toBeGreaterThan(routes);
+    expect(control).toBeGreaterThanOrEqual(0);
     expect(bind).toBeGreaterThan(control);
-    const composition = activation.slice(routes, control);
+    expect(activation).not.toContain("prepareStationBrowserRuntimeRoutes");
+    expect(activation).not.toContain("stationBrowserRoutes");
+    expect(activation).not.toContain("StationBrowserTrustRepository");
+    const composition = activation.slice(control, bind);
     expect(composition).toContain("sessions: composition.sessions");
-    expect(composition).toContain("stationAdmission");
-    expect(composition).toContain("hosts: hostsSnapshot");
-    expect(composition).toContain("ssh");
-    expect(composition).toContain("trust: stationBrowserTrust");
-    expect(activation.slice(control, bind)).toContain(
-      "...stationBrowserRoutes",
-    );
+    expect(composition).toContain("edgeGrant");
+    expect(composition).toContain("listCanvasDocuments");
   });
 
   it("creates the headless native parent before composition and injects the attachment target", () => {

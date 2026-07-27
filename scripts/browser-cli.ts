@@ -9,7 +9,6 @@ import {
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
   CONTROL_TOKEN_HEADER,
-  STATION_BROWSER_ORIGIN_ROUTE_PATH,
   controlErr,
   controlSocketPath,
   controlTokenPath,
@@ -25,27 +24,18 @@ import {
   BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES,
   BROWSER_CONTROL_MAX_RESPONSE_BYTES,
 } from "../src/shared/browser-limits";
-import {
-  canonicalStationBrowserJson,
-  decodeStationBrowserResponse,
-  STATION_BROWSER_MAX_FRAME_BYTES,
-  type StationBrowserResponse,
-  type StationBrowserSession,
-} from "../src/shared/station-browser";
-import type { StationBrowserRouteInput } from "../src/main/vellum/browser/station-router";
-import { parseNodeRef } from "../src/shared/node-ref";
 
 // Agent CLI for the browser control plane: `bun run browser <cmd>` talks to
 // the app-hosted unix-socket server (canvas-ls precedent: plain text by
 // default, `--json` for machines). Requires the app running — a dead socket is
 // reported as the typed `runtime_down` error, never a stack trace. Exit code
-// 0 on ok envelopes, 1 on error envelopes.
+// 0 on ok envelopes, 1 on error envelopes. Remote Station-browser is deleted;
+// `--host`, hidden `station` mode, and station-trust exit 2 before transport.
 
 const usage = `vellum browser control
 
 usage:
   vellum browser <command> [args] [--json]
-  vellum browser --host <station> <command> [args] [--json]
   vellum-browser <command> [args] [--json]
   bun run browser <command> [args] [--json]
 
@@ -65,13 +55,8 @@ commands:
   close <sessionId>                detach the surface (session stays warm)
   stop <sessionId>                 destroy the page runtime (profile stays)
 
-cross-station:
-  --host is explicit and never inferred
-  open returns an opaque station session handle; pass that handle to
-  goto, eval, shot, state, close, or stop
-  profiles and surface bounds are local-only`;
-
-const STATION_BROWSER_STDIN_TIMEOUT_MS = 5_000;
+host-local only:
+  remote Station-browser (--host / station / station-trust) is removed`;
 
 // Bounds the whole request/response round-trip. Without this, a hung page
 // script (executeJavaScript that never resolves — e.g. `while(true){}` run
@@ -229,285 +214,13 @@ const httpOverSocket = (
     req.end();
   });
 
-const readBoundedStdin = (
-  limitBytes: number,
-): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let bytes = 0;
-    let settled = false;
-    const finish = (error?: Error): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      process.stdin.removeAllListeners("data");
-      process.stdin.removeAllListeners("end");
-      process.stdin.removeAllListeners("error");
-      if (error !== undefined) reject(error);
-      else resolve(Buffer.concat(chunks, bytes).toString("utf8"));
-    };
-    const timer = setTimeout(
-      () => finish(new Error("station wrapper stdin timed out")),
-      STATION_BROWSER_STDIN_TIMEOUT_MS,
-    );
-    process.stdin.on("data", (chunk: Buffer | string) => {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      bytes += buffer.byteLength;
-      if (bytes > limitBytes) {
-        finish(new Error("station wrapper stdin exceeds its byte boundary"));
-        process.stdin.destroy();
-        return;
-      }
-      chunks.push(buffer);
-    });
-    process.stdin.once("end", () => finish());
-    process.stdin.once("error", () =>
-      finish(new Error("station wrapper stdin could not be read")));
-    process.stdin.resume();
-  });
-
-const readLocalTransportToken = async (
-  home: string,
-): Promise<string | undefined> => {
-  try {
-    return (await readFile(controlTokenPath(home), "utf8")).trim();
-  } catch {
-    return undefined;
-  }
-};
-
-const stationWrapperMain = async (
-  args: ReadonlyArray<string>,
-): Promise<never> => {
-  if (args.length !== 0) {
-    console.error("station wrapper accepts no arguments");
-    process.exit(2);
-  }
-  try {
-    const frame = (await readBoundedStdin(STATION_BROWSER_MAX_FRAME_BYTES)).trim();
-    const home = homedir();
-    const token = await readLocalTransportToken(home);
-    if (token === undefined) throw new Error("target Vellum runtime is unavailable");
-    const envelope = await httpOverSocket(
-      controlSocketPath(home),
-      { method: "POST", path: "/station" },
-      token,
-      { frame },
-    );
-    if (
-      !envelope.ok ||
-      typeof envelope.data !== "object" ||
-      envelope.data === null ||
-      Array.isArray(envelope.data) ||
-      Object.keys(envelope.data).length !== 1 ||
-      !("frame" in envelope.data) ||
-      typeof envelope.data.frame !== "string"
-    ) {
-      throw new Error("target Vellum runtime rejected station delegation");
-    }
-    const response = decodeStationBrowserResponse(envelope.data.frame);
-    if (typeof response === "string") {
-      throw new Error("target Vellum runtime returned a malformed station response");
-    }
-    process.stdout.write(`${envelope.data.frame}\n`);
-    // A typed denial still crossed the transport successfully. The origin CLI
-    // maps response.ok to its own exit semantics after validating host/action.
-    process.exit(0);
-  } catch {
-    console.error("station browser wrapper failed");
-    process.exit(1);
-  }
-};
-
 interface LocalCall {
   readonly kind: "local";
   readonly route: ControlRouteName;
   readonly body?: unknown;
 }
 
-interface StationCall {
-  readonly kind: "station";
-  readonly hostId: string;
-  readonly input: StationBrowserRouteInput;
-  /** Retained only to roll an opaque handle after a session response. */
-  readonly pageRef?: string;
-}
-
-type Call = LocalCall | StationCall;
-
-const STATION_SESSION_HANDLE_PREFIX = "vellum-station-session-v1.";
-const STATION_SESSION_HANDLE_MAX_BYTES = 4_096;
-
-interface StationSessionHandle {
-  readonly version: 1;
-  readonly hostId: string;
-  readonly pageRef: string;
-  readonly sessionId: string;
-  readonly generation: string;
-}
-
-const stationId = (value: unknown): value is string =>
-  typeof value === "string" &&
-  /^[A-Za-z0-9._:-]{1,128}$/.test(value);
-
-const encodeStationSessionHandle = (
-  pageRef: string,
-  session: StationBrowserSession,
-): string => {
-  const body: StationSessionHandle = {
-    version: 1,
-    hostId: session.hostId,
-    pageRef,
-    sessionId: session.sessionId,
-    generation: session.generation,
-  };
-  return `${STATION_SESSION_HANDLE_PREFIX}${Buffer.from(
-    canonicalStationBrowserJson(body),
-    "utf8",
-  ).toString("base64url")}`;
-};
-
-const decodeStationSessionHandle = (
-  value: string,
-): StationSessionHandle | undefined => {
-  if (
-    Buffer.byteLength(value, "utf8") > STATION_SESSION_HANDLE_MAX_BYTES ||
-    !value.startsWith(STATION_SESSION_HANDLE_PREFIX)
-  ) {
-    return undefined;
-  }
-  const encoded = value.slice(STATION_SESSION_HANDLE_PREFIX.length);
-  if (!/^[A-Za-z0-9_-]+$/.test(encoded)) return undefined;
-  try {
-    const wire = Buffer.from(encoded, "base64url").toString("utf8");
-    const decoded = JSON.parse(wire) as unknown;
-    if (
-      typeof decoded !== "object" ||
-      decoded === null ||
-      Array.isArray(decoded) ||
-      Object.keys(decoded).length !== 5 ||
-      !("version" in decoded) ||
-      decoded.version !== 1 ||
-      !("hostId" in decoded) ||
-      !stationId(decoded.hostId) ||
-      !("pageRef" in decoded) ||
-      typeof decoded.pageRef !== "string" ||
-      !parseNodeRef(decoded.pageRef).ok ||
-      !("sessionId" in decoded) ||
-      !stationId(decoded.sessionId) ||
-      !("generation" in decoded) ||
-      !stationId(decoded.generation)
-    ) {
-      return undefined;
-    }
-    const handle = decoded as unknown as StationSessionHandle;
-    return encodeStationSessionHandle(handle.pageRef, {
-      hostId: handle.hostId,
-      sessionId: handle.sessionId,
-      generation: handle.generation,
-    }) === value
-      ? handle
-      : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-const stationCall = (
-  hostId: string,
-  positional: ReadonlyArray<string>,
-): StationCall | { readonly error: string } => {
-  const [cmd, a, b, extra] = positional;
-  if (cmd === "profiles") {
-    return { error: "profiles is local-only; Remote profile metadata is not delegated" };
-  }
-  if (cmd === "doctor" || cmd === "pages" || cmd === "sessions") {
-    if (a !== undefined) return { error: `${cmd} accepts no arguments` };
-    return {
-      kind: "station",
-      hostId,
-      input: {
-        action:
-          cmd === "pages"
-            ? "discover"
-            : cmd === "sessions"
-              ? "list"
-              : "doctor",
-        targetHostId: hostId,
-      },
-    };
-  }
-  if (cmd === "open") {
-    if (!a || b !== undefined || !parseNodeRef(a).ok) {
-      return { error: "open requires exactly one canonical <vellum-ref>" };
-    }
-    return {
-      kind: "station",
-      hostId,
-      input: {
-        action: "open",
-        pageRef: a,
-        targetHostId: hostId,
-      },
-      pageRef: a,
-    };
-  }
-  if (
-    cmd !== "goto" &&
-    cmd !== "eval" &&
-    cmd !== "shot" &&
-    cmd !== "screenshot" &&
-    cmd !== "state" &&
-    cmd !== "close" &&
-    cmd !== "stop"
-  ) {
-    return { error: usage };
-  }
-  const handle = a === undefined
-    ? undefined
-    : decodeStationSessionHandle(a);
-  if (handle === undefined || handle.hostId !== hostId) {
-    return {
-      error:
-        `${cmd} requires an opaque session handle returned by open on host ${hostId}`,
-    };
-  }
-  if (
-    (cmd === "goto" || cmd === "eval")
-      ? b === undefined || extra !== undefined
-      : b !== undefined
-  ) {
-    return {
-      error:
-        cmd === "goto"
-          ? "goto requires <station-session-handle> <url>"
-          : cmd === "eval"
-            ? "eval requires <station-session-handle> <code>"
-            : `${cmd} requires exactly one <station-session-handle>`,
-    };
-  }
-  const action = cmd === "shot" ? "screenshot" : cmd;
-  return {
-    kind: "station",
-    hostId,
-    input: {
-      action,
-      pageRef: handle.pageRef,
-      session: {
-        hostId: handle.hostId,
-        sessionId: handle.sessionId,
-        generation: handle.generation,
-      },
-      ...(action === "goto"
-        ? { payload: { url: b! } }
-        : action === "eval"
-          ? { payload: { code: b! } }
-          : {}),
-      targetHostId: hostId,
-    },
-    pageRef: handle.pageRef,
-  };
-};
+type Call = LocalCall;
 
 const parseArgs = (
   argv: ReadonlyArray<string>,
@@ -518,20 +231,21 @@ const parseArgs = (
   let commandArgv = argv[0] === "browser" ? argv.slice(1) : [...argv];
   const json = commandArgv.includes("--json");
   commandArgv = commandArgv.filter((value) => value !== "--json");
-  if (commandArgv.includes("--path")) return { error: "shot does not accept --path; Vellum owns screenshot destinations" };
-  let hostId: string | undefined;
-  if (commandArgv[0] === "--host") {
-    if (!stationId(commandArgv[1])) {
-      return { error: "--host requires one canonical station id" };
-    }
-    hostId = commandArgv[1];
-    commandArgv = commandArgv.slice(2);
-  } else if (commandArgv.includes("--host")) {
-    return { error: "--host must precede the browser command" };
+  if (commandArgv.includes("--path")) {
+    return { error: "shot does not accept --path; Vellum owns screenshot destinations" };
   }
-  if (hostId !== undefined) {
-    const call = stationCall(hostId, commandArgv);
-    return "error" in call ? call : { json, call };
+  // Retired remote Station-browser surface: exit before token/socket/network.
+  if (
+    commandArgv[0] === "station" ||
+    commandArgv[0] === "station-trust" ||
+    commandArgv.includes("station-trust") ||
+    commandArgv.includes("--host") ||
+    commandArgv[0] === "--host"
+  ) {
+    return {
+      error:
+        "remote Station-browser is removed; use host-local browser commands without --host/station/station-trust",
+    };
   }
   const [cmd, a, b, extra] = commandArgv;
 
@@ -589,86 +303,6 @@ const printHuman = (route: ControlRouteName, data: unknown): void => {
   console.log(JSON.stringify(data, null, 2));
 };
 
-const stationResponseFromEnvelope = (
-  envelope: ControlEnvelope<unknown>,
-  call: StationCall,
-): StationBrowserResponse | undefined => {
-  if (
-    !envelope.ok ||
-    typeof envelope.data !== "object" ||
-    envelope.data === null ||
-    Array.isArray(envelope.data) ||
-    Object.keys(envelope.data).length !== 1 ||
-    !("response" in envelope.data)
-  ) {
-    return undefined;
-  }
-  let wire: string;
-  try {
-    wire = canonicalStationBrowserJson(envelope.data.response);
-  } catch {
-    return undefined;
-  }
-  const response = decodeStationBrowserResponse(wire);
-  return typeof response !== "string" &&
-      response.hostId === call.hostId &&
-      response.action === call.input.action
-    ? response
-    : undefined;
-};
-
-const projectStationResponse = (
-  response: Extract<StationBrowserResponse, { readonly ok: true }>,
-  call: StationCall,
-): unknown => {
-  if (
-    call.pageRef !== undefined &&
-    typeof response.data === "object" &&
-    response.data !== null &&
-    !Array.isArray(response.data) &&
-    "session" in response.data
-  ) {
-    const session = response.data.session as StationBrowserSession;
-    if (
-      session.hostId !== call.hostId ||
-      !stationId(session.sessionId) ||
-      !stationId(session.generation)
-    ) {
-      return undefined;
-    }
-    return {
-      hostId: session.hostId,
-      sessionHandle: encodeStationSessionHandle(call.pageRef, session),
-    };
-  }
-  return response.data;
-};
-
-const printStationDeniedAndExit = (
-  response: Extract<StationBrowserResponse, { readonly ok: false }>,
-  json: boolean,
-): never => {
-  if (json) {
-    console.log(JSON.stringify({
-      ok: false,
-      error: {
-        _tag: "forbidden",
-        message: "station browser request was denied",
-      },
-      station: {
-        hostId: response.hostId,
-        action: response.action,
-        denial: response.error,
-      },
-    }));
-  } else {
-    console.error(
-      `forbidden: station ${response.hostId} denied ${response.action} (${response.error})`,
-    );
-  }
-  process.exit(1);
-};
-
 const printErrorAndExit = (envelope: ControlErr, json: boolean): never => {
   if (json) {
     console.log(JSON.stringify(envelope));
@@ -697,8 +331,12 @@ const controlHome = (): string | ControlErr => {
 
 const main = async (): Promise<void> => {
   const rawArgv = process.argv.slice(2);
-  if (rawArgv[0] === "station") {
-    return stationWrapperMain(rawArgv.slice(1));
+  // Hidden station wrapper and station-trust exit before any transport.
+  if (rawArgv[0] === "station" || rawArgv[0] === "station-trust") {
+    console.error(
+      "remote Station-browser is removed; use host-local browser commands without --host/station/station-trust",
+    );
+    process.exit(2);
   }
   const parsed = parseArgs(rawArgv);
   if ("error" in parsed) {
@@ -727,46 +365,10 @@ const main = async (): Promise<void> => {
 
   const envelope = await httpOverSocket(
     controlSocketPath(home),
-    parsed.call.kind === "local"
-      ? CONTROL_ROUTES[parsed.call.route]
-      : { method: "POST", path: STATION_BROWSER_ORIGIN_ROUTE_PATH },
+    CONTROL_ROUTES[parsed.call.route],
     token,
-    parsed.call.kind === "local"
-      ? parsed.call.body
-      : parsed.call.input,
+    parsed.call.body,
   );
-
-  if (parsed.call.kind === "station") {
-    if (!envelope.ok) {
-      return printErrorAndExit(envelope, parsed.json);
-    }
-    const response = stationResponseFromEnvelope(envelope, parsed.call);
-    if (response === undefined) {
-      return printErrorAndExit(
-        controlErr("failed", "server returned a malformed station response"),
-        parsed.json,
-      );
-    }
-    if (!response.ok) {
-      return printStationDeniedAndExit(response, parsed.json);
-    }
-    const projected = projectStationResponse(response, parsed.call);
-    if (projected === undefined) {
-      return printErrorAndExit(
-        controlErr("failed", "server returned a mismatched station session"),
-        parsed.json,
-      );
-    }
-    if (parsed.json) {
-      console.log(JSON.stringify({ ok: true, data: projected }));
-      process.exit(0);
-    }
-    printHuman(
-      parsed.call.input.action === "eval" ? "eval" : "pages",
-      projected,
-    );
-    return;
-  }
 
   if (parsed.json) {
     console.log(JSON.stringify(envelope));

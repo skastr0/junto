@@ -31,7 +31,6 @@ import {
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_REQUEST_TIMEOUT_MS,
   CONTROL_TOKEN_HEADER,
-  STATION_BROWSER_ORIGIN_ROUTE_PATH,
   controlDir,
   controlErr,
   controlOk,
@@ -92,22 +91,6 @@ import {
   type BrowserCapabilityTarget,
   type BrowserCapabilityUseTarget,
 } from "./capabilities";
-import {
-  canonicalStationBrowserJson,
-  decodeStationBrowserResponse,
-  STATION_BROWSER_MAX_FRAME_BYTES,
-  type StationBrowserResponse,
-} from "@shared/station-browser";
-import type { StationBrowserWrapper } from "./station-wrapper";
-import {
-  StationBrowserOriginAdmissionError,
-  type StationBrowserRouteAdmission,
-} from "./station-delegation";
-import {
-  decodeStationBrowserRouteInput,
-  StationBrowserRouterError,
-  type StationBrowserRouter,
-} from "./station-router";
 import {
   acquireControlListenerLease,
   captureControlSocketPathIdentity,
@@ -327,11 +310,6 @@ export interface ControlDeps {
    * via Unix peer PID → registered actor process (no client claim).
    */
   readonly edgeGrant?: EdgeGrantService;
-  /**
-   * Fixed station-to-station wrapper hosted on this same Unix listener.
-   * Signed-envelope verification remains independent of process-bind routes.
-   */
-  readonly stationBrowserWrapper?: StationBrowserWrapper;
   /**
    * Server lifecycle hook. The HTTP host uses this to retain the actual route
    * promise after the request-facing cancellation race has settled.
@@ -994,40 +972,6 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
 
   };
 
-  if (deps.stationBrowserWrapper !== undefined) {
-    handlers["POST /station"] = route(
-      null,
-      async (body, _authorization, signal) => {
-        if (
-          typeof body !== "object" ||
-          body === null ||
-          Array.isArray(body) ||
-          Object.keys(body).length !== 1 ||
-          !("frame" in body) ||
-          typeof body.frame !== "string" ||
-          Buffer.byteLength(body.frame, "utf8") > STATION_BROWSER_MAX_FRAME_BYTES
-        ) {
-          return controlErr(
-            "bad_request",
-            "station browser request must contain one bounded frame",
-          );
-        }
-        const responseFrame = await deps.stationBrowserWrapper!.handle(
-          body.frame,
-          signal,
-        );
-        const response = decodeStationBrowserResponse(responseFrame);
-        return typeof response === "string"
-          ? controlErr("forbidden", "station browser delegation was rejected")
-          : controlOk({ frame: canonicalStationBrowserJson({
-              ...response,
-              data: response.ok ? response.data : null,
-              error: response.ok ? null : response.error,
-            }) });
-      },
-    );
-  }
-
   return handlers;
 };
 
@@ -1051,93 +995,6 @@ const edgeGrantHttp = (
     return { status: 401, envelope: controlErr("unauthorized", message) };
   }
   return { status: 403, envelope: controlErr("forbidden", message) };
-};
-
-const stationOriginAdmissionHttp = (
-  error: unknown,
-): { readonly status: number; readonly envelope: ControlEnvelope<never> } => {
-  if (error instanceof StationBrowserOriginAdmissionError) {
-    if (
-      error.denial === "peer_pid_unavailable" ||
-      error.denial === "process_unbound" ||
-      error.denial === "canvas_unreadable" ||
-      error.denial === "not_found"
-    ) {
-      return {
-        status: 401,
-        envelope: controlErr(
-          "unauthorized",
-          "station browser origin admission failed",
-        ),
-      };
-    }
-    if (error.denial === "cancelled") {
-      return {
-        status: 408,
-        envelope: controlErr(
-          "cancelled",
-          "station browser origin admission was cancelled",
-        ),
-      };
-    }
-    return {
-      status: 403,
-      envelope: controlErr(
-        "forbidden",
-        "station browser origin admission failed",
-      ),
-    };
-  }
-  return {
-    status: 403,
-    envelope: controlErr(
-      "forbidden",
-      "station browser origin admission failed",
-    ),
-  };
-};
-
-const stationRouterHttp = (
-  error: unknown,
-): { readonly status: number; readonly envelope: ControlEnvelope<never> } => {
-  if (!(error instanceof StationBrowserRouterError)) {
-    return {
-      status: 500,
-      envelope: controlErr("failed", "station browser route failed"),
-    };
-  }
-  if (error.code === "cancelled") {
-    return {
-      status: 408,
-      envelope: controlErr("cancelled", "station browser route was cancelled"),
-    };
-  }
-  if (error.code === "admission") {
-    return stationOriginAdmissionHttp(error.cause);
-  }
-  if (
-    error.code === "invalid_route" ||
-    error.code === "stale_page"
-  ) {
-    return {
-      status: 400,
-      envelope: controlErr("bad_request", "station browser route is stale or invalid"),
-    };
-  }
-  if (
-    error.code === "unknown_host" ||
-    error.code === "host_capability" ||
-    error.code === "wrong_host"
-  ) {
-    return {
-      status: 403,
-      envelope: controlErr("forbidden", "station browser route is not admitted"),
-    };
-  }
-  return {
-    status: 500,
-    envelope: controlErr("failed", "station browser route failed"),
-  };
 };
 
 /** Transport-free admit helpers for tests (product HTTP path always process-binds). */
@@ -1451,15 +1308,6 @@ const parseContentLength = (
   return Number.isSafeInteger(value) ? { ok: true, value } : { ok: false };
 };
 
-export interface StationBrowserOriginControlRoute {
-  readonly router: StationBrowserRouter;
-  /**
-   * Binds only the accepted owner-local socket. The returned port performs a
-   * pre-body PID check and target-specific graph admission on every route.
-   */
-  readonly admissionForSocket: (socket: Socket) => StationBrowserRouteAdmission;
-}
-
 /**
  * Start the owner-local control plane. Idempotent per app run; call close() on
  * quit. The caller owns the capability registry so issuance and enforcement
@@ -1476,8 +1324,6 @@ export const startBrowserControlServer = async (
     /** Canonical SQLite-backed documents for page listing and edge admission. */
     readonly listCanvasDocuments: ListCanvasDocuments;
     readonly edgeGrant?: EdgeGrantService;
-    readonly stationBrowserWrapper?: StationBrowserWrapper;
-    readonly stationBrowserOrigin?: StationBrowserOriginControlRoute;
   },
   runtime: BrowserControlRuntime = defaultControlRuntime,
 ): Promise<BrowserControlServer> => {
@@ -1564,9 +1410,6 @@ export const startBrowserControlServer = async (
     listDocuments: options.listCanvasDocuments,
     shotsDir: controlShotsDir(home),
     edgeGrant,
-    ...(options.stationBrowserWrapper === undefined
-      ? {}
-      : { stationBrowserWrapper: options.stationBrowserWrapper }),
     retainRouteOperation: (action, operation) =>
       retainFlight("route-operation", `route:${action}`, operation),
   });
@@ -1628,12 +1471,8 @@ export const startBrowserControlServer = async (
           return;
         }
         const method = req.method ?? "GET";
-        const isStationOriginRoute =
-          method === "POST" &&
-          rawTarget === STATION_BROWSER_ORIGIN_ROUTE_PATH &&
-          options.stationBrowserOrigin !== undefined;
         const handler = handlers[`${method} ${rawTarget}`];
-        if (handler === undefined && !isStationOriginRoute) {
+        if (handler === undefined) {
           respond(404, controlErr("bad_request", "unknown route"), true);
           return;
         }
@@ -1647,27 +1486,7 @@ export const startBrowserControlServer = async (
               readonly expectedPrincipal: BrowserAutomationPrincipal;
             }
           | undefined;
-        let stationRouteAdmission: StationBrowserRouteAdmission | undefined;
-        if (isStationOriginRoute) {
-          try {
-            stationRouteAdmission =
-              options.stationBrowserOrigin!.admissionForSocket(req.socket);
-            await retainFlight(
-              "edge-admission",
-              "station-origin-preflight",
-              stationRouteAdmission.preflight(controller.signal),
-            );
-          } catch (error) {
-            const denied = stationOriginAdmissionHttp(error);
-            respond(denied.status, denied.envelope, true);
-            return;
-          }
-          if (shuttingDown || controller.signal.aborted) return;
-          if (!isValidControlRequestId(presentedRequestId ?? "")) {
-            respond(400, controlErr("bad_request", "invalid request id"), true);
-            return;
-          }
-        } else if (handler!.action !== null) {
+        if (handler.action !== null) {
           const edge = await retainFlight(
             "edge-admission",
             "edge-admission",
@@ -1689,7 +1508,7 @@ export const startBrowserControlServer = async (
             capability: edge.secret,
             expectedPrincipal: edge.expectedPrincipal,
           };
-          const admitted = handler!.preflight(
+          const admitted = handler.preflight(
             processAdmission.capability,
             processAdmission.expectedPrincipal,
           );
@@ -1774,41 +1593,6 @@ export const startBrowserControlServer = async (
                 envelope: controlErr("bad_request", body.message),
                 closeConnection: true,
               };
-            }
-            if (isStationOriginRoute) {
-              const decoded = decodeStationBrowserRouteInput(body.body);
-              if (!decoded.ok || stationRouteAdmission === undefined) {
-                return {
-                  status: 400,
-                  envelope: controlErr(
-                    "bad_request",
-                    "station browser route body is invalid",
-                  ),
-                  closeConnection: true,
-                };
-              }
-              try {
-                const response: StationBrowserResponse = await retainFlight(
-                  "route-operation",
-                  `station-route:${decoded.input.action}`,
-                  options.stationBrowserOrigin!.router.route(
-                    stationRouteAdmission,
-                    decoded.input,
-                    controller.signal,
-                  ),
-                );
-                return {
-                  status: 200,
-                  envelope: controlOk({ response }),
-                };
-              } catch (error) {
-                const denied = stationRouterHttp(error);
-                return {
-                  status: denied.status,
-                  envelope: denied.envelope,
-                  closeConnection: denied.status === 401,
-                };
-              }
             }
             return dispatchControlRequest(
               handlers,

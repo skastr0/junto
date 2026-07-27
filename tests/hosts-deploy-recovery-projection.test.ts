@@ -12,10 +12,6 @@ describe("Remote deploy recovery guidance", () => {
       "Restore terminal live-work observation through the deployment runbook or support, then retry deployment.",
     ],
     [
-      { kind: "provision-station-browser-trust" },
-      "Provision station browser trust through Command Center or the deployment runbook, then retry deployment.",
-    ],
-    [
       { kind: "bootstrap-linux-release-installer" },
       "Install the current signed Linux package and helper, then retry deployment.",
     ],

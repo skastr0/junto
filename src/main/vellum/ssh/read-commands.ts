@@ -289,32 +289,6 @@ export const remoteHostProbe = (
 };
 
 /**
- * Fixed packaged station-browser wrapper. The executable comes only from a
- * current platform witness; PATH and user-installed symlinks are never read.
- */
-export const remoteVellumBrowserStation = (
-  platform: RemotePackagedPlatform,
-): Effect.Effect<
-  RemoteCommand,
-  SshInputError
-> => {
-  const observed = remotePackagedPlatforms.get(platform);
-  if (observed === undefined) {
-    return Effect.fail(
-      new SshInputError({
-        message: "remote packaged platform witness is invalid",
-      }),
-    );
-  }
-  return makeRemoteCommand(
-    observed === "darwin"
-      ? DARWIN_PACKAGED_BROWSER_EXECUTABLE
-      : LINUX_PACKAGED_BROWSER_EXECUTABLE,
-    ["station"],
-  );
-};
-
-/**
  * Fixed Station API stdin wrapper. Fleet traffic is one typed request on
  * stdin and one typed response on stdout. Only the immutable packaged resource
  * selected by current host evidence can receive that request.

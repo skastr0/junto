@@ -34,8 +34,6 @@ export const controlDir = (home: string): string => `${home}/.vellum/browser`;
 export const controlSocketPath = (home: string): string => `${controlDir(home)}/control.sock`;
 export const controlTokenPath = (home: string): string => `${controlDir(home)}/control.token`;
 export const controlShotsDir = (home: string): string => `${controlDir(home)}/shots`;
-/** Host-qualified origin route; still served only on the owner-local UDS. */
-export const STATION_BROWSER_ORIGIN_ROUTE_PATH = "/station-route";
 
 export const CONTROL_MAX_HEADER_BYTES = BROWSER_CONTROL_MAX_HEADER_BYTES;
 export const CONTROL_HEADERS_TIMEOUT_MS = BROWSER_CONTROL_HEADERS_TIMEOUT_MS;

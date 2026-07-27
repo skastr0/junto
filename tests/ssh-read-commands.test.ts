@@ -5,9 +5,7 @@ import {
   SshEndpoint,
 } from "../src/main/vellum/ssh/domain";
 import {
-  DARWIN_PACKAGED_BROWSER_EXECUTABLE,
   DARWIN_PACKAGED_STATION_EXECUTABLE,
-  LINUX_PACKAGED_BROWSER_EXECUTABLE,
   LINUX_PACKAGED_STATION_EXECUTABLE,
   RemotePlatformProbeError,
   remoteCat,
@@ -17,7 +15,6 @@ import {
   remoteProductVersion,
   remoteTestFileExists,
   remoteUname,
-  remoteVellumBrowserStation,
   remoteVellumStation,
   resolveRemotePackagedPlatform,
 } from "../src/main/vellum/ssh/read-commands";
@@ -126,25 +123,13 @@ describe("ssh read-commands product constructors", () => {
     expect(ts.executable).toBe("tailscale");
   });
 
-  it("mints only exact packaged Station and browser wrappers from current host evidence", () => {
+  it("mints only exact packaged Station wrappers from current host evidence", () => {
     const darwin = observedPlatform("Darwin\n");
     const linux = observedPlatform("Linux\n");
 
-    expect(
-      inspectRemoteCommand(run(remoteVellumBrowserStation(darwin))),
-    ).toEqual({
-      executable: DARWIN_PACKAGED_BROWSER_EXECUTABLE,
-      args: ["station"],
-    });
     expect(inspectRemoteCommand(run(remoteVellumStation(darwin)))).toEqual({
       executable: DARWIN_PACKAGED_STATION_EXECUTABLE,
       args: [],
-    });
-    expect(
-      inspectRemoteCommand(run(remoteVellumBrowserStation(linux))),
-    ).toEqual({
-      executable: LINUX_PACKAGED_BROWSER_EXECUTABLE,
-      args: ["station"],
     });
     expect(inspectRemoteCommand(run(remoteVellumStation(linux)))).toEqual({
       executable: LINUX_PACKAGED_STATION_EXECUTABLE,
@@ -180,13 +165,6 @@ describe("ssh read-commands product constructors", () => {
       Either.isLeft(
         Effect.runSync(
           Effect.either(remoteVellumStation({} as never)),
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      Either.isLeft(
-        Effect.runSync(
-          Effect.either(remoteVellumBrowserStation({} as never)),
         ),
       ),
     ).toBe(true);

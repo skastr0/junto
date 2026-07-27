@@ -384,8 +384,8 @@ export const makeEdgeGrantService = (
         "caller node is not assigned to this physical station",
       );
     }
-    const stationBrowser = dependencies.admitBrowserHost(station.hostId);
-    if (!stationBrowser.ok) {
+    const browserHost = dependencies.admitBrowserHost(station.hostId);
+    if (!browserHost.ok) {
       return fail(
         "physical_host_mismatch",
         "this physical station cannot host browser automation",

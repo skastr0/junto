@@ -3,7 +3,6 @@ import type {
   NodeRefOpenedDelivery,
   NodeRefOpenedEvent,
   VellumApi,
-  VellumBrowserAutomationApi,
 } from "../src/shared/ipc";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { IPC_CHANNELS } from "../src/shared/ipc";
@@ -50,11 +49,9 @@ const delivery = (nodeId: string, deliveryId: string): NodeRefOpenedDelivery => 
   deliveryId,
 });
 
-const loadPreload = async (): Promise<VellumApi & VellumBrowserAutomationApi> => {
+const loadPreload = async (): Promise<VellumApi> => {
   await import("../src/preload/index");
-  const api = electron.exposed.get("vellum") as
-    | (VellumApi & VellumBrowserAutomationApi)
-    | undefined;
+  const api = electron.exposed.get("vellum") as VellumApi | undefined;
   if (api === undefined) throw new Error("preload did not expose Vellum API");
   return api;
 };
@@ -488,9 +485,10 @@ describe("preload canvas quiesce gate", () => {
 describe("preload browser automation bridge", () => {
   it("does not expose enable/list/revoke — process-bind replaced the ceremony", async () => {
     const api = await loadPreload();
-    // Ceremony deleted (process-bind + edges only). Preload must not re-surface it.
-    expect(typeof api.browserAutomationEnable).toBe("undefined");
-    expect(typeof api.browserAutomationList).toBe("undefined");
-    expect(typeof api.browserAutomationRevoke).toBe("undefined");
+    // Ceremony deleted (process-bind + edges only). Public DTO surface is gone too.
+    const keys = Object.keys(api);
+    expect(keys).not.toContain("browserAutomationEnable");
+    expect(keys).not.toContain("browserAutomationList");
+    expect(keys).not.toContain("browserAutomationRevoke");
   });
 });
