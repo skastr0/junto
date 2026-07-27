@@ -23,6 +23,7 @@ import {
   stripWorkProjection,
 } from "./work/repository";
 import { decodeStationPortfolioBody } from "./station/portfolio";
+import { selectStationConfiguration } from "./station/configuration-state";
 
 export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
   message: Schema.String,
@@ -261,14 +262,6 @@ type StationProjectionRow = {
   readonly received_at: string;
 };
 
-type StationConfigurationRoleRow = {
-  readonly role: string;
-};
-
-type SettingsTopologyRow = {
-  readonly body: string;
-};
-
 type CanvasCommitCause =
   | "write"
   | "mutate"
@@ -413,53 +406,20 @@ type LocalStationRole = "" | "command-center" | "remote";
 /**
  * Read the local installation role from canonical SQLite state.
  *
- * A completed Station API configuration is authoritative. Before pairing,
- * the settings topology row carries the user's explicit onboarding choice.
+ * Absence is the explicit pre-configuration state. Any malformed present row
+ * fails closed rather than being reinterpreted through another store.
  */
 const readLocalStationRole = (reader: StateReader): LocalStationRole => {
-  const configured = reader.get<StationConfigurationRoleRow>(
-    "SELECT role FROM station_configuration WHERE singleton = 1",
-  );
-  if (
-    configured?.role === "command-center" ||
-    configured?.role === "remote"
-  ) {
-    return configured.role;
-  }
-
-  const settings = reader.get<SettingsTopologyRow>(
-    "SELECT body FROM settings_station_topology WHERE singleton = 1",
-  );
-  if (settings === undefined) return "";
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(settings.body) as unknown;
-  } catch {
+    return selectStationConfiguration(reader)?.configuration.role ?? "";
+  } catch (error) {
     throw new CanvasError({
-      message: "station topology in the database is not valid JSON",
+      message:
+        `canonical station configuration is invalid: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
     });
   }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    Array.isArray(parsed) ||
-    !("role" in parsed)
-  ) {
-    throw new CanvasError({
-      message: "station topology in the database is malformed",
-    });
-  }
-  const role = (parsed as { readonly role?: unknown }).role;
-  if (
-    role !== "" &&
-    role !== "command-center" &&
-    role !== "remote"
-  ) {
-    throw new CanvasError({
-      message: "station topology in the database has an invalid role",
-    });
-  }
-  return role;
 };
 
 const readStationProjection = (

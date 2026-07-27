@@ -14,9 +14,8 @@ import {
 } from "@shared/settings";
 
 /**
- * Preferences and protected station topology deliberately occupy separate
- * rows. This is more than organization: generic preference transactions never
- * need write authority over station identity.
+ * Settings owns preferences only. Station topology is normalized separately
+ * in station_configuration and is joined into the public aggregate on read.
  */
 export const SETTINGS_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS settings_preferences (
@@ -27,17 +26,6 @@ export const SETTINGS_STATE_SCHEMA_SQL = `
         json_valid(body)
         AND json_type(body) = 'object'
         AND length(CAST(body AS BLOB)) <= 65536
-      ),
-    updated_at TEXT NOT NULL CHECK (length(updated_at) > 0)
-  ) STRICT;
-
-  CREATE TABLE IF NOT EXISTS settings_station_topology (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    body TEXT NOT NULL
-      CHECK (
-        json_valid(body)
-        AND json_type(body) = 'object'
-        AND length(CAST(body AS BLOB)) <= 4096
       ),
     updated_at TEXT NOT NULL CHECK (length(updated_at) > 0)
   ) STRICT;
@@ -83,7 +71,7 @@ export const preferencesFromSettings = (
 export const decodeStoredSettings = (
   version: unknown,
   preferences: unknown,
-  topology: unknown,
+  station: unknown,
 ): Settings => {
   if (version !== SETTINGS_VERSION) {
     throw new SettingsError({
@@ -101,12 +89,12 @@ export const decodeStoredSettings = (
         }`,
     });
   }
-  const decodedTopology = decodeTopology(topology);
+  const decodedTopology = decodeTopology(station);
   if (decodedTopology._tag === "Left") {
     throw new SettingsError({
       code: "corrupt",
       message:
-        `stored station topology is invalid: ${
+        `canonical station configuration projects invalid settings: ${
           formatParse(decodedTopology.left)
         }`,
     });

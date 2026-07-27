@@ -10,22 +10,21 @@ import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 // database. Mutable user prefs are not Effect Config (boot/env) and not
 // runtime kernel state.
 //
-// Aggregate: preference and protected-topology rows commit independently
-// according to capability, then assemble into this single public value.
+// Aggregate: the preference row and normalized station_configuration state
+// assemble into this single public value.
 //
 // Mental model:
 // - **prefs** — appearance/canvas/kernel/browser/audio/advanced/fleet.
 //   Generic settingsPatch mutates only their canonical row.
-// - **topology** — station.role / hostId / agentHostId / commandCenterRef /
-//   supervisedPreferred. Mutations go through settingsSetStationTopology only;
-//   generic settingsPatch cannot write its row.
+// - **topology** — derived from station_configuration. Local Settings may
+//   establish a Command Center; Remote identity arrives only through pairing
+//   and the Station API. Generic settingsPatch cannot write topology.
 //
 // Invariants:
 // - Never store secrets here (full document is IPC-broadcast to all windows).
 // - BrowserPrefs (maxVisible/maxWarm) is the sole durable SoT for those limits;
 //   BrowserProfileService keeps profile identity/dirs/wipe only.
 // - Kernel arming stays in StoreService — not a preference.
-// - See docs/protected-topology-migration.md for residual risk / next steps.
 
 export const SETTINGS_VERSION = 1 as const;
 
@@ -134,8 +133,7 @@ const StationSettingsValue = Schema.Struct({
   /**
    * Canonical Hermes host prefix for agents running on this physical station.
    * Remote configure stamps the effective `hermesKeyFor(host)` so a distinct
-   * registry hermesId remains the sole fleet transport identity. Older local
-   * settings may omit it and resolve through station.hostId.
+   * registry hermesId remains the sole fleet transport identity.
    */
   agentHostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
   /** Remote-only: how this station finds the Command Center (host id or endpoint). */

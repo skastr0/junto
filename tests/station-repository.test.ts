@@ -415,7 +415,7 @@ describe("StationRepository", () => {
     await runtime.dispose();
   });
 
-  it("projects Command Center configuration into protected settings topology", async () => {
+  it("serves Settings from the same canonical Command Center configuration", async () => {
     const path = await testDatabase();
     const local = decodeInstallationId("command-config-integration");
     const runtime = makeRuntime(path, local);
@@ -439,7 +439,7 @@ describe("StationRepository", () => {
     await runtime.dispose();
   });
 
-  it("commits browser trust and protected settings topology as one configure transition", async () => {
+  it("commits browser trust and canonical Remote configuration atomically", async () => {
     const path = await testDatabase();
     const local = decodeInstallationId("station-config-integration");
     const cc = decodeInstallationId("cc-config-integration");
@@ -488,11 +488,26 @@ describe("StationRepository", () => {
 
     const durable = await runtime.runPromise(
       state.read("test.station-config-integration", (reader) => ({
-        topology: reader.get<StateRow & { readonly body: string }>(
-          `SELECT body
-             FROM settings_station_topology
+        configuration: reader.get<
+          StateRow & {
+            readonly role: string;
+            readonly host_id: string;
+            readonly agent_host_id: string | null;
+            readonly command_center_installation_id: string | null;
+            readonly command_center_ref: string | null;
+            readonly supervised_preferred: number;
+          }
+        >(
+          `SELECT
+             role,
+             host_id,
+             agent_host_id,
+             command_center_installation_id,
+             command_center_ref,
+             supervised_preferred
+             FROM station_configuration
             WHERE singleton = 1`,
-        )?.body,
+        ),
         pins: Number(
           reader.get<StateRow & { readonly count: number }>(
             `SELECT count(*) AS count
@@ -501,48 +516,15 @@ describe("StationRepository", () => {
         ),
       })),
     );
-    expect(JSON.parse(durable.topology ?? "null")).toEqual({
+    expect(durable.configuration).toMatchObject({
       role: "remote",
-      hostId: "studio",
-      agentHostId: "studio",
-      commandCenterRef: "cc.tailnet",
-      supervisedPreferred: true,
+      host_id: "studio",
+      agent_host_id: "studio",
+      command_center_installation_id: cc,
+      command_center_ref: "cc.tailnet",
+      supervised_preferred: 1,
     });
     expect(durable.pins).toBe(1);
-    expect((await runtime.runPromise(settings.get)).station).toEqual(
-      JSON.parse(durable.topology ?? "null"),
-    );
-    expect(
-      (await runtime.runPromise(repository.statusFacts)).configuration,
-    ).toMatchObject({
-      role: "remote",
-      browserTrust: trust,
-    });
-
-    // An idempotent configure repairs a diverged protected projection before
-    // returning its unchanged configuration row.
-    await runtime.runPromise(
-      state.transaction("test.diverge-settings-topology", (writer) => {
-        writer.run(
-          `UPDATE settings_station_topology
-              SET body = ?, updated_at = ?
-            WHERE singleton = 1`,
-          [
-            JSON.stringify({
-              role: "remote",
-              hostId: "wrong-host",
-              agentHostId: "wrong-host",
-              commandCenterRef: "wrong.example",
-              supervisedPreferred: false,
-            }),
-            "2026-07-27T15:30:00.000Z",
-          ],
-        );
-      }),
-    );
-    await runtime.runPromise(
-      repository.configure(remoteConfigurationRequest(local, cc)),
-    );
     expect((await runtime.runPromise(settings.get)).station).toEqual({
       role: "remote",
       hostId: "studio",
@@ -550,9 +532,15 @@ describe("StationRepository", () => {
       commandCenterRef: "cc.tailnet",
       supervisedPreferred: true,
     });
+    expect(
+      (await runtime.runPromise(repository.statusFacts)).configuration,
+    ).toMatchObject({
+      role: "remote",
+      browserTrust: trust,
+    });
 
-    // A conflicting pin rolls back the proposed topology/configuration change
-    // as well as the trust transition.
+    // A conflicting pin rolls back the proposed configuration change as well
+    // as the trust transition.
     const conflictingTrust = pinnedTrust("cc-browser");
     const rejected = await runtime.runPromise(
       repository
@@ -580,17 +568,19 @@ describe("StationRepository", () => {
                FROM browser_pinned_origin_trust`,
           )?.count ?? 0,
         ),
-        topology: reader.get<StateRow & { readonly body: string }>(
-          `SELECT body
-             FROM settings_station_topology
-            WHERE singleton = 1`,
-        )?.body,
+        supervisedPreferred: Number(
+          reader.get<
+            StateRow & { readonly supervised_preferred: number }
+          >(
+            `SELECT supervised_preferred
+               FROM station_configuration
+              WHERE singleton = 1`,
+          )?.supervised_preferred ?? -1,
+        ),
       })),
     );
     expect(afterRejected.pins).toBe(1);
-    expect(JSON.parse(afterRejected.topology ?? "null")).toMatchObject({
-      supervisedPreferred: true,
-    });
+    expect(afterRejected.supervisedPreferred).toBe(1);
     expect(
       (await runtime.runPromise(repository.configuration))?.configuration,
     ).toMatchObject({

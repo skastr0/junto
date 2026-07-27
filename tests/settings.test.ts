@@ -16,8 +16,7 @@ import {
   applyAndValidatePatch,
   decodePatchInput,
   decodeStationTopologyPatch,
-  migrateSettingsDocument,
-} from "../src/main/vellum/settings/migrate";
+} from "../src/main/vellum/settings/patch";
 import {
   makeSettingsService,
   type SettingsServiceApi,
@@ -55,42 +54,6 @@ describe("settings contract", () => {
     expect(next.fleet.remoteManagedInstalls).toBe(true);
   });
 
-  it("migrate soft-heals missing sections onto defaults", () => {
-    const result = migrateSettingsDocument({
-      version: 1,
-      appearance: { theme: "system" },
-    });
-    expect(Either.isRight(result)).toBe(true);
-    if (Either.isRight(result)) {
-      expect(result.right.appearance.theme).toBe("system");
-      expect(result.right.appearance.density).toBe("comfortable");
-      expect(result.right.kernel.pulseLogRetention).toBe(20);
-    }
-  });
-
-  it("migrate preserves the optional canonical station agent identity", () => {
-    const result = migrateSettingsDocument({
-      version: 1,
-      station: {
-        role: "remote",
-        hostId: "studio",
-        agentHostId: "fleet-studio",
-        commandCenterRef: "local",
-        supervisedPreferred: true,
-      },
-    });
-    expect(Either.isRight(result)).toBe(true);
-    if (Either.isRight(result)) {
-      expect(result.right.station.agentHostId).toBe("fleet-studio");
-    }
-  });
-
-  it("migrate rejects future, below-floor, and non-object documents", () => {
-    for (const input of [{ version: 99 }, { version: 0 }, []]) {
-      expect(Either.isLeft(migrateSettingsDocument(input))).toBe(true);
-    }
-  });
-
   it("rejects the retired topologyIntegrity field at every decode boundary", () => {
     const retiredStation = {
       ...defaultSettings().station,
@@ -100,14 +63,6 @@ describe("settings contract", () => {
     expect(
       Either.isLeft(
         Schema.decodeUnknownEither(StationSettings)(retiredStation),
-      ),
-    ).toBe(true);
-    expect(
-      Either.isLeft(
-        migrateSettingsDocument({
-          version: 1,
-          station: retiredStation,
-        }),
       ),
     ).toBe(true);
     expect(
@@ -206,9 +161,9 @@ describe("SQLite settings service", () => {
             "SELECT count(*) AS count FROM settings_preferences",
           )?.count ?? -1,
         ),
-        topology: Number(
+        stationConfiguration: Number(
           reader.get<Record<string, StateOutputValue> & { count: number }>(
-            "SELECT count(*) AS count FROM settings_station_topology",
+            "SELECT count(*) AS count FROM station_configuration",
           )?.count ?? -1,
         ),
         initialization: Number(
@@ -220,12 +175,12 @@ describe("SQLite settings service", () => {
     );
     expect(counts).toEqual({
       preferences: 1,
-      topology: 1,
+      stationConfiguration: 0,
       initialization: 1,
     });
   });
 
-  it("persists preference and topology rows across database restart", async () => {
+  it("persists preferences and canonical station configuration across restart", async () => {
     const first = await openService();
     await run(
       first.service.setStationTopology({
@@ -247,20 +202,26 @@ describe("SQLite settings service", () => {
     expect(reloaded.fleet.remoteManagedInstalls).toBe(true);
   });
 
-  it("commits generic preference patches without rewriting topology", async () => {
+  it("commits generic preference patches without rewriting station configuration", async () => {
     const { service, state } = await openService();
-    await run(service.setStationTopology({ role: "remote", hostId: "box" }));
+    await run(
+      service.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+      }),
+    );
     const before = await run(
       state.read(
         "test.settings.topology.before",
         (reader) =>
           reader.get<
             Record<string, StateOutputValue> & {
-              body: string;
-              updated_at: string;
+              role: string;
+              host_id: string;
+              configured_at: string;
             }
           >(
-            "SELECT body, updated_at FROM settings_station_topology WHERE singleton = 1",
+            "SELECT role, host_id, configured_at FROM station_configuration WHERE singleton = 1",
           ),
       ),
     );
@@ -272,11 +233,12 @@ describe("SQLite settings service", () => {
         (reader) =>
           reader.get<
             Record<string, StateOutputValue> & {
-              body: string;
-              updated_at: string;
+              role: string;
+              host_id: string;
+              configured_at: string;
             }
           >(
-            "SELECT body, updated_at FROM settings_station_topology WHERE singleton = 1",
+            "SELECT role, host_id, configured_at FROM station_configuration WHERE singleton = 1",
           ),
       ),
     );
@@ -362,23 +324,19 @@ describe("SQLite settings service", () => {
     expect((await run(service.get)).station.role).toBe("");
   });
 
-  it("freezes established topology fields but permits supervisor preference", async () => {
+  it("freezes established Command Center identity but permits supervisor preference", async () => {
     const { service } = await openService();
     await run(
       service.setStationTopology({
-        role: "remote",
-        hostId: "box",
-        agentHostId: "fleet-box",
-        commandCenterRef: "cc",
+        role: "command-center",
+        hostId: "local",
         supervisedPreferred: true,
       }),
     );
 
     for (const mutation of [
       { hostId: "other-box" },
-      { agentHostId: "other-fleet" },
-      { commandCenterRef: "evil-cc" },
-      { role: "command-center" as const },
+      { role: "remote" as const },
       { role: "" as const },
     ]) {
       const result = await runEither(service.setStationTopology(mutation));
@@ -389,12 +347,38 @@ describe("SQLite settings service", () => {
       service.setStationTopology({ supervisedPreferred: false }),
     );
     expect(next.station).toMatchObject({
-      role: "remote",
-      hostId: "box",
-      agentHostId: "fleet-box",
-      commandCenterRef: "cc",
+      role: "command-center",
+      hostId: "local",
+      commandCenterRef: "",
       supervisedPreferred: false,
     });
+  });
+
+  it("refuses to invent a Remote identity through local Settings", async () => {
+    const { service, state } = await openService();
+    const result = await runEither(
+      service.setStationTopology({
+        role: "remote",
+        hostId: "studio",
+        agentHostId: "studio",
+        commandCenterRef: "command.tailnet",
+        supervisedPreferred: true,
+      }),
+    );
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.message).toContain("Station API");
+    }
+    expect((await run(service.get)).station).toEqual(defaultSettings().station);
+    expect(
+      await run(
+        state.read("test.settings.no-remote", (reader) =>
+          reader.get(
+            "SELECT role FROM station_configuration WHERE singleton = 1",
+          )
+        ),
+      ),
+    ).toBeUndefined();
   });
 
   it("rejects the retired topologyIntegrity field instead of ignoring it", async () => {
@@ -451,36 +435,24 @@ describe("SQLite settings service", () => {
     });
   });
 
-  it("fails closed when either canonical aggregate row disappears", async () => {
+  it("fails closed on malformed canonical Remote configuration", async () => {
     const { service, state } = await openService();
     await run(
-      state.transaction("test.settings.removeTopology", (writer) => {
+      state.transaction("test.settings.invalidRemote", (writer) => {
         writer.run(
-          "DELETE FROM settings_station_topology WHERE singleton = 1",
-        );
-      }),
-    );
-    const result = await runEither(service.get);
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) expect(result.left.code).toBe("corrupt");
-  });
-
-  it("rejects a canonical topology row carrying the retired field", async () => {
-    const { service, state } = await openService();
-    const current = await run(service.get);
-    await run(
-      state.transaction("test.settings.retiredTopologyIntegrity", (writer) => {
-        writer.run(
-          `
-            UPDATE settings_station_topology
-            SET body = ?
-            WHERE singleton = 1
-          `,
+          `INSERT INTO station_configuration(
+             singleton,
+             role,
+             host_id,
+             agent_host_id,
+             command_center_installation_id,
+             command_center_ref,
+             supervised_preferred,
+             configured_at
+           ) VALUES (1, 'remote', ?, 'studio', 'command-id', 'command.tailnet', 1, ?)`,
           [
-            JSON.stringify({
-              ...current.station,
-              topologyIntegrity: "ok",
-            }),
+            "-invalid-host",
+            "2026-07-27T12:00:00.000Z",
           ],
         );
       }),
@@ -489,7 +461,9 @@ describe("SQLite settings service", () => {
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isLeft(result)) {
       expect(result.left.code).toBe("corrupt");
-      expect(result.left.message).toContain("topologyIntegrity is retired");
+      expect(result.left.message).toContain(
+        "canonical station configuration is invalid",
+      );
     }
   });
 
@@ -498,9 +472,6 @@ describe("SQLite settings service", () => {
     await run(
       state.transaction("test.settings.removeAggregate", (writer) => {
         writer.run("DELETE FROM settings_preferences WHERE singleton = 1");
-        writer.run(
-          "DELETE FROM settings_station_topology WHERE singleton = 1",
-        );
       }),
     );
     await closeActive();

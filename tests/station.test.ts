@@ -13,8 +13,6 @@ import {
   watcherMayTargetAgent,
 } from "../src/shared/station";
 import { defaultSettings, applySettingsPatch } from "../src/shared/settings";
-import { migrateSettingsDocument } from "../src/main/vellum/settings/migrate";
-import { Either } from "effect";
 import { makeAgentNode, makeHerdrNode, makePageNode, makeWatcherNode } from "../src/renderer/lib/node-factories";
 
 describe("station role settings", () => {
@@ -24,16 +22,6 @@ describe("station role settings", () => {
     expect(settings.station.hostId).toBe("local");
     expect(settings.station.commandCenterRef).toBe("");
     expect(settings.station.supervisedPreferred).toBe(false);
-  });
-
-  it("soft-heals missing station section on migrate", () => {
-    const result = migrateSettingsDocument({ version: 1, appearance: { theme: "system" } });
-    expect(Either.isRight(result)).toBe(true);
-    if (Either.isRight(result)) {
-      expect(result.right.station.role).toBe("");
-      expect(result.right.station.hostId).toBe("local");
-      expect(result.right.appearance.theme).toBe("system");
-    }
   });
 
   it("patches station role only when the human sets it", () => {

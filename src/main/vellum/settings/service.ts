@@ -1,5 +1,6 @@
-import { Context, Effect, Either, Layer } from "effect";
+import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
+import { CommandCenterConfiguration } from "@shared/station-api";
 import {
   SETTINGS_MAX_FILE_BYTES,
   SettingsError,
@@ -20,7 +21,7 @@ import {
   applyAndValidatePatch,
   decodePatchInput,
   decodeStationTopologyPatch,
-} from "./migrate";
+} from "./patch";
 import {
   decodeStoredSettings,
   preferencesFromSettings,
@@ -29,12 +30,17 @@ import {
   probeSupervisedRuntime,
   type SupervisedProbe,
 } from "./supervised-probe";
+import {
+  selectStationConfiguration,
+  stationSettingsFromConfiguration,
+  writeStationConfiguration,
+  type StoredStationConfiguration,
+} from "../station/configuration-state";
 
 /**
- * Settings are a two-row aggregate in the sole app-owned SQLite database:
- * ordinary preferences and protected station topology. The split makes the
- * authorization boundary structural while preserving the existing aggregate
- * API for renderer consumers.
+ * Settings preserves the renderer-facing aggregate while storing only ordinary
+ * preferences. Its station section is a projection of station_configuration,
+ * the sole normalized topology authority.
  */
 export class SettingsService extends Context.Tag("@vellum/SettingsService")<
   SettingsService,
@@ -80,11 +86,7 @@ type SettingsRows = {
         readonly body: string;
       }
     | undefined;
-  readonly topology:
-    | {
-        readonly body: string;
-      }
-    | undefined;
+  readonly station: StoredStationConfiguration | undefined;
   readonly initialization:
     | {
         readonly initializedAt: string;
@@ -95,9 +97,6 @@ type PreferencesRow = Record<string, StateOutputValue> & {
   readonly version: number;
   readonly body: string;
 };
-type TopologyRow = Record<string, StateOutputValue> & {
-  readonly body: string;
-};
 type InitializationRow = Record<string, StateOutputValue> & {
   readonly initialized_at: string;
 };
@@ -105,11 +104,6 @@ type InitializationRow = Record<string, StateOutputValue> & {
 const SELECT_PREFERENCES_SQL = `
   SELECT version, body
   FROM settings_preferences
-  WHERE singleton = 1
-`;
-const SELECT_TOPOLOGY_SQL = `
-  SELECT body
-  FROM settings_station_topology
   WHERE singleton = 1
 `;
 const SELECT_INITIALIZATION_SQL = `
@@ -122,13 +116,6 @@ const UPSERT_PREFERENCES_SQL = `
   VALUES (1, ?, ?, ?)
   ON CONFLICT(singleton) DO UPDATE SET
     version = excluded.version,
-    body = excluded.body,
-    updated_at = excluded.updated_at
-`;
-const UPSERT_TOPOLOGY_SQL = `
-  INSERT INTO settings_station_topology(singleton, body, updated_at)
-  VALUES (1, ?, ?)
-  ON CONFLICT(singleton) DO UPDATE SET
     body = excluded.body,
     updated_at = excluded.updated_at
 `;
@@ -161,10 +148,21 @@ const parseBody = (label: string, raw: string): unknown => {
 
 const readRows = (reader: StateReader): SettingsRows => {
   const preferences = reader.get<PreferencesRow>(SELECT_PREFERENCES_SQL);
-  const topology = reader.get<TopologyRow>(SELECT_TOPOLOGY_SQL);
   const initialization = reader.get<InitializationRow>(
     SELECT_INITIALIZATION_SQL,
   );
+  let station: StoredStationConfiguration | undefined;
+  try {
+    station = selectStationConfiguration(reader);
+  } catch (error) {
+    throw new SettingsError({
+      code: "corrupt",
+      message:
+        `canonical station configuration is invalid: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+    });
+  }
   return {
     preferences:
       preferences === undefined
@@ -173,10 +171,7 @@ const readRows = (reader: StateReader): SettingsRows => {
             version: Number(preferences.version),
             body: String(preferences.body),
           },
-    topology:
-      topology === undefined
-        ? undefined
-        : { body: String(topology.body) },
+    station,
     initialization:
       initialization === undefined
         ? undefined
@@ -196,14 +191,12 @@ const decodeRows = (
 ): StoredSettingsState | undefined => {
   if (
     rows.preferences === undefined &&
-    rows.topology === undefined &&
     rows.initialization === undefined
   ) {
     return undefined;
   }
   if (
     rows.preferences === undefined ||
-    rows.topology === undefined ||
     rows.initialization === undefined
   ) {
     throw new SettingsError({
@@ -215,7 +208,7 @@ const decodeRows = (
     settings: decodeStoredSettings(
       rows.preferences.version,
       parseBody("stored settings preferences", rows.preferences.body),
-      parseBody("stored station topology", rows.topology.body),
+      stationSettingsFromConfiguration(rows.station),
     ),
     initialization: rows.initialization,
   };
@@ -231,9 +224,6 @@ const readSettings = (reader: StateReader): Settings | undefined =>
 
 const encodedPreferences = (settings: Settings): string =>
   JSON.stringify(preferencesFromSettings(settings));
-
-const encodedTopology = (settings: Settings): string =>
-  JSON.stringify(settings.station);
 
 const ensureBounded = (settings: Settings): void => {
   const bytes = Buffer.byteLength(JSON.stringify(settings), "utf8");
@@ -259,25 +249,12 @@ const writePreferences = (
   ]);
 };
 
-const writeTopology = (
-  writer: StateWriter,
-  settings: Settings,
-  updatedAt: string,
-): void => {
-  ensureBounded(settings);
-  writer.run(UPSERT_TOPOLOGY_SQL, [
-    encodedTopology(settings),
-    updatedAt,
-  ]);
-};
-
 const writeInitialSettings = (
   writer: StateWriter,
   settings: Settings,
 ): void => {
   const updatedAt = new Date().toISOString();
   writePreferences(writer, settings, updatedAt);
-  writeTopology(writer, settings, updatedAt);
   writer.run(INSERT_INITIALIZATION_SQL, [updatedAt]);
 };
 
@@ -366,7 +343,7 @@ export const makeSettingsService = (
       if (decoded.right.station !== undefined) {
         return yield* new SettingsError({
           message:
-            "station topology is protected — use settingsSetStationTopology for role/host/commandCenterRef/supervisedPreferred",
+            "station topology is protected — use settingsSetStationTopology to establish or update the local Command Center",
           code: "validation",
         });
       }
@@ -408,9 +385,34 @@ export const makeSettingsService = (
             });
           }
           const requested = decoded.right;
+          const validated = applyAndValidatePatch(current, {
+            station: requested,
+          });
+          if (Either.isLeft(validated)) throw validated.left;
+          if (sameSettings(current, validated.right)) {
+            return { settings: current, changed: false };
+          }
+
+          if (current.station.role === "remote") {
+            throw new SettingsError({
+              message:
+                "Remote topology is configured only by the paired Command Center through the Station API",
+              code: "validation",
+            });
+          }
+
+          const previousRole = current.station.role;
+          const nextRole = validated.right.station.role;
+          if (nextRole === "remote") {
+            throw new SettingsError({
+              message:
+                "Remote topology requires Command Center pairing and Station API configuration",
+              code: "validation",
+            });
+          }
+
           const established =
-            current.station.role === "command-center" ||
-            current.station.role === "remote";
+            current.station.role === "command-center";
           if (established) {
             const frozen: ReadonlyArray<{
               readonly key: string;
@@ -445,34 +447,56 @@ export const makeSettingsService = (
               ) {
                 throw new SettingsError({
                   message:
-                    `Established station topology freezes ${field.key} — only supervisedPreferred may change; role/host pairing migration requires an explicit Command Center transfer ceremony`,
+                    `Established Command Center topology freezes ${field.key} — only supervisedPreferred may change`,
                   code: "validation",
                 });
               }
             }
           }
 
-          const validated = applyAndValidatePatch(current, {
-            station: requested,
-          });
-          if (Either.isLeft(validated)) throw validated.left;
-          const previousRole = current.station.role;
-          const nextRole = validated.right.station.role;
-          if (
-            (previousRole === "command-center" ||
-              previousRole === "remote") &&
-            nextRole !== previousRole
-          ) {
+          if (previousRole === "command-center" && nextRole !== previousRole) {
             throw new SettingsError({
               message:
-                "Station role migration requires an explicit Command Center transfer ceremony — Settings cannot promote, demote, or clear a protected role",
+                "Command Center role cannot be cleared or changed from Settings",
               code: "validation",
             });
           }
-          if (sameSettings(current, validated.right)) {
-            return { settings: current, changed: false };
+          if (nextRole === "") {
+            throw new SettingsError({
+              message:
+                "An unset station is represented by no configuration; choose Command Center locally or configure Remote from a Command Center",
+              code: "validation",
+            });
           }
-          writeTopology(writer, validated.right, new Date().toISOString());
+          if (
+            validated.right.station.agentHostId !== undefined ||
+            validated.right.station.commandCenterRef !== ""
+          ) {
+            throw new SettingsError({
+              message:
+                "Command Center topology cannot carry Remote-only identity fields",
+              code: "validation",
+            });
+          }
+          const configuration = Schema.decodeUnknownEither(
+            CommandCenterConfiguration,
+          )({
+            role: "command-center",
+            hostId: validated.right.station.hostId,
+            supervisedPreferred:
+              validated.right.station.supervisedPreferred,
+          });
+          if (Either.isLeft(configuration)) {
+            throw new SettingsError({
+              message: "Command Center topology is invalid",
+              code: "validation",
+            });
+          }
+          writeStationConfiguration(
+            writer,
+            configuration.right,
+            new Date().toISOString(),
+          );
           return { settings: validated.right, changed: true };
         },
       ).pipe(Effect.mapError(stateFailure));

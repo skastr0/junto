@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { createPortal } from "react-dom";
 import type {
   BrowserProfileInfo,
-  CanvasPullResult,
   HostsConfigureRemoteResult,
   HostsDeployRemoteAuthorizationRequest,
   HostsDeployRemoteResult,
@@ -1143,27 +1142,6 @@ function StationSection() {
       : role === "remote"
         ? "Remote"
         : "Not set (complete onboarding)";
-  const [pullBusy, setPullBusy] = useState(false);
-  const [pullDetail, setPullDetail] = useState<string | null>(null);
-
-  const onPullCanvases = useCallback(async () => {
-    const api = getVellumApi();
-    if (!api?.pullCanvases) {
-      setPullDetail("Pull unavailable — preload bridge missing pullCanvases");
-      return;
-    }
-    setPullBusy(true);
-    setPullDetail(null);
-    try {
-      const result: CanvasPullResult = await api.pullCanvases();
-      setPullDetail(result.detail);
-    } catch (error) {
-      setPullDetail(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPullBusy(false);
-    }
-  }, []);
-
   return (
     <div className="settings-section">
       <FieldRow
@@ -1172,88 +1150,83 @@ function StationSection() {
       >
         <span style={{ color: INK, fontSize: 13 }}>{roleLabel}</span>
       </FieldRow>
-      <FieldRow label="This station host id" hint="Must match a host registry id (usually local)">
-        <input
-          type="text"
-          value={station.hostId}
-          aria-label="Station host id"
-          onChange={(event) => {
-            const value = event.target.value.trim();
-            if (value.length === 0) return;
-            void setStationTopology({ hostId: value });
-          }}
-        />
+      <FieldRow
+        label="This station host id"
+        hint="Canonical execution identity for this installation"
+      >
+        <span style={{ color: INK, fontSize: 13 }}>{station.hostId}</span>
       </FieldRow>
       {role === "remote" ? (
         <FieldRow
+          label="Agent host id"
+          hint="Hermes identity installed by the Command Center"
+        >
+          <span style={{ color: INK, fontSize: 13 }}>
+            {station.agentHostId}
+          </span>
+        </FieldRow>
+      ) : null}
+      {role === "remote" ? (
+        <FieldRow
           label="Command Center ref"
-          hint="Host id or SSH target this Remote pulls from"
+          hint="Reachability installed during paired Station API configuration"
+        >
+          <span style={{ color: INK, fontSize: 13 }}>
+            {station.commandCenterRef}
+          </span>
+        </FieldRow>
+      ) : null}
+      {role === "command-center" ? (
+        <FieldRow
+          label="Prefer supervised runtime"
+          hint="Keep this Command Center alive under the platform supervisor"
         >
           <input
-            type="text"
-            value={station.commandCenterRef}
-            aria-label="Command Center reachability"
+            type="checkbox"
+            checked={station.supervisedPreferred}
+            aria-label="Prefer supervised runtime"
             onChange={(event) =>
-              void setStationTopology({ commandCenterRef: event.target.value })
+              void setStationTopology({
+                supervisedPreferred: event.target.checked,
+              })
             }
           />
         </FieldRow>
       ) : null}
       {role === "remote" ? (
         <FieldRow
-          label="Canvas pull"
-          hint="Fallback: replace local canvases from Command Center. Preferred path is Command Center projection push (incoming.frame on this station)."
+          label="Configuration authority"
+          hint="Remote identity cannot be changed locally"
         >
-          <button
-            type="button"
-            className="settings-panel__ghost"
-            disabled={pullBusy || station.commandCenterRef.trim().length === 0}
-            aria-label="Pull canvases from Command Center (fallback)"
-            onClick={() => void onPullCanvases()}
-          >
-            {pullBusy ? "Pulling…" : "Pull from Command Center (fallback)"}
-          </button>
+          <span className="settings-note" style={{ color: DIM }}>
+            Managed by the paired Command Center through the Station API
+          </span>
         </FieldRow>
       ) : null}
-      {role === "remote" && pullDetail ? (
-        <p className="settings-note" style={{ color: DIM }} role="status">
-          {pullDetail}
-        </p>
-      ) : null}
-      <FieldRow
-        label="Prefer supervised runtime"
-        hint="Supervised keepalive — recommended for Remote 24×7"
-      >
-        <input
-          type="checkbox"
-          checked={station.supervisedPreferred}
-          aria-label="Prefer supervised runtime"
-          onChange={(event) =>
-            void setStationTopology({ supervisedPreferred: event.target.checked })
-          }
-        />
-      </FieldRow>
       {station.role === "" ? (
-        <FieldRow label="Role" hint="Complete onboarding via the station gate">
+        <FieldRow
+          label="Configuration"
+          hint="No station_configuration row exists yet"
+        >
           <span className="settings-note" style={{ color: DIM }}>
-            Unset — pick Command Center or Remote in the gate
+            Start a Command Center here, or enroll from an existing Command Center
           </span>
         </FieldRow>
       ) : (
         <FieldRow
           label="Role migration"
-          hint="Sealed roles cannot be cleared or flipped from Settings"
+          hint="Established roles cannot be cleared or flipped from Settings"
         >
           <span className="settings-note" style={{ color: DIM }}>
             {station.role === "remote"
-              ? "Remote → Command Center requires an explicit transfer ceremony (not yet shipped)."
-              : "Command Center role is sealed. Demotion or re-onboard requires an explicit transfer ceremony."}
+              ? "Remote topology changes are applied by its paired Command Center."
+              : "Command Center demotion requires an explicit transfer ceremony."}
           </span>
         </FieldRow>
       )}
       <p className="settings-note" style={{ color: DIM }}>
         Canvas authoring is human-only on the Command Center. Agents never write the canvas.
-        Remote is a capability host for this machine only.
+        A Remote is a capability host for its configured machine only.
       </p>
     </div>
   );

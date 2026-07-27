@@ -42,10 +42,6 @@ import {
   type StationBrowserPinnedTrustRecord,
 } from "@shared/station-browser";
 import {
-  StationSettings,
-  type StationSettings as StationSettingsValue,
-} from "@shared/settings";
-import {
   installStationBrowserPinnedRecord,
   StationBrowserTrustError,
 } from "../browser/station-trust";
@@ -56,6 +52,12 @@ import {
   type StateRow,
   type StateWriter,
 } from "../state/service";
+import {
+  selectStationConfigurationRow,
+  stationConfigurationFromRow,
+  writeStationConfiguration,
+  type StationConfigurationRow,
+} from "./configuration-state";
 
 export class StationPersistenceError extends Schema.TaggedError<StationPersistenceError>()(
   "StationPersistenceError",
@@ -96,7 +98,6 @@ export class StationConfigurationError extends Schema.TaggedError<StationConfigu
     reason: Schema.Literal(
       "pairing-required",
       "command-center-mismatch",
-      "settings-topology-invalid",
     ),
     message: Schema.String,
   },
@@ -278,16 +279,6 @@ type PairingRow = StateRow & {
   readonly paired_at: string;
 };
 
-type ConfigurationRow = StateRow & {
-  readonly role: string;
-  readonly host_id: string;
-  readonly agent_host_id: string | null;
-  readonly command_center_installation_id: string | null;
-  readonly command_center_ref: string | null;
-  readonly supervised_preferred: number;
-  readonly configured_at: string;
-};
-
 type ProjectionRow = StateRow & {
   readonly generation: string;
   readonly body: string;
@@ -337,7 +328,6 @@ const decodeProjectionReference = Schema.decodeUnknownSync(
 );
 const decodeEvent = Schema.decodeUnknownSync(StationEvent);
 const decodeAck = Schema.decodeUnknownSync(StationEventAck);
-const decodeSettingsTopology = Schema.decodeUnknownEither(StationSettings);
 
 const sha256 = (value: string): StationSha256Value =>
   decodeHash(createHash("sha256").update(value, "utf8").digest("hex"));
@@ -413,19 +403,8 @@ const selectPairing = (reader: StateReader): PairingRow | undefined =>
 
 const selectConfiguration = (
   reader: StateReader,
-): ConfigurationRow | undefined =>
-  reader.get<ConfigurationRow>(
-    `SELECT
-       role,
-       host_id,
-       agent_host_id,
-       command_center_installation_id,
-       command_center_ref,
-       supervised_preferred,
-       configured_at
-     FROM station_configuration
-     WHERE singleton = 1`,
-  );
+): StationConfigurationRow | undefined =>
+  selectStationConfigurationRow(reader);
 
 const selectProjection = (
   reader: StateReader,
@@ -483,28 +462,22 @@ const pairingFromRow = (row: PairingRow): StationPairing => ({
 });
 
 const configurationFromRow = (
-  row: ConfigurationRow,
+  row: StationConfigurationRow,
   browserTrust?: StationBrowserPinnedTrustRecord,
-): StationConfigurationRecord => ({
-  configuration:
-    row.role === "command-center"
-      ? decodeConfiguration({
-          role: "command-center",
-          hostId: row.host_id,
-          supervisedPreferred: row.supervised_preferred === 1,
-        })
-      : decodeConfiguration({
-          role: "remote",
-          hostId: row.host_id,
-          agentHostId: row.agent_host_id,
-          commandCenterInstallationId:
-            row.command_center_installation_id,
-          commandCenterRef: row.command_center_ref,
-          supervisedPreferred: row.supervised_preferred === 1,
-          ...(browserTrust === undefined ? {} : { browserTrust }),
-        }),
-  configuredAt: row.configured_at,
-});
+): StationConfigurationRecord => {
+  const stored = stationConfigurationFromRow(row);
+  return {
+    ...stored,
+    configuration:
+      stored.configuration.role === "remote" &&
+          browserTrust !== undefined
+        ? decodeConfiguration({
+            ...stored.configuration,
+            browserTrust,
+          })
+        : stored.configuration,
+  };
+};
 
 const projectionFromRow = (row: ProjectionRow): StationProjection =>
   ({
@@ -591,97 +564,6 @@ const withCurrentBrowserTrust = (
         ...(browserTrust === undefined ? {} : { browserTrust }),
       })
     : configuration;
-
-const settingsTopologyForConfiguration = (
-  configuration: StationConfigurationValue,
-): Either.Either<StationSettingsValue, StationConfigurationError> => {
-  const decoded = decodeSettingsTopology(
-    configuration.role === "remote"
-      ? {
-          role: "remote",
-          hostId: configuration.hostId,
-          agentHostId: configuration.agentHostId,
-          commandCenterRef: configuration.commandCenterRef,
-          supervisedPreferred: configuration.supervisedPreferred,
-        }
-      : {
-          role: "command-center",
-          hostId: configuration.hostId,
-          commandCenterRef: "",
-          supervisedPreferred: configuration.supervisedPreferred,
-        },
-  );
-  return Either.isRight(decoded)
-    ? Either.right(decoded.right)
-    : Either.left(
-        StationConfigurationError.make({
-          reason: "settings-topology-invalid",
-          message:
-            "station configuration cannot be represented by protected settings topology",
-        }),
-      );
-};
-
-const writeSettingsTopology = (
-  writer: StateWriter,
-  topology: StationSettingsValue,
-  updatedAt: string,
-): void => {
-  const body = JSON.stringify(topology);
-  const current = writer.get<StateRow & { readonly body: string }>(
-    `SELECT body
-       FROM settings_station_topology
-      WHERE singleton = 1`,
-  );
-  if (current?.body === body) return;
-  writer.run(
-    `INSERT INTO settings_station_topology(singleton, body, updated_at)
-     VALUES (1, ?, ?)
-     ON CONFLICT(singleton) DO UPDATE SET
-       body = excluded.body,
-       updated_at = excluded.updated_at`,
-    [body, updatedAt],
-  );
-};
-
-const writeConfiguration = (
-  writer: StateWriter,
-  configuration: StationConfigurationValue,
-  configuredAt: string,
-): void => {
-  const remote =
-    configuration.role === "remote" ? configuration : undefined;
-  writer.run(
-    `INSERT INTO station_configuration(
-       singleton,
-       role,
-       host_id,
-       agent_host_id,
-       command_center_installation_id,
-       command_center_ref,
-       supervised_preferred,
-       configured_at
-     ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(singleton) DO UPDATE SET
-       role = excluded.role,
-       host_id = excluded.host_id,
-       agent_host_id = excluded.agent_host_id,
-       command_center_installation_id =
-         excluded.command_center_installation_id,
-       command_center_ref = excluded.command_center_ref,
-       supervised_preferred = excluded.supervised_preferred,
-       configured_at = excluded.configured_at`,
-    [
-      configuration.role,
-      configuration.hostId,
-      remote?.agentHostId ?? null,
-      remote?.commandCenterInstallationId ?? null,
-      remote?.commandCenterRef ?? null,
-      configuration.supervisedPreferred ? 1 : 0,
-      configuredAt,
-    ],
-  );
-};
 
 const ensureLocalIdentity = (
   operation: string,
@@ -929,10 +811,6 @@ export const makeStationRepositoryLive = (
             installationId,
             request.installationId,
           );
-          const topology = settingsTopologyForConfiguration(
-            request.configuration,
-          );
-          if (Either.isLeft(topology)) return yield* topology.left;
           const decision = yield* engine
             .transaction("station.configure", (writer) => {
               if (request.configuration.role === "remote") {
@@ -961,14 +839,6 @@ export const makeStationRepositoryLive = (
                 request.configuration,
                 selectLatestPinnedTrust(writer),
               );
-              // Station configure is the topology authority. Repair the
-              // protected Settings projection even on an otherwise
-              // idempotent configure retry.
-              writeSettingsTopology(
-                writer,
-                topology.right,
-                admittedConfiguredAt,
-              );
               const currentRow = selectConfiguration(writer);
               if (currentRow !== undefined) {
                 const current = configurationFromRow(
@@ -988,7 +858,7 @@ export const makeStationRepositoryLive = (
                   };
                 }
               }
-              writeConfiguration(
+              writeStationConfiguration(
                 writer,
                 effectiveConfiguration,
                 admittedConfiguredAt,
