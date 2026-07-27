@@ -54,7 +54,16 @@ import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
 import { developmentElectronSecurityPolicyPath, electronSecurityPolicyHealthy, packagedElectronObservationHighWaterPath, packagedElectronObservationPath, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
-import { startWorkControlServer, type WorkControlServer } from "./vellum/work/control";
+import {
+  startWorkControlServer,
+  workControlReadiness,
+  type WorkControlServer,
+} from "./vellum/work/control";
+import {
+  startStationControlServer,
+  type StationControlServer,
+} from "./vellum/station/control-server";
+import { KernelService } from "./vellum/kernel/service";
 import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
 import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum/browser/station-admission";
 import { prepareStationBrowserRuntimeRoutes } from "./vellum/browser/station-runtime";
@@ -337,6 +346,7 @@ let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
 let uninstallBrowserReadinessProbe: (() => void) | undefined;
 let workControl: WorkControlServer | undefined;
+let stationControl: StationControlServer | undefined;
 type HerdrPlaneService = Context.Tag.Service<typeof HerdrPlane>;
 type HermesPlaneService = Context.Tag.Service<typeof HermesPlane>;
 let herdrPlaneService: HerdrPlaneService | undefined;
@@ -345,6 +355,9 @@ let shutdownAdmissionClosed = false;
 let shutdownReason = "app_quit";
 let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"]>>> | undefined;
 let workControlShutdown: Promise<Awaited<ReturnType<WorkControlServer["drainOnQuit"]>>> | undefined;
+let stationControlShutdown:
+  | Promise<Awaited<ReturnType<StationControlServer["close"]>>>
+  | undefined;
 let hostOperationsDrain:
   | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
   | undefined;
@@ -1226,6 +1239,27 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       ...controlHomeInput,
       explicitHome: process.env.VELLUM_BROWSER_HOME,
     });
+    // Every installation owns one scheduler and Station API listener. Kernel
+    // start is idempotent with the IPC startup path; invoking it here makes the
+    // headless/zero-window station contract explicit before readiness opens.
+    try {
+      const kernel = await AppRuntime.runPromise(KernelService);
+      kernel.start();
+      stationControl = await startStationControlServer({
+        home: termControlHome,
+        run: (effect) => AppRuntime.runPromise(effect),
+        readiness: () => ({
+          database: true,
+          workControl: workControlReadiness.ready(),
+          simulation: true,
+        }),
+      });
+      if (shutdownAdmissionClosed) stationControl.beginShutdown();
+    } catch (error) {
+      console.error("[station-control] failed to start:", error);
+      exitAfterDetach(1, "station-control-startup-failure");
+      return;
+    }
     // Local term control UDS — Remote stations expose this for CC SSH forward.
     try {
       await termPlane.start({ controlHome: termControlHome });
@@ -1466,6 +1500,7 @@ const beginShutdownAdmission = (reason: string): void => {
   adapterShutdown ??= terminateAdapterChildrenOnQuit();
 
   workControl?.beginShutdown();
+  stationControl?.beginShutdown();
   hostOperationsShutdown.beginShutdown();
   termPlane.beginShutdown(reason);
   herdrPlaneService?.beginShutdown();
@@ -1564,6 +1599,32 @@ const requireCleanWorkControlShutdown = async (): Promise<void> => {
   workControl = undefined;
 };
 
+const requireCleanStationControlShutdown = async (): Promise<void> => {
+  if (stationControl === undefined && stationControlShutdown === undefined) {
+    return;
+  }
+  const receipt = await (stationControlShutdown ??= stationControl?.close());
+  if (receipt === undefined) return;
+  if (!receipt.clean) {
+    stationControlShutdown = undefined;
+    throw new Error(
+      `station control shutdown retained ${
+        [
+          receipt.pendingDispatches > 0
+            ? `${receipt.pendingDispatches} dispatch(es)`
+            : "",
+          receipt.openSockets > 0
+            ? `${receipt.openSockets} socket(s)`
+            : "",
+          receipt.listenerRetained ? "listener" : "",
+          receipt.socketPathRetained ? "socket path" : "",
+        ].filter(Boolean).join(", ") || "transport state"
+      }`,
+    );
+  }
+  stationControl = undefined;
+};
+
 const requireCleanHostOperationsShutdown = async (): Promise<void> => {
   const receipt = await (hostOperationsDrain ??= hostOperationsShutdown.drainOnQuit());
   if (!receipt.clean) {
@@ -1654,6 +1715,7 @@ const requireCleanAppProcessShutdown = async (): Promise<void> => {
 
 const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   await requireCleanTermPlaneShutdown(reason);
+  await requireCleanStationControlShutdown();
   await requireCleanWorkControlShutdown();
   await requireCleanHostOperationsShutdown();
   await requireCleanBrowserShutdown(reason);
