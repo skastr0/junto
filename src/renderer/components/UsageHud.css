@@ -2,15 +2,15 @@
    Sits in the station TopBar (native usage + optional codexbar). */
 
 .usage-hud {
-  --usage-hud-width: min(320px, 28vw);
   pointer-events: auto;
   position: relative;
   display: flex;
   flex-direction: column;
-  flex: 0 1 var(--usage-hud-width);
-  width: var(--usage-hud-width);
-  max-width: min(360px, 36vw);
-  min-width: 120px;
+  /* Shrink/grow to provider count — not a fixed slot that leaves empty rail. */
+  flex: 0 0 auto;
+  width: fit-content;
+  max-width: min(420px, 48vw);
+  min-width: 0;
   color: #ede6da;
   -webkit-app-region: no-drag;
 }
@@ -20,9 +20,9 @@
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   box-sizing: border-box;
-  width: 100%;
+  width: fit-content;
   max-width: 100%;
   height: 34px;
   margin: 0;
@@ -44,6 +44,7 @@
 }
 
 .usage-hud__rail--loading {
+  width: 120px;
   cursor: default;
   background: linear-gradient(
     90deg,
@@ -56,6 +57,8 @@
 }
 
 .usage-hud__rail--error {
+  width: auto;
+  max-width: 200px;
   border-color: rgba(229, 72, 77, 0.35);
   color: #e5484d;
   cursor: default;
@@ -130,16 +133,15 @@
   transition: width 160ms ease-out;
 }
 
-.usage-hud__token-label {
-  max-width: 28px;
-  overflow: hidden;
-  text-overflow: clip;
-  white-space: nowrap;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 8px;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  color: rgba(237, 230, 218, 0.72);
+/* Token-only cells share bar geometry; hatch marks "activity, no plan %". */
+.usage-hud__cell.is-tokens .usage-hud__bar {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.04),
+    rgba(255, 255, 255, 0.04) 1px,
+    rgba(232, 163, 61, 0.16) 1px,
+    rgba(232, 163, 61, 0.16) 2px
+  );
 }
 
 .usage-hud__cell.is-error .usage-hud__bar {
@@ -152,15 +154,18 @@
   );
 }
 
-/* Overlay — drops under the station bar */
+/* Overlay — drops under the station bar.
+   Sized to content (not locked to rail width) so a compact rail still gets
+   a readable list. Stays inside .usage-hud hit area so hover remains. */
 .usage-hud__tooltip {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
   z-index: 80;
   box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
+  width: max-content;
+  min-width: 220px;
+  max-width: min(360px, 70vw);
   border: 1px solid rgba(237, 230, 218, 0.12);
   border-radius: 8px;
   background: rgba(14, 12, 11, 0.97);

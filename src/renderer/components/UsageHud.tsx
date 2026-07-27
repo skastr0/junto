@@ -89,10 +89,12 @@ const providerLabel = (quota: ProviderQuota): string => {
 function Cell({ quota }: { readonly quota: ProviderQuota }) {
   // Brand mark from harness-icons (same registry as herdr cards). Unknown
   // providers fall back to a monogram inside HarnessMark.
+  // No native title — the group hover tooltip is the single readout (avoids
+  // OS tooltips fighting the list panel).
   const mark = <HarnessMark agent={quota.provider} size={12} />;
   if (quota.status === "error") {
     return (
-      <span className="usage-hud__cell is-error" title={`${quota.provider}: error`}>
+      <span className="usage-hud__cell is-error">
         {mark}
         <span className="usage-hud__bar" />
       </span>
@@ -103,7 +105,7 @@ function Cell({ quota }: { readonly quota: ProviderQuota }) {
     const used = worst.usedPercent;
     const hue = usageHue(used);
     return (
-      <span className="usage-hud__cell" title={`${quota.provider} ${formatPercent(used)}`}>
+      <span className="usage-hud__cell">
         {mark}
         <span className="usage-hud__bar">
           <i style={{ width: `${Math.min(100, Math.max(0, used))}%`, background: hue }} />
@@ -111,21 +113,19 @@ function Cell({ quota }: { readonly quota: ProviderQuota }) {
       </span>
     );
   }
+  // Token-only / no plan %: same icon+bar geometry as percent cells. Empty
+  // track (not a fake %) — absolute token totals live in the hover list + detail.
   const tokens = tokenSummary(quota);
   if (tokens.totalTokens !== undefined) {
-    const label = formatTokens(tokens.totalTokens);
     return (
-      <span
-        className="usage-hud__cell is-tokens"
-        title={`${quota.provider} ${label} tokens (7d)${tokens.note ? ` · ${tokens.note}` : ""}`}
-      >
+      <span className="usage-hud__cell is-tokens">
         {mark}
-        <span className="usage-hud__token-label">{label}</span>
+        <span className="usage-hud__bar" />
       </span>
     );
   }
   return (
-    <span className="usage-hud__cell is-empty" title={`${quota.provider}: no limit data`}>
+    <span className="usage-hud__cell is-empty">
       {mark}
       <span className="usage-hud__bar" />
     </span>
@@ -351,10 +351,12 @@ export function UsageHud() {
         <button
           type="button"
           className="usage-hud__rail"
-          aria-label={stale ? "Provider limits (stale)" : "Provider limits"}
+          aria-label={stale ? staleTitle : "Provider limits"}
           aria-expanded={open}
-          title={staleTitle}
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            setHover(false);
+            setOpen(true);
+          }}
         >
           {stale ? <span className="usage-hud__stale-dot" aria-hidden title="stale" /> : null}
           {rows.map(({ quota, snapshot, index }) => (
