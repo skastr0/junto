@@ -1561,9 +1561,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
         }
         if (
           stationConfiguration.state !== "applied" ||
-          stationConfiguration.remoteHostId !== target.host.id ||
-          stationConfiguration.commandCenterRef.length === 0 ||
-          stationConfiguration.commandCenterRef.length > 255
+          stationConfiguration.remoteHostId !== target.host.id
         ) {
           return deployFailure(
             providerInput,

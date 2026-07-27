@@ -10,7 +10,6 @@ import {
   RemoteHostRegistration,
   STATION_API_MAX_ACKS_PER_REPORT,
   STATION_API_PROTOCOL,
-  StationConfiguration,
   StationEventAck,
   StationProjectionBody,
   StationProjectionReference,
@@ -25,7 +24,6 @@ import {
   type PairResponse as PairResponseValue,
   type ProjectRequest,
   type ProjectResponse as ProjectResponseValue,
-  type RemoteConfiguration as RemoteConfigurationValue,
   type StationConfiguration as StationConfigurationValue,
   type StationEventAck as StationEventAckValue,
   type StationProjectionBody as StationProjectionBodyValue,
@@ -33,18 +31,9 @@ import {
   type StationSha256 as StationSha256Value,
 } from "@shared/station-api";
 import {
-  canonicalStationBrowserJson,
-  decodeStationBrowserPinnedTrustRecord,
-  type StationBrowserPinnedTrustRecord,
-} from "@shared/station-browser";
-import {
   hermesKeyFor,
   RemoteHostsError,
 } from "@shared/remote-hosts";
-import {
-  installStationBrowserPinnedRecord,
-  StationBrowserTrustError,
-} from "../browser/station-trust";
 import {
   ensureHostRegistryState,
   upsertHostState,
@@ -159,8 +148,7 @@ export type StationRepositoryError =
   | StationProjectionIntegrityError
   | StationCursorError
   | StationMetadataError
-  | StationPortfolioError
-  | StationBrowserTrustError;
+  | StationPortfolioError;
 
 export type StationPairing = {
   readonly commandCenterInstallationId: InstallationIdValue;
@@ -269,21 +257,10 @@ type PeerAckRow = CursorRow & {
   readonly peer_installation_id: string;
 };
 
-type PinnedTrustRow = StateRow & {
-  readonly generation: number;
-  readonly key_id: string;
-  readonly origin_installation_id: string;
-  readonly status: string;
-  readonly public_key_spki: Uint8Array | null;
-  readonly replaces_key_id: string | null;
-  readonly updated_at: number;
-};
-
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeSequence = Schema.decodeUnknownSync(LogicalSequence);
 const decodeHash = Schema.decodeUnknownSync(StationSha256);
 const decodeTimestampEither = Schema.decodeUnknownEither(DisplayTimestamp);
-const decodeConfiguration = Schema.decodeUnknownSync(StationConfiguration);
 const decodeRemoteHostRegistration = Schema.decodeUnknownSync(
   RemoteHostRegistration,
 );
@@ -330,13 +307,7 @@ const persistenceError = (
 
 const configureStateError = (
   error: StateEngineError,
-):
-  | StationPersistenceError
-  | StationBrowserTrustError
-  | StationConfigurationError => {
-  if (error.cause instanceof StationBrowserTrustError) {
-    return error.cause;
-  }
+): StationPersistenceError | StationConfigurationError => {
   if (error.cause instanceof RemoteHostsError) {
     return StationConfigurationError.make({
       reason: "host-registration-mismatch",
@@ -385,38 +356,6 @@ const selectProjection = (
      WHERE singleton = 1`,
   );
 
-const selectLatestPinnedTrust = (
-  reader: StateReader,
-): StationBrowserPinnedTrustRecord | undefined => {
-  const row = reader.get<PinnedTrustRow>(
-    `SELECT
-       generation,
-       key_id,
-       origin_installation_id,
-       status,
-       public_key_spki,
-       replaces_key_id,
-       updated_at
-     FROM browser_pinned_origin_trust
-     ORDER BY generation DESC
-     LIMIT 1`,
-  );
-  if (row === undefined) return undefined;
-  return decodeStationBrowserPinnedTrustRecord({
-    version: 1,
-    generation: row.generation,
-    keyId: row.key_id,
-    originInstallationId: row.origin_installation_id,
-    status: row.status,
-    publicKeySpki:
-      row.public_key_spki === null
-        ? null
-        : Buffer.from(row.public_key_spki).toString("base64"),
-    replacesKeyId: row.replaces_key_id,
-    updatedAt: row.updated_at,
-  });
-};
-
 const pairingFromRow = (row: PairingRow): StationPairing => ({
   commandCenterInstallationId: decodeInstallationId(
     row.command_center_installation_id,
@@ -428,21 +367,7 @@ const pairingFromRow = (row: PairingRow): StationPairing => ({
 
 const configurationFromRow = (
   row: StationConfigurationRow,
-  browserTrust?: StationBrowserPinnedTrustRecord,
-): StationConfigurationRecord => {
-  const stored = stationConfigurationFromRow(row);
-  return {
-    ...stored,
-    configuration:
-      stored.configuration.role === "remote" &&
-          browserTrust !== undefined
-        ? decodeConfiguration({
-            ...stored.configuration,
-            browserTrust,
-          })
-        : stored.configuration,
-  };
-};
+): StationConfigurationRecord => stationConfigurationFromRow(row);
 
 const projectionFromRow = (row: ProjectionRow): StationProjection =>
   ({
@@ -471,16 +396,6 @@ const ackFromRow = (row: CursorRow): StationEventAckValue =>
     through: row.through_sequence,
   });
 
-const sameBrowserTrust = (
-  left: StationBrowserPinnedTrustRecord | undefined,
-  right: StationBrowserPinnedTrustRecord | undefined,
-): boolean =>
-  left === undefined
-    ? right === undefined
-    : right !== undefined &&
-      canonicalStationBrowserJson(left) ===
-        canonicalStationBrowserJson(right);
-
 const sameConfiguration = (
   left: StationConfigurationValue,
   right: StationConfigurationValue,
@@ -498,33 +413,11 @@ const sameConfiguration = (
       left.agentHostId === right.agentHostId &&
       left.commandCenterInstallationId ===
         right.commandCenterInstallationId &&
-      left.commandCenterRef === right.commandCenterRef &&
-      left.supervisedPreferred === right.supervisedPreferred &&
-      sameBrowserTrust(left.browserTrust, right.browserTrust)
+      left.supervisedPreferred === right.supervisedPreferred
     );
   }
   return false;
 };
-
-function withCurrentBrowserTrust(
-  configuration: RemoteConfigurationValue,
-  browserTrust: StationBrowserPinnedTrustRecord | undefined,
-): RemoteConfigurationValue;
-function withCurrentBrowserTrust(
-  configuration: StationConfigurationValue,
-  browserTrust: StationBrowserPinnedTrustRecord | undefined,
-): StationConfigurationValue;
-function withCurrentBrowserTrust(
-  configuration: StationConfigurationValue,
-  browserTrust: StationBrowserPinnedTrustRecord | undefined,
-): StationConfigurationValue {
-  return configuration.role === "remote"
-    ? decodeConfiguration({
-        ...configuration,
-        ...(browserTrust === undefined ? {} : { browserTrust }),
-      })
-    : configuration;
-}
 
 const ensureLocalIdentity = (
   operation: string,
@@ -635,10 +528,7 @@ export const makeStationRepositoryLive = (
           const row = selectConfiguration(reader);
           return row === undefined
             ? undefined
-            : configurationFromRow(
-                row,
-                selectLatestPinnedTrust(reader),
-              );
+            : configurationFromRow(row);
         })
         .pipe(
           Effect.mapError((error) =>
@@ -828,12 +718,6 @@ export const makeStationRepositoryLive = (
                   admitted: pairing.command_center_installation_id,
                 };
               }
-              if (request.configuration.browserTrust !== undefined) {
-                installStationBrowserPinnedRecord(
-                  writer,
-                  request.configuration.browserTrust,
-                );
-              }
 
               // Remote is a projection consumer, never a dormant Command
               // Center. Fresh boot seeds an authorial canvas for local use;
@@ -844,10 +728,7 @@ export const makeStationRepositoryLive = (
               writer.run("DELETE FROM canvas_generation_documents");
               writer.run("DELETE FROM canvas_generations");
 
-              const effectiveConfiguration = withCurrentBrowserTrust(
-                request.configuration,
-                selectLatestPinnedTrust(writer),
-              );
+              const effectiveConfiguration = request.configuration;
               ensureHostRegistryState(writer, admittedConfiguredAt);
               const hosts = upsertHostState(writer, request.host);
               const storedHost = hosts.hosts.find(
@@ -864,10 +745,7 @@ export const makeStationRepositoryLive = (
               const registeredHost =
                 decodeRemoteHostRegistration(storedHost);
               if (currentRow !== undefined) {
-                const current = configurationFromRow(
-                  currentRow,
-                  selectLatestPinnedTrust(writer),
-                );
+                const current = configurationFromRow(currentRow);
                 if (
                   sameConfiguration(
                     current.configuration,
@@ -1186,7 +1064,6 @@ export const makeStationRepositoryLive = (
         .read("station.status-facts", (reader) => ({
           pairing: selectPairing(reader),
           configuration: selectConfiguration(reader),
-          browserTrust: selectLatestPinnedTrust(reader),
           projection: selectProjection(reader),
           received: receivedCursorRows(reader),
           peerAcks: peerAckRows(reader),
@@ -1210,10 +1087,7 @@ export const makeStationRepositoryLive = (
             const configuration =
               rows.configuration === undefined
                 ? undefined
-                : configurationFromRow(
-                    rows.configuration,
-                    rows.browserTrust,
-                  );
+                : configurationFromRow(rows.configuration);
             const projection =
               rows.projection === undefined
                 ? undefined

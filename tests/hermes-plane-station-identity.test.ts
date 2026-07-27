@@ -31,7 +31,6 @@ const withStation = (
       role: "remote",
       hostId: "studio",
       agentHostId,
-      commandCenterRef: "local",
     },
   };
 };

@@ -21,7 +21,6 @@ describe("station role settings", () => {
     const settings = defaultSettings();
     expect(settings.station.role).toBe("");
     expect(settings.station.hostId).toBe("local");
-    expect(settings.station.commandCenterRef).toBe("");
     expect(settings.station.supervisedPreferred).toBe(false);
   });
 

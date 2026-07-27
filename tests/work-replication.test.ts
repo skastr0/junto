@@ -568,7 +568,6 @@ describe("WorkRepository station replication", () => {
             hostId: stationHost(route),
             agentHostId: stationHost(route),
             commandCenterInstallationId: cc,
-            commandCenterRef: "cc.tailnet",
             supervisedPreferred: true,
           },
           host: {

@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { InstallationId } from "../src/shared/station-api";
-import type { StationBrowserPinnedTrustRecord } from "../src/shared/station-browser";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import { RemoteHostsError } from "../src/shared/remote-hosts";
 import type { ConfigureRemoteOptions } from "../src/main/vellum/hosts/configure-remote";
@@ -14,25 +13,9 @@ import {
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const commandCenterInstallationId = installationId("cc-installation");
 
-const browserTrust: StationBrowserPinnedTrustRecord = {
-  version: 1,
-  generation: 1,
-  keyId: "ed25519-command-center",
-  originInstallationId: commandCenterInstallationId,
-  status: "active",
-  publicKeySpki: Buffer.from(
-    "bounded-public-key-material",
-    "utf8",
-  ).toString("base64"),
-  replacesKeyId: null,
-  updatedAt: 1_774_780_400_000,
-};
-
 const options: ConfigureRemoteOptions = {
   commandCenterInstallationId,
-  commandCenterRef: "local",
   appVersion: "0.1.0",
-  browserTrust,
 };
 
 const host: RemoteHost = {
@@ -66,7 +49,6 @@ const successfulConfiguration = {
     role: "remote" as const,
     hostId: "studio",
     agentHostId: "fleet-studio",
-    commandCenterRef: "local",
     supervisedPreferred: true,
   },
 };
@@ -110,7 +92,6 @@ describe("configured Remote deploy", () => {
         expect(stationConfiguration).toEqual({
           state: "applied",
           remoteHostId: "studio",
-          commandCenterRef: "local",
         });
         return {
           ok: true,
@@ -124,7 +105,9 @@ describe("configured Remote deploy", () => {
     const configure = vi.fn((_ssh, _host, received) =>
       Effect.sync(() => {
         sequence.push("configure");
-        expect(received.browserTrust).toEqual(browserTrust);
+        expect(received.commandCenterInstallationId).toEqual(
+          commandCenterInstallationId,
+        );
         return successfulConfiguration;
       }),
     );

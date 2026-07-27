@@ -1,5 +1,4 @@
 import { BROWSER_PROFILES_STATE_SCHEMA_SQL } from "../browser/state-schema";
-import { BROWSER_TRUST_STATE_SCHEMA_SQL } from "../browser/trust-state-schema";
 import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
 import { KERNEL_STATE_SCHEMA_SQL } from "../kernel/state-schema";
 import { FACTORY_PAUSE_STATE_SCHEMA_SQL } from "../pause/state-schema";
@@ -77,7 +76,6 @@ export const STATE_SCHEMA_FRAGMENTS = [
   STATE_SCHEMA_IDENTITY_SQL,
   CANVAS_STATE_SCHEMA_SQL,
   BROWSER_PROFILES_STATE_SCHEMA_SQL,
-  BROWSER_TRUST_STATE_SCHEMA_SQL,
   HOSTS_STATE_SCHEMA_SQL,
   KERNEL_STATE_SCHEMA_SQL,
   FACTORY_PAUSE_STATE_SCHEMA_SQL,

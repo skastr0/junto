@@ -33,7 +33,6 @@ const remoteConfiguration = (): StationConfigurationValue =>
     hostId: "studio",
     agentHostId: "studio",
     commandCenterInstallationId,
-    commandCenterRef: "command.tailnet",
     supervisedPreferred: true,
   });
 

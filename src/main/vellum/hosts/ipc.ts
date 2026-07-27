@@ -45,41 +45,22 @@ import { PrismService } from "../../services/prism";
 import { StationRepository } from "../station/repository";
 import type { InstallationId } from "@shared/station-api";
 import { StationFleetTargetRepository } from "../station/fleet-target-repository";
-import {
-  pinnedTrustForOriginKey,
-  StationBrowserTrustRepository,
-} from "../browser/station-trust";
 
 const resolveCommandCenterConfigureOptions = (
-  commandCenterRef: string,
   supervisedPreferred = true,
 ): Effect.Effect<
   ConfigureRemoteOptions,
   RemoteHostsError,
-  PrismService | StationRepository | StationBrowserTrustRepository
+  PrismService | StationRepository
 > =>
   Effect.gen(function* () {
     const prism = yield* PrismService;
     const stations = yield* StationRepository;
-    const trust = yield* StationBrowserTrustRepository;
     const commandCenterInstallationId = yield* stations.installationId;
     const stationInfo = yield* prism.stationInfo;
-    const originKey = yield* trust.loadOrCreateOriginKey(
-      commandCenterInstallationId,
-    );
-    const browserTrust = yield* Effect.try({
-      try: () => pinnedTrustForOriginKey(originKey),
-      catch: (error) =>
-        new RemoteHostsError(
-          "io",
-          error instanceof Error ? error.message : String(error),
-        ),
-    });
     return {
       commandCenterInstallationId,
-      commandCenterRef,
       appVersion: stationInfo.version,
-      browserTrust,
       supervisedPreferred,
     };
   }).pipe(
@@ -645,12 +626,8 @@ export const registerHostsIpc = (
               } satisfies HostsConfigureRemoteResult;
             }
 
-            const commandCenterRef = station.hostId;
             const authority = yield* Effect.either(
-              resolveCommandCenterConfigureOptions(
-                commandCenterRef,
-                true,
-              ),
+              resolveCommandCenterConfigureOptions(true),
             );
             if (authority._tag === "Left") {
               return {
@@ -834,10 +811,7 @@ export const registerHostsIpc = (
                 }
 
                 const authority = yield* Effect.either(
-                  resolveCommandCenterConfigureOptions(
-                    settingsResult.right.station.hostId,
-                    true,
-                  ),
+                  resolveCommandCenterConfigureOptions(true),
                 );
                 if (authority._tag === "Left") {
                   return {

@@ -41,7 +41,6 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
       host_id TEXT NOT NULL CHECK (length(host_id) BETWEEN 1 AND 64),
       agent_host_id TEXT,
       command_center_installation_id TEXT,
-      command_center_ref TEXT,
       supervised_preferred INTEGER NOT NULL
         CHECK (supervised_preferred IN (0, 1)),
       configured_at TEXT NOT NULL
@@ -51,7 +50,6 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
           role = 'command-center'
           AND agent_host_id IS NULL
           AND command_center_installation_id IS NULL
-          AND command_center_ref IS NULL
         )
         OR
         (
@@ -60,8 +58,6 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
           AND length(agent_host_id) BETWEEN 1 AND 64
           AND command_center_installation_id IS NOT NULL
           AND length(command_center_installation_id) BETWEEN 1 AND 128
-          AND command_center_ref IS NOT NULL
-          AND length(command_center_ref) BETWEEN 1 AND 255
         )
       )
     ) STRICT

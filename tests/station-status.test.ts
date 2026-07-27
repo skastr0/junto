@@ -55,7 +55,6 @@ const remoteConfiguration = (
   agentHostId: hostId(input.hostId ?? id),
   commandCenterInstallationId:
     input.commandCenterInstallationId ?? commandCenterInstallationId,
-  commandCenterRef: "local",
   supervisedPreferred: true,
 });
 

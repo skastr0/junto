@@ -444,7 +444,6 @@ describe("SQLite settings service", () => {
     expect(next.station).toMatchObject({
       role: "command-center",
       hostId: "local",
-      commandCenterRef: "",
       supervisedPreferred: false,
     });
   });
@@ -456,7 +455,6 @@ describe("SQLite settings service", () => {
         role: "remote",
         hostId: "studio",
         agentHostId: "studio",
-        commandCenterRef: "command.tailnet",
         supervisedPreferred: true,
       }),
     );
@@ -541,10 +539,9 @@ describe("SQLite settings service", () => {
              host_id,
              agent_host_id,
              command_center_installation_id,
-             command_center_ref,
              supervised_preferred,
              configured_at
-           ) VALUES (1, 'remote', ?, 'studio', 'command-id', 'command.tailnet', 1, ?)`,
+           ) VALUES (1, 'remote', ?, 'studio', 'command-id', 1, ?)`,
           [
             "-invalid-host",
             "2026-07-27T12:00:00.000Z",

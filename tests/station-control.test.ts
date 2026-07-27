@@ -177,7 +177,6 @@ const configureRequest = () =>
       hostId: decodeHostId("studio"),
       agentHostId: decodeHostId("studio"),
       commandCenterInstallationId: COMMAND_CENTER,
-      commandCenterRef: "cc.tailnet",
       supervisedPreferred: true,
     },
     host: {

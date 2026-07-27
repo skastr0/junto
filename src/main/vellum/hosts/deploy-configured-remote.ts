@@ -61,7 +61,6 @@ export type ConfiguredRemoteDeployOperations = {
     stationConfiguration: {
       readonly state: "applied";
       readonly remoteHostId: string;
-      readonly commandCenterRef: string;
     },
     authorization?: RemoteDeploymentAuthorization,
   ) => Effect.Effect<DeployRemoteResult, never>;
@@ -212,7 +211,6 @@ export const deployConfiguredRemoteHost = (
       {
         state: "applied",
         remoteHostId: host.id,
-        commandCenterRef: options.commandCenterRef,
       },
       options.authorization,
     );

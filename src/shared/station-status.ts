@@ -244,7 +244,7 @@ const localConfigurationDetail = (
     ? "configuration absent"
     : configuration.role === "command-center"
       ? `Command Center · host ${configuration.hostId}`
-      : `Remote · host ${configuration.hostId} · CC ${configuration.commandCenterRef}`;
+      : `Remote · host ${configuration.hostId} · CC ${configuration.commandCenterInstallationId}`;
 
 /** Pure Doctor projection over canonical repository and Station API facts. */
 export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => {

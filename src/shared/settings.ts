@@ -114,10 +114,6 @@ export const StationHostIdSetting = Schema.String.pipe(
 );
 export type StationHostIdSetting = typeof StationHostIdSetting.Type;
 
-/** Reachability hint for a Remote (SSH host id / endpoint label). Empty on Command Center. */
-export const StationReachability = Schema.String.pipe(Schema.maxLength(255));
-export type StationReachability = typeof StationReachability.Type;
-
 const WithoutRetiredTopologyIntegrity = Schema.Unknown.pipe(
   Schema.filter(
     (value) =>
@@ -145,8 +141,6 @@ const StationSettingsValue = Schema.Struct({
    * registry hermesId remains the sole fleet transport identity.
    */
   agentHostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
-  /** Remote-only: how this station finds the Command Center (host id or endpoint). */
-  commandCenterRef: StationReachability,
   /** Prefer LaunchAgent supervised run (especially Remote). */
   supervisedPreferred: Schema.Boolean,
 });
@@ -244,7 +238,6 @@ const StationPatchValue = Schema.Struct({
   role: Schema.optionalWith(StationRoleSetting, { exact: true }),
   hostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
   agentHostId: Schema.optionalWith(StationHostIdSetting, { exact: true }),
-  commandCenterRef: Schema.optionalWith(StationReachability, { exact: true }),
   supervisedPreferred: Schema.optionalWith(Schema.Boolean, { exact: true }),
 });
 export const StationPatch = WithoutRetiredTopologyIntegrity.pipe(
@@ -333,7 +326,6 @@ export const defaultFleet = (): FleetSettings => ({
 export const defaultStation = (): StationSettings => ({
   role: "",
   hostId: DEFAULT_STATION_HOST_ID,
-  commandCenterRef: "",
   supervisedPreferred: false,
 });
 

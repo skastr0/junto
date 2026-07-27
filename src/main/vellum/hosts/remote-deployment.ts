@@ -65,7 +65,6 @@ export type RemoteDeploymentStationConfiguration =
   | {
       readonly state: "applied";
       readonly remoteHostId: string;
-      readonly commandCenterRef: string;
     };
 
 export type DeployableRemoteHost = RemoteHost & {

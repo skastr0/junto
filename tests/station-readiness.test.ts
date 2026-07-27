@@ -24,7 +24,6 @@ const remoteConfiguration = (
     hostId,
     agentHostId: hostId,
     commandCenterInstallationId,
-    commandCenterRef: "command.tailnet",
     supervisedPreferred: true,
   });
 

@@ -93,7 +93,6 @@ describe("StationRemoteApiClient", () => {
         hostId: decodeHostId("studio"),
         agentHostId: decodeHostId("studio"),
         commandCenterInstallationId: COMMAND_CENTER,
-        commandCenterRef: "command.tailnet",
         supervisedPreferred: true,
       },
       receivedThrough: [],

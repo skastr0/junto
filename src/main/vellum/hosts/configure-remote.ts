@@ -8,7 +8,6 @@ import {
   STATION_API_PROTOCOL,
   type ConfigureResponse,
 } from "@shared/station-api";
-import type { StationBrowserPinnedTrustRecord } from "@shared/station-browser";
 import type { StationSettings } from "@shared/settings";
 import {
   planRemoteStationConfig,
@@ -32,15 +31,8 @@ export type StationRemote = Context.Tag.Service<
 export type ConfigureRemoteOptions = {
   /** Durable identity of this Command Center's SQLite installation. */
   readonly commandCenterInstallationId: typeof InstallationId.Type;
-  /** Operator-facing route back to the Command Center. */
-  readonly commandCenterRef: string;
   /** Version of the Command Center initiating the pairing ceremony. */
   readonly appVersion: string;
-  /**
-   * Public trust projected from Command Center custody. Private key material
-   * never enters this contract.
-   */
-  readonly browserTrust: StationBrowserPinnedTrustRecord;
   readonly supervisedPreferred?: boolean;
 };
 
@@ -119,7 +111,6 @@ const stationSettingsFromResponse = (
     role: "remote",
     hostId: response.configuration.hostId,
     agentHostId: response.configuration.agentHostId,
-    commandCenterRef: response.configuration.commandCenterRef,
     supervisedPreferred: response.configuration.supervisedPreferred,
   });
 };
@@ -183,7 +174,6 @@ export const configureRemoteHost = (
     const planInput: RemoteStationConfigInput = {
       remoteHostId: host.id,
       agentHostId: hermesKeyFor(host),
-      commandCenterRef: options.commandCenterRef,
       supervisedPreferred: options.supervisedPreferred ?? true,
     };
     const plan = yield* Effect.try({
@@ -236,9 +226,7 @@ export const configureRemoteHost = (
         agentHostId: plan.station.agentHostId,
         commandCenterInstallationId:
           options.commandCenterInstallationId,
-        commandCenterRef: plan.station.commandCenterRef,
         supervisedPreferred: plan.station.supervisedPreferred,
-        browserTrust: options.browserTrust,
       },
       "Remote configuration",
     );
@@ -273,7 +261,6 @@ export const configureRemoteHost = (
     if (
       station.hostId !== plan.station.hostId ||
       station.agentHostId !== plan.station.agentHostId ||
-      station.commandCenterRef !== plan.station.commandCenterRef ||
       station.supervisedPreferred !==
         plan.station.supervisedPreferred ||
       !sameHostRegistration(configured.host, host)

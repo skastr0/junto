@@ -128,10 +128,6 @@ export const IPC_CHANNELS = {
   browserSessionList: "vellum:browser-session-list",
   browserSetBounds: "vellum:browser-set-bounds",
   browserSurfaceConfig: "vellum:browser-surface-config",
-  // trusted-renderer browser automation requests (bearer material never crosses IPC)
-  browserAutomationEnable: "vellum:browser-automation-enable",
-  browserAutomationList: "vellum:browser-automation-list",
-  browserAutomationRevoke: "vellum:browser-automation-revoke",
   // demo/scripting engine (--vellum-demo only; inert otherwise)
   demoState: "vellum:demo-state",
   demoCommand: "vellum:demo-command",
@@ -611,7 +607,7 @@ export interface VellumApi {
   readonly settingsPatch: (patch: SettingsPatch) => Promise<SettingsOpResult>;
   /**
    * Topology transitions only (station.role / hostId / agentHostId /
-   * commandCenterRef / supervisedPreferred). Generic settingsPatch rejects these.
+   * supervisedPreferred). Generic settingsPatch rejects these.
    */
   readonly settingsSetStationTopology: (
     station: StationPatch,
@@ -712,7 +708,7 @@ export interface HostsConfigureRemoteResult {
   readonly station?: {
     readonly role: string;
     readonly hostId: string;
-    readonly commandCenterRef: string;
+    readonly agentHostId?: string;
     readonly supervisedPreferred: boolean;
   };
 }
@@ -724,7 +720,6 @@ export type HostsDeployRemoteRecoveryAction =
       readonly activeTerminalSessions: number;
     }
   | { readonly kind: "restore-terminal-live-work-observation" }
-  | { readonly kind: "provision-station-browser-trust" }
   | { readonly kind: "bootstrap-linux-release-installer" }
   | { readonly kind: "repair-linux-release-transaction" }
   | { readonly kind: "retry-linux-release-install" };
@@ -1264,79 +1259,4 @@ export interface VellumBrowserApi {
   readonly onBrowserSessionChanged: (
     listener: (session: BrowserSessionInfo) => void,
   ) => () => void;
-}
-
-// --- trusted-renderer browser automation -----------------------------------
-
-export const BROWSER_AUTOMATION_HERDR_AGENTS = Object.freeze([
-  "claude",
-  "codex",
-  "hermes",
-  "kimi",
-  "opencode",
-] as const);
-
-export type BrowserAutomationHerdrAgent =
-  (typeof BROWSER_AUTOMATION_HERDR_AGENTS)[number];
-
-/** Locator-only request. Scope, actions, TTL, origin, profile, and subject are main-owned. */
-export type BrowserAutomationEnableInput =
-  | {
-      readonly kind: "hermes";
-      readonly ref: NodeRefKey;
-    }
-  | {
-      readonly kind: "herdr";
-      readonly ref: NodeRefKey;
-      readonly agent: BrowserAutomationHerdrAgent;
-    };
-
-export type BrowserAutomationSummary =
-  | {
-      readonly automationId: string;
-      readonly kind: "hermes";
-      readonly ref: NodeRefKey;
-      readonly issuedAt: number;
-      readonly expiresAt: number;
-    }
-  | {
-      readonly automationId: string;
-      readonly kind: "herdr";
-      readonly ref: NodeRefKey;
-      readonly agent: (typeof BROWSER_AUTOMATION_HERDR_AGENTS)[number];
-      readonly issuedAt: number;
-      readonly expiresAt: number;
-    };
-
-export type BrowserAutomationErrorCode =
-  | "invalid"
-  | "cancelled"
-  | "capacity"
-  | "delivery_failed"
-  | "closed"
-  | "not_found";
-
-/**
- * Public automation results are intentionally message-free. Capability,
- * control-home, registry owner/principal/job/audit identifiers, and internal
- * errors remain in the main process.
- */
-export type BrowserAutomationEnableResult =
-  | { readonly ok: true; readonly data: BrowserAutomationSummary }
-  | { readonly ok: false; readonly code: BrowserAutomationErrorCode };
-export type BrowserAutomationListResult =
-  | { readonly ok: true; readonly data: ReadonlyArray<BrowserAutomationSummary> }
-  | { readonly ok: false; readonly code: BrowserAutomationErrorCode };
-export type BrowserAutomationRevokeResult =
-  | { readonly ok: true; readonly data: { readonly revoked: true } }
-  | { readonly ok: false; readonly code: BrowserAutomationErrorCode };
-
-export interface VellumBrowserAutomationApi {
-  readonly browserAutomationEnable: (
-    input: BrowserAutomationEnableInput,
-  ) => Promise<BrowserAutomationEnableResult>;
-  readonly browserAutomationList: () => Promise<BrowserAutomationListResult>;
-  readonly browserAutomationRevoke: (
-    automationId: string,
-  ) => Promise<BrowserAutomationRevokeResult>;
 }

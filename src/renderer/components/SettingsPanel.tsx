@@ -1166,16 +1166,6 @@ function StationSection() {
           </span>
         </FieldRow>
       ) : null}
-      {role === "remote" ? (
-        <FieldRow
-          label="Command Center ref"
-          hint="Reachability installed during paired Station API configuration"
-        >
-          <span style={{ color: INK, fontSize: 13 }}>
-            {station.commandCenterRef}
-          </span>
-        </FieldRow>
-      ) : null}
       {role === "command-center" ? (
         <FieldRow
           label="Prefer supervised runtime"

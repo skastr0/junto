@@ -7,7 +7,6 @@ import {
   STATION_API_PROTOCOL,
   StatusResponse,
 } from "../src/shared/station-api";
-import type { StationBrowserPinnedTrustRecord } from "../src/shared/station-browser";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
   configureRemoteHost,
@@ -19,25 +18,9 @@ const installationId = Schema.decodeUnknownSync(InstallationId);
 const commandCenterInstallationId = installationId("cc-installation");
 const remoteInstallationId = installationId("station-installation");
 
-const browserTrust: StationBrowserPinnedTrustRecord = {
-  version: 1,
-  generation: 1,
-  keyId: "ed25519-command-center",
-  originInstallationId: commandCenterInstallationId,
-  status: "active",
-  publicKeySpki: Buffer.from(
-    "bounded-public-key-material",
-    "utf8",
-  ).toString("base64"),
-  replacesKeyId: null,
-  updatedAt: 1_774_780_400_000,
-};
-
 const options: ConfigureRemoteOptions = {
   commandCenterInstallationId,
-  commandCenterRef: "local",
   appVersion: "0.1.0",
-  browserTrust,
 };
 
 const remoteHost: RemoteHost = {
@@ -172,9 +155,7 @@ describe("configureRemoteHost", () => {
           hostId: "studio",
           agentHostId: "fleet-studio",
           commandCenterInstallationId,
-          commandCenterRef: "local",
           supervisedPreferred: true,
-          browserTrust,
         },
         host: remoteHost,
       }),
@@ -187,7 +168,6 @@ describe("configureRemoteHost", () => {
         role: "remote",
         hostId: "studio",
         agentHostId: "fleet-studio",
-        commandCenterRef: "local",
         supervisedPreferred: true,
       },
     });

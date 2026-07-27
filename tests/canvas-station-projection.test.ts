@@ -125,7 +125,6 @@ describe("CanvasesService Station projection", () => {
               hostId: decodeHostId("studio"),
               agentHostId: decodeHostId("studio"),
               commandCenterInstallationId: commandCenter,
-              commandCenterRef: "command.tailnet",
               supervisedPreferred: true,
             },
             host: {

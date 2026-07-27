@@ -25,7 +25,6 @@ export type StationConfigurationRow = StateRow & {
   readonly host_id: string;
   readonly agent_host_id: string | null;
   readonly command_center_installation_id: string | null;
-  readonly command_center_ref: string | null;
   readonly supervised_preferred: number;
   readonly configured_at: string;
 };
@@ -46,7 +45,6 @@ export const selectStationConfigurationRow = (
        host_id,
        agent_host_id,
        command_center_installation_id,
-       command_center_ref,
        supervised_preferred,
        configured_at
      FROM station_configuration
@@ -69,7 +67,6 @@ export const stationConfigurationFromRow = (
           agentHostId: row.agent_host_id,
           commandCenterInstallationId:
             row.command_center_installation_id,
-          commandCenterRef: row.command_center_ref,
           supervisedPreferred: row.supervised_preferred === 1,
         }),
   configuredAt: row.configured_at,
@@ -92,14 +89,12 @@ export const stationSettingsFromConfiguration = (
     ? {
         role: "command-center",
         hostId: configuration.hostId,
-        commandCenterRef: "",
         supervisedPreferred: configuration.supervisedPreferred,
       }
     : {
         role: "remote",
         hostId: configuration.hostId,
         agentHostId: configuration.agentHostId,
-        commandCenterRef: configuration.commandCenterRef,
         supervisedPreferred: configuration.supervisedPreferred,
       };
 };
@@ -118,17 +113,15 @@ export const writeStationConfiguration = (
        host_id,
        agent_host_id,
        command_center_installation_id,
-       command_center_ref,
        supervised_preferred,
        configured_at
-     ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (1, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(singleton) DO UPDATE SET
        role = excluded.role,
        host_id = excluded.host_id,
        agent_host_id = excluded.agent_host_id,
        command_center_installation_id =
          excluded.command_center_installation_id,
-       command_center_ref = excluded.command_center_ref,
        supervised_preferred = excluded.supervised_preferred,
        configured_at = excluded.configured_at`,
     [
@@ -136,7 +129,6 @@ export const writeStationConfiguration = (
       configuration.hostId,
       remote?.agentHostId ?? null,
       remote?.commandCenterInstallationId ?? null,
-      remote?.commandCenterRef ?? null,
       configuration.supervisedPreferred ? 1 : 0,
       configuredAt,
     ],

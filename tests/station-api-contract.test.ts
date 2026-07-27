@@ -78,14 +78,12 @@ describe("Station API wire schemas", () => {
         hostId: "studio",
         agentHostId: "studio",
         commandCenterInstallationId: cc,
-        commandCenterRef: "cc.tailnet",
         supervisedPreferred: true,
       },
       host: {
         id: "studio",
         label: "Studio Mini",
         kind: "remote",
-        endpoint: "studio",
         capabilities: ["terminal", "browser", "hermes"],
       },
     });
@@ -183,7 +181,6 @@ describe("Station API wire schemas", () => {
       hostId: "studio",
       agentHostId: "studio",
       commandCenterInstallationId: cc,
-      commandCenterRef: "cc.tailnet",
       supervisedPreferred: true,
     };
     expect(() =>

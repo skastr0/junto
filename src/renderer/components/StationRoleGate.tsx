@@ -26,7 +26,6 @@ export function StationRoleGate() {
         const ok = await setStationTopology({
           role: "command-center",
           hostId: settings?.station?.hostId || "local",
-          commandCenterRef: "",
           supervisedPreferred: false,
         });
         if (!ok) {

@@ -202,7 +202,6 @@ const providerInput = (
   stationConfiguration: {
     state: "applied",
     remoteHostId: host.id,
-    commandCenterRef: "command-center",
   },
   ...(authorization === undefined
     ? {}

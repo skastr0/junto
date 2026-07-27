@@ -379,7 +379,6 @@ const configureRemote = async (
             hostId: decodeHostId(hostId),
             agentHostId: decodeHostId(hostId),
             commandCenterInstallationId: COMMAND_CENTER,
-            commandCenterRef: "command-center.test",
             supervisedPreferred: true,
           },
           host: {

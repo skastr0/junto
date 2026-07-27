@@ -8,7 +8,6 @@ describe("remote station config planner", () => {
   const input = {
     remoteHostId: "studio",
     agentHostId: "studio",
-    commandCenterRef: "local",
   } as const;
 
   it("plans Remote station fields with supervisedPreferred default true", () => {
@@ -17,7 +16,6 @@ describe("remote station config planner", () => {
       role: "remote",
       hostId: "studio",
       agentHostId: "studio",
-      commandCenterRef: "local",
       supervisedPreferred: true,
     });
   });
@@ -39,22 +37,11 @@ describe("remote station config planner", () => {
     expect(station.agentHostId).toBe("fleet-studio");
   });
 
-  it("rejects empty commandCenterRef", () => {
-    expect(() =>
-      planRemoteStationFields({
-        remoteHostId: "studio",
-        agentHostId: "studio",
-        commandCenterRef: "  ",
-      }),
-    ).toThrow(/commandCenterRef is required/);
-  });
-
   it("rejects invalid remote host id", () => {
     expect(() =>
       planRemoteStationFields({
         remoteHostId: "-bad",
         agentHostId: "studio",
-        commandCenterRef: "local",
       }),
     ).toThrow(/invalid remote host id/);
   });
@@ -63,7 +50,6 @@ describe("remote station config planner", () => {
     expect(() =>
       planRemoteStationFields({
         remoteHostId: "studio",
-        commandCenterRef: "local",
       } as never),
     ).toThrow(/invalid agent host id/);
   });
@@ -82,7 +68,6 @@ describe("remote station config planner", () => {
     expect(plan.summary).toContain("role=remote");
     expect(plan.summary).toContain("hostId=studio");
     expect(plan.summary).toContain("agentHostId=studio");
-    expect(plan.summary).toContain("commandCenterRef=local");
     expect(plan.summary).toContain("supervisedPreferred=true");
   });
 });

@@ -1,10 +1,8 @@
 import { Schema } from "effect";
 import {
-  HostEndpoint,
   RemoteHost,
 } from "./remote-hosts";
 import { STATION_ROLES } from "./station";
-import { StationBrowserPinnedTrustRecord } from "./station-browser";
 import { InstallationId } from "./installation-id";
 
 export { InstallationId } from "./installation-id";
@@ -78,11 +76,6 @@ const AppVersion = Schema.String.pipe(
   Schema.maxLength(64),
 );
 
-const CommandCenterRef = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(255),
-);
-
 export const PairRequest = Schema.Struct({
   protocol: Schema.Literal(STATION_API_PROTOCOL),
   op: Schema.Literal("pair"),
@@ -114,11 +107,7 @@ export const RemoteConfiguration = Schema.Struct({
   hostId: StationHostId,
   agentHostId: StationHostId,
   commandCenterInstallationId: InstallationId,
-  commandCenterRef: CommandCenterRef,
   supervisedPreferred: Schema.Boolean,
-  browserTrust: Schema.optionalWith(StationBrowserPinnedTrustRecord, {
-    exact: true,
-  }),
 });
 export type RemoteConfiguration = typeof RemoteConfiguration.Type;
 
@@ -127,13 +116,13 @@ export type RemoteConfiguration = typeof RemoteConfiguration.Type;
  *
  * This is a configure-time authority fact, separate from Station topology:
  * the Remote may advertise only capabilities selected in the Command Center
- * registry. Requiring kind=remote and a concrete endpoint also prevents the
- * code-default local host from being repurposed as a configured station.
+ * registry. Requiring kind=remote prevents the code-default local host from
+ * being repurposed as a configured station. SSH route (endpoint) is not part
+ * of this projection — transport locators live on the host registry.
  */
 export const RemoteHostRegistration = Schema.Struct({
   ...RemoteHost.fields,
   kind: Schema.Literal("remote"),
-  endpoint: HostEndpoint,
 }).pipe(
   Schema.filter(
     (host) =>
@@ -145,8 +134,8 @@ export type RemoteHostRegistration = typeof RemoteHostRegistration.Type;
 
 /**
  * Role-specific topology. A Remote cannot be configured without its Command
- * Center identity and reachability; a Command Center cannot accidentally
- * retain Remote-only fields in its decoded configuration.
+ * Center installation identity; a Command Center cannot accidentally retain
+ * Remote-only fields in its decoded configuration.
  */
 export const StationConfiguration = Schema.Union(
   CommandCenterConfiguration,

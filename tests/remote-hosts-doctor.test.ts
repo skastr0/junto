@@ -49,7 +49,6 @@ const stationStatus = (
             agentHostId: stationHostId(id),
             commandCenterInstallationId:
               installationId("cc-installation"),
-            commandCenterRef: "local",
             supervisedPreferred: true,
           },
           configuredAt: "2026-07-27T12:00:00.000Z",

@@ -433,11 +433,6 @@ export const makeSettingsService = (
                 next: requested.agentHostId,
                 previous: current.station.agentHostId,
               },
-              {
-                key: "commandCenterRef",
-                next: requested.commandCenterRef,
-                previous: current.station.commandCenterRef,
-              },
             ];
             for (const field of frozen) {
               if (
@@ -467,10 +462,7 @@ export const makeSettingsService = (
               code: "validation",
             });
           }
-          if (
-            validated.right.station.agentHostId !== undefined ||
-            validated.right.station.commandCenterRef !== ""
-          ) {
+          if (validated.right.station.agentHostId !== undefined) {
             throw new SettingsError({
               message:
                 "Command Center topology cannot carry Remote-only identity fields",
