@@ -34,6 +34,7 @@ import {
   SettingsLive,
   SettingsService,
 } from "../src/main/vellum/settings/service";
+import { findHostById } from "../src/main/vellum/hosts/snapshot";
 import {
   compileStationPortfolioBody,
   STATION_PORTFOLIO_PROTOCOL,
@@ -106,6 +107,9 @@ const remoteConfigurationRequest = (
   commandCenter: InstallationIdValue,
   options: {
     readonly browserTrust?: StationBrowserPinnedTrustRecordValue;
+    readonly capabilities?: ReadonlyArray<
+      "terminal" | "browser" | "herdr" | "hermes"
+    >;
     readonly supervisedPreferred?: boolean;
   } = {},
 ) =>
@@ -123,6 +127,17 @@ const remoteConfigurationRequest = (
       ...(options.browserTrust === undefined
         ? {}
         : { browserTrust: options.browserTrust }),
+    },
+    host: {
+      id: "studio",
+      label: "Studio Mini",
+      kind: "remote",
+      endpoint: "studio",
+      capabilities: options.capabilities ?? [
+        "terminal",
+        "browser",
+        "hermes",
+      ],
     },
   });
 
@@ -263,6 +278,55 @@ describe("StationRepository", () => {
         ),
       ),
     ).toBe(0);
+    await runtime.dispose();
+  });
+
+  it("rejects a Command Center host registration that does not name the configured Remote", async () => {
+    const path = await testDatabase();
+    const local = decodeInstallationId("host-registration-defense");
+    const cc = decodeInstallationId("host-registration-command");
+    const runtime = makeRuntime(path, local);
+    const repository = await runtime.runPromise(StationRepository);
+    const state = await runtime.runPromise(StateEngine);
+    await runtime.runPromise(repository.pair(pairRequest(local, cc)));
+
+    const mismatched = ConfigureRequest.make({
+      ...remoteConfigurationRequest(local, cc),
+      host: {
+        id: "other-studio",
+        label: "Other Studio",
+        kind: "remote",
+        endpoint: "other-studio",
+        capabilities: ["browser"],
+      },
+    });
+    const result = await runtime.runPromise(
+      repository.configureRemote(mismatched).pipe(Effect.either),
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        _tag: "StationConfigurationError",
+        reason: "host-registration-mismatch",
+      },
+    });
+    expect(
+      await runtime.runPromise(
+        state.read("test.host-registration-zero-write", (reader) => ({
+          configuration: Number(
+            reader.get<StateRow & { readonly count: number }>(
+              "SELECT count(*) AS count FROM station_configuration",
+            )?.count ?? -1,
+          ),
+          remotes: Number(
+            reader.get<StateRow & { readonly count: number }>(
+              "SELECT count(*) AS count FROM host_registry WHERE kind = 'remote'",
+            )?.count ?? -1,
+          ),
+        })),
+      ),
+    ).toEqual({ configuration: 0, remotes: 0 });
     await runtime.dispose();
   });
 
@@ -449,6 +513,13 @@ describe("StationRepository", () => {
             supervisedPreferred: true,
             browserTrust: pinnedTrust("other-studio"),
           },
+          host: {
+            id: "other-studio",
+            label: "Other Studio",
+            kind: "remote",
+            endpoint: "other-studio",
+            capabilities: ["browser", "hermes"],
+          },
         }),
       ).pipe(Effect.either),
     );
@@ -526,6 +597,13 @@ describe("StationRepository", () => {
               commandCenterRef: "cc.tailnet",
               supervisedPreferred: false,
               browserTrust: pinnedTrust("shared"),
+            },
+            host: {
+              id: "shared",
+              label: "Shared",
+              kind: "remote",
+              endpoint: "shared",
+              capabilities: ["browser", "hermes"],
             },
           }),
           "2026-07-27T12:02:00.000Z",
@@ -827,6 +905,14 @@ describe("StationRepository", () => {
       ),
     );
     expect(configured.configuration).not.toHaveProperty("browserTrust");
+    expect(configured.host).toEqual({
+      id: "studio",
+      label: "Studio Mini",
+      kind: "remote",
+      endpoint: "studio",
+      capabilities: ["terminal", "browser", "hermes"],
+    });
+    expect(findHostById("studio")).toEqual(configured.host);
 
     const trust = pinnedTrust("cc-browser");
     const trustInstalled = await runtime.runPromise(
@@ -885,6 +971,26 @@ describe("StationRepository", () => {
                FROM browser_pinned_origin_trust`,
           )?.count ?? 0,
         ),
+        host: reader.get<
+          StateRow & {
+            readonly id: string;
+            readonly label: string;
+            readonly kind: string;
+            readonly endpoint: string | null;
+            readonly capability_mask: number | null;
+            readonly sort_order: number;
+          }
+        >(
+          `SELECT
+             id,
+             label,
+             kind,
+             endpoint,
+             capability_mask,
+             sort_order
+             FROM host_registry
+            WHERE id = 'studio'`,
+        ),
       })),
     );
     expect(durable.configuration).toMatchObject({
@@ -896,6 +1002,14 @@ describe("StationRepository", () => {
       supervised_preferred: 1,
     });
     expect(durable.pins).toBe(1);
+    expect(durable.host).toEqual({
+      id: "studio",
+      label: "Studio Mini",
+      kind: "remote",
+      endpoint: "studio",
+      capability_mask: 11,
+      sort_order: 1,
+    });
     expect((await runtime.runPromise(settings.get)).station).toEqual({
       role: "remote",
       hostId: "studio",

@@ -7,6 +7,7 @@ import {
   LogicalSequence,
   PairResponse,
   ProjectResponse,
+  RemoteHostRegistration,
   STATION_API_MAX_ACKS_PER_REPORT,
   STATION_API_PROTOCOL,
   StationConfiguration,
@@ -37,9 +38,18 @@ import {
   type StationBrowserPinnedTrustRecord,
 } from "@shared/station-browser";
 import {
+  hermesKeyFor,
+  RemoteHostsError,
+} from "@shared/remote-hosts";
+import {
   installStationBrowserPinnedRecord,
   StationBrowserTrustError,
 } from "../browser/station-trust";
+import {
+  ensureHostRegistryState,
+  upsertHostState,
+} from "../hosts/registry";
+import { setHostsSnapshot } from "../hosts/snapshot";
 import {
   StateEngine,
   type StateEngineError,
@@ -105,6 +115,7 @@ export class StationConfigurationError extends Schema.TaggedError<StationConfigu
       "pairing-required",
       "command-center-mismatch",
       "host-immutable",
+      "host-registration-mismatch",
       "role-immutable",
       "remote-only",
     ),
@@ -273,6 +284,9 @@ const decodeSequence = Schema.decodeUnknownSync(LogicalSequence);
 const decodeHash = Schema.decodeUnknownSync(StationSha256);
 const decodeTimestampEither = Schema.decodeUnknownEither(DisplayTimestamp);
 const decodeConfiguration = Schema.decodeUnknownSync(StationConfiguration);
+const decodeRemoteHostRegistration = Schema.decodeUnknownSync(
+  RemoteHostRegistration,
+);
 const decodeProjectionBody = Schema.decodeUnknownSync(StationProjectionBody);
 const decodeProjectionReference = Schema.decodeUnknownSync(
   StationProjectionReference,
@@ -316,10 +330,21 @@ const persistenceError = (
 
 const configureStateError = (
   error: StateEngineError,
-): StationPersistenceError | StationBrowserTrustError =>
-  error.cause instanceof StationBrowserTrustError
-    ? error.cause
-    : persistenceError("configure", error);
+):
+  | StationPersistenceError
+  | StationBrowserTrustError
+  | StationConfigurationError => {
+  if (error.cause instanceof StationBrowserTrustError) {
+    return error.cause;
+  }
+  if (error.cause instanceof RemoteHostsError) {
+    return StationConfigurationError.make({
+      reason: "host-registration-mismatch",
+      message: error.cause.message,
+    });
+  }
+  return persistenceError("configure", error);
+};
 
 const selectInstallation = (
   reader: StateReader,
@@ -747,6 +772,18 @@ export const makeStationRepositoryLive = (
                 "Station API configuration can establish only a Remote role",
             });
           }
+          if (
+            request.host.id === "local" ||
+            request.host.id !== request.configuration.hostId ||
+            hermesKeyFor(request.host) !==
+              request.configuration.agentHostId
+          ) {
+            return yield* StationConfigurationError.make({
+              reason: "host-registration-mismatch",
+              message:
+                "Remote configuration identity must match its Command Center host registration",
+            });
+          }
           const admittedConfiguredAt = yield* admitTimestamp(
             "configure",
             "configuredAt",
@@ -811,6 +848,21 @@ export const makeStationRepositoryLive = (
                 request.configuration,
                 selectLatestPinnedTrust(writer),
               );
+              ensureHostRegistryState(writer, admittedConfiguredAt);
+              const hosts = upsertHostState(writer, request.host);
+              const storedHost = hosts.hosts.find(
+                (host) => host.id === request.configuration.hostId,
+              );
+              if (
+                storedHost === undefined ||
+                storedHost.kind !== "remote"
+              ) {
+                throw new Error(
+                  "configured Remote host registration was not persisted",
+                );
+              }
+              const registeredHost =
+                decodeRemoteHostRegistration(storedHost);
               if (currentRow !== undefined) {
                 const current = configurationFromRow(
                   currentRow,
@@ -826,6 +878,8 @@ export const makeStationRepositoryLive = (
                     _tag: "configured" as const,
                     configuredAt: current.configuredAt,
                     configuration: effectiveConfiguration,
+                    host: registeredHost,
+                    hosts: hosts.hosts,
                   };
                 }
               }
@@ -838,6 +892,8 @@ export const makeStationRepositoryLive = (
                 _tag: "configured" as const,
                 configuredAt: admittedConfiguredAt,
                 configuration: effectiveConfiguration,
+                host: registeredHost,
+                hosts: hosts.hosts,
               };
             })
             .pipe(
@@ -875,11 +931,13 @@ export const makeStationRepositoryLive = (
                 `cannot reconfigure it as "${request.configuration.role}"`,
             });
           }
+          setHostsSnapshot(decision.hosts);
           return ConfigureResponse.make({
             protocol: STATION_API_PROTOCOL,
             op: "configure",
             installationId,
             configuration: decision.configuration,
+            host: decision.host,
             configuredAt: decision.configuredAt,
           });
         },

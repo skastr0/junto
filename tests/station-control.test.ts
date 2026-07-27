@@ -180,6 +180,13 @@ const configureRequest = () =>
       commandCenterRef: "cc.tailnet",
       supervisedPreferred: true,
     },
+    host: {
+      id: "studio",
+      label: "Studio Mini",
+      kind: "remote",
+      endpoint: "studio",
+      capabilities: ["terminal", "browser", "hermes"],
+    },
   });
 
 const projectRequest = () => {
@@ -322,6 +329,11 @@ describe("Station API control transport", () => {
         op: "configure",
         installationId: LOCAL,
         configuration: { role: "remote", hostId: "studio" },
+        host: {
+          id: "studio",
+          kind: "remote",
+          capabilities: ["terminal", "browser", "hermes"],
+        },
       },
     });
 

@@ -382,6 +382,13 @@ const configureRemote = async (
             commandCenterRef: "command-center.test",
             supervisedPreferred: true,
           },
+          host: {
+            id: hostId,
+            label: hostId,
+            kind: "remote",
+            endpoint: hostId,
+            capabilities: ["terminal", "browser", "hermes"],
+          },
         }),
         READINESS,
       );

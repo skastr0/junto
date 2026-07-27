@@ -81,8 +81,20 @@ describe("Station API wire schemas", () => {
         commandCenterRef: "cc.tailnet",
         supervisedPreferred: true,
       },
+      host: {
+        id: "studio",
+        label: "Studio Mini",
+        kind: "remote",
+        endpoint: "studio",
+        capabilities: ["terminal", "browser", "hermes"],
+      },
     });
     expect(configure.configuration.role).toBe("remote");
+    expect(configure.host).toMatchObject({
+      id: "studio",
+      kind: "remote",
+      capabilities: ["terminal", "browser", "hermes"],
+    });
 
     const project = Schema.decodeUnknownSync(ProjectRequest)({
       protocol: STATION_API_PROTOCOL,
@@ -160,6 +172,46 @@ describe("Station API wire schemas", () => {
           role: "remote",
           hostId: "studio",
           supervisedPreferred: true,
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("requires one concrete Remote registration with unique capabilities", () => {
+    const configuration = {
+      role: "remote" as const,
+      hostId: "studio",
+      agentHostId: "studio",
+      commandCenterInstallationId: cc,
+      commandCenterRef: "cc.tailnet",
+      supervisedPreferred: true,
+    };
+    expect(() =>
+      Schema.decodeUnknownSync(ConfigureRequest)({
+        protocol: STATION_API_PROTOCOL,
+        op: "configure",
+        installationId: remote,
+        configuration,
+        host: {
+          id: "studio",
+          label: "Studio",
+          kind: "local",
+          capabilities: ["browser"],
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(ConfigureRequest)({
+        protocol: STATION_API_PROTOCOL,
+        op: "configure",
+        installationId: remote,
+        configuration,
+        host: {
+          id: "studio",
+          label: "Studio",
+          kind: "remote",
+          endpoint: "studio",
+          capabilities: ["browser", "browser"],
         },
       }),
     ).toThrow();

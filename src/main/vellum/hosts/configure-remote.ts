@@ -124,6 +124,22 @@ const stationSettingsFromResponse = (
   });
 };
 
+const sameHostRegistration = (
+  left: RemoteHost,
+  right: RemoteHost,
+): boolean =>
+  left.id === right.id &&
+  left.label === right.label &&
+  left.kind === right.kind &&
+  left.endpoint === right.endpoint &&
+  left.hermesId === right.hermesId &&
+  left.appearance?.color === right.appearance?.color &&
+  left.appearance?.glyph === right.appearance?.glyph &&
+  left.capabilities.length === right.capabilities.length &&
+  left.capabilities.every((capability) =>
+    right.capabilities.includes(capability)
+  );
+
 /**
  * Pair and configure one registered Remote through its app-owned Station API.
  *
@@ -233,6 +249,11 @@ export const configureRemoteHost = (
         op: "configure",
         installationId: status.installationId,
         configuration,
+        host: {
+          ...host,
+          kind: "remote",
+          endpoint: host.endpoint,
+        },
       },
       "Station configure",
     );
@@ -254,7 +275,8 @@ export const configureRemoteHost = (
       station.agentHostId !== plan.station.agentHostId ||
       station.commandCenterRef !== plan.station.commandCenterRef ||
       station.supervisedPreferred !==
-        plan.station.supervisedPreferred
+        plan.station.supervisedPreferred ||
+      !sameHostRegistration(configured.host, host)
     ) {
       return yield* Effect.fail(
         new RemoteHostsError(

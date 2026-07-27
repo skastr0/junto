@@ -571,6 +571,13 @@ describe("WorkRepository station replication", () => {
             commandCenterRef: "cc.tailnet",
             supervisedPreferred: true,
           },
+          host: {
+            id: route,
+            label: route,
+            kind: "remote",
+            endpoint: route,
+            capabilities: ["terminal", "browser", "hermes"],
+          },
         }),
       ),
     );

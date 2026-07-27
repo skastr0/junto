@@ -349,6 +349,75 @@ const registryState = (
     WHERE singleton = 1
   `);
 
+/**
+ * Establish the exact-current host registry inside an existing StateEngine
+ * transaction. Station configuration and the normal HostsService bootstrap
+ * share this construction so neither can create a partial registry.
+ */
+export const ensureHostRegistryState = (
+  writer: StateWriter,
+  initializedAt: string,
+): void => {
+  if (registryState(writer) !== undefined) return;
+  const existing = writer.get<{ readonly count: number }>(
+    "SELECT count(*) AS count FROM host_registry",
+  )?.count ?? 0;
+  if (existing !== 0) {
+    throw new Error(
+      "host registry rows exist without initialization metadata",
+    );
+  }
+  writeHost(writer, defaultRemoteHostsDocument().hosts[0]!, 0);
+  writer.run(
+    `
+      INSERT INTO host_registry_state(
+        singleton,
+        version,
+        initialized_at
+      )
+      VALUES (1, 1, ?)
+    `,
+    [initializedAt],
+  );
+};
+
+/**
+ * Canonical host mutation used by both operator enrollment and authenticated
+ * Remote configuration. Validation is against the complete resulting
+ * registry, so endpoint and Hermes-key uniqueness remain transaction facts.
+ */
+export const upsertHostState = (
+  writer: StateWriter,
+  host: RemoteHost,
+): RemoteHostsDocument => {
+  const current = readStoredDocument(writer);
+  const entry =
+    host.id === LOCAL_HOST_ID
+      ? makeLocalHost({
+          label: host.label,
+          hermesId: host.hermesId,
+          appearance: host.appearance,
+        })
+      : host;
+  const nextHosts = [...current.hosts];
+  const index = nextHosts.findIndex((row) => row.id === entry.id);
+  if (index >= 0) nextHosts[index] = entry;
+  else nextHosts.push(entry);
+  validateHosts(nextHosts);
+
+  const currentOrder = writer.get<{ readonly sort_order: number }>(
+    "SELECT sort_order FROM host_registry WHERE id = ?",
+    [entry.id],
+  )?.sort_order;
+  const maxOrder = writer.get<{
+    readonly max_order: number | null;
+  }>(
+    "SELECT max(sort_order) AS max_order FROM host_registry",
+  )?.max_order ?? 0;
+  writeHost(writer, entry, currentOrder ?? maxOrder + 1);
+  return readStoredDocument(writer);
+};
+
 const initializeRegistry = (
   state: StateService,
 ): Effect.Effect<void, HostsStateError> =>
@@ -361,27 +430,7 @@ const initializeRegistry = (
     const initializedAt = new Date().toISOString();
     yield* state
       .transaction("hosts.initialize", (writer) => {
-        if (registryState(writer) !== undefined) return;
-        const existing = writer.get<{ readonly count: number }>(
-          "SELECT count(*) AS count FROM host_registry",
-        )?.count ?? 0;
-        if (existing !== 0) {
-          throw new Error(
-            "host registry rows exist without initialization metadata",
-          );
-        }
-        writeHost(writer, defaultRemoteHostsDocument().hosts[0]!, 0);
-        writer.run(
-          `
-            INSERT INTO host_registry_state(
-              singleton,
-              version,
-              initialized_at
-            )
-            VALUES (1, 1, ?)
-          `,
-          [initializedAt],
-        );
+        ensureHostRegistryState(writer, initializedAt);
       })
       .pipe(Effect.mapError((error) => stateError("initialize-write", error)));
   }).pipe(Effect.withSpan("hosts.initialize"));
@@ -475,32 +524,7 @@ export const makeHostsRegistry = (
       const next = await runRegistryEffect(
         state
           .transaction("hosts.upsert", (writer) => {
-            const current = readStoredDocument(writer);
-            const entry =
-              host.id === LOCAL_HOST_ID
-                ? makeLocalHost({
-                    label: host.label,
-                    hermesId: host.hermesId,
-                    appearance: host.appearance,
-                  })
-                : host;
-            const nextHosts = [...current.hosts];
-            const index = nextHosts.findIndex((row) => row.id === entry.id);
-            if (index >= 0) nextHosts[index] = entry;
-            else nextHosts.push(entry);
-            validateHosts(nextHosts);
-
-            const currentOrder = writer.get<{ readonly sort_order: number }>(
-              "SELECT sort_order FROM host_registry WHERE id = ?",
-              [entry.id],
-            )?.sort_order;
-            const maxOrder = writer.get<{
-              readonly max_order: number | null;
-            }>(
-              "SELECT max(sort_order) AS max_order FROM host_registry",
-            )?.max_order ?? 0;
-            writeHost(writer, entry, currentOrder ?? maxOrder + 1);
-            return readStoredDocument(writer);
+            return upsertHostState(writer, host);
           })
           .pipe(
             Effect.map(projectDocument),

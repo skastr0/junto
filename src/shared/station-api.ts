@@ -1,4 +1,8 @@
 import { Schema } from "effect";
+import {
+  HostEndpoint,
+  RemoteHost,
+} from "./remote-hosts";
 import { STATION_ROLES } from "./station";
 import { StationBrowserPinnedTrustRecord } from "./station-browser";
 
@@ -125,6 +129,27 @@ export const RemoteConfiguration = Schema.Struct({
 export type RemoteConfiguration = typeof RemoteConfiguration.Type;
 
 /**
+ * Exact Command Center enrollment projected onto one Remote installation.
+ *
+ * This is a configure-time authority fact, separate from Station topology:
+ * the Remote may advertise only capabilities selected in the Command Center
+ * registry. Requiring kind=remote and a concrete endpoint also prevents the
+ * code-default local host from being repurposed as a configured station.
+ */
+export const RemoteHostRegistration = Schema.Struct({
+  ...RemoteHost.fields,
+  kind: Schema.Literal("remote"),
+  endpoint: HostEndpoint,
+}).pipe(
+  Schema.filter(
+    (host) =>
+      new Set(host.capabilities).size === host.capabilities.length ||
+      "Remote host capabilities must be unique",
+  ),
+);
+export type RemoteHostRegistration = typeof RemoteHostRegistration.Type;
+
+/**
  * Role-specific topology. A Remote cannot be configured without its Command
  * Center identity and reachability; a Command Center cannot accidentally
  * retain Remote-only fields in its decoded configuration.
@@ -143,6 +168,7 @@ export const ConfigureRequest = Schema.Struct({
   // selected locally in the Electron main process and is not representable in
   // an SSH Station request.
   configuration: RemoteConfiguration,
+  host: RemoteHostRegistration,
 });
 export type ConfigureRequest = typeof ConfigureRequest.Type;
 
@@ -151,6 +177,8 @@ export const ConfigureResponse = Schema.Struct({
   op: Schema.Literal("configure"),
   installationId: InstallationId,
   configuration: RemoteConfiguration,
+  /** Exact normalized row durably admitted by the Remote. */
+  host: RemoteHostRegistration,
   configuredAt: DisplayTimestamp,
 });
 export type ConfigureResponse = typeof ConfigureResponse.Type;

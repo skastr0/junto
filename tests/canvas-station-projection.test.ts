@@ -128,6 +128,13 @@ describe("CanvasesService Station projection", () => {
               commandCenterRef: "command.tailnet",
               supervisedPreferred: true,
             },
+            host: {
+              id: "studio",
+              label: "Studio Mini",
+              kind: "remote",
+              endpoint: "studio",
+              capabilities: ["terminal", "browser", "hermes"],
+            },
           }),
         ),
       );

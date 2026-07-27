@@ -114,6 +114,7 @@ const makeRemote = (
         op: "configure",
         installationId: request.installationId,
         configuration,
+        host: request.host,
         configuredAt: "2026-07-27T12:00:02.000Z",
       });
     }),
@@ -175,6 +176,7 @@ describe("configureRemoteHost", () => {
           supervisedPreferred: true,
           browserTrust,
         },
+        host: remoteHost,
       }),
     );
     expect(result).toMatchObject({
