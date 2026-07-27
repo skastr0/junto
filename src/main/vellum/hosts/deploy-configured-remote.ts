@@ -36,7 +36,7 @@ export type ConfiguredRemoteDeployResult = DeployRemoteResult & {
   readonly outcome: ConfiguredRemoteDeployOutcome;
   /** `previous` is valid only when activation provably never started. */
   readonly packageState: "present" | "previous" | "unknown";
-  /** `previous` is valid only when activation provably never started. */
+  /** `previous` means Station API configuration provably was not called. */
   readonly role: "remote" | "previous" | "unknown";
   readonly lastSeen?: string;
   readonly station?: StationSettings;
