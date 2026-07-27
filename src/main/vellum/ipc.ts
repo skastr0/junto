@@ -11,7 +11,6 @@ import { seatPaused, type PauseScope } from "@shared/pause";
 import { digestCanvas } from "@shared/digest";
 import { buildGlyphView } from "@shared/glyph-view";
 import { mergePortfolioInto } from "@shared/portfolio";
-import { RELEASE_CAPABILITIES } from "@shared/release-capabilities";
 import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
@@ -58,6 +57,7 @@ import {
   type MainAuthoringLabel,
 } from "./main-authoring-gate";
 import { recordStationKernel } from "./station-status-store";
+import { StationFleetPropagation } from "./station/fleet-propagation";
 
 const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -560,6 +560,7 @@ export const registerVellumIpc = (): void => {
       const herdr = yield* HerdrPlane;
       const pause = yield* PausePlane;
       const settingsForSeed = yield* SettingsService;
+      const fleetPropagation = yield* StationFleetPropagation;
       const stationForSeed = yield* settingsForSeed.get;
       // Fresh Command Center (or unset) may seed. Remote never authors a seed.
       if (stationForSeed.station.role !== "remote") {
@@ -572,40 +573,9 @@ export const registerVellumIpc = (): void => {
         }).pipe(Effect.catchAll(() => Effect.void));
       }
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
-      // Coalesced CC → Remote projection push (beta fleet path).
-      {
-        let pushTimer: ReturnType<typeof setTimeout> | undefined;
-        const scheduleProjectionPush = (): void => {
-          if (pushTimer !== undefined) clearTimeout(pushTimer);
-          pushTimer = setTimeout(() => {
-            pushTimer = undefined;
-            if (!RELEASE_CAPABILITIES.stationProjection) return;
-            void AppRuntime.runPromise(
-              Effect.gen(function* () {
-                const { pushLiveProjectionToEnrolledRemotes } =
-                  yield* Effect.promise(
-                    () => import("./projection/product-push"),
-                  );
-                const outcome = yield* Effect.either(
-                  pushLiveProjectionToEnrolledRemotes,
-                );
-                if (outcome._tag === "Left") {
-                  console.error(
-                    "[projection] canvas-change push failed:",
-                    outcome.left,
-                  );
-                } else if (!outcome.right.ok) {
-                  console.error(
-                    "[projection] canvas-change push rejected:",
-                    outcome.right.detail,
-                  );
-                }
-              }),
-            ).catch(() => undefined);
-          }, 400);
-        };
-        canvases.subscribeChanges(() => scheduleProjectionPush());
-      }
+      canvases.subscribeChanges(() => {
+        Effect.runFork(fleetPropagation.request());
+      });
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
       // Kernel flag mutate also notifies via subscribeCanvasMutated so an open
@@ -778,59 +748,14 @@ export const registerVellumIpc = (): void => {
       usage.start();
       kernel.start();
 
-      // Command Center reconvergence is driven here until the Station API
-      // propagation coordinator owns the tick. Remote projection installs are
-      // accepted only through the live Station API; there is no file inbox.
-      void AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const settings = yield* SettingsService;
-          const current = yield* settings.get;
-          if (!RELEASE_CAPABILITIES.stationProjection) return;
-
-          if (current.station.role === "command-center") {
-            // Bounded reconvergence tick — re-push when ack gen < desired.
-            const intervalMs = 8_000;
-            const timer = setInterval(() => {
-              void AppRuntime.runPromise(
-                Effect.gen(function* () {
-                  const { reconcileLiveProjectionWithRemotes } =
-                    yield* Effect.promise(
-                      () => import("./projection/product-push"),
-                    );
-                  const outcome = yield* Effect.either(
-                    reconcileLiveProjectionWithRemotes,
-                  );
-                  if (outcome._tag === "Left") {
-                    console.error(
-                      "[projection] reconverge failed:",
-                      outcome.left,
-                    );
-                  } else if (!outcome.right.ok) {
-                    console.error(
-                      "[projection] reconverge rejected:",
-                      outcome.right.detail,
-                    );
-                  }
-                }),
-              ).catch(() => undefined);
-            }, intervalMs);
-            if (typeof timer === "object" && "unref" in timer) timer.unref();
-            return;
-          }
-
-          // Remotes are passive here. Their Station API handler commits the
-          // complete projection row and CanvasesService reads it directly.
-        }).pipe(
-          Effect.catchAll((error) =>
-            Effect.sync(() => {
-              console.error(
-                "[projection] projection lane failed:",
-                error instanceof Error ? error.message : String(error),
-              );
-            }),
-          ),
-        ),
-      );
+      if (stationForSeed.station.role === "command-center") {
+        yield* fleetPropagation.start();
+      }
+      settingsForSeed.subscribe((settings) => {
+        if (settings.station.role === "command-center") {
+          Effect.runFork(fleetPropagation.start());
+        }
+      });
     }),
   );
 };

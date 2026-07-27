@@ -1,4 +1,11 @@
-import { Context, Effect, Layer } from "effect";
+import {
+  Cause,
+  Context,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+} from "effect";
 import type { HostId } from "@shared/remote-hosts";
 import {
   StationFleetTargetRepository,
@@ -39,10 +46,23 @@ export class StationFleetPropagation extends Context.Tag(
       ReadonlyArray<StationFleetPropagationResult>,
       StationFleetTargetRepositoryError
     >;
+    /** Start the installation-local reconvergence cadence exactly once. */
+    readonly start: (
+      intervalMs?: number,
+    ) => Effect.Effect<void>;
+    /** Coalesce an authored canvas change into one near-term fleet pass. */
+    readonly request: (
+      delayMs?: number,
+    ) => Effect.Effect<void>;
+    /** Stop timers and interrupt an in-flight pass during runtime disposal. */
+    readonly stop: Effect.Effect<void>;
   }
 >() {}
 
-export const StationFleetPropagationLive = Layer.effect(
+const DEFAULT_FLEET_INTERVAL_MS = 8_000;
+const DEFAULT_CHANGE_COALESCE_MS = 400;
+
+export const StationFleetPropagationLive = Layer.scoped(
   StationFleetPropagation,
   Effect.gen(function* () {
     const targets = yield* StationFleetTargetRepository;
@@ -79,6 +99,107 @@ export const StationFleetPropagationLive = Layer.effect(
       Effect.withSpan("station.fleet.synchronize-all"),
     );
 
-    return StationFleetPropagation.of({ synchronizeAll });
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let debounce: ReturnType<typeof setTimeout> | undefined;
+    let active:
+      | Fiber.RuntimeFiber<
+          ReadonlyArray<StationFleetPropagationResult>,
+          StationFleetTargetRepositoryError
+        >
+      | undefined;
+    let pending = false;
+    let started = false;
+    let stopped = false;
+
+    const clearTimers = (): void => {
+      if (interval !== undefined) clearInterval(interval);
+      if (debounce !== undefined) clearTimeout(debounce);
+      interval = undefined;
+      debounce = undefined;
+    };
+
+    const launch = (): void => {
+      if (stopped || !started) return;
+      if (active !== undefined) {
+        pending = true;
+        return;
+      }
+      const fiber = Effect.runFork(synchronizeAll);
+      active = fiber;
+      fiber.addObserver((exit) => {
+        if (active === fiber) active = undefined;
+        if (Exit.isFailure(exit)) {
+          console.error(
+            "[station] fleet synchronization failed:",
+            Cause.pretty(exit.cause),
+          );
+        } else {
+          for (const result of exit.value) {
+            if (result.ok) continue;
+            console.error(
+              `[station] ${result.hostId} synchronization failed:`,
+              result.error._tag,
+            );
+          }
+        }
+        if (pending && !stopped) {
+          pending = false;
+          launch();
+        }
+      });
+    };
+
+    const start = (intervalMs = DEFAULT_FLEET_INTERVAL_MS) =>
+      Effect.sync(() => {
+        if (stopped || interval !== undefined) return;
+        const admittedInterval = Number.isSafeInteger(intervalMs) &&
+            intervalMs >= 1_000 &&
+            intervalMs <= 60 * 60 * 1_000
+          ? intervalMs
+          : DEFAULT_FLEET_INTERVAL_MS;
+        started = true;
+        interval = setInterval(launch, admittedInterval);
+        if (typeof interval === "object" && "unref" in interval) {
+          interval.unref();
+        }
+        launch();
+      });
+
+    const request = (delayMs = DEFAULT_CHANGE_COALESCE_MS) =>
+      Effect.sync(() => {
+        if (stopped || !started) return;
+        const admittedDelay = Number.isSafeInteger(delayMs) &&
+            delayMs >= 0 &&
+            delayMs <= 60_000
+          ? delayMs
+          : DEFAULT_CHANGE_COALESCE_MS;
+        if (debounce !== undefined) clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          debounce = undefined;
+          launch();
+        }, admittedDelay);
+        if (typeof debounce === "object" && "unref" in debounce) {
+          debounce.unref();
+        }
+      });
+
+    const stop = Effect.gen(function* () {
+      stopped = true;
+      started = false;
+      pending = false;
+      clearTimers();
+      const current = active;
+      active = undefined;
+      if (current !== undefined) yield* Fiber.interrupt(current);
+    });
+
+    yield* Effect.addFinalizer(() => stop);
+
+    return StationFleetPropagation.of({
+      synchronizeAll,
+      start,
+      request,
+      stop,
+    });
   }),
 );
