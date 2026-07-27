@@ -17,9 +17,7 @@ import {
 const REGION = "shared-region-id";
 
 const deliverDeps: PulseDeliverDeps = {
-  isLive: () => true,
-  openChat: async () => undefined,
-  sendPrompt: async () => undefined,
+  sendManagedTerminal: async () => true,
 };
 
 beforeEach(() => {

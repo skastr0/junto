@@ -211,7 +211,7 @@ describe("openChat", () => {
     const promise = openChat(agentKey);
     expect(getAgentChatState(agentKey).status).toBe("connecting");
     await promise;
-    expect(mock.chatOpen).toHaveBeenCalledWith(agentKey, undefined, undefined);
+    expect(mock.chatOpen).toHaveBeenCalledWith(agentKey, undefined);
     const state = getAgentChatState(agentKey);
     expect(state.status).toBe("live");
     expect(state.sessionId).toBe("s1");

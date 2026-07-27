@@ -14,10 +14,6 @@ import {
   requireCleanChatShutdown,
 } from "../src/main/vellum/chat/service";
 import { NodeDeleteService } from "../src/main/vellum/chat/node-delete";
-import {
-  makeProcessIdentityMap,
-  setProcessIdentityMapForTests,
-} from "../src/main/vellum/process-identity";
 import type { ChatEvent } from "../src/shared/ipc";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 
@@ -140,7 +136,6 @@ async function finishPendingOpen(
 }
 
 afterEach(() => {
-  setProcessIdentityMapForTests(undefined);
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -198,8 +193,6 @@ describe("chatOpen", () => {
   });
 
   it("revokes both old and newly local sessions when station identity changes", async () => {
-    const identities = makeProcessIdentityMap();
-    setProcessIdentityMapForTests(identities);
     const localityFor = (self: string) =>
       (host: string): boolean => host === "local" || host === self;
     let selfHost = "fleet-studio";
@@ -213,11 +206,6 @@ describe("chatOpen", () => {
     await openHappyPath(service, children, "fleet-other:default", {
       sessionId: "old-remote",
     });
-    expect(identities.resolve(process.pid)).toEqual({
-      kind: "agent",
-      agentKey: "fleet-studio:default",
-    });
-
     const previousLocality = localityFor(selfHost);
     selfHost = "fleet-other";
     expect(service.reconcileHostLocality(previousLocality)).toEqual([
@@ -227,7 +215,6 @@ describe("chatOpen", () => {
 
     expect(service.isLive("fleet-studio:default")).toBe(false);
     expect(service.isLive("fleet-other:default")).toBe(false);
-    expect(identities.resolve(process.pid)).toBeUndefined();
     expect(children[0]?.kill).toHaveBeenCalledWith("SIGTERM");
     expect(children[1]?.kill).toHaveBeenCalledWith("SIGTERM");
     for (const child of children) {
