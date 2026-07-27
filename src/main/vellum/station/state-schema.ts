@@ -161,6 +161,27 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
     ) STRICT, WITHOUT ROWID
   `,
   `
+    CREATE TABLE IF NOT EXISTS station_fleet_targets (
+      host_id TEXT PRIMARY KEY
+        CHECK (
+          length(host_id) BETWEEN 1 AND 64
+          AND substr(host_id, 1, 1) <> '-'
+          AND host_id GLOB '[A-Za-z0-9]*'
+          AND host_id NOT GLOB '*[^A-Za-z0-9._-]*'
+        ),
+      endpoint TEXT NOT NULL UNIQUE
+        CHECK (length(endpoint) BETWEEN 1 AND 255),
+      station_installation_id TEXT NOT NULL UNIQUE
+        CHECK (
+          length(station_installation_id) BETWEEN 1 AND 128
+          AND station_installation_id GLOB '[A-Za-z0-9]*'
+          AND station_installation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+        ),
+      bound_at TEXT NOT NULL
+        CHECK (length(bound_at) BETWEEN 1 AND 64)
+    ) STRICT, WITHOUT ROWID
+  `,
+  `
     CREATE INDEX IF NOT EXISTS station_events_direction_home_order
       ON station_events(direction, home, length(sequence), sequence)
   `,
