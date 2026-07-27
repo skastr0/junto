@@ -227,7 +227,7 @@ describe("canvas contract", () => {
     expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
   });
 
-  it("applyMirrorLaw mirrors color only — labels stay authorial, stamps strip", () => {
+  it("applyMirrorLaw mirrors color only and leaves labels authorial", () => {
     const doc: CanvasDoc = {
       nodes: [
         { id: "n1", type: "text", text: "Blocker", x: 0, y: 0, width: 200, height: 80, ether: { flags: ["blocker"] } },
@@ -289,8 +289,8 @@ describe("canvas contract", () => {
     const mirrored = applyMirrorLaw(doc);
     const stuck = mirrored.edges.find((e) => e.id === "e-stuck");
     expect(stuck?.color).toBeUndefined();
-    // "depends" is old-mirror vocabulary — stripped on save, not preserved.
-    expect(stuck?.label).toBeUndefined();
+    // Native labels are authorial text, including retired extension vocabulary.
+    expect(stuck?.label).toBe("depends");
     // Soft relates with no kind mirror: leave user color alone.
     const soft = mirrored.edges.find((e) => e.id === "e-soft");
     expect(soft?.color).toBe("4");
