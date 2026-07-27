@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
@@ -11,7 +11,6 @@ import {
 } from "../src/main/vellum/state/engine";
 import {
   makeUsageCacheLive,
-  USAGE_STATE_SCHEMA_SQL,
   UsageCache,
 } from "../src/main/vellum/usage/usage-cache";
 import {
@@ -91,21 +90,15 @@ const openEngine = async (path: string): Promise<{
   const runtime = ManagedRuntime.make(makeStateEngineLive(path));
   dispose.push(() => runtime.dispose());
   const engine = await runtime.runPromise(StateEngine);
-  await runtime.runPromise(
-    engine.transaction("test.usage-schema", (writer) => {
-      writer.run(USAGE_STATE_SCHEMA_SQL);
-    }),
-  );
   return { runtime, engine };
 };
 
 const cacheRuntime = (
   engine: Context.Tag.Service<typeof StateEngine>,
-  legacyPath: string,
 ): ManagedRuntime.ManagedRuntime<UsageCache, never> => {
   const runtime = ManagedRuntime.make(
     Layer.provide(
-      makeUsageCacheLive({ legacyPath }),
+      makeUsageCacheLive(),
       Layer.succeed(StateEngine, engine),
     ),
   );
@@ -115,11 +108,10 @@ const cacheRuntime = (
 
 const serviceRuntime = (
   engine: Context.Tag.Service<typeof StateEngine>,
-  legacyPath: string,
   sources: ReadonlyArray<UsageSource>,
 ): ManagedRuntime.ManagedRuntime<UsageService, never> => {
   const cache = Layer.provide(
-    makeUsageCacheLive({ legacyPath }),
+    makeUsageCacheLive(),
     Layer.succeed(StateEngine, engine),
   );
   const runtime = ManagedRuntime.make(
@@ -143,9 +135,8 @@ describe("SQLite usage cache", () => {
   test("survives an engine restart and refuses to replace last-good with a failure envelope", async () => {
     const root = await tempRoot();
     const databasePath = join(root, "state", "vellum.db");
-    const legacyPath = join(root, "legacy", "usage-state.json");
     const first = await openEngine(databasePath);
-    const firstCacheRuntime = cacheRuntime(first.engine, legacyPath);
+    const firstCacheRuntime = cacheRuntime(first.engine);
     const firstCache = await firstCacheRuntime.runPromise(UsageCache);
 
     await firstCacheRuntime.runPromise(
@@ -163,7 +154,7 @@ describe("SQLite usage cache", () => {
     await dispose.pop()!();
 
     const second = await openEngine(databasePath);
-    const secondCacheRuntime = cacheRuntime(second.engine, legacyPath);
+    const secondCacheRuntime = cacheRuntime(second.engine);
     const restarted = await secondCacheRuntime.runPromise(
       Effect.flatMap(UsageCache, (cache) => cache.loadLastGood),
     );
@@ -177,63 +168,34 @@ describe("SQLite usage cache", () => {
     });
   });
 
-  test("imports valid legacy JSON once and ignores later file mutations", async () => {
+  test("an empty database has no cache row until a successful snapshot is saved", async () => {
     const root = await tempRoot();
-    const legacyPath = join(root, "usage-state.json");
-    await writeFile(
-      legacyPath,
-      JSON.stringify(lastGood("legacy", "codex", 31)),
-      "utf8",
-    );
     const { engine } = await openEngine(join(root, "vellum.db"));
-    const runtime = cacheRuntime(engine, legacyPath);
-    const imported = await runtime.runPromise(
+    const runtime = cacheRuntime(engine);
+    const empty = await runtime.runPromise(
       Effect.flatMap(UsageCache, (cache) => cache.loadLastGood),
     );
-
-    expect(imported?.snapshots[0]?.quotas[0]?.provider).toBe("codex");
-    expect(imported?.stale).toBe(true);
-
-    await writeFile(
-      legacyPath,
-      JSON.stringify(lastGood("mutated", "grok", 99)),
-      "utf8",
+    const rows = await runtime.runPromise(
+      engine.read("test.usage-row-count", (reader) =>
+        reader.get<{ count: number }>(
+          "SELECT count(*) AS count FROM usage_state",
+        )?.count
+      ),
     );
-    const reread = await runtime.runPromise(
-      Effect.flatMap(UsageCache, (cache) => cache.loadLastGood),
-    );
-    expect(reread?.snapshots[0]?.quotas[0]?.provider).toBe("codex");
-    expect(reread?.snapshots[0]?.quotas[0]?.windows[0]?.usedPercent).toBe(31);
-  });
 
-  test("marks an invalid legacy file attempted without harming or re-reading it", async () => {
-    const root = await tempRoot();
-    const legacyPath = join(root, "usage-state.json");
-    await writeFile(legacyPath, "{ invalid", "utf8");
-    const { engine } = await openEngine(join(root, "vellum.db"));
-    const runtime = cacheRuntime(engine, legacyPath);
-    const cache = await runtime.runPromise(UsageCache);
-
-    expect(await runtime.runPromise(cache.loadLastGood)).toBeUndefined();
-
-    await writeFile(
-      legacyPath,
-      JSON.stringify(lastGood("late", "hermes", 10)),
-      "utf8",
-    );
-    expect(await runtime.runPromise(cache.loadLastGood)).toBeUndefined();
+    expect(empty).toBeUndefined();
+    expect(rows).toBe(0);
   });
 
   test("failed refresh retains SQLite last-good and a persistence fault stays non-fatal", async () => {
     const root = await tempRoot();
-    const legacyPath = join(root, "usage-state.json");
-    await writeFile(
-      legacyPath,
-      JSON.stringify(lastGood("legacy", "claude", 18)),
-      "utf8",
-    );
     const { runtime: engineRuntime, engine } = await openEngine(
       join(root, "vellum.db"),
+    );
+    const seedRuntime = cacheRuntime(engine);
+    const seed = await seedRuntime.runPromise(UsageCache);
+    await seedRuntime.runPromise(
+      seed.saveLastGood(lastGood("seed", "claude", 18)),
     );
     let mode: "ok" | "fail" = "fail";
     const source = makeSource("alpha", () =>
@@ -241,7 +203,7 @@ describe("SQLite usage cache", () => {
         ? quotaSnapshot("alpha", "codex", 63)
         : failedSnapshot("alpha"),
     );
-    const service = serviceRuntime(engine, legacyPath, [source]);
+    const service = serviceRuntime(engine, [source]);
     const usage = await service.runPromise(UsageService);
 
     const failed = await service.runPromise(usage.refresh());
@@ -266,7 +228,7 @@ describe("SQLite usage cache", () => {
     expect(live.stale).toBe(false);
     expect(live.snapshots[0]?.quotas[0]?.provider).toBe("codex");
 
-    const durableRuntime = cacheRuntime(engine, legacyPath);
+    const durableRuntime = cacheRuntime(engine);
     const durable = await durableRuntime.runPromise(
       Effect.flatMap(UsageCache, (cache) => cache.loadLastGood),
     );

@@ -1,11 +1,7 @@
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import {
   hasUsageQuotas,
   UsageSnapshot,
-  UsageState,
   type UsageState as UsageStateValue,
 } from "@shared/usage";
 import {
@@ -13,12 +9,8 @@ import {
   type StateEngineError,
   type StateReader,
 } from "../state/service";
-import { USAGE_STATE_SCHEMA_SQL } from "./state-schema";
 
 export { USAGE_STATE_SCHEMA_SQL } from "./state-schema";
-
-export const legacyUsageCachePath = (): string =>
-  resolve(join(homedir(), ".vellum", "cache", "usage-state.json"));
 
 export class UsageCacheError extends Schema.TaggedError<UsageCacheError>()(
   "UsageCacheError",
@@ -63,8 +55,8 @@ export class UsageCache extends Context.Tag("@vellum/UsageCache")<
 >() {}
 
 type UsageStateRow = {
-  readonly snapshots_json: string | null;
-  readonly last_live_at: string | null;
+  readonly snapshots_json: string;
+  readonly last_live_at: string;
 };
 
 const selectUsageState = (
@@ -97,15 +89,13 @@ const decodeSnapshots = (
 const decodeRow = (
   row: UsageStateRow | undefined,
 ): Effect.Effect<UsageStateValue | undefined, UsageCacheError> => {
-  if (row?.snapshots_json == null) return Effect.succeed(undefined);
+  if (row === undefined) return Effect.succeed(undefined);
   return decodeSnapshots("load.decode", row.snapshots_json).pipe(
     Effect.flatMap((snapshots) => {
       const state: UsageStateValue = {
         snapshots: [...snapshots],
         stale: true,
-        ...(row.last_live_at !== null
-          ? { lastLiveAt: row.last_live_at }
-          : {}),
+        lastLiveAt: row.last_live_at,
       };
       return hasUsageQuotas(state)
         ? Effect.succeed(state)
@@ -119,86 +109,27 @@ const decodeRow = (
   );
 };
 
-/**
- * Legacy JSON is an untrusted, best-effort import source. Once decoded it is
- * normalized to the same narrow last-good shape as SQLite. Parse/schema
- * failures intentionally collapse to `undefined`; they cannot affect any
- * other state table.
- */
-const readLegacyLastGood = (
-  path: string,
-): UsageStateValue | undefined => {
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    const decoded = Schema.decodeUnknownEither(UsageState)(parsed);
-    if (Either.isLeft(decoded) || !hasUsageQuotas(decoded.right)) {
-      return undefined;
-    }
-    return {
-      snapshots: decoded.right.snapshots,
-      stale: true,
-      ...(decoded.right.lastLiveAt !== undefined
-        ? { lastLiveAt: decoded.right.lastLiveAt }
-        : {}),
-    };
-  } catch {
-    return undefined;
-  }
-};
-
-export type UsageCacheOptions = {
-  readonly legacyPath?: string;
-};
-
-export const makeUsageCacheLive = (
-  options: UsageCacheOptions = {},
-): Layer.Layer<UsageCache, never, StateEngine> =>
+export const makeUsageCacheLive = (): Layer.Layer<
+  UsageCache,
+  never,
+  StateEngine
+> =>
   Layer.effect(
     UsageCache,
     Effect.gen(function* () {
       const engine = yield* StateEngine;
-      const legacyPath = resolve(options.legacyPath ?? legacyUsageCachePath());
 
-      const loadLastGood = Effect.gen(function* () {
-        const current = yield* engine
-          .read("usage.load", selectUsageState)
-          .pipe(Effect.mapError((error) => fromStateError("load", error)));
-        if (current !== undefined) return yield* decodeRow(current);
-
-        // Read outside the transaction. The transaction checks the singleton
-        // again, so a concurrent first refresh/import can only win once.
-        const legacy = readLegacyLastGood(legacyPath);
-        const imported = yield* engine
-          .transaction("usage.import-legacy", (writer) => {
-            const raced = selectUsageState(writer);
-            if (raced !== undefined) return raced;
-            const now = new Date().toISOString();
-            writer.run(
-              `INSERT INTO usage_state(
-                 singleton,
-                 snapshots_json,
-                 last_live_at,
-                 legacy_imported_at,
-                 updated_at
-               ) VALUES (1, ?, ?, ?, ?)`,
-              [
-                legacy === undefined
-                  ? null
-                  : JSON.stringify(legacy.snapshots),
-                legacy?.lastLiveAt ?? null,
-                now,
-                now,
-              ],
-            );
-            return selectUsageState(writer);
-          })
-          .pipe(
-            Effect.mapError((error) =>
-              fromStateError("import-legacy", error),
-            ),
-          );
-        return yield* decodeRow(imported);
-      }).pipe(Effect.withSpan("usage-cache.load-last-good"));
+      const loadLastGood = engine
+        .read("usage.load", selectUsageState)
+        .pipe(
+          Effect.flatMap(decodeRow),
+          Effect.mapError((error) =>
+            error instanceof UsageCacheError
+              ? error
+              : fromStateError("load", error),
+          ),
+          Effect.withSpan("usage-cache.load-last-good"),
+        );
 
       const saveLastGood = (
         state: UsageStateValue,
@@ -214,9 +145,8 @@ export const makeUsageCacheLive = (
                  singleton,
                  snapshots_json,
                  last_live_at,
-                 legacy_imported_at,
                  updated_at
-               ) VALUES (1, ?, ?, ?, ?)
+               ) VALUES (1, ?, ?, ?)
                ON CONFLICT(singleton) DO UPDATE SET
                  snapshots_json = excluded.snapshots_json,
                  last_live_at = excluded.last_live_at,
@@ -224,7 +154,6 @@ export const makeUsageCacheLive = (
               [
                 JSON.stringify(state.snapshots),
                 state.lastLiveAt ?? now,
-                now,
                 now,
               ],
             );
