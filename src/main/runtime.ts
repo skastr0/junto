@@ -29,6 +29,7 @@ import {
 import { KernelLive, KernelService } from "./vellum/kernel/service";
 import { PausePlaneLive } from "./vellum/pause-plane";
 import { WorkLive } from "./vellum/work/service";
+import { WorkRepositoryLive } from "./vellum/work/repository";
 import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
 import { SettingsLive, SettingsService } from "./vellum/settings/service";
 import { probeSupervisedRuntime } from "./vellum/settings/supervised-probe";
@@ -51,18 +52,24 @@ import {
 import { workControlReadiness } from "./vellum/work/control";
 import { StateEngineLive } from "./vellum/state/engine";
 
-// KernelLive requires CanvasesService/SnapshotsService/StoreService;
-// RegionRollupLive requires CanvasesService/SnapshotsService.
-// Layer.mergeAll builds merged layers independently — it does not thread one
-// merge member's output to satisfy another's requirement — so both derived
-// layers are provided the base layer explicitly (Layer.provideMerge keeps its
-// inputs memoized: the SAME CanvasesService instance the rest of the app
-// uses, not a second independent document-plane instance).
-// UsageLive is already composed (UsageServiceLive + StationUsageSourcesLive) so
-// it can sit in BaseLayer as one self-contained member.
+// Keep this exact layer value as the sole database owner in the runtime graph.
+// Effect memoizes layers by reference, so every repository below receives the
+// same scoped StateEngine connection even when the composed layers are reused
+// by more than one product plane.
+const StatefulServicesLive = Layer.provideMerge(
+  Layer.mergeAll(
+    StoreLive,
+    CanvasesLive,
+    WorkRepositoryLive,
+    UsageLive,
+    SettingsLive,
+  ),
+  StateEngineLive,
+);
+
 const HostsWithSshLive = Layer.provideMerge(
   HostsServiceLive,
-  SshTransportLive,
+  Layer.mergeAll(SshTransportLive, StatefulServicesLive),
 );
 
 // HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.
@@ -86,7 +93,7 @@ const HerdrWithSessionsLive = Layer.provideMerge(
 
 export const ProductPlanesLive = Layer.provideMerge(
   Layer.mergeAll(HerdrWithSessionsLive, HermesPlaneLive),
-  Layer.mergeAll(ProductTransportsLive, SettingsLive),
+  ProductTransportsLive,
 );
 
 const ProductPlanesWithChatLive = Layer.provideMerge(
@@ -100,15 +107,10 @@ const SnapshotsWithProductsLive = Layer.provideMerge(
 );
 
 const BaseLayer = Layer.mergeAll(
-  StateEngineLive,
-  StoreLive,
   FolderLive,
   PrismLive,
   CodexLive,
-  CanvasesLive,
   SnapshotsWithProductsLive,
-  UsageLive,
-  SettingsLive,
   HostsWithSshLive,
 );
 
