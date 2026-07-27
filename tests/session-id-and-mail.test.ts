@@ -13,7 +13,7 @@ import {
 } from "../src/main/vellum/term/drive";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 
-describe("session id capture + pin", () => {
+describe("session id parsing + authorial pin", () => {
   it("extracts only session-labeled IDs and prefers structured fields", () => {
     expect(
       extractSessionIdFromText("session 550e8400-e29b-41d4-a716-446655440000 ok"),
@@ -55,7 +55,7 @@ describe("session id capture + pin", () => {
     }
   });
 
-  it("makeManagedAgentNode does not pin sessionId for capture harnesses", () => {
+  it("makeManagedAgentNode does not claim a session pin for unsupported harnesses", () => {
     for (const harness of ["codex", "hermes"] as const) {
       const n = makeManagedAgentNode(0, 0, {
         harness,

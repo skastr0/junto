@@ -1,7 +1,9 @@
 /**
- * Runtime session-id capture for managed seats (Codex/Hermes).
- * Pin harnesses store id on the canvas at authoring; capture harnesses
- * record here when the id is observed, and mutate the canvas when possible.
+ * Ephemeral, best-effort session-id observation for managed seats.
+ *
+ * This process-local map is diagnostic plumbing, not a cold-resume contract:
+ * PTY output is untrusted, values are not persisted, and no spawn path consumes
+ * them. Pin-capable harnesses store their authorial id on the canvas instead.
  */
 
 const byBinding = new Map<string, string>();

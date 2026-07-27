@@ -968,11 +968,10 @@ export class LocalSessionHost extends EventEmitter {
     this.pushJournal(rec, { seq: rec.seq, type: "output", data });
     // Single insertion point: every byte already flows here with a seq.
     this.observerPlane.feed(rec.bindingId, data, rec.seq);
-    // Capture-only harness session ids (Codex/Hermes) when emitted into the
-    // stream. PTY chunks are arbitrary; retain a bounded tail so a labeled
-    // source split across writes remains parseable. The first authenticated
-    // capture wins, preventing later terminal output from replacing a root
-    // harness id with a nested or unrelated session marker.
+    // Best-effort diagnostic observation when a harness prints a labeled id.
+    // PTY text is untrusted and this value is neither durable nor a cold-resume
+    // capability. Retain a bounded tail so a label split across chunks remains
+    // parseable; the first candidate wins within this process lifetime.
     if ((rec.agentKey || rec.harness) && !getCapturedSessionId(rec.bindingId)) {
       const captureText = `${rec.sessionCaptureTail}${data}`;
       const sid = extractSessionIdFromText(captureText);
