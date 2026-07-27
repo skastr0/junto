@@ -115,16 +115,19 @@ describe("work CLI acceptance process safety", () => {
   });
 
   it("fails loudly at the stdout byte bound and retains only the bounded prefix", async () => {
-    const command = runSnippet(
-      makePlane(),
-      'process.stdout.write("x".repeat(4096)); setInterval(() => {}, 1000);',
-      {
-        timeoutMs: 1_000,
-        outputLimitBytes: 64,
-        termGraceMs: 20,
-        killCloseGraceMs: 250,
-      },
-    );
+    const fake = makeFakeLeasePlane();
+    const command = runBoundedWorkCliCommand(fake.plane, {
+      command: "unused-stdout-overflow-child",
+      args: [],
+      cwd: process.cwd(),
+      env: { ...process.env },
+      timeoutMs: 1_000,
+      outputLimitBytes: 64,
+      termGraceMs: 20,
+      killCloseGraceMs: 250,
+    });
+    fake.stdout.write("x".repeat(4096));
+    fake.resolveClose({ code: null, signal: "SIGTERM" });
 
     await expect(command).rejects.toMatchObject({
       name: "WorkCliCommandFailure",
@@ -132,19 +135,24 @@ describe("work CLI acceptance process safety", () => {
       stdout: "x".repeat(64),
       stderr: "",
     });
+    expect(fake.terminate).toHaveBeenCalledTimes(1);
+    expect(fake.forceTerminate).not.toHaveBeenCalled();
   });
 
   it("independently bounds stderr and retains only its bounded prefix", async () => {
-    const command = runSnippet(
-      makePlane(),
-      'process.stderr.write("e".repeat(4096)); setInterval(() => {}, 1000);',
-      {
-        timeoutMs: 1_000,
-        outputLimitBytes: 48,
-        termGraceMs: 20,
-        killCloseGraceMs: 250,
-      },
-    );
+    const fake = makeFakeLeasePlane();
+    const command = runBoundedWorkCliCommand(fake.plane, {
+      command: "unused-stderr-overflow-child",
+      args: [],
+      cwd: process.cwd(),
+      env: { ...process.env },
+      timeoutMs: 1_000,
+      outputLimitBytes: 48,
+      termGraceMs: 20,
+      killCloseGraceMs: 250,
+    });
+    fake.stderr.write("e".repeat(4096));
+    fake.resolveClose({ code: null, signal: "SIGTERM" });
 
     await expect(command).rejects.toMatchObject({
       name: "WorkCliCommandFailure",
@@ -152,6 +160,8 @@ describe("work CLI acceptance process safety", () => {
       stdout: "",
       stderr: "e".repeat(48),
     });
+    expect(fake.terminate).toHaveBeenCalledTimes(1);
+    expect(fake.forceTerminate).not.toHaveBeenCalled();
   });
 
   it("absorbs stdio errors into typed teardown instead of throwing outside the promise", async () => {
