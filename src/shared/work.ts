@@ -19,6 +19,8 @@ import {
   mirrorTasksText,
 } from "./task";
 import { groupMembers, isGroup } from "./graph";
+import { resolveSpec } from "./physics";
+import { Match } from "effect";
 
 // Pure document transforms for the work plane.
 // Kernel WorkService applies these under CanvasesService.mutate.
@@ -78,6 +80,34 @@ const requireKind = (node: CanvasNode, kinds: ReadonlyArray<string>): string => 
     );
   }
   return kind;
+};
+
+/**
+ * The message inbox is an actor power, and not every actor holds one — a raw
+ * terminal has nothing to read a message into. Exhaustive over NodeSpec, so
+ * this rule is a per-variant decision rather than a third hand-kept copy of
+ * the kind list that `work/authz` (`opsForSpec`) and `work-canvas-merge`
+ * (`isWorkSurfaceKind`) already decide the same way.
+ *
+ * Group-ness is deliberately not consulted: the predicate reads the authored
+ * kind, exactly as the list it replaces did.
+ */
+const requireMessageInbox = (node: CanvasNode): void => {
+  const kind = node.ether?.entity?.kind;
+  const holdsInbox = Match.value(resolveSpec({ isGroup: false, kind })).pipe(
+    Match.tagsExhaustive({
+      Actor: (spec) => spec.kind !== "terminal",
+      Sink: () => false,
+      Scheduler: () => false,
+      Geography: () => false,
+    }),
+  );
+  if (!holdsInbox) {
+    throw new WorkError(
+      "illegal_kind",
+      `node "${node.id}" kind is ${kind ?? "none"}; expected an actor inbox`,
+    );
+  }
 };
 
 const withTasks = (
@@ -393,7 +423,7 @@ export const workMessageAppend = (
     return { doc: withRequests(doc, nodeId, nextItems), message: { ...stamped, taskId } };
   }
 
-  requireKind(node, ["agent", "herdr"]);
+  requireMessageInbox(node);
   const items = [...(node.ether?.messages?.items ?? []), stamped];
   return { doc: withMessages(doc, nodeId, items), message: stamped };
 };

@@ -11,7 +11,12 @@
 import type { CanvasDoc } from "@shared/canvas";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
-import { connectedPageRefs, findNode, isPageNode, nodeKind } from "./authz";
+import {
+  connectedPageRefs,
+  findNode,
+  isBrowserCallerNode,
+  isPageNode,
+} from "./authz";
 
 export type EdgeRevocationStatus = "confirmed" | "not_confirmed";
 
@@ -132,10 +137,10 @@ export const receiptForHostTeardown = (input: {
 export const stillPageNode = (doc: CanvasDoc | undefined, nodeId: string): boolean =>
   doc !== undefined && isPageNode(findNode(doc, nodeId));
 
-/** True when node is an agent/herdr/terminal actor (caller seat). */
-export const stillCallerNode = (doc: CanvasDoc | undefined, nodeId: string): boolean => {
-  if (doc === undefined) return false;
-  const node = findNode(doc, nodeId);
-  const kind = nodeKind(node);
-  return kind === "agent" || kind === "herdr" || kind === "terminal";
-};
+/**
+ * True when a node id is still an actor seat (the caller side of a grant).
+ * Asks the one caller predicate, exactly as {@link stillPageNode} asks the one
+ * page predicate — the actor kinds are not re-listed here.
+ */
+export const stillCallerNode = (doc: CanvasDoc | undefined, nodeId: string): boolean =>
+  doc !== undefined && isBrowserCallerNode(findNode(doc, nodeId));
