@@ -4,34 +4,50 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { canvasControlNameFrom } from "./protocol";
 
-const CANVAS_SIDECAR_SUFFIXES = ["digest.txt", "svg"] as const;
-export type CanvasSidecarSuffix = (typeof CANVAS_SIDECAR_SUFFIXES)[number];
+const CANVAS_PROJECTION_SUFFIXES = ["digest.txt", "svg"] as const;
+export type CanvasProjectionSuffix =
+  (typeof CANVAS_PROJECTION_SUFFIXES)[number];
 
-const canvasSidecarRoot = (): string =>
+const canvasProjectionRoot = (): string =>
   resolve(
     process.env.VELLUM_CANVASES_DIR ??
       join(homedir(), ".vellum", "canvases"),
   );
 
-const confinedSidecarPath = (
+const canvasProjectionSuffixFrom = (
+  raw: string,
+): CanvasProjectionSuffix => {
+  if (
+    !CANVAS_PROJECTION_SUFFIXES.includes(raw as CanvasProjectionSuffix)
+  ) {
+    throw new Error(`unsupported canvas projection suffix "${raw}"`);
+  }
+  return raw as CanvasProjectionSuffix;
+};
+
+const confinedProjectionPath = (
   root: string,
-  name: string,
-  suffix: CanvasSidecarSuffix,
+  canonicalName: string,
+  suffix: CanvasProjectionSuffix,
 ): string => {
-  const path = resolve(root, `${canvasControlNameFrom(name)}.${suffix}`);
+  const path = resolve(root, `${canonicalName}.${suffix}`);
   if (dirname(path) !== root) {
-    throw new Error("canvas sidecar path escaped its output directory");
+    throw new Error("canvas projection path escaped its output directory");
   }
   return path;
 };
 
-const ensureSidecarRoot = async (): Promise<string> => {
-  const root = canvasSidecarRoot();
-  await mkdir(root, { recursive: true });
+const assertProjectionRoot = async (root: string): Promise<void> => {
   const info = await lstat(root);
   if (!info.isDirectory() || info.isSymbolicLink()) {
-    throw new Error(`canvas sidecar root is not a real directory: ${root}`);
+    throw new Error(`canvas projection root is not a real directory: ${root}`);
   }
+};
+
+const ensureProjectionRoot = async (): Promise<string> => {
+  const root = canvasProjectionRoot();
+  await mkdir(root, { recursive: true });
+  await assertProjectionRoot(root);
   return root;
 };
 
@@ -40,7 +56,7 @@ const assertRegularOrMissing = async (path: string): Promise<void> => {
     const info = await lstat(path);
     if (!info.isFile() || info.isSymbolicLink()) {
       throw new Error(
-        `refusing non-regular canvas sidecar: ${basename(path)}`,
+        `refusing non-regular canvas projection: ${basename(path)}`,
       );
     }
   } catch (error) {
@@ -58,7 +74,7 @@ const syncDirectoryBestEffort = async (root: string): Promise<void> => {
     // The rename is already committed. Retrying would be less safe than
     // retaining the derivative and surfacing the durability limitation.
     console.error(
-      "[canvas-sidecar] directory sync failed after committed write:",
+      "[canvas-projection] directory sync failed after committed write:",
       error,
     );
   } finally {
@@ -85,14 +101,13 @@ const writeExclusiveTemp = async (
 /** Write an allowlisted derivative; this is output, never product authority. */
 export const writeCanvasProjectionSidecar = async (
   name: string,
-  suffix: CanvasSidecarSuffix,
+  rawSuffix: string,
   contents: string,
 ): Promise<string> => {
-  if (!CANVAS_SIDECAR_SUFFIXES.includes(suffix)) {
-    throw new Error(`unsupported canvas sidecar suffix "${String(suffix)}"`);
-  }
-  const root = await ensureSidecarRoot();
-  const path = confinedSidecarPath(root, name, suffix);
+  const suffix = canvasProjectionSuffixFrom(rawSuffix);
+  const canonicalName = canvasControlNameFrom(name);
+  const root = await ensureProjectionRoot();
+  const path = confinedProjectionPath(root, canonicalName, suffix);
   await assertRegularOrMissing(path);
   const temporaryPath = `${path}.${randomUUID()}.tmp`;
   let ownsTemporary = false;
@@ -109,4 +124,29 @@ export const writeCanvasProjectionSidecar = async (
   }
   await syncDirectoryBestEffort(root);
   return path;
+};
+
+/**
+ * Remove every projection output belonging to one canvas.
+ *
+ * Missing roots and outputs are already the desired state. A present root is
+ * still verified before any deletion; no document or arbitrary suffix is ever
+ * accepted by this sink.
+ */
+export const removeCanvasProjectionSidecars = async (
+  name: string,
+): Promise<void> => {
+  const canonicalName = canvasControlNameFrom(name);
+  const root = canvasProjectionRoot();
+  try {
+    await assertProjectionRoot(root);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  for (const suffix of CANVAS_PROJECTION_SUFFIXES) {
+    const path = confinedProjectionPath(root, canonicalName, suffix);
+    await rm(path, { force: true });
+  }
+  await syncDirectoryBestEffort(root);
 };

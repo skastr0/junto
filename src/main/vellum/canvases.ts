@@ -1,7 +1,4 @@
-import { lstat, mkdir, open, rename, rm } from "node:fs/promises";
-import { createHash, randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import { applyMirrorLaw, decodeCanvasDoc, serializeCanvas, type CanvasDoc } from "@shared/canvas";
@@ -24,17 +21,18 @@ import {
 } from "./work/repository";
 import { decodeStationPortfolioBody } from "./station/portfolio";
 import { selectStationConfiguration } from "./station/configuration-state";
+import {
+  removeCanvasProjectionSidecars,
+  writeCanvasProjectionSidecar,
+} from "./canvas-control/sidecars";
 
 export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
   message: Schema.String,
 }) {}
 
 declare const canvasNameBrand: unique symbol;
-/** A canonical canvas name minted at the repository boundary. */
+/** A canonical canvas name minted at the SQLite document boundary. */
 export type CanvasName = string & { readonly [canvasNameBrand]: "CanvasName" };
-
-const SIDECAR_SUFFIXES = ["digest.txt", "svg"] as const;
-type SidecarSuffix = (typeof SIDECAR_SUFFIXES)[number];
 
 /**
  * Canonicalize the human-facing spelling used by the existing UI, then refuse
@@ -52,117 +50,9 @@ export const canvasNameFrom = (raw: string): CanvasName => {
   return trimmed.toLowerCase() as CanvasName;
 };
 
-// Overridable for hermetic headless probes/tests (scripts/kernel-headless-probe.ts)
-// so they never touch the operator's real ~/.vellum/canvases. Unset in normal
-// (dev or packaged) operation — production behavior is unchanged.
-export const canvasesDir = () =>
-  resolve(process.env.VELLUM_CANVASES_DIR || join(homedir(), ".vellum", "canvases"));
-
-const confinedPath = (root: string, fileName: string): string => {
-  const path = resolve(root, fileName);
-  if (dirname(path) !== root) {
-    throw new CanvasError({ message: "canvas path escaped the configured canvas directory" });
-  }
-  return path;
-};
-
-export const canvasSidecarPath = (rawName: string, suffix: SidecarSuffix): string =>
-  confinedPath(canvasesDir(), `${canvasNameFrom(rawName)}.${suffix}`);
-
-const canvasSidecarPathIn = (root: string, name: CanvasName, suffix: SidecarSuffix): string =>
-  confinedPath(root, `${name}.${suffix}`);
-
-/** Ensure the configured repository itself is a real directory, never a symlink. */
-export const ensureCanvasesDir = async (): Promise<string> => {
-  const root = canvasesDir();
-  await mkdir(root, { recursive: true });
-  const info = await lstat(root);
-  if (!info.isDirectory() || info.isSymbolicLink()) {
-    throw new CanvasError({ message: `canvas directory is not a real directory: ${root}` });
-  }
-  return root;
-};
-
-/** Never follow a sidecar symlink. A write refuses it rather than replacing a surprise target. */
-const assertRegularOrMissing = async (path: string): Promise<void> => {
-  try {
-    const info = await lstat(path);
-    if (!info.isFile() || info.isSymbolicLink()) {
-      throw new CanvasError({ message: `refusing non-regular canvas sidecar: ${basename(path)}` });
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-};
-
-const syncDirectoryBestEffort = async (root: string): Promise<void> => {
-  let directory: Awaited<ReturnType<typeof open>> | undefined;
-  try {
-    directory = await open(root, "r");
-    await directory.sync();
-  } catch (error) {
-    // The rename/create is already committed. Reporting failure here would
-    // invite an unsafe retry, so retain success and surface the durability
-    // limitation diagnostically.
-    console.error("[canvases] directory sync failed after committed write:", error);
-  } finally {
-    await directory?.close().catch(() => undefined);
-  }
-};
-
-const writeExclusiveTemp = async (tmpPath: string, contents: string): Promise<void> => {
-  const file = await open(tmpPath, "wx", 0o600);
-  try {
-    await file.writeFile(contents, { encoding: "utf8" });
-    await file.sync();
-    await file.close();
-  } catch (error) {
-    await file.close().catch(() => undefined);
-    // open("wx") succeeded, so this exact temporary entry belongs to us.
-    await rm(tmpPath, { force: true }).catch(() => undefined);
-    throw error;
-  }
-};
-
-const atomicReplaceTextFile = async (path: string, contents: string): Promise<void> => {
-  const tmpPath = `${path}.${randomUUID()}.tmp`;
-  let ownsTemp = false;
-  try {
-    await writeExclusiveTemp(tmpPath, contents);
-    ownsTemp = true;
-    await rename(tmpPath, path);
-    ownsTemp = false;
-  } catch (error) {
-    if (ownsTemp) await rm(tmpPath, { force: true }).catch(() => undefined);
-    throw error;
-  }
-  await syncDirectoryBestEffort(dirname(path));
-};
-
-/**
- * Write an allowlisted agent-facing derivative under canvasesDir.
- * Sidecars are projections for agents (digest/svg), not product durability.
- */
-export const writeCanvasSidecar = async (
-  rawName: string,
-  suffix: SidecarSuffix | string,
-  contents: string,
-): Promise<string> => {
-  if (!SIDECAR_SUFFIXES.includes(suffix as SidecarSuffix)) {
-    throw new CanvasError({ message: `unsupported canvas sidecar suffix "${suffix}"` });
-  }
-  const name = canvasNameFrom(rawName);
-  const root = await ensureCanvasesDir();
-  const path = canvasSidecarPathIn(root, name, suffix as SidecarSuffix);
-  await assertRegularOrMissing(path);
-  await atomicReplaceTextFile(path, contents);
-  return path;
-};
-
 // The protected document plane. All writes go through validate -> mirror law
-// -> one full-map SQLite generation transaction. Files under canvasesDir are
-// agent-facing projections only.
+// -> one full-map SQLite generation transaction. Digest and SVG projection
+// outputs are owned by canvas-control/sidecars.ts and are never durability.
 
 /** previous/next docs on the commit that fired a change listener (same tick). */
 export type CanvasChangeDetail = {
@@ -193,12 +83,12 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       fn: (doc: CanvasDoc) => CanvasDoc,
     ) => Effect.Effect<void, CanvasError>;
     readonly create: (name: string) => Effect.Effect<CanvasReadResult, CanvasError>;
-    // Removes the canvas from the next authority generation and agent sidecars.
+    // Removes the canvas from the next authority generation and projections.
     // Notifies change subscribers so the kernel can drop hydrated state.
     readonly remove: (name: string) => Effect.Effect<{ name: string }, CanvasError>;
     // Creates the seed canvas when authority is empty. Called at startup.
     readonly ensureSeed: Effect.Effect<void, CanvasError>;
-    // Writes an agent-facing sidecar (digest/svg). Returns its path.
+    // Writes an agent-facing projection (digest/svg). Returns its path.
     readonly writeSidecar: (
       name: string,
       suffix: string,
@@ -603,10 +493,6 @@ export const CanvasesLive = Layer.effect(
   };
 
   const bootstrap = Effect.gen(function* () {
-    yield* Effect.tryPromise({
-      try: ensureCanvasesDir,
-      catch: toCanvasError,
-    });
     const status = yield* state
       .read("canvas.bootstrap.status", (reader) => ({
         hasHead:
@@ -630,8 +516,8 @@ export const CanvasesLive = Layer.effect(
           }),
         );
       }
-      // Clean cutover: an empty database is a fresh installation. Historical
-      // file authority is deliberately not consulted or imported.
+      // Clean cutover: an empty database is a fresh installation. Derivative
+      // projection outputs are deliberately never consulted or imported.
     }
 
     // Bootstrap repairs remain explicit history rather than hidden read-time
@@ -823,7 +709,7 @@ export const CanvasesLive = Layer.effect(
         const previous = current.documents.get(canonicalName);
         if (previous === undefined) {
           throw new CanvasError({
-            message: `canvas "${canonicalName}" is not in live authority (missing or never admitted)`,
+            message: `canvas "${canonicalName}" does not exist in SQLite authority`,
           });
         }
         const proposed = fn(previous.doc);
@@ -914,18 +800,8 @@ export const CanvasesLive = Layer.effect(
         return entry;
       });
       yield* Effect.tryPromise({
-        try: async () => {
-          try {
-            const root = await ensureCanvasesDir();
-            for (const suffix of SIDECAR_SUFFIXES) {
-              await rm(canvasSidecarPathIn(root, canonicalName, suffix), {
-                force: true,
-              }).catch(() => undefined);
-            }
-          } catch {
-            // Sidecars are disposable projections; committed authority wins.
-          }
-        },
+        try: () =>
+          removeCanvasProjectionSidecars(canonicalName).catch(() => undefined),
         catch: toCanvasError,
       });
       yield* Effect.sync(() =>
@@ -979,19 +855,7 @@ export const CanvasesLive = Layer.effect(
     contents: string,
   ): Effect.Effect<string, CanvasError> =>
     Effect.tryPromise({
-      try: async () => {
-        const canonicalName = canvasNameFrom(name);
-        if (!SIDECAR_SUFFIXES.includes(suffix as SidecarSuffix)) {
-          throw new CanvasError({
-            message: `unsupported canvas sidecar suffix "${suffix}"`,
-          });
-        }
-        return await writeCanvasSidecar(
-          canonicalName,
-          suffix as SidecarSuffix,
-          contents,
-        );
-      },
+      try: () => writeCanvasProjectionSidecar(name, suffix, contents),
       catch: toCanvasError,
     });
 
@@ -1010,9 +874,9 @@ export const CanvasesLive = Layer.effect(
     };
   };
 
-  // Work rows are runtime state, but existing renderer/kernel consumers still
-  // subscribe to the canvas projection. Fan their committed changes through
-  // the same invalidation signal without ever committing them as intent.
+  // Work rows are runtime state. Renderer and kernel consume one canvas
+  // projection invalidation stream, so committed work changes join that
+  // stream without ever becoming authorial intent.
   work.subscribeChanges((canvasName) => {
     try {
       notifyListeners(canvasNameFrom(canvasName));

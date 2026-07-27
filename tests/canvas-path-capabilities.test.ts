@@ -19,8 +19,8 @@ import {
   CanvasesLive,
   CanvasesService,
   canvasNameFrom,
-  writeCanvasSidecar,
 } from "../src/main/vellum/canvases";
+import { writeCanvasProjectionSidecar } from "../src/main/vellum/canvas-control/sidecars";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 
@@ -93,12 +93,24 @@ describe("canvas path capability boundary", () => {
     }
   });
 
-  it("validates the sidecar suffix inside the filesystem sink", async () => {
-    await runtime.runPromise(canvases.create("sidecar-sink"));
+  it("does not create a projection root while bootstrapping SQLite authority", async () => {
+    await runtime.runPromise(canvases.list);
 
     await expect(
-      writeCanvasSidecar("sidecar-sink", "canvas" as never, "not-json"),
-    ).rejects.toThrow("unsupported canvas sidecar suffix");
+      access(join(mockCanvasesHome, ".vellum", "canvases")),
+    ).rejects.toThrow();
+  });
+
+  it("validates the projection suffix inside the filesystem sink", async () => {
+    await runtime.runPromise(canvases.create("projection-sink"));
+
+    await expect(
+      writeCanvasProjectionSidecar(
+        "projection-sink",
+        "canvas",
+        "not-json",
+      ),
+    ).rejects.toThrow("unsupported canvas projection suffix");
 
     await expect(
       access(
@@ -106,13 +118,13 @@ describe("canvas path capability boundary", () => {
           mockCanvasesHome,
           ".vellum",
           "canvases",
-          "sidecar-sink.canvas",
+          "projection-sink.canvas",
         ),
       ),
     ).rejects.toThrow();
   });
 
-  it("keeps one checked repository root for the complete sidecar write", async () => {
+  it("keeps one checked output root for the complete projection write", async () => {
     const previousRoot = process.env.VELLUM_CANVASES_DIR;
     const rootA = join(mockCanvasesHome, "root-a");
     const outside = join(mockCanvasesHome, "outside-root");
@@ -123,7 +135,11 @@ describe("canvas path capability boundary", () => {
     process.env.VELLUM_CANVASES_DIR = rootA;
     try {
       await runtime.runPromise(canvases.create("stable-root"));
-      const pending = writeCanvasSidecar("stable-root", "svg", "<svg/>");
+      const pending = writeCanvasProjectionSidecar(
+        "stable-root",
+        "svg",
+        "<svg/>",
+      );
       process.env.VELLUM_CANVASES_DIR = swapped;
       const written = await pending;
 
@@ -144,7 +160,7 @@ describe("canvas path capability boundary", () => {
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
   });
 
-  it("rejects traversal and weird names before every document or sidecar operation", async () => {
+  it("rejects traversal and weird names before every document or projection operation", async () => {
     const outside = join(mockCanvasesHome, "outside.canvas");
     await mkdir(mockCanvasesHome, { recursive: true });
     await writeFile(outside, "outside must survive", "utf8");
@@ -161,17 +177,19 @@ describe("canvas path capability boundary", () => {
     expect(await readFile(outside, "utf8")).toBe("outside must survive");
   });
 
-  it("does not follow sidecar symlinks outside the repository", async () => {
+  it("does not follow projection symlinks outside the output root", async () => {
     const root = join(mockCanvasesHome, ".vellum", "canvases");
-    const outsideSidecar = join(mockCanvasesHome, "outside.digest.txt");
+    const outsideProjection = join(mockCanvasesHome, "outside.digest.txt");
     await runtime.runPromise(canvases.create("safe"));
     await mkdir(root, { recursive: true });
-    await writeFile(outsideSidecar, "outside sidecar", "utf8");
-    await symlink(outsideSidecar, join(root, "safe.digest.txt"));
+    await writeFile(outsideProjection, "outside projection", "utf8");
+    await symlink(outsideProjection, join(root, "safe.digest.txt"));
 
     await rejected(canvases.writeSidecar("safe", "digest.txt", "replacement"));
 
-    expect(await readFile(outsideSidecar, "utf8")).toBe("outside sidecar");
+    expect(await readFile(outsideProjection, "utf8")).toBe(
+      "outside projection",
+    );
     const listed = await runtime.runPromise(canvases.list);
     expect(listed.map((entry) => entry.name)).toContain("safe");
   });
