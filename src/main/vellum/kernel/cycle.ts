@@ -150,7 +150,7 @@ export interface FlagWriterDeps {
 }
 
 // Level-driven mirror of derived edge phase into ether.kind for criteria
-// edges so offline readers of the .canvas file see the last live phase.
+// edges so document projections expose the last live phase.
 export interface PhaseMirrorDeps {
   readonly mirrorPhases: (
     canvasName: string,

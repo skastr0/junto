@@ -18,7 +18,7 @@ import {
 } from "./proof-stamps";
 
 // Live execution graph: pure function of (document + live views).
-// Derived state is never stored in the .canvas file.
+// Derived state is never stored in the authored canvas document.
 //
 // Authorial edge model — criteria only:
 //   - no criteria → soft "relates" (never generates stoppage)

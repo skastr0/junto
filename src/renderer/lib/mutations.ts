@@ -245,7 +245,7 @@ const runSave = async (request: PendingCanvasSave): Promise<void> => {
       const result = await api.writeCanvas(name, doc, revisionsByName.get(name));
       if (abandonedNames.has(name)) {
         // Write may have recreated a just-deleted file; the removal path
-        // awaits this promise then deletes, so delete still wins on disk.
+        // awaits this promise then deletes, so delete still wins in authority.
         state$.saveState.set("saved");
         return;
       }
@@ -460,7 +460,7 @@ export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = st
 };
 
 // Replace the document from an authoritative source (open / external reload).
-// Always structural; never triggers a save (it mirrors what's already on disk).
+// Always structural; never triggers a save (it mirrors what's already committed).
 export const loadDoc = (doc: CanvasDoc, revision?: string, name = state$.canvasName.peek()): void => {
   if (!canvasMutationAdmissionOpen) return;
   if (pendingSave?.name === name) pendingSave = null;

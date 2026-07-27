@@ -149,7 +149,7 @@ export const resolveTerminalOnDelete = (
 ): TerminalOnDelete => terminal?.onDelete ?? "detach";
 
 // Bound browser page work surface. Document holds profile *name* only —
-// cookies live in ~/.vellum/browser (runtime), never in the .canvas file.
+// cookies live in ~/.vellum/browser (runtime), never in the canvas document.
 // Native JSON Canvas type remains `link` (url); kind "page" + ether.browser
 // upgrade the node to an in-app session binding. onDelete default is
 // kill-session: deleting the page node closes the Vellum-owned session for

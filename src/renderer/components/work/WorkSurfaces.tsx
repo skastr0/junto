@@ -26,7 +26,7 @@ const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpRe
 /**
  * Keep renderer-originated WorkService writes inside the same admission and
  * drain boundary as direct canvas create/delete operations. A call admitted
- * before signal quiescence may finish on disk, but its returning renderer
+ * before signal quiescence may finish its commit, but its returning renderer
  * projection is rejected by applyWorkCanvasWrite after the latch closes.
  */
 const runWorkCanvasMutation = <T,>(

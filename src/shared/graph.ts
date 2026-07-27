@@ -2,7 +2,7 @@ import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
 import { deriveExecutionGraph, type GlyphView } from "./execution-graph";
 
 // Derived state. Never persisted — recomputed from the document so the
-// .canvas file cannot go incoherent.
+// authored canvas document cannot go incoherent.
 //
 // blockedClosure / blockedEdgeIds are thin wrappers over deriveExecutionGraph.
 // Callers with a live GlyphView should prefer deriveExecutionGraph directly

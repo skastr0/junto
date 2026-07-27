@@ -137,7 +137,7 @@ export const PausePlaneLive = Layer.effect(
     const stateFor = (canvas: string): CanvasPauseState =>
       Effect.runSync(Ref.get(memory)).canvases.get(canvas) ?? PAUSED_CANVAS;
 
-    // Store-first: the whole map (with `next` swapped in) lands on disk before
+    // Store-first: the whole map (with `next` swapped in) commits before
     // memory mutates, so a failed write changes nothing anywhere.
     const persist = (
       canvas: string,

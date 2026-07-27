@@ -161,7 +161,7 @@ export class MessageDeliveryService {
       const live = node.ether?.messages?.items.find((m) => m.messageId === message.messageId);
       if (!live) return;
       if (isPendingDelivery(live) === false) {
-        // Already stamped on disk — drop transportAccepted residue.
+        // Already stamped in authority — drop transportAccepted residue.
         this.transportAccepted.delete(key);
         return;
       }
