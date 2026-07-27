@@ -92,6 +92,7 @@ const commandCenterSettings = (): Settings => {
 const makeRuntime = (input: {
   readonly documents?: Map<string, CanvasDoc>;
   readonly settings: () => Settings;
+  readonly afterRemoveCommit?: () => Promise<void>;
 }) => {
   const documents = input.documents ?? new Map([["portfolio", doc()]]);
   const modifiedAt = "2026-07-27T12:00:00.000Z";
@@ -129,9 +130,12 @@ const makeRuntime = (input: {
     mutate: () => Effect.fail(new CanvasError({ message: "not used" })),
     create: () => Effect.fail(new CanvasError({ message: "not used" })),
     remove: (name) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         if (!documents.delete(name)) {
           throw new CanvasError({ message: `canvas "${name}" is missing` });
+        }
+        if (input.afterRemoveCommit !== undefined) {
+          yield* Effect.promise(input.afterRemoveCommit);
         }
         for (const listener of listeners) listener(name);
         return { name };
@@ -208,6 +212,7 @@ const start = async (input: {
   readonly settings?: () => Settings;
   readonly boundPrincipal?: () => ProcessPrincipal | undefined;
   readonly beforeRun?: () => void | Promise<void>;
+  readonly afterRemoveCommit?: () => Promise<void>;
 }) => {
   const root = await mkdtemp(join(tmpdir(), "vellum-canvas-control-"));
   roots.push(root);
@@ -215,6 +220,9 @@ const start = async (input: {
   const runtime = makeRuntime({
     ...(input.documents === undefined ? {} : { documents: input.documents }),
     settings: input.settings ?? commandCenterSettings,
+    ...(input.afterRemoveCommit === undefined
+      ? {}
+      : { afterRemoveCommit: input.afterRemoveCommit }),
   });
   runtimes.push(runtime as ManagedRuntime.ManagedRuntime<unknown, never>);
   const server = await startCanvasControlServer(
@@ -566,7 +574,7 @@ describe("canvas control", () => {
 
     blocked = false;
     release();
-    await client;
+    await expect(client).resolves.toMatchObject({ _tag: "Right" });
     const retry = await server.close();
     expect(retry).toMatchObject({
       clean: true,
@@ -576,6 +584,54 @@ describe("canvas control", () => {
       listenerRetained: false,
       socketPathRetained: false,
     });
+  });
+
+  it("keeps an admitted removal response alive across a bounded drain timeout", async () => {
+    const documents = new Map([["portfolio", doc()]]);
+    let signalCommitted!: () => void;
+    const committed = new Promise<void>((resolve) => {
+      signalCommitted = resolve;
+    });
+    let release!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { controlHome, server } = await start({
+      documents,
+      runtime: { shutdownDeadlineMs: 40 },
+      afterRemoveCommit: async () => {
+        signalCommitted();
+        await blocker;
+      },
+    });
+    const client = Effect.runPromise(
+      Effect.either(
+        removeCanvasThroughControl(
+          "portfolio",
+          canvasControlAuthorialPermit({ VELLUM_AUTHORIAL_WRITE: "1" }),
+          { controlHome },
+        ),
+      ),
+    );
+    let clientSettled = false;
+    void client.then(() => {
+      clientSettled = true;
+    });
+    await committed;
+    expect(documents.has("portfolio")).toBe(false);
+
+    const first = await server.close();
+    expect(first.clean).toBe(false);
+    expect(first.retainedLabels).toContain("dispatch:remove");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(clientSettled).toBe(false);
+
+    release();
+    await expect(client).resolves.toMatchObject({
+      _tag: "Right",
+      right: { name: "portfolio" },
+    });
+    await expect(server.close()).resolves.toMatchObject({ clean: true });
   });
 
   it("preserves a replacement socket path and retries cleanup after repair", async () => {

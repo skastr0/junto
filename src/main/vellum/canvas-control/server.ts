@@ -882,8 +882,12 @@ export const startCanvasControlServer = async (
       await Promise.resolve();
     }
 
-    for (const socket of sockets.keys()) {
-      if (!socket.destroyed) socket.destroy();
+    for (const [socket, peer] of sockets) {
+      // Never turn a retained commit into an EOF. An admitted operation keeps
+      // its response channel across bounded drain attempts; the unclean
+      // receipt keeps AppRuntime alive until a later retry reaches the fixed
+      // point. Only a peer that never crossed the frame cut may be discarded.
+      if (peer.phase === "receiving" && !socket.destroyed) socket.destroy();
     }
     await Promise.resolve();
     return retainedReceipt();
