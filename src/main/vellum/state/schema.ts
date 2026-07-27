@@ -11,29 +11,36 @@ import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
 
 /**
- * Small, explicit schema fragments keep domain ownership visible while the
- * engine still executes one ordinary bootstrap script. This is intentionally
- * not a registration or migration framework: Vellum owns one database and
- * evolves its current schema in place.
- */
-export const STATE_METADATA_SCHEMA_SQL = `
-  CREATE TABLE IF NOT EXISTS state_metadata (
-    key TEXT PRIMARY KEY CHECK (length(key) > 0),
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  ) STRICT;
-
-  INSERT OR IGNORE INTO state_metadata(key, value, updated_at)
-  VALUES ('schema', 'vellum/state/v1', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-`;
-
-/**
  * One-way consolidation fence. Older builds exposed an arbitrary JSON
  * key/value table; current boot removes it before any typed repository can be
  * acquired. There is deliberately no import or rollback path.
  */
 export const RETIRED_STATE_SCHEMA_SQL = `
   DROP TABLE IF EXISTS runtime_store_values;
+  DROP TABLE IF EXISTS state_metadata;
+`;
+
+/**
+ * Exact proof of the current composed schema. This is not a generic metadata
+ * bag: the singleton has one fixed meaning and is rewritten only after the
+ * engine verifies the actual sqlite_schema against a fresh current compile.
+ */
+export const STATE_SCHEMA_IDENTITY_SQL = `
+  CREATE TABLE IF NOT EXISTS state_schema_identity (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    actual_schema_sha256 TEXT NOT NULL
+      CHECK (
+        length(actual_schema_sha256) = 64
+        AND actual_schema_sha256 NOT GLOB '*[^a-f0-9]*'
+      ),
+    source_schema_sha256 TEXT NOT NULL
+      CHECK (
+        length(source_schema_sha256) = 64
+        AND source_schema_sha256 NOT GLOB '*[^a-f0-9]*'
+      ),
+    verified_at TEXT NOT NULL
+      CHECK (length(verified_at) BETWEEN 1 AND 64)
+  ) STRICT;
 `;
 
 /**
@@ -78,7 +85,7 @@ export const CANVAS_STATE_SCHEMA_SQL = `
 
 export const STATE_SCHEMA_FRAGMENTS = [
   RETIRED_STATE_SCHEMA_SQL,
-  STATE_METADATA_SCHEMA_SQL,
+  STATE_SCHEMA_IDENTITY_SQL,
   CANVAS_STATE_SCHEMA_SQL,
   BROWSER_PROFILES_STATE_SCHEMA_SQL,
   BROWSER_TRUST_STATE_SCHEMA_SQL,

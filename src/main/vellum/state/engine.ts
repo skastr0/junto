@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -26,6 +25,7 @@ import {
 } from "./service";
 import { isDemoMode } from "../demo/mode";
 import { applyIrreversibleStateCutovers } from "./cutover";
+import { verifyAndStampStateSchema } from "./schema-identity";
 
 export {
   StateEngine,
@@ -133,33 +133,40 @@ const openStateEngine = (
       const statements = new Map<string, StatementSync>();
       let transactionOpen = false;
 
-      try {
-        chmodSync(path, STATE_FILE_MODE);
-        database.exec(`
-          PRAGMA journal_mode = WAL;
-          PRAGMA synchronous = NORMAL;
-          PRAGMA foreign_keys = ON;
-          PRAGMA busy_timeout = ${STATE_BUSY_TIMEOUT_MS};
-          PRAGMA trusted_schema = OFF;
-        `);
-        database.exec("BEGIN IMMEDIATE");
+      const schemaIdentity = (() => {
         try {
-          applyIrreversibleStateCutovers(database);
-          database.exec(STATE_SCHEMA_SQL);
-          database.exec("COMMIT");
-        } catch (error) {
+          chmodSync(path, STATE_FILE_MODE);
+          database.exec(`
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA foreign_keys = ON;
+            PRAGMA busy_timeout = ${STATE_BUSY_TIMEOUT_MS};
+            PRAGMA trusted_schema = OFF;
+          `);
+          database.exec("BEGIN IMMEDIATE");
           try {
-            database.exec("ROLLBACK");
-          } catch {
-            // Preserve the schema failure. A failed rollback makes opening
-            // fail closed and the connection is closed below.
+            applyIrreversibleStateCutovers(database);
+            database.exec(STATE_SCHEMA_SQL);
+            const identity = verifyAndStampStateSchema(
+              database,
+              STATE_SCHEMA_SQL,
+            );
+            database.exec("COMMIT");
+            return identity;
+          } catch (error) {
+            try {
+              database.exec("ROLLBACK");
+            } catch {
+              // Preserve the schema failure. A failed rollback makes opening
+              // fail closed and the connection is closed below.
+            }
+            throw error;
           }
+        } catch (error) {
+          database.close();
           throw error;
         }
-      } catch (error) {
-        database.close();
-        throw error;
-      }
+      })();
 
       const requireOpen = (): void => {
         if (closed) throw new Error("state engine is closed");
@@ -315,9 +322,7 @@ const openStateEngine = (
         journalMode: String(journalMode ?? ""),
         synchronous: Number(synchronous ?? -1),
         foreignKeys: Number(foreignKeys ?? 0) === 1,
-        schemaSha256: createHash("sha256")
-          .update(STATE_SCHEMA_SQL)
-          .digest("hex"),
+        schemaSha256: schemaIdentity.actualSchemaSha256,
       };
 
       return {

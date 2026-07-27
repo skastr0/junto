@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   lstat,
   mkdir,
@@ -18,6 +19,7 @@ import {
   StateEngine,
   StateEngineError,
 } from "../src/main/vellum/state/engine";
+import { STATE_SCHEMA_SQL } from "../src/main/vellum/state/schema";
 const makeTempDir = (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix)).then((root) => {
     tempRoots.push(root);
@@ -146,7 +148,7 @@ afterEach(async () => {
 });
 
 describe("StateEngine", () => {
-  test("opens the sole database with WAL, NORMAL sync, foreign keys, and private permissions", async () => {
+  test("opens the sole database with exact schema identity and private SQLite settings", async () => {
     const root = await makeTempDir("vellum-state-engine-");
     const path = join(root, "state", "vellum.db");
     const runtime = makeRuntime(path);
@@ -163,17 +165,33 @@ describe("StateEngine", () => {
     expect((await lstat(join(root, "state"))).mode & 0o777).toBe(0o700);
     expect((await lstat(path)).mode & 0o777).toBe(0o600);
 
-    const schema = await runtime.runPromise(
+    const schemaIdentity = await runtime.runPromise(
       Effect.flatMap(StateEngine, (engine) =>
         engine.read("test.schema", (reader) =>
-          reader.get<{ value: string }>(
-            "SELECT value FROM state_metadata WHERE key = ?",
-            ["schema"],
-          )?.value
+          reader.get<{
+            singleton: number;
+            actual_schema_sha256: string;
+            source_schema_sha256: string;
+          }>(
+            `
+              SELECT
+                singleton,
+                actual_schema_sha256,
+                source_schema_sha256
+              FROM state_schema_identity
+              WHERE singleton = 1
+            `,
+          )
         )
       ),
     );
-    expect(schema).toBe("vellum/state/v1");
+    expect(schemaIdentity).toEqual({
+      singleton: 1,
+      actual_schema_sha256: info.schemaSha256,
+      source_schema_sha256: createHash("sha256")
+        .update(STATE_SCHEMA_SQL)
+        .digest("hex"),
+    });
   });
 
   test("reopens idempotently without losing committed state", async () => {
@@ -185,8 +203,15 @@ describe("StateEngine", () => {
     await firstRuntime.runPromise(
       firstEngine.transaction("test.persist", (writer) => {
         writer.run(
-          "INSERT INTO state_metadata(key, value, updated_at) VALUES (?, ?, ?)",
-          ["reopen-witness", "preserved", "2026-07-27T00:00:00.000Z"],
+          `
+            INSERT INTO factory_pause_canvases(
+              canvas_name,
+              playing,
+              ever_played,
+              updated_at
+            ) VALUES (?, ?, ?, ?)
+          `,
+          ["reopen", 1, 1, "2026-07-27T00:00:00.000Z"],
         );
       }),
     );
@@ -196,13 +221,19 @@ describe("StateEngine", () => {
     const state = await secondRuntime.runPromise(
       Effect.flatMap(StateEngine, (engine) =>
         engine.read("test.reopen", (reader) => ({
-          witness: reader.get<{ value: string }>(
-            "SELECT value FROM state_metadata WHERE key = ?",
-            ["reopen-witness"],
-          )?.value,
-          schemaRows: reader.get<{ count: number }>(
-            "SELECT count(*) AS count FROM state_metadata WHERE key = ?",
-            ["schema"],
+          witness: reader.get<{
+            playing: number;
+            ever_played: number;
+          }>(
+            `
+              SELECT playing, ever_played
+              FROM factory_pause_canvases
+              WHERE canvas_name = ?
+            `,
+            ["reopen"],
+          ),
+          identityRows: reader.get<{ count: number }>(
+            "SELECT count(*) AS count FROM state_schema_identity",
           )?.count,
           integrity: reader.get<{ quick_check: string }>(
             "PRAGMA quick_check",
@@ -212,8 +243,8 @@ describe("StateEngine", () => {
     );
 
     expect(state).toEqual({
-      witness: "preserved",
-      schemaRows: 1,
+      witness: { playing: 1, ever_played: 1 },
+      identityRows: 1,
       integrity: "ok",
     });
   });
@@ -225,10 +256,13 @@ describe("StateEngine", () => {
     try {
       obsolete.exec(PRE_POLICY_SCHEDULER_SCHEMA_SQL);
       obsolete.exec(`
-        CREATE TABLE unrelated_witness (
-          value TEXT PRIMARY KEY
+        CREATE TABLE state_metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
         ) STRICT;
-        INSERT INTO unrelated_witness(value) VALUES ('preserved');
+        INSERT INTO state_metadata(key, value, updated_at)
+        VALUES ('schema', 'retired', '2026-07-27T00:00:00.000Z');
         INSERT INTO scheduler_interval_state(
           home_station,
           timer_key,
@@ -294,9 +328,13 @@ describe("StateEngine", () => {
         firingRows: reader.get<{ count: number }>(
           "SELECT count(*) AS count FROM scheduler_interval_firings",
         )?.count,
-        unrelated: reader.get<{ value: string }>(
-          "SELECT value FROM unrelated_witness",
-        )?.value,
+        retiredMetadataTables: reader.get<{ count: number }>(
+          `
+            SELECT count(*) AS count
+            FROM sqlite_schema
+            WHERE type = 'table' AND name = 'state_metadata'
+          `,
+        )?.count,
       })),
     );
     expect(consolidated.stateColumns).toContain("catch_up_policy");
@@ -304,7 +342,7 @@ describe("StateEngine", () => {
     expect(consolidated).toMatchObject({
       stateRows: 0,
       firingRows: 0,
-      unrelated: "preserved",
+      retiredMetadataTables: 0,
     });
 
     await firstRuntime.runPromise(
@@ -373,16 +411,31 @@ describe("StateEngine", () => {
     await runtime.runPromise(
       engine.transaction("test.create", (writer) => {
         writer.run(
-          "CREATE TABLE records (id INTEGER PRIMARY KEY, value TEXT NOT NULL) STRICT",
+          `
+            INSERT INTO kernel_armed_regions(
+              canvas_name,
+              region_id,
+              armed_at
+            ) VALUES (?, ?, ?)
+          `,
+          ["transaction", "kept", "2026-07-27T00:00:00.000Z"],
         );
-        writer.run("INSERT INTO records(id, value) VALUES (?, ?)", [1, "kept"]);
       }),
     );
 
     const failed = await runtime.runPromise(
       Effect.either(
         engine.transaction("test.rollback", (writer) => {
-          writer.run("INSERT INTO records(id, value) VALUES (?, ?)", [2, "lost"]);
+          writer.run(
+            `
+              INSERT INTO kernel_armed_regions(
+                canvas_name,
+                region_id,
+                armed_at
+              ) VALUES (?, ?, ?)
+            `,
+            ["transaction", "lost", "2026-07-27T00:01:00.000Z"],
+          );
           throw new Error("stop");
         }),
       ),
@@ -391,23 +444,35 @@ describe("StateEngine", () => {
 
     await runtime.runPromise(
       engine.transaction("test.after-rollback", (writer) => {
-        writer.run("INSERT INTO records(id, value) VALUES (?, ?)", [
-          3,
-          "recovered",
-        ]);
+        writer.run(
+          `
+            INSERT INTO kernel_armed_regions(
+              canvas_name,
+              region_id,
+              armed_at
+            ) VALUES (?, ?, ?)
+          `,
+          ["transaction", "recovered", "2026-07-27T00:02:00.000Z"],
+        );
       }),
     );
 
     const rows = await runtime.runPromise(
       engine.read("test.rows", (reader) =>
-        reader.all<{ id: number; value: string }>(
-          "SELECT id, value FROM records ORDER BY id",
+        reader.all<{ region_id: string }>(
+          `
+            SELECT region_id
+            FROM kernel_armed_regions
+            WHERE canvas_name = ?
+            ORDER BY region_id
+          `,
+          ["transaction"],
         )
       ),
     );
     expect(rows).toEqual([
-      { id: 1, value: "kept" },
-      { id: 3, value: "recovered" },
+      { region_id: "kept" },
+      { region_id: "recovered" },
     ]);
   });
 
@@ -415,12 +480,6 @@ describe("StateEngine", () => {
     const root = await makeTempDir("vellum-state-chunks-");
     const runtime = makeRuntime(join(root, "vellum.db"));
     const engine = await runtime.runPromise(StateEngine);
-    await runtime.runPromise(
-      engine.transaction("test.create", (writer) => {
-        writer.run("CREATE TABLE rows (id INTEGER PRIMARY KEY) STRICT");
-      }),
-    );
-
     const values = Array.from({ length: 17 }, (_, index) => index + 1);
     const chunks: number[] = [];
     await runtime.runPromise(
@@ -430,7 +489,20 @@ describe("StateEngine", () => {
         (writer, chunk) => {
           chunks.push(chunk.length);
           for (const value of chunk) {
-            writer.run("INSERT INTO rows(id) VALUES (?)", [value]);
+            writer.run(
+              `
+                INSERT INTO kernel_armed_regions(
+                  canvas_name,
+                  region_id,
+                  armed_at
+                ) VALUES (?, ?, ?)
+              `,
+              [
+                "chunks",
+                `region-${value.toString().padStart(2, "0")}`,
+                "2026-07-27T00:00:00.000Z",
+              ],
+            );
           }
         },
         { chunkRows: 4 },
@@ -440,8 +512,14 @@ describe("StateEngine", () => {
     expect(chunks).toEqual([4, 4, 4, 4, 1]);
     const count = await runtime.runPromise(
       engine.read("test.count", (reader) =>
-        reader.get<{ count: number }>("SELECT count(*) AS count FROM rows")
-          ?.count
+        reader.get<{ count: number }>(
+          `
+            SELECT count(*) AS count
+            FROM kernel_armed_regions
+            WHERE canvas_name = ?
+          `,
+          ["chunks"],
+        )?.count
       ),
     );
     expect(count).toBe(17);
@@ -455,22 +533,26 @@ describe("StateEngine", () => {
     await runtime.runPromise(
       engine.transaction("test.seed", (writer) => {
         writer.run(
-          "CREATE TABLE test_backup_parent (id INTEGER PRIMARY KEY) STRICT",
+          `
+            INSERT INTO factory_pause_canvases(
+              canvas_name,
+              playing,
+              ever_played,
+              updated_at
+            ) VALUES (?, ?, ?, ?)
+          `,
+          ["backup", 1, 1, "2026-07-27T00:00:00.000Z"],
         );
         writer.run(
-          `CREATE TABLE test_backup_child (
-            id INTEGER PRIMARY KEY,
-            parent_id INTEGER NOT NULL REFERENCES test_backup_parent(id)
-          ) STRICT`,
-        );
-        writer.run("INSERT INTO test_backup_parent(id) VALUES (?)", [41]);
-        writer.run(
-          "INSERT INTO test_backup_child(id, parent_id) VALUES (?, ?)",
-          [42, 41],
-        );
-        writer.run(
-          "INSERT INTO state_metadata(key, value, updated_at) VALUES (?, ?, ?)",
-          ["receipt", "present", "2026-07-27T00:00:00.000Z"],
+          `
+            INSERT INTO factory_pause_scopes(
+              canvas_name,
+              scope_kind,
+              scope_id,
+              paused_at
+            ) VALUES (?, ?, ?, ?)
+          `,
+          ["backup", "node", "receipt", "2026-07-27T00:01:00.000Z"],
         );
       }),
     );
@@ -494,15 +576,21 @@ describe("StateEngine", () => {
     });
     try {
       expect(
-        backup.prepare(
-          "SELECT value FROM state_metadata WHERE key = ?",
-        ).get("receipt"),
-      ).toEqual({ value: "present" });
+        backup.prepare(`
+          SELECT actual_schema_sha256
+          FROM state_schema_identity
+          WHERE singleton = 1
+        `).get(),
+      ).toEqual({ actual_schema_sha256: engine.info.schemaSha256 });
       expect(
         backup.prepare(
-          "SELECT parent_id FROM test_backup_child WHERE id = ?",
-        ).get(42),
-      ).toEqual({ parent_id: 41 });
+          `
+            SELECT canvas_name, scope_kind
+            FROM factory_pause_scopes
+            WHERE scope_id = ?
+          `,
+        ).get("receipt"),
+      ).toEqual({ canvas_name: "backup", scope_kind: "node" });
       expect(backup.prepare("PRAGMA quick_check").get()).toEqual({
         quick_check: "ok",
       });
@@ -520,6 +608,61 @@ describe("StateEngine", () => {
     );
     expect(second._tag).toBe("Left");
     expect(await readFile(backupPath)).toEqual(beforeRefusal);
+  });
+
+  test("rejects an unknown schema object before committing current DDL", async () => {
+    const root = await makeTempDir("vellum-state-unknown-schema-");
+    const path = join(root, "vellum.db");
+    const drifted = new DatabaseSync(path);
+    try {
+      drifted.exec("CREATE TABLE unexpected_state (value TEXT) STRICT");
+    } finally {
+      drifted.close();
+    }
+
+    const runtime = makeRuntime(path);
+    await expect(runtime.runPromise(StateEngine)).rejects.toThrow(
+      /state schema identity mismatch.*unexpected=table:unexpected_state/,
+    );
+
+    const after = new DatabaseSync(path, { readOnly: true });
+    try {
+      expect(
+        after.prepare(
+          `
+            SELECT name
+            FROM sqlite_schema
+            WHERE type = 'table'
+            ORDER BY name
+          `,
+        ).all(),
+      ).toEqual([{ name: "unexpected_state" }]);
+    } finally {
+      after.close();
+    }
+  });
+
+  test("rejects a current table name with a stale constrained shape", async () => {
+    const root = await makeTempDir("vellum-state-shape-drift-");
+    const path = join(root, "vellum.db");
+    const drifted = new DatabaseSync(path);
+    try {
+      drifted.exec(`
+        CREATE TABLE usage_state (
+          singleton INTEGER PRIMARY KEY,
+          snapshots_json TEXT NOT NULL,
+          last_live_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        ) STRICT;
+      `);
+    } finally {
+      drifted.close();
+    }
+
+    const runtime = makeRuntime(path);
+    await expect(runtime.runPromise(StateEngine)).rejects.toThrow(
+      /state schema identity mismatch.*changed=table:usage_state/,
+    );
   });
 
   test("fails closed on a corrupt pre-existing database", async () => {
@@ -574,9 +717,9 @@ describe("StateEngine", () => {
     const result = await Effect.runPromise(
       Effect.either(
         engine.read("test.closed", (reader) =>
-          reader.get("SELECT value FROM state_metadata WHERE key = ?", [
-            "schema",
-          ])
+          reader.get(
+            "SELECT actual_schema_sha256 FROM state_schema_identity WHERE singleton = 1",
+          )
         ),
       ),
     );

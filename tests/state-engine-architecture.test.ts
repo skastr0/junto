@@ -5,7 +5,9 @@ import { describe, expect, test } from "vitest";
 const root = process.cwd();
 const allowed = new Set([
   "scripts/electron-sqlite-smoke.mjs",
+  "src/main/vellum/state/cutover.ts",
   "src/main/vellum/state/engine.ts",
+  "src/main/vellum/state/schema-identity.ts",
 ]);
 
 const filesUnder = (directory: string): string[] => {
@@ -22,7 +24,7 @@ const filesUnder = (directory: string): string[] => {
 };
 
 describe("StateEngine architecture", () => {
-  test("only the scoped engine and its Electron compatibility probe open SQLite", () => {
+  test("only the scoped engine and its narrow bootstrap helpers touch SQLite", () => {
     const offenders = [
       ...filesUnder(join(root, "src")),
       ...filesUnder(join(root, "scripts")),
