@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Context, Effect, ManagedRuntime } from "effect";
 import { defaultSettings, type Settings } from "../src/shared/settings";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import type { ResolvedPageTarget } from "../src/main/vellum/browser/page-target";
@@ -12,6 +12,7 @@ import {
   type BrowserViewAdapter,
 } from "../src/main/vellum/browser/sessions";
 import { prepareBrowserHostCapabilityAuthority } from "../src/main/vellum/browser/station-authority";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
 
 const hosts: ReadonlyArray<RemoteHost> = [
   {
@@ -59,8 +60,20 @@ const deferred = <T>() => {
 
 describe("browser physical-station authority", () => {
   const roots: string[] = [];
+  const stateRuntimes: ManagedRuntime.ManagedRuntime<StateEngine, unknown>[] = [];
+
+  const makeProfiles = async (root: string) => {
+    const runtime = ManagedRuntime.make(
+      makeStateEngineLive(join(root, "vellum.db")),
+    );
+    const state: Context.Tag.Service<typeof StateEngine> =
+      await runtime.runPromise(StateEngine);
+    stateRuntimes.push(runtime);
+    return makeBrowserProfileService(state, root);
+  };
 
   afterEach(async () => {
+    for (const runtime of stateRuntimes.splice(0)) await runtime.dispose();
     for (const root of roots.splice(0)) {
       await rm(root, { recursive: true, force: true });
     }
@@ -110,7 +123,7 @@ describe("browser physical-station authority", () => {
     const service = new BrowserSessionService(
       adapter,
       lease.authority,
-      makeBrowserProfileService(root),
+      await makeProfiles(root),
       Date.now,
       () => "session-remote",
     );
@@ -158,7 +171,7 @@ describe("browser physical-station authority", () => {
     const service = new BrowserSessionService(
       adapter,
       lease.authority,
-      makeBrowserProfileService(root),
+      await makeProfiles(root),
       Date.now,
       () => `session-${++sessionId}`,
     );

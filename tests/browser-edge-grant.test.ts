@@ -3,6 +3,7 @@ import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Context, ManagedRuntime } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   dispatchControlRequest,
@@ -36,6 +37,7 @@ import type {
   ResolvedPageTarget,
 } from "../src/main/vellum/browser/page-target";
 import type { BrowserHostCapabilityAuthority } from "../src/main/vellum/browser/host-capability";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
 
 const REF_PAGE = "vellum://canvas/work?node=p1";
 const TARGET: ResolvedPageTarget = {
@@ -165,14 +167,21 @@ const terminalCanvasDoc = (): CanvasDoc => ({
 describe("browser edge-grant process-bind dual admit", () => {
   let root: string;
   let registries: BrowserCapabilityRegistry[];
+  let stateRuntime: ManagedRuntime.ManagedRuntime<StateEngine, unknown>;
+  let state: Context.Tag.Service<typeof StateEngine>;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-edge-grant-"));
+    stateRuntime = ManagedRuntime.make(
+      makeStateEngineLive(join(root, "vellum.db")),
+    );
+    state = await stateRuntime.runPromise(StateEngine);
     registries = [];
   });
 
   afterEach(async () => {
     for (const registry of registries) registry.close();
+    await stateRuntime.dispose();
     await rm(root, { recursive: true, force: true });
   });
 
@@ -192,7 +201,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(join(root, "browser")),
+      makeBrowserProfileService(state, join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,
     );

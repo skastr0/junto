@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ManagedRuntime } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
@@ -13,6 +14,7 @@ import { makeBrowserCapabilityRegistry } from "../src/main/vellum/browser/capabi
 import { makeBrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
 import type { BrowserSessionService } from "../src/main/vellum/browser/sessions";
 import type { BrowserHostCapabilityAuthorityLease } from "../src/main/vellum/browser/station-authority";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -116,6 +118,10 @@ describe("browser composition (no ceremony)", () => {
 
   it("awaits physical-station identity before composition and adapter activation", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-browser-composition-"));
+    const stateRuntime = ManagedRuntime.make(
+      makeStateEngineLive(join(root, "vellum.db")),
+    );
+    const state = await stateRuntime.runPromise(StateEngine);
     const authority = deferred<BrowserHostCapabilityAuthorityLease>();
     let activated = false;
     let adapterCalls = 0;
@@ -136,6 +142,7 @@ describe("browser composition (no ceremony)", () => {
         });
       },
       {
+        state,
         profileRoot: root,
         prepareHostAuthority: () => authority.promise,
         viewAdapter: () => {
@@ -197,6 +204,7 @@ describe("browser composition (no ceremony)", () => {
     expect(activated).toBe(true);
     expect(adapterCalls).toBe(0);
     await composition.close("test complete");
+    await stateRuntime.dispose();
     await rm(root, { recursive: true, force: true });
   });
 

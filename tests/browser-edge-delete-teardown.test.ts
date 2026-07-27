@@ -10,6 +10,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Context, ManagedRuntime } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { makeEdgeGrantService } from "../src/main/vellum/browser/edge-grant";
 import {
@@ -33,6 +34,7 @@ import {
 } from "../src/main/vellum/browser/edge-revocation";
 import type { ProcessPrincipal } from "../src/main/vellum/process-identity";
 import { isValidControlRequestId } from "../src/shared/browser-control";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
 
 const REF_P1 = "vellum://canvas/work?node=p1";
 const REF_P2 = "vellum://canvas/work?node=p2";
@@ -214,14 +216,21 @@ describe("edge-revocation pure helpers", () => {
 describe("browser edge-delete session teardown", () => {
   let root: string;
   let registries: BrowserCapabilityRegistry[];
+  let stateRuntime: ManagedRuntime.ManagedRuntime<StateEngine, unknown>;
+  let state: Context.Tag.Service<typeof StateEngine>;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-edge-delete-"));
+    stateRuntime = ManagedRuntime.make(
+      makeStateEngineLive(join(root, "vellum.db")),
+    );
+    state = await stateRuntime.runPromise(StateEngine);
     registries = [];
   });
 
   afterEach(async () => {
     for (const registry of registries) registry.close();
+    await stateRuntime.dispose();
     await rm(root, { recursive: true, force: true });
   });
 
@@ -230,7 +239,7 @@ describe("browser edge-delete session teardown", () => {
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(join(root, "browser")),
+      makeBrowserProfileService(state, join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,
     );
@@ -450,7 +459,7 @@ describe("browser edge-delete session teardown", () => {
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(join(root, "browser-remote")),
+      makeBrowserProfileService(state, join(root, "browser-remote")),
       Date.now,
       () => `remote-session-${++sessionCounter}`,
     );
@@ -512,7 +521,7 @@ describe("browser edge-delete session teardown", () => {
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(join(root, "browser-pair")),
+      makeBrowserProfileService(state, join(root, "browser-pair")),
       Date.now,
       (() => {
         let n = 0;

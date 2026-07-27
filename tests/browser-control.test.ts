@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Either, Schema } from "effect";
+import { Context, Either, ManagedRuntime, Schema } from "effect";
 import {
   DoctorData,
   controlErr,
@@ -51,6 +51,7 @@ import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
 } from "../src/main/vellum/browser/capabilities";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
 
 const REF = "vellum://canvas/work?node=n1";
 const DEFAULT_TARGET: ResolvedPageTarget = {
@@ -265,6 +266,8 @@ describe("token handling", () => {
 
 describe("control route handlers", () => {
   let root: string;
+  let stateRuntime: ManagedRuntime.ManagedRuntime<StateEngine, unknown>;
+  let state: Context.Tag.Service<typeof StateEngine>;
   let sessionCounter: number;
   let requestCounter: number;
   const capabilityRegistries: BrowserCapabilityRegistry[] = [];
@@ -272,11 +275,16 @@ describe("control route handlers", () => {
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-control-"));
+    stateRuntime = ManagedRuntime.make(
+      makeStateEngineLive(join(root, "vellum.db")),
+    );
+    state = await stateRuntime.runPromise(StateEngine);
     sessionCounter = 0;
     requestCounter = 0;
   });
   afterEach(async () => {
     for (const registry of capabilityRegistries.splice(0)) registry.close();
+    await stateRuntime.dispose();
     await rm(root, { recursive: true, force: true });
   });
 
@@ -294,7 +302,7 @@ describe("control route handlers", () => {
     const sessions = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(join(root, "browser")),
+      makeBrowserProfileService(state, join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,
       undefined,

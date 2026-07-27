@@ -109,6 +109,7 @@ import {
   SettingsService,
 } from "./vellum/settings/service";
 import { StateEngineLive } from "./vellum/state/engine";
+import { StateEngine } from "./vellum/state/service";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
 import {
@@ -1376,6 +1377,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           registerBrowserIpcHandlers(composition.sessions);
         },
         {
+          state: await AppRuntime.runPromise(StateEngine),
           viewAdapter: browserViewAttachmentTarget.adapter,
           primaryCredentialHealth: () => electronSecurityPolicyHealthy({
             policyPath: app.isPackaged

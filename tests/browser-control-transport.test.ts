@@ -6,6 +6,7 @@ import { createServer as createHttpServer, type Server as HttpServer } from "nod
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Context, ManagedRuntime } from "effect";
 import {
   CONTROL_MAX_BODY_BYTES,
   CONTROL_MAX_HEADER_BYTES,
@@ -38,6 +39,7 @@ import {
 } from "../src/main/vellum/browser/capabilities";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";
@@ -45,6 +47,8 @@ const roots: string[] = [];
 const servers: BrowserControlServer[] = [];
 const capabilityRegistries: BrowserCapabilityRegistry[] = [];
 const rogueServers: HttpServer[] = [];
+const stateRuntimes: ManagedRuntime.ManagedRuntime<StateEngine, unknown>[] = [];
+const states = new Map<string, Context.Tag.Service<typeof StateEngine>>();
 const PAGE_REF = "vellum://canvas/work?node=cli-node";
 const AGENT_KEY = "local:cli";
 const deferred = <A>() => {
@@ -133,12 +137,24 @@ const makeSessions = (root: string): BrowserSessionService => {
   return new BrowserSessionService(
     adapter,
     LOCAL_BROWSER_TEST_AUTHORITY,
-    makeBrowserProfileService(join(root, "profiles")),
+    makeBrowserProfileService(
+      (() => {
+        const state = states.get(root);
+        if (state === undefined) throw new Error(`missing state engine for ${root}`);
+        return state;
+      })(),
+      join(root, "profiles"),
+    ),
   );
 };
 
 const newRoot = async (): Promise<string> => {
   const root = await mkdtemp(TEST_ROOT_PREFIX);
+  const runtime = ManagedRuntime.make(
+    makeStateEngineLive(join(root, "vellum.db")),
+  );
+  states.set(root, await runtime.runPromise(StateEngine));
+  stateRuntimes.push(runtime);
   roots.push(root);
   return root;
 };
@@ -310,6 +326,8 @@ afterEach(async () => {
   for (const server of servers.splice(0)) await server.close();
   for (const registry of capabilityRegistries.splice(0)) registry.close();
   for (const server of rogueServers.splice(0)) server.close();
+  for (const runtime of stateRuntimes.splice(0)) await runtime.dispose();
+  states.clear();
   for (const root of roots.splice(0)) {
     if (!root.startsWith(TEST_ROOT_PREFIX)) {
       throw new Error(`refusing unsafe transport-test cleanup: ${root}`);

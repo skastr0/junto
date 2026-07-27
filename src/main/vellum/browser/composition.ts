@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import { isAllowedBrowserUrl } from "@shared/browser";
 import {
   makeBrowserCapabilityRegistry,
@@ -23,6 +23,7 @@ import {
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
 } from "./profiles";
+import { StateEngine } from "../state/service";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
@@ -443,6 +444,7 @@ export const makeBrowserShutdownCoordinator = (input: {
 };
 
 export interface BrowserCompositionRuntime {
+  readonly state: Context.Tag.Service<typeof StateEngine>;
   readonly primaryCredentialHealth?: () => boolean;
   readonly profileRoot?: string;
   readonly profileGate?: BrowserProfileGate;
@@ -478,7 +480,7 @@ class BindOnce<T extends object> {
  */
 export const startBrowserComposition = async (
   activate: (composition: BrowserComposition) => void | Promise<void>,
-  runtime: BrowserCompositionRuntime = {},
+  runtime: BrowserCompositionRuntime,
 ): Promise<BrowserComposition> => {
   let registry: BrowserCapabilityRegistry | undefined;
   let hostAuthorityLease: BrowserHostCapabilityAuthorityLease | undefined;
@@ -515,7 +517,7 @@ export const startBrowserComposition = async (
       capabilities: storageCapabilityControl,
       profileGate,
     });
-    const profiles = makeBrowserProfileService(runtime.profileRoot, {
+    const profiles = makeBrowserProfileService(runtime.state, runtime.profileRoot, {
       wipeLifecycle: storage,
       profileGate,
     });

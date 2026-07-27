@@ -40,10 +40,7 @@ import {
   type BrowserHostCapabilityAdmission,
   type BrowserHostCapabilityAuthority,
 } from "./host-capability";
-import {
-  makeBrowserProfileService,
-  type BrowserProfileServiceApi,
-} from "./profiles";
+import type { BrowserProfileServiceApi } from "./profiles";
 import {
   makeBrowserProfileGate,
   type BrowserProfileBlock,
@@ -588,7 +585,7 @@ export class BrowserSessionService {
   constructor(
     private readonly adapter: BrowserViewAdapter,
     private readonly hostAuthority: BrowserHostCapabilityAuthority,
-    private readonly profiles: BrowserProfileServiceApi = makeBrowserProfileService(),
+    private readonly profiles: BrowserProfileServiceApi,
     private readonly now: () => number = Date.now,
     private readonly generateSessionId: () => string = randomUUID,
     private readonly targetAdmission: BrowserTargetAdmission = isAllowedBrowserUrl,

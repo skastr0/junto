@@ -11,10 +11,12 @@ import {
   BrowserSessionService,
   type BrowserViewAdapter,
 } from "../src/main/vellum/browser/sessions";
+import type { BrowserProfileServiceApi } from "../src/main/vellum/browser/profiles";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 
 type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;
 const PAGE_REF = "vellum://canvas/work?node=page-1";
+const UNUSED_PROFILE_SERVICE = Object.freeze({}) as BrowserProfileServiceApi;
 
 const session = (): BrowserSessionInfo => ({
   sessionId: "session-1",
@@ -57,6 +59,7 @@ describe("browser IPC bounds ingress", () => {
     browserSessions = new BrowserSessionService(
       viewAdapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
+      UNUSED_PROFILE_SERVICE,
     );
     const ipcMain = {
       handle: vi.fn((channel: string, handler: InvokeHandler) => {
