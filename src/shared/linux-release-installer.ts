@@ -608,8 +608,7 @@ export const decodeLinuxReleaseInstallerJournal = (
     fence.record.targetUid !== target.uid ||
     fence.record.targetGid !== target.gid ||
     fence.record.stationId !== target.stationId ||
-    (fence.record.operation !== input.operation &&
-      fence.record.operation !== "recover")
+    fence.record.operation !== input.operation
   ) {
     throw new Error("installer journal fence binding is inconsistent");
   }

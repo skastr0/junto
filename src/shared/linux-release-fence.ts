@@ -24,7 +24,7 @@ export interface LinuxReleaseFence {
   readonly schema: typeof LINUX_RELEASE_FENCE_PROTOCOL;
   readonly fenceId: string;
   readonly transactionId: string;
-  readonly operation: "install" | "adopt" | "recover";
+  readonly operation: "install" | "adopt";
   readonly targetUid: number;
   readonly targetGid: number;
   readonly stationId: string;
@@ -76,9 +76,7 @@ export const decodeLinuxReleaseFence = (
     !HEX_32.test(value.fenceId) ||
     typeof value.transactionId !== "string" ||
     !HEX_32.test(value.transactionId) ||
-    (value.operation !== "install" &&
-      value.operation !== "adopt" &&
-      value.operation !== "recover") ||
+    (value.operation !== "install" && value.operation !== "adopt") ||
     !positiveId(value.targetUid) ||
     !positiveId(value.targetGid) ||
     typeof value.stationId !== "string" ||

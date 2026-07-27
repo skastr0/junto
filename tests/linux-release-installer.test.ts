@@ -1423,5 +1423,15 @@ describe("Linux privileged release installer", () => {
       fromVersion: "1.0.0", toVersion: "2.0.0", phase: "dpkg-started",
       oldServiceState: "enabled-active",
     })).toThrow();
+    expect(() => decodeLinuxReleaseInstallerJournal({
+      schema: "vellum/linux-release-installer-journal/v3",
+      transactionId: "9".repeat(32),
+      operation: "install",
+      owner: { pid: 1, startTicks: "1", bootId },
+      target: { uid: targetUid(), gid: targetGid(), host: "remote.test", stationId: "station" },
+      fence: { record: { schema: "vellum/linux-release-fence/v1", fenceId: "a".repeat(32), transactionId: "9".repeat(32), operation: "recover", targetUid: targetUid(), targetGid: targetGid(), stationId: "station", machineIdSha256: "c".repeat(64), bootId, candidateDigest: "d".repeat(64) }, device: "1", inode: "2", preGeneration: "b".repeat(32), postGeneration: null },
+      manifestSha256: "e".repeat(64), debSha256: "f".repeat(64), sourceRevision: revision,
+      fromVersion: "1.0.0", toVersion: "2.0.0", phase: "dpkg-started",
+    })).toThrow();
   });
 });
