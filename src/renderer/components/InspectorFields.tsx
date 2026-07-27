@@ -8,7 +8,6 @@ import { workRolesInDoc } from "@shared/attention";
 import {
   ALL_PORTS,
   Port,
-  actorClassLabel,
   asNodeId,
   canvasDocToCapabilityView,
   grantLawForRoles,
@@ -17,7 +16,7 @@ import {
   resolveSpec,
   roleOf,
   selectGrant,
-  tierLabel,
+  placementLabel,
   undirectedEdgeKey,
   type FactoryRoleName,
   type PortName,
@@ -279,49 +278,29 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
   );
 }
 
-const placementTone = (className: string): ChipTone => {
-  switch (className) {
-    case "facility":
-      return "steel";
-    case "external":
-      return "violet";
-    case "station":
-      return "cyan";
-    case "command_center":
-    default:
-      return "amber";
-  }
-};
+const placementTone = (runtimeTag: "Cc" | "Station"): ChipTone =>
+  runtimeTag === "Station" ? "cyan" : "amber";
 
 /**
- * Placement chips (I18/I19) — class · tier · assignment.
- * Pure resolve from ether.host + default topology (null fleet producer).
- * Visible in inspection overlays per security doctrine.
+ * Placement chips — where the node runs, and nothing more. Placement is data:
+ * it names the host, it never gates a port.
  */
 export function NodePlacementSection({ node }: { readonly node: CanvasNode }) {
   const placement = useMemo(() => resolveNodePlacement(node), [node]);
-  const classLabel = actorClassLabel(placement.class);
-  const tLabel = tierLabel(placement.tier);
+  const label = placementLabel(placement);
   const assign = placement.assignment ?? "—";
-  const tone = placementTone(placement.class);
+  const tone = placementTone(placement.runtime._tag);
   const title = [
-    `class ${classLabel}`,
-    `tier ${placement.tier}`,
+    placement.runtime._tag === "Station" ? "station" : "command center",
     placement.assignment ? `host ${placement.assignment}` : "unassigned",
-    placement.runtime._tag === "Facility" ? "no execution authority" : undefined,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  ].join(" · ");
 
   return (
     <div className="inspector-section">
       <div className="inspector-section__label">placement</div>
       <div className="inspector-flags" role="list" aria-label="Node placement" title={title}>
-        <Chip tone={tone} title={`actor class: ${placement.class}`}>
-          {classLabel}
-        </Chip>
-        <Chip tone={tone} title={`runtime tier ${placement.tier}`}>
-          {tLabel}
+        <Chip tone={tone} title={`placement: ${label}`}>
+          {label}
         </Chip>
         <Chip tone="steel" title={`assignment: ${assign}`}>
           {assign}

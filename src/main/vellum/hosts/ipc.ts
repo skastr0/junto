@@ -44,7 +44,6 @@ import {
 } from "@shared/release-capabilities";
 import { computeInstallCapabilities } from "@shared/install-capabilities";
 import { pushLiveProjectionToEnrolledRemotes } from "../projection/product-push";
-import { InstallPlane } from "../install-plane";
 
 const toOp = (
   either: { readonly _tag: "Right"; readonly right: ReadonlyArray<unknown> } | {
@@ -537,116 +536,6 @@ export const registerHostsIpc = (
           code: error.code,
           message: error.message,
         }) satisfies HostsConfigureRemoteResult,
-    ),
-  );
-
-  // Effective install capabilities (RELEASE ∩ operator kill-switch ∩ role).
-  ipcMain.handle(IPC_CHANNELS.hostsInstallCapabilities, () =>
-    surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const plane = yield* InstallPlane;
-            return yield* plane.capabilities;
-          }),
-        ),
-      ),
-      (error) => ({
-        ok: false as const,
-        code: error.code,
-        message: error.message,
-      }),
-    ),
-  );
-
-  ipcMain.handle(IPC_CHANNELS.hostsInstallPlugin, (_event, input: unknown) =>
-    surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const plane = yield* InstallPlane;
-            return yield* plane.installPlugin(input);
-          }),
-        ),
-      ),
-      (error) => ({
-        ok: false,
-        detail: error.message,
-        code: error.code,
-        message: error.message,
-      }),
-    ),
-  );
-
-  ipcMain.handle(IPC_CHANNELS.routeTokenList, () =>
-    surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const plane = yield* InstallPlane;
-            return yield* plane.listRouteTokens;
-          }),
-        ),
-      ),
-      (error) => ({
-        ok: false as const,
-        code: error.code,
-        message: error.message,
-      }),
-    ),
-  );
-
-  ipcMain.handle(IPC_CHANNELS.routeTokenMint, (_event, input: unknown) =>
-    surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const plane = yield* InstallPlane;
-            return yield* plane.mintRouteToken(input);
-          }),
-        ),
-      ),
-      (error) => ({
-        ok: false as const,
-        code: error.code,
-        message: error.message,
-      }),
-    ),
-  );
-
-  ipcMain.handle(IPC_CHANNELS.routeTokenRotate, (_event, input: unknown) =>
-    surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const plane = yield* InstallPlane;
-            return yield* plane.rotateRouteToken(input);
-          }),
-        ),
-      ),
-      (error) => ({
-        ok: false as const,
-        code: error.code,
-        message: error.message,
-      }),
-    ),
-  );
-
-  ipcMain.handle(IPC_CHANNELS.routeTokenRevoke, (_event, input: unknown) =>
-    surfaceShutdownRefusal(
-      operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const plane = yield* InstallPlane;
-            return yield* plane.revokeRouteToken(input);
-          }),
-        ),
-      ),
-      (error) => ({
-        ok: false as const,
-        code: error.code,
-        message: error.message,
-      }),
     ),
   );
 

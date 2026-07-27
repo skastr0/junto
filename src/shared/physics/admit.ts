@@ -2,9 +2,7 @@ import { Effect, Either, HashMap, HashSet, Option, Schema } from "effect";
 import { offersOf, resolveSpec, roleOf } from "./kinds";
 import { grantLawForRoles, selectGrant } from "./laws";
 import {
-  portTierFloor,
   routeAllowed,
-  tierAllowsPort,
   type NodePlacement,
 } from "./placement";
 import {
@@ -160,25 +158,6 @@ const checkPlacement = (
     );
   }
 
-  if (callerPlace.class === "facility" || callerPlace.runtime._tag === "Facility") {
-    return denial(
-      "facility",
-      caller,
-      target,
-      `facility "${caller}" never wields — no execution authority`,
-      port,
-    );
-  }
-  if (targetPlace.class === "facility" || targetPlace.runtime._tag === "Facility") {
-    return denial(
-      "facility",
-      caller,
-      target,
-      `facility "${target}" never admits — no execution authority`,
-      port,
-    );
-  }
-
   if (!routeAllowed(callerPlace, targetPlace)) {
     const callerRt =
       callerPlace.runtime._tag === "Station"
@@ -193,16 +172,6 @@ const checkPlacement = (
       caller,
       target,
       `route denied ${callerRt} → ${targetRt}: cross-runtime actions require a Command Center route (Station↔Station is not representable as a grant)`,
-      port,
-    );
-  }
-
-  if (!tierAllowsPort(callerPlace.tier, port)) {
-    return denial(
-      "tier",
-      caller,
-      target,
-      `tier ${callerPlace.tier} cannot wield port "${port}" (requires tier ≤ ${portTierFloor(port)})`,
       port,
     );
   }

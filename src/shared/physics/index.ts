@@ -88,31 +88,23 @@ export type {
 } from "./admit";
 
 export {
-  ActorClass,
   DEFAULT_PLACEMENT_TOPOLOGY,
-  PORT_TIER_FLOOR,
   PlacementView,
   PlacementViewNull,
   RuntimePlacement,
-  RuntimeTier,
-  actorClassLabel,
   mapPlacementView,
   nullPlacementView,
+  placementLabel,
   placementMapFromDoc,
-  portTierFloor,
   resolveNodePlacement,
   routeAllowed,
   sameRuntime,
-  tierAllowsPort,
-  tierLabel,
 } from "./placement";
 export type {
-  ActorClass as ActorClassName,
   NodePlacement,
   PlacementTopology,
   PlacementViewService,
   RuntimePlacement as RuntimePlacementValue,
-  RuntimeTier as RuntimeTierValue,
 } from "./placement";
 
 export {

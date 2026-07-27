@@ -15,70 +15,25 @@ import { asNodeId, type NodeId, type Port } from "./schema";
 // fleet-lane producers bind topology later without touching consumers.
 
 // ---------------------------------------------------------------------------
-// Actor class + tier (security doctrine)
+// Where a node runs
+//
+// Placement is DATA, not a permission axis. It says which machine hosts the
+// node; it never decides which ports the node may wield — that is the role-pair
+// law crossed with kind-declared offers and the authorial mask. There is no
+// tier scale and no actor class.
 
-export const ActorClass = Schema.Literal(
-  "command_center",
-  "station",
-  "external",
-  "facility",
-);
-export type ActorClass = typeof ActorClass.Type;
-
-/** 1 = CC-local (most access) … 4 = facility (no execution authority). */
-export const RuntimeTier = Schema.Literal(1, 2, 3, 4);
-export type RuntimeTier = typeof RuntimeTier.Type;
-
-/**
- * Where a node executes. Distinct from FactoryRole (actor/sink/…).
- * Tagged so Station carries its host id without a parallel string field.
- */
 export type RuntimePlacement = Data.TaggedEnum<{
   Cc: {};
   Station: { readonly hostId: string };
-  External: {};
-  Facility: {};
 }>;
 
 export const RuntimePlacement = Data.taggedEnum<RuntimePlacement>();
 
 export type NodePlacement = {
-  readonly class: ActorClass;
   readonly runtime: RuntimePlacement;
-  readonly tier: RuntimeTier;
-  /**
-   * Display assignment (host id or runtime label). Present for station and
-   * typically for CC (local host id); absent for facility/external when
-   * unassigned.
-   */
+  /** Display assignment (host id). */
   readonly assignment?: string;
 };
-
-// ---------------------------------------------------------------------------
-// Port tier floors (I19)
-//
-// Floor = highest tier number allowed to wield the port (lower tier = more
-// access). Maximize tier-3 protocol surface; host-local surfaces stay ≤2.
-
-export const PORT_TIER_FLOOR = {
-  "tasks.list": 3,
-  "tasks.claim": 3,
-  "tasks.update": 3,
-  "msg.list": 3,
-  "msg.send": 3,
-  "request.create": 3,
-  "artifact.publish": 3,
-  /** Host-local browser surface — Station/CC local only. */
-  "browser.automate": 2,
-} as const satisfies Record<Port, RuntimeTier>;
-
-export type PortTierFloor = (typeof PORT_TIER_FLOOR)[Port];
-
-export const portTierFloor = (port: Port): RuntimeTier => PORT_TIER_FLOOR[port];
-
-/** True when actor tier is allowed to wield `port` (tier ≤ floor). */
-export const tierAllowsPort = (tier: RuntimeTier, port: Port): boolean =>
-  tier <= portTierFloor(port);
 
 // ---------------------------------------------------------------------------
 // Topology inputs (pure; no live CC reachability)
@@ -97,16 +52,6 @@ export type PlacementTopology = {
    * registry (honest station class; route checks still apply).
    */
   readonly stationHostIds?: ReadonlySet<string>;
-  /**
-   * Host ids that are acknowledged facilities only (tier 4, no execution).
-   * Wins over station classification.
-   */
-  readonly facilityHostIds?: ReadonlySet<string>;
-  /**
-   * Host ids of external (tier 3) actors — no local Vellum runtime, protocol
-   * route only. Wins over station when not facility.
-   */
-  readonly externalHostIds?: ReadonlySet<string>;
 };
 
 export const DEFAULT_PLACEMENT_TOPOLOGY: PlacementTopology = {
@@ -117,77 +62,18 @@ export const DEFAULT_PLACEMENT_TOPOLOGY: PlacementTopology = {
 // Pure resolve (ether.host + topology → NodePlacement)
 
 /**
- * Resolve placement for one canvas node.
- * - Groups / non-executable geography still get a placement so admit can
- *   fail closed honestly when they appear as endpoints; default is facility
- *   (no execution authority) unless host stamps a known runtime.
- * - Executable nodes: host via resolveNodeHostId, then class from topology.
+ * Resolve placement for one canvas node: which machine hosts it. The CC host
+ * is `Cc`; every other host id is a `Station`. Nothing here gates a port.
  */
 export const resolveNodePlacement = (
   node: CanvasNode,
   topology: PlacementTopology = DEFAULT_PLACEMENT_TOPOLOGY,
 ): NodePlacement => {
   const hostId = resolveNodeHostId(node);
-  const facilityHosts = topology.facilityHostIds;
-  const externalHosts = topology.externalHostIds;
-
-  if (facilityHosts?.has(hostId)) {
-    return {
-      class: "facility",
-      runtime: RuntimePlacement.Facility(),
-      tier: 4,
-      assignment: hostId,
-    };
-  }
-
   if (hostId === topology.commandCenterHostId) {
-    // Non-executable nodes on the CC host are still geography for role;
-    // placement class is command_center only for seats that can execute.
-    if (!isExecutableNode(node) && node.type === "group") {
-      return {
-        class: "command_center",
-        runtime: RuntimePlacement.Cc(),
-        tier: 1,
-        assignment: hostId,
-      };
-    }
-    return {
-      class: "command_center",
-      runtime: RuntimePlacement.Cc(),
-      tier: 1,
-      assignment: hostId,
-    };
+    return { runtime: RuntimePlacement.Cc(), assignment: hostId };
   }
-
-  if (externalHosts?.has(hostId)) {
-    return {
-      class: "external",
-      runtime: RuntimePlacement.External(),
-      tier: 3,
-      assignment: hostId,
-    };
-  }
-
-  // Enrolled station, or any other host id → station (product default).
-  const stationHosts = topology.stationHostIds;
-  if (stationHosts === undefined || stationHosts.size === 0 || stationHosts.has(hostId)) {
-    return {
-      class: "station",
-      runtime: RuntimePlacement.Station({ hostId }),
-      tier: 2,
-      assignment: hostId,
-    };
-  }
-
-  // Topology listed stations but this host is not among them and not CC —
-  // fail closed as unknown only at the map layer; resolve still returns
-  // station so tests can force unknown via omitted map entries.
-  return {
-    class: "station",
-    runtime: RuntimePlacement.Station({ hostId }),
-    tier: 2,
-    assignment: hostId,
-  };
+  return { runtime: RuntimePlacement.Station({ hostId }), assignment: hostId };
 };
 
 /** Build the admit placement map for a document under a topology. */
@@ -244,10 +130,6 @@ const runtimeKey = (runtime: RuntimePlacement): string => {
       return "cc";
     case "Station":
       return `station:${runtime.hostId}`;
-    case "External":
-      return "external";
-    case "Facility":
-      return "facility";
   }
 };
 
@@ -267,19 +149,8 @@ export const routeAllowed = (
   return tags.has("Cc") && tags.has("Station");
 };
 
-/** Human-readable class label for chips. */
-export const actorClassLabel = (c: ActorClass): string => {
-  switch (c) {
-    case "command_center":
-      return "cc";
-    case "station":
-      return "station";
-    case "external":
-      return "external";
-    case "facility":
-      return "facility";
-  }
-};
-
-/** Human-readable tier label for chips. */
-export const tierLabel = (tier: RuntimeTier): string => `t${tier}`;
+/** Human-readable placement label for chips. */
+export const placementLabel = (placement: NodePlacement): string =>
+  placement.runtime._tag === "Station"
+    ? `station:${placement.runtime.hostId}`
+    : "cc";

@@ -123,14 +123,9 @@ import {
   rotateControlFileToken,
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
-import {
-  resolveRouteTokenDetailed,
-  resolveRoutesHome,
-} from "./route-tokens";
-
 // Local work control plane for agents: NDJSON over a Unix domain socket at
-// ~/.vellum/work/control.sock. Token + process-bind (Tier 2) or route-token
-// (Tier 3) identity + edge authz; mutations route through WorkService.
+// ~/.vellum/work/control.sock. Token + process-bind identity + edge authz;
+// mutations route through WorkService. One admission path, no second identity.
 
 // ---------------------------------------------------------------------------
 // Token rotation (browser control pattern)
@@ -191,21 +186,15 @@ export const workTokenMatches = (
 };
 
 // ---------------------------------------------------------------------------
-// Dual-path admission (Tier 2 process-bind | Tier 3 route-token)
+// Admission: the local work-file token proves reach; process-bind proves who.
 
-export type WorkIdentityTier = "process-bind" | "route-token";
+export type WorkIdentityTier = "process-bind";
 
 export type WorkIdentityAdmission =
   | {
       readonly ok: true;
       readonly tier: "process-bind";
       readonly peerPid: number;
-      readonly principal: ProcessPrincipal;
-    }
-  | {
-      readonly ok: true;
-      readonly tier: "route-token";
-      readonly routeId: string;
       readonly principal: ProcessPrincipal;
     }
   | {
@@ -216,19 +205,14 @@ export type WorkIdentityAdmission =
     };
 
 /**
- * Pure dual-path work identity admission.
- *
- * 1. Local work-file token → require process-bind (Tier 2).
- * 2. Else route-token resolve → admit Tier 3 seat principal (no peer PID).
- * 3. Else AuthError.
+ * Pure work identity admission. One path: the local work-file token proves the
+ * caller reached us, and process-bind proves which seat it is. There is no
+ * second admission — a caller with no live Vellum process has no identity.
  */
 export const admitWorkIdentity = (input: {
   readonly localToken: string;
   readonly presentedToken: string;
   readonly processIdentity: ProcessIdentityResult | (() => ProcessIdentityResult);
-  readonly routeResolve: (
-    token: string,
-  ) => { readonly id: string; readonly principal: ProcessPrincipal } | null;
 }): WorkIdentityAdmission => {
   if (workTokenMatches(input.presentedToken, input.localToken)) {
     const identity =
@@ -251,16 +235,6 @@ export const admitWorkIdentity = (input: {
       tier: "process-bind",
       peerPid: identity.peerPid,
       principal: identity.principal,
-    };
-  }
-
-  const route = input.routeResolve(input.presentedToken);
-  if (route !== null) {
-    return {
-      ok: true,
-      tier: "route-token",
-      routeId: route.id,
-      principal: route.principal,
     };
   }
 
@@ -830,18 +804,6 @@ export interface WorkControlServerOptions {
   readonly canvasesDir?: string;
   /** Test seam; production uses the process-global main authoring authority. */
   readonly authoringGate?: MainAuthoringGate;
-  /**
-   * Routes home for Tier-3 route-token resolve (defaults to
-   * `VELLUM_ROUTES_HOME` or `~/.vellum/routes`).
-   */
-  readonly routesHome?: string;
-  /**
-   * Test seam for route-token resolve. Production uses the filesystem store.
-   * Returning null means "not a live route-token".
-   */
-  readonly routeResolve?: (
-    token: string,
-  ) => { readonly id: string; readonly principal: ProcessPrincipal } | null;
 }
 
 export interface WorkControlRuntime {
@@ -1013,10 +975,6 @@ export const startWorkControlServer = async (
   const processMap = options.processMap ?? getProcessIdentityMap();
   const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
   const authoringGate = options.authoringGate ?? mainAuthoringGate;
-  const routesHome = resolveRoutesHome(options.home, options.routesHome);
-  const routeResolve =
-    options.routeResolve ??
-    ((presented: string) => resolveRouteTokenDetailed(presented, routesHome));
   // Legacy option retained for callers; live authority no longer scans this path.
   void options.canvasesDir;
 
@@ -1169,7 +1127,6 @@ export const startWorkControlServer = async (
         presentedToken: req.token,
         processIdentity: () =>
           admitProcessIdentity(socket, processMap, readPeerOnce),
-        routeResolve,
       });
       if (!admission.ok) {
         if (admission.reason === "auth") {
@@ -1248,22 +1205,15 @@ export const startWorkControlServer = async (
                   details: {
                     retryable: false,
                     next_step:
-                      admission.tier === "route-token"
-                        ? "ensure the route-token canvas seat still exists on a live canvas"
-                        : "ensure exactly one actor node matches the live process",
+                      "ensure exactly one actor node matches the live process",
                   },
                 });
               }
               const occupant =
-                admission.tier === "process-bind"
-                  ? occupantKeyForPrincipal(
-                      admission.principal,
-                      `pid:${admission.peerPid}`,
-                    )
-                  : occupantKeyForPrincipal(
-                      admission.principal,
-                      `route:${admission.routeId}`,
-                    );
+                occupantKeyForPrincipal(
+                  admission.principal,
+                  `pid:${admission.peerPid}`,
+                );
               const caller: WorkCaller = {
                 canvasName: callerResolved.caller.canvasName,
                 nodeId: callerResolved.caller.nodeId,

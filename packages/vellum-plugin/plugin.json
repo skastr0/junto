@@ -1,8 +1,0 @@
-{
-  "name": "vellum",
-  "version": "0.1.0",
-  "description": "Vellum factory work plane (opt-in) — tools only; install deliberately. Empty tool list when no station socket is reachable.",
-  "targets": {
-    "tools": ["coding-harness", "hermes"]
-  }
-}
