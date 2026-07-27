@@ -10,7 +10,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { writeScenario as writeHerdrScenario } from "../fakes/scenario";
-import { oneReplyScenario, writeScenario as writeHermesScenario } from "../fakes/hermes-scenario";
 import {
   agentTextNode,
   artifactsNode,
@@ -32,43 +31,6 @@ const SHOTS = join(process.cwd(), "test-results", "design-audit");
 const shot = async (page: Page, name: string) => {
   await page.waitForTimeout(350);
   await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: false });
-};
-
-/** Install visual fixtures through the same authority write path as the app. */
-const installAuditCanvas = async (page: Page, doc: ReturnType<typeof canvasDoc>) => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => {
-          const runtime = globalThis as unknown as {
-            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
-          };
-          return Boolean(runtime.vellum?.listCanvases);
-        }),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-
-  await page.evaluate(async (document) => {
-    const api = (
-      globalThis as unknown as {
-        readonly vellum: {
-          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
-          readonly createCanvas: (name: string) => Promise<{ name: string }>;
-          readonly readCanvas: (name: string) => Promise<{ revision: string }>;
-          readonly writeCanvas: (
-            name: string,
-            doc: unknown,
-            expectedRevision?: string,
-          ) => Promise<unknown>;
-        };
-      }
-    ).vellum;
-    const list = await api.listCanvases();
-    const name = list[0]?.name ?? (await api.createCanvas("design-audit")).name;
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, document, read.revision);
-  }, doc);
 };
 
 const noteNode: CanvasNode = {
@@ -119,7 +81,9 @@ const linkNode: LinkNode = {
   id: "link1",
   type: "link",
   url: "https://jsoncanvas.org",
-  x: 620,
+  // Keep this interactive page card outside the held-region overlay so its
+  // kind fields remain reachable in the visual audit.
+  x: 920,
   y: 0,
   width: 240,
   height: 90,
@@ -354,7 +318,6 @@ const edges: CanvasEdge[] = [
 test("capture every surface for design review", async () => {
   const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-audit-"));
   const herdrScenario = join(scenarioDir, "herdr.json");
-  const hermesScenario = join(scenarioDir, "hermes.json");
   const codexbarScenario = join(scenarioDir, "codexbar.json");
   await mkdir(SHOTS, { recursive: true });
 
@@ -433,7 +396,6 @@ test("capture every surface for design review", async () => {
       ],
     },
   });
-  await writeHermesScenario(hermesScenario, oneReplyScenario("Design tokens landed — ink, dim, amber, crimson."));
   const { writeFile } = await import("node:fs/promises");
   await writeFile(
     codexbarScenario,
@@ -461,9 +423,13 @@ test("capture every surface for design review", async () => {
   );
 
   const vellum = await launchVellum({
+    // Seed before Electron owns the StateEngine. The harness splits work
+    // projections into WorkRepository rows; writing this fixture through the
+    // canvas API after startup would intentionally discard its task/request/
+    // artifact items as authored-document data.
+    seedCanvases: { "design-audit": canvasDoc(nodes, edges) },
     extraEnv: {
       FAKE_HERDR_SCENARIO: herdrScenario,
-      FAKE_HERMES_SCENARIO: hermesScenario,
       FAKE_CODEXBAR_SCENARIO: codexbarScenario,
     },
   });
@@ -472,7 +438,6 @@ test("capture every surface for design review", async () => {
     const { page } = vellum;
 
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await installAuditCanvas(page, canvasDoc(nodes, edges));
 
     // React Flow only mounts on-screen nodes: wait for the first, fit the
     // whole board, THEN distant entity nodes exist in the DOM.
@@ -498,11 +463,26 @@ test("capture every surface for design review", async () => {
     await closeup("release checklist", "03-node-blocker");
     await closeup("audit herdr pane", "04-node-herdr");
     await closeup("audit native term", "05-node-terminal-card");
-    await closeup("Fix stale host badge", "06-node-tasks");
+
+    // The dock intentionally obscures the lower part of the canvas. React
+    // Flow consequently unmounts the task row when only visible elements are
+    // rendered, so pan the field before querying this lower-row card.
+    const pane = page.locator(".react-flow__pane");
+    const paneBox = await pane.boundingBox();
+    if (!paneBox) throw new Error("Canvas pane is unavailable for task-row capture");
+    const panX = paneBox.x + paneBox.width * 0.5;
+    const panStartY = paneBox.y + paneBox.height * 0.7;
+    await page.mouse.move(panX, panStartY);
+    await page.mouse.down();
+    await page.mouse.move(panX, paneBox.y + paneBox.height * 0.25, { steps: 8 });
+    await page.mouse.up();
+
+    const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks1"]');
+    await expect(tasksNodeCard).toBeVisible({ timeout: 15_000 });
+    await tasksNodeCard.screenshot({ path: join(SHOTS, "06-node-tasks.png") });
 
     // Task flow: the full five-lane board, including attention and terminal
     // variants. Double-click is the work-surface affordance on canvas nodes.
-    const tasksNodeCard = page.locator(".react-flow__node", { hasText: "Fix stale host badge" }).first();
     await tasksNodeCard.getByTestId("tasks-card").dispatchEvent("dblclick");
     const taskFlow = page.getByRole("dialog", { name: "Task flow" });
     await expect(taskFlow).toBeVisible({ timeout: 10_000 });
@@ -542,6 +522,10 @@ test("capture every surface for design review", async () => {
     await artifactLibrary.locator('button[title="Close"]').click();
     await expect(artifactLibrary).toBeHidden();
 
+    // Return to the overview before continuing with the upper-canvas cards.
+    if (await fit.isVisible().catch(() => false)) await fit.click();
+    await page.waitForTimeout(600);
+
     // Edge label closeup.
     const edgeLabel = page.locator(".vellum-edge-label").first();
     if (await edgeLabel.isVisible().catch(() => false)) {
@@ -560,31 +544,17 @@ test("capture every surface for design review", async () => {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
     const pageNode = page.locator(".react-flow__node", { hasText: "jsoncanvas.org" }).first();
-    await pageNode.dispatchEvent("click");
+    // PageCard's main action attaches the browser surface. Select its blank
+    // chrome instead, then inspect the bound host through the kind fields.
+    await pageNode.click({ position: { x: 120, y: 5 }, force: true });
+    await page.getByRole("button", { name: "Open fields" }).click();
     await expect(page.getByLabel("Page browser host")).toBeVisible();
     await shot(page, "08b-page-host-inspector");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "page fields" })).toBeHidden();
 
-    // Chat: double-click the agent node to open its focused ACP work surface.
-    await page.locator(".react-flow__node", { hasText: "builder" }).first().dblclick();
-    await expect(page.locator(".chat-view")).toBeVisible({ timeout: 15_000 });
-    await shot(page, "11-chat-detached");
-    await page.getByRole("button", { name: "attach" }).click();
-    const chat = page.locator(".chat-view");
-    const composer = chat.getByRole("textbox", { name: "Message", exact: true });
-    await expect(composer).toBeVisible({ timeout: 30_000 });
-    await composer.fill("ship the design system");
-    await chat.getByRole("button", { name: "send", exact: true }).click();
-    await expect(page.locator(".chat-message--assistant")).toContainText("Design tokens", {
-      timeout: 30_000,
-    });
-    await shot(page, "12-chat-conversation");
-    await page.getByRole("button", { name: "Pin ACP chat" }).click();
-    await expect(page.getByRole("complementary", { name: "Pinned work surface dock" })).toBeVisible();
-    await shot(page, "12b-chat-pinned");
-    await page.getByRole("button", { name: "Unpin ACP chat" }).click();
-    await expect(page.getByRole("dialog", { name: /Workbench · chat/ })).toBeVisible();
-    await page.getByRole("button", { name: "Close ACP chat" }).click();
-    await page.waitForTimeout(300);
+    // ACP chat is intentionally retired; agent seats use managed terminals.
+    // The terminal focus capture below covers the remaining live-seat surface.
 
     // Herdr terminal modal: single click on the card hero (pointerdown opens
     // when the card is not selected).
@@ -593,7 +563,10 @@ test("capture every surface for design review", async () => {
     const herdrNode = page.locator(".react-flow__node", {
       hasText: "audit herdr pane",
     });
-    await herdrNode.getByRole("button", { name: "audit herdr pane" }).click();
+    await page.locator(".react-flow__pane").click({ position: { x: 24, y: 24 } });
+    await herdrNode
+      .getByRole("button", { name: "audit herdr pane" })
+      .dispatchEvent("pointerdown");
     const herdrPanel = page.locator(".herdr-terminal-panel");
     await expect(herdrPanel).toBeVisible({ timeout: 30_000 });
     await expect(herdrPanel.getByRole("status", { name: "connected" })).toBeVisible({
