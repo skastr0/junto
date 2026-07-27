@@ -90,6 +90,10 @@ describe("Linux v1 operator documentation", () => {
     );
     expect(runbook).toContain("exact bound `STAGE_CLEARED` receipt");
     expect(runbook).toMatch(/even if it\s+happens before `COMMIT`/u);
+    expect(runbook).toContain(
+      "Managed install, update, and forward repair succeed or fail on this gate alone.",
+    );
+    expect(runbook).not.toContain("Managed install, update, and rollback activation");
   });
 
   it("contains no executable unsafe sandbox, root-app, TCP, wipe, or raw-socket guidance", async () => {

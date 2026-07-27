@@ -194,9 +194,9 @@ Structural readiness means only:
   that invocation id;
 - fresh owner-only work control socket and token exist under `~/.vellum/work/`.
 
-Managed install, update, and rollback activation succeed or fail on this gate
-alone. Terminal, browser, canvas, display, and sandbox health never block boot
-or activation.
+Managed install, update, and forward repair succeed or fail on this gate alone.
+Terminal, browser, canvas, display, and sandbox health never block boot or
+activation.
 
 ```sh
 systemctl --user show vellum-remote.service \
