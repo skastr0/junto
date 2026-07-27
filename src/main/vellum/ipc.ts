@@ -714,7 +714,7 @@ export const registerVellumIpc = (): void => {
                 if (written._tag === "Right") return true;
                 const msg =
                   written.left instanceof Error ? written.left.message : String(written.left);
-                if (!msg.includes("changed on disk") && !msg.includes("reload before saving")) {
+                if (!msg.includes("revision conflict; reload before saving")) {
                   return false;
                 }
               }

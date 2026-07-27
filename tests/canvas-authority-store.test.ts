@@ -48,7 +48,7 @@ const taskSinkDoc = (): CanvasDoc =>
     edges: [],
   });
 
-describe("CanvasesService authority store", () => {
+describe("CanvasesService SQLite authority", () => {
   let canvasesDir = "";
   let stateDir = "";
   let previousCanvases: string | undefined;
@@ -113,7 +113,7 @@ describe("CanvasesService authority store", () => {
     expect(readBeta.doc.nodes).toEqual([]);
   });
 
-  it("reloads the live map from the authority store across restart", async () => {
+  it("reloads the live map from SQLite across restart", async () => {
     await installEnv();
     runtime = makeCanvasRuntime(join(stateDir, "vellum.db"));
     const canvases = await runtime.runPromise(CanvasesService);

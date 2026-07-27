@@ -204,7 +204,7 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       suffix: string,
       contents: string,
     ) => Effect.Effect<string, CanvasError>;
-    // Bootstraps the live map from the authority store once (idempotent).
+    // Bootstraps the live map from SQLite authority once (idempotent).
     readonly start: () => void;
     /**
      * Document commits (write/mutate/create/remove). Optional detail carries

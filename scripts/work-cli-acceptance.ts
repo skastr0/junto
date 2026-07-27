@@ -466,7 +466,7 @@ const main = async () => {
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(workLive, PausePlaneAllPlaying),
   );
-  // Authority is sole store — seed via CanvasesService.write, not .canvas files.
+  // Seed through the same app-owned SQLite authority used in production.
   const canvasesSvc = await runtime.runPromise(CanvasesService);
   await runtime.runPromise(canvasesSvc.write(CANVAS, seed()));
   // Bind the acceptance runner PID. CLI children walk PPID to this process.
