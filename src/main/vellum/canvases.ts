@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import { applyMirrorLaw, decodeCanvasDoc, serializeCanvas, type CanvasDoc } from "@shared/canvas";
+import {
+  applyMirrorLaw,
+  containsWorkProjection,
+  decodeCanvasDoc,
+  serializeCanvas,
+  type CanvasDoc,
+} from "@shared/canvas";
 import type { CanvasReadResult, CanvasSummary, CanvasWriteResult } from "@shared/ipc";
 import {
   CANVAS_NAME_INPUT_PATTERN,
@@ -127,39 +133,6 @@ const toCanvasError = (error: unknown): CanvasError =>
     : new CanvasError({ message: error instanceof Error ? error.message : String(error) });
 
 const canvasLabel = (name: CanvasName) => `canvas "${name}"`;
-
-const WORK_PROJECTION_KEYS = [
-  "tasks",
-  "requests",
-  "messages",
-  "artifacts",
-] as const;
-
-/**
- * Runtime work projections share the CanvasDoc shape so renderer and kernel
- * consumers can read one composed view. They are nevertheless invalid at the
- * authorial SQLite boundary: accepting one here would resurrect the retired
- * document-backed work store whenever no normalized work row exists.
- */
-const containsWorkProjection = (input: unknown): boolean => {
-  if (input === null || typeof input !== "object" || Array.isArray(input)) {
-    return false;
-  }
-  const nodes = (input as { readonly nodes?: unknown }).nodes;
-  if (!Array.isArray(nodes)) return false;
-  return nodes.some((node) => {
-    if (node === null || typeof node !== "object" || Array.isArray(node)) {
-      return false;
-    }
-    const ether = (node as { readonly ether?: unknown }).ether;
-    if (ether === null || typeof ether !== "object" || Array.isArray(ether)) {
-      return false;
-    }
-    return WORK_PROJECTION_KEYS.some((key) =>
-      Object.prototype.hasOwnProperty.call(ether, key),
-    );
-  });
-};
 
 type StoredCanvas = {
   readonly doc: CanvasDoc;

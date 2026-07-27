@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import {
+  serializeCanvas,
+  type CanvasDoc,
+  type EtherNodeExtension,
+} from "../src/shared/canvas";
 import {
   STATION_PORTFOLIO_PROTOCOL,
-  StationPortfolioError,
   compileStationPortfolioBody,
   decodeStationPortfolioBody,
 } from "../src/main/vellum/station/portfolio";
@@ -21,6 +24,29 @@ const doc = (text: string): CanvasDoc => ({
   ],
   edges: [],
 });
+
+const workProjectionDoc = (ether: EtherNodeExtension): CanvasDoc => ({
+  nodes: [
+    {
+      id: "sink",
+      type: "text",
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 100,
+      text: "work",
+      ether,
+    },
+  ],
+  edges: [],
+});
+
+const workProjectionCases = [
+  ["tasks", { tasks: { items: [] } }],
+  ["requests", { requests: { items: [] } }],
+  ["messages", { messages: { items: [] } }],
+  ["artifacts", { artifacts: { items: [] } }],
+] as const satisfies ReadonlyArray<readonly [string, EtherNodeExtension]>;
 
 describe("station portfolio body", () => {
   it("compiles a deterministic complete set and decodes it", () => {
@@ -48,38 +74,28 @@ describe("station portfolio body", () => {
     ]);
   });
 
-  it("rejects embedded work state instead of sanitizing it into intent", () => {
-    const body = JSON.stringify({
-      protocol: STATION_PORTFOLIO_PROTOCOL,
-      documents: [
-        {
-          name: "work",
-          body: JSON.stringify({
-            nodes: [
-              {
-                id: "tasks",
-                type: "text",
-                x: 0,
-                y: 0,
-                width: 240,
-                height: 100,
-                text: "tasks",
-                ether: {
-                  entity: { kind: "task" },
-                  tasks: { items: [] },
-                },
-              },
-            ],
-            edges: [],
-          }),
-        },
-      ],
-    });
+  it.each(workProjectionCases)(
+    "rejects valid %s projections at compile and inbound decode",
+    (_key, ether) => {
+      const projection = workProjectionDoc(ether);
+      const body = JSON.stringify({
+        protocol: STATION_PORTFOLIO_PROTOCOL,
+        documents: [
+          {
+            name: "work",
+            body: serializeCanvas(projection),
+          },
+        ],
+      });
 
-    expect(() => decodeStationPortfolioBody(body)).toThrow(
-      StationPortfolioError,
-    );
-  });
+      expect(() => decodeStationPortfolioBody(body)).toThrow(
+        "runtime work projection data",
+      );
+      expect(() =>
+        compileStationPortfolioBody(new Map([["work", projection]])),
+      ).toThrow("runtime work projection data");
+    },
+  );
 
   it("rejects alternate ordering, unknown fields, and duplicate names", () => {
     const canonical = JSON.parse(

@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import {
+  containsWorkProjection,
   decodeCanvasDoc,
   serializeCanvas,
   type CanvasDoc,
@@ -58,6 +59,12 @@ const decodeCanonicalCanvas = (
     return fail(
       "decode",
       `projection canvas "${name}" is not valid JSON`,
+    );
+  }
+  if (containsWorkProjection(parsed)) {
+    return fail(
+      "decode",
+      `projection canvas "${name}" contains runtime work projection data`,
     );
   }
   const decoded = decodeCanvasDoc(parsed);

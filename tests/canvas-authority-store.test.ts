@@ -137,16 +137,58 @@ describe("CanvasesService SQLite authority", () => {
     expect(text).toBe("authority-wins");
   });
 
-  it("fails closed when an old authority body embeds document-backed work state", async () => {
+  it.each([
+    [
+      "document-backed work state",
+      taskSinkDoc(),
+      "runtime work projection data",
+    ],
+    [
+      "a top-level excess property",
+      { ...noteDoc("authorial"), topMystery: true },
+      "failed validation",
+    ],
+    [
+      "retired nested bindings",
+      {
+        nodes: [
+          {
+            id: "legacy",
+            type: "text",
+            text: "legacy",
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 60,
+            ether: {
+              entity: { kind: "project", name: "demo" },
+              bindings: [
+                {
+                  source: "tower",
+                  ref: { type: "project", key: "demo" },
+                },
+              ],
+            },
+          },
+        ],
+        edges: [],
+      },
+      "failed validation",
+    ],
+  ] as const)("fails closed when an authority body contains %s", async (
+    _case,
+    invalidDoc,
+    expectedMessage,
+  ) => {
     await installEnv();
     const database = join(stateDir, "vellum.db");
     runtime = makeCanvasRuntime(database);
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("work", noteDoc("authorial")));
 
-    const legacyBody = JSON.stringify(taskSinkDoc());
+    const invalidBody = JSON.stringify(invalidDoc);
     const bodySha256 = createHash("sha256")
-      .update(legacyBody, "utf8")
+      .update(invalidBody, "utf8")
       .digest("hex");
     const intentSha256 = createHash("sha256")
       .update(String(Buffer.byteLength("work", "utf8")))
@@ -158,12 +200,12 @@ describe("CanvasesService SQLite authority", () => {
       .digest("hex");
     const state = await runtime.runPromise(StateEngine);
     await runtime.runPromise(
-      state.transaction("test.inject-retired-work-store", (writer) => {
+      state.transaction("test.inject-invalid-canvas", (writer) => {
         writer.run(
           `UPDATE canvas_generation_documents
            SET body = ?, sha256 = ?
            WHERE generation = '1' AND name = 'work'`,
-          [legacyBody, bodySha256],
+          [invalidBody, bodySha256],
         );
         writer.run(
           `UPDATE canvas_generations
@@ -182,7 +224,7 @@ describe("CanvasesService SQLite authority", () => {
     expect(result).toMatchObject({
       _tag: "Left",
       left: {
-        message: expect.stringContaining("runtime work projection data"),
+        message: expect.stringContaining(expectedMessage),
       },
     });
   });

@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import { Either } from "effect";
 import {
   decodeCanvasDoc,
-  sanitizeWorkStores,
   type CanvasDoc,
 } from "../src/shared/canvas";
 import { taskItem } from "./helpers/task-fixtures";
 
-describe("task schema + graceful drop", () => {
+describe("task projection schema", () => {
   it("decodes valid tasks/requests/artifacts/messages stores", () => {
     const raw = {
       nodes: [
@@ -95,7 +94,12 @@ describe("task schema + graceful drop", () => {
     }
   });
 
-  it("drops legacy checklist ether.tasks on read — never maps", () => {
+  it.each([
+    ["tasks", { items: [{ id: "i1", text: "ship", done: false }] }],
+    ["requests", { items: [{}] }],
+    ["artifacts", { items: [{}] }],
+    ["messages", { items: [{}] }],
+  ] as const)("rejects invalid ether.%s instead of rewriting it", (key, store) => {
     const raw = {
       nodes: [
         {
@@ -108,26 +112,15 @@ describe("task schema + graceful drop", () => {
           height: 50,
           ether: {
             entity: { kind: "task" },
-            tasks: { items: [{ id: "i1", text: "ship", done: false }] },
+            [key]: store,
             flags: ["attention"],
           },
         },
       ],
       edges: [],
     };
-    const sanitized = sanitizeWorkStores(raw) as {
-      nodes: Array<{ ether?: { tasks?: unknown; flags?: unknown; entity?: unknown } }>;
-    };
-    expect(sanitized.nodes[0]?.ether?.tasks).toBeUndefined();
-    expect(sanitized.nodes[0]?.ether?.entity).toEqual({ kind: "task" });
-    expect(sanitized.nodes[0]?.ether?.flags).toEqual(["attention"]);
 
-    const decoded = decodeCanvasDoc(raw);
-    expect(Either.isRight(decoded)).toBe(true);
-    if (Either.isRight(decoded)) {
-      expect(decoded.right.nodes[0]?.ether?.tasks).toBeUndefined();
-      expect(decoded.right.nodes[0]?.ether?.flags).toEqual(["attention"]);
-    }
+    expect(Either.isLeft(decodeCanvasDoc(raw))).toBe(true);
   });
 
   it("stripped ether remains valid JSON Canvas", () => {

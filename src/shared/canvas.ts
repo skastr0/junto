@@ -293,14 +293,13 @@ export const EtherTimer = Schema.Struct({
 });
 export type EtherTimer = typeof EtherTimer.Type;
 
-// work plane — temporary document-local tasks / requests / artifacts / messages.
-// State lives in the document. Incomplete tasks and pending requests do NOT
-// auto-seed blocks — only an edge whose criteria mode is "tasks" can turn
-// them into a generating relation. Old checklist {id,text,done} is dead:
-// invalid store keys are dropped on read (graceful degradation), never mapped.
+// Work read plane — normalized WorkService rows are projected into these
+// fields for renderer/kernel consumers. They remain part of the composed
+// CanvasDoc shape, but authorial persistence and Station portfolio boundaries
+// reject them. Old checklist {id,text,done} is dead and fails decode.
 
 // Edge criteria. Absence → soft relates (capability only; never stoppage).
-// glyphs/wip retired — stripped on sanitize. No depends cascade.
+// glyphs/wip and depends are retired and fail decode. No dependency cascade.
 // - tasks:    attention (input-required | auth-required) generates blocks on actors
 // - proof:    holds until a matching runtime stamp on the source sink
 // - approval: holds until a human grant (external principal; never a node)
@@ -337,9 +336,6 @@ export const EdgeCriteria = Schema.Union(
   EdgeCriteriaApproval,
 );
 export type EdgeCriteria = typeof EdgeCriteria.Type;
-
-/** Retired criteria modes — strip on sanitize so old docs still load. */
-const RETIRED_CRITERIA_MODES = new Set(["glyphs", "wip"]);
 
 /**
  * Operator-assigned claim-routing label on a seat or task sink.
@@ -459,111 +455,46 @@ export const CanvasDoc = Schema.Struct({
 });
 export type CanvasDoc = typeof CanvasDoc.Type;
 
-const decodeCanvasDocStrict = Schema.decodeUnknownEither(CanvasDoc);
+const decodeCanvasDocStrict = Schema.decodeUnknownEither(CanvasDoc, {
+  onExcessProperty: "error",
+});
 export const encodeCanvasDoc = Schema.encodeEither(CanvasDoc);
 
-// Work-store keys that must decode as task shapes. A pre-existing doc whose
-// ether.tasks (etc.) fails the schema drops that key on read — never mapped
-// or shimmed. Other ether fields still decode strictly.
-const workStoreDecoders: ReadonlyArray<{
-  readonly key: "tasks" | "requests" | "artifacts" | "messages";
-  readonly decode: (value: unknown) => { readonly _tag: "Left" | "Right" };
-}> = [
-  { key: "tasks", decode: Schema.decodeUnknownEither(EtherTasks) },
-  { key: "requests", decode: Schema.decodeUnknownEither(EtherRequests) },
-  { key: "artifacts", decode: Schema.decodeUnknownEither(EtherArtifacts) },
-  { key: "messages", decode: Schema.decodeUnknownEither(EtherMessages) },
-];
+const WORK_PROJECTION_KEYS = [
+  "tasks",
+  "requests",
+  "messages",
+  "artifacts",
+] as const;
 
-// Historical private-source names retired from EntitySource / watch.source.
-// Old documents that still carry them must load; strip so decode succeeds
-// and live evaluation degrades (incomplete stat rule → unknown) without
-// inventing grants.
-const RETIRED_SOURCE_NAMES = new Set(["tower", "quasar", "booth"]);
-
-/** Drop invalid work stores + retired vocabulary before full decode. */
-export const sanitizeWorkStores = (input: unknown): unknown => {
-  if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
-  const doc = input as Record<string, unknown>;
-  let anyChanged = false;
-
-  const nodes = Array.isArray(doc.nodes)
-    ? doc.nodes.map((node) => {
-        if (node === null || typeof node !== "object" || Array.isArray(node)) return node;
-        const n = node as Record<string, unknown>;
-        if (n.ether === null || typeof n.ether !== "object" || Array.isArray(n.ether)) return node;
-        const etherIn = n.ether as Record<string, unknown>;
-        let changed = false;
-        const ether: Record<string, unknown> = { ...etherIn };
-        for (const { key, decode } of workStoreDecoders) {
-          if (!(key in ether)) continue;
-          if (decode(ether[key])._tag === "Left") {
-            delete ether[key];
-            changed = true;
-          }
-        }
-        // Strip retired watch.source; leave other watch fields so glyphs_* rules
-        // still decode (kernel watchers). Unknown ether keys drop via Struct.
-        if (ether.watch !== null && typeof ether.watch === "object" && !Array.isArray(ether.watch)) {
-          const watchIn = ether.watch as Record<string, unknown>;
-          if (typeof watchIn.source === "string" && RETIRED_SOURCE_NAMES.has(watchIn.source)) {
-            const { source: _retired, ...watchRest } = watchIn;
-            ether.watch = watchRest;
-            changed = true;
-          }
-        }
-        if (!changed) return node;
-        anyChanged = true;
-        if (Object.keys(ether).length === 0) {
-          const { ether: _dropped, ...rest } = n;
-          return rest;
-        }
-        return { ...n, ether };
-      })
-    : doc.nodes;
-
-  const edges = Array.isArray(doc.edges)
-    ? doc.edges.map((edge) => {
-        if (edge === null || typeof edge !== "object" || Array.isArray(edge)) return edge;
-        const e = edge as Record<string, unknown>;
-        if (e.ether === null || typeof e.ether !== "object" || Array.isArray(e.ether)) return edge;
-        const etherIn = e.ether as Record<string, unknown>;
-        let changed = false;
-        const ether: Record<string, unknown> = { ...etherIn };
-        // Retired criteria modes (glyphs/wip) — drop criteria key entirely.
-        if (ether.criteria !== null && typeof ether.criteria === "object" && !Array.isArray(ether.criteria)) {
-          const mode = (ether.criteria as { mode?: unknown }).mode;
-          if (typeof mode === "string" && RETIRED_CRITERIA_MODES.has(mode)) {
-            delete ether.criteria;
-            changed = true;
-          }
-        }
-        // Retired phase mirror `depends` → drop so mirror re-derives as relates.
-        if (ether.kind === "depends") {
-          delete ether.kind;
-          changed = true;
-        }
-        if (!changed) return edge;
-        anyChanged = true;
-        if (Object.keys(ether).length === 0) {
-          const { ether: _dropped, ...rest } = e;
-          return rest;
-        }
-        return { ...e, ether };
-      })
-    : doc.edges;
-
-  if (!anyChanged) return input;
-  return {
-    ...doc,
-    ...(Array.isArray(doc.nodes) ? { nodes } : {}),
-    ...(Array.isArray(doc.edges) ? { edges } : {}),
-  };
+/**
+ * Runtime work projections share CanvasDoc with authorial intent so composed
+ * readers have one shape. Persistence boundaries use this detector before
+ * decode because a valid projected store must never become durable intent.
+ */
+export const containsWorkProjection = (input: unknown): boolean => {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return false;
+  }
+  const nodes = (input as { readonly nodes?: unknown }).nodes;
+  if (!Array.isArray(nodes)) return false;
+  return nodes.some((node) => {
+    if (node === null || typeof node !== "object" || Array.isArray(node)) {
+      return false;
+    }
+    const ether = (node as { readonly ether?: unknown }).ether;
+    if (ether === null || typeof ether !== "object" || Array.isArray(ether)) {
+      return false;
+    }
+    return WORK_PROJECTION_KEYS.some((key) =>
+      Object.prototype.hasOwnProperty.call(ether, key),
+    );
+  });
 };
 
 export const decodeCanvasDoc = (
   input: unknown,
-): ReturnType<typeof decodeCanvasDocStrict> => decodeCanvasDocStrict(sanitizeWorkStores(input));
+): ReturnType<typeof decodeCanvasDocStrict> => decodeCanvasDocStrict(input);
 
 const NODE_KEY_ORDER = [
   "id",

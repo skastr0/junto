@@ -22,7 +22,6 @@ const rawDoc = {
       color: "2",
       ether: {
         entity: { kind: "project" },
-        bindings: [{ source: "tower", ref: { type: "project", key: "demo" } }],
         flags: ["blocker"],
       },
     },
@@ -95,13 +94,22 @@ describe("canvas contract", () => {
     expect(Either.isRight(decoded)).toBe(true);
   });
 
-  it("loads old documents with retired source strings and degrades cleanly", () => {
-    // Legacy bindings[] + watch.source tower/quasar/booth must not fail decode.
-    // Bindings are unknown keys (stripped); retired watch.source is sanitized off.
+  it("rejects excess top-level properties", () => {
+    expect(
+      Either.isLeft(
+        decodeCanvasDoc({
+          ...rawDoc,
+          topMystery: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects retired nested bindings instead of stripping them", () => {
     const legacy = {
       nodes: [
         {
-          id: "p1",
+          id: "project",
           type: "text",
           text: "legacy project",
           x: 0,
@@ -112,73 +120,111 @@ describe("canvas contract", () => {
             entity: { kind: "project", name: "demo" },
             bindings: [
               { source: "tower", ref: { type: "project", key: "demo" } },
-              { source: "quasar", ref: { type: "repo", key: "git:example/demo" } },
-              { source: "booth", ref: { type: "project", key: "demo" } },
             ],
-          },
-        },
-        {
-          id: "w1",
-          type: "text",
-          text: "legacy watch",
-          x: 0,
-          y: 100,
-          width: 200,
-          height: 80,
-          ether: {
-            entity: { kind: "watcher" },
-            watch: {
-              kind: "stat_threshold",
-              source: "tower",
-              key: "demo",
-              stat: "signals",
-              op: "gt",
-              value: 10,
-            },
-          },
-        },
-        {
-          id: "w2",
-          type: "text",
-          text: "quasar watch",
-          x: 0,
-          y: 200,
-          width: 200,
-          height: 80,
-          ether: {
-            entity: { kind: "watcher" },
-            watch: {
-              kind: "stat_threshold",
-              source: "booth",
-              key: "demo",
-              stat: "pending",
-              op: "gt",
-              value: 0,
-            },
           },
         },
       ],
       edges: [],
     };
-    const decoded = Either.getOrThrow(decodeCanvasDoc(legacy));
-    const project = decoded.nodes.find((n) => n.id === "p1");
-    expect(project?.ether?.entity).toEqual({ kind: "project", name: "demo" });
-    // Legacy bindings never become grants / typed fields
-    expect((project?.ether as Record<string, unknown> | undefined)?.bindings).toBeUndefined();
 
-    const watch1 = decoded.nodes.find((n) => n.id === "w1")?.ether?.watch;
-    expect(watch1?.kind).toBe("stat_threshold");
-    expect(watch1?.source).toBeUndefined(); // retired source stripped
-    expect(watch1?.key).toBe("demo");
-    expect(watch1?.stat).toBe("signals");
+    expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+  });
 
-    const watch2 = decoded.nodes.find((n) => n.id === "w2")?.ether?.watch;
-    expect(watch2?.source).toBeUndefined();
-    expect(watch2?.key).toBe("demo");
+  it.each(["tower", "quasar", "booth"] as const)(
+    "rejects retired watch source %s",
+    (source) => {
+      const legacy = {
+        nodes: [
+          {
+            id: "watch",
+            type: "text",
+            text: "legacy watch",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 80,
+            ether: {
+              entity: { kind: "watcher" },
+              watch: {
+                kind: "stat_threshold",
+                source,
+                key: "demo",
+                stat: "signals",
+                op: "gt",
+                value: 10,
+              },
+            },
+          },
+        ],
+        edges: [],
+      };
 
-    // Round-trip never reintroduces retired sources
-    const again = Either.getOrThrow(decodeCanvasDoc(JSON.parse(serializeCanvas(decoded))));
-    expect(again.nodes.find((n) => n.id === "w1")?.ether?.watch?.source).toBeUndefined();
+      expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+    },
+  );
+
+  it.each(["glyphs", "wip"] as const)(
+    "rejects retired edge criteria mode %s",
+    (mode) => {
+      const legacy = {
+        nodes: [
+          {
+            id: "source",
+            type: "text",
+            text: "source",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 80,
+          },
+          {
+            id: "target",
+            type: "text",
+            text: "target",
+            x: 300,
+            y: 0,
+            width: 200,
+            height: 80,
+          },
+        ],
+        edges: [
+          {
+            id: "legacy",
+            fromNode: "source",
+            toNode: "target",
+            ether: { criteria: { mode } },
+          },
+        ],
+      };
+
+      expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+    },
+  );
+
+  it("rejects retired edge kind depends", () => {
+    const legacy = {
+      nodes: [
+        {
+          id: "node",
+          type: "text",
+          text: "node",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 80,
+        },
+      ],
+      edges: [
+        {
+          id: "legacy",
+          fromNode: "node",
+          toNode: "node",
+          ether: { kind: "depends" },
+        },
+      ],
+    };
+
+    expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
   });
 
   it("applyMirrorLaw mirrors color only — labels stay authorial, stamps strip", () => {
