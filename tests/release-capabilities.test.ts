@@ -10,8 +10,6 @@ describe("RELEASE_CAPABILITIES beta surface", () => {
     expect(RELEASE_CAPABILITIES.freshRemoteEnrollment).toBe(true);
     expect("stationProjection" in RELEASE_CAPABILITIES).toBe(false);
     expect(RELEASE_CAPABILITIES.managedRemoteDeploy).toBe(false);
-    expect(RELEASE_CAPABILITIES.managedRemoteUpdate).toBe(false);
-    expect(RELEASE_CAPABILITIES.managedRemoteRollback).toBe(false);
     expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(false);
     expect(RELEASE_CAPABILITIES.commandCenterTransfer).toBe(false);
   });

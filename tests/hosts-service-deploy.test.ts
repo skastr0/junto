@@ -12,8 +12,6 @@ vi.mock("@shared/release-capabilities", () => ({
   RELEASE_CAPABILITIES: Object.freeze({
     freshRemoteEnrollment: true,
     managedRemoteDeploy: true,
-    managedRemoteUpdate: true,
-    managedRemoteRollback: true,
     darwinRemoteDeploy: false,
     commandCenterTransfer: false,
   }),

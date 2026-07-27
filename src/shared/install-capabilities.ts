@@ -25,8 +25,6 @@ export type HostsInstallCapabilities = {
   readonly stationRole: StationRoleSetting;
   readonly release: {
     readonly managedRemoteDeploy: boolean;
-    readonly managedRemoteUpdate: boolean;
-    readonly managedRemoteRollback: boolean;
     readonly darwinRemoteDeploy: boolean;
     readonly pluginInstall: boolean;
   };
@@ -108,8 +106,6 @@ export const computeInstallCapabilities = (
     stationRole: input.stationRole,
     release: {
       managedRemoteDeploy: release.managedRemoteDeploy,
-      managedRemoteUpdate: release.managedRemoteUpdate,
-      managedRemoteRollback: release.managedRemoteRollback,
       darwinRemoteDeploy: release.darwinRemoteDeploy,
       pluginInstall: release.pluginInstall,
     },

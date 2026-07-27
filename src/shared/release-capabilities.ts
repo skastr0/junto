@@ -13,8 +13,6 @@
 export type ReleaseCapabilities = {
   readonly freshRemoteEnrollment: boolean;
   readonly managedRemoteDeploy: boolean;
-  readonly managedRemoteUpdate: boolean;
-  readonly managedRemoteRollback: boolean;
   readonly darwinRemoteDeploy: boolean;
   readonly commandCenterTransfer: boolean;
   /** Tier-3 harness plugin install via packager (local + remote SSH apply). */
@@ -25,16 +23,14 @@ export type ReleaseCapabilities = {
 export const RELEASE_CAPABILITIES: ReleaseCapabilities = Object.freeze({
   freshRemoteEnrollment: true,
   managedRemoteDeploy: false,
-  managedRemoteUpdate: false,
-  managedRemoteRollback: false,
   darwinRemoteDeploy: false,
   commandCenterTransfer: false,
   pluginInstall: true,
 });
 
-/** Human-readable denial for managed Remote deploy (install/update/rollback). */
+/** Human-readable denial for managed Remote package deployment. */
 export const MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL =
-  "Managed Remote install/update/rollback is disabled in this release. Install the signed .deb on the target manually, then use Enroll fresh Remote.";
+  "Managed Remote package deployment is disabled in this release. Install the signed .deb on the target manually, then use Enroll fresh Remote.";
 
 /** Human-readable denial for Darwin Remote deploy. */
 export const DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL =
