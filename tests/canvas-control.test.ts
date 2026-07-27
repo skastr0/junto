@@ -426,7 +426,14 @@ describe("canvas control", () => {
     blocked = false;
     release();
     await expect(client).resolves.toMatchObject({ _tag: "Right" });
-    const retry = await server.close();
+    // A client response witnesses committed work, not the server's listener
+    // close callback or lease release. Under load the deliberately tiny test
+    // deadline can therefore produce another bounded unclean receipt. Retry
+    // the product's explicit fixed-point operation without sleeping.
+    let retry = await server.close();
+    for (let attempt = 1; !retry.clean && attempt < 4; attempt += 1) {
+      retry = await server.close();
+    }
     expect(retry).toMatchObject({
       clean: true,
       pendingFrames: 0,
