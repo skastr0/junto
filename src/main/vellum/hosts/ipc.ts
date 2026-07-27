@@ -1,5 +1,5 @@
 import type { IpcMain } from "electron";
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type {
   DiscoveredPeer,
@@ -46,6 +46,8 @@ import {
 import { computeInstallCapabilities } from "@shared/install-capabilities";
 import { PrismService } from "../../services/prism";
 import { StationRepository } from "../station/repository";
+import type { InstallationId } from "@shared/station-api";
+import { StationFleetTargetRepository } from "../station/fleet-target-repository";
 import {
   pinnedTrustForOriginKey,
   StationBrowserTrustRepository,
@@ -93,6 +95,97 @@ const resolveCommandCenterConfigureOptions = (
           )
     ),
   );
+
+const bindConfiguredRemoteTarget = (
+  hosts: Context.Tag.Service<typeof HostsService>,
+  hostId: string,
+  stationInstallationId: InstallationId,
+): Effect.Effect<
+  void,
+  RemoteHostsError,
+  StationFleetTargetRepository
+> =>
+  Effect.gen(function* () {
+    const host = yield* hosts.get(hostId);
+    if (
+      host === undefined ||
+      host.kind !== "remote" ||
+      host.endpoint === undefined
+    ) {
+      return yield* Effect.fail(
+        new RemoteHostsError(
+          "conflict",
+          `configured Station ${hostId} no longer has an enrolled Remote endpoint`,
+        ),
+      );
+    }
+    const fleetTargets = yield* StationFleetTargetRepository;
+    yield* fleetTargets
+      .bind({
+        hostId: host.id,
+        endpoint: host.endpoint,
+        stationInstallationId,
+      })
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new RemoteHostsError(
+              "conflict",
+              `configured Station target could not be admitted: ${error._tag}`,
+            ),
+        ),
+      );
+  });
+
+const pruneFleetTargetsAgainstHosts = (
+  hosts: ReadonlyArray<RemoteHost>,
+): Effect.Effect<
+  void,
+  RemoteHostsError,
+  StationFleetTargetRepository
+> =>
+  Effect.gen(function* () {
+    const fleetTargets = yield* StationFleetTargetRepository;
+    const targets = yield* fleetTargets.list.pipe(
+      Effect.mapError(
+        (error) =>
+          new RemoteHostsError(
+            "io",
+            `fleet targets could not be reconciled: ${error._tag}`,
+          ),
+      ),
+    );
+    for (const target of targets) {
+      const host = hosts.find((candidate) => candidate.id === target.hostId);
+      if (
+        host?.kind === "remote" &&
+        host.endpoint === target.endpoint
+      ) {
+        continue;
+      }
+      yield* fleetTargets.remove(target.hostId).pipe(
+        Effect.mapError(
+          (error) =>
+            new RemoteHostsError(
+              "io",
+              `stale fleet target could not be removed: ${error._tag}`,
+            ),
+        ),
+      );
+    }
+  });
+
+const deploymentFleetBindingFailure = (
+  deploy: ConfiguredRemoteDeployResult,
+  detail: string,
+): ConfiguredRemoteDeployResult => ({
+  ...deploy,
+  ok: false,
+  detail: `${deploy.detail} · ${detail}`,
+  message: `${deploy.message ?? deploy.detail} · ${detail}`,
+  outcome: "indeterminate",
+  statusRecorded: false,
+});
 
 const toOp = (
   either: { readonly _tag: "Right"; readonly right: ReadonlyArray<unknown> } | {
@@ -405,6 +498,18 @@ export const registerHostsIpc = (
             }
             const hosts = yield* HostsService;
             const result = yield* Effect.either(hosts.upsert(input));
+            if (result._tag === "Right") {
+              const reconciled = yield* Effect.either(
+                pruneFleetTargetsAgainstHosts(result.right),
+              );
+              if (reconciled._tag === "Left") {
+                return {
+                  ok: false,
+                  code: reconciled.left.code,
+                  message: reconciled.left.message,
+                } satisfies HostsOpResult;
+              }
+            }
             return toOp(result as never);
           }),
         ),
@@ -433,6 +538,18 @@ export const registerHostsIpc = (
                 ok: false,
                 code: "validation",
                 message: "host id required",
+              } satisfies HostsOpResult;
+            }
+            const fleetTargets = yield* StationFleetTargetRepository;
+            const targetRemoved = yield* Effect.either(
+              fleetTargets.remove(id),
+            );
+            if (targetRemoved._tag === "Left") {
+              return {
+                ok: false,
+                code: "io",
+                message:
+                  `fleet target could not be removed: ${targetRemoved.left._tag}`,
               } satisfies HostsOpResult;
             }
             const hosts = yield* HostsService;
@@ -558,6 +675,34 @@ export const registerHostsIpc = (
                 code: result.left.code,
                 message: result.left.message,
               } satisfies HostsConfigureRemoteResult;
+            }
+
+            if (result.right.ok) {
+              if (result.right.stationInstallationId === undefined) {
+                return {
+                  ok: false,
+                  detail:
+                    "Remote configuration succeeded without a Station installation identity",
+                  code: "conflict",
+                  message:
+                    "Remote configuration succeeded without a Station installation identity",
+                } satisfies HostsConfigureRemoteResult;
+              }
+              const bound = yield* Effect.either(
+                bindConfiguredRemoteTarget(
+                  hosts,
+                  id,
+                  result.right.stationInstallationId,
+                ),
+              );
+              if (bound._tag === "Left") {
+                return {
+                  ok: false,
+                  detail: bound.left.message,
+                  code: bound.left.code,
+                  message: bound.left.message,
+                } satisfies HostsConfigureRemoteResult;
+              }
             }
 
             return {
@@ -784,7 +929,30 @@ export const registerHostsIpc = (
                     });
                   },
                 });
-                return projectDeployRemoteResult(deploy);
+                if (!deploy.ok) return projectDeployRemoteResult(deploy);
+                if (deploy.stationInstallationId === undefined) {
+                  return projectDeployRemoteResult(
+                    deploymentFleetBindingFailure(
+                      deploy,
+                      "Remote configuration returned no Station installation identity",
+                    ),
+                  );
+                }
+                const bound = yield* Effect.either(
+                  bindConfiguredRemoteTarget(
+                    hosts,
+                    decoded.id,
+                    deploy.stationInstallationId,
+                  ),
+                );
+                return projectDeployRemoteResult(
+                  bound._tag === "Right"
+                    ? deploy
+                    : deploymentFleetBindingFailure(
+                        deploy,
+                        bound.left.message,
+                      ),
+                );
               }),
           ).pipe(
             Effect.catchTag("LinuxAdministratorAuthorizationInputError", () =>

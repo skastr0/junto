@@ -1,6 +1,7 @@
 import type { Context } from "effect";
 import { Effect } from "effect";
 import type { StationSettings } from "@shared/settings";
+import type { InstallationId } from "@shared/station-api";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { SshTransport } from "../ssh";
 import {
@@ -38,6 +39,8 @@ export type ConfiguredRemoteDeployResult = DeployRemoteResult & {
   readonly role: "remote" | "previous" | "unknown";
   readonly lastSeen?: string;
   readonly station?: StationSettings;
+  /** Durable identity returned by the configured Remote Station API. */
+  readonly stationInstallationId?: InstallationId;
   /**
    * Package rollback only. Station configuration is an app-owned database
    * transition and is never compensated through host files.
@@ -253,6 +256,12 @@ export const deployConfiguredRemoteHost = (
       role: "remote",
       lastSeen: configured.right.configuredAt ?? new Date().toISOString(),
       station: configured.right.station,
+      ...(configured.right.stationInstallationId === undefined
+        ? {}
+        : {
+            stationInstallationId:
+              configured.right.stationInstallationId,
+          }),
       rollback: "not-required",
       configuration: {
         ok: true,

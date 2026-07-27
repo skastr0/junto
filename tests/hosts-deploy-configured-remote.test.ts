@@ -146,6 +146,8 @@ describe("configured Remote deploy", () => {
       role: "remote",
       rollback: "not-required",
       station: successfulConfiguration.station,
+      stationInstallationId:
+        successfulConfiguration.stationInstallationId,
     });
   });
 
