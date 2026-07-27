@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Context, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,7 +12,6 @@ import {
   StationBrowserTrustRepository,
   StationBrowserTrustRepositoryLive,
 } from "../src/main/vellum/browser/station-trust";
-import { BROWSER_TRUST_STATE_SCHEMA_SQL } from "../src/main/vellum/browser/trust-state-schema";
 import {
   makeStateEngineLive,
   type StateEngineError,
@@ -31,23 +30,12 @@ type TrustRuntime = ManagedRuntime.ManagedRuntime<
 const roots: string[] = [];
 const runtimes: TrustRuntime[] = [];
 
-const initializeTrustSchema = async (path: string): Promise<void> => {
-  await mkdir(dirname(path), { recursive: true });
-  const database = new DatabaseSync(path);
-  try {
-    database.exec(BROWSER_TRUST_STATE_SCHEMA_SQL);
-  } finally {
-    database.close();
-  }
-};
-
 const makeRuntime = async (
   prefix = "vellum-browser-trust-",
 ): Promise<Readonly<{ path: string; runtime: TrustRuntime }>> => {
   const root = await mkdtemp(join(tmpdir(), prefix));
   roots.push(root);
   const path = join(root, "state", "vellum.db");
-  await initializeTrustSchema(path);
   const runtime = ManagedRuntime.make(
     StationBrowserTrustRepositoryLive.pipe(
       Layer.provide(makeStateEngineLive(path)),
@@ -189,6 +177,7 @@ describe("station browser origin-key custody", () => {
 
   it("fails closed when stored key material is not the declared Ed25519 pair", async () => {
     const { path, runtime } = await makeRuntime();
+    await repository(runtime);
     await disposeRuntime(runtime);
     const nonEd25519 = generateKeyPairSync("ec", {
       namedCurve: "P-256",
