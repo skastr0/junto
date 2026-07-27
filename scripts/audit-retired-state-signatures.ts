@@ -60,6 +60,10 @@ export const RETIRED_STATE_SIGNATURE_AUDIT_LIMITS: Readonly<
   maxExecutableBytes: 96 * 1024 * 1024,
 });
 
+/** Bun Linux helpers measured below 96 MiB; keep a finite 112 MiB release bound. */
+export const LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES =
+  112 * 1024 * 1024;
+
 export type RetiredStateSignatureAuditErrorCode =
   | "retired-signature"
   | "invalid-limit"
@@ -115,6 +119,18 @@ export type RetiredStateRuntimeBundleAuditReceipt = {
   readonly browser: RetiredStateBufferAuditReceipt;
   readonly station: RetiredStateBufferAuditReceipt;
 };
+
+export type LinuxRetiredStateRuntimeBundlePaths =
+  RetiredStateRuntimeBundlePaths & {
+    readonly installerPath: string;
+    readonly bridgePath: string;
+  };
+
+export type LinuxRetiredStateRuntimeBundleAuditReceipt =
+  RetiredStateRuntimeBundleAuditReceipt & {
+    readonly installer: RetiredStateBufferAuditReceipt;
+    readonly bridge: RetiredStateBufferAuditReceipt;
+  };
 
 const FIRST_PARTY_ROOTS = ["out", "station"] as const;
 type FirstPartyRoot = (typeof FIRST_PARTY_ROOTS)[number];
@@ -417,4 +433,22 @@ export const auditRetiredStateRuntimeBundle = async (
     }),
   ]);
   return { asar, work, browser, station };
+};
+
+/** Complete Linux runtime gate: ASAR plus all five executable payloads. */
+export const auditLinuxRetiredStateRuntimeBundle = async (
+  paths: LinuxRetiredStateRuntimeBundlePaths,
+): Promise<LinuxRetiredStateRuntimeBundleAuditReceipt> => {
+  const base = await auditRetiredStateRuntimeBundle(paths);
+  const [installer, bridge] = await Promise.all([
+    auditRetiredStateFile(paths.installerPath, {
+      label: "packaged vellum-release-installer",
+      maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
+    }),
+    auditRetiredStateFile(paths.bridgePath, {
+      label: "packaged vellum-release-bridge",
+      maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
+    }),
+  ]);
+  return { ...base, installer, bridge };
 };

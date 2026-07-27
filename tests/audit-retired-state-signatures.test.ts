@@ -17,7 +17,9 @@ import {
   auditRetiredStateAsar,
   auditRetiredStateBuffer,
   auditRetiredStateFile,
+  auditLinuxRetiredStateRuntimeBundle,
   auditRetiredStateRuntimeBundle,
+  LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
 } from "../scripts/audit-retired-state-signatures";
 
 const tempRoots: string[] = [];
@@ -267,4 +269,42 @@ describe("complete packaged runtime retired-state audit", () => {
       });
     },
   );
+});
+
+describe("complete Linux packaged runtime retired-state audit", () => {
+  it.each(["asar", "work", "browser", "station", "installer", "bridge"] as const)(
+    "rejects a retired signature in the %s target",
+    async (target) => {
+      const root = await makeTempRoot();
+      const archive = await makeAsar({
+        "out/main/index.js": target === "asar" ? "incoming.frame" : "safe",
+        "station/plugin.json": '{"name":"vellum"}',
+      });
+      const paths = Object.fromEntries(await Promise.all(
+        ["work", "browser", "station", "installer", "bridge"].map(async (name) => {
+          const file = join(root, `vellum-${name}`);
+          await writeFile(file, name === target ? "incoming.frame" : "safe");
+          return [name, file];
+        }),
+      )) as Record<"work" | "browser" | "station" | "installer" | "bridge", string>;
+      await expect(auditLinuxRetiredStateRuntimeBundle({
+        asarPath: archive,
+        workCliPath: paths.work,
+        browserCliPath: paths.browser,
+        stationCliPath: paths.station,
+        installerPath: paths.installer,
+        bridgePath: paths.bridge,
+      })).rejects.toMatchObject({ code: "retired-signature" });
+    },
+  );
+
+  it("keeps Linux helper scans finite", async () => {
+    const root = await makeTempRoot();
+    const helper = join(root, "vellum-release-installer");
+    await writeFile(helper, "safe");
+    await expect(auditRetiredStateFile(helper, {
+      maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
+    })).resolves.toMatchObject({ scannedBytes: 4 });
+    expect(LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES).toBe(112 * 1024 * 1024);
+  });
 });
