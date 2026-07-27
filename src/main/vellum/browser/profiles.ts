@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { constants as fsConstants, type Stats } from "node:fs";
+import { constants as fsConstants } from "node:fs";
 import {
   chmod,
   lstat,
@@ -7,9 +7,7 @@ import {
   open,
   opendir,
   realpath,
-  rename,
   rmdir,
-  unlink,
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -24,31 +22,37 @@ import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
 } from "@shared/browser-limits";
+import {
+  StateEngine,
+  type StateReader,
+  type StateWriter,
+} from "../state/service";
 import type {
   BrowserProfileGateResult,
   BrowserProfileSnapshot,
 } from "./profile-gate";
 
-// Browser profile registry under ~/.vellum/browser. The registry contains no
-// cookies or credentials, but it controls which persistent Electron partitions
-// are usable and therefore receives the same owner-only filesystem treatment.
+// Profile metadata lives only in StateEngine. This directory is deliberately
+// not a second registry: it contains bounded, owner-only physical bookkeeping
+// for Chromium profile storage and wipe containment.
 
 const CONFIG_VERSION = 1 as const;
-const CONFIG_MAX_BYTES = 64 * 1024;
 const MAX_PROFILES = 64;
 const MAX_CANVAS_DEFAULTS = 256;
 const MAX_LABEL_BYTES = 128;
 const MAX_PATH_BYTES = 4_096;
 const MAX_ROOT_ENTRIES = 256;
-const MAX_ORPHAN_TEMPS = 64;
 const OWNER_DIRECTORY_MODE = 0o700;
-const OWNER_FILE_MODE = 0o600;
 const MODE_MASK = 0o777;
 const CANVAS_NAME = /^[a-z0-9-]{1,63}$/;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
-const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const TEMP_FILE = /^\.config\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/i;
-const PROFILE_ADMISSION_FAILURE_MESSAGE = "browser profile admission unavailable";
+const UUID_V4 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PROFILE_ADMISSION_FAILURE_MESSAGE =
+  "browser profile admission unavailable";
+
+type StateService = Context.Tag.Service<typeof StateEngine>;
+
 const closeQuietly = async (close: () => Promise<void>): Promise<void> => {
   try {
     await close();
@@ -90,7 +94,7 @@ export interface BrowserProfileRecord {
   readonly lastUsedAt?: string;
 }
 
-/** Public ready-state view retained for existing callers. */
+/** Public ready-state view retained for existing browser consumers. */
 export interface BrowserConfigFile {
   readonly defaultProfile: string;
   readonly canvasDefaults: Readonly<Record<string, string>>;
@@ -105,7 +109,9 @@ export interface BrowserProfileWipePaths {
   readonly sessionDataPath: string;
 }
 
-export type BrowserProfileWipeStage = "live_clear_pending" | "restart_delete_pending";
+export type BrowserProfileWipeStage =
+  | "live_clear_pending"
+  | "restart_delete_pending";
 
 export interface BrowserProfilePendingWipe extends BrowserProfileWipePaths {
   readonly wipeId: string;
@@ -140,7 +146,9 @@ export interface BrowserProfileWipeLifecycle {
 
 /** Exact creation authority; storage/wipe transitions stay outside this port. */
 export interface BrowserProfileCreationGate {
-  markCreated(profile: string): BrowserProfileGateResult<BrowserProfileSnapshot>;
+  markCreated(
+    profile: string,
+  ): BrowserProfileGateResult<BrowserProfileSnapshot>;
 }
 
 export interface BrowserProfileServiceOptions {
@@ -152,11 +160,17 @@ export interface BrowserProfileServiceOptions {
 export interface BrowserProfileServiceApi {
   readonly doctor: Effect.Effect<ServiceCheck>;
   readonly initialize: Effect.Effect<BrowserConfigFile, BrowserProfileError>;
-  readonly ensureDefaults: Effect.Effect<BrowserConfigFile, BrowserProfileError>;
+  readonly ensureDefaults: Effect.Effect<
+    BrowserConfigFile,
+    BrowserProfileError
+  >;
   /** Cold-start only: call once before any browser partition is admitted. */
   readonly recoverPendingWipe: Effect.Effect<void, BrowserProfileError>;
   readonly readConfig: Effect.Effect<BrowserConfigFile, BrowserProfileError>;
-  readonly listProfiles: Effect.Effect<ReadonlyArray<BrowserProfileRecord>, BrowserProfileError>;
+  readonly listProfiles: Effect.Effect<
+    ReadonlyArray<BrowserProfileRecord>,
+    BrowserProfileError
+  >;
   readonly createProfile: (
     id: string,
     label?: string,
@@ -164,43 +178,73 @@ export interface BrowserProfileServiceApi {
   readonly wipeProfile: (
     id: string,
   ) => Effect.Effect<BrowserProfileWipeReceipt, BrowserProfileError>;
-  readonly touchProfile: (id: string) => Effect.Effect<void, BrowserProfileError>;
-  readonly resolveDefaultProfile: (canvasName?: string) => Effect.Effect<string, BrowserProfileError>;
-  readonly partitionName: (profileId: string) => Effect.Effect<string, BrowserProfileError>;
+  readonly touchProfile: (
+    id: string,
+  ) => Effect.Effect<void, BrowserProfileError>;
+  readonly resolveDefaultProfile: (
+    canvasName?: string,
+  ) => Effect.Effect<string, BrowserProfileError>;
+  readonly partitionName: (
+    profileId: string,
+  ) => Effect.Effect<string, BrowserProfileError>;
   readonly rootDir: () => string;
 }
 
-export class BrowserProfileService extends Context.Tag("@vellum/BrowserProfileService")<
-  BrowserProfileService,
-  BrowserProfileServiceApi
->() {}
+export class BrowserProfileService extends Context.Tag(
+  "@vellum/BrowserProfileService",
+)<BrowserProfileService, BrowserProfileServiceApi>() {}
 
-interface BrowserConfigDiskBase extends BrowserConfigFile {
-  readonly version: typeof CONFIG_VERSION;
-}
-
-interface BrowserConfigDiskReady extends BrowserConfigDiskBase {
+interface BrowserProfileStateReady extends BrowserConfigFile {
   readonly phase: "ready";
 }
 
-interface BrowserConfigDiskPending extends BrowserConfigDiskBase {
+interface BrowserProfileStatePending extends BrowserConfigFile {
   readonly phase: "wipe_pending";
   readonly pendingWipe: BrowserProfilePendingWipe;
 }
 
-type BrowserConfigDisk = BrowserConfigDiskReady | BrowserConfigDiskPending;
+type BrowserProfileState =
+  | BrowserProfileStateReady
+  | BrowserProfileStatePending;
 
-interface DecodedConfig {
-  readonly config: BrowserConfigDisk;
-  readonly migrated: boolean;
-}
+type SettingsRow = {
+  readonly version: number;
+  readonly default_profile: string;
+  readonly max_warm_sessions: number;
+  readonly max_visible_surfaces: number;
+};
+
+type ProfileRow = {
+  readonly id: string;
+  readonly label: string | null;
+  readonly created_at: string;
+  readonly last_used_at: string | null;
+  readonly sort_order: number;
+};
+
+type CanvasDefaultRow = {
+  readonly canvas_name: string;
+  readonly profile_id: string;
+};
+
+type PendingWipeRow = {
+  readonly wipe_id: string;
+  readonly profile_id: string;
+  readonly partition: string;
+  readonly requested_at: string;
+  readonly stage: string;
+  readonly storage_path: string;
+  readonly user_data_path: string;
+  readonly session_data_path: string;
+};
 
 export const browserRootDir = (): string =>
-  process.env.VELLUM_BROWSER_DIR || join(homedir(), ".vellum", "browser");
+  process.env.VELLUM_BROWSER_DIR ||
+  join(homedir(), ".vellum", "browser");
 
-const configPath = (root: string) => join(root, "config.json");
 const profilesDir = (root: string) => join(root, "profiles");
-const profileDir = (root: string, id: string) => join(profilesDir(root), id);
+const profileDir = (root: string, id: string) =>
+  join(profilesDir(root), id);
 
 const publicIoError = () =>
   new BrowserProfileError({
@@ -220,24 +264,21 @@ const pendingError = () =>
 const toPublicError = (error: unknown): BrowserProfileError =>
   error instanceof BrowserProfileError ? error : publicIoError();
 
-const utf8Bytes = (value: string): number => Buffer.byteLength(value, "utf8");
+const stateError = (error: {
+  readonly cause: unknown;
+}): BrowserProfileError =>
+  error.cause instanceof BrowserProfileError
+    ? error.cause
+    : publicIoError();
 
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const errnoCode = (error: unknown): string | undefined =>
-  isPlainRecord(error) && typeof error.code === "string" ? error.code : undefined;
-
-const hasExactKeys = (record: Record<string, unknown>, expected: ReadonlyArray<string>): boolean => {
-  const actual = Object.keys(record).sort();
-  const canonical = [...expected].sort();
-  return actual.length === canonical.length && actual.every((key, index) => key === canonical[index]);
-};
+const utf8Bytes = (value: string): number =>
+  Buffer.byteLength(value, "utf8");
 
 const isCanonicalTimestamp = (value: unknown): value is string => {
   if (typeof value !== "string") return false;
   const millis = Date.parse(value);
-  return Number.isFinite(millis) && new Date(millis).toISOString() === value;
+  return Number.isFinite(millis) &&
+    new Date(millis).toISOString() === value;
 };
 
 const isCanonicalLabel = (value: unknown): value is string =>
@@ -247,67 +288,14 @@ const isCanonicalLabel = (value: unknown): value is string =>
   utf8Bytes(value) <= MAX_LABEL_BYTES &&
   !CONTROL_CHARACTER.test(value);
 
-const isBoundedInteger = (value: unknown, maximum: number): value is number =>
-  typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= maximum;
-
-const decodeProfile = (value: unknown): BrowserProfileRecord => {
-  if (!isPlainRecord(value)) throw corruptError();
-  const withLabel = Object.prototype.hasOwnProperty.call(value, "label");
-  const withLastUsedAt = Object.prototype.hasOwnProperty.call(value, "lastUsedAt");
-  const expected = [
-    "id",
-    "createdAt",
-    ...(withLabel ? ["label"] : []),
-    ...(withLastUsedAt ? ["lastUsedAt"] : []),
-  ];
-  if (!hasExactKeys(value, expected)) throw corruptError();
-  if (typeof value.id !== "string" || !isValidProfileId(value.id)) throw corruptError();
-  if (!isCanonicalTimestamp(value.createdAt)) throw corruptError();
-  let label: string | undefined;
-  if (withLabel) {
-    if (!isCanonicalLabel(value.label)) throw corruptError();
-    label = value.label;
-  }
-  let lastUsedAt: string | undefined;
-  if (withLastUsedAt) {
-    if (!isCanonicalTimestamp(value.lastUsedAt)) throw corruptError();
-    lastUsedAt = value.lastUsedAt;
-  }
-  return {
-    id: value.id,
-    createdAt: value.createdAt,
-    ...(label === undefined ? {} : { label }),
-    ...(lastUsedAt === undefined ? {} : { lastUsedAt }),
-  };
-};
-
-const decodeProfiles = (value: unknown): ReadonlyArray<BrowserProfileRecord> => {
-  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_PROFILES) {
-    throw corruptError();
-  }
-  const profiles = value.map(decodeProfile);
-  if (new Set(profiles.map((profile) => profile.id)).size !== profiles.length) {
-    throw corruptError();
-  }
-  return profiles;
-};
-
-const decodeCanvasDefaults = (
+const isBoundedInteger = (
   value: unknown,
-  profileIds: ReadonlySet<string>,
-): Readonly<Record<string, string>> => {
-  if (!isPlainRecord(value)) throw corruptError();
-  const entries = Object.entries(value);
-  if (entries.length > MAX_CANVAS_DEFAULTS) throw corruptError();
-  const decoded: Record<string, string> = {};
-  for (const [canvas, profile] of entries) {
-    if (!CANVAS_NAME.test(canvas) || typeof profile !== "string" || !profileIds.has(profile)) {
-      throw corruptError();
-    }
-    decoded[canvas] = profile;
-  }
-  return decoded;
-};
+  maximum: number,
+): value is number =>
+  typeof value === "number" &&
+  Number.isInteger(value) &&
+  value >= 1 &&
+  value <= maximum;
 
 const isCanonicalAbsolutePath = (value: unknown): value is string =>
   typeof value === "string" &&
@@ -319,13 +307,17 @@ const isCanonicalAbsolutePath = (value: unknown): value is string =>
 
 const isStrictDescendant = (parent: string, child: string): boolean => {
   const childRelative = relative(parent, child);
-  return childRelative.length > 0 && !childRelative.startsWith("..") && !isAbsolute(childRelative);
+  return childRelative.length > 0 &&
+    !childRelative.startsWith("..") &&
+    !isAbsolute(childRelative);
 };
 
 const isDescendantOrEqual = (parent: string, child: string): boolean =>
   parent === child || isStrictDescendant(parent, child);
 
-const areWipePathsValid = (paths: BrowserProfileWipePaths): boolean =>
+const areWipePathsValid = (
+  paths: BrowserProfileWipePaths,
+): boolean =>
   isCanonicalAbsolutePath(paths.storagePath) &&
   isCanonicalAbsolutePath(paths.userDataPath) &&
   isCanonicalAbsolutePath(paths.sessionDataPath) &&
@@ -333,136 +325,167 @@ const areWipePathsValid = (paths: BrowserProfileWipePaths): boolean =>
   isStrictDescendant(paths.userDataPath, paths.storagePath) &&
   isStrictDescendant(paths.sessionDataPath, paths.storagePath);
 
-const decodePendingWipe = (
-  value: unknown,
-  profileIds: ReadonlySet<string>,
-  profileCount: number,
-): BrowserProfilePendingWipe => {
+const validateState = (
+  value: BrowserProfileState,
+): BrowserProfileState => {
   if (
-    !isPlainRecord(value) ||
-    !hasExactKeys(value, [
-      "wipeId",
-      "profileId",
-      "partition",
-      "requestedAt",
-      "stage",
-      "storagePath",
-      "userDataPath",
-      "sessionDataPath",
-    ]) ||
-    typeof value.wipeId !== "string" ||
-    !UUID_V4.test(value.wipeId) ||
-    typeof value.profileId !== "string" ||
-    !profileIds.has(value.profileId) ||
-    typeof value.partition !== "string" ||
-    value.partition !== partitionNameForProfile(value.profileId) ||
-    profileCount <= 1 ||
-    !isCanonicalTimestamp(value.requestedAt) ||
-    (value.stage !== "live_clear_pending" && value.stage !== "restart_delete_pending") ||
-    typeof value.storagePath !== "string" ||
-    typeof value.userDataPath !== "string" ||
-    typeof value.sessionDataPath !== "string" ||
-    !areWipePathsValid({
-      storagePath: value.storagePath,
-      userDataPath: value.userDataPath,
-      sessionDataPath: value.sessionDataPath,
-    })
+    value.profiles.length < 1 ||
+    value.profiles.length > MAX_PROFILES ||
+    new Set(value.profiles.map((profile) => profile.id)).size !==
+      value.profiles.length
   ) {
     throw corruptError();
   }
-  return Object.freeze({
-    wipeId: value.wipeId,
-    profileId: value.profileId,
-    partition: value.partition,
-    requestedAt: value.requestedAt,
-    stage: value.stage,
-    storagePath: value.storagePath,
-    userDataPath: value.userDataPath,
-    sessionDataPath: value.sessionDataPath,
+  const profileIds = new Set<string>();
+  for (const profile of value.profiles) {
+    if (
+      !isValidProfileId(profile.id) ||
+      !isCanonicalTimestamp(profile.createdAt) ||
+      (profile.label !== undefined &&
+        !isCanonicalLabel(profile.label)) ||
+      (profile.lastUsedAt !== undefined &&
+        !isCanonicalTimestamp(profile.lastUsedAt))
+    ) {
+      throw corruptError();
+    }
+    profileIds.add(profile.id);
+  }
+  if (
+    !profileIds.has(value.defaultProfile) ||
+    !isBoundedInteger(
+      value.maxWarmSessions,
+      BROWSER_MAX_WARM_SESSIONS_HARD,
+    ) ||
+    !isBoundedInteger(
+      value.maxVisibleSurfaces,
+      BROWSER_MAX_VISIBLE_SURFACES_HARD,
+    )
+  ) {
+    throw corruptError();
+  }
+  const defaults = Object.entries(value.canvasDefaults);
+  if (defaults.length > MAX_CANVAS_DEFAULTS) throw corruptError();
+  for (const [canvas, profile] of defaults) {
+    if (!CANVAS_NAME.test(canvas) || !profileIds.has(profile)) {
+      throw corruptError();
+    }
+  }
+  if (value.phase === "wipe_pending") {
+    const pending = value.pendingWipe;
+    if (
+      !UUID_V4.test(pending.wipeId) ||
+      !profileIds.has(pending.profileId) ||
+      pending.partition !== partitionNameForProfile(pending.profileId) ||
+      value.profiles.length <= 1 ||
+      !isCanonicalTimestamp(pending.requestedAt) ||
+      (pending.stage !== "live_clear_pending" &&
+        pending.stage !== "restart_delete_pending") ||
+      !areWipePathsValid(pending)
+    ) {
+      throw corruptError();
+    }
+  }
+  return value;
+};
+
+const stateFootprint = (reader: StateReader): number => {
+  const row = reader.get<{
+    readonly count: number;
+  }>(`
+    SELECT
+      (SELECT count(*) FROM browser_profiles)
+      + (SELECT count(*) FROM browser_profile_canvas_defaults)
+      + (SELECT count(*) FROM browser_profile_pending_wipe)
+      AS count
+  `);
+  return Number(row?.count ?? 0);
+};
+
+const readStoredState = (
+  reader: StateReader,
+): BrowserProfileState | undefined => {
+  const settings = reader.get<SettingsRow>(`
+    SELECT
+      version,
+      default_profile,
+      max_warm_sessions,
+      max_visible_surfaces
+    FROM browser_profile_settings
+    WHERE singleton = 1
+  `);
+  if (settings === undefined) {
+    if (stateFootprint(reader) !== 0) throw corruptError();
+    return undefined;
+  }
+  if (settings.version !== CONFIG_VERSION) throw corruptError();
+
+  const profiles = reader
+    .all<ProfileRow>(`
+      SELECT id, label, created_at, last_used_at, sort_order
+      FROM browser_profiles
+      ORDER BY sort_order
+    `)
+    .map(
+      (row): BrowserProfileRecord => ({
+        id: row.id,
+        ...(row.label === null ? {} : { label: row.label }),
+        createdAt: row.created_at,
+        ...(row.last_used_at === null
+          ? {}
+          : { lastUsedAt: row.last_used_at }),
+      }),
+    );
+  const canvasDefaults = Object.fromEntries(
+    reader
+      .all<CanvasDefaultRow>(`
+        SELECT canvas_name, profile_id
+        FROM browser_profile_canvas_defaults
+        ORDER BY canvas_name
+      `)
+      .map((row) => [row.canvas_name, row.profile_id]),
+  );
+  const pending = reader.get<PendingWipeRow>(`
+    SELECT
+      wipe_id,
+      profile_id,
+      partition,
+      requested_at,
+      stage,
+      storage_path,
+      user_data_path,
+      session_data_path
+    FROM browser_profile_pending_wipe
+    WHERE singleton = 1
+  `);
+  const base: BrowserConfigFile = {
+    defaultProfile: settings.default_profile,
+    canvasDefaults,
+    maxWarmSessions: settings.max_warm_sessions,
+    maxVisibleSurfaces: settings.max_visible_surfaces,
+    profiles,
+  };
+  if (pending === undefined) {
+    return validateState({ phase: "ready", ...base });
+  }
+  return validateState({
+    phase: "wipe_pending",
+    ...base,
+    pendingWipe: Object.freeze({
+      wipeId: pending.wipe_id,
+      profileId: pending.profile_id,
+      partition: pending.partition,
+      requestedAt: pending.requested_at,
+      stage: pending.stage as BrowserProfileWipeStage,
+      storagePath: pending.storage_path,
+      userDataPath: pending.user_data_path,
+      sessionDataPath: pending.session_data_path,
+    }),
   });
 };
 
-// Base config field set (not legacy — shared by every phase shape). The only
-// legacy acceptance is the versionless branch in parseConfig below.
-const BASE_KEYS = [
-  "defaultProfile",
-  "canvasDefaults",
-  "maxWarmSessions",
-  "maxVisibleSurfaces",
-  "profiles",
-] as const;
-
-const READY_KEYS = ["version", "phase", ...BASE_KEYS] as const;
-const PENDING_KEYS = [...READY_KEYS, "pendingWipe"] as const;
-
-const decodeBase = (record: Record<string, unknown>): BrowserConfigFile => {
-  const profiles = decodeProfiles(record.profiles);
-  const profileIds = new Set(profiles.map((profile) => profile.id));
-  if (
-    typeof record.defaultProfile !== "string" ||
-    !profileIds.has(record.defaultProfile) ||
-    !isBoundedInteger(record.maxWarmSessions, BROWSER_MAX_WARM_SESSIONS_HARD) ||
-    !isBoundedInteger(record.maxVisibleSurfaces, BROWSER_MAX_VISIBLE_SURFACES_HARD)
-  ) {
-    throw corruptError();
-  }
-  return {
-    defaultProfile: record.defaultProfile,
-    canvasDefaults: decodeCanvasDefaults(record.canvasDefaults, profileIds),
-    maxWarmSessions: record.maxWarmSessions,
-    maxVisibleSurfaces: record.maxVisibleSurfaces,
-    profiles,
-  };
-};
-
-const parseConfig = (raw: string): DecodedConfig => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw corruptError();
-  }
-  if (!isPlainRecord(parsed)) throw corruptError();
-
-  // Versionless legacy acceptance — one-shot: `migrated: true` rewrites the
-  // file versioned. RETIREMENT TRIGGER: delete this branch once every machine
-  // with browser profiles has loaded a versioned build (rewrite is automatic).
-  if (!Object.prototype.hasOwnProperty.call(parsed, "version")) {
-    if (!hasExactKeys(parsed, BASE_KEYS)) throw corruptError();
-    return {
-      config: { version: CONFIG_VERSION, phase: "ready", ...decodeBase(parsed) },
-      migrated: true,
-    };
-  }
-
-  if (parsed.version !== CONFIG_VERSION) throw corruptError();
-  if (parsed.phase === "ready") {
-    if (!hasExactKeys(parsed, READY_KEYS)) throw corruptError();
-    return {
-      config: { version: CONFIG_VERSION, phase: "ready", ...decodeBase(parsed) },
-      migrated: false,
-    };
-  }
-  if (parsed.phase !== "wipe_pending" || !hasExactKeys(parsed, PENDING_KEYS)) {
-    throw corruptError();
-  }
-  const base = decodeBase(parsed);
-  const profileIds = new Set(base.profiles.map((profile) => profile.id));
-  return {
-    config: {
-      version: CONFIG_VERSION,
-      phase: "wipe_pending",
-      ...base,
-      pendingWipe: decodePendingWipe(parsed.pendingWipe, profileIds, base.profiles.length),
-    },
-    migrated: false,
-  };
-};
-
-const defaultConfig = (now: () => Date): BrowserConfigDiskReady => {
+const defaultState = (now: () => Date): BrowserProfileStateReady => {
   const createdAt = now().toISOString();
   return {
-    version: CONFIG_VERSION,
     phase: "ready",
     defaultProfile: "personal",
     canvasDefaults: {},
@@ -476,31 +499,88 @@ const defaultConfig = (now: () => Date): BrowserConfigDiskReady => {
   };
 };
 
+const insertProfile = (
+  writer: StateWriter,
+  profile: BrowserProfileRecord,
+  sortOrder: number,
+): void => {
+  writer.run(
+    `
+      INSERT INTO browser_profiles(
+        id,
+        label,
+        created_at,
+        last_used_at,
+        sort_order
+      )
+      VALUES (?, ?, ?, ?, ?)
+    `,
+    [
+      profile.id,
+      profile.label ?? null,
+      profile.createdAt,
+      profile.lastUsedAt ?? null,
+      sortOrder,
+    ],
+  );
+};
+
+const requireStoredState = (reader: StateReader): BrowserProfileState => {
+  const config = readStoredState(reader);
+  if (config === undefined) throw corruptError();
+  return config;
+};
+
+const requireReady = (
+  config: BrowserProfileState,
+): BrowserProfileStateReady => {
+  if (config.phase !== "ready") throw pendingError();
+  return config;
+};
+
+const asOperationalConfig = (
+  config: BrowserProfileState,
+): BrowserConfigFile => {
+  if (config.phase === "ready") return config;
+  const pendingId = config.pendingWipe.profileId;
+  const profiles = config.profiles.filter(
+    (profile) => profile.id !== pendingId,
+  );
+  return {
+    defaultProfile:
+      config.defaultProfile === pendingId
+        ? profiles[0]!.id
+        : config.defaultProfile,
+    canvasDefaults: Object.fromEntries(
+      Object.entries(config.canvasDefaults).filter(
+        ([, profile]) => profile !== pendingId,
+      ),
+    ),
+    maxWarmSessions: config.maxWarmSessions,
+    maxVisibleSurfaces: config.maxVisibleSurfaces,
+    profiles,
+  };
+};
+
 const currentUid = (): number | undefined =>
-  typeof process.getuid === "function" ? process.getuid() : undefined;
+  typeof process.getuid === "function"
+    ? process.getuid()
+    : undefined;
 
 const requireOwned = (uid: number): void => {
   const expected = currentUid();
   if (expected !== undefined && uid !== expected) throw corruptError();
 };
 
-const requireSafeRegularFile = (info: Stats): void => {
-  if (!info.isFile() || info.nlink !== 1) throw corruptError();
-  requireOwned(info.uid);
-};
-
-const hasSameReadIdentity = (before: Stats, after: Stats): boolean =>
-  after.isFile() &&
-  before.uid === after.uid &&
-  before.dev === after.dev &&
-  before.ino === after.ino &&
-  before.size === after.size &&
-  before.mtimeMs === after.mtimeMs;
-
 const ensureOwnedDirectory = async (path: string): Promise<void> => {
-  await mkdir(path, { recursive: true, mode: OWNER_DIRECTORY_MODE });
+  await mkdir(path, {
+    recursive: true,
+    mode: OWNER_DIRECTORY_MODE,
+  });
   const info = await lstat(path);
-  if (info.isSymbolicLink() || !info.isDirectory()) throw corruptError();
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw corruptError();
+  }
   requireOwned(info.uid);
   if ((info.mode & MODE_MASK) !== OWNER_DIRECTORY_MODE) {
     await chmod(path, OWNER_DIRECTORY_MODE);
@@ -509,7 +589,11 @@ const ensureOwnedDirectory = async (path: string): Promise<void> => {
 
 const ensureContained = (root: string, path: string): void => {
   const fromRoot = relative(root, path);
-  if (fromRoot.length === 0 || fromRoot.startsWith("..") || isAbsolute(fromRoot)) {
+  if (
+    fromRoot.length === 0 ||
+    fromRoot.startsWith("..") ||
+    isAbsolute(fromRoot)
+  ) {
     throw corruptError();
   }
 };
@@ -517,7 +601,9 @@ const ensureContained = (root: string, path: string): void => {
 const syncDirectory = async (path: string): Promise<void> => {
   const handle = await open(
     path,
-    fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW,
+    fsConstants.O_RDONLY |
+      fsConstants.O_DIRECTORY |
+      fsConstants.O_NOFOLLOW,
   );
   try {
     await handle.sync();
@@ -526,131 +612,19 @@ const syncDirectory = async (path: string): Promise<void> => {
   }
 };
 
-const cleanupOrphanTemps = async (root: string): Promise<void> => {
-  const directory = await opendir(root);
-  let entries = 0;
-  let temps = 0;
-  let removed = false;
-  try {
-    for await (const entry of directory) {
-      entries += 1;
-      if (entries > MAX_ROOT_ENTRIES) throw corruptError();
-      if (!TEMP_FILE.test(entry.name)) continue;
-      temps += 1;
-      if (temps > MAX_ORPHAN_TEMPS) throw corruptError();
-      const path = join(root, entry.name);
-      ensureContained(root, path);
-      const info = await lstat(path);
-      if (info.isSymbolicLink()) throw corruptError();
-      requireSafeRegularFile(info);
-      if ((info.mode & MODE_MASK) !== OWNER_FILE_MODE) await chmod(path, OWNER_FILE_MODE);
-      await unlink(path);
-      removed = true;
-    }
-  } finally {
-    await closeQuietly(() => directory.close());
-  }
-  if (removed) await syncDirectory(root);
-};
-
-const prepareRegistryRoot = async (requestedRoot: string): Promise<string> => {
-  if (!isAbsolute(requestedRoot) || resolve(requestedRoot) !== requestedRoot) {
+const prepareRegistryRoot = async (
+  requestedRoot: string,
+): Promise<string> => {
+  if (
+    !isAbsolute(requestedRoot) ||
+    resolve(requestedRoot) !== requestedRoot
+  ) {
     throw corruptError();
   }
   await ensureOwnedDirectory(requestedRoot);
   const canonicalRoot = await realpath(requestedRoot);
   await ensureOwnedDirectory(profilesDir(canonicalRoot));
-  await cleanupOrphanTemps(canonicalRoot);
   return canonicalRoot;
-};
-
-const readConfigFile = async (root: string): Promise<string | undefined> => {
-  let handle;
-  try {
-    handle = await open(
-      configPath(root),
-      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
-    );
-  } catch (error) {
-    if (errnoCode(error) === "ENOENT") return undefined;
-    if (errnoCode(error) === "ELOOP") throw corruptError();
-    throw error;
-  }
-  try {
-    let before = await handle.stat();
-    requireSafeRegularFile(before);
-    if (before.size > CONFIG_MAX_BYTES) throw corruptError();
-    if ((before.mode & MODE_MASK) !== OWNER_FILE_MODE) {
-      await handle.chmod(OWNER_FILE_MODE);
-      await handle.sync();
-      before = await handle.stat();
-      requireSafeRegularFile(before);
-    }
-    const bytes = await handle.readFile();
-    const after = await handle.stat();
-    requireSafeRegularFile(after);
-    if (
-      bytes.byteLength > CONFIG_MAX_BYTES ||
-      bytes.byteLength !== before.size ||
-      !hasSameReadIdentity(before, after)
-    ) {
-      throw corruptError();
-    }
-    return bytes.toString("utf8");
-  } finally {
-    if (handle !== undefined) {
-      await handle.close();
-    }
-  }
-};
-
-const validateDestination = async (path: string): Promise<void> => {
-  try {
-    const info = await lstat(path);
-    if (info.isSymbolicLink()) throw corruptError();
-    requireSafeRegularFile(info);
-  } catch (error) {
-    if (errnoCode(error) === "ENOENT") return;
-    throw error;
-  }
-};
-
-const atomicWriteConfig = async (root: string, config: BrowserConfigDisk): Promise<void> => {
-  const body = `${JSON.stringify(config, null, 2)}\n`;
-  if (utf8Bytes(body) > CONFIG_MAX_BYTES) throw corruptError();
-  const temporary = join(root, `.config.${randomUUID()}.tmp`);
-  ensureContained(root, temporary);
-  let renamed = false;
-  let handle: Awaited<ReturnType<typeof open>> | undefined;
-  try {
-    handle = await open(
-      temporary,
-      fsConstants.O_WRONLY |
-        fsConstants.O_CREAT |
-        fsConstants.O_EXCL |
-        fsConstants.O_NOFOLLOW,
-      OWNER_FILE_MODE,
-    );
-    requireSafeRegularFile(await handle.stat());
-    await handle.writeFile(body, "utf8");
-    await handle.chmod(OWNER_FILE_MODE);
-    await handle.sync();
-    const written = await handle.stat();
-    requireSafeRegularFile(written);
-    if (written.size !== utf8Bytes(body)) throw corruptError();
-    await handle.close();
-    handle = undefined;
-    await validateDestination(configPath(root));
-    await rename(temporary, configPath(root));
-    renamed = true;
-    await syncDirectory(root);
-  } finally {
-    if (handle !== undefined) {
-      const activeHandle = handle;
-      await closeQuietly(() => activeHandle.close());
-    }
-    if (!renamed) await unlink(temporary).catch(() => undefined);
-  }
 };
 
 const prepareProfileDirectories = async (
@@ -667,218 +641,271 @@ const prepareProfileDirectories = async (
   }
 };
 
-const removeEmptyProfileDirectory = async (root: string, id: string): Promise<void> => {
+const removeEmptyProfileDirectory = async (
+  root: string,
+  id: string,
+): Promise<void> => {
   const path = profileDir(root, id);
   ensureContained(root, path);
   let info;
   try {
     info = await lstat(path);
   } catch (error) {
-    if (errnoCode(error) === "ENOENT") return;
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return;
+    }
     throw error;
   }
-  if (info.isSymbolicLink() || !info.isDirectory()) throw corruptError();
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw corruptError();
+  }
   requireOwned(info.uid);
   const directory = await opendir(path);
   try {
     const first = await directory.read();
     if (first !== null) throw corruptError();
   } finally {
-    await directory.close().catch(() => undefined);
+    await closeQuietly(() => directory.close());
   }
   await rmdir(path);
   await syncDirectory(profilesDir(root));
 };
 
-const asPublicConfig = (config: BrowserConfigDiskReady): BrowserConfigFile => ({
-  defaultProfile: config.defaultProfile,
-  canvasDefaults: config.canvasDefaults,
-  maxWarmSessions: config.maxWarmSessions,
-  maxVisibleSurfaces: config.maxVisibleSurfaces,
-  profiles: config.profiles,
-});
-
-/**
- * Pending state remains durable exactly as written, but ordinary browser
- * consumers receive a view with only usable profiles. This keeps sibling
- * profiles live without ever handing the pending target back to an opener.
- */
-const asOperationalConfig = (config: BrowserConfigDisk): BrowserConfigFile => {
-  if (config.phase === "ready") return asPublicConfig(config);
-  const pendingId = config.pendingWipe.profileId;
-  const profiles = config.profiles.filter((profile) => profile.id !== pendingId);
-  return {
-    defaultProfile:
-      config.defaultProfile === pendingId ? profiles[0]!.id : config.defaultProfile,
-    canvasDefaults: Object.fromEntries(
-      Object.entries(config.canvasDefaults).filter(([, profile]) => profile !== pendingId),
-    ),
-    maxWarmSessions: config.maxWarmSessions,
-    maxVisibleSurfaces: config.maxVisibleSurfaces,
-    profiles,
-  };
-};
-
 export const makeBrowserProfileService = (
+  state: StateService,
   root: string = browserRootDir(),
   options: BrowserProfileServiceOptions = {},
 ): BrowserProfileServiceApi => {
   const requestedRoot = root;
   const now = options.now ?? (() => new Date());
-  let mutationChain: Promise<unknown> = Promise.resolve();
+  const mutationLock = Effect.unsafeMakeSemaphore(1);
 
-  const withRegistryLock = <A>(operation: () => Promise<A>): Promise<A> => {
-    const run = mutationChain.then(operation, operation);
-    mutationChain = run.then(
-      () => undefined,
-      () => undefined,
+  const databaseTransaction = <A>(
+    operation: string,
+    body: (writer: StateWriter) => A,
+  ): Effect.Effect<A, BrowserProfileError> =>
+    state.transaction(operation, body).pipe(
+      Effect.mapError(stateError),
     );
-    return run;
-  };
 
-  const load = async (): Promise<{ root: string; config: BrowserConfigDisk }> => {
-    const canonicalRoot = await prepareRegistryRoot(requestedRoot);
-    const raw = await readConfigFile(canonicalRoot);
-    if (raw === undefined) {
-      const config = defaultConfig(now);
-      await prepareProfileDirectories(canonicalRoot, config.profiles);
-      await atomicWriteConfig(canonicalRoot, config);
-      return { root: canonicalRoot, config };
-    }
-    const decoded = parseConfig(raw);
-    await prepareProfileDirectories(canonicalRoot, decoded.config.profiles);
-    if (decoded.migrated) await atomicWriteConfig(canonicalRoot, decoded.config);
-    return { root: canonicalRoot, config: decoded.config };
-  };
-
-  const write = async (rootPath: string, config: BrowserConfigDisk): Promise<void> => {
-    await prepareProfileDirectories(rootPath, config.profiles);
-    await atomicWriteConfig(rootPath, config);
-  };
-
-  const requireReady = (config: BrowserConfigDisk): BrowserConfigDiskReady => {
-    if (config.phase !== "ready") throw pendingError();
-    return config;
-  };
-
-  const finalizePending = async (
-    rootPath: string,
-    config: BrowserConfigDiskPending,
-  ): Promise<BrowserConfigDiskReady> => {
-    await removeEmptyProfileDirectory(rootPath, config.pendingWipe.profileId);
-    const nextProfiles = config.profiles.filter(
-      (profile) => profile.id !== config.pendingWipe.profileId,
-    );
-    const next: BrowserConfigDiskReady = {
-      version: CONFIG_VERSION,
-      phase: "ready",
-      defaultProfile:
-        config.defaultProfile === config.pendingWipe.profileId
-          ? nextProfiles[0]!.id
-          : config.defaultProfile,
-      canvasDefaults: Object.fromEntries(
-        Object.entries(config.canvasDefaults).filter(
-          ([, profile]) => profile !== config.pendingWipe.profileId,
-        ),
-      ),
-      maxWarmSessions: config.maxWarmSessions,
-      maxVisibleSurfaces: config.maxVisibleSurfaces,
-      profiles: nextProfiles,
-    };
-    await write(rootPath, next);
-    return next;
-  };
-
-  const recoverPendingCold = async (
-    rootPath: string,
-    config: BrowserConfigDiskPending,
-  ): Promise<BrowserConfigDiskReady> => {
-    const lifecycle = options.wipeLifecycle;
-    if (lifecycle === undefined) throw pendingError();
-    try {
-      await lifecycle.recoverCold(config.pendingWipe);
-    } catch {
-      throw pendingError();
-    }
-    return finalizePending(rootPath, config);
-  };
-
-  const executePendingLive = async (
-    rootPath: string,
-    config: BrowserConfigDiskPending,
-  ): Promise<BrowserProfileWipeReceipt> => {
-    const lifecycle = options.wipeLifecycle;
-    if (lifecycle === undefined) throw pendingError();
-    let outcome: BrowserProfileWipeOutcome;
-    try {
-      outcome = await lifecycle.executeLive(config.pendingWipe);
-    } catch {
-      throw pendingError();
-    }
-    if (outcome.status === "restart_delete_pending") {
-      await write(rootPath, {
-        ...config,
-        pendingWipe: Object.freeze({
-          ...config.pendingWipe,
-          stage: "restart_delete_pending",
-        }),
-      });
-      return Object.freeze({ status: "restart_required" });
-    }
-    if (outcome.status !== "complete") throw pendingError();
-    await finalizePending(rootPath, config);
-    return Object.freeze({ status: "complete" });
-  };
-
-  const initializePromise = (): Promise<BrowserConfigFile> =>
-    withRegistryLock(async () => {
-      const { config } = await load();
-      return asOperationalConfig(config);
+  const fileEffect = <A>(
+    operation: () => Promise<A>,
+  ): Effect.Effect<A, BrowserProfileError> =>
+    Effect.tryPromise({
+      try: operation,
+      catch: toPublicError,
     });
 
-  const effect = <A>(operation: () => Promise<A>): Effect.Effect<A, BrowserProfileError> =>
-    Effect.tryPromise({ try: operation, catch: toPublicError });
+  const ensureInitialized = databaseTransaction(
+    "browser-profiles.initialize",
+    (writer) => {
+      const current = readStoredState(writer);
+      if (current !== undefined) return current;
+      const initial = defaultState(now);
+      initial.profiles.forEach((profile, index) => {
+        insertProfile(writer, profile, index);
+      });
+      writer.run(
+        `
+          INSERT INTO browser_profile_settings(
+            singleton,
+            version,
+            default_profile,
+            max_warm_sessions,
+            max_visible_surfaces
+          )
+          VALUES (1, ?, ?, ?, ?)
+        `,
+        [
+          CONFIG_VERSION,
+          initial.defaultProfile,
+          initial.maxWarmSessions,
+          initial.maxVisibleSurfaces,
+        ],
+      );
+      return requireStoredState(writer);
+    },
+  );
 
-  const initialize = effect(initializePromise);
+  const load = Effect.gen(function* () {
+    const config = yield* ensureInitialized;
+    const canonicalRoot = yield* fileEffect(() =>
+      prepareRegistryRoot(requestedRoot)
+    );
+    yield* fileEffect(() =>
+      prepareProfileDirectories(canonicalRoot, config.profiles)
+    );
+    return {
+      root: canonicalRoot,
+      config,
+    };
+  });
 
-  const doctor = effect(() =>
-    withRegistryLock(async (): Promise<ServiceCheck> => {
-      try {
-        const { config } = await load();
-        return config.phase === "ready"
+  const finalizePending = (
+    rootPath: string,
+    expected: BrowserProfilePendingWipe,
+  ): Effect.Effect<BrowserProfileStateReady, BrowserProfileError> =>
+    Effect.gen(function* () {
+      yield* fileEffect(() =>
+        removeEmptyProfileDirectory(rootPath, expected.profileId)
+      );
+      return yield* databaseTransaction(
+        "browser-profiles.wipe.finalize",
+        (writer) => {
+          const current = requireStoredState(writer);
+          if (current.phase !== "wipe_pending") {
+            if (
+              !current.profiles.some(
+                (profile) => profile.id === expected.profileId,
+              )
+            ) {
+              return current;
+            }
+            throw corruptError();
+          }
+          if (
+            current.pendingWipe.wipeId !== expected.wipeId ||
+            current.pendingWipe.profileId !== expected.profileId
+          ) {
+            throw corruptError();
+          }
+          const nextDefault =
+            current.defaultProfile === expected.profileId
+              ? current.profiles.find(
+                  (profile) => profile.id !== expected.profileId,
+                )?.id
+              : current.defaultProfile;
+          if (nextDefault === undefined) {
+            throw new BrowserProfileError({
+              message: "cannot wipe the last browser profile",
+              code: "forbidden",
+            });
+          }
+          writer.run(
+            `
+              UPDATE browser_profile_settings
+              SET default_profile = ?
+              WHERE singleton = 1
+            `,
+            [nextDefault],
+          );
+          writer.run(
+            `
+              DELETE FROM browser_profile_canvas_defaults
+              WHERE profile_id = ?
+            `,
+            [expected.profileId],
+          );
+          writer.run(
+            `
+              DELETE FROM browser_profile_pending_wipe
+              WHERE singleton = 1
+            `,
+          );
+          writer.run(
+            "DELETE FROM browser_profiles WHERE id = ?",
+            [expected.profileId],
+          );
+          return requireReady(requireStoredState(writer));
+        },
+      );
+    });
+
+  const recoverPendingCold = (
+    rootPath: string,
+    config: BrowserProfileStatePending,
+  ): Effect.Effect<BrowserProfileStateReady, BrowserProfileError> => {
+    const lifecycle = options.wipeLifecycle;
+    if (lifecycle === undefined) return Effect.fail(pendingError());
+    return Effect.gen(function* () {
+      yield* Effect.tryPromise({
+        try: () => lifecycle.recoverCold(config.pendingWipe),
+        catch: () => pendingError(),
+      });
+      return yield* finalizePending(rootPath, config.pendingWipe);
+    });
+  };
+
+  const executePendingLive = (
+    rootPath: string,
+    config: BrowserProfileStatePending,
+  ): Effect.Effect<BrowserProfileWipeReceipt, BrowserProfileError> => {
+    const lifecycle = options.wipeLifecycle;
+    if (lifecycle === undefined) return Effect.fail(pendingError());
+    return Effect.gen(function* () {
+      const outcome = yield* Effect.tryPromise({
+        try: () => lifecycle.executeLive(config.pendingWipe),
+        catch: () => pendingError(),
+      });
+      if (outcome.status === "restart_delete_pending") {
+        yield* databaseTransaction(
+          "browser-profiles.wipe.restart-pending",
+          (writer) => {
+            const current = requireStoredState(writer);
+            if (
+              current.phase !== "wipe_pending" ||
+              current.pendingWipe.wipeId !==
+                config.pendingWipe.wipeId
+            ) {
+              throw corruptError();
+            }
+            writer.run(
+              `
+                UPDATE browser_profile_pending_wipe
+                SET stage = 'restart_delete_pending'
+                WHERE singleton = 1
+              `,
+            );
+          },
+        );
+        return Object.freeze({
+          status: "restart_required",
+        });
+      }
+      if (outcome.status !== "complete") {
+        return yield* Effect.fail(pendingError());
+      }
+      yield* finalizePending(rootPath, config.pendingWipe);
+      return Object.freeze({ status: "complete" });
+    });
+  };
+
+  const initialize = load.pipe(
+    Effect.map(({ config }) => asOperationalConfig(config)),
+  );
+
+  const doctor = load.pipe(
+    Effect.match({
+      onFailure: (error): ServiceCheck => ({
+        id: "browser-profiles",
+        label: "Browser Profiles",
+        status: "error",
+        detail:
+          error.code === "corrupt"
+            ? "profile registry corrupt"
+            : "profile registry unavailable",
+      }),
+      onSuccess: ({ config }): ServiceCheck =>
+        config.phase === "ready"
           ? {
               id: "browser-profiles",
               label: "Browser Profiles",
-              status: "ok" as const,
-              detail: `registry v${CONFIG_VERSION} · ${config.profiles.length} profiles`,
+              status: "ok",
+              detail:
+                `registry v${CONFIG_VERSION} · ${config.profiles.length} profiles`,
             }
           : {
               id: "browser-profiles",
               label: "Browser Profiles",
-              status: "error" as const,
+              status: "error",
               detail: "profile wipe recovery required",
-            };
-      } catch (error) {
-        return {
-          id: "browser-profiles",
-          label: "Browser Profiles",
-          status: "error" as const,
-          detail:
-            error instanceof BrowserProfileError && error.code === "corrupt"
-              ? "profile registry corrupt"
-              : "profile registry unavailable",
-        };
-      }
+            },
     }),
-  ).pipe(
-    Effect.catchAll(() =>
-      Effect.succeed<ServiceCheck>({
-        id: "browser-profiles",
-        label: "Browser Profiles",
-        status: "error",
-        detail: "profile registry unavailable",
-      }),
-    ),
   );
 
   return {
@@ -886,31 +913,31 @@ export const makeBrowserProfileService = (
     doctor,
     initialize,
     ensureDefaults: initialize,
-    recoverPendingWipe: effect(() =>
-      withRegistryLock(async () => {
-        const loaded = await load();
+    recoverPendingWipe: mutationLock.withPermits(1)(
+      Effect.gen(function* () {
+        const loaded = yield* load;
         if (loaded.config.phase === "wipe_pending") {
-          await recoverPendingCold(loaded.root, loaded.config);
+          yield* recoverPendingCold(
+            loaded.root,
+            loaded.config,
+          );
         }
       }),
     ),
-    readConfig: effect(() =>
-      withRegistryLock(async () => {
-        const { config } = await load();
-        return asOperationalConfig(config);
-      }),
+    readConfig: initialize,
+    listProfiles: initialize.pipe(
+      Effect.map((config) => config.profiles),
     ),
-    listProfiles: effect(() =>
-      withRegistryLock(async () => {
-        const { config } = await load();
-        return asOperationalConfig(config).profiles;
-      }),
-    ),
-    createProfile: (id: string, label?: string) =>
-      effect(() =>
-        withRegistryLock(async () => {
+    createProfile: (id, label) =>
+      mutationLock.withPermits(1)(
+        Effect.gen(function* () {
           if (!isValidProfileId(id)) {
-            throw new BrowserProfileError({ message: "invalid profile id", code: "invalid" });
+            return yield* Effect.fail(
+              new BrowserProfileError({
+                message: "invalid profile id",
+                code: "invalid",
+              }),
+            );
           }
           const normalizedLabel = label?.trim();
           if (
@@ -918,179 +945,343 @@ export const makeBrowserProfileService = (
             normalizedLabel.length > 0 &&
             !isCanonicalLabel(normalizedLabel)
           ) {
-            throw new BrowserProfileError({ message: "invalid profile label", code: "invalid" });
+            return yield* Effect.fail(
+              new BrowserProfileError({
+                message: "invalid profile label",
+                code: "invalid",
+              }),
+            );
           }
-          const loaded = await load();
-          const config = requireReady(loaded.config);
-          if (config.profiles.length >= MAX_PROFILES) {
-            throw new BrowserProfileError({ message: "profile limit reached", code: "forbidden" });
-          }
-          if (config.profiles.some((profile) => profile.id === id)) {
-            throw new BrowserProfileError({ message: "profile already exists", code: "invalid" });
-          }
+          const loaded = yield* load;
           const record: BrowserProfileRecord = {
             id,
-            ...(normalizedLabel ? { label: normalizedLabel } : {}),
+            ...(normalizedLabel
+              ? { label: normalizedLabel }
+              : {}),
             createdAt: now().toISOString(),
           };
-          await write(loaded.root, {
-            ...config,
-            profiles: [...config.profiles, record],
-          });
+          yield* fileEffect(() =>
+            prepareProfileDirectories(loaded.root, [record])
+          );
+          yield* databaseTransaction(
+            "browser-profiles.create",
+            (writer) => {
+              const current = requireReady(
+                requireStoredState(writer),
+              );
+              if (
+                current.profiles.length >= MAX_PROFILES
+              ) {
+                throw new BrowserProfileError({
+                  message: "profile limit reached",
+                  code: "forbidden",
+                });
+              }
+              if (
+                current.profiles.some(
+                  (profile) => profile.id === id,
+                )
+              ) {
+                throw new BrowserProfileError({
+                  message: "profile already exists",
+                  code: "invalid",
+                });
+              }
+              const maxOrder =
+                writer.get<{
+                  readonly max_order: number | null;
+                }>(`
+                  SELECT max(sort_order) AS max_order
+                  FROM browser_profiles
+                `)?.max_order ?? -1;
+              insertProfile(
+                writer,
+                record,
+                maxOrder + 1,
+              );
+            },
+          );
           let admitted = false;
           try {
-            admitted = options.profileGate?.markCreated(id).ok ?? true;
+            admitted =
+              options.profileGate?.markCreated(id).ok ??
+                true;
           } catch {
             // Gate-controlled failure is intentionally collapsed below.
           }
           if (!admitted) {
-            throw new BrowserProfileError({
-              message: PROFILE_ADMISSION_FAILURE_MESSAGE,
-              code: "pending_wipe",
-            });
+            return yield* Effect.fail(
+              new BrowserProfileError({
+                message: PROFILE_ADMISSION_FAILURE_MESSAGE,
+                code: "pending_wipe",
+              }),
+            );
           }
           return record;
-        }),
+        }).pipe(Effect.uninterruptible),
       ),
-    wipeProfile: (id: string) =>
-      effect(() =>
-        withRegistryLock(async () => {
-          if (!isValidProfileId(id)) {
-            throw new BrowserProfileError({ message: "invalid profile id", code: "invalid" });
-          }
-          const loaded = await load();
-          if (loaded.config.phase === "wipe_pending") {
-            throw pendingError();
-          }
-          const config = loaded.config;
-          if (!config.profiles.some((profile) => profile.id === id)) {
-            throw new BrowserProfileError({ message: "profile not found", code: "not_found" });
-          }
-          if (config.profiles.length <= 1) {
-            throw new BrowserProfileError({
+    wipeProfile: (id) =>
+      mutationLock.withPermits(1)(Effect.gen(function* () {
+        if (!isValidProfileId(id)) {
+          return yield* Effect.fail(
+            new BrowserProfileError({
+              message: "invalid profile id",
+              code: "invalid",
+            }),
+          );
+        }
+        const loaded = yield* load;
+        const config = requireReady(loaded.config);
+        if (
+          !config.profiles.some((profile) => profile.id === id)
+        ) {
+          return yield* Effect.fail(
+            new BrowserProfileError({
+              message: "profile not found",
+              code: "not_found",
+            }),
+          );
+        }
+        if (config.profiles.length <= 1) {
+          return yield* Effect.fail(
+            new BrowserProfileError({
               message: "cannot wipe the last browser profile",
               code: "forbidden",
-            });
-          }
-          const lifecycle = options.wipeLifecycle;
-          if (lifecycle === undefined) {
-            throw new BrowserProfileError({
+            }),
+          );
+        }
+        const lifecycle = options.wipeLifecycle;
+        if (lifecycle === undefined) {
+          return yield* Effect.fail(
+            new BrowserProfileError({
               message: "browser profile wipe lifecycle unavailable",
               code: "forbidden",
-            });
-          }
-          const wipeId = randomUUID();
-          const partition = partitionNameForProfile(id);
-          let paths: BrowserProfileWipePaths;
-          try {
-            paths = await lifecycle.prepare({
+            }),
+          );
+        }
+        const wipeId = randomUUID();
+        const partition = partitionNameForProfile(id);
+        const paths = yield* Effect.tryPromise({
+          try: () =>
+            lifecycle.prepare({
               wipeId,
               profileId: id,
               partition,
-            });
-          } catch {
-            throw new BrowserProfileError({
+            }),
+          catch: () =>
+            new BrowserProfileError({
               message: "browser profile wipe preparation failed",
               code: "forbidden",
-            });
-          }
-          if (!areWipePathsValid(paths)) {
-            throw new BrowserProfileError({
+            }),
+        });
+        if (!areWipePathsValid(paths)) {
+          return yield* Effect.fail(
+            new BrowserProfileError({
               message: "browser profile wipe paths rejected",
               code: "forbidden",
-            });
-          }
-          const pending: BrowserConfigDiskPending = {
-            ...config,
-            phase: "wipe_pending",
-            pendingWipe: Object.freeze({
-              wipeId,
-              profileId: id,
-              partition,
-              requestedAt: now().toISOString(),
-              stage: "live_clear_pending",
-              storagePath: paths.storagePath,
-              userDataPath: paths.userDataPath,
-              sessionDataPath: paths.sessionDataPath,
             }),
-          };
-          await write(loaded.root, pending);
-          return executePendingLive(loaded.root, pending);
-        }),
-      ),
-    touchProfile: (id: string) =>
-      effect(() =>
-        withRegistryLock(async () => {
-          if (!isValidProfileId(id)) {
-            throw new BrowserProfileError({ message: "invalid profile id", code: "invalid" });
-          }
-          const loaded = await load();
-          const config = loaded.config;
-          if (config.phase === "wipe_pending" && config.pendingWipe.profileId === id) {
-            throw pendingError();
-          }
-          if (!config.profiles.some((profile) => profile.id === id)) {
-            throw new BrowserProfileError({ message: "profile not found", code: "not_found" });
-          }
-          const touched = now().toISOString();
-          await write(loaded.root, {
-            ...config,
-            profiles: config.profiles.map((profile) =>
-              profile.id === id ? { ...profile, lastUsedAt: touched } : profile,
-            ),
-          });
-        }),
-      ),
-    resolveDefaultProfile: (canvasName?: string) =>
-      effect(() =>
-        withRegistryLock(async () => {
-          const { config } = await load();
-          const operational = asOperationalConfig(config);
-          if (canvasName !== undefined && !CANVAS_NAME.test(canvasName)) {
-            throw new BrowserProfileError({ message: "invalid canvas name", code: "invalid" });
-          }
-          return (canvasName && operational.canvasDefaults[canvasName]) || operational.defaultProfile;
-        }),
-      ),
-    partitionName: (profileId: string) =>
-      effect(() =>
-        withRegistryLock(async () => {
-          if (!isValidProfileId(profileId)) {
-            throw new BrowserProfileError({ message: "invalid profile id", code: "invalid" });
-          }
-          const { config } = await load();
-          if (config.phase === "wipe_pending" && config.pendingWipe.profileId === profileId) {
-            throw pendingError();
-          }
-          if (!config.profiles.some((profile) => profile.id === profileId)) {
-            throw new BrowserProfileError({ message: "profile not found", code: "not_found" });
-          }
-          return partitionNameForProfile(profileId);
-        }),
-      ),
+          );
+        }
+        const requestedAt = now().toISOString();
+        const pending = yield* databaseTransaction(
+          "browser-profiles.wipe.begin",
+          (writer) => {
+            const current = requireReady(
+              requireStoredState(writer),
+            );
+            if (
+              !current.profiles.some(
+                (profile) => profile.id === id,
+              )
+            ) {
+              throw new BrowserProfileError({
+                message: "profile not found",
+                code: "not_found",
+              });
+            }
+            if (current.profiles.length <= 1) {
+              throw new BrowserProfileError({
+                message: "cannot wipe the last browser profile",
+                code: "forbidden",
+              });
+            }
+            writer.run(
+              `
+                INSERT INTO browser_profile_pending_wipe(
+                  singleton,
+                  wipe_id,
+                  profile_id,
+                  partition,
+                  requested_at,
+                  stage,
+                  storage_path,
+                  user_data_path,
+                  session_data_path
+                )
+                VALUES (1, ?, ?, ?, ?, 'live_clear_pending', ?, ?, ?)
+              `,
+              [
+                wipeId,
+                id,
+                partition,
+                requestedAt,
+                paths.storagePath,
+                paths.userDataPath,
+                paths.sessionDataPath,
+              ],
+            );
+            const next = requireStoredState(writer);
+            if (next.phase !== "wipe_pending") {
+              throw corruptError();
+            }
+            return next;
+          },
+        );
+        return yield* executePendingLive(
+          loaded.root,
+          pending,
+        );
+      })),
+    touchProfile: (id) =>
+      Effect.gen(function* () {
+        if (!isValidProfileId(id)) {
+          return yield* Effect.fail(
+            new BrowserProfileError({
+              message: "invalid profile id",
+              code: "invalid",
+            }),
+          );
+        }
+        yield* load;
+        const touched = now().toISOString();
+        yield* databaseTransaction(
+          "browser-profiles.touch",
+          (writer) => {
+            const config = requireStoredState(writer);
+            if (
+              config.phase === "wipe_pending" &&
+              config.pendingWipe.profileId === id
+            ) {
+              throw pendingError();
+            }
+            if (
+              !config.profiles.some(
+                (profile) => profile.id === id,
+              )
+            ) {
+              throw new BrowserProfileError({
+                message: "profile not found",
+                code: "not_found",
+              });
+            }
+            writer.run(
+              `
+                UPDATE browser_profiles
+                SET last_used_at = ?
+                WHERE id = ?
+              `,
+              [touched, id],
+            );
+          },
+        );
+      }),
+    resolveDefaultProfile: (canvasName) =>
+      Effect.gen(function* () {
+        if (
+          canvasName !== undefined &&
+          !CANVAS_NAME.test(canvasName)
+        ) {
+          return yield* Effect.fail(
+            new BrowserProfileError({
+              message: "invalid canvas name",
+              code: "invalid",
+            }),
+          );
+        }
+        const config = asOperationalConfig(
+          (yield* load).config,
+        );
+        return canvasName
+          ? config.canvasDefaults[canvasName] ??
+              config.defaultProfile
+          : config.defaultProfile;
+      }),
+    partitionName: (profileId) =>
+      Effect.gen(function* () {
+        if (!isValidProfileId(profileId)) {
+          return yield* Effect.fail(
+            new BrowserProfileError({
+              message: "invalid profile id",
+              code: "invalid",
+            }),
+          );
+        }
+        const config = (yield* load).config;
+        if (
+          config.phase === "wipe_pending" &&
+          config.pendingWipe.profileId === profileId
+        ) {
+          return yield* Effect.fail(pendingError());
+        }
+        if (
+          !config.profiles.some(
+            (profile) => profile.id === profileId,
+          )
+        ) {
+          return yield* Effect.fail(
+            new BrowserProfileError({
+              message: "profile not found",
+              code: "not_found",
+            }),
+          );
+        }
+        return partitionNameForProfile(profileId);
+      }),
   };
 };
 
-export const BrowserProfileLive = Layer.sync(BrowserProfileService, () =>
-  makeBrowserProfileService(),
+export const BrowserProfileLive = Layer.effect(
+  BrowserProfileService,
+  Effect.map(StateEngine, (state) =>
+    makeBrowserProfileService(state)
+  ),
 );
 
-/** Test helper: service rooted at an explicit directory (no home). */
-export const BrowserProfileTestLive = (root: string): Layer.Layer<BrowserProfileService> =>
-  Layer.succeed(BrowserProfileService, makeBrowserProfileService(root));
+/** Test helper: explicit database service and physical profile root. */
+export const BrowserProfileTestLive = (
+  state: StateService,
+  root: string,
+  options: BrowserProfileServiceOptions = {},
+): Layer.Layer<BrowserProfileService> =>
+  Layer.succeed(
+    BrowserProfileService,
+    makeBrowserProfileService(state, root, options),
+  );
 
-// Re-export for callers that only need bounded path listing without Effect.
-export const listProfileDirs = async (root: string = browserRootDir()): Promise<string[]> => {
+// Physical profile directories remain bounded, external storage facts.
+export const listProfileDirs = async (
+  root: string = browserRootDir(),
+): Promise<string[]> => {
   try {
     if (!isAbsolute(root) || resolve(root) !== root) return [];
     const rootInfo = await lstat(root);
-    if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) return [];
+    if (
+      rootInfo.isSymbolicLink() ||
+      !rootInfo.isDirectory()
+    ) {
+      return [];
+    }
     requireOwned(rootInfo.uid);
     const canonicalRoot = await realpath(root);
     const directoryPath = profilesDir(canonicalRoot);
     ensureContained(canonicalRoot, directoryPath);
     const profilesInfo = await lstat(directoryPath);
-    if (profilesInfo.isSymbolicLink() || !profilesInfo.isDirectory()) return [];
+    if (
+      profilesInfo.isSymbolicLink() ||
+      !profilesInfo.isDirectory()
+    ) {
+      return [];
+    }
     requireOwned(profilesInfo.uid);
     const directory = await opendir(directoryPath);
     const entries: string[] = [];
@@ -1098,13 +1289,20 @@ export const listProfileDirs = async (root: string = browserRootDir()): Promise<
     try {
       for await (const entry of directory) {
         scanned += 1;
-        if (scanned > MAX_ROOT_ENTRIES) throw corruptError();
+        if (scanned > MAX_ROOT_ENTRIES) {
+          throw corruptError();
+        }
         if (entries.length >= MAX_PROFILES) break;
         if (!isValidProfileId(entry.name)) continue;
         const path = join(directoryPath, entry.name);
         ensureContained(directoryPath, path);
         const info = await lstat(path);
-        if (info.isSymbolicLink() || !info.isDirectory()) throw corruptError();
+        if (
+          info.isSymbolicLink() ||
+          !info.isDirectory()
+        ) {
+          throw corruptError();
+        }
         requireOwned(info.uid);
         entries.push(entry.name);
       }

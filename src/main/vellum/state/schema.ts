@@ -1,4 +1,5 @@
 import { STORE_STATE_SCHEMA_SQL } from "../../services/store-state-schema";
+import { BROWSER_PROFILES_STATE_SCHEMA_SQL } from "../browser/state-schema";
 import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
 import { SETTINGS_STATE_SCHEMA_SQL } from "../settings/state-schema";
 import { STATION_STATE_SCHEMA_SQL } from "../station/state-schema";
@@ -66,6 +67,7 @@ export const CANVAS_STATE_SCHEMA_SQL = `
 export const STATE_SCHEMA_FRAGMENTS = [
   STATE_METADATA_SCHEMA_SQL,
   CANVAS_STATE_SCHEMA_SQL,
+  BROWSER_PROFILES_STATE_SCHEMA_SQL,
   HOSTS_STATE_SCHEMA_SQL,
   SETTINGS_STATE_SCHEMA_SQL,
   STATION_STATE_SCHEMA_SQL,

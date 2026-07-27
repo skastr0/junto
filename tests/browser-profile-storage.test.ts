@@ -15,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, Either } from "effect";
+import { Effect, Either, ManagedRuntime } from "effect";
 import {
   browserProfileQuarantinePath,
   BrowserProfileStorageError,
@@ -32,6 +32,8 @@ import {
   makeBrowserProfileService,
   type BrowserProfilePendingWipe,
 } from "../src/main/vellum/browser/profiles";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { StateEngine } from "../src/main/vellum/state/service";
 import type {
   BrowserProfileQuiescenceSummary,
   BrowserResult,
@@ -73,8 +75,13 @@ interface Harness {
 
 describe("browser profile storage lifecycle", () => {
   let cleanupRoot = "";
+  let stateRuntime:
+    | ManagedRuntime.ManagedRuntime<StateEngine, unknown>
+    | undefined;
 
   afterEach(async () => {
+    await stateRuntime?.dispose();
+    stateRuntime = undefined;
     if (cleanupRoot) await rm(cleanupRoot, { recursive: true, force: true });
     cleanupRoot = "";
   });
@@ -725,7 +732,11 @@ describe("browser profile storage lifecycle", () => {
       liveClearAggregateTimeoutMs: 100,
     });
     const registryRoot = join(layout.root, "registry");
-    const registry = makeBrowserProfileService(registryRoot, {
+    stateRuntime = ManagedRuntime.make(
+      makeStateEngineLive(join(layout.root, "vellum.db")),
+    );
+    const state = await stateRuntime.runPromise(StateEngine);
+    const registry = makeBrowserProfileService(state, registryRoot, {
       wipeLifecycle: lifecycle,
       now: () => new Date("2026-07-17T12:00:00.000Z"),
     });
@@ -755,12 +766,21 @@ describe("browser profile storage lifecycle", () => {
       });
     }
     expect(harness.gate.disposition(PROFILE)).toBe("quiescing");
-    expect(JSON.parse(await readFile(join(registryRoot, "config.json"), "utf8"))).toMatchObject({
-      phase: "wipe_pending",
-      pendingWipe: {
-        profileId: PROFILE,
-        stage: "live_clear_pending",
-      },
+    expect(
+      await Effect.runPromise(
+        state.read("test.browser-pending", (reader) =>
+          reader.get(`
+            SELECT
+              profile_id AS profileId,
+              stage
+            FROM browser_profile_pending_wipe
+            WHERE singleton = 1
+          `)
+        ),
+      ),
+    ).toMatchObject({
+      profileId: PROFILE,
+      stage: "live_clear_pending",
     });
     expect(await Effect.runPromise(registry.partitionName("work"))).toBe(
       "persist:vellum-profile-work",
