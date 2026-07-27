@@ -30,6 +30,12 @@ export const RETIRED_PRODUCT_STATE_SIGNATURES = [
   "work_home_sequences",
   "runtime/open-url",
   "NodeRefRelay",
+  "VELLUM_AUTHORIAL_WRITE",
+  "CanvasControlRemove",
+  "removeCanvasThroughControl",
+  "canvas:rm",
+  "managedRemoteUpdate",
+  "managedRemoteRollback",
 ] as const;
 
 export type RetiredProductStateSignature =
