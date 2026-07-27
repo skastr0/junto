@@ -3,8 +3,13 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { dirname, isAbsolute } from "node:path";
 import { app, webContents, type WebContents } from "electron";
+import { ManagedRuntime } from "effect";
 import { makeBrowserProfileService } from "../../../src/main/vellum/browser/profiles";
 import { BrowserSessionService } from "../../../src/main/vellum/browser/sessions";
+import {
+  makeStateEngineLive,
+  StateEngine,
+} from "../../../src/main/vellum/state/engine";
 import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum/browser/view-adapter";
 import { isManagedBrowserWebContents } from "../../../src/main/vellum/browser/web-policy";
 import type { ResolvedPageTarget } from "../../../src/main/vellum/browser/page-target";
@@ -91,9 +96,23 @@ app.on("web-contents-created", (_event, contents) => {
 
 let fixtureServer: Server | undefined;
 let sessions: BrowserSessionService | undefined;
-app.on("before-quit", () => {
+const makeStateRuntime = () => ManagedRuntime.make(makeStateEngineLive());
+let stateRuntime: ReturnType<typeof makeStateRuntime> | undefined;
+let shutdownFlight: Promise<void> | undefined;
+
+const shutdownFixture = (): Promise<void> => {
+  if (shutdownFlight !== undefined) return shutdownFlight;
   sessions?.detachAllOnQuit("renderer crash recovery probe");
   fixtureServer?.close();
+  const runtime = stateRuntime;
+  stateRuntime = undefined;
+  shutdownFlight = runtime?.dispose() ?? Promise.resolve();
+  return shutdownFlight;
+};
+
+app.on("before-quit", (event) => {
+  event.preventDefault();
+  void shutdownFixture().finally(() => app.exit(0));
 });
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => app.quit());
@@ -112,10 +131,12 @@ void app.whenReady().then(async () => {
   const origin = await listen(fixtureServer);
   await mkdir(downloadPath, { recursive: true });
   const harness = makeBrowserTestOnlyElectronHarness(origin, downloadPath);
+  stateRuntime = makeStateRuntime();
+  const state = await stateRuntime.runPromise(StateEngine);
   sessions = new BrowserSessionService(
     harness.adapter,
     LOCAL_BROWSER_TEST_AUTHORITY,
-    makeBrowserProfileService(browserRoot),
+    makeBrowserProfileService(state, browserRoot),
     Date.now,
     randomUUID,
     harness.targetAdmission,
@@ -251,6 +272,7 @@ void app.whenReady().then(async () => {
     explicitReplacementCount: createdWebContentsIds.length - createdBeforeCrash,
     liveManagedWebContents: managedContents().length,
   });
+  await shutdownFixture();
   app.exit(0);
 }).catch(async (error: unknown) => {
   await writeReport({
@@ -258,5 +280,6 @@ void app.whenReady().then(async () => {
     ok: false,
     error: error instanceof Error ? error.message : String(error),
   }).catch(() => undefined);
+  await shutdownFixture().catch(() => undefined);
   app.exit(2);
 });

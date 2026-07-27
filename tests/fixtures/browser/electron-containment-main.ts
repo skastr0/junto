@@ -6,7 +6,10 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
 import { Effect, Either, Layer, ManagedRuntime } from "effect";
 import { CanvasesLive, CanvasesService } from "../../../src/main/vellum/canvases";
-import { makeStateEngineLive } from "../../../src/main/vellum/state/engine";
+import {
+  makeStateEngineLive,
+  StateEngine,
+} from "../../../src/main/vellum/state/engine";
 import { WorkRepositoryLive } from "../../../src/main/vellum/work/repository";
 import {
   BROWSER_CAPABILITY_ACTIONS,
@@ -570,8 +573,10 @@ void app.whenReady().then(async () => {
   audit.maximumWebContents = audit.baselineWebContents;
   await persistAudit();
 
+  canvasRuntime = makeCanvasRuntime();
+  const state = await canvasRuntime.runPromise(StateEngine);
   const harness = makeBrowserTestOnlyElectronHarness(exactOrigin, downloadPath);
-  const profiles = makeBrowserProfileService(browserRoot);
+  const profiles = makeBrowserProfileService(state, browserRoot);
   sessions = new BrowserSessionService(
     harness.adapter,
     LOCAL_BROWSER_TEST_AUTHORITY,
@@ -580,7 +585,6 @@ void app.whenReady().then(async () => {
     randomUUID,
     harness.targetAdmission,
   );
-  canvasRuntime = makeCanvasRuntime();
   const canvases = await canvasRuntime.runPromise(CanvasesService);
   const fixtureCanvas = decodeCanvasDoc(
     JSON.parse(
