@@ -153,7 +153,7 @@ function CanvasSection() {
         <input
           type="text"
           value={canvas.defaultCanvas}
-          placeholder="e.g. portfolio"
+          placeholder="e.g. factory"
           aria-label="Default canvas"
           onChange={(event) =>
             void patchSettings({ canvas: { defaultCanvas: event.target.value } })
