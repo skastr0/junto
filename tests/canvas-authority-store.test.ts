@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { StateEngine } from "../src/main/vellum/state/service";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 import { StationRepositoryLive } from "../src/main/vellum/station/repository";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
@@ -133,6 +135,56 @@ describe("CanvasesService SQLite authority", () => {
         ? read.doc.nodes[0].text
         : undefined;
     expect(text).toBe("authority-wins");
+  });
+
+  it("fails closed when an old authority body embeds document-backed work state", async () => {
+    await installEnv();
+    const database = join(stateDir, "vellum.db");
+    runtime = makeCanvasRuntime(database);
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(canvases.write("work", noteDoc("authorial")));
+
+    const legacyBody = JSON.stringify(taskSinkDoc());
+    const bodySha256 = createHash("sha256")
+      .update(legacyBody, "utf8")
+      .digest("hex");
+    const intentSha256 = createHash("sha256")
+      .update(String(Buffer.byteLength("work", "utf8")))
+      .update("\0")
+      .update("work", "utf8")
+      .update("\0")
+      .update(bodySha256, "ascii")
+      .update("\0")
+      .digest("hex");
+    const state = await runtime.runPromise(StateEngine);
+    await runtime.runPromise(
+      state.transaction("test.inject-retired-work-store", (writer) => {
+        writer.run(
+          `UPDATE canvas_generation_documents
+           SET body = ?, sha256 = ?
+           WHERE generation = '1' AND name = 'work'`,
+          [legacyBody, bodySha256],
+        );
+        writer.run(
+          `UPDATE canvas_generations
+           SET intent_sha256 = ?
+           WHERE generation = '1'`,
+          [intentSha256],
+        );
+      }),
+    );
+    await runtime.dispose();
+    runtime = undefined;
+
+    runtime = makeCanvasRuntime(database);
+    const reopened = await runtime.runPromise(CanvasesService);
+    const result = await runtime.runPromise(Effect.either(reopened.list));
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        message: expect.stringContaining("runtime work projection data"),
+      },
+    });
   });
 
   it("keeps work rows out of authority while projecting committed work reads", async () => {
