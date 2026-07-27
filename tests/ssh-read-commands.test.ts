@@ -6,7 +6,6 @@ import {
   remoteHermesCli,
   remoteHerdrCli,
   remoteHostProbe,
-  remoteLs,
   remoteProductVersion,
   remoteTestFileExists,
   remoteUname,
@@ -41,7 +40,7 @@ describe("ssh read-commands product constructors", () => {
     ).toEqual(["--version"]);
   });
 
-  it("confines cat/ls/test to clean absolute paths", () => {
+  it("confines cat/test to clean absolute paths", () => {
     const cat = inspectRemoteCommand(
       run(remoteCat("/run/user/501/vellum-remote/ready-aabbccdd")),
     );
@@ -49,11 +48,6 @@ describe("ssh read-commands product constructors", () => {
       executable: "/bin/cat",
       args: ["/run/user/501/vellum-remote/ready-aabbccdd"],
     });
-    const ls = inspectRemoteCommand(
-      run(remoteLs("/home/station/.vellum/canvases")),
-    );
-    expect(ls.executable).toBe("ls");
-    expect(ls.args).toEqual(["-1", "/home/station/.vellum/canvases"]);
     const test = inspectRemoteCommand(
       run(remoteTestFileExists("/Users/alice/.vellum/term/token")),
     );
@@ -70,9 +64,6 @@ describe("ssh read-commands product constructors", () => {
       "/home/a\0b",
     ]) {
       expect(Either.isLeft(Effect.runSync(Effect.either(remoteCat(bad))))).toBe(
-        true,
-      );
-      expect(Either.isLeft(Effect.runSync(Effect.either(remoteLs(bad))))).toBe(
         true,
       );
     }

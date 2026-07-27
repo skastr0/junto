@@ -56,7 +56,6 @@ export {
   remoteHerdrCli,
   remoteHostProbe,
   remoteLsofTcpListen,
-  remoteLs,
   remoteProductVersion,
   remoteTailscaleServeStatus,
   remoteTestFileExists,

@@ -75,17 +75,6 @@ export const remoteCat = (
   );
 
 /**
- * List a confined absolute directory with `ls -1`.
- * Path is re-admitted; free-form shell is not representable.
- */
-export const remoteLs = (
-  path: string,
-): Effect.Effect<RemoteCommand, SshInputError> =>
-  admitReadPath(path).pipe(
-    Effect.flatMap((safe) => makeRemoteCommand("ls", ["-1", safe])),
-  );
-
-/**
  * File existence probe: `/bin/test -f <path>`.
  * Only the fixed `-f` shape is admitted — no free-form test expressions.
  */
