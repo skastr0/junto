@@ -51,7 +51,6 @@ export interface RouteTokenMintPrincipal {
   readonly nodeId: string;
   readonly kind: ProcessPrincipalKind;
   readonly agentKey?: string;
-  readonly paneId?: string;
   readonly bindingId?: string;
 }
 
@@ -115,7 +114,6 @@ export const toProcessPrincipal = (
     canvasName: principal.canvasName,
     nodeId: principal.nodeId,
     ...(principal.agentKey !== undefined ? { agentKey: principal.agentKey } : {}),
-    ...(principal.paneId !== undefined ? { paneId: principal.paneId } : {}),
     ...(principal.bindingId !== undefined
       ? { bindingId: principal.bindingId }
       : {}),
@@ -134,11 +132,7 @@ const validateMintPrincipal = (
       "route-token principal requires canvasName and nodeId",
     );
   }
-  if (
-    principal.kind !== "agent" &&
-    principal.kind !== "herdr" &&
-    principal.kind !== "terminal"
-  ) {
+  if (principal.kind !== "agent" && principal.kind !== "terminal") {
     throw new RouteTokenError("invalid", "route-token principal kind is invalid");
   }
   if (principal.kind === "agent" && !principal.agentKey?.trim()) {
@@ -154,7 +148,6 @@ const validateMintPrincipal = (
     ...(principal.agentKey?.trim()
       ? { agentKey: principal.agentKey.trim() }
       : {}),
-    ...(principal.paneId?.trim() ? { paneId: principal.paneId.trim() } : {}),
     ...(principal.bindingId?.trim()
       ? { bindingId: principal.bindingId.trim() }
       : {}),
@@ -173,7 +166,7 @@ const isRecordShape = (value: unknown): value is RouteTokenRecord => {
   if (v.principal === null || typeof v.principal !== "object") return false;
   const p = v.principal as Record<string, unknown>;
   if (typeof p.canvasName !== "string" || typeof p.nodeId !== "string") return false;
-  if (p.kind !== "agent" && p.kind !== "herdr" && p.kind !== "terminal") return false;
+  if (p.kind !== "agent" && p.kind !== "terminal") return false;
   return true;
 };
 

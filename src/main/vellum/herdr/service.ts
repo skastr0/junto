@@ -1,5 +1,4 @@
 import type { CliResult } from "../adapters/exec";
-import { getProcessIdentityMap } from "../process-identity";
 import { findHostById } from "../hosts/snapshot";
 import { isKnownHerdrHost, listHerdrHosts, UnknownHerdrHostError, type HerdrHostDef } from "./hosts";
 import type { HerdrMirrorReads } from "./mirror";
@@ -533,17 +532,8 @@ export class HerdrService {
       if (parsed.length > 0) processes = parsed;
     }
 
-    // Local herdr panes: bind foreground PIDs for process-bind identity.
-    // Remote panes never enter the map (peer PID is always local).
-    if (hostId === "local" && processes !== undefined && processes.length > 0) {
-      const map = getProcessIdentityMap();
-      map.unbindHerdrPane(paneId);
-      for (const proc of processes) {
-        if (typeof proc.pid === "number" && Number.isInteger(proc.pid) && proc.pid > 0) {
-          map.bind(proc.pid, { kind: "herdr", paneId });
-        }
-      }
-    }
+    // Foreground PIDs are read for display only. A herdr pane is geography, so
+    // it holds no seat: its processes are never bound as a process principal.
 
     return {
       ok: true,
@@ -664,9 +654,6 @@ export class HerdrService {
     if (!paneId) return { ok: false, code: "invalid", message: "paneId required" };
     const res = await runEnvelope(this.runner, hostId, ["pane", "close", paneId], session);
     if (!res.ok) return res;
-    if (hostId === "local") {
-      getProcessIdentityMap().unbindHerdrPane(paneId);
-    }
     return { ok: true, data: { closed: true } };
   }
 

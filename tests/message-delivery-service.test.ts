@@ -34,10 +34,10 @@ const agentDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
   edges: [],
 });
 
-const herdrDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
+const terminalDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
   nodes: [
     {
-      id: "herdr",
+      id: "terminal",
       type: "text",
       text: "cp",
       x: 0,
@@ -45,8 +45,8 @@ const herdrDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
       width: 100,
       height: 80,
       ether: {
-        entity: { kind: "herdr" },
-        herdr: { host: "local", terminalId: "term-1", paneId: "p1" },
+        entity: { kind: "terminal" },
+        terminal: { bindingId: "bind-term" },
         messages: { items: [...messages] },
       },
     },
@@ -110,7 +110,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        sendHerdrText: () => false,
         sendManagedTerminalPrompt,
       },
       store,
@@ -139,7 +138,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        sendHerdrText: () => false,
         sendManagedTerminalPrompt,
       },
       store,
@@ -166,7 +164,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        sendHerdrText: () => false,
         sendManagedTerminalPrompt: async () => {
           sendCount += 1;
           return true;
@@ -208,7 +205,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        sendHerdrText: () => false,
         sendManagedTerminalPrompt: async () => {
           managedSends += 1;
           return true;
@@ -225,38 +221,37 @@ describe("MessageDeliveryService", () => {
 
   it("unreachable target leaves pending; attach triggers retry", async () => {
     const msg = userMsg("later", "wake");
-    const store = makeStore({ c: herdrDoc([msg]) });
-    const herdrPayloads: string[] = [];
-    let herdrOk = false;
+    const store = makeStore({ c: terminalDoc([msg]) });
+    const payloads: string[] = [];
+    let accepts = false;
     const service = new MessageDeliveryService();
     const transport: MessageDeliveryTransport = {
-      sendHerdrText: (_terminalId, text) => {
-        herdrPayloads.push(text);
-        return herdrOk;
+      sendTerminalPaste: (_bindingId, text) => {
+        payloads.push(text);
+        return accepts;
       },
     };
     service.configure({ transport, store, now: () => 9 });
 
-    service.notifyAppended("c", "herdr", msg);
-    await waitUntil(() => herdrPayloads.length >= 1);
-    expect(herdrPayloads.length).toBe(1);
+    service.notifyAppended("c", "terminal", msg);
+    await waitUntil(() => payloads.length >= 1);
+    expect(payloads.length).toBe(1);
     let doc = await store.readDoc("c");
     expect(doc?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt).toBeUndefined();
 
-    herdrOk = true;
-    service.onHerdrAttached("term-1");
+    accepts = true;
+    service.onTerminalAttached("bind-term");
     await waitUntil(async () => {
       doc = await store.readDoc("c");
       return doc?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt === 9;
     });
-    expect(herdrPayloads.some((p) => p.includes("[message · user] wake"))).toBe(true);
-    expect(herdrPayloads.at(-1)).toBe("\u001b[200~[message · user] wake\u001b[201~");
-    expect(herdrPayloads.at(-1)).not.toContain("\n");
+    expect(payloads.some((p) => p.includes("[message · user] wake"))).toBe(true);
+    expect(payloads.at(-1)).not.toContain("\n");
   });
 
   it("terminal fallback pastes metacharacters without newline or shell submission", async () => {
     const msg = userMsg("safe", "echo owned; $(touch /tmp/nope) && rm -rf ~");
-    const base = herdrDoc([msg]);
+    const base = terminalDoc([msg]);
     const doc: CanvasDoc = {
       ...base,
       nodes: [{
@@ -269,7 +264,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        sendHerdrText: () => false,
         sendTerminalPaste: (_bindingId, text, messageId) => {
           pastes.push({ text, messageId });
           return true;
@@ -293,7 +287,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        sendHerdrText: () => false,
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           payloads.push(text);
           return true;
@@ -309,7 +302,7 @@ describe("MessageDeliveryService", () => {
 
   it("managed terminal prompt uses sendManagedTerminalPrompt when wired", async () => {
     const msg = userMsg("mt", "claim task");
-    const base = herdrDoc([msg]);
+    const base = terminalDoc([msg]);
     const doc: CanvasDoc = {
       ...base,
       nodes: [{
@@ -327,7 +320,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        sendHerdrText: () => false,
         sendTerminalPaste: () => {
           throw new Error("paste path must not run when managed prompt is wired");
         },
@@ -350,7 +342,7 @@ describe("MessageDeliveryService", () => {
 
   it("managed terminal idle gate leave pending until onManagedTerminalIdle", async () => {
     const msg = userMsg("idle-gate", "wait");
-    const base = herdrDoc([msg]);
+    const base = terminalDoc([msg]);
     const doc: CanvasDoc = {
       ...base,
       nodes: [{
@@ -369,7 +361,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        sendHerdrText: () => false,
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           if (!accept) return false;
           prompts.push(text);
@@ -404,7 +395,6 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        sendHerdrText: () => false,
         sendManagedTerminalPrompt: async () => {
           sendCount += 1;
           return true;

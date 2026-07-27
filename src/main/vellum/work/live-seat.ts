@@ -30,32 +30,20 @@ const toProcessPrincipal = (
         "route-token seats cannot be kind terminal (process-bind only)",
     };
   }
-  if (p.kind === "agent") {
-    if (!p.agentKey?.trim()) {
-      return { error: "agent route-token requires agentKey" };
-    }
-    return {
-      kind: "agent",
-      canvasName: p.canvasName,
-      nodeId: p.nodeId,
-      agentKey: p.agentKey.trim(),
-    };
-  }
-  // herdr
-  if (!p.paneId?.trim() && !p.nodeId?.trim()) {
-    return { error: "herdr route-token requires paneId or nodeId" };
+  if (!p.agentKey?.trim()) {
+    return { error: "agent route-token requires agentKey" };
   }
   return {
-    kind: "herdr",
+    kind: "agent",
     canvasName: p.canvasName,
     nodeId: p.nodeId,
-    ...(p.paneId?.trim() ? { paneId: p.paneId.trim() } : {}),
+    agentKey: p.agentKey.trim(),
   };
 };
 
 /**
  * Prove mint principal against live in-process canvas authority.
- * Both canvasName and nodeId required; agentKey/paneId must match the live card.
+ * Both canvasName and nodeId required; agentKey must match the live card.
  */
 export const proveLiveSeat = (
   liveDocs: ReadonlyArray<{
@@ -122,9 +110,6 @@ export const proveLiveSeat = (
       nodeId,
       ...(candidate.kind === "agent" && candidate.agentKey?.trim()
         ? { agentKey: candidate.agentKey.trim() }
-        : {}),
-      ...(candidate.kind === "herdr" && candidate.paneId?.trim()
-        ? { paneId: candidate.paneId.trim() }
         : {}),
     }),
   };

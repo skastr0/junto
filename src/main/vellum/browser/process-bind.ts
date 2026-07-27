@@ -46,18 +46,10 @@ const matchesProcessPrincipal = (
     if (principal.nodeId !== undefined) return node.id === principal.nodeId;
     return node.ether?.entity?.name === principal.agentKey;
   }
-  if (principal.kind === "terminal") {
-    if (kind !== "terminal") return false;
-    if (principal.nodeId !== undefined) return node.id === principal.nodeId;
-    if (principal.bindingId !== undefined) {
-      return node.ether?.terminal?.bindingId === principal.bindingId;
-    }
-    return false;
-  }
-  if (kind !== "herdr") return false;
+  if (kind !== "terminal") return false;
   if (principal.nodeId !== undefined) return node.id === principal.nodeId;
-  if (principal.paneId !== undefined) {
-    return node.ether?.herdr?.paneId === principal.paneId;
+  if (principal.bindingId !== undefined) {
+    return node.ether?.terminal?.bindingId === principal.bindingId;
   }
   return false;
 };

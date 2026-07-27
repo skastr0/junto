@@ -6,7 +6,9 @@
  *
  *   agent    → managed terminal seat (bindingId required; harness required)
  *   terminal → raw shell geography (bindingId required; not an agent factory seat)
- *   herdr    → legacy herdr pane (hard-hidden; separate tag until removed)
+ *
+ * Geography has no delivery surface at all — herdr is geography, so it holds
+ * no inbox and appears in no arm below.
  *
  * ACP is not a tag. It is not a port. It is not a fallback.
  */
@@ -39,23 +41,12 @@ export type RawTerminalSurface = {
   readonly launch: EtherTerminal["launch"];
 };
 
-/** Hard-hidden legacy. Own tag so it never collides with managedAgent. */
-export type LegacyHerdrSurface = {
-  readonly _tag: "legacyHerdr";
-  readonly nodeId: string;
-  readonly terminalId: string;
-  readonly hostId: string;
-};
-
 /**
  * Every product path that *delivers* to an actor seat must switch on this.
  * Adding a surface without a case is a compile error at call sites that
  * use `Match` / exhaustive switch.
  */
-export type ActorDeliverySurface =
-  | ManagedAgentSurface
-  | RawTerminalSurface
-  | LegacyHerdrSurface;
+export type ActorDeliverySurface = ManagedAgentSurface | RawTerminalSurface;
 
 // ── Narrowed document nodes ────────────────────────────────────────────────
 
@@ -138,17 +129,6 @@ export const actorDeliverySurfaceOf = (
           launch: node.ether?.terminal?.launch,
         };
       }
-      case "herdr": {
-        const terminalId = node.ether?.herdr?.terminalId?.trim();
-        if (!terminalId) return undefined;
-        const herdrHost = node.ether?.herdr?.host?.trim();
-        return {
-          _tag: "legacyHerdr",
-          nodeId: node.id,
-          terminalId,
-          hostId: herdrHost && herdrHost.length > 0 ? herdrHost : hostId,
-        };
-      }
       default: {
         const exhaustive: never = kind;
         return exhaustive;
@@ -172,9 +152,10 @@ export const actorDeliverySurfaceOf = (
 };
 
 /** Exhaustive delivery target derived from the surface tag alone. */
-export type SurfaceDeliveryTarget =
-  | { readonly kind: "terminal"; readonly bindingId: string }
-  | { readonly kind: "herdr"; readonly terminalId: string };
+export type SurfaceDeliveryTarget = {
+  readonly kind: "terminal";
+  readonly bindingId: string;
+};
 
 export const deliveryTargetFromSurface = (
   surface: ActorDeliverySurface,
@@ -183,8 +164,6 @@ export const deliveryTargetFromSurface = (
     case "managedAgent":
     case "rawTerminal":
       return { kind: "terminal", bindingId: surface.bindingId };
-    case "legacyHerdr":
-      return { kind: "herdr", terminalId: surface.terminalId };
     default: {
       const _exhaustive: never = surface;
       return _exhaustive;

@@ -147,12 +147,41 @@ export type ResolvedTerminalBinding =
     };
 
 /**
- * Resolve a canvas node to a terminal surface binding.
- * Kind-discriminated via actor-surface sum — no "if terminal OR agent OR acp".
+ * A herdr pane is geography: it renders and shows live state, but holds no
+ * actor delivery surface. Its binding is read straight off the authored
+ * `ether.herdr`, never through the actor sum.
+ */
+const herdrBinding = (
+  node: CanvasNode,
+): Extract<ResolvedTerminalBinding, { readonly kind: "herdr" }> | undefined => {
+  if (node.ether?.entity?.kind !== "herdr") return undefined;
+  const herdr = node.ether.herdr;
+  if (!herdr || !herdr.terminalId?.trim()) return undefined;
+  const herdrHost = herdr.host?.trim();
+  const nodeHost = typeof node.ether.host === "string" ? node.ether.host.trim() : "";
+  return {
+    kind: "herdr",
+    hostId:
+      herdrHost && herdrHost.length > 0
+        ? herdrHost
+        : nodeHost.length > 0
+          ? nodeHost
+          : "local",
+    herdr,
+    onDelete: resolveHerdrOnDelete(herdr),
+  };
+};
+
+/**
+ * Resolve a canvas node to a terminal surface binding: the geography herdr
+ * pane first, then the actor delivery sum. No "if terminal OR agent OR acp".
  */
 export const resolveTerminalBinding = (
   node: CanvasNode,
 ): ResolvedTerminalBinding | undefined => {
+  const herdr = herdrBinding(node);
+  if (herdr) return herdr;
+
   const surface = actorDeliverySurfaceOf(node);
   if (surface) {
     switch (surface._tag) {
@@ -176,16 +205,6 @@ export const resolveTerminalBinding = (
           launch: surface.launch as TerminalLaunch | undefined,
           label: node.ether?.terminal?.label,
         };
-      case "legacyHerdr": {
-        const herdr = node.ether?.herdr;
-        if (!herdr) return undefined;
-        return {
-          kind: "herdr",
-          hostId: surface.hostId,
-          herdr,
-          onDelete: resolveHerdrOnDelete(herdr),
-        };
-      }
       default: {
         const _e: never = surface;
         return _e;

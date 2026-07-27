@@ -182,9 +182,6 @@ const processKeyOf = (principal: ProcessPrincipal): string => {
   if (principal.kind === "agent") {
     return `agent:${principal.agentKey ?? ""}:${anchor}`;
   }
-  if (principal.kind === "herdr") {
-    return `herdr:${principal.paneId ?? ""}:${anchor}`;
-  }
   return `terminal:${principal.bindingId ?? ""}:${anchor}`;
 };
 

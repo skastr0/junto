@@ -92,7 +92,7 @@ export const msgListSchema: CommandSchemaContract = {
   command_id: "msg.list",
   command: "msg list",
   schema_id: "msg.list.input/v1",
-  description: "List messages on a connected agent/herdr/task node.",
+  description: "List messages on a connected agent/task node.",
   schema: MsgListArgs,
   input_modes: inputModes,
 };

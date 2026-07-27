@@ -17,7 +17,7 @@ import { chatCoarse$ } from "../../lib/chat-state";
 import { accentColor, INK, DIM, SOURCE_HUE, withAlpha } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
-import { ACP_CHAT_SURFACE_HIDDEN, HERDR_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
+import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import { openHerdrTerminal } from "../../lib/herdr-state";
 import { openTerminal } from "../../lib/terminal-actions";
@@ -406,7 +406,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const herdrBinding = isHerdr ? node.ether?.herdr : undefined;
   const title = text.split("\n")[0] ?? "herdr";
   const openHerdr = () => {
-    if (HERDR_SURFACE_HIDDEN) return;
     if (herdrBinding) openHerdrTerminal(node.id, herdrBinding, title);
   };
 
@@ -419,7 +418,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       onMaximize={isFreeNote ? openMaximized : undefined}
       inlineEdit={!isHerdr && !managedTerminal}
       toolbarExtras={
-        isHerdr && !HERDR_SURFACE_HIDDEN ? (
+        isHerdr ? (
           <HerdrToolbarActions node={node} />
         ) : managedTerminal ? (
           <TerminalToolbarActions node={node} />

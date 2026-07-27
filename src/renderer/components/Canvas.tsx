@@ -50,7 +50,6 @@ import {
   makeTasksNode,
   makeTextNode,
 } from "../lib/node-factories";
-import { HERDR_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { openHerdrWizard } from "../lib/herdr-state";
 import { describeConnectPreview } from "../lib/connect-preview";
 import { resolveSpec, roleOf, type FactoryRoleName } from "@shared/physics";
@@ -697,10 +696,6 @@ const makeAddActions = (
     dismiss();
   },
   addHerdr: () => {
-    if (HERDR_SURFACE_HIDDEN) {
-      dismiss();
-      return;
-    }
     const position = positionFor({ width: 260, height: 110 });
     openHerdrWizard(position);
     dismiss();
@@ -836,9 +831,7 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
       harness: template.harness,
     })),
     { key: "terminal", label: "terminal", sub: "native shell · geography", icon: <Terminal size={14} />, ariaLabel: "Add native terminal work surface", group: paletteGroupFor("terminal", false), onSelect: () => actions.addTerminal() },
-    ...(HERDR_SURFACE_HIDDEN
-      ? []
-      : [{ key: "herdr", label: "Herdr (legacy)", sub: "optional · attach existing pane", icon: <Terminal size={14} />, ariaLabel: "Add legacy herdr work surface", group: paletteGroupFor("herdr", false), onSelect: () => actions.addHerdr() } satisfies MenuEntry]),
+    { key: "herdr", label: "herdr", sub: "attach an existing pane", icon: <Terminal size={14} />, ariaLabel: "Add herdr work surface", group: paletteGroupFor("herdr", false), onSelect: () => actions.addHerdr() },
     { key: "tasks", label: "tasks", sub: "task list · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", group: paletteGroupFor("task", false), onSelect: () => actions.addTasks() },
     { key: "requests", label: "requests", sub: "input-required · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add requests", group: paletteGroupFor("requests", false), onSelect: () => actions.addRequests() },
     { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", group: paletteGroupFor("artifacts", false), onSelect: () => actions.addArtifacts() },

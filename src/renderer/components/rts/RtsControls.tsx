@@ -30,7 +30,7 @@ import {
   setScopePaused,
 } from "../../lib/pause-state";
 import { openWorkDetail } from "../../lib/work-detail-open";
-import { ACP_CHAT_SURFACE_HIDDEN, HERDR_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
+import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { openAgentChatSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import {
@@ -257,7 +257,7 @@ function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
     };
   }, []);
 
-  if (!herdr || HERDR_SURFACE_HIDDEN) return null;
+  if (!herdr) return null;
   const agentStatus = herdrMeta?.meta?.agentStatus;
   const canMarkSeen = Boolean(herdr.paneId) && agentStatus === "done";
   const canKill = Boolean(herdr.paneId);

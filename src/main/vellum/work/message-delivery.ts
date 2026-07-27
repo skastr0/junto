@@ -1,6 +1,8 @@
 // Message delivery — one-way nudge from ether.messages onto live transports.
-// Actor targets come from kind-discriminated surfaces (managed terminal / herdr).
-// ACP is not a transport. No delivery daemon, no retry queue, no polling.
+// Actor targets come from kind-discriminated surfaces (managed terminal seats
+// and raw geography shells). Geography holds no inbox, so a herdr pane is not
+// a delivery target. ACP is not a transport. No delivery daemon, no retry
+// queue, no polling.
 
 import type { CanvasDoc, Message } from "@shared/canvas";
 import {
@@ -13,11 +15,6 @@ import {
 import type { SurfaceDeliveryTarget } from "@shared/actor-surface";
 
 export type MessageDeliveryTransport = {
-  /**
-   * Write one line of plain text to a live herdr control stream for terminalId.
-   * Returns false when no stream is attached.
-   */
-  readonly sendHerdrText: (terminalId: string, text: string) => boolean;
   /** Paste without submitting (raw geography shells only). */
   readonly sendTerminalPaste?: (bindingId: string, text: string, messageId: string) => boolean;
   /**
@@ -83,7 +80,7 @@ export class MessageDeliveryService {
   }
 
   /**
-   * Called after a message lands on an agent/herdr node (WorkService append).
+   * Called after a message lands on an actor node (WorkService append).
    * task-history appends never reach here (caller filters taskId !== null).
    */
   notifyAppended(canvas: string, nodeId: string, message: Message): void {
@@ -97,13 +94,6 @@ export class MessageDeliveryService {
    */
   onAgentLive(_agentKey: string): void {
     // Intentionally empty — managed seats redrive via onManagedTerminalIdle.
-  }
-
-  /** Herdr control stream attached — deliver pending for that terminal. */
-  onHerdrAttached(terminalId: string): void {
-    void this.scanAndDeliver(
-      (target) => target.kind === "herdr" && target.terminalId === terminalId,
-    );
   }
 
   /** Native terminal session attached — offer pending messages as unsubmitted paste. */
@@ -213,26 +203,11 @@ export class MessageDeliveryService {
     payload: string,
     messageId: string,
   ): Promise<boolean> {
-    switch (target.kind) {
-      case "terminal": {
-        // Managed drive (paste+CR) preferred; raw paste only for geography shells.
-        if (transport.sendManagedTerminalPrompt) {
-          return transport.sendManagedTerminalPrompt(target.bindingId, payload);
-        }
-        return transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
-      }
-      case "herdr": {
-        // Bracketed paste envelope — never auto-submit shell metacharacters.
-        return transport.sendHerdrText(
-          target.terminalId,
-          `\u001b[200~${payload}\u001b[201~`,
-        );
-      }
-      default: {
-        const _exhaustive: never = target;
-        return _exhaustive;
-      }
+    // Managed drive (paste+CR) preferred; raw paste only for geography shells.
+    if (transport.sendManagedTerminalPrompt) {
+      return transport.sendManagedTerminalPrompt(target.bindingId, payload);
     }
+    return transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
   }
 }
 

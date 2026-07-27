@@ -716,18 +716,11 @@ export const registerVellumIpc = (): void => {
       // Kernel pulses for managed seats (not ACP).
       setManagedPulseDeliver((bindingId, text) => writeManagedPrompt(bindingId, text));
 
-      // Message nudge channel: ether.messages → live ACP / herdr / managed terminal.
-      // Retry only on session-live / stream-attach / seat-idle (no polling store).
+      // Message nudge channel: ether.messages -> live managed terminal seats.
+      // Retry only on session-live / seat-idle (no polling store).
       messageDelivery.configure({
         transport: {
           // Kind-discriminated surfaces only — no ACP transport fields.
-          sendHerdrText: (terminalId, text) => {
-            // Legacy herdr surface only (hard-hidden in UI).
-            const streamId = herdr.sessions.streamIdForTerminal(terminalId);
-            if (!streamId) return false;
-            const written = herdr.sessions.inputTextProduct(streamId, text);
-            return written.ok;
-          },
           // Raw geography shells: no auto-submit.
           sendTerminalPaste: (_bindingId, _text, _messageId) => false,
           // managedAgent + rawTerminal → paste+CR via idle-gated drive.
@@ -774,7 +767,6 @@ export const registerVellumIpc = (): void => {
           seatPaused(pause.stateFor(canvas), doc, nodeId),
       });
       chat.setSessionLiveHook((agentKey) => messageDelivery.onAgentLive(agentKey));
-      herdr.sessions.setOpenHook((terminalId) => messageDelivery.onHerdrAttached(terminalId));
       // A canvas flipping to playing (or a node/region unpausing inside a
       // playing canvas) re-drives every message held pending while paused.
       pause.subscribe((canvas) => {

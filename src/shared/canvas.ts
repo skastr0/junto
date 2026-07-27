@@ -368,7 +368,7 @@ export const EtherArtifacts = Schema.Struct({
 });
 export type EtherArtifacts = typeof EtherArtifacts.Type;
 
-/** Per-agent / herdr message list (entity.kind === "agent" | "herdr"). */
+/** Per-actor message inbox (entity.kind === "agent"). */
 export const EtherMessages = Schema.Struct({
   items: Schema.Array(Message),
 });
@@ -435,7 +435,8 @@ export const EtherNodeExtension = Schema.Struct({
   requests: Schema.optionalWith(EtherRequests, { exact: true }),
   artifacts: Schema.optionalWith(EtherArtifacts, { exact: true }),
   messages: Schema.optionalWith(EtherMessages, { exact: true }),
-  // Work-surface binding for entity.kind === "herdr". Not an EntitySource.
+  // Geography display binding for entity.kind === "herdr". Not an EntitySource,
+  // not a seat: a herdr pane renders and shows state, and holds no port.
   herdr: Schema.optionalWith(EtherHerdr, { exact: true }),
   /**
    * Work-surface binding for entity.kind === "terminal" (raw geography) OR

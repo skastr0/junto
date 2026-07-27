@@ -128,12 +128,26 @@ describe("herdr document model", () => {
     expect(redecoded.nodes[0]?.ether).toBeUndefined();
   });
 
-  it("phase membership follows physics roles (actors yes, sinks no)", () => {
-    // Herdr binding shape is kind-specific; membership itself is role-level.
+  it("phase membership follows physics roles (actors yes, sinks and geography no)", () => {
+    // Membership is role-level. A herdr pane is geography, so it is not
+    // blockable even though it carries a live binding.
     const actorSeat = {
       id: "actor1",
       type: "text" as const,
       text: "actor",
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 80,
+      ether: {
+        entity: { kind: "agent", name: "local:actor" },
+        terminal: { bindingId: "bind-1", harness: "claude" as const },
+      },
+    };
+    const geographySeat = {
+      id: "geo1",
+      type: "text" as const,
+      text: "herdr",
       x: 0,
       y: 0,
       width: 200,
@@ -154,6 +168,7 @@ describe("herdr document model", () => {
       ether: { entity: { kind: "task" } },
     };
     expect(isBlockableNode(actorSeat)).toBe(true);
+    expect(isBlockableNode(geographySeat)).toBe(false);
     expect(isBlockableNode(sinkSeat)).toBe(false);
   });
 });

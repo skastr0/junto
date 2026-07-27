@@ -278,9 +278,7 @@ const occupantKeyForPrincipal = (
   const base =
     principal.kind === "agent"
       ? `agent:${principal.agentKey ?? principal.nodeId ?? "unknown"}`
-      : principal.kind === "herdr"
-        ? `herdr:${principal.paneId ?? principal.nodeId ?? "unknown"}`
-        : `terminal:${principal.bindingId ?? principal.nodeId ?? "unknown"}`;
+      : `terminal:${principal.bindingId ?? principal.nodeId ?? "unknown"}`;
   return `${base}@${suffix}`;
 };
 
@@ -398,7 +396,7 @@ const ensureCaller = (
         path: "caller",
         received: nodeId,
         retryable: false,
-        next_step: "ensure the live process maps to one agent|herdr card on the canvas",
+        next_step: "ensure the live process maps to one actor card on the canvas",
       },
     };
   }
@@ -1252,7 +1250,7 @@ export const startWorkControlServer = async (
                     next_step:
                       admission.tier === "route-token"
                         ? "ensure the route-token canvas seat still exists on a live canvas"
-                        : "ensure exactly one agent|herdr node matches the live process",
+                        : "ensure exactly one actor node matches the live process",
                   },
                 });
               }

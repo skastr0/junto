@@ -398,7 +398,7 @@ export interface ControlDeps {
   };
   /**
    * Process-bind + edge authz admission. When present, protected routes admit
-   * via Unix peer PID → registered agent|herdr process (no client claim).
+   * via Unix peer PID → registered actor process (no client claim).
    */
   readonly edgeGrant?: EdgeGrantService;
   /**

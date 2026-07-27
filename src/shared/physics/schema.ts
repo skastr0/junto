@@ -64,7 +64,7 @@ export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>
 // (see kinds.ts `KindSpecTable`). This is what lets `NodeSpec` narrow `kind` per
 // role variant instead of every call site re-deciding from a parallel list.
 
-export const ActorKind = Schema.Literal("agent", "terminal", "herdr");
+export const ActorKind = Schema.Literal("agent", "terminal");
 export type ActorKind = typeof ActorKind.Type;
 
 export const SinkKind = Schema.Literal("page", "task", "requests", "artifacts");

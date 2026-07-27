@@ -92,7 +92,7 @@ describe("browser edge authz", () => {
     ],
   );
 
-  it("resolves agent, herdr, and terminal callers via physics actors", () => {
+  it("resolves agent and terminal callers via physics actors; herdr is geography", () => {
     const agent = resolveBrowserCaller(board, "work", "agent");
     expect(agent.ok).toBe(true);
     if (agent.ok) {
@@ -100,9 +100,10 @@ describe("browser edge authz", () => {
       expect(agent.principal.agentKey).toBe("local:default");
     }
 
+    // herdr is geography — edged to a page and still not a browser caller.
     const herdr = resolveBrowserCaller(board, "work", "herdr");
-    expect(herdr.ok).toBe(true);
-    if (herdr.ok) expect(herdr.principal.kind).toBe("herdr");
+    expect(herdr.ok).toBe(false);
+    if (!herdr.ok) expect(herdr.denial).toBe("caller_wrong_kind");
 
     const term = resolveBrowserCaller(board, "work", "term");
     expect(term.ok).toBe(true);
@@ -118,8 +119,8 @@ describe("browser edge authz", () => {
 
   it("classifies caller kinds via physics role, not an ACL set", () => {
     expect(isBrowserCallerKind("agent")).toBe(true);
-    expect(isBrowserCallerKind("herdr")).toBe(true);
     expect(isBrowserCallerKind("terminal")).toBe(true);
+    expect(isBrowserCallerKind("herdr")).toBe(false);
     expect(isBrowserCallerKind("page")).toBe(false);
     expect(isBrowserCallerKind("task")).toBe(false);
     expect(isBrowserCallerKind(undefined)).toBe(false);
@@ -233,23 +234,21 @@ describe("process-bind (browser canvas resolution)", () => {
     if (!resolved.ok) expect(resolved.denial).toBe("not_found");
   });
 
-  it("maps a live herdr process principal when edged to a page", () => {
+  it("refuses a herdr node as a process-bound browser caller", () => {
     const herdrBoard = doc(
       [text("herdr", "herdr"), page("p1")],
       [{ id: "e1", fromNode: "herdr", toNode: "p1" }],
     );
+    // Geography holds no seat: the only principal kinds are the actor kinds,
+    // and a herdr node matches neither.
     const resolved = resolveBrowserCallerFromProcess(herdrBoard, "work", {
-      kind: "herdr",
-      paneId: "pane-1",
+      kind: "terminal",
+      bindingId: "pane-1",
       canvasName: "work",
       nodeId: "herdr",
     });
-    expect(resolved.ok).toBe(true);
-    if (resolved.ok) {
-      expect(resolved.principal.kind).toBe("herdr");
-      expect(resolved.principal.paneId).toBe("pane-1");
-      expect(resolved.pageRefs).toEqual(["vellum://canvas/work?node=p1"]);
-    }
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) expect(resolved.denial).toBe("not_found");
   });
 });
 

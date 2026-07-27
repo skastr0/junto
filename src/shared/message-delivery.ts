@@ -12,8 +12,8 @@ import { isGroup } from "./graph";
 import { resolveSpec, roleOf } from "./physics";
 
 /**
- * Strip C0/C1 controls (and DEL) so herdr terminal.input never carries
- * CSI/ESC inject material. Whitespace is collapsed to a single line.
+ * Strip C0/C1 controls (and DEL) so a delivered line never carries CSI/ESC
+ * inject material into a PTY. Whitespace is collapsed to a single line.
  */
 export const sanitizeDeliveryLine = (text: string): string =>
   text
@@ -79,7 +79,7 @@ export const deliveryTargetOf = (
   return deliveryTargetFromSurface(surface);
 };
 
-/** Stamp metadata.deliveredAt on one message in an agent/herdr messages list. */
+/** Stamp metadata.deliveredAt on one message in an actor inbox. */
 export const stampMessageDelivered = (
   doc: CanvasDoc,
   nodeId: string,

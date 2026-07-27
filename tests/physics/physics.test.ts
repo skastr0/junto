@@ -281,21 +281,34 @@ describe("physics admitPure", () => {
     }
   });
 
-  it("admits terminal and herdr as actors for browser.automate", () => {
-    for (const kind of ["terminal", "herdr"] as const) {
-      const doc: CanvasDoc = {
-        nodes: [textNode("seat", kind), pageNode("p1")],
-        edges: [{ id: "e1", fromNode: "seat", toNode: "p1" }],
-      };
-      const view = canvasDocToCapabilityView(doc);
-      const result = admitPure(
-        view,
-        asNodeId("seat"),
-        asNodeId("p1"),
-        "browser.automate",
-      );
-      expect(Either.isRight(result), kind).toBe(true);
-    }
+  it("admits a terminal as an actor for browser.automate", () => {
+    const doc: CanvasDoc = {
+      nodes: [textNode("seat", "terminal"), pageNode("p1")],
+      edges: [{ id: "e1", fromNode: "seat", toNode: "p1" }],
+    };
+    const view = canvasDocToCapabilityView(doc);
+    const result = admitPure(
+      view,
+      asNodeId("seat"),
+      asNodeId("p1"),
+      "browser.automate",
+    );
+    expect(Either.isRight(result)).toBe(true);
+  });
+
+  it("denies browser.automate to geography — a herdr pane is not an actor", () => {
+    const doc: CanvasDoc = {
+      nodes: [textNode("seat", "herdr"), pageNode("p1")],
+      edges: [{ id: "e1", fromNode: "seat", toNode: "p1" }],
+    };
+    const view = canvasDocToCapabilityView(doc);
+    const result = admitPure(
+      view,
+      asNodeId("seat"),
+      asNodeId("p1"),
+      "browser.automate",
+    );
+    expect(Either.isLeft(result)).toBe(true);
   });
 
   it("denies with not_connected when only region co-members (no edge)", () => {
@@ -540,7 +553,7 @@ describe("physics admitPure", () => {
     const raw: CanvasDoc = {
       nodes: [
         textNode("a1", "agent"),
-        textNode("a2", "herdr", 200, 0),
+        textNode("a2", "agent", 200, 0),
       ],
       edges: [{ id: "e1", fromNode: "a1", toNode: "a2" }],
     };

@@ -40,8 +40,6 @@ export interface BrowserCallerPrincipal {
   readonly auditOwnerId: string;
   /** Hermes agent key when kind is agent (entity.name). */
   readonly agentKey?: string;
-  /** Herdr pane id when present on the node. */
-  readonly paneId?: string;
   /** Native terminal binding id when kind is terminal. */
   readonly bindingId?: string;
 }
@@ -63,7 +61,8 @@ export const areConnected = (doc: CanvasDoc, a: string, b: string): boolean => {
 
 /**
  * Actor seat eligibility via physics roleOf/resolveSpec — not a hard-coded
- * BROWSER_CALLER_KINDS ACL table. agent | terminal | herdr are actors.
+ * BROWSER_CALLER_KINDS ACL table. Geography (herdr, regions, notes) is not an
+ * actor, so it is refused here with no edit to this file.
  */
 export const isBrowserCallerNode = (node: CanvasNode | undefined): boolean => {
   if (!node) return false;
@@ -104,10 +103,6 @@ export const resolveBrowserCaller = (
     kind === "agent" && typeof node.ether?.entity?.name === "string"
       ? node.ether.entity.name
       : undefined;
-  const paneId =
-    kind === "herdr" && typeof node.ether?.herdr?.paneId === "string"
-      ? node.ether.herdr.paneId
-      : undefined;
   const bindingId =
     kind === "terminal" && typeof node.ether?.terminal?.bindingId === "string"
       ? node.ether.terminal.bindingId
@@ -121,7 +116,6 @@ export const resolveBrowserCaller = (
       kind,
       auditOwnerId: `edge:${canvasName}/${nodeId}`,
       ...(agentKey !== undefined ? { agentKey } : {}),
-      ...(paneId !== undefined ? { paneId } : {}),
       ...(bindingId !== undefined ? { bindingId } : {}),
     },
   };

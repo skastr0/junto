@@ -81,8 +81,8 @@ const formatStats = (stats: Record<string, string | number>): string => {
 // corpus yet — planned, not real. Exhaustive over NodeSpec so the exceptions
 // are stated once, per variant, instead of as a negation chain:
 //   agent  — hermes connection is identity-declared, never a seed
-//   herdr  — PTY bound by construction, never a seed
 //   page   — browser surface bound by construction, never a seed
+//   herdr  — geography, but its PTY is bound by construction, never a seed
 // A raw terminal has no declared identity to resolve, so it can still be a seed.
 const seedEligible = (node: CanvasNode): boolean =>
   Match.value(
@@ -92,7 +92,7 @@ const seedEligible = (node: CanvasNode): boolean =>
       Actor: (spec) => spec.kind === "terminal",
       Sink: (spec) => spec.kind !== "page",
       Scheduler: () => true,
-      Geography: () => true,
+      Geography: (spec) => spec.kind !== "herdr",
     }),
   );
 

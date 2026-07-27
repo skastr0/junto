@@ -110,16 +110,14 @@ describe("message-delivery pure helpers", () => {
     expect(stampMessageDelivered(stamped!, "agent", "m-a", 99)).toBeNull();
   });
 
-  it("resolves managed agent, herdr, and native terminal; bare agent is unreachable", () => {
+  it("resolves managed agent and native terminal; bare agent and herdr are unreachable", () => {
     // Agents without ether.terminal.bindingId never fall back to ACP.
     expect(deliveryTargetOf(agentNode())).toEqual({
       kind: "terminal",
       bindingId: "bind-mira",
     });
-    expect(deliveryTargetOf(herdrNode())).toEqual({
-      kind: "herdr",
-      terminalId: "term-1",
-    });
+    // Geography holds no inbox, so a herdr pane is not a delivery target.
+    expect(deliveryTargetOf(herdrNode())).toBeUndefined();
     expect(deliveryTargetOf(terminalNode())).toEqual({ kind: "terminal", bindingId: "binding-1" });
     const bare: CanvasDoc["nodes"][number] = {
       id: "x",
@@ -134,7 +132,7 @@ describe("message-delivery pure helpers", () => {
     expect(deliveryTargetOf(bare)).toBeUndefined();
   });
 
-  it("lists only foreign pending messages on agent/herdr nodes", () => {
+  it("lists only foreign pending messages on actor nodes", () => {
     const doc: CanvasDoc = {
       nodes: [
         agentNode([
@@ -168,7 +166,7 @@ describe("message-delivery pure helpers", () => {
       edges: [],
     };
     const pending = listPendingDeliveries(doc);
-    expect(pending.map((p) => p.message.messageId).sort()).toEqual(["h1", "p1"]);
+    expect(pending.map((p) => p.message.messageId).sort()).toEqual(["p1"]);
     expect(pending.find((p) => p.message.messageId === "p1")?.target).toEqual({
       kind: "terminal",
       bindingId: "bind-mira",

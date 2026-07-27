@@ -550,7 +550,7 @@ function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
         </div>
       </div>
     ) : null}
-    {kind === "agent" || kind === "herdr" ? <AgentMessagesPane node={node} /> : null}
+    {kind === "agent" ? <AgentMessagesPane node={node} /> : null}
   </>;
 }
 

@@ -11,10 +11,6 @@ describe("herdr IPC product path is TerminalSessions", () => {
     join(import.meta.dirname, "../src/main/vellum/herdr/ipc.ts"),
     "utf8",
   );
-  const mainIpcSrc = readFileSync(
-    join(import.meta.dirname, "../src/main/vellum/ipc.ts"),
-    "utf8",
-  );
   const indexSrc = readFileSync(
     join(import.meta.dirname, "../src/main/index.ts"),
     "utf8",
@@ -41,10 +37,7 @@ describe("herdr IPC product path is TerminalSessions", () => {
     expect(ipcSrc).not.toMatch(/plane\.streams\.setSink\b/);
   });
 
-  it("message delivery and quit count use sessions", () => {
-    expect(mainIpcSrc).toMatch(/herdr\.sessions\.streamIdForTerminal/);
-    expect(mainIpcSrc).toMatch(/herdr\.sessions\.inputTextProduct/);
-    expect(mainIpcSrc).toMatch(/herdr\.sessions\.setOpenHook/);
+  it("quit count uses sessions", () => {
     expect(indexSrc).toMatch(/herdr\.sessions\.activeControlCount/);
   });
 });

@@ -3,7 +3,7 @@ import type { ProcessPrincipal } from "../process-identity";
 import { findNode, nodeKind } from "./authz";
 
 // Resolve a process-bound principal to a concrete canvas caller node.
-// Agents never claim a nodeRef — main finds the live agent|herdr card(s).
+// Agents never claim a nodeRef — main finds the live agent card(s).
 //
 // Doctrine: resolution uses live in-process canvas authority only. Raw disk
 // scans must never mint capability from external file edits.
@@ -48,21 +48,8 @@ export const matchesPrincipal = (
       principal.nodeId !== undefined || principal.agentKey !== undefined
     );
   }
-  if (principal.kind === "terminal") {
-    // Terminal principals are process-bind only; never mint as route-token seats.
-    return false;
-  }
-  if (kind !== "herdr") return false;
-  if (principal.nodeId !== undefined && node.id !== principal.nodeId) {
-    return false;
-  }
-  if (
-    principal.paneId !== undefined &&
-    node.ether?.herdr?.paneId !== principal.paneId
-  ) {
-    return false;
-  }
-  return principal.nodeId !== undefined || principal.paneId !== undefined;
+  // Terminal principals are process-bind only; never mint as route-token seats.
+  return false;
 };
 
 /** Resolve against one already-loaded document (tests / hot path). */
@@ -92,7 +79,7 @@ export const resolveCallerOnDoc = (
       message:
         principal.kind === "agent"
           ? `no agent node for ${principal.agentKey ?? "unknown"} on canvas "${canvasName}"`
-          : `no herdr node for pane ${principal.paneId ?? "unknown"} on canvas "${canvasName}"`,
+          : `no terminal node for binding ${principal.bindingId ?? "unknown"} on canvas "${canvasName}"`,
     };
   }
   if (hits.length > 1) {
@@ -135,7 +122,7 @@ export const resolveCallerAcrossCanvases = (
       message:
         principal.kind === "agent"
           ? `no agent node for ${principal.agentKey ?? "unknown"} on any live canvas`
-          : `no herdr node for pane ${principal.paneId ?? "unknown"} on any live canvas`,
+          : `no terminal node for binding ${principal.bindingId ?? "unknown"} on any live canvas`,
     };
   }
   if (hits.length > 1) {
@@ -143,7 +130,7 @@ export const resolveCallerAcrossCanvases = (
       ok: false,
       code: "ambiguous",
       message:
-        "connecting process matches multiple canvas nodes — keep one agent|herdr card per process",
+        "connecting process matches multiple canvas nodes — keep one actor card per process",
     };
   }
   return { ok: true, caller: hits[0]! };

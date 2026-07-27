@@ -250,7 +250,7 @@ export const WorkLive = Layer.effect(
           }),
         ).pipe(
           Effect.tap((result) => {
-            // Nudge channel: only agent/herdr message lists (taskId null).
+            // Nudge channel: only actor inboxes (taskId null).
             // Task/request history is a pull surface — never auto-delivered.
             if (result.ok && taskId === null) {
               messageDelivery.notifyAppended(canvas, nodeId, result.data);

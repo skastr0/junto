@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from "react";
-import { HERDR_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { refreshFleet } from "../../lib/fleet-state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { Button, FieldLabel, Input } from "../ui";
@@ -9,7 +8,7 @@ type Capability = "browser" | "terminal" | "herdr" | "hermes";
 const CAPABILITIES: ReadonlyArray<{ readonly id: Capability; readonly label: string }> = [
   { id: "terminal", label: "terminal" },
   { id: "browser", label: "browser" },
-  ...(HERDR_SURFACE_HIDDEN ? [] : [{ id: "herdr" as const, label: "herdr" }]),
+  { id: "herdr", label: "herdr" },
   { id: "hermes", label: "hermes" },
 ];
 

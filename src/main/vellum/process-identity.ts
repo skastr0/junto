@@ -8,7 +8,7 @@ import { resolveSystemPs } from "./platform-executables";
 // Process-bind identity for local agent tooling (work + browser control).
 //
 // Canonical model:
-//   main registers live PIDs (ACP child, herdr pane processes) → principal
+//   main registers live PIDs (managed agent seats, native terminals) → principal
 //   control sockets read the Unix peer PID (not a client-supplied claim)
 //   admission walks the peer PID then its ancestors (CLI may be a grandchild)
 //   start-key epoch rejects PID reuse after the original process exits
@@ -16,14 +16,12 @@ import { resolveSystemPs } from "./platform-executables";
 //
 // Client-supplied nodeRef / capability secrets are not identity.
 
-export type ProcessPrincipalKind = "agent" | "herdr" | "terminal";
+export type ProcessPrincipalKind = "agent" | "terminal";
 
 export interface ProcessPrincipal {
   readonly kind: ProcessPrincipalKind;
   /** Hermes agent key (`local:profile`) when kind is agent. */
   readonly agentKey?: string;
-  /** Herdr pane id when kind is herdr. */
-  readonly paneId?: string;
   /** Stable native terminal binding when kind is terminal. */
   readonly bindingId?: string;
   /** Optional canvas anchor when known at bind time. */
@@ -43,8 +41,6 @@ export interface ProcessIdentityMap {
   readonly unbindPrincipal: (match: ProcessPrincipal) => void;
   /** Drop every bind for this agentKey (before rebinding a new ACP child). */
   readonly unbindAgentKey: (agentKey: string) => void;
-  /** Drop every bind for this herdr pane. */
-  readonly unbindHerdrPane: (paneId: string) => void;
   /** Drop every bind for this native terminal binding. */
   readonly unbindTerminalBinding: (bindingId: string) => void;
   readonly resolve: (pid: number) => ProcessPrincipal | undefined;
@@ -64,7 +60,6 @@ export interface ProcessIdentityMap {
 const samePrincipal = (a: ProcessPrincipal, b: ProcessPrincipal): boolean =>
   a.kind === b.kind &&
   a.agentKey === b.agentKey &&
-  a.paneId === b.paneId &&
   a.bindingId === b.bindingId &&
   a.canvasName === b.canvasName &&
   a.nodeId === b.nodeId;
@@ -116,7 +111,6 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
   const bind = (pid: number, principal: ProcessPrincipal): boolean => {
     if (!Number.isInteger(pid) || pid <= 0) return false;
     if (principal.kind === "agent" && !principal.agentKey) return false;
-    if (principal.kind === "herdr" && !principal.paneId && !principal.nodeId) return false;
     if (
       principal.kind === "terminal" &&
       (!principal.bindingId || !principal.canvasName || !principal.nodeId)
@@ -152,14 +146,6 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
   const unbindAgentKey = (agentKey: string): void => {
     for (const [pid, record] of byPid) {
       if (record.principal.kind === "agent" && record.principal.agentKey === agentKey) {
-        unbind(pid);
-      }
-    }
-  };
-
-  const unbindHerdrPane = (paneId: string): void => {
-    for (const [pid, record] of byPid) {
-      if (record.principal.kind === "herdr" && record.principal.paneId === paneId) {
         unbind(pid);
       }
     }
@@ -203,7 +189,6 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
     unbind,
     unbindPrincipal,
     unbindAgentKey,
-    unbindHerdrPane,
     unbindTerminalBinding,
     resolve: resolveLive,
     resolveInTree,
@@ -226,7 +211,7 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
   };
 };
 
-/** Shared main-process registry. Control planes and chat/herdr share one map. */
+/** Shared main-process registry. Every control plane shares one map. */
 let sharedMap: ProcessIdentityMap | undefined;
 
 export const getProcessIdentityMap = (): ProcessIdentityMap => {
@@ -379,7 +364,7 @@ export const admitProcessIdentity = (
       ok: false,
       denial: "process_unbound",
       message:
-        "connecting process is not a registered agent or herdr process — open the agent in Vellum first",
+        "connecting process is not a registered agent process — open the agent in Vellum first",
     };
   }
   return { ok: true, peerPid, principal };
