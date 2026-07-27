@@ -97,7 +97,6 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
         ) => Effect.Effect<void, RemoteHostsError>;
       },
     ) => Effect.Effect<ConfiguredRemoteDeployResult>;
-    readonly path: () => string;
   }
 >() {}
 
@@ -155,7 +154,6 @@ export const makeHostsService = (
     mutationLockFor(mutationTarget(host)).withPermits(1)(effect);
 
   return {
-    path: () => registry.path(),
     doctor: runRemoteHostsDoctor(registry, ssh),
     doctorSnapshot: runRemoteHostsDoctorSnapshot(registry, ssh),
     // Listing is the explicit durable reload boundary used by Settings and IPC.

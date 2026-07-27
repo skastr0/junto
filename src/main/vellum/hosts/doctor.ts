@@ -398,7 +398,6 @@ export const runRemoteHostsDoctorSnapshot = (
         status: worst,
         detail: lines.join(" · "),
         metadata: {
-          hostsPath: registry.path(),
           hostCount: String(hosts.length),
           remoteHostCount: String(remoteHosts.length),
           hermesKeys,

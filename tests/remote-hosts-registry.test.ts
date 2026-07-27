@@ -76,6 +76,7 @@ afterEach(async () => {
   setHostsSnapshot(defaultRemoteHostsDocument().hosts);
   delete process.env.VELLUM_ACP_VERBOSE;
   delete process.env.VELLUM_DEBUG;
+  delete process.env.VELLUM_E2E;
   delete process.env.VELLUM_STATE_DB;
 });
 
@@ -83,14 +84,13 @@ describe("remote hosts registry", () => {
   it("constructs fresh SQLite state with only the local host", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-empty-"));
     dirs.push(root);
-    const { registry, state } = await testRegistry(join(root, "vellum.db"));
+    const { registry } = await testRegistry(join(root, "vellum.db"));
 
     const hosts = await registry.list();
     expect(hosts.map((host) => host.id)).toEqual(["local"]);
     expect(hosts[0]?.capabilities).toEqual(
       expect.arrayContaining(["terminal", "browser", "herdr", "hermes"]),
     );
-    expect(registry.path()).toBe(state.info.path);
   });
 
   it("persists enrollment transactions and keeps local capabilities synthesized", async () => {
@@ -271,6 +271,7 @@ describe("remote hosts registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-boot-"));
     dirs.push(root);
     const databasePath = join(root, "vellum.db");
+    process.env.VELLUM_E2E = "1";
     process.env.VELLUM_STATE_DB = databasePath;
     const setupRuntime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     try {

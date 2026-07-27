@@ -401,7 +401,6 @@ const runRegistryEffect = async <A>(
 };
 
 export interface HostsRegistry {
-  readonly path: () => string;
   readonly list: () => Promise<ReadonlyArray<RemoteHost>>;
   readonly get: (id: string) => Promise<RemoteHost | undefined>;
   readonly findByHermesId: (hermesId: string) => Promise<RemoteHost | undefined>;
@@ -444,7 +443,6 @@ export const makeHostsRegistry = (
   };
 
   return {
-    path: () => state.info.path,
     list: async () => (await load()).hosts,
     get: async (id) => (await load()).hosts.find((host) => host.id === id),
     findByHermesId: async (hermesId) =>

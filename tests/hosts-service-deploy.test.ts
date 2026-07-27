@@ -37,7 +37,6 @@ const registryFor = (
   hosts: ReadonlyArray<RemoteHost>,
 ): HostsRegistry =>
   ({
-    path: () => "/tmp/vellum.db",
     get: async (id: string) => hosts.find((host) => host.id === id),
     list: async () => hosts,
     reload: async () => hosts,

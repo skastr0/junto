@@ -97,7 +97,6 @@ describe("remote hosts doctor", () => {
       }),
     );
     const registry = {
-      path: () => "/tmp/vellum.db",
       list: async () => [localHost],
     } as unknown as HostsRegistry;
 
@@ -110,7 +109,10 @@ describe("remote hosts doctor", () => {
       ["hermes", ["version"], 5_000],
     ]);
     expect(report.status).toBe("ok");
-    expect(report.metadata).toMatchObject({
+    expect(report.metadata).toEqual({
+      hostCount: "1",
+      remoteHostCount: "0",
+      hermesKeys: "local",
       browserHostCount: "1",
       browserHostIds: "local",
     });
@@ -126,7 +128,6 @@ describe("remote hosts doctor", () => {
       }),
     );
     const registry = {
-      path: () => "/tmp/vellum.db",
       list: async () => [localHost],
     } as unknown as HostsRegistry;
 
@@ -180,7 +181,6 @@ describe("remote hosts doctor", () => {
       }),
     );
     const registry = {
-      path: () => "/tmp/vellum.db",
       list: async () =>
         ["a", "b", "c"].map((id) => ({
           id,
@@ -211,7 +211,6 @@ describe("remote hosts doctor", () => {
       Effect.succeed(stationStatus("studio")),
     );
     const registry = {
-      path: () => "/tmp/vellum.db",
       list: async () => [
         {
           id: "studio",
@@ -259,7 +258,6 @@ describe("remote hosts doctor", () => {
       ),
     );
     const registry = {
-      path: () => "/tmp/vellum.db",
       list: async () => [
         {
           id: "studio",
