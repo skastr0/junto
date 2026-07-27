@@ -2,10 +2,10 @@
  * Backpressure e2e for the work plane.
  *
  * Drives the real IPC path (window.vellum.work*) against a sandboxed app,
- * then asserts the product contracts that unit tests cannot: file write,
- * hot-reload, and blocked-edge paint from live document state.
+ * then asserts the product contracts that unit tests cannot: durable mutation,
+ * live projection, and blocked-edge paint from runtime state.
  *
- * Isolation: throwaway VELLUM_CANVASES_DIR + HOME (harness/launch.ts).
+ * Isolation: throwaway VELLUM_STATE_DB + HOME (harness/launch.ts).
  * Run: `bun run test:e2e` (builds) or `bun run test:e2e:fast` (uses out/).
  */
 import type { Task, Artifact, Message } from "../../src/shared/canvas";
@@ -14,7 +14,6 @@ import {
   agentTextNode,
   artifactsNode,
   canvasDoc,
-  readCanvasFile,
   requestsNode,
   tasksCriteriaEdge,
   tasksNode,
@@ -37,7 +36,7 @@ const fixtureDoc = canvasDoc(
   [tasksCriteriaEdge("e-req", "req", "target")],
 );
 
-/** Authority-only boot: disk seed is not live. Install via writeCanvas. */
+/** Install authorial intent through the app-owned API. */
 const installWorkBoard = async (page: import("@playwright/test").Page): Promise<string> => {
   await expect
     .poll(
@@ -170,7 +169,7 @@ const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => 
 test("work plane: task claim/transition, request blocks then clears, artifact on disk", async ({
   vellum,
 }) => {
-  const { page, sandbox } = vellum;
+  const { page } = vellum;
   const api = await work(page);
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
