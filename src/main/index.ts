@@ -32,7 +32,7 @@ import {
 import { appProcessPlane } from "./vellum/app-process-plane";
 import { AppRuntime } from "./runtime";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
-import { canvasesDir, CanvasesService } from "./vellum/canvases";
+import { CanvasesService } from "./vellum/canvases";
 import { resolveControlHome } from "./vellum/control-home";
 import { registerDemoIpcHandlers } from "./vellum/demo/ipc";
 import {
@@ -1331,12 +1331,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             await prepareDefaultBrowserStationAdmissionAuthority();
           const edgeGrant = makeEdgeGrantService({
             capabilities: composition.registry,
-            // Same root as CanvasesService (honors VELLUM_CANVASES_DIR / HOME) —
-            // never app.getPath("home"), which ignores sandboxed E2E HOME.
-            canvasesDir: canvasesDir(),
             resolvePageTarget: resolveBrowserPageTarget,
             listCanvasDocuments,
-            readCanvas: readCanvasFromCanvases,
             station: () => composition.sessions.stationIdentity(),
             admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId),
             admitStation: stationAdmission.admit,
@@ -1398,7 +1394,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             home: browserControlHome,
             edgeGrant,
             listCanvasDocuments,
-            readCanvas: readCanvasFromCanvases,
             ...stationBrowserRoutes,
           });
           const productPath = makeElectronBrowserReadinessProductPath({
