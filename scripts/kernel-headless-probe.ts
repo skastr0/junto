@@ -2,13 +2,13 @@
 // Deterministic backstop for headless kernel delivery (kernel-design.md §7,
 // consumed by the "headless-launchd-verify" batch).
 //
-// Spawns an ISOLATED instance of the app — its own --user-data-dir (own
-// store.json) and its own VELLUM_CANVASES_DIR (canvases.ts's env override,
-// added alongside this probe) — so nothing here ever touches the operator's
-// real ~/.vellum/canvases or real store.json. Two passes:
+// Spawns an ISOLATED instance of the app with one pre-seeded SQLite database
+// and its own sidecar-output directory, so nothing here ever touches the
+// operator's real Vellum state. The seeding connection is closed before the
+// app starts; the app remains the database's sole live owner. Two passes:
 //
-//   1. ARMED   — pre-seeds store.json's kernel.armed (the "via store" arming
-//      path, kernel-design.md §3) for a fixture region, boots the app,
+//   1. ARMED   — pre-seeds the runtime store's kernel.armed row for a fixture
+//      region, boots the app,
 //      boots the app in its explicit no-window mode (the app + kernel keep
 //      running with zero windows, exactly the packaged/launchd shape), and
 //      waits for a TIMER pulse routed over a human-authored timer → agent edge
@@ -23,18 +23,23 @@
 // entity + human-edge router used by watcher fire. Region membership supplies
 // arming and instruction context only.
 //
-// External control surface is file-based (store.json + authority seed),
-// matching AGENTS.md's headless contract — this app exposes no IPC to a
-// process outside itself; the explicit headless argv has no control transport.
+// Observation is the child process's bounded stdout stream. The probe never
+// reopens the live database and has no JSON-file compatibility lane.
 //
 // Exit 0 if both passes hold; exit 2 with a diagnosis otherwise.
 
 import { constants } from "node:fs";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ManagedRuntime } from "effect";
+import { Layer, ManagedRuntime } from "effect";
+import { StoreLive, StoreService } from "../src/main/services/store";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
+import {
+  KERNEL_OBSERVATION_PREFIX,
+} from "../src/main/vellum/kernel/service";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 import {
   startRendererServer,
   type RendererServer,
@@ -108,25 +113,11 @@ interface PulseRecordLike {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-const storePath = (userDataDir: string): string => join(userDataDir, "store.json");
-
-const readStore = async (userDataDir: string): Promise<Record<string, unknown>> => {
-  try {
-    return JSON.parse(await readFile(storePath(userDataDir), "utf8")) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-};
-
-const writeStore = async (userDataDir: string, data: Record<string, unknown>): Promise<void> => {
-  await mkdir(userDataDir, { recursive: true });
-  await writeFile(storePath(userDataDir), `${JSON.stringify(data, null, 2)}\n`, "utf8");
-};
-
 interface Fixture {
   readonly root: string;
   readonly userDataDir: string;
   readonly canvasesDir: string;
+  readonly stateDatabase: string;
   readonly previousHome: string | undefined;
 }
 
@@ -136,30 +127,43 @@ const setUpFixture = async (armed: boolean): Promise<Fixture> => {
   const root = sandbox.root;
   const userDataDir = join(root, "userData");
   const canvasesDir = join(root, "canvases");
+  const stateDatabase = join(root, "state", "vellum.db");
   await mkdir(canvasesDir, { recursive: true });
   // Isolate HOME so any accidental homedir() paths stay inside the sandbox.
   const previousHome = process.env.HOME;
   process.env.HOME = root;
   process.env.VELLUM_CANVASES_DIR = canvasesDir;
-  // Authority is sole store — seed via CanvasesService.write (sibling
-  // canvas-authority-v1 under VELLUM_CANVASES_DIR). Boot no longer imports .canvas.
-  const runtime = ManagedRuntime.make(CanvasesLive);
+  const repositories = Layer.provideMerge(
+    WorkRepositoryLive,
+    makeStateEngineLive(stateDatabase),
+  );
+  const seedServices = Layer.provideMerge(
+    Layer.mergeAll(CanvasesLive, StoreLive),
+    repositories,
+  );
+  const runtime = ManagedRuntime.make(seedServices);
   try {
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(
       canvases.write(KERNEL_PROBE_CANVAS, makeKernelHeadlessFixture()),
     );
+    if (armed) {
+      const store = await runtime.runPromise(StoreService);
+      await runtime.runPromise(store.set("kernel.armed", {
+        [`${KERNEL_PROBE_CANVAS}::${KERNEL_PROBE_REGION_ID}`]: true,
+      }));
+    }
   } finally {
+    // The child may only start after this connection is closed.
     await runtime.dispose();
   }
-  if (armed) {
-    await writeStore(userDataDir, {
-      "kernel.armed": {
-        [`${KERNEL_PROBE_CANVAS}::${KERNEL_PROBE_REGION_ID}`]: true,
-      },
-    });
-  }
-  return { root, userDataDir, canvasesDir, previousHome };
+  return {
+    root,
+    userDataDir,
+    canvasesDir,
+    stateDatabase,
+    previousHome,
+  };
 };
 
 const spawnApp = (
@@ -182,12 +186,8 @@ const spawnApp = (
       VELLUM_BROWSER_DIR: join(fixture.root, "browser"),
       VELLUM_BROWSER_HOME: fixture.userDataDir,
       VELLUM_CANVASES_DIR: fixture.canvasesDir,
-      VELLUM_HOSTS_PATH: join(fixture.root, "hosts.json"),
-      VELLUM_SETTINGS_PATH: join(fixture.root, "settings.json"),
-      VELLUM_STATION_STATUS_PATH: join(
-        fixture.root,
-        "station-status.json",
-      ),
+      VELLUM_STATE_DB: fixture.stateDatabase,
+      VELLUM_KERNEL_OBSERVATIONS: "1",
       VELLUM_WORK_HOME: join(fixture.root, "work-control"),
     },
   });
@@ -196,6 +196,27 @@ const spawnApp = (
     destination.write(`[app] ${chunk}`);
   });
   return child;
+};
+
+const observedPulseRecords = (
+  child: ProbeProcessHandle,
+): ReadonlyArray<PulseRecordLike> => {
+  const records: PulseRecordLike[] = [];
+  for (const line of child.output().stdout.split(/\r?\n/u)) {
+    const marker = line.indexOf(KERNEL_OBSERVATION_PREFIX);
+    if (marker < 0) continue;
+    try {
+      const observation = JSON.parse(
+        line.slice(marker + KERNEL_OBSERVATION_PREFIX.length),
+      ) as { readonly pulseLog?: ReadonlyArray<PulseRecordLike> };
+      if (Array.isArray(observation.pulseLog)) {
+        records.push(...observation.pulseLog);
+      }
+    } catch {
+      // A partially buffered final line is retried on the next poll.
+    }
+  }
+  return records;
 };
 
 const waitForPulse = async (
@@ -214,9 +235,7 @@ const waitForPulse = async (
         `headless Vellum exited before a PulseRecord (code ${String(close.exitCode)}, signal ${String(close.signal)})${diagnostic ? `\n${diagnostic}` : ""}`,
       );
     }
-    const store = await readStore(fixture.userDataDir);
-    const debug = store["kernel.debug"] as { pulseLog?: ReadonlyArray<PulseRecordLike> } | undefined;
-    const match = debug?.pulseLog?.find(
+    const match = observedPulseRecords(child).find(
       (record) =>
         record.canvasName === KERNEL_PROBE_CANVAS && predicate(record),
     );
@@ -238,18 +257,16 @@ const nudgeTimerAfterKernelBaseline = async (
         `headless Vellum exited before the kernel baseline (code ${String(close.exitCode)}, signal ${String(close.signal)})`,
       );
     }
-    const store = await readStore(fixture.userDataDir);
-    if ("kernel.debug" in store) break;
+    if (child.output().stdout.includes(KERNEL_OBSERVATION_PREFIX)) break;
     await sleep(BOOT_POLL_MS);
   }
-  const baseline = await readStore(fixture.userDataDir);
-  if (!("kernel.debug" in baseline)) {
+  if (!child.output().stdout.includes(KERNEL_OBSERVATION_PREFIX)) {
     throw new Error("kernel did not publish its initial headless baseline");
   }
 
   // A timer is intentionally not fired on discovery. Wait past its first
   // schedule so the kernel safety evaluation (or due timer path) can fire
-  // without a .canvas watcher rewrite — authority is the sole document store.
+  // without an authorial document rewrite — SQLite authority is the sole store.
   await sleep(KERNEL_PROBE_TIMER_EVERY_MINUTES * 60_000 + 250);
 };
 

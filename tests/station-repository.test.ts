@@ -1,3 +1,4 @@
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +25,14 @@ import {
   type StationEvent as StationEventValue,
 } from "../src/shared/station-api";
 import {
+  StationBrowserPinnedTrustRecord,
+  type StationBrowserPinnedTrustRecord as StationBrowserPinnedTrustRecordValue,
+} from "../src/shared/station-browser";
+import {
+  SettingsLive,
+  SettingsService,
+} from "../src/main/vellum/settings/service";
+import {
   StationRepository,
   makeStationRepositoryLive,
   stationEventContentSha256,
@@ -32,6 +41,7 @@ import {
 import {
   makeStateEngineLive,
   StateEngine,
+  type StateRow,
 } from "../src/main/vellum/state/engine";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
@@ -61,10 +71,13 @@ const makeRuntime = (
   const stateLive = makeStateEngineLive(path);
   return ManagedRuntime.make(
     Layer.provideMerge(
-      makeStationRepositoryLive({
-        makeInstallationId: () => generatedId,
-        now: () => "2026-07-27T12:00:00.000Z",
-      }),
+      Layer.merge(
+        makeStationRepositoryLive({
+          makeInstallationId: () => generatedId,
+          now: () => "2026-07-27T12:00:00.000Z",
+        }),
+        SettingsLive,
+      ),
       stateLive,
     ),
   );
@@ -86,6 +99,10 @@ const pairRequest = (
 const remoteConfigurationRequest = (
   local: InstallationIdValue,
   commandCenter: InstallationIdValue,
+  options: {
+    readonly browserTrust?: StationBrowserPinnedTrustRecordValue;
+    readonly supervisedPreferred?: boolean;
+  } = {},
 ) =>
   ConfigureRequest.make({
     protocol: STATION_API_PROTOCOL,
@@ -97,9 +114,53 @@ const remoteConfigurationRequest = (
       agentHostId: decodeHostId("studio"),
       commandCenterInstallationId: commandCenter,
       commandCenterRef: "cc.tailnet",
+      supervisedPreferred: options.supervisedPreferred ?? true,
+      ...(options.browserTrust === undefined
+        ? {}
+        : { browserTrust: options.browserTrust }),
+    },
+  });
+
+const commandCenterConfigurationRequest = (
+  local: InstallationIdValue,
+) =>
+  ConfigureRequest.make({
+    protocol: STATION_API_PROTOCOL,
+    op: "configure",
+    installationId: local,
+    configuration: {
+      role: "command-center",
+      hostId: decodeHostId("command"),
       supervisedPreferred: true,
     },
   });
+
+const pinnedTrust = (
+  originStationId: string,
+  generation = 1,
+): StationBrowserPinnedTrustRecordValue => {
+  const { publicKey } = generateKeyPairSync("ed25519");
+  const publicKeySpki = publicKey.export({
+    format: "der",
+    type: "spki",
+  }) as Buffer;
+  return StationBrowserPinnedTrustRecord.make({
+    version: 1,
+    generation,
+    keyId:
+      `ed25519-${
+        createHash("sha256")
+          .update(publicKeySpki)
+          .digest("hex")
+          .slice(0, 24)
+      }`,
+    originStationId,
+    status: "active",
+    publicKeySpki: publicKeySpki.toString("base64"),
+    replacesKeyId: null,
+    updatedAt: generation,
+  });
+};
 
 const projectRequest = (
   local: InstallationIdValue,
@@ -350,6 +411,192 @@ describe("StationRepository", () => {
       generation: "9007199254740993",
       body: '{"version":1}',
       receivedAt: "2026-07-27T12:01:00.000Z",
+    });
+    await runtime.dispose();
+  });
+
+  it("projects Command Center configuration into protected settings topology", async () => {
+    const path = await testDatabase();
+    const local = decodeInstallationId("command-config-integration");
+    const runtime = makeRuntime(path, local);
+    const repository = await runtime.runPromise(StationRepository);
+    const settings = await runtime.runPromise(SettingsService);
+
+    const configured = await runtime.runPromise(
+      repository.configure(commandCenterConfigurationRequest(local)),
+    );
+    expect(configured.configuration).toEqual({
+      role: "command-center",
+      hostId: "command",
+      supervisedPreferred: true,
+    });
+    expect((await runtime.runPromise(settings.get)).station).toEqual({
+      role: "command-center",
+      hostId: "command",
+      commandCenterRef: "",
+      supervisedPreferred: true,
+    });
+    await runtime.dispose();
+  });
+
+  it("commits browser trust and protected settings topology as one configure transition", async () => {
+    const path = await testDatabase();
+    const local = decodeInstallationId("station-config-integration");
+    const cc = decodeInstallationId("cc-config-integration");
+    const runtime = makeRuntime(path, local);
+    const repository = await runtime.runPromise(StationRepository);
+    const settings = await runtime.runPromise(SettingsService);
+    const state = await runtime.runPromise(StateEngine);
+    await runtime.runPromise(repository.pair(pairRequest(local, cc)));
+
+    const configured = await runtime.runPromise(
+      repository.configure(
+        remoteConfigurationRequest(local, cc),
+        "2026-07-27T13:00:00.000Z",
+      ),
+    );
+    expect(configured.configuration).not.toHaveProperty("browserTrust");
+
+    const trust = pinnedTrust("cc-browser");
+    const trustInstalled = await runtime.runPromise(
+      repository.configure(
+        remoteConfigurationRequest(local, cc, { browserTrust: trust }),
+        "2026-07-27T14:00:00.000Z",
+      ),
+    );
+    // Installing trust on an otherwise identical configuration does not
+    // rewrite the configuration clock, but the response includes the durable
+    // pin installed before the idempotency decision.
+    expect(trustInstalled.configuredAt).toBe(configured.configuredAt);
+    expect(
+      trustInstalled.configuration.role === "remote"
+        ? trustInstalled.configuration.browserTrust
+        : undefined,
+    ).toEqual(trust);
+
+    const retryWithoutPin = await runtime.runPromise(
+      repository.configure(
+        remoteConfigurationRequest(local, cc),
+        "2026-07-27T15:00:00.000Z",
+      ),
+    );
+    expect(
+      retryWithoutPin.configuration.role === "remote"
+        ? retryWithoutPin.configuration.browserTrust
+        : undefined,
+    ).toEqual(trust);
+
+    const durable = await runtime.runPromise(
+      state.read("test.station-config-integration", (reader) => ({
+        topology: reader.get<StateRow & { readonly body: string }>(
+          `SELECT body
+             FROM settings_station_topology
+            WHERE singleton = 1`,
+        )?.body,
+        pins: Number(
+          reader.get<StateRow & { readonly count: number }>(
+            `SELECT count(*) AS count
+               FROM browser_pinned_origin_trust`,
+          )?.count ?? 0,
+        ),
+      })),
+    );
+    expect(JSON.parse(durable.topology ?? "null")).toEqual({
+      role: "remote",
+      hostId: "studio",
+      agentHostId: "studio",
+      commandCenterRef: "cc.tailnet",
+      supervisedPreferred: true,
+    });
+    expect(durable.pins).toBe(1);
+    expect((await runtime.runPromise(settings.get)).station).toEqual(
+      JSON.parse(durable.topology ?? "null"),
+    );
+    expect(
+      (await runtime.runPromise(repository.statusFacts)).configuration,
+    ).toMatchObject({
+      role: "remote",
+      browserTrust: trust,
+    });
+
+    // An idempotent configure repairs a diverged protected projection before
+    // returning its unchanged configuration row.
+    await runtime.runPromise(
+      state.transaction("test.diverge-settings-topology", (writer) => {
+        writer.run(
+          `UPDATE settings_station_topology
+              SET body = ?, updated_at = ?
+            WHERE singleton = 1`,
+          [
+            JSON.stringify({
+              role: "remote",
+              hostId: "wrong-host",
+              agentHostId: "wrong-host",
+              commandCenterRef: "wrong.example",
+              supervisedPreferred: false,
+            }),
+            "2026-07-27T15:30:00.000Z",
+          ],
+        );
+      }),
+    );
+    await runtime.runPromise(
+      repository.configure(remoteConfigurationRequest(local, cc)),
+    );
+    expect((await runtime.runPromise(settings.get)).station).toEqual({
+      role: "remote",
+      hostId: "studio",
+      agentHostId: "studio",
+      commandCenterRef: "cc.tailnet",
+      supervisedPreferred: true,
+    });
+
+    // A conflicting pin rolls back the proposed topology/configuration change
+    // as well as the trust transition.
+    const conflictingTrust = pinnedTrust("cc-browser");
+    const rejected = await runtime.runPromise(
+      repository
+        .configure(
+          remoteConfigurationRequest(local, cc, {
+            browserTrust: conflictingTrust,
+            supervisedPreferred: false,
+          }),
+          "2026-07-27T16:00:00.000Z",
+        )
+        .pipe(Effect.either),
+    );
+    expect(Either.isLeft(rejected)).toBe(true);
+    if (Either.isLeft(rejected)) {
+      expect(rejected.left).toMatchObject({
+        _tag: "StationBrowserTrustError",
+        code: "conflict",
+      });
+    }
+    const afterRejected = await runtime.runPromise(
+      state.read("test.station-config-rollback", (reader) => ({
+        pins: Number(
+          reader.get<StateRow & { readonly count: number }>(
+            `SELECT count(*) AS count
+               FROM browser_pinned_origin_trust`,
+          )?.count ?? 0,
+        ),
+        topology: reader.get<StateRow & { readonly body: string }>(
+          `SELECT body
+             FROM settings_station_topology
+            WHERE singleton = 1`,
+        )?.body,
+      })),
+    );
+    expect(afterRejected.pins).toBe(1);
+    expect(JSON.parse(afterRejected.topology ?? "null")).toMatchObject({
+      supervisedPreferred: true,
+    });
+    expect(
+      (await runtime.runPromise(repository.configuration))?.configuration,
+    ).toMatchObject({
+      role: "remote",
+      supervisedPreferred: true,
+      browserTrust: trust,
     });
     await runtime.dispose();
   });

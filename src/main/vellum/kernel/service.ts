@@ -98,6 +98,7 @@ const SAFETY_INTERVAL_MS = 30_000;
 const PULSE_LOG_POLL_MS = 3_000;
 const ARMED_STORE_KEY = "kernel.armed";
 const KNOWN_FLAGS: ReadonlySet<string> = new Set(["blocker", "parked", "attention"]);
+export const KERNEL_OBSERVATION_PREFIX = "[vellum:kernel-observation] ";
 
 const armedStoreKey = (canvasName: string, regionId: string): string => `${canvasName}::${regionId}`;
 
@@ -265,12 +266,21 @@ const makeKernelService = (
     const snapshot = composeSnapshot();
     lastPulseLogLength = snapshot.pulseLog.length;
     for (const listener of snapshotListeners) listener(snapshot);
-    // Best-effort file-based mirror for headless observability (the probe
-    // and any other external, IPC-less tooling): bounded tail, never blocks
-    // or fails the push on a store write hiccup.
+    // Durable debug state shares the app-owned SQLite connection. It is useful
+    // after restart, but external processes must never open the live database.
     void Effect.runPromise(
       store.set("kernel.debug", { pulseLog: snapshot.pulseLog.slice(-20) }),
     ).catch(() => undefined);
+    // The packaged headless probe observes the main process over its bounded
+    // stdout transport. This keeps the database single-owner even while the
+    // probe waits for a pulse.
+    if (process.env.VELLUM_KERNEL_OBSERVATIONS === "1") {
+      console.log(
+        `${KERNEL_OBSERVATION_PREFIX}${JSON.stringify({
+          pulseLog: snapshot.pulseLog.slice(-20),
+        })}`,
+      );
+    }
   };
 
   // Glyph rows for watchers/criteria: tests inject via __setGlyphFetcherForTest.
