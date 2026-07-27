@@ -58,6 +58,7 @@ import { startWorkControlServer, type WorkControlServer } from "./vellum/work/co
 import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
 import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum/browser/station-admission";
 import { prepareStationBrowserRuntimeRoutes } from "./vellum/browser/station-runtime";
+import { StationBrowserTrustRepository } from "./vellum/browser/station-trust";
 import { SshTransport } from "./vellum/ssh";
 import { configurePeerPidHelperRoots } from "./vellum/process-identity";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
@@ -1317,12 +1318,17 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           if (admissionCleanupRan) acquiredCanvasUnsubscribe();
           else canvasUnsubscribe = acquiredCanvasUnsubscribe;
 
-          const ssh = await AppRuntime.runPromise(
-            Effect.map(SshTransport, (service) => service),
-          );
+          const { ssh, stationBrowserTrust } =
+            await AppRuntime.runPromise(
+              Effect.all({
+                ssh: SshTransport,
+                stationBrowserTrust: StationBrowserTrustRepository,
+              }),
+            );
           const stationBrowserRoutes =
             await prepareStationBrowserRuntimeRoutes({
               home: browserControlHome,
+              trust: stationBrowserTrust,
               sessions: composition.sessions,
               readCanvas: readCanvasFromCanvases,
               resolvePageTarget: resolveBrowserPageTarget,

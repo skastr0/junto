@@ -36,10 +36,6 @@ import {
   type StationBrowserSession,
 } from "../src/shared/station-browser";
 import type { StationBrowserRouteInput } from "../src/main/vellum/browser/station-router";
-import {
-  installStationBrowserTrustFrame,
-  STATION_BROWSER_TRUST_MAX_BYTES,
-} from "../src/main/vellum/browser/station-trust";
 import { parseNodeRef } from "../src/shared/node-ref";
 
 // Agent CLI for the browser control plane: `bun run browser <cmd>` talks to
@@ -328,24 +324,6 @@ const stationWrapperMain = async (
     process.exit(0);
   } catch {
     console.error("station browser wrapper failed");
-    process.exit(1);
-  }
-};
-
-const stationTrustMain = async (
-  args: ReadonlyArray<string>,
-): Promise<never> => {
-  if (args.length !== 0) {
-    console.error("station trust wrapper accepts no arguments");
-    process.exit(2);
-  }
-  try {
-    const frame = await readBoundedStdin(STATION_BROWSER_TRUST_MAX_BYTES);
-    const response = await installStationBrowserTrustFrame(frame);
-    process.stdout.write(`${response}\n`);
-    process.exit(0);
-  } catch {
-    console.error("station trust wrapper failed");
     process.exit(1);
   }
 };
@@ -752,9 +730,6 @@ const main = async (): Promise<void> => {
   const rawArgv = process.argv.slice(2);
   if (rawArgv[0] === "station") {
     return stationWrapperMain(rawArgv.slice(1));
-  }
-  if (rawArgv[0] === "station-trust") {
-    return stationTrustMain(rawArgv.slice(1));
   }
   const parsed = parseArgs(rawArgv);
   if ("error" in parsed) {

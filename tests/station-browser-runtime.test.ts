@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Socket } from "node:net";
-import { Effect } from "effect";
+import { Effect, type Context } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import type { StationRole } from "../src/shared/station";
 import type { BrowserSessionService } from "../src/main/vellum/browser/sessions";
@@ -11,10 +11,15 @@ import type { SshTransport } from "../src/main/vellum/ssh/service";
 import {
   admitOperatorUiDelegation,
   mintStationBrowserEnvelope,
+  type StationBrowserTrust,
 } from "../src/main/vellum/browser/station-delegation";
 import {
   prepareStationBrowserRuntimeRoutes,
 } from "../src/main/vellum/browser/station-runtime";
+import {
+  StationBrowserTrustRepository,
+  type StationBrowserOriginKey,
+} from "../src/main/vellum/browser/station-trust";
 import { decodeStationBrowserResponse } from "../src/shared/station-browser";
 
 const roots: string[] = [];
@@ -47,6 +52,43 @@ const remoteHost = {
 const fakeSsh = {
   run: () => Effect.die(new Error("unexpected SSH")),
 } as unknown as typeof SshTransport.Service;
+
+const trustHarness = (
+  pinned?: StationBrowserTrust,
+) => {
+  const pair = generateKeyPairSync("ed25519");
+  const originKey = {
+    generation: 1,
+    keyId: "ed25519-test-origin",
+    originStationId: "local",
+    createdAt: 1,
+    privateKey: pair.privateKey,
+    publicKey: pair.publicKey,
+  } as StationBrowserOriginKey;
+  let originLoads = 0;
+  let pinnedLoads = 0;
+  const service = StationBrowserTrustRepository.of({
+    loadOrCreateOriginKey: () =>
+      Effect.sync(() => {
+        originLoads += 1;
+        return originKey;
+      }),
+    rotateOriginKey: () =>
+      Effect.die(new Error("unexpected key rotation")),
+    readPinnedRecord: Effect.succeed(undefined),
+    installPinnedRecord: () =>
+      Effect.die(new Error("unexpected pin install")),
+    loadPinnedTrust: Effect.sync(() => {
+      pinnedLoads += 1;
+      return pinned;
+    }),
+  });
+  return {
+    service,
+    originLoads: () => originLoads,
+    pinnedLoads: () => pinnedLoads,
+  };
+};
 
 const sessionHarness = (
   initial:
@@ -84,8 +126,10 @@ const sessionHarness = (
 
 const deps = async (
   sessions: BrowserSessionService,
+  trust: Context.Tag.Service<typeof StationBrowserTrustRepository>,
 ) => ({
   home: await home(),
+  trust,
   sessions,
   readCanvas: async () => undefined,
   resolvePageTarget: async () => ({
@@ -101,18 +145,27 @@ const deps = async (
 describe("station browser production runtime composition", () => {
   it("publishes no route without current physical authority", async () => {
     const missing = sessionHarness(undefined);
+    const missingTrust = trustHarness();
     await expect(
-      prepareStationBrowserRuntimeRoutes(await deps(missing.sessions)),
+      prepareStationBrowserRuntimeRoutes(
+        await deps(missing.sessions, missingTrust.service),
+      ),
     ).resolves.toEqual({});
+    expect(missingTrust.originLoads()).toBe(0);
+    expect(missingTrust.pinnedLoads()).toBe(0);
 
     const denied = sessionHarness({
       hostId: "local",
       role: "command-center",
     });
+    const deniedTrust = trustHarness();
     denied.setCapable(false);
     await expect(
-      prepareStationBrowserRuntimeRoutes(await deps(denied.sessions)),
+      prepareStationBrowserRuntimeRoutes(
+        await deps(denied.sessions, deniedTrust.service),
+      ),
     ).resolves.toEqual({});
+    expect(deniedTrust.originLoads()).toBe(0);
   });
 
   it("publishes only the Command Center origin and revokes it on identity drift", async () => {
@@ -120,11 +173,13 @@ describe("station browser production runtime composition", () => {
       hostId: "local",
       role: "command-center",
     });
+    const trust = trustHarness();
     const routes = await prepareStationBrowserRuntimeRoutes(
-      await deps(harness.sessions),
+      await deps(harness.sessions, trust.service),
     );
     expect(routes.stationBrowserOrigin).toBeDefined();
     expect(routes.stationBrowserWrapper).toBeUndefined();
+    expect(trust.originLoads()).toBe(1);
 
     harness.setIdentity({ hostId: "remote-a", role: "remote" });
     expect(() =>
@@ -137,11 +192,13 @@ describe("station browser production runtime composition", () => {
       hostId: "remote-a",
       role: "remote",
     });
+    const trust = trustHarness();
     const routes = await prepareStationBrowserRuntimeRoutes(
-      await deps(harness.sessions),
+      await deps(harness.sessions, trust.service),
     );
     expect(routes.stationBrowserOrigin).toBeUndefined();
     expect(routes.stationBrowserWrapper).toBeDefined();
+    expect(trust.pinnedLoads()).toBe(1);
 
     const keys = generateKeyPairSync("ed25519");
     const envelope = mintStationBrowserEnvelope(
@@ -166,5 +223,6 @@ describe("station browser production runtime composition", () => {
       hostId: "remote-a",
       error: "key",
     });
+    expect(trust.pinnedLoads()).toBe(2);
   });
 });

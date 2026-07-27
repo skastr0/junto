@@ -1,4 +1,5 @@
 import type { Socket } from "node:net";
+import { Effect, type Context } from "effect";
 import type { CanvasDoc } from "@shared/canvas";
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { StationRole } from "@shared/station";
@@ -20,7 +21,7 @@ import {
 } from "./station-target-executor";
 import { makeStationBrowserTargetPolicy } from "./station-target-policy";
 import { makeStationBrowserRouter } from "./station-router";
-import { makeStationBrowserTrustStore } from "./station-trust";
+import { StationBrowserTrustRepository } from "./station-trust";
 import {
   makeStationBrowserWrapper,
   type StationBrowserWrapper,
@@ -33,6 +34,9 @@ export interface StationBrowserRuntimeRoutes {
 
 export interface StationBrowserRuntimeDeps {
   readonly home: string;
+  readonly trust: Context.Tag.Service<
+    typeof StationBrowserTrustRepository
+  >;
   readonly sessions: BrowserSessionService;
   readonly readCanvas: (name: string) => Promise<CanvasDoc | undefined>;
   readonly resolvePageTarget: PageTargetResolver;
@@ -86,13 +90,14 @@ export const prepareStationBrowserRuntimeRoutes = async (
     return Object.freeze({});
   }
 
-  const trust = makeStationBrowserTrustStore(deps.home);
   if (identity.role === "command-center") {
     // Validate custody before the control socket can become reachable.
-    await trust.loadOrCreateOriginKey(identity.hostId);
+    await Effect.runPromise(
+      deps.trust.loadOrCreateOriginKey(identity.hostId),
+    );
   } else {
     // A missing pin is an allowed, closed state. A malformed ledger is not.
-    await trust.loadPinnedTrust();
+    await Effect.runPromise(deps.trust.loadPinnedTrust);
   }
 
   const targetPolicy = makeStationBrowserTargetPolicy({
@@ -115,7 +120,7 @@ export const prepareStationBrowserRuntimeRoutes = async (
   if (identity.role === "remote") {
     return Object.freeze({
       stationBrowserWrapper: makeStationBrowserWrapper({
-        trust: () => trust.loadPinnedTrust(),
+        trust: () => Effect.runPromise(deps.trust.loadPinnedTrust),
         verification: targetPolicy.verification,
         replays: new StationBrowserReplayCache(),
         execute: targetExecutor,
@@ -136,7 +141,9 @@ export const prepareStationBrowserRuntimeRoutes = async (
       if (!currentIdentityMatches(deps.sessions, identity)) {
         throw new StationBrowserRuntimeCompositionError();
       }
-      const key = await trust.loadOrCreateOriginKey(identity.hostId);
+      const key = await Effect.runPromise(
+        deps.trust.loadOrCreateOriginKey(identity.hostId),
+      );
       return { keyId: key.keyId, privateKey: key.privateKey };
     },
   });

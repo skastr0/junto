@@ -200,9 +200,3 @@ export const remoteVellumBrowserStation = (): Effect.Effect<
   RemoteCommand,
   SshInputError
 > => makeRemoteCommand("vellum-browser", ["station"]);
-
-/** Fixed station-browser trust wrapper: `vellum-browser station-trust`. */
-export const remoteVellumBrowserStationTrust = (): Effect.Effect<
-  RemoteCommand,
-  SshInputError
-> => makeRemoteCommand("vellum-browser", ["station-trust"]);

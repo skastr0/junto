@@ -11,7 +11,6 @@ import {
   remoteTestFileExists,
   remoteUname,
   remoteVellumBrowserStation,
-  remoteVellumBrowserStationTrust,
 } from "../src/main/vellum/ssh/read-commands";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): A => {
@@ -104,14 +103,10 @@ describe("ssh read-commands product constructors", () => {
     expect(ts.executable).toBe("tailscale");
   });
 
-  it("mints fixed station-browser wrappers only", () => {
+  it("mints only the fixed station-browser delegation wrapper", () => {
     expect(inspectRemoteCommand(run(remoteVellumBrowserStation()))).toEqual({
       executable: "vellum-browser",
       args: ["station"],
-    });
-    expect(inspectRemoteCommand(run(remoteVellumBrowserStationTrust()))).toEqual({
-      executable: "vellum-browser",
-      args: ["station-trust"],
     });
   });
 });

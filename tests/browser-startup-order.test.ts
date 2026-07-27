@@ -68,6 +68,7 @@ describe("browser startup recovery gate", () => {
     expect(composition).toContain("stationAdmission");
     expect(composition).toContain("hosts: hostsSnapshot");
     expect(composition).toContain("ssh");
+    expect(composition).toContain("trust: stationBrowserTrust");
     expect(activation.slice(control, bind)).toContain(
       "...stationBrowserRoutes",
     );

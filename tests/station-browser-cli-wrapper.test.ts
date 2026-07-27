@@ -13,11 +13,6 @@ import {
   controlSocketPath,
   controlTokenPath,
 } from "../src/shared/browser-control";
-import {
-  makeStationBrowserTrustStore,
-  pinnedTrustForOriginKey,
-} from "../src/main/vellum/browser/station-trust";
-import { canonicalStationBrowserJson } from "../src/shared/station-browser";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const roots: string[] = [];
@@ -142,29 +137,12 @@ describe("fixed packaged station browser wrappers", () => {
     expect(oversized.stderr).not.toContain("x".repeat(32));
   });
 
-  it("installs only canonical Ed25519 public trust through its fixed private store", async () => {
-    const originHome = await newHome();
-    const remoteHome = await newHome();
-    const origin = makeStationBrowserTrustStore(originHome);
-    const key = await origin.loadOrCreateOriginKey("command-a", 1);
-    const record = pinnedTrustForOriginKey(key, null, 1);
-
-    const installed = await runWrapper(
-      remoteHome,
-      ["station-trust"],
-      canonicalStationBrowserJson(record),
-    );
-    expect(installed.code, installed.stderr).toBe(0);
-    expect(JSON.parse(installed.stdout)).toMatchObject({
-      ok: true,
-      keyId: key.keyId,
-      generation: 1,
-      status: "active",
-    });
-    const trust = await makeStationBrowserTrustStore(remoteHome).loadPinnedTrust();
-    expect(trust).toMatchObject({
-      keyId: key.keyId,
-      originStationId: "command-a",
-    });
+  it("has no standalone trust-install command", async () => {
+    const home = await newHome();
+    const removed = await runWrapper(home, ["station-trust"], "{}");
+    expect(removed.code).toBe(2);
+    expect(removed.stdout).toBe("");
+    expect(removed.stderr).toContain("vellum browser control");
+    expect(removed.stderr).not.toContain("station trust wrapper");
   });
 });
