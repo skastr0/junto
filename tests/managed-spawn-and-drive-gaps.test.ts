@@ -114,6 +114,41 @@ describe("managed spawn plan", () => {
     expect(nodeIsConnectedToWork(baseDoc(false), "worker")).toBe(false);
   });
 
+  it("treats artifacts as work but not pages", () => {
+    const base = baseDoc(false);
+    const artifacts: CanvasDoc = {
+      ...base,
+      nodes: [...base.nodes, {
+        id: "artifacts",
+        type: "text",
+        text: "artifacts",
+        x: 200,
+        y: 0,
+        width: 100,
+        height: 80,
+        ether: { entity: { kind: "artifacts" }, artifacts: { items: [] } },
+      }],
+      edges: [...base.edges, { id: "artifact-edge", fromNode: "worker", toNode: "artifacts" }],
+    };
+    expect(nodeIsConnectedToWork(artifacts, "worker")).toBe(true);
+
+    const page: CanvasDoc = {
+      ...base,
+      nodes: [...base.nodes, {
+        id: "page",
+        type: "link",
+        url: "https://example.test",
+        x: 200,
+        y: 0,
+        width: 100,
+        height: 80,
+        ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
+      }],
+      edges: [...base.edges, { id: "page-edge", fromNode: "worker", toNode: "page" }],
+    };
+    expect(nodeIsConnectedToWork(page, "worker")).toBe(false);
+  });
+
   it("connected replan applies Tier A system prompt for claude", () => {
     const { plan, launch } = launchForManagedSpawn({
       doc: baseDoc(true),
@@ -146,6 +181,63 @@ describe("managed spawn plan", () => {
     });
     expect(plan?.injection.tier).toBe("B");
     expect(plan?.firstTypedMessage).toContain("vellum onboard");
+  });
+
+  it("preserves picker choices while adding connected injection", () => {
+    const { launch } = launchForManagedSpawn({
+      doc: baseDoc(true),
+      nodeId: "worker",
+      harness: "claude",
+      documentLaunch: {
+        kind: "harness",
+        argv: [
+          "claude",
+          "--model",
+          "opus",
+          "--effort",
+          "high",
+          "--permission-mode",
+          "plan",
+        ],
+      },
+    });
+    expect(launch?.argv).toEqual(expect.arrayContaining([
+      "--model", "opus", "--effort", "high", "--permission-mode", "plan",
+      "--append-system-prompt",
+    ]));
+    expect(launch?.argv).not.toContain("default");
+  });
+
+  it("recovers Hermes profile from the agent key", () => {
+    const { launch } = launchForManagedSpawn({
+      doc: baseDoc(true),
+      nodeId: "worker",
+      harness: "hermes",
+      agentKey: "remote:research",
+      documentLaunch: { kind: "harness", argv: ["hermes", "chat", "--tui"] },
+    });
+    expect(launch?.argv).toEqual(expect.arrayContaining(["--profile", "research"]));
+  });
+
+  it("re-passes Codex model, effort, and approval on resume", () => {
+    const { launch } = launchForManagedSpawn({
+      doc: baseDoc(true),
+      nodeId: "worker",
+      harness: "codex",
+      sessionId: "thread_123",
+      resume: true,
+      documentLaunch: {
+        kind: "harness",
+        argv: [
+          "codex", "-m", "gpt-5", "-c", 'model_reasoning_effort="high"',
+          "-a", "never",
+        ],
+      },
+    });
+    expect(launch?.argv).toEqual(expect.arrayContaining([
+      "resume", "thread_123", "-m", "gpt-5", "-c",
+      'model_reasoning_effort="high"', "-a", "never",
+    ]));
   });
 });
 

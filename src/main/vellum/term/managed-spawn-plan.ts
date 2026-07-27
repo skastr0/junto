@@ -10,12 +10,18 @@ import {
   type ManagedLaunchChoices,
   type ManagedLaunchPlan,
 } from "@shared/managed-terminal-launch";
-import { isHarnessId, type HarnessId } from "@shared/managed-terminal-templates";
+import {
+  isHarnessId,
+  templateFor,
+  type HarnessId,
+} from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
 
-const WORK_KINDS = new Set(["task", "tasks", "requests", "request"]);
+// Work sinks that make an actor seat operational. `page` is a sink in the
+// factory registry but browser capability alone does not make this a work seat.
+const WORK_KINDS = new Set(["task", "tasks", "requests", "request", "artifacts"]);
 
-/** True when the node has an undirected edge to a work sink (tasks/requests). */
+/** True when the node has an undirected edge to an operational work sink. */
 export const nodeIsConnectedToWork = (
   doc: CanvasDoc,
   nodeId: string,
@@ -67,11 +73,92 @@ export type SpawnPlanInput = {
   readonly profile?: string;
   readonly model?: string;
   readonly effort?: string;
+  readonly permissionMode?: string;
   readonly cwd?: string;
   /** Pin/resume session id from ether.terminal.sessionId. */
   readonly sessionId?: string;
   /** When true, treat sessionId as resume rather than first pin. */
   readonly resume?: boolean;
+};
+
+type RecoveredLaunchChoices = Pick<
+  ManagedLaunchChoices,
+  "model" | "effort" | "permissionMode" | "profile"
+>;
+
+const valueForFlag = (
+  argv: ReadonlyArray<string>,
+  flag: string | undefined,
+): string | undefined => {
+  if (!flag) return undefined;
+  const index = argv.lastIndexOf(flag);
+  const value = index >= 0 ? argv[index + 1]?.trim() : undefined;
+  return value || undefined;
+};
+
+/**
+ * Recover durable picker selections from the authorial harness argv.
+ *
+ * Launch argv is the document's single representation of picker choices; this
+ * deliberately reads only template-owned flags, then lets the current session
+ * and edge-aware injection be rebuilt by resolveManagedLaunchPlan.
+ */
+const recoverDocumentLaunchChoices = (
+  harness: HarnessId,
+  launch: TerminalLaunch | undefined,
+): RecoveredLaunchChoices => {
+  if (launch?.kind !== "harness" || !launch.argv) return {};
+
+  const argv = launch.argv;
+  const spec = templateFor(harness).argvSpec;
+
+  switch (harness) {
+    case "claude":
+      return {
+        ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
+        ...(valueForFlag(argv, spec.effortFlag) ? { effort: valueForFlag(argv, spec.effortFlag) } : {}),
+        ...(valueForFlag(argv, spec.permissionModeFlag)
+          ? { permissionMode: valueForFlag(argv, spec.permissionModeFlag) }
+          : {}),
+      };
+    case "codex": {
+      const effortArg = valueForFlag(argv, "-c");
+      const effort = effortArg?.match(/^model_reasoning_effort=(?:\"([^\"]+)\"|(.+))$/)?.[1]
+        ?? effortArg?.match(/^model_reasoning_effort=(?:\"([^\"]+)\"|(.+))$/)?.[2];
+      return {
+        ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
+        ...(effort ? { effort } : {}),
+        ...(valueForFlag(argv, spec.permissionModeFlag)
+          ? { permissionMode: valueForFlag(argv, spec.permissionModeFlag) }
+          : {}),
+      };
+    }
+    case "grok":
+      return {
+        ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
+        ...(valueForFlag(argv, spec.effortFlag)
+          ? { effort: valueForFlag(argv, spec.effortFlag) }
+          : {}),
+        ...(valueForFlag(argv, spec.permissionModeFlag)
+          ? { permissionMode: valueForFlag(argv, spec.permissionModeFlag) }
+          : {}),
+      };
+    case "hermes":
+      return {
+        ...(valueForFlag(argv, spec.profileFlag)
+          ? { profile: valueForFlag(argv, spec.profileFlag) }
+          : {}),
+        ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
+        ...(argv.includes("--yolo") ? { permissionMode: "yolo" } : {}),
+      };
+  }
+};
+
+const profileFromAgentKey = (agentKey: string | undefined): string | undefined => {
+  const separator = agentKey?.indexOf(":") ?? -1;
+  const profile = separator >= 0 ? agentKey?.slice(separator + 1).trim() : undefined;
+  // `${host}:hermes` is the no-profile actor key minted by the node factory.
+  return profile && profile !== "hermes" ? profile : undefined;
 };
 
 /**
@@ -89,6 +176,9 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
       : false;
 
   const sessionId = input.sessionId?.trim();
+  const recovered = recoverDocumentLaunchChoices(harness, input.documentLaunch);
+  const profile = input.profile ?? recovered.profile ??
+    (harness === "hermes" ? profileFromAgentKey(input.agentKey) : undefined);
   const choices: ManagedLaunchChoices = {
     injection: {
       connected,
@@ -99,9 +189,12 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
         ? { connectedTargets: connectedTargetsForNode(input.doc, input.nodeId) }
         : {}),
     },
-    ...(input.profile ? { profile: input.profile } : {}),
-    ...(input.model ? { model: input.model } : {}),
-    ...(input.effort ? { effort: input.effort } : {}),
+    ...(profile ? { profile } : {}),
+    ...(input.model ?? recovered.model ? { model: input.model ?? recovered.model } : {}),
+    ...(input.effort ?? recovered.effort ? { effort: input.effort ?? recovered.effort } : {}),
+    ...(input.permissionMode ?? recovered.permissionMode
+      ? { permissionMode: input.permissionMode ?? recovered.permissionMode }
+      : {}),
     ...(sessionId && input.resume
       ? { resumeId: sessionId }
       : sessionId
