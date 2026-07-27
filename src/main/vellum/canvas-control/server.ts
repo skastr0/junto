@@ -719,6 +719,9 @@ export const startCanvasControlServer = async (
     await releaseControlListenerLease(listenerLease);
     throw error;
   }
+  server.on("error", (error) => {
+    console.error("[canvas-control] server error:", error);
+  });
 
   const pathMatchesCapturedIdentity = (): boolean => {
     if (socketIdentity === undefined) return false;
