@@ -1142,7 +1142,7 @@ describe("listPageNodes", () => {
     ]);
   });
 
-  it("bounds document admission and aggregate canonical bytes at exact N/N+1", async () => {
+  it("bounds canvas query rows and aggregate query bytes at exact N/N+1", async () => {
     const doc: CanvasDoc = {
       nodes: [{
         id: "page",
@@ -1162,11 +1162,11 @@ describe("listPageNodes", () => {
       { name: "b", doc },
     ];
 
-    expect(await listPageNodes(documents, undefined, { maxScanBytes: sourceBytes - 1 }))
+    expect(await listPageNodes(documents, undefined, { maxCanvasQueryBytes: sourceBytes - 1 }))
       .toEqual([]);
-    expect(await listPageNodes(documents, undefined, { maxScanBytes: sourceBytes }))
+    expect(await listPageNodes(documents, undefined, { maxCanvasQueryBytes: sourceBytes }))
       .toHaveLength(1);
-    expect(await listPageNodes(documents, undefined, { maxDirectoryEntries: 1 }))
+    expect(await listPageNodes(documents, undefined, { maxCanvasQueryRows: 1 }))
       .toHaveLength(1);
   });
 

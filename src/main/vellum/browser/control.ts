@@ -63,8 +63,8 @@ import {
   BROWSER_CONTROL_HANDLER_TIMEOUT_MS,
   BROWSER_CONTROL_MAX_RESPONSE_BYTES,
   BROWSER_MAX_ACTIVE_HTTP_HANDLERS,
-  BROWSER_MAX_CANVAS_DIRECTORY_ENTRIES,
-  BROWSER_MAX_CANVAS_SCAN_BYTES,
+  BROWSER_MAX_CANVAS_QUERY_BYTES,
+  BROWSER_MAX_CANVAS_QUERY_ROWS,
   BROWSER_MAX_CANVAS_SOURCE_BYTES,
   BROWSER_MAX_EVAL_RESULT_NODES,
   BROWSER_MAX_LIST_ROWS,
@@ -154,10 +154,10 @@ const boundedRuntimeValue = (value: number | undefined, hardLimit: number): numb
     : hardLimit;
 
 export interface PageListRuntime {
-  /** Tests may lower, never raise, the production directory admission ceiling. */
-  readonly maxDirectoryEntries?: number;
-  /** Tests may lower, never raise, the production aggregate source-byte ceiling. */
-  readonly maxScanBytes?: number;
+  /** Tests may lower, never raise, the production SQLite canvas-row ceiling. */
+  readonly maxCanvasQueryRows?: number;
+  /** Tests may lower, never raise, the aggregate serialized query-result ceiling. */
+  readonly maxCanvasQueryBytes?: number;
 }
 
 export type ListCanvasDocuments = () => Promise<
@@ -229,13 +229,13 @@ export const listPageNodes = async (
   runtime: PageListRuntime = {},
   owner = BROWSER_UI_SESSION_OWNER,
 ): Promise<ReadonlyArray<PageNodeRow>> => {
-  const maxDirectoryEntries = boundedRuntimeValue(
-    runtime.maxDirectoryEntries,
-    BROWSER_MAX_CANVAS_DIRECTORY_ENTRIES,
+  const maxCanvasQueryRows = boundedRuntimeValue(
+    runtime.maxCanvasQueryRows,
+    BROWSER_MAX_CANVAS_QUERY_ROWS,
   );
-  const maxScanBytes = boundedRuntimeValue(
-    runtime.maxScanBytes,
-    BROWSER_MAX_CANVAS_SCAN_BYTES,
+  const maxCanvasQueryBytes = boundedRuntimeValue(
+    runtime.maxCanvasQueryBytes,
+    BROWSER_MAX_CANVAS_QUERY_BYTES,
   );
   const rows: PageNodeRow[] = [];
   const budget = {
@@ -245,13 +245,13 @@ export const listPageNodes = async (
 
   try {
     const documents = await listDocuments();
-    let documentCount = 0;
-    let scannedBytes = 0;
+    let canvasQueryRows = 0;
+    let canvasQueryBytes = 0;
     for (const { name, doc } of [...documents].sort((a, b) =>
       a.name.localeCompare(b.name),
     )) {
-      documentCount += 1;
-      if (documentCount > maxDirectoryEntries) break;
+      canvasQueryRows += 1;
+      if (canvasQueryRows > maxCanvasQueryRows) break;
       let sourceBytes = 0;
       try {
         sourceBytes = utf8ByteLength(JSON.stringify(doc));
@@ -259,8 +259,8 @@ export const listPageNodes = async (
         continue;
       }
       if (sourceBytes > BROWSER_MAX_CANVAS_SOURCE_BYTES) continue;
-      if (scannedBytes + sourceBytes > maxScanBytes) continue;
-      scannedBytes += sourceBytes;
+      if (canvasQueryBytes + sourceBytes > maxCanvasQueryBytes) continue;
+      canvasQueryBytes += sourceBytes;
       if (!appendPageRowsFromDoc(name, doc, sessions, owner, rows, budget)) {
         return rows;
       }
