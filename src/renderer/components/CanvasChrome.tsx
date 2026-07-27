@@ -18,7 +18,7 @@ function CanvasEmpty({ reason, searchQuery, filterLabel, hasNodes }: { readonly 
       <div className="field-empty__reticle"><span /><span /><span /><span /></div>
       <div className="field-empty__eyebrow">{isSearch ? "no matching node" : isFiltered ? "filter returned nothing" : <><Plus size={12} /> awaiting first node</>}</div>
       <div className="field-empty__title">{isSearch || isFiltered ? "canvas quiet" : "empty canvas"}</div>
-      <div className="field-empty__copy">{isSearch ? <>No node matches<br /><strong>{searchQuery}</strong>.</> : isFiltered ? <>No nodes matched<br /><strong>{filterLabel}</strong>.</> : <>Double-click anywhere to place a note.<br />This canvas will take shape here.</>}</div>
+      <div className="field-empty__copy">{isSearch ? <>No node matches<br /><strong>{searchQuery}</strong>.</> : isFiltered ? <>No nodes matched<br /><strong>{filterLabel}</strong>.</> : <>Right-click or click Add item<br />to create your first node.</>}</div>
       {isFiltered ? <button type="button" className="field-empty__clear pointer-events-auto" aria-label="Clear filters" onClick={clearGraphFilters}>clear filters</button> : null}
     </div>
   );
