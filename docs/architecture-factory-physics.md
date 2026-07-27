@@ -224,7 +224,7 @@ the act can touch the OS.
 | **Ambient region grants** | Region is geography + pulse, not a security domain |
 | **Authorial `ether.role`** | Role is derived from kind; mirrors stay derived |
 | **Client-supplied identity** | Process-bind only; no `VELLUM_NODE_REF` claims |
-| **Encoding occupancy in the canvas file as authority** | Occupancy is live; restart re-baselines seats |
+| **Encoding occupancy in the authorial document as authority** | Occupancy is live; restart re-baselines seats |
 | **Criteria as access control** | Criteria filter phase/stoppage only |
 | **Attention as authz** | Operator focus never mints edges |
 

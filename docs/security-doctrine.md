@@ -10,8 +10,9 @@ product Vellum is becoming and the claims a production release must be able to
 prove.
 
 When another document, backlog item, review, test, or implementation conflicts
-with this doctrine, the conflict is migration work. It is not an exception to
-the doctrine.
+with this doctrine, the conflict must be removed. Internal compatibility,
+dual-read, dual-write, and dormant fallback paths are not exceptions to the
+doctrine.
 
 ## Product position
 
@@ -175,14 +176,15 @@ route.
 
 ### 7. Stateless Stations
 
-**Stateless here applies to intent, reachability, and fleet coordination.** It
-does not mean a Station has no stateful runtime.
+**Stateless here applies to authorial intent and fleet coordination.** It does
+not mean a Station has no durable database or stateful runtime.
 
 Command Center is the sole authority for intent. A Station holds only:
 
 - its factory and Command Center pairing;
 - the latest complete intent projection it received;
-- the local runtime resources required to execute that projection.
+- rows single-homed to that installation, including work, receipts, cursors,
+  and the local runtime resources required to execute them.
 
 Station-hosted actors, Sinks, browser profiles, cookies, terminals, processes,
 artifacts, and runtime recovery data may be stateful or persistent. They remain
@@ -195,10 +197,11 @@ authoritative document.
 A Station does not author, merge, negotiate, elect, reinterpret, or veto
 intent. It does not coordinate intent with another Station.
 
-When an authenticated complete projection arrives from its paired Command
-Center, that projection supersedes the previous projection and the Station
-enacts it immediately. A projection identifier or hash exists for
-observability, not consensus.
+When a complete projection arrives through the paired Command Center's
+authenticated Station API route, that projection supersedes the previous
+projection in one transaction and the Station enacts it. Projection generation
+and content hash enforce idempotence and conflict detection; they are not a
+consensus protocol.
 
 If Command Center is sleeping, closed, crashed, or otherwise unavailable, the
 Station continues under the latest intent it received. There is no delegation
@@ -252,8 +255,7 @@ operator interface.
 
 The target product contract is:
 
-- canvas and protected settings have one app-owned authoring path and
-  integrity protection appropriate to operator intent;
+- canvas and protected settings have one app-owned authoring path;
 - only direct operator actions in Command Center author intent;
 - agents never write the canonical canvas;
 - agents consume read-only compiled projections and Vellum tools;
@@ -265,9 +267,27 @@ not inherently secret. It is not the canonical live authority store. Importing
 an edited document is an explicit operator action. Exporting a document does
 not grant the exported file live authority over a running factory.
 
-Canonical live and durable authority is `~/.vellum/state/canvas-authority-v1`
-(content-addressed generations + `current.json`). App-owned write/create/remove
-commit full-map generations only. That store is the product SoT.
+Canonical live and durable state is `~/.vellum/state/vellum.db`. It is an
+owner-only SQLite database opened by the Electron main process through one
+Effect `StateEngine`; renderers, CLIs, helpers, and fleet callers use
+IPC/control APIs and never open it. App-owned write/create/remove operations
+commit full-map `canvas_generations` and advance `canvas_head` transactionally.
+History is ordinary queryable database state, not a content-addressed directory
+or manifest tree.
+
+Every installation uses the same schema. Role changes which rows are resident
+and active, not which storage implementation exists:
+
+- Command Center holds authorial canvas generations, fleet enrollment and
+  coordination, and all work homed to Command Center;
+- a Remote holds its complete replace-only projection, Station pairing and
+  configuration, logical propagation cursors, and work homed to that Station;
+- messages remain Command Center-homed;
+- browser profiles and other physical resources remain on the installation
+  that owns them.
+
+One durable row has one home. Re-homing is an explicit move; it is never a
+dual-read or dual-write interval.
 
 Canvas confidentiality follows the operator's operating-system account, disk,
 backup, and export choices. Vellum does not become a general secret-management
@@ -304,8 +324,9 @@ turning deliberate operator portability into a warning ceremony.
 
 Station role, Command Center identity, factory membership, host enrollment,
 security capabilities, and equivalent topology state are protected operator
-intent. Editing a plaintext settings file must not mint or transfer that
-authority.
+intent. They are normalized rows in `vellum.db` and are mutated only through
+app-owned services. There is no plaintext settings or hosts document whose
+edit, signature, HMAC, or deletion can mint or transfer that authority.
 
 Ordinary use should favor operator comfort. Explicit reauthentication or
 recovery ceremony is reserved for catastrophic actions such as Command Center
@@ -443,6 +464,31 @@ provider-controlled resource as though it were a Vellum-managed Station.
 Runtime placement and provider capability remain legible because they affect
 available ports and termination guarantees, not because Vellum requires a
 special disclosure ceremony for an operator-owned resource.
+
+### Command Center-to-Station protocol
+
+Fleet coordination is a typed request/response protocol with exactly five
+verbs: `pair`, `configure`, `project`, `report`, and `status`.
+
+For the OpenSSH route, Command Center invokes the fixed `vellum-station`
+command and exchanges one bounded JSON request on stdin for one bounded JSON
+response on stdout. The helper connects to the Remote app's owner-local control
+socket; the Remote main process validates the request and owns every database
+transaction. SSH never writes settings, projections, acknowledgements, status,
+or database files.
+
+Projection transfer is complete and replace-only. Work and receipt propagation
+uses per-home monotonic logical sequences and cumulative acknowledgements.
+Retries send rows after the last acknowledged sequence and are idempotent.
+Origin and received timestamps are retained for operator display; neither is
+an ordering key. Tick phase and wall-clock drift can change propagation
+latency, never ownership or ordering.
+
+Schedulers obey the same single-home law. A local tick evaluates only
+schedulers homed on that installation. The current interval timer kind
+coalesces missed intervals into at most one firing on wake. Any future
+absolute-time or calendar timer must declare its stale/catch-up behavior as
+part of its contract before it can ship.
 
 ## Credential ownership
 
@@ -583,23 +629,26 @@ the most adversarial imaginable model.
 - Claiming control over provider infrastructure Vellum does not operate.
 - Claiming revocation reached an unreachable physical machine.
 
-## Known implementation contradictions
+## Forbidden architectural residue
 
-The following current surfaces contradict or predate this doctrine and must be
-treated as migration work:
+A release is blocked while any product path preserves:
 
-- externally writable `.canvas` files acting as canonical authority;
-- external file edits becoming live canvas authority;
-- language that calls the file the agent API;
-- role or topology authority represented as ordinary editable settings;
+- `.canvas` files, generation directories, manifests, pointer files, JSON
+  settings/host/status files, seals, or drop files as live durability;
+- topology keys, topology seals, hosts keys, or hosts seals;
+- `incoming.frame`, `applied.ack`, or SSH writes/reads that substitute files
+  for the Station API;
+- direct database access from a renderer, headless CLI, helper, or second
+  process;
+- dual reads, dual writes, legacy imports, compatibility adapters, or a
+  rollback path to a retired file store;
+- Station merging, negotiating, electing, or vetoing Command Center intent;
 - security requirements derived solely from a hostile same-user model;
-- any Station behavior that negotiates, merges, or vetoes Command Center
-  intent;
-- any readiness or deployment ceremony whose only protection is against a
+- readiness or deployment ceremonies whose only protection is against a
   trusted same-user process.
 
-Existing behavior remains an implementation fact until deliberately migrated.
-It is not evidence that the conflicting behavior belongs in the final product.
+There is no supported pre-SQLite state to protect or recover. If obsolete
+storage code is found, it is deleted in the same change that exposes it.
 
 ## Open doctrine decisions
 
@@ -617,7 +666,8 @@ them by accident:
 5. Exact contents of a Station's scoped intent projection, including global
    resources.
 6. The bounded set of operator-facing host capability controls and presets.
-7. Intent-history retention, compaction, backup, and export behavior.
+7. Intent-history retention and compaction policy. Coherent live backup uses
+   SQLite `VACUUM INTO`; export remains an explicit operator output.
 8. Provider-specific guarantees for harness-owned and managed-cloud actors.
 
 Until decided, these remain product questions rather than invitations to add a

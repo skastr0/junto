@@ -1,108 +1,130 @@
 # Linux production contract
 
-**Status:** ratified Phase 0 baseline against `docs/security-doctrine.md`
+**Status:** normative release contract
 
-**Scope:** Ubuntu 24.04 LTS x86_64 only. ARM64 and other distros are out of
-v1.
+**Scope:** Ubuntu 24.04 LTS x86_64 only. ARM64 and other distributions are out
+of v1.
 
-This document freezes the production meaning of “ready,” “secure,” and
-“protected” for the Linux path. It is derived from the security doctrine and
-from the repository state at HEAD after commits `3345afd`, `b3732b0`,
-`049886a`, and `e974aca` (Phase 1 receipt unification).
+This document freezes the production meaning of ready, durable, and secure for
+the Linux path. It derives from
+[security-doctrine.md](security-doctrine.md),
+[state-architecture.md](state-architecture.md), and
+[fleet-station-architecture.md](fleet-station-architecture.md).
 
-## Ratified baseline commits
-
-| Commit | Decision | Reason |
-|---|---|---|
-| `3345afd` fix(readiness): keep deep health observational | **keep** | Boot is generation + work control; Doctor owns terminal/browser/canvas |
-| `b3732b0` fix(linux): distinguish desktop and systemd runtime | **keep** | Ambient `XDG_RUNTIME_DIR` must not put desktop sessions into Remote readiness publication |
-| `049886a` test(notarize): isolate release path fixtures | **keep** | Test-only isolation; no product surface change |
-| `e974aca` fix(linux): unify boot readiness on generation receipt | **keep** | Phase 1: preflight + installer + work-control agree on plain generation body |
-
-## Production scope (v1)
+## Production scope
 
 One `.deb` supports:
 
-- Linux Command Center with full desktop parity.
-- Linux Remote running unattended under user systemd + Xvfb.
+- Linux Command Center with desktop parity;
+- Linux Remote running unattended under user systemd and Xvfb;
+- macOS Command Center to Linux Remote;
+- Linux Command Center to Linux Remote.
 
-Cross-platform fleet:
+Explicit exclusions:
 
-- macOS Command Center → Linux Remote
-- Linux Command Center → Linux Remote
+- ARM64 and non-Ubuntu distributions;
+- Station-to-Station control;
+- multi-tenant or multi-operator RBAC;
+- Command Center transfer;
+- SSH, Tailscale, provider, or harness credentials absorbed into Vellum.
 
-Explicit exclusions for this release:
+## Durable state
 
-- Amp Orbs, Vouch, and other harness-managed compute
-- Station-to-Station control plane
-- Multi-tenant or multi-operator RBAC
-- SSH keys, Tailscale, provider, and harness credentials absorbed into Vellum
-- ARM64 and non-Ubuntu distributions
+Every installation uses `~/.vellum/state/vellum.db`, mode `0600`, inside an
+owner-only state directory. The Electron main process owns the one Effect
+`StateEngine` connection. All services share that connection; renderers, CLIs,
+packaged helpers, and SSH callers reach main through typed control surfaces.
 
-## Vocabulary
+The same schema boots for Command Center and Remote. Command Center persists
+authorial canvas generations, fleet enrollment, and Command Center-homed work.
+A Remote persists its configuration, one complete projection, local work,
+events, receipts, and cursors. Messages remain Command Center-homed.
 
-### Boot ready (structural)
+The following are release blockers:
 
-True only when all of the following hold for the current unit generation:
+- JSON or content-addressed directories used as live product state;
+- settings, hosts, status, manifest, frame, ACK, pointer, or seal files used
+  for coordination;
+- SSH reading or writing durable Vellum state;
+- more than one production process or more than one connection opening the
+  database;
+- dual read/write, legacy import, or rollback to a retired store.
 
-1. `vellum-remote.service` is active/running with a 32-hex `InvocationID`.
-2. Work control has published
-   `$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID` as a private
-   regular file whose body is `${INVOCATION_ID}\n`.
-3. Fresh private work control socket and token exist under `~/.vellum/work/`.
-4. The packaged launcher owns the MainPID and has notified systemd
-   (`Type=notify`) after observing that receipt.
+Coherent backup uses `VACUUM INTO`. A binary package rollback may activate a
+previous signed build only when that build supports the current SQLite schema;
+it never restores a deprecated storage architecture.
 
-Boot ready is the sole gate for:
+## Boot ready
 
-- systemd unit start success
-- managed install / update / rollback activation success
-- deploy preflight `ready=1`
+Boot ready is structural and true only for the current systemd unit generation:
 
-### Doctor observation (non-blocking)
+1. `vellum-remote.service` is active with a 32-hex `InvocationID`.
+2. Work control publishes the private readiness receipt
+   `$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID` with body
+   `${INVOCATION_ID}\n`.
+3. Fresh owner-only work and Station control sockets are listening.
+4. The packaged launcher owns the MainPID and notifies systemd only after
+   observing readiness.
+5. The app reports SQLite database readiness.
 
-Terminal control, browser transport/composition, canvas freshness, display,
-sandbox, and capability probes are Doctor observations. They:
+The readiness receipt is transport for one boot transaction, not durable
+product state.
 
-- may warn or fail release qualification
-- must never block Station boot
-- must never be written as a filesystem boot receipt
+Boot ready gates:
 
-### Protected intent (migration in progress)
+- systemd unit start success;
+- managed install/update activation;
+- deploy preflight `ready=1`.
 
-Landed first cuts:
+## Doctor observation
 
-- **Canvas live plane:** external raw file edits under `~/.vellum/canvases/`
-  no longer rehydrate the running document. App-owned
-  write/create/remove/mutate only.
-- **Station topology:** `station.*` is seal-gated (`topology.key` +
-  `topology.seal` HMAC). Generic `settingsPatch` cannot mint role; dedicated
-  `settingsSetStationTopology` reseals. Tampered topology fails closed to
-  role unset (StationRoleGate). See
-  [`protected-topology-migration.md`](./protected-topology-migration.md).
-- **Hosts enrollment:** `hosts.json` is seal-gated (`hosts.key` +
-  `hosts.seal` HMAC). App registry writes reseal; offline membership mint
-  fails closed to local-only. Same residual as station: same-UID wipe of
-  both key and seal re-bootstraps.
+Terminal control, browser composition, canvas projection, scheduler simulation,
+display, sandbox, and capability probes are Doctor observations. They may warn
+or fail release qualification but do not become filesystem boot receipts.
 
-Remaining debt (not production-complete protection):
+Remote identity, configuration, projection generation, logical ACK cursors, and
+database/work/simulation readiness come from the live `status` Station API
+operation. Unknown or unreachable remains unknown; it is never converted into
+success from a stale status file.
 
-- Same-user delete of **both** topology/hosts key and seal re-enables
-  bootstrap mint (same-UID non-claim)
-- Recovery codes / CC transfer ceremony not implemented
+## Fleet contract
 
-Canvas product durability: `~/.vellum/state/canvas-authority-v1` (sole store).
-Fleet intent delivery: projection push from live authority.
+OpenSSH is the authenticated Command Center-to-Remote transport. Command Center
+invokes only the fixed `vellum-station` command and exchanges bounded, typed
+requests with the running Remote app.
 
-### Secure (doctrine-bound)
+- `pair` binds installation identities.
+- `configure` commits role-specific topology.
+- `project` replaces the complete projection transactionally.
+- `report` exchanges per-home logical events and cumulative ACKs.
+- `status` observes identity, projection, cursors, and readiness.
 
-A boundary Vellum advertises is a boundary Vellum enforces. Credentials remain
-operator/OS-owned. Edges + ports + process-bind are the agent capability plane.
-No ambient host-destructive APIs.
+No fleet request accepts a remote path or shell body. The helper never opens
+the database. No settings stamp, canvas pull, drop file, or status-file read is
+part of the contract.
 
-## Single readiness receipt contract
+Each executable node and work row has one home. Each installation's tick
+operates only its local home. Cross-machine tick alignment affects latency,
+not correctness. `everyMinutes` timers coalesce missed intervals into at most
+one firing.
 
-```
+## Secure
+
+A boundary Vellum advertises is a boundary Vellum enforces:
+
+- edges, ports, and process-bind form the agent capability plane;
+- no ambient host-destructive API accepts a bare PID or broad path;
+- credentials remain owned by the operator, operating system, or provider;
+- a Remote never authors, merges, negotiates, or vetoes Command Center intent;
+- no Station-to-Station route exists;
+- an unreachable Remote is reported honestly under its last installed
+  projection.
+
+## Package and readiness receipt
+
+The one permitted filesystem readiness receipt is:
+
+```text
 path   := $XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID
 body   := <32 hex INVOCATION_ID> + "\n"
 mode   := 0600 regular file, owner-only, no symlink
@@ -110,59 +132,25 @@ writer := work-control after token rotation + listener bind
 delete := RuntimeDirectory teardown on unit stop
 ```
 
-Readers that must agree:
+Launcher, deploy preflight, and privileged installer must agree on this exact
+receipt. `/run/user/$UID/vellum/station-ready.json` and deep JSON readiness
+files are forbidden.
 
-| Reader | Action |
-|---|---|
-| Launcher | wait, then `systemd-notify --ready` |
-| Deploy preflight | `ready=1` only if private receipt + work plane |
-| Privileged installer | activation success only if same receipt + generation |
-
-Orphan contracts (must not exist):
-
-- `/run/user/$UID/vellum/station-ready.json`
-- Deep JSON multi-component ready file on the boot path
-
-## Critical path after this contract
-
-1. Repair preflight + installer to this receipt (Phase 1) — landed (`e974aca`).
-2. Prove one desktop install and one headless Remote end-to-end on native
-   Ubuntu x86_64 (Phase 2) — checklist in
-   [`linux-package-qualification.md`](./linux-package-qualification.md);
-   hardware proof remains operator-run.
-3. Protect canvas and topology as app-owned operator intent (Phase 3) —
-   canvas rehydrate cut + topology seal landed; private store + recovery
-   remaining.
-4. Explicit fleet topology, capability/revocation matrix, lifecycle
-   qualification, release (Phases 4–8).
-
-## Residual hand-authored shell (inventory)
-
-Product remote mutations should go through `ssh/remote-plan.ts` (and
-`ssh/hermes-remote-plan.ts`) compilers only. Remaining shell outside that
-posture:
-
-| Site | Class |
-|---|---|
-| `hosts/deploy-darwin.ts` remote install ceremony | **BETA-GATED** — `RELEASE_CAPABILITIES.darwinRemoteDeploy=false` refuses load/entry before `compileDarwinRemoteDeployScript` / `bash -lc`. Dormant code kept; not on public `ssh` barrel. |
-| `makeRemoteCommand` freeform mint | **SEALED** — single WeakMap brand; mint only inside `ssh/*` named compilers/read-commands. No parallel command types. |
-| `build/linux/*` package hooks / launcher | KEEP — package-owned assets, not runtime-authored |
-| `control-filesystem.ts` lockf hold one-liner | KEEP — local Darwin lock, fixed tokens |
-| Hermes identity/avatar | MIGRATED — closed sources in hermes-remote-plan |
-| Linux preflight | MIGRATED — compileLinuxRemotePreflight |
-| Settings snapshot/stamp/restore | MIGRATED — compileRemoteSettings* |
-| Herdr image stage | MIGRATED — compileHerdrImageStage |
-| Configure remote settings install | MIGRATED — remoteStationSettingsInstallPlan |
-
-## Exit gates (summary)
+## Exit gates
 
 Linux is production-ready only when:
 
-- Desktop Command Center works on Ubuntu 24.04 x86_64
-- Same artifact runs unattended as Remote under systemd/Xvfb
-- Managed install, update, and rollback complete without receipt timeout
-- Canvas and topology are protected operator intent
-- Stations apply complete Command Center intent without negotiation
-- Agents exercise only currently connected capabilities; revocation is next-action
-- Credentials remain outside Vellum
-- UI truthfully reports reachability, health, and residual risk
+- the same qualified artifact runs as desktop Command Center and unattended
+  Remote on native Ubuntu 24.04 x86_64;
+- package install/update and any allowed binary rollback complete without
+  readiness timeout;
+- fresh install creates only the canonical SQLite state architecture;
+- pair/configure/project/report/status pass over the fixed command;
+- interrupted projection and report exchanges converge idempotently;
+- Remote restart resumes its projection and host-local work;
+- Remote simulation continues while Command Center is closed;
+- each Station fires only single-home watchers and timers;
+- agents exercise only current edge/port capabilities;
+- no retired state or SSH file protocol exists in the packaged tree;
+- UI and Doctor report reachability, projection, cursors, and residual limits
+  truthfully.

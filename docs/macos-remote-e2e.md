@@ -5,6 +5,8 @@ remote (e.g. Mac mini), starts it under LaunchAgent, and uses SSH unix-forwards
 for capability sockets.
 
 Linux is **out of scope** for this path (separate Electron/Linux station track).
+Darwin managed deploy remains release-gated; this checklist qualifies the path
+before that capability may be enabled.
 
 ## Prerequisites
 
@@ -20,14 +22,19 @@ Linux is **out of scope** for this path (separate Electron/Linux station track).
 ## Operator flow
 
 1. Settings → Hosts → add remote (`id`, SSH endpoint).
-2. **Configure as Remote** (optional alone) — stamps `~/.vellum/settings.json`
-   (`role=remote`, `hostId`, `commandCenterRef`).
-3. **Deploy Remote** — configure + tar app over SSH + LaunchAgent + start +
-   wait for:
+2. Install/start the app on the Remote so its owner-local Station control
+   socket is available.
+3. **Configure as Remote** — Command Center invokes fixed `vellum-station`
+   over SSH and completes `status → pair → configure`. No remote file is read
+   or written.
+4. **Deploy Remote** (only when the release capability is enabled) — stage the
+   app bundle + LaunchAgent, start it, configure through Station API, and wait
+   for:
    - `~/.vellum/term/control.sock`
    - `~/.vellum/browser/control.sock` (best-effort; term alone still succeeds)
-4. Canvas → New terminal → **Host** = remote → Start → Open.
-5. CC quit does **not** kill remote PTYs (local quit only). Explicit Kill does.
+   - the Station API status to report database/work/simulation readiness
+5. Canvas → New terminal → **Host** = remote → Start → Open.
+6. CC quit does **not** kill remote PTYs (local quit only). Explicit Kill does.
 
 ## Architecture
 
@@ -39,6 +46,12 @@ CC TerminalRouter(hostId)
 CC (future) browser host routing
   → SSH forward remote ~/.vellum/browser/control.sock
   → WebContentsView lives on Remote (needs BrowserWindow — deploy starts GUI app)
+
+CC fleet coordination
+  → SSH fixed command vellum-station
+  → owner-local Station control socket
+  → Remote main process
+  → ~/.vellum/state/vellum.db
 ```
 
 ## Why not `--vellum-headless` on deploy
@@ -50,13 +63,16 @@ true headless Remote.
 
 ## Smoke checklist
 
-- [ ] Deploy stages show `remote uname Darwin` and `TERM_SOCK` / `STATION_READY`
+- [ ] `status → pair → configure` returns the expected installation identity
+- [ ] Station status reports database/work/simulation ready
+- [ ] Complete projection generation/hash persists across Remote restart
 - [ ] `ssh remote 'test -S ~/.vellum/term/control.sock && echo ok'`
 - [ ] Remote terminal create/type/resize from CC
 - [ ] Quit CC → remote shell still running (ssh/process list)
 - [ ] Reopen CC → reattach same binding
 - [ ] Kill from card ends remote process
 - [ ] Browser: open a page surface on Remote when host routing is wired
+- [ ] No settings, host, status, projection, manifest, ACK, or seal file appears
 
 ## Failure modes
 
@@ -73,7 +89,10 @@ true headless Remote.
 | Piece | Path |
 |-------|------|
 | Deploy | `src/main/vellum/hosts/deploy-remote.ts` |
-| Configure settings | `src/main/vellum/hosts/configure-remote.ts` |
+| Pair/configure | `src/main/vellum/hosts/configure-remote.ts` |
+| Station API | `src/main/vellum/station/api.ts` |
+| Fixed SSH client | `src/main/vellum/station/remote-client.ts` |
+| Station control | `src/main/vellum/station/control-server.ts` |
 | Term control UDS | `src/main/vellum/term/control-*.ts` |
 | Router | `src/main/vellum/term/router.ts` |
 | IPC | `hostsDeployRemote` in `src/shared/ipc.ts` |

@@ -45,7 +45,7 @@ Inputs that touch the OS cross a **Schema** boundary first.
 - SSH endpoints, remote paths, etc. already follow this pattern (`SshEndpoint`,
   `RemoteCommand`). New host-touching domains copy that pattern.
 
-Invalid values **cannot** enter the authority store. Schema failure is not a
+Invalid values **cannot** enter canonical state. Schema failure is not a
 soft warning; it is non-admission.
 
 ### 3. Brand + private store (unforgeable handles)
@@ -202,17 +202,9 @@ These are not represented as solved guarantees:
 - POSIX group signaling is still intentional for Vellum-created detached
   groups. Identity is revalidated immediately before signaling, but the final
   process-table-observation-to-signal interval is not atomic on macOS.
-- Node pathname APIs cannot make same-UID ancestor replacement impossible.
-  Canvas operations reject stable symlinks and retain one validated root per
-  operation, but a future opaque storage-root plus fd-relative native layer is
-  required to close that kernel race by construction.
-- Canvas expected-revision writes retain the documented final
-  read-to-rename window against external writers that do not share the service
-  mutex.
-- The `VELLUM_CANVASES_DIR` test/demo override remains ambient rather than an
-  unforgeable storage capability. The operator-only `canvas:rm` CLI still has
-  parallel name/path handling outside the canonical repository boundary and
-  must be migrated before that boundary can be called complete.
+- SQLite state is protected by owner-only directory/file modes and one
+  main-process connection. Vellum does not claim containment from arbitrary
+  hostile code already running as the same operating-system user.
 - Explicit host removal/edit may close a concurrently shared SSH master by
   design. Ordinary operation and app shutdown do not issue `-O exit`.
 

@@ -1,138 +1,140 @@
-# Remote station end-to-end checklist
+# Remote Station end-to-end checklist
 
-This is the advanced operator proof for Command Center and Remote station
-behavior on Linux and macOS. It tests the product contract, including degraded
-and offline states. It does not turn a deployment receipt or an old heartbeat
-into live telemetry.
+This is the operator proof for Command Center and Remote behavior on Linux and
+macOS. It tests the canonical SQLite and Station API contract, including
+offline and interrupted states.
 
-## Health semantics
+## Evidence source
 
-`vellum doctor` reports each registered Remote separately. Run it from an
-attached Vellum agent/tooling process so process-bind admission is real.
+Run `vellum doctor` from an attached Vellum agent/tooling process so
+process-bind admission is real. Fleet identity and synchronization truth come
+from the live Remote `status` response, not a file read.
 
-- **Installed** comes from the Command Center's durable deployment receipt. No
-  receipt is reported as no *managed* install receipt; it is not proof that an
-  operator never installed Vellum by another route.
-- **Reachability, role, and hostId** come from the current SSH probe of the
-  registered endpoint.
-- **Last pull** comes from the Remote's local station status. Pulls are manual;
-  a record older than **24 hours** is stale but remains last-known truth.
-- **Armed and last fire** come from the Remote's bounded kernel heartbeat. The
-  kernel cycles at least every 30 seconds; a heartbeat older than **2 minutes**
-  is stale.
-- **Fleet-blind** means the Command Center cannot currently observe enough
-  Remote state to make a live claim. Unknown is never converted to success.
-- Doctor never returns canvas content, node IDs, agent identities,
-  instructions, bearer tokens, or SSH credentials in the station projection.
+For every registered Remote, retain:
 
-Expected diagnostic distinctions:
+- expected and observed installation identity;
+- role and hostId;
+- current projection generation and hash;
+- per-home received and peer-acknowledged logical cursors;
+- database, work-control, and simulation readiness;
+- current SSH reachability;
+- last successful observation time.
 
-| Observation | Expected Doctor state |
-|---|---|
-| Registered, no managed deployment receipt | Registered but not installed by Command Center |
-| SSH endpoint unavailable | Unreachable + fleet-blind; last-known receipts remain labeled as such |
-| Remote files missing or invalid | Fleet-blind or error, with the invalid surface named |
-| Remote role or hostId differs from registry | Error; expected and observed identity shown |
-| Kernel heartbeat is current, armed count is zero | Not armed |
-| Last pull is older than 24 hours | Pull stale |
-| Kernel heartbeat is older than 2 minutes | Kernel status stale |
-| Kernel fault or orphaned arming exists | Explicit fault/orphan diagnostic |
-| Command Center has zero registered Remotes | Clean local-only result; no invented Remote row |
+Unknown or unreachable must remain unknown. A cached generation or cursor may
+be shown as last acknowledged truth, but never as live health.
 
-## 1. Local-only Command Center
+## 1. Local Command Center
 
-1. Start Vellum as `command-center` with hostId `local` and no registered
-   Remote hosts.
-2. On a test canvas, create one region, one local watcher or timer, and one
-   local Hermes agent.
-3. Draw a soft edge between the watcher/timer and the agent. Merely placing
-   both nodes inside the region is not a delivery route.
-4. Arm the region in the running app. Trigger the watcher or wait for the
-   timer.
-5. Confirm the pulse log records the correct source, live/dry state, and
-   delivery result. Confirm the region instruction was appended to the routed
-   pulse.
-6. Remove the edge, trigger again, and confirm automatic delivery does not fan
-   out through region membership.
-7. Run Doctor. Expect the local station's installed/role/version/hostId,
-   current armed count, and last fire; expect zero Remote rows.
+1. Start a fresh Command Center with no Remote fleet target.
+2. Confirm `~/.vellum/state/vellum.db` exists owner-only and no JSON state,
+   canvas authority directory, projection directory, or seal material appears.
+3. Create a canvas, local agent, work surfaces, watcher, timer, and region.
+4. Draw the required edges and arm the region.
+5. Confirm local work and pulses execute, and removing an edge denies the next
+   action.
+6. Confirm interval timers delayed past several slots fire at most once.
+7. Run Doctor. Expect local database/work/simulation readiness and zero Remote
+   rows.
 
-## 2. Connected multi-host flow
+## 2. Pair and configure a Remote
 
-1. Register a disposable Remote by its stable hostId and SSH endpoint.
-2. Install and configure that host as role `remote`, using the same hostId.
-   On Ubuntu 24.04 x86-64, install the qualified `deb`, then explicitly enable
-   the packaged user service:
+1. Install and start the same Vellum build on a disposable Remote.
+2. Enroll its SSH endpoint in Command Center.
+3. Configure it as Remote. Capture the `status → pair → configure` exchange.
+4. Confirm the response installation identity is bound to that exact fleet
+   target.
+5. Run `status` again and confirm:
+   - role is `remote`;
+   - hostId and Command Center installation identity match;
+   - database, work control, and simulation are ready.
+6. Confirm SSH invoked only fixed `vellum-station`, and the helper relayed to
+   the running app instead of opening or writing the database.
 
-   ```sh
-   systemctl --user daemon-reload
-   systemctl --user enable --now vellum-remote.service
-   ```
+Pairing another Command Center, configuring a different installation identity,
+or changing role through a settings surface must fail closed.
 
-   On macOS, use the configured Remote deployment/LaunchAgent flow.
-3. Pull the test canvas from the Command Center. Do not edit the Remote copy
-   through an agent; the Command Center remains the authorial surface.
-4. Put the watcher/timer and target agent on the Remote's hostId and connect
-   them with an edge. Arm the containing region on that Remote.
-5. Trigger the source while the Command Center is running. Confirm the Remote
-   fires only its host-scoped source and addresses only an edge-connected
-   same-host agent.
-6. Run Doctor from the Command Center. Confirm the registered Remote row has:
-   managed install state, role, version, observed hostId, last pull, armed
-   count, last fire, reachability, and no hidden errors.
-7. Change the registered endpoint in a disposable copy of the registry and
-   confirm the old deployment receipt is labeled stale rather than attached to
-   the new endpoint. Restore the registry afterward.
+## 3. Complete projection
 
-## 3. Offline Remote island
+1. Author one canvas generation containing Remote-homed nodes.
+2. Wait for Command Center fleet propagation.
+3. Confirm Remote `status` reports the exact generation and content hash.
+4. Restart the Remote and confirm the same projection remains active.
+5. Repeat the same `project` request and confirm it is idempotent.
+6. Send an older generation and confirm it is stale.
+7. In a disposable database, send the same generation with a different hash
+   and confirm it is a conflict without changing the active projection.
 
-1. With the Remote healthy and its test region armed, stop only the Command
-   Center. Keep the Remote station, Hermes, and its user service running.
-2. Trigger a local-data watcher or local timer on the Remote. Confirm the
-   edge-connected same-host agent receives the pulse without a Command Center
-   RPC.
-3. Exercise a watcher whose required fleet/private-source facts are
-   unavailable. Confirm it remains unknown/stale and does not invent a rising
-   edge or successful predicate.
-4. Confirm no freeform `.canvas` write occurs. Kernel arming and edge-detection
-   memory remain app-local; restart re-baselines watcher edges by design.
-5. Restart the Command Center and run Doctor:
-   - current SSH observations replace fleet-blind state;
-   - the Remote's last fire is visible only if its bounded heartbeat is fresh;
-   - last pull remains last-known and becomes stale after 24 hours.
+The Remote must never merge or author the projection.
 
-## 4. Command Center cross-host route
+## 4. Logical report convergence
 
-1. While connected, put an executable source on the Command Center and an
-   agent on a registered Remote, joined by a human-authored edge.
-2. Trigger it from the Command Center and verify delivery uses the existing
-   Hermes/Herdr/SSH transport hooks.
-3. Verify the Remote did not evaluate the Command Center-owned source and no
-   new Remote RPC or ambient region grant was involved.
-4. Delete the edge and verify the route is revoked.
+1. Produce several Command Center-homed and Remote-homed events.
+2. Confirm each home allocates contiguous decimal logical sequences.
+3. Interrupt a multi-page report after at least one acknowledged page.
+4. Reconnect and confirm exchange resumes strictly after durable cumulative
+   cursors.
+5. Repeat the last request and confirm already accepted events are idempotent.
+6. Attempt a gap and an identity/content conflict in a disposable database;
+   both must fail closed.
+7. Compare origin timestamps out of order and confirm logical sequence still
+   determines history order.
 
-## 5. Failure drills
+## 5. Offline Remote island
 
-- Stop SSH or use an unreachable endpoint: Doctor must say unreachable and
-  fleet-blind without erasing the last-known deployment receipt.
-- Stop the Remote station for more than two minutes: kernel state must become
-  stale, not remain “armed/live.”
-- Leave the station running but disarm every region: Doctor must distinguish
-  reachable from not armed.
-- Age or inject a disposable last-pull record past 24 hours: Doctor must label
-  it stale.
-- Corrupt a disposable Remote `settings.json` or `station-status.json`: Doctor
-  must fail closed and name the invalid surface without echoing raw contents.
-- Register a host but do not install it: Doctor must retain a row for that
-  host and explicitly report the missing managed install.
+1. With a complete projection installed, stop only Command Center.
+2. Keep the Remote app and service running.
+3. Exercise Remote-homed work, a watcher whose source is locally available,
+   and an interval timer.
+4. Confirm the Remote uses its local database and never requires a Command
+   Center RPC for locally homed execution.
+5. Confirm Command Center-homed nodes do not execute on the Remote.
+6. Restart Remote while Command Center remains closed. Confirm the projection
+   and locally durable work resume; edge-detection re-baselines and no latent
+   timer backlog fires.
+7. Restart Command Center. Confirm projection and report retries converge by
+   generation/hash and logical cursor.
 
-## Evidence to retain
+## 6. Multiple machines and cadence
 
-For each platform, retain the Vellum version, OS/architecture, station roles
-and hostIds, package/service status, redacted Doctor output, pull time,
-arming/fire timestamps, pulse-log result, and the exact failure drills run.
-Never include tokens, private keys, raw canvas content, or agent prompts.
+1. Enroll two Remotes with different Station tick cadences.
+2. Home disjoint work and timers on Command Center, Remote A, and Remote B.
+3. Run all installations long enough for their ticks to drift in phase.
+4. Confirm each row and scheduler executes only at its home and never
+   duplicates.
+5. Confirm cross-machine cadence changes observation latency only.
+
+## 7. Failure drills
+
+- Stop SSH: mark the Remote unreachable while retaining clearly labeled
+  last-acknowledged generation and cursors.
+- Stop the Remote app: fixed `vellum-station` must report runtime down; it must
+  not fall back to files or direct database access.
+- Bind the endpoint to a different Station installation: identity mismatch
+  must block propagation.
+- Remove or change an enrolled endpoint: its persisted fleet target must be
+  removed or rebound explicitly.
+- Corrupt a disposable SQLite row or violate a schema constraint: the affected
+  operation fails closed without rewriting from an alternate store.
+- Make one Remote fail while another is healthy: one failure must not
+  head-of-line block the independent fleet target.
+- Close Command Center during propagation: no partial projection becomes
+  active and acknowledged pages remain idempotent on retry.
+
+## 8. No-residue audit
+
+Search source, package contents, and disposable homes. Fail the release if any
+live path creates or consumes:
+
+- authorial `.canvas` files or a watched canvases directory;
+- JSON settings, hosts, Station status, manifests, or current pointers;
+- topology/hosts keys or seals;
+- projection frames, ACK files, staging directories, or bridge binaries;
+- SSH settings/projection/status file operations;
+- a second production SQLite opener.
+
+Explicit JSON Canvas exports, digest/SVG outputs, owner-local socket/token
+transport, Chromium profile data, and package metadata are not product stores.
 
 Linux package qualification remains governed by
-[`linux-package-qualification.md`](linux-package-qualification.md); the macOS
-deployment-specific path remains in [`macos-remote-e2e.md`](macos-remote-e2e.md).
+[linux-package-qualification.md](linux-package-qualification.md); the macOS
+deployment path remains in [macos-remote-e2e.md](macos-remote-e2e.md).

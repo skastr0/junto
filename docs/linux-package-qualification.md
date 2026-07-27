@@ -189,7 +189,7 @@ CI-only package construction without a disposable Ubuntu desktop/Remote host:
 - Managed install/update/rollback against a live Remote with administrator
   password ceremony
 - Cross-host fleet (macOS or Linux Command Center → Linux Remote) with live
-  canvas pull and edge-routed pulse
+  Station API projection/report convergence and edge-routed pulse
 
 CI (`.github/workflows/linux-release.yml`) records target-native package,
 installed PTY, and installed GUI/sandbox smoke under Xvfb when that workflow

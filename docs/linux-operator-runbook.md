@@ -221,8 +221,9 @@ For release qualification and day-to-day operations, also observe:
 - browser (and terminal) control surfaces are owner-only when those planes are
   expected for the workload;
 - Vellum Doctor reports the selected role, exact host ID, supervised alignment,
-  projection delivery / canvas-pull fallback evidence, work readiness, native
-  terminal readiness, and browser product-path readiness.
+  live Station API projection generation/hash and logical cursors, database,
+  work and simulation readiness, native terminal readiness, and browser
+  product-path readiness.
 
 Use the in-app Doctor surface. The `vellum doctor` CLI is also valid when
 launched from an attached Vellum agent or Herdr process, because process-bind
@@ -451,15 +452,17 @@ may revoke it after confirming the user has no other lingering services.
    signed manifest digest, key ID, Doctor status, and service metadata.
 2. Provision a fresh supported Ubuntu 24.04 x86-64 host.
 3. Verify and install the same signed release using this runbook.
-4. With the Vellum user service stopped, restore the encrypted backup into the
-   same ordinary user's home. Preserve ownership, ACLs, and xattrs.
+4. With the Vellum user service stopped, restore an encrypted, app-produced
+   `VACUUM INTO` backup as `~/.vellum/state/vellum.db` for the same ordinary
+   user. Preserve owner-only directory/file modes, ownership, ACLs, and xattrs.
 5. Start Vellum, run Doctor, and reconnect the Remote from Command Center.
 6. If the restored state is rejected, stop and retain both the backup and the
    rejected copy for diagnosis. Do not turn data deletion into a recovery
    step.
 
-Canvases remain Command Center-authored. A recovered Remote may pull current
-canvases, but an agent does not repair or rewrite `.canvas` files.
+Canvases remain Command Center-authored. After reconnect, a recovered Remote
+accepts the latest complete Station API projection; an agent does not repair or
+rewrite authorial intent.
 
 ## Prohibited recovery shortcuts
 

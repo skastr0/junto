@@ -98,7 +98,9 @@ bun run app:install:skip-build
 
 ## Canvas & document
 
-Canvases live at `~/.vellum/canvases/*.canvas`.
+Canvases live in the app-owned SQLite database at
+`~/.vellum/state/vellum.db`. JSON Canvas is the explicit export and
+interoperability format, not a watched source of live state.
 
 Standard **JSON Canvas 1.0** (`text`, `file`, `link`, `group`) plus optional `ether` on nodes and edges.
 
@@ -254,7 +256,7 @@ App must be running. Control home: `~/.vellum/browser/` (override `VELLUM_BROWSE
 | **Bind** | Herdr wizard: host → session → workspace → tab → pane |
 | **Delete** | Default **detach** (panes survive); optional kill-pane |
 | **Quit** | Detaches control streams only — fleet keeps running |
-| **Hosts** | Settings → Hosts (`~/.vellum/hosts.json`); local seeded with herdr+hermes |
+| **Hosts** | Settings → Hosts; registry rows live in `vellum.db`; local is seeded with herdr+hermes |
 
 Connection states: connected · degraded · lost · failed · reconnect. Clipboard image paste supported (bounded).
 
@@ -281,16 +283,16 @@ Settings → Kernel: pulse log retention, verbose debug. Arming faults and orpha
 | Role | Meaning |
 |---|---|
 | **Command Center** | Human authors the canvas; manages the fleet registry |
-| **Remote** | Capability host; pulls canvases; host-scoped execution only |
+| **Remote** | Capability host; applies complete projections; host-scoped execution only |
 
 Role is **never inferred** — you pick it. `hostId` identifies this machine (default `local`).
 
-| Config | Path |
+| Config | Contract |
 |---|---|
-| Host registry | `~/.vellum/hosts.json` (max 32) |
+| Host registry | App-owned rows in `vellum.db` (max 32) |
 | Local host | Auto-seeded with herdr + hermes |
 | Remote host | SSH endpoint + capabilities; optional hermesId remap |
-| Canvas pull | Remote pulls `.canvas` from Command Center |
+| Fleet sync | `pair` / `configure` / `project` / `report` / `status` through fixed `vellum-station` |
 | Tailscale | Optional serve/peer catalog in Settings → Hosts |
 
 Advanced local, multi-host, and offline-island proof:
@@ -300,7 +302,8 @@ Advanced local, multi-host, and offline-island proof:
 
 ## Settings & install
 
-Settings live in `~/.vellum/settings.json` (no secrets): appearance, canvas prefs, browser capacity, audio/SFX, station role/hostId/commandCenterRef, supervised preference.
+Preferences, station topology, and host enrollment live as normalized rows in
+`~/.vellum/state/vellum.db`. The app is their only mutation path.
 
 | Install | Command |
 |---|---|
@@ -374,7 +377,9 @@ vellum-browser goto | eval | shot | close | stop
 
 ## Herdr terminals
 
-Canvas cards bound to Herdr PTY panes (local or remote). Wizard bind: host → session → workspace → tab → pane. Default delete = **detach** (panes survive). Quit detaches control streams only. Hosts: Settings → Hosts (`~/.vellum/hosts.json`).
+Canvas cards bind to Herdr PTY panes (local or remote). Wizard bind: host →
+session → workspace → tab → pane. Default delete = **detach** (panes survive).
+Quit detaches control streams only. Hosts are enrolled through Settings.
 
 ---
 
@@ -397,15 +402,18 @@ Canvas cards bound to Herdr PTY panes (local or remote). Wizard bind: host → s
 | Role | Meaning |
 |---|---|
 | **Command Center** | Human authors the canvas; manages fleet registry |
-| **Remote** | Capability host; pulls canvases; host-scoped execution |
+| **Remote** | Capability host; applies complete projections; host-scoped execution |
 
-Role is never inferred. Host registry: `~/.vellum/hosts.json` (local seeded; remotes via SSH). Optional Tailscale serve catalog in Settings → Hosts.
+Role is never inferred. The SQLite host registry seeds local and enrolls
+Remotes by SSH endpoint. Optional Tailscale serve catalog lives in Settings →
+Hosts.
 
 ---
 
 ## Settings & install
 
-`~/.vellum/settings.json` — appearance, canvas prefs, browser capacity, audio/SFX, station role / hostId / commandCenterRef, supervised preference. No secrets in settings.
+`~/.vellum/state/vellum.db` owns preferences, station topology, host
+enrollment, canvases, work, and Station coordination.
 
 | Install | Command |
 |---|---|
@@ -474,7 +482,9 @@ vellum-browser goto | eval | shot | close | stop
 
 ## Herdr terminals
 
-Canvas cards bound to Herdr PTY panes (local or remote). Wizard: host → session → workspace → tab → pane. Default delete = **detach**. Quit detaches streams only. Hosts: Settings → Hosts (`~/.vellum/hosts.json`).
+Canvas cards bind to Herdr PTY panes (local or remote). Wizard: host → session
+→ workspace → tab → pane. Default delete = **detach**. Quit detaches streams
+only. Hosts are enrolled through Settings.
 
 ---
 
@@ -497,9 +507,10 @@ Canvas cards bound to Herdr PTY panes (local or remote). Wizard: host → sessio
 | Role | Meaning |
 |---|---|
 | **Command Center** | Human authors canvas; manages fleet |
-| **Remote** | Capability host; pulls canvases; host-scoped execution |
+| **Remote** | Capability host; applies complete projections; host-scoped execution |
 
-Role is never inferred. Hosts: `~/.vellum/hosts.json`. Optional Tailscale serve catalog in Settings.
+Role is never inferred. Hosts are app-owned SQLite rows. Optional Tailscale
+serve catalog lives in Settings.
 
 ---
 
@@ -507,12 +518,10 @@ Role is never inferred. Hosts: `~/.vellum/hosts.json`. Optional Tailscale serve 
 
 | Path / env | What |
 |---|---|
-| `~/.vellum/canvases/` | Canvas documents |
-| `~/.vellum/settings.json` | Prefs (no secrets) |
-| `~/.vellum/hosts.json` | Host registry |
+| `~/.vellum/state/vellum.db` | Sole durable product state |
+| `~/.vellum/canvases/` | Explicit JSON Canvas, digest, and SVG outputs only |
 | `~/.vellum/work/` | Work control sock + token |
 | `~/.vellum/browser/` | Browser control + profiles + shots |
-| `VELLUM_CANVASES_DIR` | Override canvases dir |
 | `VELLUM_WORK_HOME` | Override work control dir |
 | `VELLUM_BROWSER_HOME` | Override browser control home |
 | `VELLUM_AUTHORIAL_WRITE` | Allow `canvas:rm` |
@@ -577,12 +586,10 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 
 | Path / env | What |
 |---|---|
-| `~/.vellum/canvases/` | Canvas documents |
-| `~/.vellum/settings.json` | Prefs (no secrets) |
-| `~/.vellum/hosts.json` | Host registry |
+| `~/.vellum/state/vellum.db` | Sole durable product state |
+| `~/.vellum/canvases/` | Explicit JSON Canvas, digest, and SVG outputs only |
 | `~/.vellum/work/` | Work control sock + token |
 | `~/.vellum/browser/` | Browser control + profiles + shots |
-| `VELLUM_CANVASES_DIR` | Override canvases dir |
 | `VELLUM_WORK_HOME` | Override work control dir |
 | `VELLUM_BROWSER_HOME` | Override browser control home |
 | `VELLUM_AUTHORIAL_WRITE` | Allow `canvas:rm` |
@@ -622,8 +629,8 @@ vellum-browser goto | eval | shot | close | stop
 
 - **Herdr** — canvas cards bound to PTY panes; wizard bind; detach-on-quit; multi-host registry
 - **Kernel** — regions, watchers, timers, arming (app-local, not in document), host-scoped pulse
-- **Stations** — Command Center vs Remote (never inferred); canvas pull for remotes
-- **Hosts** — `~/.vellum/hosts.json`; optional Tailscale serve catalog
+- **Stations** — Command Center vs Remote (never inferred); complete Station API projections
+- **Hosts** — app-owned SQLite registry; optional Tailscale serve catalog
 
 ---
 
@@ -631,12 +638,10 @@ vellum-browser goto | eval | shot | close | stop
 
 | Path / env | What |
 |---|---|
-| `~/.vellum/canvases/` | Canvas documents |
-| `~/.vellum/settings.json` | Prefs (no secrets) |
-| `~/.vellum/hosts.json` | Host registry |
+| `~/.vellum/state/vellum.db` | Sole durable product state |
+| `~/.vellum/canvases/` | Explicit JSON Canvas, digest, and SVG outputs only |
 | `~/.vellum/work/` | Work control sock + token |
 | `~/.vellum/browser/` | Browser control + profiles + shots |
-| `VELLUM_CANVASES_DIR` | Override canvases dir |
 | `VELLUM_WORK_HOME` | Override work control dir |
 | `VELLUM_BROWSER_HOME` | Override browser control home |
 | `VELLUM_AUTHORIAL_WRITE` | Allow `canvas:rm` |

@@ -9,35 +9,40 @@ product trust model. It defines Vellum as a single-operator factory, attached
 agents as trusted but fallible, edges as enforceable operator intent inside
 Vellum, and Stations as stateless consumers of Command Center intent. If a
 review, backlog item, test, or older architecture note conflicts with it, the
-conflict is migration work rather than an exception.
+conflict must be removed rather than preserved as a compatibility path.
 
 **Normative direction:** the protected document is the product; compiled
 projections and capability-bound tools are the agent API. **Sole durable store**
-is `~/.vellum/state/canvas-authority-v1` (content-addressed generations +
-`current.json`). App write/create/remove/mutate commit full-map generations only.
-Agent sidecars (`*.digest.txt`, `*.svg`) under `~/.vellum/canvases/` are
-projections, not product durability.
+is `~/.vellum/state/vellum.db`. The Electron main process owns its one
+`StateEngine` connection; renderers, CLIs, helpers, and remote callers use
+IPC/control APIs and never open the database. Every installation runs the same
+schema. Command Center holds authorial canvases and fleet coordination; a
+Remote holds its replace-only projection and host-local work. Single-home rows
+and per-home logical sequences make station clocks irrelevant to correctness.
+JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
+not durability or input watched by the app.
 
 ## The agent surface (headless — no GUI needed)
 
 **Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum tools.
 
-Headless CLIs read the **authority store** via `CanvasesService` (same path as
-the app). Agents remain strictly read-only for authorial intent. Current
-headless CLIs:
+Headless CLIs reach `CanvasesService` through the running app's owner-local
+canvas control socket. They do not open `vellum.db`. Agents remain strictly
+read-only for authorial intent. Current headless CLIs:
 
 | command | who | what it does |
 |---|---|---|
 | `bun run digest [name]` | agents + operators | print (and write `<name>.digest.txt`) a deterministic text projection of the board + live hermes snapshot data. |
 | `bun run render [name]` | agents + operators | write `<name>.svg` — a deep-field image of the board, for multimodal reading. |
 | `bun run canvas:ls [--json]` | agents + operators | list canvases with node/edge counts. |
-| `bun run canvas:rm <name>…` | **operator only** | delete canvas document(s) from the authority store. Requires `VELLUM_AUTHORIAL_WRITE=1`. |
+| `bun run canvas:rm <name>…` | **operator only** | delete canvas document(s) through the app-owned authoring API. Requires `VELLUM_AUTHORIAL_WRITE=1`. |
 
 To **read the board as an agent**: `bun run digest` (text) or `bun run render` then view the SVG (image).
 
 ### Work plane (agent mutations)
 
-While Vellum is running, agents talk to the **local** work control socket (not the canvas file):
+While Vellum is running, agents talk to the **local** work control socket, not
+to an exported document or the database:
 
 | surface | detail |
 |---|---|
@@ -55,9 +60,9 @@ Ops go through WorkService (tasks/messages/requests/artifacts). That is the agen
 ### Station roles
 
 - **Command Center** — user-selected. Human authors the canvas; fleet management via host registry.
-- **Remote** — user-selected. Capability host for that machine; pulls canvases; host-scoped execution only.
+- **Remote** — user-selected. Capability host for that machine; applies complete Command Center projections and executes host-local rows.
 - Role is never inferred from hardware or open windows.
-- Doctor service `station` reports role, supervised alignment, work-control readiness, last canvas pull / configure.
+- Doctor service `station` reports role, installation identity, database/work/simulation readiness, projection, and logical cursor state.
 
 ## The document contract
 
@@ -99,7 +104,12 @@ Region activation gated by three structures (`src/shared/canvas.ts`):
 
 **EtherRegion** (88–92): `{ hold, instruction }` on group nodes. `hold: true` = structural container. `instruction` is briefing context appended to a pulse. Watchers/timers deliver only to edge-connected eligible agents; a manual region pulse may target eligible agents inside.
 
-**Three laws**: (1) Watcher state is derived, never stored in the document. (2) Edge-detection memory is app-local — restart re-baselines, no latent fire. (3) Arming lives only in the running app: document defines pulses, app flips the switch.
+**Scheduler laws**: (1) Watcher truth is derived, never authorial document
+state. (2) A watcher or timer executes only on its single home installation.
+(3) `everyMinutes` catch-up coalesces missed intervals into at most one firing;
+future timer kinds must declare a catch-up policy explicitly. (4) Arming is
+runtime control, not authored canvas intent. Wall-clock timestamps are display
+and due-time metadata only; fleet ordering uses per-home logical sequences.
 
 ## Binding refs and canonical keys
 
@@ -147,7 +157,8 @@ The **E2E design-audit loop** (`e2e/scenarios/design-audit.spec.ts`) drives ever
 ## Structure
 
 - `src/shared/` — **frozen contracts**: `canvas.ts` (document schema), `entities.ts` (snapshots), `graph.ts` (derived), `region-rollup.ts` (derived region severity rollups), `digest.ts`, `portfolio.ts`, `svg.ts`. Change deliberately; much depends on them.
-- `src/main/vellum/` — document plane (`canvases.ts`), data plane (`snapshots.ts` + `adapters/`), IPC (`ipc.ts`).
+- `src/main/vellum/state/` — the one SQLite engine and composed current schema.
+- `src/main/vellum/` — document/work/station services, data adapters, and IPC/control boundaries.
 - `src/renderer/` — the canvas surface.
 - `scripts/` — the headless CLIs above.
 
@@ -187,7 +198,13 @@ phase, and attention/occupancy are separate planes.
 
 ## Discipline
 
-- Adapters are read-only. The document is the only thing the user (or an agent) mutates.
+- `~/.vellum/state/vellum.db` is the only product state store. Do not add JSON
+  stores, manifests, seals, pointer files, drop-file protocols, dual
+  reads/writes, legacy imports, or rollback paths.
+- The main process is the only production database opener. Headless and remote
+  surfaces must use the app-owned IPC/control/Station APIs.
+- Adapters are read-only. The operator authors intent through Command Center;
+  agents mutate only the work plane through `WorkService`.
 - Board/source IDs and tokens never leak into committed source.
 - `bun run typecheck && bun run test` gate every change.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.

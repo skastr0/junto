@@ -3,7 +3,7 @@
 **Status:** audit of implementation truth vs Phase 5 target  
 **Date:** 2026-07-23  
 **Governs:** Linux production critical path item 4 (Phases 4–5); pairs with
-[`fleet-topology-migration.md`](./fleet-topology-migration.md) revocation plane
+[`fleet-station-architecture.md`](./fleet-station-architecture.md) revocation plane
 and [`security-doctrine.md`](./security-doctrine.md).
 
 **Doctrine (target):** edges + ports + process-bind; no client-supplied
