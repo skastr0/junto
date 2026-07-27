@@ -488,9 +488,15 @@ describe("HerdrService with mock runner", () => {
     const { setHostsSnapshot } = await import("../src/main/vellum/hosts/snapshot");
     const { defaultRemoteHostsDocument } = await import("../src/shared/remote-hosts");
     const baseHosts = defaultRemoteHostsDocument().hosts;
-    const withEndpoint = (endpoint: string) => [
+    const withEndpoint = (sshEndpoint: string) => [
       ...baseHosts,
-      { id: "studio", label: "studio", kind: "remote" as const, endpoint, capabilities: ["herdr" as const] },
+      {
+        id: "studio",
+        label: "studio",
+        kind: "remote" as const,
+        sshEndpoint,
+        capabilities: ["herdr" as const],
+      },
     ];
     setHostsSnapshot(withEndpoint("studio-a"));
 
