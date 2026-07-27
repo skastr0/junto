@@ -46,6 +46,7 @@ import {
   getWatchers,
   purgeCanvasMemory,
   reconcileLiveCanvasMemory,
+  retryPendingPulseDeliveries,
   runEvaluationCycle,
   setArmed,
   setDocs,
@@ -354,10 +355,26 @@ const makeKernelService = (
 
   // --- evaluation cycle --------------------------------------------------------
 
+  // Seat creation must precede watcher/timer evaluation, but it is not itself
+  // a factory claim tick. A newly-created seat can still be `starting` (and its
+  // managed drive not ready), so cycle.ts retains zero-acceptance scheduled
+  // pulses and this pre-pass offers them again on a later cycle.
+  const startManagedSeats = (): void => {
+    for (const [canvasName, doc] of docs) {
+      const state = pause.stateFor(canvasName);
+      if (!state.playing) continue;
+      for (const node of doc.nodes) {
+        if (seatPaused(state, doc, node.id)) continue;
+        ensureManagedSeatRunning(canvasName, doc, node);
+      }
+    }
+  };
+
   const runCycle = async (): Promise<void> => {
     await refreshStationScope(settings);
     __setSnapshotsForTest(await Effect.runPromise(snapshots.current));
-    await runClaimTicks();
+    startManagedSeats();
+    retryPendingPulseDeliveries();
     await Promise.all([runEvaluationCycle(), checkTimers()]);
     await runClaimTicks();
     // Sweep stale watcher/timer runtime entries for nodes removed on a still-
@@ -375,11 +392,6 @@ const makeKernelService = (
     for (const [canvasName, doc] of docs) {
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
-      // Start managedAgent surfaces before claim so idle gate can open.
-      for (const node of doc.nodes) {
-        if (seatPaused(state, doc, node.id)) continue;
-        ensureManagedSeatRunning(canvasName, doc, node);
-      }
       // Probe on the tracked doc; only touch authority when something claims.
       const probe = factoryClaimTick(doc, canvasName, undefined, {
         seatPaused: (nodeId) => seatPaused(state, doc, nodeId),

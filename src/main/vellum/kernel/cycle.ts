@@ -247,6 +247,7 @@ export const __resetKernelMemoryForTest = (): void => {
   armed = new Map();
   pulseLog = [];
   pendingPulseDeliveries.clear();
+  queuedPulseDeliveryKeys.clear();
   deliveryDeps = undefined;
   flagWriterDeps = undefined;
   phaseMirrorDeps = undefined;
@@ -377,6 +378,30 @@ const pulseDeliveryKey = (params: DeliverPulseParams): string =>
   `${params.canvasName}::${params.sourceNodeId}::${params.kind}::${params.regionId ?? ""}::${params.forceDry === true ? "force-dry" : "auto"}::${params.summary}`;
 
 const pendingPulseDeliveries = new Map<string, DeliverPulseParams>();
+const queuedPulseDeliveryKeys = new Set<string>();
+
+const setPendingPulseDelivery = (
+  params: DeliverPulseParams,
+  shouldRetry: boolean,
+): void => {
+  const key = pulseDeliveryKey(params);
+  if (!shouldRetry) {
+    pendingPulseDeliveries.delete(key);
+    return;
+  }
+  pendingPulseDeliveries.set(key, params);
+};
+
+const setWatcherLastFiredAt = (
+  canvasName: string,
+  sourceNodeId: string,
+  at: number,
+): void => {
+  const key = `${canvasName}::${sourceNodeId}`;
+  const prior = watchers.get(key);
+  if (!prior) return;
+  watchers.set(key, { ...prior, lastFiredAt: at });
+};
 
 // Single funnel for every pulse — watcher fire, timer tick, or manual. A
 // regionless source (no containing group) always resolves dry with
@@ -518,7 +543,9 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
     }
   }
 
-  const finalDry = dry || (!attemptedLiveSeats && !params.forceDry);
+  // A pulse that found no deliverable seat did not spend a live turn yet.
+  // It stays dry until the retry path actually drives at least one seat.
+  const finalDry = dry || delivered.length === 0;
   const shouldRetry = attemptedLiveSeats && delivered.length === 0 && !params.forceDry;
   setPendingPulseDelivery(params, shouldRetry);
 
@@ -565,6 +592,7 @@ const drainPulseDeliveries = async (): Promise<void> => {
     while (pulseDeliveryQueue.length > 0) {
       const params = pulseDeliveryQueue.shift();
       if (params === undefined) break;
+      queuedPulseDeliveryKeys.delete(pulseDeliveryKey(params));
       // Error capture: a failing — or forever-pending — delivery never sinks
       // the drain; the next queued pulse still gets its turn.
       await deliverPulse(params).catch(() => undefined);
@@ -575,6 +603,9 @@ const drainPulseDeliveries = async (): Promise<void> => {
 };
 
 const enqueuePulseDelivery = (params: DeliverPulseParams): void => {
+  const key = pulseDeliveryKey(params);
+  if (queuedPulseDeliveryKeys.has(key)) return;
+  queuedPulseDeliveryKeys.add(key);
   pulseDeliveryQueue.push(params);
   void drainPulseDeliveries();
 };
@@ -598,6 +629,7 @@ const firePulseForNode = (canvasName: string, doc: CanvasDoc, nodeId: string, ki
 export const __resetDeliveryQueueForTest = (): void => {
   pulseDeliveryQueue.length = 0;
   deliveryDraining = false;
+  queuedPulseDeliveryKeys.clear();
 };
 
 // --- flagOnUnsatisfied (level watchers only) ----------------------------------
@@ -733,9 +765,13 @@ export const runEvaluationCycle = async (): Promise<void> => {
         }
         const watcherKey = `${canvasName}::${nodeId}`;
         const previous = watchers.get(watcherKey);
-        const nextRuntime: WatcherRuntimeState = { status: result.state.status, detail: result.state.detail };
-        const lastFiredAt = result.fired ? Date.now() : previous?.lastFiredAt;
-        if (lastFiredAt !== undefined) nextRuntime.lastFiredAt = lastFiredAt;
+        const nextRuntime: WatcherRuntimeState = {
+          status: result.state.status,
+          detail: result.state.detail,
+          ...(previous?.lastFiredAt !== undefined
+            ? { lastFiredAt: previous.lastFiredAt }
+            : {}),
+        };
         watchers.set(watcherKey, nextRuntime);
 
         if (watch.kind !== "glyphs_entered_state") {
@@ -891,6 +927,16 @@ export const getPulseLog = (): PulseRecord[] => {
 
 export const getArmed = (): Map<string, boolean> => {
   return new Map(armed);
+};
+
+export const __getPendingPulseDeliveryCountForTest = (): number => {
+  return pendingPulseDeliveries.size;
+};
+
+export const retryPendingPulseDeliveries = (): void => {
+  for (const params of pendingPulseDeliveries.values()) {
+    enqueuePulseDelivery(params);
+  }
 };
 
 // Drops the DERIVED namespaced state for a canvas that's gone from authority

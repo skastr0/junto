@@ -633,9 +633,22 @@ export const registerVellumIpc = (): void => {
           snapshot: terminalObserverPlane.snapshot(bindingId),
         });
       };
-      const writeManagedPrompt = (bindingId: string, text: string) =>
+      const writeManagedPrompt = (
+        bindingId: string,
+        text: string,
+        options?: {
+          readonly queueTimeoutMs?: number;
+          readonly ready?: boolean;
+        },
+      ) =>
         managedDrive.writePrompt(bindingId, text, {
-          ready: driveReady(bindingId),
+          ready: options?.ready ?? driveReady(bindingId),
+          ...(options ?? {}),
+        });
+      const writeManagedPulse = (bindingId: string, text: string) =>
+        writeManagedPrompt(bindingId, text, {
+          ready: true,
+          queueTimeoutMs: 5 * 60_000,
         });
       // Grok ≥1.5s post-spawn before first paste (verified trap).
       termPlane.host.on("event", (payload: {
@@ -671,7 +684,7 @@ export const registerVellumIpc = (): void => {
         }
       });
       // Kernel pulses for managed seats (not ACP).
-      setManagedPulseDeliver((bindingId, text) => writeManagedPrompt(bindingId, text));
+      setManagedPulseDeliver((bindingId, text) => writeManagedPulse(bindingId, text));
 
       // Message nudge channel: ether.messages -> live managed terminal seats.
       // Retry only on session-live / seat-idle (no polling store).

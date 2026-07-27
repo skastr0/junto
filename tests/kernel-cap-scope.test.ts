@@ -7,8 +7,10 @@ import {
   getPulseLog,
   MIN_LIVE_PULSE_SPACING_MS,
   setArmed,
+  __setStationScopeForTest,
   type PulseDeliverDeps,
 } from "../src/main/vellum/kernel/cycle";
+import type { CanvasDoc } from "../src/shared/canvas";
 
 // Live-pulse spacing is per (canvas, region). The SAME region id on two
 // canvases is two distinct regions and each keeps its own spacing window;
@@ -20,16 +22,51 @@ const deliverDeps: PulseDeliverDeps = {
   sendManagedTerminal: async () => true,
 };
 
+const liveCanvas = (): CanvasDoc => ({
+  nodes: [
+    {
+      id: REGION,
+      type: "group",
+      x: 0,
+      y: 0,
+      width: 500,
+      height: 400,
+    },
+    {
+      id: "agent",
+      type: "text",
+      text: "agent",
+      x: 100,
+      y: 100,
+      width: 160,
+      height: 60,
+      ether: {
+        entity: { kind: "agent", name: "local:agent" },
+        terminal: {
+          bindingId: "binding-local-agent",
+          harness: "claude",
+          launch: { kind: "harness", argv: ["claude"] },
+        },
+      },
+    },
+  ],
+  edges: [],
+});
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-07-15T12:00:00Z"));
   __resetPulseLogForTest();
   __setDocsForTest(
     new Map([
-      ["canvas-a", { nodes: [], edges: [] }],
-      ["canvas-b", { nodes: [], edges: [] }],
+      ["canvas-a", liveCanvas()],
+      ["canvas-b", liveCanvas()],
     ]),
   );
+  __setStationScopeForTest({
+    hostId: "local",
+    role: "command-center",
+  });
   setArmed(`canvas-a::${REGION}`, true);
   setArmed(`canvas-b::${REGION}`, true);
   __setDeliveryDepsForTest(deliverDeps);
