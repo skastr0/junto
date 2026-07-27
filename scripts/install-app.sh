@@ -15,8 +15,8 @@
 #   Settings doctor metadata reports preferred vs LaunchAgent-loaded so Remote
 #   deploy (later) can decide to pass --supervised. No third binary.
 #
-# Installs `vellum …` and `vellum-browser …` as atomic symlinks under
-# ~/.local/bin. Existing non-Vellum commands are
+# Installs `vellum …`, `vellum-browser …`, and `vellum-station` as atomic
+# symlinks under ~/.local/bin. Existing non-Vellum commands are
 # never overwritten.
 #
 # Safety:
@@ -85,6 +85,7 @@ assert_cli_path() {
 
 CREATED_VELLUM_LINK=0
 CREATED_VELLUM_BROWSER_LINK=0
+CREATED_VELLUM_STATION_LINK=0
 
 preflight_cli_link() {
   local target="$1"
@@ -92,7 +93,11 @@ preflight_cli_link() {
   local name="${target##*/}"
   assert_scoped_directory_capability "CLI directory" "$BIN_DIR" || return 1
   assert_cli_path "CLI link" "$target" "$BIN_DIR/$name" || return 1
-  if [[ "$name" != "vellum" && "$name" != "vellum-browser" ]]; then
+  if [[
+    "$name" != "vellum" &&
+    "$name" != "vellum-browser" &&
+    "$name" != "vellum-station"
+  ]]; then
     err "refusing unexpected CLI link name: $name"
     return 1
   fi
@@ -126,11 +131,11 @@ install_cli_link() {
     err "CLI link changed identity during creation: $target"
     return 1
   fi
-  if [[ "$name" == "vellum" ]]; then
-    CREATED_VELLUM_LINK=1
-  else
-    CREATED_VELLUM_BROWSER_LINK=1
-  fi
+  case "$name" in
+    vellum) CREATED_VELLUM_LINK=1 ;;
+    vellum-browser) CREATED_VELLUM_BROWSER_LINK=1 ;;
+    vellum-station) CREATED_VELLUM_STATION_LINK=1 ;;
+  esac
 }
 
 remove_created_cli_link() {
@@ -140,6 +145,7 @@ remove_created_cli_link() {
   case "$name" in
     vellum) helper="$APP_DST/Contents/Resources/bin/vellum"; created="$CREATED_VELLUM_LINK" ;;
     vellum-browser) helper="$APP_DST/Contents/Resources/bin/vellum-browser"; created="$CREATED_VELLUM_BROWSER_LINK" ;;
+    vellum-station) helper="$APP_DST/Contents/Resources/bin/vellum-station"; created="$CREATED_VELLUM_STATION_LINK" ;;
     *) err "unknown CLI link cleanup capability: $name"; return 1 ;;
   esac
   if [[ "$created" -ne 1 ]]; then
@@ -156,16 +162,23 @@ remove_created_cli_link() {
 install_cli_tools() {
   local work_helper="$APP_DST/Contents/Resources/bin/vellum"
   local browser_helper="$APP_DST/Contents/Resources/bin/vellum-browser"
-  if [[ ! -x "$work_helper" || ! -x "$browser_helper" ]]; then
+  local station_helper="$APP_DST/Contents/Resources/bin/vellum-station"
+  if [[
+    ! -x "$work_helper" ||
+    ! -x "$browser_helper" ||
+    ! -x "$station_helper"
+  ]]; then
     err "installed Vellum CLI helper missing or not executable"
     return 1
   fi
   ensure_scoped_directory "CLI directory" "$BIN_DIR"
   preflight_cli_link "$BIN_DIR/vellum" "$work_helper"
   preflight_cli_link "$BIN_DIR/vellum-browser" "$browser_helper"
+  preflight_cli_link "$BIN_DIR/vellum-station" "$station_helper"
   install_cli_link "vellum" "$work_helper"
   install_cli_link "vellum-browser" "$browser_helper"
-  log "commands → $BIN_DIR/{vellum,vellum-browser}"
+  install_cli_link "vellum-station" "$station_helper"
+  log "commands → $BIN_DIR/{vellum,vellum-browser,vellum-station}"
 }
 
 audit_app_bundle() {
@@ -200,8 +213,10 @@ CANDIDATE_CDHASH="$(app_cdhash "$APP_SRC")"
 
 WORK_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum"
 BROWSER_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-browser"
+STATION_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-station"
 preflight_cli_link "$BIN_DIR/vellum" "$WORK_HELPER_TARGET"
 preflight_cli_link "$BIN_DIR/vellum-browser" "$BROWSER_HELPER_TARGET"
+preflight_cli_link "$BIN_DIR/vellum-station" "$STATION_HELPER_TARGET"
 
 derive_install_transaction_paths "$$"
 HAD_PREVIOUS=0
@@ -271,6 +286,9 @@ cleanup_install() {
     fi
   fi
   if [[ "$status" -ne 0 && "$INSTALL_COMPLETE" -ne 1 ]]; then
+    if ! remove_created_cli_link vellum-station; then
+      cleanup_failed=1
+    fi
     if ! remove_created_cli_link vellum-browser; then
       cleanup_failed=1
     fi

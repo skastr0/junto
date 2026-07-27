@@ -8,6 +8,7 @@ EXECUTABLE="$APP_DIR/vellum"
 CHROME_SANDBOX="$APP_DIR/chrome-sandbox"
 WORK_CLI="$APP_DIR/resources/bin/vellum"
 BROWSER_CLI="$APP_DIR/resources/bin/vellum-browser"
+STATION_CLI="$APP_DIR/resources/bin/vellum-station"
 RELEASE_INSTALLER_SOURCE="$APP_DIR/resources/bin/vellum-release-installer"
 RELEASE_BRIDGE_SOURCE="$APP_DIR/resources/bin/vellum-release-bridge"
 PEER_PID_HELPER="$APP_DIR/resources/bin/unix-peer-pid.py"
@@ -40,6 +41,7 @@ for packaged_file in \
   "$CHROME_SANDBOX" \
   "$WORK_CLI" \
   "$BROWSER_CLI" \
+  "$STATION_CLI" \
   "$RELEASE_INSTALLER_SOURCE" \
   "$RELEASE_BRIDGE_SOURCE" \
   "$PEER_PID_HELPER" \
@@ -67,7 +69,7 @@ fi
 # Chromium's setuid helper inert instead of silently falling back to setuid.
 chown root:root "$CHROME_SANDBOX"
 chmod 0755 "$CHROME_SANDBOX"
-chmod 0755 "$EXECUTABLE" "$WORK_CLI" "$BROWSER_CLI" "$PEER_PID_HELPER"
+chmod 0755 "$EXECUTABLE" "$WORK_CLI" "$BROWSER_CLI" "$STATION_CLI" "$PEER_PID_HELPER"
 chmod 0755 "$RELEASE_INSTALLER_SOURCE"
 chmod 0755 "$RELEASE_BRIDGE_SOURCE"
 chmod 0644 "$UNIT_SOURCE"
@@ -298,7 +300,11 @@ fi
 created_profile_link=0
 created_unit_link=0
 registered_alternative=0
+registered_station_alternative=0
 cleanup_new_links() {
+  if [ "$registered_station_alternative" -eq 1 ] && command -v update-alternatives >/dev/null 2>&1; then
+    update-alternatives --remove vellum-station "$STATION_CLI" || true
+  fi
   if [ "$registered_alternative" -eq 1 ] && command -v update-alternatives >/dev/null 2>&1; then
     update-alternatives --remove vellum "$WORK_CLI" || true
   fi
@@ -322,6 +328,10 @@ fi
 if ! update-alternatives --query vellum 2>/dev/null | /bin/grep -Fqx "Alternative: $WORK_CLI"; then
   update-alternatives --install /usr/bin/vellum vellum "$WORK_CLI" 100
   registered_alternative=1
+fi
+if ! update-alternatives --query vellum-station 2>/dev/null | /bin/grep -Fqx "Alternative: $STATION_CLI"; then
+  update-alternatives --install /usr/bin/vellum-station vellum-station "$STATION_CLI" 100
+  registered_station_alternative=1
 fi
 
 if command -v update-mime-database >/dev/null 2>&1; then

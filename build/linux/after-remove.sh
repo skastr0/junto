@@ -192,6 +192,7 @@ remove_package_owned_bridge_stage_root
 
 if command -v update-alternatives >/dev/null 2>&1; then
   update-alternatives --remove vellum '/opt/Vellum Command/resources/bin/vellum'
+  update-alternatives --remove vellum-station '/opt/Vellum Command/resources/bin/vellum-station'
 fi
 
 # Remove only the canonical registration Vellum minted. A unit file or foreign
