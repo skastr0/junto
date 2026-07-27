@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   chmod,
   chown,
@@ -808,6 +809,11 @@ const createFixture = async (
   await mkdir(paths.installedRoot, { mode: 0o755 });
   await mkdir(paths.bridgeRoot, { mode: 0o1733 });
   await chmod(paths.bridgeRoot, 0o1733);
+  // Bun's fs.promises.chmod currently drops the sticky bit in its test
+  // runner; use the platform chmod utility to construct the same fixed-root
+  // authority exercised in production.
+  execFileSync("/bin/chmod", ["1733", paths.bridgeRoot]);
+  expect((await stat(paths.bridgeRoot)).mode & 0o7777).toBe(0o1733);
   const invocation: LinuxReleaseInstallerInvocation = {
     effectiveUid: 0,
     arguments: [],
