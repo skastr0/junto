@@ -37,6 +37,16 @@ export class StationFleetTargetConflictError extends Schema.TaggedError<StationF
   },
 ) {}
 
+export class StationFleetTargetHostBindingImmutableError extends Schema.TaggedError<StationFleetTargetHostBindingImmutableError>()(
+  "StationFleetTargetHostBindingImmutableError",
+  {
+    hostId: HostId,
+    boundStationInstallationId: InstallationId,
+    rejectedStationInstallationId: InstallationId,
+    message: Schema.String,
+  },
+) {}
+
 export class StationFleetTargetMetadataError extends Schema.TaggedError<StationFleetTargetMetadataError>()(
   "StationFleetTargetMetadataError",
   {
@@ -65,6 +75,7 @@ export class StationFleetTargetPersistenceError extends Schema.TaggedError<Stati
 
 export type StationFleetTargetRepositoryError =
   | StationFleetTargetConflictError
+  | StationFleetTargetHostBindingImmutableError
   | StationFleetTargetMetadataError
   | StationFleetTargetCorruptRecordError
   | StationFleetTargetPersistenceError;
@@ -104,6 +115,7 @@ type FleetTargetRow = StateRow & {
   readonly endpoint: string;
   readonly station_installation_id: string;
   readonly bound_at: string;
+  readonly retired_at: string | null;
 };
 
 const decodeTarget = Schema.decodeUnknownSync(StationFleetTarget);
@@ -141,7 +153,25 @@ const selectByHostId = (
        host_id,
        endpoint,
        station_installation_id,
-       bound_at
+       bound_at,
+       retired_at
+     FROM station_fleet_targets
+     WHERE host_id = ?
+       AND retired_at IS NULL`,
+    [hostId],
+  );
+
+const selectBindingByHostId = (
+  reader: StateReader,
+  hostId: HostIdValue,
+): FleetTargetRow | undefined =>
+  reader.get<FleetTargetRow>(
+    `SELECT
+       host_id,
+       endpoint,
+       station_installation_id,
+       bound_at,
+       retired_at
      FROM station_fleet_targets
      WHERE host_id = ?`,
     [hostId],
@@ -156,7 +186,8 @@ const selectIdentityCollisions = (
        host_id,
        endpoint,
        station_installation_id,
-       bound_at
+       bound_at,
+       retired_at
      FROM station_fleet_targets
      WHERE host_id = ?
         OR endpoint = ?
@@ -243,6 +274,24 @@ export const makeStationFleetTargetRepositoryLive = (
           const admittedBoundAt = yield* admitTimestamp(boundAt);
           const decision = yield* engine
             .transaction("station-fleet-target.bind", (writer) => {
+              const establishedRow = selectBindingByHostId(
+                writer,
+                admittedIdentity.hostId,
+              );
+              const established = establishedRow === undefined
+                ? undefined
+                : targetFromRow(establishedRow);
+              if (
+                established !== undefined &&
+                established.stationInstallationId !==
+                  admittedIdentity.stationInstallationId
+              ) {
+                return {
+                  _tag: "host-binding-immutable" as const,
+                  established,
+                };
+              }
+
               const collisions = selectIdentityCollisions(
                 writer,
                 admittedIdentity,
@@ -251,6 +300,17 @@ export const makeStationFleetTargetRepositoryLive = (
                 sameIdentity(target, admittedIdentity)
               );
               if (exact !== undefined) {
+                if (
+                  establishedRow !== undefined &&
+                  establishedRow.retired_at !== null
+                ) {
+                  writer.run(
+                    `UPDATE station_fleet_targets
+                     SET retired_at = NULL
+                     WHERE host_id = ?`,
+                    [admittedIdentity.hostId],
+                  );
+                }
                 return { _tag: "bound" as const, target: exact };
               }
               const conflict = collisions[0];
@@ -290,6 +350,18 @@ export const makeStationFleetTargetRepositoryLive = (
               rejected: admittedIdentity,
             });
           }
+          if (decision._tag === "host-binding-immutable") {
+            return yield* StationFleetTargetHostBindingImmutableError.make({
+              hostId: admittedIdentity.hostId,
+              boundStationInstallationId:
+                decision.established.stationInstallationId,
+              rejectedStationInstallationId:
+                admittedIdentity.stationInstallationId,
+              message:
+                `host ${JSON.stringify(admittedIdentity.hostId)} is permanently bound to Station installation ` +
+                `${JSON.stringify(decision.established.stationInstallationId)}; use a new host identity or a future explicit Station transfer ceremony`,
+            });
+          }
           return decision.target;
         },
       );
@@ -315,8 +387,10 @@ export const makeStationFleetTargetRepositoryLive = (
                  host_id,
                  endpoint,
                  station_installation_id,
-                 bound_at
+                 bound_at,
+                 retired_at
                FROM station_fleet_targets
+               WHERE retired_at IS NULL
                ORDER BY host_id`,
             )
             .map(targetFromRow)
@@ -331,8 +405,11 @@ export const makeStationFleetTargetRepositoryLive = (
           engine
             .transaction("station-fleet-target.remove", (writer) => {
               const result = writer.run(
-                `DELETE FROM station_fleet_targets WHERE host_id = ?`,
-                [hostId],
+                `UPDATE station_fleet_targets
+                 SET retired_at = ?
+                 WHERE host_id = ?
+                   AND retired_at IS NULL`,
+                [clock(), hostId],
               );
               return BigInt(result.changes) > 0n;
             })
