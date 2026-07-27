@@ -138,7 +138,6 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       liveAuthorityGeneration: () => Effect.succeed("0"),
       authoritySnapshot: () =>
         Effect.succeed({ generation: "0", documents: new Map(docs) }),
-      replaceLiveAuthorityDocuments: () => Effect.void,
     }),
   );
 

@@ -47,7 +47,6 @@ const fakeCanvases = Layer.succeed(
     liveAuthorityGeneration: () => Effect.succeed("0"),
     authoritySnapshot: () =>
       Effect.succeed({ generation: "0", documents: new Map() }),
-    replaceLiveAuthorityDocuments: () => Effect.void,
   }),
 );
 

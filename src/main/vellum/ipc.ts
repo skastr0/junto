@@ -778,8 +778,9 @@ export const registerVellumIpc = (): void => {
       usage.start();
       kernel.start();
 
-      // Remote: apply any staged projection frame, then start live inbox poll.
-      // Command Center: interval reconvergence (ack promote + re-push lag).
+      // Command Center reconvergence is driven here until the Station API
+      // propagation coordinator owns the tick. Remote projection installs are
+      // accepted only through the live Station API; there is no file inbox.
       void AppRuntime.runPromise(
         Effect.gen(function* () {
           const settings = yield* SettingsService;
@@ -817,107 +818,8 @@ export const registerVellumIpc = (): void => {
             return;
           }
 
-          if (current.station.role !== "remote") return;
-
-          const { applyIncomingProjectionFrame } = yield* Effect.promise(
-            () => import("./projection/incoming"),
-          );
-          const { startProjectionInboxPoll } = yield* Effect.promise(
-            () => import("./projection/inbox"),
-          );
-          const { stationSettingsWitness } = yield* Effect.promise(
-            () => import("./station-witness"),
-          );
-          const { projectionRecordFromResult } = yield* Effect.promise(
-            () => import("@shared/station-status"),
-          );
-          const { recordStationProjection } = yield* Effect.promise(
-            () => import("./station-status-store"),
-          );
-          const canvasesSvc = yield* CanvasesService;
-          const witness = stationSettingsWitness(current.station);
-          const applyDeps = {
-            localStationRole: current.station.role as string,
-            localStationWitness: witness,
-            stationHostId: current.station.hostId,
-            writeAck: true,
-            replaceLiveAuthorityDocuments: async (
-              documents: ReadonlyMap<string, import("@shared/canvas").CanvasDoc>,
-            ) => {
-              const admit = await AppRuntime.runPromise(
-                canvasesSvc
-                  .replaceLiveAuthorityDocuments(documents)
-                  .pipe(Effect.either),
-              );
-              if (admit._tag === "Left") {
-                throw new Error(admit.left.message);
-              }
-            },
-          };
-
-          const recordLocalApply = async (
-            outcome: Awaited<
-              ReturnType<typeof applyIncomingProjectionFrame>
-            >,
-          ): Promise<void> => {
-            if (
-              outcome.status !== "applied" &&
-              outcome.status !== "idempotent"
-            ) {
-              return;
-            }
-            const pointer = outcome.store.snapshot.pointer;
-            await recordStationProjection(
-              projectionRecordFromResult({
-                hostId: current.station.hostId,
-                generation: outcome.generation,
-                manifestSha256: pointer.manifestSha256,
-                frameSha256: outcome.frameSha256,
-                status: "applied",
-                detail: outcome.detail,
-              }),
-            );
-          };
-
-          const outcome = yield* Effect.promise(() =>
-            applyIncomingProjectionFrame(applyDeps),
-          );
-          if (outcome.status === "rejected") {
-            console.error(
-              "[projection] incoming frame apply rejected:",
-              outcome.detail,
-            );
-          } else if (
-            outcome.status === "applied" ||
-            outcome.status === "idempotent"
-          ) {
-            console.info("[projection]", outcome.detail);
-            yield* Effect.promise(() => recordLocalApply(outcome));
-          }
-
-          // Live inbox: serial poll of drop path (mutex inside inbox).
-          const inbox = startProjectionInboxPoll({
-            ...applyDeps,
-            stationHostId: current.station.hostId,
-            stationWitness: witness,
-            onOutcome: (result) => {
-              if (result.status === "rejected") {
-                console.error(
-                  "[projection] inbox apply rejected:",
-                  result.detail,
-                );
-              } else if (
-                result.status === "applied" ||
-                result.status === "idempotent"
-              ) {
-                console.info("[projection] inbox:", result.detail);
-                void recordLocalApply(result);
-              }
-            },
-          });
-          // Fire-and-forget handle; process exit clears timers. Abort via stop
-          // is available if a future shutdown hook wants a clean cut.
-          void inbox;
+          // Remotes are passive here. Their Station API handler commits the
+          // complete projection row and CanvasesService reads it directly.
         }).pipe(
           Effect.catchAll((error) =>
             Effect.sync(() => {

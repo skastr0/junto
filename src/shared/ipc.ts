@@ -222,20 +222,22 @@ export interface ChassisApi {
 
 export interface CanvasSummary {
   readonly name: string;
+  /** Opaque Vellum resource locator; never a filesystem path. */
   readonly path: string;
   readonly modifiedAt: string;
 }
 
 export interface CanvasReadResult {
   readonly name: string;
+  /** Opaque Vellum resource locator; never a filesystem path. */
   readonly path: string;
   readonly doc: CanvasDoc;
-  /** SHA-256 identity of the exact file bytes read from disk. */
+  /** SHA-256 identity of the exact canonical database body. */
   readonly revision: string;
 }
 
 export interface CanvasWriteResult {
-  /** SHA-256 identity of the exact file bytes committed to disk. */
+  /** SHA-256 identity of the exact canonical database body committed. */
   readonly revision: string;
 }
 

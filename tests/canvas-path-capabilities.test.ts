@@ -18,13 +18,11 @@ vi.mock("@shared/seed", () => import("../src/shared/seed"));
 import {
   CanvasesLive,
   CanvasesService,
-  canvasDocumentPath,
   canvasNameFrom,
   writeCanvasSidecar,
 } from "../src/main/vellum/canvases";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
-import { serializeCanvas } from "../src/shared/canvas";
 
 const stateLive = makeStateEngineLive(
   join(mockCanvasesHome, ".vellum", "state", "vellum.db"),
@@ -40,15 +38,6 @@ const emptyDoc = { nodes: [], edges: [] } as const;
 const rejected = async (effect: Effect.Effect<unknown, unknown>): Promise<void> => {
   const outcome = await runtime.runPromise(Effect.either(effect));
   expect(outcome._tag).toBe("Left");
-};
-
-/** Export-plane sidecars still require a real document file beside them. */
-const seedExportDocument = async (name: string, root?: string): Promise<string> => {
-  const dir = root ?? join(mockCanvasesHome, ".vellum", "canvases");
-  await mkdir(dir, { recursive: true });
-  const path = join(dir, `${name}.canvas`);
-  await writeFile(path, serializeCanvas(emptyDoc), "utf8");
-  return path;
 };
 
 const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {
@@ -106,14 +95,21 @@ describe("canvas path capability boundary", () => {
 
   it("validates the sidecar suffix inside the filesystem sink", async () => {
     await runtime.runPromise(canvases.create("sidecar-sink"));
-    const documentPath = await seedExportDocument("sidecar-sink");
-    const before = await readFile(documentPath, "utf8");
 
     await expect(
       writeCanvasSidecar("sidecar-sink", "canvas" as never, "not-json"),
     ).rejects.toThrow("unsupported canvas sidecar suffix");
 
-    expect(await readFile(documentPath, "utf8")).toBe(before);
+    await expect(
+      access(
+        join(
+          mockCanvasesHome,
+          ".vellum",
+          "canvases",
+          "sidecar-sink.canvas",
+        ),
+      ),
+    ).rejects.toThrow();
   });
 
   it("keeps one checked repository root for the complete sidecar write", async () => {
@@ -127,7 +123,6 @@ describe("canvas path capability boundary", () => {
     process.env.VELLUM_CANVASES_DIR = rootA;
     try {
       await runtime.runPromise(canvases.create("stable-root"));
-      await seedExportDocument("stable-root", rootA);
       const pending = writeCanvasSidecar("stable-root", "svg", "<svg/>");
       process.env.VELLUM_CANVASES_DIR = swapped;
       const written = await pending;
@@ -166,33 +161,35 @@ describe("canvas path capability boundary", () => {
     expect(await readFile(outside, "utf8")).toBe("outside must survive");
   });
 
-  it("does not follow canvas or sidecar symlinks outside the repository", async () => {
+  it("does not follow sidecar symlinks outside the repository", async () => {
     const root = join(mockCanvasesHome, ".vellum", "canvases");
-    const outsideDocument = join(mockCanvasesHome, "outside-document.canvas");
     const outsideSidecar = join(mockCanvasesHome, "outside.digest.txt");
     await runtime.runPromise(canvases.create("safe"));
-    await seedExportDocument("safe", root);
-    await writeFile(outsideDocument, "outside document", "utf8");
+    await mkdir(root, { recursive: true });
     await writeFile(outsideSidecar, "outside sidecar", "utf8");
-    await symlink(outsideDocument, join(root, "linked.canvas"));
     await symlink(outsideSidecar, join(root, "safe.digest.txt"));
 
-    // Symlink document is never one-shot-imported into live authority.
-    await rejected(canvases.read("linked"));
-    // Sole-authority write admits by name without following the export-plane symlink.
-    await runtime.runPromise(canvases.write("linked", emptyDoc));
     await rejected(canvases.writeSidecar("safe", "digest.txt", "replacement"));
 
-    expect(await readFile(outsideDocument, "utf8")).toBe("outside document");
     expect(await readFile(outsideSidecar, "utf8")).toBe("outside sidecar");
     const listed = await runtime.runPromise(canvases.list);
     expect(listed.map((entry) => entry.name)).toContain("safe");
-    expect(listed.map((entry) => entry.name)).toContain("linked");
   });
 
-  it("returns a root-confined canonical path for legitimate names", () => {
-    const path = canvasDocumentPath("portfolio-2026");
-    expect(path).toBe(join(mockCanvasesHome, ".vellum", "canvases", "portfolio-2026.canvas"));
+  it("returns an opaque resource locator, never a document path", async () => {
+    await runtime.runPromise(canvases.create("portfolio-2026"));
+    const read = await runtime.runPromise(canvases.read("portfolio-2026"));
+    expect(read.path).toBe("vellum://canvas/portfolio-2026");
+    await expect(
+      access(
+        join(
+          mockCanvasesHome,
+          ".vellum",
+          "canvases",
+          "portfolio-2026.canvas",
+        ),
+      ),
+    ).rejects.toThrow();
   });
 
   it("makes digest and render reject traversal before either CLI reads or writes", async () => {

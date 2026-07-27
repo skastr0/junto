@@ -74,7 +74,8 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
           AND generation NOT GLOB '*[^0-9]*'
           AND (generation = '0' OR substr(generation, 1, 1) <> '0')
         ),
-      body TEXT NOT NULL,
+      body TEXT NOT NULL
+        CHECK (length(body) BETWEEN 1 AND 67108864),
       content_sha256 TEXT NOT NULL
         CHECK (
           length(content_sha256) = 64

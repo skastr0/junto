@@ -1,20 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-// b5-races: canvases.ts write() used a single non-unique `${path}.tmp` per
-// canvas name with no mutual exclusion — two concurrent writers to the same
-// canvas raced the same tmp file, and the loser's content could silently
-// vanish while its Effect still resolved as success. Fixed with (1) a
-// unique-per-write tmp path and (2) a per-canvas-name promise-chain mutex
-// that fully serializes overlapping write() calls. This exercises the fix
-// against a real (isolated, tmpdir-backed) filesystem — no fs mocking — so a
-// regression in either the uniqueness or the ordering shows up as either a
-// rejected writer or corrupted/wrong-final-content on disk.
+// SQLite serializes overlapping full-generation commits. These checks prove
+// concurrent writers cannot corrupt the active head or lose another canvas.
 
 const mockCanvasesHome = join(tmpdir(), `vellum-b5-races-canvases-${randomUUID()}`);
 
@@ -36,7 +28,6 @@ import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { serializeCanvas } from "../src/shared/canvas";
 
 const stateLive = makeStateEngineLive(
   join(mockCanvasesHome, ".vellum", "state", "vellum.db"),
@@ -134,12 +125,11 @@ describe("canvases.ts write() — same-name concurrency", () => {
     expect(preserved.revision).not.toBe(stale.revision);
   });
 
-  it("mutates live authority only — external disk edits do not become the base document", async () => {
-    const name = "mutate-external-conflict";
+  it("mutates canonical authority and exposes no document-file path", async () => {
+    const name = "mutate-canonical";
     await runtime.runPromise(canvases.write(name, docFor(20)));
     const initial = await runtime.runPromise(canvases.read(name));
-    // External forge on disk must not re-enter live authority.
-    writeFileSync(initial.path, serializeCanvas(docFor(21)), "utf8");
+    expect(initial.path).toBe(`vellum://canvas/${name}`);
 
     await runtime.runPromise(
       canvases.mutate(name, (current) => {
@@ -155,13 +145,12 @@ describe("canvases.ts write() — same-name concurrency", () => {
     );
 
     const result = await runtime.runPromise(canvases.read(name));
-    // Live authority still holds write-20 + attention flag; external write-21 ignored.
     expect(textOf(result.doc)).toBe("write-20");
     expect(result.doc.nodes[0]?.ether?.flags).toEqual(["attention"]);
   });
 
-  it("app write notifies listeners; raw disk edit does not rehydrate live intent", async () => {
-    const name = "external-not-live-authoring";
+  it("app write notifies listeners exactly once", async () => {
+    const name = "listener-commit";
     const notifications: string[] = [];
     const unsubscribe = canvases.subscribeChanges((changed) => notifications.push(changed));
     canvases.start();
@@ -169,49 +158,10 @@ describe("canvases.ts write() — same-name concurrency", () => {
     try {
       await runtime.runPromise(canvases.write(name, docFor(10)));
       expect(notifications.filter((changed) => changed === name)).toHaveLength(1);
-
-      const current = await runtime.runPromise(canvases.read(name));
-      await writeFile(current.path, serializeCanvas(docFor(11)), "utf8");
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(notifications.filter((changed) => changed === name)).toHaveLength(1);
-      // Live authority is app-owned: read still returns write-10 despite disk forge.
       const live = await runtime.runPromise(canvases.read(name));
       expect(textOf(live.doc)).toBe("write-10");
     } finally {
       unsubscribe();
     }
-  });
-
-  it("replaceLiveAuthorityDocuments commits a full projection document set", async () => {
-    const name = "projection-admit";
-    await runtime.runPromise(canvases.write(name, docFor(1)));
-    expect(textOf((await runtime.runPromise(canvases.read(name))).doc)).toBe(
-      "write-1",
-    );
-
-    await runtime.runPromise(
-      canvases.replaceLiveAuthorityDocuments(new Map([[name, docFor(2)]])),
-    );
-    expect(textOf((await runtime.runPromise(canvases.read(name))).doc)).toBe(
-      "write-2",
-    );
-
-    await runtime.runPromise(
-      canvases.replaceLiveAuthorityDocuments(
-        new Map([
-          [name, docFor(2)],
-          ["added", docFor(9)],
-        ]),
-      ),
-    );
-    const list = await runtime.runPromise(canvases.list);
-    expect(list.map((row) => row.name).slice().sort()).toEqual([
-      "added",
-      name,
-    ]);
-    expect(textOf((await runtime.runPromise(canvases.read("added"))).doc)).toBe(
-      "write-9",
-    );
   });
 });

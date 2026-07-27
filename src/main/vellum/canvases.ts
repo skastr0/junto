@@ -29,7 +29,7 @@ export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError"
 }) {}
 
 declare const canvasNameBrand: unique symbol;
-/** A filesystem-safe, canonical canvas basename minted at the repository boundary. */
+/** A canonical canvas name minted at the repository boundary. */
 export type CanvasName = string & { readonly [canvasNameBrand]: "CanvasName" };
 
 const SIDECAR_SUFFIXES = ["digest.txt", "svg"] as const;
@@ -65,14 +65,8 @@ const confinedPath = (root: string, fileName: string): string => {
   return path;
 };
 
-export const canvasDocumentPath = (rawName: string): string =>
-  confinedPath(canvasesDir(), `${canvasNameFrom(rawName)}.canvas`);
-
 export const canvasSidecarPath = (rawName: string, suffix: SidecarSuffix): string =>
   confinedPath(canvasesDir(), `${canvasNameFrom(rawName)}.${suffix}`);
-
-const canvasDocumentPathIn = (root: string, name: CanvasName): string =>
-  confinedPath(root, `${name}.canvas`);
 
 const canvasSidecarPathIn = (root: string, name: CanvasName, suffix: SidecarSuffix): string =>
   confinedPath(root, `${name}.${suffix}`);
@@ -88,12 +82,12 @@ export const ensureCanvasesDir = async (): Promise<string> => {
   return root;
 };
 
-/** Never follow a canvas-file symlink. A write refuses it rather than replacing a surprise target. */
+/** Never follow a sidecar symlink. A write refuses it rather than replacing a surprise target. */
 const assertRegularOrMissing = async (path: string): Promise<void> => {
   try {
     const info = await lstat(path);
     if (!info.isFile() || info.isSymbolicLink()) {
-      throw new CanvasError({ message: `refusing non-regular canvas file: ${basename(path)}` });
+      throw new CanvasError({ message: `refusing non-regular canvas sidecar: ${basename(path)}` });
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
@@ -143,14 +137,6 @@ const atomicReplaceTextFile = async (path: string, contents: string): Promise<vo
     throw error;
   }
   await syncDirectoryBestEffort(dirname(path));
-};
-
-/** Mint a root-confined document path only after the repository and target are safe. */
-export const canvasDocumentPathForRead = async (rawName: string): Promise<string> => {
-  const root = await ensureCanvasesDir();
-  const path = canvasDocumentPathIn(root, canvasNameFrom(rawName));
-  await assertRegularOrMissing(path);
-  return path;
 };
 
 /**
@@ -242,14 +228,6 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       CanvasAuthoritySnapshot,
       CanvasError
     >;
-    /**
-     * Replace live authority with a fully decoded document set (projection
-     * install). Commits one full-map generation. Names not in the set are
-     * removed. Callers must validate the set before invoking.
-     */
-    readonly replaceLiveAuthorityDocuments: (
-      documents: ReadonlyMap<string, CanvasDoc>,
-    ) => Effect.Effect<void, CanvasError>;
   }
 >() {}
 
@@ -258,7 +236,7 @@ const toCanvasError = (error: unknown): CanvasError =>
     ? error
     : new CanvasError({ message: error instanceof Error ? error.message : String(error) });
 
-const canvasFileName = (name: CanvasName) => `${name}.canvas`;
+const canvasLabel = (name: CanvasName) => `canvas "${name}"`;
 
 type StoredCanvas = {
   readonly doc: CanvasDoc;
@@ -297,7 +275,6 @@ type CanvasCommitCause =
   | "create"
   | "remove"
   | "seed"
-  | "projection-replace"
   | "bootstrap-repair";
 
 type CommitOutcome = {
@@ -352,7 +329,7 @@ const decodeStoredCanvas = (
   const revision = revisionOf(body);
   if (revision !== expectedSha256) {
     throw new CanvasError({
-      message: `canvas database body hash mismatch: ${canvasFileName(name)}`,
+      message: `canvas database body hash mismatch: ${canvasLabel(name)}`,
     });
   }
   let parsed: unknown;
@@ -360,7 +337,7 @@ const decodeStoredCanvas = (
     parsed = JSON.parse(body);
   } catch (error) {
     throw new CanvasError({
-      message: `${canvasFileName(name)} in canvas database is not valid JSON: ${
+      message: `${canvasLabel(name)} in the database is not valid JSON: ${
         error instanceof Error ? error.message : String(error)
       }`,
     });
@@ -368,7 +345,7 @@ const decodeStoredCanvas = (
   const decoded = decodeCanvasDoc(parsed);
   if (Either.isLeft(decoded)) {
     throw new CanvasError({
-      message: `${canvasFileName(name)} in canvas database failed validation: ${decoded.left.message}`,
+      message: `${canvasLabel(name)} in the database failed validation: ${decoded.left.message}`,
     });
   }
   return { doc: decoded.right, body, revision, modifiedAt };
@@ -627,7 +604,7 @@ const normalizeCanvas = (
   const decoded = decodeCanvasDoc(stripWorkProjection(doc));
   if (Either.isLeft(decoded)) {
     throw new CanvasError({
-      message: `cannot ${operation} ${canvasFileName(name)}: ${decoded.left.message}`,
+      message: `cannot ${operation} ${canvasLabel(name)}: ${decoded.left.message}`,
     });
   }
   const nextDoc = applyMirrorLaw(decoded.right);
@@ -666,7 +643,7 @@ export const CanvasesLive = Layer.effect(
   };
 
   const virtualPath = (name: CanvasName): string =>
-    canvasDocumentPathIn(canvasesDir(), name);
+    `vellum://canvas/${encodeURIComponent(name)}`;
 
   const bootstrap = Effect.gen(function* () {
     yield* Effect.tryPromise({
@@ -842,7 +819,7 @@ export const CanvasesLive = Layer.effect(
           (previous === undefined || previous.revision !== expectedRevision)
         ) {
           throw new CanvasError({
-            message: `${canvasFileName(canonicalName)} revision conflict; reload before saving`,
+            message: `${canvasLabel(canonicalName)} revision conflict; reload before saving`,
           });
         }
         const modifiedAt = new Date().toISOString();
@@ -1122,93 +1099,6 @@ export const CanvasesLive = Layer.effect(
   const liveAuthorityGeneration = (): Effect.Effect<string, CanvasError> =>
     authoritySnapshot().pipe(Effect.map((snapshot) => snapshot.generation));
 
-  const replaceLiveAuthorityDocuments = (
-    documents: ReadonlyMap<string, CanvasDoc>,
-  ): Effect.Effect<void, CanvasError> =>
-    Effect.gen(function* () {
-      const prepared = yield* Effect.try({
-        try: () => {
-          const result = new Map<
-            CanvasName,
-            Omit<StoredCanvas, "modifiedAt">
-          >();
-          for (const [rawName, doc] of documents) {
-            const name = canvasNameFrom(rawName);
-            if (result.has(name)) {
-              throw new CanvasError({
-                message: `projection contains duplicate canonical canvas name "${name}"`,
-              });
-            }
-            const normalized = normalizeCanvas(
-              name,
-              doc,
-              "",
-              "install projection",
-            );
-            result.set(name, {
-              doc: normalized.doc,
-              body: normalized.body,
-              revision: normalized.revision,
-            });
-          }
-          return result;
-        },
-        catch: toCanvasError,
-      });
-
-      const outcome = yield* transaction(
-        "canvas.projection-replace",
-        (writer) => {
-          const current = readStoredAuthority(writer);
-          const now = new Date().toISOString();
-          const next = new Map<string, StoredCanvas>();
-          for (const [name, entry] of prepared) {
-            const previous = current.documents.get(name);
-            next.set(name, {
-              ...entry,
-              modifiedAt:
-                previous?.revision === entry.revision
-                  ? previous.modifiedAt
-                  : now,
-            });
-          }
-          const commit = commitFullGeneration(
-            writer,
-            current,
-            next,
-            "projection-replace",
-          );
-          const changedNames = new Set<string>();
-          for (const name of current.documents.keys()) {
-            if (
-              next.get(name)?.revision !==
-              current.documents.get(name)?.revision
-            ) {
-              changedNames.add(name);
-            }
-          }
-          for (const name of next.keys()) {
-            if (
-              current.documents.get(name)?.revision !== next.get(name)?.revision
-            ) {
-              changedNames.add(name);
-            }
-          }
-          return { current, next, commit, changedNames };
-        },
-      );
-      if (outcome.commit.changed) {
-        yield* Effect.sync(() => {
-          for (const name of [...outcome.changedNames].sort()) {
-            notifyListeners(name as CanvasName, {
-              previous: outcome.current.documents.get(name)?.doc,
-              next: outcome.next.get(name)?.doc,
-            });
-          }
-        });
-      }
-    });
-
   return CanvasesService.of({
     doctor: ensureReady.pipe(
       Effect.flatMap(() => readAuthority("canvas.doctor")),
@@ -1240,7 +1130,6 @@ export const CanvasesLive = Layer.effect(
     liveDocuments,
     liveAuthorityGeneration,
     authoritySnapshot,
-    replaceLiveAuthorityDocuments,
   });
   }),
 );
