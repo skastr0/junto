@@ -83,7 +83,7 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria, "por
 - No `criteria` → soft **relates** (capability/ocap only; never generates stoppage).
 - `criteria.mode: "tasks"` → **blocking is worker-state, not a queue cascade.** `submitted`/`working` never block — an open queue is a factory humming. Stoppage is attention only: `input-required` / `auth-required` on the source task/requests sink generates **blocks** on the **connected actor** (`toNode`). No fan-out, no actor→actor relay, no multi-hop cascade. (Blockability is `role === "actor"` only — see [`architecture-factory-physics.md`](docs/architecture-factory-physics.md) §2a.)
 - `criteria.mode: "proof"` / `"approval"` → blocks until matching runtime stamp / human grant (trust plane).
-- **Retired (stripped on sanitize):** `glyphs`, `wip` criteria modes; `depends` phase; dependency cascade/relay; well-known `project` kind (open-vocab strings still decode as furniture notes).
+- **Retired (rejected by strict decode):** `glyphs`, `wip` criteria modes; `depends` phase; dependency cascade/relay. `project` is no longer well-known, though the open `entity.kind` vocabulary still permits it as inert furniture.
 - Live **phase** is only `blocks` | `relates` (derived). Optional `ether.kind` is a phase mirror for offline JSON Canvas readers — never authorial input.
 
 **Two invariants** (enforced on every app/CLI write):
@@ -92,7 +92,10 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria, "por
 
 Derived state (blocked seats, group membership, live phase) is **recomputed** from the document (+ live sources). Phase may be mirrored onto `ether.kind` for offline readability; it is not the authoring surface.
 
-**Vocabulary vs live plane:** schema string literals (`EntitySource` includes `tower`|`quasar`|`booth`|`hermes`, EtherWatch kinds) remain valid so operator canvases keep decoding. The **live** adapter plane is hermes-only. Private-source bindings and unknown kinds degrade offline (plain notes; no invented grants or stoppage).
+**Vocabulary vs live plane:** `entity.kind` remains an open string, so unknown
+kinds are inert furniture. Watch sources are closed to `hermes`; retired
+private-source bindings and excess document fields fail strict decode rather
+than being rewritten.
 
 ## Kernel: watchers, timers, region pulse
 
@@ -110,12 +113,6 @@ state. (2) A watcher or timer executes only on its single home installation.
 future timer kinds must declare a catch-up policy explicitly. (4) Arming is
 runtime control, not authored canvas intent. Wall-clock timestamps are display
 and due-time metadata only; fleet ordering uses per-home logical sequences.
-
-## Binding refs and canonical keys
-
-`ref.key` is always the join key against a live `Entity.key` when a source is live. Granularity by `ref.type`:
-- tower / quasar / booth: document vocabulary only (no live fetch)
-- hermes: `agent` (`<host>:<profile>`) — live
 
 ## Sources (read-only adapters)
 

@@ -243,9 +243,10 @@ the act can touch the OS.
 | Region `instruction` + watchers/timers | Briefing context + edge-routed scheduler pulse |
 | Digest / render | Read-only projections; no capability mint |
 
-Vocabulary note: schema may still name historical sources (`tower`, `quasar`,
-`booth`). Live adapter plane is hermes-only; offline bindings degrade without
-inventing grants.
+Vocabulary note: the live source plane and watcher source schema are
+hermes-only. Historical private-source bindings fail strict document decode;
+they are not degraded through a compatibility rewrite. Unknown
+`entity.kind` strings remain inert furniture and mint no grants.
 
 ---
 

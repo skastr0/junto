@@ -74,8 +74,8 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "timer",
 ] as const;
 
-// Bound herdr work surface (PTY pane on a host). Not a hermes agent binding —
-// meta hydration is a service call, not the EntitySource snapshot plane.
+// Bound herdr work surface (PTY pane on a host). Not a hermes agent binding;
+// metadata hydration is an explicit adapter call.
 // onDelete default is detach: removing the canvas card must not kill the pane.
 export const HerdrOnDelete = Schema.Literal("detach", "kill-pane");
 export type HerdrOnDelete = typeof HerdrOnDelete.Type;
@@ -356,8 +356,8 @@ export const EtherNodeExtension = Schema.Struct({
   requests: Schema.optionalWith(EtherRequests, { exact: true }),
   artifacts: Schema.optionalWith(EtherArtifacts, { exact: true }),
   messages: Schema.optionalWith(EtherMessages, { exact: true }),
-  // Geography display binding for entity.kind === "herdr". Not an EntitySource,
-  // not a seat: a herdr pane renders and shows state, and holds no port.
+  // Geography display binding for entity.kind === "herdr". This is not a seat:
+  // a herdr pane renders and shows state, and holds no port.
   herdr: Schema.optionalWith(EtherHerdr, { exact: true }),
   /**
    * Work-surface binding for entity.kind === "terminal" (raw geography) OR
@@ -368,7 +368,7 @@ export const EtherNodeExtension = Schema.Struct({
    * Host lives in ether.host (station truth); do not duplicate host here.
    */
   terminal: Schema.optionalWith(EtherTerminal, { exact: true }),
-  // Work-surface binding for entity.kind === "page" on a link node. Not an EntitySource.
+  // Work-surface binding for entity.kind === "page" on a link node.
   browser: Schema.optionalWith(EtherBrowser, { exact: true }),
   // Host that may execute/tool this node. Optional for graceful degradation.
   host: Schema.optionalWith(EtherHostId, { exact: true }),
