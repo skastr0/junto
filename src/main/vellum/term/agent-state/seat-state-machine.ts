@@ -18,7 +18,8 @@ import type {
 } from "../../../../shared/agent-seat-state";
 import type { ObserverGridSnapshot } from "../observer/types";
 import { evaluate, type EvaluateOptions } from "./engine";
-import type { SeatEvaluation, SeatHarnessId } from "./types";
+import type { HarnessId } from "../../../../shared/managed-terminal-templates";
+import type { SeatEvaluation } from "./types";
 
 /** Debounce constants — ported from herdr agent_detection design (values only). */
 export const SEAT_DEBOUNCE = {
@@ -36,12 +37,12 @@ export type SeatMachineOptions = {
 };
 
 export type SeatBindingConfig = {
-  readonly harness: SeatHarnessId | string;
+  readonly harness: HarnessId | string;
   readonly epoch?: string;
 };
 
 type BindingSlot = {
-  harness: SeatHarnessId | string;
+  harness: HarnessId | string;
   epoch: string;
   state: AgentSeatState;
   reason: string;
@@ -157,7 +158,7 @@ export class SeatStateMachine {
    */
   feed(
     snapshot: ObserverGridSnapshot,
-    opts?: Partial<EvaluateOptions> & { harness?: SeatHarnessId | string },
+    opts?: Partial<EvaluateOptions> & { harness?: HarnessId | string },
   ): AgentSeatStateEvent | null {
     const bindingId = snapshot.bindingId;
     const slot = this.ensure(bindingId, opts?.harness);
@@ -270,7 +271,7 @@ export class SeatStateMachine {
 
   private ensure(
     bindingId: string,
-    harness: SeatHarnessId | string | undefined,
+    harness: HarnessId | string | undefined,
   ): BindingSlot {
     let slot = this.slots.get(bindingId);
     if (!slot) {

@@ -4,6 +4,7 @@
  */
 
 import type { AgentSeatState } from "../../../../shared/agent-seat-state";
+import type { HarnessId } from "../../../../shared/managed-terminal-templates";
 
 /** Regions available to rule packs (observer signal + grid slices). */
 export type SeatRuleRegion =
@@ -15,8 +16,6 @@ export type SeatRuleRegion =
   | "after_last_horizontal_rule"
   | "prompt_box_body"
   | "above_prompt_box";
-
-export type SeatHarnessId = "claude" | "codex" | "grok" | "hermes";
 
 /**
  * Nested gate tree. All positive arms AND; `any` is OR of children;
@@ -55,7 +54,7 @@ export type SeatRule = {
 };
 
 export type SeatRulePack = {
-  readonly harness: SeatHarnessId;
+  readonly harness: HarnessId;
   readonly version: string;
   readonly rules: readonly SeatRule[];
 };
@@ -70,5 +69,5 @@ export type SeatEvaluation = {
   readonly visibleAttention: boolean;
   readonly skipStateUpdate: boolean;
   readonly ruleId: string | null;
-  readonly harness: SeatHarnessId;
+  readonly harness: HarnessId;
 };

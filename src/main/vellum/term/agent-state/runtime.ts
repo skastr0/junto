@@ -8,8 +8,8 @@ import { terminalObserverPlane } from "../observer";
 import type { ObserverGridSnapshot } from "../observer/types";
 import { attachOscHookFeed } from "./hook-feed";
 import { SeatStateMachine } from "./seat-state-machine";
-import type { SeatHarnessId } from "./types";
-import { isSeatHarnessId } from "./rules";
+import type { HarnessId } from "../../../../shared/managed-terminal-templates";
+import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 
 export type SeatStateRuntimeOptions = {
   readonly now?: () => number;
@@ -24,7 +24,7 @@ export class SeatStateRuntime {
   readonly machine: SeatStateMachine;
   private unsubObserver: (() => void) | undefined;
   private unsubHookFeed: (() => void) | undefined;
-  private readonly harnessByBinding = new Map<string, SeatHarnessId | string>();
+  private readonly harnessByBinding = new Map<string, HarnessId | string>();
   private readonly eventListeners = new Set<(event: AgentSeatStateEvent) => void>();
 
   constructor(opts: SeatStateRuntimeOptions = {}) {
@@ -67,7 +67,7 @@ export class SeatStateRuntime {
   /** Bind a live terminal generation to a harness rule pack. */
   bindHarness(
     bindingId: string,
-    harness: SeatHarnessId | string,
+    harness: HarnessId | string,
     epoch?: string,
   ): void {
     this.harnessByBinding.set(bindingId, harness);
@@ -108,7 +108,7 @@ export class SeatStateRuntime {
       return;
     }
     this.machine.feed(snap, {
-      harness: isSeatHarnessId(harness) ? harness : harness,
+      harness: isHarnessId(harness) ? harness : harness,
     });
   }
 }

@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { HarnessId } from "./managed-terminal-templates";
 import { Port } from "./physics/schema";
 
 // JSON Canvas 1.0 (https://jsoncanvas.org/spec/1.0/) plus the namespaced
@@ -97,10 +98,13 @@ export const EtherTerminal = Schema.Struct({
   /** Optional launch profile — inert until deliberate Start (never auto-exec on load). */
   launch: Schema.optionalWith(EtherTerminalLaunch, { exact: true }),
   /**
-   * Managed-agent harness id (claude|codex|grok|hermes). Authorial when the
-   * seat was created via the harness picker — drives seat state + open path.
+   * Managed-agent harness id — closed literal, so a harness always names a
+   * real template (`HarnessId`); an unknown id fails the document decode
+   * rather than reaching spawn. Absent on a raw geography terminal, which is
+   * a shell and has no harness; required on the actor seat, where
+   * `ManagedAgentNode` types it as present.
    */
-  harness: Schema.optionalWith(Schema.String, { exact: true }),
+  harness: Schema.optionalWith(HarnessId, { exact: true }),
   /**
    * Harness session/thread id for cold wake.
    * Pin harnesses (Claude/Grok): minted at authoring, passed as --session-id.
@@ -435,8 +439,10 @@ export const EtherNodeExtension = Schema.Struct({
   herdr: Schema.optionalWith(EtherHerdr, { exact: true }),
   /**
    * Work-surface binding for entity.kind === "terminal" (raw geography) OR
-   * entity.kind === "agent" (managed seat). For **agent**, sanitize requires
-   * bindingId + harness — kind is the discriminant; ports are not optional-OR.
+   * entity.kind === "agent" (managed seat). The **agent** seat requires
+   * bindingId + harness — that requirement is carried by `ManagedAgentNode`
+   * (shared/actor-surface.ts), never by the decoder: decode reads the
+   * document, it does not rewrite what the document means.
    * Host lives in ether.host (station truth); do not duplicate host here.
    */
   terminal: Schema.optionalWith(EtherTerminal, { exact: true }),
@@ -549,49 +555,6 @@ const workStoreDecoders: ReadonlyArray<{
 // inventing grants.
 const RETIRED_SOURCE_NAMES = new Set(["tower", "quasar", "booth"]);
 
-/**
- * Kind-discriminated actor ports (PCMI component invariant).
- *
- * `entity.kind === "agent"` *means* a managed-terminal seat: name + terminal.bindingId
- * + terminal.harness are required. Illegal half-agents are demoted to furniture —
- * never left as "agent without terminal" for delivery code to OR-check.
- */
-const sanitizeActorSurfacePorts = (
-  ether: Record<string, unknown>,
-): { readonly ether: Record<string, unknown>; readonly changed: boolean } => {
-  const entityIn = ether.entity;
-  if (entityIn === null || typeof entityIn !== "object" || Array.isArray(entityIn)) {
-    return { ether, changed: false };
-  }
-  const entity = entityIn as Record<string, unknown>;
-  if (entity.kind !== "agent") return { ether, changed: false };
-
-  const name = typeof entity.name === "string" ? entity.name.trim() : "";
-  const termIn = ether.terminal;
-  const term =
-    termIn !== null && typeof termIn === "object" && !Array.isArray(termIn)
-      ? (termIn as Record<string, unknown>)
-      : undefined;
-  const bindingId =
-    typeof term?.bindingId === "string" ? term.bindingId.trim() : "";
-  const harness = typeof term?.harness === "string" ? term.harness.trim() : "";
-
-  if (name && bindingId && harness) return { ether, changed: false };
-
-  // Demote: strip agent entity. Keep a well-formed terminal as raw geography
-  // if bindingId alone is present; otherwise drop the broken terminal key.
-  const next: Record<string, unknown> = { ...ether };
-  delete next.entity;
-  if (term && bindingId) {
-    // Drop incomplete harness — raw terminal does not require it.
-    const { harness: _h, ...termRest } = term;
-    next.terminal = { ...termRest, bindingId };
-  } else {
-    delete next.terminal;
-  }
-  return { ether: next, changed: true };
-};
-
 /** Drop invalid work stores + retired vocabulary before full decode. */
 export const sanitizeWorkStores = (input: unknown): unknown => {
   if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
@@ -605,7 +568,7 @@ export const sanitizeWorkStores = (input: unknown): unknown => {
         if (n.ether === null || typeof n.ether !== "object" || Array.isArray(n.ether)) return node;
         const etherIn = n.ether as Record<string, unknown>;
         let changed = false;
-        let ether: Record<string, unknown> = { ...etherIn };
+        const ether: Record<string, unknown> = { ...etherIn };
         for (const { key, decode } of workStoreDecoders) {
           if (!(key in ether)) continue;
           if (decode(ether[key])._tag === "Left") {
@@ -622,11 +585,6 @@ export const sanitizeWorkStores = (input: unknown): unknown => {
             ether.watch = watchRest;
             changed = true;
           }
-        }
-        const ports = sanitizeActorSurfacePorts(ether);
-        if (ports.changed) {
-          ether = ports.ether;
-          changed = true;
         }
         if (!changed) return node;
         anyChanged = true;

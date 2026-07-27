@@ -1,12 +1,15 @@
+import type { HarnessId } from "../../src/shared/managed-terminal-templates";
+
 /**
- * Legal managed-agent ether for fixtures — kind agent requires
- * name + terminal.bindingId + terminal.harness (sanitize demotes otherwise).
+ * Legal managed-agent ether for fixtures — the actor seat requires
+ * name + terminal.bindingId + terminal.harness, and the harness must be a
+ * real template id or the document does not decode.
  */
 export const managedAgentEther = (
   agentKey: string,
   over: {
     readonly bindingId?: string;
-    readonly harness?: string;
+    readonly harness?: HarnessId;
     readonly host?: string;
   } = {},
 ) => ({

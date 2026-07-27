@@ -7,18 +7,15 @@ import type {
   AgentSeatHookState,
   AgentSeatState,
 } from "../../../../shared/agent-seat-state";
+import type { HarnessId } from "../../../../shared/managed-terminal-templates";
+import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 import type { ObserverGridSnapshot } from "../observer/types";
 import { ruleMatches } from "./match";
-import { isSeatHarnessId, rulePackFor } from "./rules";
-import type {
-  SeatEvaluation,
-  SeatHarnessId,
-  SeatRule,
-  SeatRulePack,
-} from "./types";
+import { rulePackFor } from "./rules";
+import type { SeatEvaluation, SeatRule, SeatRulePack } from "./types";
 
 export type EvaluateOptions = {
-  readonly harness: SeatHarnessId | string;
+  readonly harness: HarnessId | string;
   /** Optional hook / events.jsonl feed. */
   readonly hookState?: AgentSeatHookState | null;
   /** Override pack (tests). */
@@ -31,7 +28,7 @@ const UNKNOWN_HARNESS_REASON = "unknown_harness";
 const HOOK_REASON_PREFIX = "hook:";
 
 /** Feed rank: hooks win for claude/grok/hermes; codex is OSC→grid only. */
-const HOOK_AUTHORITATIVE: ReadonlySet<SeatHarnessId> = new Set([
+const HOOK_AUTHORITATIVE: ReadonlySet<HarnessId> = new Set([
   "claude",
   "grok",
   "hermes",
@@ -138,7 +135,7 @@ export const evaluate = (
   opts: EvaluateOptions,
 ): SeatEvaluation => {
   const harnessRaw = opts.harness;
-  if (!isSeatHarnessId(harnessRaw) && !opts.pack) {
+  if (!isHarnessId(harnessRaw) && !opts.pack) {
     return {
       state: "unknown",
       reason: UNKNOWN_HARNESS_REASON,
@@ -154,7 +151,7 @@ export const evaluate = (
   }
 
   const pack =
-    opts.pack ?? rulePackFor(harnessRaw as SeatHarnessId);
+    opts.pack ?? rulePackFor(harnessRaw as HarnessId);
   const screen = evaluateScreen(snapshot, pack);
 
   // skip_state_update: hold prior — caller must apply; we still return the flag.

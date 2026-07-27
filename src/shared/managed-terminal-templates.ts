@@ -8,20 +8,25 @@
  * Zero writes to user harness configs. No MCP/ACP paths.
  */
 
+import { Schema } from "effect";
+
 // ── Identity ───────────────────────────────────────────────────────────────
 
-/** The four v1 managed-terminal harnesses. OpenClaw is out by construction. */
-export type HarnessId = "claude" | "codex" | "grok" | "hermes";
+/**
+ * The four v1 managed-terminal harnesses. OpenClaw is out by construction.
+ *
+ * Closed literal, and the *only* declaration of the set: a harness id names a
+ * template in this file or it does not decode. Every document, IPC input, and
+ * seat slot that carries a harness carries this type — there is no second list
+ * to drift.
+ */
+export const HarnessId = Schema.Literal("claude", "codex", "grok", "hermes");
+export type HarnessId = typeof HarnessId.Type;
 
-export const HARNESS_IDS: readonly HarnessId[] = [
-  "claude",
-  "codex",
-  "grok",
-  "hermes",
-] as const;
+export const HARNESS_IDS: readonly HarnessId[] = HarnessId.literals;
 
 export const isHarnessId = (value: string): value is HarnessId =>
-  (HARNESS_IDS as readonly string[]).includes(value);
+  Schema.is(HarnessId)(value);
 
 // ── Injection ──────────────────────────────────────────────────────────────
 

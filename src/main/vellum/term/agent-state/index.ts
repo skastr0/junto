@@ -15,7 +15,6 @@ export {
 
 export type {
   SeatEvaluation,
-  SeatHarnessId,
   SeatMatcher,
   SeatRule,
   SeatRulePack,
@@ -33,12 +32,10 @@ export {
 } from "./seat-state-machine";
 
 export {
-  ALL_HARNESS_IDS,
   claudeRules,
   codexRules,
   grokRules,
   hermesRules,
-  isSeatHarnessId,
   rulePackFor,
 } from "./rules";
 

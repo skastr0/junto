@@ -14,6 +14,7 @@
 import { Match } from "effect";
 import type { CanvasNode, EtherTerminal } from "./canvas";
 import { isGroup } from "./graph";
+import type { HarnessId } from "./managed-terminal-templates";
 import { resolveSpec, type ActorKindName } from "./physics";
 
 // ── Sum type ───────────────────────────────────────────────────────────────
@@ -24,7 +25,8 @@ export type ManagedAgentSurface = {
   /** Corpus join key / process-bind seat label (`<host>:<profile|harness>`). */
   readonly agentKey: string;
   readonly bindingId: string;
-  readonly harness: string;
+  /** Required and closed: an actor seat always names a real harness template. */
+  readonly harness: HarnessId;
   readonly launch: EtherTerminal["launch"];
   readonly hostId: string;
 };
@@ -60,13 +62,18 @@ export type ActorDeliverySurface =
 /**
  * Authorial agent seat: kind agent ⇒ managed terminal is part of the type,
  * not an optional bolt-on. Illegal without bindingId + harness + name.
+ *
+ * `harness` is required *and* a closed `HarnessId` here — the seat is the
+ * place the requirement lives. The decoder keeps the document as authored
+ * (an agent without a seat stays an agent in the file); it is this narrowing
+ * that decides whether the node is a deliverable actor.
  */
 export type ManagedAgentNode = CanvasNode & {
   readonly ether: {
     readonly entity: { readonly kind: "agent"; readonly name: string };
     readonly terminal: EtherTerminal & {
       readonly bindingId: string;
-      readonly harness: string;
+      readonly harness: HarnessId;
     };
     readonly host?: string;
   };
@@ -76,8 +83,7 @@ export const isManagedAgentNode = (node: CanvasNode): node is ManagedAgentNode =
   if (node.ether?.entity?.kind !== "agent") return false;
   const name = node.ether.entity.name?.trim();
   const bindingId = node.ether.terminal?.bindingId?.trim();
-  const harness = node.ether.terminal?.harness?.trim();
-  return Boolean(name && bindingId && harness);
+  return Boolean(name && bindingId && node.ether.terminal?.harness);
 };
 
 // ── Decode from document ───────────────────────────────────────────────────
@@ -105,10 +111,10 @@ export const actorDeliverySurfaceOf = (
         // Agent *is* a managed terminal seat. No second surface.
         const agentKey = node.ether?.entity?.name?.trim();
         const bindingId = node.ether?.terminal?.bindingId?.trim();
-        const harness = node.ether?.terminal?.harness?.trim();
+        const harness = node.ether?.terminal?.harness;
         if (!agentKey || !bindingId || !harness) {
-          // Illegal document: agent without managed terminal ports.
-          // Callers treat as non-deliverable until sanitize repairs/rejects.
+          // Authored agent without a seat: not deliverable. The document keeps
+          // what it says; only this resolution refuses to call it an actor seat.
           return undefined;
         }
         return {
