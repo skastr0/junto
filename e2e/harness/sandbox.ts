@@ -109,6 +109,7 @@ export const writeFixtureCanvas = async (
           canvasName: name,
           nodeId: node.id,
           entityHome: resolveNodeHostId(node),
+          eventHome: "e2e-command-center",
           operation: "e2e.seed",
           authoredDoc,
           transform: () => ({ doc, value: undefined }),

@@ -81,6 +81,7 @@ describe("WorkRepository", () => {
         canvasName: "sequence-canvas",
         nodeId: "tasks-seq",
         entityHome: "station-a",
+        eventHome: "cc-work",
         operation: "task.create",
         authoredDoc: doc,
         transform: (projected) => {
@@ -107,6 +108,7 @@ describe("WorkRepository", () => {
         canvasName: "sequence-canvas",
         nodeId: "tasks-seq",
         entityHome: "station-a",
+        eventHome: "cc-work",
         operation: "task.claim",
         authoredDoc: doc,
         transform: (projected) => {
@@ -124,7 +126,11 @@ describe("WorkRepository", () => {
     );
 
     const taskEventsBeforeCompletion = await runtime.runPromise(
-      repository.eventsAfter("station-a", "0"),
+      repository.eventsAfter({
+        eventHome: "cc-work",
+        entityHome: "station-a",
+        afterSeq: "0",
+      }),
     );
     expect(taskEventsBeforeCompletion.map((event) => event.seq)).toEqual([
       "1",
@@ -140,15 +146,13 @@ describe("WorkRepository", () => {
     });
 
     const messageEvents = await runtime.runPromise(
-      repository.eventsAfter(COMMAND_CENTER_WORK_HOME, "0"),
+      repository.eventsAfter({
+        eventHome: "cc-work",
+        entityHome: COMMAND_CENTER_WORK_HOME,
+        afterSeq: "0",
+      }),
     );
-    expect(messageEvents.slice(0, 2).map((event) => event.seq)).toEqual([
-      "1",
-      "2",
-    ]);
-    expect(
-      messageEvents.slice(0, 2).every((event) => event.entityKind === "message"),
-    ).toBe(true);
+    expect(messageEvents).toEqual([]);
 
     const snapshot = await runtime.runPromise(
       repository.readSnapshot("sequence-canvas", "tasks-seq"),
@@ -166,6 +170,7 @@ describe("WorkRepository", () => {
         canvasName: "sequence-canvas",
         nodeId: "tasks-seq",
         entityHome: "station-a",
+        eventHome: "cc-work",
         operation: "task.transition",
         authoredDoc: doc,
         transform: (projected) => {
@@ -183,7 +188,11 @@ describe("WorkRepository", () => {
       }),
     );
     const taskEventsAfterCompletion = await runtime.runPromise(
-      repository.eventsAfter("station-a", "0"),
+      repository.eventsAfter({
+        eventHome: "cc-work",
+        entityHome: "station-a",
+        afterSeq: "0",
+      }),
     );
     expect(taskEventsAfterCompletion.map((event) => event.seq)).toEqual([
       "1",
@@ -218,6 +227,7 @@ describe("WorkRepository", () => {
         canvasName: "history-canvas",
         nodeId: "tasks-history",
         entityHome: "station-a",
+        eventHome: "cc-work",
         operation: "task.create",
         authoredDoc: doc,
         transform: (projected) => {
@@ -238,6 +248,7 @@ describe("WorkRepository", () => {
         canvasName: "history-canvas",
         nodeId: "tasks-history",
         entityHome: "station-a",
+        eventHome: "cc-work",
         operation: "task.describe",
         authoredDoc: doc,
         transform: (projected) => {
@@ -260,7 +271,7 @@ describe("WorkRepository", () => {
           reader.get<{ count: number } & Record<string, string | number | bigint | Uint8Array | null>>(
             `
               SELECT COUNT(*) AS count
-              FROM work_messages
+              FROM work_task_messages
               WHERE canvas_name = ? AND node_id = ? AND task_id = ?
             `,
             ["history-canvas", "tasks-history", created.value.id],
@@ -308,6 +319,7 @@ describe("WorkRepository", () => {
         canvasName: "multi-sink-canvas",
         nodeId: "tasks-left",
         entityHome: "station-a",
+        eventHome: "cc-work",
         operation: "task.create",
         authoredDoc: doc,
         transform: (projected) => {
@@ -328,6 +340,7 @@ describe("WorkRepository", () => {
         canvasName: "multi-sink-canvas",
         nodeId: "tasks-right",
         entityHome: "station-a",
+        eventHome: "cc-work",
         operation: "task.create",
         authoredDoc: doc,
         transform: (projected) => {
@@ -362,6 +375,7 @@ describe("WorkRepository", () => {
         canvasName: "home-canvas",
         nodeId: "tasks-home",
         entityHome: "station-a",
+        eventHome: "cc-work",
         operation: "task.create",
         authoredDoc: doc,
         transform: (projected) => {
@@ -384,6 +398,7 @@ describe("WorkRepository", () => {
           canvasName: "home-canvas",
           nodeId: "tasks-home",
           entityHome: "station-b",
+          eventHome: "cc-work",
           operation: "task.describe",
           authoredDoc: doc,
           transform: (projected) => {
@@ -407,10 +422,13 @@ describe("WorkRepository", () => {
       state.transaction("test.work.seedHugeSequence", (writer) => {
         writer.run(
           `
-            INSERT INTO work_home_sequences(home_station, last_seq)
-            VALUES (?, ?)
+            INSERT INTO work_event_sequences(
+              event_home,
+              entity_home,
+              last_seq
+            ) VALUES (?, ?, ?)
           `,
-          ["station-huge", "9007199254740993"],
+          ["cc-huge", "station-huge", "9007199254740993"],
         );
       }),
     );
@@ -421,6 +439,7 @@ describe("WorkRepository", () => {
         canvasName: "huge-canvas",
         nodeId: "tasks-huge",
         entityHome: "station-huge",
+        eventHome: "cc-huge",
         operation: "task.create",
         authoredDoc: doc,
         transform: (projected) => {
@@ -437,7 +456,11 @@ describe("WorkRepository", () => {
       }),
     );
     const events = await runtime.runPromise(
-      repository.eventsAfter("station-huge", "9007199254740993"),
+      repository.eventsAfter({
+        eventHome: "cc-huge",
+        entityHome: "station-huge",
+        afterSeq: "9007199254740993",
+      }),
     );
     expect(events.map((event) => event.seq)).toEqual(["9007199254740994"]);
   });

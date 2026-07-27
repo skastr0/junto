@@ -33,6 +33,7 @@ import {
 } from "../src/main/vellum/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
+import { StationRepositoryLive } from "../src/main/vellum/station/repository";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
@@ -458,7 +459,7 @@ const main = async () => {
     killGraceMs: CLI_KILL_CLOSE_GRACE_MS,
   });
   const repositoriesLive = Layer.provideMerge(
-    WorkRepositoryLive,
+    Layer.mergeAll(WorkRepositoryLive, StationRepositoryLive),
     makeStateEngineLive(join(root, "state", "vellum.db")),
   );
   const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);

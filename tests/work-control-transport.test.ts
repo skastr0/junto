@@ -31,6 +31,7 @@ import {
 } from "../src/main/vellum/work/repository";
 import { workTaskCreate } from "../src/shared/work";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { StationRepositoryLive } from "../src/main/vellum/station/repository";
 import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 import { resetSeatBlocks } from "../src/main/vellum/work/blocked-seat";
@@ -45,7 +46,10 @@ const servers: WorkControlServer[] = [];
 const rogueServers: NetServer[] = [];
 const makeWorkTestRuntime = (root: string) => {
   const stateLive = makeStateEngineLive(join(root, "state", "vellum.db"));
-  const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
+  const repositoriesLive = Layer.provideMerge(
+    Layer.mergeAll(WorkRepositoryLive, StationRepositoryLive),
+    stateLive,
+  );
   const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
   const workLive = Layer.provideMerge(WorkLive, canvasesLive);
   return ManagedRuntime.make(
@@ -138,6 +142,7 @@ const seedCanonicalWork = async (
       canvasName: "work-cli",
       nodeId: "tasks",
       entityHome: "local",
+      eventHome: "test-command-center",
       operation: "test.seed",
       authoredDoc: authored.doc,
       transform: (doc) => {

@@ -1,6 +1,17 @@
 import { createHash } from "node:crypto";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import {
+  InstallationId,
+  LogicalSequence,
+  STATION_API_MAX_EVENTS_PER_REPORT,
+  StationEvent,
+  StationEventAck,
+  type InstallationId as InstallationIdValue,
+  type LogicalSequence as LogicalSequenceValue,
+  type StationEvent as StationEventValue,
+  type StationEventAck as StationEventAckValue,
+} from "@shared/station-api";
 import {
   Artifact,
   Message,
@@ -34,6 +45,12 @@ export const COMMAND_CENTER_WORK_HOME = "vellum:command-center" as const;
 type WorkLane = "task" | "request";
 type WorkEntityKind = WorkLane | "message" | "artifact";
 
+export type WorkEventIdentity = {
+  readonly eventHome: string;
+  readonly entityHome: string;
+  readonly seq: string;
+};
+
 export class WorkRepositoryError extends Schema.TaggedError<WorkRepositoryError>()(
   "WorkRepositoryError",
   {
@@ -43,7 +60,30 @@ export class WorkRepositoryError extends Schema.TaggedError<WorkRepositoryError>
   },
 ) {}
 
+export class WorkReplicationError extends Schema.TaggedError<WorkReplicationError>()(
+  "WorkReplicationError",
+  {
+    reason: Schema.Literal(
+      "event-home-mismatch",
+      "entity-home-mismatch",
+      "unsupported-message",
+      "invalid-payload",
+      "integrity",
+      "identity-conflict",
+      "causal-conflict",
+      "cursor-regression",
+      "batch-limit",
+    ),
+    eventHome: InstallationId,
+    sequence: LogicalSequence,
+    message: Schema.String,
+  },
+) {}
+
 export type WorkEvent = {
+  /** Installation-local source stream. Never inferred from entity placement. */
+  readonly eventHome: string;
+  /** Single execution home for the entity represented by this event. */
   readonly homeStation: string;
   readonly seq: string;
   readonly canvasName: string;
@@ -62,6 +102,7 @@ export type WorkMutationInput<A> = {
   readonly canvasName: string;
   readonly nodeId: string;
   readonly entityHome: string;
+  readonly eventHome: string;
   readonly operation: string;
   readonly authoredDoc: CanvasDoc;
   readonly transform: (projectedDoc: CanvasDoc) => {
@@ -71,6 +112,41 @@ export type WorkMutationInput<A> = {
   readonly originAt?: string;
   readonly receivedAt?: string;
 };
+
+export type AcceptReplicatedWorkInput = {
+  readonly eventHome: InstallationIdValue;
+  readonly entityHome: string;
+  readonly events: ReadonlyArray<StationEventValue>;
+  readonly receivedAt?: string;
+};
+
+export type AcceptReplicatedWorkResult = {
+  readonly accepted: number;
+  readonly idempotent: number;
+  readonly acknowledgement: StationEventAckValue;
+};
+
+export type WorkEventsAfterInput = {
+  readonly eventHome: string;
+  readonly entityHome: string;
+  readonly afterSeq: string;
+  readonly limit?: number;
+};
+
+export const stationEventFromWorkEvent = (
+  event: WorkEvent,
+): StationEventValue =>
+  StationEvent.make({
+    identity: {
+      home: Schema.decodeUnknownSync(InstallationId)(event.eventHome),
+      sequence: Schema.decodeUnknownSync(LogicalSequence)(event.seq),
+    },
+    kind: "work.event",
+    body: event.payloadJson,
+    contentSha256: event.contentSha256 as StationEventValue["contentSha256"],
+    originAt: event.originAt,
+    receivedAt: event.receivedAt,
+  });
 
 export type WorkMutationResult<A> = {
   readonly value: A;
@@ -206,7 +282,8 @@ const snapshotFromRuntimeProjection = (
 type TaskRow = StateRow & {
   readonly task_id: string;
   readonly home_station: string;
-  readonly seq: string;
+  readonly event_home: string;
+  readonly event_seq: string;
   readonly state: string;
   readonly brief_message_id: string;
   readonly artifact_ids_json: string | null;
@@ -221,12 +298,8 @@ type TaskRow = StateRow & {
 
 type MessageRow = StateRow & {
   readonly message_id: string;
-  readonly parent_lane: string | null;
   readonly task_id: string | null;
-  readonly position: number;
   readonly message_kind: string;
-  readonly home_station: string;
-  readonly seq: string;
   readonly role: string;
   readonly parts_json: string;
   readonly context_id: string | null;
@@ -239,7 +312,8 @@ type MessageRow = StateRow & {
 type ArtifactRow = StateRow & {
   readonly artifact_id: string;
   readonly home_station: string;
-  readonly seq: string;
+  readonly event_home: string;
+  readonly event_seq: string;
   readonly name: string | null;
   readonly parts_json: string;
   readonly task_id: string | null;
@@ -249,7 +323,8 @@ type ArtifactRow = StateRow & {
 };
 
 type WorkEventRow = StateRow & {
-  readonly home_station: string;
+  readonly event_home: string;
+  readonly entity_home: string;
   readonly seq: string;
   readonly canvas_name: string;
   readonly node_id: string;
@@ -260,6 +335,11 @@ type WorkEventRow = StateRow & {
   readonly received_at: string;
   readonly payload_json: string;
   readonly content_sha256: string;
+};
+
+type ReceivedCursorRow = StateRow & {
+  readonly home: string;
+  readonly through_sequence: string;
 };
 
 const jsonOptional = (value: unknown | undefined): string | null =>
@@ -329,12 +409,8 @@ const linkedMessageRows = (
     `
       SELECT
         message_id,
-        parent_lane,
         task_id,
-        position,
         message_kind,
-        home_station,
-        seq,
         role,
         parts_json,
         context_id,
@@ -342,7 +418,7 @@ const linkedMessageRows = (
         metadata_json,
         origin_at,
         received_at
-      FROM work_messages
+      FROM work_task_messages
       WHERE canvas_name = ?
         AND node_id = ?
         AND parent_lane = ?
@@ -363,7 +439,8 @@ const loadLaneTasks = (
       SELECT
         task_id,
         home_station,
-        seq,
+        event_home,
+        event_seq,
         state,
         brief_message_id,
         artifact_ids_json,
@@ -433,12 +510,8 @@ const loadInboxMessages = (
       `
         SELECT
           message_id,
-          parent_lane,
-          task_id,
-          position,
-          message_kind,
-          home_station,
-          seq,
+          NULL AS task_id,
+          'inbox' AS message_kind,
           role,
           parts_json,
           context_id,
@@ -449,8 +522,6 @@ const loadInboxMessages = (
         FROM work_messages
         WHERE canvas_name = ?
           AND node_id = ?
-          AND parent_lane IS NULL
-          AND task_id IS NULL
         ORDER BY position, message_id
       `,
       [canvasName, nodeId],
@@ -468,7 +539,8 @@ const loadArtifacts = (
         SELECT
           artifact_id,
           home_station,
-          seq,
+          event_home,
+          event_seq,
           name,
           parts_json,
           task_id,
@@ -518,12 +590,14 @@ const loadSnapshotsForCanvas = (
       UNION
       SELECT node_id FROM work_requests WHERE canvas_name = ?
       UNION
+      SELECT node_id FROM work_task_messages WHERE canvas_name = ?
+      UNION
       SELECT node_id FROM work_messages WHERE canvas_name = ?
       UNION
       SELECT node_id FROM work_artifacts WHERE canvas_name = ?
       ORDER BY node_id
     `,
-    [canvasName, canvasName, canvasName, canvasName],
+    [canvasName, canvasName, canvasName, canvasName, canvasName],
   );
   return nodes.map((row) => loadSnapshot(reader, canvasName, row.node_id));
 };
@@ -537,31 +611,39 @@ const canonicalSequence = (raw: string): string => {
 
 const nextSequence = (
   writer: StateWriter,
-  homeStation: string,
+  eventHome: string,
+  entityHome: string,
 ): string => {
   writer.run(
     `
-      INSERT OR IGNORE INTO work_home_sequences(home_station, last_seq)
-      VALUES (?, '0')
+      INSERT OR IGNORE INTO work_event_sequences(
+        event_home,
+        entity_home,
+        last_seq
+      ) VALUES (?, ?, '0')
     `,
-    [homeStation],
+    [eventHome, entityHome],
   );
   const row = writer.get<StateRow & { readonly last_seq: string }>(
-    "SELECT last_seq FROM work_home_sequences WHERE home_station = ?",
-    [homeStation],
+    `
+      SELECT last_seq
+      FROM work_event_sequences
+      WHERE event_home = ? AND entity_home = ?
+    `,
+    [eventHome, entityHome],
   );
-  if (!row) throw new Error(`failed to allocate sequence home "${homeStation}"`);
+  if (!row) throw new Error(`failed to allocate event stream "${eventHome}"`);
   const next = (BigInt(canonicalSequence(row.last_seq)) + 1n).toString();
   const updated = writer.run(
     `
-      UPDATE work_home_sequences
+      UPDATE work_event_sequences
       SET last_seq = ?
-      WHERE home_station = ? AND last_seq = ?
+      WHERE event_home = ? AND entity_home = ? AND last_seq = ?
     `,
-    [next, homeStation, row.last_seq],
+    [next, eventHome, entityHome, row.last_seq],
   );
   if (Number(updated.changes) !== 1) {
-    throw new Error(`work sequence contention for home "${homeStation}"`);
+    throw new Error(`work sequence contention for stream "${eventHome}"`);
   }
   return next;
 };
@@ -569,7 +651,8 @@ const nextSequence = (
 const recordEvent = (
   writer: StateWriter,
   input: {
-    readonly homeStation: string;
+    readonly eventHome: string;
+    readonly entityHome: string;
     readonly canvasName: string;
     readonly nodeId: string;
     readonly entityKind: WorkEntityKind;
@@ -577,19 +660,22 @@ const recordEvent = (
     readonly operation: string;
     readonly originAt: string;
     readonly receivedAt: string;
+    readonly predecessor: WorkEventIdentity | null;
     readonly payload: unknown;
   },
-): string => {
-  const seq = nextSequence(writer, input.homeStation);
+): WorkEventIdentity => {
+  const seq = nextSequence(writer, input.eventHome, input.entityHome);
   // StationEvent content identity is semantic: receipt time, origin clock,
   // home, and sequence are envelope metadata and never perturb this hash.
   const payloadJson = canonicalJson({
     schema: "vellum/work-event/v1",
+    entityHome: input.entityHome,
     canvasName: input.canvasName,
     nodeId: input.nodeId,
     entityKind: input.entityKind,
     entityId: input.entityId,
     operation: input.operation,
+    predecessor: input.predecessor,
     body: input.payload,
   });
   const contentSha256 = createHash("sha256")
@@ -598,8 +684,9 @@ const recordEvent = (
   writer.run(
     `
       INSERT INTO work_events(
-        home_station,
+        event_home,
         seq,
+        entity_home,
         canvas_name,
         node_id,
         entity_kind,
@@ -609,11 +696,12 @@ const recordEvent = (
         received_at,
         payload_json,
         content_sha256
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
-      input.homeStation,
+      input.eventHome,
       seq,
+      input.entityHome,
       input.canvasName,
       input.nodeId,
       input.entityKind,
@@ -625,7 +713,11 @@ const recordEvent = (
       contentSha256,
     ],
   );
-  return seq;
+  return {
+    eventHome: input.eventHome,
+    entityHome: input.entityHome,
+    seq,
+  };
 };
 
 const taskScalar = (task: TaskValue): string =>
@@ -779,8 +871,10 @@ const planTaskLane = (
     }
 
     let nextPosition = prior.history.length;
+    let addedHistory = false;
     for (const message of task.history) {
       if (priorMessages.has(message.messageId)) continue;
+      addedHistory = true;
       messageInserts.push({
         message,
         lane,
@@ -797,7 +891,8 @@ const planTaskLane = (
 
     if (
       taskScalar(prior) !== taskScalar(task) ||
-      priorBriefId !== brief.messageId
+      priorBriefId !== brief.messageId ||
+      addedHistory
     ) {
       taskChanges.push({
         lane,
@@ -939,20 +1034,114 @@ const assertImmutableHome = (
   }
 };
 
-const insertMessage = (
+const currentTaskEvent = (
+  writer: StateWriter,
+  lane: WorkLane,
+  canvasName: string,
+  nodeId: string,
+  taskId: string,
+): WorkEventIdentity | null => {
+  const row = writer.get<
+    StateRow & {
+      readonly event_home: string;
+      readonly event_seq: string;
+      readonly home_station: string;
+    }
+  >(
+    `
+      SELECT event_home, event_seq, home_station
+      FROM ${taskTable(lane)}
+      WHERE canvas_name = ? AND node_id = ? AND task_id = ?
+    `,
+    [canvasName, nodeId, taskId],
+  );
+  return row === undefined
+    ? null
+    : {
+        eventHome: row.event_home,
+        entityHome: row.home_station,
+        seq: row.event_seq,
+      };
+};
+
+const insertTaskMessage = (
   writer: StateWriter,
   input: {
     readonly canvasName: string;
     readonly nodeId: string;
+    readonly originAt: string;
+    readonly receivedAt: string;
+    readonly insert: MessageInsert;
+    readonly event: WorkEventIdentity;
+  },
+): void => {
+  const message = input.insert.message;
+  if (input.insert.lane === null || input.insert.taskId === null) {
+    throw new Error("task history materialization requires a parent task");
+  }
+  writer.run(
+    `
+      INSERT INTO work_task_messages(
+        canvas_name,
+        node_id,
+        parent_lane,
+        task_id,
+        message_id,
+        position,
+        message_kind,
+        entity_home,
+        event_home,
+        event_seq,
+        role,
+        parts_json,
+        context_id,
+        reference_task_ids_json,
+        metadata_json,
+        origin_at,
+        received_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      input.canvasName,
+      input.nodeId,
+      input.insert.lane,
+      input.insert.taskId,
+      message.messageId,
+      input.insert.position,
+      input.insert.kind,
+      input.event.entityHome,
+      input.event.eventHome,
+      input.event.seq,
+      message.role,
+      JSON.stringify(message.parts),
+      message.contextId ?? null,
+      jsonOptional(message.referenceTaskIds),
+      jsonOptional(message.metadata),
+      input.originAt,
+      input.receivedAt,
+    ],
+  );
+};
+
+const insertInboxMessage = (
+  writer: StateWriter,
+  input: {
+    readonly canvasName: string;
+    readonly nodeId: string;
+    readonly eventHome: string;
     readonly operation: string;
     readonly originAt: string;
     readonly receivedAt: string;
     readonly insert: MessageInsert;
   },
 ): void => {
+  if (input.insert.lane !== null || input.insert.taskId !== null) {
+    throw new Error("inbox materialization cannot contain task history");
+  }
   const message = input.insert.message;
-  const seq = recordEvent(writer, {
-    homeStation: COMMAND_CENTER_WORK_HOME,
+  const event = recordEvent(writer, {
+    eventHome: input.eventHome,
+    entityHome: COMMAND_CENTER_WORK_HOME,
     canvasName: input.canvasName,
     nodeId: input.nodeId,
     entityKind: "message",
@@ -960,11 +1149,9 @@ const insertMessage = (
     operation: input.operation,
     originAt: input.originAt,
     receivedAt: input.receivedAt,
+    predecessor: null,
     payload: {
-      lane: input.insert.lane,
-      taskId: input.insert.taskId,
       position: input.insert.position,
-      messageKind: input.insert.kind,
       message,
     },
   });
@@ -974,12 +1161,10 @@ const insertMessage = (
         canvas_name,
         node_id,
         message_id,
-        parent_lane,
-        task_id,
         position,
-        message_kind,
         home_station,
-        seq,
+        event_home,
+        event_seq,
         role,
         parts_json,
         context_id,
@@ -987,18 +1172,16 @@ const insertMessage = (
         metadata_json,
         origin_at,
         received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       input.canvasName,
       input.nodeId,
       message.messageId,
-      input.insert.lane,
-      input.insert.taskId,
       input.insert.position,
-      input.insert.kind,
       COMMAND_CENTER_WORK_HOME,
-      seq,
+      event.eventHome,
+      event.seq,
       message.role,
       JSON.stringify(message.parts),
       message.contextId ?? null,
@@ -1028,7 +1211,7 @@ const nextTransitionOrdinal = (
   return Number(row?.next_ordinal ?? 0);
 };
 
-const writeTaskChange = (
+const materializeTaskChange = (
   writer: StateWriter,
   input: {
     readonly canvasName: string;
@@ -1038,6 +1221,7 @@ const writeTaskChange = (
     readonly originAt: string;
     readonly receivedAt: string;
     readonly change: TaskChange;
+    readonly event: WorkEventIdentity;
   },
 ): void => {
   const { change } = input;
@@ -1054,21 +1238,6 @@ const writeTaskChange = (
     existingHome,
     input.entityHome,
   );
-  const seq = recordEvent(writer, {
-    homeStation: input.entityHome,
-    canvasName: input.canvasName,
-    nodeId: input.nodeId,
-    entityKind: change.lane,
-    entityId: change.after.id,
-    operation: input.operation,
-    originAt: input.originAt,
-    receivedAt: input.receivedAt,
-    payload: {
-      lane: change.lane,
-      task: change.after,
-    },
-  });
-
   if (!change.before) {
     writer.run(
       `
@@ -1077,7 +1246,8 @@ const writeTaskChange = (
           node_id,
           task_id,
           home_station,
-          seq,
+          event_home,
+          event_seq,
           state,
           brief_message_id,
           artifact_ids_json,
@@ -1088,14 +1258,15 @@ const writeTaskChange = (
           updated_at,
           origin_at,
           received_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         input.canvasName,
         input.nodeId,
         change.after.id,
         input.entityHome,
-        seq,
+        input.event.eventHome,
+        input.event.seq,
         change.after.state,
         change.briefMessageId,
         jsonOptional(change.after.artifactIds),
@@ -1113,7 +1284,8 @@ const writeTaskChange = (
       `
         UPDATE ${table}
         SET
-          seq = ?,
+          event_home = ?,
+          event_seq = ?,
           state = ?,
           brief_message_id = ?,
           artifact_ids_json = ?,
@@ -1129,7 +1301,8 @@ const writeTaskChange = (
           AND home_station = ?
       `,
       [
-        seq,
+        input.event.eventHome,
+        input.event.seq,
         change.after.state,
         change.briefMessageId,
         jsonOptional(change.after.artifactIds),
@@ -1162,13 +1335,14 @@ const writeTaskChange = (
           ordinal,
           lane,
           home_station,
-          seq,
+          event_home,
+          event_seq,
           operation,
           from_state,
           to_state,
           origin_at,
           received_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         input.canvasName,
@@ -1183,7 +1357,8 @@ const writeTaskChange = (
         ),
         change.lane,
         input.entityHome,
-        seq,
+        input.event.eventHome,
+        input.event.seq,
         input.operation,
         change.before?.state ?? null,
         change.after.state,
@@ -1194,16 +1369,55 @@ const writeTaskChange = (
   }
 };
 
-const insertArtifact = (
+const writeTaskChange = (
   writer: StateWriter,
   input: {
     readonly canvasName: string;
     readonly nodeId: string;
     readonly entityHome: string;
+    readonly eventHome: string;
     readonly operation: string;
     readonly originAt: string;
     readonly receivedAt: string;
+    readonly change: TaskChange;
+  },
+): WorkEventIdentity => {
+  const event = recordEvent(writer, {
+    eventHome: input.eventHome,
+    entityHome: input.entityHome,
+    canvasName: input.canvasName,
+    nodeId: input.nodeId,
+    entityKind: input.change.lane,
+    entityId: input.change.after.id,
+    operation: input.operation,
+    originAt: input.originAt,
+    receivedAt: input.receivedAt,
+    predecessor: currentTaskEvent(
+      writer,
+      input.change.lane,
+      input.canvasName,
+      input.nodeId,
+      input.change.after.id,
+    ),
+    payload: {
+      lane: input.change.lane,
+      task: input.change.after,
+    },
+  });
+  materializeTaskChange(writer, { ...input, event });
+  return event;
+};
+
+const materializeArtifact = (
+  writer: StateWriter,
+  input: {
+    readonly canvasName: string;
+    readonly nodeId: string;
+    readonly entityHome: string;
+    readonly originAt: string;
+    readonly receivedAt: string;
     readonly artifact: ArtifactValue;
+    readonly event: WorkEventIdentity;
   },
 ): void => {
   assertImmutableHome(
@@ -1216,17 +1430,6 @@ const insertArtifact = (
     ),
     input.entityHome,
   );
-  const seq = recordEvent(writer, {
-    homeStation: input.entityHome,
-    canvasName: input.canvasName,
-    nodeId: input.nodeId,
-    entityKind: "artifact",
-    entityId: input.artifact.artifactId,
-    operation: input.operation,
-    originAt: input.originAt,
-    receivedAt: input.receivedAt,
-    payload: { artifact: input.artifact },
-  });
   writer.run(
     `
       INSERT INTO work_artifacts(
@@ -1234,21 +1437,23 @@ const insertArtifact = (
         node_id,
         artifact_id,
         home_station,
-        seq,
+        event_home,
+        event_seq,
         name,
         parts_json,
         task_id,
         metadata_json,
         origin_at,
         received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       input.canvasName,
       input.nodeId,
       input.artifact.artifactId,
       input.entityHome,
-      seq,
+      input.event.eventHome,
+      input.event.seq,
       input.artifact.name ?? null,
       JSON.stringify(input.artifact.parts),
       input.artifact.taskId ?? null,
@@ -1259,23 +1464,65 @@ const insertArtifact = (
   );
 };
 
+const insertArtifact = (
+  writer: StateWriter,
+  input: {
+    readonly canvasName: string;
+    readonly nodeId: string;
+    readonly entityHome: string;
+    readonly eventHome: string;
+    readonly operation: string;
+    readonly originAt: string;
+    readonly receivedAt: string;
+    readonly artifact: ArtifactValue;
+  },
+): void => {
+  const event = recordEvent(writer, {
+    eventHome: input.eventHome,
+    entityHome: input.entityHome,
+    canvasName: input.canvasName,
+    nodeId: input.nodeId,
+    entityKind: "artifact",
+    entityId: input.artifact.artifactId,
+    operation: input.operation,
+    originAt: input.originAt,
+    receivedAt: input.receivedAt,
+    predecessor: null,
+    payload: { artifact: input.artifact },
+  });
+  materializeArtifact(writer, { ...input, event });
+};
+
 const applyMutationPlan = (
   writer: StateWriter,
   input: {
     readonly canvasName: string;
     readonly nodeId: string;
     readonly entityHome: string;
+    readonly eventHome: string;
     readonly operation: string;
     readonly originAt: string;
     readonly receivedAt: string;
     readonly plan: WorkMutationPlan;
   },
 ): void => {
+  const taskEvents = new Map<string, WorkEventIdentity>();
   for (const change of input.plan.taskChanges) {
-    writeTaskChange(writer, { ...input, change });
+    const event = writeTaskChange(writer, { ...input, change });
+    taskEvents.set(`${change.lane}\u0000${change.after.id}`, event);
   }
   for (const insert of input.plan.messageInserts) {
-    insertMessage(writer, { ...input, insert });
+    if (insert.lane === null || insert.taskId === null) {
+      insertInboxMessage(writer, { ...input, insert });
+      continue;
+    }
+    const event = taskEvents.get(`${insert.lane}\u0000${insert.taskId}`);
+    if (event === undefined) {
+      throw new Error(
+        `${insert.lane} "${insert.taskId}" history changed without a task event`,
+      );
+    }
+    insertTaskMessage(writer, { ...input, insert, event });
   }
   for (const artifact of input.plan.artifactInserts) {
     insertArtifact(writer, { ...input, artifact });
@@ -1306,6 +1553,431 @@ const toRepositoryError = (
 const normalizeTimestamp = (value: string | undefined): string =>
   value ?? new Date().toISOString();
 
+const WorkEventIdentitySchema = Schema.Struct({
+  eventHome: InstallationId,
+  entityHome: Schema.String.pipe(Schema.minLength(1)),
+  seq: LogicalSequence,
+});
+
+const WorkEventPayloadEnvelope = Schema.Struct({
+  schema: Schema.Literal("vellum/work-event/v1"),
+  entityHome: Schema.String.pipe(Schema.minLength(1)),
+  canvasName: Schema.String.pipe(Schema.minLength(1)),
+  nodeId: Schema.String.pipe(Schema.minLength(1)),
+  entityKind: Schema.Literal("task", "request", "message", "artifact"),
+  entityId: Schema.String.pipe(Schema.minLength(1)),
+  operation: Schema.String.pipe(Schema.minLength(1)),
+  predecessor: Schema.NullOr(WorkEventIdentitySchema),
+  body: Schema.Unknown,
+});
+type WorkEventPayloadEnvelopeValue =
+  typeof WorkEventPayloadEnvelope.Type;
+
+type DecodedReplicatedWorkEvent = WorkEvent & {
+  readonly source: StationEventValue;
+  readonly envelope: WorkEventPayloadEnvelopeValue;
+  readonly task?: TaskValue;
+  readonly artifact?: ArtifactValue;
+};
+
+const TaskEventBody = Schema.Struct({
+  lane: Schema.Literal("task", "request"),
+  task: Task,
+});
+
+const ArtifactEventBody = Schema.Struct({
+  artifact: Artifact,
+});
+
+const decodeLogicalSequence = Schema.decodeUnknownSync(LogicalSequence);
+
+const replicationError = (
+  eventHome: InstallationIdValue,
+  sequence: LogicalSequenceValue,
+  reason: WorkReplicationError["reason"],
+  message: string,
+): WorkReplicationError =>
+  WorkReplicationError.make({
+    reason,
+    eventHome,
+    sequence,
+    message,
+  });
+
+const decodeReplicatedWorkEvent = (
+  source: StationEventValue,
+  expectedEventHome: InstallationIdValue,
+  expectedEntityHome: string,
+):
+  | { readonly _tag: "Success"; readonly event: DecodedReplicatedWorkEvent }
+  | { readonly _tag: "Failure"; readonly error: WorkReplicationError } => {
+  const fail = (
+    reason: WorkReplicationError["reason"],
+    message: string,
+  ) => ({
+    _tag: "Failure" as const,
+    error: replicationError(
+      source.identity.home,
+      source.identity.sequence,
+      reason,
+      message,
+    ),
+  });
+
+  if (source.identity.home !== expectedEventHome) {
+    return fail(
+      "event-home-mismatch",
+      `expected source stream "${expectedEventHome}", received "${source.identity.home}"`,
+    );
+  }
+  if (source.kind !== "work.event") {
+    return fail(
+      "invalid-payload",
+      `station event kind "${source.kind}" is not canonical work`,
+    );
+  }
+  const actualHash = createHash("sha256")
+    .update(source.body, "utf8")
+    .digest("hex");
+  if (actualHash !== source.contentSha256) {
+    return fail(
+      "integrity",
+      "station event hash does not match its canonical work payload",
+    );
+  }
+
+  let unknown: unknown;
+  try {
+    unknown = JSON.parse(source.body);
+  } catch {
+    return fail("invalid-payload", "work event body is not JSON");
+  }
+  try {
+    if (canonicalJson(unknown) !== source.body) {
+      return fail(
+        "invalid-payload",
+        "work event body is not canonical JSON",
+      );
+    }
+  } catch (error) {
+    return fail(
+      "invalid-payload",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  const decoded = Schema.decodeUnknownEither(WorkEventPayloadEnvelope)(
+    unknown,
+  );
+  if (Either.isLeft(decoded)) {
+    return fail("invalid-payload", "work event envelope is malformed");
+  }
+  const envelope = decoded.right;
+  if (envelope.entityHome !== expectedEntityHome) {
+    return fail(
+      "entity-home-mismatch",
+      `expected entity home "${expectedEntityHome}", received "${envelope.entityHome}"`,
+    );
+  }
+  if (envelope.entityKind === "message") {
+    return fail(
+      "unsupported-message",
+      "mailbox messages are Command-Center-homed and never stationed",
+    );
+  }
+
+  const base = {
+    eventHome: source.identity.home,
+    homeStation: envelope.entityHome,
+    seq: source.identity.sequence,
+    canvasName: envelope.canvasName,
+    nodeId: envelope.nodeId,
+    entityKind: envelope.entityKind,
+    entityId: envelope.entityId,
+    operation: envelope.operation,
+    originAt: source.originAt,
+    receivedAt: source.receivedAt ?? source.originAt,
+    payloadJson: source.body,
+    contentSha256: source.contentSha256,
+    source,
+    envelope,
+  } satisfies Omit<DecodedReplicatedWorkEvent, "task" | "artifact">;
+
+  if (
+    envelope.entityKind === "task" ||
+    envelope.entityKind === "request"
+  ) {
+    const body = Schema.decodeUnknownEither(TaskEventBody)(envelope.body);
+    if (
+      Either.isLeft(body) ||
+      body.right.lane !== envelope.entityKind ||
+      body.right.task.id !== envelope.entityId
+    ) {
+      return fail(
+        "invalid-payload",
+        "task event body does not match its envelope identity",
+      );
+    }
+    return {
+      _tag: "Success",
+      event: { ...base, task: body.right.task },
+    };
+  }
+
+  const body = Schema.decodeUnknownEither(ArtifactEventBody)(envelope.body);
+  if (
+    Either.isLeft(body) ||
+    body.right.artifact.artifactId !== envelope.entityId
+  ) {
+    return fail(
+      "invalid-payload",
+      "artifact event body does not match its envelope identity",
+    );
+  }
+  return {
+    _tag: "Success",
+    event: { ...base, artifact: body.right.artifact },
+  };
+};
+
+const workEventFromRow = (row: WorkEventRow): WorkEvent => ({
+  eventHome: row.event_home,
+  homeStation: row.entity_home,
+  seq: row.seq,
+  canvasName: row.canvas_name,
+  nodeId: row.node_id,
+  entityKind: row.entity_kind as WorkEntityKind,
+  entityId: row.entity_id,
+  operation: row.operation,
+  originAt: row.origin_at,
+  receivedAt: row.received_at,
+  payloadJson: row.payload_json,
+  contentSha256: row.content_sha256,
+});
+
+const selectWorkEvent = (
+  reader: StateReader,
+  eventHome: string,
+  entityHome: string,
+  seq: string,
+): WorkEventRow | undefined =>
+  reader.get<WorkEventRow>(
+    `
+      SELECT
+        event_home,
+        entity_home,
+        seq,
+        canvas_name,
+        node_id,
+        entity_kind,
+        entity_id,
+        operation,
+        origin_at,
+        received_at,
+        payload_json,
+        content_sha256
+      FROM work_events
+      WHERE event_home = ? AND entity_home = ? AND seq = ?
+    `,
+    [eventHome, entityHome, seq],
+  );
+
+const sameEventIdentity = (
+  left: WorkEventIdentity | null,
+  right: WorkEventIdentity | null,
+): boolean =>
+  left === null || right === null
+    ? left === right
+    : left.eventHome === right.eventHome &&
+      left.entityHome === right.entityHome &&
+      left.seq === right.seq;
+
+const rememberReplicatedEvent = (
+  writer: StateWriter,
+  event: DecodedReplicatedWorkEvent,
+  receivedAt: string,
+): void => {
+  const sequence = writer.get<StateRow & { readonly last_seq: string }>(
+    `
+      SELECT last_seq
+      FROM work_event_sequences
+      WHERE event_home = ? AND entity_home = ?
+    `,
+    [event.eventHome, event.homeStation],
+  )?.last_seq;
+  if (
+    sequence === undefined ||
+    BigInt(sequence) < BigInt(event.seq)
+  ) {
+    writer.run(
+      `
+        INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
+        VALUES (?, ?, ?)
+        ON CONFLICT(event_home, entity_home) DO UPDATE SET
+          last_seq = excluded.last_seq
+      `,
+      [event.eventHome, event.homeStation, event.seq],
+    );
+  }
+  writer.run(
+    `
+      INSERT INTO work_events(
+        event_home,
+        seq,
+        entity_home,
+        canvas_name,
+        node_id,
+        entity_kind,
+        entity_id,
+        operation,
+        origin_at,
+        received_at,
+        payload_json,
+        content_sha256
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      event.eventHome,
+      event.seq,
+      event.homeStation,
+      event.canvasName,
+      event.nodeId,
+      event.entityKind,
+      event.entityId,
+      event.operation,
+      event.originAt,
+      receivedAt,
+      event.payloadJson,
+      event.contentSha256,
+    ],
+  );
+};
+
+const materializeReplicatedWorkEvent = (
+  writer: StateWriter,
+  event: DecodedReplicatedWorkEvent,
+  receivedAt: string,
+): void => {
+  if (event.entityKind === "artifact") {
+    const existingHome = existingArtifactHome(
+      writer,
+      event.canvasName,
+      event.nodeId,
+      event.entityId,
+    );
+    if (existingHome !== undefined) {
+      throw replicationError(
+        event.source.identity.home,
+        event.source.identity.sequence,
+        "causal-conflict",
+        `artifact "${event.entityId}" already exists`,
+      );
+    }
+    rememberReplicatedEvent(writer, event, receivedAt);
+    materializeArtifact(writer, {
+      canvasName: event.canvasName,
+      nodeId: event.nodeId,
+      entityHome: event.homeStation,
+      originAt: event.originAt,
+      receivedAt,
+      artifact: event.artifact!,
+      event: {
+        eventHome: event.eventHome,
+        entityHome: event.homeStation,
+        seq: event.seq,
+      },
+    });
+    return;
+  }
+
+  if (event.entityKind === "message") {
+    throw replicationError(
+      event.source.identity.home,
+      event.source.identity.sequence,
+      "unsupported-message",
+      "mailbox messages are Command-Center-homed and never stationed",
+    );
+  }
+  const lane = event.entityKind;
+  const current = loadLaneTasks(
+    writer,
+    event.canvasName,
+    event.nodeId,
+    lane,
+  ).find((task) => task.id === event.entityId);
+  const currentIdentity = currentTaskEvent(
+    writer,
+    lane,
+    event.canvasName,
+    event.nodeId,
+    event.entityId,
+  );
+  if (!sameEventIdentity(currentIdentity, event.envelope.predecessor)) {
+    throw replicationError(
+      event.source.identity.home,
+      event.source.identity.sequence,
+      "causal-conflict",
+      `${lane} "${event.entityId}" changed after this event's predecessor`,
+    );
+  }
+
+  let planned: ReturnType<typeof planTaskLane>;
+  try {
+    planned = planTaskLane(
+      lane,
+      current === undefined ? [] : [current],
+      [event.task!],
+    );
+  } catch (error) {
+    throw replicationError(
+      event.source.identity.home,
+      event.source.identity.sequence,
+      "invalid-payload",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  const change = planned.taskChanges[0];
+  if (
+    change === undefined ||
+    change.after.id !== event.entityId ||
+    planned.taskChanges.length !== 1
+  ) {
+    throw replicationError(
+      event.source.identity.home,
+      event.source.identity.sequence,
+      "invalid-payload",
+      "task event does not produce one material state change",
+    );
+  }
+
+  rememberReplicatedEvent(writer, event, receivedAt);
+  const identity = {
+    eventHome: event.eventHome,
+    entityHome: event.homeStation,
+    seq: event.seq,
+  };
+  materializeTaskChange(writer, {
+    canvasName: event.canvasName,
+    nodeId: event.nodeId,
+    entityHome: event.homeStation,
+    operation: event.operation,
+    originAt: event.originAt,
+    receivedAt,
+    change,
+    event: identity,
+  });
+  for (const insert of planned.messageInserts) {
+    insertTaskMessage(writer, {
+      canvasName: event.canvasName,
+      nodeId: event.nodeId,
+      originAt: event.originAt,
+      receivedAt,
+      insert,
+      event: identity,
+    });
+  }
+};
+
 export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
   WorkRepository,
   {
@@ -1323,10 +1995,14 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
       WorkRepositoryError | WorkError
     >;
     readonly eventsAfter: (
-      homeStation: string,
-      afterSeq: string,
-      limit?: number,
+      input: WorkEventsAfterInput,
     ) => Effect.Effect<ReadonlyArray<WorkEvent>, WorkRepositoryError>;
+    readonly acceptReplicated: (
+      input: AcceptReplicatedWorkInput,
+    ) => Effect.Effect<
+      AcceptReplicatedWorkResult,
+      WorkRepositoryError | WorkReplicationError
+    >;
     readonly subscribeChanges: (
       listener: (canvasName: string, nodeId: string) => void,
     ) => () => void;
@@ -1411,6 +2087,7 @@ export const WorkRepositoryLive = Layer.effect(
               canvasName: input.canvasName,
               nodeId: input.nodeId,
               entityHome: input.entityHome,
+              eventHome: input.eventHome,
               operation: input.operation,
               originAt,
               receivedAt,
@@ -1463,19 +2140,24 @@ export const WorkRepositoryLive = Layer.effect(
     };
 
     const eventsAfter = (
-      homeStation: string,
-      afterSeq: string,
-      limit = 256,
+      input: WorkEventsAfterInput,
     ): Effect.Effect<ReadonlyArray<WorkEvent>, WorkRepositoryError> =>
       state
         .read("work.eventsAfter", (reader) => {
-          const cursor = canonicalSequence(afterSeq);
-          const boundedLimit = Math.max(1, Math.min(4096, Math.floor(limit)));
+          const cursor = canonicalSequence(input.afterSeq);
+          const boundedLimit = Math.max(
+            1,
+            Math.min(
+              STATION_API_MAX_EVENTS_PER_REPORT,
+              Math.floor(input.limit ?? STATION_API_MAX_EVENTS_PER_REPORT),
+            ),
+          );
           return reader
             .all<WorkEventRow>(
               `
                 SELECT
-                  home_station,
+                  event_home,
+                  entity_home,
                   seq,
                   canvas_name,
                   node_id,
@@ -1487,7 +2169,8 @@ export const WorkRepositoryLive = Layer.effect(
                   payload_json,
                   content_sha256
                 FROM work_events
-                WHERE home_station = ?
+                WHERE event_home = ?
+                  AND entity_home = ?
                   AND (
                     length(seq) > length(?)
                     OR (length(seq) = length(?) AND seq > ?)
@@ -1495,21 +2178,16 @@ export const WorkRepositoryLive = Layer.effect(
                 ORDER BY length(seq), seq
                 LIMIT ?
               `,
-              [homeStation, cursor, cursor, cursor, boundedLimit],
+              [
+                input.eventHome,
+                input.entityHome,
+                cursor,
+                cursor,
+                cursor,
+                boundedLimit,
+              ],
             )
-            .map((row) => ({
-              homeStation: row.home_station,
-              seq: row.seq,
-              canvasName: row.canvas_name,
-              nodeId: row.node_id,
-              entityKind: row.entity_kind as WorkEntityKind,
-              entityId: row.entity_id,
-              operation: row.operation,
-              originAt: row.origin_at,
-              receivedAt: row.received_at,
-              payloadJson: row.payload_json,
-              contentSha256: row.content_sha256,
-            }));
+            .map(workEventFromRow);
         })
         .pipe(
           Effect.mapError((error) =>
@@ -1517,11 +2195,151 @@ export const WorkRepositoryLive = Layer.effect(
           ),
         );
 
+    const acceptReplicated = Effect.fn(
+      "WorkRepository.acceptReplicated",
+    )(function* (input: AcceptReplicatedWorkInput) {
+      if (input.events.length > STATION_API_MAX_EVENTS_PER_REPORT) {
+        return yield* replicationError(
+          input.eventHome,
+          decodeLogicalSequence("0"),
+          "batch-limit",
+          `work event batch exceeds ${STATION_API_MAX_EVENTS_PER_REPORT}`,
+        );
+      }
+
+      const bySequence = new Map<string, DecodedReplicatedWorkEvent>();
+      for (const source of input.events) {
+        const decoded = decodeReplicatedWorkEvent(
+          source,
+          input.eventHome,
+          input.entityHome,
+        );
+        if (decoded._tag === "Failure") {
+          return yield* decoded.error;
+        }
+        const admitted = bySequence.get(decoded.event.seq);
+        if (
+          admitted !== undefined &&
+          (
+            admitted.contentSha256 !== decoded.event.contentSha256 ||
+            admitted.payloadJson !== decoded.event.payloadJson
+          )
+        ) {
+          return yield* replicationError(
+            input.eventHome,
+            source.identity.sequence,
+            "identity-conflict",
+            "one source sequence names different work content",
+          );
+        }
+        if (admitted === undefined) {
+          bySequence.set(decoded.event.seq, decoded.event);
+        }
+      }
+      const decoded = [...bySequence.values()].sort((left, right) =>
+        BigInt(left.seq) < BigInt(right.seq) ? -1 : 1
+      );
+      const receivedAt = normalizeTimestamp(input.receivedAt);
+
+      const result = yield* state
+        .transaction("work.accept-replicated", (writer) => {
+          const cursor = writer.get<ReceivedCursorRow>(
+            `
+              SELECT home, through_sequence
+              FROM station_received_cursors
+              WHERE home = ?
+            `,
+            [input.eventHome],
+          )?.through_sequence ?? "0";
+          let through = cursor;
+          let accepted = 0;
+          let idempotent = 0;
+          const changed = new Set<string>();
+
+          for (const event of decoded) {
+            const existing = selectWorkEvent(
+              writer,
+              event.eventHome,
+              event.homeStation,
+              event.seq,
+            );
+            if (existing !== undefined) {
+              if (
+                existing.entity_home !== input.entityHome ||
+                existing.payload_json !== event.payloadJson ||
+                existing.content_sha256 !== event.contentSha256
+              ) {
+                throw replicationError(
+                  input.eventHome,
+                  event.source.identity.sequence,
+                  "identity-conflict",
+                  "source sequence is already bound to different work",
+                );
+              }
+              idempotent += 1;
+            } else {
+              if (BigInt(event.seq) <= BigInt(cursor)) {
+                throw replicationError(
+                  input.eventHome,
+                  event.source.identity.sequence,
+                  "cursor-regression",
+                  "new work event falls behind the durable receive cursor",
+                );
+              }
+              materializeReplicatedWorkEvent(writer, event, receivedAt);
+              accepted += 1;
+              changed.add(`${event.canvasName}\u0000${event.nodeId}`);
+            }
+            if (BigInt(event.seq) > BigInt(through)) {
+              through = event.seq;
+            }
+          }
+
+          if (decoded.length > 0) {
+            writer.run(
+              `
+                INSERT INTO station_received_cursors(
+                  home,
+                  through_sequence,
+                  updated_at
+                ) VALUES (?, ?, ?)
+                ON CONFLICT(home) DO UPDATE SET
+                  through_sequence = excluded.through_sequence,
+                  updated_at = excluded.updated_at
+              `,
+              [input.eventHome, through, receivedAt],
+            );
+          }
+          return { accepted, idempotent, through, changed: [...changed] };
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            error.cause instanceof WorkReplicationError
+              ? error.cause
+              : toRepositoryError("work.acceptReplicated", error)
+          ),
+        );
+
+      for (const key of result.changed) {
+        const split = key.indexOf("\u0000");
+        notifyChanges(key.slice(0, split), key.slice(split + 1));
+      }
+      return {
+        accepted: result.accepted,
+        idempotent: result.idempotent,
+        acknowledgement: StationEventAck.make({
+          home: input.eventHome,
+          through: decodeLogicalSequence(result.through),
+        }),
+      };
+    });
+
     return WorkRepository.of({
       readSnapshot,
       snapshotsForCanvas,
       mutate,
       eventsAfter,
+      acceptReplicated,
       subscribeChanges: (listener) => {
         listeners.add(listener);
         return () => {

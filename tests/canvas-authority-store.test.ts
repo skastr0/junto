@@ -6,6 +6,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
+import { StationRepositoryLive } from "../src/main/vellum/station/repository";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import {
   applyMirrorLaw,
@@ -54,7 +55,7 @@ describe("CanvasesService SQLite authority", () => {
   let previousCanvases: string | undefined;
   const makeCanvasRuntime = (path: string) => {
     const repositories = Layer.provideMerge(
-      WorkRepositoryLive,
+      Layer.mergeAll(WorkRepositoryLive, StationRepositoryLive),
       makeStateEngineLive(path),
     );
     const canvases = Layer.provideMerge(CanvasesLive, repositories);

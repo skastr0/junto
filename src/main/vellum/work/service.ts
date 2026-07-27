@@ -26,6 +26,7 @@ import {
 } from "@shared/work";
 import { CanvasesService, CanvasError } from "../canvases";
 import { resolveNodeHostId } from "@shared/station";
+import { StationRepository } from "../station/repository";
 import { clearSeatBlockedByRequest } from "./blocked-seat";
 import { messageDelivery } from "./message-delivery";
 import {
@@ -166,6 +167,7 @@ export const WorkLive = Layer.effect(
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const repository = yield* WorkRepository;
+    const stations = yield* StationRepository;
     const ids = defaultIds();
 
     const apply = <T>(
@@ -176,6 +178,21 @@ export const WorkLive = Layer.effect(
       options: { readonly messageHome?: boolean } = {},
     ): Effect.Effect<WorkApplyOk<T>, WorkServiceError> =>
       Effect.gen(function* () {
+        const eventHome = yield* stations.installationId.pipe(
+          Effect.mapError(toWorkServiceError),
+        );
+        if (options.messageHome) {
+          const station = yield* stations.configuration.pipe(
+            Effect.mapError(toWorkServiceError),
+          );
+          if (station?.configuration.role === "remote") {
+            return yield* new WorkServiceError({
+              code: "invalid",
+              message:
+                "messages are Command-Center-homed and cannot be authored on a Remote",
+            });
+          }
+        }
         const read = yield* canvases
           .read(canvas)
           .pipe(Effect.mapError(toWorkServiceError));
@@ -193,6 +210,7 @@ export const WorkLive = Layer.effect(
             entityHome: options.messageHome
               ? COMMAND_CENTER_WORK_HOME
               : resolveNodeHostId(node),
+            eventHome,
             operation,
             authoredDoc: read.doc,
             transform: fn,
@@ -305,7 +323,7 @@ export const WorkLive = Layer.effect(
               );
               return { doc: result.doc, value: result.message };
             },
-            { messageHome: true },
+            { messageHome: taskId === null },
           ),
         ).pipe(
           Effect.tap((result) => {

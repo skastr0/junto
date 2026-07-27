@@ -1,29 +1,38 @@
 /**
  * Durable work-plane schema.
  *
- * This module is deliberately SQL-only so the StateEngine bootstrap can
- * compose it without importing WorkService, repository adapters, or the
- * authorial canvas model.
+ * Entity placement and event authorship are deliberately separate:
+ *
+ * - `home_station` / `entity_home` is the one installation host that executes
+ *   the row.
+ * - `event_home` is the installation that authored a mutation.
+ *
+ * That distinction lets a Command Center issue a command while an offline
+ * Remote records execution progress without either installation allocating
+ * numbers in the other's logical stream.
  */
 export const WORK_STATE_SCHEMA_SQL = `
-  CREATE TABLE IF NOT EXISTS work_home_sequences (
-    home_station TEXT PRIMARY KEY CHECK (length(home_station) > 0),
+  CREATE TABLE IF NOT EXISTS work_event_sequences (
+    event_home TEXT NOT NULL CHECK (length(event_home) > 0),
+    entity_home TEXT NOT NULL CHECK (length(entity_home) > 0),
     last_seq TEXT NOT NULL
       CHECK (
         length(last_seq) > 0
         AND last_seq NOT GLOB '*[^0-9]*'
         AND (last_seq = '0' OR substr(last_seq, 1, 1) <> '0')
-      )
+      ),
+    PRIMARY KEY (event_home, entity_home)
   ) STRICT, WITHOUT ROWID;
 
   CREATE TABLE IF NOT EXISTS work_events (
-    home_station TEXT NOT NULL CHECK (length(home_station) > 0),
+    event_home TEXT NOT NULL CHECK (length(event_home) > 0),
     seq TEXT NOT NULL
       CHECK (
         length(seq) > 0
         AND seq NOT GLOB '*[^0-9]*'
         AND (seq = '0' OR substr(seq, 1, 1) <> '0')
       ),
+    entity_home TEXT NOT NULL CHECK (length(entity_home) > 0),
     canvas_name TEXT NOT NULL CHECK (length(canvas_name) > 0),
     node_id TEXT NOT NULL CHECK (length(node_id) > 0),
     entity_kind TEXT NOT NULL
@@ -34,9 +43,10 @@ export const WORK_STATE_SCHEMA_SQL = `
     received_at TEXT NOT NULL CHECK (length(received_at) > 0),
     payload_json TEXT NOT NULL CHECK (length(payload_json) > 0),
     content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
-    PRIMARY KEY (home_station, seq),
-    FOREIGN KEY (home_station)
-      REFERENCES work_home_sequences(home_station) ON DELETE RESTRICT
+    PRIMARY KEY (event_home, entity_home, seq),
+    FOREIGN KEY (event_home, entity_home)
+      REFERENCES work_event_sequences(event_home, entity_home)
+      ON DELETE RESTRICT
   ) STRICT, WITHOUT ROWID;
 
   CREATE TABLE IF NOT EXISTS work_tasks (
@@ -44,11 +54,12 @@ export const WORK_STATE_SCHEMA_SQL = `
     node_id TEXT NOT NULL CHECK (length(node_id) > 0),
     task_id TEXT NOT NULL CHECK (length(task_id) > 0),
     home_station TEXT NOT NULL CHECK (length(home_station) > 0),
-    seq TEXT NOT NULL
+    event_home TEXT NOT NULL CHECK (length(event_home) > 0),
+    event_seq TEXT NOT NULL
       CHECK (
-        length(seq) > 0
-        AND seq NOT GLOB '*[^0-9]*'
-        AND (seq = '0' OR substr(seq, 1, 1) <> '0')
+        length(event_seq) > 0
+        AND event_seq NOT GLOB '*[^0-9]*'
+        AND (event_seq = '0' OR substr(event_seq, 1, 1) <> '0')
       ),
     state TEXT NOT NULL
       CHECK (
@@ -73,9 +84,10 @@ export const WORK_STATE_SCHEMA_SQL = `
     origin_at TEXT NOT NULL CHECK (length(origin_at) > 0),
     received_at TEXT NOT NULL CHECK (length(received_at) > 0),
     PRIMARY KEY (canvas_name, node_id, task_id),
-    UNIQUE (home_station, seq),
-    FOREIGN KEY (home_station, seq)
-      REFERENCES work_events(home_station, seq) ON DELETE RESTRICT
+    UNIQUE (event_home, home_station, event_seq),
+    FOREIGN KEY (event_home, home_station, event_seq)
+      REFERENCES work_events(event_home, entity_home, seq)
+      ON DELETE RESTRICT
   ) STRICT, WITHOUT ROWID;
 
   CREATE TABLE IF NOT EXISTS work_requests (
@@ -83,11 +95,12 @@ export const WORK_STATE_SCHEMA_SQL = `
     node_id TEXT NOT NULL CHECK (length(node_id) > 0),
     task_id TEXT NOT NULL CHECK (length(task_id) > 0),
     home_station TEXT NOT NULL CHECK (length(home_station) > 0),
-    seq TEXT NOT NULL
+    event_home TEXT NOT NULL CHECK (length(event_home) > 0),
+    event_seq TEXT NOT NULL
       CHECK (
-        length(seq) > 0
-        AND seq NOT GLOB '*[^0-9]*'
-        AND (seq = '0' OR substr(seq, 1, 1) <> '0')
+        length(event_seq) > 0
+        AND event_seq NOT GLOB '*[^0-9]*'
+        AND (event_seq = '0' OR substr(event_seq, 1, 1) <> '0')
       ),
     state TEXT NOT NULL
       CHECK (
@@ -112,28 +125,55 @@ export const WORK_STATE_SCHEMA_SQL = `
     origin_at TEXT NOT NULL CHECK (length(origin_at) > 0),
     received_at TEXT NOT NULL CHECK (length(received_at) > 0),
     PRIMARY KEY (canvas_name, node_id, task_id),
-    UNIQUE (home_station, seq),
-    FOREIGN KEY (home_station, seq)
-      REFERENCES work_events(home_station, seq) ON DELETE RESTRICT
+    UNIQUE (event_home, home_station, event_seq),
+    FOREIGN KEY (event_home, home_station, event_seq)
+      REFERENCES work_events(event_home, entity_home, seq)
+      ON DELETE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_task_messages (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) > 0),
+    node_id TEXT NOT NULL CHECK (length(node_id) > 0),
+    parent_lane TEXT NOT NULL CHECK (parent_lane IN ('task', 'request')),
+    task_id TEXT NOT NULL CHECK (length(task_id) > 0),
+    message_id TEXT NOT NULL CHECK (length(message_id) > 0),
+    position INTEGER NOT NULL CHECK (position >= 0),
+    message_kind TEXT NOT NULL CHECK (message_kind IN ('brief', 'history')),
+    entity_home TEXT NOT NULL CHECK (length(entity_home) > 0),
+    event_home TEXT NOT NULL CHECK (length(event_home) > 0),
+    event_seq TEXT NOT NULL
+      CHECK (
+        length(event_seq) > 0
+        AND event_seq NOT GLOB '*[^0-9]*'
+        AND (event_seq = '0' OR substr(event_seq, 1, 1) <> '0')
+      ),
+    role TEXT NOT NULL CHECK (role IN ('user', 'agent')),
+    parts_json TEXT NOT NULL,
+    context_id TEXT,
+    reference_task_ids_json TEXT,
+    metadata_json TEXT,
+    origin_at TEXT NOT NULL CHECK (length(origin_at) > 0),
+    received_at TEXT NOT NULL CHECK (length(received_at) > 0),
+    PRIMARY KEY (canvas_name, node_id, parent_lane, task_id, message_id),
+    UNIQUE (canvas_name, node_id, parent_lane, task_id, position),
+    FOREIGN KEY (event_home, entity_home, event_seq)
+      REFERENCES work_events(event_home, entity_home, seq)
+      ON DELETE RESTRICT
   ) STRICT, WITHOUT ROWID;
 
   CREATE TABLE IF NOT EXISTS work_messages (
     canvas_name TEXT NOT NULL CHECK (length(canvas_name) > 0),
     node_id TEXT NOT NULL CHECK (length(node_id) > 0),
     message_id TEXT NOT NULL CHECK (length(message_id) > 0),
-    parent_lane TEXT
-      CHECK (parent_lane IS NULL OR parent_lane IN ('task', 'request')),
-    task_id TEXT,
     position INTEGER NOT NULL CHECK (position >= 0),
-    message_kind TEXT NOT NULL
-      CHECK (message_kind IN ('brief', 'history', 'inbox')),
     home_station TEXT NOT NULL
       CHECK (home_station = 'vellum:command-center'),
-    seq TEXT NOT NULL
+    event_home TEXT NOT NULL CHECK (length(event_home) > 0),
+    event_seq TEXT NOT NULL
       CHECK (
-        length(seq) > 0
-        AND seq NOT GLOB '*[^0-9]*'
-        AND (seq = '0' OR substr(seq, 1, 1) <> '0')
+        length(event_seq) > 0
+        AND event_seq NOT GLOB '*[^0-9]*'
+        AND (event_seq = '0' OR substr(event_seq, 1, 1) <> '0')
       ),
     role TEXT NOT NULL CHECK (role IN ('user', 'agent')),
     parts_json TEXT NOT NULL,
@@ -143,23 +183,11 @@ export const WORK_STATE_SCHEMA_SQL = `
     origin_at TEXT NOT NULL CHECK (length(origin_at) > 0),
     received_at TEXT NOT NULL CHECK (length(received_at) > 0),
     PRIMARY KEY (canvas_name, node_id, message_id),
-    UNIQUE (home_station, seq),
-    UNIQUE (canvas_name, node_id, parent_lane, task_id, position),
-    CHECK (
-      (
-        parent_lane IS NULL
-        AND task_id IS NULL
-        AND message_kind = 'inbox'
-      )
-      OR
-      (
-        parent_lane IS NOT NULL
-        AND task_id IS NOT NULL
-        AND message_kind IN ('brief', 'history')
-      )
-    ),
-    FOREIGN KEY (home_station, seq)
-      REFERENCES work_events(home_station, seq) ON DELETE RESTRICT
+    UNIQUE (event_home, home_station, event_seq),
+    UNIQUE (canvas_name, node_id, position),
+    FOREIGN KEY (event_home, home_station, event_seq)
+      REFERENCES work_events(event_home, entity_home, seq)
+      ON DELETE RESTRICT
   ) STRICT, WITHOUT ROWID;
 
   CREATE TABLE IF NOT EXISTS work_artifacts (
@@ -167,11 +195,12 @@ export const WORK_STATE_SCHEMA_SQL = `
     node_id TEXT NOT NULL CHECK (length(node_id) > 0),
     artifact_id TEXT NOT NULL CHECK (length(artifact_id) > 0),
     home_station TEXT NOT NULL CHECK (length(home_station) > 0),
-    seq TEXT NOT NULL
+    event_home TEXT NOT NULL CHECK (length(event_home) > 0),
+    event_seq TEXT NOT NULL
       CHECK (
-        length(seq) > 0
-        AND seq NOT GLOB '*[^0-9]*'
-        AND (seq = '0' OR substr(seq, 1, 1) <> '0')
+        length(event_seq) > 0
+        AND event_seq NOT GLOB '*[^0-9]*'
+        AND (event_seq = '0' OR substr(event_seq, 1, 1) <> '0')
       ),
     name TEXT,
     parts_json TEXT NOT NULL,
@@ -180,9 +209,10 @@ export const WORK_STATE_SCHEMA_SQL = `
     origin_at TEXT NOT NULL CHECK (length(origin_at) > 0),
     received_at TEXT NOT NULL CHECK (length(received_at) > 0),
     PRIMARY KEY (canvas_name, node_id, artifact_id),
-    UNIQUE (home_station, seq),
-    FOREIGN KEY (home_station, seq)
-      REFERENCES work_events(home_station, seq) ON DELETE RESTRICT
+    UNIQUE (event_home, home_station, event_seq),
+    FOREIGN KEY (event_home, home_station, event_seq)
+      REFERENCES work_events(event_home, entity_home, seq)
+      ON DELETE RESTRICT
   ) STRICT, WITHOUT ROWID;
 
   CREATE TABLE IF NOT EXISTS work_task_transitions (
@@ -192,11 +222,12 @@ export const WORK_STATE_SCHEMA_SQL = `
     ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
     lane TEXT NOT NULL CHECK (lane IN ('task', 'request')),
     home_station TEXT NOT NULL CHECK (length(home_station) > 0),
-    seq TEXT NOT NULL
+    event_home TEXT NOT NULL CHECK (length(event_home) > 0),
+    event_seq TEXT NOT NULL
       CHECK (
-        length(seq) > 0
-        AND seq NOT GLOB '*[^0-9]*'
-        AND (seq = '0' OR substr(seq, 1, 1) <> '0')
+        length(event_seq) > 0
+        AND event_seq NOT GLOB '*[^0-9]*'
+        AND (event_seq = '0' OR substr(event_seq, 1, 1) <> '0')
       ),
     operation TEXT NOT NULL CHECK (length(operation) > 0),
     from_state TEXT,
@@ -216,7 +247,7 @@ export const WORK_STATE_SCHEMA_SQL = `
     origin_at TEXT NOT NULL CHECK (length(origin_at) > 0),
     received_at TEXT NOT NULL CHECK (length(received_at) > 0),
     PRIMARY KEY (canvas_name, node_id, task_id, lane, ordinal),
-    UNIQUE (home_station, seq),
+    UNIQUE (event_home, home_station, event_seq),
     CHECK (
       from_state IS NULL
       OR from_state IN (
@@ -230,21 +261,27 @@ export const WORK_STATE_SCHEMA_SQL = `
         'auth-required'
       )
     ),
-    FOREIGN KEY (home_station, seq)
-      REFERENCES work_events(home_station, seq) ON DELETE RESTRICT
+    FOREIGN KEY (event_home, home_station, event_seq)
+      REFERENCES work_events(event_home, entity_home, seq)
+      ON DELETE RESTRICT
   ) STRICT, WITHOUT ROWID;
 
-  CREATE INDEX IF NOT EXISTS work_events_home_order
-    ON work_events(home_station, length(seq), seq);
+  CREATE INDEX IF NOT EXISTS work_events_route_order
+    ON work_events(event_home, entity_home, length(seq), seq);
   CREATE INDEX IF NOT EXISTS work_tasks_node
     ON work_tasks(canvas_name, node_id, created_at, task_id);
   CREATE INDEX IF NOT EXISTS work_requests_node
     ON work_requests(canvas_name, node_id, created_at, task_id);
-  CREATE INDEX IF NOT EXISTS work_messages_thread
-    ON work_messages(canvas_name, node_id, parent_lane, task_id, position);
-  CREATE UNIQUE INDEX IF NOT EXISTS work_messages_inbox_position
-    ON work_messages(canvas_name, node_id, position)
-    WHERE parent_lane IS NULL AND task_id IS NULL;
+  CREATE INDEX IF NOT EXISTS work_task_messages_thread
+    ON work_task_messages(
+      canvas_name,
+      node_id,
+      parent_lane,
+      task_id,
+      position
+    );
+  CREATE INDEX IF NOT EXISTS work_messages_inbox
+    ON work_messages(canvas_name, node_id, position);
   CREATE INDEX IF NOT EXISTS work_artifacts_node
     ON work_artifacts(canvas_name, node_id, artifact_id);
 
