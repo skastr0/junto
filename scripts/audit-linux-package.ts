@@ -558,6 +558,7 @@ export const validateDebArchive = (
     [`${installPrefix}chrome-sandbox`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum-browser`, "-rwxr-xr-x"],
+    [`${installPrefix}resources/bin/vellum-station`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum-release-installer`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/vellum-release-bridge`, "-rwxr-xr-x"],
     [`${installPrefix}resources/bin/unix-peer-pid.py`, "-rwxr-xr-x"],
@@ -1140,6 +1141,7 @@ export const auditLinuxPackage = async ({
     const appAsar = path.join(resources, "app.asar");
     const workCli = path.join(resources, "bin", "vellum");
     const browserCli = path.join(resources, "bin", "vellum-browser");
+    const stationCli = path.join(resources, "bin", "vellum-station");
     const releaseInstaller = path.join(
       extractedReal,
       LINUX_RELEASE_INSTALLER_RESOURCE,
@@ -1158,6 +1160,7 @@ export const auditLinuxPackage = async ({
       requireRegularMode(chromeSandbox, 0o755),
       requireRegularMode(workCli, 0o755),
       requireRegularMode(browserCli, 0o755),
+      requireRegularMode(stationCli, 0o755),
       requireRegularMode(releaseInstaller, 0o755),
       requireRegularMode(releaseBridge, 0o755),
       requireRegularMode(peerPidHelper, 0o755),
@@ -1181,6 +1184,7 @@ export const auditLinuxPackage = async ({
       mainExecutable,
       workCli,
       browserCli,
+      stationCli,
       releaseInstaller,
       releaseBridge,
       pty.nativeModule,

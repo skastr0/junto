@@ -17,6 +17,11 @@ import {
   controlTokenPath,
 } from "../src/shared/browser-control";
 import {
+  stationControlDir,
+  stationControlSocketPath,
+} from "../src/shared/station-control";
+import { STATION_API_PROTOCOL } from "../src/shared/station-api";
+import {
   createAppProcessPlane,
   type AppProcessLease,
 } from "../src/main/vellum/app-process-plane";
@@ -50,6 +55,7 @@ export interface LinuxCiPackagedSmokeReceipt {
   readonly display: "xvfb";
   readonly workCli: "ok";
   readonly browserCli: "ok";
+  readonly stationCli: "ok";
   readonly processRoles: ReadonlyArray<string>;
   readonly rendererSandbox: {
     readonly renderers: number;
@@ -208,12 +214,14 @@ const runFixed = (
   executable: string,
   args: ReadonlyArray<string>,
   env?: NodeJS.ProcessEnv,
+  input?: string,
 ): FixedResult => {
   const result = spawnSync(executable, args, {
     encoding: "utf8",
     shell: false,
     timeout: 20_000,
     maxBuffer: 512 * 1024,
+    ...(input === undefined ? {} : { input }),
     ...(env === undefined ? {} : { env }),
   });
   if (result.error !== undefined) {
@@ -293,8 +301,13 @@ export const smokeLinuxCiPackagedRuntime = async (
   const resources = await realpath(path.join(installDirectory, "resources"));
   const workCli = path.join(resources, "bin", "vellum");
   const browserCli = path.join(resources, "bin", "vellum-browser");
-  if (!(await isExecutable(workCli)) || !(await isExecutable(browserCli))) {
-    throw new Error("packaged work or browser CLI is missing");
+  const stationCli = path.join(resources, "bin", "vellum-station");
+  if (
+    !(await isExecutable(workCli)) ||
+    !(await isExecutable(browserCli)) ||
+    !(await isExecutable(stationCli))
+  ) {
+    throw new Error("packaged work, browser, or station CLI is missing");
   }
 
   const tempRoot = await mkdtemp("/tmp/vellum-linux-runtime-smoke-");
@@ -375,6 +388,9 @@ export const smokeLinuxCiPackagedRuntime = async (
       return (
         (await pathExists(controlSocketPath(isolatedHome))) &&
         (await pathExists(controlTokenPath(isolatedHome))) &&
+        (await pathExists(
+          stationControlSocketPath(stationControlDir(isolatedHome)),
+        )) &&
         roles.includes("renderer")
       );
     });
@@ -409,6 +425,39 @@ export const smokeLinuxCiPackagedRuntime = async (
       throw new Error("packaged browser CLI doctor failed");
     }
     parseDoctorReceipt(browserDoctor.stdout.trim());
+
+    const stationStatus = runFixed(
+      stationCli,
+      [],
+      environment,
+      `${JSON.stringify({
+        protocol: STATION_API_PROTOCOL,
+        op: "status",
+      })}\n`,
+    );
+    if (stationStatus.status !== 0) {
+      throw new Error("packaged station CLI status failed");
+    }
+    const stationEnvelope = JSON.parse(stationStatus.stdout) as {
+      readonly ok?: unknown;
+      readonly response?: {
+        readonly op?: unknown;
+        readonly readiness?: {
+          readonly database?: unknown;
+          readonly workControl?: unknown;
+          readonly simulation?: unknown;
+        };
+      };
+    };
+    if (
+      stationEnvelope.ok !== true ||
+      stationEnvelope.response?.op !== "status" ||
+      stationEnvelope.response.readiness?.database !== true ||
+      stationEnvelope.response.readiness.workControl !== true ||
+      stationEnvelope.response.readiness.simulation !== true
+    ) {
+      throw new Error("packaged station CLI returned a degraded status");
+    }
 
     const pids = runtimeRows.map((row) => String(row.pid));
     const listeners = runFixed("/usr/bin/lsof", [
@@ -460,6 +509,7 @@ export const smokeLinuxCiPackagedRuntime = async (
       display: "xvfb",
       workCli: "ok",
       browserCli: "ok",
+      stationCli: "ok",
       processRoles: processRoles(rootPid, runtimeRows),
       rendererSandbox: sandbox,
       appArmor,

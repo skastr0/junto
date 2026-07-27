@@ -103,6 +103,7 @@ drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/
 drwxr-xr-x root/root 0 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-browser
+-rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-station
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-release-installer
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/vellum-release-bridge
 -rwxr-xr-x root/root 1 2026-07-22 00:00 ./opt/Vellum Command/resources/bin/unix-peer-pid.py
