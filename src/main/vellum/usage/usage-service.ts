@@ -12,9 +12,9 @@ import { UsageSources } from "./usage-source";
 
 // Provider usage plane read service.
 //
-// Architecture (native harness homes first; codexbar optional):
+// Architecture (plan-window native wins; codexbar optional + fills gaps):
 //   disk last-good  →  instant HUD paint (always show UI when we have quotas)
-//   primary fetch   →  fan-out all sources; prefer native over codexbar per provider
+//   primary fetch   →  fan-out all sources; preferNativeUsageSnapshots ranks
 //   enrich stage    →  multi-account codexbar as a second push
 //   failed live     →  KEEP last-good, mark stale + lastError (never blank the bar)
 //

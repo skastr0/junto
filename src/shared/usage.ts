@@ -68,30 +68,53 @@ export const UsageSnapshot = Schema.Struct({
 });
 export type UsageSnapshot = typeof UsageSnapshot.Type;
 
-/** Providers covered by native station sources — codexbar rows for these lose. */
+/** Providers with first-party native readers (when they ship plan windows). */
 export const NATIVE_USAGE_PROVIDERS = ["claude", "codex", "grok", "hermes"] as const;
 
+const hasPlanWindows = (quota: ProviderQuota): boolean =>
+  quota.status === "ok" && quota.windows.length > 0;
+
 /**
- * Prefer native harness snapshots over codexbar for the same provider so the
- * rail never double-paints Claude/Codex/Grok/Hermes when both are present.
+ * Resolve native vs codexbar per provider so the rail never double-paints.
+ *
+ * Priority (one row per provider name):
+ *   1. native with plan windows  → codexbar row for that provider drops
+ *   2. codexbar with plan windows → tokens-only / empty native for that
+ *      provider drops (Grok updates.jsonl must not hide codexbar plan %)
+ *   3. tokens-only native only when codexbar has no plan row
+ *
+ * Empty native Codex stub never claims — multi-account codexbar still fills.
  */
 export const preferNativeUsageSnapshots = (
   snapshots: ReadonlyArray<UsageSnapshot>,
 ): ReadonlyArray<UsageSnapshot> => {
-  const nativeProviders = new Set<string>();
+  const nativePlan = new Set<string>();
+  const codexbarPlan = new Set<string>();
   for (const snapshot of snapshots) {
-    if (snapshot.source === "codexbar" || !snapshot.ok) continue;
+    if (!snapshot.ok) continue;
     for (const quota of snapshot.quotas) {
-      if (quota.status === "ok") nativeProviders.add(quota.provider.toLowerCase());
+      if (!hasPlanWindows(quota)) continue;
+      const key = quota.provider.toLowerCase();
+      if (snapshot.source === "codexbar") codexbarPlan.add(key);
+      else nativePlan.add(key);
     }
-    // Empty ok native codex still claims the provider so codexbar can fill
-    // plan % when present — only strip when we actually painted a row.
   }
+
   return snapshots.map((snapshot) => {
-    if (snapshot.source !== "codexbar" || !snapshot.ok) return snapshot;
-    const quotas = snapshot.quotas.filter(
-      (quota) => !nativeProviders.has(quota.provider.toLowerCase()),
-    );
+    if (!snapshot.ok || snapshot.quotas.length === 0) return snapshot;
+
+    if (snapshot.source === "codexbar") {
+      const quotas = snapshot.quotas.filter(
+        (quota) => !nativePlan.has(quota.provider.toLowerCase()),
+      );
+      return quotas.length === snapshot.quotas.length ? snapshot : { ...snapshot, quotas };
+    }
+
+    // Native: keep plan rows; drop tokens-only when codexbar already paints plan %.
+    const quotas = snapshot.quotas.filter((quota) => {
+      if (hasPlanWindows(quota)) return true;
+      return !codexbarPlan.has(quota.provider.toLowerCase());
+    });
     return quotas.length === snapshot.quotas.length ? snapshot : { ...snapshot, quotas };
   });
 };

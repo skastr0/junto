@@ -6,9 +6,11 @@ import { grokSource } from "./grok-source";
 import { hermesSource } from "./hermes-source";
 import { UsageSources } from "./usage-source";
 
-// Station usage registry (Phase 8):
-//   native first — Claude limits, Grok/Hermes tokens; Codex limits stubbed
-//   codexbar optional — other providers / enrich when the CLI is on PATH
+// Station usage registry:
+//   native plan windows (Claude) win over codexbar for that provider
+//   tokens-only native (Grok/Hermes) yields when codexbar has plan %
+//   empty Codex stub never claims — codexbar multi-account fills
+//   codexbar optional for everyone else when the CLI is on PATH
 //
 // No hard dependency on Codex Bar. Native sources work on Linux and macOS
 // via harness home files (honors sandboxed HOME for e2e).

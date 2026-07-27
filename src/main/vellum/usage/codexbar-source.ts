@@ -10,10 +10,11 @@ import type {
 import { parseJson, runCli } from "../adapters/exec";
 import { UsageSources, type UsageSource } from "./usage-source";
 
-// codexbar CLI as an *optional* UsageSource. Native harness sources (claude /
-// grok / hermes / codex stub) are primary; codexbar fills other providers and
-// can still supply multi-account codex when present. Missing CLI degrades to
-// a cli-missing envelope (fail open) — the rail does not depend on it.
+// codexbar CLI as an *optional* UsageSource. Native plan-window sources
+// (Claude cache, etc.) win for that provider; tokens-only native (Grok/
+// Hermes) yields so codexbar plan % can paint. Codex native is a stub —
+// multi-account codexbar still fills. Missing CLI degrades to cli-missing
+// (fail open) — the rail does not depend on it.
 
 const DETECT_TIMEOUT_MS = 10_000;
 // Observed worst-case fetch is ~20s for 12 enabled providers; 90s leaves
