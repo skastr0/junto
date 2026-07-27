@@ -735,6 +735,34 @@ describe("work control transport", () => {
     });
   });
 
+  it("rejects the retired client message role field", async () => {
+    const server = servers[0]!;
+    const response = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.send",
+      args: {
+        target: "tasks",
+        text: "hello",
+        role: "user",
+      },
+    })) as {
+      ok: false;
+      error: {
+        type: string;
+        message: string;
+        details?: { path?: string; retryable?: boolean };
+      };
+    };
+    expect(response.ok).toBe(false);
+    expect(response.error.type).toBe("InputError");
+    expect(response.error.message).toContain("role");
+    expect(response.error.message).toContain("unexpected");
+    expect(response.error.details).toMatchObject({
+      path: "args",
+      retryable: false,
+    });
+  });
+
   it("denies an unbound peer", async () => {
     // Spin a one-off server with empty process map.
     const root = await mkdtemp(join(tmpdir(), "vellum-work-unbound-"));

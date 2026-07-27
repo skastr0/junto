@@ -344,7 +344,9 @@ const decodeArgs = <A, I>(
   schema: Schema.Schema<A, I>,
   args: unknown,
 ): Either.Either<A, WorkErrorBody> => {
-  const decoded = Schema.decodeUnknownEither(schema)(args ?? {});
+  const decoded = Schema.decodeUnknownEither(schema, {
+    onExcessProperty: "error",
+  })(args ?? {});
   if (Either.isLeft(decoded)) {
     return Either.left({
       type: "InputError",
