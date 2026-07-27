@@ -22,6 +22,7 @@ import {
   projectWorkSnapshots,
   stripWorkProjection,
 } from "./work/repository";
+import { decodeStationPortfolioBody } from "./station/portfolio";
 
 export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
   message: Schema.String,
@@ -274,6 +275,22 @@ type StoredAuthoritySnapshot = {
   readonly documents: ReadonlyMap<string, StoredCanvas>;
 };
 
+type StationProjectionRow = {
+  readonly generation: string;
+  readonly body: string;
+  readonly content_sha256: string;
+  readonly created_at: string;
+  readonly received_at: string;
+};
+
+type StationConfigurationRoleRow = {
+  readonly role: string;
+};
+
+type SettingsTopologyRow = {
+  readonly body: string;
+};
+
 type CanvasCommitCause =
   | "write"
   | "mutate"
@@ -412,6 +429,129 @@ const readStoredAuthority = (reader: StateReader): StoredAuthoritySnapshot => {
     intentSha256,
     documents,
   };
+};
+
+type LocalStationRole = "" | "command-center" | "remote";
+
+/**
+ * Read the local installation role from canonical SQLite state.
+ *
+ * A completed Station API configuration is authoritative. Before pairing,
+ * the settings topology row carries the user's explicit onboarding choice.
+ */
+const readLocalStationRole = (reader: StateReader): LocalStationRole => {
+  const configured = reader.get<StationConfigurationRoleRow>(
+    "SELECT role FROM station_configuration WHERE singleton = 1",
+  );
+  if (
+    configured?.role === "command-center" ||
+    configured?.role === "remote"
+  ) {
+    return configured.role;
+  }
+
+  const settings = reader.get<SettingsTopologyRow>(
+    "SELECT body FROM settings_station_topology WHERE singleton = 1",
+  );
+  if (settings === undefined) return "";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(settings.body) as unknown;
+  } catch {
+    throw new CanvasError({
+      message: "station topology in the database is not valid JSON",
+    });
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    !("role" in parsed)
+  ) {
+    throw new CanvasError({
+      message: "station topology in the database is malformed",
+    });
+  }
+  const role = (parsed as { readonly role?: unknown }).role;
+  if (
+    role !== "" &&
+    role !== "command-center" &&
+    role !== "remote"
+  ) {
+    throw new CanvasError({
+      message: "station topology in the database has an invalid role",
+    });
+  }
+  return role;
+};
+
+const readStationProjection = (
+  reader: StateReader,
+): StoredAuthoritySnapshot => {
+  const row = reader.get<StationProjectionRow>(
+    `SELECT
+       generation,
+       body,
+       content_sha256,
+       created_at,
+       received_at
+     FROM station_projection
+     WHERE singleton = 1`,
+  );
+  if (row === undefined) {
+    return {
+      hasHead: false,
+      generation: "0",
+      createdAt: undefined,
+      intentSha256: undefined,
+      documents: new Map(),
+    };
+  }
+  const contentSha256 = revisionOf(row.body);
+  if (contentSha256 !== row.content_sha256) {
+    throw new CanvasError({
+      message:
+        `station projection generation ${row.generation} failed its content hash`,
+    });
+  }
+  const decoded = decodeStationPortfolioBody(row.body);
+  const documents = new Map<string, StoredCanvas>();
+  for (const [name, doc] of decoded) {
+    const canonicalName = canvasNameFrom(name);
+    const body = serializeCanvas(doc);
+    documents.set(canonicalName, {
+      doc,
+      body,
+      revision: revisionOf(body),
+      modifiedAt: row.received_at,
+    });
+  }
+  return {
+    hasHead: true,
+    generation: row.generation,
+    createdAt: row.created_at,
+    intentSha256: contentSha256,
+    documents,
+  };
+};
+
+const readActivePortfolio = (
+  reader: StateReader,
+): StoredAuthoritySnapshot =>
+  readLocalStationRole(reader) === "remote"
+    ? readStationProjection(reader)
+    : readStoredAuthority(reader);
+
+const assertAuthorialInstallation = (
+  reader: StateReader,
+  operation: string,
+): void => {
+  if (readLocalStationRole(reader) === "remote") {
+    throw new CanvasError({
+      message:
+        `cannot ${operation}: Remote installations consume Command Center projection and never author canvases`,
+    });
+  }
 };
 
 const nextGenerationAfter = (snapshot: StoredAuthoritySnapshot): string =>
@@ -619,20 +759,34 @@ export const CanvasesLive = Layer.effect(
       ),
     );
 
+  const readActive = (
+    operation: string,
+  ): Effect.Effect<StoredAuthoritySnapshot, CanvasError> =>
+    ensureReady.pipe(
+      Effect.flatMap(() =>
+        state.read(operation, readActivePortfolio).pipe(
+          Effect.mapError(toCanvasError),
+        ),
+      ),
+    );
+
   const transaction = <A>(
     operation: string,
     body: (writer: StateWriter) => A,
   ): Effect.Effect<A, CanvasError> =>
     ensureReady.pipe(
       Effect.flatMap(() =>
-        state.transaction(operation, body).pipe(
+        state.transaction(operation, (writer) => {
+          assertAuthorialInstallation(writer, operation);
+          return body(writer);
+        }).pipe(
           Effect.mapError(toCanvasError),
         ),
       ),
     );
 
   const list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError> =
-    readAuthority("canvas.list").pipe(
+    readActive("canvas.list").pipe(
       Effect.map((snapshot) =>
         [...snapshot.documents.entries()]
           .map(([name, entry]) => ({
@@ -650,12 +804,12 @@ export const CanvasesLive = Layer.effect(
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
       });
-      const snapshot = yield* readAuthority("canvas.read");
+      const snapshot = yield* readActive("canvas.read");
       const entry = snapshot.documents.get(canonicalName);
       if (entry === undefined) {
         return yield* Effect.fail(
           new CanvasError({
-            message: `canvas "${canonicalName}" is not in live authority (missing or never admitted)`,
+            message: `canvas "${canonicalName}" is not in the active portfolio`,
           }),
         );
       }
@@ -954,10 +1108,13 @@ export const CanvasesLive = Layer.effect(
     ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
     CanvasError
   > =>
-    authoritySnapshot().pipe(
+    readActive("canvas.live-documents").pipe(
       Effect.map((snapshot) =>
         [...snapshot.documents]
-          .map(([canvasName, doc]) => ({ canvasName, doc }))
+          .map(([canvasName, entry]) => ({
+            canvasName,
+            doc: entry.doc,
+          }))
           .sort((a, b) => a.canvasName.localeCompare(b.canvasName)),
       ),
     );
