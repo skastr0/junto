@@ -1,0 +1,348 @@
+import { lstat, readFile } from "node:fs/promises";
+import { extname, resolve } from "node:path";
+import { extractFile, listPackage, statFile } from "@electron/asar";
+
+export const RETIRED_PRODUCT_STATE_SIGNATURES = [
+  "canvas-authority-v1",
+  "current.json",
+  "settings.json",
+  "hosts.json",
+  "station-status.json",
+  "store.json",
+  "topology.key",
+  "topology.seal",
+  "hosts.key",
+  "hosts.seal",
+  "incoming.frame",
+  "applied.ack",
+] as const;
+
+export type RetiredProductStateSignature =
+  (typeof RETIRED_PRODUCT_STATE_SIGNATURES)[number];
+
+export type RetiredStateSignatureAuditLimits = {
+  readonly maxAsarEntries: number;
+  readonly maxFirstPartyTextEntries: number;
+  readonly maxAsarEntryBytes: number;
+  readonly maxAsarTextBytes: number;
+  readonly maxExecutableBytes: number;
+};
+
+export const RETIRED_STATE_SIGNATURE_AUDIT_LIMITS: Readonly<
+  RetiredStateSignatureAuditLimits
+> = Object.freeze({
+  maxAsarEntries: 32_768,
+  maxFirstPartyTextEntries: 4_096,
+  maxAsarEntryBytes: 8 * 1024 * 1024,
+  maxAsarTextBytes: 32 * 1024 * 1024,
+  maxExecutableBytes: 96 * 1024 * 1024,
+});
+
+export type RetiredStateSignatureAuditErrorCode =
+  | "retired-signature"
+  | "invalid-limit"
+  | "entry-bound"
+  | "byte-bound"
+  | "root-bound"
+  | "invalid-entry"
+  | "not-regular-file";
+
+export class RetiredStateSignatureAuditError extends Error {
+  readonly name = "RetiredStateSignatureAuditError";
+
+  constructor(
+    readonly code: RetiredStateSignatureAuditErrorCode,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export type RetiredStateBufferAuditReceipt = {
+  readonly label: string;
+  readonly scannedBytes: number;
+};
+
+export type RetiredStateAsarAuditReceipt = {
+  readonly archivePath: string;
+  readonly archiveEntries: number;
+  readonly scannedEntries: number;
+  readonly scannedBytes: number;
+  readonly scannedRoots: readonly ["out", "station"];
+};
+
+export type RetiredStateBufferAuditOptions = {
+  readonly label?: string;
+  readonly maxBytes?: number;
+};
+
+export type RetiredStateAsarAuditOptions = {
+  readonly limits?: Partial<RetiredStateSignatureAuditLimits>;
+};
+
+const FIRST_PARTY_ROOTS = ["out", "station"] as const;
+type FirstPartyRoot = (typeof FIRST_PARTY_ROOTS)[number];
+
+const TEXT_EXTENSIONS = new Set([
+  ".cjs",
+  ".css",
+  ".html",
+  ".js",
+  ".json",
+  ".mjs",
+  ".md",
+  ".map",
+  ".txt",
+]);
+
+const signatureBytes = RETIRED_PRODUCT_STATE_SIGNATURES.map(
+  (signature) => ({
+    signature,
+    bytes: Buffer.from(signature, "utf8"),
+  }),
+);
+
+const requirePositiveSafeInteger = (
+  name: string,
+  value: number,
+): number => {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RetiredStateSignatureAuditError(
+      "invalid-limit",
+      `${name} must be a positive safe integer`,
+    );
+  }
+  return value;
+};
+
+const resolvedLimits = (
+  overrides: Partial<RetiredStateSignatureAuditLimits> = {},
+): RetiredStateSignatureAuditLimits => ({
+  maxAsarEntries: requirePositiveSafeInteger(
+    "maxAsarEntries",
+    overrides.maxAsarEntries ??
+      RETIRED_STATE_SIGNATURE_AUDIT_LIMITS.maxAsarEntries,
+  ),
+  maxFirstPartyTextEntries: requirePositiveSafeInteger(
+    "maxFirstPartyTextEntries",
+    overrides.maxFirstPartyTextEntries ??
+      RETIRED_STATE_SIGNATURE_AUDIT_LIMITS.maxFirstPartyTextEntries,
+  ),
+  maxAsarEntryBytes: requirePositiveSafeInteger(
+    "maxAsarEntryBytes",
+    overrides.maxAsarEntryBytes ??
+      RETIRED_STATE_SIGNATURE_AUDIT_LIMITS.maxAsarEntryBytes,
+  ),
+  maxAsarTextBytes: requirePositiveSafeInteger(
+    "maxAsarTextBytes",
+    overrides.maxAsarTextBytes ??
+      RETIRED_STATE_SIGNATURE_AUDIT_LIMITS.maxAsarTextBytes,
+  ),
+  maxExecutableBytes: requirePositiveSafeInteger(
+    "maxExecutableBytes",
+    overrides.maxExecutableBytes ??
+      RETIRED_STATE_SIGNATURE_AUDIT_LIMITS.maxExecutableBytes,
+  ),
+});
+
+const firstRetiredSignature = (
+  bytes: Uint8Array,
+): RetiredProductStateSignature | undefined => {
+  const buffer = Buffer.from(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength,
+  );
+  return signatureBytes.find(({ bytes: signature }) =>
+    buffer.indexOf(signature) !== -1
+  )?.signature;
+};
+
+/**
+ * Scan one first-party packaged payload without decoding it. This works for
+ * JavaScript/text buffers and Bun-compiled vellum CLI executables alike.
+ */
+export const auditRetiredStateBuffer = (
+  bytes: Uint8Array,
+  options: RetiredStateBufferAuditOptions = {},
+): RetiredStateBufferAuditReceipt => {
+  const label = options.label ?? "packaged runtime buffer";
+  const maxBytes = requirePositiveSafeInteger(
+    "maxBytes",
+    options.maxBytes ??
+      RETIRED_STATE_SIGNATURE_AUDIT_LIMITS.maxExecutableBytes,
+  );
+  if (bytes.byteLength > maxBytes) {
+    throw new RetiredStateSignatureAuditError(
+      "byte-bound",
+      `${label} exceeds retired-state scan bound (${bytes.byteLength} > ${maxBytes})`,
+    );
+  }
+  const signature = firstRetiredSignature(bytes);
+  if (signature !== undefined) {
+    throw new RetiredStateSignatureAuditError(
+      "retired-signature",
+      `${label} contains retired product-state signature: ${signature}`,
+    );
+  }
+  return { label, scannedBytes: bytes.byteLength };
+};
+
+/**
+ * Bounded regular-file adapter for the packaged vellum, vellum-browser, and
+ * vellum-station executables.
+ */
+export const auditRetiredStateFile = async (
+  filePath: string,
+  options: RetiredStateBufferAuditOptions = {},
+): Promise<RetiredStateBufferAuditReceipt> => {
+  const path = resolve(filePath);
+  const info = await lstat(path);
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new RetiredStateSignatureAuditError(
+      "not-regular-file",
+      `retired-state scan target is not a regular file: ${path}`,
+    );
+  }
+  const maxBytes = requirePositiveSafeInteger(
+    "maxBytes",
+    options.maxBytes ??
+      RETIRED_STATE_SIGNATURE_AUDIT_LIMITS.maxExecutableBytes,
+  );
+  if (info.size > maxBytes) {
+    throw new RetiredStateSignatureAuditError(
+      "byte-bound",
+      `${options.label ?? path} exceeds retired-state scan bound (${info.size} > ${maxBytes})`,
+    );
+  }
+  const bytes = await readFile(path);
+  return auditRetiredStateBuffer(bytes, {
+    label: options.label ?? path,
+    maxBytes,
+  });
+};
+
+const normalizeAsarEntry = (
+  entry: string,
+): { readonly root: FirstPartyRoot; readonly path: string } | undefined => {
+  const path = entry.replace(/^\/+/u, "");
+  const root = path.split("/", 1)[0];
+  if (root !== "out" && root !== "station") return undefined;
+  if (
+    entry.includes("\\") ||
+    path.includes("\0") ||
+    path.split("/").some((segment) =>
+      segment.length === 0 || segment === "." || segment === ".."
+    )
+  ) {
+    throw new RetiredStateSignatureAuditError(
+      "invalid-entry",
+      `ASAR contains an invalid first-party entry: ${entry}`,
+    );
+  }
+  if (!TEXT_EXTENSIONS.has(extname(path).toLowerCase())) return undefined;
+  return { root, path };
+};
+
+/**
+ * Scan the bounded first-party text/runtime surface inside app.asar. Third
+ * party dependency strings are deliberately outside this product-state gate.
+ */
+export const auditRetiredStateAsar = (
+  archivePath: string,
+  options: RetiredStateAsarAuditOptions = {},
+): RetiredStateAsarAuditReceipt => {
+  const path = resolve(archivePath);
+  const limits = resolvedLimits(options.limits);
+  const entries = listPackage(path, { isPack: false });
+  if (entries.length > limits.maxAsarEntries) {
+    throw new RetiredStateSignatureAuditError(
+      "entry-bound",
+      `ASAR entry inventory exceeds retired-state scan bound (${entries.length} > ${limits.maxAsarEntries})`,
+    );
+  }
+
+  const candidates: Array<{
+    readonly root: FirstPartyRoot;
+    readonly path: string;
+    readonly bytes: number;
+  }> = [];
+  const seenPaths = new Set<string>();
+  const seenRoots = new Set<FirstPartyRoot>();
+  let scannedBytes = 0;
+
+  for (const entry of entries) {
+    const normalized = normalizeAsarEntry(entry);
+    if (normalized === undefined) continue;
+    if (seenPaths.has(normalized.path)) {
+      throw new RetiredStateSignatureAuditError(
+        "invalid-entry",
+        `ASAR repeats a first-party entry: ${normalized.path}`,
+      );
+    }
+    seenPaths.add(normalized.path);
+    seenRoots.add(normalized.root);
+    if (candidates.length >= limits.maxFirstPartyTextEntries) {
+      throw new RetiredStateSignatureAuditError(
+        "entry-bound",
+        `ASAR first-party text inventory exceeds retired-state scan bound (${candidates.length + 1} > ${limits.maxFirstPartyTextEntries})`,
+      );
+    }
+
+    const entryInfo = statFile(path, normalized.path, false);
+    if (!("size" in entryInfo)) {
+      throw new RetiredStateSignatureAuditError(
+        "invalid-entry",
+        `ASAR first-party text entry is not a regular file: ${normalized.path}`,
+      );
+    }
+    if (entryInfo.size > limits.maxAsarEntryBytes) {
+      throw new RetiredStateSignatureAuditError(
+        "byte-bound",
+        `ASAR entry exceeds retired-state scan bound: ${normalized.path} (${entryInfo.size} > ${limits.maxAsarEntryBytes})`,
+      );
+    }
+    scannedBytes += entryInfo.size;
+    if (scannedBytes > limits.maxAsarTextBytes) {
+      throw new RetiredStateSignatureAuditError(
+        "byte-bound",
+        `ASAR first-party text exceeds retired-state scan bound (${scannedBytes} > ${limits.maxAsarTextBytes})`,
+      );
+    }
+    candidates.push({
+      ...normalized,
+      bytes: entryInfo.size,
+    });
+  }
+
+  for (const requiredRoot of FIRST_PARTY_ROOTS) {
+    if (!seenRoots.has(requiredRoot)) {
+      throw new RetiredStateSignatureAuditError(
+        "root-bound",
+        `ASAR has no scannable first-party ${requiredRoot}/ runtime`,
+      );
+    }
+  }
+
+  for (const candidate of candidates) {
+    const bytes = extractFile(path, candidate.path, false);
+    if (bytes.byteLength !== candidate.bytes) {
+      throw new RetiredStateSignatureAuditError(
+        "byte-bound",
+        `ASAR entry size changed during retired-state scan: ${candidate.path}`,
+      );
+    }
+    auditRetiredStateBuffer(bytes, {
+      label: `app.asar:${candidate.path}`,
+      maxBytes: limits.maxAsarEntryBytes,
+    });
+  }
+
+  return {
+    archivePath: path,
+    archiveEntries: entries.length,
+    scannedEntries: candidates.length,
+    scannedBytes,
+    scannedRoots: ["out", "station"],
+  };
+};
