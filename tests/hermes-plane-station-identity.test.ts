@@ -60,7 +60,7 @@ describe("HermesPlane station identity hydration", () => {
       patch: () => Effect.succeed(published),
       setStationTopology: () => Effect.succeed(published),
       reset: () => Effect.succeed(published),
-      path: () => "/tmp/vellum-hermes-plane-settings.json",
+      databasePath: () => "/tmp/vellum-hermes-plane-state.db",
       subscribe: (listener) => {
         listeners.add(listener);
         return () => listeners.delete(listener);

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+import { Context, Effect, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { defaultSettings, type Settings } from "../src/shared/settings";
@@ -15,6 +15,8 @@ import {
   prepareBrowserStationAdmissionAuthority,
 } from "../src/main/vellum/browser/station-admission";
 import { makeSettingsService } from "../src/main/vellum/settings/service";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { StateEngine } from "../src/main/vellum/state/service";
 import type {
   StationStatusChange,
 } from "../src/main/vellum/station-status-store";
@@ -47,7 +49,6 @@ const remoteHost = (): RemoteHost => ({
 
 describe("Remote browser station admission", () => {
   let root = "";
-  let settingsPath = "";
   let canvasesDir = "";
   let settings: Settings;
   let status: StationStatusDocument;
@@ -59,14 +60,19 @@ describe("Remote browser station admission", () => {
       previous: ReadonlyArray<RemoteHost>,
     ) => void
   >;
+  let state: Context.Tag.Service<typeof StateEngine>;
+  let closeState: (() => Promise<void>) | undefined;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-browser-station-"));
-    settingsPath = join(root, "settings.json");
     canvasesDir = join(root, "canvases");
+    const stateRuntime = ManagedRuntime.make(
+      makeStateEngineLive(join(root, "vellum.db")),
+    );
+    state = await stateRuntime.runPromise(StateEngine);
+    closeState = () => stateRuntime.dispose();
     process.env.VELLUM_CANVASES_DIR = canvasesDir;
     settings = remoteSettings();
-    await writeFile(settingsPath, JSON.stringify(settings), "utf8");
     const doc: CanvasDoc = { nodes: [], edges: [] };
     await mkdir(canvasesDir, { recursive: true });
     await writeFile(join(canvasesDir, "work.canvas"), serializeCanvas(doc), "utf8");
@@ -98,13 +104,25 @@ describe("Remote browser station admission", () => {
 
   afterEach(async () => {
     delete process.env.VELLUM_CANVASES_DIR;
+    await closeState?.();
+    closeState = undefined;
     await rm(root, { recursive: true, force: true });
   });
 
+  const makeService = async () => {
+    const service = await Effect.runPromise(
+      makeSettingsService(state, {
+        probeSupervised: async () => "absent",
+      }),
+    );
+    await Effect.runPromise(
+      service.setStationTopology(settings.station),
+    );
+    return service;
+  };
+
   const prepare = async () => {
-    const service = makeSettingsService(settingsPath, {
-      probeSupervised: async () => "absent",
-    });
+    const service = await makeService();
     const authority = await prepareBrowserStationAdmissionAuthority(service, {
       now: () => now,
       readStatus: async () => status,
@@ -260,10 +278,7 @@ describe("Remote browser station admission", () => {
         topologyIntegrity: "ok",
       },
     };
-    await writeFile(settingsPath, JSON.stringify(settings), "utf8");
-    const service = makeSettingsService(settingsPath, {
-      probeSupervised: async () => "absent",
-    });
+    const service = await makeService();
     const readStatus = vi.fn(async () => {
       throw new Error("must not read");
     });

@@ -6,21 +6,19 @@ import {
 import { CANVAS_NAME_INPUT_PATTERN, CANVAS_NAME_MAX_LENGTH } from "./canvas-name";
 import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 
-// Settings plane: one schema-validated durable document under
-// ~/.vellum/settings.json. Mutable user prefs — not Effect Config (boot/env)
-// and not StoreService (opaque runtime state like kernel arming).
+// Settings plane: one schema-validated aggregate in the app-owned SQLite
+// database. Mutable user prefs are not Effect Config (boot/env) and not
+// runtime kernel state.
 //
-// Aggregate: whole-file consistency. Sections are value objects; version
-// ladders live in main/vellum/settings/migrate.ts.
+// Aggregate: preference and protected-topology rows commit independently
+// according to capability, then assemble into this single public value.
 //
-// Mental model (Phase 3 topology protection):
-// - **prefs** — appearance/canvas/kernel/browser/audio/advanced. Ambient file
-//   edits may be accepted; generic settingsPatch mutates these.
+// Mental model:
+// - **prefs** — appearance/canvas/kernel/browser/audio/advanced/fleet.
+//   Generic settingsPatch mutates only their canonical row.
 // - **topology** — station.role / hostId / agentHostId / commandCenterRef /
-//   supervisedPreferred / topologyIntegrity. Not trusted from plaintext alone:
-//   main admits via topology.key + topology.seal (HMAC). Mutations go through
-//   settingsSetStationTopology only; generic settingsPatch rejects station.*.
-//   Seal breach → topologyIntegrity "failed" (not first-run role "").
+//   supervisedPreferred / topologyIntegrity. Mutations go through
+//   settingsSetStationTopology only; generic settingsPatch cannot write its row.
 //
 // Invariants:
 // - Never store secrets here (full document is IPC-broadcast to all windows).
@@ -406,6 +404,9 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
   }
   if (patch.advanced) {
     next = { ...next, advanced: mergeSection(next.advanced, patch.advanced) };
+  }
+  if (patch.fleet) {
+    next = { ...next, fleet: mergeSection(next.fleet, patch.fleet) };
   }
   if (patch.station) {
     next = { ...next, station: mergeSection(next.station, patch.station) };

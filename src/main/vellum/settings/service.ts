@@ -1,7 +1,5 @@
-import { constants } from "node:fs";
-import { mkdir, open, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { Context, Effect, Either, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import {
@@ -14,156 +12,53 @@ import {
 } from "@shared/settings";
 import { assessSupervisedRuntime } from "@shared/station";
 import {
+  StateEngine,
+  StateEngineError,
+  type StateOutputValue,
+  type StateReader,
+  type StateWriter,
+} from "../state/service";
+import {
   applyAndValidatePatch,
   decodePatchInput,
   decodeStationTopologyPatch,
-  migrateSettingsDocument,
 } from "./migrate";
-import { probeSupervisedRuntime, type SupervisedProbe } from "./supervised-probe";
 import {
-  admitStationTopology,
-  lostSettingsIntegrityLock,
-  topologyEvidencePresent,
-  topologyFromStation,
-  writeTopologySeal,
-} from "./topology-seal";
+  decodeStoredSettings,
+  preferencesFromSettings,
+} from "./state-schema";
+import {
+  probeSupervisedRuntime,
+  type SupervisedProbe,
+} from "./supervised-probe";
 
-// SettingsService: durable prefs + topology gate.
-//
-// Path defaults to ~/.vellum/settings.json (agent-readable home). Tests override
-// via VELLUM_SETTINGS_PATH (exact file) — never accept a path from the renderer.
-//
-// Split mental model:
-// - **prefs** (appearance/canvas/kernel/browser/audio/advanced) — ambient
-//   settings.json, generic settingsPatch.
-// - **topology** (station.*) — app-owned seal (topology.key + topology.seal).
-//   Load admits only sealed topology; generic patch rejects station keys;
-//   setStationTopology is the sole app write path that mutates + reseals.
-
+/**
+ * Settings are a two-row aggregate in the sole app-owned SQLite database:
+ * ordinary preferences and protected station topology. The split makes the
+ * authorization boundary structural while preserving the existing aggregate
+ * API for renderer consumers.
+ */
 export class SettingsService extends Context.Tag("@vellum/SettingsService")<
   SettingsService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly get: Effect.Effect<Settings, SettingsError>;
     readonly patch: (input: unknown) => Effect.Effect<Settings, SettingsError>;
-    /**
-     * Dedicated topology transition. Merges station fields, persists, and
-     * writes the app-owned topology seal. Not available via settingsPatch.
-     */
     readonly setStationTopology: (
       input: unknown,
     ) => Effect.Effect<Settings, SettingsError>;
     readonly reset: (
       section?: SettingsSectionKey,
     ) => Effect.Effect<Settings, SettingsError>;
-    readonly path: () => string;
+    readonly databasePath: () => string;
     readonly subscribe: (listener: (settings: Settings) => void) => () => void;
   }
 >() {}
 
+/** Temporary packaged-startup compatibility; never used by SettingsService. */
 export const settingsFilePath = (): string =>
-  process.env.VELLUM_SETTINGS_PATH || join(homedir(), ".vellum", "settings.json");
-
-const toIoError = (error: unknown): SettingsError =>
-  error instanceof SettingsError
-    ? error
-    : new SettingsError({
-        message: error instanceof Error ? error.message : String(error),
-        code: "io",
-      });
-
-const atomicWrite = async (path: string, settings: Settings): Promise<void> => {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const body = `${JSON.stringify(settings, null, 2)}\n`;
-  if (Buffer.byteLength(body, "utf8") > SETTINGS_MAX_FILE_BYTES) {
-    throw new SettingsError({
-      message: `settings document exceeds ${SETTINGS_MAX_FILE_BYTES} byte ceiling`,
-      code: "validation",
-    });
-  }
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, body, { encoding: "utf8", flag: "wx", mode: 0o600 });
-  await rename(tmp, path);
-};
-
-const loadFromDisk = async (path: string): Promise<Settings> => {
-  let raw: string;
-  let file: Awaited<ReturnType<typeof open>> | undefined;
-  try {
-    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const info = await file.stat();
-    if (!info.isFile()) {
-      throw new SettingsError({
-        message: "settings path is not a regular file",
-        code: "corrupt",
-      });
-    }
-    if (info.size > SETTINGS_MAX_FILE_BYTES) {
-      throw new SettingsError({
-        message: `settings file exceeds ${SETTINGS_MAX_FILE_BYTES} byte ceiling`,
-        code: "corrupt",
-      });
-    }
-    // Older builds inherited the login umask and could leave settings
-    // group-readable. Repair the already-open inode before reading it so a
-    // path swap cannot redirect chmod to another file.
-    await file.chmod(0o600);
-    raw = await file.readFile("utf8");
-  } catch (error) {
-    if (error instanceof SettingsError) throw error;
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      // Lost settings.json with key/seal evidence is not first-run. Lock closed
-      // (role unset + topologyIntegrity failed); do not mint defaults as ok.
-      if (await topologyEvidencePresent(path)) {
-        const locked = lostSettingsIntegrityLock();
-        await atomicWrite(path, locked);
-        // Reseal the lock. Existing key is reused when readable; corrupt key is
-        // rotated by writeTopologySeal. Seal material is not deleted first.
-        await writeTopologySeal(path, topologyFromStation(locked.station));
-        return locked;
-      }
-      const fresh = defaultSettings();
-      await atomicWrite(path, fresh);
-      // Genuine first run: seal empty topology so later offline role mint fails closed.
-      await writeTopologySeal(path, topologyFromStation(fresh.station));
-      return fresh;
-    }
-    throw error;
-  } finally {
-    await file?.close();
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw) as unknown;
-  } catch (error) {
-    throw new SettingsError({
-      message: `settings.json unreadable — refusing to treat as empty (${
-        error instanceof Error ? error.message : String(error)
-      })`,
-      code: "corrupt",
-    });
-  }
-
-  const migrated = migrateSettingsDocument(parsed);
-  if (Either.isLeft(migrated)) {
-    throw migrated.left;
-  }
-
-  const admitted = await admitStationTopology(path, migrated.right);
-  if (
-    admitted.outcome === "integrity-failed" ||
-    admitted.resealed === true ||
-    (admitted.outcome === "bootstrap" &&
-      JSON.stringify(admitted.settings.station) !==
-        JSON.stringify(migrated.right.station))
-  ) {
-    // Persist integrity-failed lock, legacy seal migration, or bootstrap heal
-    // so disk and live view agree — never leave a sealed lock only in memory.
-    await atomicWrite(path, admitted.settings);
-  }
-  return admitted.settings;
-};
+  process.env.VELLUM_SETTINGS_PATH ||
+  join(homedir(), ".vellum", "settings.json");
 
 export interface SettingsServiceApi {
   readonly doctor: Effect.Effect<ServiceCheck>;
@@ -175,98 +70,500 @@ export interface SettingsServiceApi {
   readonly reset: (
     section?: SettingsSectionKey,
   ) => Effect.Effect<Settings, SettingsError>;
-  readonly path: () => string;
+  readonly databasePath: () => string;
   readonly subscribe: (listener: (settings: Settings) => void) => () => void;
 }
 
 export type SettingsServiceOptions = {
-  /** Override LaunchAgent probe (tests). Default: real launchctl print. */
+  /** Override supervisor probe in tests. */
   readonly probeSupervised?: SupervisedProbe;
 };
 
-export const makeSettingsService = (
-  path: string = settingsFilePath(),
-  options: SettingsServiceOptions = {},
-): SettingsServiceApi => {
-  const probeSupervised = options.probeSupervised ?? probeSupervisedRuntime;
-  let cached: Settings | undefined;
-  let inFlight: Promise<Settings> | null = null;
-  // Serialize patch/reset/topology RMW so concurrent IPC cannot last-writer-clobber.
-  let writeChain: Promise<unknown> = Promise.resolve();
-  const listeners = new Set<(settings: Settings) => void>();
+type StateService = Context.Tag.Service<typeof StateEngine>;
+type SettingsRows = {
+  readonly preferences:
+    | {
+        readonly version: number;
+        readonly body: string;
+      }
+    | undefined;
+  readonly topology:
+    | {
+        readonly body: string;
+      }
+    | undefined;
+  readonly initialization:
+    | {
+        readonly initializedAt: string;
+      }
+    | undefined;
+};
+type PreferencesRow = Record<string, StateOutputValue> & {
+  readonly version: number;
+  readonly body: string;
+};
+type TopologyRow = Record<string, StateOutputValue> & {
+  readonly body: string;
+};
+type InitializationRow = Record<string, StateOutputValue> & {
+  readonly initialized_at: string;
+};
 
-  const notify = (settings: Settings) => {
-    for (const listener of listeners) listener(settings);
-  };
+const SELECT_PREFERENCES_SQL = `
+  SELECT version, body
+  FROM settings_preferences
+  WHERE singleton = 1
+`;
+const SELECT_TOPOLOGY_SQL = `
+  SELECT body
+  FROM settings_station_topology
+  WHERE singleton = 1
+`;
+const SELECT_INITIALIZATION_SQL = `
+  SELECT initialized_at
+  FROM settings_initialization
+  WHERE singleton = 1
+`;
+const UPSERT_PREFERENCES_SQL = `
+  INSERT INTO settings_preferences(singleton, version, body, updated_at)
+  VALUES (1, ?, ?, ?)
+  ON CONFLICT(singleton) DO UPDATE SET
+    version = excluded.version,
+    body = excluded.body,
+    updated_at = excluded.updated_at
+`;
+const UPSERT_TOPOLOGY_SQL = `
+  INSERT INTO settings_station_topology(singleton, body, updated_at)
+  VALUES (1, ?, ?)
+  ON CONFLICT(singleton) DO UPDATE SET
+    body = excluded.body,
+    updated_at = excluded.updated_at
+`;
+const INSERT_INITIALIZATION_SQL = `
+  INSERT INTO settings_initialization(singleton, initialized_at)
+  VALUES (1, ?)
+`;
 
-  const ensureLoaded = async (): Promise<Settings> => {
-    if (cached) return cached;
-    if (inFlight) return inFlight;
-    const promise = loadFromDisk(path)
-      .then((settings) => {
-        cached = settings;
-        return settings;
-      })
-      .finally(() => {
-        if (inFlight === promise) inFlight = null;
-      });
-    inFlight = promise;
-    return promise;
-  };
+const stateFailure = (error: StateEngineError): SettingsError => {
+  if (error.cause instanceof SettingsError) return error.cause;
+  return new SettingsError({
+    code: "io",
+    message: `settings ${error.operation} failed: ${error.message}`,
+  });
+};
 
-  const writeState = async (settings: Settings): Promise<Settings> => {
-    await atomicWrite(path, settings);
-    await writeTopologySeal(path, topologyFromStation(settings.station));
-    cached = settings;
-    notify(settings);
-    return settings;
-  };
+const parseBody = (label: string, raw: string): unknown => {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (error) {
+    throw new SettingsError({
+      code: "corrupt",
+      message:
+        `${label} JSON is invalid: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+    });
+  }
+};
 
-  const withWriteLock = <A>(fn: () => Promise<A>): Promise<A> => {
-    const run = writeChain.then(fn, fn);
-    writeChain = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  };
-
+const readRows = (reader: StateReader): SettingsRows => {
+  const preferences = reader.get<PreferencesRow>(SELECT_PREFERENCES_SQL);
+  const topology = reader.get<TopologyRow>(SELECT_TOPOLOGY_SQL);
+  const initialization = reader.get<InitializationRow>(
+    SELECT_INITIALIZATION_SQL,
+  );
   return {
-    path: () => path,
-    doctor: Effect.tryPromise({
-      try: async (): Promise<ServiceCheck> => {
-        try {
-          const settings = await ensureLoaded();
-          const supervisedInstalled = await probeSupervised();
-          const supervised = assessSupervisedRuntime({
-            role: settings.station.role,
-            hostId: settings.station.hostId,
-            supervisedPreferred: settings.station.supervisedPreferred,
-            supervisedInstalled,
-          });
-          const status =
-            supervised.status === "warning" ? ("warning" as const) : ("ok" as const);
-          return {
-            id: "settings",
-            label: "User Settings",
-            status,
-            detail: `settings.json · v${settings.version} · ${supervised.detail}`,
-            metadata: {
-              version: String(settings.version),
-              ...supervised.metadata,
+    preferences:
+      preferences === undefined
+        ? undefined
+        : {
+            version: Number(preferences.version),
+            body: String(preferences.body),
+          },
+    topology:
+      topology === undefined
+        ? undefined
+        : { body: String(topology.body) },
+    initialization:
+      initialization === undefined
+        ? undefined
+        : {
+            initializedAt: String(initialization.initialized_at),
+          },
+  };
+};
+
+type StoredSettingsState = {
+  readonly settings: Settings;
+  readonly initialization: NonNullable<SettingsRows["initialization"]>;
+};
+
+const decodeRows = (
+  rows: SettingsRows,
+): StoredSettingsState | undefined => {
+  if (
+    rows.preferences === undefined &&
+    rows.topology === undefined &&
+    rows.initialization === undefined
+  ) {
+    return undefined;
+  }
+  if (
+    rows.preferences === undefined ||
+    rows.topology === undefined ||
+    rows.initialization === undefined
+  ) {
+    throw new SettingsError({
+      code: "corrupt",
+      message: "canonical settings aggregate is incomplete",
+    });
+  }
+  return {
+    settings: decodeStoredSettings(
+      rows.preferences.version,
+      parseBody("stored settings preferences", rows.preferences.body),
+      parseBody("stored station topology", rows.topology.body),
+    ),
+    initialization: rows.initialization,
+  };
+};
+
+const readStoredState = (
+  reader: StateReader,
+): StoredSettingsState | undefined =>
+  decodeRows(readRows(reader));
+
+const readSettings = (reader: StateReader): Settings | undefined =>
+  readStoredState(reader)?.settings;
+
+const encodedPreferences = (settings: Settings): string =>
+  JSON.stringify(preferencesFromSettings(settings));
+
+const encodedTopology = (settings: Settings): string =>
+  JSON.stringify(settings.station);
+
+const ensureBounded = (settings: Settings): void => {
+  const bytes = Buffer.byteLength(JSON.stringify(settings), "utf8");
+  if (bytes > SETTINGS_MAX_FILE_BYTES) {
+    throw new SettingsError({
+      code: "validation",
+      message:
+        `settings document exceeds ${SETTINGS_MAX_FILE_BYTES} byte ceiling`,
+    });
+  }
+};
+
+const writePreferences = (
+  writer: StateWriter,
+  settings: Settings,
+  updatedAt: string,
+): void => {
+  ensureBounded(settings);
+  writer.run(UPSERT_PREFERENCES_SQL, [
+    settings.version,
+    encodedPreferences(settings),
+    updatedAt,
+  ]);
+};
+
+const writeTopology = (
+  writer: StateWriter,
+  settings: Settings,
+  updatedAt: string,
+): void => {
+  ensureBounded(settings);
+  writer.run(UPSERT_TOPOLOGY_SQL, [
+    encodedTopology(settings),
+    updatedAt,
+  ]);
+};
+
+const writeInitialSettings = (
+  writer: StateWriter,
+  settings: Settings,
+): void => {
+  const updatedAt = new Date().toISOString();
+  writePreferences(writer, settings, updatedAt);
+  writeTopology(writer, settings, updatedAt);
+  writer.run(INSERT_INITIALIZATION_SQL, [updatedAt]);
+};
+
+const initializeSettings = (
+  state: StateService,
+): Effect.Effect<StoredSettingsState, SettingsError> =>
+  state.transaction(
+    "settings.initialize",
+    (writer) => {
+      const raced = readStoredState(writer);
+      if (raced !== undefined) return raced;
+      writeInitialSettings(writer, defaultSettings());
+      const stored = readStoredState(writer);
+      if (stored === undefined) {
+        throw new SettingsError({
+          code: "corrupt",
+          message: "canonical settings initialization did not persist",
+        });
+      }
+      return stored;
+    },
+  ).pipe(
+    Effect.mapError(stateFailure),
+    Effect.withSpan("settings.initialize"),
+  );
+
+type MutationResult = {
+  readonly settings: Settings;
+  readonly changed: boolean;
+};
+
+const sameSettings = (left: Settings, right: Settings): boolean =>
+  JSON.stringify(left) === JSON.stringify(right);
+
+const publishAfterCommit = (
+  result: MutationResult,
+  listeners: ReadonlySet<(settings: Settings) => void>,
+): Settings => {
+  if (!result.changed) return result.settings;
+  for (const listener of listeners) {
+    try {
+      listener(result.settings);
+    } catch {
+      console.warn("[vellum:settings] subscriber failed");
+    }
+  }
+  return result.settings;
+};
+
+/**
+ * Build one service instance over the already-open StateEngine.
+ *
+ * Initialization is eager so IPC and control surfaces cannot observe an
+ * unimported or half-present settings aggregate.
+ */
+export const makeSettingsService = (
+  state: StateService,
+  options: SettingsServiceOptions = {},
+): Effect.Effect<SettingsServiceApi, SettingsError> =>
+  Effect.gen(function* () {
+    const probeSupervised =
+      options.probeSupervised ?? probeSupervisedRuntime;
+    yield* initializeSettings(state);
+
+    const listeners = new Set<(settings: Settings) => void>();
+
+    const get = state.read("settings.get", (reader) => {
+      const settings = readSettings(reader);
+      if (settings === undefined) {
+        throw new SettingsError({
+          code: "corrupt",
+          message: "canonical settings rows disappeared after initialization",
+        });
+      }
+      return settings;
+    }).pipe(
+      Effect.mapError(stateFailure),
+      Effect.withSpan("settings.get"),
+    );
+
+    const patch = Effect.fn("SettingsService.patch")(function* (
+      input: unknown,
+    ) {
+      const decoded = decodePatchInput(input);
+      if (Either.isLeft(decoded)) return yield* decoded.left;
+      if (decoded.right.station !== undefined) {
+        return yield* new SettingsError({
+          message:
+            "station topology is protected — use settingsSetStationTopology for role/host/commandCenterRef/supervisedPreferred",
+          code: "validation",
+        });
+      }
+      const result = yield* state.transaction(
+        "settings.patch",
+        (writer): MutationResult => {
+          const current = readSettings(writer);
+          if (current === undefined) {
+            throw new SettingsError({
+              code: "corrupt",
+              message: "canonical settings rows are missing",
+            });
+          }
+          const validated = applyAndValidatePatch(current, decoded.right);
+          if (Either.isLeft(validated)) throw validated.left;
+          if (sameSettings(current, validated.right)) {
+            return { settings: current, changed: false };
+          }
+          writePreferences(writer, validated.right, new Date().toISOString());
+          return { settings: validated.right, changed: true };
+        },
+      ).pipe(Effect.mapError(stateFailure));
+      return publishAfterCommit(result, listeners);
+    });
+
+    const setStationTopology = Effect.fn(
+      "SettingsService.setStationTopology",
+    )(function* (input: unknown) {
+      const decoded = decodeStationTopologyPatch(input);
+      if (Either.isLeft(decoded)) return yield* decoded.left;
+      const result = yield* state.transaction(
+        "settings.setStationTopology",
+        (writer): MutationResult => {
+          const current = readSettings(writer);
+          if (current === undefined) {
+            throw new SettingsError({
+              code: "corrupt",
+              message: "canonical settings rows are missing",
+            });
+          }
+          if (current.station.topologyIntegrity === "failed") {
+            throw new SettingsError({
+              message:
+                "Topology integrity failed — recovery requires an explicit Command Center transfer ceremony; Settings cannot promote this station to command-center or remote",
+              code: "validation",
+            });
+          }
+
+          const requested = decoded.right;
+          const established =
+            current.station.topologyIntegrity === "ok" &&
+            (current.station.role === "command-center" ||
+              current.station.role === "remote");
+          if (established) {
+            const frozen: ReadonlyArray<{
+              readonly key: string;
+              readonly next: string | undefined;
+              readonly previous: string | undefined;
+            }> = [
+              {
+                key: "role",
+                next: requested.role,
+                previous: current.station.role,
+              },
+              {
+                key: "hostId",
+                next: requested.hostId,
+                previous: current.station.hostId,
+              },
+              {
+                key: "agentHostId",
+                next: requested.agentHostId,
+                previous: current.station.agentHostId,
+              },
+              {
+                key: "commandCenterRef",
+                next: requested.commandCenterRef,
+                previous: current.station.commandCenterRef,
+              },
+            ];
+            for (const field of frozen) {
+              if (
+                field.next !== undefined &&
+                field.next !== field.previous
+              ) {
+                throw new SettingsError({
+                  message:
+                    `Established station topology freezes ${field.key} — only supervisedPreferred may change; role/host pairing migration requires an explicit Command Center transfer ceremony`,
+                  code: "validation",
+                });
+              }
+            }
+          }
+
+          const validated = applyAndValidatePatch(current, {
+            station: {
+              ...requested,
+              topologyIntegrity: "ok",
             },
-          };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          return {
-            id: "settings",
-            label: "User Settings",
-            status: "error" as const,
-            detail: message,
-          };
-        }
-      },
-      catch: (error) => toIoError(error),
+          });
+          if (Either.isLeft(validated)) throw validated.left;
+          const previousRole = current.station.role;
+          const nextRole = validated.right.station.role;
+          if (
+            (previousRole === "command-center" ||
+              previousRole === "remote") &&
+            nextRole !== previousRole
+          ) {
+            throw new SettingsError({
+              message:
+                "Station role migration requires an explicit Command Center transfer ceremony — Settings cannot promote, demote, or clear a protected role",
+              code: "validation",
+            });
+          }
+          if (sameSettings(current, validated.right)) {
+            return { settings: current, changed: false };
+          }
+          writeTopology(writer, validated.right, new Date().toISOString());
+          return { settings: validated.right, changed: true };
+        },
+      ).pipe(Effect.mapError(stateFailure));
+      return publishAfterCommit(result, listeners);
+    });
+
+    const reset = Effect.fn("SettingsService.reset")(function* (
+      section?: SettingsSectionKey,
+    ) {
+      if (section === "station") {
+        return yield* new SettingsError({
+          message:
+            "station topology cannot be reset from Settings — role migration requires an explicit Command Center transfer ceremony",
+          code: "validation",
+        });
+      }
+      const result = yield* state.transaction(
+        "settings.reset",
+        (writer): MutationResult => {
+          const current = readSettings(writer);
+          if (current === undefined) {
+            throw new SettingsError({
+              code: "corrupt",
+              message: "canonical settings rows are missing",
+            });
+          }
+          const next: Settings =
+            section === undefined
+              ? { ...defaultSettings(), station: current.station }
+              : { ...current, [section]: defaultSection(section) };
+          if (sameSettings(current, next)) {
+            return { settings: current, changed: false };
+          }
+          writePreferences(writer, next, new Date().toISOString());
+          return { settings: next, changed: true };
+        },
+      ).pipe(Effect.mapError(stateFailure));
+      return publishAfterCommit(result, listeners);
+    });
+
+    const doctor = Effect.gen(function* () {
+      const settings = yield* get;
+      const supervisedInstalled = yield* Effect.tryPromise({
+        try: () => probeSupervised(),
+        catch: (error) =>
+          new SettingsError({
+            code: "io",
+            message:
+              `supervisor probe failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+          }),
+      });
+      const supervised = assessSupervisedRuntime({
+        role: settings.station.role,
+        hostId: settings.station.hostId,
+        supervisedPreferred: settings.station.supervisedPreferred,
+        supervisedInstalled,
+      });
+      return {
+        id: "settings",
+        label: "User Settings",
+        status:
+          supervised.status === "warning"
+            ? ("warning" as const)
+            : ("ok" as const),
+        detail: `vellum.db · settings v${settings.version} · ${supervised.detail}`,
+        metadata: {
+          version: String(settings.version),
+          ...supervised.metadata,
+        },
+      };
     }).pipe(
       Effect.catchAll((error) =>
         Effect.succeed({
@@ -276,172 +573,36 @@ export const makeSettingsService = (
           detail: error.message,
         }),
       ),
-    ),
-    get: Effect.tryPromise({
-      try: () => ensureLoaded(),
-      catch: (error) => toIoError(error),
-    }),
-    patch: (input: unknown) =>
-      Effect.tryPromise({
-        try: () =>
-          withWriteLock(async () => {
-            const patchEither = decodePatchInput(input);
-            if (Either.isLeft(patchEither)) throw patchEither.left;
-            // Option B: topology never mutates through generic prefs patch.
-            if (patchEither.right.station !== undefined) {
-              throw new SettingsError({
-                message:
-                  "station topology is protected — use settingsSetStationTopology for role/host/commandCenterRef/supervisedPreferred",
-                code: "validation",
-              });
-            }
-            const current = await ensureLoaded();
-            const nextEither = applyAndValidatePatch(current, patchEither.right);
-            if (Either.isLeft(nextEither)) throw nextEither.left;
-            if (JSON.stringify(current) === JSON.stringify(nextEither.right)) {
-              return current;
-            }
-            return writeState(nextEither.right);
-          }),
-        catch: (error) => toIoError(error),
-      }),
-    setStationTopology: (input: unknown) =>
-      Effect.tryPromise({
-        try: () =>
-          withWriteLock(async () => {
-            const patchEither = decodeStationTopologyPatch(input);
-            if (Either.isLeft(patchEither)) throw patchEither.left;
-            const current = await ensureLoaded();
-            // Integrity-failed is not first-run: refuse ordinary role mint.
-            // Recovery / transfer ceremony is a dedicated path (not Settings).
-            if (current.station.topologyIntegrity === "failed") {
-              throw new SettingsError({
-                message:
-                  "Topology integrity failed — recovery requires an explicit Command Center transfer ceremony; Settings cannot promote this station to command-center or remote",
-                code: "validation",
-              });
-            }
-            const requested = patchEither.right;
-            // topologyIntegrity is always app-owned — never take client value.
-            const established =
-              current.station.topologyIntegrity === "ok" &&
-              (current.station.role === "command-center" ||
-                current.station.role === "remote");
-            if (established) {
-              // Freeze pairing once sealed: only supervisedPreferred may change.
-              const frozen: Array<{
-                readonly key: string;
-                readonly next: string | undefined;
-                readonly prev: string | undefined;
-              }> = [
-                {
-                  key: "role",
-                  next: requested.role,
-                  prev: current.station.role,
-                },
-                {
-                  key: "hostId",
-                  next: requested.hostId,
-                  prev: current.station.hostId,
-                },
-                {
-                  key: "agentHostId",
-                  next: requested.agentHostId,
-                  prev: current.station.agentHostId,
-                },
-                {
-                  key: "commandCenterRef",
-                  next: requested.commandCenterRef,
-                  prev: current.station.commandCenterRef,
-                },
-              ];
-              for (const field of frozen) {
-                if (
-                  field.next !== undefined &&
-                  field.next !== field.prev
-                ) {
-                  throw new SettingsError({
-                    message:
-                      `Established station topology freezes ${field.key} — only supervisedPreferred may change; role/host pairing migration requires an explicit Command Center transfer ceremony`,
-                    code: "validation",
-                  });
-                }
-              }
-            }
-            // Validate via full aggregate decode after merge. App writes always
-            // land as integrity-ok (failed is only set by admit on seal breach).
-            const stationPatch = {
-              ...requested,
-              topologyIntegrity: "ok" as const,
-            };
-            const validated = applyAndValidatePatch(current, {
-              station: stationPatch,
-            });
-            if (Either.isLeft(validated)) throw validated.left;
-            const prevRole = current.station.role;
-            const nextRole = validated.right.station.role;
-            // Doctrine: role transitions between sealed roles (or clearing a
-            // sealed role) are Command Center transfer / migration ceremonies —
-            // not Settings toggles. First-run "" → command-center|remote is ok
-            // only when topologyIntegrity is ok (checked above).
-            if (
-              (prevRole === "command-center" || prevRole === "remote") &&
-              nextRole !== prevRole
-            ) {
-              throw new SettingsError({
-                message:
-                  "Station role migration requires an explicit Command Center transfer ceremony — Settings cannot promote, demote, or clear a sealed role",
-                code: "validation",
-              });
-            }
-            if (JSON.stringify(current) === JSON.stringify(validated.right)) {
-              // Still reseal so bootstrap after external wipe recovers.
-              await writeTopologySeal(path, topologyFromStation(current.station));
-              return current;
-            }
-            return writeState(validated.right);
-          }),
-        catch: (error) => toIoError(error),
-      }),
-    reset: (section?: SettingsSectionKey) =>
-      Effect.tryPromise({
-        try: () =>
-          withWriteLock(async () => {
-            const current = await ensureLoaded();
-            // Doctrine: topology reset / role migration is catastrophic.
-            // Never clear station.* through ambient settings reset.
-            if (section === "station") {
-              throw new SettingsError({
-                message:
-                  "station topology cannot be reset from Settings — role migration requires an explicit Command Center transfer ceremony",
-                code: "validation",
-              });
-            }
-            if (section === undefined) {
-              // Full prefs reset preserves sealed topology.
-              const next: Settings = {
-                ...defaultSettings(),
-                station: current.station,
-              };
-              return writeState(next);
-            }
-            const next: Settings = {
-              ...current,
-              [section]: defaultSection(section),
-            };
-            return writeState(next);
-          }),
-        catch: (error) => toIoError(error),
-      }),
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-  };
-};
+      Effect.withSpan("settings.doctor"),
+    );
 
-export const SettingsLive = Layer.sync(SettingsService, () =>
-  SettingsService.of(makeSettingsService()),
-);
+    return {
+      doctor,
+      get,
+      patch,
+      setStationTopology,
+      reset,
+      databasePath: () => state.info.path,
+      subscribe: (listener) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    };
+  });
+
+export const makeSettingsLive = (
+  options: SettingsServiceOptions = {},
+): Layer.Layer<SettingsService, SettingsError, StateEngine> =>
+  Layer.effect(
+    SettingsService,
+    Effect.gen(function* () {
+      const state = yield* StateEngine;
+      const service = yield* makeSettingsService(state, options);
+      return SettingsService.of(service);
+    }),
+  );
+
+/** Requires the app's single StateEngine instance. */
+export const SettingsLive = makeSettingsLive();

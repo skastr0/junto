@@ -18,9 +18,10 @@ import {
 // versions fail closed (do not invent a downgrade). Partial / missing fields
 // on a known version soft-heal onto defaults before strict decode.
 //
-// Topology (station.*) is admitted at load via topology-seal.ts; generic
-// SettingsPatch.station is rejected by SettingsService.patch. Dedicated
-// transitions decode through decodeStationTopologyPatch.
+// This ladder remains only on the retiring remote-settings transport.
+// Canonical local SQLite rows decode strictly and never import files. Generic
+// SettingsPatch.station is rejected by SettingsService.patch; dedicated
+// transitions decode below.
 
 const decodeSettings = Schema.decodeUnknownEither(Settings);
 const decodeSettingsPatch = Schema.decodeUnknownEither(SettingsPatch);

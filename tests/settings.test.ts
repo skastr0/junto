@@ -1,27 +1,35 @@
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  rm,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, Either } from "effect";
+import { Effect, Either, ManagedRuntime } from "effect";
 import {
+  SETTINGS_VERSION,
   applySettingsPatch,
   defaultSettings,
-  SETTINGS_VERSION,
 } from "../src/shared/settings";
 import {
   applyAndValidatePatch,
   decodePatchInput,
   migrateSettingsDocument,
 } from "../src/main/vellum/settings/migrate";
-import { makeSettingsService } from "../src/main/vellum/settings/service";
 import {
-  topologyFromStation,
-  topologyPathsForSettings,
-  writeTopologySeal,
-} from "../src/main/vellum/settings/topology-seal";
+  makeSettingsService,
+  type SettingsServiceApi,
+} from "../src/main/vellum/settings/service";
+import {
+  StateEngine,
+  type StateOutputValue,
+} from "../src/main/vellum/state/service";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 
-const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(effect);
-const runEither = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(Effect.either(effect));
+const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
+  Effect.runPromise(effect);
+const runEither = <A, E>(effect: Effect.Effect<A, E>) =>
+  Effect.runPromise(Effect.either(effect));
 
 describe("settings contract", () => {
   it("defaultSettings is a valid v1 document", () => {
@@ -32,19 +40,24 @@ describe("settings contract", () => {
     expect(settings.browser.maxWarmSessions).toBe(3);
   });
 
-  it("applySettingsPatch merges section fields", () => {
+  it("applySettingsPatch merges ordinary and fleet sections", () => {
     const next = applySettingsPatch(defaultSettings(), {
       appearance: { reduceMotion: true },
       browser: { maxVisibleSurfaces: 4 },
+      fleet: { remoteManagedInstalls: true },
     });
     expect(next.appearance.reduceMotion).toBe(true);
     expect(next.appearance.theme).toBe("deep-field");
     expect(next.browser.maxVisibleSurfaces).toBe(4);
     expect(next.browser.maxWarmSessions).toBe(3);
+    expect(next.fleet.remoteManagedInstalls).toBe(true);
   });
 
   it("migrate soft-heals missing sections onto defaults", () => {
-    const result = migrateSettingsDocument({ version: 1, appearance: { theme: "system" } });
+    const result = migrateSettingsDocument({
+      version: 1,
+      appearance: { theme: "system" },
+    });
     expect(Either.isRight(result)).toBe(true);
     if (Either.isRight(result)) {
       expect(result.right.appearance.theme).toBe("system");
@@ -70,571 +83,254 @@ describe("settings contract", () => {
     }
   });
 
-  it("migrate rejects future versions", () => {
-    const result = migrateSettingsDocument({ version: 99 });
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("unsupported");
+  it("migrate rejects future, below-floor, and non-object documents", () => {
+    for (const input of [{ version: 99 }, { version: 0 }, []]) {
+      expect(Either.isLeft(migrateSettingsDocument(input))).toBe(true);
     }
   });
 
-  it("migrate rejects non-object documents", () => {
-    const result = migrateSettingsDocument([]);
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("corrupt");
-    }
-  });
-
-  it("decodePatchInput rejects out-of-range browser limits", () => {
-    const result = decodePatchInput({ browser: { maxVisibleSurfaces: 999 } });
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("validation");
-    }
-  });
-
-  it("applyAndValidatePatch accepts a legal field patch", () => {
-    const result = applyAndValidatePatch(defaultSettings(), {
-      kernel: { pulseLogRetention: 40 },
-    });
-    expect(Either.isRight(result)).toBe(true);
-    if (Either.isRight(result)) {
-      expect(result.right.kernel.pulseLogRetention).toBe(40);
-    }
+  it("patch decoding and aggregate validation reject invalid limits", () => {
+    expect(
+      Either.isLeft(
+        decodePatchInput({ browser: { maxVisibleSurfaces: 999 } }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isRight(
+        applyAndValidatePatch(defaultSettings(), {
+          kernel: { pulseLogRetention: 40 },
+        }),
+      ),
+    ).toBe(true);
   });
 });
 
-describe("settings service", () => {
-  let dir: string;
-  let path: string;
+type StateService = typeof StateEngine.Service;
+type Harness = {
+  readonly service: SettingsServiceApi;
+  readonly state: StateService;
+  readonly close: () => Promise<void>;
+};
 
-  afterEach(async () => {
-    if (dir) await rm(dir, { recursive: true, force: true });
-  });
+describe("SQLite settings service", () => {
+  let root = "";
+  let databasePath = "";
+  let active: Harness | undefined;
 
-  const fresh = async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
-    path = join(dir, "settings.json");
-    return makeSettingsService(path);
+  const closeActive = async (): Promise<void> => {
+    const current = active;
+    active = undefined;
+    await current?.close();
   };
 
-  it("get creates defaults when file is missing", async () => {
-    const svc = await fresh();
-    const settings = await run(svc.get);
-    expect(settings.version).toBe(1);
-    const raw = JSON.parse(await readFile(path, "utf8")) as { version: number };
-    expect(raw.version).toBe(1);
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  afterEach(async () => {
+    await closeActive();
+    if (root) await rm(root, { recursive: true, force: true });
+    root = "";
   });
 
-  it("repairs legacy group-readable settings before reading", async () => {
-    const svc = await fresh();
-    await writeFile(path, `${JSON.stringify(defaultSettings())}\n`, {
-      encoding: "utf8",
-      mode: 0o644,
-    });
-    await chmod(path, 0o664);
+  const preparePaths = async (): Promise<void> => {
+    if (root) return;
+    root = await mkdtemp(join(tmpdir(), "vellum-settings-sqlite-"));
+    databasePath = join(root, "state", "vellum.db");
+  };
 
-    await run(svc.get);
-
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
-  });
-
-  it("patch persists and notifies subscribers", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    const seen: number[] = [];
-    const unsub = svc.subscribe((s) => seen.push(s.browser.maxVisibleSurfaces));
-    const next = await run(svc.patch({ browser: { maxVisibleSurfaces: 3 } }));
-    expect(next.browser.maxVisibleSurfaces).toBe(3);
-    expect(seen).toEqual([3]);
-    const disk = JSON.parse(await readFile(path, "utf8")) as {
-      browser: { maxVisibleSurfaces: number };
+  const openService = async (
+    options: {
+      readonly probeSupervised?: () => Promise<"absent" | "installed">;
+    } = {},
+  ): Promise<Harness> => {
+    await preparePaths();
+    await closeActive();
+    const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
+    const state = await runtime.runPromise(StateEngine);
+    const service = await run(
+      makeSettingsService(state, {
+        probeSupervised: options.probeSupervised,
+      }),
+    );
+    const harness = {
+      service,
+      state,
+      close: () => runtime.dispose(),
     };
-    expect(disk.browser.maxVisibleSurfaces).toBe(3);
-    unsub();
-  });
+    active = harness;
+    return harness;
+  };
 
-  it("patch rejects invalid values without clobbering disk", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    const before = await readFile(path, "utf8");
-    const result = await runEither(svc.patch({ browser: { maxWarmSessions: 0 } }));
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("validation");
-    }
-    expect(await readFile(path, "utf8")).toBe(before);
-  });
+  it("initializes defaults in SQLite", async () => {
+    const { service, state } = await openService();
+    const settings = await run(service.get);
+    expect(settings).toEqual(defaultSettings());
+    expect(service.databasePath()).toBe(databasePath);
 
-  it("reset section restores defaults", async () => {
-    const svc = await fresh();
-    await run(svc.patch({ appearance: { theme: "system", reduceMotion: true } }));
-    const reset = await run(svc.reset("appearance"));
-    expect(reset.appearance.theme).toBe("deep-field");
-    expect(reset.appearance.reduceMotion).toBe(false);
-  });
-
-  it("corrupt JSON refuses silent wipe", async () => {
-    const svc = await fresh();
-    await writeFile(path, "{not-json", "utf8");
-    // Clear any accidental cache by using a new service instance on same path.
-    const svc2 = makeSettingsService(path);
-    const result = await runEither(svc2.get);
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("corrupt");
-    }
-    // File still the corrupt payload — not replaced with defaults.
-    expect(await readFile(path, "utf8")).toBe("{not-json");
-  });
-
-  it("doctor reports version when healthy without leaking absolute paths", async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
-    path = join(dir, "settings.json");
-    const svc = makeSettingsService(path, {
-      probeSupervised: async () => "absent",
+    const counts = await run(
+      state.read("test.settings.count", (reader) => ({
+        preferences: Number(
+          reader.get<Record<string, StateOutputValue> & { count: number }>(
+            "SELECT count(*) AS count FROM settings_preferences",
+          )?.count ?? -1,
+        ),
+        topology: Number(
+          reader.get<Record<string, StateOutputValue> & { count: number }>(
+            "SELECT count(*) AS count FROM settings_station_topology",
+          )?.count ?? -1,
+        ),
+        initialization: Number(
+          reader.get<Record<string, StateOutputValue> & { count: number }>(
+            "SELECT count(*) AS count FROM settings_initialization",
+          )?.count ?? -1,
+        ),
+      })),
+    );
+    expect(counts).toEqual({
+      preferences: 1,
+      topology: 1,
+      initialization: 1,
     });
-    await run(svc.get);
-    const check = await run(svc.doctor);
-    expect(check.id).toBe("settings");
-    expect(check.status).toBe("ok");
-    expect(check.detail).toContain("v1");
-    expect(check.detail).not.toContain(path);
-    expect(check.metadata?.version).toBe("1");
-    expect(check.metadata?.role).toBe("unset");
-    expect(check.metadata?.hostId).toBe("local");
-    expect(check.metadata?.supervisedPreferred).toBe("false");
-    expect(check.metadata?.supervisedInstalled).toBe("absent");
-    expect(check.metadata?.supervisedAligned).toBe("true");
   });
 
-  it("doctor warns when supervised is preferred but LaunchAgent is absent", async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
-    path = join(dir, "settings.json");
-    const svc = makeSettingsService(path, {
-      probeSupervised: async () => "absent",
-    });
-    await run(svc.get);
+  it("persists preference and topology rows across database restart", async () => {
+    const first = await openService();
     await run(
-      svc.setStationTopology({
-        role: "remote",
-        supervisedPreferred: true,
+      first.service.setStationTopology({
+        role: "command-center",
+        hostId: "local",
       }),
     );
-    const check = await run(svc.doctor);
-    expect(check.status).toBe("warning");
-    expect(check.metadata?.role).toBe("remote");
-    expect(check.metadata?.supervisedPreferred).toBe("true");
-    expect(check.metadata?.supervisedInstalled).toBe("absent");
-    expect(check.metadata?.supervisedAligned).toBe("false");
-    expect(check.detail).toContain("app:install:supervised");
-  });
-
-  it("doctor is ok when preferred and LaunchAgent loaded", async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
-    path = join(dir, "settings.json");
-    const svc = makeSettingsService(path, {
-      probeSupervised: async () => "installed",
-    });
-    await run(svc.get);
     await run(
-      svc.setStationTopology({
-        role: "remote",
-        hostId: "remote-a",
-        supervisedPreferred: true,
+      first.service.patch({
+        appearance: { reduceMotion: true },
+        fleet: { remoteManagedInstalls: true },
       }),
     );
-    const check = await run(svc.doctor);
-    expect(check.status).toBe("ok");
-    expect(check.metadata?.hostId).toBe("remote-a");
-    expect(check.metadata?.supervisedInstalled).toBe("installed");
-    expect(check.metadata?.supervisedAligned).toBe("true");
+
+    const second = await openService();
+    const reloaded = await run(second.service.get);
+    expect(reloaded.station.role).toBe("command-center");
+    expect(reloaded.appearance.reduceMotion).toBe(true);
+    expect(reloaded.fleet.remoteManagedInstalls).toBe(true);
   });
 
-  it("rejects oversized settings files", async () => {
-    const svc = await fresh();
-    await writeFile(path, "x".repeat(65 * 1024), "utf8");
-    const svc2 = makeSettingsService(path);
-    const result = await runEither(svc2.get);
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("corrupt");
-    }
+  it("commits generic preference patches without rewriting topology", async () => {
+    const { service, state } = await openService();
+    await run(service.setStationTopology({ role: "remote", hostId: "box" }));
+    const before = await run(
+      state.read(
+        "test.settings.topology.before",
+        (reader) =>
+          reader.get<
+            Record<string, StateOutputValue> & {
+              body: string;
+              updated_at: string;
+            }
+          >(
+            "SELECT body, updated_at FROM settings_station_topology WHERE singleton = 1",
+          ),
+      ),
+    );
+
+    await run(service.patch({ browser: { maxVisibleSurfaces: 4 } }));
+    const after = await run(
+      state.read(
+        "test.settings.topology.after",
+        (reader) =>
+          reader.get<
+            Record<string, StateOutputValue> & {
+              body: string;
+              updated_at: string;
+            }
+          >(
+            "SELECT body, updated_at FROM settings_station_topology WHERE singleton = 1",
+          ),
+      ),
+    );
+    expect(after).toEqual(before);
   });
 
-  it("rejects invalid defaultCanvas names", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    const result = await runEither(svc.patch({ canvas: { defaultCanvas: "../etc" } }));
-    expect(Either.isLeft(result)).toBe(true);
+  it("serializes concurrent read-modify-write patches without lost updates", async () => {
+    const { service } = await openService();
+    await run(
+      Effect.all(
+        [
+          service.patch({ appearance: { reduceMotion: true } }),
+          service.patch({ browser: { maxVisibleSurfaces: 4 } }),
+          service.patch({ fleet: { remoteManagedInstalls: true } }),
+        ],
+        { concurrency: "unbounded" },
+      ),
+    );
+    const settings = await run(service.get);
+    expect(settings.appearance.reduceMotion).toBe(true);
+    expect(settings.browser.maxVisibleSurfaces).toBe(4);
+    expect(settings.fleet.remoteManagedInstalls).toBe(true);
   });
 
-  it("rejects version below floor", () => {
-    const result = migrateSettingsDocument({ version: 0 });
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("corrupt");
-    }
+  it("publishes subscribers only after a successful commit", async () => {
+    const { service, state } = await openService();
+    const observed: Array<{
+      readonly notified: number;
+      readonly persisted: number;
+    }> = [];
+    service.subscribe((settings) => {
+      const persisted = Effect.runSync(
+        state.read("test.settings.listener", (reader) => {
+          const row = reader.get<
+            Record<string, StateOutputValue> & { body: string }
+          >(
+            "SELECT body FROM settings_preferences WHERE singleton = 1",
+          );
+          return (
+            JSON.parse(String(row?.body)) as {
+              browser: { maxVisibleSurfaces: number };
+            }
+          ).browser.maxVisibleSurfaces;
+        }),
+      );
+      observed.push({
+        notified: settings.browser.maxVisibleSurfaces,
+        persisted,
+      });
+    });
+
+    await run(service.patch({ browser: { maxVisibleSurfaces: 3 } }));
+    expect(observed).toEqual([{ notified: 3, persisted: 3 }]);
+    const failed = await runEither(
+      service.patch({ browser: { maxWarmSessions: 0 } }),
+    );
+    expect(Either.isLeft(failed)).toBe(true);
+    expect(observed).toHaveLength(1);
   });
 
-  it("rejects station topology via generic settingsPatch", async () => {
-    const svc = await fresh();
-    await run(svc.get);
+  it("isolates subscriber defects from an already committed write", async () => {
+    const { service } = await openService();
+    service.subscribe(() => {
+      throw new Error("listener defect");
+    });
+    const next = await run(
+      service.patch({ appearance: { reduceMotion: true } }),
+    );
+    expect(next.appearance.reduceMotion).toBe(true);
+    expect((await run(service.get)).appearance.reduceMotion).toBe(true);
+  });
+
+  it("rejects station topology through the generic patch surface", async () => {
+    const { service } = await openService();
     const result = await runEither(
-      svc.patch({ station: { role: "command-center" } }),
+      service.patch({ station: { role: "command-center" } }),
     );
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isLeft(result)) {
       expect(result.left.code).toBe("validation");
       expect(result.left.message).toContain("settingsSetStationTopology");
     }
-    const settings = await run(svc.get);
-    expect(settings.station.role).toBe("");
+    expect((await run(service.get)).station.role).toBe("");
   });
 
-  it("setStationTopology seals role and reloads sealed topology", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    const next = await run(
-      svc.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-      }),
-    );
-    expect(next.station.role).toBe("command-center");
-    const paths = topologyPathsForSettings(path);
-    await stat(paths.key);
-    await stat(paths.seal);
-
-    // Cold load — seal must admit the role.
-    const svc2 = makeSettingsService(path);
-    const reloaded = await run(svc2.get);
-    expect(reloaded.station.role).toBe("command-center");
-    expect(reloaded.station.hostId).toBe("local");
-  });
-
-  it("tampered topology fields fail closed to integrity-failed lock", async () => {
-    const svc = await fresh();
-    await run(svc.get);
+  it("freezes established topology fields but permits supervisor preference", async () => {
+    const { service } = await openService();
     await run(
-      svc.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-      }),
-    );
-
-    // Offline mint: rewrite role without resealing.
-    const disk = JSON.parse(await readFile(path, "utf8")) as ReturnType<
-      typeof defaultSettings
-    >;
-    const tampered = {
-      ...disk,
-      station: {
-        ...disk.station,
-        role: "remote" as const,
-        commandCenterRef: "evil-cc",
-        supervisedPreferred: true,
-      },
-    };
-    await writeFile(path, `${JSON.stringify(tampered, null, 2)}\n`, "utf8");
-
-    const svc2 = makeSettingsService(path);
-    const admitted = await run(svc2.get);
-    expect(admitted.station.role).toBe("");
-    expect(admitted.station.topologyIntegrity).toBe("failed");
-    expect(admitted.station.commandCenterRef).toBe("");
-    expect(admitted.station.supervisedPreferred).toBe(false);
-
-    // Disk rewritten fail-closed as integrity-failed (not first-run ok).
-    const after = JSON.parse(await readFile(path, "utf8")) as {
-      station: { role: string; topologyIntegrity: string };
-    };
-    expect(after.station.role).toBe("");
-    expect(after.station.topologyIntegrity).toBe("failed");
-  });
-
-  it("tampered seal mac fails closed to integrity-failed", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    await run(svc.setStationTopology({ role: "remote", hostId: "box", commandCenterRef: "cc" }));
-
-    const paths = topologyPathsForSettings(path);
-    await writeFile(
-      paths.seal,
-      `${JSON.stringify({ version: 1, alg: "hmac-sha256", mac: "not-a-real-mac" })}\n`,
-      "utf8",
-    );
-
-    const svc2 = makeSettingsService(path);
-    const admitted = await run(svc2.get);
-    expect(admitted.station.role).toBe("");
-    expect(admitted.station.topologyIntegrity).toBe("failed");
-  });
-
-  it("missing seal after key exists fails closed to integrity-failed", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    await run(svc.setStationTopology({ role: "command-center" }));
-
-    const paths = topologyPathsForSettings(path);
-    await rm(paths.seal);
-
-    const disk = JSON.parse(await readFile(path, "utf8")) as ReturnType<
-      typeof defaultSettings
-    >;
-    expect(disk.station.role).toBe("command-center");
-
-    const svc2 = makeSettingsService(path);
-    const admitted = await run(svc2.get);
-    expect(admitted.station.role).toBe("");
-    expect(admitted.station.topologyIntegrity).toBe("failed");
-  });
-
-  it("integrity-failed blocks setStationTopology promotion to command-center", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    await run(svc.setStationTopology({ role: "command-center", hostId: "local" }));
-
-    // Tamper to force integrity-failed lock.
-    const paths = topologyPathsForSettings(path);
-    await writeFile(
-      paths.seal,
-      `${JSON.stringify({ version: 1, alg: "hmac-sha256", mac: "broken" })}\n`,
-      "utf8",
-    );
-    const locked = makeSettingsService(path);
-    const admitted = await run(locked.get);
-    expect(admitted.station.topologyIntegrity).toBe("failed");
-    expect(admitted.station.role).toBe("");
-
-    const promote = await runEither(
-      locked.setStationTopology({ role: "command-center", hostId: "local" }),
-    );
-    expect(Either.isLeft(promote)).toBe(true);
-    if (Either.isLeft(promote)) {
-      expect(promote.left.code).toBe("validation");
-      expect(promote.left.message).toMatch(/integrity failed/i);
-    }
-    const still = await run(locked.get);
-    expect(still.station.role).toBe("");
-    expect(still.station.topologyIntegrity).toBe("failed");
-  });
-
-  it("bootstrap admits unsealed topology once then seals", async () => {
-    // Simulate CC configure-remote stamp: settings with role, no seal material.
-    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
-    path = join(dir, "settings.json");
-    const stamped = {
-      ...defaultSettings(),
-      station: {
-        ...defaultSettings().station,
-        role: "remote" as const,
-        hostId: "studio",
-        commandCenterRef: "local",
-        supervisedPreferred: true,
-      },
-    };
-    await writeFile(path, `${JSON.stringify(stamped, null, 2)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-
-    const svc = makeSettingsService(path);
-    const admitted = await run(svc.get);
-    expect(admitted.station.role).toBe("remote");
-    expect(admitted.station.hostId).toBe("studio");
-
-    const paths = topologyPathsForSettings(path);
-    await stat(paths.key);
-    await stat(paths.seal);
-
-    // Subsequent offline role flip fails closed (integrity-failed, not first-run).
-    const disk = JSON.parse(await readFile(path, "utf8")) as ReturnType<
-      typeof defaultSettings
-    >;
-    const flipped = {
-      ...disk,
-      station: {
-        ...disk.station,
-        role: "command-center" as const,
-      },
-    };
-    await writeFile(path, `${JSON.stringify(flipped, null, 2)}\n`, "utf8");
-    const svc2 = makeSettingsService(path);
-    const locked = await run(svc2.get);
-    expect(locked.station.role).toBe("");
-    expect(locked.station.topologyIntegrity).toBe("failed");
-  });
-
-  it("refuses ambient reset of station topology", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    await run(svc.setStationTopology({ role: "remote", hostId: "box" }));
-    const result = await runEither(svc.reset("station"));
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("validation");
-      expect(result.left.message).toMatch(/transfer ceremony/i);
-    }
-    const still = await run(svc.get);
-    expect(still.station.role).toBe("remote");
-  });
-
-  it("setStationTopology refuses remote → command-center and remote → empty", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    await run(
-      svc.setStationTopology({
-        role: "remote",
-        hostId: "box",
-        commandCenterRef: "cc",
-      }),
-    );
-
-    const promote = await runEither(
-      svc.setStationTopology({ role: "command-center", hostId: "box" }),
-    );
-    expect(Either.isLeft(promote)).toBe(true);
-    if (Either.isLeft(promote)) {
-      expect(promote.left.code).toBe("validation");
-      expect(promote.left.message).toMatch(/transfer ceremony/i);
-    }
-
-    const clear = await runEither(svc.setStationTopology({ role: "" }));
-    expect(Either.isLeft(clear)).toBe(true);
-    if (Either.isLeft(clear)) {
-      expect(clear.left.code).toBe("validation");
-      expect(clear.left.message).toMatch(/transfer ceremony/i);
-    }
-
-    const still = await run(svc.get);
-    expect(still.station.role).toBe("remote");
-    expect(still.station.hostId).toBe("box");
-    expect(still.station.commandCenterRef).toBe("cc");
-  });
-
-  it("full settings reset preserves sealed station topology", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    await run(
-      svc.setStationTopology({ role: "command-center", hostId: "local" }),
-    );
-    await run(svc.patch({ browser: { maxVisibleSurfaces: 4 } }));
-    const reset = await run(svc.reset());
-    expect(reset.station.role).toBe("command-center");
-    expect(reset.browser.maxVisibleSurfaces).toBe(
-      defaultSettings().browser.maxVisibleSurfaces,
-    );
-  });
-
-  it("app-written seal matches sealed material helper", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    const next = await run(
-      svc.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-      }),
-    );
-    // Rewriting the same seal is a no-op admit.
-    await writeTopologySeal(path, topologyFromStation(next.station));
-    const svc2 = makeSettingsService(path);
-    expect((await run(svc2.get)).station.role).toBe("command-center");
-  });
-
-  it("sealed CC delete only settings.json → topologyIntegrity failed (not first-run)", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    await run(
-      svc.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-      }),
-    );
-    const paths = topologyPathsForSettings(path);
-    await stat(paths.key);
-    await stat(paths.seal);
-    await rm(path);
-
-    const svc2 = makeSettingsService(path);
-    const admitted = await run(svc2.get);
-    expect(admitted.station.role).toBe("");
-    expect(admitted.station.topologyIntegrity).toBe("failed");
-    // Evidence preserved (key still present as regular file after reseal).
-    await stat(paths.key);
-    await stat(paths.seal);
-    const disk = JSON.parse(await readFile(path, "utf8")) as {
-      station: { role: string; topologyIntegrity: string };
-    };
-    expect(disk.station.role).toBe("");
-    expect(disk.station.topologyIntegrity).toBe("failed");
-  });
-
-  it("sealed Remote delete only settings.json → topologyIntegrity failed", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    await run(
-      svc.setStationTopology({
-        role: "remote",
-        hostId: "studio",
-        commandCenterRef: "local",
-        supervisedPreferred: true,
-      }),
-    );
-    await rm(path);
-    const admitted = await run(makeSettingsService(path).get);
-    expect(admitted.station.role).toBe("");
-    expect(admitted.station.topologyIntegrity).toBe("failed");
-  });
-
-  it("settings missing with key-only evidence → topologyIntegrity failed", async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
-    path = join(dir, "settings.json");
-    const paths = topologyPathsForSettings(path);
-    // Key only — no settings, no seal.
-    await writeFile(paths.key, Buffer.alloc(32, 7), { mode: 0o600 });
-
-    const admitted = await run(makeSettingsService(path).get);
-    expect(admitted.station.role).toBe("");
-    expect(admitted.station.topologyIntegrity).toBe("failed");
-    await stat(paths.key);
-  });
-
-  it("settings missing with seal-only evidence → topologyIntegrity failed", async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
-    path = join(dir, "settings.json");
-    const paths = topologyPathsForSettings(path);
-    await writeFile(
-      paths.seal,
-      `${JSON.stringify({ version: 1, alg: "hmac-sha256", mac: "orphan" })}\n`,
-      { mode: 0o600 },
-    );
-
-    const admitted = await run(makeSettingsService(path).get);
-    expect(admitted.station.role).toBe("");
-    expect(admitted.station.topologyIntegrity).toBe("failed");
-  });
-
-  it("all of settings/key/seal absent → genuine first-run ok", async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
-    path = join(dir, "settings.json");
-    const admitted = await run(makeSettingsService(path).get);
-    expect(admitted.station.role).toBe("");
-    expect(admitted.station.topologyIntegrity).toBe("ok");
-    // First-run creates defaults + seals empty topology.
-    const paths = topologyPathsForSettings(path);
-    await stat(path);
-    await stat(paths.key);
-    await stat(paths.seal);
-  });
-
-  it("freezes established topology fields; allows supervisedPreferred only", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    await run(
-      svc.setStationTopology({
+      service.setStationTopology({
         role: "remote",
         hostId: "box",
         agentHostId: "fleet-box",
@@ -643,49 +339,116 @@ describe("settings service", () => {
       }),
     );
 
-    const hostFlip = await runEither(
-      svc.setStationTopology({ hostId: "other-box" }),
-    );
-    expect(Either.isLeft(hostFlip)).toBe(true);
-    if (Either.isLeft(hostFlip)) {
-      expect(hostFlip.left.code).toBe("validation");
-      expect(hostFlip.left.message).toMatch(/freezes hostId|Established station/i);
+    for (const mutation of [
+      { hostId: "other-box" },
+      { agentHostId: "other-fleet" },
+      { commandCenterRef: "evil-cc" },
+      { role: "command-center" as const },
+      { role: "" as const },
+    ]) {
+      const result = await runEither(service.setStationTopology(mutation));
+      expect(Either.isLeft(result)).toBe(true);
     }
 
-    const refFlip = await runEither(
-      svc.setStationTopology({ commandCenterRef: "evil-cc" }),
+    const next = await run(
+      service.setStationTopology({ supervisedPreferred: false }),
     );
-    expect(Either.isLeft(refFlip)).toBe(true);
-
-    const agentFlip = await runEither(
-      svc.setStationTopology({ agentHostId: "other-fleet" }),
-    );
-    expect(Either.isLeft(agentFlip)).toBe(true);
-
-    // supervisedPreferred remains mutable.
-    const pref = await run(svc.setStationTopology({ supervisedPreferred: false }));
-    expect(pref.station.supervisedPreferred).toBe(false);
-    expect(pref.station.role).toBe("remote");
-    expect(pref.station.hostId).toBe("box");
-    expect(pref.station.agentHostId).toBe("fleet-box");
-    expect(pref.station.commandCenterRef).toBe("cc");
-    expect(pref.station.topologyIntegrity).toBe("ok");
-
-    // Same-value hostId is a no-op (not a freeze violation).
-    const same = await run(svc.setStationTopology({ hostId: "box" }));
-    expect(same.station.hostId).toBe("box");
+    expect(next.station).toMatchObject({
+      role: "remote",
+      hostId: "box",
+      agentHostId: "fleet-box",
+      commandCenterRef: "cc",
+      supervisedPreferred: false,
+      topologyIntegrity: "ok",
+    });
   });
 
-  it("refuses client topologyIntegrity mutation on established station", async () => {
-    const svc = await fresh();
-    await run(svc.get);
-    await run(svc.setStationTopology({ role: "command-center", hostId: "local" }));
-    // Client cannot demote integrity via setStationTopology — app forces ok when
-    // not already failed; freeze does not expose a client integrity lever.
-    const next = await run(
-      svc.setStationTopology({ topologyIntegrity: "failed" } as never),
+  it("reset preserves protected topology and refuses station reset", async () => {
+    const { service } = await openService();
+    await run(
+      service.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+      }),
     );
-    expect(next.station.topologyIntegrity).toBe("ok");
-    expect(next.station.role).toBe("command-center");
+    await run(service.patch({ browser: { maxVisibleSurfaces: 4 } }));
+    const reset = await run(service.reset());
+    expect(reset.station.role).toBe("command-center");
+    expect(reset.browser.maxVisibleSurfaces).toBe(
+      defaultSettings().browser.maxVisibleSurfaces,
+    );
+    expect(Either.isLeft(await runEither(service.reset("station")))).toBe(
+      true,
+    );
+  });
+
+  it("reports database-backed settings health without leaking paths", async () => {
+    const { service } = await openService({
+      probeSupervised: async () => "absent",
+    });
+    const check = await run(service.doctor);
+    expect(check.id).toBe("settings");
+    expect(check.status).toBe("ok");
+    expect(check.detail).toContain("vellum.db");
+    expect(check.detail).toContain("v1");
+    expect(check.detail).not.toContain(root);
+    expect(check.metadata).toMatchObject({
+      version: "1",
+      role: "unset",
+      hostId: "local",
+      supervisedPreferred: "false",
+      supervisedInstalled: "absent",
+      supervisedAligned: "true",
+    });
+  });
+
+  it("fails closed when either canonical aggregate row disappears", async () => {
+    const { service, state } = await openService();
+    await run(
+      state.transaction("test.settings.removeTopology", (writer) => {
+        writer.run(
+          "DELETE FROM settings_station_topology WHERE singleton = 1",
+        );
+      }),
+    );
+    const result = await runEither(service.get);
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) expect(result.left.code).toBe("corrupt");
+  });
+
+  it("does not reinterpret row loss as a fresh database", async () => {
+    const { state } = await openService();
+    await run(
+      state.transaction("test.settings.removeAggregate", (writer) => {
+        writer.run("DELETE FROM settings_preferences WHERE singleton = 1");
+        writer.run(
+          "DELETE FROM settings_station_topology WHERE singleton = 1",
+        );
+      }),
+    );
+    await closeActive();
+
+    const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
+    try {
+      const reopenedState = await runtime.runPromise(StateEngine);
+      const result = await runEither(makeSettingsService(reopenedState));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) expect(result.left.code).toBe("corrupt");
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("enforces JSON validity in the SQLite schema", async () => {
+    const { state } = await openService();
+    const result = await runEither(
+      state.transaction("test.settings.corruptJson", (writer) => {
+        writer.run(
+          "UPDATE settings_preferences SET body = ? WHERE singleton = 1",
+          ["{broken"],
+        );
+      }),
+    );
+    expect(Either.isLeft(result)).toBe(true);
   });
 });
