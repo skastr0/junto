@@ -368,16 +368,10 @@ export const CONTROL_ROUTES = {
 export type ControlRouteName = keyof typeof CONTROL_ROUTES;
 
 export const CONTROL_TOKEN_HEADER = "x-vellum-token";
-export const CONTROL_CAPABILITY_HEADER = "x-vellum-capability";
 export const CONTROL_REQUEST_ID_HEADER = "x-vellum-request-id";
 
 /** Child-only environment inputs. Values never enter argv or query strings. */
-export const CONTROL_CAPABILITY_ENV = "VELLUM_BROWSER_CAPABILITY";
 export const CONTROL_HOME_ENV = "VELLUM_BROWSER_HOME";
-
-/** 32 random bytes encoded as unpadded base64url. */
-export const isValidControlCapability = (value: string): boolean =>
-  /^[A-Za-z0-9_-]{43}$/.test(value);
 
 /** UUID or 32-byte hex ids are accepted; both remain header-bounded. */
 export const isValidControlRequestId = (value: string): boolean =>

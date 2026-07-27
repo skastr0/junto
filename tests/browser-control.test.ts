@@ -34,6 +34,7 @@ import {
   makeControlHandlers,
   rotateControlToken,
   tokenMatches,
+  type ControlAdmitContext,
 } from "../src/main/vellum/browser/control";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type {
@@ -356,13 +357,18 @@ describe("control route handlers", () => {
       shotsDir: join(root, "shots"),
       ...(screenshotFiles === undefined ? {} : { screenshotFiles }),
     });
+    const leaseAdmission: ControlAdmitContext = {
+      kind: "lease",
+      secret: grant.secret,
+      expectedPrincipal: principal,
+    };
     const call = (
       method: string,
       path: string,
       body?: unknown,
       token: string | null = TOKEN,
       signal?: AbortSignal,
-      capability: string | null = grant.secret,
+      admission: ControlAdmitContext | null = leaseAdmission,
       requestId: string | null = (++requestCounter).toString(16).padStart(32, "0"),
     ) =>
       dispatchControlRequest(
@@ -372,13 +378,13 @@ describe("control route handlers", () => {
           method,
           path,
           token: token ?? undefined,
-          capability: capability ?? undefined,
           requestId: requestId ?? undefined,
           body,
         },
         signal,
+        admission ?? undefined,
       );
-    return { call, sessions, capabilities, principal, grant };
+    return { call, sessions, capabilities, principal, grant, leaseAdmission };
   };
 
   it("authenticates every route and rejects unknown routes", async () => {
@@ -410,20 +416,28 @@ describe("control route handlers", () => {
     }
   });
 
-  it("requires a capability and UUID request id on every protected route", async () => {
-    const { call, grant } = makeStack();
+  it("requires internal admission and a UUID request id on every protected route", async () => {
+    const { call, leaseAdmission } = makeStack();
     expect(await call("GET", "/profiles", undefined, TOKEN, undefined, null)).toMatchObject({
       status: 401,
       envelope: { ok: false, error: { _tag: "unauthorized" } },
     });
     expect(
-      await call("GET", "/profiles", undefined, TOKEN, undefined, grant.secret, null),
+      await call("GET", "/profiles", undefined, TOKEN, undefined, leaseAdmission, null),
     ).toMatchObject({
       status: 400,
       envelope: { ok: false, error: { _tag: "bad_request" } },
     });
     expect(
-      await call("GET", "/profiles", undefined, TOKEN, undefined, grant.secret, "not-a-uuid"),
+      await call(
+        "GET",
+        "/profiles",
+        undefined,
+        TOKEN,
+        undefined,
+        leaseAdmission,
+        "not-a-uuid",
+      ),
     ).toMatchObject({
       status: 400,
       envelope: { ok: false, error: { _tag: "bad_request" } },
@@ -446,17 +460,22 @@ describe("control route handlers", () => {
       maxInFlight: 1,
     });
     const requestId = "a".repeat(32);
+    const admission: ControlAdmitContext = {
+      kind: "lease",
+      secret: profilesOnly.secret,
+      expectedPrincipal: principal,
+    };
     expect(
-      await call("GET", "/profiles", undefined, TOKEN, undefined, profilesOnly.secret, requestId),
+      await call("GET", "/profiles", undefined, TOKEN, undefined, admission, requestId),
     ).toMatchObject({ status: 200, envelope: { ok: true } });
     expect(
-      await call("GET", "/pages", undefined, TOKEN, undefined, profilesOnly.secret),
+      await call("GET", "/pages", undefined, TOKEN, undefined, admission),
     ).toMatchObject({
       status: 403,
       envelope: { ok: false, error: { _tag: "forbidden" } },
     });
     expect(
-      await call("GET", "/profiles", undefined, TOKEN, undefined, profilesOnly.secret, requestId),
+      await call("GET", "/profiles", undefined, TOKEN, undefined, admission, requestId),
     ).toMatchObject({
       status: 403,
       envelope: { ok: false, error: { _tag: "forbidden" } },
@@ -515,7 +534,7 @@ describe("control route handlers", () => {
       { ref: REF },
       TOKEN,
       undefined,
-      sibling.secret,
+      { kind: "lease", secret: sibling.secret, expectedPrincipal: principal },
     );
     expect(first).toMatchObject({ status: 200, envelope: { ok: true } });
     expect(second).toMatchObject({ status: 200, envelope: { ok: true } });
@@ -546,7 +565,7 @@ describe("control route handlers", () => {
         { sessionId: secondSessionId, code: "document.title" },
         TOKEN,
         undefined,
-        sibling.secret,
+        { kind: "lease", secret: sibling.secret, expectedPrincipal: principal },
       ),
     ).toMatchObject({
       status: 200,
@@ -574,10 +593,32 @@ describe("control route handlers", () => {
       maxInFlight: 1,
     });
     expect(
-      await call("GET", "/sessions", undefined, TOKEN, undefined, sibling.secret),
+      await call(
+        "GET",
+        "/sessions",
+        undefined,
+        TOKEN,
+        undefined,
+        {
+          kind: "lease",
+          secret: sibling.secret,
+          expectedPrincipal: siblingPrincipal,
+        },
+      ),
     ).toMatchObject({ status: 200, envelope: { ok: true, data: [] } });
     expect(
-      await call("GET", "/pages", undefined, TOKEN, undefined, sibling.secret),
+      await call(
+        "GET",
+        "/pages",
+        undefined,
+        TOKEN,
+        undefined,
+        {
+          kind: "lease",
+          secret: sibling.secret,
+          expectedPrincipal: siblingPrincipal,
+        },
+      ),
     ).toMatchObject({
       status: 200,
       envelope: { ok: true, data: [{ ref: REF, sessionId: null }] },

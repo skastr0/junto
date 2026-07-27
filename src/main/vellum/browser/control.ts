@@ -24,7 +24,6 @@ import { dirname, join, resolve } from "node:path";
 import { Either, Schema } from "effect";
 import { formatNodeRef } from "@shared/node-ref";
 import {
-  CONTROL_CAPABILITY_HEADER,
   CONTROL_ROUTES,
   CONTROL_HEADERS_TIMEOUT_MS,
   CONTROL_MAX_BODY_BYTES,
@@ -42,7 +41,6 @@ import {
   encodeControlEnvelope,
   inspectControlJson,
   inspectEvalResult,
-  isValidControlCapability,
   isValidControlRequestId,
   CloseRequest,
   EvalRequest,
@@ -1145,8 +1143,8 @@ const stationRouterHttp = (
 /** Transport-free admit helpers for tests (product HTTP path always process-binds). */
 export type ControlAdmitContext =
   | {
-      readonly kind: "capability";
-      readonly capability: string;
+      readonly kind: "lease";
+      readonly secret: string;
       readonly expectedPrincipal: BrowserAutomationPrincipal;
     }
   | { readonly kind: "principal"; readonly edgeGrant: EdgeGrantService; readonly principal: import("../process-identity").ProcessPrincipal };
@@ -1157,7 +1155,7 @@ export type ControlAdmitContext =
  *
  * Product HTTP path always process-binds first. Transport-free tests may pass
  * an admit context: `principal` (process principal → edge mint) or a
- * pre-minted capability secret (internal lease only — not client identity).
+ * pre-minted internal lease. Request data never carries browser authority.
  */
 export const dispatchControlRequest = async (
   handlers: ControlHandlers,
@@ -1166,7 +1164,6 @@ export const dispatchControlRequest = async (
     readonly method: string;
     readonly path: string;
     readonly token: string | undefined;
-    readonly capability?: string;
     readonly requestId?: string;
     readonly body: unknown;
   },
@@ -1193,24 +1190,23 @@ export const dispatchControlRequest = async (
   }
   let authorization: ControlAuthorization | undefined;
   if (handler.action !== null) {
-    let capability =
-      admit?.kind === "capability" ? admit.capability : request.capability;
-    let expectedPrincipal =
-      admit?.kind === "capability" ? admit.expectedPrincipal : undefined;
-    // Client-presented secrets are not identity. Only admit.principal mints
-    // from a process principal, or a pre-minted internal lease is supplied.
+    let secret: string;
+    let expectedPrincipal: BrowserAutomationPrincipal;
     if (admit?.kind === "principal") {
       const edge = await admit.edgeGrant.admitPrincipal(admit.principal);
       if (!edge.ok) return edgeGrantHttp(edge.denial, edge.message);
-      capability = edge.secret;
+      secret = edge.secret;
       expectedPrincipal = edge.expectedPrincipal;
-    } else if (!isValidControlCapability(capability ?? "")) {
+    } else if (admit?.kind === "lease") {
+      secret = admit.secret;
+      expectedPrincipal = admit.expectedPrincipal;
+    } else {
       return { status: 401, envelope: capabilityDenied("unauthorized") };
     }
     if (!isValidControlRequestId(request.requestId ?? "")) {
       return { status: 400, envelope: controlErr("bad_request", "invalid request id") };
     }
-    const admitted = handler.preflight(capability, expectedPrincipal);
+    const admitted = handler.preflight(secret, expectedPrincipal);
     if (!admitted.ok) {
       return {
         status: admitted.denial === "unauthorized" ? 401 : 403,
@@ -1218,8 +1214,8 @@ export const dispatchControlRequest = async (
       };
     }
     authorization = {
-      capability: capability!,
-      ...(expectedPrincipal === undefined ? {} : { expectedPrincipal }),
+      capability: secret,
+      expectedPrincipal,
       requestId: request.requestId!,
     };
   }
@@ -1830,8 +1826,8 @@ export const startBrowserControlServer = async (
               processAdmission === undefined
                 ? undefined
                 : {
-                    kind: "capability",
-                    capability: processAdmission.capability,
+                    kind: "lease",
+                    secret: processAdmission.capability,
                     expectedPrincipal: processAdmission.expectedPrincipal,
                   },
             );

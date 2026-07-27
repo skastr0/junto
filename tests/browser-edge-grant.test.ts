@@ -238,7 +238,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     return { handlers, edgeGrant, capabilities };
   };
 
-  it("admits protected list routes via process principal without capability secret", async () => {
+  it("admits protected routes only through process principals or internal leases", async () => {
     const doc = canvasDoc(true);
     const { handlers, edgeGrant, capabilities } = makeStack(doc);
       const token = rotateControlToken(join(root, "token"));
@@ -293,7 +293,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       });
     }
 
-    // Ceremony path remains available when a secret is presented.
+    // A pre-minted lease remains available to trusted server-internal callers.
     const principal = capabilities.createPrincipal();
     const grant = capabilities.issue(principal, {
       actions: [...BROWSER_CAPABILITY_ACTIONS],
@@ -309,19 +309,40 @@ describe("browser edge-grant process-bind dual admit", () => {
       maxUses: 16,
       maxInFlight: 4,
     });
-    const viaCap = await dispatchControlRequest(
+    const viaLease = await dispatchControlRequest(
       handlers,
       token,
       {
         method: "GET",
         path: "/pages",
         token,
-        capability: grant.secret,
         requestId: "b".repeat(32),
         body: undefined,
       },
+      undefined,
+      {
+        kind: "lease",
+        secret: grant.secret,
+        expectedPrincipal: principal,
+      },
     );
-    expect(viaCap.status).toBe(200);
+    expect(viaLease.status).toBe(200);
+
+    const smuggled = await dispatchControlRequest(
+      handlers,
+      token,
+      {
+        method: "POST",
+        path: "/open",
+        token,
+        requestId: "e".repeat(32),
+        body: { ref: REF_PAGE, capability: grant.secret },
+      },
+    );
+    expect(smuggled).toMatchObject({
+      status: 401,
+      envelope: { ok: false, error: { _tag: "unauthorized" } },
+    });
   });
 
   it("denies process principals with no edge to a page", async () => {
@@ -600,9 +621,6 @@ describe("browser edge-grant process-bind dual admit", () => {
         method: "GET",
         path: "/pages",
         token,
-        // A valid presented secret cannot bypass the process-bound admission
-        // pair supplied below.
-        capability: actual.secret,
         requestId: "d".repeat(32),
         body: undefined,
       },
