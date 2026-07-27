@@ -1,5 +1,3 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { Context, Effect, Either, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import {
@@ -54,11 +52,6 @@ export class SettingsService extends Context.Tag("@vellum/SettingsService")<
     readonly subscribe: (listener: (settings: Settings) => void) => () => void;
   }
 >() {}
-
-/** Temporary packaged-startup compatibility; never used by SettingsService. */
-export const settingsFilePath = (): string =>
-  process.env.VELLUM_SETTINGS_PATH ||
-  join(homedir(), ".vellum", "settings.json");
 
 export interface SettingsServiceApi {
   readonly doctor: Effect.Effect<ServiceCheck>;

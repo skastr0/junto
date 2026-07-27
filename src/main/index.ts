@@ -4,7 +4,7 @@
 import "./vellum/demo/canvases-env";
 
 import { randomUUID } from "node:crypto";
-import { readFileSync, watch, type FSWatcher } from "node:fs";
+import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import {
   app,
@@ -17,7 +17,7 @@ import {
   shell,
   type IpcMainEvent,
 } from "electron";
-import { Context, Effect } from "effect";
+import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { classifyBrowserTarget } from "@shared/browser-policy";
 import {
   IPC_CHANNELS,
@@ -103,7 +103,11 @@ import {
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
 import { loadStationSupervisor } from "./vellum/supervision/select";
-import { settingsFilePath } from "./vellum/settings/service";
+import {
+  SettingsLive,
+  SettingsService,
+} from "./vellum/settings/service";
+import { StateEngineLive } from "./vellum/state/engine";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
 import {
@@ -1017,30 +1021,28 @@ const recoverRendererSurface = (
 const ensureSupervised = async (): Promise<boolean> => {
   if (!app.isPackaged) return true; // dev runs are never rerouted
   // The Linux unit is a Remote/headless facility, never a role inference.
-  // Read only the bounded canonical setting before services initialize; an
-  // unreadable or malformed document declines handoff rather than guessing.
+  // Read the canonical SQLite topology through the same typed settings
+  // component before deciding whether this process belongs to the Remote
+  // supervisor. The short-lived connection is closed before AppRuntime can
+  // acquire the sole long-lived main-process connection.
   if (process.platform === "linux") {
+    const preflight = ManagedRuntime.make(
+      Layer.provide(SettingsLive, StateEngineLive),
+    );
     try {
-      const path = settingsFilePath();
-      const raw = readFileSync(path, "utf8");
-      if (Buffer.byteLength(raw, "utf8") > 64 * 1024) return true;
-      const station = (JSON.parse(raw) as { station?: unknown }).station;
+      const station = (
+        await preflight.runPromise(
+          Effect.flatMap(SettingsService, (settings) => settings.get),
+        )
+      ).station;
       if (
-        typeof station !== "object" || station === null ||
-        (station as { role?: unknown }).role !== "remote" ||
-        (station as { supervisedPreferred?: unknown }).supervisedPreferred !== true
+        station.role !== "remote" ||
+        station.supervisedPreferred !== true
       ) return true;
-      // Doctrine: do not honor plaintext remote role without topology seal admit.
-      const { topologyFromStation, verifyTopologySeal } = await import(
-        "./vellum/settings/topology-seal"
-      );
-      const material = topologyFromStation(station as never);
-      const verified = await verifyTopologySeal(path, material);
-      if (verified.status !== "valid" && verified.status !== "bootstrap") {
-        return true;
-      }
     } catch {
       return true;
+    } finally {
+      await preflight.dispose();
     }
   }
   const supervisor = await loadStationSupervisor();
