@@ -62,10 +62,9 @@ not qualified in v1.
    the staged directory is not entirely root-owned and non-writable by the
    station user. The verifier's exact-inventory check rejects symlinks,
    undeclared files, missing files, and changed bytes in this protected copy.
-4. From the Command Center, record the peer product version and work-control
-   protocol. Linux v1 expects work-control `vellum-work/v1`. The verifier still
-   accepts `--peer-station-browser-protocol 1` as a release-manifest peer pin
-   (not a fleet browser API).
+4. From the Command Center, record the peer product version, station-api
+   protocol, and work-control protocol. Linux v1 expects station-api
+   `vellum/station-api/v1` and work-control `vellum-work/v1`.
 5. Check the verifier against the independently authenticated hash, then run
    it as the ordinary station user with the independently authenticated trust
    values:
@@ -82,7 +81,7 @@ not qualified in v1.
      --trusted-key-id AUTHENTICATED_KEY_ID \
      --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
      --peer-version X.Y.Z \
-     --peer-station-browser-protocol 1 \
+     --peer-station-api-protocol vellum/station-api/v1 \
      --peer-work-control-protocol vellum-work/v1
    ```
 
@@ -361,7 +360,7 @@ contain receipts and bounded status, never `~/.vellum` itself.
       --trusted-key-id AUTHENTICATED_KEY_ID \
       --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
       --peer-version X.Y.Z \
-     --peer-station-browser-protocol 1 \
+     --peer-station-api-protocol vellum/station-api/v1 \
      --peer-work-control-protocol vellum-work/v1 \
      --installed-version CURRENT_VERSION
    ```

@@ -591,6 +591,7 @@ export interface PackagedRuntimeSmokeReceipt {
   readonly ok: true;
   readonly doctor: "ok";
   readonly station: "ok";
+  readonly browserRemoteModes: "absent";
   readonly processRoles: ReadonlyArray<string>;
   readonly tcpListeners: 0;
   readonly debugAuthority: false;
@@ -754,6 +755,27 @@ export const smokePackagedRuntime = async (
     }
     parseDoctorReceipt(doctor.stdout.trim());
 
+    for (const argv of [
+      ["station"],
+      ["station-trust"],
+      ["--host", "remote-a", "doctor", "--json"],
+    ] as const) {
+      const retired = runFixed(browserCli, [...argv], {
+        env: childEnvironment,
+        timeout: 10_000,
+      });
+      if (retired.status !== 2) {
+        throw new Error(
+          `packaged vellum-browser ${argv.join(" ")} did not reject retired remote mode`,
+        );
+      }
+      if (!/remote Station-browser is removed/i.test(retired.stderr)) {
+        throw new Error(
+          `packaged vellum-browser ${argv.join(" ")} missing retirement message`,
+        );
+      }
+    }
+
     const stationStatus = runFixed(stationCli, [], {
       env: childEnvironment,
       timeout: 15_000,
@@ -881,6 +903,7 @@ export const smokePackagedRuntime = async (
       ok: true,
       doctor: "ok",
       station: "ok",
+      browserRemoteModes: "absent",
       processRoles: processRoles(rootPid, runtimeRows),
       tcpListeners: 0,
       debugAuthority: false,

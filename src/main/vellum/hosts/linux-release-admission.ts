@@ -298,7 +298,7 @@ export const verifyProductionLinuxDeployBundle = async (
     },
     packageIdentity,
     peerVersion: productMetadata.version,
-    stationBrowserProtocol: LINUX_RELEASE_PROTOCOLS.stationBrowser,
+    stationApiProtocol: LINUX_RELEASE_PROTOCOLS.stationApi,
     workControlProtocol: WORK_PROTOCOL_VERSION,
     trustedKeyring: trust.keyring,
     trustedKeyringRevision: trust.trustedKeyringRevision,

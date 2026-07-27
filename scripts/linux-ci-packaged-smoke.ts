@@ -56,6 +56,7 @@ export interface LinuxCiPackagedSmokeReceipt {
   readonly workCli: "ok";
   readonly browserCli: "ok";
   readonly stationCli: "ok";
+  readonly browserRemoteModes: "absent";
   readonly processRoles: ReadonlyArray<string>;
   readonly rendererSandbox: {
     readonly renderers: number;
@@ -426,6 +427,24 @@ export const smokeLinuxCiPackagedRuntime = async (
     }
     parseDoctorReceipt(browserDoctor.stdout.trim());
 
+    for (const argv of [
+      ["station"],
+      ["station-trust"],
+      ["--host", "remote-a", "doctor", "--json"],
+    ] as const) {
+      const retired = runFixed(browserCli, [...argv], environment);
+      if (retired.status !== 2) {
+        throw new Error(
+          `packaged browser CLI ${argv.join(" ")} did not reject retired remote mode`,
+        );
+      }
+      if (!/remote Station-browser is removed/i.test(retired.stderr)) {
+        throw new Error(
+          `packaged browser CLI ${argv.join(" ")} missing retirement message`,
+        );
+      }
+    }
+
     const stationStatus = runFixed(
       stationCli,
       [],
@@ -504,6 +523,7 @@ export const smokeLinuxCiPackagedRuntime = async (
       workCli: "ok",
       browserCli: "ok",
       stationCli: "ok",
+      browserRemoteModes: "absent",
       processRoles: processRoles(rootPid, runtimeRows),
       rendererSandbox: sandbox,
       appArmor,

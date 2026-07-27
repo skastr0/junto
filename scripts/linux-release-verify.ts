@@ -2,7 +2,6 @@ import { spawnSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import {
-  LINUX_RELEASE_PROTOCOLS,
   readLinuxReleaseKeyringFile,
   verifyLinuxReleaseBundle,
   type LinuxReleaseHostFacts,
@@ -16,7 +15,7 @@ const parseOptions = (
 ): {
   readonly bundle: string;
   readonly peerVersion: string;
-  readonly peerStationBrowserProtocol: number;
+  readonly peerStationApiProtocol: string;
   readonly peerWorkControlProtocol: string;
   readonly keyring: string;
   readonly trustedKeyringRevision: number;
@@ -31,7 +30,7 @@ const parseOptions = (
     if (
       current !== "--bundle" &&
       current !== "--peer-version" &&
-      current !== "--peer-station-browser-protocol" &&
+      current !== "--peer-station-api-protocol" &&
       current !== "--peer-work-control-protocol" &&
       current !== "--keyring" &&
       current !== "--trusted-keyring-revision" &&
@@ -51,7 +50,7 @@ const parseOptions = (
   }
   const bundle = values.get("--bundle");
   const peerVersion = values.get("--peer-version");
-  const stationBrowser = values.get("--peer-station-browser-protocol");
+  const stationApi = values.get("--peer-station-api-protocol");
   const workControl = values.get("--peer-work-control-protocol");
   const keyring = values.get("--keyring");
   const keyringRevision = values.get("--trusted-keyring-revision");
@@ -63,7 +62,8 @@ const parseOptions = (
   if (
     bundle === undefined ||
     peerVersion === undefined ||
-    stationBrowser === undefined ||
+    stationApi === undefined ||
+    stationApi.length === 0 ||
     workControl === undefined ||
     keyring === undefined ||
     keyringRevision === undefined ||
@@ -71,17 +71,16 @@ const parseOptions = (
     keyringSha256 === undefined ||
     !/^[0-9a-f]{64}$/u.test(keyringSha256) ||
     trustedKeyId === undefined ||
-    trustedKeyFingerprintSha256 === undefined ||
-    !/^[0-9]+$/u.test(stationBrowser)
+    trustedKeyFingerprintSha256 === undefined
   ) {
     throw new Error(
-      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-version X.Y.Z --peer-station-browser-protocol 1 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z]",
+      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-version X.Y.Z --peer-station-api-protocol vellum/station-api/v1 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z]",
     );
   }
   return {
     bundle,
     peerVersion,
-    peerStationBrowserProtocol: Number(stationBrowser),
+    peerStationApiProtocol: stationApi,
     peerWorkControlProtocol: workControl,
     keyring,
     trustedKeyringRevision: Number(keyringRevision),
@@ -202,7 +201,7 @@ export const linuxReleaseVerifyMain = async (
     host,
     packageIdentity,
     peerVersion: options.peerVersion,
-    stationBrowserProtocol: options.peerStationBrowserProtocol,
+    stationApiProtocol: options.peerStationApiProtocol,
     workControlProtocol: options.peerWorkControlProtocol,
     trustedKeyring,
     trustedKeyringRevision: options.trustedKeyringRevision,

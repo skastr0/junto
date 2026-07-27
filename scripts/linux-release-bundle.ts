@@ -39,7 +39,7 @@ export const LINUX_RELEASE_TARGET = Object.freeze({
 } as const);
 
 export const LINUX_RELEASE_PROTOCOLS = Object.freeze({
-  stationBrowser: 1,
+  stationApi: "vellum/station-api/v1",
   workControl: "vellum-work/v1",
 } as const);
 
@@ -78,7 +78,7 @@ export interface LinuxReleaseFile {
 }
 
 export interface LinuxReleaseManifest {
-  readonly schema: "vellum/linux-release-manifest/v2";
+  readonly schema: "vellum/linux-release-manifest/v3";
   readonly release: {
     readonly product: "Vellum Command";
     readonly version: string;
@@ -100,7 +100,7 @@ export interface LinuxReleaseManifest {
     readonly sha256: string;
   };
   readonly protocols: {
-    readonly stationBrowser: 1;
+    readonly stationApi: "vellum/station-api/v1";
     readonly workControl: "vellum-work/v1";
     readonly minimumPeerVersion: string;
   };
@@ -170,7 +170,7 @@ export interface LinuxReleaseVerificationInput {
   readonly host: LinuxReleaseHostFacts;
   readonly packageIdentity: LinuxReleasePackageIdentity;
   readonly peerVersion: string;
-  readonly stationBrowserProtocol: number;
+  readonly stationApiProtocol: string;
   readonly workControlProtocol: string;
   readonly installedVersion?: string;
   readonly trustedKeyring: LinuxReleaseKeyring;
@@ -733,7 +733,7 @@ export const decodeLinuxReleaseManifest = (
     ],
     "Linux release manifest",
   );
-  if (manifest.schema !== "vellum/linux-release-manifest/v2") {
+  if (manifest.schema !== "vellum/linux-release-manifest/v3") {
     throw new Error("unsupported Linux release manifest");
   }
 
@@ -804,11 +804,11 @@ export const decodeLinuxReleaseManifest = (
   const protocols = record(manifest.protocols, "release protocols");
   exactKeys(
     protocols,
-    ["stationBrowser", "workControl", "minimumPeerVersion"],
+    ["stationApi", "workControl", "minimumPeerVersion"],
     "release protocols",
   );
   if (
-    protocols.stationBrowser !== LINUX_RELEASE_PROTOCOLS.stationBrowser ||
+    protocols.stationApi !== LINUX_RELEASE_PROTOCOLS.stationApi ||
     protocols.workControl !== LINUX_RELEASE_PROTOCOLS.workControl
   ) {
     throw new Error("Linux release protocol identity mismatch");
@@ -863,7 +863,7 @@ export const decodeLinuxReleaseManifest = (
   }
 
   return {
-    schema: "vellum/linux-release-manifest/v2",
+    schema: "vellum/linux-release-manifest/v3",
     release: {
       product: "Vellum Command",
       version,
@@ -885,7 +885,7 @@ export const decodeLinuxReleaseManifest = (
       sha256: packageSha256,
     },
     protocols: {
-      stationBrowser: 1,
+      stationApi: "vellum/station-api/v1",
       workControl: "vellum-work/v1",
       minimumPeerVersion,
     },
@@ -1820,8 +1820,7 @@ const validateCompatibility = (
       peerVersion,
       manifest.protocols.minimumPeerVersion,
     ) < 0 ||
-    input.stationBrowserProtocol !==
-      manifest.protocols.stationBrowser ||
+    input.stationApiProtocol !== manifest.protocols.stationApi ||
     input.workControlProtocol !== manifest.protocols.workControl
   ) {
     throw new Error("release protocol is incompatible with the selected peer");
@@ -2115,7 +2114,7 @@ export const createLinuxReleaseManifest = async (input: {
     "minimum peer version",
   );
   const manifest: LinuxReleaseManifest = {
-    schema: "vellum/linux-release-manifest/v2",
+    schema: "vellum/linux-release-manifest/v3",
     release: {
       product: "Vellum Command",
       version,
@@ -2137,7 +2136,7 @@ export const createLinuxReleaseManifest = async (input: {
       sha256: packageReceipt.sha256,
     },
     protocols: {
-      stationBrowser: LINUX_RELEASE_PROTOCOLS.stationBrowser,
+      stationApi: LINUX_RELEASE_PROTOCOLS.stationApi,
       workControl: LINUX_RELEASE_PROTOCOLS.workControl,
       minimumPeerVersion,
     },
