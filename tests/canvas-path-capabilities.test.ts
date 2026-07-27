@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { access, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Effect, ManagedRuntime } from "effect";
+import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const mockCanvasesHome = join(tmpdir(), `vellum-canvas-paths-${randomUUID()}`);
@@ -22,9 +22,15 @@ import {
   canvasNameFrom,
   writeCanvasSidecar,
 } from "../src/main/vellum/canvases";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { serializeCanvas } from "../src/shared/canvas";
 
-const runtime = ManagedRuntime.make(CanvasesLive);
+const runtime = ManagedRuntime.make(
+  Layer.provide(
+    CanvasesLive,
+    makeStateEngineLive(join(mockCanvasesHome, ".vellum", "state", "vellum.db")),
+  ),
+);
 let canvases: Context.Tag.Service<typeof CanvasesService>;
 
 const emptyDoc = { nodes: [], edges: [] } as const;

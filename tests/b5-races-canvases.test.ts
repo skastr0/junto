@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, ManagedRuntime } from "effect";
+import { Context, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // b5-races: canvases.ts write() used a single non-unique `${path}.tmp` per
@@ -33,10 +33,16 @@ vi.mock("@shared/canvas", () => import("../src/shared/canvas"));
 vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { serializeCanvas } from "../src/shared/canvas";
 
-const runtime = ManagedRuntime.make(CanvasesLive);
+const runtime = ManagedRuntime.make(
+  Layer.provide(
+    CanvasesLive,
+    makeStateEngineLive(join(mockCanvasesHome, ".vellum", "state", "vellum.db")),
+  ),
+);
 let canvases: Context.Tag.Service<typeof CanvasesService>;
 
 beforeAll(async () => {

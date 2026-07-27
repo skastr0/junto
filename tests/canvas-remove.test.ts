@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Effect, ManagedRuntime } from "effect";
+import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const mockCanvasesHome = join(tmpdir(), `vellum-canvas-remove-${randomUUID()}`);
@@ -16,8 +16,14 @@ vi.mock("@shared/canvas", () => import("../src/shared/canvas"));
 vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 
-const runtime = ManagedRuntime.make(CanvasesLive);
+const runtime = ManagedRuntime.make(
+  Layer.provide(
+    CanvasesLive,
+    makeStateEngineLive(join(mockCanvasesHome, ".vellum", "state", "vellum.db")),
+  ),
+);
 let canvases: Context.Tag.Service<typeof CanvasesService>;
 
 beforeAll(async () => {

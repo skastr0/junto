@@ -11,30 +11,37 @@ import {
   DatabaseSync,
   type SQLInputValue,
   type SQLOutputValue,
-  type StatementResultingChanges,
   type StatementSync,
 } from "node:sqlite";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { STATE_SCHEMA_SQL } from "./schema";
+import {
+  StateEngine,
+  StateEngineError,
+  type StateBindings,
+  type StateEngineInfo,
+  type StateReader,
+  type StateRow,
+  type StateWriter,
+} from "./service";
+
+export {
+  StateEngine,
+  StateEngineError,
+  type StateBindings,
+  type StateEngineInfo,
+  type StateInputValue,
+  type StateOutputValue,
+  type StateReader,
+  type StateRow,
+  type StateRunResult,
+  type StateWriter,
+} from "./service";
 
 const STATE_DIRECTORY_MODE = 0o700;
 const STATE_FILE_MODE = 0o600;
 const STATE_BUSY_TIMEOUT_MS = 5_000;
 export const STATE_BULK_CHUNK_ROWS = 64;
-
-export type StateRow = Record<string, SQLOutputValue>;
-export type StateBindings =
-  | ReadonlyArray<SQLInputValue>
-  | Readonly<Record<string, SQLInputValue>>;
-
-export class StateEngineError extends Schema.TaggedError<StateEngineError>()(
-  "StateEngineError",
-  {
-    operation: Schema.String,
-    message: Schema.String,
-    cause: Schema.Defect,
-  },
-) {}
 
 const stateEngineError = (
   operation: string,
@@ -47,75 +54,6 @@ const stateEngineError = (
       message: cause instanceof Error ? cause.message : String(cause),
       cause,
     });
-
-/**
- * Read-only SQL surface. Statements are cached by exact SQL text for the
- * lifetime of the engine, so repositories can keep SQL local without each
- * building its own prepare cache.
- */
-export interface StateReader {
-  readonly get: <Row extends StateRow = StateRow>(
-    sql: string,
-    bindings?: StateBindings,
-  ) => Row | undefined;
-  readonly all: <Row extends StateRow = StateRow>(
-    sql: string,
-    bindings?: StateBindings,
-  ) => ReadonlyArray<Row>;
-}
-
-/** A writer exists only inside StateEngine.transaction / chunkedWrite. */
-export interface StateWriter extends StateReader {
-  readonly run: (
-    sql: string,
-    bindings?: StateBindings,
-  ) => StatementResultingChanges;
-}
-
-export type StateEngineInfo = {
-  readonly path: string;
-  readonly journalMode: string;
-  readonly synchronous: number;
-  readonly foreignKeys: boolean;
-  readonly schemaSha256: string;
-};
-
-export class StateEngine extends Context.Tag("@vellum/StateEngine")<
-  StateEngine,
-  {
-    readonly info: StateEngineInfo;
-    readonly read: <A>(
-      operation: string,
-      body: (reader: StateReader) => A,
-    ) => Effect.Effect<A, StateEngineError>;
-    /**
-     * One synchronous BEGIN IMMEDIATE transaction. The callback cannot yield,
-     * so no other fiber can observe a half-applied domain transition.
-     */
-    readonly transaction: <A>(
-      operation: string,
-      body: (writer: StateWriter) => A,
-    ) => Effect.Effect<A, StateEngineError>;
-    /**
-     * Large imports are intentionally several small transactions with a real
-     * event-loop turn between chunks. Atomicity is per chunk; callers use this
-     * only for resumable/idempotent bulk work, never one domain transition.
-     */
-    readonly chunkedWrite: <A>(
-      operation: string,
-      rows: ReadonlyArray<A>,
-      body: (writer: StateWriter, chunk: ReadonlyArray<A>) => void,
-      options?: { readonly chunkRows?: number },
-    ) => Effect.Effect<void, StateEngineError>;
-    /**
-     * Create a coherent live backup. SQLite refuses an existing destination,
-     * so this operation never silently overwrites an operator file.
-     */
-    readonly backup: (
-      destination: string,
-    ) => Effect.Effect<{ readonly path: string }, StateEngineError>;
-  }
->() {}
 
 /**
  * Resolve the sole app database.
@@ -253,7 +191,7 @@ const openStateEngine = (
         run: (
           sql: string,
           bindings?: StateBindings,
-        ): StatementResultingChanges =>
+        ) =>
           applyBindings(
             prepare(sql),
             bindings,

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import {
   CanvasAuthorityError,
   commitAuthorityGeneration,
@@ -10,8 +10,13 @@ import {
   pruneAuthorityHistory,
 } from "../src/main/vellum/canvas-authority/store";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { compareAuthorityGeneration } from "../src/shared/canvas-authority";
-import { applyMirrorLaw, type CanvasDoc } from "../src/shared/canvas";
+import {
+  applyMirrorLaw,
+  serializeCanvas,
+  type CanvasDoc,
+} from "../src/shared/canvas";
 
 describe("canvas authority store", () => {
   let root = "";
@@ -166,10 +171,11 @@ describe("CanvasesService authority store", () => {
   let authorityDir = "";
   let previousCanvases: string | undefined;
   let previousAuthority: string | undefined;
-  let runtime: ManagedRuntime.ManagedRuntime<
-    CanvasesService,
-    never
-  > | undefined;
+  const makeCanvasRuntime = (path: string) =>
+    ManagedRuntime.make(
+      Layer.provide(CanvasesLive, makeStateEngineLive(path)),
+    );
+  let runtime: ReturnType<typeof makeCanvasRuntime> | undefined;
 
   const installEnv = async (): Promise<void> => {
     canvasesDir = await mkdtemp(join(tmpdir(), "vellum-canvases-"));
@@ -204,7 +210,7 @@ describe("CanvasesService authority store", () => {
 
   it("commits sequential authority generations on write and create", async () => {
     await installEnv();
-    runtime = ManagedRuntime.make(CanvasesLive);
+    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
     const canvases = await runtime.runPromise(CanvasesService);
 
     await runtime.runPromise(canvases.write("alpha", noteDoc("one")));
@@ -212,24 +218,18 @@ describe("CanvasesService authority store", () => {
     const liveGen = await runtime.runPromise(canvases.liveAuthorityGeneration());
     expect(liveGen).toBe("1");
 
-    const gen1 = await loadAuthoritySnapshot(authorityDir);
-    expect(gen1?.pointer.generation).toBe("1");
-    expect(gen1?.manifest.documents.map((d) => d.name)).toEqual(["alpha"]);
-    expect(new TextDecoder().decode(gen1!.documents.get("alpha")!)).toContain(
-      "one",
-    );
+    const gen1 = await runtime.runPromise(canvases.authoritySnapshot());
+    expect(gen1.generation).toBe("1");
+    expect([...gen1.documents.keys()]).toEqual(["alpha"]);
+    expect(gen1.documents.get("alpha")?.nodes[0]).toMatchObject({ text: "one" });
 
     await runtime.runPromise(canvases.write("alpha", noteDoc("two")));
     await runtime.runPromise(canvases.create("beta"));
 
-    const gen3 = await loadAuthoritySnapshot(authorityDir);
-    expect(gen3?.pointer.generation).toBe("3");
-    expect(
-      gen3?.manifest.documents.map((d) => d.name).slice().sort(),
-    ).toEqual(["alpha", "beta"]);
-    expect(new TextDecoder().decode(gen3!.documents.get("alpha")!)).toContain(
-      "two",
-    );
+    const gen3 = await runtime.runPromise(canvases.authoritySnapshot());
+    expect(gen3.generation).toBe("3");
+    expect([...gen3.documents.keys()].sort()).toEqual(["alpha", "beta"]);
+    expect(gen3.documents.get("alpha")?.nodes[0]).toMatchObject({ text: "two" });
 
     const readBeta = await runtime.runPromise(canvases.read("beta"));
     expect(readBeta.doc.nodes).toEqual([]);
@@ -237,13 +237,13 @@ describe("CanvasesService authority store", () => {
 
   it("reloads the live map from the authority store across restart", async () => {
     await installEnv();
-    runtime = ManagedRuntime.make(CanvasesLive);
+    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("alpha", noteDoc("authority-wins")));
     await runtime.dispose();
     runtime = undefined;
 
-    runtime = ManagedRuntime.make(CanvasesLive);
+    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
     const reloaded = await runtime.runPromise(CanvasesService);
     const list = await runtime.runPromise(reloaded.list);
     expect(list.map((row) => row.name)).toEqual(["alpha"]);
@@ -258,28 +258,28 @@ describe("CanvasesService authority store", () => {
 
   it("starts empty when the authority pointer is absent", async () => {
     await installEnv();
-    runtime = ManagedRuntime.make(CanvasesLive);
+    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     const list = await runtime.runPromise(canvases.list);
     expect(list).toEqual([]);
 
     await runtime.runPromise(canvases.write("first", noteDoc("minted")));
-    const snap = await loadAuthoritySnapshot(authorityDir);
-    expect(snap?.pointer.generation).toBe("1");
-    expect(snap?.manifest.documents.map((d) => d.name)).toEqual(["first"]);
+    const snap = await runtime.runPromise(canvases.authoritySnapshot());
+    expect(snap.generation).toBe("1");
+    expect([...snap.documents.keys()]).toEqual(["first"]);
   });
 
   it("remove drops the document from the next authority generation", async () => {
     await installEnv();
-    runtime = ManagedRuntime.make(CanvasesLive);
+    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.create("keep"));
     await runtime.runPromise(canvases.create("drop"));
     await runtime.runPromise(canvases.remove("drop"));
 
-    const snap = await loadAuthoritySnapshot(authorityDir);
-    expect(snap?.pointer.generation).toBe("3");
-    expect(snap?.manifest.documents.map((d) => d.name)).toEqual(["keep"]);
+    const snap = await runtime.runPromise(canvases.authoritySnapshot());
+    expect(snap.generation).toBe("3");
+    expect([...snap.documents.keys()]).toEqual(["keep"]);
     await expect(
       runtime.runPromise(Effect.either(canvases.read("drop"))),
     ).resolves.toMatchObject({ _tag: "Left" });
@@ -287,15 +287,19 @@ describe("CanvasesService authority store", () => {
 
   it("corrupt pointer blocks authoring without collapsing the store", async () => {
     await installEnv();
-    runtime = ManagedRuntime.make(CanvasesLive);
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("alpha", noteDoc("kept")));
-    await runtime.dispose();
-    runtime = undefined;
-
+    await commitAuthorityGeneration(
+      {
+        generation: "7",
+        createdAt: "2026-07-24T00:00:00.000Z",
+        documents: new Map([
+          ["alpha", new TextEncoder().encode(serializeCanvas(noteDoc("kept")))],
+        ]),
+      },
+      authorityDir,
+    );
     await writeFile(join(authorityDir, "current.json"), "{not-json", "utf8");
 
-    runtime = ManagedRuntime.make(CanvasesLive);
+    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
     const blocked = await runtime.runPromise(CanvasesService);
     await expect(
       runtime.runPromise(Effect.either(blocked.write("beta", noteDoc("nope")))),
@@ -307,15 +311,19 @@ describe("CanvasesService authority store", () => {
 
   it("orphan store objects without a pointer block authoring", async () => {
     await installEnv();
-    runtime = ManagedRuntime.make(CanvasesLive);
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("alpha", noteDoc("object")));
-    await runtime.dispose();
-    runtime = undefined;
-
+    await commitAuthorityGeneration(
+      {
+        generation: "8",
+        createdAt: "2026-07-24T00:00:00.000Z",
+        documents: new Map([
+          ["alpha", new TextEncoder().encode(serializeCanvas(noteDoc("object")))],
+        ]),
+      },
+      authorityDir,
+    );
     await rm(join(authorityDir, "current.json"), { force: true });
 
-    runtime = ManagedRuntime.make(CanvasesLive);
+    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
     const blocked = await runtime.runPromise(CanvasesService);
     await expect(
       runtime.runPromise(Effect.either(blocked.write("beta", noteDoc("nope")))),
@@ -323,5 +331,61 @@ describe("CanvasesService authority store", () => {
     const doctor = await runtime.runPromise(blocked.doctor);
     expect(doctor.status).toBe("error");
     expect(doctor.detail).toMatch(/recovery required/i);
+  });
+
+  it("imports one valid legacy snapshot and preserves its logical generation", async () => {
+    await installEnv();
+    await commitAuthorityGeneration(
+      {
+        generation: "41",
+        createdAt: "2026-07-24T00:00:00.000Z",
+        documents: new Map([
+          ["legacy", new TextEncoder().encode(serializeCanvas(noteDoc("from-files")))],
+        ]),
+      },
+      authorityDir,
+    );
+
+    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
+    const canvases = await runtime.runPromise(CanvasesService);
+    const snapshot = await runtime.runPromise(canvases.authoritySnapshot());
+    expect(snapshot.generation).toBe("41");
+    expect(snapshot.documents.get("legacy")?.nodes[0]).toMatchObject({
+      text: "from-files",
+    });
+
+    await runtime.runPromise(canvases.write("next", noteDoc("sqlite-only")));
+    expect(await runtime.runPromise(canvases.liveAuthorityGeneration())).toBe(
+      "42",
+    );
+  });
+
+  it("deduplicates identical maps and preserves a valid empty head", async () => {
+    await installEnv();
+    const database = join(authorityDir, "vellum.db");
+    runtime = makeCanvasRuntime(database);
+    const canvases = await runtime.runPromise(CanvasesService);
+    const doc = noteDoc("same");
+
+    await runtime.runPromise(canvases.write("only", doc));
+    await runtime.runPromise(canvases.write("only", doc));
+    expect(await runtime.runPromise(canvases.liveAuthorityGeneration())).toBe(
+      "1",
+    );
+    await runtime.runPromise(canvases.remove("only"));
+    expect(await runtime.runPromise(canvases.authoritySnapshot())).toMatchObject({
+      generation: "2",
+    });
+    expect(
+      (await runtime.runPromise(canvases.authoritySnapshot())).documents.size,
+    ).toBe(0);
+
+    await runtime.dispose();
+    runtime = makeCanvasRuntime(database);
+    const reloaded = await runtime.runPromise(CanvasesService);
+    expect(await runtime.runPromise(reloaded.list)).toEqual([]);
+    expect(await runtime.runPromise(reloaded.liveAuthorityGeneration())).toBe(
+      "2",
+    );
   });
 });

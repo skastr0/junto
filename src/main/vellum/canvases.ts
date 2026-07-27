@@ -1,4 +1,4 @@
-import { lstat, mkdir, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -15,10 +15,13 @@ import { SEED_CANVAS_NAME } from "@shared/seed";
 import {
   CanvasAuthorityError,
   canvasAuthorityRoot,
-  commitAuthorityGeneration,
   loadAuthoritySnapshot,
-  pruneAuthorityHistory,
 } from "./canvas-authority/store";
+import {
+  StateEngine,
+  type StateReader,
+  type StateWriter,
+} from "./state/service";
 
 export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
   message: Schema.String,
@@ -169,16 +172,20 @@ export const writeCanvasSidecar = async (
   return path;
 };
 
-// The document plane. All writes go through validate -> mirror law ->
-// serialize -> full-map authority generation commit.
-//
-// Sole durable store: canvas-authority-v1 (`current.json` + content-addressed
-// objects under ~/.vellum/state/canvas-authority-v1).
+// The protected document plane. All writes go through validate -> mirror law
+// -> one full-map SQLite generation transaction. Files under canvasesDir are
+// agent-facing projections only.
 
 /** previous/next docs on the commit that fired a change listener (same tick). */
 export type CanvasChangeDetail = {
   readonly previous: CanvasDoc | undefined;
   readonly next: CanvasDoc | undefined;
+};
+
+/** One transactionally coherent view of the protected document authority. */
+export type CanvasAuthoritySnapshot = {
+  readonly generation: string;
+  readonly documents: ReadonlyMap<string, CanvasDoc>;
 };
 
 export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
@@ -192,8 +199,7 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       doc: CanvasDoc,
       expectedRevision?: string,
     ) => Effect.Effect<CanvasWriteResult, CanvasError>;
-    // Optimistic RMW under the per-canvas mutex against the live authority
-    // document.
+    // Transactional RMW against the current full-map generation.
     readonly mutate: (
       name: string,
       fn: (doc: CanvasDoc) => CanvasDoc,
@@ -230,6 +236,11 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
      * share one generation identity for the live document set.
      */
     readonly liveAuthorityGeneration: () => Effect.Effect<string, CanvasError>;
+    /** Generation and documents read in one SQLite snapshot. */
+    readonly authoritySnapshot: () => Effect.Effect<
+      CanvasAuthoritySnapshot,
+      CanvasError
+    >;
     /**
      * Replace live authority with a fully decoded document set (projection
      * install). Commits one full-map generation. Names not in the set are
@@ -248,57 +259,352 @@ const toCanvasError = (error: unknown): CanvasError =>
 
 const canvasFileName = (name: CanvasName) => `${name}.canvas`;
 
-export const CanvasesLive = Layer.sync(CanvasesService, () => {
-  const listeners = new Set<(name: string, detail?: CanvasChangeDetail) => void>();
-  const textEncoder = new TextEncoder();
+type StoredCanvas = {
+  readonly doc: CanvasDoc;
+  readonly body: string;
+  readonly revision: string;
+  readonly modifiedAt: string;
+};
 
-  // Live operator-intent map. Durability is canvas-authority-v1 only.
-  type LiveAuthority = {
-    readonly doc: CanvasDoc;
-    readonly revision: string;
-    readonly path: string;
-  };
-  const liveAuthority = new Map<string, LiveAuthority>();
-  let bootstrapPromise: Promise<void> | undefined;
-  let bootstrapped = false;
-  /** Last committed authority generation (BigInt). Next commit is +1n. */
-  let authorityGeneration = 0n;
-  /**
-   * Non-empty when the store is unusable (corrupt generation, orphan objects
-   * without pointer). Mutations refuse; doctor reports the reason.
-   */
-  let authorityBlocked: string | undefined;
+type StoredAuthoritySnapshot = {
+  readonly hasHead: boolean;
+  readonly generation: string;
+  readonly createdAt: string | undefined;
+  readonly intentSha256: string | undefined;
+  readonly documents: ReadonlyMap<string, StoredCanvas>;
+};
 
-  // Per-canvas-file write mutex: overlapping write() calls for the same
-  // name queue behind each other instead of racing the same tmp file. Each
-  // queued write still runs to completion once its turn comes (its own
-  // unique tmp path, its own rename) — a losing writer is delayed, never
-  // silently dropped. The tail promise never rejects so one failed write
-  // doesn't wedge writers still waiting behind it.
-  const canvasMutexes = new Map<string, Promise<void>>();
-  const withCanvasMutex = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
-    const previous = canvasMutexes.get(key) ?? Promise.resolve();
-    const settled = previous.then(fn, fn);
-    canvasMutexes.set(
-      key,
-      settled.then(
-        () => undefined,
-        () => undefined,
-      ),
+type CanvasCommitCause =
+  | "write"
+  | "mutate"
+  | "create"
+  | "remove"
+  | "seed"
+  | "projection-replace"
+  | "legacy-import"
+  | "bootstrap-repair";
+
+type CommitOutcome = {
+  readonly generation: string;
+  readonly changed: boolean;
+};
+
+const HEAD_SQL = `
+  SELECT
+    h.generation AS generation,
+    g.created_at AS created_at,
+    g.intent_sha256 AS intent_sha256,
+    g.document_count AS document_count
+  FROM canvas_head h
+  JOIN canvas_generations g ON g.generation = h.generation
+  WHERE h.singleton = 1
+`;
+
+const DOCUMENTS_SQL = `
+  SELECT name, body, sha256, modified_at
+  FROM canvas_generation_documents
+  WHERE generation = ?
+  ORDER BY name
+`;
+
+const revisionOf = (raw: string): string =>
+  createHash("sha256").update(raw, "utf8").digest("hex");
+
+const intentSha256Of = (
+  documents: ReadonlyMap<string, StoredCanvas>,
+): string => {
+  const hash = createHash("sha256");
+  for (const [name, entry] of [...documents].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    hash.update(String(Buffer.byteLength(name, "utf8")));
+    hash.update("\0");
+    hash.update(name, "utf8");
+    hash.update("\0");
+    hash.update(entry.revision, "ascii");
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+};
+
+const decodeStoredCanvas = (
+  name: CanvasName,
+  body: string,
+  expectedSha256: string,
+  modifiedAt: string,
+): StoredCanvas => {
+  const revision = revisionOf(body);
+  if (revision !== expectedSha256) {
+    throw new CanvasError({
+      message: `canvas database body hash mismatch: ${canvasFileName(name)}`,
+    });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch (error) {
+    throw new CanvasError({
+      message: `${canvasFileName(name)} in canvas database is not valid JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    });
+  }
+  const decoded = decodeCanvasDoc(parsed);
+  if (Either.isLeft(decoded)) {
+    throw new CanvasError({
+      message: `${canvasFileName(name)} in canvas database failed validation: ${decoded.left.message}`,
+    });
+  }
+  return { doc: decoded.right, body, revision, modifiedAt };
+};
+
+const readStoredAuthority = (reader: StateReader): StoredAuthoritySnapshot => {
+  const head = reader.get<{
+    readonly generation: string;
+    readonly created_at: string;
+    readonly intent_sha256: string;
+    readonly document_count: number;
+  }>(HEAD_SQL);
+  if (head === undefined) {
+    return {
+      hasHead: false,
+      generation: "0",
+      createdAt: undefined,
+      intentSha256: undefined,
+      documents: new Map(),
+    };
+  }
+
+  const documents = new Map<string, StoredCanvas>();
+  for (const row of reader.all<{
+    readonly name: string;
+    readonly body: string;
+    readonly sha256: string;
+    readonly modified_at: string;
+  }>(DOCUMENTS_SQL, [head.generation])) {
+    const name = canvasNameFrom(row.name);
+    if (name !== row.name || documents.has(name)) {
+      throw new CanvasError({
+        message: `canvas database contains a non-canonical or duplicate name: "${row.name}"`,
+      });
+    }
+    documents.set(
+      name,
+      decodeStoredCanvas(name, row.body, row.sha256, row.modified_at),
     );
-    return settled;
+  }
+  if (documents.size !== Number(head.document_count)) {
+    throw new CanvasError({
+      message:
+        `canvas generation ${head.generation} expected ${head.document_count} documents ` +
+        `but loaded ${documents.size}`,
+    });
+  }
+  const intentSha256 = intentSha256Of(documents);
+  if (intentSha256 !== head.intent_sha256) {
+    throw new CanvasError({
+      message: `canvas generation ${head.generation} intent hash mismatch`,
+    });
+  }
+  return {
+    hasHead: true,
+    generation: head.generation,
+    createdAt: head.created_at,
+    intentSha256,
+    documents,
   };
+};
 
-  // Global queue for authority generations (store API: single writer).
-  let authorityMutex: Promise<void> = Promise.resolve();
-  const withAuthorityMutex = <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = authorityMutex.then(fn, fn);
-    authorityMutex = run.then(
-      () => undefined,
-      () => undefined,
+const nextGenerationAfter = (snapshot: StoredAuthoritySnapshot): string =>
+  snapshot.hasHead ? (BigInt(snapshot.generation) + 1n).toString() : "1";
+
+const insertFullGeneration = (
+  writer: StateWriter,
+  generation: string,
+  createdAt: string,
+  cause: CanvasCommitCause,
+  documents: ReadonlyMap<string, StoredCanvas>,
+): void => {
+  const intentSha256 = intentSha256Of(documents);
+  writer.run(
+    `INSERT INTO canvas_generations(
+      generation, created_at, cause, intent_sha256, document_count
+    ) VALUES (?, ?, ?, ?, ?)`,
+    [generation, createdAt, cause, intentSha256, documents.size],
+  );
+  for (const [name, entry] of [...documents].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    writer.run(
+      `INSERT INTO canvas_generation_documents(
+        generation, name, body, sha256, modified_at
+      ) VALUES (?, ?, ?, ?, ?)`,
+      [generation, name, entry.body, entry.revision, entry.modifiedAt],
     );
-    return run;
+  }
+  writer.run(
+    `INSERT INTO canvas_head(singleton, generation)
+     VALUES (1, ?)
+     ON CONFLICT(singleton) DO UPDATE SET generation = excluded.generation`,
+    [generation],
+  );
+};
+
+const commitFullGeneration = (
+  writer: StateWriter,
+  previous: StoredAuthoritySnapshot,
+  documents: ReadonlyMap<string, StoredCanvas>,
+  cause: CanvasCommitCause,
+  options: {
+    readonly generation?: string;
+    readonly createdAt?: string;
+  } = {},
+): CommitOutcome => {
+  const intentSha256 = intentSha256Of(documents);
+  if (
+    previous.hasHead &&
+    previous.intentSha256 === intentSha256 &&
+    previous.documents.size === documents.size
+  ) {
+    return { generation: previous.generation, changed: false };
+  }
+  const generation = options.generation ?? nextGenerationAfter(previous);
+  insertFullGeneration(
+    writer,
+    generation,
+    options.createdAt ?? new Date().toISOString(),
+    cause,
+    documents,
+  );
+  return { generation, changed: true };
+};
+
+const normalizeCanvas = (
+  name: CanvasName,
+  doc: CanvasDoc,
+  modifiedAt: string,
+  operation: string,
+): StoredCanvas => {
+  const decoded = decodeCanvasDoc(doc);
+  if (Either.isLeft(decoded)) {
+    throw new CanvasError({
+      message: `cannot ${operation} ${canvasFileName(name)}: ${decoded.left.message}`,
+    });
+  }
+  const nextDoc = applyMirrorLaw(decoded.right);
+  const body = serializeCanvas(nextDoc);
+  return {
+    doc: nextDoc,
+    body,
+    revision: revisionOf(body),
+    modifiedAt,
   };
+};
+
+type LegacyImport = {
+  readonly generation: string;
+  readonly createdAt: string;
+  readonly documents: ReadonlyMap<string, StoredCanvas>;
+};
+
+const legacyObjectsPresent = async (root: string): Promise<boolean> => {
+  for (const subdirectory of ["documents", "manifests"] as const) {
+    try {
+      const entries = await readdir(join(root, subdirectory));
+      if (entries.some((entry) => !entry.endsWith(".tmp"))) return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return false;
+};
+
+/**
+ * Read the retired content-addressed store once, without guessing when its
+ * protected pointer is absent or corrupt. Exact legacy generation identity is
+ * retained; semantic repair, if required, becomes the following generation.
+ */
+const loadLegacyImport = async (): Promise<LegacyImport | undefined> => {
+  const root = canvasAuthorityRoot();
+  let snapshot: Awaited<ReturnType<typeof loadAuthoritySnapshot>>;
+  try {
+    snapshot = await loadAuthoritySnapshot(root);
+  } catch (error) {
+    const detail =
+      error instanceof CanvasAuthorityError
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    throw new CanvasError({
+      message: `legacy canvas authority is corrupt; import refused: ${detail}`,
+    });
+  }
+  if (snapshot === undefined) {
+    if (await legacyObjectsPresent(root)) {
+      throw new CanvasError({
+        message:
+          "legacy canvas authority pointer is missing but store objects are present; recovery required",
+      });
+    }
+    return undefined;
+  }
+  if (
+    !/^(?:0|[1-9][0-9]*)$/.test(snapshot.pointer.generation)
+  ) {
+    throw new CanvasError({
+      message: `legacy canvas generation is not canonical: ${snapshot.pointer.generation}`,
+    });
+  }
+
+  const documents = new Map<string, StoredCanvas>();
+  for (const [rawName, bytes] of snapshot.documents) {
+    const name = canvasNameFrom(rawName);
+    if (name !== rawName || documents.has(name)) {
+      throw new CanvasError({
+        message: `legacy canvas authority contains a non-canonical or duplicate name: "${rawName}"`,
+      });
+    }
+    const raw = new TextDecoder().decode(bytes);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      throw new CanvasError({
+        message: `legacy ${canvasFileName(name)} is not valid JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
+    const decoded = decodeCanvasDoc(parsed);
+    if (Either.isLeft(decoded)) {
+      throw new CanvasError({
+        message: `legacy ${canvasFileName(name)} failed validation: ${decoded.left.message}`,
+      });
+    }
+    const body = serializeCanvas(decoded.right);
+    documents.set(name, {
+      doc: decoded.right,
+      body,
+      revision: revisionOf(body),
+      modifiedAt: snapshot.manifest.createdAt,
+    });
+  }
+  return {
+    generation: snapshot.pointer.generation,
+    createdAt: snapshot.manifest.createdAt,
+    documents,
+  };
+};
+
+export const CanvasesLive = Layer.effect(
+  CanvasesService,
+  Effect.gen(function* () {
+    const state = yield* StateEngine;
+    const listeners = new Set<
+      (name: string, detail?: CanvasChangeDetail) => void
+    >();
+    let bootstrapPromise: Promise<void> | undefined;
 
   const notifyListeners = (
     name: CanvasName,
@@ -315,443 +621,394 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     }
   };
 
-  const revisionOf = (raw: string): string =>
-    createHash("sha256").update(raw, "utf8").digest("hex");
-
-  const decodeDocumentBytes = (
-    name: CanvasName,
-    path: string,
-    bytes: Uint8Array,
-  ): LiveAuthority => {
-    const raw = new TextDecoder().decode(bytes);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (error) {
-      throw new CanvasError({
-        message: `${canvasFileName(name)} is not valid JSON: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    }
-    const decoded = decodeCanvasDoc(parsed);
-    if (Either.isLeft(decoded)) {
-      throw new CanvasError({
-        message: `${canvasFileName(name)} failed validation: ${decoded.left.message}`,
-      });
-    }
-    return { doc: decoded.right, revision: revisionOf(raw), path };
-  };
-
-  /**
-   * Commit the full live map as the next sequential authority generation.
-   * Refuses accidental shrinkage: names present in the previous generation
-   * must still be present unless listed in `explicitlyRemoved`.
-   */
-  const assertAuthorityWritable = (): void => {
-    if (authorityBlocked !== undefined) {
-      throw new CanvasError({
-        message: `canvas authority blocked: ${authorityBlocked}`,
-      });
-    }
-  };
-
-  const commitLiveAuthorityGeneration = async (
-    explicitlyRemoved: ReadonlySet<string> = new Set(),
-  ): Promise<void> =>
-    withAuthorityMutex(async () => {
-      assertAuthorityWritable();
-      const authRoot = canvasAuthorityRoot();
-      // Fail closed: a corrupt store must not look "absent" and allow shrink.
-      const previous = await loadAuthoritySnapshot(authRoot);
-      if (previous !== undefined) {
-        for (const name of previous.documents.keys()) {
-          if (!liveAuthority.has(name) && !explicitlyRemoved.has(name)) {
-            throw new CanvasError({
-              message:
-                `refusing authority commit that would drop canvas "${name}" without remove(); ` +
-                `live map is incomplete relative to generation ${previous.pointer.generation}`,
-            });
-          }
-        }
-      }
-
-      const documents = new Map<string, Uint8Array>();
-      for (const [name, entry] of liveAuthority) {
-        documents.set(name, textEncoder.encode(serializeCanvas(entry.doc)));
-      }
-      const nextGeneration = (authorityGeneration + 1n).toString();
-      await commitAuthorityGeneration(
-        {
-          generation: nextGeneration,
-          createdAt: new Date().toISOString(),
-          documents,
-        },
-        authRoot,
-      );
-      authorityGeneration = BigInt(nextGeneration);
-    });
-
   const virtualPath = (name: CanvasName): string =>
     canvasDocumentPathIn(canvasesDir(), name);
 
-  /** True when objects exist without a usable current.json pointer. */
-  const authorityOrphansPresent = async (authRoot: string): Promise<boolean> => {
-    for (const sub of ["documents", "manifests"] as const) {
-      try {
-        const entries = await readdir(join(authRoot, sub));
-        if (entries.some((name) => !name.endsWith(".tmp"))) return true;
-      } catch {
-        // missing dir is fine
-      }
-    }
-    return false;
-  };
+  const bootstrap = Effect.gen(function* () {
+    yield* Effect.tryPromise({
+      try: ensureCanvasesDir,
+      catch: toCanvasError,
+    });
+    const status = yield* state
+      .read("canvas.bootstrap.status", (reader) => ({
+        hasHead:
+          reader.get<{ readonly generation: string }>(
+            "SELECT generation FROM canvas_head WHERE singleton = 1",
+          ) !== undefined,
+        generations: Number(
+          reader.get<{ readonly count: number }>(
+            "SELECT count(*) AS count FROM canvas_generations",
+          )?.count ?? 0,
+        ),
+      }))
+      .pipe(Effect.mapError(toCanvasError));
 
-  /**
-   * Load one full generation into the live map. Any invalid name or semantic
-   * document fails the whole generation — never partial skip.
-   *
-   * Applies the actor↔actor inbox stamp (I8/I21) after decode so pre-S3
-   * documents keep msg.* via explicit ports. Returns whether any document
-   * was mutated (caller must commit a new authority generation when true).
-   */
-  const loadSnapshotIntoLive = (
-    root: string,
-    snapshot: NonNullable<Awaited<ReturnType<typeof loadAuthoritySnapshot>>>,
-  ): boolean => {
-    const next = new Map<string, LiveAuthority>();
-    let stampedDirty = false;
-    for (const [rawName, bytes] of snapshot.documents) {
-      let name: CanvasName;
-      try {
-        name = canvasNameFrom(rawName);
-      } catch (error) {
-        throw new CanvasError({
-          message: `authority generation ${snapshot.pointer.generation} unusable: invalid name "${rawName}" (${
-            error instanceof Error ? error.message : String(error)
-          })`,
-        });
+    if (!status.hasHead) {
+      if (status.generations > 0) {
+        return yield* Effect.fail(
+          new CanvasError({
+            message:
+              "canvas database head is missing while generation rows exist; recovery required",
+          }),
+        );
       }
-      try {
-        const entry = decodeDocumentBytes(name, virtualPath(name), bytes);
-        const stamped = stampActorActorMsgPorts(entry.doc);
-        if (stamped !== entry.doc) {
-          stampedDirty = true;
-          const serialized = serializeCanvas(stamped);
-          next.set(name, {
-            doc: stamped,
-            revision: revisionOf(serialized),
-            path: entry.path,
-          });
-        } else {
-          next.set(name, entry);
-        }
-      } catch (error) {
-        throw new CanvasError({
-          message: `authority generation ${snapshot.pointer.generation} unusable: document "${name}" failed (${
-            error instanceof Error ? error.message : String(error)
-          })`,
-        });
-      }
-    }
-    liveAuthority.clear();
-    for (const [name, entry] of next) {
-      liveAuthority.set(name, entry);
-    }
-    authorityGeneration = BigInt(snapshot.pointer.generation);
-    return stampedDirty;
-  };
-
-  const bootstrapLiveAuthority = async (): Promise<void> => {
-    if (bootstrapped) return;
-    if (bootstrapPromise) return bootstrapPromise;
-    bootstrapPromise = (async () => {
-      // Sidecar root only — not a document store.
-      await ensureCanvasesDir();
-      const authRoot = canvasAuthorityRoot();
-      let snapshot: Awaited<ReturnType<typeof loadAuthoritySnapshot>>;
-      try {
-        snapshot = await loadAuthoritySnapshot(authRoot);
-      } catch (error) {
-        const detail =
-          error instanceof CanvasAuthorityError
-            ? error.message
-            : error instanceof Error
-              ? error.message
-              : String(error);
-        authorityBlocked = `corrupt authority store: ${detail}`;
-        liveAuthority.clear();
-        authorityGeneration = 0n;
-        bootstrapped = true;
-        return;
-      }
-      if (snapshot === undefined) {
-        if (await authorityOrphansPresent(authRoot)) {
-          authorityBlocked =
-            "authority pointer missing but store objects present; recovery required";
-          liveAuthority.clear();
-          authorityGeneration = 0n;
-          bootstrapped = true;
-          return;
-        }
-        authorityBlocked = undefined;
-        authorityGeneration = 0n;
-        bootstrapped = true;
-        return;
-      }
-      try {
-        const stampedDirty = loadSnapshotIntoLive(canvasesDir(), snapshot);
-        authorityBlocked = undefined;
-        // I21: stamp commits only through the app-owned authority generation path.
-        if (stampedDirty) {
-          await commitLiveAuthorityGeneration();
-        } else {
-          // Serialize with authority writers — fire-and-forget GC races commits
-          // and can delete live generation document objects.
-          await withAuthorityMutex(async () => {
-            try {
-              await pruneAuthorityHistory(authRoot);
-            } catch (error) {
-              console.error("[canvases] authority history prune failed:", error);
-            }
-          });
-        }
-      } catch (error) {
-        authorityBlocked =
-          error instanceof CanvasError
-            ? error.message
-            : error instanceof Error
-              ? error.message
-              : String(error);
-        liveAuthority.clear();
-        authorityGeneration = 0n;
-      }
-      bootstrapped = true;
-    })();
-    try {
-      await bootstrapPromise;
-    } finally {
-      bootstrapPromise = undefined;
-    }
-  };
-
-  const requireLive = async (name: CanvasName): Promise<LiveAuthority> => {
-    await bootstrapLiveAuthority();
-    assertAuthorityWritable();
-    const entry = liveAuthority.get(name);
-    if (!entry) {
-      throw new CanvasError({
-        message: `canvas "${name}" is not in live authority (missing or never admitted)`,
+      const legacy = yield* Effect.tryPromise({
+        try: loadLegacyImport,
+        catch: toCanvasError,
       });
+      if (legacy !== undefined) {
+        yield* state
+          .transaction("canvas.legacy-import", (writer) => {
+            const current = readStoredAuthority(writer);
+            if (current.hasHead) return;
+            const count = Number(
+              writer.get<{ readonly count: number }>(
+                "SELECT count(*) AS count FROM canvas_generations",
+              )?.count ?? 0,
+            );
+            if (count > 0) {
+              throw new CanvasError({
+                message:
+                  "canvas database head is missing while generation rows exist; recovery required",
+              });
+            }
+            insertFullGeneration(
+              writer,
+              legacy.generation,
+              legacy.createdAt,
+              "legacy-import",
+              legacy.documents,
+            );
+          })
+          .pipe(Effect.mapError(toCanvasError));
+      }
     }
-    return entry;
-  };
 
-  const list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError> = Effect.tryPromise({
-    try: async () => {
-      await bootstrapLiveAuthority();
-      const now = new Date().toISOString();
-      return [...liveAuthority.entries()]
-        .map(([name, entry]) => ({
-          name,
-          path: entry.path,
-          modifiedAt: now,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+    // I21 bootstrap semantics remain explicit history. A legacy import keeps
+    // its exact generation, then any actor↔actor message-port repair becomes
+    // one ordinary following generation.
+    yield* state
+      .transaction("canvas.bootstrap-repair", (writer) => {
+        const current = readStoredAuthority(writer);
+        if (!current.hasHead) return;
+        const repaired = new Map<string, StoredCanvas>();
+        let changed = false;
+        const modifiedAt = new Date().toISOString();
+        for (const [name, entry] of current.documents) {
+          const stamped = stampActorActorMsgPorts(entry.doc);
+          if (stamped === entry.doc) {
+            repaired.set(name, entry);
+          } else {
+            changed = true;
+            repaired.set(
+              name,
+              normalizeCanvas(
+                name as CanvasName,
+                stamped,
+                modifiedAt,
+                "repair",
+              ),
+            );
+          }
+        }
+        if (changed) {
+          commitFullGeneration(
+            writer,
+            current,
+            repaired,
+            "bootstrap-repair",
+          );
+        }
+      })
+      .pipe(Effect.mapError(toCanvasError));
+  });
+
+  const ensureReady: Effect.Effect<void, CanvasError> = Effect.tryPromise({
+    try: () => {
+      if (bootstrapPromise === undefined) {
+        bootstrapPromise = Effect.runPromise(bootstrap);
+      }
+      return bootstrapPromise;
     },
     catch: toCanvasError,
   });
 
+  const readAuthority = (
+    operation: string,
+  ): Effect.Effect<StoredAuthoritySnapshot, CanvasError> =>
+    ensureReady.pipe(
+      Effect.flatMap(() =>
+        state.read(operation, readStoredAuthority).pipe(
+          Effect.mapError(toCanvasError),
+        ),
+      ),
+    );
+
+  const transaction = <A>(
+    operation: string,
+    body: (writer: StateWriter) => A,
+  ): Effect.Effect<A, CanvasError> =>
+    ensureReady.pipe(
+      Effect.flatMap(() =>
+        state.transaction(operation, body).pipe(
+          Effect.mapError(toCanvasError),
+        ),
+      ),
+    );
+
+  const list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError> =
+    readAuthority("canvas.list").pipe(
+      Effect.map((snapshot) =>
+        [...snapshot.documents.entries()]
+          .map(([name, entry]) => ({
+            name,
+            path: virtualPath(name as CanvasName),
+            modifiedAt: entry.modifiedAt,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      ),
+    );
+
   const read = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
-    Effect.tryPromise({
-      try: async () => {
-        const canonicalName = canvasNameFrom(name);
-        const entry = await requireLive(canonicalName);
-        return {
-          name: canonicalName,
-          doc: entry.doc,
-          revision: entry.revision,
-          path: entry.path,
-        };
-      },
-      catch: toCanvasError,
+    Effect.gen(function* () {
+      const canonicalName = yield* Effect.try({
+        try: () => canvasNameFrom(name),
+        catch: toCanvasError,
+      });
+      const snapshot = yield* readAuthority("canvas.read");
+      const entry = snapshot.documents.get(canonicalName);
+      if (entry === undefined) {
+        return yield* Effect.fail(
+          new CanvasError({
+            message: `canvas "${canonicalName}" is not in live authority (missing or never admitted)`,
+          }),
+        );
+      }
+      return {
+        name: canonicalName,
+        doc: entry.doc,
+        revision: entry.revision,
+        path: virtualPath(canonicalName),
+      };
     });
 
-  // Validates, applies mirror law, updates live map, commits full authority generation.
   const write = (
     name: string,
     doc: CanvasDoc,
     expectedRevision?: string,
   ): Effect.Effect<CanvasWriteResult, CanvasError> =>
-    Effect.tryPromise({
-      try: () =>
-        withCanvasMutex(canvasFileName(canvasNameFrom(name)), async () => {
-          await bootstrapLiveAuthority();
-          assertAuthorityWritable();
-          const canonicalName = canvasNameFrom(name);
-          const decoded = decodeCanvasDoc(doc);
-          if (Either.isLeft(decoded)) {
-            throw new CanvasError({
-              message: `cannot write ${canvasFileName(canonicalName)}: ${decoded.left.message}`,
-            });
-          }
-
-          const nextDoc = applyMirrorLaw(decoded.right);
-          const serialized = serializeCanvas(nextDoc);
-          const revision = revisionOf(serialized);
-          const path = virtualPath(canonicalName);
-
-          if (expectedRevision !== undefined) {
-            const current = liveAuthority.get(canonicalName);
-            if (current === undefined || current.revision !== expectedRevision) {
-              throw new CanvasError({
-                message: `${canvasFileName(canonicalName)} revision conflict; reload before saving`,
-              });
-            }
-          }
-
-          const previous = liveAuthority.get(canonicalName);
-          liveAuthority.set(canonicalName, {
-            doc: nextDoc,
-            revision,
-            path,
+    Effect.gen(function* () {
+      const canonicalName = yield* Effect.try({
+        try: () => canvasNameFrom(name),
+        catch: toCanvasError,
+      });
+      const outcome = yield* transaction("canvas.write", (writer) => {
+        const current = readStoredAuthority(writer);
+        const previous = current.documents.get(canonicalName);
+        if (
+          expectedRevision !== undefined &&
+          (previous === undefined || previous.revision !== expectedRevision)
+        ) {
+          throw new CanvasError({
+            message: `${canvasFileName(canonicalName)} revision conflict; reload before saving`,
           });
-          try {
-            await commitLiveAuthorityGeneration();
-          } catch (error) {
-            if (previous === undefined) liveAuthority.delete(canonicalName);
-            else liveAuthority.set(canonicalName, previous);
-            throw error;
-          }
+        }
+        const modifiedAt = new Date().toISOString();
+        const candidate = normalizeCanvas(
+          canonicalName,
+          doc,
+          modifiedAt,
+          "write",
+        );
+        const nextEntry =
+          candidate.revision === previous?.revision
+            ? { ...candidate, modifiedAt: previous.modifiedAt }
+            : candidate;
+        const documents = new Map(current.documents);
+        documents.set(canonicalName, nextEntry);
+        const commit = commitFullGeneration(
+          writer,
+          current,
+          documents,
+          "write",
+        );
+        return { commit, previous, nextEntry };
+      });
+      if (outcome.commit.changed) {
+        yield* Effect.sync(() =>
           notifyListeners(canonicalName, {
-            previous: previous?.doc,
-            next: nextDoc,
-          });
-          return { revision };
-        }),
-      catch: toCanvasError,
+            previous: outcome.previous?.doc,
+            next: outcome.nextEntry.doc,
+          }),
+        );
+      }
+      return { revision: outcome.nextEntry.revision };
     });
 
-  const mutate = (name: string, fn: (doc: CanvasDoc) => CanvasDoc): Effect.Effect<void, CanvasError> =>
-    Effect.tryPromise({
-      try: () =>
-        withCanvasMutex(canvasFileName(canvasNameFrom(name)), async () => {
-          await bootstrapLiveAuthority();
-          const canonicalName = canvasNameFrom(name);
-          const current = await requireLive(canonicalName);
-          const next = fn(current.doc);
-
-          const decoded = decodeCanvasDoc(next);
-          if (Either.isLeft(decoded)) {
-            throw new CanvasError({
-              message: `cannot mutate ${canvasFileName(canonicalName)}: ${decoded.left.message}`,
-            });
-          }
-
-          const nextDoc = applyMirrorLaw(decoded.right);
-          const revision = revisionOf(serializeCanvas(nextDoc));
-          const previous = current;
-          liveAuthority.set(canonicalName, {
-            doc: nextDoc,
-            revision,
-            path: current.path,
+  const mutate = (
+    name: string,
+    fn: (doc: CanvasDoc) => CanvasDoc,
+  ): Effect.Effect<void, CanvasError> =>
+    Effect.gen(function* () {
+      const canonicalName = yield* Effect.try({
+        try: () => canvasNameFrom(name),
+        catch: toCanvasError,
+      });
+      const outcome = yield* transaction("canvas.mutate", (writer) => {
+        const current = readStoredAuthority(writer);
+        const previous = current.documents.get(canonicalName);
+        if (previous === undefined) {
+          throw new CanvasError({
+            message: `canvas "${canonicalName}" is not in live authority (missing or never admitted)`,
           });
-          try {
-            await commitLiveAuthorityGeneration();
-          } catch (error) {
-            liveAuthority.set(canonicalName, previous);
-            throw error;
-          }
+        }
+        const proposed = fn(previous.doc);
+        const candidate = normalizeCanvas(
+          canonicalName,
+          proposed,
+          new Date().toISOString(),
+          "mutate",
+        );
+        const nextEntry =
+          candidate.revision === previous.revision
+            ? { ...candidate, modifiedAt: previous.modifiedAt }
+            : candidate;
+        const documents = new Map(current.documents);
+        documents.set(canonicalName, nextEntry);
+        const commit = commitFullGeneration(
+          writer,
+          current,
+          documents,
+          "mutate",
+        );
+        return { commit, previous, nextEntry };
+      });
+      if (outcome.commit.changed) {
+        yield* Effect.sync(() =>
           notifyListeners(canonicalName, {
-            previous: previous.doc,
-            next: nextDoc,
-          });
-        }),
-      catch: toCanvasError,
+            previous: outcome.previous.doc,
+            next: outcome.nextEntry.doc,
+          }),
+        );
+      }
     });
-
-  const sanitizeName = (name: string): Effect.Effect<CanvasName, CanvasError> =>
-    Effect.try({ try: () => canvasNameFrom(name), catch: toCanvasError });
 
   const create = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
-    Effect.tryPromise({
-      try: async () => {
-        const sanitized = canvasNameFrom(name);
-        return withCanvasMutex(canvasFileName(sanitized), async () => {
-          await bootstrapLiveAuthority();
-          assertAuthorityWritable();
-          if (liveAuthority.has(sanitized)) {
-            throw new CanvasError({ message: `canvas "${sanitized}" already exists` });
-          }
-          const doc = applyMirrorLaw({ nodes: [], edges: [] });
-          const serialized = serializeCanvas(doc);
-          const revision = revisionOf(serialized);
-          const path = virtualPath(sanitized);
-          const nextEntry: LiveAuthority = { doc, revision, path };
-          liveAuthority.set(sanitized, nextEntry);
-          try {
-            await commitLiveAuthorityGeneration();
-          } catch (error) {
-            liveAuthority.delete(sanitized);
-            throw error;
-          }
-          notifyListeners(sanitized, { previous: undefined, next: doc });
-          return { name: sanitized, doc, revision, path };
-        });
-      },
-      catch: toCanvasError,
+    Effect.gen(function* () {
+      const canonicalName = yield* Effect.try({
+        try: () => canvasNameFrom(name),
+        catch: toCanvasError,
+      });
+      const outcome = yield* transaction("canvas.create", (writer) => {
+        const current = readStoredAuthority(writer);
+        if (current.documents.has(canonicalName)) {
+          throw new CanvasError({
+            message: `canvas "${canonicalName}" already exists`,
+          });
+        }
+        const entry = normalizeCanvas(
+          canonicalName,
+          { nodes: [], edges: [] },
+          new Date().toISOString(),
+          "create",
+        );
+        const documents = new Map(current.documents);
+        documents.set(canonicalName, entry);
+        commitFullGeneration(writer, current, documents, "create");
+        return entry;
+      });
+      yield* Effect.sync(() =>
+        notifyListeners(canonicalName, {
+          previous: undefined,
+          next: outcome.doc,
+        }),
+      );
+      return {
+        name: canonicalName,
+        doc: outcome.doc,
+        revision: outcome.revision,
+        path: virtualPath(canonicalName),
+      };
     });
 
   const remove = (name: string): Effect.Effect<{ name: string }, CanvasError> =>
     Effect.gen(function* () {
-      const sanitized = yield* sanitizeName(name);
-
-      yield* Effect.tryPromise({
-        try: () =>
-          withCanvasMutex(canvasFileName(sanitized), async () => {
-            await bootstrapLiveAuthority();
-            assertAuthorityWritable();
-            const previous = liveAuthority.get(sanitized);
-            if (previous === undefined) {
-              throw new CanvasError({ message: `canvas "${sanitized}" does not exist` });
-            }
-
-            liveAuthority.delete(sanitized);
-            try {
-              await commitLiveAuthorityGeneration(new Set([sanitized]));
-            } catch (error) {
-              liveAuthority.set(sanitized, previous);
-              throw error;
-            }
-            // Best-effort agent sidecar cleanup (digest/svg).
-            try {
-              const root = await ensureCanvasesDir();
-              for (const suffix of SIDECAR_SUFFIXES) {
-                await rm(canvasSidecarPathIn(root, sanitized, suffix), {
-                  force: true,
-                }).catch(() => undefined);
-              }
-            } catch {
-              // ignore
-            }
-            notifyListeners(sanitized, {
-              previous: previous.doc,
-              next: undefined,
-            });
-          }),
+      const canonicalName = yield* Effect.try({
+        try: () => canvasNameFrom(name),
         catch: toCanvasError,
       });
-
-      return { name: sanitized };
+      const previous = yield* transaction("canvas.remove", (writer) => {
+        const current = readStoredAuthority(writer);
+        const entry = current.documents.get(canonicalName);
+        if (entry === undefined) {
+          throw new CanvasError({
+            message: `canvas "${canonicalName}" does not exist`,
+          });
+        }
+        const documents = new Map(current.documents);
+        documents.delete(canonicalName);
+        commitFullGeneration(writer, current, documents, "remove");
+        return entry;
+      });
+      yield* Effect.tryPromise({
+        try: async () => {
+          try {
+            const root = await ensureCanvasesDir();
+            for (const suffix of SIDECAR_SUFFIXES) {
+              await rm(canvasSidecarPathIn(root, canonicalName, suffix), {
+                force: true,
+              }).catch(() => undefined);
+            }
+          } catch {
+            // Sidecars are disposable projections; committed authority wins.
+          }
+        },
+        catch: toCanvasError,
+      });
+      yield* Effect.sync(() =>
+        notifyListeners(canonicalName, {
+          previous: previous.doc,
+          next: undefined,
+        }),
+      );
+      return { name: canonicalName };
     });
 
-  const ensureSeed: Effect.Effect<void, CanvasError> = Effect.gen(function* () {
-    const visible = yield* list;
-    if (visible.length === 0) {
-      yield* create(SEED_CANVAS_NAME);
-    }
-  });
+  const ensureSeed: Effect.Effect<void, CanvasError> = transaction(
+    "canvas.seed",
+    (writer) => {
+      const current = readStoredAuthority(writer);
+      if (current.documents.size > 0) return undefined;
+      const name = canvasNameFrom(SEED_CANVAS_NAME);
+      const entry = normalizeCanvas(
+        name,
+        { nodes: [], edges: [] },
+        new Date().toISOString(),
+        "seed",
+      );
+      const documents = new Map(current.documents);
+      documents.set(name, entry);
+      const commit = commitFullGeneration(
+        writer,
+        current,
+        documents,
+        "seed",
+      );
+      return commit.changed ? { name, entry } : undefined;
+    },
+  ).pipe(
+    Effect.tap((created) =>
+      created === undefined
+        ? Effect.void
+        : Effect.sync(() =>
+            notifyListeners(created.name, {
+              previous: undefined,
+              next: created.entry.doc,
+            }),
+          ),
+    ),
+    Effect.asVoid,
+  );
 
   const writeSidecar = (
     name: string,
@@ -762,16 +1019,22 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
       try: async () => {
         const canonicalName = canvasNameFrom(name);
         if (!SIDECAR_SUFFIXES.includes(suffix as SidecarSuffix)) {
-          throw new CanvasError({ message: `unsupported canvas sidecar suffix "${suffix}"` });
+          throw new CanvasError({
+            message: `unsupported canvas sidecar suffix "${suffix}"`,
+          });
         }
-        return await writeCanvasSidecar(canonicalName, suffix as SidecarSuffix, contents);
+        return await writeCanvasSidecar(
+          canonicalName,
+          suffix as SidecarSuffix,
+          contents,
+        );
       },
       catch: toCanvasError,
     });
 
   const start = (): void => {
-    void bootstrapLiveAuthority().catch((error) => {
-      console.error("[canvases] live authority bootstrap failed:", error);
+    void Effect.runPromise(ensureReady).catch((error) => {
+      console.error("[canvases] SQLite authority bootstrap failed:", error);
     });
   };
 
@@ -784,112 +1047,139 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     };
   };
 
+  const authoritySnapshot = (): Effect.Effect<
+    CanvasAuthoritySnapshot,
+    CanvasError
+  > =>
+    readAuthority("canvas.authority-snapshot").pipe(
+      Effect.map((snapshot) => ({
+        generation: snapshot.generation,
+        documents: new Map(
+          [...snapshot.documents].map(([name, entry]) => [name, entry.doc]),
+        ),
+      })),
+    );
+
   const liveDocuments = (): Effect.Effect<
     ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
     CanvasError
   > =>
-    Effect.tryPromise({
-      try: async () => {
-        await bootstrapLiveAuthority();
-        return [...liveAuthority.entries()].map(([canvasName, entry]) => ({
-          canvasName,
-          doc: entry.doc,
-        }));
-      },
-      catch: toCanvasError,
-    });
+    authoritySnapshot().pipe(
+      Effect.map((snapshot) =>
+        [...snapshot.documents]
+          .map(([canvasName, doc]) => ({ canvasName, doc }))
+          .sort((a, b) => a.canvasName.localeCompare(b.canvasName)),
+      ),
+    );
 
   const liveAuthorityGeneration = (): Effect.Effect<string, CanvasError> =>
-    Effect.tryPromise({
-      try: async () => {
-        await bootstrapLiveAuthority();
-        return authorityGeneration.toString();
-      },
-      catch: toCanvasError,
-    });
+    authoritySnapshot().pipe(Effect.map((snapshot) => snapshot.generation));
 
-  /**
-   * Projection install: replace the live map with a fully-validated document
-   * set and commit one full-map generation. No disk re-read.
-   */
   const replaceLiveAuthorityDocuments = (
     documents: ReadonlyMap<string, CanvasDoc>,
   ): Effect.Effect<void, CanvasError> =>
-    Effect.tryPromise({
-      try: async () => {
-        await bootstrapLiveAuthority();
-        assertAuthorityWritable();
-        const previous = new Map(liveAuthority);
-        const previousGeneration = authorityGeneration;
-        const next = new Map<string, LiveAuthority>();
-        const removed = new Set<string>();
-        const changed: CanvasName[] = [];
-
-        for (const [rawName, doc] of documents) {
-          const name = canvasNameFrom(rawName);
-          const decoded = decodeCanvasDoc(doc);
-          if (Either.isLeft(decoded)) {
-            throw new CanvasError({
-              message: `projection document "${name}" failed validation: ${decoded.left.message}`,
+    Effect.gen(function* () {
+      const prepared = yield* Effect.try({
+        try: () => {
+          const result = new Map<
+            CanvasName,
+            Omit<StoredCanvas, "modifiedAt">
+          >();
+          for (const [rawName, doc] of documents) {
+            const name = canvasNameFrom(rawName);
+            if (result.has(name)) {
+              throw new CanvasError({
+                message: `projection contains duplicate canonical canvas name "${name}"`,
+              });
+            }
+            const normalized = normalizeCanvas(
+              name,
+              doc,
+              "",
+              "install projection",
+            );
+            result.set(name, {
+              doc: normalized.doc,
+              body: normalized.body,
+              revision: normalized.revision,
             });
           }
-          const nextDoc = applyMirrorLaw(decoded.right);
-          const serialized = serializeCanvas(nextDoc);
-          next.set(name, {
-            doc: nextDoc,
-            revision: revisionOf(serialized),
-            path: virtualPath(name),
-          });
-          changed.push(name);
-        }
-        for (const name of liveAuthority.keys()) {
-          if (!next.has(name)) {
-            removed.add(name);
-            changed.push(name as CanvasName);
-          }
-        }
+          return result;
+        },
+        catch: toCanvasError,
+      });
 
-        liveAuthority.clear();
-        for (const [name, entry] of next) {
-          liveAuthority.set(name, entry);
-        }
-        try {
-          await commitLiveAuthorityGeneration(removed);
-        } catch (error) {
-          liveAuthority.clear();
-          for (const [name, entry] of previous) {
-            liveAuthority.set(name, entry);
+      const outcome = yield* transaction(
+        "canvas.projection-replace",
+        (writer) => {
+          const current = readStoredAuthority(writer);
+          const now = new Date().toISOString();
+          const next = new Map<string, StoredCanvas>();
+          for (const [name, entry] of prepared) {
+            const previous = current.documents.get(name);
+            next.set(name, {
+              ...entry,
+              modifiedAt:
+                previous?.revision === entry.revision
+                  ? previous.modifiedAt
+                  : now,
+            });
           }
-          authorityGeneration = previousGeneration;
-          throw error;
-        }
-        for (const name of changed) {
-          notifyListeners(name as CanvasName, {
-            previous: previous.get(name)?.doc,
-            next: next.get(name)?.doc,
-          });
-        }
-      },
-      catch: toCanvasError,
+          const commit = commitFullGeneration(
+            writer,
+            current,
+            next,
+            "projection-replace",
+          );
+          const changedNames = new Set<string>();
+          for (const name of current.documents.keys()) {
+            if (
+              next.get(name)?.revision !==
+              current.documents.get(name)?.revision
+            ) {
+              changedNames.add(name);
+            }
+          }
+          for (const name of next.keys()) {
+            if (
+              current.documents.get(name)?.revision !== next.get(name)?.revision
+            ) {
+              changedNames.add(name);
+            }
+          }
+          return { current, next, commit, changedNames };
+        },
+      );
+      if (outcome.commit.changed) {
+        yield* Effect.sync(() => {
+          for (const name of [...outcome.changedNames].sort()) {
+            notifyListeners(name as CanvasName, {
+              previous: outcome.current.documents.get(name)?.doc,
+              next: outcome.next.get(name)?.doc,
+            });
+          }
+        });
+      }
     });
 
   return CanvasesService.of({
-    doctor: Effect.sync(() => {
-      if (authorityBlocked !== undefined) {
-        return {
+    doctor: ensureReady.pipe(
+      Effect.flatMap(() => readAuthority("canvas.doctor")),
+      Effect.match({
+        onFailure: (error) => ({
           id: "canvases",
           label: "Canvas Documents",
           status: "error" as const,
-          detail: authorityBlocked,
-        };
-      }
-      return {
-        id: "canvases",
-        label: "Canvas Documents",
-        status: "ok" as const,
-        detail: `${canvasAuthorityRoot()} · gen ${authorityGeneration.toString()}`,
-      };
-    }),
+          detail: error.message,
+        }),
+        onSuccess: (snapshot) => ({
+          id: "canvases",
+          label: "Canvas Documents",
+          status: "ok" as const,
+          detail: `${state.info.path} · gen ${snapshot.generation}`,
+        }),
+      }),
+    ),
     list,
     read,
     write,
@@ -902,6 +1192,8 @@ export const CanvasesLive = Layer.sync(CanvasesService, () => {
     subscribeChanges,
     liveDocuments,
     liveAuthorityGeneration,
+    authoritySnapshot,
     replaceLiveAuthorityDocuments,
   });
-});
+  }),
+);
