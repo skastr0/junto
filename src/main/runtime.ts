@@ -39,7 +39,10 @@ import { UsageService } from "./vellum/usage/usage-service";
 import { HostsService, HostsServiceLive } from "./vellum/hosts";
 import { SshTransportLive } from "./vellum/ssh";
 import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
-import { readStationStatus } from "./vellum/station-status-store";
+import {
+  readStationStatus,
+  StationStatusLive,
+} from "./vellum/station-status-store";
 import {
   readLocalCanvasMirrorWitness,
   stationSettingsWitness,
@@ -62,6 +65,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     WorkRepositoryLive,
     UsageLive,
     SettingsLive,
+    StationStatusLive,
   ),
   StateEngineLive,
 );

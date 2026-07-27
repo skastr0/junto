@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Layer, ManagedRuntime } from "effect";
 import {
   assessStationDoctor,
   decodeStationStatusDocument,
@@ -21,15 +22,25 @@ import {
   loadStationProjectionSnapshot,
 } from "../src/main/vellum/projection/station-store";
 import {
+  makeStationStatusLive,
   readStationStatus,
   recordStationProjection,
+  StationStatusService,
 } from "../src/main/vellum/station-status-store";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import type { CanvasDoc } from "../src/shared/canvas";
 
 const WITNESS_A = "a".repeat(64);
 const WITNESS_B = "b".repeat(64);
 
 const emptyDoc = (): CanvasDoc => ({ nodes: [], edges: [] });
+
+const makeStatusRuntime = (databasePath: string) => {
+  const engine = makeStateEngineLive(databasePath);
+  return ManagedRuntime.make(
+    Layer.provideMerge(makeStationStatusLive(), engine),
+  );
+};
 
 describe("projection delivery status machine", () => {
   it("schedules to pending from unset", () => {
@@ -210,19 +221,20 @@ describe("scheduleHostSync status recording", () => {
   let statusRoot = "";
   let storeRoot = "";
   let clock = 0;
+  let statusRuntime: ReturnType<typeof makeStatusRuntime>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     statusRoot = mkdtempSync(join(tmpdir(), "vellum-proj-status-"));
     storeRoot = mkdtempSync(join(tmpdir(), "vellum-proj-store-"));
-    process.env.VELLUM_STATION_STATUS_PATH = join(
-      statusRoot,
-      "station-status.json",
+    statusRuntime = makeStatusRuntime(
+      join(statusRoot, "vellum.db"),
     );
+    await statusRuntime.runPromise(StationStatusService);
     clock = 0;
   });
 
-  afterEach(() => {
-    delete process.env.VELLUM_STATION_STATUS_PATH;
+  afterEach(async () => {
+    await statusRuntime.dispose();
     rmSync(statusRoot, { recursive: true, force: true });
     rmSync(storeRoot, { recursive: true, force: true });
   });

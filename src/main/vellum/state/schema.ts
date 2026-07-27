@@ -1,6 +1,7 @@
 import { STORE_STATE_SCHEMA_SQL } from "../../services/store-state-schema";
 import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
 import { SETTINGS_STATE_SCHEMA_SQL } from "../settings/state-schema";
+import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema";
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
 
@@ -66,6 +67,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   CANVAS_STATE_SCHEMA_SQL,
   HOSTS_STATE_SCHEMA_SQL,
   SETTINGS_STATE_SCHEMA_SQL,
+  STATION_STATUS_STATE_SCHEMA_SQL,
   STORE_STATE_SCHEMA_SQL,
   USAGE_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_SQL,

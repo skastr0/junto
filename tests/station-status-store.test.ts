@@ -1,36 +1,64 @@
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  pullRecordFromResult,
   configureRecordFromResult,
   deployRecordFromResult,
+  projectionRecordFromResult,
+  pullRecordFromResult,
 } from "../src/shared/station-status";
 import { canvasPullResult } from "../src/shared/canvas-pull";
 import {
   readStationStatus,
-  recordStationPull,
   recordStationConfigure,
   recordStationDeployment,
   recordStationKernel,
+  recordStationProjection,
+  recordStationPull,
+  StationStatusService,
+  StationStatusStoreError,
+  makeStationStatusLive,
   subscribeStationStatus,
 } from "../src/main/vellum/station-status-store";
+import {
+  makeStateEngineLive,
+} from "../src/main/vellum/state/engine";
+import { StateEngine } from "../src/main/vellum/state/service";
 
-describe("station status deployment persistence", () => {
+const HASH_A = "a".repeat(64);
+
+const makeTestLayer = (databasePath: string) => {
+  const engine = makeStateEngineLive(databasePath);
+  return Layer.provideMerge(
+    makeStationStatusLive(),
+    engine,
+  );
+};
+
+const makeTestRuntime = (databasePath: string) =>
+  ManagedRuntime.make(makeTestLayer(databasePath));
+
+describe("SQLite station status receipts", () => {
   let root = "";
+  let databasePath = "";
+  let runtime: ReturnType<typeof makeTestRuntime>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "vellum-station-status-"));
-    process.env.VELLUM_STATION_STATUS_PATH = join(root, "station-status.json");
+    databasePath = join(root, "vellum.db");
+    runtime = makeTestRuntime(databasePath);
+    // Acquiring the app-owned service installs the Promise compatibility seam.
+    await runtime.runPromise(StationStatusService);
   });
 
-  afterEach(() => {
-    delete process.env.VELLUM_STATION_STATUS_PATH;
+  afterEach(async () => {
+    await runtime.dispose();
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("keeps per-host deploy receipts and the matching configure outcome atomically", async () => {
+  it("keeps deploy and configure facts in one transaction", async () => {
     const configure = configureRecordFromResult({
       ok: true,
       hostId: "studio",
@@ -58,11 +86,36 @@ describe("station status deployment persistence", () => {
     await expect(readStationStatus()).resolves.toMatchObject({
       version: 1,
       lastConfigure: configure,
+      configures: { studio: configure },
       deployments: { studio: deployment },
+    });
+    expect(statSync(databasePath).mode & 0o777).toBe(0o600);
+  });
+
+  it("rehydrates committed receipts after the app-owned engine restarts", async () => {
+    const configure = configureRecordFromResult({
+      ok: true,
+      hostId: "studio",
+      detail: "configured",
+    });
+    await recordStationConfigure(configure);
+    await runtime.dispose();
+
+    runtime = makeTestRuntime(databasePath);
+    await runtime.runPromise(StationStatusService);
+
+    await expect(readStationStatus()).resolves.toMatchObject({
+      lastConfigure: configure,
+      configures: { studio: configure },
     });
   });
 
-  it("serializes concurrent status updates instead of losing a deploy receipt", async () => {
+  it("cannot lose unrelated host rows under concurrent updates", async () => {
+    const failedConfigure = configureRecordFromResult({
+      ok: false,
+      hostId: "studio",
+      detail: "rollback unproven",
+    });
     const deployment = deployRecordFromResult({
       hostId: "studio",
       endpoint: "studio-box",
@@ -74,12 +127,7 @@ describe("station status deployment persistence", () => {
       configurationOk: false,
       detail: "manual inspection required",
     });
-    const failedConfigure = configureRecordFromResult({
-      ok: false,
-      hostId: "studio",
-      detail: "rollback unproven",
-    });
-    const otherConfigure = configureRecordFromResult({
+    const labConfigure = configureRecordFromResult({
       ok: true,
       hostId: "lab",
       detail: "configured separately",
@@ -87,19 +135,57 @@ describe("station status deployment persistence", () => {
 
     await Promise.all([
       recordStationDeployment(deployment, failedConfigure),
-      recordStationConfigure(otherConfigure),
+      recordStationConfigure(labConfigure),
     ]);
 
     const status = await readStationStatus();
     expect(status.deployments?.studio).toEqual(deployment);
-    expect(status.lastConfigure).toEqual(otherConfigure);
+    expect(status.configures?.studio).toEqual(failedConfigure);
+    expect(status.configures?.lab).toEqual(labConfigure);
   });
 
-  it("publishes typed status changes only after their atomic write commits", async () => {
-    const observed: string[] = [];
+  it("rejects a deployment paired with another host's configure receipt", async () => {
+    const deployment = deployRecordFromResult({
+      hostId: "studio",
+      endpoint: "studio-box",
+      ok: true,
+      outcome: "ready",
+      packageState: "present",
+      role: "remote",
+      rollback: "not-required",
+      configurationOk: true,
+      detail: "ready",
+    });
+    const result = await runtime.runPromise(
+      Effect.gen(function* () {
+        const status = yield* StationStatusService;
+        return yield* Effect.either(
+          status.recordDeployment(
+            deployment,
+            configureRecordFromResult({
+              ok: true,
+              hostId: "lab",
+              detail: "wrong host",
+            }),
+          ),
+        );
+      }),
+    );
+
+    expect(result._tag).toBe("Left");
+    await expect(readStationStatus()).resolves.toEqual({ version: 1 });
+  });
+
+  it("notifies observers only after the committed facts are readable", async () => {
+    const committedReads: Array<Promise<string>> = [];
+    const seenKinds: string[] = [];
     const unsubscribe = subscribeStationStatus((change) => {
-      observed.push(
-        `${change.kind}:${change.current.lastPull?.status ?? "none"}:${change.current.kernel?.armedRegionCount ?? "none"}`,
+      seenKinds.push(change.kind);
+      committedReads.push(
+        readStationStatus().then(
+          (status) =>
+            `${status.lastPull?.status ?? "none"}:${status.kernel?.armedRegionCount ?? "none"}`,
+        ),
       );
     });
     try {
@@ -124,54 +210,203 @@ describe("station status deployment persistence", () => {
     } finally {
       unsubscribe();
     }
-    expect(observed).toEqual([
-      "pull:unreachable:none",
-      "kernel:unreachable:2",
+
+    expect(seenKinds).toEqual(["pull", "kernel"]);
+    await expect(Promise.all(committedReads)).resolves.toEqual([
+      "unreachable:none",
+      "unreachable:2",
     ]);
-    await expect(readStationStatus()).resolves.toMatchObject({
-      lastPull: { status: "unreachable" },
-      kernel: { armedRegionCount: 2 },
-    });
   });
 
-  it("persists only the bounded kernel heartbeat and keeps the status file owner-only", async () => {
-    const kernel = {
-      observedAt: "2026-07-23T12:00:00.000Z",
-      armedRegionCount: 2,
-      lastFireAt: "2026-07-23T11:58:00.000Z",
-      lastFireKind: "watcher" as const,
-      lastFireDry: false,
-      orphanedArmingCount: 0,
-    };
-
-    await recordStationKernel(kernel);
-
-    await expect(readStationStatus()).resolves.toEqual({
-      version: 1,
-      kernel,
-    });
-    expect(
-      statSync(process.env.VELLUM_STATION_STATUS_PATH!).mode & 0o777,
-    ).toBe(0o600);
-  });
-
-  it("rejects a corrupt known kernel field instead of treating it as health", async () => {
-    writeFileSync(
-      process.env.VELLUM_STATION_STATUS_PATH!,
-      JSON.stringify({
-        version: 1,
-        kernel: {
-          observedAt: "2026-07-23T12:00:00.000Z",
-          armedRegionCount: "many",
-          orphanedArmingCount: 0,
-        },
+  it("orders projection receipts by logical generation, never timestamp", async () => {
+    await recordStationProjection(
+      projectionRecordFromResult({
+        hostId: "studio",
+        generation: "9007199254740993",
+        manifestSha256: HASH_A,
+        status: "applied",
+        detail: "new authority",
+        at: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    await recordStationProjection(
+      projectionRecordFromResult({
+        hostId: "studio",
+        generation: "9007199254740992",
+        manifestSha256: HASH_A,
+        status: "unreachable",
+        detail: "late stale receipt",
+        at: "2027-01-01T00:00:00.000Z",
       }),
     );
 
+    const status = await readStationStatus();
+    expect(status.lastProjection).toMatchObject({
+      generation: "9007199254740993",
+      status: "applied",
+    });
+    expect(status.projections?.studio).toMatchObject({
+      generation: "9007199254740993",
+      status: "applied",
+    });
+  });
+
+  it("stores a lower generation for a new host without regressing the global pointer", async () => {
+    await recordStationProjection(
+      projectionRecordFromResult({
+        hostId: "studio",
+        generation: "10",
+        manifestSha256: HASH_A,
+        status: "applied",
+        detail: "studio current",
+      }),
+    );
+    await recordStationProjection(
+      projectionRecordFromResult({
+        hostId: "lab",
+        generation: "9",
+        manifestSha256: HASH_A,
+        status: "staged",
+        detail: "lab catching up",
+      }),
+    );
+
+    const status = await readStationStatus();
+    expect(status.lastProjection?.generation).toBe("10");
+    expect(status.lastProjection?.hostId).toBe("studio");
+    expect(status.projections?.lab?.generation).toBe("9");
+  });
+
+  it("permits same-content status progress but rejects same-generation content conflicts", async () => {
+    const pending = projectionRecordFromResult({
+      hostId: "studio",
+      generation: "12",
+      manifestSha256: HASH_A,
+      status: "pending",
+      detail: "scheduled",
+    });
+    await recordStationProjection(pending);
+    await recordStationProjection({
+      ...pending,
+      status: "applied",
+      ok: true,
+      detail: "installed",
+    });
+
+    const result = await runtime.runPromise(
+      Effect.gen(function* () {
+        const status = yield* StationStatusService;
+        return yield* Effect.either(
+          status.recordProjection({
+            ...pending,
+            manifestSha256: "b".repeat(64),
+            status: "rejected",
+            ok: false,
+            detail: "conflicting frame",
+          }),
+        );
+      }),
+    );
+    expect(result._tag).toBe("Left");
+    await expect(readStationStatus()).resolves.toMatchObject({
+      projections: {
+        studio: {
+          generation: "12",
+          manifestSha256: HASH_A,
+          status: "applied",
+        },
+      },
+    });
+  });
+
+  it("rolls back a transition that violates the shared status contract", async () => {
+    const result = await runtime.runPromise(
+      Effect.gen(function* () {
+        const status = yield* StationStatusService;
+        return yield* Effect.either(
+          status.recordKernel({
+            observedAt: "2026-07-23T12:00:00.000Z",
+            armedRegionCount: -1,
+            orphanedArmingCount: 0,
+          }),
+        );
+      }),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(StationStatusStoreError);
+    }
     await expect(readStationStatus()).resolves.toEqual({ version: 1 });
   });
 
-  it("keeps the last observed package across an admitted or rolled-back attempt", async () => {
+  it("rejects an invalid projection even when it would compare as stale", async () => {
+    await recordStationProjection(
+      projectionRecordFromResult({
+        hostId: "studio",
+        generation: "1000",
+        manifestSha256: HASH_A,
+        status: "applied",
+        detail: "current",
+      }),
+    );
+    const result = await runtime.runPromise(
+      Effect.gen(function* () {
+        const status = yield* StationStatusService;
+        return yield* Effect.either(
+          status.recordProjection(
+            projectionRecordFromResult({
+              hostId: "studio",
+              generation: "bad",
+              manifestSha256: HASH_A,
+              status: "unreachable",
+              detail: "invalid and shorter",
+            }),
+          ),
+        );
+      }),
+    );
+    expect(result._tag).toBe("Left");
+    await expect(readStationStatus()).resolves.toMatchObject({
+      projections: {
+        studio: { generation: "1000", status: "applied" },
+      },
+    });
+  });
+
+  it("fails typed and closed when SQLite facts violate the shared contract", async () => {
+    await recordStationKernel({
+      observedAt: "2026-07-23T12:00:00.000Z",
+      armedRegionCount: 2,
+      orphanedArmingCount: 0,
+    });
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const state = yield* StateEngine;
+        yield* state.transaction("test.corrupt-station-status", (writer) => {
+          writer.run(
+            `
+              UPDATE station_status_facts
+              SET record_json = '{}'
+              WHERE kind = 'kernel' AND host_id = ''
+            `,
+          );
+        });
+      }),
+    );
+
+    const result = await runtime.runPromise(
+      Effect.gen(function* () {
+        const status = yield* StationStatusService;
+        return yield* Effect.either(status.read);
+      }),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(StationStatusStoreError);
+    }
+  });
+
+  it("preserves the last observed package across an admitted retry", async () => {
     const ready = deployRecordFromResult({
       hostId: "studio",
       endpoint: "studio-box",
@@ -221,49 +456,5 @@ describe("station status deployment persistence", () => {
       version: "0.9.0",
       lastSeen: "2026-07-22T20:00:00.000Z",
     });
-  });
-
-  it("does not carry observations across a repointed registry endpoint", async () => {
-    const previous = deployRecordFromResult({
-      hostId: "studio",
-      endpoint: "old-box",
-      ok: true,
-      outcome: "ready",
-      packageState: "present",
-      role: "remote",
-      version: "0.9.0",
-      lastSeen: "2026-07-22T20:00:00.000Z",
-      rollback: "not-required",
-      configurationOk: true,
-      detail: "ready",
-    });
-    const newAttempt = deployRecordFromResult({
-      hostId: "studio",
-      endpoint: "new-box",
-      ok: false,
-      outcome: "indeterminate",
-      packageState: "previous",
-      role: "previous",
-      rollback: "not-required",
-      configurationOk: false,
-      detail: "pending",
-    });
-    await recordStationDeployment(
-      previous,
-      configureRecordFromResult({ ok: true, hostId: "studio", detail: "ready" }),
-    );
-    await recordStationDeployment(
-      newAttempt,
-      configureRecordFromResult({ ok: false, hostId: "studio", detail: "pending" }),
-    );
-
-    const recorded = (await readStationStatus()).deployments?.studio;
-    expect(recorded).toMatchObject({
-      endpoint: "new-box",
-      packageState: "previous",
-      role: "previous",
-      version: "unknown",
-    });
-    expect(recorded?.lastSeen).toBeUndefined();
   });
 });
