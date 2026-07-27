@@ -6,6 +6,7 @@ import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/exec";
 import { ProcessSpawnerLive } from "./process-spawner";
 import { SshTransportConfig, SshTransportLayer } from "./service";
 
+export const OPENSSH_CLIENT_EXECUTABLE = "/usr/bin/ssh";
 
 const allowedSshEnvironment = (source: NodeJS.ProcessEnv): Readonly<Record<string, string>> => {
   const allowed: Record<string, string> = {};
@@ -36,7 +37,7 @@ const SshConfigLive = Layer.effect(
     Effect.map((environment) => ({
       controlDir: join(homedir(), ".vellum", "ssh"),
       envExecutable: "/usr/bin/env",
-      sshExecutable: "/usr/bin/ssh",
+      sshExecutable: OPENSSH_CLIENT_EXECUTABLE,
       environment: allowedSshEnvironment(environment),
       maxConcurrentDials: 6,
       maxConcurrentDialsPerEndpoint: 2,

@@ -14,6 +14,7 @@ import {
   parseSshEndpoint,
   type SshError,
 } from "../ssh/domain";
+import { OPENSSH_CLIENT_EXECUTABLE } from "../ssh/live";
 import { oneShot } from "../ssh/program";
 import { remoteProductVersion } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
@@ -24,10 +25,6 @@ import {
 } from "../station/remote-client";
 import type { HostsRegistry } from "./registry";
 
-// Resolve via PATH floor used by the transport kernel (not a second spawn site).
-const openSshClientPath = (): string =>
-  process.env.VELLUM_SSH_EXECUTABLE ||
-  ["", "usr", "bin", "ssh"].join("/");
 const HOST_PROBE_TOTAL_TIMEOUT_MS = 20_000;
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
@@ -336,17 +333,16 @@ export const runRemoteHostsDoctorSnapshot = (
 
     const remoteHosts = hosts.filter((host) => host.kind === "remote");
     if (remoteHosts.length > 0) {
-      const clientPath = openSshClientPath();
       const sshBinaryOk = yield* Effect.tryPromise({
         try: async () => {
-          await access(clientPath, constants.X_OK);
+          await access(OPENSSH_CLIENT_EXECUTABLE, constants.X_OK);
           return true;
         },
         catch: () => false as const,
       }).pipe(Effect.catchAll(() => Effect.succeed(false as const)));
 
       if (!sshBinaryOk) {
-        const detail = `OpenSSH client not executable at ${clientPath} — install the client or set VELLUM_SSH_EXECUTABLE`;
+        const detail = `OpenSSH client not executable at ${OPENSSH_CLIENT_EXECUTABLE} — install the client`;
         return {
           check: {
             id: "remote-hosts",

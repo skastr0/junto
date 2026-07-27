@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { Effect, Schema } from "effect";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   InstallationId,
   StationHostId,
@@ -19,6 +19,7 @@ import type { HostsRegistry } from "../src/main/vellum/hosts/registry";
 import type { StationRemote } from "../src/main/vellum/hosts/configure-remote";
 import { StationRemoteExecutionError } from "../src/main/vellum/station/remote-client";
 import { SshEndpoint } from "../src/main/vellum/ssh/domain";
+import { OPENSSH_CLIENT_EXECUTABLE } from "../src/main/vellum/ssh/live";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const stationHostId = Schema.decodeUnknownSync(StationHostId);
@@ -73,23 +74,26 @@ const remoteWithStatus = (
     report: () => Effect.die("report must not run"),
   }) as StationRemote;
 
-afterEach(() => {
-  delete process.env.VELLUM_SSH_EXECUTABLE;
-});
-
 describe("remote hosts doctor", () => {
-  it("contains no remote settings or station-status file lane", () => {
-    const source = readFileSync(
+  it("contains no alternate store or SSH executable authority", () => {
+    const doctorSource = readFileSync(
       new URL("../src/main/vellum/hosts/doctor.ts", import.meta.url),
       "utf8",
     );
-    expect(source).not.toMatch(
+    const liveSource = readFileSync(
+      new URL("../src/main/vellum/ssh/live.ts", import.meta.url),
+      "utf8",
+    );
+    expect(doctorSource).not.toMatch(
       /settings\.json|station-status\.json|remoteCat|homeDirectoryLookup/u,
     );
+    expect(liveSource).toContain(
+      "sshExecutable: OPENSSH_CLIENT_EXECUTABLE",
+    );
+    expect(OPENSSH_CLIENT_EXECUTABLE).toBe("/usr/bin/ssh");
   });
 
   it("executes exact local Herdr and Hermes version argv", async () => {
-    process.env.VELLUM_SSH_EXECUTABLE = "/usr/bin/ssh";
     const run = vi.fn<HostCliRunner>(
       async (command): Promise<CliResult> => ({
         ok: true,
@@ -118,9 +122,7 @@ describe("remote hosts doctor", () => {
     });
   });
 
-  it("keeps a local-only Command Center healthy without an SSH client", async () => {
-    process.env.VELLUM_SSH_EXECUTABLE =
-      "/definitely/not/an/ssh-client";
+  it("keeps a local-only Command Center independent of remote transport", async () => {
     const run = vi.fn<HostCliRunner>(
       async (command): Promise<CliResult> => ({
         ok: true,
@@ -168,7 +170,6 @@ describe("remote hosts doctor", () => {
   });
 
   it("probes Station APIs concurrently", async () => {
-    process.env.VELLUM_SSH_EXECUTABLE = "/usr/bin/ssh";
     let active = 0;
     let maxActive = 0;
     const remote = remoteWithStatus((endpoint) =>
@@ -206,7 +207,6 @@ describe("remote hosts doctor", () => {
   });
 
   it("returns typed observations from Station API status", async () => {
-    process.env.VELLUM_SSH_EXECUTABLE = "/usr/bin/ssh";
     const remote = remoteWithStatus(() =>
       Effect.succeed(stationStatus("studio")),
     );
@@ -246,7 +246,6 @@ describe("remote hosts doctor", () => {
   });
 
   it("keeps failed Station API observations fleet-blind", async () => {
-    process.env.VELLUM_SSH_EXECUTABLE = "/usr/bin/ssh";
     const remote = remoteWithStatus(() =>
       Effect.fail(
         StationRemoteExecutionError.make({
