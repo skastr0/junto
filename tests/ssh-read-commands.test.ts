@@ -11,6 +11,7 @@ import {
   remoteTestFileExists,
   remoteUname,
   remoteVellumBrowserStation,
+  remoteVellumStation,
 } from "../src/main/vellum/ssh/read-commands";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): A => {
@@ -107,6 +108,13 @@ describe("ssh read-commands product constructors", () => {
     expect(inspectRemoteCommand(run(remoteVellumBrowserStation()))).toEqual({
       executable: "vellum-browser",
       args: ["station"],
+    });
+  });
+
+  it("mints the Station API wrapper without a path or arguments", () => {
+    expect(inspectRemoteCommand(run(remoteVellumStation()))).toEqual({
+      executable: "vellum-station",
+      args: [],
     });
   });
 });

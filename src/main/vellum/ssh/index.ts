@@ -80,4 +80,5 @@ export {
   remoteTestFileExists,
   remoteUname,
   remoteVellumBrowserStation,
+  remoteVellumStation,
 } from "./read-commands";

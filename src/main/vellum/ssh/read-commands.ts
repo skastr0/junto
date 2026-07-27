@@ -200,3 +200,12 @@ export const remoteVellumBrowserStation = (): Effect.Effect<
   RemoteCommand,
   SshInputError
 > => makeRemoteCommand("vellum-browser", ["station"]);
+
+/**
+ * Fixed Station API stdin wrapper. Fleet traffic is one typed request on
+ * stdin and one typed response on stdout; no remote path or shell is exposed.
+ */
+export const remoteVellumStation = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> => makeRemoteCommand("vellum-station", []);
