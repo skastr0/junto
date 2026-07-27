@@ -23,18 +23,15 @@ const writeCanvas = vi.fn(
 );
 const createCanvas = vi.fn(async (name: string) => ({
   name,
-  path: `vellum://canvas/${name}`,
   doc: { nodes: [], edges: [] } satisfies CanvasDoc,
   revision: `${name}-created`,
 }));
 const listCanvases = vi.fn(async () => createCanvas.mock.calls.map(([name]) => ({
   name,
-  path: `vellum://canvas/${name}`,
   modifiedAt: "2026-07-18T00:00:00.000Z",
 })));
 const readCanvas = vi.fn(async (name: string) => ({
   name,
-  path: `vellum://canvas/${name}`,
   doc: doc("disk-external"),
   revision: `${name}-disk`,
 }));
@@ -68,7 +65,6 @@ describe("renderer canvas save durability", () => {
     readCanvas.mockClear();
     readCanvas.mockImplementation(async (name: string) => ({
       name,
-      path: `vellum://canvas/${name}`,
       doc: doc("disk-external"),
       revision: `${name}-disk`,
     }));

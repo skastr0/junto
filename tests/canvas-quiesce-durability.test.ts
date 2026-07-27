@@ -33,13 +33,11 @@ const runtimeWindow = {
     writeCanvas,
     readCanvas: async (name: string) => ({
       name,
-      path: `/canvases/${name}.canvas`,
       doc: note("disk"),
       revision: "disk-r1",
     }),
     createCanvas: async (name: string) => ({
       name,
-      path: `/canvases/${name}.canvas`,
       doc: note("created"),
       revision: "created-r1",
     }),

@@ -44,7 +44,6 @@ export interface ResolvedNodeRef {
   readonly ref: NodeRef;
   readonly key: NodeRefKey;
   readonly canvasName: string;
-  readonly canvasPath: string;
   readonly node: CanvasNode;
 }
 
@@ -122,7 +121,6 @@ export const resolveNodeRef = (
       ref,
       key,
       canvasName: ref.canvasName,
-      canvasPath: canvas.path,
       node,
     };
   });

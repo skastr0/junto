@@ -37,7 +37,6 @@ const reader = (
 ): CanvasNodeReader => {
   const summaries: ReadonlyArray<CanvasSummary> = Object.keys(docs).map((name) => ({
     name,
-    path: `/canvases/${name}.canvas`,
     modifiedAt: "2026-07-17T00:00:00.000Z",
   }));
   return {
@@ -51,7 +50,6 @@ const reader = (
         ? Effect.fail(new CanvasError({ message: `${name}.canvas does not exist` }))
         : Effect.succeed({
           name,
-          path: `/canvases/${name}.canvas`,
           doc,
           revision: `${name}-r1`,
         });

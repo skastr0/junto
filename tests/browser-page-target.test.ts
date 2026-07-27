@@ -29,7 +29,6 @@ const reader = (docs: Readonly<Record<string, CanvasDoc>>): CanvasNodeReader => 
   list: Effect.succeed(
     Object.keys(docs).map((name) => ({
       name,
-      path: `/canvases/${name}.canvas`,
       modifiedAt: "2026-07-17T00:00:00.000Z",
     })),
   ),
@@ -37,7 +36,7 @@ const reader = (docs: Readonly<Record<string, CanvasDoc>>): CanvasNodeReader => 
     const doc = docs[name];
     return doc === undefined
       ? Effect.fail(new CanvasError({ message: "missing" }))
-      : Effect.succeed({ name, path: `/canvases/${name}.canvas`, doc, revision: `${name}-r1` });
+      : Effect.succeed({ name, doc, revision: `${name}-r1` });
   },
 });
 
@@ -144,7 +143,7 @@ describe("canonical browser page target resolution", () => {
   it("maps canvas read failures to a typed failed result without leaking details", async () => {
     const failing: CanvasNodeReader = {
       list: Effect.succeed([
-        { name: "work", path: "/canvases/work.canvas", modifiedAt: "2026-07-17T00:00:00.000Z" },
+        { name: "work", modifiedAt: "2026-07-17T00:00:00.000Z" },
       ]),
       read: () => Effect.fail(new CanvasError({ message: "secret filesystem detail" })),
     };

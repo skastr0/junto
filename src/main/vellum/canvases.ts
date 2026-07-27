@@ -602,9 +602,6 @@ export const CanvasesLive = Layer.effect(
     }
   };
 
-  const virtualPath = (name: CanvasName): string =>
-    `vellum://canvas/${encodeURIComponent(name)}`;
-
   const bootstrap = Effect.gen(function* () {
     yield* Effect.tryPromise({
       try: ensureCanvasesDir,
@@ -728,7 +725,6 @@ export const CanvasesLive = Layer.effect(
         [...snapshot.documents.entries()]
           .map(([name, entry]) => ({
             name,
-            path: virtualPath(name as CanvasName),
             modifiedAt: entry.modifiedAt,
           }))
           .sort((a, b) => a.name.localeCompare(b.name)),
@@ -757,7 +753,6 @@ export const CanvasesLive = Layer.effect(
         name: canonicalName,
         doc: projectWorkSnapshots(entry.doc, workSnapshots),
         revision: entry.revision,
-        path: virtualPath(canonicalName),
       };
     });
 
@@ -896,7 +891,6 @@ export const CanvasesLive = Layer.effect(
         name: canonicalName,
         doc: outcome.doc,
         revision: outcome.revision,
-        path: virtualPath(canonicalName),
       };
     });
 

@@ -19,7 +19,6 @@ const textNode = (id: string) => ({
 
 const canvas = (name: string, nodeIds: ReadonlyArray<string>): CanvasReadResult => ({
   name,
-  path: `/canvases/${name}.canvas`,
   doc: { nodes: nodeIds.map(textNode), edges: [] },
   revision: `${name}-revision`,
 });

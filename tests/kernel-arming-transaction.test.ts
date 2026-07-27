@@ -25,7 +25,6 @@ const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "" });
 const emptyDoc = (name: string) => ({
   name,
-  path: "",
   doc: { nodes: [], edges: [] },
   revision: `${name}-r1`,
 });

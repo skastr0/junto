@@ -107,7 +107,6 @@ const makeRuntime = (input: {
     list: Effect.sync(() =>
       [...documents.keys()].sort().map((name) => ({
         name,
-        path: `/virtual/${name}`,
         modifiedAt,
       })),
     ),
@@ -121,7 +120,6 @@ const makeRuntime = (input: {
           )
         : Effect.succeed({
             name,
-            path: `/virtual/${name}`,
             revision: "a".repeat(64),
             doc: current,
           });

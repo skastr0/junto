@@ -125,11 +125,11 @@ describe("canvases.ts write() — same-name concurrency", () => {
     expect(preserved.revision).not.toBe(stale.revision);
   });
 
-  it("mutates canonical authority and exposes no document-file path", async () => {
+  it("mutates canonical authority without fabricating a locator", async () => {
     const name = "mutate-canonical";
     await runtime.runPromise(canvases.write(name, docFor(20)));
     const initial = await runtime.runPromise(canvases.read(name));
-    expect(initial.path).toBe(`vellum://canvas/${name}`);
+    expect(initial).not.toHaveProperty("path");
 
     await runtime.runPromise(
       canvases.mutate(name, (current) => {

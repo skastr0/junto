@@ -176,10 +176,15 @@ describe("canvas path capability boundary", () => {
     expect(listed.map((entry) => entry.name)).toContain("safe");
   });
 
-  it("returns an opaque resource locator, never a document path", async () => {
-    await runtime.runPromise(canvases.create("portfolio-2026"));
+  it("returns no locator and writes no document file", async () => {
+    const created = await runtime.runPromise(canvases.create("portfolio-2026"));
     const read = await runtime.runPromise(canvases.read("portfolio-2026"));
-    expect(read.path).toBe("vellum://canvas/portfolio-2026");
+    const listed = await runtime.runPromise(canvases.list);
+    const summary = listed.find((entry) => entry.name === "portfolio-2026");
+    expect(created).not.toHaveProperty("path");
+    expect(read).not.toHaveProperty("path");
+    expect(summary).toBeDefined();
+    expect(summary).not.toHaveProperty("path");
     await expect(
       access(
         join(
