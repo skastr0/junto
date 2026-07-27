@@ -821,6 +821,7 @@ const recoverInterruptedTransaction = async (
   const journal = interrupted.journal;
   let lease: LinuxReleaseMaintenanceLease | undefined = observedLease;
   if (!PRE_MUTATION_PHASES.has(journal.phase) &&
+    !ABORTED_RESOLUTION_PHASES.has(journal.phase) &&
     !CLEARED_FENCE_PHASES.has(journal.phase)) {
     await lease.release().catch(() => undefined);
     try {
@@ -882,11 +883,9 @@ const recoverInterruptedTransaction = async (
   }
   let recovering = journal;
   const authority = observedAuthority;
-  const resolution: "committed" | "aborted" =
-    PRE_MUTATION_PHASES.has(journal.phase) ||
-      ABORTED_RESOLUTION_PHASES.has(journal.phase)
-      ? "aborted"
-      : "committed";
+  // The only recoverable nonterminal transaction is an aborted pre-mutation
+  // cleanup. Candidate mutation phases are quarantined and retained above.
+  const resolution = "aborted" as const;
   if (authority === undefined) {
     if (!CLEAR_STARTED_PHASES.has(journal.phase)) {
       throw new InstallerError(
@@ -1299,6 +1298,9 @@ const runPreparedInstall = async (
       // Quarantine the existing generation before a package mutation.  A
       // crash after this point can leave only a stopped, disabled service.
       if (fromVersion !== null) {
+        // Once the prior generation is fenced, forward repair owns this
+        // transaction even if quarantine proof itself fails.
+        mutationStarted = true;
         await host.quarantineRemote(invocation);
       }
       mutationStarted = true;
@@ -1333,7 +1335,7 @@ const runPreparedInstall = async (
       await host.writeJournal(activeJournal);
       // Boot gate is generation + work control only (production contract).
       // TermControl is observational: best-effort fence for terminal cut-over.
-      // Missing or stale TermControl must not roll back a work-ready package.
+      // Missing or stale TermControl cannot replace the work-ready package.
       {
         const fenceDeadline = Date.now() + 5_000;
         while (Date.now() < fenceDeadline) {
@@ -1405,7 +1407,6 @@ const runPreparedInstall = async (
       fenceId: fence.fenceId,
       inventorySha256: request.candidate.inventorySha256,
       operation,
-      changed: true,
       fromVersion,
       toVersion: verified.version,
       manifestSha256: verified.manifestSha256,
@@ -3735,40 +3736,6 @@ export class NodeLinuxReleaseInstallerHost
       );
     }
     return createHash("sha256").update(raw.trim(), "utf8").digest("hex");
-  }
-
-  async #mutationUnitState(transactionId: string): Promise<string> {
-    const result = await this.#run(
-      "/usr/bin/systemctl",
-      [
-        "is-active",
-        `vellum-release-install-${transactionId}.service`,
-      ],
-      30_000,
-    );
-    if (result.stdout === "inactive\n" || result.stdout === "failed\n") {
-      return result.stdout.trim();
-    }
-    if (result.stdout === "active\n" || result.stdout === "activating\n") {
-      return result.stdout.trim();
-    }
-    if (result.code === 4 && result.stdout === "unknown\n") return "unknown";
-    // Collected transient units commonly report no stdout and status 4.
-    if (result.code === 4 && result.stdout === "") return "unknown";
-    throw new InstallerError(
-      "unsafe-state",
-      "dpkg transaction scope state is indeterminate",
-    );
-  }
-
-  async #assertMutationQuiescent(transactionId: string): Promise<void> {
-    const state = await this.#mutationUnitState(transactionId);
-    if (state === "active" || state === "activating") {
-      throw new InstallerError(
-        "install-failed",
-        "candidate dpkg transaction scope is still active",
-      );
-    }
   }
 
   async #runDpkgTransaction(

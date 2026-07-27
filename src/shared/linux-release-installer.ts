@@ -141,8 +141,7 @@ export type LinuxReleaseInstallerRepairAction =
   | "retry-after-current-installer"
   | "repair-root-installer-state-manually"
   | "obtain-a-valid-signed-release"
-  | "repair-installed-package-manually"
-  | "retry-install";
+  | "repair-installed-package-manually";
 
 export interface LinuxReleaseInstallerJournalPredecessor {
   readonly transactionId: string;
@@ -203,7 +202,6 @@ export type LinuxReleaseInstallerReceipt =
     readonly fenceId: string;
     readonly inventorySha256: string;
     readonly operation: "install" | "adopt";
-    readonly changed: boolean;
     readonly fromVersion: string | null;
     readonly toVersion: string;
     readonly manifestSha256: string;
@@ -936,7 +934,6 @@ export const decodeLinuxReleaseInstallerReceipt = (
         "fenceId",
         "inventorySha256",
         "operation",
-        "changed",
         "fromVersion",
         "toVersion",
         "manifestSha256",
@@ -958,12 +955,6 @@ export const decodeLinuxReleaseInstallerReceipt = (
         !TRANSACTION_ID.test(input.recoveredTransactionId))
     ) {
       throw new Error("installer final receipt has invalid recovery");
-    }
-    if (
-      typeof input.changed !== "boolean" ||
-      !input.changed
-    ) {
-      throw new Error("installer final receipt has invalid change state");
     }
     const toVersion = stringMatching(
       input.toVersion,
@@ -1009,7 +1000,6 @@ export const decodeLinuxReleaseInstallerReceipt = (
         "installer receipt inventory sha256",
       ),
       operation: input.operation,
-      changed: input.changed,
       fromVersion: decodeNullableVersion(
         input.fromVersion,
         "installer receipt prior version",
@@ -1051,7 +1041,6 @@ export const decodeLinuxReleaseInstallerReceipt = (
     "repair-root-installer-state-manually",
     "obtain-a-valid-signed-release",
     "repair-installed-package-manually",
-    "retry-install",
   ]);
   exactKeys(
     input,

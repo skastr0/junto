@@ -97,9 +97,8 @@ interface FakeMachine {
     | "absent-inactive";
   linger: boolean;
   failInstallAfterMutation: boolean;
-  failRollback: boolean;
   failActivation: boolean;
-  transientInstallActive: boolean;
+  failQuarantine: boolean;
   events: string[];
 }
 
@@ -108,7 +107,6 @@ interface Fixture {
   readonly paths: {
     readonly stateRoot: string;
     readonly spoolRoot: string;
-    readonly cacheRoot: string;
     readonly runtimeRoot: string;
     readonly dpkgInfoRoot: string;
     readonly installedRoot: string;
@@ -635,17 +633,6 @@ const makeRunner = (
         ?.slice("--unit=".length) ?? "";
       const dpkg = argumentsArray.indexOf("/usr/bin/dpkg");
       const operation = argumentsArray[dpkg + 1];
-      if (unit.includes("rollback") && machine.failRollback) {
-        machine.events.push("rollback-failed");
-        return result(1);
-      }
-      if (operation === "--purge") {
-        machine.events.push("purge");
-        machine.version = null;
-        machine.packageStatus = "install ok installed";
-        machine.service = "absent-inactive";
-        return result(0);
-      }
       if (operation === "--install") {
         const source = argumentsArray[dpkg + 2] ?? "";
         const decoded = JSON.parse(await readFile(source, "utf8")) as {
@@ -653,14 +640,10 @@ const makeRunner = (
         };
         machine.version = decoded.version;
         machine.packageStatus =
-          !unit.includes("rollback") && machine.failInstallAfterMutation
+          machine.failInstallAfterMutation
             ? "install ok half-configured"
             : "install ok installed";
-        machine.events.push(
-          unit.includes("rollback")
-            ? `rollback:${decoded.version}`
-            : `install:${decoded.version}`,
-        );
+        machine.events.push(`install:${decoded.version}`);
         const payload = path.join(
           paths.installedRoot,
           "opt",
@@ -685,7 +668,6 @@ const makeRunner = (
           { mode: 0o644 },
         );
         if (
-          !unit.includes("rollback") &&
           machine.failInstallAfterMutation
         ) {
           machine.failInstallAfterMutation = false;
@@ -695,14 +677,6 @@ const makeRunner = (
       }
     }
     if (executable === "/usr/bin/systemctl") {
-      if (
-        argumentsArray[0] === "is-active" &&
-        argumentsArray[1]?.startsWith("vellum-release-install-")
-      ) {
-        return machine.transientInstallActive
-          ? result(0, "active\n")
-          : result(4);
-      }
     }
     if (executable === "/usr/bin/loginctl") {
       if (argumentsArray[0] === "show-user") {
@@ -760,6 +734,8 @@ const makeRunner = (
         return result(0);
       }
       if (command[0] === "disable") {
+        machine.events.push("quarantine");
+        if (machine.failQuarantine) return result(1);
         machine.service = command.includes("--now")
           ? "disabled-inactive"
           : machine.service.endsWith("active") &&
@@ -817,7 +793,6 @@ const createFixture = async (
   const paths = {
     stateRoot: path.join(root, "state"),
     spoolRoot: path.join(root, "spool"),
-    cacheRoot: path.join(root, "cache"),
     runtimeRoot: path.join(root, "run"),
     dpkgInfoRoot: path.join(root, "dpkg-info"),
     installedRoot: path.join(root, "installed"),
@@ -854,9 +829,8 @@ const createFixture = async (
     service: "absent-inactive",
     linger: false,
     failInstallAfterMutation: false,
-    failRollback: false,
     failActivation: false,
-    transientInstallActive: false,
+    failQuarantine: false,
     events: [],
   };
   const lock = { held: false };
@@ -1294,9 +1268,108 @@ describe("Linux privileged release installer", () => {
     expect(receipt).toMatchObject({ ok: false, code: "install-failed", action: "repair-installed-package-manually" });
     expect(fixture.machine.service).toBe("disabled-inactive");
     expect(fixture.machine.events).toContain("install:2.0.0");
+    expect(fixture.machine.events.indexOf("quarantine"))
+      .toBeLessThan(fixture.machine.events.indexOf("install:2.0.0"));
+    expect(fixture.machine.events).not.toContain("install:1.0.0");
     expect(await fixture.host.readJournal()).toMatchObject({ phase: "dpkg-started", fromVersion: "1.0.0", toVersion: "2.0.0" });
     expect(fixture.fence.events).toContain("publish");
     expect(fixture.fence.events).not.toContain("clear");
+  });
+
+  it("adopts an exact same-version baseline without dpkg", async () => {
+    const fixture = await createFixture();
+    await seedInstalledBaseline(fixture, "1.0.0");
+    const { receipt } = await install(fixture, "1.0.0", "70".repeat(16));
+    expect(receipt).toMatchObject({ ok: true, state: "ready", operation: "adopt" });
+    expect(fixture.machine.events).toContain("quarantine");
+    expect(fixture.machine.events.filter((event) => event.startsWith("install:")))
+      .toEqual([]);
+  });
+
+  it("refuses a mismatched installed payload before activation", async () => {
+    const fixture = await createFixture();
+    await seedInstalledBaseline(fixture, "1.0.0");
+    await writeFile(
+      path.join(fixture.paths.installedRoot, "opt", "Vellum", "app.bin"),
+      "tampered",
+    );
+    const { receipt } = await install(fixture, "1.0.0", "71".repeat(16));
+    expect(receipt).toMatchObject({ ok: false, code: "unsafe-state" });
+    expect(fixture.machine.events).toEqual([]);
+    await expect(fixture.host.readJournal()).resolves.toBeNull();
+  });
+
+  it("retains a quarantined forward journal when activation fails", async () => {
+    const fixture = await createFixture();
+    await seedInstalledBaseline(fixture, "1.0.0");
+    fixture.machine.service = "enabled-active";
+    fixture.machine.failActivation = true;
+    const { receipt } = await install(fixture, "2.0.0", "72".repeat(16));
+    expect(receipt).toMatchObject({ ok: false, code: "install-failed", action: "repair-installed-package-manually" });
+    expect(fixture.machine.service).toBe("disabled-inactive");
+    expect(await fixture.host.readJournal()).toMatchObject({ schema: "vellum/linux-release-installer-journal/v3", phase: "activation-started" });
+    expect(fixture.fence.events).not.toContain("clear");
+  });
+
+  it("refuses a busy kernel lease before package work", async () => {
+    const fixture = await createFixture();
+    fixture.lock.held = true;
+    const { receipt } = await install(fixture, "1.0.0", "73".repeat(16));
+    expect(receipt).toMatchObject({ ok: false, code: "busy" });
+    expect(fixture.machine.events).toEqual([]);
+  });
+
+  it("retains forward authority when quarantine proof fails", async () => {
+    const fixture = await createFixture();
+    await seedInstalledBaseline(fixture, "1.0.0");
+    fixture.machine.service = "enabled-active";
+    fixture.machine.failQuarantine = true;
+    const { receipt } = await install(fixture, "2.0.0", "74".repeat(16));
+    expect(receipt).toMatchObject({ ok: false, code: "unsafe-state", action: "repair-root-installer-state-manually" });
+    expect(await fixture.host.readJournal()).toMatchObject({ schema: "vellum/linux-release-installer-journal/v3", phase: "prepared" });
+    expect(fixture.fence.events).toContain("publish");
+    expect(fixture.fence.events).not.toContain("clear");
+    expect(fixture.machine.events.filter((event) => event.startsWith("install:")))
+      .toEqual([]);
+  });
+
+  it("quarantines and refuses an interrupted post-mutation journal without execution", async () => {
+    const fixture = await createFixture();
+    await fixture.host.ensureLayout();
+    const prior = bundle("2.0.0", "75".repeat(16));
+    await fixture.host.writeJournal({
+      schema: "vellum/linux-release-installer-journal/v3",
+      transactionId: prior.request.transactionId,
+      operation: "install",
+      owner: fixture.invocation.process,
+      target: prior.request.target,
+      fence: journalFence(prior, prior.request.transactionId, "install", "dpkg-started"),
+      manifestSha256: prior.candidate.manifestSha256,
+      debSha256: prior.candidate.debSha256,
+      sourceRevision: revision,
+      fromVersion: "1.0.0",
+      toVersion: "2.0.0",
+      phase: "dpkg-started",
+    });
+    const { receipt } = await install(fixture, "3.0.0", "76".repeat(16));
+    expect(receipt).toMatchObject({ ok: false, code: "install-failed", action: "repair-installed-package-manually" });
+    expect(fixture.machine.service).toBe("disabled-inactive");
+    expect(fixture.machine.events).toEqual(["quarantine"]);
+    expect(await fixture.host.readJournal()).toMatchObject({ phase: "dpkg-started", toVersion: "2.0.0" });
+    expect(fixture.fence.events).not.toContain("clear");
+  });
+
+  it("refuses a malformed durable journal before package execution", async () => {
+    const fixture = await createFixture();
+    await fixture.host.ensureLayout();
+    await writeFile(
+      path.join(fixture.paths.stateRoot, "transaction.json"),
+      "{not-json}\n",
+      { mode: 0o600 },
+    );
+    const { receipt } = await install(fixture, "1.0.0", "77".repeat(16));
+    expect(receipt).toMatchObject({ ok: false, code: "unsafe-state" });
+    expect(fixture.machine.events).toEqual([]);
   });
 
   it("rejects v2 and rollback-shaped durable receipts and journals", () => {
