@@ -350,6 +350,7 @@ const sameOriginRecord = (
   left.generation === right.generation &&
   left.keyId === right.keyId &&
   left.originStationId === right.originStationId &&
+  left.createdAt === right.createdAt &&
   Buffer.from(left.privateKeyPkcs8).equals(
     Buffer.from(right.privateKeyPkcs8),
   ) &&
