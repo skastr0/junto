@@ -8,6 +8,7 @@ import {
   type StationConfiguration as StationConfigurationValue,
   type StationEventAck as StationEventAckValue,
   type StationProjectionReference as StationProjectionReferenceValue,
+  type StationReadiness as StationReadinessValue,
   type StatusResponse as StatusResponseValue,
 } from "./station-api";
 import {
@@ -206,8 +207,7 @@ export type StationDoctorInput = {
   readonly kernel?: StationKernelRecord;
   readonly registeredRemoteEndpoints?: Readonly<Record<string, string>>;
   readonly remoteObservations?: ReadonlyArray<StationRemoteObservation>;
-  readonly workControlReady: boolean;
-  readonly simulationReady: boolean;
+  readonly readiness: StationReadinessValue;
   readonly now?: number;
 };
 
@@ -277,12 +277,17 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
   if (configuration === undefined) raise("warning");
   if (supervised.status === "warning") raise("warning");
 
-  if (input.workControlReady) lines.push("work control ready");
+  if (input.readiness.database) lines.push("database ready");
+  else {
+    lines.push("database unavailable");
+    raise("error");
+  }
+  if (input.readiness.workControl) lines.push("work control ready");
   else {
     lines.push("work control not ready");
     raise("warning");
   }
-  if (input.simulationReady) lines.push("simulation ready");
+  if (input.readiness.simulation) lines.push("simulation ready");
   else {
     lines.push("simulation degraded");
     raise("warning");
@@ -543,8 +548,9 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       projectionContentSha256: input.projection?.contentSha256 ?? "",
       receivedCursorCount: String(input.receivedThrough.length),
       receivedThrough: localCursors,
-      workControlReady: input.workControlReady ? "true" : "false",
-      simulationReady: input.simulationReady ? "true" : "false",
+      databaseReady: input.readiness.database ? "true" : "false",
+      workControlReady: input.readiness.workControl ? "true" : "false",
+      simulationReady: input.readiness.simulation ? "true" : "false",
       supervisedPreferred: supervised.metadata.supervisedPreferred,
       supervisedInstalled: supervised.metadata.supervisedInstalled,
       supervisedAligned: supervised.metadata.supervisedAligned,

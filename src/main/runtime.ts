@@ -303,8 +303,11 @@ export const buildDoctorReport = Effect.gen(function* () {
       kernel: kernelRecord,
       registeredRemoteEndpoints,
       remoteObservations: hostsDoctorSnapshot.observations,
-      workControlReady,
-      simulationReady: kernelRecord.fault === undefined,
+      readiness: {
+        database: true,
+        workControl: workControlReady,
+        simulation: kernelRecord.fault === undefined,
+      },
     });
     const readiness = yield* assessCurrentStationReadiness({
       supervisorAligned,
