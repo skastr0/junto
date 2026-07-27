@@ -78,6 +78,7 @@ describe("native package pipeline contract", () => {
     expect(build).toContain('--target mac|linux');
     expect(build).toContain('build_compiled_cli "$REPO_ROOT/dist/vellum" src/cli/main.ts');
     expect(build).toContain('build_compiled_cli "$REPO_ROOT/dist/vellum-browser" scripts/browser-cli.ts');
+    expect(build).toContain('build_compiled_cli "$REPO_ROOT/dist/vellum-station" scripts/station-cli.ts');
     expect(build).toContain(
       'build_compiled_cli "$REPO_ROOT/dist/vellum-release-installer" scripts/linux-release-installer.ts',
     );
@@ -199,7 +200,14 @@ describe("native package pipeline contract", () => {
     expect(afterPack).toContain('platform === "linux"');
     expect(afterPack).toContain("context.packager.appInfo.productName");
     expect(afterPack).toContain('unsupported Vellum package platform');
-    expect(afterPack).toContain('["vellum", "vellum-browser", "unix-peer-pid.py"]');
+    for (const helper of [
+      '"vellum"',
+      '"vellum-browser"',
+      '"vellum-station"',
+      '"unix-peer-pid.py"',
+    ]) {
+      expect(afterPack).toContain(helper);
+    }
     expect(afterPack).toContain(
       'new URL("../node_modules/electron/dist/version", import.meta.url)',
     );

@@ -454,7 +454,7 @@ describe("packaged browser CLI contract", () => {
 });
 
 describe("browser CLI packaging contract", () => {
-  it("packages the standalone helpers plus runtime policy and installs both stable command names exclusively", async () => {
+  it("packages the standalone helpers plus runtime policy and installs all stable command names exclusively", async () => {
     const pkg = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
       readonly build: {
         readonly files: ReadonlyArray<string>;
@@ -467,6 +467,7 @@ describe("browser CLI packaging contract", () => {
     expect(pkg.build.extraResources).toEqual([
       { from: "dist/vellum", to: "bin/vellum" },
       { from: "dist/vellum-browser", to: "bin/vellum-browser" },
+      { from: "dist/vellum-station", to: "bin/vellum-station" },
       { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
       {
         from: "scripts/electron-security-policy.json",
@@ -489,8 +490,10 @@ describe("browser CLI packaging contract", () => {
     );
     expect(installScript).toContain('install_cli_link "vellum"');
     expect(installScript).toContain('install_cli_link "vellum-browser"');
+    expect(installScript).toContain('install_cli_link "vellum-station"');
     expect(installScript).toContain('local work_helper="$APP_DST/Contents/Resources/bin/vellum"');
     expect(installScript).toContain('local browser_helper="$APP_DST/Contents/Resources/bin/vellum-browser"');
+    expect(installScript).toContain('local station_helper="$APP_DST/Contents/Resources/bin/vellum-station"');
     expect(installScript).toContain('ln -s "$helper" "$target"');
     expect(installScript).toContain('CLI link changed identity during creation');
     expect(installScript).not.toContain('mv -f "$stage" "$target"');
