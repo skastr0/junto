@@ -81,9 +81,7 @@ export const resolveBrowserCallerFromProcess = (
       message:
         principal.kind === "agent"
           ? `no agent node for ${principal.agentKey ?? "unknown"} on canvas "${canvasName}"`
-          : principal.kind === "terminal"
-            ? `no terminal node for binding ${principal.bindingId ?? "unknown"} on canvas "${canvasName}"`
-            : `no herdr node for process on canvas "${canvasName}"`,
+          : `no terminal node for binding ${principal.bindingId ?? "unknown"} on canvas "${canvasName}"`,
     };
   }
   if (hits.length > 1) {

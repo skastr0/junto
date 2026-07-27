@@ -202,7 +202,7 @@ export const browserAuthzMessage = (denial: BrowserAuthzDenial): string => {
     case "caller_missing":
       return "caller node not found on canvas — process is bound to a missing node";
     case "caller_wrong_kind":
-      return "caller must be an actor node (agent, terminal, or herdr)";
+      return "caller must be an actor node — geography (herdr, regions, notes) holds no browser grant";
     case "not_connected":
       return "missing edge between caller and page — draw an edge in Vellum";
     case "page_missing":

@@ -52,7 +52,6 @@ import {
   revokeRouteToken,
   rotateRouteToken,
   RouteTokenError,
-  type RouteTokenMintPrincipal,
 } from "../work/route-tokens";
 
 export class InstallPlaneError extends Schema.TaggedError<InstallPlaneError>()(
@@ -96,9 +95,8 @@ const PluginInput = Schema.Struct({
 const MintInput = Schema.Struct({
   canvasName: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(128)),
   nodeId: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(128)),
-  kind: Schema.Literal("agent", "herdr", "terminal"),
+  kind: Schema.Literal("agent", "terminal"),
   agentKey: Schema.optionalWith(Schema.String, { exact: true }),
-  paneId: Schema.optionalWith(Schema.String, { exact: true }),
   bindingId: Schema.optionalWith(Schema.String, { exact: true }),
 });
 
@@ -463,10 +461,7 @@ export const InstallPlaneLive = Layer.effect(
               }),
           ),
         );
-        const seat = proveLiveSeat(
-          liveDocs,
-          decoded.right as RouteTokenMintPrincipal,
-        );
+        const seat = proveLiveSeat(liveDocs, decoded.right);
         if (!seat.ok) {
           return {
             ok: false,

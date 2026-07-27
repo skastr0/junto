@@ -824,9 +824,8 @@ export type HostsInstallPluginResult = {
 export type RouteTokenMintInput = {
   readonly canvasName: string;
   readonly nodeId: string;
-  readonly kind: "agent" | "herdr" | "terminal";
+  readonly kind: "agent" | "terminal";
   readonly agentKey?: string;
-  readonly paneId?: string;
   readonly bindingId?: string;
 };
 
