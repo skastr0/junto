@@ -16,8 +16,6 @@ import {
   COMMAND_CENTER_WORK_HOME,
   WorkRepository,
   WorkRepositoryLive,
-  legacyWorkSnapshot,
-  projectWorkSnapshot,
 } from "../src/main/vellum/work/repository";
 import {
   makeStateEngineLive,
@@ -68,7 +66,6 @@ const taskCanvas = (
       ether: {
         entity: { kind: "task" },
         host,
-        tasks: { items: [] },
       },
     },
   ],
@@ -103,7 +100,7 @@ describe("WorkRepository", () => {
     );
     expect(created.value.state).toBe("submitted");
     expect(created.projectedDoc.nodes[0]?.ether?.tasks?.items).toHaveLength(1);
-    expect(doc.nodes[0]?.ether?.tasks?.items).toEqual([]);
+    expect(doc.nodes[0]?.ether?.tasks).toBeUndefined();
 
     await runtime.runPromise(
       repository.mutate({
@@ -293,7 +290,7 @@ describe("WorkRepository", () => {
     });
   });
 
-  it("returns a full compatibility projection across multiple work sinks", async () => {
+  it("returns a full runtime projection across multiple work sinks", async () => {
     const doc: CanvasDoc = {
       nodes: [
         taskCanvas("tasks-left").nodes[0]!,
@@ -403,39 +400,6 @@ describe("WorkRepository", () => {
         }),
       ),
     ).rejects.toThrow(/explicit re-home is required/u);
-  });
-
-  it("imports legacy embedded work explicitly and idempotently", async () => {
-    const workIds = ids();
-    const base = taskCanvas("tasks-import", "station-import");
-    const legacy = workTaskCreate(
-      base,
-      "import-canvas",
-      "tasks-import",
-      "preserve me",
-      { class: "migration" },
-      workIds,
-    ).doc;
-    expect(
-      legacyWorkSnapshot(legacy, "import-canvas", "tasks-import").tasks.items,
-    ).toHaveLength(1);
-
-    const first = await runtime.runPromise(
-      repository.importLegacy("import-canvas", legacy),
-    );
-    const second = await runtime.runPromise(
-      repository.importLegacy("import-canvas", legacy),
-    );
-    expect(first).toEqual({ importedNodes: 1, importedRecords: 1 });
-    expect(second).toEqual({ importedNodes: 0, importedRecords: 0 });
-
-    const snapshot = await runtime.runPromise(
-      repository.readSnapshot("import-canvas", "tasks-import"),
-    );
-    expect(snapshot.tasks.items[0]?.metadata).toEqual({ class: "migration" });
-    const projection = projectWorkSnapshot(base, snapshot);
-    expect(projection.nodes[0]?.ether?.tasks?.items).toHaveLength(1);
-    expect(base.nodes[0]?.ether?.tasks?.items).toEqual([]);
   });
 
   it("keeps sequence cursors exact beyond Number.MAX_SAFE_INTEGER", async () => {

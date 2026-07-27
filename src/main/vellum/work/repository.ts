@@ -17,7 +17,6 @@ import {
   mirrorTasksText,
 } from "@shared/task";
 import { WorkError } from "@shared/work";
-import { resolveNodeHostId } from "@shared/station";
 import {
   StateEngine,
   type StateReader,
@@ -79,30 +78,9 @@ export type WorkMutationResult<A> = {
   readonly projectedDoc: CanvasDoc;
 };
 
-export type LegacyWorkImportResult = {
-  readonly importedNodes: number;
-  readonly importedRecords: number;
-};
-
-const emptySnapshot = (canvasName: string, nodeId: string): WorkSnapshot => ({
-  canvasName,
-  nodeId,
-  tasks: { items: [] },
-  requests: { items: [] },
-  messages: { items: [] },
-  artifacts: { items: [] },
-});
-
-const workRecordCount = (snapshot: WorkSnapshot): number =>
-  snapshot.tasks.items.length +
-  snapshot.requests.items.length +
-  snapshot.messages.items.length +
-  snapshot.artifacts.items.length;
-
 /**
- * Transitional read projection. Durable rows are overlaid on the authorial
- * document for existing renderer/kernel consumers; this helper never writes
- * the projection back to canvas authority.
+ * Runtime read projection. Durable rows are overlaid on the authorial document
+ * for renderer/kernel consumers and are never written to canvas authority.
  */
 export const projectWorkSnapshots = (
   doc: CanvasDoc,
@@ -147,14 +125,9 @@ export const projectWorkSnapshots = (
   };
 };
 
-export const projectWorkSnapshot = (
-  doc: CanvasDoc,
-  snapshot: WorkSnapshot,
-): CanvasDoc => projectWorkSnapshots(doc, [snapshot]);
-
 /**
- * Remove the compatibility projection before a document crosses the
- * authorial persistence boundary.
+ * Remove runtime work data before a document crosses the authorial persistence
+ * boundary.
  *
  * Native sink text is reset only when a projected container was actually
  * present. That preserves an operator-authored label on a pristine sink while
@@ -210,8 +183,8 @@ export const stripWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
   }),
 });
 
-/** Read the legacy embedded containers without mutating or sanitizing them. */
-export const legacyWorkSnapshot = (
+/** Recover the target lane after a pure runtime-projection transform. */
+const snapshotFromRuntimeProjection = (
   doc: CanvasDoc,
   canvasName: string,
   nodeId: string,
@@ -229,12 +202,6 @@ export const legacyWorkSnapshot = (
     artifacts: { items: [...(node.ether?.artifacts?.items ?? [])] },
   };
 };
-
-const snapshotFromProjectedDoc = (
-  doc: CanvasDoc,
-  canvasName: string,
-  nodeId: string,
-): WorkSnapshot => legacyWorkSnapshot(doc, canvasName, nodeId);
 
 type TaskRow = StateRow & {
   readonly task_id: string;
@@ -1355,13 +1322,6 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
       WorkMutationResult<A>,
       WorkRepositoryError | WorkError
     >;
-    readonly importLegacy: (
-      canvasName: string,
-      doc: CanvasDoc,
-    ) => Effect.Effect<
-      LegacyWorkImportResult,
-      WorkRepositoryError | WorkError
-    >;
     readonly eventsAfter: (
       homeStation: string,
       afterSeq: string,
@@ -1438,10 +1398,10 @@ export const WorkRepositoryLive = Layer.effect(
             input.canvasName,
             input.nodeId,
           );
-          const projected = projectWorkSnapshot(input.authoredDoc, before);
+          const projected = projectWorkSnapshots(input.authoredDoc, [before]);
           try {
             const transformed = input.transform(projected);
-            const after = snapshotFromProjectedDoc(
+            const after = snapshotFromRuntimeProjection(
               transformed.doc,
               input.canvasName,
               input.nodeId,
@@ -1502,96 +1462,6 @@ export const WorkRepositoryLive = Layer.effect(
         );
     };
 
-    const importLegacy = (
-      canvasName: string,
-      doc: CanvasDoc,
-    ): Effect.Effect<
-      LegacyWorkImportResult,
-      WorkRepositoryError | WorkError
-    > =>
-      state
-        .transaction(
-          "work.importLegacy",
-          (writer):
-            | {
-                readonly _tag: "Success";
-                readonly result: LegacyWorkImportResult;
-              }
-            | { readonly _tag: "DomainFailure"; readonly error: WorkError } => {
-            try {
-              let importedNodes = 0;
-              let importedRecords = 0;
-              const originAt = new Date().toISOString();
-              for (const node of doc.nodes) {
-                const legacy = legacyWorkSnapshot(
-                  doc,
-                  canvasName,
-                  node.id,
-                );
-                const records = workRecordCount(legacy);
-                if (records === 0) continue;
-                const current = loadSnapshot(writer, canvasName, node.id);
-                if (workRecordCount(current) > 0) {
-                  if (canonicalJson(current) === canonicalJson(legacy)) {
-                    continue;
-                  }
-                  throw new WorkError(
-                    "invalid",
-                    `legacy work for node "${node.id}" conflicts with durable rows`,
-                  );
-                }
-                const plan = planMutation(current, legacy);
-                applyMutationPlan(writer, {
-                  canvasName,
-                  nodeId: node.id,
-                  entityHome: resolveNodeHostId(node),
-                  operation: "legacy.import",
-                  originAt,
-                  receivedAt: originAt,
-                  plan,
-                });
-                importedNodes += 1;
-                importedRecords += records;
-              }
-              return {
-                _tag: "Success",
-                result: { importedNodes, importedRecords },
-              };
-            } catch (error) {
-              if (error instanceof WorkError) {
-                return { _tag: "DomainFailure", error };
-              }
-              throw error;
-            }
-          },
-        )
-        .pipe(
-          Effect.mapError((error) =>
-            toRepositoryError("work.importLegacy", error),
-          ),
-          Effect.flatMap((outcome) =>
-            outcome._tag === "Success"
-              ? Effect.succeed(outcome.result)
-              : Effect.fail(outcome.error),
-          ),
-          Effect.tap((result) =>
-            result.importedNodes === 0
-              ? Effect.void
-              : Effect.sync(() => {
-                  for (const node of doc.nodes) {
-                    const legacy = legacyWorkSnapshot(
-                      doc,
-                      canvasName,
-                      node.id,
-                    );
-                    if (workRecordCount(legacy) > 0) {
-                      notifyChanges(canvasName, node.id);
-                    }
-                  }
-                })
-          ),
-        );
-
     const eventsAfter = (
       homeStation: string,
       afterSeq: string,
@@ -1651,7 +1521,6 @@ export const WorkRepositoryLive = Layer.effect(
       readSnapshot,
       snapshotsForCanvas,
       mutate,
-      importLegacy,
       eventsAfter,
       subscribeChanges: (listener) => {
         listeners.add(listener);

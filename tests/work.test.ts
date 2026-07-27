@@ -33,7 +33,7 @@ const emptyTaskNode = (id = "tasks"): CanvasDoc["nodes"][number] => ({
   y: 0,
   width: 200,
   height: 100,
-  ether: { entity: { kind: "task" }, tasks: { items: [] } },
+  ether: { entity: { kind: "task" } },
 });
 
 const emptyRequestsNode = (id = "req"): CanvasDoc["nodes"][number] => ({
@@ -44,7 +44,7 @@ const emptyRequestsNode = (id = "req"): CanvasDoc["nodes"][number] => ({
   y: 0,
   width: 200,
   height: 100,
-  ether: { entity: { kind: "requests" }, requests: { items: [] } },
+  ether: { entity: { kind: "requests" } },
 });
 
 const agentNode = (id = "agent"): CanvasDoc["nodes"][number] => ({
@@ -55,7 +55,7 @@ const agentNode = (id = "agent"): CanvasDoc["nodes"][number] => ({
   y: 0,
   width: 200,
   height: 100,
-  ether: { entity: { kind: "agent", name: "local:mira" }, messages: { items: [] } },
+  ether: { entity: { kind: "agent", name: "local:mira" } },
 });
 
 describe("work pure transforms", () => {
@@ -280,7 +280,7 @@ describe("work pure transforms", () => {
           y: 40,
           width: 120,
           height: 80,
-          ether: { entity: { kind: "task" }, tasks: { items: [] } },
+          ether: { entity: { kind: "task" } },
         },
       ],
       edges: [],
@@ -321,12 +321,16 @@ import {
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 
 const stateLive = makeStateEngineLive(join(mockCanvasesHome, "state", "vellum.db"));
-const persistenceLive = Layer.provideMerge(
-  Layer.mergeAll(CanvasesLive, WorkRepositoryLive),
+const repositoriesLive = Layer.provideMerge(
+  WorkRepositoryLive,
   stateLive,
 );
+const canvasesLive = Layer.provideMerge(
+  CanvasesLive,
+  repositoriesLive,
+);
 const workRuntime = ManagedRuntime.make(
-  Layer.provideMerge(WorkLive, persistenceLive),
+  Layer.provideMerge(WorkLive, canvasesLive),
 );
 let work: Context.Tag.Service<typeof WorkService>;
 let canvases: Context.Tag.Service<typeof CanvasesService>;
@@ -357,7 +361,7 @@ describe("WorkService — concurrent ops", () => {
             y: 0,
             width: 200,
             height: 100,
-            ether: { entity: { kind: "task" }, tasks: { items: [] } },
+            ether: { entity: { kind: "task" } },
           },
         ],
         edges: [],
@@ -403,9 +407,10 @@ describe("WorkService — concurrent ops", () => {
 
     const authorialAfter = await workRuntime.runPromise(canvases.read(name));
     expect(authorialAfter.revision).toBe(authorialBefore.revision);
+    const authority = await workRuntime.runPromise(canvases.authoritySnapshot());
     expect(
-      authorialAfter.doc.nodes[0]?.ether?.tasks?.items ?? [],
-    ).toEqual([]);
+      authority.documents.get(name)?.nodes[0]?.ether?.tasks,
+    ).toBeUndefined();
   });
 
   it("rejects bad canvas / node / illegal transition", async () => {
@@ -421,7 +426,7 @@ describe("WorkService — concurrent ops", () => {
             y: 0,
             width: 100,
             height: 50,
-            ether: { entity: { kind: "task" }, tasks: { items: [] } },
+            ether: { entity: { kind: "task" } },
           },
         ],
         edges: [],
@@ -463,7 +468,6 @@ describe("WorkService — concurrent ops", () => {
             height: 100,
             ether: {
               entity: { kind: "artifacts" },
-              artifacts: { items: [] },
             },
           },
         ],
@@ -526,9 +530,11 @@ describe("WorkService — concurrent ops", () => {
 
     const authorialAfter = await workRuntime.runPromise(canvases.read(name));
     expect(authorialAfter.revision).toBe(authorialBefore.revision);
+    const authority = await workRuntime.runPromise(canvases.authoritySnapshot());
     expect(
-      authorialAfter.doc.nodes.find((node) => node.id === "requests")?.ether
-        ?.requests?.items,
-    ).toEqual([]);
+      authority.documents.get(name)?.nodes.find(
+        (node) => node.id === "requests",
+      )?.ether?.requests,
+    ).toBeUndefined();
   });
 });
