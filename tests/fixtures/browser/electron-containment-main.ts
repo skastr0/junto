@@ -60,6 +60,7 @@ const controlHome = requiredArgument("control-home");
 const downloadPath = requiredArgument("download-path");
 const auditPath = requiredArgument("audit-path");
 const capabilityPath = requiredArgument("capability-path");
+const canvasPayload = requiredArgument("canvas-payload");
 const revokeMarkerPath = requiredArgument("revoke-marker-path");
 const admissionModePath = requiredArgument("admission-mode-path");
 const shutdownRequestPath = requiredArgument("shutdown-request-path");
@@ -573,8 +574,9 @@ void app.whenReady().then(async () => {
   audit.maximumWebContents = audit.baselineWebContents;
   await persistAudit();
 
-  canvasRuntime = makeCanvasRuntime();
-  const state = await canvasRuntime.runPromise(StateEngine);
+  const activeCanvasRuntime = makeCanvasRuntime();
+  canvasRuntime = activeCanvasRuntime;
+  const state = await activeCanvasRuntime.runPromise(StateEngine);
   const harness = makeBrowserTestOnlyElectronHarness(exactOrigin, downloadPath);
   const profiles = makeBrowserProfileService(state, browserRoot);
   sessions = new BrowserSessionService(
@@ -585,32 +587,22 @@ void app.whenReady().then(async () => {
     randomUUID,
     harness.targetAdmission,
   );
-  const canvases = await canvasRuntime.runPromise(CanvasesService);
+  const canvases = await activeCanvasRuntime.runPromise(CanvasesService);
   const fixtureCanvas = decodeCanvasDoc(
-    JSON.parse(
-      await readFile(
-        join(
-          controlHome,
-          ".vellum",
-          "canvases",
-          `${canvasName}.canvas`,
-        ),
-        "utf8",
-      ),
-    ),
+    JSON.parse(Buffer.from(canvasPayload, "base64url").toString("utf8")),
   );
   if (Either.isLeft(fixtureCanvas)) {
     throw new Error(
       `dedicated browser probe canvas is invalid: ${fixtureCanvas.left.message}`,
     );
   }
-  const listCanvasDocuments = async () => [{
-    name: canvasName,
-    doc: fixtureCanvas.right,
-  }];
-  await canvasRuntime.runPromise(
+  await activeCanvasRuntime.runPromise(
     canvases.write(canvasName, fixtureCanvas.right),
   );
+  const listCanvasDocuments = async () =>
+    (await activeCanvasRuntime.runPromise(canvases.liveDocuments())).map(
+      ({ canvasName: name, doc }) => ({ name, doc }),
+    );
   const resolvePageTarget = makePageTargetResolver(canvases);
   capabilities = makeBrowserCapabilityRegistry({
     onTerminate: (notice) => {

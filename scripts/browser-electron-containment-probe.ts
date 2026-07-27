@@ -1637,7 +1637,7 @@ const qualifyCapabilityNonDisclosure = async (options: {
   readonly stdout: string;
   readonly stderr: string;
   readonly auditPaths: ReadonlyArray<string>;
-  readonly canvasPath: string;
+  readonly canvasDocumentJson: string;
   readonly electronArguments: ReadonlyArray<ReadonlyArray<string>>;
 }): Promise<void> => {
   if (options.outputCapabilityLeak !== undefined) {
@@ -1648,12 +1648,11 @@ const qualifyCapabilityNonDisclosure = async (options: {
     persistedAudits.push(await readFile(path, "utf8"));
   }
   const persistedAuditJson = persistedAudits.join("\n");
-  const persistedCanvasJson = await readFile(options.canvasPath, "utf8");
   assertSecretsAbsent(options.knownCapabilities, [
     ["Electron stdout", options.stdout],
     ["Electron stderr", options.stderr],
     ["probe audit JSON", persistedAuditJson],
-    ["canvas document", persistedCanvasJson],
+    ["canvas document payload", options.canvasDocumentJson],
     ["Electron argv", JSON.stringify(options.electronArguments)],
     ["control response JSON", observedControlResponseJson.join("\n")],
   ]);
@@ -1666,7 +1665,6 @@ const main = async (): Promise<void> => {
   const home = join(root, "home");
   const userData = join(root, "electron-user-data");
   const browserDir = join(root, "browser");
-  const canvasesDir = join(home, ".vellum", "canvases");
   const downloadsDir = join(root, "downloads");
   const auditPath = join(root, "electron-audit-launch-one.json");
   const restartAuditPath = join(root, "electron-audit-launch-two.json");
@@ -1682,7 +1680,7 @@ const main = async (): Promise<void> => {
   const customProtocolUrl = `vellum-probe://denied/${nonce}`;
   const legacyTcpPort = await reserveLoopbackPort();
   await Promise.all(
-    [home, userData, browserDir, canvasesDir, downloadsDir].map((path) =>
+    [home, userData, browserDir, downloadsDir].map((path) =>
       mkdir(path, { recursive: true }),
     ),
   );
@@ -1756,8 +1754,7 @@ const main = async (): Promise<void> => {
     { nodeId: "filler-two", profile: "work", url: fixtureUrl("read") },
     { nodeId: "personal-restored", profile: "personal", url: fixtureUrl("read") },
   ] as const;
-  const canvasPath = join(canvasesDir, `${canvasName}.canvas`);
-  const canvasJson = JSON.stringify({
+  const canvasDocumentJson = JSON.stringify({
     nodes: [
       {
         id: "probe-agent",
@@ -1788,11 +1785,7 @@ const main = async (): Promise<void> => {
       toNode: nodeId,
     })),
   });
-  await writeFile(
-    canvasPath,
-    canvasJson,
-    { encoding: "utf8", mode: 0o600 },
-  );
+  const canvasPayload = Buffer.from(canvasDocumentJson, "utf8").toString("base64url");
 
   probeStage = "dedicated Electron entry build";
   const dedicatedMainPath = await buildDedicatedElectronEntry(root);
@@ -1801,7 +1794,6 @@ const main = async (): Promise<void> => {
     ...process.env,
     HOME: home,
     VELLUM_BROWSER_DIR: browserDir,
-    VELLUM_CANVASES_DIR: canvasesDir,
     VELLUM_CONTROL_TCP: `127.0.0.1:${legacyTcpPort}`,
   };
   delete env.ELECTRON_RENDERER_URL;
@@ -1823,6 +1815,7 @@ const main = async (): Promise<void> => {
       `--download-path=${downloadsDir}`,
       `--audit-path=${options.auditPath}`,
       `--capability-path=${options.capabilityPath}`,
+      `--canvas-payload=${canvasPayload}`,
       `--revoke-marker-path=${options.revokeMarkerPath}`,
       `--admission-mode-path=${options.admissionModePath}`,
       `--shutdown-request-path=${options.shutdownRequestPath}`,
@@ -1885,12 +1878,23 @@ const main = async (): Promise<void> => {
     assertRuntimeDevToolsAbsent(baselineAudit, "first launch baseline");
     await assertTcpControlAbsent(legacyTcpPort, token);
 
+    probeStage = "capability admission";
+    await qualifyCapabilityAdmission(
+      socketPath,
+      token,
+      handoff,
+      canvasName,
+      pageTargets,
+      admissionModePath,
+      auditPath,
+    );
+
     probeStage = "terminal and unbound UDS denial";
     await writeAdmissionMode(admissionModePath, "terminal");
     requireDenied(
       await terminalProbe.client.request(socketPath, token),
-      "forbidden",
-      "registered terminal peer",
+      "unauthorized",
+      "registered non-actor terminal peer",
     );
     await writeAdmissionMode(admissionModePath, "unbound");
     requireDenied(
@@ -1910,17 +1914,6 @@ const main = async (): Promise<void> => {
               denial.webContentsBefore === denial.webContentsAfter,
           ),
         ),
-    );
-
-    probeStage = "capability admission";
-    await qualifyCapabilityAdmission(
-      socketPath,
-      token,
-      handoff,
-      canvasName,
-      pageTargets,
-      admissionModePath,
-      auditPath,
     );
 
     probeStage = "short-TTL capability expiry";
@@ -2216,7 +2209,7 @@ const main = async (): Promise<void> => {
       stdout: `${firstOutput.stdout}\n${restartOutput.stdout}`,
       stderr: `${firstOutput.stderr}\n${restartOutput.stderr}`,
       auditPaths: [auditPath, restartAuditPath],
-      canvasPath,
+      canvasDocumentJson,
       electronArguments: [electronArguments, restartElectronArguments],
     });
 
