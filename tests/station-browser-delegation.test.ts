@@ -13,15 +13,15 @@ const commandInstallationId = Schema.decodeUnknownSync(InstallationId)(
   "11111111-1111-4111-8111-111111111111",
 );
 const pageRef = "vellum://canvas/work?node=page-1"; const agentRef = "vellum://canvas/work?node=agent-1";
-const base = (action: StationBrowserAction = "state"): Omit<StationBrowserRequest, "authority" | "originStationId" | "agentRef"> => ({ version: 1, requestId: "request-1", targetStationId: "remote-a", action, pageRef: action === "doctor" || action === "discover" || action === "list" ? undefined : pageRef, session: ["goto", "eval", "screenshot", "state", "close", "stop"].includes(action) ? { hostId: "remote-a", sessionId: "session-1", generation: "generation-1" } : undefined, issuedAt: now, expiresAt: now + 30_000, nonce: `nonce-${action}`, ...(action === "goto" ? { payload: { url: "https://example.com" } } : action === "eval" ? { payload: { code: "1+1" } } : {}) });
-const wire = (request: ReturnType<typeof base>) => ({ ...request, authority: "agent-edge", originStationId: commandInstallationId, agentRef, pageRef: request.pageRef ?? null, session: request.session ?? null, payload: request.payload ?? null });
+const base = (action: StationBrowserAction = "state"): Omit<StationBrowserRequest, "authority" | "originInstallationId" | "agentRef"> => ({ version: 1, requestId: "request-1", targetStationId: "remote-a", action, pageRef: action === "doctor" || action === "discover" || action === "list" ? undefined : pageRef, session: ["goto", "eval", "screenshot", "state", "close", "stop"].includes(action) ? { hostId: "remote-a", sessionId: "session-1", generation: "generation-1" } : undefined, issuedAt: now, expiresAt: now + 30_000, nonce: `nonce-${action}`, ...(action === "goto" ? { payload: { url: "https://example.com" } } : action === "eval" ? { payload: { code: "1+1" } } : {}) });
+const wire = (request: ReturnType<typeof base>) => ({ ...request, authority: "agent-edge", originInstallationId: commandInstallationId, agentRef, pageRef: request.pageRef ?? null, session: request.session ?? null, payload: request.payload ?? null });
 let agentWitness: AdmittedDelegationWitness;
 let admissionProcessMap: ProcessIdentityMap;
 let agentAdmission: StationBrowserRouteAdmission;
 let admissionCanvas: CanvasDoc;
 const admissionSocket = {} as Socket;
 const frame = (request = base()) => JSON.stringify(mintStationBrowserEnvelope(agentWitness, request, "fleet-1", keys.privateKey));
-const trust = { keyId: "fleet-1", publicKey: keys.publicKey, originStationId: commandInstallationId };
+const trust = { keyId: "fleet-1", publicKey: keys.publicKey, originInstallationId: commandInstallationId };
 const context = (changes = {}) => ({ stationId: "remote-a", now, role: "remote" as const, browserReady: true, resolvePage: () => ({ hostId: "remote-a", edgeAllowed: true, policyAllowed: true }), currentGeneration: () => "generation-1", allowAction: () => true, ...changes });
 beforeAll(async () => {
   admissionCanvas = {
@@ -82,6 +82,16 @@ describe("station browser delegation", () => {
     expect(decodeStationBrowserRequest(JSON.stringify({ ...wire(base("doctor")), pageRef }))).toBe("malformed");
     expect(decodeStationBrowserRequest(JSON.stringify({ ...wire(base("goto")), payload: { code: "x" } }))).toBe("malformed");
     expect(decodeStationBrowserRequest(JSON.stringify({ ...wire(base("eval")), extra: true }))).toBe("malformed");
+    expect(decodeStationBrowserRequest(JSON.stringify({ ...wire(base()), originStationId: commandInstallationId }))).toBe("malformed");
+    const {
+      originInstallationId,
+      ...retiredOriginOnly
+    } = wire(base());
+    expect(originInstallationId).toBe(commandInstallationId);
+    expect(decodeStationBrowserRequest(JSON.stringify({
+      ...retiredOriginOnly,
+      originStationId: commandInstallationId,
+    }))).toBe("malformed");
     expect(decodeStationBrowserRequest(JSON.stringify({ ...wire(base()), issuedAt: -1 }))).toBe("malformed");
     expect(decodeStationBrowserRequest(JSON.stringify({ ...wire(base()), expiresAt: now + 0.5 }))).toBe("malformed");
   });
@@ -89,9 +99,9 @@ describe("station browser delegation", () => {
     expect(canonicalStationBrowserJson({ b: 1, a: [true, "x"] })).toBe('{"a":[true,"x"],"b":1}');
     const signedFrame = frame();
     expect(decodeStationBrowserEnvelope(signedFrame)).toMatchObject({
-      request: { originStationId: commandInstallationId },
+      request: { originInstallationId: commandInstallationId },
     });
-    expect(verifyStationBrowserEnvelope(signedFrame, trust, context(), new StationBrowserReplayCache())).toMatchObject({ ok: true, request: { authority: "agent-edge", agentRef, originStationId: commandInstallationId } });
+    expect(verifyStationBrowserEnvelope(signedFrame, trust, context(), new StationBrowserReplayCache())).toMatchObject({ ok: true, request: { authority: "agent-edge", agentRef, originInstallationId: commandInstallationId } });
     expect(() => mintStationBrowserEnvelope({} as never, base(), "fleet-1", keys.privateKey)).toThrow("main-admitted");
     expect(mintStationBrowserEnvelope(admitOperatorUiDelegation(commandInstallationId), base("doctor"), "fleet-1", keys.privateKey).request.agentRef).toBeNull();
   });

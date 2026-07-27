@@ -18,6 +18,7 @@ import {
 } from "../src/main/vellum/state/engine";
 import {
   canonicalStationBrowserJson,
+  decodeStationBrowserPinnedTrustRecord,
   type StationBrowserPinnedTrustRecord,
 } from "../src/shared/station-browser";
 import {
@@ -155,7 +156,7 @@ describe("station browser origin-key custody", () => {
       runtime.runPromise(
         trust.loadOrCreateOriginKey(anotherInstallationId, 5),
       ),
-    ).rejects.toThrow("pinned to another station");
+    ).rejects.toThrow("pinned to another installation");
 
     await disposeRuntime(runtime);
     const database = new DatabaseSync(path);
@@ -206,7 +207,7 @@ describe("station browser origin-key custody", () => {
           `INSERT INTO browser_origin_keys(
            generation,
            key_id,
-           origin_station_id,
+           origin_installation_id,
            created_at,
            private_key_pkcs8,
            public_key_spki
@@ -249,7 +250,7 @@ describe("station browser pinned trust ledger", () => {
       await remote.runtime.runPromise(remoteTrust.loadPinnedTrust),
     ).toMatchObject({
       keyId: first.keyId,
-      originStationId: commandInstallationId,
+      originInstallationId: commandInstallationId,
     });
 
     await expect(
@@ -346,7 +347,7 @@ describe("station browser pinned trust ledger", () => {
     const pinned = await reopened.runPromise(reopenedTrust.loadPinnedTrust);
     expect(pinned).toMatchObject({
       keyId: key.keyId,
-      originStationId: commandInstallationId,
+      originInstallationId: commandInstallationId,
     });
     expect(pinned?.publicKey.asymmetricKeyType).toBe("ed25519");
 
@@ -381,7 +382,24 @@ describe("station browser pinned trust ledger", () => {
       decodeStationBrowserPinnedTrustFrame(
         JSON.stringify({ ...record, extra: true }),
       ),
-    ).toThrow("not canonical");
+    ).toThrow("malformed");
+    expect(() =>
+      decodeStationBrowserPinnedTrustRecord({
+        ...record,
+        originStationId: commandInstallationId,
+      }),
+    ).toThrow();
+    const {
+      originInstallationId,
+      ...retiredOriginOnly
+    } = record;
+    expect(originInstallationId).toBe(commandInstallationId);
+    expect(() =>
+      decodeStationBrowserPinnedTrustRecord({
+        ...retiredOriginOnly,
+        originStationId: commandInstallationId,
+      }),
+    ).toThrow();
   });
 
   it("is the typed public field of Remote configure only", async () => {

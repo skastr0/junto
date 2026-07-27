@@ -16,11 +16,11 @@ export const BROWSER_TRUST_STATE_SCHEMA_SQL = `
         AND substr(key_id, 1, 1) GLOB '[A-Za-z0-9]'
         AND key_id NOT GLOB '*[^A-Za-z0-9._-]*'
       ),
-    origin_station_id TEXT NOT NULL
+    origin_installation_id TEXT NOT NULL
       CHECK (
-        length(origin_station_id) BETWEEN 1 AND 128
-        AND substr(origin_station_id, 1, 1) GLOB '[A-Za-z0-9]'
-        AND origin_station_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+        length(origin_installation_id) BETWEEN 1 AND 128
+        AND substr(origin_installation_id, 1, 1) GLOB '[A-Za-z0-9]'
+        AND origin_installation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
       ),
     created_at INTEGER NOT NULL
       CHECK (created_at BETWEEN 0 AND 9007199254740991),
@@ -62,10 +62,10 @@ export const BROWSER_TRUST_STATE_SCHEMA_SQL = `
   WHEN EXISTS (
     SELECT 1
       FROM browser_origin_keys
-     WHERE origin_station_id <> NEW.origin_station_id
+     WHERE origin_installation_id <> NEW.origin_installation_id
   )
   BEGIN
-    SELECT RAISE(ABORT, 'browser origin key is pinned to another station');
+    SELECT RAISE(ABORT, 'browser origin key is pinned to another installation');
   END;
 
   CREATE TABLE IF NOT EXISTS browser_pinned_origin_trust (
@@ -77,11 +77,11 @@ export const BROWSER_TRUST_STATE_SCHEMA_SQL = `
         AND substr(key_id, 1, 1) GLOB '[A-Za-z0-9]'
         AND key_id NOT GLOB '*[^A-Za-z0-9._-]*'
       ),
-    origin_station_id TEXT NOT NULL
+    origin_installation_id TEXT NOT NULL
       CHECK (
-        length(origin_station_id) BETWEEN 1 AND 128
-        AND substr(origin_station_id, 1, 1) GLOB '[A-Za-z0-9]'
-        AND origin_station_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+        length(origin_installation_id) BETWEEN 1 AND 128
+        AND substr(origin_installation_id, 1, 1) GLOB '[A-Za-z0-9]'
+        AND origin_installation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
       ),
     status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
     public_key_spki BLOB,
@@ -137,10 +137,10 @@ export const BROWSER_TRUST_STATE_SCHEMA_SQL = `
   WHEN EXISTS (
     SELECT 1
       FROM browser_pinned_origin_trust
-     WHERE origin_station_id <> NEW.origin_station_id
+     WHERE origin_installation_id <> NEW.origin_installation_id
   )
   BEGIN
-    SELECT RAISE(ABORT, 'browser pinned trust origin changed');
+    SELECT RAISE(ABORT, 'browser pinned trust origin installation changed');
   END;
 
   CREATE TRIGGER IF NOT EXISTS browser_pinned_origin_trust_irreversible_revoke

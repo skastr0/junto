@@ -5,6 +5,9 @@ import {
 } from "./remote-hosts";
 import { STATION_ROLES } from "./station";
 import { StationBrowserPinnedTrustRecord } from "./station-browser";
+import { InstallationId } from "./installation-id";
+
+export { InstallationId } from "./installation-id";
 
 /**
  * Station API v1.
@@ -22,15 +25,6 @@ export const STATION_API_MAX_EVENT_CHARS = 256 * 1024;
 export const STATION_API_MAX_EVENTS_PER_REPORT = 256;
 export const STATION_API_MAX_ACKS_PER_REPORT = 256;
 export const STATION_API_MAX_STATUS_CURSORS = 256;
-
-/** Stable identity of one Vellum database installation. */
-export const InstallationId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(128),
-  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
-  Schema.brand("InstallationId"),
-);
-export type InstallationId = typeof InstallationId.Type;
 
 /** User-selected station role. It is never inferred by this protocol. */
 export const StationApiRole = Schema.Literal(...STATION_ROLES);

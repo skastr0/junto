@@ -16,13 +16,13 @@ const context = () => ({ stationId: "remote-a", now: 1_700_000_001_000, role: "r
 describe("station browser target wrapper", () => {
   it("verifies a signed host-bound delegation before target-local execution", async () => {
     let calls = 0;
-    const wrapper = makeStationBrowserWrapper({ trust: { keyId: "fleet-1", publicKey: keys.publicKey, originStationId: commandInstallationId }, verification: context, replays: new StationBrowserReplayCache(), execute: async () => { calls += 1; return { role: "remote", browserReady: true }; } });
+    const wrapper = makeStationBrowserWrapper({ trust: { keyId: "fleet-1", publicKey: keys.publicKey, originInstallationId: commandInstallationId }, verification: context, replays: new StationBrowserReplayCache(), execute: async () => { calls += 1; return { role: "remote", browserReady: true }; } });
     expect(decodeStationBrowserResponse(await wrapper.handle(request()))).toMatchObject({ ok: true, hostId: "remote-a" });
     expect(calls).toBe(1);
   });
   it("never executes expired or replayed delegations", async () => {
     let calls = 0;
-    const wrapper = makeStationBrowserWrapper({ trust: { keyId: "fleet-1", publicKey: keys.publicKey, originStationId: commandInstallationId }, verification: context, replays: new StationBrowserReplayCache(), execute: async () => { calls += 1; return { role: "remote", browserReady: true }; } });
+    const wrapper = makeStationBrowserWrapper({ trust: { keyId: "fleet-1", publicKey: keys.publicKey, originInstallationId: commandInstallationId }, verification: context, replays: new StationBrowserReplayCache(), execute: async () => { calls += 1; return { role: "remote", browserReady: true }; } });
     const frame = request();
     await wrapper.handle(frame);
     expect(decodeStationBrowserResponse(await wrapper.handle(frame))).toMatchObject({ ok: false, error: "replayed" });
@@ -30,7 +30,7 @@ describe("station browser target wrapper", () => {
   });
   it("re-reads pinned trust so rotation and revocation take effect without restart", async () => {
     const rotated = generateKeyPairSync("ed25519");
-    let current = { keyId: "fleet-1", publicKey: keys.publicKey, originStationId: commandInstallationId };
+    let current = { keyId: "fleet-1", publicKey: keys.publicKey, originInstallationId: commandInstallationId };
     let calls = 0;
     const wrapper = makeStationBrowserWrapper({
       trust: async () => current,
@@ -43,7 +43,7 @@ describe("station browser target wrapper", () => {
     });
     expect(decodeStationBrowserResponse(await wrapper.handle(request())))
       .toMatchObject({ ok: true });
-    current = { keyId: "fleet-2", publicKey: rotated.publicKey, originStationId: commandInstallationId };
+    current = { keyId: "fleet-2", publicKey: rotated.publicKey, originInstallationId: commandInstallationId };
     const stale = JSON.stringify(mintStationBrowserEnvelope(
       admitOperatorUiDelegation(commandInstallationId),
       {
@@ -78,7 +78,7 @@ describe("station browser target wrapper", () => {
       trust: {
         keyId: "fleet-1",
         publicKey: keys.publicKey,
-        originStationId: commandInstallationId,
+        originInstallationId: commandInstallationId,
       },
       verification: context,
       replays: new StationBrowserReplayCache(),

@@ -471,7 +471,7 @@ export const makeStationBrowserRouter = (deps: StationBrowserRouterDeps) => {
         nonce: (deps.nonce ?? (() => randomBytes(24).toString("hex")))(),
       } satisfies Omit<
         StationBrowserRequest,
-        "authority" | "originStationId" | "agentRef"
+        "authority" | "originInstallationId" | "agentRef"
       >;
       const request = bindStationBrowserRequest(witness, unsigned);
 

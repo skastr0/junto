@@ -148,7 +148,7 @@ const commandCenterTopology = () => ({
 });
 
 const pinnedTrust = (
-  originStationId: string,
+  originInstallationId: InstallationIdValue,
   generation = 1,
 ): StationBrowserPinnedTrustRecordValue => {
   const { publicKey } = generateKeyPairSync("ed25519");
@@ -166,7 +166,7 @@ const pinnedTrust = (
           .digest("hex")
           .slice(0, 24)
       }`,
-    originStationId,
+    originInstallationId,
     status: "active",
     publicKeySpki: publicKeySpki.toString("base64"),
     replacesKeyId: null,
@@ -511,7 +511,7 @@ describe("StationRepository", () => {
             commandCenterInstallationId: cc,
             commandCenterRef: "cc.tailnet",
             supervisedPreferred: true,
-            browserTrust: pinnedTrust("other-studio"),
+            browserTrust: pinnedTrust(cc),
           },
           host: {
             id: "other-studio",
@@ -596,7 +596,7 @@ describe("StationRepository", () => {
               commandCenterInstallationId: ccPeer,
               commandCenterRef: "cc.tailnet",
               supervisedPreferred: false,
-              browserTrust: pinnedTrust("shared"),
+              browserTrust: pinnedTrust(ccPeer),
             },
             host: {
               id: "shared",
@@ -644,7 +644,7 @@ describe("StationRepository", () => {
     await remoteRuntime.runPromise(
       remoteRepository.pair(pairRequest(remoteLocal, remotePeer)),
     );
-    const remoteTrust = pinnedTrust("role-immutable-remote");
+    const remoteTrust = pinnedTrust(remotePeer);
     const remoteConfigured = await remoteRuntime.runPromise(
       remoteRepository.configureRemote(
         remoteConfigurationRequest(remoteLocal, remotePeer, {
@@ -914,7 +914,7 @@ describe("StationRepository", () => {
     });
     expect(findHostById("studio")).toEqual(configured.host);
 
-    const trust = pinnedTrust("cc-browser");
+    const trust = pinnedTrust(cc);
     const trustInstalled = await runtime.runPromise(
       repository.configureRemote(
         remoteConfigurationRequest(local, cc, { browserTrust: trust }),
@@ -1026,7 +1026,7 @@ describe("StationRepository", () => {
 
     // A conflicting pin rolls back the proposed configuration change as well
     // as the trust transition.
-    const conflictingTrust = pinnedTrust("cc-browser");
+    const conflictingTrust = pinnedTrust(cc);
     const rejected = await runtime.runPromise(
       repository
         .configureRemote(

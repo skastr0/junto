@@ -46,7 +46,7 @@ const browserTrust: StationBrowserPinnedTrustRecord = {
   version: 1,
   generation: 1,
   keyId: "ed25519-command-center",
-  originStationId: commandCenterInstallationId,
+  originInstallationId: commandCenterInstallationId,
   status: "active",
   publicKeySpki: Buffer.from("public-key-material").toString("base64"),
   replacesKeyId: null,

@@ -35,7 +35,7 @@ const configuredDeployOptions = {
     version: 1 as const,
     generation: 1,
     keyId: "ed25519-command-center",
-    originStationId: commandCenterInstallationId,
+    originInstallationId: commandCenterInstallationId,
     status: "active" as const,
     publicKeySpki: Buffer.from(
       "bounded-public-key-material",

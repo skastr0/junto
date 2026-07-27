@@ -1,9 +1,14 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
+import { InstallationId } from "../src/shared/installation-id";
 import type { StationBrowserRequest } from "../src/shared/station-browser";
 import { makeStationBrowserTargetPolicy } from "../src/main/vellum/browser/station-target-policy";
 
 const stationId = "remote-a";
+const commandInstallationId = Schema.decodeUnknownSync(InstallationId)(
+  "command-a",
+);
 const agentRef = "vellum://canvas/work?node=agent-1";
 const pageRef = "vellum://canvas/work?node=page-1";
 
@@ -75,7 +80,7 @@ const request = (
 ): StationBrowserRequest => ({
   version: 1,
   requestId: "request-1",
-  originStationId: "command-a",
+  originInstallationId: commandInstallationId,
   targetStationId: stationId,
   authority: "agent-edge",
   agentRef,

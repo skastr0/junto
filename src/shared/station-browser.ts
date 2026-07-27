@@ -1,5 +1,6 @@
 /** Transport-free, signed station-browser protocol. No paths, tokens, or browser bytes cross this boundary. */
 import { Schema } from "effect";
+import { InstallationId } from "./installation-id";
 import { parseNodeRef } from "./node-ref";
 
 export const STATION_BROWSER_PROTOCOL_VERSION = 1 as const;
@@ -31,7 +32,7 @@ export interface StationBrowserSession {
 export interface StationBrowserRequest {
   readonly version: 1;
   readonly requestId: string;
-  readonly originStationId: string;
+  readonly originInstallationId: InstallationId;
   readonly targetStationId: string;
   readonly authority: StationBrowserAuthority;
   readonly agentRef?: string;
@@ -93,6 +94,7 @@ const text = (v: unknown, max = 512): v is string =>
   !/[\u0000-\u001f\u007f]/.test(v);
 const id = (v: unknown): v is string =>
   text(v, 128) && /^[A-Za-z0-9._:-]+$/.test(v);
+const installationId = Schema.is(InstallationId);
 export const isStationBrowserKeyId = (v: unknown): v is string =>
   typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(v);
 export const isStationBrowserSignature = (v: unknown): v is string =>
@@ -101,11 +103,6 @@ export const StationBrowserKeyId = Schema.String.pipe(
   Schema.minLength(1),
   Schema.maxLength(64),
   Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
-);
-export const StationBrowserStationId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(128),
-  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
 );
 export const StationBrowserTrustGeneration = Schema.Number.pipe(
   Schema.int(),
@@ -134,7 +131,7 @@ export const StationBrowserPinnedTrustRecord = Schema.Struct({
   version: Schema.Literal(1),
   generation: StationBrowserTrustGeneration,
   keyId: StationBrowserKeyId,
-  originStationId: StationBrowserStationId,
+  originInstallationId: InstallationId,
   status: Schema.Literal("active", "revoked"),
   publicKeySpki: Schema.NullOr(StationBrowserPublicKeySpki),
   replacesKeyId: Schema.NullOr(StationBrowserKeyId),
@@ -151,6 +148,7 @@ export type StationBrowserPinnedTrustRecord =
   typeof StationBrowserPinnedTrustRecord.Type;
 export const decodeStationBrowserPinnedTrustRecord = Schema.decodeUnknownSync(
   StationBrowserPinnedTrustRecord,
+  { onExcessProperty: "error" },
 );
 const exact = (o: Record<string, unknown>, keys: readonly string[]) =>
   Object.keys(o).length === keys.length && keys.every((key) => key in o);
@@ -309,7 +307,7 @@ export const decodeStationBrowserRequest = (
     !exact(value, [
       "version",
       "requestId",
-      "originStationId",
+      "originInstallationId",
       "targetStationId",
       "authority",
       "agentRef",
@@ -326,7 +324,7 @@ export const decodeStationBrowserRequest = (
   if (value.version !== 1) return "unsupported_version";
   if (
     !id(value.requestId) ||
-    !id(value.originStationId) ||
+    !installationId(value.originInstallationId) ||
     !id(value.targetStationId) ||
     !id(value.nonce) ||
     typeof value.issuedAt !== "number" ||

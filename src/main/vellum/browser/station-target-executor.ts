@@ -134,7 +134,7 @@ const canonicalStationId = (value: string): boolean =>
 export const stationBrowserDelegatedOwner = (
   request: Pick<
     StationBrowserRequest,
-    "originStationId" | "authority" | "agentRef"
+    "originInstallationId" | "authority" | "agentRef"
   >,
 ): string => {
   const principal =
@@ -144,13 +144,13 @@ export const stationBrowserDelegatedOwner = (
   const digest = createHash("sha256")
     .update("vellum/station-browser-owner/v1", "utf8")
     .update("\0", "utf8")
-    .update(request.originStationId, "utf8")
+    .update(request.originInstallationId, "utf8")
     .update("\0", "utf8")
     .update(request.authority, "utf8")
     .update("\0", "utf8")
     .update(principal, "utf8")
     .digest("hex");
-  return `station-browser:${request.originStationId}:${digest.slice(0, 32)}`;
+  return `station-browser:${request.originInstallationId}:${digest.slice(0, 32)}`;
 };
 
 const sessionProjection = (

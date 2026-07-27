@@ -272,7 +272,7 @@ type PeerAckRow = CursorRow & {
 type PinnedTrustRow = StateRow & {
   readonly generation: number;
   readonly key_id: string;
-  readonly origin_station_id: string;
+  readonly origin_installation_id: string;
   readonly status: string;
   readonly public_key_spki: Uint8Array | null;
   readonly replaces_key_id: string | null;
@@ -392,7 +392,7 @@ const selectLatestPinnedTrust = (
     `SELECT
        generation,
        key_id,
-       origin_station_id,
+       origin_installation_id,
        status,
        public_key_spki,
        replaces_key_id,
@@ -406,7 +406,7 @@ const selectLatestPinnedTrust = (
     version: 1,
     generation: row.generation,
     keyId: row.key_id,
-    originStationId: row.origin_station_id,
+    originInstallationId: row.origin_installation_id,
     status: row.status,
     publicKeySpki:
       row.public_key_spki === null

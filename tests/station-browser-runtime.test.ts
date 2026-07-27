@@ -64,7 +64,7 @@ const trustHarness = (
   const originKey = {
     generation: 1,
     keyId: "ed25519-test-origin",
-    originStationId: commandInstallationId,
+    originInstallationId: commandInstallationId,
     createdAt: 1,
     privateKey: pair.privateKey,
     publicKey: pair.publicKey,

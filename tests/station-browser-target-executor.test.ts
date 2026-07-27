@@ -7,8 +7,10 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import type { BrowserSessionInfo } from "../src/shared/ipc";
+import { InstallationId } from "../src/shared/installation-id";
 import type {
   StationBrowserRequest,
   StationBrowserSession,
@@ -28,6 +30,9 @@ import {
 import { controlDir } from "../src/shared/browser-control";
 
 const roots: string[] = [];
+const commandInstallationId = Schema.decodeUnknownSync(InstallationId)(
+  "command-a",
+);
 afterEach(async () => {
   for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true });
@@ -40,7 +45,7 @@ const baseRequest = (
 ): StationBrowserRequest => ({
   version: 1,
   requestId: `request-${action}`,
-  originStationId: "command-a",
+  originInstallationId: commandInstallationId,
   targetStationId: "remote-a",
   authority: "agent-edge",
   agentRef: "vellum://canvas/work?node=agent-1",
