@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { ProviderQuota, UsageSnapshot, UsageState, UsageWindow } from "@shared/usage";
-import { usageStateIsPartial, worstWindow } from "@shared/usage";
+import { worstWindow } from "@shared/usage";
 import { state$ } from "../lib/state";
 import { GREEN, HUE } from "../lib/theme";
 import { FocusSurface } from "./FocusSurface";
@@ -85,12 +85,13 @@ const providerLabel = (quota: ProviderQuota): string => {
   return quota.provider;
 };
 
+/** Rail / list / detail mark — never native title (fights the hover panel). */
+const ProviderMark = ({ provider, size }: { readonly provider: string; readonly size: number }) => (
+  <HarnessMark agent={provider} size={size} title={false} />
+);
+
 function Cell({ quota }: { readonly quota: ProviderQuota }) {
-  // Brand mark from harness-icons (same registry as herdr cards). Unknown
-  // providers fall back to a monogram inside HarnessMark.
-  // No native title — the group hover tooltip is the single readout (avoids
-  // OS tooltips fighting the list panel).
-  const mark = <HarnessMark agent={quota.provider} size={12} />;
+  const mark = <ProviderMark provider={quota.provider} size={12} />;
   if (quota.status === "error") {
     return (
       <span className="usage-hud__cell is-error">
@@ -165,7 +166,10 @@ function Tooltip({
               : HUE.amber;
         return (
           <div key={`${quota.provider}:${quota.account ?? ""}:${i}`} className="usage-hud__tooltip-row">
-            <strong>{providerLabel(quota)}</strong>
+            <span className="usage-hud__tooltip-name">
+              <ProviderMark provider={quota.provider} size={14} />
+              <strong>{providerLabel(quota)}</strong>
+            </span>
             <span>{limit}</span>
             <em style={{ color }}>{pct}</em>
           </div>
@@ -186,10 +190,13 @@ function DetailCard({ quota }: { readonly quota: ProviderQuota }) {
   return (
     <article className={`usage-hud-detail__card${quota.status === "error" ? " is-error" : ""}`}>
       <header className="usage-hud-detail__card-head">
-        <div>
-          <div className="usage-hud-detail__provider">{providerLabel(quota)}</div>
-          <div className="usage-hud-detail__plan">
-            {[quota.source, quota.plan, billingMode].filter(Boolean).join(" · ") || "—"}
+        <div className="usage-hud-detail__identity">
+          <ProviderMark provider={quota.provider} size={22} />
+          <div>
+            <div className="usage-hud-detail__provider">{providerLabel(quota)}</div>
+            <div className="usage-hud-detail__plan">
+              {[quota.source, quota.plan, billingMode].filter(Boolean).join(" · ") || "—"}
+            </div>
           </div>
         </div>
         {quota.creditsRemaining !== undefined ? (
@@ -256,29 +263,20 @@ function UsageDetail({
   readonly onClose: () => void;
 }) {
   const rows = visibleQuotas(state);
-  const footerFetched =
-    state.snapshots.find((snapshot) => snapshot.ok)?.fetchedAt ?? state.snapshots[0]?.fetchedAt;
-  const sourceIds = [
-    ...new Set(
-      state.snapshots.filter((snapshot) => snapshot.ok && snapshot.quotas.length > 0).map((s) => s.source),
-    ),
-  ];
-  const footerLabel =
-    sourceIds.length === 0
-      ? "station"
-      : usageStateIsPartial(state)
-        ? `${sourceIds.join(" · ")} · partial`
-        : sourceIds.join(" · ");
 
   return (
-    <FocusSurface measure="document" height="resizable" layer="detail" label="Limits" onClose={onClose}>
+    <FocusSurface
+      measure="document"
+      height="fit"
+      layer="detail"
+      label="Providers"
+      panelClassName="usage-hud-detail-panel"
+      onClose={onClose}
+    >
       <div className="usage-hud-detail">
         <header className="usage-hud-detail__header">
-          <div>
-            <div className="usage-hud-detail__eyebrow">station usage</div>
-            <strong>Providers</strong>
-          </div>
-          <button type="button" aria-label="Close limits" onClick={onClose}>
+          <strong>Providers</strong>
+          <button type="button" aria-label="Close providers" onClick={onClose}>
             ×
           </button>
         </header>
@@ -291,10 +289,6 @@ function UsageDetail({
             ))
           )}
         </div>
-        <footer className="usage-hud-detail__footer">
-          <span>{footerLabel}</span>
-          <span>{footerFetched ? footerFetched.slice(0, 16).replace("T", " ") : "—"}</span>
-        </footer>
       </div>
     </FocusSurface>
   );
@@ -312,8 +306,10 @@ export function UsageHud() {
   // Fail open: no quotas → no chrome (missing CLI, empty poll, first boot).
   if (rows.length === 0) return null;
 
-  const staleTitle = stale
-    ? `Last-good limits${state.lastLiveAt ? ` · ${state.lastLiveAt.slice(0, 16).replace("T", " ")}` : ""}${state.lastError ? ` · ${state.lastError}` : ""}`
+  // Accessible name only — never `title` (Electron paints a native bubble that
+  // sits on top of the custom hover list).
+  const a11yLabel = stale
+    ? `Provider limits, stale${state.lastLiveAt ? ` · ${state.lastLiveAt.slice(0, 16).replace("T", " ")}` : ""}`
     : "Provider limits";
 
   return (
@@ -326,14 +322,14 @@ export function UsageHud() {
         <button
           type="button"
           className="usage-hud__rail"
-          aria-label={stale ? staleTitle : "Provider limits"}
+          aria-label={a11yLabel}
           aria-expanded={open}
           onClick={() => {
             setHover(false);
             setOpen(true);
           }}
         >
-          {stale ? <span className="usage-hud__stale-dot" aria-hidden title="stale" /> : null}
+          {stale ? <span className="usage-hud__stale-dot" aria-hidden /> : null}
           {rows.map(({ quota, snapshot, index }) => (
             <Cell key={rowKey(snapshot, quota, index)} quota={quota} />
           ))}

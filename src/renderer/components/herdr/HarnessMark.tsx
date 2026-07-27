@@ -13,15 +13,22 @@ export function HarnessMark({
   agent,
   size,
   focused = false,
+  // Native title fights group hover panels (UsageHud). Opt out with false.
+  title: titleProp,
   marks: service = marks,
 }: {
   readonly agent?: string;
   readonly size: number;
   readonly focused?: boolean;
+  readonly title?: string | false;
   readonly marks?: MarksService;
 }) {
   const tile = markTileFor(agent, service);
   const inner = Math.round((size * 15) / 28);
+  const title =
+    titleProp === false
+      ? undefined
+      : (titleProp ?? `${tile.displayName}${focused ? " · focused in herdr" : ""}`);
   return (
     <span
       aria-hidden
@@ -33,7 +40,7 @@ export function HarnessMark({
         background: withAlpha(tile.hue, tile.known ? 0.14 : 0.1),
         border: `1px solid ${withAlpha(tile.hue, focused ? 0.6 : 0.28)}`,
       }}
-      title={`${tile.displayName}${focused ? " · focused in herdr" : ""}`}
+      {...(title !== undefined ? { title } : {})}
     >
       {tile.glyph ? (
         <svg

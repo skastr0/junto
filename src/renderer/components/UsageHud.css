@@ -156,16 +156,17 @@
 
 /* Overlay — drops under the station bar.
    Sized to content (not locked to rail width) so a compact rail still gets
-   a readable list. Stays inside .usage-hud hit area so hover remains. */
+   a readable list. Stays inside .usage-hud hit area so hover remains.
+   z-index above station chrome; no title attributes anywhere in this tree. */
 .usage-hud__tooltip {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  z-index: 80;
+  z-index: 200;
   box-sizing: border-box;
   width: max-content;
-  min-width: 220px;
-  max-width: min(360px, 70vw);
+  min-width: 240px;
+  max-width: min(380px, 70vw);
   border: 1px solid rgba(237, 230, 218, 0.12);
   border-radius: 8px;
   background: rgba(14, 12, 11, 0.97);
@@ -177,13 +178,20 @@
 
 .usage-hud__tooltip-row {
   display: grid;
-  grid-template-columns: minmax(72px, 1.2fr) minmax(48px, 1fr) auto;
+  grid-template-columns: minmax(96px, 1.4fr) minmax(48px, 1fr) auto;
   gap: 8px;
-  align-items: baseline;
+  align-items: center;
   font-size: 9px;
   color: #8a8378;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.usage-hud__tooltip-name {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
 }
 
 .usage-hud__tooltip-row strong {
@@ -194,7 +202,7 @@
   white-space: nowrap;
 }
 
-.usage-hud__tooltip-row span {
+.usage-hud__tooltip-row > span:not(.usage-hud__tooltip-name) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -219,19 +227,30 @@
 
 /* —— detail surface —— */
 
+/* Fixed (non-resizable) document panel for limits — no corner grip. */
+.focus-surface__panel.usage-hud-detail-panel {
+  height: auto;
+  max-height: min(78vh, 900px);
+  min-height: 0;
+  resize: none;
+  padding: 0;
+  overflow: hidden;
+}
+
 .usage-hud-detail {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: 100%;
+  max-height: min(78vh, 900px);
   color: #ede6da;
 }
 
 .usage-hud-detail__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
+  flex: 0 0 auto;
   border-bottom: 1px solid rgba(237, 230, 218, 0.1);
   padding: 14px 16px 12px;
 }
@@ -257,13 +276,6 @@
   color: #ede6da;
 }
 
-.usage-hud-detail__eyebrow {
-  color: #e8a33d;
-  font-size: 8px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
 .usage-hud-detail__body {
   display: grid;
   gap: 10px;
@@ -287,8 +299,15 @@
 
 .usage-hud-detail__card-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+  gap: 10px;
+}
+
+.usage-hud-detail__identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
   gap: 10px;
 }
 
@@ -357,16 +376,4 @@
   color: #39c6d6;
   font-size: 10px;
   letter-spacing: 0.06em;
-}
-
-.usage-hud-detail__footer {
-  border-top: 1px solid rgba(237, 230, 218, 0.1);
-  padding: 10px 14px;
-  color: #68604a;
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
 }
