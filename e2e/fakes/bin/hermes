@@ -23,35 +23,9 @@
 // the typed shape + helpers.
 "use strict";
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 const scenarioPath = process.env.FAKE_HERMES_SCENARIO;
-
-// Spy hook for the browser-automation e2e suite (e2e/scenarios/browser-*):
-// when FAKE_HERMES_BROWSER_CAPABILITY_DUMP points at a file, dump whatever
-// browser-authority env vars this process was actually spawned with
-// (VELLUM_BROWSER_CAPABILITY / VELLUM_BROWSER_HOME — see
-// src/main/vellum/chat/acp-client.ts's environmentOverlay). This is the only
-// way a test observes the capability secret real product code delivers to a
-// spawned local agent child — it is never returned to the renderer. No-op
-// (and no default behavior change) unless that env var is set. Also a no-op
-// when the capability itself is absent: the product spawns plain `hermes
-// profile list` / `hermes version` discovery calls (LiveReadout) with no
-// browser overlay, and those must never clobber a real dump with nulls.
-const dumpBrowserAuthorityEnvIfRequested = () => {
-  const dumpPath = process.env.FAKE_HERMES_BROWSER_CAPABILITY_DUMP;
-  const capability = process.env.VELLUM_BROWSER_CAPABILITY;
-  if (!dumpPath || !capability) return;
-  const payload = {
-    capability,
-    home: process.env.VELLUM_BROWSER_HOME ?? null,
-  };
-  try {
-    writeFileSync(dumpPath, JSON.stringify(payload), { mode: 0o600 });
-  } catch {
-    // best effort — the e2e harness times out waiting for the file if this fails
-  }
-};
 
 const readJsonSafe = (path) => {
   try {
@@ -237,7 +211,6 @@ const runAcp = () => {
 // --- dispatch ----------------------------------------------------------------
 
 const main = () => {
-  dumpBrowserAuthorityEnvIfRequested();
   let args = process.argv.slice(2);
   if (args[0] === "-p") args = args.slice(2); // named profile: fake has one identity
 

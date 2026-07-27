@@ -3,8 +3,8 @@
  * client over the unix-domain socket, built from the same wire contract
  * module (`@shared/browser-control`) real agents (scripts/browser-cli.ts,
  * the local vellum-browser CLI) use. Deliberately independent of the
- * product's own CLI process so a test can hand-craft headers (missing
- * capability, malformed request id, ...) to exercise the denial paths.
+ * product's own CLI process so a test can hand-craft transport tokens and
+ * request ids to exercise the denial paths.
  *
  * Never touches the operator's real ~/.vellum: every caller passes the
  * sandbox's homeDir (HOME is already sandboxed by e2e/harness/launch.ts, so
@@ -15,7 +15,6 @@ import { randomUUID } from "node:crypto";
 import { request } from "node:http";
 import { Either } from "effect";
 import {
-  CONTROL_CAPABILITY_HEADER,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
   CONTROL_TOKEN_HEADER,
@@ -27,9 +26,8 @@ import {
 } from "../../src/shared/browser-control";
 
 export interface ControlCallOptions {
-  readonly capability?: string;
-  /** Override the auto-generated request id — used to probe malformed ids. */
-  readonly requestId?: string;
+  /** Override the generated id, or pass false to omit it deliberately. */
+  readonly requestId?: string | false;
   readonly timeoutMs?: number;
 }
 
@@ -46,8 +44,8 @@ export const sandboxControlSocketPath = (home: string): string => controlSocketP
 /**
  * Full control-plane round trip with hand-craftable headers. Distinct from
  * scripts/browser-cli.ts's own httpOverSocket (which always sends a
- * well-formed request) — this one lets a test omit/mangle the capability or
- * request-id header to exercise the server's denial paths directly.
+ * well-formed request) — this one lets a test omit or mangle the request-id
+ * header to exercise the server's denial paths directly.
  */
 export const controlCall = (
   socketPath: string,
@@ -70,6 +68,10 @@ export const controlCall = (
     };
 
     const encodedBody = body === undefined ? undefined : JSON.stringify(body);
+    const requestId =
+      options.requestId === false
+        ? undefined
+        : options.requestId ?? randomUUID();
     const req = request(
       {
         socketPath,
@@ -78,12 +80,9 @@ export const controlCall = (
         headers: {
           "content-type": "application/json",
           ...(token === undefined ? {} : { [CONTROL_TOKEN_HEADER]: token }),
-          ...(options.capability === undefined
+          ...(requestId === undefined
             ? {}
-            : { [CONTROL_CAPABILITY_HEADER]: options.capability }),
-          ...(options.requestId === undefined && options.capability === undefined
-            ? {}
-            : { [CONTROL_REQUEST_ID_HEADER]: options.requestId ?? randomUUID() }),
+            : { [CONTROL_REQUEST_ID_HEADER]: requestId }),
         },
       },
       (res) => {
