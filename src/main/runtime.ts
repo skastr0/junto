@@ -54,6 +54,13 @@ import {
 } from "./vellum/station-readiness";
 import { workControlReadiness } from "./vellum/work/control";
 import { StateEngineLive } from "./vellum/state/engine";
+import {
+  StationRepositoryLive,
+} from "./vellum/station/repository";
+import { StationApiLive } from "./vellum/station/api";
+import {
+  StationBrowserTrustRepositoryLive,
+} from "./vellum/browser/station-trust";
 
 // Keep this exact layer value as the sole database owner in the runtime graph.
 // Effect memoizes layers by reference, so every repository below receives the
@@ -66,6 +73,8 @@ const StateRepositoriesLive = Layer.provideMerge(
     UsageLive,
     SettingsLive,
     StationStatusLive,
+    StationRepositoryLive,
+    StationBrowserTrustRepositoryLive,
   ),
   StateEngineLive,
 );
@@ -74,7 +83,7 @@ const StateRepositoriesLive = Layer.provideMerge(
 // snapshot authorial-only, so it consumes the already memoized repository
 // graph rather than constructing another engine or work repository.
 const StatefulServicesLive = Layer.provideMerge(
-  CanvasesLive,
+  Layer.mergeAll(CanvasesLive, StationApiLive),
   StateRepositoriesLive,
 );
 
