@@ -1,7 +1,8 @@
 /**
- * Buckets 1–3 board contract (authority install — disk seed is not live map).
+ * Buckets 1–3 board contract.
  *
- * Installs a board via app write path after boot:
+ * Seeds authored topology and durable work rows through the harness's scoped
+ * SQLite runtime before Electron starts:
  * - tasks sink with a submitted item + an input-required item claimed by the worker
  * - actor edged via tasks criteria
  * - soft relates edge (must not stamp RELATES)
@@ -60,50 +61,15 @@ const fixtureDoc = (): CanvasDoc =>
     ],
   );
 
-/** Authority-only: write fixture into the boot canvas (list[0]). */
-const installBoard = async (
-  page: import("@playwright/test").Page,
-  doc: CanvasDoc,
-): Promise<string> => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => {
-          const runtime = globalThis as unknown as {
-            readonly vellum?: { readonly listCanvases: () => Promise<unknown[]> };
-          };
-          return Boolean(runtime.vellum?.listCanvases);
-        }),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
+const CANVAS_NAME = "factory-board";
 
-  return page.evaluate(async (document) => {
-    const api = (
-      globalThis as unknown as {
-        readonly vellum: {
-          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
-          readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
-          readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
-          readonly writeCanvas: (
-            name: string,
-            doc: unknown,
-            expectedRevision?: string,
-          ) => Promise<unknown>;
-        };
-      }
-    ).vellum;
-    let list = await api.listCanvases();
-    let name = list[0]?.name;
-    if (!name) {
-      const created = await api.createCanvas("factory-board");
-      name = created.name;
-    }
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, document, read.revision);
-    return name;
-  }, doc);
-};
+test.use({
+  vellumOptions: {
+    seedCanvases: {
+      [CANVAS_NAME]: fixtureDoc(),
+    },
+  },
+});
 
 test("factory board: fire on claimed input-required, calm edges silent, tasks glance", async ({
   vellum,
@@ -111,7 +77,6 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   const { page } = vellum;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-  await installBoard(page, fixtureDoc());
 
   const tasksCard = page.locator('.react-flow__node[data-id="tasks"]');
   await expect(tasksCard).toBeVisible({ timeout: 30_000 });
@@ -145,7 +110,6 @@ test("submitted-only queue does not block edged actor", async ({ vellum }) => {
   const { page } = vellum;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-  const canvasName = await installBoard(page, fixtureDoc());
 
   await expect(page.locator('.react-flow__node[data-id="worker"]')).toBeVisible({
     timeout: 30_000,
@@ -167,7 +131,7 @@ test("submitted-only queue does not block edged actor", async ({ vellum }) => {
       ).vellum;
       return api.workTaskTransition(name, "tasks", "hot-1", "completed");
     },
-    { name: canvasName },
+    { name: CANVAS_NAME },
   );
   expect(done.ok, done.message ?? done.code).toBe(true);
 
