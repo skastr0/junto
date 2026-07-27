@@ -502,7 +502,7 @@ export const startCanvasControlServer = async (
           request.id,
         );
       }
-      const removed = await authoringGate.run("ipc.canvas.delete", () =>
+      const removed = await authoringGate.run("control.canvas.remove", () =>
         options.run(removeEffect(args.value.name)),
       );
       return canvasControlOk(request.op, removed, request.id);
