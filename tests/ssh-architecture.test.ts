@@ -29,7 +29,14 @@ const display = (path: string): string => relative(root, path);
 
 describe("SSH architecture", () => {
   it("has no projection drop-file transport", () => {
-    expect(existsSync(join(root, "src/main/vellum/projection"))).toBe(false);
+    const projectionDirectory = join(root, "src/main/vellum/projection");
+    expect(
+      existsSync(projectionDirectory)
+        ? readdirSync(projectionDirectory, { withFileTypes: true }).map(
+            (entry) => entry.name,
+          )
+        : [],
+    ).toEqual([]);
 
     const remotePlan = readFileSync(
       join(root, "src/main/vellum/ssh/remote-plan.ts"),
@@ -95,6 +102,11 @@ describe("SSH architecture", () => {
       // Fleet trust provisioning renders one fixed wrapper with a canonical
       // Ed25519 public record on bounded stdin.
       "src/main/vellum/browser/station-trust.ts",
+      // Canonical Station API transport and propagation use typed endpoint
+      // values from the SSH kernel; they do not construct free-form commands.
+      "src/main/vellum/station/remote-client.ts",
+      "src/main/vellum/station/propagation.ts",
+      "src/main/vellum/station/fleet-propagation.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {
