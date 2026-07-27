@@ -1345,7 +1345,7 @@ export function SettingsPanel() {
               </p>
             ) : null}
             <p className="settings-foot" style={{ color: DIM }}>
-              document v{version} · ~/.vellum/settings.json
+              settings v{version} · ~/.vellum/state/vellum.db
             </p>
           </div>
         </div>

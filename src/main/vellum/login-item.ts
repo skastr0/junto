@@ -1,6 +1,6 @@
 // Login-item surface: opt-in "Start Vellum at login" via Electron's
 // app.setLoginItemSettings / getLoginItemSettings. Never silent enrollment —
-// only explicit toggle. Not stored in settings.json; OS is the source of truth.
+// only explicit toggle. The OS is the source of truth.
 
 import type { LoginItemOpResult, LoginItemState, StartupProvider } from "@shared/ipc";
 

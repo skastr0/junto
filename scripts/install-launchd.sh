@@ -11,7 +11,7 @@
 #
 # Product link: settings.station.supervisedPreferred is the durable preference
 # (true for Remote). This script is the apply surface — it does not read
-# settings.json. Doctor (settings service) surfaces preferred vs loaded.
+# application state. Doctor surfaces preferred vs loaded.
 #
 # Herdr: reload/unload soft-quits Vellum → control streams detach; panes keep running.
 # Never mass-kills herdr sessions.

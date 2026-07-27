@@ -9,7 +9,7 @@
 #   scripts/install-app.sh --supervised    also (re)load LaunchAgent (crash-only KeepAlive)
 #
 # Station preference (settings.station.supervisedPreferred):
-#   Product intent only — this script does NOT read ~/.vellum/settings.json.
+#   Product intent only — this script never opens Vellum's SQLite state.
 #   StationRoleGate sets supervisedPreferred=true when role=remote. The install
 #   surface for that preference is --supervised (or bun run app:install:supervised).
 #   Settings doctor metadata reports preferred vs LaunchAgent-loaded so Remote

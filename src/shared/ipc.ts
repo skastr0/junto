@@ -136,13 +136,13 @@ export const IPC_CHANNELS = {
   demoState: "vellum:demo-state",
   demoCommand: "vellum:demo-command",
   demoWriteEdl: "vellum:demo-write-edl",
-  // user settings plane (schema document under ~/.vellum/settings.json)
+  // user settings plane (app-owned SQLite state)
   settingsGet: "vellum:settings-get",
   settingsPatch: "vellum:settings-patch",
   /** Dedicated station topology transition (role/host/CC ref) — seals on write. */
   settingsSetStationTopology: "vellum:settings-set-station-topology",
   settingsReset: "vellum:settings-reset",
-  // OS login item (Electron get/setLoginItemSettings — not settings.json)
+  // OS login item (Electron get/setLoginItemSettings)
   loginItemGet: "vellum:login-item-get",
   loginItemSet: "vellum:login-item-set",
   // remote host registry (app-owned SQLite state)
@@ -671,7 +671,7 @@ export interface HostsDiscoverPeersResult {
   readonly message?: string;
 }
 
-/** OS login-item state from Electron getLoginItemSettings (not settings.json). */
+/** OS login-item state from Electron getLoginItemSettings. */
 export interface LoginItemState {
   readonly openAtLogin: boolean;
   readonly openAsHidden: boolean;
