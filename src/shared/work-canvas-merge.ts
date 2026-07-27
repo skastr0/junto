@@ -2,7 +2,7 @@ import { Match } from "effect";
 import type { CanvasDoc, CanvasNode, EtherNodeExtension } from "./canvas";
 import { resolveSpec } from "./physics";
 
-// Merge a disk/work write into the operator's local document so freeform
+// Merge an authority/work write into the operator's local document so freeform
 // geometry and graph structure are preserved while work stores (and their
 // mirrored text) take the authoritative write's values.
 //
@@ -76,7 +76,7 @@ const mergeNode = (local: CanvasNode, work: CanvasNode | undefined): CanvasNode 
 
 /**
  * Overlay authoritative work-plane fields from `work` onto freeform `local`.
- * Local-only nodes/edges are kept; work-only nodes (added on disk) are appended.
+ * Local-only nodes/edges are kept; work-only nodes committed concurrently are appended.
  */
 export const mergeLocalCanvasWithWorkWrite = (local: CanvasDoc, work: CanvasDoc): CanvasDoc => {
   const workById = new Map(work.nodes.map((node) => [node.id, node] as const));

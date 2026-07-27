@@ -23,18 +23,18 @@ const writeCanvas = vi.fn(
 );
 const createCanvas = vi.fn(async (name: string) => ({
   name,
-  path: `/canvases/${name}.canvas`,
+  path: `vellum://canvas/${name}`,
   doc: { nodes: [], edges: [] } satisfies CanvasDoc,
   revision: `${name}-created`,
 }));
 const listCanvases = vi.fn(async () => createCanvas.mock.calls.map(([name]) => ({
   name,
-  path: `/canvases/${name}.canvas`,
+  path: `vellum://canvas/${name}`,
   modifiedAt: "2026-07-18T00:00:00.000Z",
 })));
 const readCanvas = vi.fn(async (name: string) => ({
   name,
-  path: `/canvases/${name}.canvas`,
+  path: `vellum://canvas/${name}`,
   doc: doc("disk-external"),
   revision: `${name}-disk`,
 }));
@@ -68,7 +68,7 @@ describe("renderer canvas save durability", () => {
     readCanvas.mockClear();
     readCanvas.mockImplementation(async (name: string) => ({
       name,
-      path: `/canvases/${name}.canvas`,
+      path: `vellum://canvas/${name}`,
       doc: doc("disk-external"),
       revision: `${name}-disk`,
     }));
@@ -130,8 +130,8 @@ describe("renderer canvas save durability", () => {
     }
   });
 
-  it("rebases freeform local edits over a disk revision conflict instead of recovery-canvas", async () => {
-    writeCanvas.mockRejectedValueOnce(new Error("alpha.canvas changed on disk; reload before saving"));
+  it("rebases freeform local edits over an authority revision conflict instead of recovery-canvas", async () => {
+    writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
     commitDoc(doc("local-unsaved"));
 
     await flushPendingCanvasSave();
@@ -149,7 +149,7 @@ describe("renderer canvas save durability", () => {
   });
 
   it("falls back to a recovery canvas when rebase cannot complete", async () => {
-    writeCanvas.mockRejectedValueOnce(new Error("alpha.canvas changed on disk; reload before saving"));
+    writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
     readCanvas.mockRejectedValueOnce(new Error("read failed"));
     commitDoc(doc("local-unsaved"));
 
@@ -159,7 +159,7 @@ describe("renderer canvas save durability", () => {
     const recoveryName = createCanvas.mock.calls[0]![0];
     expect(recoveryName).toMatch(/^recovery-[a-z0-9]+-[a-z0-9]+$/);
     expect(state$.canvasName.peek()).toBe(recoveryName);
-    expect(state$.error.peek()).toContain(`saved as ${recoveryName}.canvas`);
+    expect(state$.error.peek()).toContain(`saved as canvas "${recoveryName}"`);
   });
 
   it("keeps the flush boundary pending until the rebased write is durable", async () => {
@@ -167,7 +167,7 @@ describe("renderer canvas save durability", () => {
     const rebaseWrite = new Promise<{ revision: string }>((resolve) => {
       finishRebase = resolve;
     });
-    writeCanvas.mockRejectedValueOnce(new Error("alpha.canvas changed on disk; reload before saving"));
+    writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
     writeCanvas.mockImplementationOnce(async () => rebaseWrite);
     commitDoc(doc("durability-gate"));
 

@@ -35,9 +35,9 @@ interface PendingCanvasSave {
   readonly doc: CanvasDoc;
 }
 
-// Every scheduled save owns an immutable name+document snapshot. Disk
+// Every scheduled save owns an immutable name+document snapshot. Authority
 // revisions are tracked per canvas and supplied as an optimistic write
-// boundary; a newer direct-file edit therefore fails visibly instead of being
+// boundary; a concurrent commit therefore fails visibly instead of being
 // overwritten. One pump serializes local writes so a newer local edit can use
 // the revision produced by the prior local write.
 let pendingSave: PendingCanvasSave | null = null;
@@ -45,13 +45,13 @@ let inFlightSave: { readonly name: string; readonly promise: Promise<void> } | n
 const revisionsByName = new Map<string, string>();
 // Process-lifetime latch. Signal quit closes it once; there is deliberately no
 // reopen API because a later mutation would invalidate the acknowledged final
-// disk boundary while main is authorized to destroy the renderer.
+// durable boundary while main is authorized to destroy the renderer.
 let canvasMutationAdmissionOpen = true;
 const activeCanvasAuthoringOperations = new Set<Promise<void>>();
 // Names we intentionally discarded (delete). flushSave refuses to write them
 // until clearAbandonedCanvas (open/create of that name).
 const abandonedNames = new Set<string>();
-const REVISION_CONFLICT_MARKER = ".canvas changed on disk; reload before saving";
+const REVISION_CONFLICT_MARKER = "revision conflict; reload before saving";
 const MAX_RECOVERY_NAME_ATTEMPTS = 32;
 let recoveryNameSequence = 0;
 
@@ -100,9 +100,9 @@ const nextRecoveryName = (): string => {
   return `recovery-${Date.now().toString(36)}-${recoveryNameSequence.toString(36)}`;
 };
 
-// Prefer rebase when disk advanced under a local save (work ops, kernel
+// Prefer rebase when authority advanced under a local save (work ops, kernel
 // mirrors, external edits that share node ids): keep freeform local geometry
-// and graph membership, take work stores from disk, write at disk revision.
+// and graph membership, take work stores from authority, write at its revision.
 // Falls through to recovery-canvas only when rebase cannot complete.
 const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => {
   const api = window.vellum;
@@ -110,9 +110,9 @@ const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => 
 
   const localSnapshot =
     pendingSave?.name === failed.name ? pendingSave.doc : failed.doc;
-  const disk = await api.readCanvas(failed.name);
-  const merged = roundDoc(mergeLocalCanvasWithWorkWrite(localSnapshot, disk.doc));
-  const written = await api.writeCanvas(failed.name, merged, disk.revision);
+  const authority = await api.readCanvas(failed.name);
+  const merged = roundDoc(mergeLocalCanvasWithWorkWrite(localSnapshot, authority.doc));
+  const written = await api.writeCanvas(failed.name, merged, authority.revision);
   revisionsByName.set(failed.name, written.revision);
 
   // Drop the conflicted queue entry; re-queue only if a newer pending edit
@@ -123,7 +123,7 @@ const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => 
     } else {
       pendingSave = {
         name: failed.name,
-        doc: roundDoc(mergeLocalCanvasWithWorkWrite(pendingSave.doc, disk.doc)),
+        doc: roundDoc(mergeLocalCanvasWithWorkWrite(pendingSave.doc, authority.doc)),
       };
     }
   }
@@ -166,7 +166,7 @@ const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void>
       if (!messageOf(error).includes("already exists")) throw error;
     }
   }
-  if (!created) throw new Error(`could not allocate a recovery canvas for ${failed.name}.canvas`);
+  if (!created) throw new Error(`could not allocate a recovery canvas for "${failed.name}"`);
 
   const recovered = await api.writeCanvas(created.name, snapshot.doc, created.revision);
   revisionsByName.set(created.name, recovered.revision);
@@ -188,7 +188,7 @@ const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void>
 
   state$.saveState.set(pendingSave?.name === created.name ? "saving" : "saved");
   state$.error.set(
-    `${failed.name}.canvas changed on disk; the external version was preserved and your local edit was saved as ${created.name}.canvas`,
+    `canvas "${failed.name}" changed concurrently; that revision was preserved and your local edit was saved as canvas "${created.name}"`,
   );
 };
 
@@ -220,7 +220,7 @@ const handleSaveFailure = async (
   }
 
   // Keep the newest local snapshot retryable. If no newer request exists,
-  // restore the exact request that failed its optimistic disk boundary.
+  // restore the exact request that failed its optimistic authority boundary.
   if (pendingSave === null || pendingSave.name !== name) pendingSave = request;
   state$.saveState.set("error");
   state$.error.set(messageOf(failure));
