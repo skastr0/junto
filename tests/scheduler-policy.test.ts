@@ -49,6 +49,7 @@ describe("interval timer initialization", () => {
         version: 1,
         scheduleId: "schedule-a",
         intervalMilliseconds: 30_000,
+        catchUpPolicy: "coalesce-latest",
         nextDueAtEpochMs: 1_030_000,
         nextDueSlot: "0",
       },
@@ -142,6 +143,7 @@ describe("interval catch-up", () => {
         scheduleId: "schedule-a",
         claimSlot: "0",
       },
+      catchUpPolicy: "coalesce-latest",
       dueSlot: "0",
       scheduledForEpochMs: 1_060_000,
       observedAtEpochMs: 1_060_000,
@@ -150,6 +152,7 @@ describe("interval catch-up", () => {
         version: 1,
         scheduleId: "schedule-a",
         intervalMilliseconds: 60_000,
+        catchUpPolicy: "coalesce-latest",
         nextDueAtEpochMs: 1_120_000,
         nextDueSlot: "1",
         lastFiredSlot: "0",
@@ -163,6 +166,7 @@ describe("interval catch-up", () => {
     expect(result._tag).toBe("Firing");
     if (result._tag !== "Firing") return;
     expect(result.dueSlot).toBe("3");
+    expect(result.catchUpPolicy).toBe("coalesce-latest");
     expect(result.scheduledForEpochMs).toBe(1_240_000);
     expect(result.coalescedMissedSlots).toBe("3");
     expect(result.nextState).toMatchObject({
@@ -275,6 +279,23 @@ describe("persisted timer-state boundary", () => {
     };
 
     expect(Either.isLeft(decode(corrupt))).toBe(true);
+    expect(evaluate({ state: corrupt })).toEqual({
+      _tag: "Ineligible",
+      reason: "invalid-state",
+    });
+  });
+
+  it("rejects an unknown persisted catch-up policy", () => {
+    const corrupt = {
+      ...initializedState(),
+      catchUpPolicy: "replay-all",
+    };
+
+    expect(
+      Either.isLeft(
+        Schema.decodeUnknownEither(IntervalTimerState)(corrupt),
+      ),
+    ).toBe(true);
     expect(evaluate({ state: corrupt })).toEqual({
       _tag: "Ineligible",
       reason: "invalid-state",

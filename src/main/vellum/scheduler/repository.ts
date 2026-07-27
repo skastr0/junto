@@ -89,6 +89,7 @@ type SchedulerStateRow = StateRow & {
   readonly timer_key: string;
   readonly schedule_id: string;
   readonly interval_milliseconds: number;
+  readonly catch_up_policy: string;
   readonly next_due_at_epoch_ms: number;
   readonly next_due_slot: string;
   readonly last_fired_slot: string | null;
@@ -124,6 +125,7 @@ const selectState = (
         timer_key,
         schedule_id,
         interval_milliseconds,
+        catch_up_policy,
         next_due_at_epoch_ms,
         next_due_slot,
         last_fired_slot,
@@ -141,6 +143,7 @@ const stateFromRow = (
     version: 1 as const,
     scheduleId: row.schedule_id,
     intervalMilliseconds: row.interval_milliseconds,
+    catchUpPolicy: row.catch_up_policy,
     nextDueAtEpochMs: row.next_due_at_epoch_ms,
     nextDueSlot: row.next_due_slot,
     ...(row.last_fired_slot === null
@@ -173,14 +176,16 @@ const writeState = (
         timer_key,
         schedule_id,
         interval_milliseconds,
+        catch_up_policy,
         next_due_at_epoch_ms,
         next_due_slot,
         last_fired_slot,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(home_station, timer_key) DO UPDATE SET
         schedule_id = excluded.schedule_id,
         interval_milliseconds = excluded.interval_milliseconds,
+        catch_up_policy = excluded.catch_up_policy,
         next_due_at_epoch_ms = excluded.next_due_at_epoch_ms,
         next_due_slot = excluded.next_due_slot,
         last_fired_slot = excluded.last_fired_slot,
@@ -191,6 +196,7 @@ const writeState = (
       timerKey,
       state.scheduleId,
       state.intervalMilliseconds,
+      state.catchUpPolicy,
       state.nextDueAtEpochMs,
       state.nextDueSlot,
       state.lastFiredSlot ?? null,
@@ -313,18 +319,20 @@ export const makeSchedulerRepositoryLive = (
                   home_station,
                   timer_key,
                   schedule_id,
+                  catch_up_policy,
                   claim_slot,
                   due_slot,
                   scheduled_for_epoch_ms,
                   observed_at_epoch_ms,
                   coalesced_missed_slots,
                   claimed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `,
               [
                 homeCandidate,
                 timerCandidate,
                 evaluated.identity.scheduleId,
+                evaluated.catchUpPolicy,
                 evaluated.identity.claimSlot,
                 evaluated.dueSlot,
                 evaluated.scheduledForEpochMs,
@@ -426,6 +434,7 @@ export const makeSchedulerRepositoryLive = (
                   timer_key,
                   schedule_id,
                   interval_milliseconds,
+                  catch_up_policy,
                   next_due_at_epoch_ms,
                   next_due_slot,
                   last_fired_slot,

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   makeSchedulerRepositoryLive,
   SchedulerRepository,
+  SchedulerStateCorruptError,
 } from "../src/main/vellum/scheduler/repository";
 import {
   makeStateEngineLive,
@@ -75,6 +76,7 @@ describe("SchedulerRepository", () => {
     expect(initialized).toMatchObject({
       _tag: "Initialized",
       state: {
+        catchUpPolicy: "coalesce-latest",
         nextDueAtEpochMs: 1_060_000,
         nextDueSlot: "0",
       },
@@ -90,10 +92,12 @@ describe("SchedulerRepository", () => {
     );
     expect(fired).toMatchObject({
       _tag: "Firing",
+      catchUpPolicy: "coalesce-latest",
       dueSlot: "3",
       scheduledForEpochMs: 1_240_000,
       coalescedMissedSlots: "3",
       nextState: {
+        catchUpPolicy: "coalesce-latest",
         nextDueAtEpochMs: 1_300_000,
         nextDueSlot: "4",
         lastFiredSlot: "3",
@@ -107,12 +111,23 @@ describe("SchedulerRepository", () => {
 
     const receipts = await runtime.runPromise(
       state.read("test.scheduler-receipts", (reader) =>
-        reader.get<{ count: number }>(
-          "SELECT count(*) AS count FROM scheduler_interval_firings",
-        )?.count
+        reader.get<{
+          readonly count: number;
+          readonly catch_up_policy: string;
+        }>(
+          `
+            SELECT
+              count(*) AS count,
+              min(catch_up_policy) AS catch_up_policy
+            FROM scheduler_interval_firings
+          `,
+        )
       ),
     );
-    expect(receipts).toBe(1);
+    expect(receipts).toEqual({
+      count: 1,
+      catch_up_policy: "coalesce-latest",
+    });
   });
 
   it("persists its cursor across restart and resets only when the interval changes", async () => {
@@ -233,5 +248,39 @@ describe("SchedulerRepository", () => {
     expect(results.filter((result) => result._tag === "NotDue")).toHaveLength(
       1,
     );
+  });
+
+  it("fails closed when the persisted catch-up policy is corrupt", async () => {
+    const { runtime } = await makeRuntime();
+    const scheduler = await runtime.runPromise(SchedulerRepository);
+    const state = await runtime.runPromise(StateEngine);
+    await runtime.runPromise(
+      scheduler.claimInterval(claimInput(1_000_000)),
+    );
+
+    await runtime.runPromise(
+      state.transaction("test.corrupt-scheduler-policy", (writer) => {
+        writer.run("PRAGMA ignore_check_constraints = ON");
+        writer.run(
+          `
+            UPDATE scheduler_interval_state
+            SET catch_up_policy = 'replay-all'
+            WHERE home_station = ? AND timer_key = ?
+          `,
+          ["mini", "canvas-a::timer-a"],
+        );
+        writer.run("PRAGMA ignore_check_constraints = OFF");
+      }),
+    );
+
+    const result = await runtime.runPromise(
+      Effect.either(
+        scheduler.readIntervalState("mini", "canvas-a::timer-a"),
+      ),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(SchedulerStateCorruptError);
+    }
   });
 });

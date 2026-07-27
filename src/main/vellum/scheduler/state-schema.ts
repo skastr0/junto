@@ -18,6 +18,8 @@ export const SCHEDULER_STATE_SCHEMA_SQL = `
     schedule_id TEXT NOT NULL CHECK (length(schedule_id) BETWEEN 1 AND 256),
     interval_milliseconds INTEGER NOT NULL
       CHECK (interval_milliseconds > 0),
+    catch_up_policy TEXT NOT NULL
+      CHECK (catch_up_policy = 'coalesce-latest'),
     next_due_at_epoch_ms INTEGER NOT NULL
       CHECK (next_due_at_epoch_ms >= 0),
     next_due_slot TEXT NOT NULL
@@ -50,6 +52,8 @@ export const SCHEDULER_STATE_SCHEMA_SQL = `
       CHECK (length(home_station) BETWEEN 1 AND 64),
     timer_key TEXT NOT NULL CHECK (length(timer_key) BETWEEN 1 AND 512),
     schedule_id TEXT NOT NULL CHECK (length(schedule_id) BETWEEN 1 AND 256),
+    catch_up_policy TEXT NOT NULL
+      CHECK (catch_up_policy = 'coalesce-latest'),
     claim_slot TEXT NOT NULL
       CHECK (
         length(claim_slot) > 0

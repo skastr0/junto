@@ -57,10 +57,18 @@ export const TimerSlotCount = Schema.String.pipe(
 );
 export type TimerSlotCount = typeof TimerSlotCount.Type;
 
+export const INTERVAL_CATCH_UP_POLICY = "coalesce-latest" as const;
+export const IntervalCatchUpPolicy = Schema.Literal(
+  INTERVAL_CATCH_UP_POLICY,
+);
+export type IntervalCatchUpPolicy =
+  typeof IntervalCatchUpPolicy.Type;
+
 const TimerStateShape = Schema.Struct({
   version: Schema.Literal(1),
   scheduleId: TimerScheduleId,
   intervalMilliseconds: IntervalMilliseconds,
+  catchUpPolicy: IntervalCatchUpPolicy,
   nextDueAtEpochMs: EpochMilliseconds,
   nextDueSlot: TimerSlotId,
   lastFiredSlot: Schema.optionalWith(TimerSlotId, { exact: true }),
@@ -131,6 +139,7 @@ export type TimerFiringIdentity = typeof TimerFiringIdentity.Type;
 export type CoalescedTimerFiring = {
   readonly _tag: "Firing";
   readonly identity: TimerFiringIdentity;
+  readonly catchUpPolicy: IntervalCatchUpPolicy;
   /** Latest due slot at observedAtEpochMs; all earlier missed slots coalesce. */
   readonly dueSlot: TimerSlotId;
   readonly scheduledForEpochMs: EpochMilliseconds;
@@ -228,6 +237,7 @@ export const initializeIntervalTimer = (
       version: 1,
       scheduleId: input.scheduleId,
       intervalMilliseconds,
+      catchUpPolicy: INTERVAL_CATCH_UP_POLICY,
       nextDueAtEpochMs: nextDueAtEpochMs as EpochMilliseconds,
       nextDueSlot: asSlotId(0n),
     },
@@ -326,6 +336,7 @@ export const evaluateIntervalTimer = (
     version: 1,
     scheduleId: state.scheduleId,
     intervalMilliseconds: state.intervalMilliseconds,
+    catchUpPolicy: state.catchUpPolicy,
     nextDueAtEpochMs: nextDueAtEpochMs as EpochMilliseconds,
     nextDueSlot: asSlotId(dueSlot + 1n),
     lastFiredSlot: dueSlotId,
@@ -339,6 +350,7 @@ export const evaluateIntervalTimer = (
       scheduleId: state.scheduleId,
       claimSlot: state.nextDueSlot,
     },
+    catchUpPolicy: state.catchUpPolicy,
     dueSlot: dueSlotId,
     scheduledForEpochMs:
       scheduledForEpochMs as EpochMilliseconds,
