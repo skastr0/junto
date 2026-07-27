@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -179,6 +179,33 @@ const acceptRemoteFacts = (
     causalConflict: "fail",
   });
 
+const canonicalJson = (value: unknown): string => {
+  const normalize = (entry: unknown): unknown => {
+    if (Array.isArray(entry)) return entry.map(normalize);
+    if (entry === null || typeof entry !== "object") return entry;
+    return Object.fromEntries(
+      Object.entries(entry as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, normalize(nested)]),
+    );
+  };
+  return JSON.stringify(normalize(value));
+};
+
+const rewriteEventBody = (
+  event: StationEvent,
+  rewrite: (body: Record<string, unknown>) => Record<string, unknown>,
+): StationEvent => {
+  const body = canonicalJson(
+    rewrite(JSON.parse(event.body) as Record<string, unknown>),
+  );
+  return {
+    ...event,
+    body,
+    contentSha256: createHash("sha256").update(body, "utf8").digest("hex"),
+  };
+};
+
 describe("WorkRepository station replication", () => {
   it("rejects a route sequence gap without materializing or advancing its ACK", async () => {
     const commandCenter = runtime();
@@ -232,6 +259,77 @@ describe("WorkRepository station replication", () => {
         commandCenter: cc,
         route: "studio",
         events: [first!],
+      }),
+    );
+    expect(accepted.acknowledgement.through).toBe("1");
+
+    await commandCenter.dispose();
+    await remote.dispose();
+  });
+
+  it("rejects excess outer and nested work-event fields before persistence", async () => {
+    const commandCenter = runtime();
+    const remote = runtime();
+    const source = await commandCenter.runPromise(WorkRepository);
+    const target = await remote.runPromise(WorkRepository);
+    const cc = installation("cc-strict");
+    const station = installation("station-strict");
+
+    await commandCenter.runPromise(
+      createTask(source, {
+        canvasName: "factory",
+        nodeId: "remote-tasks",
+        entityHome: "studio",
+        eventHome: cc,
+        brief: "strict routed command",
+        ids: ids("strict"),
+        materialization: "on-disposition",
+      }),
+    );
+    const [event] = await commandCenter.runPromise(
+      events(source, cc, "studio"),
+    );
+    const outer = rewriteEventBody(event!, (body) => ({
+      ...body,
+      legacyToken: "retired",
+    }));
+    const nested = rewriteEventBody(event!, (body) => ({
+      ...body,
+      body: {
+        ...(body.body as Record<string, unknown>),
+        legacyToken: "retired",
+      },
+    }));
+
+    for (const candidate of [outer, nested]) {
+      const rejected = await remote.runPromise(
+        acceptCommands(target, {
+          local: station,
+          commandCenter: cc,
+          route: "studio",
+          events: [candidate],
+        }).pipe(Effect.either),
+      );
+      expect(Either.isLeft(rejected)).toBe(true);
+      if (Either.isLeft(rejected)) {
+        expect(rejected.left).toMatchObject({
+          _tag: "WorkReplicationError",
+          reason: "invalid-payload",
+        });
+      }
+    }
+    expect(
+      (await remote.runPromise(
+        target.readSnapshot("factory", "remote-tasks"),
+      )).tasks.items,
+    ).toEqual([]);
+
+    const accepted = await remote.runPromise(
+      acceptCommands(target, {
+        local: station,
+        commandCenter: cc,
+        route: "studio",
+        events: [event!],
       }),
     );
     expect(accepted.acknowledgement.through).toBe("1");
@@ -429,17 +527,15 @@ describe("WorkRepository station replication", () => {
     });
 
     await commandCenter.runPromise(
-      ccStations.configure(
-        ConfigureRequest.make({
-          protocol: STATION_API_PROTOCOL,
-          op: "configure",
+      ccStations.configureCommandCenter(
+        {
           installationId: cc,
           configuration: {
             role: "command-center",
             hostId: stationHost("command"),
             supervisedPreferred: true,
           },
-        }),
+        },
       ),
     );
     await remote.runPromise(
@@ -455,7 +551,7 @@ describe("WorkRepository station replication", () => {
       ),
     );
     await remote.runPromise(
-      remoteStations.configure(
+      remoteStations.configureRemote(
         ConfigureRequest.make({
           protocol: STATION_API_PROTOCOL,
           op: "configure",

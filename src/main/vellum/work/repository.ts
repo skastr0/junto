@@ -1901,9 +1901,9 @@ const decodeReplicatedWorkEvent = (
     );
   }
 
-  const decoded = Schema.decodeUnknownEither(WorkEventPayloadEnvelope)(
-    unknown,
-  );
+  const decoded = Schema.decodeUnknownEither(WorkEventPayloadEnvelope, {
+    onExcessProperty: "error",
+  })(unknown);
   if (Either.isLeft(decoded)) {
     return fail("invalid-payload", "work event envelope is malformed");
   }
@@ -1945,7 +1945,9 @@ const decodeReplicatedWorkEvent = (
     envelope.entityKind === "task" ||
     envelope.entityKind === "request"
   ) {
-    const body = Schema.decodeUnknownEither(TaskEventBody)(envelope.body);
+    const body = Schema.decodeUnknownEither(TaskEventBody, {
+      onExcessProperty: "error",
+    })(envelope.body);
     if (
       Either.isLeft(body) ||
       body.right.lane !== envelope.entityKind ||
@@ -1963,9 +1965,9 @@ const decodeReplicatedWorkEvent = (
   }
 
   if (envelope.entityKind === "receipt") {
-    const body = Schema.decodeUnknownEither(DispositionEventBody)(
-      envelope.body,
-    );
+    const body = Schema.decodeUnknownEither(DispositionEventBody, {
+      onExcessProperty: "error",
+    })(envelope.body);
     if (
       Either.isLeft(body) ||
       body.right.disposition.reportedBy !== source.identity.home ||
@@ -1982,7 +1984,9 @@ const decodeReplicatedWorkEvent = (
     };
   }
 
-  const body = Schema.decodeUnknownEither(ArtifactEventBody)(envelope.body);
+  const body = Schema.decodeUnknownEither(ArtifactEventBody, {
+    onExcessProperty: "error",
+  })(envelope.body);
   if (
     Either.isLeft(body) ||
     body.right.artifact.artifactId !== envelope.entityId

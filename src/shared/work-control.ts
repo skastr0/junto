@@ -128,7 +128,10 @@ export type WorkResponseEnvelope = typeof WorkResponseEnvelope.Type;
 export const decodeWorkRequest = Schema.decodeUnknownEither(WorkRequestEnvelope, {
   onExcessProperty: "error",
 });
-export const decodeWorkResponse = Schema.decodeUnknownEither(WorkResponseEnvelope);
+export const decodeWorkResponse = Schema.decodeUnknownEither(
+  WorkResponseEnvelope,
+  { onExcessProperty: "error" },
+);
 
 export const workOk = (
   op: WorkOpName,

@@ -73,6 +73,17 @@ describe("work-control wire schemas", () => {
     expect(err.error.type).toBe("AuthError");
   });
 
+  it("rejects excess response fields instead of pruning compatibility data", () => {
+    expect(
+      Either.isLeft(
+        decodeWorkResponse({
+          ...workOk("ping", { pong: true }, "strict-response"),
+          legacyToken: "retired",
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("validates TasksClaimArgs", () => {
     const good = Schema.decodeUnknownEither(TasksClaimArgs)({
       target: "n7",
