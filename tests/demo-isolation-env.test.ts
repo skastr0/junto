@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const originalDemo = process.env.VELLUM_DEMO;
 const originalE2E = process.env.VELLUM_E2E;
+const originalVitest = process.env.VITEST;
 const originalStateDatabase = process.env.VELLUM_STATE_DB;
 const originalProjectionRoot = process.env.VELLUM_CANVASES_DIR;
 
@@ -17,6 +18,7 @@ beforeEach(() => {
   vi.resetModules();
   delete process.env.VELLUM_DEMO;
   delete process.env.VELLUM_E2E;
+  delete process.env.VITEST;
   delete process.env.VELLUM_STATE_DB;
   delete process.env.VELLUM_CANVASES_DIR;
 });
@@ -24,6 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   restore("VELLUM_DEMO", originalDemo);
   restore("VELLUM_E2E", originalE2E);
+  restore("VITEST", originalVitest);
   restore("VELLUM_STATE_DB", originalStateDatabase);
   restore("VELLUM_CANVASES_DIR", originalProjectionRoot);
   vi.resetModules();
@@ -98,6 +101,20 @@ describe("demo runtime isolation", () => {
     );
 
     expect(stateDatabasePath()).toBe("/tmp/vellum-e2e/state.db");
+  });
+
+  it("keeps Vitest app runtimes on their supplied sandbox database", async () => {
+    process.env.VITEST = "true";
+    process.env.VELLUM_STATE_DB = "/tmp/vellum-vitest/state.db";
+
+    const { stateDatabasePath } = await import(
+      "../src/main/vellum/state/engine"
+    );
+
+    expect(stateDatabasePath()).toBe("/tmp/vellum-vitest/state.db");
+    expect(stateDatabasePath()).not.toBe(
+      join(homedir(), ".vellum", "state", "vellum.db"),
+    );
   });
 
   it("runs before the runtime import in the Electron entry point", () => {

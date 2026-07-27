@@ -57,12 +57,14 @@ const stateEngineError = (
     });
 
 const allowsStateDatabaseOverride = (): boolean =>
-  isDemoMode() || process.env.VELLUM_E2E === "1";
+  isDemoMode() ||
+  process.env.VELLUM_E2E === "1" ||
+  process.env.VITEST === "true";
 
 /**
  * Resolve the sole app database. Process-level redirection is confined to the
- * explicit demo and E2E launch modes; ordinary product startup always owns the
- * canonical database under the operator's home.
+ * explicit demo, E2E, and Vitest isolation modes; ordinary product startup
+ * always owns the canonical database under the operator's home.
  */
 export const stateDatabasePath = (): string => {
   if (allowsStateDatabaseOverride() && process.env.VELLUM_STATE_DB) {
