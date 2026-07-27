@@ -37,6 +37,12 @@ export const RETIRED_PRODUCT_STATE_SIGNATURES = [
   "control.canvas.remove",
   "managedRemoteUpdate",
   "managedRemoteRollback",
+  "rollback_previous_app",
+  "BACKUP_RESTORE_PENDING",
+  "remove_created_cli_link",
+  "restore_previous_launchd_job",
+  "PLIST_BACKUP_ID",
+  "PLIST_RESTORE_PENDING",
 ] as const;
 
 export type RetiredProductStateSignature =

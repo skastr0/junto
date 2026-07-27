@@ -79,7 +79,7 @@ describe("hardened app installer", () => {
     const stageCopy = position(install, 'ditto --rsrc "$APP_SRC" "$STAGE"');
     const staged = position(install, 'audit_app_bundle "$STAGE"');
     const quiesce = position(install, "unload_launchd");
-    const replace = position(install, 'mv "$STAGE" "$APP_DST"');
+    const replace = position(install, "publish_staged_app_candidate");
     const installed = position(install, 'audit_app_bundle "$APP_DST"');
     const success = position(install, 'log "installed $APP_DST"');
 
@@ -116,9 +116,9 @@ ensure_scoped_directory "CLI directory" "$BIN_DIR"
 ensure_scoped_directory "LaunchAgents directory" "$INSTALL_USER_ROOT/Library/LaunchAgents"
 derive_install_transaction_paths 4242
 mkdir -m 0700 "$STAGE_ROOT"
-bind_transaction_tree stage
+bind_install_stage
 assert_install_transaction_capabilities
-safe_remove_transaction_tree stage
+safe_remove_install_stage
 printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR"`,
     );
 
@@ -181,7 +181,9 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR"`,
       launchd,
       'if [[ -n "$INSTALL_SANDBOX_ROOT" ]]; then\n  err "LaunchAgent installation is unavailable',
     );
-    expect(sandboxRefusal).toBeLessThan(position(launchd, "if launchd_loaded; then"));
+    expect(sandboxRefusal).toBeLessThan(
+      position(launchd, 'if [[ "${1:-}" == "--uninstall" ]]'),
+    );
     expect(install).toContain("sandbox installs cannot launch or supervise the app");
   });
 
@@ -266,7 +268,7 @@ source "$1"
 assert_installer_path_capabilities
 derive_install_transaction_paths 4242
 STAGE_ROOT="$INSTALL_SANDBOX_ROOT"
-safe_remove_transaction_tree stage`,
+safe_remove_install_stage`,
     );
     expect(substitution.status).not.toBe(0);
     expect(readFileSync(marker, "utf8")).toBe("retained");
@@ -298,16 +300,99 @@ source "$1"
 assert_installer_path_capabilities
 derive_install_transaction_paths 4242
 mkdir -m 0700 "$STAGE_ROOT"
-bind_transaction_tree stage
+bind_install_stage
 mv "$STAGE_ROOT" "\${STAGE_ROOT}.away"
 mkdir -m 0700 "$STAGE_ROOT"
 printf retained > "$STAGE_ROOT/marker"
-safe_remove_transaction_tree stage`,
+safe_remove_install_stage`,
     );
     expect(result.status).not.toBe(0);
     expect(readFileSync(join(sandbox, "Applications", "Vellum Command.app.new.4242", "marker"), "utf8")).toBe(
       "retained",
     );
+  });
+
+  it("refuses a substituted retired app while preserving the bound retirement root", () => {
+    const sandbox = makeSandbox();
+    const result = runPaths(
+      sandbox,
+      `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+derive_install_transaction_paths 4242
+bind_app_retirement_root
+mkdir -m 0700 "$RETIRED_APP"
+RETIRED_APP_ID="$(path_identity "$RETIRED_APP")"
+mv "$RETIRED_APP" "\${RETIRED_APP}.admitted"
+mkdir -m 0700 "$RETIRED_APP"
+printf foreign > "$RETIRED_APP/marker"
+APP_RETIREMENT_DISPOSABLE=1
+if safe_remove_app_retirement; then
+  exit 91
+fi
+cat "$RETIRED_APP/marker"`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("foreign");
+    expect(result.stderr).toContain(
+      "retiring app is not the exact admitted Vellum generation",
+    );
+  });
+
+  it("refuses a substituted retired plist while preserving the bound retirement root", () => {
+    const sandbox = makeSandbox();
+    const result = runPaths(
+      sandbox,
+      `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+ensure_scoped_directory "LaunchAgents directory" "$INSTALL_USER_ROOT/Library/LaunchAgents"
+PLIST_RETIREMENT_ROOT="\${PLIST}.retired.$$"
+bind_launchd_retirement_root
+printf admitted > "$RETIRED_PLIST"
+RETIRED_PLIST_ID="$(path_identity "$RETIRED_PLIST")"
+mv "$RETIRED_PLIST" "\${RETIRED_PLIST}.admitted"
+printf foreign > "$RETIRED_PLIST"
+PLIST_RETIREMENT_DISPOSABLE=1
+if safe_remove_launchd_retirement; then
+  exit 91
+fi
+cat "$RETIRED_PLIST"`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("foreign");
+    expect(result.stderr).toContain(
+      "retiring LaunchAgent plist is not the exact admitted Vellum plist",
+    );
+  });
+
+  it("refuses preexisting stage and retirement transaction paths untouched", () => {
+    for (const suffix of ["new", "retired"]) {
+      const sandbox = makeSandbox();
+      const result = runPaths(
+        sandbox,
+        `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+TRANSACTION_PATH="\${APP_DST}.\${SUFFIX}.4242"
+mkdir -m 0700 "$TRANSACTION_PATH"
+printf retained > "$TRANSACTION_PATH/marker"
+derive_install_transaction_paths 4242`,
+        { SUFFIX: suffix },
+      );
+      expect(result.status).not.toBe(0);
+      expect(
+        readFileSync(
+          join(
+            sandbox,
+            "Applications",
+            `Vellum Command.app.${suffix}.4242`,
+            "marker",
+          ),
+          "utf8",
+        ),
+      ).toBe("retained");
+    }
   });
 
   it("rejects empty or invalid candidates before installer mutation", () => {
@@ -327,34 +412,249 @@ safe_remove_transaction_tree stage`,
     expect(missing.stderr).toContain("missing app bundle");
   });
 
-  it("revalidates every recursive removal and app move through transaction capabilities", () => {
+  it("retires only the admitted current app before recursive disposal", () => {
     expect(install).toContain('derive_install_transaction_paths "$$"');
     expect(install.match(/assert_install_transaction_capabilities/gu)?.length).toBeGreaterThan(5);
-    expect(install).not.toContain('rm -rf "$APP_DST"');
     expect(install).not.toContain('rm -rf "$STAGE_ROOT"');
-    expect(paths.match(/rm -rf/gu)).toHaveLength(1);
-    expect(paths).toContain('safe_remove_transaction_tree()');
-    const stageMove = position(install, 'mv "$STAGE" "$APP_DST"');
+    expect(paths.match(/rm -rf/gu)).toHaveLength(2);
+    expect(paths).toContain('safe_remove_install_stage()');
+    expect(paths).not.toContain('/bin/rm -rf -- "$APP_DST"');
+    expect(paths).toContain('/bin/mv -n "$APP_DST" "$APP_RETIREMENT_ROOT/"');
+    expect(paths).toContain('/bin/rm -rf -- "$RETIRED_APP"');
+    expect(paths).toContain('assert_owned_current_app()');
+    expect(paths).toContain('begin_one_way_app_cutover()');
+    expect(paths).toContain("Print :CFBundleExecutable");
+    expect(paths).toContain(
+      '/usr/bin/codesign --verify --deep --strict --verbose=2 -R "$APP_SIGNING_REQUIREMENT" "$APP_DST"',
+    );
+    const stageMove = position(install, "publish_staged_app_candidate");
     expect(install.lastIndexOf("assert_install_transaction_capabilities", stageMove)).toBeGreaterThan(0);
     expect(position(install, 'STAGED_APP_ID="$(path_identity "$STAGE")"')).toBeLessThan(stageMove);
   });
 
-  it("writes and removes only the exact derived LaunchAgent plist", () => {
+  it("refuses a substituted foreign current app before the one-way boundary", () => {
+    const sandbox = makeSandbox();
+    const result = runPaths(
+      sandbox,
+      `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+derive_install_transaction_paths 4242
+mkdir -m 0700 "$APP_DST"
+BOUND_APP_ID="$(path_identity "$APP_DST")"
+mv "$APP_DST" "\${APP_DST}.away"
+mkdir -m 0700 "$APP_DST"
+printf retained > "$APP_DST/marker"
+ACTIVATION_STARTED=0
+if begin_one_way_app_cutover "$BOUND_APP_ID"; then
+  exit 91
+fi
+printf '%s\n' "$ACTIVATION_STARTED"
+cat "$APP_DST/marker"`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("0\nretained");
+    expect(result.stderr).toContain(
+      "current app changed identity before one-way activation",
+    );
+  });
+
+  it("rejects an unrelated fixed-path app before destructive activation", () => {
+    const sandbox = makeSandbox();
+    const result = runPaths(
+      sandbox,
+      `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+derive_install_transaction_paths 4242
+mkdir -m 0700 "$APP_DST"
+printf retained > "$APP_DST/marker"
+FOREIGN_APP_ID="$(path_identity "$APP_DST")"
+ACTIVATION_STARTED=0
+if begin_one_way_app_cutover "$FOREIGN_APP_ID"; then
+  exit 91
+fi
+printf '%s\n' "$ACTIVATION_STARTED"
+cat "$APP_DST/marker"`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("0\nretained");
+    expect(result.stderr).toContain(
+      "current app is not an owned Vellum bundle",
+    );
+  });
+
+  it("keeps a raced app destination and the staged candidate separate", () => {
+    const sandbox = makeSandbox();
+    const result = runPaths(
+      sandbox,
+      `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+derive_install_transaction_paths 4242
+mkdir -m 0700 "$STAGE_ROOT"
+bind_install_stage
+mkdir -m 0700 "$STAGE"
+STAGED_APP_ID="$(path_identity "$STAGE")"
+mkdir -m 0700 "$APP_DST"
+printf foreign > "$APP_DST/marker"
+if publish_staged_app_candidate; then
+  exit 91
+fi
+printf '%s\n' "$(path_identity "$STAGE")"
+cat "$APP_DST/marker"`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim().split("\n")[1]).toBe("foreign");
+    expect(result.stderr).toContain(
+      "app destination became occupied before candidate publication",
+    );
+  });
+
+  it("rejects a foreign fixed-path LaunchAgent plist without changing it", () => {
+    const sandbox = makeSandbox();
+    const result = runPaths(
+      sandbox,
+      `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+mkdir -p "$INSTALL_USER_ROOT/Library/LaunchAgents"
+printf foreign > "$PLIST"
+FOREIGN_ID="$(path_identity "$PLIST")"
+if assert_owned_launchd_plist "$FOREIGN_ID"; then
+  exit 91
+fi
+cat "$PLIST"`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("foreign");
+    expect(result.stderr).toContain(
+      "existing LaunchAgent plist is not owned by Vellum",
+    );
+  });
+
+  it("rejects an otherwise matching LaunchAgent with extra program arguments", () => {
+    const sandbox = makeSandbox();
+    const launchAgents = join(sandbox, "Library", "LaunchAgents");
+    mkdirSync(launchAgents, { recursive: true });
+    const plist = join(launchAgents, "skastr0.vellum.plist");
+    writeFileSync(
+      plist,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>Label</key><string>skastr0.vellum</string>
+<key>ProgramArguments</key><array>
+<string>${join(sandbox, "Applications", "Vellum Command.app", "Contents", "MacOS", "Vellum Command")}</string>
+<string>--foreign</string>
+</array>
+</dict></plist>`,
+    );
+    const result = runPaths(
+      sandbox,
+      `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+PLIST_ID="$(path_identity "$PLIST")"
+if assert_owned_launchd_plist "$PLIST_ID"; then
+  exit 91
+fi
+test -f "$PLIST"`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(
+      "existing LaunchAgent plist has unexpected program arguments",
+    );
+    expect(readFileSync(plist, "utf8")).toContain("--foreign");
+  });
+
+  it("publishes a LaunchAgent candidate exclusively when the fixed path stays absent", () => {
+    const sandbox = makeSandbox();
+    const result = runPaths(
+      sandbox,
+      `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+mkdir -p "$INSTALL_USER_ROOT/Library/LaunchAgents"
+PLIST_STAGE="\${PLIST}.new.$$"
+printf candidate > "$PLIST_STAGE"
+PLIST_STAGE_ID="$(path_identity "$PLIST_STAGE")"
+printf foreign > "$PLIST"
+if publish_launchd_candidate "$PLIST_STAGE_ID"; then
+  exit 91
+fi
+printf '%s\n' "$(cat "$PLIST_STAGE")" "$(cat "$PLIST")"`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "candidate",
+      "foreign",
+    ]);
+    expect(result.stderr).toContain(
+      "LaunchAgent plist destination became occupied before candidate publication",
+    );
+  });
+
+  it("publishes the LaunchAgent through a one-way, identity-bound cutover", () => {
+    const ownershipProof = launchd.lastIndexOf(
+      'assert_owned_launchd_plist "$CURRENT_PLIST_ID"',
+    );
+    const boundary = position(launchd, "LAUNCHD_ACTIVATION_STARTED=1");
+    const retire = launchd.lastIndexOf(
+      '/bin/mv -n "$PLIST" "$PLIST_RETIREMENT_ROOT/"',
+    );
+    const publish = position(
+      launchd,
+      'publish_launchd_candidate "$PLIST_STAGE_ID"',
+    );
+    const bootstrap = position(
+      launchd,
+      'launchctl bootstrap "$DOMAIN" "$PLIST"',
+    );
     expect(launchd).toContain("assert_installer_path_capabilities");
     expect(launchd).toContain('PLIST_STAGE="${PLIST}.new.$$"');
+    expect(launchd).toContain(
+      'PLIST_RETIREMENT_ROOT="${PLIST}.retired.$$"',
+    );
     expect(launchd).toContain("set -o noclobber");
     expect(launchd).toContain('exec 3> "$PLIST_STAGE"');
     expect(launchd).toContain("cat >&3 <<PLIST_EOF");
     expect(launchd).toContain("PLIST_STAGE_ID");
-    expect(launchd).toContain("PLIST_BACKUP_ID");
     expect(launchd).toContain('if [[ "$(path_identity "$PLIST" 2>/dev/null)" != "$PLIST_STAGE_ID" ]]');
-    expect(launchd).toContain('mv "$PLIST_BACKUP" "$PLIST"');
-    expect(launchd).toContain("PLIST_TRANSACTION_COMPLETE=1");
-    expect(launchd).toContain("PREVIOUS_LAUNCHD_LOADED");
-    expect(launchd).toContain("restore_previous_launchd_job");
     expect(launchd).not.toContain('cat > "$PLIST"');
-    expect(launchd).toContain("safe_remove_installer_file plist");
     expect(launchd).not.toContain('rm -f "$PLIST"');
+    expect(ownershipProof).toBeGreaterThan(0);
+    expect(ownershipProof).toBeLessThan(boundary);
+    expect(boundary).toBeLessThan(retire);
+    expect(retire).toBeLessThan(publish);
+    expect(publish).toBeLessThan(bootstrap);
+    expect(launchd).toContain(
+      "one-way LaunchAgent activation requires forward repair",
+    );
+    expect(launchd).toContain(
+      'if launchd_loaded && ! unload_launchd',
+    );
+    expect(position(launchd, "refusing to reuse a LaunchAgent activation path"))
+      .toBeLessThan(position(launchd, 'exec 3> "$PLIST_STAGE"'));
+
+    const uninstall = launchd.slice(
+      position(launchd, 'if [[ "${1:-}" == "--uninstall" ]]'),
+      position(launchd, 'if [[ "${1:-}" != "--skip-build" ]]'),
+    );
+    const firstOwnership = position(
+      uninstall,
+      'assert_owned_launchd_plist "$UNINSTALL_PLIST_ID"',
+    );
+    const unload = position(uninstall, "unload_launchd");
+    const secondOwnership = uninstall.lastIndexOf(
+      'assert_owned_launchd_plist "$UNINSTALL_PLIST_ID"',
+    );
+    const retireUninstall = position(
+      uninstall,
+      '/bin/mv -n "$PLIST" "$PLIST_RETIREMENT_ROOT/"',
+    );
+    expect(firstOwnership).toBeLessThan(unload);
+    expect(unload).toBeLessThan(secondOwnership);
+    expect(secondOwnership).toBeLessThan(retireUninstall);
   });
 
   it("routes supervised installation through the hardened installer", () => {
@@ -365,34 +665,96 @@ safe_remove_transaction_tree stage`,
     );
   });
 
-  it("activates rollback before the first app destination move", () => {
-    const backupMove = position(install, 'mv "$APP_DST" "$BACKUP"');
-    const replacementActive = position(install, "REPLACEMENT_ACTIVE=1");
-    const stagedMove = position(install, 'mv "$STAGE" "$APP_DST"');
-    expect(replacementActive).toBeLessThan(backupMove);
-    expect(backupMove).toBeLessThan(stagedMove);
-    expect(install).toContain('if [[ "$NEW_APP_INSTALLED" -eq 1 && -e "$APP_DST" ]]');
-    expect(position(install, "HAD_PREVIOUS=1")).toBeLessThan(backupMove);
-    expect(position(install, "NEW_APP_MOVE_PENDING=1")).toBeLessThan(stagedMove);
+  it("crosses the one-way boundary only after preflight and before current-app removal", () => {
+    const cutover = position(
+      install,
+      'begin_one_way_app_cutover "$CURRENT_APP_ID"',
+    );
+    const stagedMove = position(install, "publish_staged_app_candidate");
+    expect(position(install, 'audit_app_bundle "$APP_SRC"')).toBeLessThan(
+      cutover,
+    );
+    expect(position(install, 'audit_app_bundle "$STAGE"')).toBeLessThan(
+      cutover,
+    );
+    expect(position(install, "unload_launchd")).toBeLessThan(cutover);
+    expect(position(install, "vellum_processes_running")).toBeLessThan(
+      cutover,
+    );
+    expect(
+      install.lastIndexOf('assert_owned_current_app "$CURRENT_APP_ID"', cutover),
+    ).toBeGreaterThan(0);
+    expect(cutover).toBeLessThan(stagedMove);
+    expect(position(install, "CANDIDATE_MOVE_PENDING=1")).toBeLessThan(
+      stagedMove,
+    );
+
+    const helperStart = position(paths, "begin_one_way_app_cutover() {");
+    const helperEnd = position(paths, "# Prefer artifactName zip");
+    const helper = paths.slice(helperStart, helperEnd);
+    expect(position(helper, 'assert_owned_current_app "$expected_identity"'))
+      .toBeLessThan(position(helper, "ACTIVATION_STARTED=1"));
+    expect(position(helper, "ACTIVATION_STARTED=1"))
+      .toBeLessThan(
+        position(helper, '/bin/mv -n "$APP_DST" "$APP_RETIREMENT_ROOT/"'),
+      );
+    expect(position(helper, '/bin/mv -n "$APP_DST" "$APP_RETIREMENT_ROOT/"'))
+      .toBeLessThan(position(helper, "safe_remove_app_retirement"));
   });
 
-  it("does not roll CLI links back after the app transaction commits", () => {
-    expect(install).toContain('if [[ "$status" -ne 0 && "$INSTALL_COMPLETE" -ne 1 ]]');
-    expect(position(install, "INSTALL_COMPLETE=1")).toBeLessThan(
-      position(install, 'bash "$SCRIPT_DIR/install-launchd.sh" --skip-build'),
+  it("retains the published candidate and current CLI surface for forward repair", () => {
+    const published = install.lastIndexOf("CANDIDATE_PUBLISHED=1");
+    const installedAudit = position(install, 'audit_app_bundle "$APP_DST"');
+    const cliInstall = install.lastIndexOf("\ninstall_cli_tools\n");
+    expect(published).toBeGreaterThan(0);
+    expect(cliInstall).toBeGreaterThan(0);
+    expect(published).toBeLessThan(installedAudit);
+    expect(installedAudit).toBeLessThan(cliInstall);
+    expect(install).toContain(
+      'err "one-way activation requires forward repair; candidate retained at $retained_candidate"',
     );
+    expect(install).toContain(
+      'if [[ "$ACTIVATION_STARTED" -eq 0 || "$CANDIDATE_PUBLISHED" -eq 1 ]]',
+    );
+    expect(install).not.toContain("remove_created_cli_link");
   });
 
-  it("restores a previously loaded LaunchAgent on app-install failure and success", () => {
-    expect(install).toContain("restore_previous_launchd_job()");
+  it("contains no retired local app rollback or cached-generation signatures", () => {
+    const localInstallerSurface = `${install}\n${launchd}\n${paths}`;
+    for (const signature of [
+      "rollback_previous_app",
+      "REPLACEMENT_ACTIVE",
+      "HAD_PREVIOUS",
+      "BACKUP_RESTORE_PENDING",
+      'mv "$APP_DST" "$BACKUP"',
+      'mv "$BACKUP" "$APP_DST"',
+      '${APP_DST}.previous.${INSTALL_TRANSACTION_ID}',
+      '${APP_DST}.rejected.${INSTALL_TRANSACTION_ID}',
+      "install backup",
+      "rejected install",
+      "restore_previous_launchd_job",
+      "PLIST_BACKUP",
+      "PLIST_RESTORE_PENDING",
+      "PREVIOUS_LAUNCHD_LOADED",
+      '${PLIST}.previous.$$',
+    ]) {
+      expect(localInstallerSurface, `retired signature: ${signature}`).not
+        .toContain(signature);
+    }
+  });
+
+  it("resumes a loaded LaunchAgent only before activation failure or after publication", () => {
+    expect(install).toContain("resume_launchd_job()");
     expect(install).toContain(
-      'if [[ "$status" -ne 0 && "$PREVIOUS_LAUNCHD_LOADED" -eq 1 ]] && ! restore_previous_launchd_job',
+      'if [[ "$status" -ne 0 && "$ACTIVATION_STARTED" -eq 0 && "$LAUNCHD_WAS_LOADED" -eq 1 ]] && ! resume_launchd_job',
     );
     expect(install).toContain(
-      'if [[ "$SUPERVISED" -eq 0 && "$PREVIOUS_LAUNCHD_LOADED" -eq 1 ]]',
+      'if [[ "$SUPERVISED" -eq 0 && "$LAUNCHD_WAS_LOADED" -eq 1 ]]',
     );
-    expect(position(install, "restore_previous_launchd_job\nfi\n\nif [[ \"$SUPERVISED\"")).toBeGreaterThan(
-      position(install, "REPLACEMENT_ACTIVE=0 INSTALL_COMPLETE=1"),
+    expect(
+      install.lastIndexOf("resume_launchd_job"),
+    ).toBeGreaterThan(
+      install.lastIndexOf("CANDIDATE_PUBLISHED=1"),
     );
   });
 });

@@ -21,6 +21,7 @@ read_config_value() {
 LABEL="skastr0.vellum"
 PRODUCT_NAME="Vellum Command"
 APP_BUNDLE_ID="skastr0.vellum"
+APP_SIGNING_REQUIREMENT='=anchor apple generic and identifier "skastr0.vellum" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"'
 
 # Repo root = parent of scripts/
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -324,32 +325,142 @@ assert_safe_scoped_file() {
   fi
 }
 
-safe_remove_installer_file() {
-  local kind="$1"
-  local description path expected
-  case "$kind" in
-    plist)
-      description="LaunchAgent plist"
-      path="$PLIST"
-      expected="$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist"
-      ;;
-    plist-stage)
-      description="LaunchAgent plist stage"
-      path="${PLIST}.new.$$"
-      expected="$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist.new.$$"
-      ;;
-    plist-backup)
-      description="LaunchAgent plist backup"
-      path="${PLIST}.previous.$$"
-      expected="$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist.previous.$$"
-      ;;
-    *)
-      err "unknown installer file capability: $kind"
+assert_owned_launchd_plist() {
+  local expected_identity="$1"
+  local expected_path="$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist"
+  local observed_identity plist_label plist_program
+  if [[ ! "$expected_identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+    err "LaunchAgent ownership check requires a bound filesystem identity"
+    return 1
+  fi
+  assert_safe_scoped_file "LaunchAgent plist" "$PLIST" "$expected_path" || return 1
+  observed_identity="$(path_identity "$PLIST")" || return 1
+  if [[ "$observed_identity" != "$expected_identity" ]]; then
+    err "LaunchAgent plist changed identity before one-way activation"
+    return 1
+  fi
+  plist_label="$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST" 2>/dev/null || true)"
+  plist_program="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$PLIST" 2>/dev/null || true)"
+  if [[ "$plist_label" != "$LABEL" || "$plist_program" != "$APP_DST/Contents/MacOS/${PRODUCT_NAME}" ]]; then
+    err "existing LaunchAgent plist is not owned by Vellum"
+    return 1
+  fi
+  if /usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$PLIST" >/dev/null 2>&1; then
+    err "existing LaunchAgent plist has unexpected program arguments"
+    return 1
+  fi
+  if [[ "$(path_identity "$PLIST" 2>/dev/null)" != "$expected_identity" ]]; then
+    err "LaunchAgent plist changed identity during ownership validation"
+    return 1
+  fi
+}
+
+assert_launchd_retirement_root() {
+  local expected="$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist.retired.$$"
+  if [[ "${PLIST_RETIREMENT_ROOT:-}" != "$expected" ]]; then
+    err "retiring LaunchAgent root is not the process-bound transaction path"
+    return 1
+  fi
+  assert_exact_scoped_path \
+    "retiring LaunchAgent root" \
+    "$PLIST_RETIREMENT_ROOT" \
+    "$expected" \
+    "$INSTALL_USER_ROOT" || return 1
+  if [[ -L "$PLIST_RETIREMENT_ROOT" || ( -e "$PLIST_RETIREMENT_ROOT" && ! -d "$PLIST_RETIREMENT_ROOT" ) ]]; then
+    err "retiring LaunchAgent root must be absent or a non-symlink directory"
+    return 1
+  fi
+}
+
+bind_launchd_retirement_root() {
+  assert_launchd_retirement_root || return 1
+  if [[ -e "$PLIST_RETIREMENT_ROOT" || -L "$PLIST_RETIREMENT_ROOT" ]]; then
+    err "refusing to reuse the retiring LaunchAgent root"
+    return 1
+  fi
+  /bin/mkdir -m 0700 "$PLIST_RETIREMENT_ROOT" || return 1
+  PLIST_RETIREMENT_ROOT_ID="$(path_identity "$PLIST_RETIREMENT_ROOT")" || return 1
+  if [[ "$(path_identity "$PLIST_RETIREMENT_ROOT" 2>/dev/null)" != "$PLIST_RETIREMENT_ROOT_ID" ]]; then
+    err "retiring LaunchAgent root changed identity while binding"
+    return 1
+  fi
+  RETIRED_PLIST="$PLIST_RETIREMENT_ROOT/${LABEL}.plist"
+}
+
+safe_remove_launchd_retirement() {
+  assert_launchd_retirement_root || return 1
+  if [[ -e "$PLIST_RETIREMENT_ROOT" || -L "$PLIST_RETIREMENT_ROOT" ]]; then
+    if [[ -z "${PLIST_RETIREMENT_ROOT_ID:-}" || -L "$PLIST_RETIREMENT_ROOT" || "$(path_identity "$PLIST_RETIREMENT_ROOT" 2>/dev/null)" != "$PLIST_RETIREMENT_ROOT_ID" ]]; then
+      err "retiring LaunchAgent root is not the directory Vellum created"
       return 1
-      ;;
-  esac
-  assert_safe_scoped_file "$description" "$path" "$expected" || return 1
-  rm -f "$path"
+    fi
+    if [[ -e "$RETIRED_PLIST" || -L "$RETIRED_PLIST" ]]; then
+      if [[
+        "${PLIST_RETIREMENT_DISPOSABLE:-0}" -ne 1 ||
+        -z "${RETIRED_PLIST_ID:-}" ||
+        -L "$RETIRED_PLIST" ||
+        "$(path_identity "$RETIRED_PLIST" 2>/dev/null)" != "$RETIRED_PLIST_ID"
+      ]]; then
+        err "retiring LaunchAgent plist is not the exact admitted Vellum plist"
+        return 1
+      fi
+      /bin/rm -f "$RETIRED_PLIST"
+    fi
+    if [[ -e "$RETIRED_PLIST" || -L "$RETIRED_PLIST" ]]; then
+      err "retiring LaunchAgent plist disposal did not complete"
+      return 1
+    fi
+    /bin/rmdir "$PLIST_RETIREMENT_ROOT" || {
+      err "retiring LaunchAgent root is not empty after exact disposal"
+      return 1
+    }
+  fi
+  if [[ -e "$PLIST_RETIREMENT_ROOT" || -L "$PLIST_RETIREMENT_ROOT" ]]; then
+    err "retiring LaunchAgent disposal did not complete"
+    return 1
+  fi
+}
+
+safe_remove_launchd_stage() {
+  local stage="${PLIST}.new.$$"
+  assert_safe_scoped_file \
+    "LaunchAgent plist stage" \
+    "$stage" \
+    "$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist.new.$$" || return 1
+  /bin/rm -f "$stage"
+}
+
+publish_launchd_candidate() {
+  local expected_stage_identity="$1"
+  local expected_stage="${PLIST}.new.$$"
+  assert_safe_scoped_file \
+    "LaunchAgent plist stage" \
+    "$PLIST_STAGE" \
+    "$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist.new.$$" || return 1
+  if [[
+    "$PLIST_STAGE" != "$expected_stage" ||
+    -z "$expected_stage_identity" ||
+    "$(path_identity "$PLIST_STAGE" 2>/dev/null)" != "$expected_stage_identity"
+  ]]; then
+    err "LaunchAgent plist stage changed identity before publication"
+    return 1
+  fi
+  assert_safe_scoped_file \
+    "LaunchAgent plist" \
+    "$PLIST" \
+    "$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist" || return 1
+  if [[ -e "$PLIST" || -L "$PLIST" ]]; then
+    err "LaunchAgent plist destination became occupied before candidate publication"
+    return 1
+  fi
+  if ! /bin/ln "$PLIST_STAGE" "$PLIST"; then
+    err "exclusive LaunchAgent candidate publication failed"
+    return 1
+  fi
+  if [[ -L "$PLIST" || "$(path_identity "$PLIST" 2>/dev/null)" != "$expected_stage_identity" ]]; then
+    err "published LaunchAgent plist identity is indeterminate"
+    return 1
+  fi
 }
 
 path_identity() {
@@ -440,64 +551,60 @@ derive_install_transaction_paths() {
   INSTALL_TRANSACTION_ID="$transaction_id"
   STAGE_ROOT="${APP_DST}.new.${INSTALL_TRANSACTION_ID}"
   STAGE="$STAGE_ROOT/${PRODUCT_NAME}.app"
-  BACKUP="${APP_DST}.previous.${INSTALL_TRANSACTION_ID}"
-  REJECTED="${APP_DST}.rejected.${INSTALL_TRANSACTION_ID}"
+  APP_RETIREMENT_ROOT="${APP_DST}.retired.${INSTALL_TRANSACTION_ID}"
+  RETIRED_APP="$APP_RETIREMENT_ROOT/${PRODUCT_NAME}.app"
   STAGE_ROOT_ID=""
-  BACKUP_ID=""
-  REJECTED_ID=""
+  APP_RETIREMENT_ROOT_ID=""
+  RETIRED_APP_ID=""
+  APP_RETIREMENT_DISPOSABLE=0
   assert_install_transaction_capabilities
 }
 
-bind_transaction_tree() {
-  local kind="$1"
-  local description value expected identity_variable
+bind_install_stage() {
   local identity
-  case "$kind" in
-    stage)
-      description="install stage root"
-      value="$STAGE_ROOT"
-      expected="${APP_DST}.new.${INSTALL_TRANSACTION_ID}"
-      identity_variable="STAGE_ROOT_ID"
-      ;;
-    backup)
-      description="install backup"
-      value="$BACKUP"
-      expected="${APP_DST}.previous.${INSTALL_TRANSACTION_ID}"
-      identity_variable="BACKUP_ID"
-      ;;
-    rejected)
-      description="rejected install"
-      value="$REJECTED"
-      expected="${APP_DST}.rejected.${INSTALL_TRANSACTION_ID}"
-      identity_variable="REJECTED_ID"
-      ;;
-    *)
-      err "unknown transaction capability: $kind"
-      return 1
-      ;;
-  esac
-  assert_transaction_tree_path "$description" "$value" "$expected" || return 1
-  if [[ ! -d "$value" || -L "$value" ]]; then
-    err "$description cannot be bound before its directory exists"
+  assert_transaction_tree_path "install stage root" "$STAGE_ROOT" "${APP_DST}.new.${INSTALL_TRANSACTION_ID}" || return 1
+  if [[ ! -d "$STAGE_ROOT" || -L "$STAGE_ROOT" ]]; then
+    err "install stage root cannot be bound before its directory exists"
     return 1
   fi
-  identity="$(path_identity "$value")" || return 1
-  printf -v "$identity_variable" '%s' "$identity"
-  if [[ "$(path_identity "$value")" != "$identity" ]]; then
-    err "$description changed identity while it was being bound"
+  identity="$(path_identity "$STAGE_ROOT")" || return 1
+  STAGE_ROOT_ID="$identity"
+  if [[ "$(path_identity "$STAGE_ROOT")" != "$identity" ]]; then
+    err "install stage root changed identity while it was being bound"
     return 1
   fi
 }
 
-assert_bound_transaction_tree() {
-  local description="$1"
-  local value="$2"
-  local expected_identity="$3"
-  if [[ ! -e "$value" && ! -L "$value" ]]; then
+assert_bound_install_stage() {
+  if [[ ! -e "$STAGE_ROOT" && ! -L "$STAGE_ROOT" ]]; then
     return 0
   fi
-  if [[ -z "$expected_identity" || -L "$value" || "$(path_identity "$value" 2>/dev/null)" != "$expected_identity" ]]; then
-    err "$description is not the transaction directory Vellum created"
+  if [[ -z "${STAGE_ROOT_ID:-}" || -L "$STAGE_ROOT" || "$(path_identity "$STAGE_ROOT" 2>/dev/null)" != "$STAGE_ROOT_ID" ]]; then
+    err "install stage root is not the transaction directory Vellum created"
+    return 1
+  fi
+}
+
+assert_bound_app_retirement() {
+  if [[ ! -e "$APP_RETIREMENT_ROOT" && ! -L "$APP_RETIREMENT_ROOT" ]]; then
+    return 0
+  fi
+  if [[ -z "${APP_RETIREMENT_ROOT_ID:-}" || -L "$APP_RETIREMENT_ROOT" || "$(path_identity "$APP_RETIREMENT_ROOT" 2>/dev/null)" != "$APP_RETIREMENT_ROOT_ID" ]]; then
+    err "retiring app root is not the directory Vellum created"
+    return 1
+  fi
+}
+
+bind_app_retirement_root() {
+  assert_transaction_tree_path "retiring app root" "$APP_RETIREMENT_ROOT" "${APP_DST}.retired.${INSTALL_TRANSACTION_ID}" || return 1
+  if [[ -e "$APP_RETIREMENT_ROOT" || -L "$APP_RETIREMENT_ROOT" ]]; then
+    err "refusing to reuse the retiring app root"
+    return 1
+  fi
+  /bin/mkdir -m 0700 "$APP_RETIREMENT_ROOT" || return 1
+  APP_RETIREMENT_ROOT_ID="$(path_identity "$APP_RETIREMENT_ROOT")" || return 1
+  if [[ "$(path_identity "$APP_RETIREMENT_ROOT" 2>/dev/null)" != "$APP_RETIREMENT_ROOT_ID" ]]; then
+    err "retiring app root changed identity while binding"
     return 1
   fi
 }
@@ -509,47 +616,153 @@ assert_install_transaction_capabilities() {
   fi
   assert_app_destination_capability || return 1
   assert_transaction_tree_path "install stage root" "$STAGE_ROOT" "${APP_DST}.new.${INSTALL_TRANSACTION_ID}" || return 1
-  assert_transaction_tree_path "install backup" "$BACKUP" "${APP_DST}.previous.${INSTALL_TRANSACTION_ID}" || return 1
-  assert_transaction_tree_path "rejected install" "$REJECTED" "${APP_DST}.rejected.${INSTALL_TRANSACTION_ID}" || return 1
-  assert_bound_transaction_tree "install stage root" "$STAGE_ROOT" "${STAGE_ROOT_ID:-}" || return 1
-  assert_bound_transaction_tree "install backup" "$BACKUP" "${BACKUP_ID:-}" || return 1
-  assert_bound_transaction_tree "rejected install" "$REJECTED" "${REJECTED_ID:-}" || return 1
+  assert_transaction_tree_path "retiring app root" "$APP_RETIREMENT_ROOT" "${APP_DST}.retired.${INSTALL_TRANSACTION_ID}" || return 1
+  assert_bound_install_stage || return 1
+  assert_bound_app_retirement || return 1
   assert_transaction_stage_app
 }
 
-safe_remove_transaction_tree() {
-  local kind="$1"
-  local description value expected expected_identity
-  case "$kind" in
-    stage)
-      description="install stage root"
-      value="$STAGE_ROOT"
-      expected="${APP_DST}.new.${INSTALL_TRANSACTION_ID}"
-      expected_identity="${STAGE_ROOT_ID:-}"
-      ;;
-    backup)
-      description="install backup"
-      value="$BACKUP"
-      expected="${APP_DST}.previous.${INSTALL_TRANSACTION_ID}"
-      expected_identity="${BACKUP_ID:-}"
-      ;;
-    rejected)
-      description="rejected install"
-      value="$REJECTED"
-      expected="${APP_DST}.rejected.${INSTALL_TRANSACTION_ID}"
-      expected_identity="${REJECTED_ID:-}"
-      ;;
-    *)
-      err "unknown transaction cleanup capability: $kind"
-      return 1
-      ;;
-  esac
+safe_remove_install_stage() {
   assert_app_destination_capability || return 1
-  assert_transaction_tree_path "$description" "$value" "$expected" || return 1
-  if [[ -e "$value" ]]; then
-    assert_bound_transaction_tree "$description" "$value" "$expected_identity" || return 1
-    rm -rf "$value"
+  assert_transaction_tree_path "install stage root" "$STAGE_ROOT" "${APP_DST}.new.${INSTALL_TRANSACTION_ID}" || return 1
+  if [[ -e "$STAGE_ROOT" ]]; then
+    assert_bound_install_stage || return 1
+    /bin/rm -rf "$STAGE_ROOT"
   fi
+}
+
+safe_remove_app_retirement() {
+  assert_app_destination_capability || return 1
+  assert_transaction_tree_path "retiring app root" "$APP_RETIREMENT_ROOT" "${APP_DST}.retired.${INSTALL_TRANSACTION_ID}" || return 1
+  if [[ -e "$APP_RETIREMENT_ROOT" || -L "$APP_RETIREMENT_ROOT" ]]; then
+    assert_bound_app_retirement || return 1
+    if [[ -e "$RETIRED_APP" || -L "$RETIRED_APP" ]]; then
+      if [[
+        "${APP_RETIREMENT_DISPOSABLE:-0}" -ne 1 ||
+        -z "${RETIRED_APP_ID:-}" ||
+        -L "$RETIRED_APP" ||
+        "$(path_identity "$RETIRED_APP" 2>/dev/null)" != "$RETIRED_APP_ID"
+      ]]; then
+        err "retiring app is not the exact admitted Vellum generation"
+        return 1
+      fi
+      /bin/rm -rf -- "$RETIRED_APP"
+    fi
+    if [[ -e "$RETIRED_APP" || -L "$RETIRED_APP" ]]; then
+      err "retiring app disposal did not complete"
+      return 1
+    fi
+    /bin/rmdir "$APP_RETIREMENT_ROOT" || {
+      err "retiring app root is not empty after exact disposal"
+      return 1
+    }
+  fi
+  if [[ -e "$APP_RETIREMENT_ROOT" || -L "$APP_RETIREMENT_ROOT" ]]; then
+    err "retiring app disposal did not complete"
+    return 1
+  fi
+}
+
+assert_owned_current_app() {
+  local expected_identity="$1"
+  local observed_identity plist_executable
+  assert_app_destination_capability || return 1
+  if [[ ! "$expected_identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+    err "current app ownership check requires a bound filesystem identity"
+    return 1
+  fi
+  if [[ ! -d "$APP_DST" || -L "$APP_DST" ]]; then
+    err "current app is not an owned Vellum bundle"
+    return 1
+  fi
+  observed_identity="$(path_identity "$APP_DST")" || return 1
+  if [[ "$observed_identity" != "$expected_identity" ]]; then
+    err "current app changed identity before one-way activation"
+    return 1
+  fi
+  assert_app_bundle "$APP_DST" || {
+    err "current app is not an owned Vellum bundle"
+    return 1
+  }
+  plist_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_DST/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ "$plist_executable" != "$PRODUCT_NAME" ]]; then
+    err "current app executable identity does not match Vellum"
+    return 1
+  fi
+  if ! /usr/bin/codesign --verify --deep --strict --verbose=2 -R "$APP_SIGNING_REQUIREMENT" "$APP_DST" >/dev/null 2>&1; then
+    err "current app does not satisfy the accepted Vellum signing requirement"
+    return 1
+  fi
+  if [[ "$(path_identity "$APP_DST" 2>/dev/null)" != "$expected_identity" ]]; then
+    err "current app changed identity during ownership validation"
+    return 1
+  fi
+}
+
+begin_one_way_app_cutover() {
+  local expected_identity="$1"
+  if [[ "${ACTIVATION_STARTED:-0}" -ne 0 ]]; then
+    err "one-way app activation has already started"
+    return 1
+  fi
+  if [[ -n "$expected_identity" ]]; then
+    assert_owned_current_app "$expected_identity" || return 1
+  else
+    assert_app_destination_capability || return 1
+    if [[ -e "$APP_DST" || -L "$APP_DST" ]]; then
+      err "current app appeared after preflight"
+      return 1
+    fi
+  fi
+  if [[ -n "$expected_identity" ]]; then
+    bind_app_retirement_root || return 1
+  elif [[ -e "$APP_RETIREMENT_ROOT" || -L "$APP_RETIREMENT_ROOT" ]]; then
+    err "refusing to reuse the retiring app root"
+    return 1
+  fi
+
+  # No failure after this assignment may select an older bundle.
+  ACTIVATION_STARTED=1
+  if [[ -z "$expected_identity" ]]; then
+    return 0
+  fi
+  if [[ "$(path_identity "$APP_DST" 2>/dev/null)" != "$expected_identity" ]]; then
+    err "current app changed identity at the one-way boundary"
+    return 1
+  fi
+  RETIRED_APP_ID="$expected_identity"
+  /bin/mv -n "$APP_DST" "$APP_RETIREMENT_ROOT/"
+  if [[ -L "$RETIRED_APP" || "$(path_identity "$RETIRED_APP" 2>/dev/null)" != "$RETIRED_APP_ID" ]]; then
+    err "retiring app identity does not match the admitted Vellum generation"
+    return 1
+  fi
+  APP_RETIREMENT_DISPOSABLE=1
+  safe_remove_app_retirement || return 1
+  APP_RETIREMENT_ROOT_ID=""
+  RETIRED_APP_ID=""
+  APP_RETIREMENT_DISPOSABLE=0
+}
+
+publish_staged_app_candidate() {
+  assert_install_transaction_capabilities || return 1
+  if [[ -e "$APP_DST" || -L "$APP_DST" ]]; then
+    err "app destination became occupied before candidate publication"
+    return 1
+  fi
+  if [[ -z "${STAGED_APP_ID:-}" || -L "$STAGE" || "$(path_identity "$STAGE" 2>/dev/null)" != "$STAGED_APP_ID" ]]; then
+    err "staged app changed identity before candidate publication"
+    return 1
+  fi
+  /bin/mv -n "$STAGE" "$APP_DST_PARENT/"
+  if [[ -d "$APP_DST" && ! -L "$APP_DST" && "$(path_identity "$APP_DST" 2>/dev/null)" == "$STAGED_APP_ID" ]]; then
+    return 0
+  fi
+  if [[ -d "$STAGE" && ! -L "$STAGE" && "$(path_identity "$STAGE" 2>/dev/null)" == "$STAGED_APP_ID" ]]; then
+    err "exclusive candidate publication refused an occupied app destination"
+    return 1
+  fi
+  err "candidate publication identity is indeterminate"
+  return 1
 }
 
 # Prefer artifactName zip (Vellum-<ver>-arm64-mac.zip); else first *.zip under release/.

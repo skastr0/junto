@@ -23,6 +23,8 @@
 #   - Unloads LaunchAgent before replacing the binary
 #   - Soft-quits running app so herdr control streams can detach (never pane-kill)
 #   - Validates .app structure + bundle id before ditto
+#   - Crosses one explicit one-way boundary only after preflight and quiescence
+#   - Retains the current candidate for forward repair after that boundary
 #   - Never runs herdr pane close / session stop
 #
 # Herdr: quitting Vellum detaches control streams only — your herdr sessions survive.
@@ -60,13 +62,13 @@ if [[ -n "$INSTALL_SANDBOX_ROOT" && ( "$SUPERVISED" -eq 1 || "$OPEN" -eq 1 ) ]];
   err "sandbox installs cannot launch or supervise the app"
   exit 1
 fi
-PREVIOUS_LAUNCHD_LOADED=0
+LAUNCHD_WAS_LOADED=0
 if launchd_loaded; then
-  PREVIOUS_LAUNCHD_LOADED=1
+  LAUNCHD_WAS_LOADED=1
 fi
 
-restore_previous_launchd_job() {
-  if [[ "$PREVIOUS_LAUNCHD_LOADED" -ne 1 || launchd_loaded ]]; then
+resume_launchd_job() {
+  if [[ "$LAUNCHD_WAS_LOADED" -ne 1 || launchd_loaded ]]; then
     return 0
   fi
   assert_safe_scoped_file "LaunchAgent plist" "$PLIST" "$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist" || return 1
@@ -82,10 +84,6 @@ assert_cli_path() {
   local expected="$3"
   assert_exact_scoped_path "$description" "$path" "$expected" "$INSTALL_USER_ROOT" || return 1
 }
-
-CREATED_VELLUM_LINK=0
-CREATED_VELLUM_BROWSER_LINK=0
-CREATED_VELLUM_STATION_LINK=0
 
 preflight_cli_link() {
   local target="$1"
@@ -131,32 +129,6 @@ install_cli_link() {
     err "CLI link changed identity during creation: $target"
     return 1
   fi
-  case "$name" in
-    vellum) CREATED_VELLUM_LINK=1 ;;
-    vellum-browser) CREATED_VELLUM_BROWSER_LINK=1 ;;
-    vellum-station) CREATED_VELLUM_STATION_LINK=1 ;;
-  esac
-}
-
-remove_created_cli_link() {
-  local name="$1"
-  local target helper created
-  target="$BIN_DIR/$name"
-  case "$name" in
-    vellum) helper="$APP_DST/Contents/Resources/bin/vellum"; created="$CREATED_VELLUM_LINK" ;;
-    vellum-browser) helper="$APP_DST/Contents/Resources/bin/vellum-browser"; created="$CREATED_VELLUM_BROWSER_LINK" ;;
-    vellum-station) helper="$APP_DST/Contents/Resources/bin/vellum-station"; created="$CREATED_VELLUM_STATION_LINK" ;;
-    *) err "unknown CLI link cleanup capability: $name"; return 1 ;;
-  esac
-  if [[ "$created" -ne 1 ]]; then
-    return 0
-  fi
-  assert_cli_path "CLI link" "$target" "$BIN_DIR/$name" || return 1
-  if [[ ! -L "$target" || "$(readlink "$target")" != "$helper" ]]; then
-    err "refusing to remove a CLI link that changed identity: $target"
-    return 1
-  fi
-  rm -f "$target"
 }
 
 install_cli_tools() {
@@ -219,109 +191,74 @@ preflight_cli_link "$BIN_DIR/vellum-browser" "$BROWSER_HELPER_TARGET"
 preflight_cli_link "$BIN_DIR/vellum-station" "$STATION_HELPER_TARGET"
 
 derive_install_transaction_paths "$$"
-HAD_PREVIOUS=0
-REPLACEMENT_ACTIVE=0
-NEW_APP_INSTALLED=0
-NEW_APP_MOVE_PENDING=0
-INSTALL_COMPLETE=0
+ACTIVATION_STARTED=0
+CANDIDATE_PUBLISHED=0
+CANDIDATE_MOVE_PENDING=0
 
-rollback_previous_app() {
-  local moved_identity
-  if [[ "$NEW_APP_MOVE_PENDING" -eq 1 ]]; then
-    if [[ -d "$APP_DST" && ! -L "$APP_DST" && "$(path_identity "$APP_DST" 2>/dev/null)" == "${STAGED_APP_ID:-}" ]]; then
-      NEW_APP_INSTALLED=1
-      NEW_APP_MOVE_PENDING=0
-    elif [[ -d "$STAGE" && ! -L "$STAGE" ]]; then
-      NEW_APP_MOVE_PENDING=0
-    else
-      err "cannot resolve the staged app move during rollback"
-      return 1
-    fi
+resolve_candidate_publish() {
+  if [[ "$CANDIDATE_MOVE_PENDING" -ne 1 ]]; then
+    return 0
   fi
-  assert_install_transaction_capabilities || return 1
-  if [[ "$NEW_APP_INSTALLED" -eq 1 && -e "$APP_DST" ]]; then
-    assert_install_transaction_capabilities || return 1
-    moved_identity="$(path_identity "$APP_DST")" || return 1
-    REJECTED_ID="$moved_identity"
-    mv "$APP_DST" "$REJECTED" || return 1
-    if ! assert_install_transaction_capabilities; then
-      err "rejected app changed identity during rollback"
-      return 1
-    fi
+  if [[
+    -d "$APP_DST" &&
+    ! -L "$APP_DST" &&
+    "$(path_identity "$APP_DST" 2>/dev/null)" == "${STAGED_APP_ID:-}"
+  ]]; then
+    CANDIDATE_PUBLISHED=1
+    CANDIDATE_MOVE_PENDING=0
+    return 0
   fi
-  if [[ "$HAD_PREVIOUS" -eq 1 && -e "$BACKUP" ]]; then
-    assert_install_transaction_capabilities || return 1
-    moved_identity="$BACKUP_ID"
-    BACKUP_RESTORE_PENDING=1
-    if ! mv "$BACKUP" "$APP_DST"; then
-      if [[ -e "$REJECTED" && ! -e "$APP_DST" ]]; then
-        assert_install_transaction_capabilities || return 1
-        mv "$REJECTED" "$APP_DST" || true
-        if [[ -d "$APP_DST" && "$(path_identity "$APP_DST" 2>/dev/null)" == "$REJECTED_ID" ]]; then
-          REJECTED_ID=""
-        fi
-      fi
-      return 1
-    fi
-    BACKUP_RESTORE_PENDING=0
-    if [[ "$(path_identity "$APP_DST" 2>/dev/null)" != "$moved_identity" ]]; then
-      err "previous app changed identity during rollback"
-      return 1
-    fi
-    BACKUP_ID=""
+  if [[
+    -d "$STAGE" &&
+    ! -L "$STAGE" &&
+    "$(path_identity "$STAGE" 2>/dev/null)" == "${STAGED_APP_ID:-}"
+  ]]; then
+    CANDIDATE_MOVE_PENDING=0
+    return 0
   fi
-  safe_remove_transaction_tree rejected || return 1
-  REPLACEMENT_ACTIVE=0
+  err "cannot resolve candidate publication; explicit forward repair is required"
+  return 1
 }
 
 cleanup_install() {
   local status=$?
   local cleanup_failed=0
+  local retained_candidate=""
   trap - EXIT
   set +e
-  if [[ "$status" -ne 0 && "$REPLACEMENT_ACTIVE" -eq 1 && "$INSTALL_COMPLETE" -ne 1 ]]; then
-    if ! rollback_previous_app; then
-      err "failed to restore the previous app"
-      cleanup_failed=1
-    fi
-  fi
-  if [[ "$status" -ne 0 && "$INSTALL_COMPLETE" -ne 1 ]]; then
-    if ! remove_created_cli_link vellum-station; then
-      cleanup_failed=1
-    fi
-    if ! remove_created_cli_link vellum-browser; then
-      cleanup_failed=1
-    fi
-    if ! remove_created_cli_link vellum; then
-      cleanup_failed=1
-    fi
-  fi
-  if [[ "$status" -ne 0 && "$PREVIOUS_LAUNCHD_LOADED" -eq 1 ]] && ! restore_previous_launchd_job; then
-    err "failed to restore the previously loaded LaunchAgent"
+  if ! resolve_candidate_publish; then
     cleanup_failed=1
   fi
-  if ! safe_remove_transaction_tree stage; then
-    err "refusing unsafe install stage cleanup"
+  if [[ "$ACTIVATION_STARTED" -eq 1 && "${APP_RETIREMENT_DISPOSABLE:-0}" -eq 1 ]] && ! safe_remove_app_retirement; then
+    err "retiring app requires explicit disposal repair at $APP_RETIREMENT_ROOT"
     cleanup_failed=1
   fi
-  if [[ "$INSTALL_COMPLETE" -eq 1 ]]; then
-    if ! safe_remove_transaction_tree backup; then
-      err "refusing unsafe install backup cleanup"
-      cleanup_failed=1
-    fi
-    if ! safe_remove_transaction_tree rejected; then
-      err "refusing unsafe rejected-install cleanup"
+  if [[ "$status" -ne 0 && "$ACTIVATION_STARTED" -eq 0 && "$LAUNCHD_WAS_LOADED" -eq 1 ]] && ! resume_launchd_job; then
+    err "failed to resume the pre-activation LaunchAgent"
+    cleanup_failed=1
+  fi
+  if [[ "$ACTIVATION_STARTED" -eq 0 || "$CANDIDATE_PUBLISHED" -eq 1 ]]; then
+    if ! safe_remove_install_stage; then
+      err "refusing unsafe install stage cleanup"
       cleanup_failed=1
     fi
   fi
   if [[ "$cleanup_failed" -ne 0 && "$status" -eq 0 ]]; then
     status=1
   fi
+  if [[ "$status" -ne 0 && "$ACTIVATION_STARTED" -eq 1 ]]; then
+    if [[ "$CANDIDATE_PUBLISHED" -eq 1 ]]; then
+      retained_candidate="$APP_DST"
+    else
+      retained_candidate="$STAGE"
+    fi
+    err "one-way activation requires forward repair; candidate retained at $retained_candidate"
+  fi
   exit "$status"
 }
 trap cleanup_install EXIT
 
-if [[ -e "$STAGE_ROOT" || -e "$BACKUP" || -e "$REJECTED" ]]; then
+if [[ -e "$STAGE_ROOT" || -e "$APP_RETIREMENT_ROOT" || -L "$APP_RETIREMENT_ROOT" ]]; then
   err "refusing to reuse an existing install transaction path"
   exit 1
 fi
@@ -329,7 +266,7 @@ fi
 log "staging → $STAGE"
 assert_install_transaction_capabilities
 mkdir -m 0700 "$STAGE_ROOT"
-bind_transaction_tree stage
+bind_install_stage
 assert_install_transaction_capabilities
 ditto --rsrc "$APP_SRC" "$STAGE"
 assert_install_transaction_capabilities
@@ -355,24 +292,22 @@ sleep 0.5
 
 log "installing → $APP_DST"
 assert_install_transaction_capabilities
-REPLACEMENT_ACTIVE=1
+CURRENT_APP_ID=""
 if [[ -e "$APP_DST" ]]; then
-  assert_install_transaction_capabilities
-  PREVIOUS_APP_ID="$(path_identity "$APP_DST")"
-  HAD_PREVIOUS=1
-  BACKUP_ID="$PREVIOUS_APP_ID"
-  mv "$APP_DST" "$BACKUP"
-  if ! assert_install_transaction_capabilities; then
-    err "previous app changed identity during backup"
-    exit 1
-  fi
+  assert_app_destination_capability
+  CURRENT_APP_ID="$(path_identity "$APP_DST")"
+  assert_owned_current_app "$CURRENT_APP_ID"
 fi
+
+# This call revalidates the bound Vellum identity, crosses the one-way boundary,
+# and directly removes that generation without caching it.
+begin_one_way_app_cutover "$CURRENT_APP_ID"
 assert_install_transaction_capabilities
 STAGED_APP_ID="$(path_identity "$STAGE")"
-NEW_APP_MOVE_PENDING=1
-mv "$STAGE" "$APP_DST"
-NEW_APP_INSTALLED=1
-NEW_APP_MOVE_PENDING=0
+CANDIDATE_MOVE_PENDING=1
+publish_staged_app_candidate
+CANDIDATE_PUBLISHED=1
+CANDIDATE_MOVE_PENDING=0
 if [[ "$(path_identity "$APP_DST" 2>/dev/null)" != "$STAGED_APP_ID" ]]; then
   err "staged app changed identity during install"
   exit 1
@@ -388,18 +323,16 @@ if [[ "$INSTALLED_CDHASH" != "$CANDIDATE_CDHASH" ]]; then
   exit 1
 fi
 install_cli_tools
-REPLACEMENT_ACTIVE=0 INSTALL_COMPLETE=1
 log "installed $APP_DST"
 log "installed CDHash $INSTALLED_CDHASH"
 
-if [[ "$SUPERVISED" -eq 0 && "$PREVIOUS_LAUNCHD_LOADED" -eq 1 ]]; then
-  restore_previous_launchd_job
+if [[ "$SUPERVISED" -eq 0 && "$LAUNCHD_WAS_LOADED" -eq 1 ]]; then
+  resume_launchd_job
 fi
 
 if [[ "$SUPERVISED" -eq 1 ]]; then
   log "loading LaunchAgent (supervised) …"
-  VELLUM_INSTALL_PREVIOUS_LAUNCHD_LOADED="$PREVIOUS_LAUNCHD_LOADED" \
-    bash "$SCRIPT_DIR/install-launchd.sh" --skip-build
+  bash "$SCRIPT_DIR/install-launchd.sh" --skip-build
 elif [[ "$OPEN" -eq 1 ]]; then
   log "opening $APP_DST"
   open "$APP_DST"
