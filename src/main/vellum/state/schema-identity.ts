@@ -128,6 +128,7 @@ const schemaObjects = (database: DatabaseSync): ReadonlyArray<SchemaObject> =>
           SELECT type, name, tbl_name AS table_name, sql
           FROM sqlite_schema
           WHERE type IN ('table', 'index', 'view', 'trigger')
+            AND name NOT GLOB 'sqlite_*'
           ORDER BY type COLLATE BINARY, name COLLATE BINARY
         `,
       )
@@ -142,6 +143,15 @@ const schemaObjects = (database: DatabaseSync): ReadonlyArray<SchemaObject> =>
 const schemaFingerprint = (
   objects: ReadonlyArray<SchemaObject>,
 ): string => sha256(JSON.stringify(objects));
+
+/**
+ * A database is fresh only when the authority schema has no application-owned
+ * objects. SQLite's own implementation objects are deliberately ignored: they
+ * are not Vellum state and their presence must not turn bootstrap into a
+ * migration or repair path.
+ */
+export const isFreshStateSchema = (database: DatabaseSync): boolean =>
+  schemaObjects(database).length === 0;
 
 const schemaObjectKey = (object: SchemaObject): string =>
   `${object.type}:${object.name}`;

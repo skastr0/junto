@@ -24,7 +24,10 @@ import {
   type StateWriter,
 } from "./service";
 import { demoStateDatabasePath } from "../demo/runtime-isolation";
-import { verifyAndStampStateSchema } from "./schema-identity";
+import {
+  isFreshStateSchema,
+  verifyAndStampStateSchema,
+} from "./schema-identity";
 
 export {
   StateEngine,
@@ -139,7 +142,14 @@ const openStateEngine = (
           `);
           database.exec("BEGIN IMMEDIATE");
           try {
-            database.exec(STATE_SCHEMA_SQL);
+            // There is deliberately no migration or repair lane. Inspect
+            // before any authority DDL: an empty database is initialized once;
+            // every non-empty database must already be the exact current
+            // schema and is verified below without CREATE IF NOT EXISTS first
+            // repairing evidence of drift.
+            if (isFreshStateSchema(database)) {
+              database.exec(STATE_SCHEMA_SQL);
+            }
             const identity = verifyAndStampStateSchema(
               database,
               STATE_SCHEMA_SQL,

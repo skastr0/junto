@@ -19,7 +19,11 @@ import {
   StateEngine,
   StateEngineError,
 } from "../src/main/vellum/state/engine";
-import { STATE_SCHEMA_SQL } from "../src/main/vellum/state/schema";
+import {
+  STATE_SCHEMA_IDENTITY_SQL,
+  STATE_SCHEMA_SQL,
+} from "../src/main/vellum/state/schema";
+import { USAGE_STATE_SCHEMA_SQL } from "../src/main/vellum/usage/state-schema";
 const makeTempDir = (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix)).then((root) => {
     tempRoots.push(root);
@@ -43,6 +47,71 @@ const disposeRuntime = async (
   const index = runtimes.indexOf(runtime);
   if (index >= 0) runtimes.splice(index, 1);
   await runtime.dispose();
+};
+
+const seedCurrentStateSchema = async (path: string): Promise<void> => {
+  const runtime = makeRuntime(path);
+  await runtime.runPromise(StateEngine);
+  await disposeRuntime(runtime);
+};
+
+const readAuthorityWitness = (path: string) => {
+  const database = new DatabaseSync(path, { readOnly: true });
+  try {
+    const schema = database
+      .prepare(
+        `
+          SELECT type, name, tbl_name AS table_name, sql
+          FROM sqlite_schema
+          WHERE type IN ('table', 'index', 'view', 'trigger')
+            AND name NOT GLOB 'sqlite_*'
+          ORDER BY type COLLATE BINARY, name COLLATE BINARY
+        `,
+      )
+      .all();
+    const hasIdentityTable = database
+      .prepare(
+        `
+          SELECT 1 AS present
+          FROM sqlite_schema
+          WHERE type = 'table'
+            AND name = 'state_schema_identity'
+        `,
+      )
+      .get() !== undefined;
+    const identity = hasIdentityTable
+      ? database
+        .prepare(
+          `
+            SELECT
+              singleton,
+              actual_schema_sha256,
+              source_schema_sha256,
+              verified_at
+            FROM state_schema_identity
+            ORDER BY singleton
+          `,
+        )
+        .all()
+      : [];
+    return { schema, identity };
+  } finally {
+    database.close();
+  }
+};
+
+const expectSchemaRejectionWithoutMutation = async (
+  path: string,
+  error: RegExp,
+): Promise<void> => {
+  const before = readAuthorityWitness(path);
+  const runtime = makeRuntime(path);
+  try {
+    await expect(runtime.runPromise(StateEngine)).rejects.toThrow(error);
+  } finally {
+    await disposeRuntime(runtime);
+  }
+  expect(readAuthorityWitness(path)).toEqual(before);
 };
 
 afterEach(async () => {
@@ -99,6 +168,45 @@ describe("StateEngine", () => {
         .update(STATE_SCHEMA_SQL)
         .digest("hex"),
     });
+  });
+
+  test("treats SQLite-only implementation objects as a fresh authority schema", async () => {
+    const root = await makeTempDir("vellum-state-sqlite-internal-");
+    const path = join(root, "vellum.db");
+    const sqliteOnly = new DatabaseSync(path);
+    try {
+      sqliteOnly.exec(`
+        CREATE TABLE transient_sequence_owner (
+          id INTEGER PRIMARY KEY AUTOINCREMENT
+        );
+        DROP TABLE transient_sequence_owner;
+      `);
+      expect(
+        sqliteOnly
+          .prepare(
+            `
+              SELECT name
+              FROM sqlite_schema
+              WHERE name GLOB 'sqlite_*'
+            `,
+          )
+          .all(),
+      ).toEqual([{ name: "sqlite_sequence" }]);
+    } finally {
+      sqliteOnly.close();
+    }
+
+    const runtime = makeRuntime(path);
+    const info = await runtime.runPromise(
+      Effect.map(StateEngine, (engine) => engine.info),
+    );
+    expect(info.schemaSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(readAuthorityWitness(path).schema).toContainEqual(
+      expect.objectContaining({
+        type: "table",
+        name: "state_schema_identity",
+      }),
+    );
   });
 
   test("reopens idempotently without losing committed state", async () => {
@@ -395,12 +503,70 @@ describe("StateEngine", () => {
     }
   });
 
-  test("rejects a current table name with a stale constrained shape", async () => {
+  test("rejects a current database missing a table without repairing it", async () => {
+    const root = await makeTempDir("vellum-state-missing-table-");
+    const path = join(root, "vellum.db");
+    await seedCurrentStateSchema(path);
+
+    const drifted = new DatabaseSync(path);
+    try {
+      drifted.exec("DROP TABLE usage_state");
+    } finally {
+      drifted.close();
+    }
+
+    await expectSchemaRejectionWithoutMutation(
+      path,
+      /state schema identity mismatch.*missing=table:usage_state/,
+    );
+  });
+
+  test("rejects a current database missing an index without repairing it", async () => {
+    const root = await makeTempDir("vellum-state-missing-index-");
+    const path = join(root, "vellum.db");
+    await seedCurrentStateSchema(path);
+
+    const drifted = new DatabaseSync(path);
+    try {
+      drifted.exec("DROP INDEX work_tasks_node");
+    } finally {
+      drifted.close();
+    }
+
+    await expectSchemaRejectionWithoutMutation(
+      path,
+      /state schema identity mismatch.*missing=index:work_tasks_node/,
+    );
+  });
+
+  test("rejects a current database missing a trigger without repairing it", async () => {
+    const root = await makeTempDir("vellum-state-missing-trigger-");
+    const path = join(root, "vellum.db");
+    await seedCurrentStateSchema(path);
+
+    const drifted = new DatabaseSync(path);
+    try {
+      drifted.exec("DROP TRIGGER host_registry_retain_local");
+    } finally {
+      drifted.close();
+    }
+
+    await expectSchemaRejectionWithoutMutation(
+      path,
+      /state schema identity mismatch.*missing=trigger:host_registry_retain_local/,
+    );
+  });
+
+  test("rejects a current table missing constraints without replacing it", async () => {
     const root = await makeTempDir("vellum-state-shape-drift-");
     const path = join(root, "vellum.db");
+    await seedCurrentStateSchema(path);
+
     const drifted = new DatabaseSync(path);
     try {
       drifted.exec(`
+        DROP TABLE usage_state;
+
         CREATE TABLE usage_state (
           singleton INTEGER PRIMARY KEY,
           snapshots_json TEXT NOT NULL,
@@ -412,9 +578,44 @@ describe("StateEngine", () => {
       drifted.close();
     }
 
-    const runtime = makeRuntime(path);
-    await expect(runtime.runPromise(StateEngine)).rejects.toThrow(
+    await expectSchemaRejectionWithoutMutation(
+      path,
       /state schema identity mismatch.*changed=table:usage_state/,
+    );
+  });
+
+  test("rejects a partial current database without completing or stamping it", async () => {
+    const root = await makeTempDir("vellum-state-partial-schema-");
+    const path = join(root, "vellum.db");
+    const partial = new DatabaseSync(path);
+    try {
+      partial.exec(`
+        ${STATE_SCHEMA_IDENTITY_SQL}
+        ${USAGE_STATE_SCHEMA_SQL}
+      `);
+      partial
+        .prepare(
+          `
+            INSERT INTO state_schema_identity(
+              singleton,
+              actual_schema_sha256,
+              source_schema_sha256,
+              verified_at
+            ) VALUES (1, ?, ?, ?)
+          `,
+        )
+        .run(
+          "0".repeat(64),
+          "1".repeat(64),
+          "partial-witness",
+        );
+    } finally {
+      partial.close();
+    }
+
+    await expectSchemaRejectionWithoutMutation(
+      path,
+      /state schema identity mismatch.*missing=/,
     );
   });
 
