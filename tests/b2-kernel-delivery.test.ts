@@ -128,15 +128,83 @@ describe("runEvaluationCycle — one hung delivery does not stall watcher/timer 
 describe("deliverPulse — live-pulse spacing holds past 200 mixed-region records", () => {
   const armedRegion = "region-A";
   const canvasName = "test-canvas";
+  const doc: CanvasDoc = {
+    nodes: [
+      {
+        id: armedRegion,
+        type: "group",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+      },
+      {
+        id: "a0",
+        type: "text",
+        text: "first watcher",
+        x: 40,
+        y: 40,
+        width: 120,
+        height: 40,
+        ether: {
+          entity: { kind: "watcher" },
+          watch: { kind: "glyphs_done" },
+        },
+      },
+      {
+        id: "a-second",
+        type: "text",
+        text: "second watcher",
+        x: 40,
+        y: 100,
+        width: 120,
+        height: 40,
+        ether: {
+          entity: { kind: "watcher" },
+          watch: { kind: "glyphs_done" },
+        },
+      },
+      {
+        id: "spacing-agent",
+        type: "text",
+        text: "spacing agent",
+        x: 220,
+        y: 40,
+        width: 120,
+        height: 60,
+        ether: {
+          entity: { kind: "agent", name: "local:spacing" },
+          terminal: {
+            bindingId: "bind-local-spacing",
+            harness: "claude",
+            launch: { kind: "harness", argv: ["claude"] },
+          },
+        },
+      },
+    ],
+    edges: [
+      { id: "a0-to-agent", fromNode: "a0", toNode: "spacing-agent" },
+      {
+        id: "a-second-to-agent",
+        fromNode: "a-second",
+        toNode: "spacing-agent",
+      },
+    ],
+  };
 
   beforeEach(() => {
     __resetDeliveryQueueForTest();
-    __setDocsForTest(new Map([[canvasName, { nodes: [], edges: [] }]]));
+    __setStationScopeForTest({ hostId: "local", role: "command-center" });
+    __setDocsForTest(new Map([[canvasName, doc]]));
+    __setDeliveryDepsForTest({
+      sendManagedTerminal: async () => true,
+    });
     setArmed(`${canvasName}::${armedRegion}`, true);
   });
 
   afterEach(() => {
     __resetDeliveryQueueForTest();
+    __setDeliveryDepsForTest(undefined);
   });
 
   it("does not let a busy canvas evict the region's last live record and fail the spacing open", async () => {
@@ -192,7 +260,10 @@ describe("deliverPulse — pause gates the target seat, not only the source", ()
         y: 40,
         width: 120,
         height: 40,
-        ether: { entity: { kind: "watcher" } },
+        ether: {
+          entity: { kind: "watcher" },
+          watch: { kind: "glyphs_done" },
+        },
       },
       {
         id: "agent-a",

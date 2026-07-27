@@ -418,9 +418,79 @@ const scheduledPulseSourceExists = (
     .get(params.canvasName)
     ?.nodes.find((node) => node.id === params.sourceNodeId);
   if (source?.type !== "text") return false;
-  if (params.kind === "watcher") return source.ether?.watch !== undefined;
-  if (params.kind === "timer") return source.ether?.timer !== undefined;
-  return false;
+  switch (params.kind) {
+    case "watcher":
+      return source.ether?.watch !== undefined;
+    case "timer":
+      return source.ether?.timer !== undefined;
+    case "manual":
+      return false;
+  }
+};
+
+const scheduledPulseContextIsCurrent = (
+  params: DeliverPulseParams,
+): boolean => {
+  const doc = docs.get(params.canvasName);
+  return (
+    doc !== undefined &&
+    scheduledPulseSourceExists(params) &&
+    findContainingRegionId(doc, params.sourceNodeId) === params.regionId
+  );
+};
+
+interface ManagedPulseTarget {
+  readonly key: string;
+  readonly bindingId: string;
+}
+
+const managedTargetsForKeys = (
+  doc: CanvasDoc,
+  canvasName: string,
+  keys: ReadonlyArray<string>,
+): ReadonlyArray<ManagedPulseTarget> => {
+  const targets: ManagedPulseTarget[] = [];
+  for (const key of keys) {
+    const actors = doc.nodes.filter(
+      (node) =>
+        isActorNode(node) &&
+        node.ether?.entity?.name === key,
+    );
+    if (
+      pausedLookup !== undefined &&
+      actors.some((node) => pausedLookup?.(canvasName, node.id) ?? false)
+    ) {
+      continue;
+    }
+    const actor = actors[0];
+    const surface = actor ? actorDeliverySurfaceOf(actor) : undefined;
+    if (surface?._tag !== "managedAgent") continue;
+    targets.push({ key, bindingId: surface.bindingId });
+  }
+  return targets;
+};
+
+const scheduledManagedTargets = (
+  params: DeliverPulseParams,
+): ReadonlyArray<ManagedPulseTarget> => {
+  const doc = docs.get(params.canvasName);
+  if (
+    doc === undefined ||
+    stationRole === "unset" ||
+    !scheduledPulseContextIsCurrent(params)
+  ) {
+    return [];
+  }
+  return managedTargetsForKeys(
+    doc,
+    params.canvasName,
+    agentKeysForExecutableSource(
+      doc,
+      params.sourceNodeId,
+      stationRole,
+      stationHostId,
+    ),
+  );
 };
 
 const scheduledPulseCanWait = (
@@ -429,10 +499,11 @@ const scheduledPulseCanWait = (
   if (
     scheduledPulseKey(params) === undefined ||
     params.forceDry === true ||
-    !scheduledPulseSourceExists(params) ||
+    !scheduledPulseContextIsCurrent(params) ||
     params.regionId === undefined ||
     !(armed.get(`${params.canvasName}::${params.regionId}`) ?? false) ||
-    (pausedLookup?.(params.canvasName, params.sourceNodeId) ?? false)
+    (pausedLookup?.(params.canvasName, params.sourceNodeId) ?? false) ||
+    scheduledManagedTargets(params).length === 0
   ) {
     return false;
   }
@@ -455,7 +526,12 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
   const { regionId } = params;
   const armedKey = regionId !== undefined ? `${params.canvasName}::${regionId}` : undefined;
   const isArmed = armedKey !== undefined && (armed.get(armedKey) ?? false);
-  const wantsLive = isArmed && params.forceDry !== true;
+  const contextIsCurrent =
+    params.kind === "manual" || scheduledPulseContextIsCurrent(params);
+  const wantsLive =
+    isArmed &&
+    params.forceDry !== true &&
+    contextIsCurrent;
   const lastLiveAt = wantsLive && regionId !== undefined ? lastLiveActivationAt(params.canvasName, regionId) : undefined;
   const cooling = lastLiveAt !== undefined && Date.now() - lastLiveAt < MIN_LIVE_PULSE_SPACING_MS;
   // Pause wins over arming: a paused source (node, region, or canvas) never
@@ -504,22 +580,11 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
               });
       }
 
-      // The pause plane gates the TARGET seat too (mirror of the work
-      // message-delivery gate): a live source never acts upon a paused agent
-      // seat — node-paused, inside a paused region, or on a paused canvas.
-      // Fail closed per key: any paused node bound to the key suppresses it.
-      if (keys.length > 0 && pausedLookup !== undefined) {
-        const lookup = pausedLookup;
-        keys = keys.filter(
-          (key) =>
-            !doc.nodes.some(
-              (node) =>
-                isActorNode(node) &&
-                node.ether?.entity?.name === key &&
-                lookup(params.canvasName, node.id),
-            ),
-        );
-      }
+      const targets = managedTargetsForKeys(
+        doc,
+        params.canvasName,
+        keys,
+      );
 
       let contextBlocks: ReadonlyArray<string> | undefined;
       if (params.regionId !== undefined && region?.type === "group") {
@@ -540,22 +605,14 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
           : message;
 
       const ok: string[] = [];
-      for (const key of keys) {
+      for (const target of targets) {
         try {
-          const agentNode = doc.nodes.find(
-            (node) => isActorNode(node) && node.ether?.entity?.name === key,
-          );
-          // Agent kind ⇒ managedAgent surface (sum type); not optional terminal OR.
-          const surface = agentNode
-            ? actorDeliverySurfaceOf(agentNode)
-            : undefined;
-          if (!surface || surface._tag !== "managedAgent") continue;
           if (!deps?.sendManagedTerminal) continue;
           const sent = await deps.sendManagedTerminal(
-            surface.bindingId,
+            target.bindingId,
             fullMessage,
           );
-          if (sent) ok.push(key);
+          if (sent) ok.push(target.key);
         } catch {
           // Best-effort per agent: one failing delivery doesn't sink the rest.
         }
@@ -573,8 +630,15 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
   setPendingPulseDelivery(params, shouldRetry);
 
   const at = Date.now();
-  if (params.kind === "watcher" && delivered.length > 0) {
-    setWatcherLastFiredAt(params.canvasName, params.sourceNodeId, at);
+  if (delivered.length > 0) {
+    switch (params.kind) {
+      case "watcher":
+        setWatcherLastFiredAt(params.canvasName, params.sourceNodeId, at);
+        break;
+      case "timer":
+      case "manual":
+        break;
+    }
   }
 
   appendPulseRecord({
@@ -988,6 +1052,10 @@ export const retryPendingPulseDeliveries = (): void => {
   for (const [key, params] of [...pendingPulseDeliveries]) {
     if (queuedPulseDeliveryKeys.has(key)) continue;
     pendingPulseDeliveries.delete(key);
+    // Re-authorize against the current document before every retry. An edge
+    // drawn after the original event cannot resurrect it, and a removed edge
+    // cancels the queued action before any transport is invoked.
+    if (!scheduledPulseCanWait(params)) continue;
     if (!enqueuePulseDelivery(params, true)) {
       pendingPulseDeliveries.set(key, params);
     }
@@ -1009,6 +1077,15 @@ export const purgeCanvasMemory = (canvasName: string): void => {
   for (const key of nextFire.keys()) if (key.startsWith(prefix)) nextFire.delete(key);
   for (const [key, params] of pendingPulseDeliveries) {
     if (params.canvasName === canvasName) pendingPulseDeliveries.delete(key);
+  }
+  // Cancel queued-but-not-started actions. The currently in-flight item has
+  // already been shifted out and keeps its key until its transport settles.
+  for (let index = pulseDeliveryQueue.length - 1; index >= 0; index -= 1) {
+    const params = pulseDeliveryQueue[index];
+    if (params?.canvasName !== canvasName) continue;
+    pulseDeliveryQueue.splice(index, 1);
+    const key = scheduledPulseKey(params);
+    if (key !== undefined) queuedPulseDeliveryKeys.delete(key);
   }
   executionByCanvas.delete(canvasName);
   // evaluate.ts's edge-detection memory (seenLevelStatus/seenGlyphState) is

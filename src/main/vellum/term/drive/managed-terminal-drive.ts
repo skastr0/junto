@@ -4,7 +4,7 @@
  * Owns: paste+CR recipe, idle gate, mid-turn queue, interrupt spacing, stall retry.
  * Does not own: PTY leases, seat state machine (injected lookups).
  *
- * Fail-closed: not idle → queue (bounded); never hang forever on the pulse path.
+ * Fail-closed: not idle → bounded queue or immediate refusal by caller policy.
  */
 
 import {
@@ -59,8 +59,15 @@ export type WritePromptOptions = {
   /** Override queue wait when seat is busy (default DEFAULT_QUEUE_TIMEOUT_MS). */
   readonly queueTimeoutMs?: number;
   /**
+   * Whether a busy/not-yet-writeable seat may retain the raw prompt for a
+   * later idle transition. Scheduled kernel pulses set false so their source
+   * identity stays in the kernel and every retry re-checks current edges.
+   * Defaults true for operator-authored and work-message prompts.
+   */
+  readonly queueIfBusy?: boolean;
+  /**
    * Earliest epoch-ms at which paste is allowed (Grok ≥1.5s post-spawn).
-   * When now < readyAfterMs, queue until then or fail not-ready if no wait.
+   * When now < readyAfterMs, wait only when queueIfBusy permits retention.
    */
   readonly readyAfterMs?: number;
 };
@@ -138,8 +145,16 @@ export class ManagedTerminalDrive {
     opts: WritePromptOptions = {},
   ): Promise<boolean> {
     const ready = opts.ready ?? true;
+    const queueIfBusy = opts.queueIfBusy ?? true;
     if (!ready) {
       this.onAttention?.(bindingId, "not-ready");
+      return false;
+    }
+
+    if (
+      !queueIfBusy &&
+      (!this.isSeatIdle(bindingId) || this.writing.has(bindingId))
+    ) {
       return false;
     }
 
@@ -147,6 +162,9 @@ export class ManagedTerminalDrive {
       opts.readyAfterMs ?? this.readyAfter.get(bindingId) ?? 0;
     const waitMs = readyAfter - this.now();
     if (waitMs > 0) {
+      // A non-queuing caller retains authorization context outside this
+      // transport and will retry later. Never park its raw text in the drive.
+      if (!queueIfBusy) return false;
       await new Promise<void>((r) => {
         const t = setTimeout(r, waitMs);
         t.unref?.();
@@ -168,6 +186,7 @@ export class ManagedTerminalDrive {
     }
 
     if (!this.isSeatIdle(bindingId) || this.writing.has(bindingId)) {
+      if (!queueIfBusy) return false;
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
       return new Promise<boolean>((resolve) => {
         const entry: QueuedPrompt = {

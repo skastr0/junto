@@ -42,7 +42,10 @@ import {
   peekFirstTypedMessage,
   takeFirstTypedMessage,
 } from "./term/first-typed";
-import { setManagedPulseDeliver } from "./term/managed-pulse-bridge";
+import {
+  makeManagedPulseDeliver,
+  setManagedPulseDeliver,
+} from "./term/managed-pulse-bridge";
 import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
 import type { ControlLease } from "./term/local-host";
@@ -645,11 +648,11 @@ export const registerVellumIpc = (): void => {
           ready: options?.ready ?? driveReady(bindingId),
           ...(options ?? {}),
         });
-      const writeManagedPulse = (bindingId: string, text: string) =>
-        writeManagedPrompt(bindingId, text, {
-          ready: true,
-          queueTimeoutMs: 5 * 60_000,
-        });
+      const writeManagedPulse = makeManagedPulseDeliver(
+        (bindingId, text, options) =>
+          managedDrive.writePrompt(bindingId, text, options),
+        driveReady,
+      );
       // Grok ≥1.5s post-spawn before first paste (verified trap).
       termPlane.host.on("event", (payload: {
         type?: string;

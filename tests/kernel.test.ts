@@ -245,7 +245,44 @@ describe("deliverPulse — arming and live-pulse spacing", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-15T12:00:00Z"));
     __resetPulseLogForTest();
-    __setDocsForTest(new Map([[canvasName, { nodes: [], edges: [] }]]));
+    __setStationScopeForTest({ hostId: "local", role: "command-center" });
+    __setDocsForTest(
+      new Map([
+        [
+          canvasName,
+          {
+            nodes: [
+              {
+                id: regionId,
+                type: "group",
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 400,
+              },
+              {
+                id: "spacing-agent",
+                type: "text",
+                text: "spacing agent",
+                x: 40,
+                y: 40,
+                width: 120,
+                height: 60,
+                ether: {
+                  entity: { kind: "agent", name: "local:spacing" },
+                  terminal: {
+                    bindingId: "bind-local-spacing",
+                    harness: "claude",
+                    launch: { kind: "harness", argv: ["claude"] },
+                  },
+                },
+              },
+            ],
+            edges: [],
+          },
+        ],
+      ]),
+    );
     // Set default deps that simulate successful delivery when arming is true
     const defaultDeps: PulseDeliverDeps = {
       sendManagedTerminal: async () => true,
@@ -650,7 +687,7 @@ describe("I14 — pulse delivery: edges route; geometry does not mint", () => {
     });
 
     const record = getPulseLog()[0];
-    expect(record?.dry).toBe(false);
+    expect(record?.dry).toBe(true);
     expect(record?.kind).toBe("watcher");
     expect(record?.delivered).toEqual([]);
     expect(sent).toEqual([]);

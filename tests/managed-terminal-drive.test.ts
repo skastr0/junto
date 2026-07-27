@@ -9,6 +9,7 @@ import {
   canSendIdleInterrupt,
   encodeBracketedPaste,
 } from "../src/main/vellum/term/drive";
+import { makeManagedPulseDeliver } from "../src/main/vellum/term/managed-pulse-bridge";
 
 describe("typing recipe", () => {
   it("encodes bracketed paste as one envelope", () => {
@@ -102,6 +103,55 @@ describe("ManagedTerminalDrive", () => {
       CR,
       encodeBracketedPaste("second"),
       CR,
+    ]);
+  });
+
+  it("refuses a non-queuing busy prompt without writing it on a later idle transition", async () => {
+    idle = false;
+    drive = makeDrive();
+
+    await expect(
+      drive.writePrompt("b1", "scheduled pulse", { queueIfBusy: false }),
+    ).resolves.toBe(false);
+    expect(drive.queuedCount("b1")).toBe(0);
+    expect(writes).toEqual([]);
+
+    idle = true;
+    drive.onSeatIdle("b1");
+    await flushMicrotasks();
+    expect(writes).toEqual([]);
+  });
+
+  it("managed pulse handoff samples readiness and always disables the drive queue", async () => {
+    const calls: Array<{
+      bindingId: string;
+      text: string;
+      options: Parameters<typeof drive.writePrompt>[2];
+    }> = [];
+    let ready = false;
+    const pulse = makeManagedPulseDeliver(
+      async (bindingId, text, options) => {
+        calls.push({ bindingId, text, options });
+        return true;
+      },
+      () => ready,
+    );
+
+    await expect(pulse("b1", "first")).resolves.toBe(true);
+    ready = true;
+    await expect(pulse("b1", "second")).resolves.toBe(true);
+
+    expect(calls).toEqual([
+      {
+        bindingId: "b1",
+        text: "first",
+        options: { ready: false, queueIfBusy: false },
+      },
+      {
+        bindingId: "b1",
+        text: "second",
+        options: { ready: true, queueIfBusy: false },
+      },
     ]);
   });
 
