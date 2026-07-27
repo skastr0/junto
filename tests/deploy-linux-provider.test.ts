@@ -319,9 +319,7 @@ type OutputAction =
 
 const refusal = (
   transactionId: string | null,
-  action:
-    | "send-a-new-bounded-frame"
-    | "retry-install" = "send-a-new-bounded-frame",
+  action: "send-a-new-bounded-frame" = "send-a-new-bounded-frame",
 ): Extract<
   LinuxReleaseInstallerReceipt,
   { readonly ok: false; readonly state: "refused" }
@@ -479,7 +477,6 @@ const finalReady = (
   fenceId: request.fenceId,
   inventorySha256: request.inventorySha256,
   operation: prepared.operation,
-  changed: true,
   fromVersion: prepared.fromVersion,
   toVersion: stage.candidate.version,
   manifestSha256: stage.candidate.manifestSha256,
@@ -669,7 +666,7 @@ const makeTranscriptHarness = (
         {
           _tag: "line",
           value: encodeLinuxReleaseInstallerReceipt(
-            refusal(request.transactionId, "retry-install"),
+            refusal(request.transactionId),
           ),
         },
       ];

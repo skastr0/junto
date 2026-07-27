@@ -1083,7 +1083,6 @@ const validateFinalReady = (
     receipt.inventorySha256 !==
       attempt.stage.candidate.inventorySha256 ||
     receipt.operation !== rootReady.operation ||
-    receipt.changed !== true ||
     receipt.fromVersion !== rootReady.fromVersion ||
     receipt.toVersion !== admission.version ||
     receipt.manifestSha256 !== admission.manifestSha256 ||
@@ -1517,18 +1516,6 @@ const refusalFailure = (
           code: "validation",
           disposition: "not-started",
           version,
-        },
-      );
-    case "retry-install":
-      return deployFailure(
-        input,
-        stages,
-        "the root-owned installer refused this attempt before a trusted ready receipt",
-        {
-          code: "io",
-          disposition: "not-started",
-          version,
-          recoveryAction: { kind: "retry-linux-release-install" },
         },
       );
   }
