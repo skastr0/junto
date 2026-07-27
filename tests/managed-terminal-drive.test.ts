@@ -40,6 +40,10 @@ describe("ManagedTerminalDrive", () => {
   let clock = 10_000;
   let drive: ManagedTerminalDrive;
 
+  const flushMicrotasks = async (ticks = 2) => {
+    for (let i = 0; i < ticks; i += 1) await Promise.resolve();
+  };
+
   const makeDrive = (
     over: Partial<ConstructorParameters<typeof ManagedTerminalDrive>[0]> = {},
   ) =>
@@ -161,12 +165,14 @@ describe("ManagedTerminalDrive", () => {
     expect(ok).toBe(true);
     expect(writes).toHaveLength(2); // paste + CR
 
-    await vi.advanceTimersByTimeAsync(5_000);
+    vi.advanceTimersByTime(5_000);
+    await flushMicrotasks();
     // Retry once.
     expect(writes).toHaveLength(4);
     expect(attention).toEqual([]);
 
-    await vi.advanceTimersByTimeAsync(5_000);
+    vi.advanceTimersByTime(5_000);
+    await flushMicrotasks();
     expect(attention).toEqual(["prompt-stalled"]);
     // No third full write pair after attention.
     expect(writes).toHaveLength(4);
@@ -184,7 +190,8 @@ describe("ManagedTerminalDrive", () => {
     });
     await drive.writePrompt("b1", "ok");
     drive.onTurnStart("b1");
-    await vi.advanceTimersByTimeAsync(10_000);
+    vi.advanceTimersByTime(10_000);
+    await flushMicrotasks();
     expect(writes).toHaveLength(2);
     expect(attention).toEqual([]);
     vi.useRealTimers();
