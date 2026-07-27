@@ -1,154 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import {
-  CanvasAuthorityError,
-  commitAuthorityGeneration,
-  loadAuthoritySnapshot,
-  pruneAuthorityHistory,
-} from "../src/main/vellum/canvas-authority/store";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { compareAuthorityGeneration } from "../src/shared/canvas-authority";
+import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
+import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import {
   applyMirrorLaw,
-  serializeCanvas,
   type CanvasDoc,
 } from "../src/shared/canvas";
-
-describe("canvas authority store", () => {
-  let root = "";
-
-  afterEach(async () => {
-    if (root) await rm(root, { recursive: true, force: true });
-    root = "";
-  });
-
-  it("commits documents and reloads an identical snapshot", async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-authority-"));
-    const bodyA = new TextEncoder().encode('{"nodes":[],"edges":[]}\n');
-    const bodyB = new TextEncoder().encode(
-      '{"nodes":[{"id":"n1","type":"text","x":0,"y":0,"width":10,"height":10,"text":"hi"}],"edges":[]}\n',
-    );
-    const snap = await commitAuthorityGeneration(
-      {
-        generation: "1",
-        createdAt: "2026-07-24T00:00:00.000Z",
-        documents: new Map([
-          ["alpha", bodyA],
-          ["beta", bodyB],
-        ]),
-      },
-      root,
-    );
-    expect(snap.pointer.generation).toBe("1");
-    expect(snap.manifest.documents).toHaveLength(2);
-
-    const loaded = await loadAuthoritySnapshot(root);
-    expect(loaded?.pointer).toEqual(snap.pointer);
-    expect(loaded?.manifest.intentSha256).toBe(snap.manifest.intentSha256);
-    expect(loaded?.documents.get("alpha")).toEqual(bodyA);
-    expect(loaded?.documents.get("beta")).toEqual(bodyB);
-  });
-
-  it("fails closed on corrupt current pointer", async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-authority-"));
-    await commitAuthorityGeneration(
-      {
-        generation: "2",
-        createdAt: "2026-07-24T00:00:00.000Z",
-        documents: new Map([["solo", new TextEncoder().encode("{}\n")]]),
-      },
-      root,
-    );
-    await writeFile(join(root, "current.json"), "{not-json", "utf8");
-    await expect(loadAuthoritySnapshot(root)).rejects.toBeInstanceOf(
-      CanvasAuthorityError,
-    );
-  });
-
-  it("returns undefined when no pointer exists", async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-authority-"));
-    await expect(loadAuthoritySnapshot(root)).resolves.toBeUndefined();
-  });
-
-  it("compares generations with BigInt order", () => {
-    expect(compareAuthorityGeneration("9", "10")).toBe(-1);
-    expect(compareAuthorityGeneration("10", "10")).toBe(0);
-    expect(compareAuthorityGeneration("100", "99")).toBe(1);
-  });
-
-  it("prunes historical document objects outside the retain window", async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-authority-prune-"));
-    const encoder = new TextEncoder();
-    // Distinct bodies so each generation gets a unique content hash.
-    for (let generation = 1; generation <= 8; generation += 1) {
-      await commitAuthorityGeneration(
-        {
-          generation: String(generation),
-          createdAt: `2026-07-24T00:00:0${generation}.000Z`,
-          documents: new Map([
-            ["solo", encoder.encode(`{"nodes":[],"edges":[],"g":${generation}}\n`)],
-          ]),
-        },
-        root,
-      );
-    }
-    // After commits, auto-retain window must already bound history (≤5).
-    const afterCommitManifests = (await readdir(join(root, "manifests"))).filter(
-      (n) => n.endsWith(".json"),
-    );
-    const afterCommitDocs = (await readdir(join(root, "documents"))).filter((n) =>
-      n.endsWith(".canvas"),
-    );
-    expect(afterCommitManifests.length).toBeLessThanOrEqual(5);
-    expect(afterCommitDocs.length).toBeLessThanOrEqual(5);
-
-    // Force retain=2.
-    const result = await pruneAuthorityHistory(root, 2);
-    expect(result.keptManifests).toBeGreaterThanOrEqual(1);
-    expect(result.removedManifests + result.removedDocuments).toBeGreaterThan(0);
-
-    const docs = (await readdir(join(root, "documents"))).filter((n) =>
-      n.endsWith(".canvas"),
-    );
-    const manifests = (await readdir(join(root, "manifests"))).filter((n) =>
-      n.endsWith(".json"),
-    );
-    // Current generation must still load.
-    const loaded = await loadAuthoritySnapshot(root);
-    expect(loaded?.pointer.generation).toBe("8");
-    expect(loaded?.documents.has("solo")).toBe(true);
-    expect(manifests.length).toBeLessThanOrEqual(2);
-    expect(docs.length).toBeLessThanOrEqual(2);
-  });
-
-  it("refuses document GC when current.json is corrupt", async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-authority-prune-bad-ptr-"));
-    await commitAuthorityGeneration(
-      {
-        generation: "1",
-        createdAt: "2026-07-24T00:00:00.000Z",
-        documents: new Map([
-          ["solo", new TextEncoder().encode('{"nodes":[],"edges":[]}\n')],
-        ]),
-      },
-      root,
-    );
-    await writeFile(join(root, "current.json"), "{not-json", "utf8");
-    const before = (await readdir(join(root, "documents"))).filter((n) =>
-      n.endsWith(".canvas"),
-    );
-    const result = await pruneAuthorityHistory(root, 1);
-    expect(result.removedDocuments).toBe(0);
-    const after = (await readdir(join(root, "documents"))).filter((n) =>
-      n.endsWith(".canvas"),
-    );
-    expect(after).toEqual(before);
-  });
-});
 
 const noteDoc = (text: string): CanvasDoc =>
   applyMirrorLaw({
@@ -166,15 +28,39 @@ const noteDoc = (text: string): CanvasDoc =>
     edges: [],
   });
 
+const taskSinkDoc = (): CanvasDoc =>
+  applyMirrorLaw({
+    nodes: [
+      {
+        id: "sink",
+        type: "text",
+        text: "tasks",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 120,
+        ether: {
+          entity: { kind: "task" },
+          tasks: { items: [] },
+        },
+      },
+    ],
+    edges: [],
+  });
+
 describe("CanvasesService authority store", () => {
   let canvasesDir = "";
   let authorityDir = "";
   let previousCanvases: string | undefined;
   let previousAuthority: string | undefined;
-  const makeCanvasRuntime = (path: string) =>
-    ManagedRuntime.make(
-      Layer.provide(CanvasesLive, makeStateEngineLive(path)),
+  const makeCanvasRuntime = (path: string) => {
+    const repositories = Layer.provideMerge(
+      WorkRepositoryLive,
+      makeStateEngineLive(path),
     );
+    const canvases = Layer.provideMerge(CanvasesLive, repositories);
+    return ManagedRuntime.make(Layer.provideMerge(WorkLive, canvases));
+  };
   let runtime: ReturnType<typeof makeCanvasRuntime> | undefined;
 
   const installEnv = async (): Promise<void> => {
@@ -256,6 +142,41 @@ describe("CanvasesService authority store", () => {
     expect(text).toBe("authority-wins");
   });
 
+  it("keeps work rows out of authority while projecting committed work reads", async () => {
+    await installEnv();
+    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
+    const canvases = await runtime.runPromise(CanvasesService);
+    const work = await runtime.runPromise(WorkService);
+    await runtime.runPromise(canvases.write("work", taskSinkDoc()));
+
+    const authorial = await runtime.runPromise(canvases.authoritySnapshot());
+    expect(authorial.generation).toBe("1");
+    expect(authorial.documents.get("work")?.nodes[0]?.ether?.tasks).toBeUndefined();
+
+    const changed: string[] = [];
+    const unsubscribe = canvases.subscribeChanges((name) => changed.push(name));
+    const created = await runtime.runPromise(
+      work.workTaskCreate("work", "sink", "ship the SQLite cutover"),
+    );
+    unsubscribe();
+    expect(created.ok).toBe(true);
+    expect(changed).toEqual(["work"]);
+
+    const projected = await runtime.runPromise(canvases.read("work"));
+    expect(projected.doc.nodes[0]?.ether?.tasks?.items).toHaveLength(1);
+    expect(projected.doc.nodes[0]).toMatchObject({
+      text: "ship the SQLite cutover",
+    });
+    expect(await runtime.runPromise(canvases.liveAuthorityGeneration())).toBe(
+      "1",
+    );
+    expect(
+      (await runtime.runPromise(canvases.authoritySnapshot())).documents.get(
+        "work",
+      )?.nodes[0]?.ether?.tasks,
+    ).toBeUndefined();
+  });
+
   it("starts empty when the authority pointer is absent", async () => {
     await installEnv();
     runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
@@ -283,81 +204,6 @@ describe("CanvasesService authority store", () => {
     await expect(
       runtime.runPromise(Effect.either(canvases.read("drop"))),
     ).resolves.toMatchObject({ _tag: "Left" });
-  });
-
-  it("corrupt pointer blocks authoring without collapsing the store", async () => {
-    await installEnv();
-    await commitAuthorityGeneration(
-      {
-        generation: "7",
-        createdAt: "2026-07-24T00:00:00.000Z",
-        documents: new Map([
-          ["alpha", new TextEncoder().encode(serializeCanvas(noteDoc("kept")))],
-        ]),
-      },
-      authorityDir,
-    );
-    await writeFile(join(authorityDir, "current.json"), "{not-json", "utf8");
-
-    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
-    const blocked = await runtime.runPromise(CanvasesService);
-    await expect(
-      runtime.runPromise(Effect.either(blocked.write("beta", noteDoc("nope")))),
-    ).resolves.toMatchObject({ _tag: "Left" });
-    const doctor = await runtime.runPromise(blocked.doctor);
-    expect(doctor.status).toBe("error");
-    expect(doctor.detail).toMatch(/corrupt/i);
-  });
-
-  it("orphan store objects without a pointer block authoring", async () => {
-    await installEnv();
-    await commitAuthorityGeneration(
-      {
-        generation: "8",
-        createdAt: "2026-07-24T00:00:00.000Z",
-        documents: new Map([
-          ["alpha", new TextEncoder().encode(serializeCanvas(noteDoc("object")))],
-        ]),
-      },
-      authorityDir,
-    );
-    await rm(join(authorityDir, "current.json"), { force: true });
-
-    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
-    const blocked = await runtime.runPromise(CanvasesService);
-    await expect(
-      runtime.runPromise(Effect.either(blocked.write("beta", noteDoc("nope")))),
-    ).resolves.toMatchObject({ _tag: "Left" });
-    const doctor = await runtime.runPromise(blocked.doctor);
-    expect(doctor.status).toBe("error");
-    expect(doctor.detail).toMatch(/recovery required/i);
-  });
-
-  it("imports one valid legacy snapshot and preserves its logical generation", async () => {
-    await installEnv();
-    await commitAuthorityGeneration(
-      {
-        generation: "41",
-        createdAt: "2026-07-24T00:00:00.000Z",
-        documents: new Map([
-          ["legacy", new TextEncoder().encode(serializeCanvas(noteDoc("from-files")))],
-        ]),
-      },
-      authorityDir,
-    );
-
-    runtime = makeCanvasRuntime(join(authorityDir, "vellum.db"));
-    const canvases = await runtime.runPromise(CanvasesService);
-    const snapshot = await runtime.runPromise(canvases.authoritySnapshot());
-    expect(snapshot.generation).toBe("41");
-    expect(snapshot.documents.get("legacy")?.nodes[0]).toMatchObject({
-      text: "from-files",
-    });
-
-    await runtime.runPromise(canvases.write("next", noteDoc("sqlite-only")));
-    expect(await runtime.runPromise(canvases.liveAuthorityGeneration())).toBe(
-      "42",
-    );
   });
 
   it("deduplicates identical maps and preserves a valid empty head", async () => {

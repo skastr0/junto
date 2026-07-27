@@ -56,15 +56,22 @@ import { StateEngineLive } from "./vellum/state/engine";
 // Effect memoizes layers by reference, so every repository below receives the
 // same scoped StateEngine connection even when the composed layers are reused
 // by more than one product plane.
-const StatefulServicesLive = Layer.provideMerge(
+const StateRepositoriesLive = Layer.provideMerge(
   Layer.mergeAll(
     StoreLive,
-    CanvasesLive,
     WorkRepositoryLive,
     UsageLive,
     SettingsLive,
   ),
   StateEngineLive,
+);
+
+// Canvases projects durable work rows on reads while keeping its authority
+// snapshot authorial-only, so it consumes the already memoized repository
+// graph rather than constructing another engine or work repository.
+const StatefulServicesLive = Layer.provideMerge(
+  CanvasesLive,
+  StateRepositoriesLive,
 );
 
 const HostsWithSshLive = Layer.provideMerge(

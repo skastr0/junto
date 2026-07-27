@@ -1,4 +1,4 @@
-import { lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -13,15 +13,15 @@ import {
 import { stampActorActorMsgPorts } from "@shared/physics";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import {
-  CanvasAuthorityError,
-  canvasAuthorityRoot,
-  loadAuthoritySnapshot,
-} from "./canvas-authority/store";
-import {
   StateEngine,
   type StateReader,
   type StateWriter,
 } from "./state/service";
+import {
+  WorkRepository,
+  projectWorkSnapshots,
+  stripWorkProjection,
+} from "./work/repository";
 
 export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
   message: Schema.String,
@@ -281,7 +281,6 @@ type CanvasCommitCause =
   | "remove"
   | "seed"
   | "projection-replace"
-  | "legacy-import"
   | "bootstrap-repair";
 
 type CommitOutcome = {
@@ -485,7 +484,7 @@ const normalizeCanvas = (
   modifiedAt: string,
   operation: string,
 ): StoredCanvas => {
-  const decoded = decodeCanvasDoc(doc);
+  const decoded = decodeCanvasDoc(stripWorkProjection(doc));
   if (Either.isLeft(decoded)) {
     throw new CanvasError({
       message: `cannot ${operation} ${canvasFileName(name)}: ${decoded.left.message}`,
@@ -501,106 +500,11 @@ const normalizeCanvas = (
   };
 };
 
-type LegacyImport = {
-  readonly generation: string;
-  readonly createdAt: string;
-  readonly documents: ReadonlyMap<string, StoredCanvas>;
-};
-
-const legacyObjectsPresent = async (root: string): Promise<boolean> => {
-  for (const subdirectory of ["documents", "manifests"] as const) {
-    try {
-      const entries = await readdir(join(root, subdirectory));
-      if (entries.some((entry) => !entry.endsWith(".tmp"))) return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-  }
-  return false;
-};
-
-/**
- * Read the retired content-addressed store once, without guessing when its
- * protected pointer is absent or corrupt. Exact legacy generation identity is
- * retained; semantic repair, if required, becomes the following generation.
- */
-const loadLegacyImport = async (): Promise<LegacyImport | undefined> => {
-  const root = canvasAuthorityRoot();
-  let snapshot: Awaited<ReturnType<typeof loadAuthoritySnapshot>>;
-  try {
-    snapshot = await loadAuthoritySnapshot(root);
-  } catch (error) {
-    const detail =
-      error instanceof CanvasAuthorityError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : String(error);
-    throw new CanvasError({
-      message: `legacy canvas authority is corrupt; import refused: ${detail}`,
-    });
-  }
-  if (snapshot === undefined) {
-    if (await legacyObjectsPresent(root)) {
-      throw new CanvasError({
-        message:
-          "legacy canvas authority pointer is missing but store objects are present; recovery required",
-      });
-    }
-    return undefined;
-  }
-  if (
-    !/^(?:0|[1-9][0-9]*)$/.test(snapshot.pointer.generation)
-  ) {
-    throw new CanvasError({
-      message: `legacy canvas generation is not canonical: ${snapshot.pointer.generation}`,
-    });
-  }
-
-  const documents = new Map<string, StoredCanvas>();
-  for (const [rawName, bytes] of snapshot.documents) {
-    const name = canvasNameFrom(rawName);
-    if (name !== rawName || documents.has(name)) {
-      throw new CanvasError({
-        message: `legacy canvas authority contains a non-canonical or duplicate name: "${rawName}"`,
-      });
-    }
-    const raw = new TextDecoder().decode(bytes);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (error) {
-      throw new CanvasError({
-        message: `legacy ${canvasFileName(name)} is not valid JSON: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    }
-    const decoded = decodeCanvasDoc(parsed);
-    if (Either.isLeft(decoded)) {
-      throw new CanvasError({
-        message: `legacy ${canvasFileName(name)} failed validation: ${decoded.left.message}`,
-      });
-    }
-    const body = serializeCanvas(decoded.right);
-    documents.set(name, {
-      doc: decoded.right,
-      body,
-      revision: revisionOf(body),
-      modifiedAt: snapshot.manifest.createdAt,
-    });
-  }
-  return {
-    generation: snapshot.pointer.generation,
-    createdAt: snapshot.manifest.createdAt,
-    documents,
-  };
-};
-
 export const CanvasesLive = Layer.effect(
   CanvasesService,
   Effect.gen(function* () {
     const state = yield* StateEngine;
+    const work = yield* WorkRepository;
     const listeners = new Set<
       (name: string, detail?: CanvasChangeDetail) => void
     >();
@@ -652,41 +556,12 @@ export const CanvasesLive = Layer.effect(
           }),
         );
       }
-      const legacy = yield* Effect.tryPromise({
-        try: loadLegacyImport,
-        catch: toCanvasError,
-      });
-      if (legacy !== undefined) {
-        yield* state
-          .transaction("canvas.legacy-import", (writer) => {
-            const current = readStoredAuthority(writer);
-            if (current.hasHead) return;
-            const count = Number(
-              writer.get<{ readonly count: number }>(
-                "SELECT count(*) AS count FROM canvas_generations",
-              )?.count ?? 0,
-            );
-            if (count > 0) {
-              throw new CanvasError({
-                message:
-                  "canvas database head is missing while generation rows exist; recovery required",
-              });
-            }
-            insertFullGeneration(
-              writer,
-              legacy.generation,
-              legacy.createdAt,
-              "legacy-import",
-              legacy.documents,
-            );
-          })
-          .pipe(Effect.mapError(toCanvasError));
-      }
+      // Clean cutover: an empty database is a fresh installation. Historical
+      // file authority is deliberately not consulted or imported.
     }
 
-    // I21 bootstrap semantics remain explicit history. A legacy import keeps
-    // its exact generation, then any actor↔actor message-port repair becomes
-    // one ordinary following generation.
+    // Bootstrap repairs remain explicit history rather than hidden read-time
+    // rewrites: any actor↔actor message-port repair is one ordinary generation.
     yield* state
       .transaction("canvas.bootstrap-repair", (writer) => {
         const current = readStoredAuthority(writer);
@@ -784,9 +659,12 @@ export const CanvasesLive = Layer.effect(
           }),
         );
       }
+      const workSnapshots = yield* work
+        .snapshotsForCanvas(canonicalName)
+        .pipe(Effect.mapError(toCanvasError));
       return {
         name: canonicalName,
-        doc: entry.doc,
+        doc: projectWorkSnapshots(entry.doc, workSnapshots),
         revision: entry.revision,
         path: virtualPath(canonicalName),
       };
@@ -1046,6 +924,18 @@ export const CanvasesLive = Layer.effect(
       listeners.delete(listener);
     };
   };
+
+  // Work rows are runtime state, but existing renderer/kernel consumers still
+  // subscribe to the canvas projection. Fan their committed changes through
+  // the same invalidation signal without ever committing them as intent.
+  work.subscribeChanges((canvasName) => {
+    try {
+      notifyListeners(canvasNameFrom(canvasName));
+    } catch {
+      // Repository constraints own canonical canvas names. If a corrupt row is
+      // ever observed, its mutation already failed before this callback.
+    }
+  });
 
   const authoritySnapshot = (): Effect.Effect<
     CanvasAuthoritySnapshot,

@@ -152,6 +152,64 @@ export const projectWorkSnapshot = (
   snapshot: WorkSnapshot,
 ): CanvasDoc => projectWorkSnapshots(doc, [snapshot]);
 
+/**
+ * Remove the compatibility projection before a document crosses the
+ * authorial persistence boundary.
+ *
+ * Native sink text is reset only when a projected container was actually
+ * present. That preserves an operator-authored label on a pristine sink while
+ * preventing the last projected task list from becoming stale durable intent.
+ */
+export const stripWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
+  ...doc,
+  nodes: doc.nodes.map((node) => {
+    const etherIn = node.ether;
+    if (
+      etherIn === undefined ||
+      (
+        etherIn.tasks === undefined &&
+        etherIn.requests === undefined &&
+        etherIn.messages === undefined &&
+        etherIn.artifacts === undefined
+      )
+    ) {
+      return node;
+    }
+
+    const {
+      tasks: _tasks,
+      requests: _requests,
+      messages: _messages,
+      artifacts: _artifacts,
+      ...ether
+    } = etherIn;
+    const kind = ether.entity?.kind;
+    const text =
+      node.type !== "text"
+        ? undefined
+        : kind === "task"
+          ? mirrorTasksText([])
+          : kind === "requests"
+            ? mirrorRequestsText([])
+            : kind === "artifacts"
+              ? mirrorArtifactsText([])
+              : node.text;
+
+    if (Object.keys(ether).length === 0) {
+      const { ether: _removed, ...withoutEther } = node;
+      return {
+        ...withoutEther,
+        ...(node.type === "text" && text !== undefined ? { text } : {}),
+      } as CanvasNode;
+    }
+    return {
+      ...node,
+      ...(node.type === "text" && text !== undefined ? { text } : {}),
+      ether,
+    } as CanvasNode;
+  }),
+});
+
 /** Read the legacy embedded containers without mutating or sanitizing them. */
 export const legacyWorkSnapshot = (
   doc: CanvasDoc,
@@ -1309,6 +1367,9 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
       afterSeq: string,
       limit?: number,
     ) => Effect.Effect<ReadonlyArray<WorkEvent>, WorkRepositoryError>;
+    readonly subscribeChanges: (
+      listener: (canvasName: string, nodeId: string) => void,
+    ) => () => void;
   }
 >() {}
 
@@ -1316,6 +1377,24 @@ export const WorkRepositoryLive = Layer.effect(
   WorkRepository,
   Effect.gen(function* () {
     const state = yield* StateEngine;
+    const listeners = new Set<
+      (canvasName: string, nodeId: string) => void
+    >();
+
+    const notifyChanges = (canvasName: string, nodeId: string): void => {
+      for (const listener of listeners) {
+        try {
+          listener(canvasName, nodeId);
+        } catch (error) {
+          // The transaction is already committed. A projection subscriber
+          // cannot retroactively fail the durable work mutation.
+          console.error(
+            `[work] change listener failed for ${canvasName}/${nodeId}:`,
+            error,
+          );
+        }
+      }
+    };
 
     const readSnapshot = (
       canvasName: string,
@@ -1415,6 +1494,11 @@ export const WorkRepositoryLive = Layer.effect(
                 })
               : Effect.fail(outcome.error),
           ),
+          Effect.tap(() =>
+            Effect.sync(() =>
+              notifyChanges(input.canvasName, input.nodeId)
+            )
+          ),
         );
     };
 
@@ -1490,6 +1574,22 @@ export const WorkRepositoryLive = Layer.effect(
               ? Effect.succeed(outcome.result)
               : Effect.fail(outcome.error),
           ),
+          Effect.tap((result) =>
+            result.importedNodes === 0
+              ? Effect.void
+              : Effect.sync(() => {
+                  for (const node of doc.nodes) {
+                    const legacy = legacyWorkSnapshot(
+                      doc,
+                      canvasName,
+                      node.id,
+                    );
+                    if (workRecordCount(legacy) > 0) {
+                      notifyChanges(canvasName, node.id);
+                    }
+                  }
+                })
+          ),
         );
 
     const eventsAfter = (
@@ -1553,6 +1653,12 @@ export const WorkRepositoryLive = Layer.effect(
       mutate,
       importLegacy,
       eventsAfter,
+      subscribeChanges: (listener) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
     });
   }),
 );
