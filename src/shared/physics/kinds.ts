@@ -23,9 +23,8 @@ export type KindSpec = {
 const emptyOffers: HashSet.HashSet<Port> = HashSet.empty();
 
 /**
- * The actor inbox: the ports one actor offers another. Declared once — the
- * kind table below and the edge-stamping migration both read this constant,
- * so the rule cannot be restated (and drift) at the two layers.
+ * The actor inbox: the ports one actor offers another. Declared once so the
+ * kind table and work-plane admission cannot restate and drift from the rule.
  */
 export const ACTOR_ACTOR_INBOX_PORTS: ReadonlyArray<Port> = [
   "msg.list",

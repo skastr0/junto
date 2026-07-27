@@ -122,8 +122,8 @@ const requireSink = <K extends SinkKind>(
  * The message inbox is an actor power, and not every actor holds one — a raw
  * terminal has nothing to read a message into. Which actors hold it is read
  * from the offered ports, so this is the same single declaration
- * (`ACTOR_ACTOR_INBOX_PORTS` → `KindSpecs`) that edge stamping reads, not a
- * third hand-kept copy of the kind list.
+ * (`ACTOR_ACTOR_INBOX_PORTS` → `KindSpecs`) used by capability admission,
+ * not a second hand-kept copy of the kind list.
  */
 const requireMessageInbox = (node: CanvasNode): void => {
   const actor = requireActor(node, "an actor inbox");

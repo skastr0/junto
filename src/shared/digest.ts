@@ -303,7 +303,7 @@ export const digestCanvas = (
             : `  ${connection.source}: stale`,
         );
       }
-      // Local work stores live in the document.
+      // Normalized work rows are overlaid into this runtime document view.
       if (entity.kind === "task") {
         const items = node.ether?.tasks?.items ?? [];
         const open = items.filter(
