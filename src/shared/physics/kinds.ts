@@ -117,6 +117,9 @@ export type NodeSpec = Data.TaggedEnum<{
 
 export const NodeSpec = Data.taggedEnum<NodeSpec>();
 
+/** The `Actor` variant, for call sites that prove the role before reading it. */
+export type ActorSpec = Extract<NodeSpec, { readonly _tag: "Actor" }>;
+
 export type ResolveSpecInput = {
   readonly isGroup: boolean;
   readonly kind: string | undefined;

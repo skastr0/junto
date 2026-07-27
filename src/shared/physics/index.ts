@@ -45,6 +45,7 @@ export {
   roleOf,
 } from "./kinds";
 export type {
+  ActorSpec,
   KindSpec,
   NodeSpec as NodeSpecValue,
   ResolveSpecInput,
@@ -115,9 +116,11 @@ export type {
 } from "./placement";
 
 export {
+  OPS_BY_SINK,
   PortForWorkOp,
   TARGET_WORK_OPS,
   isTargetWorkOp,
+  opsForSink,
   portForWorkOp,
 } from "./work-ports";
 export type { TargetWorkOpName } from "./work-ports";

@@ -19,8 +19,14 @@ import {
   mirrorTasksText,
 } from "./task";
 import { groupMembers, isGroup } from "./graph";
-import { resolveSpec } from "./physics";
-import { Match } from "effect";
+import {
+  ACTOR_ACTOR_INBOX_PORTS,
+  NodeSpec,
+  resolveSpec,
+  type ActorSpec,
+  type SinkKind,
+} from "./physics";
+import { HashSet } from "effect";
 
 // Pure document transforms for the work plane.
 // Kernel WorkService applies these under CanvasesService.mutate.
@@ -71,43 +77,58 @@ const requireNode = (doc: CanvasDoc, nodeId: string): CanvasNode => {
   return node;
 };
 
-const requireKind = (node: CanvasNode, kinds: ReadonlyArray<string>): string => {
-  const kind = node.ether?.entity?.kind;
-  if (!kind || !kinds.includes(kind)) {
-    throw new WorkError(
-      "illegal_kind",
-      `node "${node.id}" kind is ${kind ?? "none"}; expected ${kinds.join("|")}`,
-    );
-  }
+const illegalKind = (node: CanvasNode, expected: string): WorkError =>
+  new WorkError(
+    "illegal_kind",
+    `node "${node.id}" kind is ${node.ether?.entity?.kind ?? "none"}; expected ${expected}`,
+  );
+
+/**
+ * Group-ness is deliberately not consulted: these predicates read the authored
+ * kind, exactly as the string lists they replace did.
+ */
+const specOf = (node: CanvasNode) =>
+  resolveSpec({ isGroup: false, kind: node.ether?.entity?.kind });
+
+const isActorSpec = NodeSpec.$is("Actor");
+const isSinkSpec = NodeSpec.$is("Sink");
+
+/** The node is an actor. Role first, through the one resolution site. */
+const requireActor = (node: CanvasNode, expected: string): ActorSpec => {
+  const spec = specOf(node);
+  if (!isActorSpec(spec)) throw illegalKind(node, expected);
+  return spec;
+};
+
+/**
+ * The node is a sink of one of the admitted kinds. Returns the kind narrowed to
+ * what was admitted, so a caller branching afterwards branches on a literal it
+ * has already proved rather than on a loose string.
+ */
+const requireSink = <K extends SinkKind>(
+  node: CanvasNode,
+  kinds: ReadonlyArray<K>,
+): K => {
+  const spec = specOf(node);
+  if (!isSinkSpec(spec)) throw illegalKind(node, kinds.join("|"));
+  const kind = kinds.find((admitted): admitted is K => admitted === spec.kind);
+  if (kind === undefined) throw illegalKind(node, kinds.join("|"));
   return kind;
 };
 
 /**
  * The message inbox is an actor power, and not every actor holds one — a raw
- * terminal has nothing to read a message into. Exhaustive over NodeSpec, so
- * this rule is a per-variant decision rather than a third hand-kept copy of
- * the kind list that `work/authz` (`opsForSpec`) and `work-canvas-merge`
- * (`isWorkSurfaceKind`) already decide the same way.
- *
- * Group-ness is deliberately not consulted: the predicate reads the authored
- * kind, exactly as the list it replaces did.
+ * terminal has nothing to read a message into. Which actors hold it is read
+ * from the offered ports, so this is the same single declaration
+ * (`ACTOR_ACTOR_INBOX_PORTS` → `KindSpecs`) that edge stamping reads, not a
+ * third hand-kept copy of the kind list.
  */
 const requireMessageInbox = (node: CanvasNode): void => {
-  const kind = node.ether?.entity?.kind;
-  const holdsInbox = Match.value(resolveSpec({ isGroup: false, kind })).pipe(
-    Match.tagsExhaustive({
-      Actor: (spec) => spec.kind !== "terminal",
-      Sink: () => false,
-      Scheduler: () => false,
-      Geography: () => false,
-    }),
+  const actor = requireActor(node, "an actor inbox");
+  const holdsInbox = ACTOR_ACTOR_INBOX_PORTS.every((port) =>
+    HashSet.has(actor.offers, port),
   );
-  if (!holdsInbox) {
-    throw new WorkError(
-      "illegal_kind",
-      `node "${node.id}" kind is ${kind ?? "none"}; expected an actor inbox`,
-    );
-  }
+  if (!holdsInbox) throw illegalKind(node, "an actor inbox");
 };
 
 const withTasks = (
@@ -228,7 +249,7 @@ export const workTaskCreate = (
   reason?: string,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
-  requireKind(node, ["task"]);
+  requireSink(node, ["task"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
   const taskId = ids.id();
@@ -260,7 +281,7 @@ export const workTaskDescribe = (
   ids: WorkIds,
 ): WorkTaskResult => {
   const node = requireNode(doc, nodeId);
-  requireKind(node, ["task"]);
+  requireSink(node, ["task"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
   const items = node.ether?.tasks?.items ?? [];
@@ -295,7 +316,7 @@ export const workTaskTransition = (
   ids: WorkIds,
 ): WorkTaskResult => {
   const node = requireNode(doc, nodeId);
-  requireKind(node, ["task"]);
+  requireSink(node, ["task"]);
   const items = node.ether?.tasks?.items ?? [];
   const contextId = regionContextId(doc, nodeId, canvasName);
   const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
@@ -331,7 +352,7 @@ export const workTaskClaim = (
   ids: WorkIds,
 ): WorkTaskResult => {
   const node = requireNode(doc, nodeId);
-  requireKind(node, ["task"]);
+  requireSink(node, ["task"]);
   const actorTrim = actor.trim();
   if (!actorTrim) throw new WorkError("invalid", "actor must be non-empty");
   // Claiming is a worker/factory act — never the human operator label.
@@ -405,7 +426,7 @@ export const workMessageAppend = (
   };
 
   if (taskId) {
-    const kind = requireKind(node, ["task", "requests"]);
+    const kind = requireSink(node, ["task", "requests"] as const);
     if (kind === "task") {
       const items = node.ether?.tasks?.items ?? [];
       const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => ({
@@ -439,7 +460,7 @@ export const workRequestCreate = (
   reason?: string,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
-  requireKind(node, ["requests"]);
+  requireSink(node, ["requests"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
   // A request raised by an actor is claimed by that actor at birth — the
@@ -488,7 +509,7 @@ export const workRequestResolve = (
   ids: WorkIds,
 ): WorkTaskResult => {
   const node = requireNode(doc, nodeId);
-  requireKind(node, ["requests"]);
+  requireSink(node, ["requests"]);
   const text = responseText.trim();
   if (!text) throw new WorkError("invalid", "response text must be non-empty");
   const items = node.ether?.requests?.items ?? [];
@@ -530,7 +551,7 @@ export const workArtifactPublish = (
   artifact: Artifact,
 ): WorkArtifactResult => {
   const node = requireNode(doc, nodeId);
-  requireKind(node, ["artifacts"]);
+  requireSink(node, ["artifacts"]);
   if (!artifact.artifactId.trim()) {
     throw new WorkError("invalid", "artifactId must be non-empty");
   }

@@ -6,6 +6,7 @@ import {
   asNodeId,
   canvasDocToCapabilityView,
   isTargetWorkOp,
+  opsForSink,
   portForWorkOp,
   resolveSpec,
   roleOf,
@@ -124,31 +125,15 @@ const MSG_OPS: ReadonlyArray<WorkOpName> = ["msg.list", "msg.send"];
 
 /**
  * Work-plane ops offered by a node, matched exhaustively on its NodeSpec.
- * Role decides participation and the variant's kind picks the row, so adding a
- * kind is a compile error here instead of a silent empty op list.
- * (C6 replaces the sink rows with a total `OPS_BY_SINK` record.)
+ * Role decides participation; the sink rows are read from the total
+ * `OPS_BY_SINK` record in the physics work vocabulary, so a new sink kind is a
+ * compile error at the declaration rather than a silent empty op list here.
  */
 const opsForSpec = (spec: NodeSpecValue): ReadonlyArray<WorkOpName> =>
   Match.value(spec).pipe(
     Match.tagsExhaustive({
       Actor: (s) => (s.kind === "terminal" ? NO_OPS : MSG_OPS),
-      Sink: (s): ReadonlyArray<WorkOpName> => {
-        switch (s.kind) {
-          case "task":
-            return ["tasks.list", "tasks.claim", "tasks.update", "msg.list", "msg.send"];
-          case "requests":
-            return ["request.create", "request.escalate", "msg.list", "msg.send"];
-          case "artifacts":
-            return ["artifact.publish"];
-          case "page":
-            // browser.automate is an edge port, not a work-plane op.
-            return NO_OPS;
-          default: {
-            const exhaustive: never = s.kind;
-            return exhaustive;
-          }
-        }
-      },
+      Sink: (s): ReadonlyArray<WorkOpName> => opsForSink(s.kind),
       Scheduler: () => NO_OPS,
       Geography: () => NO_OPS,
     }),
