@@ -55,9 +55,15 @@ import {
 import { workControlReadiness } from "./vellum/work/control";
 import { StateEngineLive } from "./vellum/state/engine";
 import {
+  StationFleetTargetRepositoryLive,
+} from "./vellum/station/fleet-target-repository";
+import {
   StationRepositoryLive,
 } from "./vellum/station/repository";
 import { StationApiLive } from "./vellum/station/api";
+import { StationRemoteApiClientLive } from "./vellum/station/remote-client";
+import { StationPropagationLive } from "./vellum/station/propagation";
+import { StationFleetPropagationLive } from "./vellum/station/fleet-propagation";
 import {
   StationBrowserTrustRepositoryLive,
 } from "./vellum/browser/station-trust";
@@ -74,6 +80,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     SettingsLive,
     StationStatusLive,
     StationRepositoryLive,
+    StationFleetTargetRepositoryLive,
     StationBrowserTrustRepositoryLive,
   ),
   StateEngineLive,
@@ -85,6 +92,21 @@ const StateRepositoriesLive = Layer.provideMerge(
 const StatefulServicesLive = Layer.provideMerge(
   Layer.mergeAll(CanvasesLive, StationApiLive),
   StateRepositoriesLive,
+);
+
+const StationRemoteWithSshLive = Layer.provideMerge(
+  StationRemoteApiClientLive,
+  SshTransportLive,
+);
+
+const StationPropagationServicesLive = Layer.provideMerge(
+  StationPropagationLive,
+  Layer.mergeAll(StatefulServicesLive, StationRemoteWithSshLive),
+);
+
+const StationFleetServicesLive = Layer.provideMerge(
+  StationFleetPropagationLive,
+  Layer.mergeAll(StateRepositoriesLive, StationPropagationServicesLive),
 );
 
 const HostsWithSshLive = Layer.provideMerge(
@@ -132,6 +154,7 @@ const BaseLayer = Layer.mergeAll(
   CodexLive,
   SnapshotsWithProductsLive,
   HostsWithSshLive,
+  StationFleetServicesLive,
 );
 
 // Pause plane sits between the base services and the acting planes so the
