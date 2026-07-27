@@ -10,9 +10,22 @@ import {
   type StationPatch as StationPatchValue,
 } from "@shared/settings";
 
-const decodeSettings = Schema.decodeUnknownEither(Settings);
-const decodeSettingsPatch = Schema.decodeUnknownEither(SettingsPatch);
-const decodeStationPatch = Schema.decodeUnknownEither(StationPatch);
+const STRICT_DECODE_OPTIONS = {
+  onExcessProperty: "error",
+} as const;
+
+const decodeSettings = Schema.decodeUnknownEither(
+  Settings,
+  STRICT_DECODE_OPTIONS,
+);
+const decodeSettingsPatch = Schema.decodeUnknownEither(
+  SettingsPatch,
+  STRICT_DECODE_OPTIONS,
+);
+const decodeStationPatch = Schema.decodeUnknownEither(
+  StationPatch,
+  STRICT_DECODE_OPTIONS,
+);
 
 const formatParse = (error: ParseResult.ParseError): string =>
   ParseResult.TreeFormatter.formatErrorSync(error);

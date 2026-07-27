@@ -242,6 +242,45 @@ describe("remote hosts registry", () => {
     ]);
   });
 
+  it("rejects excess renderer host fields before registry mutation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-strict-upsert-"));
+    dirs.push(root);
+    const { registry } = await testRegistry(join(root, "vellum.db"));
+    let mutationCount = 0;
+    const observingRegistry: HostsRegistry = {
+      ...registry,
+      upsert: async (host) => {
+        mutationCount += 1;
+        return registry.upsert(host);
+      },
+    };
+    const service = makeHostsService(
+      observingRegistry,
+      {} as Context.Tag.Service<typeof SshTransport>,
+    );
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        service.upsert({
+          id: "studio",
+          label: "Studio",
+          kind: "remote",
+          endpoint: "studio",
+          capabilities: ["hermes"],
+          legacyToken: "retired-host-credential",
+        }),
+      ),
+    );
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left.code).toBe("validation");
+      expect(result.left.message).toContain("legacyToken");
+    }
+    expect(mutationCount).toBe(0);
+    expect((await registry.list()).map((host) => host.id)).toEqual(["local"]);
+  });
+
   it("resolves optional hermesId aliases without product-specific defaults", () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument().hosts,

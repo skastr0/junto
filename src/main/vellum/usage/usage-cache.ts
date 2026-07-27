@@ -77,9 +77,10 @@ const decodeSnapshots = (
     catch: (error) => usageCacheError(operation, error),
   }).pipe(
     Effect.flatMap((parsed) => {
-      const decoded = Schema.decodeUnknownEither(Schema.Array(UsageSnapshot))(
-        parsed,
-      );
+      const decoded = Schema.decodeUnknownEither(
+        Schema.Array(UsageSnapshot),
+        { onExcessProperty: "error" },
+      )(parsed);
       return Either.isRight(decoded)
         ? Effect.succeed(decoded.right)
         : Effect.fail(usageCacheError(operation, decoded.left));

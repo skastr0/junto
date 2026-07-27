@@ -18,6 +18,9 @@ import {
   decodeStationTopologyPatch,
 } from "../src/main/vellum/settings/patch";
 import {
+  decodeStoredSettings,
+} from "../src/main/vellum/settings/state-schema";
+import {
   makeSettingsService,
   type SettingsServiceApi,
 } from "../src/main/vellum/settings/service";
@@ -100,6 +103,43 @@ describe("settings contract", () => {
         applyAndValidatePatch(defaultSettings(), {
           kernel: { pulseLogRetention: 40 },
         }),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects excess durable fields and patch fields instead of pruning them", () => {
+    const defaults = defaultSettings();
+    const {
+      version: _version,
+      station,
+      ...preferences
+    } = defaults;
+
+    expect(() =>
+      decodeStoredSettings(
+        SETTINGS_VERSION,
+        {
+          ...preferences,
+          retiredCompatibility: true,
+        },
+        station,
+      )
+    ).toThrow(/retiredCompatibility/u);
+    expect(
+      Either.isLeft(
+        decodePatchInput({ retiredCompatibility: true }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodePatchInput({
+          fleet: { legacyManagedRollback: true },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeStationTopologyPatch({ legacyManagedRollback: true }),
       ),
     ).toBe(true);
   });
@@ -312,6 +352,48 @@ describe("SQLite settings service", () => {
     expect(observed).toHaveLength(1);
   });
 
+  it("rejects retired patch fields before persistence or publication", async () => {
+    const { service, state } = await openService();
+    const observed: unknown[] = [];
+    service.subscribe((settings) => observed.push(settings));
+    const before = await run(
+      state.read(
+        "test.settings.strict-before",
+        (reader) =>
+          reader.get<
+            Record<string, StateOutputValue> & { body: string }
+          >(
+            "SELECT body FROM settings_preferences WHERE singleton = 1",
+          )?.body,
+      ),
+    );
+
+    const topLevel = await runEither(
+      service.patch({ retiredCompatibility: true }),
+    );
+    const nested = await runEither(
+      service.patch({
+        fleet: { legacyManagedRollback: true },
+      }),
+    );
+    const after = await run(
+      state.read(
+        "test.settings.strict-after",
+        (reader) =>
+          reader.get<
+            Record<string, StateOutputValue> & { body: string }
+          >(
+            "SELECT body FROM settings_preferences WHERE singleton = 1",
+          )?.body,
+      ),
+    );
+
+    expect(Either.isLeft(topLevel)).toBe(true);
+    expect(Either.isLeft(nested)).toBe(true);
+    expect(after).toBe(before);
+    expect(observed).toEqual([]);
+  });
+
   it("isolates subscriber defects from an already committed write", async () => {
     const { service } = await openService();
     service.subscribe(() => {
@@ -478,6 +560,53 @@ describe("SQLite settings service", () => {
         "canonical station configuration is invalid",
       );
     }
+  });
+
+  it("fails closed on excess durable preferences without rewriting them", async () => {
+    const { service, state } = await openService();
+    const before = await run(
+      state.read(
+        "test.settings.read-canonical",
+        (reader) =>
+          reader.get<
+            Record<string, StateOutputValue> & { body: string }
+          >(
+            "SELECT body FROM settings_preferences WHERE singleton = 1",
+          )?.body,
+      ),
+    );
+    const encoded = JSON.stringify({
+      ...JSON.parse(String(before)) as Record<string, unknown>,
+      retiredCompatibility: true,
+    });
+    await run(
+      state.transaction("test.settings.excessDurable", (writer) => {
+        writer.run(
+          "UPDATE settings_preferences SET body = ? WHERE singleton = 1",
+          [encoded],
+        );
+      }),
+    );
+
+    const result = await runEither(service.get);
+    const after = await run(
+      state.read(
+        "test.settings.read-rejected",
+        (reader) =>
+          reader.get<
+            Record<string, StateOutputValue> & { body: string }
+          >(
+            "SELECT body FROM settings_preferences WHERE singleton = 1",
+          )?.body,
+      ),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.code).toBe("corrupt");
+      expect(result.left.message).toContain("retiredCompatibility");
+    }
+    expect(after).toBe(encoded);
   });
 
   it("does not reinterpret row loss as a fresh database", async () => {

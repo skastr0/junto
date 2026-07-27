@@ -187,6 +187,55 @@ describe("SQLite usage cache", () => {
     expect(rows).toBe(0);
   });
 
+  test("rejects an excess persisted snapshot without pruning or rewriting it", async () => {
+    const root = await tempRoot();
+    const { engine } = await openEngine(join(root, "vellum.db"));
+    const encoded = JSON.stringify([
+      {
+        ...quotaSnapshot("alpha", "claude", 42),
+        legacyEnvelope: { source: "retired-cache" },
+      },
+    ]);
+    await Effect.runPromise(
+      engine.transaction("test.usage-excess-snapshot", (writer) => {
+        writer.run(
+          `INSERT INTO usage_state(
+             singleton,
+             snapshots_json,
+             last_live_at,
+             updated_at
+           ) VALUES (1, ?, ?, ?)`,
+          [
+            encoded,
+            "2026-07-27T12:00:00.000Z",
+            "2026-07-27T12:00:00.000Z",
+          ],
+        );
+      }),
+    );
+    const runtime = cacheRuntime(engine);
+
+    const result = await runtime.runPromise(
+      Effect.either(
+        Effect.flatMap(UsageCache, (cache) => cache.loadLastGood),
+      ),
+    );
+    const persisted = await runtime.runPromise(
+      engine.read("test.usage-rejected-row", (reader) =>
+        reader.get<{ snapshots_json: string }>(
+          "SELECT snapshots_json FROM usage_state WHERE singleton = 1",
+        )?.snapshots_json
+      ),
+    );
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left.operation).toBe("load.decode");
+      expect(result.left.message).toContain("legacyEnvelope");
+    }
+    expect(persisted).toBe(encoded);
+  });
+
   test("failed refresh retains SQLite last-good and a persistence fault stays non-fatal", async () => {
     const root = await tempRoot();
     const { runtime: engineRuntime, engine } = await openEngine(

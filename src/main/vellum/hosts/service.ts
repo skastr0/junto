@@ -38,7 +38,9 @@ import {
 import { setHostsSnapshot } from "./snapshot";
 import { StateEngine } from "../state/service";
 
-const decodeHost = Schema.decodeUnknownEither(RemoteHost);
+const decodeHost = Schema.decodeUnknownEither(RemoteHost, {
+  onExcessProperty: "error",
+});
 
 export type { ConfigureRemoteResult, DeployRemoteResult };
 

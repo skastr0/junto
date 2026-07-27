@@ -50,8 +50,11 @@ export type StoredSettingsPreferences =
 
 const decodePreferences = Schema.decodeUnknownEither(
   StoredSettingsPreferences,
+  { onExcessProperty: "error" },
 );
-const decodeTopology = Schema.decodeUnknownEither(StationSettings);
+const decodeTopology = Schema.decodeUnknownEither(StationSettings, {
+  onExcessProperty: "error",
+});
 
 const formatParse = (error: ParseResult.ParseError): string =>
   ParseResult.TreeFormatter.formatErrorSync(error);
