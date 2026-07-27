@@ -115,7 +115,11 @@ describe("Linux v1 operator documentation", () => {
     const prose = docs.replace(/\s+/gu, " ");
 
     expect(commands).not.toMatch(
-      /\b(?:tar|cp|rsync)\b[^\n]*(?:\.vellum|vellum\.db|vellum\.db-wal|vellum\.db-shm)/iu,
+      /\b(?:tar|cp|rsync|mv)\b[^\n]*(?:\.vellum|vellum\.db|vellum\.db-wal|vellum\.db-shm)/iu,
+    );
+    expect(commands).not.toMatch(/\bVACUUM\s+INTO\b/iu);
+    expect(commands).not.toMatch(
+      /\bsqlite3\b[^\n]*(?:\.vellum|vellum\.db)/iu,
     );
     expect(prose).not.toMatch(
       /restore.{0,160}(?:as|to|into)\s+`?~\/\.vellum\/state\/vellum\.db/iu,
