@@ -14,7 +14,7 @@ import {
   workTaskTransition,
   WorkError,
 } from "../src/shared/work";
-import type { CanvasDoc, Message } from "../src/shared/canvas";
+import type { Artifact, CanvasDoc, Message } from "../src/shared/canvas";
 import { canTransitionTaskState } from "../src/shared/task";
 
 const ids = (() => {
@@ -314,14 +314,28 @@ vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+import {
+  WorkRepository,
+  WorkRepositoryLive,
+} from "../src/main/vellum/work/repository";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 
-const workRuntime = ManagedRuntime.make(Layer.provideMerge(WorkLive, CanvasesLive));
+const stateLive = makeStateEngineLive(join(mockCanvasesHome, "state", "vellum.db"));
+const persistenceLive = Layer.provideMerge(
+  Layer.mergeAll(CanvasesLive, WorkRepositoryLive),
+  stateLive,
+);
+const workRuntime = ManagedRuntime.make(
+  Layer.provideMerge(WorkLive, persistenceLive),
+);
 let work: Context.Tag.Service<typeof WorkService>;
 let canvases: Context.Tag.Service<typeof CanvasesService>;
+let repository: Context.Tag.Service<typeof WorkRepository>;
 
 beforeAll(async () => {
   work = await workRuntime.runPromise(WorkService);
   canvases = await workRuntime.runPromise(CanvasesService);
+  repository = await workRuntime.runPromise(WorkRepository);
 });
 
 afterAll(async () => {
@@ -349,6 +363,7 @@ describe("WorkService — concurrent ops", () => {
         edges: [],
       }),
     );
+    const authorialBefore = await workRuntime.runPromise(canvases.read(name));
 
     const created = await workRuntime.runPromise(
       work.workTaskCreate(name, "tasks", "race me"),
@@ -366,14 +381,16 @@ describe("WorkService — concurrent ops", () => {
 
     const wins = results.filter((r) => r.ok);
     const losses = results.filter((r) => !r.ok);
-    expect(wins.length).toBeGreaterThanOrEqual(1);
-    // At least one different-actor claim fails with contention (or illegal if already working by other).
-    const contention = losses.filter(
-      (r) => !r.ok && (r.code === "claim_contention" || r.code === "illegal_transition"),
+    expect(wins).toHaveLength(1);
+    expect(losses).toHaveLength(2);
+    expect(
+      losses.every((result) => !result.ok && result.code === "claim_contention"),
+    ).toBe(true);
+
+    const snapshot = await workRuntime.runPromise(
+      repository.readSnapshot(name, "tasks"),
     );
-    // If all three somehow claimed same actor path... still: final state has one claimedBy
-    const read = await workRuntime.runPromise(canvases.read(name));
-    const task = read.doc.nodes[0]?.ether?.tasks?.items.find((t) => t.id === taskId);
+    const task = snapshot.tasks.items.find((item) => item.id === taskId);
     expect(task?.state).toBe("working");
     expect(typeof task?.metadata?.claimedBy).toBe("string");
 
@@ -384,7 +401,11 @@ describe("WorkService — concurrent ops", () => {
     expect(other.ok).toBe(false);
     if (!other.ok) expect(other.code).toBe("claim_contention");
 
-    void contention;
+    const authorialAfter = await workRuntime.runPromise(canvases.read(name));
+    expect(authorialAfter.revision).toBe(authorialBefore.revision);
+    expect(
+      authorialAfter.doc.nodes[0]?.ether?.tasks?.items ?? [],
+    ).toEqual([]);
   });
 
   it("rejects bad canvas / node / illegal transition", async () => {
@@ -423,5 +444,91 @@ describe("WorkService — concurrent ops", () => {
     );
     expect(illegal.ok).toBe(false);
     if (!illegal.ok) expect(illegal.code).toBe("illegal_transition");
+  });
+
+  it("persists requests, inbox messages, and artifacts without authorial generations", async () => {
+    const name = "work-lanes";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [
+          emptyRequestsNode("requests"),
+          agentNode("agent"),
+          {
+            id: "artifacts",
+            type: "text",
+            text: "artifacts",
+            x: 420,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: {
+              entity: { kind: "artifacts" },
+              artifacts: { items: [] },
+            },
+          },
+        ],
+        edges: [],
+      }),
+    );
+    const authorialBefore = await workRuntime.runPromise(canvases.read(name));
+
+    const request = await workRuntime.runPromise(
+      work.workRequestCreate(name, "requests", "approve release"),
+    );
+    expect(request.ok).toBe(true);
+    if (!request.ok) return;
+    const resolved = await workRuntime.runPromise(
+      work.workRequestResolve(
+        name,
+        "requests",
+        request.data.id,
+        "approved",
+        "completed",
+      ),
+    );
+    expect(resolved.ok).toBe(true);
+
+    const inboxMessage: Message = {
+      messageId: "inbox-lane-1",
+      role: "user",
+      parts: [{ kind: "text", text: "start" }],
+    };
+    const appended = await workRuntime.runPromise(
+      work.workMessageAppend(name, "agent", null, inboxMessage),
+    );
+    expect(appended.ok).toBe(true);
+
+    const artifact: Artifact = {
+      artifactId: "artifact-lane-1",
+      name: "release receipt",
+      parts: [{ kind: "text", text: "sha256:abc" }],
+    };
+    const published = await workRuntime.runPromise(
+      work.workArtifactPublish(name, "artifacts", artifact),
+    );
+    expect(published.ok).toBe(true);
+
+    const snapshots = await workRuntime.runPromise(
+      repository.snapshotsForCanvas(name),
+    );
+    expect(
+      snapshots.find((snapshot) => snapshot.nodeId === "requests")?.requests
+        .items[0],
+    ).toMatchObject({ state: "completed", response: "approved" });
+    expect(
+      snapshots.find((snapshot) => snapshot.nodeId === "agent")?.messages
+        .items,
+    ).toEqual([expect.objectContaining({ messageId: "inbox-lane-1" })]);
+    expect(
+      snapshots.find((snapshot) => snapshot.nodeId === "artifacts")?.artifacts
+        .items,
+    ).toEqual([expect.objectContaining({ artifactId: "artifact-lane-1" })]);
+
+    const authorialAfter = await workRuntime.runPromise(canvases.read(name));
+    expect(authorialAfter.revision).toBe(authorialBefore.revision);
+    expect(
+      authorialAfter.doc.nodes.find((node) => node.id === "requests")?.ether
+        ?.requests?.items,
+    ).toEqual([]);
   });
 });

@@ -1,4 +1,5 @@
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
+import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
 
 /**
  * Small, explicit schema fragments keep domain ownership visible while the
@@ -61,6 +62,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   STATE_METADATA_SCHEMA_SQL,
   CANVAS_STATE_SCHEMA_SQL,
   USAGE_STATE_SCHEMA_SQL,
+  WORK_STATE_SCHEMA_SQL,
 ] as const;
 
 /** One engine bootstrap execution; fragments merely make ownership legible. */

@@ -1,6 +1,6 @@
-// WorkService — work-plane mutations serialized through CanvasesService.mutate.
-// All seven ops reject unknown canvas/node/task ids and illegal transitions.
-// No silent writes. No dual shapes.
+// WorkService — durable work-plane mutations over SQLite.
+// The authorial canvas is read only for topology/kind/home validation. Existing
+// callers receive a temporary work projection; it is never committed as intent.
 
 import { Context, Effect, Layer, Schema } from "effect";
 import type {
@@ -25,8 +25,14 @@ import {
   type WorkIds,
 } from "@shared/work";
 import { CanvasesService, CanvasError } from "../canvases";
+import { resolveNodeHostId } from "@shared/station";
 import { clearSeatBlockedByRequest } from "./blocked-seat";
 import { messageDelivery } from "./message-delivery";
+import {
+  COMMAND_CENTER_WORK_HOME,
+  WorkRepository,
+  WorkRepositoryError,
+} from "./repository";
 import { ulid } from "ulid";
 
 export class WorkServiceError extends Schema.TaggedError<WorkServiceError>()("WorkServiceError", {
@@ -54,6 +60,9 @@ const toWorkServiceError = (error: unknown): WorkServiceError => {
     return new WorkServiceError({ code: error.code, message: error.message });
   }
   if (error instanceof WorkServiceError) return error;
+  if (error instanceof WorkRepositoryError) {
+    return new WorkServiceError({ code: "invalid", message: error.message });
+  }
   if (error instanceof CanvasError) {
     const msg = error.message;
     if (msg.includes("ENOENT") || msg.includes("no such file") || msg.includes("does not exist")) {
@@ -156,98 +165,148 @@ export const WorkLive = Layer.effect(
   WorkService,
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
+    const repository = yield* WorkRepository;
     const ids = defaultIds();
 
-    // Serialize op body + capture return value under mutate's per-canvas mutex.
-    // mutate re-applies fn on revision conflict — transforms must be idempotent
-    // enough for create-with-fresh-id; create generates a new id each apply, so
-    // we run the pure transform once, then write a fixed doc via mutate that
-    // ignores the input if we already computed next. Safer: hold result outside
-    // and use a single-shot transform.
     const apply = <T>(
       canvas: string,
+      nodeId: string,
+      operation: string,
       fn: (doc: CanvasDoc) => { doc: CanvasDoc; value: T },
+      options: { readonly messageHome?: boolean } = {},
     ): Effect.Effect<WorkApplyOk<T>, WorkServiceError> =>
       Effect.gen(function* () {
-        // Read once, transform once, write with expected revision so concurrent
-        // ops serialize via mutex and lose cleanly on conflict (retry).
-        let lastError: WorkServiceError | undefined;
-        for (let attempt = 0; attempt < 8; attempt += 1) {
-          const read = yield* canvases.read(canvas).pipe(Effect.mapError(toWorkServiceError));
-          let value: T;
-          let nextDoc: CanvasDoc;
-          try {
-            const result = fn(read.doc);
-            value = result.value;
-            nextDoc = result.doc;
-          } catch (error) {
-            return yield* Effect.fail(toWorkServiceError(error));
-          }
-          const written = yield* canvases
-            .write(canvas, nextDoc, read.revision)
-            .pipe(Effect.either);
-          if (written._tag === "Right") {
-            return { value, doc: nextDoc, revision: written.right.revision };
-          }
-          const err = toWorkServiceError(written.left);
-          // Revision conflict → retry; other errors fail.
-          if (
-            err.message.includes("changed on disk") ||
-            err.message.includes("reload before saving")
-          ) {
-            lastError = err;
-            continue;
-          }
-          return yield* Effect.fail(err);
+        const read = yield* canvases
+          .read(canvas)
+          .pipe(Effect.mapError(toWorkServiceError));
+        const node = read.doc.nodes.find((candidate) => candidate.id === nodeId);
+        if (!node) {
+          return yield* new WorkServiceError({
+            code: "node_not_found",
+            message: `node "${nodeId}" not found`,
+          });
         }
-        return yield* Effect.fail(
-          lastError ??
-            new WorkServiceError({
-              code: "invalid",
-              message: `work op on "${canvas}" failed after retries`,
-            }),
-        );
+        const result = yield* repository
+          .mutate({
+            canvasName: canvas,
+            nodeId,
+            entityHome: options.messageHome
+              ? COMMAND_CENTER_WORK_HOME
+              : resolveNodeHostId(node),
+            operation,
+            authoredDoc: read.doc,
+            transform: fn,
+          })
+          .pipe(Effect.mapError(toWorkServiceError));
+        return {
+          value: result.value,
+          doc: result.projectedDoc,
+          // Work mutations do not advance authorial canvas revision.
+          revision: read.revision,
+        };
       });
 
     return WorkService.of({
       workTaskCreate: (canvas, nodeId, brief, metadata, reason) =>
         asResult(
-          apply(canvas, (doc) => {
-            const result = workTaskCreate(doc, canvas, nodeId, brief, metadata, ids, reason);
-            return { doc: result.doc, value: result.task };
-          }),
+          apply(
+            canvas,
+            nodeId,
+            "task.create",
+            (doc) => {
+              const result = workTaskCreate(
+                doc,
+                canvas,
+                nodeId,
+                brief,
+                metadata,
+                ids,
+                reason,
+              );
+              return { doc: result.doc, value: result.task };
+            },
+          ),
         ),
 
       workTaskDescribe: (canvas, nodeId, taskId, brief) =>
         asResult(
-          apply(canvas, (doc) => {
-            const result = workTaskDescribe(doc, canvas, nodeId, taskId, brief, ids);
-            return { doc: result.doc, value: result.task };
-          }),
+          apply(
+            canvas,
+            nodeId,
+            "task.describe",
+            (doc) => {
+              const result = workTaskDescribe(
+                doc,
+                canvas,
+                nodeId,
+                taskId,
+                brief,
+                ids,
+              );
+              return { doc: result.doc, value: result.task };
+            },
+          ),
         ),
 
       workTaskTransition: (canvas, nodeId, taskId, state, note) =>
         asResult(
-          apply(canvas, (doc) => {
-            const result = workTaskTransition(doc, canvas, nodeId, taskId, state, note, ids);
-            return { doc: result.doc, value: result.task };
-          }),
+          apply(
+            canvas,
+            nodeId,
+            "task.transition",
+            (doc) => {
+              const result = workTaskTransition(
+                doc,
+                canvas,
+                nodeId,
+                taskId,
+                state,
+                note,
+                ids,
+              );
+              return { doc: result.doc, value: result.task };
+            },
+          ),
         ),
 
       workTaskClaim: (canvas, nodeId, taskId, actor) =>
         asResult(
-          apply(canvas, (doc) => {
-            const result = workTaskClaim(doc, canvas, nodeId, taskId, actor, ids);
-            return { doc: result.doc, value: result.task };
-          }),
+          apply(
+            canvas,
+            nodeId,
+            "task.claim",
+            (doc) => {
+              const result = workTaskClaim(
+                doc,
+                canvas,
+                nodeId,
+                taskId,
+                actor,
+                ids,
+              );
+              return { doc: result.doc, value: result.task };
+            },
+          ),
         ),
 
       workMessageAppend: (canvas, nodeId, taskId, message) =>
         asResult(
-          apply(canvas, (doc) => {
-            const result = workMessageAppend(doc, canvas, nodeId, taskId, message);
-            return { doc: result.doc, value: result.message };
-          }),
+          apply(
+            canvas,
+            nodeId,
+            "message.append",
+            (doc) => {
+              const result = workMessageAppend(
+                doc,
+                canvas,
+                nodeId,
+                taskId,
+                message,
+              );
+              return { doc: result.doc, value: result.message };
+            },
+            { messageHome: true },
+          ),
         ).pipe(
           Effect.tap((result) => {
             // Nudge channel: only actor inboxes (taskId null).
@@ -261,35 +320,45 @@ export const WorkLive = Layer.effect(
 
       workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy, reason) =>
         asResult(
-          apply(canvas, (doc) => {
-            const result = workRequestCreate(
-              doc,
-              canvas,
-              nodeId,
-              brief,
-              metadata,
-              ids,
-              raisedBy,
-              reason,
-            );
-            return { doc: result.doc, value: result.task };
-          }),
+          apply(
+            canvas,
+            nodeId,
+            "request.create",
+            (doc) => {
+              const result = workRequestCreate(
+                doc,
+                canvas,
+                nodeId,
+                brief,
+                metadata,
+                ids,
+                raisedBy,
+                reason,
+              );
+              return { doc: result.doc, value: result.task };
+            },
+          ),
         ),
 
       workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
         asResult(
-          apply(canvas, (doc) => {
-            const result = workRequestResolve(
-              doc,
-              canvas,
-              nodeId,
-              taskId,
-              responseText,
-              disposition,
-              ids,
-            );
-            return { doc: result.doc, value: result.task };
-          }),
+          apply(
+            canvas,
+            nodeId,
+            "request.resolve",
+            (doc) => {
+              const result = workRequestResolve(
+                doc,
+                canvas,
+                nodeId,
+                taskId,
+                responseText,
+                disposition,
+                ids,
+              );
+              return { doc: result.doc, value: result.task };
+            },
+          ),
         ).pipe(
           Effect.tap((result) => {
             // Escalate seats clear when the operator answers the request.
@@ -302,10 +371,20 @@ export const WorkLive = Layer.effect(
 
       workArtifactPublish: (canvas, nodeId, artifact) =>
         asResult(
-          apply(canvas, (doc) => {
-            const result = workArtifactPublish(doc, canvas, nodeId, artifact);
-            return { doc: result.doc, value: result.artifact };
-          }),
+          apply(
+            canvas,
+            nodeId,
+            "artifact.publish",
+            (doc) => {
+              const result = workArtifactPublish(
+                doc,
+                canvas,
+                nodeId,
+                artifact,
+              );
+              return { doc: result.doc, value: result.artifact };
+            },
+          ),
         ),
     });
   }),
