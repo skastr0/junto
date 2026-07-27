@@ -47,10 +47,14 @@ describe("managed-terminal templates (data)", () => {
     expect(CODEX_TEMPLATE.injectionSpec.tier).toBe("B");
     expect(HERMES_TEMPLATE.injectionSpec.tier).toBe("B");
     expect(CLAUDE_TEMPLATE.capabilityBadges.instructionInjection).toBe("A");
+    expect(CLAUDE_TEMPLATE.capabilityBadges.sessionId).toBe("pin");
     expect(CLAUDE_TEMPLATE.capabilityBadges.hooks).toBe(false);
     expect(GROK_TEMPLATE.capabilityBadges.hooks).toBe(false);
     expect(CODEX_TEMPLATE.capabilityBadges.hooks).toBe(false);
     expect(HERMES_TEMPLATE.capabilityBadges.hooks).toBe(false);
+    expect(GROK_TEMPLATE.capabilityBadges.sessionId).toBe("pin");
+    expect(CODEX_TEMPLATE.capabilityBadges.sessionId).toBe("unavailable");
+    expect(HERMES_TEMPLATE.capabilityBadges.sessionId).toBe("unavailable");
     expect(HERMES_TEMPLATE.capabilityBadges.effortAtSpawn).toBe(false);
     expect(GROK_TEMPLATE.capabilityBadges.requiresGitCwd).toBe(true);
     expect(HERMES_TEMPLATE.capabilityBadges.remote).toBe(true);
@@ -66,6 +70,16 @@ describe("managed-terminal templates (data)", () => {
     expect(CLAUDE_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("hooks");
     expect(GROK_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("hooks");
     expect(HERMES_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("hooks");
+    expect(CLAUDE_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("cold resume");
+    expect(GROK_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("cold resume");
+    expect(CODEX_TEMPLATE.capabilityBadges.labels).toEqual(
+      expect.arrayContaining(["no cold resume"]),
+    );
+    expect(HERMES_TEMPLATE.capabilityBadges.labels).toEqual(
+      expect.arrayContaining(["no cold resume"]),
+    );
+    expect(CODEX_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("session capture");
+    expect(HERMES_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("session capture");
     expect(CLAUDE_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");
     expect(GROK_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");
     expect(HERMES_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");

@@ -124,8 +124,11 @@ export type CapabilityBadges = {
   /** Per-session hooks with zero user-config writes. */
   readonly hooks: boolean;
   readonly effortAtSpawn: boolean;
-  /** `pin` = spawn flag; `capture` = read from env/hook/title after start. */
-  readonly sessionId: "pin" | "capture";
+  /**
+   * `pin` = spawn flag; `capture` = read from env/hook/title after start;
+   * `unavailable` = no release claim for cold-wake session recovery.
+   */
+  readonly sessionId: "pin" | "capture" | "unavailable";
   readonly remote: boolean;
   /** Grok swallows the argv prompt unless cwd is a git work tree. */
   readonly requiresGitCwd: boolean;
@@ -237,12 +240,12 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
     // Hooks dropped: trust modal; --dangerously-bypass-hook-trust banned.
     hooks: false,
     effortAtSpawn: true,
-    sessionId: "capture",
+    sessionId: "unavailable",
     remote: false,
     requiresGitCwd: false,
     stateFeed: "OSC → grid (+ notify turn-complete)",
     attentionSource: "OSC title Action Required + grid for startup modals",
-    labels: ["injection B", "no hooks", "effort", "session capture"],
+    labels: ["injection B", "no hooks", "effort", "no cold resume"],
   },
   // Per-model lists come from `codex debug models`; these are common floors.
   efforts: ["low", "medium", "high", "xhigh", "ultra"],
@@ -315,12 +318,12 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
     instructionInjection: "B",
     hooks: false,
     effortAtSpawn: false,
-    sessionId: "capture",
+    sessionId: "unavailable",
     remote: true,
     requiresGitCwd: false,
     stateFeed: "OSC (--tui only) → grid",
     attentionSource: "OSC title ⚠",
-    labels: ["injection B", "OSC + grid", "no effort flag", "session capture", "remote"],
+    labels: ["injection B", "OSC + grid", "no effort flag", "no cold resume", "remote"],
   },
   efforts: [],
 };
