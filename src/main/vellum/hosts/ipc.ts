@@ -24,6 +24,7 @@ import { AppRuntime } from "../../runtime";
 import { SettingsService } from "../settings/service";
 import { recordStationDeployment } from "../station-status-store";
 import type { ConfiguredRemoteDeployResult } from "./deploy-configured-remote";
+import type { ConfigureRemoteOptions } from "./configure-remote";
 import {
   destroyLinuxAdministratorCredential,
   mintLinuxAdministratorCredential,
@@ -43,7 +44,55 @@ import {
   RELEASE_CAPABILITIES,
 } from "@shared/release-capabilities";
 import { computeInstallCapabilities } from "@shared/install-capabilities";
-import { pushLiveProjectionToEnrolledRemotes } from "../projection/product-push";
+import { PrismService } from "../../services/prism";
+import { StationRepository } from "../station/repository";
+import {
+  pinnedTrustForOriginKey,
+  StationBrowserTrustRepository,
+} from "../browser/station-trust";
+
+const resolveCommandCenterConfigureOptions = (
+  commandCenterRef: string,
+  supervisedPreferred = true,
+): Effect.Effect<
+  ConfigureRemoteOptions,
+  RemoteHostsError,
+  PrismService | StationRepository | StationBrowserTrustRepository
+> =>
+  Effect.gen(function* () {
+    const prism = yield* PrismService;
+    const stations = yield* StationRepository;
+    const trust = yield* StationBrowserTrustRepository;
+    const commandCenterInstallationId = yield* stations.installationId;
+    const stationInfo = yield* prism.stationInfo;
+    const originKey = yield* trust.loadOrCreateOriginKey(
+      commandCenterInstallationId,
+    );
+    const browserTrust = yield* Effect.try({
+      try: () => pinnedTrustForOriginKey(originKey),
+      catch: (error) =>
+        new RemoteHostsError(
+          "io",
+          error instanceof Error ? error.message : String(error),
+        ),
+    });
+    return {
+      commandCenterInstallationId,
+      commandCenterRef,
+      appVersion: stationInfo.version,
+      browserTrust,
+      supervisedPreferred,
+    };
+  }).pipe(
+    Effect.mapError((error) =>
+      error instanceof RemoteHostsError
+        ? error
+        : new RemoteHostsError(
+            "io",
+            error instanceof Error ? error.message : String(error),
+          )
+    ),
+  );
 
 const toOp = (
   either: { readonly _tag: "Right"; readonly right: ReadonlyArray<unknown> } | {
@@ -484,11 +533,22 @@ export const registerHostsIpc = (
             }
 
             const commandCenterRef = station.hostId;
-            const result = yield* Effect.either(
-              hosts.configureRemote(id, {
+            const authority = yield* Effect.either(
+              resolveCommandCenterConfigureOptions(
                 commandCenterRef,
-                supervisedPreferred: true,
-              }),
+                true,
+              ),
+            );
+            if (authority._tag === "Left") {
+              return {
+                ok: false,
+                detail: authority.left.message,
+                code: authority.left.code,
+                message: authority.left.message,
+              } satisfies HostsConfigureRemoteResult;
+            }
+            const result = yield* Effect.either(
+              hosts.configureRemote(id, authority.right),
             );
 
             if (result._tag === "Left") {
@@ -498,25 +558,6 @@ export const registerHostsIpc = (
                 code: result.left.code,
                 message: result.left.message,
               } satisfies HostsConfigureRemoteResult;
-            }
-
-            // Best-effort: after enroll, stage a projection frame on remotes.
-            // Failures do not undo configure — Doctor lastProjection surfaces truth.
-            if (result.right.ok && RELEASE_CAPABILITIES.stationProjection) {
-              const push = yield* Effect.either(
-                pushLiveProjectionToEnrolledRemotes,
-              );
-              if (push._tag === "Left") {
-                console.error(
-                  "[projection] post-configure push failed:",
-                  push.left,
-                );
-              } else if (!push.right.ok) {
-                console.error(
-                  "[projection] post-configure push rejected:",
-                  push.right.detail,
-                );
-              }
             }
 
             return {
@@ -650,9 +691,24 @@ export const registerHostsIpc = (
                   } satisfies HostsDeployRemoteResult;
                 }
 
+                const authority = yield* Effect.either(
+                  resolveCommandCenterConfigureOptions(
+                    settingsResult.right.station.hostId,
+                    true,
+                  ),
+                );
+                if (authority._tag === "Left") {
+                  return {
+                    ok: false,
+                    detail: authority.left.message,
+                    code: authority.left.code,
+                    message: authority.left.message,
+                    stages: [],
+                  } satisfies HostsDeployRemoteResult;
+                }
+
                 const deploy = yield* hosts.deployConfiguredRemote(decoded.id, {
-                  commandCenterRef: settingsResult.right.station.hostId,
-                  supervisedPreferred: true,
+                  ...authority.right,
                   ...(authorization === undefined ? {} : { authorization }),
                   onAdmitted: (host) => {
                     const admittedAt = new Date().toISOString();

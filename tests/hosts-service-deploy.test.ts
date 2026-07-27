@@ -1,7 +1,10 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import { RemoteHostsError } from "../src/shared/remote-hosts";
+import { InstallationId } from "../src/shared/station-api";
+import type { StationBrowserPinnedTrustRecord } from "../src/shared/station-browser";
+import type { ConfigureRemoteOptions } from "../src/main/vellum/hosts/configure-remote";
 
 // Admission/serialization tests need the managed-deploy path open. Product
 // RELEASE_CAPABILITIES freezes managed deploy for beta — override here only.
@@ -35,11 +38,30 @@ const registryFor = (
   hosts: ReadonlyArray<RemoteHost>,
 ): HostsRegistry =>
   ({
-    path: () => "/tmp/hosts.json",
+    path: () => "/tmp/vellum.db",
     get: async (id: string) => hosts.find((host) => host.id === id),
     list: async () => hosts,
     reload: async () => hosts,
   }) as HostsRegistry;
+
+const commandCenterInstallationId =
+  Schema.decodeUnknownSync(InstallationId)("command-center");
+const browserTrust: StationBrowserPinnedTrustRecord = {
+  version: 1,
+  generation: 1,
+  keyId: "ed25519-command-center",
+  originStationId: commandCenterInstallationId,
+  status: "active",
+  publicKeySpki: Buffer.from("public-key-material").toString("base64"),
+  replacesKeyId: null,
+  updatedAt: 1,
+};
+const configureOptions: ConfigureRemoteOptions = {
+  commandCenterInstallationId,
+  commandCenterRef: "local",
+  appVersion: "0.1.0",
+  browserTrust,
+};
 
 const failedResult = (host: RemoteHost): ConfiguredRemoteDeployResult => ({
   ok: false,
@@ -77,7 +99,7 @@ describe("HostsService configured deploy admission", () => {
 
     await Effect.runPromise(
       service.deployConfiguredRemote("studio", {
-        commandCenterRef: "local",
+        ...configureOptions,
         onAdmitted: () =>
           Effect.sync(() => {
             admitted = true;
@@ -105,7 +127,7 @@ describe("HostsService configured deploy admission", () => {
 
     const result = await Effect.runPromise(
       service.deployConfiguredRemote("studio", {
-        commandCenterRef: "local",
+        ...configureOptions,
         onAdmitted: () =>
           Effect.fail(new RemoteHostsError("io", "disk unavailable")),
       }),
@@ -152,11 +174,11 @@ describe("HostsService configured deploy admission", () => {
     );
 
     const firstRun = Effect.runPromise(
-      service.deployConfiguredRemote("first", { commandCenterRef: "local" }),
+      service.deployConfiguredRemote("first", configureOptions),
     );
     await firstStarted;
     const secondRun = Effect.runPromise(
-      service.deployConfiguredRemote("second", { commandCenterRef: "local" }),
+      service.deployConfiguredRemote("second", configureOptions),
     );
     await Promise.resolve();
     expect(starts).toEqual(["first"]);
@@ -191,7 +213,7 @@ describe("HostsService configured deploy admission", () => {
 
     const firstRun = Effect.runPromise(
       service.deployConfiguredRemote("first", {
-        commandCenterRef: "local",
+        ...configureOptions,
         onAdmitted: () => Effect.sync(() => events.push("admit-first")),
         onCompleted: () =>
           Effect.promise(async () => {
@@ -204,7 +226,7 @@ describe("HostsService configured deploy admission", () => {
     await finalizing;
     const secondRun = Effect.runPromise(
       service.deployConfiguredRemote("second", {
-        commandCenterRef: "local",
+        ...configureOptions,
         onAdmitted: () => Effect.sync(() => events.push("admit-second")),
       }),
     );

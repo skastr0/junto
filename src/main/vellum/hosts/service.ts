@@ -13,6 +13,7 @@ import {
 import { SshTransport } from "../ssh";
 import {
   configureRemoteHost,
+  type ConfigureRemoteOptions,
   type ConfigureRemoteResult,
 } from "./configure-remote";
 import {
@@ -70,10 +71,7 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
     /** Command Center → SSH stamp Remote station fields on a registered remote host. */
     readonly configureRemote: (
       id: string,
-      options: {
-        readonly commandCenterRef: string;
-        readonly supervisedPreferred?: boolean;
-      },
+      options: ConfigureRemoteOptions,
     ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
     /** Command Center → install/update .app over SSH + start Remote station. */
     readonly deployRemote: (
@@ -83,9 +81,7 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
     /** Configure + deploy under one per-host compensating transaction. */
     readonly deployConfiguredRemote: (
       id: string,
-      options: {
-        readonly commandCenterRef: string;
-        readonly supervisedPreferred?: boolean;
+      options: ConfigureRemoteOptions & {
         readonly authorization?: RemoteDeploymentAuthorization;
         /**
          * Durable admission barrier run after registry resolution and before
