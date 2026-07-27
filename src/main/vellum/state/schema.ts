@@ -11,16 +11,6 @@ import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
 
 /**
- * One-way consolidation fence. Older builds exposed an arbitrary JSON
- * key/value table; current boot removes it before any typed repository can be
- * acquired. There is deliberately no import or rollback path.
- */
-export const RETIRED_STATE_SCHEMA_SQL = `
-  DROP TABLE IF EXISTS runtime_store_values;
-  DROP TABLE IF EXISTS state_metadata;
-`;
-
-/**
  * Exact proof of the current composed schema. This is not a generic metadata
  * bag: the singleton has one fixed meaning and is rewritten only after the
  * engine verifies the actual sqlite_schema against a fresh current compile.
@@ -84,7 +74,6 @@ export const CANVAS_STATE_SCHEMA_SQL = `
 `;
 
 export const STATE_SCHEMA_FRAGMENTS = [
-  RETIRED_STATE_SCHEMA_SQL,
   STATE_SCHEMA_IDENTITY_SQL,
   CANVAS_STATE_SCHEMA_SQL,
   BROWSER_PROFILES_STATE_SCHEMA_SQL,

@@ -11,10 +11,6 @@
  * repository or the station wire contract.
  */
 export const STATION_STATE_SCHEMA_STATEMENTS = [
-  `DROP INDEX IF EXISTS station_events_direction_home_order`,
-  `DROP INDEX IF EXISTS station_events_home_order`,
-  `DROP TABLE IF EXISTS station_events`,
-  `DROP TABLE IF EXISTS station_outbound_sequences`,
   `
     CREATE TABLE IF NOT EXISTS station_installation (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),

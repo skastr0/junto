@@ -1,7 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -278,60 +277,6 @@ describe("StationFleetTargetRepository", () => {
       admitted,
     );
     expect(await runtime.runPromise(fleet.list)).toEqual([admitted]);
-  });
-
-  it("destructively replaces the pre-tombstone table and boots the exact current schema", async () => {
-    const root = await mkdtemp(
-      join(tmpdir(), "vellum-fleet-target-cutover-"),
-    );
-    roots.push(root);
-    const path = join(root, "vellum.db");
-    const obsolete = new DatabaseSync(path);
-    obsolete.exec(`
-      CREATE TABLE station_fleet_targets (
-        host_id TEXT PRIMARY KEY,
-        endpoint TEXT NOT NULL UNIQUE,
-        station_installation_id TEXT NOT NULL UNIQUE,
-        bound_at TEXT NOT NULL
-      ) STRICT, WITHOUT ROWID;
-
-      INSERT INTO station_fleet_targets(
-        host_id,
-        endpoint,
-        station_installation_id,
-        bound_at
-      ) VALUES (
-        'mini',
-        'operator@mini',
-        'station-obsolete',
-        '2026-07-26T12:00:00.000Z'
-      );
-    `);
-    obsolete.close();
-
-    const { runtime } = await makeRuntime(path);
-    const fleet = await repository(runtime);
-    expect(await runtime.runPromise(fleet.list)).toEqual([]);
-    const current = await runtime.runPromise(
-      fleet.bind(
-        identity("mini", "operator@mini", "station-current"),
-      ),
-    );
-    expect(await runtime.runPromise(fleet.list)).toEqual([current]);
-    await disposeRuntime(runtime);
-
-    const verified = new DatabaseSync(path, { readOnly: true });
-    const columns = verified
-      .prepare("SELECT name FROM pragma_table_info('station_fleet_targets')")
-      .all()
-      .map((row) => row.name);
-    const identityRows = verified
-      .prepare("SELECT count(*) AS count FROM state_schema_identity")
-      .get() as { readonly count: number };
-    verified.close();
-
-    expect(columns).toContain("retired_at");
-    expect(identityRows.count).toBe(1);
   });
 
   it("rejects invalid display timestamps before opening a write", async () => {

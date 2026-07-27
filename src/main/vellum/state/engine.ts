@@ -24,7 +24,6 @@ import {
   type StateWriter,
 } from "./service";
 import { isDemoMode } from "../demo/mode";
-import { applyIrreversibleStateCutovers } from "./cutover";
 import { verifyAndStampStateSchema } from "./schema-identity";
 
 export {
@@ -145,7 +144,6 @@ const openStateEngine = (
           `);
           database.exec("BEGIN IMMEDIATE");
           try {
-            applyIrreversibleStateCutovers(database);
             database.exec(STATE_SCHEMA_SQL);
             const identity = verifyAndStampStateSchema(
               database,

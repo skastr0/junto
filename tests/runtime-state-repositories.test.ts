@@ -1,4 +1,3 @@
-import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -71,50 +70,6 @@ afterEach(async () => {
 });
 
 describe("typed runtime-state repositories", () => {
-  test("boot irreversibly drops the obsolete arbitrary JSON table", async () => {
-    const root = await makeRoot();
-    const path = join(root, "vellum.db");
-    const legacy = new DatabaseSync(path);
-    legacy.exec(`
-      CREATE TABLE runtime_store_values (
-        key TEXT PRIMARY KEY,
-        value_json TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      ) STRICT, WITHOUT ROWID;
-      INSERT INTO runtime_store_values(key, value_json, updated_at)
-      VALUES ('kernel.armed', '{"ether::region-1":true}', 'legacy');
-    `);
-    legacy.close();
-
-    const runtime = makeRuntime(root);
-    const objects = await runtime.runPromise(
-      Effect.flatMap(StateEngine, (state) =>
-        state.read("test.schema-objects", (reader) =>
-          reader
-            .all<{ name: string }>(
-              `
-                SELECT name
-                FROM sqlite_master
-                WHERE type = 'table'
-                ORDER BY name
-              `,
-            )
-            .map((row) => row.name),
-        )
-      ),
-    );
-
-    expect(objects).not.toContain("runtime_store_values");
-    expect(objects).toEqual(
-      expect.arrayContaining([
-        "kernel_armed_regions",
-        "kernel_debug_pulses",
-        "factory_pause_canvases",
-        "factory_pause_scopes",
-      ]),
-    );
-  });
-
   test("arming and normalized pause scopes survive a complete restart", async () => {
     const root = await makeRoot();
     const first = makeRuntime(root);
