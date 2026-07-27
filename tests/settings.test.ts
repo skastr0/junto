@@ -152,7 +152,6 @@ describe("SQLite settings service", () => {
     const { service, state } = await openService();
     const settings = await run(service.get);
     expect(settings).toEqual(defaultSettings());
-    expect(service.databasePath()).toBe(databasePath);
 
     const counts = await run(
       state.read("test.settings.count", (reader) => ({

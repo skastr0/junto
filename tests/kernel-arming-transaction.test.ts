@@ -114,7 +114,6 @@ const runArm = (
     patch: () => Effect.succeed(defaultSettings()),
     setStationTopology: () => Effect.succeed(defaultSettings()),
     reset: () => Effect.succeed(defaultSettings()),
-    databasePath: () => "/tmp/vellum-settings-state.db",
     subscribe: () => () => undefined,
   });
   const deps = Layer.mergeAll(

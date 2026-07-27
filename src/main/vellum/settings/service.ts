@@ -54,7 +54,6 @@ export class SettingsService extends Context.Tag("@vellum/SettingsService")<
     readonly reset: (
       section?: SettingsSectionKey,
     ) => Effect.Effect<Settings, SettingsError>;
-    readonly databasePath: () => string;
     readonly subscribe: (listener: (settings: Settings) => void) => () => void;
   }
 >() {}
@@ -69,7 +68,6 @@ export interface SettingsServiceApi {
   readonly reset: (
     section?: SettingsSectionKey,
   ) => Effect.Effect<Settings, SettingsError>;
-  readonly databasePath: () => string;
   readonly subscribe: (listener: (settings: Settings) => void) => () => void;
 }
 
@@ -587,7 +585,6 @@ export const makeSettingsService = (
       patch,
       setStationTopology,
       reset,
-      databasePath: () => state.info.path,
       subscribe: (listener) => {
         listeners.add(listener);
         return () => {

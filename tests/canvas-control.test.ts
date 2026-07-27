@@ -192,7 +192,6 @@ const makeRuntime = (input: {
     patch: () => Effect.succeed(input.settings()),
     setStationTopology: () => Effect.succeed(input.settings()),
     reset: () => Effect.succeed(input.settings()),
-    databasePath: () => "/test/vellum.db",
     subscribe: () => () => undefined,
   });
   return ManagedRuntime.make(
