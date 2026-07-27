@@ -8,6 +8,8 @@
 import { EventEmitter } from "node:events";
 import * as os from "node:os";
 import { randomBytes } from "node:crypto";
+import { Either } from "effect";
+import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import {
   productStatusFromSessionPhase,
@@ -52,10 +54,33 @@ import {
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
 import { buildManagedSeatInject } from "./templates/seat-env";
 
-export type LocalHostCreateInput = {
+/**
+ * What a terminal generation *is*. Decided by the caller from the node's
+ * authored spec and never recomputed from the launch payload:
+ *
+ *   agent    → the actor seat. A harness template, spawned from its own argv.
+ *   terminal → geography. A shell.
+ *
+ * The shell path is reachable only from the `terminal` variant, so an actor
+ * whose launch does not resolve fails; it never degrades into a login shell.
+ */
+export type TerminalSeat =
+  | {
+      readonly kind: "agent";
+      /** Closed literal — an actor seat always names a real template. */
+      readonly harness: HarnessId;
+      readonly agentKey: string;
+      readonly launch?: TerminalLaunch;
+    }
+  | {
+      readonly kind: "terminal";
+      readonly launch?: TerminalLaunch;
+    };
+
+/** Fields every generation carries, whatever the node is. */
+export type TerminalOpenInput = {
   readonly bindingId: string;
   readonly hostId?: string;
-  readonly launch?: TerminalLaunch;
   readonly cols?: number;
   readonly rows?: number;
   readonly canvasName?: string;
@@ -63,20 +88,22 @@ export type LocalHostCreateInput = {
   readonly label?: string;
   readonly title?: string;
   /**
-   * Managed-agent harness id (claude|codex|grok|hermes). When set, binds the
-   * seat state machine rule pack for this generation.
-   */
-  readonly harness?: string;
-  /**
-   * Agent key for process-bind when this seat is an actor node
-   * (`entity.kind === "agent"`). Absent → principal stays kind terminal.
-   */
-  readonly agentKey?: string;
-  /**
    * Tier B doctrine body — armed for first idle delivery via ManagedTerminalDrive.
    * Never written into harness configs; typed only.
    */
   readonly firstTypedMessage?: string;
+};
+
+/** Geography terminal (`geography/"terminal"`) — a shell. Holds no harness. */
+export type LocalHostCreateInput = TerminalOpenInput & {
+  readonly launch?: TerminalLaunch;
+};
+
+/** The actor seat. Harness and agent key are part of the type, not a bolt-on. */
+export type LocalHostAgentSeatInput = TerminalOpenInput & {
+  readonly harness: HarnessId;
+  readonly agentKey: string;
+  readonly launch?: TerminalLaunch;
 };
 
 export type LocalHostEvent =
@@ -179,8 +206,8 @@ type SessionRec = {
   nodeId?: string;
   /** Actor key when this generation is an agent seat (process-bind principal). */
   agentKey?: string;
-  /** Managed harness id when this generation is a managed agent seat. */
-  harness?: string;
+  /** Harness template when this generation is an actor seat. */
+  harness?: HarnessId;
   detached: boolean;
   createdAt: number;
   seq: bigint;
@@ -270,38 +297,63 @@ const defaultShell = (): string => {
   );
 };
 
+const resolveCwd = (launch: TerminalLaunch | undefined): string =>
+  (launch?.cwd && launch.cwd.trim()) ||
+  process.env.HOME ||
+  os.homedir() ||
+  process.cwd();
+
+/** An actor seat whose harness launch does not name an executable argv. */
+export type AgentLaunchUnresolvable = {
+  readonly code: "agent_launch_unresolvable";
+  readonly harness: HarnessId;
+  readonly reason: string;
+};
+
+export type ResolvedLaunch = {
+  readonly file: string;
+  readonly args: string[];
+  readonly cwd: string;
+  readonly env: Record<string, string>;
+};
+
+/**
+ * Resolve the argv a seat spawns. Total over the seat sum:
+ *
+ *   agent    → the harness argv, or a typed failure. There is no shell here.
+ *   terminal → the authored command, else a validated login shell.
+ *
+ * A seat is what the node says it is; nothing about the launch payload can
+ * make one variant behave like the other.
+ */
 export const resolveLaunch = (
-  launch: TerminalLaunch | undefined,
+  seat: TerminalSeat,
   options?: {
-    readonly managed?: boolean;
     readonly seatInject?: Readonly<Record<string, string>>;
   },
-): { file: string; args: string[]; cwd: string; env: Record<string, string> } => {
-  const cwd =
-    (launch?.cwd && launch.cwd.trim()) ||
-    process.env.HOME ||
-    os.homedir() ||
-    process.cwd();
-  const managed = options?.managed === true || launch?.kind === "harness";
-  // Managed harness: scrub nested Claude markers + merge seat inject after scrub
+): Either.Either<ResolvedLaunch, AgentLaunchUnresolvable> => {
+  const launch = seat.launch;
+  const cwd = resolveCwd(launch);
+  // Actor seat: scrub nested Claude markers + merge seat inject after scrub
   // so ambient CLAUDE_CODE_CHILD_SESSION cannot disable the child transcript.
-  const env: Record<string, string> = managed
-    ? {
-        ...buildSpawnEnv(process.env, {
-          ...(options?.seatInject ?? {}),
+  const env: Record<string, string> =
+    seat.kind === "agent"
+      ? {
+          ...buildSpawnEnv(process.env, {
+            ...(options?.seatInject ?? {}),
+            ...(launch?.env ?? {}),
+          }),
+          TERM: process.env.TERM || "xterm-256color",
+          COLORTERM: process.env.COLORTERM || "truecolor",
+        }
+      : {
+          ...(process.env as Record<string, string>),
           ...(launch?.env ?? {}),
-        }),
-        TERM: process.env.TERM || "xterm-256color",
-        COLORTERM: process.env.COLORTERM || "truecolor",
-      }
-    : {
-        ...(process.env as Record<string, string>),
-        ...(launch?.env ?? {}),
-        TERM: process.env.TERM || "xterm-256color",
-        COLORTERM: process.env.COLORTERM || "truecolor",
-      };
+          TERM: process.env.TERM || "xterm-256color",
+          COLORTERM: process.env.COLORTERM || "truecolor",
+        };
   // Defensive: never let scrubbed keys re-enter via TERM/COLORTERM path.
-  if (managed) {
+  if (seat.kind === "agent") {
     for (const key of Object.keys(env)) {
       if (scrubSpawnEnv({ [key]: env[key] })[key] === undefined) {
         delete env[key];
@@ -309,16 +361,39 @@ export const resolveLaunch = (
     }
   }
   const argv = launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [];
-  if (launch?.kind === "shell" || !launch || argv.length === 0) {
-    // An explicit shell argv wins over the user/default shell, but is still
-    // validated before process ownership can be minted.
-    const shell = argv.length > 0 ? validateExecutableShell(argv[0]!) : defaultShell();
-    if (process.platform !== "win32") {
-      return { file: shell, args: argv.length > 1 ? argv.slice(1) : ["-l"], cwd, env };
+
+  if (seat.kind === "agent") {
+    const unresolvable = (reason: string): AgentLaunchUnresolvable => ({
+      code: "agent_launch_unresolvable",
+      harness: seat.harness,
+      reason,
+    });
+    if (!launch) return Either.left(unresolvable("the seat carries no launch profile"));
+    if (launch.kind === "shell") {
+      return Either.left(unresolvable("the seat's launch profile is a shell"));
     }
-    return { file: shell, args: [], cwd, env };
+    const file = argv[0];
+    if (file === undefined) {
+      return Either.left(unresolvable("the seat's launch profile carries no argv"));
+    }
+    return Either.right({ file, args: argv.slice(1), cwd, env });
   }
-  return { file: argv[0]!, args: argv.slice(1), cwd, env };
+
+  if (launch && launch.kind !== "shell" && argv.length > 0) {
+    return Either.right({ file: argv[0]!, args: argv.slice(1), cwd, env });
+  }
+  // An explicit shell argv wins over the user/default shell, but is still
+  // validated before process ownership can be minted.
+  const shell = argv.length > 0 ? validateExecutableShell(argv[0]!) : defaultShell();
+  if (process.platform !== "win32") {
+    return Either.right({
+      file: shell,
+      args: argv.length > 1 ? argv.slice(1) : ["-l"],
+      cwd,
+      env,
+    });
+  }
+  return Either.right({ file: shell, args: [], cwd, env });
 };
 
 export class LocalSessionHost extends EventEmitter {
@@ -352,7 +427,28 @@ export class LocalSessionHost extends EventEmitter {
     this.observerPlane = options.observerPlane ?? terminalObserverPlane;
   }
 
+  /** Open a geography terminal. A shell — it can hold no harness. */
   create(input: LocalHostCreateInput): TerminalSessionSummary {
+    return this.open(
+      { kind: "terminal", ...(input.launch ? { launch: input.launch } : {}) },
+      input,
+    );
+  }
+
+  /** Open the actor seat. Its harness is declared, never inferred at spawn. */
+  createAgentSeat(input: LocalHostAgentSeatInput): TerminalSessionSummary {
+    return this.open(
+      {
+        kind: "agent",
+        harness: input.harness,
+        agentKey: input.agentKey,
+        ...(input.launch ? { launch: input.launch } : {}),
+      },
+      input,
+    );
+  }
+
+  private open(seat: TerminalSeat, input: TerminalOpenInput): TerminalSessionSummary {
     if (this.shuttingDown) {
       throw new Error("terminal host shutting down");
     }
@@ -376,21 +472,20 @@ export class LocalSessionHost extends EventEmitter {
 
     const cols = Math.max(20, Math.min(300, input.cols ?? DEFAULT_COLS));
     const rows = Math.max(5, Math.min(120, input.rows ?? DEFAULT_ROWS));
-    const harness = input.harness?.trim();
-    const agentKey = input.agentKey?.trim();
-    const managed =
-      Boolean(harness) || input.launch?.kind === "harness";
-    const seatInject = managed
-      ? buildManagedSeatInject({
-          agentKey,
-          canvasName: input.canvasName,
-          nodeId: input.nodeId,
-        })
-      : undefined;
-    const launch = resolveLaunch(input.launch, {
-      managed,
-      seatInject,
-    });
+    const harness = seat.kind === "agent" ? seat.harness : undefined;
+    const agentKey = seat.kind === "agent" ? seat.agentKey : undefined;
+    const resolved = resolveLaunch(
+      seat,
+      seat.kind === "agent"
+        ? {
+            seatInject: buildManagedSeatInject({
+              agentKey: seat.agentKey,
+              canvasName: input.canvasName,
+              nodeId: input.nodeId,
+            }),
+          }
+        : {},
+    );
     const epoch = mintEpoch();
     const rec: SessionRec = {
       bindingId,
@@ -404,7 +499,7 @@ export class LocalSessionHost extends EventEmitter {
       pid: undefined,
       cols,
       rows,
-      cwd: launch.cwd,
+      cwd: Either.isRight(resolved) ? resolved.right.cwd : resolveCwd(seat.launch),
       title: input.title,
       label: input.label,
       backend: undefined,
@@ -425,6 +520,19 @@ export class LocalSessionHost extends EventEmitter {
     };
     this.sessions.set(bindingId, rec);
     this.liveRecords.add(rec);
+
+    if (Either.isLeft(resolved)) {
+      // An actor whose launch does not resolve stops here and shows the error
+      // state on its node. It never falls through to a shell.
+      this.failBeforeOwnership(
+        rec,
+        new Error(
+          `${resolved.left.harness} seat launch unresolvable: ${resolved.left.reason}`,
+        ),
+      );
+      return this.summaryOf(rec);
+    }
+    const launch = resolved.right;
 
     let lease: AppTerminalLease;
     try {
@@ -470,8 +578,8 @@ export class LocalSessionHost extends EventEmitter {
         cols,
         rows,
       });
-      if (input.harness?.trim()) {
-        seatStateRuntime.bindHarness(bindingId, input.harness.trim(), epoch);
+      if (seat.kind === "agent") {
+        seatStateRuntime.bindHarness(bindingId, seat.harness, epoch);
       }
       const firstTyped = input.firstTypedMessage?.trim();
       if (firstTyped) {
@@ -480,7 +588,7 @@ export class LocalSessionHost extends EventEmitter {
       }
       if (!this.liveRecords.has(rec)) {
         this.observerPlane.detach(bindingId, epoch);
-        if (input.harness?.trim()) seatStateRuntime.unbind(bindingId);
+        if (seat.kind === "agent") seatStateRuntime.unbind(bindingId);
         clearFirstTypedMessage(bindingId);
         return this.summaryOf(rec);
       }

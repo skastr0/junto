@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Either } from "effect";
 import type {
   AppProcessSignalReceipt,
   AppTerminalLease,
@@ -61,28 +62,63 @@ const hostWith = (
 
 describe("LocalSessionHost", () => {
   it("uses the explicit shell argv before the ambient user shell", () => {
-    const launch = resolveLaunch({ kind: "shell", argv: ["/bin/sh", "-l"] });
+    const launch = Either.getOrThrow(
+      resolveLaunch({ kind: "terminal", launch: { kind: "shell", argv: ["/bin/sh", "-l"] } }),
+    );
     expect(launch.file).toBe("/bin/sh");
     expect(launch.args).toEqual(["-l"]);
   });
 
   it("rejects a missing or non-absolute shell before process spawn", () => {
-    expect(() => resolveLaunch({ kind: "shell", argv: ["sh"] })).toThrow(
-      TerminalLaunchError,
-    );
-    expect(() => resolveLaunch({ kind: "shell", argv: ["/no/such/shell"] })).toThrow(
-      TerminalLaunchError,
-    );
+    expect(() =>
+      resolveLaunch({ kind: "terminal", launch: { kind: "shell", argv: ["sh"] } }),
+    ).toThrow(TerminalLaunchError);
+    expect(() =>
+      resolveLaunch({ kind: "terminal", launch: { kind: "shell", argv: ["/no/such/shell"] } }),
+    ).toThrow(TerminalLaunchError);
   });
 
   it("falls through invalid ambient SHELL preferences to the fixed platform shell", () => {
     const fallback = process.platform === "linux" ? "/bin/bash" : "/bin/zsh";
 
     vi.stubEnv("SHELL", "relative-shell");
-    expect(resolveLaunch(undefined)).toMatchObject({ file: fallback, args: ["-l"] });
+    expect(Either.getOrThrow(resolveLaunch({ kind: "terminal" }))).toMatchObject({
+      file: fallback,
+      args: ["-l"],
+    });
 
     vi.stubEnv("SHELL", "/no/such/user-shell");
-    expect(resolveLaunch(undefined)).toMatchObject({ file: fallback, args: ["-l"] });
+    expect(Either.getOrThrow(resolveLaunch({ kind: "terminal" }))).toMatchObject({
+      file: fallback,
+      args: ["-l"],
+    });
+  });
+
+  it("resolves an agent seat to its harness argv, and to a failure when it has none", () => {
+    const resolved = resolveLaunch({
+      kind: "agent",
+      harness: "claude",
+      agentKey: "local:claude",
+      launch: { kind: "harness", argv: ["/usr/local/bin/claude", "--resume"] },
+    });
+    expect(Either.getOrThrow(resolved)).toMatchObject({
+      file: "/usr/local/bin/claude",
+      args: ["--resume"],
+    });
+
+    const seatWithoutArgv = resolveLaunch({
+      kind: "agent",
+      harness: "claude",
+      agentKey: "local:claude",
+      launch: { kind: "harness" },
+    });
+    if (!Either.isLeft(seatWithoutArgv)) {
+      throw new Error("an agent seat with no argv must not resolve to a launch");
+    }
+    expect(seatWithoutArgv.left).toMatchObject({
+      code: "agent_launch_unresolvable",
+      harness: "claude",
+    });
   });
 
   it("delegates terminal spawn to the central authority and observes its exact witness", async () => {

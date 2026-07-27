@@ -33,7 +33,7 @@ export const ensureManagedSeatRunning = (
   });
 
   try {
-    termPlane.host.create({
+    termPlane.host.createAgentSeat({
       bindingId: surface.bindingId,
       hostId: surface.hostId,
       launch: planned.launch ?? surface.launch,

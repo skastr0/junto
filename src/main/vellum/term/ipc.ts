@@ -1,5 +1,7 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { IPC_CHANNELS, type TerminalAttachInput } from "@shared/ipc";
+import { isHarnessId } from "@shared/managed-terminal-templates";
+import type { TerminalLaunch } from "@shared/terminal";
 import { messageDelivery } from "../work/message-delivery";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import type { TermPlane } from "./plane";
@@ -89,13 +91,28 @@ export const registerTerminalIpc = (
 
   ipcMain.handle(IPC_CHANNELS.terminalCreate, async (event, input) => {
     assertTrusted(event);
+    const harness =
+      typeof input?.harness === "string" ? input.harness.trim() : "";
+    // No harness on the wire ⇒ the node is geography; it opens a shell.
+    if (!harness) return router.create(input);
+
+    // Everything below is the actor seat. Its harness and key are required here
+    // rather than reconstructed at spawn, so an unnamed template errors on the
+    // node instead of quietly becoming a terminal.
+    if (!isHarnessId(harness)) {
+      return deny(`terminal ipc: unknown harness template ${harness}`);
+    }
+    const agentKey =
+      typeof input?.agentKey === "string" ? input.agentKey.trim() : "";
+    if (!agentKey) return deny("terminal ipc: agent seat requires an agent key");
+
     // Edge-aware injection replan at spawn (document may be unconnected silence).
     const canvasName =
       typeof input?.canvasName === "string" ? input.canvasName.trim() : "";
     const nodeId = typeof input?.nodeId === "string" ? input.nodeId.trim() : "";
-    const harness =
-      typeof input?.harness === "string" ? input.harness.trim() : undefined;
-    if (canvasName && nodeId && harness) {
+    let launch: TerminalLaunch | undefined = input?.launch;
+    let firstTypedMessage: string | undefined;
+    if (canvasName && nodeId) {
       try {
         const { CanvasesService } = await import("../canvases");
         const { AppRuntime } = await import("../../runtime");
@@ -113,23 +130,32 @@ export const registerTerminalIpc = (
             nodeId,
             harness,
             documentLaunch: input.launch,
-            agentKey:
-              typeof input?.agentKey === "string" ? input.agentKey : undefined,
+            agentKey,
             cwd: input.launch?.cwd,
           });
-          return router.create({
-            ...input,
-            ...(planned.launch ? { launch: planned.launch } : {}),
-            ...(planned.plan?.firstTypedMessage
-              ? { firstTypedMessage: planned.plan.firstTypedMessage }
-              : {}),
-          });
+          if (planned.launch) launch = planned.launch;
+          firstTypedMessage = planned.plan?.firstTypedMessage;
         }
       } catch (err) {
         console.error("[term] managed spawn replan failed; using document launch:", err);
       }
     }
-    return router.create(input);
+    // Named field by field so the seat is built from the wire, never spread
+    // from it — an untyped echo is how a loose harness field got its authority.
+    return router.createAgentSeat({
+      harness,
+      agentKey,
+      bindingId: typeof input?.bindingId === "string" ? input.bindingId : "",
+      ...(typeof input?.hostId === "string" ? { hostId: input.hostId } : {}),
+      ...(typeof input?.cols === "number" ? { cols: input.cols } : {}),
+      ...(typeof input?.rows === "number" ? { rows: input.rows } : {}),
+      ...(canvasName ? { canvasName } : {}),
+      ...(nodeId ? { nodeId } : {}),
+      ...(typeof input?.label === "string" ? { label: input.label } : {}),
+      ...(typeof input?.title === "string" ? { title: input.title } : {}),
+      ...(launch ? { launch } : {}),
+      ...(firstTypedMessage ? { firstTypedMessage } : {}),
+    });
   });
 
   ipcMain.handle(

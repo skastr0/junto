@@ -36,10 +36,12 @@ import { SshTransport } from "../ssh/service";
 import type {
   ControlLease,
   JournalEntry,
+  LocalHostAgentSeatInput,
   LocalHostCreateInput,
   LocalHostEvent,
   LocalHostShutdownResult,
   LocalSessionHost,
+  TerminalOpenInput,
 } from "./local-host";
 import { TermControlClient } from "./control-client";
 import type { TermControlClientShutdownReceipt } from "./control-client";
@@ -329,19 +331,47 @@ export class TerminalRouter extends EventEmitter {
     return host !== undefined && isLocalHost(host);
   }
 
+  /** Resolve the target host and take the session-admission cut for it. */
+  private admitSessionHost(input: { readonly hostId?: string }): string {
+    const hostId = input.hostId?.trim() || "local";
+    this.assertSessionAdmission(hostId);
+    return hostId;
+  }
+
+  /** Open a geography terminal on its host. */
   async create(
     input: LocalHostCreateInput & { hostId?: string },
   ): Promise<TerminalSessionSummary> {
-    const hostId = input.hostId?.trim() || "local";
-    this.assertSessionAdmission(hostId);
-    if (this.isLocalHostId(hostId)) {
-      return this.local.create({ ...input, hostId: "local" });
-    }
+    const hostId = this.admitSessionHost(input);
+    return this.isLocalHostId(hostId)
+      ? this.local.create({ ...input, hostId: "local" })
+      : this.createRemote(hostId, input);
+  }
+
+  /**
+   * Open the actor seat on its host. A station's terminal protocol carries no
+   * seat, so a station-hosted seat runs its planned argv as a plain terminal
+   * generation; station-aware seats are product work tracked in
+   * `managed-terminal-plan.md`.
+   */
+  async createAgentSeat(
+    input: LocalHostAgentSeatInput & { hostId?: string },
+  ): Promise<TerminalSessionSummary> {
+    const hostId = this.admitSessionHost(input);
+    return this.isLocalHostId(hostId)
+      ? this.local.createAgentSeat({ ...input, hostId: "local" })
+      : this.createRemote(hostId, input);
+  }
+
+  private async createRemote(
+    hostId: string,
+    input: TerminalOpenInput & { launch?: TerminalLaunch },
+  ): Promise<TerminalSessionSummary> {
     const client = await this.ensureRemoteClient(hostId);
     this.assertRouteAdmission(hostId);
     const summary = await client.create({
       bindingId: input.bindingId,
-      launch: input.launch as TerminalLaunch | undefined,
+      launch: input.launch,
       cols: input.cols,
       rows: input.rows,
       canvasName: input.canvasName,
