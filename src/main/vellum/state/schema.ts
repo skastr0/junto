@@ -1,7 +1,8 @@
-import { STORE_STATE_SCHEMA_SQL } from "../../services/store-state-schema";
 import { BROWSER_PROFILES_STATE_SCHEMA_SQL } from "../browser/state-schema";
 import { BROWSER_TRUST_STATE_SCHEMA_SQL } from "../browser/trust-state-schema";
 import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
+import { KERNEL_STATE_SCHEMA_SQL } from "../kernel/state-schema";
+import { FACTORY_PAUSE_STATE_SCHEMA_SQL } from "../pause/state-schema";
 import { SETTINGS_STATE_SCHEMA_SQL } from "../settings/state-schema";
 import { SCHEDULER_STATE_SCHEMA_SQL } from "../scheduler/state-schema";
 import { STATION_STATE_SCHEMA_SQL } from "../station/state-schema";
@@ -24,6 +25,15 @@ export const STATE_METADATA_SCHEMA_SQL = `
 
   INSERT OR IGNORE INTO state_metadata(key, value, updated_at)
   VALUES ('schema', 'vellum/state/v1', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+`;
+
+/**
+ * One-way consolidation fence. Older builds exposed an arbitrary JSON
+ * key/value table; current boot removes it before any typed repository can be
+ * acquired. There is deliberately no import or rollback path.
+ */
+export const RETIRED_STATE_SCHEMA_SQL = `
+  DROP TABLE IF EXISTS runtime_store_values;
 `;
 
 /**
@@ -67,16 +77,18 @@ export const CANVAS_STATE_SCHEMA_SQL = `
 `;
 
 export const STATE_SCHEMA_FRAGMENTS = [
+  RETIRED_STATE_SCHEMA_SQL,
   STATE_METADATA_SCHEMA_SQL,
   CANVAS_STATE_SCHEMA_SQL,
   BROWSER_PROFILES_STATE_SCHEMA_SQL,
   BROWSER_TRUST_STATE_SCHEMA_SQL,
   HOSTS_STATE_SCHEMA_SQL,
+  KERNEL_STATE_SCHEMA_SQL,
+  FACTORY_PAUSE_STATE_SCHEMA_SQL,
   SETTINGS_STATE_SCHEMA_SQL,
   SCHEDULER_STATE_SCHEMA_SQL,
   STATION_STATE_SCHEMA_SQL,
   STATION_STATUS_STATE_SCHEMA_SQL,
-  STORE_STATE_SCHEMA_SQL,
   USAGE_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_SQL,
 ] as const;
