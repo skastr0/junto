@@ -24,8 +24,7 @@ import rawPolicy from "./package-security-policy.json";
 import { requireElectronObservationAdmission, validateElectronArtifactPath, validateElectronObservation, validateElectronSecurityPolicy, decodeElectronObservation, decodeElectronSecurityPolicy } from "./electron-security-policy";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
 import {
-  auditRetiredStateAsar,
-  auditRetiredStateFile,
+  auditRetiredStateRuntimeBundle,
 } from "./audit-retired-state-signatures";
 
 export const FUSE_NAMES = [
@@ -925,16 +924,12 @@ export const auditPackagedApp = async (
   await requireExecutable(workCliPath);
   await requireExecutable(browserCliPath);
   await requireExecutable(stationCliPath);
-  auditRetiredStateAsar(appAsarPath);
-  await Promise.all([
-    auditRetiredStateFile(workCliPath, { label: "packaged vellum" }),
-    auditRetiredStateFile(browserCliPath, {
-      label: "packaged vellum-browser",
-    }),
-    auditRetiredStateFile(stationCliPath, {
-      label: "packaged vellum-station",
-    }),
-  ]);
+  await auditRetiredStateRuntimeBundle({
+    asarPath: appAsarPath,
+    workCliPath,
+    browserCliPath,
+    stationCliPath,
+  });
 
   runFixedCommand("/usr/bin/codesign", [
     "--verify",

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import rawRuntimePolicy from "../scripts/macos-runtime-policy.json";
 import {
@@ -17,6 +18,46 @@ import {
 import { signingProfileForPath } from "../scripts/electron-builder-sign.mjs";
 
 const manifestPaths = MACOS_RUNTIME_POLICY.machO.map((entry) => entry.path);
+
+const runtimeBundleAuditObjectKeys = (source: string): ReadonlyArray<string> => {
+  const file = ts.createSourceFile(
+    "package-audit.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const calls: ts.CallExpression[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "auditRetiredStateRuntimeBundle"
+    ) {
+      calls.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  expect(calls).toHaveLength(1);
+  const argument = calls[0]?.arguments[0];
+  expect(argument !== undefined && ts.isObjectLiteralExpression(argument)).toBe(
+    true,
+  );
+  if (argument === undefined || !ts.isObjectLiteralExpression(argument)) {
+    return [];
+  }
+  return argument.properties.map((property) => {
+    if (ts.isShorthandPropertyAssignment(property)) return property.name.text;
+    if (
+      ts.isPropertyAssignment(property) &&
+      (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+    ) {
+      return property.name.text;
+    }
+    return "";
+  }).sort();
+};
 
 describe("macOS packaged runtime policy", () => {
   it("pins 27 Mach-O objects and only the four exact Electron JIT roles", () => {
@@ -346,15 +387,12 @@ describe("electron-builder role-specific signing", () => {
       'bun "$SCRIPT_DIR/packaged-runtime-smoke.ts" "$APP_SRC"',
     );
     for (const audit of [macAudit, linuxAudit]) {
-      expect(audit).toContain("auditRetiredStateAsar");
-      expect(audit).toContain("auditRetiredStateFile");
-      for (const executable of [
-        "vellum",
-        "vellum-browser",
-        "vellum-station",
-      ]) {
-        expect(audit).toContain(executable);
-      }
+      expect(runtimeBundleAuditObjectKeys(audit)).toEqual([
+        "asarPath",
+        "browserCliPath",
+        "stationCliPath",
+        "workCliPath",
+      ]);
     }
   });
 });

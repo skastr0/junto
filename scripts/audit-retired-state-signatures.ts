@@ -93,6 +93,20 @@ export type RetiredStateAsarAuditOptions = {
   readonly limits?: Partial<RetiredStateSignatureAuditLimits>;
 };
 
+export type RetiredStateRuntimeBundlePaths = {
+  readonly asarPath: string;
+  readonly workCliPath: string;
+  readonly browserCliPath: string;
+  readonly stationCliPath: string;
+};
+
+export type RetiredStateRuntimeBundleAuditReceipt = {
+  readonly asar: RetiredStateAsarAuditReceipt;
+  readonly work: RetiredStateBufferAuditReceipt;
+  readonly browser: RetiredStateBufferAuditReceipt;
+  readonly station: RetiredStateBufferAuditReceipt;
+};
+
 const FIRST_PARTY_ROOTS = ["out", "station"] as const;
 type FirstPartyRoot = (typeof FIRST_PARTY_ROOTS)[number];
 
@@ -372,4 +386,26 @@ export const auditRetiredStateAsar = (
     scannedBytes,
     scannedRoots: ["out", "station"],
   };
+};
+
+/**
+ * One indivisible package gate for every first-party runtime payload. Platform
+ * auditors call this instead of maintaining parallel target lists.
+ */
+export const auditRetiredStateRuntimeBundle = async (
+  paths: RetiredStateRuntimeBundlePaths,
+): Promise<RetiredStateRuntimeBundleAuditReceipt> => {
+  const asar = auditRetiredStateAsar(paths.asarPath);
+  const [work, browser, station] = await Promise.all([
+    auditRetiredStateFile(paths.workCliPath, {
+      label: "packaged vellum",
+    }),
+    auditRetiredStateFile(paths.browserCliPath, {
+      label: "packaged vellum-browser",
+    }),
+    auditRetiredStateFile(paths.stationCliPath, {
+      label: "packaged vellum-station",
+    }),
+  ]);
+  return { asar, work, browser, station };
 };

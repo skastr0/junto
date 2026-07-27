@@ -17,6 +17,7 @@ import {
   auditRetiredStateAsar,
   auditRetiredStateBuffer,
   auditRetiredStateFile,
+  auditRetiredStateRuntimeBundle,
 } from "../scripts/audit-retired-state-signatures";
 
 const tempRoots: string[] = [];
@@ -231,4 +232,39 @@ describe("first-party ASAR retired-state audit", () => {
       ).toThrowError(RetiredStateSignatureAuditError);
     }
   });
+});
+
+describe("complete packaged runtime retired-state audit", () => {
+  it.each(["asar", "work", "browser", "station"] as const)(
+    "rejects a retired signature in the %s target",
+    async (target) => {
+      const root = await makeTempRoot();
+      const archive = await makeAsar({
+        "out/main/index.js":
+          target === "asar" ? "incoming.frame" : "state_schema_identity",
+        "station/plugin.json": '{"name":"vellum"}',
+      });
+      const paths = {
+        work: join(root, "vellum"),
+        browser: join(root, "vellum-browser"),
+        station: join(root, "vellum-station"),
+      };
+      for (const [name, path] of Object.entries(paths)) {
+        await writeFile(
+          path,
+          name === target ? "incoming.frame" : "state_schema_identity",
+        );
+      }
+      await expect(
+        auditRetiredStateRuntimeBundle({
+          asarPath: archive,
+          workCliPath: paths.work,
+          browserCliPath: paths.browser,
+          stationCliPath: paths.station,
+        }),
+      ).rejects.toMatchObject({
+        code: "retired-signature",
+      });
+    },
+  );
 });

@@ -28,8 +28,7 @@ import {
 } from "./finalize-linux-package";
 import { auditLinuxPtyPlacement } from "./linux-packaged-pty-smoke";
 import {
-  auditRetiredStateAsar,
-  auditRetiredStateFile,
+  auditRetiredStateRuntimeBundle,
 } from "./audit-retired-state-signatures";
 
 export const LINUX_PACKAGE_NAME = "vellum";
@@ -1173,16 +1172,12 @@ export const auditLinuxPackage = async ({
       requireRegularMode(remoteUnit, 0o644),
       requireRegularMode(appAsar, 0o644),
     ]);
-    auditRetiredStateAsar(appAsar);
-    await Promise.all([
-      auditRetiredStateFile(workCli, { label: "packaged vellum" }),
-      auditRetiredStateFile(browserCli, {
-        label: "packaged vellum-browser",
-      }),
-      auditRetiredStateFile(stationCli, {
-        label: "packaged vellum-station",
-      }),
-    ]);
+    await auditRetiredStateRuntimeBundle({
+      asarPath: appAsar,
+      workCliPath: workCli,
+      browserCliPath: browserCli,
+      stationCliPath: stationCli,
+    });
     validateAppArmorProfile(await readFile(appArmorProfile, "utf8"));
     validateLinuxRemoteLauncher(await readFile(remoteLauncher, "utf8"));
     validateSystemdUserUnit(await readFile(remoteUnit, "utf8"));
