@@ -185,7 +185,10 @@ const setUpFixture = async (armed: boolean): Promise<Fixture> => {
   const root = sandbox.root;
   const userDataDir = join(root, "userData");
   const canvasesDir = join(root, "canvases");
-  const stateDatabase = join(root, "state", "vellum.db");
+  // The app deliberately ignores arbitrary database path overrides. Seed the
+  // isolated HOME's canonical authority, close that connection, then let the
+  // app become its sole live owner at the same path.
+  const stateDatabase = join(root, ".vellum", "state", "vellum.db");
   await mkdir(canvasesDir, { recursive: true });
   await seedFixture(root, stateDatabase, canvasesDir, armed);
   return {

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { decodeCanvasDoc } from "../src/shared/canvas";
 import { isCanonicalCanvasName } from "../src/shared/canvas-name";
+import { actorDeliverySurfaceOf } from "../src/shared/actor-surface";
 import { agentKeysForExecutableSource } from "../src/shared/station";
 import {
   createProbeProcessSupervisor,
@@ -10,6 +11,7 @@ import {
 } from "../scripts/probe-process-supervisor";
 import {
   KERNEL_PROBE_AGENT_KEY,
+  KERNEL_PROBE_AGENT_ID,
   KERNEL_PROBE_CANVAS,
   KERNEL_PROBE_TIMER_ID,
   makeKernelHeadlessFixture,
@@ -67,7 +69,10 @@ describe("kernel headless proof fixture", () => {
 
     expect(probeSource).not.toContain('from "../src/main/vellum/state/engine"');
     expect(probeSource).toContain('ELECTRON_RUN_AS_NODE: "1"');
-    expect(probeSource.match(/VELLUM_E2E: "1"/gu)).toHaveLength(2);
+    expect(probeSource.match(/VELLUM_E2E: "1"/gu)).toHaveLength(1);
+    expect(probeSource).toContain(
+      'join(root, ".vellum", "state", "vellum.db")',
+    );
     expect(seedSource).toContain(
       'from "../src/main/vellum/state/engine"',
     );
@@ -81,10 +86,17 @@ describe("kernel headless proof fixture", () => {
   it("is a valid canvas with an executable timer routed to the local agent", () => {
     const doc = makeKernelHeadlessFixture();
     const timer = doc.nodes.find((node) => node.id === KERNEL_PROBE_TIMER_ID);
+    const agent = doc.nodes.find((node) => node.id === KERNEL_PROBE_AGENT_ID);
 
     expect(isCanonicalCanvasName(KERNEL_PROBE_CANVAS)).toBe(true);
     expect(decodeCanvasDoc(doc)._tag).toBe("Right");
     expect(timer?.ether?.entity?.kind).toBe("timer");
+    expect(agent && actorDeliverySurfaceOf(agent)).toMatchObject({
+      _tag: "managedAgent",
+      agentKey: KERNEL_PROBE_AGENT_KEY,
+      bindingId: "kernel-probe-agent-seat",
+      harness: "hermes",
+    });
     expect(
       agentKeysForExecutableSource(
         doc,

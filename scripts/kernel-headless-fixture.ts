@@ -51,6 +51,20 @@ export const makeKernelHeadlessFixture = (): CanvasDoc => ({
       ether: {
         entity: { kind: "agent", name: KERNEL_PROBE_AGENT_KEY },
         host: "local",
+        terminal: {
+          bindingId: "kernel-probe-agent-seat",
+          harness: "hermes",
+          launch: {
+            kind: "harness",
+            argv: [
+              "hermes",
+              "chat",
+              "--tui",
+              "--profile",
+              "default",
+            ],
+          },
+        },
       },
     },
   ],
