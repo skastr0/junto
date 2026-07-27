@@ -1,9 +1,8 @@
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Context } from "effect";
-import { Effect, Layer, ManagedRuntime } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { Layer, ManagedRuntime } from "effect";
+import { describe, expect, it } from "vitest";
 import {
   canvasNameFromListingEntry,
   canvasPullFileName,
@@ -16,23 +15,12 @@ import {
   preparePulledCanvasBody,
   pullCanvasesFromCommandCenter,
 } from "../src/main/vellum/canvas-pull";
-import { CanvasesLive } from "../src/main/vellum/canvases";
-import { readStationStatus } from "../src/main/vellum/station-status-store";
 import {
-  readLocalCanvasMirrorWitness,
-  stationSettingsWitness,
-} from "../src/main/vellum/station-witness";
-import { SettingsService, makeSettingsService } from "../src/main/vellum/settings/service";
-import { HostsService, makeHostsService } from "../src/main/vellum/hosts/service";
-import { makeHostsRegistry } from "../src/main/vellum/hosts/registry";
-import { SshTransport } from "../src/main/vellum/ssh/service";
-import {
-  SshExitError,
-  SshTimeoutError,
-  type SshError,
-} from "../src/main/vellum/ssh/domain";
-import { defaultSettings, type Settings } from "../src/shared/settings";
-import type { RemoteHost } from "../src/shared/remote-hosts";
+  SettingsService,
+  makeSettingsLive,
+} from "../src/main/vellum/settings/service";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import type { Settings } from "../src/shared/settings";
 import { applyMirrorLaw, serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import {
   agentKeysForWatcher,
@@ -183,168 +171,38 @@ describe("preparePulledCanvasBody + atomicInstall", () => {
   });
 });
 
-const remoteHost: RemoteHost = {
-  id: "cc-laptop",
-  label: "CC Laptop",
-  kind: "remote",
-  endpoint: "cc-laptop",
-  capabilities: ["herdr", "hermes"],
-};
-
-const sampleDoc: CanvasDoc = {
-  nodes: [
-    {
-      id: "n1",
-      type: "text",
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 40,
-      text: "hello",
-    },
-  ],
-  edges: [],
-};
-
-type Ssh = Context.Tag.Service<typeof SshTransport>;
-
-const makeMockSsh = (options?: {
-  readonly failWarm?: boolean;
-  readonly listing?: string;
-  readonly files?: Readonly<Record<string, string>>;
-  readonly listError?: SshError;
-  readonly catError?: SshError;
-}): Ssh => {
-  const files = options?.files ?? {};
-  const listingStdout = options?.listing ?? "portfolio.canvas\n";
-  const listedNames = parseRemoteCanvasListing(listingStdout);
-  let runCount = 0;
-
-  return {
-    warm: () =>
-      options?.failWarm
-        ? Effect.fail({
-            _tag: "SshTimeoutError",
-            endpoint: "cc-laptop",
-            operation: "warm",
-            timeoutMs: 1,
-          } as never)
-        : Effect.void,
-    run: () => {
-      runCount += 1;
-      // Call order: homeDirectoryLookup → ls → cat* (in listing order)
-      if (runCount === 1) {
-        return Effect.succeed({ stdout: "/Users/cc\n", stderr: "" });
-      }
-      if (runCount === 2) {
-        return options?.listError
-          ? Effect.fail(options.listError)
-          : Effect.succeed({
-              stdout: listingStdout,
-              stderr: "",
-            });
-      }
-      if (options?.catError) {
-        return Effect.fail(options.catError);
-      }
-      const idx = runCount - 3;
-      const name = listedNames[idx] ?? listedNames[0] ?? "portfolio";
-      const body = files[name] ?? files.portfolio ?? JSON.stringify(sampleDoc);
-      return Effect.succeed({ stdout: body, stderr: "" });
-    },
-    connect: () => Effect.die("unused"),
-    forward: () => Effect.die("unused"),
-    handoff: () => Effect.die("unused"),
-    teardown: () => Effect.void,
-  } as unknown as Ssh;
-};
-
 const makePullRuntime = async (input: {
   readonly role: Settings["station"]["role"];
   readonly commandCenterRef: string;
-  readonly ssh: Ssh;
-  readonly hosts: ReadonlyArray<RemoteHost>;
-  readonly canvasesDir?: string;
   readonly hostId?: string;
 }) => {
-  const settingsDir = await mkdtemp(join(tmpdir(), "vellum-settings-"));
-  const settingsPath = join(settingsDir, "settings.json");
-  const hostsDir = await mkdtemp(join(tmpdir(), "vellum-hosts-"));
-  const hostsPath = join(hostsDir, "hosts.json");
-  const canvasesDir =
-    input.canvasesDir ?? (await mkdtemp(join(tmpdir(), "vellum-canvases-")));
-
-  const settings: Settings = {
-    ...defaultSettings(),
-    station: {
+  const root = await mkdtemp(join(tmpdir(), "vellum-pull-state-"));
+  const stateLive = makeStateEngineLive(join(root, "vellum.db"));
+  const settingsLive = Layer.provideMerge(
+    makeSettingsLive({
+      probeSupervised: async () => "absent",
+    }),
+    stateLive,
+  );
+  const runtime = ManagedRuntime.make(settingsLive);
+  const settings = await runtime.runPromise(SettingsService);
+  await runtime.runPromise(
+    settings.setStationTopology({
       role: input.role,
       hostId: input.hostId ?? "local",
       commandCenterRef: input.commandCenterRef,
       supervisedPreferred: input.role === "remote",
       topologyIntegrity: "ok",
-    },
-  };
-  await writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
-  await writeFile(
-    hostsPath,
-    JSON.stringify(
-      {
-        version: 1,
-        hosts: [
-          {
-            id: "local",
-            label: "local",
-            kind: "local",
-            capabilities: ["herdr", "hermes"],
-          },
-          ...input.hosts,
-        ],
-      },
-      null,
-      2,
-    ),
-    "utf8",
+    }),
   );
-
-  const authorityDir = await mkdtemp(join(tmpdir(), "vellum-auth-pull-"));
-  process.env.VELLUM_CANVASES_DIR = canvasesDir;
-  process.env.VELLUM_CANVAS_AUTHORITY_DIR = authorityDir;
-  process.env.VELLUM_STATION_STATUS_PATH = join(
-    settingsDir,
-    "station-status.json",
-  );
-
-  const settingsSvc = makeSettingsService(settingsPath, {
-    probeSupervised: async () => "absent",
-  });
-  const registry = makeHostsRegistry(hostsPath);
-  await registry.reload();
-  const hostsSvc = makeHostsService(registry, input.ssh);
-  const runtime = ManagedRuntime.make(
-    Layer.mergeAll(
-      Layer.succeed(SettingsService, settingsSvc),
-      Layer.succeed(HostsService, hostsSvc),
-      Layer.succeed(SshTransport, input.ssh),
-      CanvasesLive,
-    ),
-  );
-
-  return { runtime, canvasesDir, authorityDir };
+  return { runtime, root };
 };
 
 describe("pullCanvasesFromCommandCenter", () => {
-  afterEach(() => {
-    delete process.env.VELLUM_CANVASES_DIR;
-    delete process.env.VELLUM_CANVAS_AUTHORITY_DIR;
-    delete process.env.VELLUM_STATION_STATUS_PATH;
-  });
-
   it("is disabled for beta (projection push is the fleet path)", async () => {
-    const { runtime } = await makePullRuntime({
+    const { runtime, root } = await makePullRuntime({
       role: "remote",
       commandCenterRef: "user@host",
-      ssh: makeMockSsh(),
-      hosts: [],
     });
     try {
       const result = await runtime.runPromise(pullCanvasesFromCommandCenter);
@@ -354,6 +212,7 @@ describe("pullCanvasesFromCommandCenter", () => {
       expect(result.keptLocal).toBe(true);
     } finally {
       await runtime.dispose();
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

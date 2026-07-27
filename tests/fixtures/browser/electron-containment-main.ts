@@ -4,8 +4,10 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { url as inspectorUrl } from "node:inspector";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
-import { Effect } from "effect";
+import { Effect, Either, Layer, ManagedRuntime } from "effect";
 import { CanvasesLive, CanvasesService } from "../../../src/main/vellum/canvases";
+import { makeStateEngineLive } from "../../../src/main/vellum/state/engine";
+import { WorkRepositoryLive } from "../../../src/main/vellum/work/repository";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
@@ -33,6 +35,7 @@ import {
 } from "../../../src/main/vellum/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { partitionNameForProfile } from "../../../src/shared/browser";
+import { decodeCanvasDoc } from "../../../src/shared/canvas";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
 
 app.commandLine.appendSwitch("no-proxy-server");
@@ -83,6 +86,15 @@ for (const [name, pid] of [
 configurePeerPidHelperRoots([peerPidHelperRoot]);
 
 const canvasName = "browser-containment";
+const makeCanvasRuntime = () => {
+  const stateLive = makeStateEngineLive(
+    join(controlHome, ".vellum", "state", "vellum.db"),
+  );
+  const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
+  return ManagedRuntime.make(
+    Layer.provideMerge(CanvasesLive, repositoriesLive),
+  );
+};
 const capabilityTargets = [
   { nodeId: "personal-seed", profile: "personal" },
   { nodeId: "work-read", profile: "work" },
@@ -474,6 +486,7 @@ let primaryCapabilityAuditId: string | undefined;
 let expiringCapabilityAuditId: string | undefined;
 let shutdownFlight: Promise<void> | undefined;
 let shutdownRequestWatcher: FSWatcher | undefined;
+let canvasRuntime: ReturnType<typeof makeCanvasRuntime> | undefined;
 
 const beginFixtureShutdown = (): Promise<void> => {
   if (shutdownFlight !== undefined) return shutdownFlight;
@@ -492,6 +505,8 @@ const beginFixtureShutdown = (): Promise<void> => {
     capabilities?.close();
     unrelatedCapabilities?.close();
     sessions?.detachAllOnQuit("browser containment probe");
+    await canvasRuntime?.dispose();
+    canvasRuntime = undefined;
     if (controlReceipt === undefined) {
       throw new Error("browser control was not started before fixture shutdown");
     }
@@ -565,8 +580,28 @@ void app.whenReady().then(async () => {
     randomUUID,
     harness.targetAdmission,
   );
-  const canvases = await Effect.runPromise(
-    Effect.provide(CanvasesService, CanvasesLive),
+  canvasRuntime = makeCanvasRuntime();
+  const canvases = await canvasRuntime.runPromise(CanvasesService);
+  const fixtureCanvas = decodeCanvasDoc(
+    JSON.parse(
+      await readFile(
+        join(
+          controlHome,
+          ".vellum",
+          "canvases",
+          `${canvasName}.canvas`,
+        ),
+        "utf8",
+      ),
+    ),
+  );
+  if (Either.isLeft(fixtureCanvas)) {
+    throw new Error(
+      `dedicated browser probe canvas is invalid: ${fixtureCanvas.left.message}`,
+    );
+  }
+  await canvasRuntime.runPromise(
+    canvases.write(canvasName, fixtureCanvas.right),
   );
   const resolvePageTarget = makePageTargetResolver(canvases);
   capabilities = makeBrowserCapabilityRegistry({

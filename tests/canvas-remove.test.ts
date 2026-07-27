@@ -17,12 +17,15 @@ vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 
+const stateLive = makeStateEngineLive(
+  join(mockCanvasesHome, ".vellum", "state", "vellum.db"),
+);
+const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
+const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
 const runtime = ManagedRuntime.make(
-  Layer.provide(
-    CanvasesLive,
-    makeStateEngineLive(join(mockCanvasesHome, ".vellum", "state", "vellum.db")),
-  ),
+  canvasesLive,
 );
 let canvases: Context.Tag.Service<typeof CanvasesService>;
 

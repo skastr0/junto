@@ -25,6 +25,12 @@ import {
   type WorkControlServerOptions,
 } from "../src/main/vellum/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+import {
+  WorkRepository,
+  WorkRepositoryLive,
+} from "../src/main/vellum/work/repository";
+import { workTaskCreate } from "../src/shared/work";
+import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
 import { resetSeatBlocks } from "../src/main/vellum/work/blocked-seat";
@@ -37,7 +43,17 @@ import {
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
 const rogueServers: NetServer[] = [];
-const runtimes: Array<ManagedRuntime.ManagedRuntime<WorkService | CanvasesService | PausePlane, never>> = [];
+const makeWorkTestRuntime = (root: string) => {
+  const stateLive = makeStateEngineLive(join(root, "state", "vellum.db"));
+  const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
+  const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  const workLive = Layer.provideMerge(WorkLive, canvasesLive);
+  return ManagedRuntime.make(
+    Layer.mergeAll(workLive, PausePlaneAllPlaying),
+  );
+};
+
+const runtimes: Array<ReturnType<typeof makeWorkTestRuntime>> = [];
 const authoringGates: MainAuthoringGate[] = [];
 /** Peer PID for transport tests — must be a live process (epoch-checked). */
 const TEST_PEER_PID = process.pid;
@@ -81,23 +97,6 @@ const seedDoc = (): CanvasDoc => ({
       text: "tasks",
       ether: {
         entity: { kind: "task" },
-        tasks: {
-          items: [
-            {
-              id: "t1",
-              state: "submitted",
-              history: [
-                {
-                  messageId: "m0",
-                  role: "user",
-                  parts: [{ kind: "text", text: "ship it" }],
-                  contextId: "work-cli",
-                  taskId: "t1",
-                },
-              ],
-            },
-          ],
-        },
       },
     },
     {
@@ -108,7 +107,7 @@ const seedDoc = (): CanvasDoc => ({
       width: 120,
       height: 48,
       text: "requests",
-      ether: { entity: { kind: "requests" }, requests: { items: [] } },
+      ether: { entity: { kind: "requests" } },
     },
     {
       id: "orphan-tasks",
@@ -118,7 +117,7 @@ const seedDoc = (): CanvasDoc => ({
       width: 120,
       height: 48,
       text: "orphan",
-      ether: { entity: { kind: "task" }, tasks: { items: [] } },
+      ether: { entity: { kind: "task" } },
     },
   ],
   edges: [
@@ -126,6 +125,38 @@ const seedDoc = (): CanvasDoc => ({
     { id: "e2", fromNode: "agent", toNode: "req" },
   ],
 });
+
+const seedCanonicalWork = async (
+  runtime: ReturnType<typeof makeWorkTestRuntime>,
+): Promise<void> => {
+  const canvases = await runtime.runPromise(CanvasesService);
+  await runtime.runPromise(canvases.write("work-cli", seedDoc()));
+  const authored = await runtime.runPromise(canvases.read("work-cli"));
+  const repository = await runtime.runPromise(WorkRepository);
+  await runtime.runPromise(
+    repository.mutate({
+      canvasName: "work-cli",
+      nodeId: "tasks",
+      entityHome: "local",
+      operation: "test.seed",
+      authoredDoc: authored.doc,
+      transform: (doc) => {
+        const result = workTaskCreate(
+          doc,
+          "work-cli",
+          "tasks",
+          "ship it",
+          undefined,
+          {
+            id: () => "t1",
+            messageId: () => "m0",
+          },
+        );
+        return { doc: result.doc, value: result.task };
+      },
+    }),
+  );
+};
 
 const call = (
   socketPath: string,
@@ -175,13 +206,11 @@ const startTestServer = async (options: {
   process.env.VELLUM_CANVASES_DIR = canvasesDir;
   process.env.VELLUM_WORK_HOME = workHome;
 
-  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, CanvasesLive), PausePlaneAllPlaying));
+  const runtime = makeWorkTestRuntime(root);
   runtimes.push(runtime);
-  // Seed live authority before any hung dispatch so the first work op does
-  // not pay store fsync under a tight shutdown deadline. Sibling authority
-  // lives at ../canvas-authority-v1 via VELLUM_CANVASES_DIR.
-  const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.write("work-cli", seedDoc()));
+  // Seed both authorial topology and durable work rows before any hung
+  // dispatch so a shutdown timing assertion never includes database startup.
+  await seedCanonicalWork(runtime);
   const baseRun: WorkControlServerOptions["run"] = (effect) =>
     runtime.runPromise(effect);
 
@@ -659,10 +688,9 @@ describe("work control transport", () => {
     mkdirSync(canvasesDir, { recursive: true });
     process.env.VELLUM_CANVASES_DIR = canvasesDir;
     process.env.VELLUM_WORK_HOME = workHome;
-    const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, CanvasesLive), PausePlaneAllPlaying));
+    const runtime = makeWorkTestRuntime(root);
     runtimes.push(runtime);
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("work-cli", seedDoc()));
+    await seedCanonicalWork(runtime);
     const emptyMap = makeProcessIdentityMap();
     const unboundServer = await startWorkControlServer({
       version: "test",
