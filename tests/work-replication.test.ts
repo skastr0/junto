@@ -24,6 +24,7 @@ import {
   PairRequest,
   STATION_API_PROTOCOL,
   StationHostId,
+  StationSha256,
   type InstallationId as InstallationIdValue,
   type StationEvent,
 } from "../src/shared/station-api";
@@ -202,7 +203,9 @@ const rewriteEventBody = (
   return {
     ...event,
     body,
-    contentSha256: createHash("sha256").update(body, "utf8").digest("hex"),
+    contentSha256: Schema.decodeUnknownSync(StationSha256)(
+      createHash("sha256").update(body, "utf8").digest("hex"),
+    ),
   };
 };
 
