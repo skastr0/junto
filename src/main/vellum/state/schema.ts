@@ -3,6 +3,7 @@ import { BROWSER_PROFILES_STATE_SCHEMA_SQL } from "../browser/state-schema";
 import { BROWSER_TRUST_STATE_SCHEMA_SQL } from "../browser/trust-state-schema";
 import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
 import { SETTINGS_STATE_SCHEMA_SQL } from "../settings/state-schema";
+import { SCHEDULER_STATE_SCHEMA_SQL } from "../scheduler/state-schema";
 import { STATION_STATE_SCHEMA_SQL } from "../station/state-schema";
 import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema";
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
@@ -72,6 +73,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   BROWSER_TRUST_STATE_SCHEMA_SQL,
   HOSTS_STATE_SCHEMA_SQL,
   SETTINGS_STATE_SCHEMA_SQL,
+  SCHEDULER_STATE_SCHEMA_SQL,
   STATION_STATE_SCHEMA_SQL,
   STATION_STATUS_STATE_SCHEMA_SQL,
   STORE_STATE_SCHEMA_SQL,
