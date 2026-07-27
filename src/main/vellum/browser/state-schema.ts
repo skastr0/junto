@@ -1,3 +1,8 @@
+import {
+  BROWSER_MAX_VISIBLE_SURFACES_HARD,
+  BROWSER_MAX_WARM_SESSIONS_HARD,
+} from "@shared/browser-limits";
+
 /**
  * Browser profile metadata is application state. Chromium remains the owner
  * of cookies, credentials, partitions, and physical session storage.
@@ -81,7 +86,3 @@ export const BROWSER_PROFILES_STATE_SCHEMA_SQL = `
     SELECT RAISE(ABORT, 'browser canvas-default limit reached');
   END;
 `;
-import {
-  BROWSER_MAX_VISIBLE_SURFACES_HARD,
-  BROWSER_MAX_WARM_SESSIONS_HARD,
-} from "@shared/browser-limits";
