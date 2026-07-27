@@ -50,9 +50,11 @@ The following are release blockers:
   database;
 - dual read/write, legacy import, or rollback to a retired store.
 
-Coherent backup uses `VACUUM INTO`. A binary package rollback may activate a
-previous signed build only when that build supports the current SQLite schema;
-it never restores a deprecated storage architecture.
+The only coherent backup mechanism implemented in `StateEngine` is `VACUUM
+INTO`; Linux v1 exposes no operator backup or restore command. A binary package
+rollback may activate a previous signed build only when that build supports
+the current SQLite schema. It changes binaries only and never restores,
+replaces, or downgrades product state.
 
 ## Boot ready
 

@@ -107,24 +107,19 @@ Signature, checksum, target, expiry, downgrade, or protocol failure is a stop
 condition. Do not stop a running service, invoke `apt`, or replace a package
 while verification is red.
 
-## Preserve station state
+## State custody boundary
 
-Vellum's user-authored documents, settings, work state, and browser profiles
-live under `~/.vellum`. Package operations never own that directory. Before an
-install, upgrade, rollback, profile operation, or recovery drill, create an
-owner-only backup:
+Vellum's sole durable product store is `~/.vellum/state/vellum.db`, owned by
+the running app through one `StateEngine` connection. Package operations do
+not own or rewrite it. Do not copy, archive, synchronize, or replace
+`~/.vellum`, `vellum.db`, its WAL, or its shared-memory file as an install,
+upgrade, rollback, or recovery procedure.
 
-```sh
-install -d -m 0700 "$HOME/vellum-backups"
-tar --acls --xattrs -C "$HOME" -czf \
-  "$HOME/vellum-backups/vellum-state-$(date -u +%Y%m%dT%H%M%SZ).tar.gz" \
-  .vellum
-chmod 0600 "$HOME"/vellum-backups/vellum-state-*.tar.gz
-```
-
-The archive can contain control tokens and authenticated browser state. Store
-it as a secret, encrypt it before moving it off-host, and never attach it to a
-support ticket.
+`StateEngine` implements the coherent SQLite `VACUUM INTO` primitive, but Linux
+v1 does not yet expose an operator backup, restore, import, CLI, or IPC surface
+for it. Do not synthesize one from filesystem commands. Package rollback
+changes signed application binaries only and must remain compatible with the
+current database schema.
 
 ## Fresh install
 
@@ -350,8 +345,8 @@ contain receipts and bounded status, never `~/.vellum` itself.
 
 ## Upgrade
 
-1. Keep the current signed bundle and state backup until the new version has
-   passed its burn-in period.
+1. Keep the current signed bundle until the new version has passed its burn-in
+   period.
 2. For a managed Remote, promote the new complete bundle into Command Center's
    fixed `current` directory, run **Deploy Remote**, and repeat the readiness
    and Doctor checks. This is the normal upgrade path.
@@ -386,7 +381,7 @@ contain receipts and bounded status, never `~/.vellum` itself.
    ```
 
 5. Repeat every readiness and Doctor check. Do not discard the prior signed
-   bundle or backup yet.
+   bundle yet.
 
 ## Rollback
 
@@ -419,20 +414,23 @@ systemctl --user start vellum-remote.service
 
 If signed policy forbids the downgrade, stop and obtain a separately
 authorized rollback release. Never modify the manifest, keyring, or package
-version locally to force it.
+version locally to force it. The authorized rollback build must support the
+current SQLite schema. Never restore, downgrade, or replace product state as
+part of a binary rollback.
 
 ## Browser profile lifecycle
 
 Persistent browser profiles live under Vellum's owner-only profile registry.
-Closing or stopping a browser session does not erase its profile. Back up
-station state before lifecycle work, then use Vellum's in-app profile wipe
-action; it owns the two-phase close/delete/restart recovery contract.
+Closing or stopping a browser session does not erase its profile. Browser
+profiles are Chromium-owned physical runtime data, not product-state
+authority. Use Vellum's in-app profile wipe action; it owns the two-phase
+close/delete/restart recovery contract.
 
-Never remove a profile directory by hand. If a wipe remains pending, keep the
-station stopped only as directed by Doctor, preserve the backup and pending
-receipt, and use the product recovery action or support escalation.
+Never copy, archive, restore, or remove a profile directory by hand. If a wipe
+remains pending, keep the station stopped only as directed by Doctor and use
+the product recovery action or support escalation.
 
-## Uninstall while preserving data
+## Uninstall the package
 
 Disable the user service as the station user, then remove the package:
 
@@ -441,24 +439,33 @@ systemctl --user disable --now vellum-remote.service
 sudo apt-get remove vellum
 ```
 
-The package removes only package-owned files and registrations. It preserves
-`~/.vellum` and the backup directory. Verify that preservation before removing
-the backup. If lingering was authorized solely for Vellum, an administrator
-may revoke it after confirming the user has no other lingering services.
+The package removes only package-owned files and registrations. It does not
+remove Vellum's app-owned state or Chromium profile data under `~/.vellum`. If
+lingering was authorized solely for Vellum, an administrator may revoke it
+after confirming the user has no other lingering services.
 
 ## Disaster recovery
 
-1. Keep the affected host and its state offline. Record the package version,
-   signed manifest digest, key ID, Doctor status, and service metadata.
-2. Provision a fresh supported Ubuntu 24.04 x86-64 host.
-3. Verify and install the same signed release using this runbook.
-4. With the Vellum user service stopped, restore an encrypted, app-produced
-   `VACUUM INTO` backup as `~/.vellum/state/vellum.db` for the same ordinary
-   user. Preserve owner-only directory/file modes, ownership, ACLs, and xattrs.
-5. Start Vellum, run Doctor, and reconnect the Remote from Command Center.
-6. If the restored state is rejected, stop and retain both the backup and the
-   rejected copy for diagnosis. Do not turn data deletion into a recovery
-   step.
+Linux v1 has no supported operator state-restore surface. A `VACUUM INTO`
+artifact is coherent only when produced through the app-owned `StateEngine`;
+the release currently exposes no operation that emits or consumes one.
+
+1. Keep the affected host offline. Record the package version, signed manifest
+   digest, key ID, Doctor status, and service metadata.
+2. If the canonical database remains intact on that host, verify and reinstall
+   a signed build that supports its current schema, then start Vellum and run
+   Doctor. The package operation must leave app-owned state untouched.
+3. If the host or canonical database is lost, provision a fresh supported
+   Ubuntu 24.04 x86-64 host, install the current signed release, and configure
+   it as a new installation. Do not copy or reconstruct a database from raw
+   files, WAL fragments, JSON exports, manifests, seals, or browser profiles.
+4. Reconnect a fresh Remote from Command Center so it receives the latest
+   complete Station API projection. Host-local state that was not available
+   through an app-owned recovery surface is not recoverable by an operator
+   filesystem procedure.
+5. For Command Center loss or an intact database that the current app rejects,
+   stop and escalate with bounded diagnostics. Do not delete, replace, import,
+   or downgrade product state as a recovery step.
 
 Canvases remain Command Center-authored. After reconnect, a recovered Remote
 accepts the latest complete Station API projection; an agent does not repair or

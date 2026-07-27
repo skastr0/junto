@@ -164,12 +164,16 @@ catch-up policy in schema and tests before runtime integration.
 
 ## Backup and recovery
 
-The coherent backup primitive is `VACUUM INTO` to a new operator-selected file.
-It may run while the app owns the live database. Copying `vellum.db`, its WAL,
-or its shared-memory file independently is not a product backup workflow.
+The coherent backup primitive inside `StateEngine` is `VACUUM INTO` to a new
+owner-only file. It may run while the app owns the live database. Linux v1
+does not currently expose that primitive through an operator, CLI, IPC, or
+restore surface. Copying or replacing `vellum.db`, its WAL, its shared-memory
+file, or the wider `~/.vellum` directory is not a product backup or recovery
+workflow.
 
-Backups protect the current SQLite architecture. They do not preserve or
-restore any retired JSON, manifest, seal, or projection-file layout.
+Any app-owned backup protects only the current SQLite architecture. It does
+not preserve or restore a retired JSON, manifest, seal, or projection-file
+layout, and it cannot become a compatibility path for one.
 
 ## Forbidden paths
 

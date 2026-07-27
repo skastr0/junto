@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const readDoc = async (name: string): Promise<string> =>
@@ -9,12 +9,24 @@ const shellBlocks = (input: string): string =>
     .map((match) => match[1])
     .join("\n");
 
+const readProductDocs = async (): Promise<string> => {
+  const docsDir = new URL("../docs/", import.meta.url);
+  const entries = await readdir(docsDir, { withFileTypes: true });
+  return (
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+        .map((entry) => readFile(new URL(entry.name, docsDir), "utf8")),
+    )
+  ).join("\n");
+};
+
 describe("Linux v1 operator documentation", () => {
   it("covers the complete install and recovery lifecycle", async () => {
     const runbook = await readDoc("linux-operator-runbook.md");
     for (const heading of [
       "## Before any package mutation",
-      "## Preserve station state",
+      "## State custody boundary",
       "## Fresh install",
       "## Remote station and Xvfb",
       "## Readiness and Doctor",
@@ -22,7 +34,7 @@ describe("Linux v1 operator documentation", () => {
       "## Upgrade",
       "## Rollback",
       "## Browser profile lifecycle",
-      "## Uninstall while preserving data",
+      "## Uninstall the package",
       "## Disaster recovery",
     ]) {
       expect(runbook).toContain(heading);
@@ -57,8 +69,10 @@ describe("Linux v1 operator documentation", () => {
     expect(runbook).toContain("systemctl --user enable --now vellum-remote.service");
     expect(runbook).toContain("loginctl enable-linger");
     expect(runbook).toContain("sudo apt-get remove vellum");
-    expect(runbook).toMatch(/preserves\s+`~\/\.vellum`/u);
-    expect(runbook).toContain("use Vellum's in-app profile wipe");
+    expect(runbook).toMatch(
+      /package removes only package-owned files[\s\S]*does not\s+remove Vellum's app-owned state/u,
+    );
+    expect(runbook).toContain("Use Vellum's in-app profile wipe");
     expect(runbook).toContain(
       "It installs no `sudoers` policy, setuid binary, or",
     );
@@ -93,6 +107,29 @@ describe("Linux v1 operator documentation", () => {
     ]) {
       expect(commands).not.toMatch(forbidden);
     }
+  });
+
+  it("does not turn live state files into a backup, restore, or rollback surface", async () => {
+    const docs = await readProductDocs();
+    const commands = shellBlocks(docs).replace(/\\\r?\n\s*/gu, " ");
+    const prose = docs.replace(/\s+/gu, " ");
+
+    expect(commands).not.toMatch(
+      /\b(?:tar|cp|rsync)\b[^\n]*(?:\.vellum|vellum\.db|vellum\.db-wal|vellum\.db-shm)/iu,
+    );
+    expect(prose).not.toMatch(
+      /restore.{0,160}(?:as|to|into)\s+`?~\/\.vellum\/state\/vellum\.db/iu,
+    );
+    expect(prose).not.toMatch(
+      /(?:create|make|take).{0,160}(?:backup|archive).{0,160}\b`?~\/\.vellum\b/iu,
+    );
+    expect(docs).not.toContain("vellum-backups");
+    expect(docs).toMatch(
+      /Linux\s+v1 does not yet expose an operator backup, restore, import, CLI, or IPC surface/u,
+    );
+    expect(docs).toMatch(
+      /Never restore, downgrade, or replace product state as\s+part of a binary rollback/u,
+    );
   });
 
   it("publishes one exact support matrix and explicit exclusions", async () => {
