@@ -984,7 +984,7 @@ describe("Linux Remote privileged deployment", () => {
       provider.deploy(providerInput(harness.ssh)),
     );
 
-    expect(receipt.result).toMatchObject({
+    expect(receipt).toMatchObject({
       ok: false,
       code: "auth_required",
       disposition: "not-started",
@@ -1023,7 +1023,7 @@ describe("Linux Remote privileged deployment", () => {
       provider.deploy(providerInput(harness.ssh)),
     );
 
-    expect(receipt.result).toMatchObject({
+    expect(receipt).toMatchObject({
       ok: false,
       code: "validation",
       disposition: "not-started",
@@ -1051,7 +1051,7 @@ describe("Linux Remote privileged deployment", () => {
       provider.deploy(providerInput(harness.ssh, credential())),
     );
 
-    expect(receipt.result).toMatchObject({
+    expect(receipt).toMatchObject({
       ok: false,
       code: "conflict",
       disposition: "not-started",
@@ -1081,14 +1081,9 @@ describe("Linux Remote privileged deployment", () => {
     );
 
     expect(receipt).toMatchObject({
-      result: {
-        ok: true,
-        disposition: "ready",
-        version: "1.2.3",
-      },
-      authorizationRequirement: "operator",
-      readiness: "ready",
-      rollback: "not-required",
+      ok: true,
+      disposition: "ready",
+      version: "1.2.3",
     });
     expect(harness.run).toHaveBeenCalledTimes(1);
     expect(harness.transactCalls).toHaveLength(1);
@@ -1177,7 +1172,7 @@ describe("Linux Remote privileged deployment", () => {
     const unauthorized = await Effect.runPromise(
       provider.deploy(providerInput(unauthorizedHarness.ssh)),
     );
-    expect(unauthorized.result).toMatchObject({
+    expect(unauthorized).toMatchObject({
       ok: false,
       code: "auth_required",
       disposition: "not-started",
@@ -1191,7 +1186,7 @@ describe("Linux Remote privileged deployment", () => {
     const ready = await Effect.runPromise(
       provider.deploy(providerInput(harness.ssh, credential())),
     );
-    expect(ready.result).toMatchObject({
+    expect(ready).toMatchObject({
       ok: true,
       disposition: "ready",
       detail: expect.stringContaining("already cache-bound"),
@@ -1222,7 +1217,7 @@ describe("Linux Remote privileged deployment", () => {
       provider.deploy(providerInput(harness.ssh, credential())),
     );
 
-    expect(receipt.result).toMatchObject({
+    expect(receipt).toMatchObject({
       ok: true,
       disposition: "ready",
       version: "1.2.3",
@@ -1242,7 +1237,7 @@ describe("Linux Remote privileged deployment", () => {
     const input = providerInput(harness.ssh, oneShot);
 
     const failed = await Effect.runPromise(provider.deploy(input));
-    expect(failed.result).toMatchObject({
+    expect(failed).toMatchObject({
       ok: false,
       code: "auth_required",
       disposition: "not-started",
@@ -1253,7 +1248,7 @@ describe("Linux Remote privileged deployment", () => {
     expect(harness.transactCalls).toHaveLength(1);
 
     const reused = await Effect.runPromise(provider.deploy(input));
-    expect(reused.result).toMatchObject({
+    expect(reused).toMatchObject({
       ok: false,
       code: "auth_required",
       disposition: "not-started",
@@ -1273,7 +1268,7 @@ describe("Linux Remote privileged deployment", () => {
       provider.deploy(providerInput(harness.ssh, credential("wrong password"))),
     );
 
-    expect(receipt.result).toMatchObject({
+    expect(receipt).toMatchObject({
       ok: false,
       code: "conflict",
       disposition: "indeterminate",
@@ -1295,7 +1290,7 @@ describe("Linux Remote privileged deployment", () => {
       provider.deploy(providerInput(harness.ssh, credential())),
     );
 
-    expect(receipt.result).toMatchObject({
+    expect(receipt).toMatchObject({
       ok: false,
       code: "conflict",
       disposition: "indeterminate",
@@ -1380,7 +1375,7 @@ describe("Linux Remote privileged deployment", () => {
         provider.deploy(providerInput(harness.ssh, credential())),
       );
 
-      expect(receipt.result).toMatchObject({
+      expect(receipt).toMatchObject({
         ok: false,
         disposition,
       });
@@ -1443,7 +1438,7 @@ describe("Linux Remote privileged deployment", () => {
         provider.deploy(providerInput(harness.ssh, credential())),
       );
 
-      expect(receipt.result).toMatchObject({
+      expect(receipt).toMatchObject({
         ok: false,
         code: "conflict",
         disposition: "indeterminate",
@@ -1467,7 +1462,7 @@ describe("Linux Remote privileged deployment", () => {
       provider.deploy(providerInput(harness.ssh, credential())),
     );
 
-    expect(receipt.result).toMatchObject({
+    expect(receipt).toMatchObject({
       ok: false,
       code: "conflict",
       disposition: "indeterminate",
@@ -1500,7 +1495,7 @@ describe("Linux Remote privileged deployment", () => {
         provider.deploy(providerInput(harness.ssh, credential())),
       );
 
-      expect(receipt.result).toMatchObject({
+      expect(receipt).toMatchObject({
         ok: false,
         code: "conflict",
         disposition: "indeterminate",
@@ -1519,7 +1514,7 @@ describe("Linux Remote privileged deployment", () => {
         providerInput(refusedHarness.ssh, credential()),
       ),
     );
-    expect(refused.result).toMatchObject({
+    expect(refused).toMatchObject({
       ok: false,
       code: "validation",
       disposition: "not-started",
@@ -1534,7 +1529,7 @@ describe("Linux Remote privileged deployment", () => {
         providerInput(rolledBackHarness.ssh, credential()),
       ),
     );
-    expect(rolledBack.result).toMatchObject({
+    expect(rolledBack).toMatchObject({
       ok: false,
       code: "io",
       disposition: "rolled-back",
@@ -1553,7 +1548,7 @@ describe("Linux Remote privileged deployment", () => {
       provider.deploy(providerInput(harness.ssh)),
     );
 
-    expect(receipt.result).toMatchObject({
+    expect(receipt).toMatchObject({
       ok: false,
       code: "auth_required",
       disposition: "not-started",
@@ -1561,7 +1556,7 @@ describe("Linux Remote privileged deployment", () => {
         kind: "bootstrap-linux-release-installer",
       },
     });
-    expect(receipt.result.authorizationRequest).toBeUndefined();
+    expect(receipt.authorizationRequest).toBeUndefined();
     expect(harness.transactCalls).toHaveLength(0);
     expect(route.acquire).not.toHaveBeenCalled();
   });

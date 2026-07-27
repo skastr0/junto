@@ -64,8 +64,6 @@ import {
   type LinuxAdministratorCredentialBinding,
 } from "./linux-administrator-credential";
 import {
-  readinessFromDisposition,
-  rollbackFromDisposition,
   type DeployRemoteResult,
   type RemoteDeploymentProvider,
   type RemoteDeploymentProviderInput,
@@ -513,7 +511,7 @@ const deployFailure = (
   detail: string,
   options: {
     readonly code: NonNullable<DeployRemoteResult["code"]>;
-    readonly disposition: NonNullable<DeployRemoteResult["disposition"]>;
+    readonly disposition: DeployRemoteResult["disposition"];
     readonly version?: string;
     readonly recoveryAction?: DeployRemoteResult["recoveryAction"];
   },
@@ -528,28 +526,6 @@ const deployFailure = (
   ...(options.recoveryAction === undefined
     ? {}
     : { recoveryAction: options.recoveryAction }),
-});
-
-const makeProviderReceipt = (
-  input: RemoteDeploymentProviderInput,
-  result: DeployRemoteResult,
-  authorizationRequirement: "none" | "operator" = "operator",
-) => ({
-  result,
-  targetPlatform: "linux" as const,
-  ...(result.version === undefined
-    ? {}
-    : {
-        artifact: {
-          identity: "Vellum Command",
-          version: result.version,
-          source: "command-center" as const,
-        },
-      }),
-  stationConfiguration: input.stationConfiguration,
-  authorizationRequirement,
-  readiness: readinessFromDisposition(result.disposition),
-  rollback: rollbackFromDisposition(result.disposition),
 });
 
 const preflightDetail = (
@@ -1650,14 +1626,11 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
         const { target, stationConfiguration } = providerInput;
         const stages = boundedStages(target.progress);
         if (target.platform.platform !== "linux") {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              `Linux deployment provider refused ${target.platform.kernelName}`,
-              { code: "validation", disposition: "not-started" },
-            ),
+            stages,
+            `Linux deployment provider refused ${target.platform.kernelName}`,
+            { code: "validation", disposition: "not-started" },
           );
         }
         if (
@@ -1666,14 +1639,11 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           stationConfiguration.commandCenterRef.length === 0 ||
           stationConfiguration.commandCenterRef.length > 255
         ) {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "validated Remote station configuration is required before Linux package deployment",
-              { code: "validation", disposition: "not-started" },
-            ),
+            stages,
+            "validated Remote station configuration is required before Linux package deployment",
+            { code: "validation", disposition: "not-started" },
           );
         }
 
@@ -1683,14 +1653,11 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             error instanceof Error ? error : new Error(String(error)),
         }).pipe(Effect.either);
         if (resolved._tag === "Left") {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              `exact signed Linux release bundle unavailable — ${resolved.left.message}`,
-              { code: "not_found", disposition: "not-started" },
-            ),
+            stages,
+            `exact signed Linux release bundle unavailable — ${resolved.left.message}`,
+            { code: "not_found", disposition: "not-started" },
           );
         }
         const candidate = resolved.right;
@@ -1701,14 +1668,11 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           !SHA256.test(candidate.sha256) ||
           !SHA256.test(candidate.manifestSha256)
         ) {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "signed Linux release candidate metadata is malformed",
-              { code: "validation", disposition: "not-started" },
-            ),
+            stages,
+            "signed Linux release candidate metadata is malformed",
+            { code: "validation", disposition: "not-started" },
           );
         }
         appendStage(stages, `signed artifact admitted version=${candidate.version}`);
@@ -1718,73 +1682,61 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           candidate,
         ).pipe(Effect.either);
         if (preflightResult._tag === "Left") {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "fixed Ubuntu package preflight failed before transfer",
-              {
-                code: "io",
-                disposition: "not-started",
-                version: candidate.version,
-              },
-            ),
+            stages,
+            "fixed Ubuntu package preflight failed before transfer",
+            {
+              code: "io",
+              disposition: "not-started",
+              version: candidate.version,
+            },
           );
         }
         const preflight = preflightResult.right;
         if (!preflight.ok) {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              preflightDetail(preflight.reason),
-              {
-                code:
-                  preflight.reason === "malformed" ? "io" : "validation",
-                disposition: "not-started",
-                version: candidate.version,
-              },
-            ),
+            stages,
+            preflightDetail(preflight.reason),
+            {
+              code:
+                preflight.reason === "malformed" ? "io" : "validation",
+              disposition: "not-started",
+              version: candidate.version,
+            },
           );
         }
         if (!preflight.helperInstalled || !preflight.bridgeInstalled) {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "the fixed root-owned Linux release installer and unprivileged bridge must be bootstrapped by an operator",
-              {
-                code: "auth_required",
-                disposition: "not-started",
-                version: candidate.version,
-                recoveryAction: {
-                  kind: "bootstrap-linux-release-installer",
-                },
+            stages,
+            "the fixed root-owned Linux release installer and unprivileged bridge must be bootstrapped by an operator",
+            {
+              code: "auth_required",
+              disposition: "not-started",
+              version: candidate.version,
+              recoveryAction: {
+                kind: "bootstrap-linux-release-installer",
               },
-            ),
+            },
           );
         }
         let admission: LinuxRemoteArtifactAdmission;
         try {
           admission = candidate.authorize(preflight);
         } catch (error) {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              error instanceof Error
-                ? error.message
-                : "signed Linux release authorization failed",
-              {
-                code: "validation",
-                disposition: "not-started",
-                version: candidate.version,
-              },
-            ),
+            stages,
+            error instanceof Error
+              ? error.message
+              : "signed Linux release authorization failed",
+            {
+              code: "validation",
+              disposition: "not-started",
+              version: candidate.version,
+            },
           );
         }
         if (
@@ -1794,35 +1746,29 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           admission.manifestSha256 !== candidate.manifestSha256 ||
           admission.bundleBytes !== candidate.bundleBytes
         ) {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "signed Linux release authorization changed candidate identity",
-              {
-                code: "validation",
-                disposition: "not-started",
-                version: candidate.version,
-              },
-            ),
+            stages,
+            "signed Linux release authorization changed candidate identity",
+            {
+              code: "validation",
+              disposition: "not-started",
+              version: candidate.version,
+            },
           );
         }
         const requiredBytes =
           admission.bundleBytes * 3 + MIN_FREE_BYTES;
         if (preflight.availableBytes < requiredBytes) {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "the Remote has insufficient bounded spool, install, and rollback space",
-              {
-                code: "validation",
-                disposition: "not-started",
-                version: admission.version,
-              },
-            ),
+            stages,
+            "the Remote has insufficient bounded spool, install, and rollback space",
+            {
+              code: "validation",
+              disposition: "not-started",
+              version: admission.version,
+            },
           );
         }
 
@@ -1834,18 +1780,15 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           )
         ).pipe(Effect.either);
         if (attempted._tag === "Left") {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "the admitted Linux release inventory could not be framed into one bounded transaction",
-              {
-                code: "validation",
-                disposition: "not-started",
-                version: admission.version,
-              },
-            ),
+            stages,
+            "the admitted Linux release inventory could not be framed into one bounded transaction",
+            {
+              code: "validation",
+              disposition: "not-started",
+              version: admission.version,
+            },
           );
         }
         const attempt = attempted.right;
@@ -1865,22 +1808,19 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             ...attempt.binding,
             endpoint: String(attempt.binding.endpoint),
           };
-          return makeProviderReceipt(
-            providerInput,
-            {
-              ...deployFailure(
-                providerInput,
-                stages,
-                "fresh administrator authorization is required for this exact Linux target and signed release",
-                {
-                  code: "auth_required",
-                  disposition: "not-started",
-                  version: admission.version,
-                },
-              ),
-              authorizationRequest,
-            },
-          );
+          return {
+            ...deployFailure(
+              providerInput,
+              stages,
+              "fresh administrator authorization is required for this exact Linux target and signed release",
+              {
+                code: "auth_required",
+                disposition: "not-started",
+                version: admission.version,
+              },
+            ),
+            authorizationRequest,
+          };
         }
         appendStage(
           stages,
@@ -1908,21 +1848,18 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           (lease) => (lease.acquired ? lease.release : Effect.void),
         ).pipe(Effect.either);
         if (maintenance._tag === "Left") {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "the Command Center could not hold the Remote terminal route closed for package activation",
-              {
-                code: "conflict",
-                disposition: "not-started",
-                version: admission.version,
-                recoveryAction: {
-                  kind: "restore-terminal-live-work-observation",
-                },
+            stages,
+            "the Command Center could not hold the Remote terminal route closed for package activation",
+            {
+              code: "conflict",
+              disposition: "not-started",
+              version: admission.version,
+              recoveryAction: {
+                kind: "restore-terminal-live-work-observation",
               },
-            ),
+            },
           );
         }
         const liveWork = maintenance.right;
@@ -1938,21 +1875,18 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             liveWork.reason === "active-terminal-sessions" &&
             liveWork.evidence.activeTerminalSessions === 0)
         ) {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "the Remote terminal maintenance receipt was malformed",
-              {
-                code: "conflict",
-                disposition: "not-started",
-                version: admission.version,
-                recoveryAction: {
-                  kind: "restore-terminal-live-work-observation",
-                },
+            stages,
+            "the Remote terminal maintenance receipt was malformed",
+            {
+              code: "conflict",
+              disposition: "not-started",
+              version: admission.version,
+              recoveryAction: {
+                kind: "restore-terminal-live-work-observation",
               },
-            ),
+            },
           );
         }
         if (!liveWork.acquired) {
@@ -1967,23 +1901,20 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
                   kind:
                     "restore-terminal-live-work-observation" as const,
                 };
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              liveWork.reason === "active-terminal-sessions"
-                ? `package activation refused because ${liveWork.evidence.activeTerminalSessions} Vellum terminal sessions are active`
-                : liveWork.reason === "maintenance-held"
-                  ? "another package activation holds the Remote terminal route cut"
-                  : "the Remote terminal plane is shutting down",
-              {
-                code: "conflict",
-                disposition: "not-started",
-                version: admission.version,
-                recoveryAction,
-              },
-            ),
+            stages,
+            liveWork.reason === "active-terminal-sessions"
+              ? `package activation refused because ${liveWork.evidence.activeTerminalSessions} Vellum terminal sessions are active`
+              : liveWork.reason === "maintenance-held"
+                ? "another package activation holds the Remote terminal route cut"
+                : "the Remote terminal plane is shutting down",
+            {
+              code: "conflict",
+              disposition: "not-started",
+              version: admission.version,
+              recoveryAction,
+            },
           );
         }
         appendStage(
@@ -1998,55 +1929,43 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           preflight,
         ).pipe(Effect.either);
         if (installed._tag === "Left") {
-          return makeProviderReceipt(
+          return sessionFailure(
             providerInput,
-            sessionFailure(
-              providerInput,
-              stages,
-              admission.version,
-            ),
+            stages,
+            admission.version,
           );
         }
         const outcome = installed.right;
         if (outcome.kind === "authorization-failed") {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "the one-shot Linux administrator password was not accepted; the exact staged payload was removed",
-              {
-                code: "auth_required",
-                disposition: "not-started",
-                version: admission.version,
-              },
-            ),
+            stages,
+            "the one-shot Linux administrator password was not accepted; the exact staged payload was removed",
+            {
+              code: "auth_required",
+              disposition: "not-started",
+              version: admission.version,
+            },
           );
         }
         if (outcome.kind === "refused") {
-          return makeProviderReceipt(
+          return refusalFailure(
             providerInput,
-            refusalFailure(
-              providerInput,
-              stages,
-              admission.version,
-              outcome.receipt,
-            ),
+            stages,
+            admission.version,
+            outcome.receipt,
           );
         }
         if (outcome.kind === "rolled-back") {
-          return makeProviderReceipt(
+          return deployFailure(
             providerInput,
-            deployFailure(
-              providerInput,
-              stages,
-              "Linux package or readiness activation failed; the root-owned journal restored the prior package, service, linger, fence, and journal state",
-              {
-                code: "io",
-                disposition: "rolled-back",
-                version: admission.version,
-              },
-            ),
+            stages,
+            "Linux package or readiness activation failed; the root-owned journal restored the prior package, service, linger, fence, and journal state",
+            {
+              code: "io",
+              disposition: "rolled-back",
+              version: admission.version,
+            },
           );
         }
         const receipt = outcome.receipt;
@@ -2067,7 +1986,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           disposition: "ready",
           version: admission.version,
         };
-        return makeProviderReceipt(providerInput, result, "operator");
+        return result;
       }),
     ),
 });

@@ -244,16 +244,14 @@ export const makeRemoteDeploymentDispatcher = (input: {
           ),
         );
       }
-      return provider
-        .deploy({
-          ssh,
-          target,
-          stationConfiguration,
-          ...(provider.platform !== "linux" || authorization === undefined
-            ? {}
-            : { authorization }),
-        })
-        .pipe(Effect.map((receipt) => receipt.result));
+      return provider.deploy({
+        ssh,
+        target,
+        stationConfiguration,
+        ...(provider.platform !== "linux" || authorization === undefined
+          ? {}
+          : { authorization }),
+      });
     });
 
   const deploy: RemoteDeploymentDispatcher["deploy"] = (

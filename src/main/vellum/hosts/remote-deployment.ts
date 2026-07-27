@@ -14,14 +14,6 @@ export type RemoteDeploymentProgress = readonly string[];
 export type RemoteDeploymentDisposition =
   "not-started" | "ready" | "rolled-back" | "indeterminate";
 
-export type RemoteDeploymentReadiness =
-  "not-started" | "ready" | "not-ready" | "indeterminate";
-
-export type RemoteDeploymentRollback =
-  "not-required" | "restored" | "failed" | "indeterminate";
-
-export type RemoteDeploymentAuthorizationRequirement = "none" | "operator";
-
 export type RemoteTargetPlatform = "darwin" | "linux";
 
 export type RemotePlatformDescriptor =
@@ -44,7 +36,7 @@ export type UnsupportedRemoteTarget = {
 export type RemoteDeploymentRecoveryAction =
   HostsDeployRemoteRecoveryAction;
 
-/** Stable Settings/IPC result. Provider-only metadata is kept off this object. */
+/** Canonical result returned by admission, providers, dispatch, and IPC. */
 export type DeployRemoteResult = {
   readonly ok: boolean;
   readonly detail: string;
@@ -56,8 +48,8 @@ export type DeployRemoteResult = {
     | "auth_required";
   readonly message?: string;
   readonly stages: RemoteDeploymentProgress;
-  /** Remote package transaction disposition; absent only on legacy test doubles. */
-  readonly disposition?: RemoteDeploymentDisposition;
+  /** Remote package transaction disposition for every deployment attempt. */
+  readonly disposition: RemoteDeploymentDisposition;
   /** Exact admitted artifact version pushed by this operation. */
   readonly version?: string;
   /** Present only when platform admission refuses the target. */
@@ -66,13 +58,6 @@ export type DeployRemoteResult = {
   readonly recoveryAction?: RemoteDeploymentRecoveryAction;
   /** Public binding facts for a fresh, one-attempt OS authorization ceremony. */
   readonly authorizationRequest?: HostsDeployRemoteAuthorizationRequest;
-};
-
-export type RemoteDeploymentArtifact = {
-  /** Product identity, never an executable or installation path. */
-  readonly identity: string;
-  readonly version: string;
-  readonly source: "command-center";
 };
 
 export type RemoteDeploymentStationConfiguration =
@@ -117,57 +102,11 @@ export type RemoteDeploymentProviderInput = {
   readonly authorization?: RemoteDeploymentAuthorization;
 };
 
-/**
- * Provider receipt used by the dispatcher and future platform implementations.
- * `result` is the compatibility projection; the remaining fields are typed
- * product facts and deliberately never leak OS-specific paths or service names.
- */
-export type RemoteDeploymentProviderReceipt = {
-  readonly result: DeployRemoteResult;
-  readonly targetPlatform: RemoteTargetPlatform;
-  readonly artifact?: RemoteDeploymentArtifact;
-  readonly stationConfiguration: RemoteDeploymentStationConfiguration;
-  readonly authorizationRequirement: RemoteDeploymentAuthorizationRequirement;
-  readonly readiness: RemoteDeploymentReadiness;
-  readonly rollback: RemoteDeploymentRollback;
-};
-
 export type RemoteDeploymentProvider = {
   readonly platform: RemoteTargetPlatform;
   /** Provider can produce the station-local Chromium composition/control plane. */
   readonly supportsBrowser: boolean;
   readonly deploy: (
     input: RemoteDeploymentProviderInput,
-  ) => Effect.Effect<RemoteDeploymentProviderReceipt, never>;
-};
-
-export const readinessFromDisposition = (
-  disposition: RemoteDeploymentDisposition | undefined,
-): RemoteDeploymentReadiness => {
-  switch (disposition) {
-    case "ready":
-      return "ready";
-    case "rolled-back":
-      return "not-ready";
-    case "indeterminate":
-      return "indeterminate";
-    case "not-started":
-    case undefined:
-      return "not-started";
-  }
-};
-
-export const rollbackFromDisposition = (
-  disposition: RemoteDeploymentDisposition | undefined,
-): RemoteDeploymentRollback => {
-  switch (disposition) {
-    case "rolled-back":
-      return "restored";
-    case "indeterminate":
-      return "indeterminate";
-    case "ready":
-    case "not-started":
-    case undefined:
-      return "not-required";
-  }
+  ) => Effect.Effect<DeployRemoteResult, never>;
 };

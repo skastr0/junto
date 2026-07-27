@@ -62,23 +62,11 @@ const makeProvider = (
 ) => {
   const deploy = vi.fn((input: RemoteDeploymentProviderInput) =>
     Effect.succeed({
-      result: {
-        ok: true,
-        detail: `${platform} ready`,
-        stages: input.target.progress,
-        disposition: "ready" as const,
-        version: "0.1.0",
-      },
-      targetPlatform: platform,
-      artifact: {
-        identity: "Vellum Command",
-        version: "0.1.0",
-        source: "command-center" as const,
-      },
-      stationConfiguration: input.stationConfiguration,
-      authorizationRequirement: "none" as const,
-      readiness: "ready" as const,
-      rollback: "not-required" as const,
+      ok: true,
+      detail: `${platform} ready`,
+      stages: input.target.progress,
+      disposition: "ready" as const,
+      version: "0.1.0",
     }),
   );
   return { platform, supportsBrowser, deploy } satisfies RemoteDeploymentProvider;
@@ -127,6 +115,29 @@ describe("Remote deployment platform evidence", () => {
 });
 
 describe("Remote deployment dispatcher", () => {
+  it("has one mandatory provider result contract without a compatibility projection", () => {
+    const contract = readFileSync(
+      new URL("../src/main/vellum/hosts/remote-deployment.ts", import.meta.url),
+      "utf8",
+    );
+    const dispatcher = readFileSync(
+      new URL("../src/main/vellum/hosts/deploy-remote.ts", import.meta.url),
+      "utf8",
+    );
+    const linuxProvider = readFileSync(
+      new URL("../src/main/vellum/hosts/deploy-linux.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(contract).toContain(
+      "readonly disposition: RemoteDeploymentDisposition;",
+    );
+    expect(contract).not.toContain("RemoteDeploymentProviderReceipt");
+    expect(contract).not.toContain("readonly disposition?:");
+    expect(dispatcher).not.toContain("receipt.result");
+    expect(linuxProvider).not.toContain("makeProviderReceipt");
+  });
+
   it("contains no platform installer policy", () => {
     const source = readFileSync(
       new URL("../src/main/vellum/hosts/deploy-remote.ts", import.meta.url),

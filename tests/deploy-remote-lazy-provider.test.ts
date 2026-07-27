@@ -19,23 +19,11 @@ vi.mock("../src/main/vellum/hosts/deploy-darwin", async () => {
         readonly stationConfiguration: unknown;
       }) =>
         MockEffect.succeed({
-          result: {
-            ok: true,
-            detail: "darwin ready",
-            stages: input.target.progress,
-            disposition: "ready",
-            version: "0.1.0",
-          },
-          targetPlatform: "darwin",
-          artifact: {
-            identity: "Vellum Command",
-            version: "0.1.0",
-            source: "command-center",
-          },
-          stationConfiguration: input.stationConfiguration,
-          authorizationRequirement: "none",
-          readiness: "ready",
-          rollback: "not-required",
+          ok: true,
+          detail: "darwin ready",
+          stages: input.target.progress,
+          disposition: "ready",
+          version: "0.1.0",
         }),
     },
   };
@@ -53,23 +41,11 @@ vi.mock("../src/main/vellum/hosts/deploy-linux", async () => {
         readonly stationConfiguration: unknown;
       }) =>
         MockEffect.succeed({
-          result: {
-            ok: true,
-            detail: "linux ready",
-            stages: input.target.progress,
-            disposition: "ready",
-            version: "0.1.0",
-          },
-          targetPlatform: "linux",
-          artifact: {
-            identity: "Vellum Command",
-            version: "0.1.0",
-            source: "command-center",
-          },
-          stationConfiguration: input.stationConfiguration,
-          authorizationRequirement: "none",
-          readiness: "ready",
-          rollback: "not-required",
+          ok: true,
+          detail: "linux ready",
+          stages: input.target.progress,
+          disposition: "ready",
+          version: "0.1.0",
         }),
     },
   };

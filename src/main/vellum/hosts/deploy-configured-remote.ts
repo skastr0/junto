@@ -133,7 +133,7 @@ const failedPackageResult = (
   host: RemoteHost,
   deployed: DeployRemoteResult,
 ): ConfiguredRemoteDeployResult => {
-  const disposition = deployed.disposition ?? "indeterminate";
+  const disposition = deployed.disposition;
   const rolledBack = disposition === "rolled-back";
   const notStarted = disposition === "not-started";
   return {

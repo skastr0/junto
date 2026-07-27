@@ -228,6 +228,7 @@ export const makeHostsService = (
             detail: MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
             code: "validation" as const,
             stages: [],
+            disposition: "not-started" as const,
           } satisfies DeployRemoteResult;
         }
         const hostResult = yield* Effect.either(
@@ -242,6 +243,7 @@ export const makeHostsService = (
             detail: hostResult.left.message,
             code: hostResult.left.code,
             stages: [],
+            disposition: "not-started" as const,
           } satisfies DeployRemoteResult;
         }
         const host = hostResult.right;
@@ -251,6 +253,7 @@ export const makeHostsService = (
             detail: `unknown host: ${id}`,
             code: "not_found" as const,
             stages: [],
+            disposition: "not-started" as const,
           } satisfies DeployRemoteResult;
         }
         return yield* serializeHostMutation(

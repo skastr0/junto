@@ -31,8 +31,6 @@ import {
 } from "../app-process-plane";
 import { runProcess } from "../../services/process";
 import {
-  readinessFromDisposition,
-  rollbackFromDisposition,
   type DeployRemoteResult,
   type RemoteDeploymentProvider,
   type RemoteDeploymentProviderInput,
@@ -449,7 +447,7 @@ export const describeDeployTransferFailure = (error: unknown): string => {
 
 export const classifyDeployTransferDisposition = (
   error: unknown,
-): NonNullable<DeployRemoteResult["disposition"]> => {
+): DeployRemoteResult["disposition"] => {
   if (!(error instanceof SshTransferExitError)) return "indeterminate";
   if (error.code === 10) return "ready";
   if (error.code === 8 || error.code === 9) return "indeterminate";
@@ -1193,24 +1191,5 @@ const deployDarwinRemote = (
 export const darwinRemoteDeploymentProvider: RemoteDeploymentProvider = {
   platform: "darwin",
   supportsBrowser: true,
-  deploy: (input) =>
-    deployDarwinRemote(input).pipe(
-      Effect.map((result) => ({
-        result,
-        targetPlatform: "darwin" as const,
-        ...(result.version
-          ? {
-              artifact: {
-                identity: PRODUCT_NAME,
-                version: result.version,
-                source: "command-center" as const,
-              },
-            }
-          : {}),
-        stationConfiguration: input.stationConfiguration,
-        authorizationRequirement: "none" as const,
-        readiness: readinessFromDisposition(result.disposition),
-        rollback: rollbackFromDisposition(result.disposition),
-      })),
-    ),
+  deploy: deployDarwinRemote,
 };
