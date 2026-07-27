@@ -66,9 +66,11 @@
     "canvas:rm": "bun scripts/canvas-rm.ts",
     "ref": "bun scripts/ref-cli.ts",
     "browser": "bun scripts/browser-cli.ts",
+    "station": "bun scripts/station-cli.ts",
     "render": "bun scripts/render.ts",
     "cli": "bun src/cli/main.ts",
     "cli:build": "bun build --compile --outfile dist/vellum src/cli/main.ts",
+    "station:build": "bun build --compile --outfile dist/vellum-station scripts/station-cli.ts",
     "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts"
   },
   "dependencies": {
@@ -149,6 +151,10 @@
       {
         "from": "dist/vellum-browser",
         "to": "bin/vellum-browser"
+      },
+      {
+        "from": "dist/vellum-station",
+        "to": "bin/vellum-station"
       },
       {
         "from": "scripts/unix-peer-pid.py",
