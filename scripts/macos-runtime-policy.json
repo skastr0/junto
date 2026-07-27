@@ -13,6 +13,11 @@
       "profile": "jit"
     },
     {
+      "path": "Contents/Resources/bin/vellum",
+      "identifier": "vellum",
+      "profile": "none"
+    },
+    {
       "path": "Contents/Resources/bin/vellum-browser",
       "identifier": "vellum-browser",
       "profile": "none"
@@ -25,6 +30,11 @@
     {
       "path": "Contents/Resources/app.asar.unpacked/node_modules/@msgpackr-extract/msgpackr-extract-darwin-arm64/node.napi.glibc.node",
       "identifier": "node.napi.glibc",
+      "profile": "none"
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/bin/darwin-arm64-148/node-pty.node",
+      "identifier": "node-pty",
       "profile": "none"
     },
     {

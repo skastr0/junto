@@ -254,9 +254,9 @@ export const validateMacOSRuntimePolicy = (
   ) {
     throw new Error("macOS runtime policy must expose only empty and allow-jit profiles");
   }
-  if (value.machO.length !== 24) {
+  if (value.machO.length !== 26) {
     throw new Error(
-      `macOS runtime policy must name exactly 24 Mach-O objects, got ${value.machO.length}`,
+      `macOS runtime policy must name exactly 26 Mach-O objects, got ${value.machO.length}`,
     );
   }
 
@@ -292,11 +292,16 @@ export const validateMacOSRuntimePolicy = (
     );
   }
 
-  const browserCli = value.machO.find(
-    (entry) => isRecord(entry) && entry.path === "Contents/Resources/bin/vellum-browser",
-  );
-  if (browserCli?.profile !== "none") {
-    throw new Error("packaged vellum-browser must have the empty entitlement profile");
+  for (const cliPath of [
+    "Contents/Resources/bin/vellum",
+    "Contents/Resources/bin/vellum-browser",
+  ] as const) {
+    const cli = value.machO.find(
+      (entry) => isRecord(entry) && entry.path === cliPath,
+    );
+    if (cli?.profile !== "none") {
+      throw new Error(`packaged ${path.posix.basename(cliPath)} must have the empty entitlement profile`);
+    }
   }
 
   return value as unknown as MacOSRuntimePolicy;

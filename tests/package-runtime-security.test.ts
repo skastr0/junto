@@ -19,8 +19,8 @@ import { signingProfileForPath } from "../scripts/electron-builder-sign.mjs";
 const manifestPaths = MACOS_RUNTIME_POLICY.machO.map((entry) => entry.path);
 
 describe("macOS packaged runtime policy", () => {
-  it("pins 24 Mach-O objects and only the four exact Electron JIT roles", () => {
-    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(24);
+  it("pins 26 Mach-O objects and only the four exact Electron JIT roles", () => {
+    expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(26);
     expect(
       MACOS_RUNTIME_POLICY.machO
         .filter((entry) => entry.profile === "jit")
@@ -29,9 +29,21 @@ describe("macOS packaged runtime policy", () => {
     ).toEqual([...EXPECTED_JIT_MACHO_PATHS].sort());
     expect(
       MACOS_RUNTIME_POLICY.machO.find(
+        (entry) => entry.path === "Contents/Resources/bin/vellum",
+      ),
+    ).toMatchObject({ identifier: "vellum", profile: "none" });
+    expect(
+      MACOS_RUNTIME_POLICY.machO.find(
         (entry) => entry.path === "Contents/Resources/bin/vellum-browser",
       ),
     ).toMatchObject({ identifier: "vellum-browser", profile: "none" });
+    expect(
+      MACOS_RUNTIME_POLICY.machO.find(
+        (entry) =>
+          entry.path ===
+          "Contents/Resources/app.asar.unpacked/node_modules/node-pty/bin/darwin-arm64-148/node-pty.node",
+      ),
+    ).toMatchObject({ identifier: "node-pty", profile: "none" });
     expect(MACOS_RUNTIME_POLICY.profiles).toEqual({
       none: {},
       jit: { "com.apple.security.cs.allow-jit": true },
@@ -55,7 +67,7 @@ describe("macOS packaged runtime policy", () => {
 
     const missing = structuredClone(rawRuntimePolicy);
     missing.machO.pop();
-    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 24/u);
+    expect(() => validateMacOSRuntimePolicy(missing)).toThrow(/exactly 26/u);
 
     const duplicate = structuredClone(rawRuntimePolicy);
     duplicate.machO[1].path = duplicate.machO[0].path;
@@ -243,6 +255,13 @@ describe("electron-builder role-specific signing", () => {
         ).toBe("jit");
       }
     }
+    expect(
+      signingProfileForPath(
+        appPath,
+        path.join(appPath, "Contents/Resources/bin/vellum"),
+        MACOS_RUNTIME_POLICY,
+      ),
+    ).toBe("none");
     expect(
       signingProfileForPath(
         appPath,

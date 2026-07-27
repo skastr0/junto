@@ -125,6 +125,45 @@ describe("Electron observation receipt", () => {
       .rejects.toThrow(/owner-owned non-symlink private directory/u);
   });
 
+  it("reads Electron version from framework Info.plist CFBundleVersion on macOS .app artifacts", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "vellum-electron-app-artifact-"));
+    stateDirectories.push(directory);
+    vi.stubEnv("VELLUM_RELEASE_SECURITY_STATE_DIR", directory);
+    installCurrentReleaseSources();
+    await checkOfficialElectronSources(new Date("2026-07-24T00:00:00.000Z"));
+
+    const appRoot = path.join(directory, "Vellum Command.app");
+    const policyDirectory = path.join(appRoot, "Contents", "Resources", "policy");
+    const frameworkResources = path.join(
+      appRoot,
+      "Contents",
+      "Frameworks",
+      "Electron Framework.framework",
+      "Versions",
+      "A",
+      "Resources",
+    );
+    await mkdir(policyDirectory, { recursive: true });
+    await mkdir(frameworkResources, { recursive: true });
+    await copyFile(path.resolve("scripts/electron-security-policy.json"), path.join(policyDirectory, "electron-security-policy.json"));
+    await copyFile(path.join(directory, "electron-observation.json"), path.join(policyDirectory, "electron-observation.json"));
+    await copyFile(path.join(directory, "electron-observation-high-water.json"), path.join(policyDirectory, "electron-observation-high-water.json"));
+    // Intentionally no Resources/version file — Electron 43 does not ship one.
+    await writeFile(
+      path.join(frameworkResources, "Info.plist"),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>com.github.Electron.framework</string>
+  <key>CFBundleVersion</key><string>43.2.0</string>
+</dict></plist>
+`,
+    );
+
+    await expect(validateElectronArtifactPath(appRoot, new Date("2026-07-24T00:00:00.000Z")))
+      .resolves.toMatchObject({ electronVersion: "43.2.0", policyVersion: "43.2.0" });
+  });
+
   it("rejects an artifact whose embedded current receipt predates local adverse state", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "vellum-electron-artifact-"));
     stateDirectories.push(directory);
