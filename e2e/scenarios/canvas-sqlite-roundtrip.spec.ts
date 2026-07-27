@@ -35,11 +35,15 @@ const exists = async (path: string): Promise<boolean> =>
     () => false,
   );
 
-const expectNoFileAuthority = async (input: {
-  readonly root: string;
+const expectSqliteAuthority = async (input: {
   readonly homeDir: string;
   readonly canvasesDir: string;
 }): Promise<void> => {
+  expect(
+    await exists(join(input.homeDir, ".vellum", "state", "vellum.db")),
+    "unified SQLite state database",
+  ).toBe(true);
+
   const canvasEntries = await readdir(input.canvasesDir, {
     withFileTypes: true,
   });
@@ -51,16 +55,6 @@ const expectNoFileAuthority = async (input: {
     )
     .map((entry) => entry.name);
   expect(unsupportedEntries).toEqual([]);
-
-  const retiredAuthorityPaths = [
-    join(input.canvasesDir, "roundtrip.canvas"),
-    join(input.root, "canvas-authority-v1"),
-    join(input.homeDir, ".vellum", "state", "canvas-authority-v1"),
-    join(input.homeDir, ".vellum", "state", "current.json"),
-  ];
-  for (const retiredPath of retiredAuthorityPaths) {
-    expect(await exists(retiredPath), retiredPath).toBe(false);
-  }
 };
 
 test("operator UI write round-trips through main IPC and survives renderer reload", async ({
@@ -99,10 +93,10 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
     page.locator(".react-flow__node", { hasText: UI_EDITED_TEXT }),
   ).toBeVisible({ timeout: 30_000 });
 
-  await expectNoFileAuthority(sandbox);
+  await expectSqliteAuthority(sandbox);
 });
 
-test("canvas list/read/write product paths never materialize a file authority", async ({
+test("canvas list/read/write product paths persist through the unified SQLite authority", async ({
   vellum,
 }) => {
   const { page, sandbox } = vellum;
@@ -159,5 +153,5 @@ test("canvas list/read/write product paths never materialize a file authority", 
     page.locator(".react-flow__node", { hasText: IPC_ADDED_TEXT }),
   ).toBeVisible({ timeout: 10_000 });
 
-  await expectNoFileAuthority(sandbox);
+  await expectSqliteAuthority(sandbox);
 });
