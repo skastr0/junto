@@ -1,17 +1,11 @@
 #!/usr/bin/env bun
-import { Effect, ManagedRuntime } from "effect";
+import { Effect } from "effect";
 import { renderCanvasSvg } from "../src/shared/svg";
-import {
-  CanvasesLive,
-  CanvasesService,
-  canvasNameFrom,
-  writeCanvasSidecar,
-} from "../src/main/vellum/canvases";
+import { readCanvasThroughControl } from "../src/main/vellum/canvas-control/client";
+import { writeCanvasProjectionSidecar } from "../src/main/vellum/canvas-control/sidecars";
 
-// Headless canvas -> SVG: the "screenshot for agents" surface. Reads the
-// named canvas from canvas-authority-v1 via CanvasesService and writes
-// <name>.svg as a sidecar so a multimodal agent can see the board without
-// launching the app.
+// Headless canvas -> SVG. The running app supplies the compiled live canvas;
+// this process writes only the agent-facing SVG sidecar.
 
 const errorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
@@ -23,31 +17,21 @@ const errorMessage = (error: unknown): string => {
 };
 
 const main = async () => {
-  const runtime = ManagedRuntime.make(CanvasesLive);
-  try {
-    let name: string;
-    try {
-      name = canvasNameFrom(process.argv[2] ?? "portfolio");
-    } catch (error) {
-      console.error(`render: ${errorMessage(error)}`);
-      process.exitCode = 1;
-      return;
-    }
-
-    const canvases = await runtime.runPromise(CanvasesService);
-    const read = await runtime.runPromise(Effect.either(canvases.read(name)));
-    if (read._tag === "Left") {
-      console.error(`render: ${errorMessage(read.left)}`);
-      process.exit(1);
-    }
-
-    const doc = read.right.doc;
-    const svg = renderCanvasSvg(doc);
-    const out = await writeCanvasSidecar(name, "svg", svg);
-    console.error(`render: ${doc.nodes.length} nodes, ${doc.edges.length} edges → ${out}`);
-  } finally {
-    await runtime.dispose();
+  const read = await Effect.runPromise(
+    Effect.either(
+      readCanvasThroughControl(process.argv[2] ?? "portfolio"),
+    ),
+  );
+  if (read._tag === "Left") {
+    console.error(`render: ${errorMessage(read.left)}`);
+    process.exitCode = 1;
+    return;
   }
+
+  const { doc, name } = read.right;
+  const svg = renderCanvasSvg(doc);
+  const out = await writeCanvasProjectionSidecar(name, "svg", svg);
+  console.error(`render: ${doc.nodes.length} nodes, ${doc.edges.length} edges → ${out}`);
 };
 
-void main();
+await main();

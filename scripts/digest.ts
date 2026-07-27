@@ -1,42 +1,14 @@
 #!/usr/bin/env bun
-import { Effect, ManagedRuntime } from "effect";
+import { Effect } from "effect";
 import { digestCanvas } from "../src/shared/digest";
-import type { SnapshotBundle, SnapshotState } from "../src/shared/entities";
 import { buildGlyphView } from "../src/shared/glyph-view";
-import { HermesPlane } from "../src/main/vellum/hermes/plane";
-import { HermesStandaloneLive } from "../src/main/vellum/hermes/live";
-import {
-  CanvasesLive,
-  CanvasesService,
-  canvasNameFrom,
-  writeCanvasSidecar,
-} from "../src/main/vellum/canvases";
+import { readCanvasThroughControl } from "../src/main/vellum/canvas-control/client";
+import { writeCanvasProjectionSidecar } from "../src/main/vellum/canvas-control/sidecars";
 
-// Headless agent surface: `bun run digest [name]` — hermes snapshots only.
-// Canvases with retired private-source bindings still decode; live private data is gone.
-// Document bytes come from canvas-authority-v1 via CanvasesService (sole store).
-
-const hermesRuntime = ManagedRuntime.make(HermesStandaloneLive);
-const canvasesRuntime = ManagedRuntime.make(CanvasesLive);
+// The running app supplies one compiled canvas plus its current Hermes snapshot.
+// This process writes only the deterministic digest sidecar.
 
 class DigestExit extends Error {}
-
-const guarded = async (
-  source: SnapshotBundle["source"],
-  run: () => Promise<SnapshotBundle>,
-): Promise<SnapshotBundle> => {
-  try {
-    return await run();
-  } catch (error) {
-    return {
-      source,
-      fetchedAt: new Date().toISOString(),
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-      entities: [],
-    };
-  }
-};
 
 const errorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
@@ -48,30 +20,20 @@ const errorMessage = (error: unknown): string => {
 };
 
 const main = async () => {
-  let name: string;
-  try {
-    name = canvasNameFrom(process.argv[2] ?? "portfolio");
-  } catch (error) {
-    throw new DigestExit(errorMessage(error));
+  const requestedName = process.argv[2] ?? "portfolio";
+  const result = await Effect.runPromise(
+    Effect.either(readCanvasThroughControl(requestedName)),
+  );
+  if (result._tag === "Left") {
+    throw new DigestExit(errorMessage(result.left));
   }
-
-  const canvases = await canvasesRuntime.runPromise(CanvasesService);
-  const read = await canvasesRuntime.runPromise(Effect.either(canvases.read(name)));
-  if (read._tag === "Left") {
-    throw new DigestExit(errorMessage(read.left));
-  }
-  const doc = read.right.doc;
-
-  const hermesPlane = await hermesRuntime.runPromise(HermesPlane);
-
-  const hermes = await guarded("hermes", hermesPlane.fetchBundle);
-  const snapshots: SnapshotState = { bundles: [hermes] };
+  const { doc, name, snapshots } = result.right;
   const glyphs = buildGlyphView(doc, new Map());
 
   const digest = digestCanvas(name, doc, snapshots, glyphs);
   process.stdout.write(digest);
 
-  await writeCanvasSidecar(name, "digest.txt", digest);
+  await writeCanvasProjectionSidecar(name, "digest.txt", digest);
 };
 
 try {
@@ -82,6 +44,4 @@ try {
     process.exit(1);
   }
   throw error;
-} finally {
-  await Promise.all([hermesRuntime.dispose(), canvasesRuntime.dispose()]);
 }

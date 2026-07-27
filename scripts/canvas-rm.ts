@@ -1,16 +1,37 @@
 #!/usr/bin/env bun
-/**
- * Beta: mutating canvas:rm is disabled.
- *
- * A separate CanvasesLive process has process-local mutexes and can race the
- * running app on the same generation. Reintroduce only by routing through the
- * running Command Center operator-authoring path.
- */
+import { Effect } from "effect";
+import {
+  canvasControlAuthorialPermit,
+  removeCanvasThroughControl,
+} from "../src/main/vellum/canvas-control/client";
 
-console.error(
-  "canvas:rm is disabled for beta — remove canvases from the running Command Center UI.",
-);
-console.error(
-  "Reason: CLI authority writes race the app process and can drop operator changes.",
-);
-process.exit(2);
+const usage = "usage: VELLUM_AUTHORIAL_WRITE=1 bun run canvas:rm <name>…";
+
+const names = process.argv.slice(2);
+if (names.length === 0 || names.includes("--help") || names.includes("-h")) {
+  console.error(usage);
+  process.exit(names.length === 0 ? 2 : 0);
+}
+
+let permit: ReturnType<typeof canvasControlAuthorialPermit>;
+try {
+  permit = canvasControlAuthorialPermit();
+} catch (error) {
+  console.error(
+    `canvas:rm: authorial_write_denied: ${
+      error instanceof Error ? error.message : String(error)
+    }`,
+  );
+  process.exit(2);
+}
+
+for (const name of names) {
+  const result = await Effect.runPromise(
+    Effect.either(removeCanvasThroughControl(name, permit)),
+  );
+  if (result._tag === "Left") {
+    console.error(`canvas:rm: ${result.left.code}: ${result.left.message}`);
+    process.exit(1);
+  }
+  console.log(`removed ${result.right.name}`);
+}

@@ -1,8 +1,7 @@
 #!/usr/bin/env bun
-import { Effect, ManagedRuntime } from "effect";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
-import { resolveNodeRef } from "../src/main/vellum/node-ref-resolver";
-import { formatNodeRef, parseNodeRef } from "../src/shared/node-ref";
+import { Effect } from "effect";
+import { readCanvasThroughControl } from "../src/main/vellum/canvas-control/client";
+import { formatNodeRef, nodeRefKey, parseNodeRef } from "../src/shared/node-ref";
 
 const usage = `vellum node references
 
@@ -63,36 +62,50 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  const runtime = ManagedRuntime.make(CanvasesLive);
-  try {
-    const canvases = await runtime.runPromise(CanvasesService);
-    const result = await runtime.runPromise(Effect.either(resolveNodeRef(canvases, parsed.value)));
-    if (result._tag === "Left") {
-      printError(
-        {
-          code: result.left._tag,
-          message:
-            "message" in result.left
-              ? result.left.message
-              : `${parsed.value.canvasName}:${parsed.value.nodeId} could not be resolved`,
-        },
-        json,
-        1,
-      );
-      return;
-    }
-
-    const data = {
-      ref: result.right.key,
-      canvas: result.right.canvasName,
-      path: result.right.canvasPath,
-      node: result.right.node,
-    };
-    if (json) console.log(JSON.stringify({ ok: true, data }));
-    else console.log(`${data.ref}\n${data.node.type} ${data.node.id}\n${data.path}`);
-  } finally {
-    await runtime.dispose();
+  const read = await Effect.runPromise(
+    Effect.either(readCanvasThroughControl(parsed.value.canvasName)),
+  );
+  if (read._tag === "Left") {
+    printError(
+      { code: read.left.code, message: read.left.message },
+      json,
+      1,
+    );
+    return;
   }
+  const matches = read.right.doc.nodes.filter(
+    (node) => node.id === parsed.value.nodeId,
+  );
+  if (matches.length === 0) {
+    printError(
+      {
+        code: "NodeNotFound",
+        message: `${parsed.value.canvasName}:${parsed.value.nodeId} could not be resolved`,
+      },
+      json,
+      1,
+    );
+    return;
+  }
+  if (matches.length !== 1) {
+    printError(
+      {
+        code: "DuplicateNodeId",
+        message: `${parsed.value.canvasName}:${parsed.value.nodeId} matched ${String(matches.length)} nodes`,
+      },
+      json,
+      1,
+    );
+    return;
+  }
+  const node = matches[0]!;
+  const data = {
+    ref: nodeRefKey(parsed.value),
+    canvas: parsed.value.canvasName,
+    node,
+  };
+  if (json) console.log(JSON.stringify({ ok: true, data }));
+  else console.log(`${data.ref}\n${data.node.type} ${data.node.id}`);
 };
 
 await main();

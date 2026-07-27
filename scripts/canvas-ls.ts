@@ -1,21 +1,18 @@
 #!/usr/bin/env bun
-import { ManagedRuntime } from "effect";
+import { Effect } from "effect";
 import {
-  CanvasesLive,
-  CanvasesService,
-} from "../src/main/vellum/canvases";
+  listCanvasesThroughControl,
+  type CanvasControlClientError,
+} from "../src/main/vellum/canvas-control/client";
 
-// Headless agent surface: `bun run canvas:ls` lists every canvas in live
-// authority (canvas-authority-v1 via CanvasesService). Plain aligned text by
-// default; `--json` emits machine-readable JSON.
+// Headless agent surface: the running app returns its compiled live projection.
+// This process never opens product state.
 
 interface CanvasRow {
   readonly name: string;
-  readonly nodes: number | null;
-  readonly edges: number | null;
-  readonly path: string;
+  readonly nodes: number;
+  readonly edges: number;
   readonly modifiedAt: string;
-  readonly error?: string;
 }
 
 const pad = (value: string, width: number): string =>
@@ -27,15 +24,11 @@ const printTable = (rows: ReadonlyArray<CanvasRow>): void => {
     return;
   }
 
-  const cell = (row: CanvasRow, key: "nodes" | "edges"): string =>
-    row.error ? row.error : String(row[key]);
-
   const columns: ReadonlyArray<{ header: string; value: (row: CanvasRow) => string }> = [
     { header: "NAME", value: (row) => row.name },
-    { header: "NODES", value: (row) => cell(row, "nodes") },
-    { header: "EDGES", value: (row) => cell(row, "edges") },
+    { header: "NODES", value: (row) => String(row.nodes) },
+    { header: "EDGES", value: (row) => String(row.edges) },
     { header: "MODIFIED", value: (row) => row.modifiedAt },
-    { header: "PATH", value: (row) => row.path },
   ];
 
   const widths = columns.map((column) =>
@@ -53,35 +46,10 @@ const printTable = (rows: ReadonlyArray<CanvasRow>): void => {
 
 const main = async () => {
   const jsonMode = process.argv.slice(2).includes("--json");
-  const runtime = ManagedRuntime.make(CanvasesLive);
   try {
-    const canvases = await runtime.runPromise(CanvasesService);
-    const [summaries, live] = await Promise.all([
-      runtime.runPromise(canvases.list),
-      runtime.runPromise(canvases.liveDocuments()),
-    ]);
-    const docsByName = new Map(live.map((entry) => [entry.canvasName, entry.doc]));
-
-    const rows: CanvasRow[] = summaries.map((summary) => {
-      const doc = docsByName.get(summary.name);
-      if (doc === undefined) {
-        return {
-          name: summary.name,
-          nodes: null,
-          edges: null,
-          path: summary.path,
-          modifiedAt: summary.modifiedAt,
-          error: "missing",
-        };
-      }
-      return {
-        name: summary.name,
-        nodes: doc.nodes.length,
-        edges: doc.edges.length,
-        path: summary.path,
-        modifiedAt: summary.modifiedAt,
-      };
-    });
+    const rows: ReadonlyArray<CanvasRow> = await Effect.runPromise(
+      listCanvasesThroughControl(),
+    );
 
     if (jsonMode) {
       console.log(JSON.stringify(rows, null, 2));
@@ -89,8 +57,18 @@ const main = async () => {
     }
 
     printTable(rows);
-  } finally {
-    await runtime.dispose();
+  } catch (error) {
+    const message =
+      typeof error === "object" &&
+      error !== null &&
+      "_tag" in error &&
+      error._tag === "CanvasControlClientError"
+        ? `${(error as CanvasControlClientError).code}: ${(error as CanvasControlClientError).message}`
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    console.error(`canvas:ls: ${message}`);
+    process.exitCode = 1;
   }
 };
 
