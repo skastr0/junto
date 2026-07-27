@@ -7,8 +7,7 @@
 // operator's real Vellum state. The seeding connection is closed before the
 // app starts; the app remains the database's sole live owner. Two passes:
 //
-//   1. ARMED   — pre-seeds the runtime store's kernel.armed row for a fixture
-//      region, boots the app,
+//   1. ARMED   — pre-seeds the fixture region's normalized SQLite arming row,
 //      boots the app in its explicit no-window mode (the app + kernel keep
 //      running with zero windows, exactly the packaged/launchd shape), and
 //      waits for a TIMER pulse routed over a human-authored timer → agent edge
@@ -24,7 +23,7 @@
 // arming and instruction context only.
 //
 // Observation is the child process's bounded stdout stream. The probe never
-// reopens the live database and has no JSON-file compatibility lane.
+// reopens the live database, and no document file participates in authority.
 //
 // Exit 0 if both passes hold; exit 2 with a diagnosis otherwise.
 
@@ -32,14 +31,9 @@ import { constants } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Layer, ManagedRuntime } from "effect";
-import { StoreLive, StoreService } from "../src/main/services/store";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import {
   KERNEL_OBSERVATION_PREFIX,
 } from "../src/main/vellum/kernel/service";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 import {
   startRendererServer,
   type RendererServer,
@@ -71,6 +65,7 @@ const ELECTRON_BIN = join(REPO_ROOT, "node_modules", ".bin", "electron");
 const MAIN_ENTRY = join(REPO_ROOT, "out", "main", "index.js");
 const RENDERER_DIR = join(REPO_ROOT, "out", "renderer");
 const RENDERER_ENTRY = join(RENDERER_DIR, "index.html");
+const SEED_ENTRY = join(REPO_ROOT, "scripts", "kernel-headless-seed.ts");
 const STARTUP_SMOKE = process.argv.includes("--startup-smoke");
 
 const BOOT_POLL_MS = 500;
@@ -81,6 +76,7 @@ const ARMED_DELIVERY_TIMEOUT_MS = 90_000; // headroom for a real model turn
 const DRY_PULSE_TIMEOUT_MS = 45_000;
 const PROBE_RUNTIME_TIMEOUT_MS = 130_000;
 const PROBE_LOG_BYTES = 256 * 1024;
+const SEED_TIMEOUT_MS = 30_000;
 // Darwin's sockaddr_un limit is 104 bytes and its reported tmpdir is already
 // deeply nested. mkdtemp still mints the exact deletion capability, but the
 // short system alias keeps isolated UDS paths representable.
@@ -118,8 +114,72 @@ interface Fixture {
   readonly userDataDir: string;
   readonly canvasesDir: string;
   readonly stateDatabase: string;
-  readonly previousHome: string | undefined;
 }
+
+const compileSeedHelper = async (root: string): Promise<string> => {
+  const outdir = join(root, "seed-helper");
+  const result = await Bun.build({
+    entrypoints: [SEED_ENTRY],
+    outdir,
+    target: "node",
+    format: "esm",
+    splitting: false,
+    sourcemap: "inline",
+  });
+  if (!result.success) {
+    const detail = result.logs
+      .map((log) => log.message)
+      .filter(Boolean)
+      .join("\n");
+    throw new Error(
+      `failed to compile Electron SQLite seed helper${detail ? `:\n${detail}` : ""}`,
+    );
+  }
+  const entry = result.outputs.find((output) => output.kind === "entry-point");
+  if (entry === undefined) {
+    throw new Error("Electron SQLite seed helper build produced no entry point");
+  }
+  return entry.path;
+};
+
+const seedFixture = async (
+  root: string,
+  stateDatabase: string,
+  canvasesDir: string,
+  armed: boolean,
+): Promise<void> => {
+  const seedHelper = await compileSeedHelper(root);
+  const child = probeSupervisor.spawnGroup({
+    source: "kernel-headless-seed",
+    purpose: "seed isolated SQLite authority under Electron Node",
+    command: ELECTRON_BIN,
+    args: [seedHelper, stateDatabase, armed ? "armed" : "disarmed"],
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: "1",
+      HOME: root,
+      VELLUM_E2E: "1",
+      VELLUM_CANVASES_DIR: canvasesDir,
+      VELLUM_STATE_DB: stateDatabase,
+    },
+  });
+  const close = await probeSupervisor.waitForClose(
+    child,
+    SEED_TIMEOUT_MS,
+    `Electron SQLite seed helper exceeded ${SEED_TIMEOUT_MS}ms`,
+  );
+  if (
+    close.exitCode !== 0 ||
+    close.signal !== null ||
+    !close.stdout.includes("kernel-headless-seed: SQLITE SEEDED")
+  ) {
+    const diagnostic = `${close.stdout}\n${close.stderr}`.trim().slice(-8_192);
+    throw new Error(
+      `Electron SQLite seed helper failed (code ${String(close.exitCode)}, signal ${String(close.signal)})${diagnostic ? `\n${diagnostic}` : ""}`,
+    );
+  }
+};
 
 const setUpFixture = async (armed: boolean): Promise<Fixture> => {
   const sandbox = await createProbeSandbox(PROBE_TEMP_PREFIX);
@@ -129,40 +189,12 @@ const setUpFixture = async (armed: boolean): Promise<Fixture> => {
   const canvasesDir = join(root, "canvases");
   const stateDatabase = join(root, "state", "vellum.db");
   await mkdir(canvasesDir, { recursive: true });
-  // Isolate HOME so any accidental homedir() paths stay inside the sandbox.
-  const previousHome = process.env.HOME;
-  process.env.HOME = root;
-  process.env.VELLUM_CANVASES_DIR = canvasesDir;
-  const repositories = Layer.provideMerge(
-    WorkRepositoryLive,
-    makeStateEngineLive(stateDatabase),
-  );
-  const seedServices = Layer.provideMerge(
-    Layer.mergeAll(CanvasesLive, StoreLive),
-    repositories,
-  );
-  const runtime = ManagedRuntime.make(seedServices);
-  try {
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(
-      canvases.write(KERNEL_PROBE_CANVAS, makeKernelHeadlessFixture()),
-    );
-    if (armed) {
-      const store = await runtime.runPromise(StoreService);
-      await runtime.runPromise(store.set("kernel.armed", {
-        [`${KERNEL_PROBE_CANVAS}::${KERNEL_PROBE_REGION_ID}`]: true,
-      }));
-    }
-  } finally {
-    // The child may only start after this connection is closed.
-    await runtime.dispose();
-  }
+  await seedFixture(root, stateDatabase, canvasesDir, armed);
   return {
     root,
     userDataDir,
     canvasesDir,
     stateDatabase,
-    previousHome,
   };
 };
 
@@ -170,6 +202,10 @@ const spawnApp = (
   fixture: Fixture,
   rendererUrl: string,
 ): ProbeProcessHandle => {
+  const {
+    ELECTRON_RUN_AS_NODE: _electronRunAsNode,
+    ...electronEnvironment
+  } = process.env;
   const child = probeSupervisor.spawnGroup({
     source: "kernel-headless-probe",
     purpose: "run isolated headless Vellum fixture",
@@ -177,12 +213,13 @@ const spawnApp = (
     args: [MAIN_ENTRY, `--user-data-dir=${fixture.userDataDir}`, "--vellum-headless"],
     cwd: REPO_ROOT,
     env: {
-      ...process.env,
+      ...electronEnvironment,
       // Unpackaged Electron has no vellum-app:// protocol. Give the existing
       // trusted-origin guard an exact loopback root backed by the real built
       // renderer; never weaken or bypass the guard for headless mode.
       ELECTRON_RENDERER_URL: rendererUrl,
       HOME: fixture.root,
+      VELLUM_E2E: "1",
       VELLUM_BROWSER_DIR: join(fixture.root, "browser"),
       VELLUM_BROWSER_HOME: fixture.userDataDir,
       VELLUM_CANVASES_DIR: fixture.canvasesDir,
@@ -266,7 +303,7 @@ const nudgeTimerAfterKernelBaseline = async (
 
   // A timer is intentionally not fired on discovery. Wait past its first
   // schedule so the kernel safety evaluation (or due timer path) can fire
-  // without an authorial document rewrite — SQLite authority is the sole store.
+  // without an authorial document rewrite — SQLite is the sole durable authority.
   await sleep(KERNEL_PROBE_TIMER_EVERY_MINUTES * 60_000 + 250);
 };
 
@@ -290,11 +327,6 @@ const runPass = async (
     ]);
     console.log(`[probe] ${label}: PASS`);
   } finally {
-    if (fixture.previousHome === undefined) delete process.env.HOME;
-    else process.env.HOME = fixture.previousHome;
-    if (process.env.VELLUM_CANVASES_DIR === fixture.canvasesDir) {
-      delete process.env.VELLUM_CANVASES_DIR;
-    }
     const receipt = await probeSupervisor.stop(
       child,
       `kernel-headless-pass-finalize:${label}`,
@@ -313,6 +345,7 @@ const assertProbeBuildInputs = async (): Promise<void> => {
       access(ELECTRON_BIN, constants.X_OK),
       access(MAIN_ENTRY, constants.R_OK),
       access(RENDERER_ENTRY, constants.R_OK),
+      access(SEED_ENTRY, constants.R_OK),
     ]);
   } catch (error) {
     throw new Error(

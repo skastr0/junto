@@ -1,4 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { decodeCanvasDoc } from "../src/shared/canvas";
 import { isCanonicalCanvasName } from "../src/shared/canvas-name";
 import { agentKeysForExecutableSource } from "../src/shared/station";
@@ -53,6 +55,29 @@ const runOwnedCommand = async (
 };
 
 describe("kernel headless proof fixture", () => {
+  it("keeps SQLite seeding outside the Bun-facing probe process", async () => {
+    const probeSource = await readFile(
+      join(REPO_ROOT, "scripts", "kernel-headless-probe.ts"),
+      "utf8",
+    );
+    const seedSource = await readFile(
+      join(REPO_ROOT, "scripts", "kernel-headless-seed.ts"),
+      "utf8",
+    );
+
+    expect(probeSource).not.toContain('from "../src/main/vellum/state/engine"');
+    expect(probeSource).toContain('ELECTRON_RUN_AS_NODE: "1"');
+    expect(probeSource.match(/VELLUM_E2E: "1"/gu)).toHaveLength(2);
+    expect(seedSource).toContain(
+      'from "../src/main/vellum/state/engine"',
+    );
+    expect(seedSource).toContain("KernelStateRepository");
+    expect(seedSource).toContain("CanvasesService");
+    expect(seedSource).not.toContain("node:fs");
+    expect(seedSource).not.toContain("writeFile");
+    expect(seedSource).not.toMatch(/\.canvas\b/u);
+  });
+
   it("is a valid canvas with an executable timer routed to the local agent", () => {
     const doc = makeKernelHeadlessFixture();
     const timer = doc.nodes.find((node) => node.id === KERNEL_PROBE_TIMER_ID);

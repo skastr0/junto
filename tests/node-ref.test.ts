@@ -43,11 +43,11 @@ const reader = (
     list: Effect.succeed(summaries),
     read: (name) => {
       if (unreadable.has(name)) {
-        return Effect.fail(new CanvasError({ message: `${name}.canvas is corrupt` }));
+        return Effect.fail(new CanvasError({ message: `canvas ${name} is corrupt` }));
       }
       const doc = docs[name];
       return doc === undefined
-        ? Effect.fail(new CanvasError({ message: `${name}.canvas does not exist` }))
+        ? Effect.fail(new CanvasError({ message: `canvas ${name} does not exist` }))
         : Effect.succeed({
           name,
           doc,

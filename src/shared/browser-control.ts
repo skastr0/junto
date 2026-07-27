@@ -338,7 +338,7 @@ export const ScreenshotData = Schema.Struct({
 });
 export type ScreenshotData = typeof ScreenshotData.Type;
 
-/** A page node found in a .canvas document (link node with entity.kind "page"). */
+/** A page node found in an authorial canvas document (link node with entity.kind "page"). */
 export const PageNodeRow = Schema.Struct({
   ref: Schema.String,
   sessionId: Schema.NullOr(Schema.String),
