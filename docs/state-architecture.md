@@ -50,7 +50,7 @@ schema. Role changes row residency and runtime behavior, not table shape.
 | Settings and topology | Local preferences + CC configuration | Local preferences + paired Remote configuration |
 | Hosts | Enrolled fleet registry | Local installation state only |
 | Work | CC-homed rows; messages always here | Rows single-homed to this Station |
-| Events and receipts | Per-home outbound/inbound rows and peer ACK cursors | Per-home outbound/inbound rows and peer ACK cursors |
+| Events and receipts | Route-scoped Work streams, pending commands, dispositions, and transport ACK cursors | Route-scoped Work streams, dispositions, and transport ACK cursors |
 | Browser/process resources | Resources physically owned here | Resources physically owned here |
 
 No row is concurrently authoritative in two installations. A move to another
@@ -83,17 +83,29 @@ Tasks, task transitions, requests, messages, artifacts, and receipts are
 normalized rows. Canvas nodes author the existence and placement of work
 surfaces; their live contents do not force a canvas generation.
 
-Every work-plane mutation has one home and a home-local logical sequence.
-Every Station API event has:
+`WorkRepository` is the sole durable work/event authority. Every event identity
+is the route-local triple `(event_home, entity_home, seq)`. The sequence is
+monotonic only within that route, so two Remotes may each originate sequence
+one without ambiguity. Every Station API event has:
 
-- exactly one `home`;
-- a monotonic decimal logical sequence allocated by that home;
+- exactly one event origin and entity home;
+- a monotonic decimal logical sequence allocated within that route;
 - origin and received timestamps for display only;
 - a stable semantic content hash for idempotence.
 
-Ordering within a home compares logical sequences as integers. Wall-clock
+Ordering within a route compares logical sequences as integers. Wall-clock
 timestamps never order fleet history. Messages remain Command Center-homed
 because Command Center manages seat mailboxes.
+
+A Command Center mutation homed on a Remote is first persisted as a pending
+command. It is not materialized at Command Center. The Remote atomically
+applies or causally rejects the command under its installed projection and
+emits an ordered durable disposition. An applied disposition materializes the
+command at Command Center; a rejected disposition resolves it into the
+rejection ledger. ACKs advance transport only and never confer material
+authority. Work Doctor exposes the status of locally issued pending, applied,
+and rejected commands; route rejection history remains an internal diagnostic
+surface.
 
 ## Station API
 
@@ -104,7 +116,7 @@ The fleet protocol has five bounded, schema-decoded operations:
 | `pair` | Bind one Remote installation to one Command Center installation |
 | `configure` | Commit role-specific topology and projected browser trust |
 | `project` | Install one complete replace-only canvas projection |
-| `report` | Exchange events after cumulative per-home ACK cursors |
+| `report` | Exchange canonical Work events and dispositions after cumulative route ACK cursors |
 | `status` | Report installation identity, configuration, projection, cursors, and readiness |
 
 Command Center invokes the fixed `vellum-station` executable through the
@@ -119,10 +131,23 @@ Projection installation is monotonic:
 - an older generation is stale;
 - the same generation with a different hash is a conflict.
 
-Reports send events strictly after the peer's acknowledged sequence. The
-receiver accepts only contiguous per-home progress; gaps fail closed.
-Completed ACKs are durable, so repeating a tick or losing an outer response
-cannot duplicate semantic work.
+Reports send canonical Work events strictly after the peer's acknowledged
+route sequence. The receiver accepts only contiguous progress; gaps fail
+closed. A Remote writes the command disposition before acknowledging the
+command. Completed ACKs are durable, so repeating a tick or losing an outer
+response cannot duplicate semantic work.
+
+Every installation must be explicitly configured before Work may mutate.
+Configured role and host identity are immutable until an explicit transfer
+ceremony exists. Fleet `hostId → stationInstallationId` bindings are also
+immutable: removal retires the active target but preserves its identity
+tombstone; exact reactivation is allowed, while replacing it with a fresh
+installation requires a new host identity.
+
+Station projections are complete, replace-only canonical portfolio envelopes.
+Their canvas bodies pass the same strict authorial decoder as Command Center
+storage. Malformed, noncanonical, or runtime-work-bearing bodies fail before
+any projection or cursor state is persisted.
 
 ## Independent ticks
 
@@ -173,7 +198,8 @@ A storage change is releasable only when:
    ACK advancement are transactionally proven;
 4. a Remote can continue its local simulation from its database while Command
    Center is closed;
-5. reconnect retries converge by generation and logical cursor;
+5. reconnect retries converge by generation, route cursor, and durable command
+   disposition;
 6. headless and SSH helpers are proven to reach the app rather than the file;
 7. `VACUUM INTO` produces a coherent owner-only backup;
 8. repository search finds no retired product-state path.

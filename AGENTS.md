@@ -7,7 +7,7 @@ vellum is a desktop station (Electron + Effect + React) that renders a **portfol
 [`docs/security-doctrine.md`](docs/security-doctrine.md) is the governing
 product trust model. It defines Vellum as a single-operator factory, attached
 agents as trusted but fallible, edges as enforceable operator intent inside
-Vellum, and Stations as stateless consumers of Command Center intent. If a
+Vellum, and Stations as single-home executors of Command Center intent. If a
 review, backlog item, test, or older architecture note conflicts with it, the
 conflict must be removed rather than preserved as a compatibility path.
 
@@ -18,7 +18,8 @@ is `~/.vellum/state/vellum.db`. The Electron main process owns its one
 IPC/control APIs and never open the database. Every installation runs the same
 schema. Command Center holds authorial canvases and fleet coordination; a
 Remote holds its replace-only projection and host-local work. Single-home rows
-and per-home logical sequences make station clocks irrelevant to correctness.
+and route-local `(event_home, entity_home, seq)` Work identities make station
+clocks irrelevant to correctness.
 JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
 not durability or input watched by the app.
 
@@ -112,7 +113,8 @@ state. (2) A watcher or timer executes only on its single home installation.
 (3) `everyMinutes` catch-up coalesces missed intervals into at most one firing;
 future timer kinds must declare a catch-up policy explicitly. (4) Arming is
 runtime control, not authored canvas intent. Wall-clock timestamps are display
-and due-time metadata only; fleet ordering uses per-home logical sequences.
+and due-time metadata only; fleet ordering uses route-local
+`(event_home, entity_home, seq)` Work identities.
 
 ## Sources (read-only adapters)
 

@@ -487,11 +487,25 @@ transaction. SSH never writes settings, projections, acknowledgements, status,
 or database files.
 
 Projection transfer is complete and replace-only. Work and receipt propagation
-uses per-home monotonic logical sequences and cumulative acknowledgements.
-Retries send rows after the last acknowledged sequence and are idempotent.
-Origin and received timestamps are retained for operator display; neither is
-an ordering key. Tick phase and wall-clock drift can change propagation
+uses route-local `(event_home, entity_home, seq)` identities and cumulative
+acknowledgements. Retries send canonical Work rows after the last acknowledged
+route sequence and are idempotent. A Command Center mutation homed on a Remote
+remains a pending command until that Remote durably applies or causally rejects
+it and returns an ordered disposition; transport ACK alone never materializes
+it. Origin and received timestamps are retained for operator display; neither
+is an ordering key. Tick phase and wall-clock drift can change propagation
 latency, never ownership or ordering.
+
+Role is never inferred, and an unconfigured installation rejects every work
+mutation without writing an event or material row. Configured role and host
+identity are immutable until an explicit transfer ceremony exists. Fleet
+host-to-installation bindings follow the same rule: retirement preserves the
+identity tombstone, exact reactivation is allowed, and fresh-install
+replacement requires a new host identity.
+
+A Remote may mutate only rows homed on its configured host. Actor inbox
+messages are always Command Center-homed: a Remote cannot append an unscoped
+inbox message, while host-local task and request history remains permitted.
 
 Schedulers obey the same single-home law. A local tick evaluates only
 schedulers homed on that installation. The current interval timer kind

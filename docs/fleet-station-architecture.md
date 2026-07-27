@@ -27,7 +27,10 @@ homed there under the latest complete Command Center projection.
 5. No Station-to-Station control plane exists.
 6. A work row, executable node, watcher, or timer has exactly one home.
 7. A local tick operates only on locally homed state.
-8. Timestamps are metadata. Per-home logical sequences order propagation.
+8. Timestamps are metadata. Route-local `(event_home, entity_home, seq)`
+   identities order propagation.
+9. Role, configured host identity, and fleet host-to-installation binding are
+   immutable until an explicit transfer ceremony exists.
 
 ## Intent and work flow
 
@@ -38,14 +41,18 @@ Command Center authors one full canvas generation
   → Remote main validates and transactionally replaces station_projection
   → Remote simulation reads that projection and its locally homed work
 
-Remote and Command Center produce local events
-  → report sends rows after the peer's cumulative ACK
-  → receiver admits contiguous logical sequences transactionally
-  → retries converge idempotently
+Command Center persists a Remote-homed mutation as pending
+  → report sends it on that host's canonical Work stream
+  → Remote atomically applies or causally rejects it
+  → Remote durably emits a disposition before acknowledging the command
+  → Command Center materializes only an applied disposition
+  → retries converge idempotently by route cursor
 ```
 
 The projection is a replaceable cache of intent, not an independently
-authoritative canvas. A Remote never merges or edits it.
+authoritative canvas. A Remote never merges or edits it. Projection bodies are
+strict canonical portfolio envelopes: malformed, noncanonical, or
+runtime-work-bearing canvases fail before persistence.
 
 When Command Center is unavailable, a Remote continues under its installed
 projection and local database. When a Remote is unavailable, Command Center
@@ -56,6 +63,10 @@ unreachable. Neither side invents synchronization.
 
 `pair`, `configure`, `project`, `report`, and `status` are the complete fleet
 protocol. Each request and response is bounded and decoded with Effect Schema.
+An unconfigured installation rejects every work mutation. Once configured,
+role and host identity cannot change. Removing a fleet target preserves the
+host-to-installation tombstone; exact reactivation is permitted, but silently
+substituting a fresh installation is not.
 
 OpenSSH authenticates and transports the fixed `vellum-station` command. The
 helper relays to the app's owner-local Station control socket. It accepts no
@@ -99,7 +110,8 @@ node runs; it does not grant a capability.
 - Pair and configure persist only through the Remote Station API.
 - Projection replacement survives restart and rejects stale/conflicting
   generations.
-- Event exchange survives interruption and converges by logical ACK cursor.
+- Command/disposition exchange survives interruption and converges by logical
+  route cursor.
 - A Remote executes only its single-home watchers, timers, and work.
 - Offline Remote simulation works with Command Center closed.
 - No `.canvas` pull, settings stamp, manifest, frame, ACK file, or status JSON

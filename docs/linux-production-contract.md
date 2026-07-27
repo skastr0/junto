@@ -96,7 +96,8 @@ requests with the running Remote app.
 - `pair` binds installation identities.
 - `configure` commits role-specific topology.
 - `project` replaces the complete projection transactionally.
-- `report` exchanges per-home logical events and cumulative ACKs.
+- `report` exchanges route-local canonical Work events, dispositions, and
+  cumulative ACKs.
 - `status` observes identity, projection, cursors, and readiness.
 
 No fleet request accepts a remote path or shell body. The helper never opens

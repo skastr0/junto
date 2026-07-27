@@ -109,7 +109,7 @@ Standard **JSON Canvas 1.0** (`text`, `file`, `link`, `group`) plus optional `et
 1. **Graceful degradation** — strip every `ether` key and the file is still valid JSON Canvas 1.0 (Obsidian opens it).
 2. **Mirror law** — extension semantics project into native fields (blocker → red; derived phase may project to edge label/color).
 
-Derived state (blocked closure, region membership, binding health, live phase) is **never stored** — recomputed from the document + live sources.
+Derived state (blocked seats, region membership, binding health, live phase) is **never stored** — recomputed from the document + live sources.
 
 **Canonical serialize:** stable key order, 2-space indent, trailing newline.
 
@@ -134,12 +134,12 @@ Derived state (blocked closure, region membership, binding health, live phase) i
 | **terminal** | text | Native Vellum PTY session (`ether.terminal`) | Default local terminal work surface |
 | **herdr** | text | Optional legacy bound PTY pane | Compatibility with existing herdr fleets |
 | **page** | link | Bound browser page + profile name | Browser as a first-class fleet surface |
-| **task** | text | A2A task list store (`ether.tasks.items`) | Protocol tasks, not chat chaos |
-| **requests** | text | Pending input-required shelf | Operator attention queue |
-| **artifacts** | text | Published artifact shelf | Shareable outputs on the board |
+| **task** | text | Address for a normalized SQLite task sink | Protocol tasks, not chat chaos |
+| **requests** | text | Address for a normalized input-required shelf | Operator attention queue |
+| **artifacts** | text | Address for a normalized artifact shelf | Shareable outputs on the board |
 | **watcher** | text | Predicate over live data (`ether.watch`) | Edge-routed pulse when conditions hit |
 | **timer** | text | Interval clock (`ether.timer.everyMinutes`) | Periodic edge-routed pulse |
-| **project / orbit / plugin / station / skill** | text | Document vocabulary labels | Portfolio geography; private sources offline-degrade |
+| **project / orbit / plugin / station / skill** | text | Inert open-vocabulary labels | Portfolio geography without invented runtime authority |
 
 ### Structural stamps
 
@@ -150,9 +150,11 @@ Derived state (blocked closure, region membership, binding health, live phase) i
 | **Host stamp** | `ether.host` — multi-fleet execution locality |
 | **Region defaults** | Create-time defaults for herdr/page inside a region |
 | **Region hold / instruction** | Structural container + briefing context; not an automatic delivery route |
-| **Messages store** | `ether.messages` on agent/herdr principals |
 
-**Not blockable:** agent, watcher, timer, herdr, page, free notes, groups — never members of the blocked set.
+Work contents never persist in authorial `ether`; task, request, message,
+artifact, and transition rows belong to the SQLite Work plane and are projected
+only for runtime rendering. Blockability derives from factory role. Only actor
+nodes can receive stoppage.
 
 ### Native terminals
 
@@ -169,12 +171,14 @@ local station; quitting Vellum detaches its surfaces rather than deleting herdr.
 
 | Mode | Behavior |
 |---|---|
-| **No criteria** | Soft **relates** — never generates or relays blocks |
-| **`glyphs`** | Selected glyph ids must be `done` (blocks while pending; depends when clear). Missing glyph data does not invent blocks |
-| **`wip`** | Opt-in: any glyph in `committed` \| `building` \| `reviewing` blocks |
-| **`tasks`** | From a **task** node: non-terminal A2A items block. From a **requests** node: items still `input-required` block |
+| **No criteria** | Soft **relates** — never generates stoppage |
+| **`tasks`** | Attention only: `input-required` / `auth-required` on the source task or requests sink blocks its connected actor. `submitted` / `working` never block |
+| **`proof`** | Blocks the connected actor until the matching runtime proof stamp exists |
+| **`approval`** | Blocks the connected actor until the matching human grant exists |
 
-Live phase is **derived** (`blocks` \| `depends` \| `relates`). Optional `ether.kind` is only an offline mirror — never author phase by hand. Blocked nodes relay through outbound blocks/depends edges.
+Live phase is **derived** (`blocks` \| `relates`). Optional `ether.kind` is only
+an offline mirror — never author phase by hand. There is no actor-to-actor
+relay or multi-hop stoppage cascade.
 
 ---
 
@@ -519,7 +523,7 @@ serve catalog lives in Settings.
 | Path / env | What |
 |---|---|
 | `~/.vellum/state/vellum.db` | Sole durable product state |
-| `~/.vellum/canvases/` | Explicit JSON Canvas, digest, and SVG outputs only |
+| `~/.vellum/canvases/` | Digest and SVG sidecar outputs only |
 | `~/.vellum/work/` | Work control sock + token |
 | `~/.vellum/browser/` | Browser control + profiles + shots |
 | `VELLUM_WORK_HOME` | Override work control dir |
@@ -576,9 +580,9 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 | Mode | Behavior |
 |---|---|
 | none | Soft relates |
-| `glyphs` | Selected glyphs must be `done` |
-| `wip` | Opt-in WIP blocking |
-| `tasks` | Non-terminal A2A / input-required blocks |
+| `tasks` | Attention-only stoppage on a connected actor |
+| `proof` | Blocks until the matching runtime proof stamp |
+| `approval` | Blocks until the matching human grant |
 
 ---
 
@@ -587,7 +591,7 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 | Path / env | What |
 |---|---|
 | `~/.vellum/state/vellum.db` | Sole durable product state |
-| `~/.vellum/canvases/` | Explicit JSON Canvas, digest, and SVG outputs only |
+| `~/.vellum/canvases/` | Digest and SVG sidecar outputs only |
 | `~/.vellum/work/` | Work control sock + token |
 | `~/.vellum/browser/` | Browser control + profiles + shots |
 | `VELLUM_WORK_HOME` | Override work control dir |
@@ -639,7 +643,7 @@ vellum-browser goto | eval | shot | close | stop
 | Path / env | What |
 |---|---|
 | `~/.vellum/state/vellum.db` | Sole durable product state |
-| `~/.vellum/canvases/` | Explicit JSON Canvas, digest, and SVG outputs only |
+| `~/.vellum/canvases/` | Digest and SVG sidecar outputs only |
 | `~/.vellum/work/` | Work control sock + token |
 | `~/.vellum/browser/` | Browser control + profiles + shots |
 | `VELLUM_WORK_HOME` | Override work control dir |
