@@ -168,19 +168,6 @@ export const makeStationStatusLive = (): Layer.Layer<
     Effect.gen(function* () {
       const engine = yield* StateEngine;
 
-      // One-way consolidation for existing development databases. The retired
-      // rows have canonical homes now and are not imported or interpreted.
-      yield* engine
-        .transaction("station-status.consolidate", (writer) => {
-          writer.run(
-            `DELETE FROM station_status_facts
-              WHERE kind NOT IN ('kernel', 'deployment')`,
-          );
-        })
-        .pipe(
-          Effect.mapError((error) => fromStateError("consolidate", error)),
-        );
-
       const read = engine
         .read("station-status.read", readDocument)
         .pipe(
