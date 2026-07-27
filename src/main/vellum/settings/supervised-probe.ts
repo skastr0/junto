@@ -4,9 +4,6 @@ import {
 } from "../supervision/select";
 import type { StationSupervisor } from "../supervision/contract";
 
-/** Compatibility name for the Darwin launchd service label. */
-export const VELLUM_LAUNCHD_LABEL = "skastr0.vellum";
-
 export type SupervisedProbe = () => Promise<SupervisedInstallState>;
 
 const installStateFromObservation = (

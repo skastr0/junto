@@ -1,11 +1,30 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { StationSupervisor } from "../src/main/vellum/supervision/contract";
+import { VELLUM_LAUNCHD_LABEL } from "../src/main/vellum/settings/launchctl-runner";
 import { createSupervisedProbe } from "../src/main/vellum/settings/supervised-probe";
 
 const supervisor = (state: unknown) =>
   ({ observe: vi.fn(async () => state) }) as unknown as StationSupervisor;
 
 describe("supervised station probe", () => {
+  it("keeps one canonical launchd service label", () => {
+    const root = join(import.meta.dirname, "..");
+    const runner = readFileSync(
+      join(root, "src/main/vellum/settings/launchctl-runner.ts"),
+      "utf8",
+    );
+    const probe = readFileSync(
+      join(root, "src/main/vellum/settings/supervised-probe.ts"),
+      "utf8",
+    );
+    expect(VELLUM_LAUNCHD_LABEL).toBe("skastr0.vellum");
+    expect(runner.match(/skastr0\.vellum/gu)).toHaveLength(1);
+    expect(probe).not.toContain("VELLUM_LAUNCHD_LABEL");
+    expect(probe).not.toContain("skastr0.vellum");
+  });
+
   it.each([
     ["active", "installed"],
     ["inactive", "absent"],
