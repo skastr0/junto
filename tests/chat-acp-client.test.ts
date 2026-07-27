@@ -3,12 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AcpClient,
   AcpRpcError,
-  makeLocalBrowserChildEnvironment,
   type AcpChildLike,
   type AcpClientHandlers,
   type JsonRpcId,
 } from "../src/main/vellum/chat/acp-client";
-import { buildAcpSpawnTarget, type AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
+import { buildAcpSpawnTarget } from "../src/main/vellum/chat/spawn";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 
 const TARGET = buildAcpSpawnTarget("local:default")!;
@@ -66,7 +65,8 @@ async function startedClient(
 describe("AcpClient.start", () => {
   it("sends the initialize handshake with the proven wire shape", () => {
     const child = new FakeChild();
-    const client = new AcpClient(TARGET, noopHandlers(), () => spawnedLocalAcp(child));
+    const spawn = vi.fn(() => spawnedLocalAcp(child));
+    const client = new AcpClient(TARGET, noopHandlers(), spawn);
     clients.push(client);
 
     // This test only cares about the synchronous write; afterEach's cleanup
@@ -75,6 +75,7 @@ describe("AcpClient.start", () => {
     client.start().catch(() => {});
 
     expect(child.written).toHaveLength(1);
+    expect(spawn.mock.calls).toEqual([[TARGET]]);
     expect(JSON.parse(child.written[0]!)).toEqual({
       jsonrpc: "2.0",
       id: 1,
@@ -100,74 +101,6 @@ describe("AcpClient.start", () => {
       kind: "error",
       message: "ACP inbound frame exceeded the 1 MiB limit",
     });
-  });
-
-  it("consumes a validated local child overlay at spawn without changing ACP intent", async () => {
-    const child = new FakeChild();
-    const spawn = vi.fn(() => spawnedLocalAcp(child));
-    const overlay = makeLocalBrowserChildEnvironment({
-      capability: Buffer.alloc(32, 0xa1).toString("base64url"),
-      home: "/tmp/vellum-browser",
-    });
-    const client = new AcpClient(TARGET, noopHandlers(), spawn, overlay);
-    clients.push(client);
-    const start = client.start();
-
-    expect(spawn).toHaveBeenCalledWith(TARGET, { environmentOverlay: overlay });
-    expect(TARGET).toEqual({ host: "local", profile: "default" });
-    expect(child.written[0]).not.toContain(overlay.VELLUM_BROWSER_CAPABILITY);
-    expect(child.written[0]).not.toContain(overlay.VELLUM_BROWSER_HOME);
-    respondOk(child, lastSentId(child), {
-      protocolVersion: 1,
-      agentCapabilities: { loadSession: true },
-      authMethods: [],
-    });
-    await start;
-  });
-
-  it("rejects a remote child overlay before invoking spawn", async () => {
-    const remote: AcpSpawnTarget = buildAcpSpawnTarget("remote-a:default")!;
-    const spawn = vi.fn(() => spawnedLocalAcp(new FakeChild()));
-    const client = new AcpClient(
-      remote,
-      noopHandlers(),
-      spawn,
-      makeLocalBrowserChildEnvironment({
-        capability: Buffer.alloc(32, 0xa1).toString("base64url"),
-        home: "/tmp/vellum-browser",
-      }),
-    );
-    clients.push(client);
-
-    await expect(client.start()).rejects.toThrow("local-only");
-    expect(spawn).not.toHaveBeenCalled();
-  });
-
-  it("rejects malformed or oversized environment values", () => {
-    expect(() => makeLocalBrowserChildEnvironment({
-      capability: "short",
-      home: "/tmp/vellum-browser",
-    })).toThrow("invalid format");
-    expect(() => makeLocalBrowserChildEnvironment({
-      capability: "a".repeat(43),
-      home: "/tmp/vellum-browser",
-    })).toThrow("invalid format");
-    expect(() => makeLocalBrowserChildEnvironment({
-      capability: Buffer.alloc(32, 0xa1).toString("base64url"),
-      home: "relative/path",
-    })).toThrow("bounded absolute path");
-    expect(() => makeLocalBrowserChildEnvironment({
-      capability: Buffer.alloc(32, 0xa1).toString("base64url"),
-      home: "/tmp/vellum\tbrowser",
-    })).toThrow("bounded absolute path");
-    expect(() => makeLocalBrowserChildEnvironment({
-      capability: Buffer.alloc(32, 0xa1).toString("base64url"),
-      home: "/tmp/vellum\u007fbrowser",
-    })).toThrow("bounded absolute path");
-    expect(() => makeLocalBrowserChildEnvironment({
-      capability: Buffer.alloc(32, 0xa1).toString("base64url"),
-      home: `/${"x".repeat(4_097)}`,
-    })).toThrow("bounded absolute path");
   });
 
   it("rejects and kills the child after 20s with no response", async () => {

@@ -24,7 +24,6 @@ import {
 } from "../adapters/hermes-identity";
 import { appProcessPlane } from "../app-process-plane";
 import type {
-  AcpChildEnvironmentOverlay,
   AcpChildLike,
   SpawnFn,
 } from "../chat/acp-client";
@@ -382,16 +381,10 @@ export const HermesPlaneLive = Layer.scoped(
       avatar: (host, profile) => runOwned(transport.avatar(host, profile)),
     };
 
-    const spawnAcp: SpawnFn = (
-      target: AcpSpawnTarget,
-      options?: { readonly environmentOverlay?: AcpChildEnvironmentOverlay },
-    ) => {
+    const spawnAcp: SpawnFn = (target: AcpSpawnTarget) => {
       // Only the legacy local alias and this station's configured Hermes self
       // key are direct children. Every other key remains registry/SSH-backed.
       if (!isLocalHermesHost(target.host, stationIdentity)) {
-        if (options?.environmentOverlay !== undefined) {
-          throw new Error("ACP child environment overlays are local-only");
-        }
         const child = new EffectAcpChild(
           runPromise,
           transport,
@@ -406,15 +399,12 @@ export const HermesPlaneLive = Layer.scoped(
         };
       }
 
-      const env = options?.environmentOverlay === undefined
-        ? resolvedSpawnEnvSync()
-        : { ...resolvedSpawnEnvSync(), ...options.environmentOverlay };
       const lease = appProcessPlane.spawnChild({
         source: `hermes-acp:${target.profile}`,
         purpose: `local ACP session for ${target.profile}`,
         command: "hermes",
         args: acpArgs(target.profile),
-        env,
+        env: resolvedSpawnEnvSync(),
       });
       return {
         kind: "local-process",

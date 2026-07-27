@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AcpChildLike,
-  AcpSpawnOptions,
   JsonRpcId,
   SpawnFn,
 } from "../src/main/vellum/chat/acp-client";
@@ -77,23 +76,18 @@ const INIT_RESULT = (authMethods: ReadonlyArray<{ id?: string; name?: string }> 
 function fakeSpawn(pids: ReadonlyArray<number | undefined> = []): {
   spawnFn: SpawnFn;
   children: FakeChild[];
-  calls: Array<{ readonly target: AcpSpawnTarget; readonly options?: AcpSpawnOptions }>;
+  calls: Array<{ readonly target: AcpSpawnTarget }>;
 } {
   const children: FakeChild[] = [];
-  const calls: Array<{ readonly target: AcpSpawnTarget; readonly options?: AcpSpawnOptions }> = [];
-  const spawnFn: SpawnFn = (target, options) => {
+  const calls: Array<{ readonly target: AcpSpawnTarget }> = [];
+  const spawnFn: SpawnFn = (target) => {
     const child = new FakeChild(pids[children.length]);
     children.push(child);
-    calls.push({ target, ...(options !== undefined ? { options } : {}) });
+    calls.push({ target });
     return spawnedLocalAcp(child);
   };
   return { spawnFn, children, calls };
 }
-
-const BROWSER_AUTHORITY = {
-  capability: Buffer.alloc(32, 0xa1).toString("base64url"),
-  home: "/tmp/vellum-browser",
-};
 
 // Drives chatOpen for the given agent key through a successful handshake +
 // session/new, returning once the open has resolved. Takes the shared
@@ -118,21 +112,6 @@ async function openHappyPath(
   }); // session/new
   const result = await openPromise;
   return { result, child };
-}
-
-async function finishPendingOpen(
-  openPromise: Promise<Awaited<ReturnType<ChatService["chatOpen"]>>>,
-  child: FakeChild,
-  sessionId = "sess-authorized",
-): Promise<Awaited<ReturnType<ChatService["chatOpen"]>>> {
-  await waitForWrites(child, 1);
-  respondOk(child, lastSentId(child), INIT_RESULT());
-  await waitForWrites(child, 2);
-  respondOk(child, lastSentId(child), {
-    sessionId,
-    models: { availableModels: [] },
-  });
-  return openPromise;
 }
 
 afterEach(() => {
@@ -306,234 +285,6 @@ describe("chatOpen", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("no credentials configured");
     expect(result.error).toContain("auth methods available: Environment Variable");
-  });
-});
-
-describe("local browser authority child environment", () => {
-  it("passes a copied one-shot overlay only to the selected local child", async () => {
-    const { spawnFn, children, calls } = fakeSpawn();
-    const service = new ChatService(spawnFn);
-    const processCapability = process.env.VELLUM_BROWSER_CAPABILITY;
-    const processHome = process.env.VELLUM_BROWSER_HOME;
-
-    const open = service.chatOpenWithLocalBrowserAuthority(
-      "local:default",
-      BROWSER_AUTHORITY,
-    );
-    expect(children).toHaveLength(1);
-    expect(calls[0]).toEqual({
-      target: {
-        host: "local",
-        profile: "default",
-      },
-      options: {
-        environmentOverlay: {
-          VELLUM_BROWSER_CAPABILITY: BROWSER_AUTHORITY.capability,
-          VELLUM_BROWSER_HOME: BROWSER_AUTHORITY.home,
-        },
-      },
-    });
-    expect(process.env.VELLUM_BROWSER_CAPABILITY).toBe(processCapability);
-    expect(process.env.VELLUM_BROWSER_HOME).toBe(processHome);
-
-    const result = await finishPendingOpen(open, children[0]!);
-    expect(result).toMatchObject({ ok: true, sessionId: "sess-authorized" });
-    const wire = children[0]!.written.join("");
-    expect(wire).not.toContain(BROWSER_AUTHORITY.capability);
-    expect(wire).not.toContain(BROWSER_AUTHORITY.home);
-  });
-
-  it("admits the exact configured self prefix without admitting another fleet prefix", async () => {
-    const { spawnFn, children, calls } = fakeSpawn();
-    const service = new ChatService(
-      spawnFn,
-      (host) => host === "local" || host === "fleet-studio",
-    );
-
-    const open = service.chatOpenWithLocalBrowserAuthority(
-      "fleet-studio:default",
-      BROWSER_AUTHORITY,
-    );
-    expect(calls[0]).toMatchObject({
-      target: { host: "fleet-studio", profile: "default" },
-      options: {
-        environmentOverlay: {
-          VELLUM_BROWSER_CAPABILITY: BROWSER_AUTHORITY.capability,
-          VELLUM_BROWSER_HOME: BROWSER_AUTHORITY.home,
-        },
-      },
-    });
-    await expect(finishPendingOpen(open, children[0]!)).resolves.toMatchObject({
-      ok: true,
-    });
-
-    await expect(
-      service.chatOpenWithLocalBrowserAuthority(
-        "fleet-render:default",
-        BROWSER_AUTHORITY,
-      ),
-    ).resolves.toEqual({
-      ok: false,
-      error: "browser authority child environment is local-only",
-    });
-    expect(children).toHaveLength(1);
-    service.stopIdleSweep();
-  });
-
-  it("rejects remote and malformed overlays before spawning", async () => {
-    const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
-    await expect(
-      service.chatOpenWithLocalBrowserAuthority("remote-a:default", BROWSER_AUTHORITY),
-    ).resolves.toEqual({
-      ok: false,
-      error: "browser authority child environment is local-only",
-    });
-    await expect(
-      service.chatOpenWithLocalBrowserAuthority("local:default", {
-        capability: "short",
-        home: "relative",
-      }),
-    ).resolves.toMatchObject({ ok: false });
-    expect(children).toHaveLength(0);
-  });
-
-  it("isolates concurrent local agents to their own overlay", async () => {
-    const { spawnFn, children, calls } = fakeSpawn();
-    const service = new ChatService(spawnFn);
-    const authorityB = {
-      capability: Buffer.alloc(32, 0xb2).toString("base64url"),
-      home: "/tmp/vellum-browser-b",
-    };
-    const openA = service.chatOpenWithLocalBrowserAuthority(
-      "local:agent-a",
-      BROWSER_AUTHORITY,
-    );
-    const openB = service.chatOpenWithLocalBrowserAuthority(
-      "local:agent-b",
-      authorityB,
-    );
-
-    expect(calls[0]?.options?.environmentOverlay?.VELLUM_BROWSER_CAPABILITY)
-      .toBe(BROWSER_AUTHORITY.capability);
-    expect(calls[1]?.options?.environmentOverlay?.VELLUM_BROWSER_CAPABILITY)
-      .toBe(authorityB.capability);
-    await Promise.all([
-      finishPendingOpen(openA, children[0]!, "sess-a"),
-      finishPendingOpen(openB, children[1]!, "sess-b"),
-    ]);
-  });
-
-  it("requires deliberate restart and automatically resumes the current live ACP session", async () => {
-    const { spawnFn, children, calls } = fakeSpawn();
-    const service = new ChatService(spawnFn);
-    await openHappyPath(service, children, "local:default", { sessionId: "sess-current" });
-
-    await expect(
-      service.chatOpenWithLocalBrowserAuthority("local:default", BROWSER_AUTHORITY),
-    ).resolves.toEqual({
-      ok: false,
-      error: "chat session already open or opening — use deliberate authority restart",
-    });
-    expect(children).toHaveLength(1);
-
-    const restart = service.chatRestartWithLocalBrowserAuthority(
-      "local:default",
-      BROWSER_AUTHORITY,
-    );
-    expect(children[0]!.kill).toHaveBeenCalled();
-    expect(children).toHaveLength(2);
-    expect(calls[1]?.options?.environmentOverlay?.VELLUM_BROWSER_CAPABILITY)
-      .toBe(BROWSER_AUTHORITY.capability);
-    const restartedChild = children[1]!;
-    await waitForWrites(restartedChild, 1);
-    respondOk(restartedChild, lastSentId(restartedChild), INIT_RESULT());
-    await waitForWrites(restartedChild, 2);
-    expect(methodOf(restartedChild, 1)).toBe("session/load");
-    expect(paramsOf(restartedChild, 1)).toEqual({
-      sessionId: "sess-current",
-      cwd: homedir(),
-      mcpServers: [],
-    });
-    respondOk(restartedChild, lastSentId(restartedChild), {
-      models: { availableModels: [] },
-    });
-    await expect(restart).resolves.toEqual({
-      ok: true,
-      sessionId: "sess-current",
-      resumed: true,
-      models: [],
-    });
-  });
-
-  it("prefers an explicit resume id over the current live ACP session", async () => {
-    const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
-    await openHappyPath(service, children, "local:default", { sessionId: "sess-current" });
-
-    const restart = service.chatRestartWithLocalBrowserAuthority(
-      "local:default",
-      BROWSER_AUTHORITY,
-      "sess-explicit",
-    );
-    const restartedChild = children[1]!;
-    await waitForWrites(restartedChild, 1);
-    respondOk(restartedChild, lastSentId(restartedChild), INIT_RESULT());
-    await waitForWrites(restartedChild, 2);
-    expect(methodOf(restartedChild, 1)).toBe("session/load");
-    expect(paramsOf(restartedChild, 1)).toEqual({
-      sessionId: "sess-explicit",
-      cwd: homedir(),
-      mcpServers: [],
-    });
-    respondOk(restartedChild, lastSentId(restartedChild), {
-      models: { availableModels: [] },
-    });
-
-    await expect(restart).resolves.toEqual({
-      ok: true,
-      sessionId: "sess-explicit",
-      resumed: true,
-      models: [],
-    });
-  });
-
-  it("revocation cancels an in-flight restart before stale authority can respawn", async () => {
-    const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
-    const original = service.chatOpen("local:default");
-    expect(children).toHaveLength(1);
-
-    const restart = service.chatRestartWithLocalBrowserAuthority(
-      "local:default",
-      BROWSER_AUTHORITY,
-    );
-    await expect(service.chatRevokeLocalBrowserAuthority("local:default"))
-      .resolves.toEqual({ ok: true });
-
-    await expect(original).resolves.toMatchObject({ ok: false });
-    await expect(restart).resolves.toEqual({
-      ok: false,
-      error: "authority restart superseded",
-    });
-    expect(children).toHaveLength(1);
-    expect(children[0]!.kill).toHaveBeenCalled();
-  });
-
-  it("does not reuse a consumed overlay after an unexpected child exit", async () => {
-    const { spawnFn, children, calls } = fakeSpawn();
-    const service = new ChatService(spawnFn);
-    const authorized = service.chatOpenWithLocalBrowserAuthority(
-      "local:default",
-      BROWSER_AUTHORITY,
-    );
-    await finishPendingOpen(authorized, children[0]!);
-    children[0]!.emit("exit", 1);
-
-    const ordinary = service.chatOpen("local:default");
-    expect(calls[1]?.options).toBeUndefined();
-    await expect(finishPendingOpen(ordinary, children[1]!, "sess-ordinary"))
-      .resolves.toMatchObject({ ok: true, sessionId: "sess-ordinary" });
   });
 });
 
@@ -971,40 +722,6 @@ describe("closeAll convergence", () => {
     await expect(prompt).resolves.toMatchObject({ ok: false });
     await expect(model).resolves.toMatchObject({ ok: false });
     await expect(shutdown).resolves.toMatchObject({ clean: true });
-  });
-
-  it("drains an in-flight authority restart without allowing its replacement to survive", async () => {
-    const { spawnFn, children } = fakeSpawn();
-    const service = new ChatService(spawnFn);
-    const { child: original } = await openHappyPath(service, children);
-    original.kill.mockImplementation((signal?: NodeJS.Signals) => {
-      if (signal === "SIGTERM") original.emit("close", 0);
-      return true;
-    });
-
-    const restart = service.chatRestartWithLocalBrowserAuthority(
-      "local:default",
-      BROWSER_AUTHORITY,
-    );
-    await flush();
-    const replacement = children[1]!;
-    expect(replacement).toBeDefined();
-    replacement.kill.mockImplementation((signal?: NodeJS.Signals) => {
-      if (signal === "SIGTERM") replacement.emit("close", 0);
-      return true;
-    });
-
-    const shutdown = service.closeAll();
-
-    await expect(restart).resolves.toMatchObject({ ok: false });
-    await expect(shutdown).resolves.toEqual({
-      clean: true,
-      teardowns: [
-        { kind: "terminal", event: "close", code: 0 },
-        { kind: "terminal", event: "close", code: 0 },
-      ],
-    });
-    expect(children).toHaveLength(2);
   });
 
   it("contains a throwing event sink while lifecycle cleanup continues", async () => {

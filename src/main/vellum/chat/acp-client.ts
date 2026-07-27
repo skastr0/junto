@@ -1,4 +1,3 @@
-import { isAbsolute } from "node:path";
 import type {
   AppChildIo,
   AppProcessLease,
@@ -106,73 +105,15 @@ export type SpawnedAcpChild =
       readonly isClean: () => boolean;
     };
 
-export interface LocalBrowserChildEnvironmentInput {
-  readonly capability: string;
-  readonly home: string;
-}
-
-export interface AcpChildEnvironmentOverlay {
-  readonly VELLUM_BROWSER_CAPABILITY: string;
-  readonly VELLUM_BROWSER_HOME: string;
-}
-
-export interface AcpSpawnOptions {
-  readonly environmentOverlay?: AcpChildEnvironmentOverlay;
-}
-
 /** True when ACP may log raw stderr / non-JSON lines (sensitive material risk). */
 export const acpVerboseLogging = (): boolean => {
   const value = process.env.VELLUM_ACP_VERBOSE ?? process.env.VELLUM_DEBUG ?? "";
   return value === "1" || value.toLowerCase() === "true";
 };
 
-export type SpawnFn = (
-  target: AcpSpawnTarget,
-  options?: AcpSpawnOptions,
-) => SpawnedAcpChild;
+export type SpawnFn = (target: AcpSpawnTarget) => SpawnedAcpChild;
 
 export type AcpHostLocality = (host: string) => boolean;
-
-const literalLocalHost: AcpHostLocality = (host) => host === "local";
-
-const BROWSER_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-const BROWSER_CAPABILITY_BYTES = 32;
-const BROWSER_HOME_MAX_BYTES = 4_096;
-
-const isCanonicalBrowserCapability = (capability: unknown): capability is string => {
-  if (typeof capability !== "string" || !BROWSER_CAPABILITY_PATTERN.test(capability)) {
-    return false;
-  }
-  try {
-    const decoded = Buffer.from(capability, "base64url");
-    return (
-      decoded.byteLength === BROWSER_CAPABILITY_BYTES &&
-      decoded.toString("base64url") === capability
-    );
-  } catch {
-    return false;
-  }
-};
-
-export const makeLocalBrowserChildEnvironment = (
-  input: LocalBrowserChildEnvironmentInput,
-): AcpChildEnvironmentOverlay => {
-  if (!isCanonicalBrowserCapability(input.capability)) {
-    throw new TypeError("browser capability has an invalid format");
-  }
-  if (
-    typeof input.home !== "string" ||
-    !isAbsolute(input.home) ||
-    Buffer.byteLength(input.home, "utf8") > BROWSER_HOME_MAX_BYTES ||
-    /[\u0000-\u001f\u007f]/u.test(input.home)
-  ) {
-    throw new TypeError("browser home must be a bounded absolute path");
-  }
-  return Object.freeze({
-    VELLUM_BROWSER_CAPABILITY: input.capability,
-    VELLUM_BROWSER_HOME: input.home,
-  });
-};
 
 const INIT_TIMEOUT_MS = 20_000;
 const PROTOCOL_VERSION = 1;
@@ -274,7 +215,6 @@ export class AcpClient {
   private closeFlight: Promise<ReadonlyArray<AcpTeardownResult>> | undefined;
   private nextId = 1;
   private closedFlag = false;
-  private environmentOverlay: AcpChildEnvironmentOverlay | undefined;
   private readonly pending = new Map<
     JsonRpcId,
     {
@@ -288,17 +228,7 @@ export class AcpClient {
     private readonly target: AcpSpawnTarget,
     private readonly handlers: AcpClientHandlers,
     private readonly spawnFn: SpawnFn,
-    environmentOverlay?: AcpChildEnvironmentOverlay,
-    private readonly isLocalHost: AcpHostLocality = literalLocalHost,
-  ) {
-    this.environmentOverlay =
-      environmentOverlay === undefined
-        ? undefined
-        : makeLocalBrowserChildEnvironment({
-            capability: environmentOverlay.VELLUM_BROWSER_CAPABILITY,
-            home: environmentOverlay.VELLUM_BROWSER_HOME,
-          });
-  }
+  ) {}
 
   get closed(): boolean {
     return this.closedFlag;
@@ -329,15 +259,7 @@ export class AcpClient {
       this.beginTeardown(previous);
     }
 
-    const environmentOverlay = this.environmentOverlay;
-    this.environmentOverlay = undefined;
-    if (environmentOverlay !== undefined && !this.isLocalHost(this.target.host)) {
-      throw new Error("ACP child environment overlays are local-only");
-    }
-    const spawned = this.spawnFn(
-      this.target,
-      environmentOverlay === undefined ? undefined : { environmentOverlay },
-    );
+    const spawned = this.spawnFn(this.target);
     let generation: AcpGeneration;
     if (spawned.kind === "local-process") {
       generation = {
