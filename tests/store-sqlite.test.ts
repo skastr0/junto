@@ -1,11 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import {
-  makeStoreLive,
   StoreError,
+  StoreLive,
   StoreService,
 } from "../src/main/services/store";
 import {
@@ -24,8 +24,7 @@ const makeRoot = async (): Promise<string> => {
 
 const makeRuntime = (root: string) => {
   const state = makeStateEngineLive(join(root, "vellum.db"));
-  const store = makeStoreLive({ legacyPath: join(root, "store.json") });
-  const runtime = ManagedRuntime.make(Layer.provideMerge(store, state));
+  const runtime = ManagedRuntime.make(Layer.provideMerge(StoreLive, state));
   runtimes.push(runtime);
   return runtime;
 };
@@ -47,121 +46,45 @@ afterEach(async () => {
   }
 });
 
-describe("StoreService SQLite compatibility store", () => {
-  test("imports a valid legacy store once, then leaves the file inert", async () => {
+describe("StoreService SQLite state", () => {
+  test("starts empty and reports the sole database", async () => {
     const root = await makeRoot();
-    const legacyPath = join(root, "store.json");
-    const legacy = {
-      "kernel.armed": { "canvas::region": true },
-      "kernel.debug": { pulseLog: [{ kind: "manual" }] },
-    };
-    await writeFile(legacyPath, JSON.stringify(legacy), "utf8");
-
-    const first = makeRuntime(root);
-    await expect(
-      first.runPromise(
-        Effect.flatMap(StoreService, (store) => store.get("kernel.armed")),
-      ),
-    ).resolves.toEqual({ "canvas::region": true });
-    await disposeRuntime(first);
-
-    const laterLegacy = "{ legacy file is now corrupt";
-    await writeFile(legacyPath, laterLegacy, "utf8");
-    const second = makeRuntime(root);
-    await expect(
-      second.runPromise(
-        Effect.gen(function* () {
-          const store = yield* StoreService;
-          const imported = yield* store.get("kernel.debug");
-          yield* store.set("kernel.armed", { "canvas::next": true });
-          return imported;
-        }),
-      ),
-    ).resolves.toEqual({ pulseLog: [{ kind: "manual" }] });
-    await disposeRuntime(second);
-
-    expect(await readFile(legacyPath, "utf8")).toBe(laterLegacy);
-    const third = makeRuntime(root);
-    await expect(
-      third.runPromise(
-        Effect.flatMap(StoreService, (store) => store.get("kernel.armed")),
-      ),
-    ).resolves.toEqual({ "canvas::next": true });
-  });
-
-  test("fails closed on corrupt legacy evidence and imports after explicit repair", async () => {
-    const root = await makeRoot();
-    const legacyPath = join(root, "store.json");
-    const corrupt = "{ definitely not json";
-    await writeFile(legacyPath, corrupt, "utf8");
-
-    const failed = makeRuntime(root);
-    await expect(
-      failed.runPromise(
-        Effect.flatMap(StoreService, (store) => store.get("kernel.armed")),
-      ),
-    ).rejects.toMatchObject({
-      message: expect.stringContaining("refusing to treat as empty"),
-    });
-    await expect(
-      failed.runPromise(Effect.flatMap(StoreService, (store) => store.doctor)),
-    ).resolves.toMatchObject({
-      status: "error",
-      detail: expect.stringContaining("refusing to treat as empty"),
-    });
-    await expect(
-      failed.runPromise(
-        Effect.flatMap(StoreService, (store) =>
-          store.set("kernel.armed", { "canvas::must-not-land": true }),
-        ),
-      ),
-    ).rejects.toMatchObject({
-      message: expect.stringContaining("refusing to treat as empty"),
-    });
-    await disposeRuntime(failed);
-    expect(await readFile(legacyPath, "utf8")).toBe(corrupt);
-
-    await writeFile(
-      legacyPath,
-      JSON.stringify({ "kernel.armed": { "canvas::repaired": true } }),
-      "utf8",
-    );
-    const repaired = makeRuntime(root);
-    await expect(
-      repaired.runPromise(
-        Effect.flatMap(StoreService, (store) => store.get("kernel.armed")),
-      ),
-    ).resolves.toEqual({ "canvas::repaired": true });
-  });
-
-  test("records an absent legacy store so a later file cannot become truth", async () => {
-    const root = await makeRoot();
-    const first = makeRuntime(root);
-    await expect(
-      first.runPromise(
-        Effect.flatMap(StoreService, (store) => store.get("kernel.armed")),
-      ),
-    ).resolves.toBeUndefined();
-    await disposeRuntime(first);
-
-    await writeFile(
-      join(root, "store.json"),
-      JSON.stringify({ "kernel.armed": { "canvas::late": true } }),
-      "utf8",
-    );
-    const second = makeRuntime(root);
-    const result = await second.runPromise(
+    const path = join(root, "vellum.db");
+    const runtime = makeRuntime(root);
+    const result = await runtime.runPromise(
       Effect.gen(function* () {
         const store = yield* StoreService;
         return {
-          value: yield* store.get("kernel.armed"),
+          missing: yield* store.get("kernel.armed"),
           doctor: yield* store.doctor,
         };
       }),
     );
-    expect(result.value).toBeUndefined();
-    expect(result.doctor.status).toBe("ok");
-    expect(result.doctor.metadata?.legacyImport).toBe("absent");
+
+    expect(result.missing).toBeUndefined();
+    expect(result.doctor).toMatchObject({
+      status: "ok",
+      metadata: { database: path },
+    });
+    expect(result.doctor.metadata).toEqual({ database: path });
+  });
+
+  test("persists committed values across a complete runtime restart", async () => {
+    const root = await makeRoot();
+    const first = makeRuntime(root);
+    await first.runPromise(
+      Effect.flatMap(StoreService, (store) =>
+        store.set("kernel.armed", { "canvas::region": true }),
+      ),
+    );
+    await disposeRuntime(first);
+
+    const second = makeRuntime(root);
+    await expect(
+      second.runPromise(
+        Effect.flatMap(StoreService, (store) => store.get("kernel.armed")),
+      ),
+    ).resolves.toEqual({ "canvas::region": true });
   });
 
   test("keeps every independently written key across concurrent calls and restart", async () => {
@@ -237,5 +160,45 @@ describe("StoreService SQLite compatibility store", () => {
 
     expect(result.failed._tag).toBe("Left");
     expect(result.preserved).toEqual({ value: 1 });
+  });
+
+  test("drops the obsolete legacy-import table on reopen", async () => {
+    const root = await makeRoot();
+    const first = makeRuntime(root);
+    await first.runPromise(
+      Effect.flatMap(StateEngine, (state) =>
+        state.transaction("test.seed-obsolete-store-table", (writer) => {
+          writer.run(
+            `
+              CREATE TABLE runtime_store_legacy_import (
+                singleton INTEGER PRIMARY KEY
+              ) STRICT
+            `,
+          );
+        }),
+      ),
+    );
+    await disposeRuntime(first);
+
+    const second = makeRuntime(root);
+    const tables = await second.runPromise(
+      Effect.flatMap(StateEngine, (state) =>
+        state.read("test.runtime-store-tables", (reader) =>
+          reader
+            .all<{ name: string }>(
+              `
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                  AND name LIKE 'runtime_store_%'
+                ORDER BY name
+              `,
+            )
+            .map((row) => row.name),
+        ),
+      ),
+    );
+
+    expect(tables).toEqual(["runtime_store_values"]);
   });
 });

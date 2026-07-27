@@ -6,10 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // Durable-operator-intent invariant tests: whatever the operator SET and
 // expects permanent MUST survive a full SQLite runtime restart. Orphaned
-// arm-intent is surfaced, never dropped. Legacy corruption coverage lives at
-// the StoreService boundary in store-sqlite.test.ts.
+// arm-intent is surfaced, never dropped.
 
-import { makeStoreLive, StoreService } from "../src/main/services/store";
+import { StoreLive, StoreService } from "../src/main/services/store";
 import { computeOrphanedArming } from "../src/main/vellum/kernel/service";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import type { CanvasDoc } from "../src/shared/canvas";
@@ -20,8 +19,7 @@ const runStore = <A>(
   use: (svc: typeof StoreService.Service) => Effect.Effect<A, unknown>,
 ) => {
   const state = makeStateEngineLive(join(root, "vellum.db"));
-  const store = makeStoreLive({ legacyPath: join(root, "store.json") });
-  const runtime = ManagedRuntime.make(Layer.provideMerge(store, state));
+  const runtime = ManagedRuntime.make(Layer.provideMerge(StoreLive, state));
   return runtime
     .runPromise(Effect.flatMap(StoreService, use))
     .finally(() => runtime.dispose());
