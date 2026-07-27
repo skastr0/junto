@@ -69,18 +69,21 @@ describe("normalizeHerdrEvent — herdr wire (api_ping / schema)", () => {
     expect(n?.body.terminal_id).toBe("term_2");
   });
 
-  it("still accepts legacy flat type shapes", () => {
-    const n = normalizeHerdrEvent({
-      type: "pane.agent_status_changed",
-      pane_id: "w1:p1",
-      agent_status: "working",
-    });
-    expect(n?.kind).toBe("pane.agent_status_changed");
-    expect(n?.body.agent_status).toBe("working");
+  it("rejects the retired flat event shape", () => {
+    expect(
+      normalizeHerdrEvent({
+        type: "pane.agent_status_changed",
+        pane_id: "w1:p1",
+        agent_status: "working",
+      }),
+    ).toBeNull();
   });
 
-  it("returns null when kind is missing", () => {
+  it("returns null unless both event and data form the protocol-16 envelope", () => {
     expect(normalizeHerdrEvent({ data: { pane_id: "x" } })).toBeNull();
+    expect(normalizeHerdrEvent({ event: "pane.focused" })).toBeNull();
+    expect(normalizeHerdrEvent({ event: "pane.focused", data: null })).toBeNull();
+    expect(normalizeHerdrEvent({ kind: "pane.focused", data: { pane_id: "x" } })).toBeNull();
     expect(normalizeHerdrEvent(null)).toBeNull();
   });
 });

@@ -7,9 +7,6 @@
  *
  * Internal (mirror applyEvent):
  *   { kind: "workspace.created" | "pane.agent_status_changed" | …, body: flat record with ids }
- *
- * Also accepts the legacy flat test shape { type: "workspace.created", workspace_id, … }
- * so unit tests can migrate gradually.
  */
 
 export type Rec = Record<string, unknown>;
@@ -57,16 +54,14 @@ export const normalizeHerdrEvent = (raw: unknown): NormalizedHerdrEvent | null =
   const evt = asRecord(raw);
   if (!evt) return null;
 
-  const kindRaw = str(evt.event) ?? str(evt.type) ?? str(evt.kind);
+  const kindRaw = str(evt.event);
   if (!kindRaw) return null;
-  const kind = normalizeHerdrEventKind(kindRaw);
 
   const data = asRecord(evt.data);
-  if (data) {
-    return { kind, body: flattenHerdrEventData(data) };
-  }
+  if (!data) return null;
 
-  // Legacy flat shape (tests / accidental): drop routing keys, keep rest.
-  const { event: _e, type: _ty, kind: _k, data: _d, ...rest } = evt;
-  return { kind, body: rest };
+  return {
+    kind: normalizeHerdrEventKind(kindRaw),
+    body: flattenHerdrEventData(data),
+  };
 };

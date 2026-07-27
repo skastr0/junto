@@ -287,7 +287,7 @@ describe("HerdrMirror", () => {
     const mirror = await startFresh(transport);
     cleanup.push(() => mirror.stop());
     expect(transport.snapshotCount).toBe(1);
-    transport.handlers!.onEvent({ type: "mystery.kind" });
+    transport.handlers!.onEvent({ event: "mystery.kind", data: {} });
     await waitFor(() => transport.snapshotCount >= 2);
     await waitFor(() => mirror.isFresh());
   });
@@ -348,7 +348,7 @@ describe("HerdrMirror", () => {
       if (!mirror.isFresh()) sawStale = true;
     });
     transport.failSnapshots = true; // hold the rebuild open so the window is observable
-    transport.handlers!.onEvent({ type: "mystery.kind" });
+    transport.handlers!.onEvent({ event: "mystery.kind", data: {} });
     await waitFor(() => sawStale);
     transport.failSnapshots = false;
     await waitFor(() => mirror.isFresh());
