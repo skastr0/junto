@@ -78,7 +78,6 @@ import {
 const FIXED_INSTALLER = "/usr/libexec/vellum-release-installer";
 const FIXED_STATE_ROOT = "/var/lib/vellum-release-installer";
 const FIXED_SPOOL_ROOT = "/var/lib/vellum-release-installer/spool";
-const FIXED_CACHE_ROOT = "/var/cache/vellum-release-installer";
 const JOURNAL_FILE = "transaction.json";
 const LOCK_FILE = "transaction.lock";
 const MAX_JOURNAL_BYTES = 64 * 1024;
@@ -218,25 +217,9 @@ export interface LinuxDebInspection {
   readonly depends: string;
 }
 
-export interface LinuxOperationalState {
-  readonly service:
-    | "enabled-active"
-    | "enabled-inactive"
-    | "disabled-active"
-    | "disabled-inactive"
-    | "absent-inactive";
-  readonly linger: boolean;
-}
-
 interface ProtectedStage {
   readonly transactionId: string;
   readonly files: ReadonlySet<string>;
-}
-
-interface ProtectedArtifact {
-  readonly version: string;
-  readonly sha256: string;
-  readonly bytes: number;
 }
 
 export interface ImportedBridgeStage {
@@ -326,19 +309,6 @@ export interface LinuxReleaseInstallerHost {
   ) => Promise<LinuxDebInspection>;
   readonly currentVersion: () => Promise<string | null>;
   readonly observeCurrentVersion: () => Promise<string | null>;
-  readonly currentOperationalState: (
-    invocation: LinuxReleaseInstallerInvocation,
-  ) => Promise<LinuxOperationalState>;
-  readonly findCachedArtifact: (
-    version: string,
-  ) => Promise<ProtectedArtifact | null>;
-  readonly cacheMatches: (
-    candidate: LinuxReleaseInstallerCandidate,
-  ) => Promise<boolean>;
-  readonly cacheCandidate: (
-    stage: ProtectedStage,
-    verified: VerifiedProtectedLinuxBundle,
-  ) => Promise<ProtectedArtifact>;
   readonly adoptInstalledCandidate: (
     stage: ProtectedStage,
     verified: VerifiedProtectedLinuxBundle,
@@ -347,6 +317,10 @@ export interface LinuxReleaseInstallerHost {
   readonly installCandidate: (
     stage: ProtectedStage,
     verified: VerifiedProtectedLinuxBundle,
+  ) => Promise<void>;
+  /** Stops and disables the candidate Remote; it must never restore an older binary. */
+  readonly quarantineRemote: (
+    invocation: LinuxReleaseInstallerInvocation,
   ) => Promise<void>;
   readonly activateAndVerify: (
     invocation: LinuxReleaseInstallerInvocation,
@@ -366,11 +340,6 @@ export interface LinuxReleaseInstallerHost {
     target: LinuxReleaseInstallerTarget,
   ) => Promise<LinuxReleaseFenceControl>;
   readonly machineIdSha256: () => Promise<string>;
-  readonly rollback: (
-    invocation: LinuxReleaseInstallerInvocation,
-    journal: LinuxReleaseInstallerJournal,
-  ) => Promise<void>;
-  readonly deleteCachedArtifact: (artifact: ProtectedArtifact) => Promise<void>;
 }
 
 export type VerifyProtectedLinuxBundle = (
@@ -380,7 +349,6 @@ export type VerifyProtectedLinuxBundle = (
 export interface LinuxReleaseInstallerPaths {
   readonly stateRoot: string;
   readonly spoolRoot: string;
-  readonly cacheRoot: string;
   readonly runtimeRoot?: string;
   readonly dpkgInfoRoot?: string;
   readonly installedRoot?: string;
@@ -430,7 +398,6 @@ export class InstallerError extends Error {
       | "verification"
       | "policy"
       | "install-failed"
-      | "rollback-failed"
       | "internal",
     message: string,
   ) {
@@ -450,7 +417,7 @@ const repairAction = (
     : code === "verification"
     ? "obtain-a-valid-signed-release"
     : code === "install-failed"
-    ? "retry-install"
+    ? "repair-installed-package-manually"
     : code === "policy"
     ? "obtain-a-valid-signed-release"
     : "repair-root-installer-state-manually";
@@ -468,32 +435,6 @@ const refusal = (
     action: repairAction(code),
   };
 };
-
-const rolledBackReceipt = (
-  code: InstallerError["category"],
-  request: Extract<
-    LinuxReleaseInstallerRequest,
-    { readonly kind: "prepare" }
-  >,
-  helperChallenge: string,
-  fenceId: string,
-): LinuxReleaseInstallerReceipt => ({
-  schema: LINUX_RELEASE_INSTALLER_RECEIPT,
-  ok: false,
-  state: "rolled-back",
-  code,
-  transactionId: request.transactionId,
-  action: repairAction(code),
-  providerNonce: request.providerNonce,
-  bridgeNonce: request.bridgeNonce,
-  helperChallenge,
-  fenceId,
-  inventorySha256: request.candidate.inventorySha256,
-  cleanup: {
-    fence: "cleared",
-    journal: "cleared",
-  },
-});
 
 const parsePositiveId = (value: string | undefined, label: string): number => {
   if (value === undefined || !DECIMAL_ID.test(value)) {
@@ -808,21 +749,6 @@ const PRE_MUTATION_PHASES = new Set<LinuxReleaseInstallerJournalPhase>([
   "prepared",
 ]);
 
-const ROLLBACK_REQUIRED_PHASES = new Set<LinuxReleaseInstallerJournalPhase>([
-  "dpkg-started",
-  "dpkg-installed",
-  "activation-started",
-  "rollback-started",
-]);
-
-const ROLLBACK_RESOLUTION_PHASES =
-  new Set<LinuxReleaseInstallerJournalPhase>([
-    "rolled-back",
-    "rollback-acknowledged",
-    "rollback-fence-clear-started",
-    "rollback-fence-cleared",
-  ]);
-
 const ABORTED_RESOLUTION_PHASES =
   new Set<LinuxReleaseInstallerJournalPhase>([
     "aborted-acknowledged",
@@ -832,13 +758,11 @@ const ABORTED_RESOLUTION_PHASES =
 
 const CLEARED_FENCE_PHASES = new Set<LinuxReleaseInstallerJournalPhase>([
   "fence-cleared",
-  "rollback-fence-cleared",
   "aborted-fence-cleared",
 ]);
 
 const CLEAR_STARTED_PHASES = new Set<LinuxReleaseInstallerJournalPhase>([
   "fence-clear-started",
-  "rollback-fence-clear-started",
   "aborted-fence-clear-started",
 ]);
 
@@ -846,8 +770,6 @@ const projectedVersionAfterRecovery = (
   journal: LinuxReleaseInstallerJournal,
 ): string | null =>
   PRE_MUTATION_PHASES.has(journal.phase) ||
-    ROLLBACK_REQUIRED_PHASES.has(journal.phase) ||
-    ROLLBACK_RESOLUTION_PHASES.has(journal.phase) ||
     ABORTED_RESOLUTION_PHASES.has(journal.phase)
     ? journal.fromVersion
     : journal.toVersion;
@@ -882,13 +804,6 @@ const inspectInterruptedTransaction = async (
   };
 };
 
-const recoveryExpectedVersion = (
-  journal: LinuxReleaseInstallerJournal,
-): string | null =>
-  ROLLBACK_RESOLUTION_PHASES.has(journal.phase)
-    ? journal.fromVersion
-    : journal.toVersion;
-
 const recoverInterruptedTransaction = async (
   host: LinuxReleaseInstallerHost,
   invocation: LinuxReleaseInstallerInvocation,
@@ -905,6 +820,22 @@ const recoverInterruptedTransaction = async (
 ): Promise<void> => {
   const journal = interrupted.journal;
   let lease: LinuxReleaseMaintenanceLease | undefined = observedLease;
+  if (!PRE_MUTATION_PHASES.has(journal.phase) &&
+    !CLEARED_FENCE_PHASES.has(journal.phase)) {
+    await lease.release().catch(() => undefined);
+    try {
+      await host.quarantineRemote(invocation);
+    } catch (error) {
+      throw new InstallerError(
+        "unsafe-state",
+        error instanceof Error ? error.message : "candidate quarantine failed",
+      );
+    }
+    throw new InstallerError(
+      "install-failed",
+      "candidate mutation is incomplete; retain the fenced journal for explicit forward repair",
+    );
+  }
   if (CLEARED_FENCE_PHASES.has(journal.phase)) {
     try {
       await fenceControl.proveAbsent(journal.fence.record);
@@ -951,13 +882,10 @@ const recoverInterruptedTransaction = async (
   }
   let recovering = journal;
   const authority = observedAuthority;
-  let resolution: "committed" | "rollback" | "aborted" =
+  const resolution: "committed" | "aborted" =
     PRE_MUTATION_PHASES.has(journal.phase) ||
       ABORTED_RESOLUTION_PHASES.has(journal.phase)
       ? "aborted"
-      : ROLLBACK_REQUIRED_PHASES.has(journal.phase) ||
-          ROLLBACK_RESOLUTION_PHASES.has(journal.phase)
-      ? "rollback"
       : "committed";
   if (authority === undefined) {
     if (!CLEAR_STARTED_PHASES.has(journal.phase)) {
@@ -977,7 +905,7 @@ const recoverInterruptedTransaction = async (
         );
       }
       if (resolution !== "aborted") {
-        const expectedVersion = recoveryExpectedVersion(recovering);
+        const expectedVersion = recovering.toVersion;
         if (expectedVersion === null) {
           throw new InstallerError(
             "unsafe-state",
@@ -993,9 +921,7 @@ const recoverInterruptedTransaction = async (
       await fenceControl.proveAbsent(recovering.fence.record);
       recovering = phaseJournal(
         recovering,
-        resolution === "rollback"
-          ? "rollback-fence-cleared"
-          : resolution === "aborted"
+        resolution === "aborted"
           ? "aborted-fence-cleared"
           : "fence-cleared",
       );
@@ -1007,37 +933,6 @@ const recoverInterruptedTransaction = async (
     }
   }
   try {
-    if (ROLLBACK_REQUIRED_PHASES.has(journal.phase)) {
-      await lease.release();
-      lease = undefined;
-      resolution = "rollback";
-      try {
-        recovering = phaseJournal(
-          journal,
-          "rollback-started",
-          invocation.process,
-        );
-        await host.writeJournal(recovering);
-        await host.rollback(invocation, recovering);
-        recovering = phaseJournal(recovering, "rolled-back");
-        await host.writeJournal(recovering);
-      } catch (error) {
-        throw new InstallerError(
-          "rollback-failed",
-          error instanceof Error
-            ? `interrupted transaction recovery failed: ${error.message}`
-            : "interrupted transaction recovery failed",
-        );
-      }
-      // TermControl lease is observational after package restore.
-      try {
-        lease = await fenceControl.acquire();
-        await lease.acknowledge(authority);
-      } catch {
-        await lease?.release().catch(() => undefined);
-        lease = undefined;
-      }
-    }
     let recoveryGeneration: string | undefined = lease?.peer.generation;
     if (
       recovering.fence.postGeneration !== null &&
@@ -1050,13 +945,9 @@ const recoverInterruptedTransaction = async (
       );
     }
     if (resolution !== "aborted") {
-      const expectedVersion = resolution === "rollback"
-        ? recovering.fromVersion
-        : recovering.toVersion;
+      const expectedVersion = recovering.toVersion;
       if (
-        expectedVersion === null ||
-        (resolution === "rollback" &&
-          recovering.oldServiceState.endsWith("-inactive"))
+        expectedVersion === null
       ) {
         throw new InstallerError(
           "unsafe-state",
@@ -1079,21 +970,15 @@ const recoverInterruptedTransaction = async (
     const postGeneration = recoveryGeneration ??
       await host.currentServiceGeneration(invocation);
     const acknowledgedPhase: LinuxReleaseInstallerJournalPhase =
-      resolution === "rollback"
-        ? "rollback-acknowledged"
-        : resolution === "aborted"
+      resolution === "aborted"
         ? "aborted-acknowledged"
         : "postrestart-acknowledged";
     const clearStartedPhase: LinuxReleaseInstallerJournalPhase =
-      resolution === "rollback"
-        ? "rollback-fence-clear-started"
-        : resolution === "aborted"
+      resolution === "aborted"
         ? "aborted-fence-clear-started"
         : "fence-clear-started";
     const clearedPhase: LinuxReleaseInstallerJournalPhase =
-      resolution === "rollback"
-        ? "rollback-fence-cleared"
-        : resolution === "aborted"
+      resolution === "aborted"
         ? "aborted-fence-cleared"
         : "fence-cleared";
     if (!CLEAR_STARTED_PHASES.has(recovering.phase)) {
@@ -1227,34 +1112,11 @@ const runPreparedInstall = async (
         "automatic installer refuses downgrade or malformed package state",
       );
     }
-    const plannedPrior = plannedFromVersion === null
-      ? null
-      : await host.findCachedArtifact(plannedFromVersion);
-    const candidateIdentity: LinuxReleaseInstallerCandidate = {
-      version: verified.version,
-      debSha256: verified.debSha256,
-      manifestSha256: verified.manifestSha256,
-      inventorySha256: request.candidate.inventorySha256,
-    };
     const plannedSameVersion = plannedFromVersion !== null &&
       verified.version === plannedFromVersion;
-    const plannedExactCache = plannedSameVersion &&
-      await host.cacheMatches(candidateIdentity);
-    const plannedOperation: "install" | "adopt" | "noop" = plannedSameVersion
-      ? plannedExactCache
-        ? "noop"
-        : "adopt"
+    const plannedOperation: "install" | "adopt" = plannedSameVersion
+      ? "adopt"
       : "install";
-    if (
-      plannedOperation === "install" &&
-      plannedFromVersion !== null &&
-      plannedPrior === null
-    ) {
-      throw new InstallerError(
-        "unsafe-state",
-        "baseline signed rollback artifact must be adopted before upgrade",
-      );
-    }
     const fence: LinuxReleaseFence = {
       schema: LINUX_RELEASE_FENCE_PROTOCOL,
       fenceId: randomBytes(16).toString("hex"),
@@ -1372,20 +1234,10 @@ const runPreparedInstall = async (
         "recovered package baseline differs from ROOT_READY",
       );
     }
-    const prior = fromVersion === null
-      ? null
-      : await host.findCachedArtifact(fromVersion);
     const sameVersion = fromVersion !== null && verified.version === fromVersion;
-    const exactCache = sameVersion &&
-      await host.cacheMatches(candidateIdentity);
-    const operation: "install" | "adopt" | "noop" = sameVersion
-      ? exactCache
-        ? "noop"
-        : "adopt"
-      : "install";
+    const operation: "install" | "adopt" = sameVersion ? "adopt" : "install";
     if (
-      operation !== plannedOperation ||
-      prior?.sha256 !== plannedPrior?.sha256
+      operation !== plannedOperation
     ) {
       throw new InstallerError(
         "unsafe-state",
@@ -1394,21 +1246,6 @@ const runPreparedInstall = async (
     }
     if (sameVersion) {
       await host.adoptInstalledCandidate(stage, verified, invocation);
-    }
-    const oldState = await host.currentOperationalState(invocation);
-    if (
-      (fromVersion === null) !== (oldState.service === "absent-inactive")
-    ) {
-      throw new InstallerError(
-        "unsafe-state",
-        "package and service presence do not agree",
-      );
-    }
-    if (oldState.service === "absent-inactive" && operation !== "install") {
-      throw new InstallerError(
-        "unsafe-state",
-        "installed package has no activatable Remote unit",
-      );
     }
     activeJournal = {
       schema: LINUX_RELEASE_INSTALLER_JOURNAL,
@@ -1428,11 +1265,6 @@ const runPreparedInstall = async (
       sourceRevision: verified.sourceRevision,
       fromVersion,
       toVersion: verified.version,
-      priorArtifactSha256: operation === "install"
-        ? prior?.sha256 ?? null
-        : null,
-      oldServiceState: oldState.service,
-      oldLinger: oldState.linger,
       phase: "fence-intent",
     };
     await host.writeJournal(activeJournal);
@@ -1463,19 +1295,14 @@ const runPreparedInstall = async (
     firstLease = undefined;
 
     let readiness: LinuxReleaseInstallerReadinessEvidence;
-    let candidate: ProtectedArtifact | null = null;
-    if (operation === "noop") {
-      finalLease = await fenceControl.acquire();
-      await finalLease.acknowledge(fenceAuthority);
-      readiness = await host.verifyCurrentReadiness(
-        invocation,
-        verified.version,
-        finalLease.peer.generation,
-      );
-    } else {
+    {
+      // Quarantine the existing generation before a package mutation.  A
+      // crash after this point can leave only a stopped, disabled service.
+      if (fromVersion !== null) {
+        await host.quarantineRemote(invocation);
+      }
       mutationStarted = true;
       if (operation === "install") {
-        candidate = await host.cacheCandidate(stage, verified);
         activeJournal = phaseJournal(activeJournal, "dpkg-started");
         await host.writeJournal(activeJournal);
         try {
@@ -1501,9 +1328,6 @@ const runPreparedInstall = async (
           "install-failed",
           error instanceof Error ? error.message : "release activation failed",
         );
-      }
-      if (operation === "adopt") {
-        candidate = await host.cacheCandidate(stage, verified);
       }
       activeJournal = phaseJournal(activeJournal, "verified");
       await host.writeJournal(activeJournal);
@@ -1568,13 +1392,6 @@ const runPreparedInstall = async (
     await host.writeJournal(activeJournal);
     await host.clearJournal();
     activeJournal = undefined;
-    if (
-      prior !== null &&
-      candidate !== null &&
-      prior.version !== candidate.version
-    ) {
-      await host.deleteCachedArtifact(prior).catch(() => undefined);
-    }
     await host.discardStage(stage).catch(() => undefined);
     stage = undefined;
     return {
@@ -1588,7 +1405,7 @@ const runPreparedInstall = async (
       fenceId: fence.fenceId,
       inventorySha256: request.candidate.inventorySha256,
       operation,
-      changed: operation !== "noop",
+      changed: true,
       fromVersion,
       toVersion: verified.version,
       manifestSha256: verified.manifestSha256,
@@ -1646,86 +1463,16 @@ const runPreparedInstall = async (
       } catch {
         return refusal("unsafe-state", request.transactionId);
       }
-    } else if (
-      activeJournal !== undefined &&
-      mutationStarted &&
-      fenceControl !== undefined &&
-      fenceAuthority !== undefined
-    ) {
-      const rollbackControl = fenceControl;
-      const rollbackAuthority = fenceAuthority;
+    }
+    if (mutationStarted) {
       try {
-        await lock.assertHeld();
-        await firstLease?.release();
-        firstLease = undefined;
-        await finalLease?.release();
-        finalLease = undefined;
-        activeJournal = phaseJournal(activeJournal, "rollback-started");
-        await host.writeJournal(activeJournal);
-        await host.rollback(invocation, activeJournal);
-        activeJournal = phaseJournal(activeJournal, "rolled-back");
-        await host.writeJournal(activeJournal);
-        if (
-          activeJournal.fromVersion === null ||
-          activeJournal.oldServiceState.endsWith("-inactive")
-        ) {
-          throw new Error(
-            "rolled-back service has no authoritative active generation",
-          );
-        }
-        // Work-control generation is authoritative after package restore + restart.
-        // TermControl fence is best-effort and must not fail an otherwise complete rollback.
-        const unitGeneration = await host.currentServiceGeneration(invocation);
-        await host.verifyCurrentReadiness(
-          invocation,
-          activeJournal.fromVersion,
-          unitGeneration,
-        );
-        try {
-          finalLease = await rollbackControl.acquire();
-          if (finalLease.peer.generation !== unitGeneration) {
-            await finalLease.release().catch(() => undefined);
-            finalLease = undefined;
-          } else {
-            await finalLease.acknowledge(rollbackAuthority);
-          }
-        } catch {
-          await finalLease?.release().catch(() => undefined);
-          finalLease = undefined;
-        }
-        const rollbackPostGeneration =
-          finalLease?.peer.generation ?? unitGeneration;
-        activeJournal = {
-          ...activeJournal,
-          fence: {
-            ...activeJournal.fence,
-            postGeneration: rollbackPostGeneration,
-          },
-          phase: "rollback-acknowledged",
-        };
-        await host.writeJournal(activeJournal);
-        activeJournal = phaseJournal(
-          activeJournal,
-          "rollback-fence-clear-started",
-        );
-        await host.writeJournal(activeJournal);
-        await rollbackControl.clear(rollbackAuthority);
-        activeJournal = phaseJournal(
-          activeJournal,
-          "rollback-fence-cleared",
-        );
-        await host.writeJournal(activeJournal);
-        await host.clearJournal();
-        activeJournal = undefined;
-        return rolledBackReceipt(
-          failure.category,
-          request,
-          helperChallenge,
-          rollbackAuthority.record.fenceId,
-        );
+        await host.quarantineRemote(invocation);
       } catch {
-        return refusal("rollback-failed", request.transactionId);
+        return refusal("unsafe-state", request.transactionId);
       }
+      // The journal and fence are intentionally retained: no recovery path is
+      // licensed to execute either the candidate or a prior package.
+      return refusal("install-failed", request.transactionId);
     }
     return refusal(failure.category, request.transactionId);
   } finally {
@@ -1741,7 +1488,7 @@ const runPreparedInstall = async (
 /**
  * Executes one whole privileged transaction. The caller receives a bounded
  * exact receipt for every expected failure; no continuation/subcommand can
- * commit or delete rollback authority.
+ * commit or clear forward-repair authority.
  */
 export const runLinuxReleaseInstaller = async (
   input: AsyncIterable<Uint8Array>,
@@ -1824,8 +1571,6 @@ export const runLinuxReleaseInstaller = async (
 };
 
 const stageDirectories = new WeakMap<ProtectedStage, string>();
-const artifactPaths = new WeakMap<ProtectedArtifact, string>();
-
 const isMissing = (error: unknown): boolean =>
   typeof error === "object" &&
   error !== null &&
@@ -2133,49 +1878,6 @@ const requireCommand = async (
   return result.stdout;
 };
 
-interface CacheMetadata {
-  readonly schema: "vellum/linux-release-installer-cache/v1";
-  readonly version: string;
-  readonly bytes: number;
-  readonly debSha256: string;
-  readonly manifestSha256: string;
-}
-
-const decodeCacheMetadata = (value: unknown): CacheMetadata => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InstallerError("unsafe-state", "cache metadata is malformed");
-  }
-  const input = value as Record<string, unknown>;
-  if (
-    JSON.stringify(Object.keys(input).sort()) !==
-      JSON.stringify(
-        ["schema", "version", "bytes", "debSha256", "manifestSha256"].sort(),
-      ) ||
-    input.schema !== "vellum/linux-release-installer-cache/v1" ||
-    typeof input.version !== "string" ||
-    !VERSION.test(input.version) ||
-    typeof input.bytes !== "number" ||
-    !Number.isSafeInteger(input.bytes) ||
-    input.bytes < 1 ||
-    typeof input.debSha256 !== "string" ||
-    !SHA256.test(input.debSha256) ||
-    typeof input.manifestSha256 !== "string" ||
-    !SHA256.test(input.manifestSha256)
-  ) {
-    throw new InstallerError("unsafe-state", "cache metadata is malformed");
-  }
-  return {
-    schema: "vellum/linux-release-installer-cache/v1",
-    version: input.version,
-    bytes: input.bytes,
-    debSha256: input.debSha256,
-    manifestSha256: input.manifestSha256,
-  };
-};
-
-const cacheMetadataText = (metadata: CacheMetadata): string =>
-  `${JSON.stringify(metadata)}\n`;
-
 /**
  * Work-control generation readiness body. Writer publishes `${generation}\n`.
  * Accept a single trailing newline only (exact contract); reject missing or
@@ -2215,7 +1917,6 @@ export class NodeLinuxReleaseInstallerHost
     this.#paths = Object.freeze({
       stateRoot: path.resolve(options.paths.stateRoot),
       spoolRoot: path.resolve(options.paths.spoolRoot),
-      cacheRoot: path.resolve(options.paths.cacheRoot),
     });
     this.#ownerUid = options.ownerUid;
     this.#ownerGid = options.ownerGid;
@@ -2286,11 +1987,6 @@ export class NodeLinuxReleaseInstallerHost
     }
     await ensureProtectedDirectory(
       this.#paths.spoolRoot,
-      this.#ownerUid,
-      this.#ownerGid,
-    );
-    await ensureProtectedDirectory(
-      this.#paths.cacheRoot,
       this.#ownerUid,
       this.#ownerGid,
     );
@@ -2365,9 +2061,8 @@ export class NodeLinuxReleaseInstallerHost
     }
   }
 
-  public async probe(candidate: LinuxReleaseInstallerCandidate): Promise<{
+  public async probe(): Promise<{
     readonly currentVersion: string | null;
-    readonly artifactMatches: boolean;
     readonly journalState:
       | "clear"
       | "recoverable"
@@ -2378,18 +2073,16 @@ export class NodeLinuxReleaseInstallerHost
     if (!lockExists) {
       // Before the first install there is no persistent lock inode. Recheck
       // after the fail-closed reads: an installer creates this inode before it
-      // can stage, journal, cache, or invoke dpkg.
+      // can stage, journal, or invoke dpkg.
       const currentVersion = await this.currentVersion();
-      const artifactMatches = await this.cacheMatches(candidate);
       const journalState = await this.#journalStateWithoutLock();
       if (await this.#validateLockFile()) {
         return {
           currentVersion: null,
-          artifactMatches: false,
           journalState: "busy",
         };
       }
-      return { currentVersion, artifactMatches, journalState };
+      return { currentVersion, journalState };
     }
     let lease: InstallerLock;
     try {
@@ -2400,7 +2093,6 @@ export class NodeLinuxReleaseInstallerHost
       if (error instanceof InstallerError && error.category === "busy") {
         return {
           currentVersion: null,
-          artifactMatches: false,
           journalState: "busy",
         };
       }
@@ -2408,9 +2100,8 @@ export class NodeLinuxReleaseInstallerHost
     }
     try {
       const currentVersion = await this.currentVersion();
-      const artifactMatches = await this.cacheMatches(candidate);
       const journalState = await this.#journalStateWithoutLock();
-      return { currentVersion, artifactMatches, journalState };
+      return { currentVersion, journalState };
     } finally {
       await lease.release();
     }
@@ -2577,30 +2268,6 @@ export class NodeLinuxReleaseInstallerHost
     ) {
       await syncDirectory(this.#paths.spoolRoot);
     }
-    const cacheEntries = await readdir(this.#paths.cacheRoot, {
-      withFileTypes: true,
-    });
-    for (const entry of cacheEntries) {
-      if (!entry.name.startsWith(".candidate-")) continue;
-      if (
-        !/^\.candidate-[0-9a-f]{32}-(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u
-          .test(entry.name) ||
-        !entry.isDirectory() ||
-        entry.isSymbolicLink()
-      ) {
-        throw new InstallerError(
-          "unsafe-state",
-          "cache contains a malformed candidate temporary",
-        );
-      }
-      await this.#removeStrictDirectory(
-        path.join(this.#paths.cacheRoot, entry.name),
-        (name) => name === "package.deb" || name === "artifact.json",
-      );
-    }
-    if (cacheEntries.some((entry) => entry.name.startsWith(".candidate-"))) {
-      await syncDirectory(this.#paths.cacheRoot);
-    }
     const stateEntries = await readdir(this.#paths.stateRoot, {
       withFileTypes: true,
     });
@@ -2746,16 +2413,7 @@ export class NodeLinuxReleaseInstallerHost
     if (!Number.isSafeInteger(bytes) || bytes < 1) {
       throw new InstallerError("protocol", "bundle reservation is invalid");
     }
-    const [spoolMetadata, cacheMetadata] = await Promise.all([
-      lstat(this.#paths.spoolRoot),
-      lstat(this.#paths.cacheRoot),
-    ]);
-    if (spoolMetadata.dev === cacheMetadata.dev) {
-      await this.#assertFreeSpace(this.#paths.spoolRoot, bytes * 2);
-    } else {
-      await this.#assertFreeSpace(this.#paths.spoolRoot, bytes);
-      await this.#assertFreeSpace(this.#paths.cacheRoot, bytes);
-    }
+    await this.#assertFreeSpace(this.#paths.spoolRoot, bytes);
   }
 
   public async writeStageFile(
@@ -3199,245 +2857,6 @@ export class NodeLinuxReleaseInstallerHost
     return match[1] ?? null;
   }
 
-  async #readCacheMetadata(version: string): Promise<{
-    readonly directory: string;
-    readonly packagePath: string;
-    readonly metadata: CacheMetadata;
-  } | null> {
-    if (!VERSION.test(version)) {
-      throw new InstallerError("unsafe-state", "cache version is malformed");
-    }
-    const directory = path.join(this.#paths.cacheRoot, `v-${version}`);
-    try {
-      await assertProtectedDirectory(
-        directory,
-        this.#ownerUid,
-        this.#ownerGid,
-      );
-    } catch (error) {
-      if (isMissing(error)) return null;
-      throw error;
-    }
-    const metadataPath = path.join(directory, "artifact.json");
-    const raw = await readBoundedProtectedFile(
-      metadataPath,
-      this.#ownerUid,
-      MAX_JOURNAL_BYTES,
-    );
-    let metadata: CacheMetadata;
-    try {
-      const text = raw.toString("utf8");
-      metadata = decodeCacheMetadata(JSON.parse(text));
-      if (
-        cacheMetadataText(metadata) !== text ||
-        metadata.version !== version
-      ) {
-        throw new Error("cache metadata is not canonical");
-      }
-    } catch (error) {
-      throw new InstallerError(
-        "unsafe-state",
-        error instanceof Error ? error.message : "cache metadata is malformed",
-      );
-    }
-    return {
-      directory,
-      packagePath: path.join(directory, "package.deb"),
-      metadata,
-    };
-  }
-
-  public async findCachedArtifact(
-    version: string,
-  ): Promise<ProtectedArtifact | null> {
-    const cached = await this.#readCacheMetadata(version);
-    if (cached === null) return null;
-    const handle = await openVerifiedProtectedFile(
-      cached.packagePath,
-      this.#ownerUid,
-      cached.metadata.bytes,
-      cached.metadata.debSha256,
-    );
-    await handle.close();
-    const artifact: ProtectedArtifact = Object.freeze({
-      version,
-      sha256: cached.metadata.debSha256,
-      bytes: cached.metadata.bytes,
-    });
-    artifactPaths.set(artifact, cached.packagePath);
-    return artifact;
-  }
-
-  public async cacheMatches(
-    candidate: LinuxReleaseInstallerCandidate,
-  ): Promise<boolean> {
-    const cached = await this.#readCacheMetadata(candidate.version);
-    if (cached === null) return false;
-    if (
-      cached.metadata.debSha256 !== candidate.debSha256 ||
-      cached.metadata.manifestSha256 !== candidate.manifestSha256
-    ) {
-      return false;
-    }
-    const handle = await openVerifiedProtectedFile(
-      cached.packagePath,
-      this.#ownerUid,
-      cached.metadata.bytes,
-      cached.metadata.debSha256,
-    );
-    await handle.close();
-    return true;
-  }
-
-  public async cacheCandidate(
-    stage: ProtectedStage,
-    verified: VerifiedProtectedLinuxBundle,
-  ): Promise<ProtectedArtifact> {
-    const existing = await this.#readCacheMetadata(verified.version);
-    if (existing !== null) {
-      if (
-        existing.metadata.debSha256 !== verified.debSha256 ||
-        existing.metadata.manifestSha256 !== verified.manifestSha256 ||
-        existing.metadata.bytes !== verified.debBytes
-      ) {
-        throw new InstallerError(
-          "policy",
-          "a signed release version is immutable and already cached",
-        );
-      }
-      const handle = await openVerifiedProtectedFile(
-        existing.packagePath,
-        this.#ownerUid,
-        verified.debBytes,
-        verified.debSha256,
-      );
-      await handle.close();
-      const artifact: ProtectedArtifact = Object.freeze({
-        version: verified.version,
-        sha256: verified.debSha256,
-        bytes: verified.debBytes,
-      });
-      artifactPaths.set(artifact, existing.packagePath);
-      return artifact;
-    }
-    const finalDirectory = path.join(
-      this.#paths.cacheRoot,
-      `v-${verified.version}`,
-    );
-    const directory = path.join(
-      this.#paths.cacheRoot,
-      `.candidate-${stage.transactionId}-${verified.version}`,
-    );
-    await mkdir(directory, { mode: 0o700 });
-    await assertProtectedDirectory(
-      directory,
-      this.#ownerUid,
-      this.#ownerGid,
-    );
-    const source = this.#stageFile(stage, verified.debFile);
-    const destination = path.join(directory, "package.deb");
-    const metadataPath = path.join(directory, "artifact.json");
-    let sourceHandle: FileHandle | undefined;
-    let destinationHandle: FileHandle | undefined;
-    let metadataHandle: FileHandle | undefined;
-    try {
-      sourceHandle = await openVerifiedProtectedFile(
-        source,
-        this.#ownerUid,
-        verified.debBytes,
-        verified.debSha256,
-      );
-      destinationHandle = await open(
-        destination,
-        fsConstants.O_WRONLY |
-          fsConstants.O_CREAT |
-          fsConstants.O_EXCL |
-          fsConstants.O_NOFOLLOW,
-        0o600,
-      );
-      const hash = createHash("sha256");
-      let bytes = 0;
-      for await (
-        const value of sourceHandle.createReadStream({
-          autoClose: false,
-          start: 0,
-          end: verified.debBytes - 1,
-        })
-      ) {
-        const chunk = Buffer.from(value);
-        bytes += chunk.length;
-        if (bytes % (64 * 1024 * 1024) < chunk.length) {
-          await this.#assertFreeSpace(
-            this.#paths.cacheRoot,
-            verified.debBytes - bytes,
-          );
-        }
-        hash.update(chunk);
-        let offset = 0;
-        while (offset < chunk.length) {
-          const written = await destinationHandle.write(
-            chunk,
-            offset,
-            chunk.length - offset,
-          );
-          if (written.bytesWritten < 1) throw new Error("short cache write");
-          offset += written.bytesWritten;
-        }
-      }
-      if (
-        bytes !== verified.debBytes ||
-        hash.digest("hex") !== verified.debSha256
-      ) {
-        throw new InstallerError(
-          "unsafe-state",
-          "protected candidate changed during cache copy",
-        );
-      }
-      await destinationHandle.sync();
-      await destinationHandle.close();
-      destinationHandle = undefined;
-      const metadata: CacheMetadata = {
-        schema: "vellum/linux-release-installer-cache/v1",
-        version: verified.version,
-        bytes: verified.debBytes,
-        debSha256: verified.debSha256,
-        manifestSha256: verified.manifestSha256,
-      };
-      metadataHandle = await open(
-        metadataPath,
-        fsConstants.O_WRONLY |
-          fsConstants.O_CREAT |
-          fsConstants.O_EXCL |
-          fsConstants.O_NOFOLLOW,
-        0o600,
-      );
-      await metadataHandle.writeFile(cacheMetadataText(metadata), "utf8");
-      await metadataHandle.sync();
-      await metadataHandle.close();
-      metadataHandle = undefined;
-      await syncDirectory(directory);
-      await rename(directory, finalDirectory);
-      await syncDirectory(this.#paths.cacheRoot);
-      const artifact: ProtectedArtifact = Object.freeze({
-        version: verified.version,
-        sha256: verified.debSha256,
-        bytes: verified.debBytes,
-      });
-      artifactPaths.set(artifact, path.join(finalDirectory, "package.deb"));
-      return artifact;
-    } catch (error) {
-      await destinationHandle?.close().catch(() => undefined);
-      await metadataHandle?.close().catch(() => undefined);
-      await unlink(metadataPath).catch(() => undefined);
-      await unlink(destination).catch(() => undefined);
-      await rmdir(directory).catch(() => undefined);
-      await syncDirectory(this.#paths.cacheRoot).catch(() => undefined);
-      throw error;
-    } finally {
-      await sourceHandle?.close().catch(() => undefined);
-    }
-  }
-
   async #readRootMetadataFile(
     file: string,
     maximum = 8 * 1024 * 1024,
@@ -3854,7 +3273,7 @@ export class NodeLinuxReleaseInstallerHost
      * The single-owner user manager is an operational actuator and
      * work-preservation witness, not the root authorization boundary. Its
      * answers may stop a transaction, but never select candidate bytes,
-     * privileged paths, package commands, or rollback authority; those are
+     * privileged paths, package commands, or forward-repair authority; those are
      * fixed and signed before this surface is consulted.
      */
     const runtimeDirectory = path.join(
@@ -4318,60 +3737,6 @@ export class NodeLinuxReleaseInstallerHost
     return createHash("sha256").update(raw.trim(), "utf8").digest("hex");
   }
 
-  public async currentOperationalState(
-    invocation: LinuxReleaseInstallerInvocation,
-  ): Promise<LinuxOperationalState> {
-    const [enabled, active, linger] = await Promise.all([
-      this.#runUserSystemctl(invocation, [
-        "is-enabled",
-        "vellum-remote.service",
-      ]),
-      this.#runUserSystemctl(invocation, [
-        "is-active",
-        "vellum-remote.service",
-      ]),
-      this.#run(
-        "/usr/bin/loginctl",
-        [
-          "show-user",
-          String(invocation.sudoUid),
-          "--property=Linger",
-          "--value",
-        ],
-        30_000,
-      ),
-    ]);
-    const enabledState = enabled.stdout === "enabled\n" && enabled.code === 0
-      ? "enabled"
-      : enabled.stdout === "disabled\n" && enabled.code !== 0
-      ? "disabled"
-      : enabled.stdout === "not-found\n" && enabled.code !== 0
-      ? "absent"
-      : null;
-    const activeState = active.stdout === "active\n" && active.code === 0
-      ? "active"
-      : active.stdout === "inactive\n" && active.code !== 0
-      ? "inactive"
-      : null;
-    if (
-      enabledState === null ||
-      activeState === null ||
-      linger.code !== 0 ||
-      (linger.stdout !== "yes\n" && linger.stdout !== "no\n")
-    ) {
-      throw new InstallerError(
-        "unsafe-state",
-        "service or linger state is indeterminate",
-      );
-    }
-    return {
-      service: `${enabledState}-${activeState}` as LinuxOperationalState[
-        "service"
-      ],
-      linger: linger.stdout === "yes\n",
-    };
-  }
-
   async #mutationUnitState(transactionId: string): Promise<string> {
     const result = await this.#run(
       "/usr/bin/systemctl",
@@ -4400,8 +3765,8 @@ export class NodeLinuxReleaseInstallerHost
     const state = await this.#mutationUnitState(transactionId);
     if (state === "active" || state === "activating") {
       throw new InstallerError(
-        "rollback-failed",
-        "prior dpkg transaction scope is still active",
+        "install-failed",
+        "candidate dpkg transaction scope is still active",
       );
     }
   }
@@ -4453,6 +3818,29 @@ export class NodeLinuxReleaseInstallerHost
     const version = await this.currentVersion();
     if (version !== verified.version) {
       throw new Error("dpkg did not install the signed release version");
+    }
+  }
+
+  public async quarantineRemote(
+    invocation: LinuxReleaseInstallerInvocation,
+  ): Promise<void> {
+    const result = await this.#runUserSystemctl(invocation, [
+      "disable",
+      "--now",
+      "vellum-remote.service",
+    ]);
+    const [enabled, active] = await Promise.all([
+      this.#runUserSystemctl(invocation, ["is-enabled", "vellum-remote.service"]),
+      this.#runUserSystemctl(invocation, ["is-active", "vellum-remote.service"]),
+    ]);
+    if (
+      result.code !== 0 ||
+      enabled.stdout !== "disabled\n" ||
+      enabled.code === 0 ||
+      active.stdout !== "inactive\n" ||
+      active.code === 0
+    ) {
+      throw new Error("failed to quarantine candidate Remote service");
     }
   }
 
@@ -4592,241 +3980,6 @@ export class NodeLinuxReleaseInstallerHost
     );
   }
 
-  async #restoreOperationalState(
-    invocation: LinuxReleaseInstallerInvocation,
-    journal: LinuxReleaseInstallerJournal,
-  ): Promise<void> {
-    const [enabled, active] = journal.oldServiceState.split("-") as [
-      "enabled" | "disabled" | "absent",
-      "active" | "inactive",
-    ];
-    const enableResult = enabled === "absent"
-      ? { code: 0, stdout: "", stderr: "" }
-      : await this.#runUserSystemctl(invocation, [
-        enabled === "enabled" ? "enable" : "disable",
-        "vellum-remote.service",
-      ]);
-    // Clear a StartLimitBurst failure from the candidate before restoring the
-    // prior package generation. When restoring active, use restart so a still-
-    // running candidate is replaced (plain start is a no-op if already active).
-    if (enabled !== "absent") {
-      await this.#runUserSystemctl(invocation, [
-        "reset-failed",
-        "vellum-remote.service",
-      ]).catch(() => undefined);
-    }
-    const activeResult = enabled === "absent"
-      ? { code: 0, stdout: "", stderr: "" }
-      : await this.#runUserSystemctl(invocation, [
-        active === "active" ? "restart" : "stop",
-        "vellum-remote.service",
-      ]);
-    const lingerResult = await this.#run(
-      "/usr/bin/loginctl",
-      [
-        journal.oldLinger ? "enable-linger" : "disable-linger",
-        invocation.sudoUser,
-      ],
-      30_000,
-    );
-    if (
-      enableResult.code !== 0 ||
-      activeResult.code !== 0 ||
-      lingerResult.code !== 0
-    ) {
-      throw new Error("failed to restore Remote operational state");
-    }
-  }
-
-  async #recoveryPackageState(): Promise<
-    | { readonly kind: "absent" }
-    | {
-      readonly kind: "installed" | "intermediate";
-      readonly version: string;
-      readonly status: string;
-    }
-  > {
-    const result = await this.#run(
-      "/usr/bin/dpkg-query",
-      ["--show", "--showformat=${Status}\\t${Version}\\n", "vellum"],
-      30_000,
-    );
-    if (
-      result.code === 1 &&
-      result.stdout === "" &&
-      result.stderr === "dpkg-query: no packages found matching vellum\n"
-    ) {
-      return { kind: "absent" };
-    }
-    if (result.code !== 0 || result.stderr !== "") {
-      throw new InstallerError(
-        "rollback-failed",
-        "rollback package state is indeterminate",
-      );
-    }
-    if (/^deinstall ok config-files\t[^\n]+\n$/u.test(result.stdout)) {
-      return { kind: "absent" };
-    }
-    const match =
-      /^(install (?:ok|reinstreq) (?:installed|half-installed|unpacked|half-configured|triggers-awaited|triggers-pending))\t([^\n]+)\n$/u
-        .exec(result.stdout);
-    const status = match?.[1];
-    const version = match?.[2];
-    if (
-      status === undefined ||
-      version === undefined ||
-      !VERSION.test(version)
-    ) {
-      throw new InstallerError(
-        "rollback-failed",
-        "rollback package state is malformed",
-      );
-    }
-    return {
-      kind: status === "install ok installed"
-        ? "installed"
-        : "intermediate",
-      version,
-      status,
-    };
-  }
-
-  public async rollback(
-    invocation: LinuxReleaseInstallerInvocation,
-    journal: LinuxReleaseInstallerJournal,
-  ): Promise<void> {
-    await this.#assertMutationQuiescent(journal.transactionId);
-    const packageState = await this.#recoveryPackageState();
-    if (journal.operation === "adopt") {
-      if (
-        packageState.kind !== "installed" ||
-        packageState.version !== journal.fromVersion
-      ) {
-        throw new Error("adoption rollback package version changed");
-      }
-    } else if (journal.fromVersion === null) {
-      if (packageState.kind !== "absent") {
-        if (packageState.version !== journal.toVersion) {
-          throw new InstallerError(
-            "rollback-failed",
-            "rollback refuses to overwrite an unrelated package version",
-          );
-        }
-        await this.#runDpkgTransaction(
-          `vellum-release-rollback-${journal.transactionId}.service`,
-          ["--purge", "vellum"],
-        );
-      }
-      if (await this.currentVersion() !== null) {
-        throw new Error("first-install rollback did not purge package");
-      }
-    } else {
-      if (packageState.kind === "absent") {
-        throw new InstallerError(
-          "rollback-failed",
-          "rollback package disappeared outside the recorded transaction",
-        );
-      }
-      if (
-        packageState.version !== journal.fromVersion &&
-        packageState.version !== journal.toVersion
-      ) {
-        throw new InstallerError(
-          "rollback-failed",
-          "rollback refuses to overwrite an unrelated package version",
-        );
-      }
-      if (
-        packageState.kind !== "installed" ||
-        packageState.version !== journal.fromVersion
-      ) {
-        const prior = await this.findCachedArtifact(journal.fromVersion);
-        const priorPath = prior === null ? undefined : artifactPaths.get(prior);
-        if (
-          prior === null ||
-          priorPath === undefined ||
-          prior.sha256 !== journal.priorArtifactSha256
-        ) {
-          throw new InstallerError(
-            "rollback-failed",
-            "root rollback artifact is missing or changed",
-          );
-        }
-        const handle = await openVerifiedProtectedFile(
-          priorPath,
-          this.#ownerUid,
-          prior.bytes,
-          prior.sha256,
-        );
-        await handle.close();
-        await this.#runDpkgTransaction(
-          `vellum-release-rollback-${journal.transactionId}.service`,
-          ["--install", priorPath],
-        );
-      }
-      if (await this.currentVersion() !== journal.fromVersion) {
-        throw new Error("rollback did not restore prior package version");
-      }
-    }
-    await this.#restoreOperationalState(invocation, journal);
-    if (journal.fromVersion !== null) {
-      const verification = await this.#run(
-        "/usr/bin/dpkg",
-        ["--verify", "vellum"],
-        30_000,
-      );
-      if (
-        verification.code !== 0 ||
-        verification.stdout !== "" ||
-        verification.stderr !== ""
-      ) {
-        throw new Error("rollback package integrity is not exact");
-      }
-    }
-    const restored = await this.currentOperationalState(invocation);
-    if (
-      restored.service !== journal.oldServiceState ||
-      restored.linger !== journal.oldLinger
-    ) {
-      throw new Error("rollback operational state did not match journal");
-    }
-  }
-
-  public async deleteCachedArtifact(
-    artifact: ProtectedArtifact,
-  ): Promise<void> {
-    const packagePath = artifactPaths.get(artifact);
-    if (packagePath === undefined) {
-      throw new InstallerError(
-        "unsafe-state",
-        "cache deletion authority was not minted here",
-      );
-    }
-    const directory = path.dirname(packagePath);
-    if (
-      directory !==
-        path.join(this.#paths.cacheRoot, `v-${artifact.version}`)
-    ) {
-      throw new InstallerError(
-        "unsafe-state",
-        "cache deletion escaped the fixed root",
-      );
-    }
-    // Revalidate exact root-owned authority immediately before deletion.
-    const handle = await openVerifiedProtectedFile(
-      packagePath,
-      this.#ownerUid,
-      artifact.bytes,
-      artifact.sha256,
-    );
-    await handle.close();
-    await unlink(path.join(directory, "artifact.json"));
-    await unlink(packagePath);
-    await syncDirectory(directory);
-    await rmdir(directory);
-    await syncDirectory(this.#paths.cacheRoot);
-    artifactPaths.delete(artifact);
-  }
 }
 
 const productionVerifier: VerifyProtectedLinuxBundle = async (directory) => {
@@ -4867,7 +4020,6 @@ export const makeProductionLinuxReleaseInstallerHost = ():
       paths: {
         stateRoot: FIXED_STATE_ROOT,
         spoolRoot: FIXED_SPOOL_ROOT,
-        cacheRoot: FIXED_CACHE_ROOT,
       },
       ownerUid: 0,
       ownerGid: 0,
@@ -4911,8 +4063,7 @@ const writeReceiptFrame = (
   });
 
 /**
- * A flushed canonical receipt is application status, including refusal and
- * rollback. SSH transports reserve a non-zero exit for the absence of a
+ * A flushed canonical receipt is application status, including refusal. SSH transports reserve a non-zero exit for the absence of a
  * complete receipt so they do not discard a valid failure frame.
  */
 export const linuxReleaseInstallerReceiptExitCode = (
@@ -4933,7 +4084,7 @@ if (import.meta.main) {
     await writeReceiptFrame(receipt);
     // The canonical receipt is application status. A zero exit tells the SSH
     // transport that the complete transcript arrived, including refusal and
-    // rolled-back outcomes.
+    // refused outcomes.
     process.exitCode = linuxReleaseInstallerReceiptExitCode(receipt);
   } catch (error) {
     if (error instanceof InstallerError) {

@@ -18,11 +18,11 @@ import {
 } from "./linux-release-fence";
 
 export const LINUX_RELEASE_INSTALLER_PROTOCOL =
-  "vellum/linux-release-installer/v2" as const;
+  "vellum/linux-release-installer/v3" as const;
 export const LINUX_RELEASE_INSTALLER_JOURNAL =
-  "vellum/linux-release-installer-journal/v2" as const;
+  "vellum/linux-release-installer-journal/v3" as const;
 export const LINUX_RELEASE_INSTALLER_RECEIPT =
-  "vellum/linux-release-installer-receipt/v2" as const;
+  "vellum/linux-release-installer-receipt/v3" as const;
 
 export const LINUX_RELEASE_INSTALLER_MAX_HEADER_BYTES = 64 * 1024;
 export const LINUX_RELEASE_INSTALLER_MAX_FILES = 64;
@@ -91,11 +91,6 @@ export const LINUX_RELEASE_INSTALLER_JOURNAL_PHASES = [
   "dpkg-installed",
   "activation-started",
   "verified",
-  "rollback-started",
-  "rolled-back",
-  "rollback-acknowledged",
-  "rollback-fence-clear-started",
-  "rollback-fence-cleared",
   "aborted-acknowledged",
   "aborted-fence-clear-started",
   "aborted-fence-cleared",
@@ -127,10 +122,6 @@ export interface LinuxReleaseInstallerJournal {
   readonly sourceRevision: string;
   readonly fromVersion: string | null;
   readonly toVersion: string;
-  readonly priorArtifactSha256: string | null;
-  readonly oldServiceState: "enabled-active" | "enabled-inactive" |
-    "disabled-active" | "disabled-inactive" | "absent-inactive";
-  readonly oldLinger: boolean;
   readonly phase: LinuxReleaseInstallerJournalPhase;
 }
 
@@ -142,7 +133,6 @@ export type LinuxReleaseInstallerRefusalCode =
   | "verification"
   | "policy"
   | "install-failed"
-  | "rollback-failed"
   | "internal";
 
 export type LinuxReleaseInstallerRepairAction =
@@ -195,7 +185,7 @@ export type LinuxReleaseInstallerReceipt =
     readonly fence: LinuxReleaseFence;
     readonly machineIdSha256: string;
     readonly bootId: string;
-    readonly operation: "install" | "adopt" | "noop";
+    readonly operation: "install" | "adopt";
     readonly fromVersion: string | null;
     readonly currentVersion: string | null;
     readonly journalPredecessor: LinuxReleaseInstallerJournalPredecessor | null;
@@ -212,7 +202,7 @@ export type LinuxReleaseInstallerReceipt =
     readonly helperChallenge: string;
     readonly fenceId: string;
     readonly inventorySha256: string;
-    readonly operation: "install" | "adopt" | "noop";
+    readonly operation: "install" | "adopt";
     readonly changed: boolean;
     readonly fromVersion: string | null;
     readonly toVersion: string;
@@ -230,23 +220,6 @@ export type LinuxReleaseInstallerReceipt =
     readonly transactionId: string | null;
     readonly action: LinuxReleaseInstallerRepairAction;
   }
-  | {
-    readonly schema: typeof LINUX_RELEASE_INSTALLER_RECEIPT;
-    readonly ok: false;
-    readonly state: "rolled-back";
-    readonly code: LinuxReleaseInstallerRefusalCode;
-    readonly transactionId: string;
-    readonly action: LinuxReleaseInstallerRepairAction;
-    readonly providerNonce: string;
-    readonly bridgeNonce: string;
-    readonly helperChallenge: string;
-    readonly fenceId: string;
-    readonly inventorySha256: string;
-    readonly cleanup: {
-      readonly fence: "cleared";
-      readonly journal: "cleared";
-    };
-  };
 
 const record = (value: unknown, label: string): Record<string, unknown> => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -599,9 +572,6 @@ export const decodeLinuxReleaseInstallerJournal = (
       "sourceRevision",
       "fromVersion",
       "toVersion",
-      "priorArtifactSha256",
-      "oldServiceState",
-      "oldLinger",
       "phase",
     ],
     "installer journal",
@@ -609,13 +579,6 @@ export const decodeLinuxReleaseInstallerJournal = (
   const phases = new Set<LinuxReleaseInstallerJournalPhase>(
     LINUX_RELEASE_INSTALLER_JOURNAL_PHASES,
   );
-  const serviceStates = new Set([
-    "enabled-active",
-    "enabled-inactive",
-    "disabled-active",
-    "disabled-inactive",
-    "absent-inactive",
-  ]);
   const transactionId = stringMatching(
     input.transactionId,
     TRANSACTION_ID,
@@ -630,28 +593,15 @@ export const decodeLinuxReleaseInstallerJournal = (
     (input.fromVersion !== null &&
       (typeof input.fromVersion !== "string" ||
         !VERSION.test(input.fromVersion))) ||
-    (input.priorArtifactSha256 !== null &&
-      (typeof input.priorArtifactSha256 !== "string" ||
-        !SHA256.test(input.priorArtifactSha256))) ||
-    typeof input.oldLinger !== "boolean" ||
     typeof input.phase !== "string" ||
-    !phases.has(input.phase as LinuxReleaseInstallerJournalPhase) ||
-    typeof input.oldServiceState !== "string" ||
-    !serviceStates.has(input.oldServiceState)
+    !phases.has(input.phase as LinuxReleaseInstallerJournalPhase)
   ) {
     throw new Error("installer journal is malformed");
   }
   if (
-    input.operation === "install" &&
-    (input.fromVersion === null) !== (input.priorArtifactSha256 === null)
-  ) {
-    throw new Error("installer journal prior artifact is inconsistent");
-  }
-  if (
     input.operation === "adopt" &&
     (input.fromVersion === null ||
-      input.fromVersion !== input.toVersion ||
-      input.priorArtifactSha256 !== null)
+      input.fromVersion !== input.toVersion)
   ) {
     throw new Error("installer adoption journal is inconsistent");
   }
@@ -674,9 +624,6 @@ export const decodeLinuxReleaseInstallerJournal = (
     throw new Error("installer journal fence inode is inconsistent");
   }
   const postrestartPhases = new Set<LinuxReleaseInstallerJournalPhase>([
-    "rollback-acknowledged",
-    "rollback-fence-clear-started",
-    "rollback-fence-cleared",
     "aborted-acknowledged",
     "aborted-fence-clear-started",
     "aborted-fence-cleared",
@@ -718,11 +665,6 @@ export const decodeLinuxReleaseInstallerJournal = (
       VERSION,
       "installer journal target version",
     ),
-    priorArtifactSha256: input.priorArtifactSha256 as string | null,
-    oldServiceState: input.oldServiceState as LinuxReleaseInstallerJournal[
-      "oldServiceState"
-    ],
-    oldLinger: input.oldLinger,
     phase,
   });
 };
@@ -918,9 +860,7 @@ export const decodeLinuxReleaseInstallerReceipt = (
     const fence = decodeLinuxReleaseFence(input.fence);
     if (
       fence === undefined ||
-      (input.operation !== "install" &&
-        input.operation !== "adopt" &&
-        input.operation !== "noop") ||
+      (input.operation !== "install" && input.operation !== "adopt") ||
       !Number.isSafeInteger(input.totalBytes) ||
       (input.totalBytes as number) < 1 ||
       (input.totalBytes as number) > LINUX_RELEASE_INSTALLER_MAX_BUNDLE_BYTES ||
@@ -1008,9 +948,7 @@ export const decodeLinuxReleaseInstallerReceipt = (
       "installer final receipt",
     );
     if (
-      input.operation !== "install" &&
-      input.operation !== "adopt" &&
-      input.operation !== "noop"
+    input.operation !== "install" && input.operation !== "adopt"
     ) {
       throw new Error("installer final receipt has invalid operation");
     }
@@ -1023,7 +961,7 @@ export const decodeLinuxReleaseInstallerReceipt = (
     }
     if (
       typeof input.changed !== "boolean" ||
-      (input.operation === "noop" && input.changed)
+      !input.changed
     ) {
       throw new Error("installer final receipt has invalid change state");
     }
@@ -1104,7 +1042,6 @@ export const decodeLinuxReleaseInstallerReceipt = (
     "verification",
     "policy",
     "install-failed",
-    "rollback-failed",
     "internal",
   ]);
   const actions = new Set<LinuxReleaseInstallerRepairAction>([
@@ -1116,85 +1053,6 @@ export const decodeLinuxReleaseInstallerReceipt = (
     "repair-installed-package-manually",
     "retry-install",
   ]);
-  if (input.ok !== false || input.state === "rolled-back") {
-    exactKeys(
-      input,
-      [
-        "schema",
-        "ok",
-        "state",
-        "code",
-        "transactionId",
-        "action",
-        "providerNonce",
-        "bridgeNonce",
-        "helperChallenge",
-        "fenceId",
-        "inventorySha256",
-        "cleanup",
-      ],
-      "installer rolled-back receipt",
-    );
-    const cleanup = record(input.cleanup, "installer rollback cleanup");
-    exactKeys(
-      cleanup,
-      ["fence", "journal"],
-      "installer rollback cleanup",
-    );
-    if (
-      input.ok !== false ||
-      input.state !== "rolled-back" ||
-      typeof input.code !== "string" ||
-      !codes.has(input.code as LinuxReleaseInstallerRefusalCode) ||
-      typeof input.action !== "string" ||
-      !actions.has(input.action as LinuxReleaseInstallerRepairAction) ||
-      cleanup.fence !== "cleared" ||
-      cleanup.journal !== "cleared"
-    ) {
-      throw new Error("installer rolled-back receipt is malformed");
-    }
-    return Object.freeze({
-      schema: LINUX_RELEASE_INSTALLER_RECEIPT,
-      ok: false,
-      state: "rolled-back",
-      code: input.code as LinuxReleaseInstallerRefusalCode,
-      transactionId: stringMatching(
-        input.transactionId,
-        TRANSACTION_ID,
-        "installer rollback transaction id",
-      ),
-      action: input.action as LinuxReleaseInstallerRepairAction,
-      providerNonce: stringMatching(
-        input.providerNonce,
-        TRANSACTION_ID,
-        "installer rollback provider nonce",
-      ),
-      bridgeNonce: stringMatching(
-        input.bridgeNonce,
-        TRANSACTION_ID,
-        "installer rollback bridge nonce",
-      ),
-      helperChallenge: stringMatching(
-        input.helperChallenge,
-        TRANSACTION_ID,
-        "installer rollback helper challenge",
-      ),
-      fenceId: stringMatching(
-        input.fenceId,
-        TRANSACTION_ID,
-        "installer rollback fence id",
-      ),
-      inventorySha256: stringMatching(
-        input.inventorySha256,
-        SHA256,
-        "installer rollback inventory sha256",
-      ),
-      cleanup: Object.freeze({
-        fence: "cleared",
-        journal: "cleared",
-      }),
-    });
-  }
   exactKeys(
     input,
     ["schema", "ok", "state", "code", "transactionId", "action"],
