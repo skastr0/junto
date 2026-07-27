@@ -139,7 +139,10 @@ export const ConfigureRequest = Schema.Struct({
   protocol: Schema.Literal(STATION_API_PROTOCOL),
   op: Schema.Literal("configure"),
   installationId: InstallationId,
-  configuration: StationConfiguration,
+  // The fleet wire can only establish a Remote. Command Center authority is
+  // selected locally in the Electron main process and is not representable in
+  // an SSH Station request.
+  configuration: RemoteConfiguration,
 });
 export type ConfigureRequest = typeof ConfigureRequest.Type;
 
@@ -147,7 +150,7 @@ export const ConfigureResponse = Schema.Struct({
   protocol: Schema.Literal(STATION_API_PROTOCOL),
   op: Schema.Literal("configure"),
   installationId: InstallationId,
-  configuration: StationConfiguration,
+  configuration: RemoteConfiguration,
   configuredAt: DisplayTimestamp,
 });
 export type ConfigureResponse = typeof ConfigureResponse.Type;

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Either, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   ConfigureRequest,
@@ -22,6 +22,7 @@ import {
   decideProjectionInstall,
   type StationSha256,
 } from "../src/shared/station-api";
+import { decodeStationControlRequest } from "../src/shared/station-control";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeSequence = Schema.decodeUnknownSync(LogicalSequence);
@@ -65,9 +66,8 @@ describe("Station API wire schemas", () => {
       stationInstallationId: remote,
       stationLabel: "Studio Mini",
       appVersion: "0.1.0",
-      token: "must-not-enter-the-domain",
     });
-    expect(pair).not.toHaveProperty("token");
+    expect(pair.op).toBe("pair");
 
     const configure = Schema.decodeUnknownSync(ConfigureRequest)({
       protocol: STATION_API_PROTOCOL,
@@ -163,6 +163,31 @@ describe("Station API wire schemas", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("makes Command Center promotion and excess credentials unrepresentable on the wire", () => {
+    const commandCenter = decodeStationControlRequest({
+      protocol: STATION_API_PROTOCOL,
+      op: "configure",
+      installationId: remote,
+      configuration: {
+        role: "command-center",
+        hostId: "command",
+        supervisedPreferred: true,
+      },
+    });
+    expect(Either.isLeft(commandCenter)).toBe(true);
+
+    const excessCredential = decodeStationControlRequest({
+      protocol: STATION_API_PROTOCOL,
+      op: "pair",
+      commandCenterInstallationId: cc,
+      stationInstallationId: remote,
+      stationLabel: "Studio Mini",
+      appVersion: "0.1.0",
+      legacyToken: "must-not-enter-the-domain",
+    });
+    expect(Either.isLeft(excessCredential)).toBe(true);
   });
 });
 

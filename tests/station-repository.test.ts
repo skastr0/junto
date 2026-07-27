@@ -128,13 +128,10 @@ const remoteConfigurationRequest = (
 
 const commandCenterConfigurationRequest = (
   local: InstallationIdValue,
-) =>
-  ConfigureRequest.make({
-    protocol: STATION_API_PROTOCOL,
-    op: "configure",
+) => ({
     installationId: local,
     configuration: {
-      role: "command-center",
+      role: "command-center" as const,
       hostId: decodeHostId("command"),
       supervisedPreferred: true,
     },
@@ -233,6 +230,115 @@ describe("StationRepository", () => {
     expect(reopened).toBe(firstGenerated);
   });
 
+  it("rejects non-Remote repository input before opening a configure transaction", async () => {
+    const path = await testDatabase();
+    const local = decodeInstallationId("remote-only-defense");
+    const runtime = makeRuntime(path, local);
+    const repository = await runtime.runPromise(StationRepository);
+    const state = await runtime.runPromise(StateEngine);
+    const forged = {
+      protocol: STATION_API_PROTOCOL,
+      op: "configure",
+      installationId: local,
+      configuration: {
+        role: "command-center",
+        hostId: decodeHostId("command"),
+        supervisedPreferred: true,
+      },
+    } as unknown as ConfigureRequest;
+
+    const result = await runtime.runPromise(
+      repository.configureRemote(forged).pipe(Effect.either),
+    );
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: {
+        _tag: "StationConfigurationError",
+        reason: "remote-only",
+      },
+    });
+    expect(
+      await runtime.runPromise(
+        state.read("test.remote-only-zero-write", (reader) =>
+          Number(
+            reader.get<StateRow & { readonly count: number }>(
+              "SELECT count(*) AS count FROM station_configuration",
+            )?.count ?? -1,
+          )
+        ),
+      ),
+    ).toBe(0);
+    await runtime.dispose();
+  });
+
+  it("makes Command Center selection and Remote pairing mutually exclusive", async () => {
+    const commandPath = await testDatabase();
+    const command = decodeInstallationId("topology-command");
+    const peer = decodeInstallationId("topology-peer");
+    const commandRuntime = makeRuntime(commandPath, command);
+    const commandRepository = await commandRuntime.runPromise(
+      StationRepository,
+    );
+    await commandRuntime.runPromise(
+      commandRepository.configureCommandCenter(
+        commandCenterConfigurationRequest(command),
+      ),
+    );
+    const pairResult = await commandRuntime.runPromise(
+      commandRepository.pair(
+        pairRequest(command, peer),
+      ).pipe(Effect.either),
+    );
+    expect(pairResult).toMatchObject({
+      _tag: "Left",
+      left: {
+        _tag: "StationPairingTopologyError",
+        reason: "command-center-configured",
+      },
+    });
+    expect(
+      await commandRuntime.runPromise(commandRepository.pairing),
+    ).toBeUndefined();
+    expect(
+      (await commandRuntime.runPromise(commandRepository.configuration))
+        ?.configuration.role,
+    ).toBe("command-center");
+    await commandRuntime.dispose();
+
+    const remotePath = await testDatabase();
+    const remote = decodeInstallationId("topology-remote");
+    const remoteRuntime = makeRuntime(remotePath, remote);
+    const remoteRepository = await remoteRuntime.runPromise(
+      StationRepository,
+    );
+    const settings = await remoteRuntime.runPromise(SettingsService);
+    await remoteRuntime.runPromise(
+      remoteRepository.pair(pairRequest(remote, peer)),
+    );
+    const localPromotion = await remoteRuntime.runPromise(
+      settings.setStationTopology({
+        role: "command-center",
+        hostId: "command",
+        supervisedPreferred: true,
+      }).pipe(Effect.either),
+    );
+    expect(localPromotion).toMatchObject({
+      _tag: "Left",
+      left: {
+        code: "validation",
+        message: expect.stringContaining("paired installation"),
+      },
+    });
+    expect(
+      await remoteRuntime.runPromise(remoteRepository.configuration),
+    ).toBeUndefined();
+    expect(
+      (await remoteRuntime.runPromise(remoteRepository.pairing))
+        ?.commandCenterInstallationId,
+    ).toBe(peer);
+    await remoteRuntime.dispose();
+  });
+
   it("keeps pairing exclusive and makes Remote configuration pairing-bound", async () => {
     const path = await testDatabase();
     const local = decodeInstallationId("station-a");
@@ -269,7 +375,7 @@ describe("StationRepository", () => {
 
     const unpairedConfiguration = await runtime.runPromise(
       repository
-        .configure(remoteConfigurationRequest(local, cc))
+        .configureRemote(remoteConfigurationRequest(local, cc))
         .pipe(Effect.either),
     );
     expect(Either.isLeft(unpairedConfiguration)).toBe(true);
@@ -309,7 +415,7 @@ describe("StationRepository", () => {
 
     const wrongConfiguration = await runtime.runPromise(
       repository
-        .configure(remoteConfigurationRequest(local, otherCc))
+        .configureRemote(remoteConfigurationRequest(local, otherCc))
         .pipe(Effect.either),
     );
     expect(Either.isLeft(wrongConfiguration)).toBe(true);
@@ -320,13 +426,13 @@ describe("StationRepository", () => {
     }
 
     const configured = await runtime.runPromise(
-      repository.configure(
+      repository.configureRemote(
         remoteConfigurationRequest(local, cc),
         "2026-07-27T12:02:00.000Z",
       ),
     );
     const configuredRetry = await runtime.runPromise(
-      repository.configure(
+      repository.configureRemote(
         remoteConfigurationRequest(local, cc),
         "2026-07-27T19:00:00.000Z",
       ),
@@ -335,7 +441,7 @@ describe("StationRepository", () => {
     expect(configuredRetry.configuredAt).toBe(configured.configuredAt);
 
     const rehome = await runtime.runPromise(
-      repository.configure(
+      repository.configureRemote(
         ConfigureRequest.make({
           protocol: STATION_API_PROTOCOL,
           op: "configure",
@@ -399,27 +505,22 @@ describe("StationRepository", () => {
     const ccRuntime = makeRuntime(ccPath, ccLocal);
     const ccRepository = await ccRuntime.runPromise(StationRepository);
     const ccState = await ccRuntime.runPromise(StateEngine);
-    await ccRuntime.runPromise(
-      ccRepository.pair(pairRequest(ccLocal, ccPeer)),
-    );
     const ccConfigured = await ccRuntime.runPromise(
-      ccRepository.configure(
-        ConfigureRequest.make({
-          protocol: STATION_API_PROTOCOL,
-          op: "configure",
+      ccRepository.configureCommandCenter(
+        {
           installationId: ccLocal,
           configuration: {
             role: "command-center",
             hostId: decodeHostId("shared"),
             supervisedPreferred: true,
           },
-        }),
+        },
         "2026-07-27T12:01:00.000Z",
       ),
     );
     const rejectedRemote = await ccRuntime.runPromise(
       ccRepository
-        .configure(
+        .configureRemote(
           ConfigureRequest.make({
             protocol: STATION_API_PROTOCOL,
             op: "configure",
@@ -476,7 +577,7 @@ describe("StationRepository", () => {
     );
     const remoteTrust = pinnedTrust("role-immutable-remote");
     const remoteConfigured = await remoteRuntime.runPromise(
-      remoteRepository.configure(
+      remoteRepository.configureRemote(
         remoteConfigurationRequest(remoteLocal, remotePeer, {
           browserTrust: remoteTrust,
         }),
@@ -485,17 +586,15 @@ describe("StationRepository", () => {
     );
     const rejectedCommandCenter = await remoteRuntime.runPromise(
       remoteRepository
-        .configure(
-          ConfigureRequest.make({
-            protocol: STATION_API_PROTOCOL,
-            op: "configure",
+        .configureCommandCenter(
+          {
             installationId: remoteLocal,
             configuration: {
               role: "command-center",
               hostId: decodeHostId("studio"),
               supervisedPreferred: false,
             },
-          }),
+          },
           "2026-07-27T13:02:00.000Z",
         )
         .pipe(Effect.either),
@@ -504,7 +603,7 @@ describe("StationRepository", () => {
     if (Either.isLeft(rejectedCommandCenter)) {
       expect(rejectedCommandCenter.left).toMatchObject({
         _tag: "StationConfigurationError",
-        reason: "role-immutable",
+        reason: "pairing-present",
       });
     }
     expect(await remoteRuntime.runPromise(remoteRepository.configuration))
@@ -700,7 +799,9 @@ describe("StationRepository", () => {
     const settings = await runtime.runPromise(SettingsService);
 
     const configured = await runtime.runPromise(
-      repository.configure(commandCenterConfigurationRequest(local)),
+      repository.configureCommandCenter(
+        commandCenterConfigurationRequest(local),
+      ),
     );
     expect(configured.configuration).toEqual({
       role: "command-center",
@@ -727,7 +828,7 @@ describe("StationRepository", () => {
     await runtime.runPromise(repository.pair(pairRequest(local, cc)));
 
     const configured = await runtime.runPromise(
-      repository.configure(
+      repository.configureRemote(
         remoteConfigurationRequest(local, cc),
         "2026-07-27T13:00:00.000Z",
       ),
@@ -736,7 +837,7 @@ describe("StationRepository", () => {
 
     const trust = pinnedTrust("cc-browser");
     const trustInstalled = await runtime.runPromise(
-      repository.configure(
+      repository.configureRemote(
         remoteConfigurationRequest(local, cc, { browserTrust: trust }),
         "2026-07-27T14:00:00.000Z",
       ),
@@ -752,7 +853,7 @@ describe("StationRepository", () => {
     ).toEqual(trust);
 
     const retryWithoutPin = await runtime.runPromise(
-      repository.configure(
+      repository.configureRemote(
         remoteConfigurationRequest(local, cc),
         "2026-07-27T15:00:00.000Z",
       ),
@@ -821,7 +922,7 @@ describe("StationRepository", () => {
     const conflictingTrust = pinnedTrust("cc-browser");
     const rejected = await runtime.runPromise(
       repository
-        .configure(
+        .configureRemote(
           remoteConfigurationRequest(local, cc, {
             browserTrust: conflictingTrust,
             supervisedPreferred: false,

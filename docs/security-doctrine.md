@@ -486,6 +486,27 @@ socket; the Remote main process validates the request and owns every database
 transaction. SSH never writes settings, projections, acknowledgements, status,
 or database files.
 
+The owner-only socket is transport containment, not sufficient authority.
+Remote main reads the socket's kernel peer PID and requires the peer itself to
+be the exact packaged `vellum-station` executable under a bounded ancestry
+containing the root-owned system `/usr/sbin/sshd`. Identity is exact executable
+realpath plus file device/inode and pid/ppid/start epoch at every hop; process
+names and client claims are irrelevant. Main takes a coherent observation
+before reading caller JSON, then an identical fresh observation before decode
+and before dispatch. Direct same-account socket clients and direct local
+`vellum-station` invocations are denied before even `status` disclosure.
+OpenSSH's authenticated operator account is the authority for this route; no
+second Vellum credential or compatibility path exists.
+
+Authenticated transport does not grant role-promotion authority. The Station
+wire's `configure` request contains only `RemoteConfiguration`; Command Center
+configuration is a distinct local-main operation. Strict decoding rejects
+unknown or retired credential fields rather than pruning them. Pairing refuses
+an existing Command Center configuration, and local Command Center selection
+refuses an existing pairing, transactionally. On Remote configuration the same
+transaction removes all authorial canvas generations, so a Remote cannot retain
+a dormant Command Center document plane behind its projection.
+
 Projection transfer is complete and replace-only. Work and receipt propagation
 uses route-local `(event_home, entity_home, seq)` identities and cumulative
 acknowledgements. Retries send canonical Work rows after the last acknowledged

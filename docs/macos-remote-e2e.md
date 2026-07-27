@@ -26,7 +26,9 @@ before that capability may be enabled.
    socket is available.
 3. **Configure as Remote** — Command Center invokes fixed `vellum-station`
    over SSH and completes `status → pair → configure`. No remote file is read
-   or written.
+   or written. Running `vellum-station` directly on the Remote must return
+   `authorization_denied`; Remote main admits only the packaged helper whose
+   kernel process ancestry proves the authenticated system sshd route.
 4. **Deploy Remote** (only when the release capability is enabled) — stage the
    app bundle + LaunchAgent, start it, configure through Station API, and wait
    for:

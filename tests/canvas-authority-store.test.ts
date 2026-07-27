@@ -243,17 +243,15 @@ describe("CanvasesService SQLite authority", () => {
     const stations = await runtime.runPromise(StationRepository);
     const installationId = await runtime.runPromise(stations.installationId);
     await runtime.runPromise(
-      stations.configure(
-        ConfigureRequest.make({
-          protocol: STATION_API_PROTOCOL,
-          op: "configure",
+      stations.configureCommandCenter(
+        {
           installationId,
           configuration: {
             role: "command-center",
             hostId: Schema.decodeUnknownSync(StationHostId)("local"),
             supervisedPreferred: true,
           },
-        }),
+        },
       ),
     );
     const canvases = await runtime.runPromise(CanvasesService);

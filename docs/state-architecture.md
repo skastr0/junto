@@ -114,7 +114,7 @@ The fleet protocol has five bounded, schema-decoded operations:
 | Verb | Purpose |
 |---|---|
 | `pair` | Bind one Remote installation to one Command Center installation |
-| `configure` | Commit role-specific topology and projected browser trust |
+| `configure` | Commit Remote topology and projected browser trust |
 | `project` | Install one complete replace-only canvas projection |
 | `report` | Exchange canonical Work events and dispositions after cumulative route ACK cursors |
 | `status` | Report installation identity, configuration, projection, cursors, and readiness |
@@ -123,6 +123,26 @@ Command Center invokes the fixed `vellum-station` executable through the
 operator's enrolled OpenSSH route. The executable accepts no arguments, reads
 one JSON request from stdin, connects to the Remote app's owner-local station
 control socket, and returns one JSON response. It never opens `vellum.db`.
+Socket ownership is not fleet authority: before reading a request, the Remote
+main process obtains the kernel peer PID and admits only the exact packaged
+`vellum-station` executable beneath a bounded process ancestry containing the
+root-owned system `/usr/sbin/sshd`. Every hop is bound by pid, ppid, process
+start identity, executable realpath, device, and inode. The complete ancestry
+is observed again before decoding and again before dispatch. A direct local
+invocation, a renamed program, a process-title imitation, and a changed process
+epoch all fail with `authorization_denied` before `status` can disclose state.
+Vellum intentionally relies on the operator account's OpenSSH authentication
+at this boundary; it does not add a bearer token, pairing secret, or parallel
+credential store.
+
+The Station wire cannot represent `role: "command-center"`: `configure`
+strictly decodes `RemoteConfiguration`, and excess fields fail instead of being
+pruned. Command Center selection is a separate local main-process settings
+operation. Pairing and Command Center configuration are mutually exclusive in
+both directions and checked in the same transaction that would write either
+row. A successful Remote configuration also deletes every authorial
+`canvas_head`, generation document, and generation row in that transaction;
+the complete `station_projection` is the Remote's only canvas residency.
 
 Projection installation is monotonic:
 

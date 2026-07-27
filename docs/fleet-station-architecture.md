@@ -71,7 +71,19 @@ substituting a fresh installation is not.
 OpenSSH authenticates and transports the fixed `vellum-station` command. The
 helper relays to the app's owner-local Station control socket. It accepts no
 path, shell program, settings body, or database location from the caller.
-There are no SSH file writes or reads in the coordination protocol.
+Remote main admits the socket only when its kernel peer is that exact packaged
+executable and its stable, bounded process ancestry contains the root-owned
+system sshd executable. The process chain is re-observed before decode and
+dispatch; a direct local helper or a process named `sshd` has no authority.
+There are no SSH file writes or reads in the coordination protocol, no Station
+bearer credential, and no local fallback.
+
+`configure` is Remote-only on this wire. Command Center selection exists only
+in the local main-process settings path; paired and Command Center states are
+transactionally mutually exclusive. Request and response decoders reject
+excess fields. The first successful Remote configuration atomically removes
+all local authorial canvas generations, leaving only replace-only projection
+residency.
 
 ## Scheduler behavior
 

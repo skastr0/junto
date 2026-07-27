@@ -39,6 +39,10 @@ import {
   StationApiService,
   type StationApiError,
 } from "./api";
+import type {
+  StationControlPeerAdmission,
+  StationControlPeerAuthority,
+} from "./peer-authority";
 
 type RunStationApi = <A, E>(
   effect: Effect.Effect<A, E, StationApiService>,
@@ -49,6 +53,11 @@ export interface StationControlServerOptions {
   readonly readiness: () =>
     | StationReadiness
     | Promise<StationReadiness>;
+  /**
+   * Mandatory authority seam. Production supplies the fixed-client +
+   * authenticated-sshd authority; tests may inject a closed fixture.
+   */
+  readonly peerAuthority: StationControlPeerAuthority;
   readonly home?: string;
   readonly stationHome?: string;
 }
@@ -132,6 +141,7 @@ export const stationControlErrorEnvelope = (
       break;
     case "StationIdentityMismatchError":
     case "StationSelfPairingError":
+    case "StationPairingTopologyError":
     case "StationConfigurationError":
     case "StationMetadataError":
     case "StationApiInvariantError":
@@ -248,6 +258,24 @@ export const startStationControlServer = async (
       return;
     }
 
+    let peerAdmission: StationControlPeerAdmission | undefined;
+    try {
+      peerAdmission = options.peerAuthority.capture(socket);
+    } catch {
+      peerAdmission = undefined;
+    }
+    if (peerAdmission === undefined) {
+      writeEnvelope(
+        socket,
+        stationControlErr(
+          "authorization_denied",
+          "station control requires the packaged client under authenticated SSH",
+          false,
+        ),
+      );
+      return;
+    }
+
     sockets.add(socket);
     const chunks: Buffer[] = [];
     let bufferedBytes = 0;
@@ -308,6 +336,27 @@ export const startStationControlServer = async (
       }
     };
 
+    const peerStillAuthorized = (
+      admission: StationControlPeerAdmission,
+    ): boolean => {
+      try {
+        return options.peerAuthority.revalidate(socket, admission);
+      } catch {
+        return false;
+      }
+    };
+
+    const denyChangedPeer = (): void => {
+      writeEnvelope(
+        socket,
+        stationControlErr(
+          "authorization_denied",
+          "station control peer authority changed",
+          false,
+        ),
+      );
+    };
+
     socket.on("data", (chunk: Buffer | string) => {
       if (frameAdmitted || shuttingDown) {
         writeEnvelope(
@@ -344,6 +393,13 @@ export const startStationControlServer = async (
       frameAdmitted = true;
       clearTimeout(inputTimer);
       socket.pause();
+      // Re-observe the kernel peer and every process epoch before parsing any
+      // caller-controlled JSON. An authenticated session that changed while
+      // streaming the frame has no residual authority.
+      if (!peerStillAuthorized(peerAdmission)) {
+        denyChangedPeer();
+        return;
+      }
       const trailing = part.subarray(newline + 1).toString("utf8").trim();
       if (trailing.length > 0) {
         writeEnvelope(
@@ -391,6 +447,13 @@ export const startStationControlServer = async (
         return;
       }
 
+      // Decoding a maximum projection can take material time. Bind dispatch
+      // to a fresh identical process-chain observation so pair/configure/
+      // project/report/status never run on a stale ancestry proof.
+      if (!peerStillAuthorized(peerAdmission)) {
+        denyChangedPeer();
+        return;
+      }
       const operation = dispatch(decoded.right);
       dispatches.add(operation);
       void operation.finally(() => dispatches.delete(operation));

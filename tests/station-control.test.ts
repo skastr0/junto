@@ -45,6 +45,9 @@ import {
   startStationControlServer,
   type StationControlServer,
 } from "../src/main/vellum/station/control-server";
+import type {
+  StationControlPeerAuthority,
+} from "../src/main/vellum/station/peer-authority";
 import {
   sendStationControlRequest,
 } from "../src/main/vellum/station/control-client";
@@ -73,6 +76,34 @@ const LOCAL = decodeInstallationId("station-studio");
 const COMMAND_CENTER = decodeInstallationId("command-center");
 const NOW = "2026-07-27T15:00:00.000Z";
 
+const testPeerAuthority: StationControlPeerAuthority = {
+  capture: () => ({
+    snapshot: {
+      platform: "Darwin",
+      peerPid: 100,
+      peerUid: 501,
+      chain: [{
+        pid: 100,
+        ppid: 99,
+        uid: 501,
+        startKey: "1:0",
+        executable: "/test/vellum-station",
+        device: "1",
+        inode: "1",
+      }, {
+        pid: 99,
+        ppid: 1,
+        uid: 0,
+        startKey: "1:0",
+        executable: "/usr/sbin/sshd",
+        device: "1",
+        inode: "2",
+      }],
+    },
+  }),
+  revalidate: () => true,
+};
+
 const makeRuntime = (databasePath: string) => {
   const state = makeStateEngineLive(databasePath);
   const repository = Layer.provideMerge(
@@ -90,19 +121,32 @@ const makeRuntime = (databasePath: string) => {
   );
 };
 
-const makeServer = async () => {
+const makeServer = async (
+  peerAuthority: StationControlPeerAuthority = testPeerAuthority,
+  observations?: {
+    readonly dispatched?: () => void;
+    readonly readiness?: () => void;
+  },
+) => {
   const root = await mkdtemp(join(tmpdir(), "vellum-station-control-"));
   roots.push(root);
   const runtime = makeRuntime(join(root, "state", "vellum.db"));
   runtimes.push(runtime);
   const server = await startStationControlServer({
     stationHome: join(root, "station"),
-    run: (effect) => runtime.runPromise(effect),
-    readiness: () => ({
-      database: true,
-      workControl: true,
-      simulation: true,
-    }),
+    run: (effect) => {
+      observations?.dispatched?.();
+      return runtime.runPromise(effect);
+    },
+    peerAuthority,
+    readiness: () => {
+      observations?.readiness?.();
+      return {
+        database: true,
+        workControl: true,
+        simulation: true,
+      };
+    },
   });
   servers.push(server);
   return { root, runtime, server };
@@ -520,6 +564,187 @@ describe("Station API control transport", () => {
       ok: false,
       error: { code: "request_rejected", retryable: false },
     });
+  });
+
+  it("gates every Station verb before decode, dispatch, or status disclosure", async () => {
+    let captures = 0;
+    let dispatches = 0;
+    let readinessReads = 0;
+    const { server } = await makeServer(
+      {
+        capture: () => {
+          captures += 1;
+          return undefined;
+        },
+        revalidate: () => {
+          throw new Error("a denied peer must not be revalidated");
+        },
+      },
+      {
+        dispatched: () => {
+          dispatches += 1;
+        },
+        readiness: () => {
+          readinessReads += 1;
+        },
+      },
+    );
+    const requests = [
+      pairRequest(),
+      configureRequest(),
+      projectRequest(),
+      ReportRequest.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "report",
+        stationInstallationId: LOCAL,
+        outbound: [],
+        acknowledgeInbound: [],
+      }),
+      StatusRequest.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "status",
+      }),
+    ];
+
+    for (const request of requests) {
+      const response = await rawCall(
+        server.socketPath,
+        `${JSON.stringify(request)}\n`,
+      );
+      expect(response).toMatchObject({
+        ok: false,
+        error: {
+          code: "authorization_denied",
+          retryable: false,
+        },
+      });
+    }
+    expect(captures).toBe(requests.length);
+    expect(dispatches).toBe(0);
+    expect(readinessReads).toBe(0);
+  });
+
+  it("revalidates authority before parsing caller-controlled JSON", async () => {
+    let revalidations = 0;
+    let dispatches = 0;
+    const { server } = await makeServer(
+      {
+        capture: () => testPeerAuthority.capture({} as never),
+        revalidate: () => {
+          revalidations += 1;
+          return false;
+        },
+      },
+      {
+        dispatched: () => {
+          dispatches += 1;
+        },
+      },
+    );
+
+    const response = await rawCall(server.socketPath, "{broken\n");
+    expect(response).toMatchObject({
+      ok: false,
+      error: {
+        code: "authorization_denied",
+        retryable: false,
+      },
+    });
+    expect(revalidations).toBe(1);
+    expect(dispatches).toBe(0);
+  });
+
+  it("rejects excess credential-shaped fields instead of pruning them", async () => {
+    let dispatches = 0;
+    const { server } = await makeServer(testPeerAuthority, {
+      dispatched: () => {
+        dispatches += 1;
+      },
+    });
+    const response = await rawCall(
+      server.socketPath,
+      `${JSON.stringify({
+        protocol: STATION_API_PROTOCOL,
+        op: "status",
+        legacyToken: "must-not-be-ignored",
+      })}\n`,
+    );
+    expect(response).toMatchObject({
+      ok: false,
+      error: {
+        code: "protocol_error",
+        retryable: false,
+      },
+    });
+    expect(dispatches).toBe(0);
+  });
+
+  it("rejects Command Center promotion on fresh and paired Station wires with zero configuration write", async () => {
+    let dispatches = 0;
+    const { runtime, server } = await makeServer(testPeerAuthority, {
+      dispatched: () => {
+        dispatches += 1;
+      },
+    });
+    const promote = {
+      protocol: STATION_API_PROTOCOL,
+      op: "configure",
+      installationId: LOCAL,
+      configuration: {
+        role: "command-center",
+        hostId: "command",
+        supervisedPreferred: true,
+      },
+    };
+
+    const fresh = await rawCall(
+      server.socketPath,
+      `${JSON.stringify(promote)}\n`,
+    );
+    expect(fresh).toMatchObject({
+      ok: false,
+      error: { code: "protocol_error", retryable: false },
+    });
+    const repository = await runtime.runPromise(StationRepository);
+    expect(
+      await runtime.runPromise(repository.configuration),
+    ).toBeUndefined();
+
+    const paired = await sendStationControlRequest(
+      pairRequest(),
+      requestOptions(server),
+    );
+    expect(paired.ok).toBe(true);
+    const afterPair = await rawCall(
+      server.socketPath,
+      `${JSON.stringify(promote)}\n`,
+    );
+    expect(afterPair).toMatchObject({
+      ok: false,
+      error: { code: "protocol_error", retryable: false },
+    });
+    expect(
+      await runtime.runPromise(repository.configuration),
+    ).toBeUndefined();
+    expect(
+      (await runtime.runPromise(repository.pairing))
+        ?.commandCenterInstallationId,
+    ).toBe(COMMAND_CENTER);
+    expect(dispatches).toBe(1);
+  });
+
+  it("rejects excess fields on Station responses too", () => {
+    const decoded = decodeStationControlEnvelope({
+      protocol: "vellum/station-control/v1",
+      ok: false,
+      error: {
+        code: "authorization_denied",
+        message: "denied",
+        retryable: false,
+        legacyToken: "must-not-be-ignored",
+      },
+    });
+    expect(Either.isLeft(decoded)).toBe(true);
   });
 
   it("returns a typed refusal for a SHA-valid non-portfolio projection", async () => {

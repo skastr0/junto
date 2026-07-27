@@ -239,7 +239,7 @@ export const StationApiLive = Layer.effect(
         case "pair":
           return repository.pair(request);
         case "configure":
-          return repository.configure(request);
+          return repository.configureRemote(request);
         case "project":
           return handleProject(repository, request);
         case "report":

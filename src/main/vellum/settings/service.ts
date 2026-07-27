@@ -15,6 +15,7 @@ import {
   StateEngineError,
   type StateOutputValue,
   type StateReader,
+  type StateRow,
   type StateWriter,
 } from "../state/service";
 import {
@@ -487,6 +488,18 @@ export const makeSettingsService = (
           if (Either.isLeft(configuration)) {
             throw new SettingsError({
               message: "Command Center topology is invalid",
+              code: "validation",
+            });
+          }
+          const pairing = writer.get<StateRow>(
+            `SELECT 1 AS paired
+               FROM station_pairing
+              WHERE singleton = 1`,
+          );
+          if (pairing !== undefined) {
+            throw new SettingsError({
+              message:
+                "A paired installation cannot become Command Center; pairing is immutable Remote intent",
               code: "validation",
             });
           }

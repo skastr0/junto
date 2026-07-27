@@ -435,28 +435,22 @@ export const smokeLinuxCiPackagedRuntime = async (
         op: "status",
       })}\n`,
     );
-    if (stationStatus.status !== 0) {
-      throw new Error("packaged station CLI status failed");
+    if (stationStatus.status !== 1) {
+      throw new Error("packaged station CLI direct invocation was not denied");
     }
     const stationEnvelope = JSON.parse(stationStatus.stdout) as {
       readonly ok?: unknown;
-      readonly response?: {
-        readonly op?: unknown;
-        readonly readiness?: {
-          readonly database?: unknown;
-          readonly workControl?: unknown;
-          readonly simulation?: unknown;
-        };
+      readonly error?: {
+        readonly code?: unknown;
+        readonly retryable?: unknown;
       };
     };
     if (
-      stationEnvelope.ok !== true ||
-      stationEnvelope.response?.op !== "status" ||
-      stationEnvelope.response.readiness?.database !== true ||
-      stationEnvelope.response.readiness.workControl !== true ||
-      stationEnvelope.response.readiness.simulation !== true
+      stationEnvelope.ok !== false ||
+      stationEnvelope.error?.code !== "authorization_denied" ||
+      stationEnvelope.error.retryable !== false
     ) {
-      throw new Error("packaged station CLI returned a degraded status");
+      throw new Error("packaged station CLI did not enforce SSH authority");
     }
 
     const pids = runtimeRows.map((row) => String(row.pid));

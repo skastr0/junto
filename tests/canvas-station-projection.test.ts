@@ -22,7 +22,11 @@ import {
   CanvasesLive,
   CanvasesService,
 } from "../src/main/vellum/canvases";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import {
+  makeStateEngineLive,
+  StateEngine,
+  type StateRow,
+} from "../src/main/vellum/state/engine";
 import {
   StationRepository,
   makeStationRepositoryLive,
@@ -82,11 +86,12 @@ describe("CanvasesService Station projection", () => {
     );
 
     try {
-      const { canvases, station } = await runtime.runPromise(
+      const { canvases, station, stateEngine } = await runtime.runPromise(
         Effect.gen(function* () {
           return {
             canvases: yield* CanvasesService,
             station: yield* StationRepository,
+            stateEngine: yield* StateEngine,
           };
         }),
       );
@@ -110,7 +115,7 @@ describe("CanvasesService Station projection", () => {
         ),
       );
       await runtime.runPromise(
-        station.configure(
+        station.configureRemote(
           ConfigureRequest.make({
             protocol: STATION_API_PROTOCOL,
             op: "configure",
@@ -162,10 +167,30 @@ describe("CanvasesService Station projection", () => {
         ),
       ).rejects.toThrow("Remote installations");
 
-      // Remote reads never rewrite the authorial history table.
-      expect(
-        await runtime.runPromise(canvases.liveAuthorityGeneration()),
-      ).toBe("1");
+      const authorialRows = await runtime.runPromise(
+        stateEngine.read("test.remote-authorial-rows", (reader) => ({
+          heads: Number(
+            reader.get<StateRow & { readonly count: number }>(
+              "SELECT count(*) AS count FROM canvas_head",
+            )?.count ?? -1,
+          ),
+          documents: Number(
+            reader.get<StateRow & { readonly count: number }>(
+              "SELECT count(*) AS count FROM canvas_generation_documents",
+            )?.count ?? -1,
+          ),
+          generations: Number(
+            reader.get<StateRow & { readonly count: number }>(
+              "SELECT count(*) AS count FROM canvas_generations",
+            )?.count ?? -1,
+          ),
+        })),
+      );
+      expect(authorialRows).toEqual({
+        heads: 0,
+        documents: 0,
+        generations: 0,
+      });
     } finally {
       await runtime.dispose();
     }

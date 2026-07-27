@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import {
+  CommandCenterConfiguration,
   ConfigureResponse,
   DisplayTimestamp,
   InstallationId,
@@ -19,11 +20,13 @@ import {
   type AckAdvanceDecision,
   type ConfigureRequest,
   type ConfigureResponse as ConfigureResponseValue,
+  type CommandCenterConfiguration as CommandCenterConfigurationValue,
   type InstallationId as InstallationIdValue,
   type PairRequest,
   type PairResponse as PairResponseValue,
   type ProjectRequest,
   type ProjectResponse as ProjectResponseValue,
+  type RemoteConfiguration as RemoteConfigurationValue,
   type StationConfiguration as StationConfigurationValue,
   type StationEventAck as StationEventAckValue,
   type StationProjectionBody as StationProjectionBodyValue,
@@ -82,6 +85,14 @@ export class StationPairingConflictError extends Schema.TaggedError<StationPairi
   },
 ) {}
 
+export class StationPairingTopologyError extends Schema.TaggedError<StationPairingTopologyError>()(
+  "StationPairingTopologyError",
+  {
+    reason: Schema.Literal("command-center-configured"),
+    message: Schema.String,
+  },
+) {}
+
 export class StationSelfPairingError extends Schema.TaggedError<StationSelfPairingError>()(
   "StationSelfPairingError",
   {
@@ -94,9 +105,12 @@ export class StationConfigurationError extends Schema.TaggedError<StationConfigu
   {
     reason: Schema.Literal(
       "pairing-required",
+      "pairing-present",
       "command-center-mismatch",
       "host-immutable",
       "role-immutable",
+      "remote-only",
+      "command-center-invalid",
     ),
     message: Schema.String,
   },
@@ -132,6 +146,7 @@ export type StationRepositoryError =
   | StationPersistenceError
   | StationIdentityMismatchError
   | StationPairingConflictError
+  | StationPairingTopologyError
   | StationSelfPairingError
   | StationConfigurationError
   | StationProjectionIntegrityError
@@ -171,6 +186,11 @@ export type StationStatusFacts = {
   readonly peerAcknowledgedThrough: ReadonlyArray<StationPeerAcknowledgement>;
 };
 
+export type ConfigureCommandCenterInput = {
+  readonly installationId: InstallationIdValue;
+  readonly configuration: CommandCenterConfigurationValue;
+};
+
 export class StationRepository extends Context.Tag("@vellum/StationRepository")<
   StationRepository,
   {
@@ -194,10 +214,18 @@ export class StationRepository extends Context.Tag("@vellum/StationRepository")<
       request: PairRequest,
       pairedAt?: string,
     ) => Effect.Effect<PairResponseValue, StationRepositoryError>;
-    readonly configure: (
+    readonly configureRemote: (
       request: ConfigureRequest,
       configuredAt?: string,
     ) => Effect.Effect<ConfigureResponseValue, StationRepositoryError>;
+    /**
+     * Main-process-only local role selection. This input is deliberately not a
+     * Station API request and cannot cross the SSH/control wire.
+     */
+    readonly configureCommandCenter: (
+      input: ConfigureCommandCenterInput,
+      configuredAt?: string,
+    ) => Effect.Effect<StationConfigurationRecord, StationRepositoryError>;
     readonly installProjection: (
       request: ProjectRequest,
       receivedAt?: string,
@@ -470,16 +498,25 @@ const sameConfiguration = (
   return false;
 };
 
-const withCurrentBrowserTrust = (
+function withCurrentBrowserTrust(
+  configuration: RemoteConfigurationValue,
+  browserTrust: StationBrowserPinnedTrustRecord | undefined,
+): RemoteConfigurationValue;
+function withCurrentBrowserTrust(
   configuration: StationConfigurationValue,
   browserTrust: StationBrowserPinnedTrustRecord | undefined,
-): StationConfigurationValue =>
-  configuration.role === "remote"
+): StationConfigurationValue;
+function withCurrentBrowserTrust(
+  configuration: StationConfigurationValue,
+  browserTrust: StationBrowserPinnedTrustRecord | undefined,
+): StationConfigurationValue {
+  return configuration.role === "remote"
     ? decodeConfiguration({
         ...configuration,
         ...(browserTrust === undefined ? {} : { browserTrust }),
       })
     : configuration;
+}
 
 const ensureLocalIdentity = (
   operation: string,
@@ -639,6 +676,12 @@ export const makeStationRepositoryLive = (
           }
           const decision = yield* engine
             .transaction("station.pair", (writer) => {
+              const configured = selectConfiguration(writer);
+              if (configured?.role === "command-center") {
+                return {
+                  _tag: "command-center-configured" as const,
+                };
+              }
               const current = selectPairing(writer);
               if (current === undefined) {
                 writer.run(
@@ -690,6 +733,13 @@ export const makeStationRepositoryLive = (
                 request.commandCenterInstallationId,
             });
           }
+          if (decision._tag === "command-center-configured") {
+            return yield* StationPairingTopologyError.make({
+              reason: "command-center-configured",
+              message:
+                "a locally selected Command Center cannot be paired as a Remote",
+            });
+          }
           return PairResponse.make({
             protocol: STATION_API_PROTOCOL,
             op: "pair",
@@ -701,8 +751,19 @@ export const makeStationRepositoryLive = (
         },
       );
 
-      const configure = Effect.fn("StationRepository.configure")(
+      const configureRemote = Effect.fn("StationRepository.configureRemote")(
         function* (request: ConfigureRequest, configuredAt = clock()) {
+          if (
+            (request as {
+              readonly configuration?: { readonly role?: unknown };
+            }).configuration?.role !== "remote"
+          ) {
+            return yield* StationConfigurationError.make({
+              reason: "remote-only",
+              message:
+                "Station API configuration can establish only a Remote role",
+            });
+          }
           const admittedConfiguredAt = yield* admitTimestamp(
             "configure",
             "configuredAt",
@@ -734,27 +795,34 @@ export const makeStationRepositoryLive = (
                   admitted: currentRow.host_id,
                 };
               }
-              if (request.configuration.role === "remote") {
-                const pairing = selectPairing(writer);
-                if (pairing === undefined) {
-                  return { _tag: "pairing-required" as const };
-                }
-                if (
-                  pairing.command_center_installation_id !==
-                  request.configuration.commandCenterInstallationId
-                ) {
-                  return {
-                    _tag: "command-center-mismatch" as const,
-                    admitted: pairing.command_center_installation_id,
-                  };
-                }
-                if (request.configuration.browserTrust !== undefined) {
-                  installStationBrowserPinnedRecord(
-                    writer,
-                    request.configuration.browserTrust,
-                  );
-                }
+              const pairing = selectPairing(writer);
+              if (pairing === undefined) {
+                return { _tag: "pairing-required" as const };
               }
+              if (
+                pairing.command_center_installation_id !==
+                request.configuration.commandCenterInstallationId
+              ) {
+                return {
+                  _tag: "command-center-mismatch" as const,
+                  admitted: pairing.command_center_installation_id,
+                };
+              }
+              if (request.configuration.browserTrust !== undefined) {
+                installStationBrowserPinnedRecord(
+                  writer,
+                  request.configuration.browserTrust,
+                );
+              }
+
+              // Remote is a projection consumer, never a dormant Command
+              // Center. Fresh boot seeds an authorial canvas for local use;
+              // the first successful Remote configuration removes that
+              // history in this same transaction. Repeating configure also
+              // repairs any impossible authorial residue.
+              writer.run("DELETE FROM canvas_head");
+              writer.run("DELETE FROM canvas_generation_documents");
+              writer.run("DELETE FROM canvas_generations");
 
               const effectiveConfiguration = withCurrentBrowserTrust(
                 request.configuration,
@@ -804,7 +872,7 @@ export const makeStationRepositoryLive = (
             return yield* StationConfigurationError.make({
               reason: "command-center-mismatch",
               message:
-                `Remote configuration names ${request.configuration.role === "remote" ? request.configuration.commandCenterInstallationId : ""}, ` +
+                `Remote configuration names ${request.configuration.commandCenterInstallationId}, ` +
                 `but pairing admits ${decision.admitted}`,
             });
           }
@@ -833,6 +901,117 @@ export const makeStationRepositoryLive = (
           });
         },
       );
+
+      const configureCommandCenter = Effect.fn(
+        "StationRepository.configureCommandCenter",
+      )(function* (
+        input: ConfigureCommandCenterInput,
+        configuredAt = clock(),
+      ) {
+        const decodedConfiguration = Schema.decodeUnknownEither(
+          CommandCenterConfiguration,
+        )(
+          input.configuration,
+        );
+        if (Either.isLeft(decodedConfiguration)) {
+          return yield* StationConfigurationError.make({
+            reason: "command-center-invalid",
+            message: "local Command Center configuration is invalid",
+          });
+        }
+        const configuration = decodedConfiguration.right;
+        const admittedConfiguredAt = yield* admitTimestamp(
+          "configure-command-center",
+          "configuredAt",
+          configuredAt,
+        );
+        yield* ensureLocalIdentity(
+          "configure-command-center",
+          installationId,
+          input.installationId,
+        );
+        const decision = yield* engine
+          .transaction("station.configure-command-center", (writer) => {
+            if (selectPairing(writer) !== undefined) {
+              return { _tag: "pairing-present" as const };
+            }
+            const currentRow = selectConfiguration(writer);
+            if (
+              currentRow !== undefined &&
+              currentRow.role !== "command-center"
+            ) {
+              return {
+                _tag: "role-immutable" as const,
+                admitted: currentRow.role,
+              };
+            }
+            if (
+              currentRow !== undefined &&
+              currentRow.host_id !== configuration.hostId
+            ) {
+              return {
+                _tag: "host-immutable" as const,
+                admitted: currentRow.host_id,
+              };
+            }
+            if (currentRow !== undefined) {
+              const current = configurationFromRow(currentRow);
+              if (
+                sameConfiguration(
+                  current.configuration,
+                  configuration,
+                )
+              ) {
+                return {
+                  _tag: "configured" as const,
+                  configuredAt: current.configuredAt,
+                };
+              }
+            }
+            writeStationConfiguration(
+              writer,
+              configuration,
+              admittedConfiguredAt,
+            );
+            return {
+              _tag: "configured" as const,
+              configuredAt: admittedConfiguredAt,
+            };
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              persistenceError("configure-command-center", error),
+            ),
+          );
+
+        if (decision._tag === "pairing-present") {
+          return yield* StationConfigurationError.make({
+            reason: "pairing-present",
+            message:
+              "a paired installation cannot become Command Center",
+          });
+        }
+        if (decision._tag === "host-immutable") {
+          return yield* StationConfigurationError.make({
+            reason: "host-immutable",
+            message:
+              `installation host "${decision.admitted}" is immutable; ` +
+              `cannot reconfigure it as "${configuration.hostId}"`,
+          });
+        }
+        if (decision._tag === "role-immutable") {
+          return yield* StationConfigurationError.make({
+            reason: "role-immutable",
+            message:
+              `installation role "${decision.admitted}" is immutable; ` +
+              `cannot reconfigure it as "command-center"`,
+          });
+        }
+        return {
+          configuration,
+          configuredAt: decision.configuredAt,
+        };
+      });
 
       const installProjection = Effect.fn(
         "StationRepository.installProjection",
@@ -1137,7 +1316,8 @@ export const makeStationRepositoryLive = (
         configuration: readConfiguration,
         projection: readProjection,
         pair,
-        configure,
+        configureRemote,
+        configureCommandCenter,
         installProjection,
         advancePeerAcks,
         statusFacts,

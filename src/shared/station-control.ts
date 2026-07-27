@@ -30,6 +30,7 @@ export const stationControlSocketPath = (stationHome: string): string =>
 
 export const StationControlErrorCode = Schema.Literal(
   "protocol_error",
+  "authorization_denied",
   "request_rejected",
   "state_conflict",
   "integrity_error",
@@ -67,9 +68,13 @@ export const StationControlEnvelope = Schema.Union(
 export type StationControlEnvelope = typeof StationControlEnvelope.Type;
 
 export const decodeStationControlRequest =
-  Schema.decodeUnknownEither(StationApiRequest);
+  Schema.decodeUnknownEither(StationApiRequest, {
+    onExcessProperty: "error",
+  });
 export const decodeStationControlEnvelope =
-  Schema.decodeUnknownEither(StationControlEnvelope);
+  Schema.decodeUnknownEither(StationControlEnvelope, {
+    onExcessProperty: "error",
+  });
 
 export const stationControlOk = (
   response: StationApiResponse,

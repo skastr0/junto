@@ -389,19 +389,16 @@ const configureCommandCenter = async (
 ): Promise<void> => {
   await runtime.runPromise(
     Effect.gen(function* () {
-      const api = yield* StationApiService;
-      yield* api.handle(
-        ConfigureRequest.make({
-          protocol: STATION_API_PROTOCOL,
-          op: "configure",
+      const repository = yield* StationRepository;
+      yield* repository.configureCommandCenter(
+        {
           installationId: COMMAND_CENTER,
           configuration: {
             role: "command-center",
             hostId: decodeHostId("command"),
             supervisedPreferred: true,
           },
-        }),
-        READINESS,
+        },
       );
     }),
   );

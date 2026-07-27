@@ -349,17 +349,15 @@ beforeAll(async () => {
   const stations = await workRuntime.runPromise(StationRepository);
   const installationId = await workRuntime.runPromise(stations.installationId);
   await workRuntime.runPromise(
-    stations.configure(
-      ConfigureRequest.make({
-        protocol: STATION_API_PROTOCOL,
-        op: "configure",
+    stations.configureCommandCenter(
+      {
         installationId,
         configuration: {
           role: "command-center",
           hostId: Schema.decodeUnknownSync(StationHostId)("local"),
           supervisedPreferred: true,
         },
-      }),
+      },
     ),
   );
   work = await workRuntime.runPromise(WorkService);
