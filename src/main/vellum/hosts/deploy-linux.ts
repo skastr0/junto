@@ -1906,9 +1906,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
         );
         const result: DeployRemoteResult = {
           ok: true,
-          detail: receipt.changed
-            ? `${target.host.label}: Linux Remote ${admission.version} installed from the signed bundle and structurally ready`
-            : `${target.host.label}: Linux Remote ${admission.version} already cache-bound and structurally ready`,
+          detail: `${target.host.label}: Linux Remote ${admission.version} installed from the signed bundle and structurally ready`,
           stages: Object.freeze([...stages]),
           disposition: "ready",
           version: admission.version,
