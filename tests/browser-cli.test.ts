@@ -6,8 +6,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  CONTROL_CAPABILITY_ENV,
-  CONTROL_CAPABILITY_HEADER,
   CONTROL_HOME_ENV,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_TOKEN_HEADER,
@@ -21,7 +19,6 @@ import {
 const repoRoot = resolve(import.meta.dirname, "..");
 const roots: string[] = [];
 const servers: Server[] = [];
-const capability = "A".repeat(43);
 
 interface SeenRequest {
   readonly method: string | undefined;
@@ -141,7 +138,6 @@ const runCli = (
   options: {
     readonly home: string;
     readonly controlHome?: string;
-    readonly capability?: string;
   },
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
   new Promise((resolveRun, rejectRun) => {
@@ -149,7 +145,6 @@ const runCli = (
       ...process.env,
       HOME: options.home,
       [CONTROL_HOME_ENV]: options.controlHome,
-      [CONTROL_CAPABILITY_ENV]: options.capability,
     };
     const child = spawn("bun", [join(repoRoot, "scripts/browser-cli.ts"), ...args], {
       cwd: repoRoot,
@@ -182,18 +177,16 @@ afterEach(async () => {
 });
 
 describe("packaged browser CLI contract", () => {
-  it("supports both command names and keeps capability off doctor requests", async () => {
+  it("supports both command names with owner-local process-bound requests", async () => {
     const root = await newRoot();
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
 
     const direct = await runCli(["doctor", "--json"], {
       home: root,
-      capability,
     });
     const dispatched = await runCli(["browser", "doctor", "--json"], {
       home: root,
-      capability,
     });
 
     expect(direct.code, direct.stderr).toBe(0);
@@ -201,7 +194,6 @@ describe("packaged browser CLI contract", () => {
     expect(seen).toHaveLength(2);
     for (const request of seen) {
       expect(request.url).toBe("/doctor");
-      expect(request.headers[CONTROL_CAPABILITY_HEADER]).toBeUndefined();
       expect(request.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
       expect(isValidControlRequestId(String(request.headers[CONTROL_REQUEST_ID_HEADER]))).toBe(true);
     }
@@ -210,7 +202,7 @@ describe("packaged browser CLI contract", () => {
     );
   });
 
-  it("reads protected authority from the fixed environment and honors isolated control home", async () => {
+  it("honors an isolated control home without a client authority credential", async () => {
     const root = await newRoot();
     const decoyHome = await mkdtemp(join(tmpdir(), "vellum-browser-cli-home-"));
     roots.push(decoyHome);
@@ -220,16 +212,11 @@ describe("packaged browser CLI contract", () => {
     const result = await runCli(["profiles", "--json"], {
       home: decoyHome,
       controlHome: root,
-      capability,
     });
 
     expect(result.code, result.stderr).toBe(0);
-    expect(result.stdout).not.toContain(capability);
-    expect(result.stderr).not.toContain(capability);
     expect(seen).toHaveLength(1);
     expect(seen[0]?.url).toBe("/profiles");
-    // Capability env is not identity — CLI does not forward it.
-    expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBeUndefined();
     expect(seen[0]?.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
   });
 
@@ -245,7 +232,6 @@ describe("packaged browser CLI contract", () => {
     expect(result.code, result.stderr).toBe(0);
     expect(seen).toHaveLength(1);
     expect(seen[0]?.url).toBe("/pages");
-    expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBeUndefined();
     expect(seen[0]?.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
   });
 
@@ -256,7 +242,6 @@ describe("packaged browser CLI contract", () => {
 
     const stop = await runCli(["stop", "session-1", "--json"], {
       home: root,
-      capability,
     });
     const wipe = await runCli(["wipe-profile", "personal", "--json"], { home: root });
 
@@ -268,7 +253,6 @@ describe("packaged browser CLI contract", () => {
       url: "/stop",
       body: { sessionId: "session-1" },
     });
-    expect(seen[0]?.headers[CONTROL_CAPABILITY_HEADER]).toBeUndefined();
   });
 
   it("routes --host through the fixed origin path and rolls opaque session handles", async () => {
@@ -380,18 +364,10 @@ describe("packaged browser CLI contract", () => {
     });
   });
 
-  it("rejects malformed capability and non-absolute control home without disclosure", async () => {
+  it("rejects a non-absolute control home before transport", async () => {
     const root = await newRoot();
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
-
-    const malformedSecret = "bad-cap";
-    const malformed = await runCli(["profiles", "--json"], {
-      home: root,
-      capability: malformedSecret,
-    });
-    expect(malformed.code).toBe(1);
-    expect(`${malformed.stdout}${malformed.stderr}`).not.toContain(malformedSecret);
 
     const invalidHome = await runCli(["doctor", "--json"], {
       home: root,
@@ -402,8 +378,6 @@ describe("packaged browser CLI contract", () => {
       ok: false,
       error: { _tag: "bad_request" },
     });
-    // Process-bind path may reach the rogue server without a capability.
-    // Malformed capability must not.
     expect(seen).toHaveLength(0);
   });
 
@@ -463,6 +437,7 @@ describe("browser CLI packaging contract", () => {
     };
     const buildScript = await readFile(join(repoRoot, "scripts/build-app.sh"), "utf8");
     const installScript = await readFile(join(repoRoot, "scripts/install-app.sh"), "utf8");
+    const browserCli = await readFile(join(repoRoot, "scripts/browser-cli.ts"), "utf8");
 
     expect(pkg.build.extraResources).toEqual([
       { from: "dist/vellum", to: "bin/vellum" },
@@ -500,5 +475,8 @@ describe("browser CLI packaging contract", () => {
     expect(installScript).toContain("refusing to replace non-symlink command");
     expect(installScript).toContain('[[ "$existing" != "$helper" ]]');
     expect(installScript).not.toContain('!= *"/${PRODUCT_NAME}.app/Contents/Resources/bin/vellum-browser"');
+    expect(browserCli).not.toMatch(
+      /CONTROL_CAPABILITY|VELLUM_BROWSER_CAPABILITY|x-vellum-capability/u,
+    );
   });
 });

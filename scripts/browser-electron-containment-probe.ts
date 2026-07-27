@@ -17,7 +17,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Either } from "effect";
 import {
-  CONTROL_CAPABILITY_HEADER,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
   CONTROL_TOKEN_HEADER,
@@ -50,6 +49,10 @@ const CONTROL_TIMEOUT_MS = 5_000;
 const EVAL_INVALIDATION_TIMEOUT_MS = BROWSER_EVAL_TIMEOUT_MS + 10_000;
 const PROBE_RUNTIME_TIMEOUT_MS = 120_000;
 const MAX_LOG_BYTES = 256 * 1024;
+// Adversarial recurrence input only: the product protocol no longer defines
+// this header. The probe sends it to prove an obsolete client credential
+// cannot select browser authority.
+const RETIRED_CLIENT_CAPABILITY_HEADER = "x-vellum-capability";
 const probeSupervisor = createProbeProcessSupervisor({ maxLogBytes: MAX_LOG_BYTES });
 let probeStage = "setup";
 let activeProbeServer: Server | undefined;
@@ -596,7 +599,7 @@ const launchDedicatedElectron = (
 
 interface ControlCallOptions {
   /** Deliberate decoy: product admission must never select authority from it. */
-  readonly capability?: string;
+  readonly retiredCapabilityDecoy?: string;
   /** Protected routes require replay identity even though they require no client secret. */
   readonly requestId?: string | false;
   readonly timeoutMs?: number;
@@ -633,10 +636,11 @@ const controlCall = (
           "content-type": "application/json",
           [CONTROL_TOKEN_HEADER]: token,
           ...(requestId === undefined ? {} : { [CONTROL_REQUEST_ID_HEADER]: requestId }),
-          ...(options.capability === undefined
+          ...(options.retiredCapabilityDecoy === undefined
             ? {}
             : {
-                [CONTROL_CAPABILITY_HEADER]: options.capability,
+                [RETIRED_CLIENT_CAPABILITY_HEADER]:
+                  options.retiredCapabilityDecoy,
               }),
         },
       },
@@ -1242,7 +1246,7 @@ const qualifyCapabilityAdmission = async (
 
   const profilesWithUnrelatedDecoy = requireOk(
     await controlCall(socketPath, token, "profiles", undefined, {
-      capability: handoff.unrelatedCapability,
+      retiredCapabilityDecoy: handoff.unrelatedCapability,
     }),
     "profiles with unrelated client decoy",
   );
@@ -1255,7 +1259,7 @@ const qualifyCapabilityAdmission = async (
 
   const pagesWithSiblingDecoy = requireOk(
     await controlCall(socketPath, token, "pages", undefined, {
-      capability: handoff.siblingCapability,
+      retiredCapabilityDecoy: handoff.siblingCapability,
     }),
     "pages with sibling client decoy",
   );
@@ -2144,7 +2148,7 @@ const main = async (): Promise<void> => {
           restartControl.token,
           "sessions",
           undefined,
-          { capability: staleCapability },
+          { retiredCapabilityDecoy: staleCapability },
         ),
         "previous launch capability decoy",
       );
@@ -2158,7 +2162,7 @@ const main = async (): Promise<void> => {
         token,
         "sessions",
         undefined,
-        { capability: restartHandoff.siblingCapability },
+        { retiredCapabilityDecoy: restartHandoff.siblingCapability },
       ),
       "unauthorized",
       "fresh capability with previous launch token",

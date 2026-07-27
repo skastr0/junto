@@ -5,8 +5,6 @@ import { request } from "node:http";
 import { homedir } from "node:os";
 import { isAbsolute, normalize } from "node:path";
 import {
-  CONTROL_CAPABILITY_ENV,
-  CONTROL_CAPABILITY_HEADER,
   CONTROL_HOME_ENV,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
@@ -16,7 +14,6 @@ import {
   controlSocketPath,
   controlTokenPath,
   decodeControlEnvelope,
-  isValidControlCapability,
   isValidControlRequestId,
   type ControlErr,
   type ControlEnvelope,
@@ -54,7 +51,6 @@ usage:
 
 auth:
   process-bind only — run as a child of a live Vellum agent (ACP) or herdr pane
-  VELLUM_BROWSER_CAPABILITY is ignored for identity (legacy env, unused)
   doctor needs only the owner-local transport token
 
 commands:
@@ -103,7 +99,6 @@ const httpOverSocket = (
   socketPath: string,
   route: { method: string; path: string },
   token: string,
-  capability: string | undefined,
   body: unknown,
 ): Promise<ControlEnvelope<unknown>> =>
   new Promise((resolve) => {
@@ -152,9 +147,6 @@ const httpOverSocket = (
           "content-type": "application/json",
           [CONTROL_TOKEN_HEADER]: token,
           [CONTROL_REQUEST_ID_HEADER]: requestId,
-          ...(capability === undefined
-            ? {}
-            : { [CONTROL_CAPABILITY_HEADER]: capability }),
           ...(encodedBody === undefined
             ? {}
             : { "content-length": String(Buffer.byteLength(encodedBody)) }),
@@ -300,7 +292,6 @@ const stationWrapperMain = async (
       controlSocketPath(home),
       { method: "POST", path: "/station" },
       token,
-      undefined,
       { frame },
     );
     if (
@@ -704,28 +695,6 @@ const controlHome = (): string | ControlErr => {
   return normalize(configured);
 };
 
-/**
- * Product path is process-bind only. Capability env is no longer identity —
- * the server attributes this process via Unix peer PID. We still parse a
- * malformed capability env as InputError so agents notice stale ceremony config.
- */
-const admissionFor = (
-  route: ControlRouteName,
-): { readonly capability?: string } | ControlErr => {
-  if (route === "doctor") return {};
-  const capability = process.env[CONTROL_CAPABILITY_ENV];
-  if (capability === undefined) return {};
-  // Present but malformed — tell the operator the env is stale/wrong.
-  // Valid secrets are not sent: product HTTP path ignores them for identity.
-  if (!isValidControlCapability(capability)) {
-    return controlErr(
-      "unauthorized",
-      `${CONTROL_CAPABILITY_ENV} is set but malformed — unset it; identity is process-bind`,
-    );
-  }
-  return {};
-};
-
 const main = async (): Promise<void> => {
   const rawArgv = process.argv.slice(2);
   if (rawArgv[0] === "station") {
@@ -740,14 +709,6 @@ const main = async (): Promise<void> => {
   const resolvedHome = controlHome();
   if (typeof resolvedHome !== "string") return printErrorAndExit(resolvedHome, parsed.json);
   const home = resolvedHome;
-
-  const admission = admissionFor(
-    parsed.call.kind === "local" ? parsed.call.route : "pages",
-  );
-  if ("error" in admission) {
-    return printErrorAndExit(admission, parsed.json);
-  }
-  const capability = admission.capability;
 
   let token: string | undefined;
   try {
@@ -770,7 +731,6 @@ const main = async (): Promise<void> => {
       ? CONTROL_ROUTES[parsed.call.route]
       : { method: "POST", path: STATION_BROWSER_ORIGIN_ROUTE_PATH },
     token,
-    capability,
     parsed.call.kind === "local"
       ? parsed.call.body
       : parsed.call.input,
