@@ -49,11 +49,11 @@ import {
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
 import type {
-  StationControlPeerAdmission,
-  StationControlPeerAuthority,
+  StationControlLocalHandoff,
+  StationControlLocalHandoffAuthority,
 } from "./peer-authority";
 import {
-  admitOpenSshPeer,
+  admitOwnerLocalStationHandoff,
   dispatchStationApiRequest,
   stationControlErrorEnvelope,
   type RunStationApi,
@@ -72,10 +72,10 @@ export interface StationControlServerOptions {
     | StationControlReadinessObservation
     | Promise<StationControlReadinessObservation>;
   /**
-   * Mandatory authority seam. Production supplies the fixed-client +
-   * authenticated-sshd authority; tests may inject a closed fixture.
+   * Mandatory owner-local handoff seam. Production binds admissions to the
+   * exact accepted Unix socket; tests may inject a closed fixture.
    */
-  readonly peerAuthority: StationControlPeerAuthority;
+  readonly localHandoffAuthority: StationControlLocalHandoffAuthority;
   readonly home?: string;
   readonly stationHome?: string;
   /** Tests may lower the product frame bound; callers cannot raise it. */
@@ -94,7 +94,7 @@ export interface StationControlShutdownReceipt {
 
 export type StationControlReportFailure =
   | "session-unavailable"
-  | "authority-changed"
+  | "local-handoff-lost"
   | "capacity-exceeded"
   | "request-timeout"
   | "invalid-local-request"
@@ -141,7 +141,7 @@ interface PendingReport {
 
 interface ActiveStationControlSession {
   readonly socket: Socket;
-  readonly peerAdmission: StationControlPeerAdmission;
+  readonly localHandoff: StationControlLocalHandoff;
   readonly transportAdmission: StationTransportAdmission;
   readonly pendingReports: Map<string, PendingReport>;
   buffer: Buffer;
@@ -279,6 +279,7 @@ export const startStationControlServer = async (
       return (
         current.isSocket() &&
         !current.isSymbolicLink() &&
+        (current.mode & 0o777n) === 0o600n &&
         current.dev === socketIdentity.dev &&
         current.ino === socketIdentity.ino &&
         current.birthtimeNs === socketIdentity.birthtimeNs &&
@@ -321,13 +322,13 @@ export const startStationControlServer = async (
     }
   };
 
-  const peerStillAuthorized = (
+  const localHandoffIsCurrent = (
     session: ActiveStationControlSession,
   ): boolean => {
     try {
-      return options.peerAuthority.revalidate(
+      return options.localHandoffAuthority.isCurrent(
         session.socket,
-        session.peerAdmission,
+        session.localHandoff,
       );
     } catch {
       return false;
@@ -452,12 +453,12 @@ export const startStationControlServer = async (
     requestFrame: StationSessionRequestFrameValue,
     envelope: StationControlEnvelope,
   ): Promise<void> => {
-    if (!peerStillAuthorized(session)) {
+    if (!localHandoffIsCurrent(session)) {
       terminateSession(
         session,
         new StationControlReportError(
-          "authority-changed",
-          "station session peer authority changed",
+          "local-handoff-lost",
+          "station owner-local handoff is no longer current",
         ),
       );
       return;
@@ -516,14 +517,14 @@ export const startStationControlServer = async (
       };
     }
 
-    // Readiness and large schema decoding may both take material time. Bind
-    // dispatch to a fresh observation of the exact admitted process chain.
-    if (!peerStillAuthorized(session)) {
+    // Keep dispatch bound to the exact owner-local socket accepted for this
+    // session. This is not a reconstruction of the original SSH peer.
+    if (!localHandoffIsCurrent(session)) {
       terminateSession(
         session,
         new StationControlReportError(
-          "authority-changed",
-          "station session peer authority changed",
+          "local-handoff-lost",
+          "station owner-local handoff is no longer current",
         ),
       );
       return;
@@ -608,13 +609,12 @@ export const startStationControlServer = async (
     session: ActiveStationControlSession,
     encoded: Buffer,
   ): Promise<void> => {
-    // Re-observe authority before parsing caller-controlled bytes.
-    if (!peerStillAuthorized(session)) {
+    if (!localHandoffIsCurrent(session)) {
       terminateSession(
         session,
         new StationControlReportError(
-          "authority-changed",
-          "station session peer authority changed",
+          "local-handoff-lost",
+          "station owner-local handoff is no longer current",
         ),
       );
       return;
@@ -645,14 +645,13 @@ export const startStationControlServer = async (
       return;
     }
 
-    // Decode does not preserve stale authority. Every frame receives a second
-    // process-chain observation immediately before domain dispatch/correlation.
-    if (!peerStillAuthorized(session)) {
+    // Strict decode does not replace the exact-socket handoff check.
+    if (!localHandoffIsCurrent(session)) {
       terminateSession(
         session,
         new StationControlReportError(
-          "authority-changed",
-          "station session peer authority changed",
+          "local-handoff-lost",
+          "station owner-local handoff is no longer current",
         ),
       );
       return;
@@ -739,26 +738,31 @@ export const startStationControlServer = async (
   };
 
   const server = createServer((socket) => {
-    if (shuttingDown || sessionReady()) {
+    if (
+      shuttingDown ||
+      sessionReady() ||
+      !pathMatchesCapturedIdentity() ||
+      !ownsSocketPath()
+    ) {
       socket.destroy();
       return;
     }
 
-    let peerAdmission: StationControlPeerAdmission | undefined;
+    let localHandoff: StationControlLocalHandoff | undefined;
     try {
-      peerAdmission = options.peerAuthority.capture(socket);
+      localHandoff = options.localHandoffAuthority.capture(socket);
     } catch {
-      peerAdmission = undefined;
+      localHandoff = undefined;
     }
-    if (peerAdmission === undefined) {
+    if (localHandoff === undefined) {
       socket.destroy();
       return;
     }
 
     const session: ActiveStationControlSession = {
       socket,
-      peerAdmission,
-      transportAdmission: admitOpenSshPeer(peerAdmission),
+      localHandoff,
+      transportAdmission: admitOwnerLocalStationHandoff(localHandoff),
       pendingReports: new Map(),
       buffer: Buffer.alloc(0),
       partialFrameTimer: undefined,
@@ -889,6 +893,7 @@ export const startStationControlServer = async (
     !shuttingDown &&
     server.listening &&
     controlListenerLeaseHeld(listenerLease) &&
+    pathMatchesCapturedIdentity() &&
     ownsSocketPath();
   liveStationControlListeners.set(readinessAuthority, ready);
   liveStationControlSessions.set(readinessAuthority, sessionReady);
@@ -931,10 +936,10 @@ export const startStationControlServer = async (
         ),
       );
     }
-    if (!peerStillAuthorized(session)) {
+    if (!localHandoffIsCurrent(session)) {
       const error = new StationControlReportError(
-        "authority-changed",
-        "station session peer authority changed",
+        "local-handoff-lost",
+        "station owner-local handoff is no longer current",
       );
       terminateSession(session, error);
       return Promise.reject(error);

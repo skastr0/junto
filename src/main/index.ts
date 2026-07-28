@@ -65,7 +65,7 @@ import {
 import { StationApiService } from "./vellum/station/api";
 import { StationRepository } from "./vellum/station/repository";
 import { WorkRepository } from "./vellum/work/repository";
-import { makeSshStationControlPeerAuthority } from "./vellum/station/peer-authority";
+import { makeOwnerLocalStationControlHandoffAuthority } from "./vellum/station/peer-authority";
 import {
   startCanvasControlServer,
   type CanvasControlServer,
@@ -1175,15 +1175,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     try {
       const kernel = await AppRuntime.runPromise(KernelService);
       kernel.start();
-      const stationClientExecutablePath = app.isPackaged
-        ? join(process.resourcesPath, "bin", "vellum-station")
-        : join(app.getAppPath(), "dist", "vellum-station");
       stationControl = await startStationControlServer({
         home: termControlHome,
         run: (effect) => AppRuntime.runPromise(effect),
-        peerAuthority: makeSshStationControlPeerAuthority({
-          stationExecutablePath: stationClientExecutablePath,
-        }),
+        localHandoffAuthority:
+          makeOwnerLocalStationControlHandoffAuthority(),
         readiness: () => ({
           database: true,
           workControl: workControlReadiness.ready(),

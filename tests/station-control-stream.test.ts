@@ -49,8 +49,9 @@ import {
 import {
   relayStationControlSession,
 } from "../src/main/vellum/station/control-relay";
-import type {
-  StationControlPeerAuthority,
+import {
+  makeOwnerLocalStationControlHandoffAuthority,
+  type StationControlLocalHandoffAuthority,
 } from "../src/main/vellum/station/peer-authority";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
@@ -85,34 +86,6 @@ afterEach(async () => {
   );
 });
 
-const admittedPeer: StationControlPeerAuthority = {
-  capture: () => ({
-    snapshot: {
-      platform: "Darwin",
-      peerPid: 101,
-      peerUid: 501,
-      chain: [{
-        pid: 101,
-        ppid: 100,
-        uid: 501,
-        startKey: "1:0",
-        executable: "/test/vellum-station",
-        device: "1",
-        inode: "1",
-      }, {
-        pid: 100,
-        ppid: 1,
-        uid: 0,
-        startKey: "1:0",
-        executable: "/usr/sbin/sshd",
-        device: "1",
-        inode: "2",
-      }],
-    },
-  }),
-  revalidate: () => true,
-};
-
 interface ServerFixture {
   readonly server: StationControlServer;
   readonly handled: () => number;
@@ -120,7 +93,7 @@ interface ServerFixture {
 }
 
 const makeServer = async (options: {
-  readonly peerAuthority?: StationControlPeerAuthority;
+  readonly localHandoffAuthority?: StationControlLocalHandoffAuthority;
   readonly maxFrameBytes?: number;
   readonly requestTimeoutMs?: number;
 } = {}): Promise<ServerFixture> => {
@@ -159,7 +132,9 @@ const makeServer = async (options: {
   });
   const server = await startStationControlServer({
     stationHome: join(root, "station"),
-    peerAuthority: options.peerAuthority ?? admittedPeer,
+    localHandoffAuthority:
+      options.localHandoffAuthority ??
+        makeOwnerLocalStationControlHandoffAuthority(),
     maxFrameBytes: options.maxFrameBytes,
     requestTimeoutMs: options.requestTimeoutMs,
     readiness: () => ({
@@ -332,13 +307,14 @@ describe("persistent Station control stream", () => {
   });
 
   it("serves multiple strict NDJSON requests in order on one admitted session", async () => {
-    let revalidations = 0;
+    const authority = makeOwnerLocalStationControlHandoffAuthority();
+    let handoffChecks = 0;
     const fixture = await makeServer({
-      peerAuthority: {
-        ...admittedPeer,
-        revalidate: () => {
-          revalidations += 1;
-          return true;
+      localHandoffAuthority: {
+        capture: authority.capture,
+        isCurrent: (socket, handoff) => {
+          handoffChecks += 1;
+          return authority.isCurrent(socket, handoff);
         },
       },
     });
@@ -379,7 +355,7 @@ describe("persistent Station control stream", () => {
     expect(fixture.observedReadiness()).toMatchObject({ session: true });
     expect(fixture.server.sessionReady()).toBe(true);
     expect(stationControlReadiness.sessionReady()).toBe(true);
-    expect(revalidations).toBeGreaterThanOrEqual(8);
+    expect(handoffChecks).toBeGreaterThanOrEqual(8);
     expect(socket.destroyed).toBe(false);
   });
 
@@ -402,7 +378,7 @@ describe("persistent Station control stream", () => {
     unsubscribe();
   });
 
-  it("closes malformed, oversized, and authority-changed sessions", async () => {
+  it("closes malformed, oversized, and stale-handoff sessions", async () => {
     const malformed = await makeServer();
     const malformedSocket = await connect(malformed.server.socketPath);
     malformedSocket.write("{broken\n");
@@ -421,13 +397,17 @@ describe("persistent Station control stream", () => {
     );
     expect(oversized.handled()).toBe(0);
 
-    let authorityChecks = 0;
+    const authority = makeOwnerLocalStationControlHandoffAuthority();
+    let handoffChecks = 0;
     const changed = await makeServer({
-      peerAuthority: {
-        ...admittedPeer,
-        revalidate: () => {
-          authorityChecks += 1;
-          return authorityChecks === 1;
+      localHandoffAuthority: {
+        capture: authority.capture,
+        isCurrent: (socket, handoff) => {
+          handoffChecks += 1;
+          return (
+            handoffChecks === 1 &&
+            authority.isCurrent(socket, handoff)
+          );
         },
       },
     });
@@ -435,9 +415,9 @@ describe("persistent Station control stream", () => {
     changedSocket.write(encodeStationControlFrame(statusFrame("changed")));
     await withTimeout(
       waitForClose(changedSocket),
-      "authority-changed session stayed open",
+      "stale-handoff session stayed open",
     );
-    expect(authorityChecks).toBe(2);
+    expect(handoffChecks).toBe(2);
     expect(changed.handled()).toBe(0);
   });
 

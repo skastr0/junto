@@ -15,16 +15,17 @@ import {
   type StationApiError,
   type StationApiPeerContext,
 } from "./api";
-import type { StationControlPeerAdmission } from "./peer-authority";
+import type { StationControlLocalHandoff } from "./peer-authority";
 import {
   isStationPeerRoute,
   type StationPeerRoute,
 } from "./peer-exchange";
 
 /**
- * Transport admission token. Opaque and non-serializable — minted only by a
- * transport adapter after it has proven the peer. OpenSSH unix-peer capture is
- * the sole producer today; HTTPS is intentionally out of scope.
+ * Transport admission token. Opaque and non-serializable — minted only after
+ * an adapter-owned boundary admits its local handoff. OpenSSH authenticates at
+ * the SSH daemon; the Remote-side token proves only that the request crossed
+ * the owner-local Station socket.
  *
  * Branded and peer-bound via a module-private WeakMap so the token cannot be
  * forged as JSON or reconstructed across process boundaries.
@@ -36,11 +37,11 @@ export type StationTransportAdmission = {
 };
 
 /**
- * Mint an admission from an OpenSSH process-chain capture. The peer snapshot
- * is not retained on the token — revalidation stays on the transport server.
+ * Mint an admission for the exact owner-local Station handoff accepted by the
+ * Remote control server. This does not project SSH peer identity into main.
  */
-export const admitOpenSshPeer = (
-  _peer: StationControlPeerAdmission,
+export const admitOwnerLocalStationHandoff = (
+  _handoff: StationControlLocalHandoff,
 ): StationTransportAdmission => {
   const admission: StationTransportAdmission = Object.freeze({
     _tag: "StationTransportAdmission" as const,
@@ -139,7 +140,7 @@ export const stationControlErrorEnvelope = (
 
 /**
  * Sole path from any admitted transport into `StationApiService.handle`.
- * Transports own framing, peer capture/revalidation, and readiness probes;
+ * Transports own framing, local admission, and readiness probes;
  * this module owns decode-free request execution and envelope mapping.
  */
 export const dispatchStationApiRequest = (
