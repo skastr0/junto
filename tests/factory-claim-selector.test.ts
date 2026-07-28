@@ -1,8 +1,7 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { factoryClaimTick } from "../src/shared/factory-tick";
+import { selectFactoryClaims } from "../src/shared/factory-tick";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { deliveryTargetOf, isPendingDelivery } from "../src/shared/message-delivery";
 import { ActorRef } from "../src/shared/work-protocol";
 
 const worker = Schema.decodeUnknownSync(ActorRef)({
@@ -58,9 +57,9 @@ const doc: CanvasDoc = {
   edges: [{ id: "e1", fromNode: "worker", toNode: "tasks" }],
 };
 
-describe("factoryClaimTick agent nudge", () => {
-  it("claims and appends a pending user message on the managed actor", () => {
-    const { doc: next, claimed } = factoryClaimTick(
+describe("factory claim selector", () => {
+  it("returns durable work identity without inventing a Canvas mailbox nudge", () => {
+    const selected = selectFactoryClaims(
       doc,
       "demo",
       (ref) =>
@@ -68,20 +67,19 @@ describe("factoryClaimTick agent nudge", () => {
           ? worker
           : undefined,
     );
-    expect(claimed).toEqual([{ taskId: "t1", actor: worker }]);
-    const actor = next.nodes.find((n) => n.id === "worker")!;
-    const items = actor.ether?.messages?.items ?? [];
-    expect(items.length).toBe(1);
-    expect(items[0]!.role).toBe("user");
-    expect(items[0]!.parts[0]).toMatchObject({
-      kind: "text",
-    });
-    expect(String((items[0]!.parts[0] as { text: string }).text)).toContain(
-      "vellum onboard",
-    );
-    expect(isPendingDelivery(items[0]!)).toBe(true);
-    expect(deliveryTargetOf(actor)).toEqual({
-      bindingId: "bind-1",
-    });
+    expect(selected).toEqual([
+      {
+        sink: { canvasName: "demo", nodeId: "tasks" },
+        task: {
+          kind: "task",
+          itemId: "t1",
+          sink: { canvasName: "demo", nodeId: "tasks" },
+        },
+        actor: worker,
+      },
+    ]);
+    expect(
+      doc.nodes.find((node) => node.id === "worker")?.ether?.messages,
+    ).toBeUndefined();
   });
 });

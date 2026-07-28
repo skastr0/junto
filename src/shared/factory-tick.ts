@@ -1,9 +1,7 @@
-import { ulid } from "ulid";
-import { Either } from "effect";
-import type { Task, CanvasDoc, CanvasNode } from "./canvas";
+import { Either, HashSet } from "effect";
+import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { ActorSeatId } from "./actor-seat";
-import { claimedByOf, makeUserMessage, taskBrief } from "./task";
-import { workMessageAppend, workTaskClaim, type WorkIds } from "./work";
+import { claimedByOf } from "./task";
 import {
   resolveCompiledActorRef,
   workRoleOf,
@@ -13,17 +11,17 @@ import {
   admitPure,
   asNodeId,
   canvasDocToCapabilityView,
+  offersOf,
   resolveSpec,
   roleOf,
 } from "./physics";
-import type { ActorRef } from "./work-protocol";
+import type { ActorRef, SinkRef, TaskRef } from "./work-protocol";
 
 /**
- * Document-level claim simulation: role-matched free edged actors pull
- * submitted tasks. Real harness execution is a later plugin; this makes
- * the queue breathe without it.
+ * Pure factory selection over the current SQLite-backed work projection.
  *
- * Pure: (doc) → doc. Call from a deliberate tick / UI "run tick" action.
+ * This module owns no mutation authority. It returns exact durable work
+ * identities for the kernel to submit once through WorkService.
  */
 
 const isActor = (node: CanvasNode): boolean =>
@@ -34,13 +32,19 @@ const isActor = (node: CanvasNode): boolean =>
     }),
   ) === "actor";
 
-const isTaskSink = (node: CanvasNode): boolean => node.ether?.entity?.kind === "task";
+export const isClaimableTaskSink = (node: CanvasNode): boolean => {
+  const spec = resolveSpec({
+    isGroup: node.type === "group",
+    kind: node.ether?.entity?.kind,
+  });
+  return roleOf(spec) === "sink" && HashSet.has(offersOf(spec), "tasks.claim");
+};
 
 /** Actors already holding a non-terminal claim on any task node. */
 const busyActorSeatIds = (doc: CanvasDoc): ReadonlySet<ActorSeatId> => {
   const busy = new Set<ActorSeatId>();
   for (const node of doc.nodes) {
-    if (!isTaskSink(node)) continue;
+    if (!isClaimableTaskSink(node)) continue;
     for (const task of node.ether?.tasks?.items ?? []) {
       if (task.state !== "working" && task.state !== "input-required" && task.state !== "auth-required") {
         continue;
@@ -52,39 +56,39 @@ const busyActorSeatIds = (doc: CanvasDoc): ReadonlySet<ActorSeatId> => {
   return busy;
 };
 
-const defaultIds = (): WorkIds => ({
-  id: () => ulid(),
-  messageId: () => ulid(),
-});
+export type FactoryClaimSelection = {
+  readonly sink: SinkRef;
+  readonly task: TaskRef;
+  readonly actor: ActorRef;
+};
 
 /**
- * One claim tick over the document.
+ * Select one deterministic claim batch over the current projection.
+ *
  * For each tasks sink, for each submitted unclaimed item, find a free actor
- * edged to that sink (undirected) whose workRole matches the sink's workRole
- * (or either side unassigned). Claim with its compiled ActorRef.
+ * whose edge grants `tasks.claim` and whose workRole matches the sink's
+ * workRole (or either side is unassigned).
+ *
+ * The selector reserves a seat in-memory only for the rest of this returned
+ * batch. The caller remains responsible for exactly one durable claim attempt
+ * per selection. Task IDs are sink-local, so every result carries both its
+ * SinkRef and exact TaskRef.
+ *
  * A paused seat (opts.seatPaused) neither drains as a sink nor claims as a
  * worker — the pause plane's law reaches the simulation here.
  */
-export const factoryClaimTick = (
+export const selectFactoryClaims = (
   doc: CanvasDoc,
   canvasName: string,
   resolveActorRef: ActorRefResolver,
-  ids: WorkIds = defaultIds(),
   opts?: {
     readonly seatPaused?: (nodeId: string) => boolean;
     readonly actorEligible?: (actor: CanvasNode) => boolean;
     /** Occupancy already observed outside this document. */
     readonly busyActorSeatIds?: ReadonlySet<ActorSeatId>;
   },
-): {
-  readonly doc: CanvasDoc;
-  readonly claimed: ReadonlyArray<{
-    readonly taskId: string;
-    readonly actor: ActorRef;
-  }>;
-} => {
-  let next = doc;
-  const claimed: Array<{ taskId: string; actor: ActorRef }> = [];
+): ReadonlyArray<FactoryClaimSelection> => {
+  const selections: FactoryClaimSelection[] = [];
   const busy = new Set<ActorSeatId>([
     ...busyActorSeatIds(doc),
     ...(opts?.busyActorSeatIds ?? []),
@@ -93,15 +97,29 @@ export const factoryClaimTick = (
   const actorEligible = opts?.actorEligible ?? (() => true);
   const capabilityView = canvasDocToCapabilityView(doc);
 
-  for (const node of next.nodes) {
-    if (!isTaskSink(node)) continue;
+  const sinks = doc.nodes
+    .filter(isClaimableTaskSink)
+    .sort((left, right) => left.id.localeCompare(right.id));
+
+  for (const node of sinks) {
     if (isPausedSeat(node.id)) continue;
     const sinkRole = workRoleOf(node);
     const items = node.ether?.tasks?.items ?? [];
-    const open = items.filter((t) => t.state === "submitted" && !claimedByOf(t));
+    const counts = new Map<string, number>();
+    for (const task of items) {
+      counts.set(task.id, (counts.get(task.id) ?? 0) + 1);
+    }
+    const open = items
+      .filter(
+        (task) =>
+          counts.get(task.id) === 1 &&
+          task.state === "submitted" &&
+          !claimedByOf(task),
+      )
+      .sort((left, right) => left.id.localeCompare(right.id));
     if (open.length === 0) continue;
 
-    const freeActors = next.nodes
+    const freeActors = doc.nodes
       .filter(isActor)
       .filter(actorEligible)
       .filter((actor) =>
@@ -133,58 +151,20 @@ export const factoryClaimTick = (
       .sort((a, b) => a.node.id.localeCompare(b.node.id));
 
     for (const task of open) {
-      const actor = freeActors.find(
+      const selected = freeActors.find(
         ({ actor: candidate }) => !busy.has(candidate.seatId),
       );
-      if (!actor) break;
-      try {
-        const result = workTaskClaim(
-          next,
-          canvasName,
-          node.id,
-          task.id,
-          actor.actor,
-          ids,
-        );
-        next = result.doc;
-        busy.add(actor.actor.seatId);
-        claimed.push({ taskId: task.id, actor: actor.actor });
-        // Nudge the managed seat: assignment lands on ether.messages so the
-        // idle-gated drive transport can type it into the live TUI.
-        // Task history alone is never auto-delivered (work plane law).
-        try {
-          const brief = taskBrief(result.task);
-          const assignment = makeUserMessage({
-            messageId: ids.messageId(),
-            text: [
-              `[factory claim] task ${task.id}: ${brief}`,
-              "",
-              "You claimed this task from the factory pull queue.",
-              "1. Run `vellum onboard` (and again after compaction).",
-              "2. Do the work. Update with `vellum tasks update` when done.",
-              "3. If blocked on a human, `vellum escalate` (or request create).",
-            ].join("\n"),
-            contextId: canvasName,
-            taskId: task.id,
-          });
-          const nudged = workMessageAppend(
-            next,
-            canvasName,
-            actor.node.id,
-            null,
-            assignment,
-          );
-          next = nudged.doc;
-        } catch {
-          // Actor may not admit messages (illegal_kind) — claim still stands.
-        }
-      } catch {
-        // claim_contention / illegal — skip
-      }
+      if (!selected) break;
+      const sink = { canvasName, nodeId: node.id } satisfies SinkRef;
+      const taskRef = {
+        kind: "task",
+        itemId: task.id,
+        sink,
+      } satisfies TaskRef;
+      busy.add(selected.actor.seatId);
+      selections.push({ sink, task: taskRef, actor: selected.actor });
     }
   }
 
-  return { doc: next, claimed };
+  return selections;
 };
-
-export type { Task };

@@ -8,7 +8,7 @@ import {
   type ActorRefResolver,
 } from "../src/shared/attention";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
-import { factoryClaimTick } from "../src/shared/factory-tick";
+import { selectFactoryClaims } from "../src/shared/factory-tick";
 import {
   ActorRef,
   type ActorRef as ActorRefValue,
@@ -171,8 +171,8 @@ describe("sinkGlance + attention", () => {
   });
 });
 
-describe("factoryClaimTick", () => {
-  it("role-matched free actor claims submitted task", () => {
+describe("selectFactoryClaims", () => {
+  it("selects an exact sink-local task identity without mutating the projection", () => {
     const worker = actorRef("w1", "1");
     const doc: CanvasDoc = {
       nodes: [
@@ -187,18 +187,24 @@ describe("factoryClaimTick", () => {
       ],
       edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
     };
-    const { doc: next, claimed } = factoryClaimTick(
+    const before = structuredClone(doc);
+    const selected = selectFactoryClaims(
       doc,
       "c",
       resolverFor([worker]),
     );
-    // Claim identity is the seat, never the shared role tag.
-    expect(claimed).toEqual([{ taskId: "i1", actor: worker }]);
-    const task = next.nodes
-      .find((n) => n.id === "t")
-      ?.ether?.tasks?.items.find((t) => t.id === "i1");
-    expect(task?.state).toBe("working");
-    expect(task?.claimedBy).toBe(worker.seatId);
+    expect(selected).toEqual([
+      {
+        sink: { canvasName: "c", nodeId: "t" },
+        task: {
+          kind: "task",
+          itemId: "i1",
+          sink: { canvasName: "c", nodeId: "t" },
+        },
+        actor: worker,
+      },
+    ]);
+    expect(doc).toEqual(before);
   });
 
   it("two seats sharing a role are distinct workers — one claim each per tick", () => {
@@ -223,14 +229,70 @@ describe("factoryClaimTick", () => {
     };
     const w1 = actorRef("w1", "1");
     const w2 = actorRef("w2", "2");
-    const { claimed } = factoryClaimTick(
+    const selected = selectFactoryClaims(
       doc,
       "c",
       resolverFor([w1, w2]),
     );
-    expect(new Set(claimed.map((claim) => claim.actor.seatId))).toEqual(
+    expect(new Set(selected.map((claim) => claim.actor.seatId))).toEqual(
       new Set([w1.seatId, w2.seatId]),
     );
+  });
+
+  it("keeps identical task IDs distinct by exact sink and selects deterministically", () => {
+    const actorA = actorRef("actor-a", "1");
+    const actorB = actorRef("actor-b", "2");
+    const doc: CanvasDoc = {
+      nodes: [
+        tasksNode("sink-b", [taskItem("same-id", "second", "submitted")]),
+        seat("actor-b", "actor"),
+        tasksNode("sink-a", [taskItem("same-id", "first", "submitted")]),
+        seat("actor-a", "actor"),
+      ],
+      edges: [
+        { id: "edge-b", fromNode: "sink-b", toNode: "actor-b" },
+        { id: "edge-a", fromNode: "sink-a", toNode: "actor-a" },
+      ],
+    };
+
+    expect(
+      selectFactoryClaims(doc, "c", resolverFor([actorA, actorB])),
+    ).toEqual([
+      {
+        sink: { canvasName: "c", nodeId: "sink-a" },
+        task: {
+          kind: "task",
+          itemId: "same-id",
+          sink: { canvasName: "c", nodeId: "sink-a" },
+        },
+        actor: actorA,
+      },
+      {
+        sink: { canvasName: "c", nodeId: "sink-b" },
+        task: {
+          kind: "task",
+          itemId: "same-id",
+          sink: { canvasName: "c", nodeId: "sink-b" },
+        },
+        actor: actorB,
+      },
+    ]);
+  });
+
+  it("fails closed on a duplicate task identity inside one sink", () => {
+    const actor = actorRef("actor", "1");
+    const doc: CanvasDoc = {
+      nodes: [
+        tasksNode("sink", [
+          taskItem("duplicate", "first", "submitted"),
+          taskItem("duplicate", "second", "submitted"),
+        ]),
+        seat("actor", "actor"),
+      ],
+      edges: [{ id: "edge", fromNode: "sink", toNode: "actor" }],
+    };
+
+    expect(selectFactoryClaims(doc, "c", resolverFor([actor]))).toEqual([]);
   });
 
   it("skips a lower-id actor whose edge does not grant tasks.claim", () => {
@@ -258,13 +320,23 @@ describe("factoryClaimTick", () => {
       ],
     };
 
-    const { claimed } = factoryClaimTick(
+    const selected = selectFactoryClaims(
       doc,
       "c",
       resolverFor([denied, admitted]),
     );
 
-    expect(claimed).toEqual([{ taskId: "i1", actor: admitted }]);
+    expect(selected).toEqual([
+      {
+        sink: { canvasName: "c", nodeId: "t" },
+        task: {
+          kind: "task",
+          itemId: "i1",
+          sink: { canvasName: "c", nodeId: "t" },
+        },
+        actor: admitted,
+      },
+    ]);
   });
 
   it("one executable seat gets no backlog through canvas aliases", () => {
@@ -293,14 +365,14 @@ describe("factoryClaimTick", () => {
     const primary = actorRef("w1", "1");
     const alias = actorRef("w1-alias", "1");
 
-    const { claimed } = factoryClaimTick(
+    const selected = selectFactoryClaims(
       doc,
       "c",
       resolverFor([primary, alias]),
     );
 
-    expect(claimed).toHaveLength(1);
-    expect(claimed[0]?.actor.seatId).toBe(primary.seatId);
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.actor.seatId).toBe(primary.seatId);
   });
 
   it("does not claim when roles mismatch", () => {
@@ -314,12 +386,12 @@ describe("factoryClaimTick", () => {
       ],
       edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
     };
-    const { claimed } = factoryClaimTick(
+    const selected = selectFactoryClaims(
       doc,
       "c",
       resolverFor([actorRef("w1", "1")]),
     );
-    expect(claimed).toEqual([]);
+    expect(selected).toEqual([]);
   });
 
   it("does not claim through an unresolved or ambiguous actor reference", () => {
@@ -331,13 +403,13 @@ describe("factoryClaimTick", () => {
       edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
     };
 
-    expect(factoryClaimTick(doc, "c", resolverFor([])).claimed).toEqual([]);
+    expect(selectFactoryClaims(doc, "c", resolverFor([]))).toEqual([]);
     expect(
-      factoryClaimTick(
+      selectFactoryClaims(
         doc,
         "c",
         resolverFor([actorRef("w1", "1"), actorRef("w1", "2")]),
-      ).claimed,
+      ),
     ).toEqual([]);
   });
 
@@ -351,14 +423,13 @@ describe("factoryClaimTick", () => {
       edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
     };
 
-    const result = factoryClaimTick(
+    const result = selectFactoryClaims(
       doc,
       "c",
       resolverFor([worker]),
-      undefined,
       { busyActorSeatIds: new Set([worker.seatId]) },
     );
 
-    expect(result.claimed).toEqual([]);
+    expect(result).toEqual([]);
   });
 });

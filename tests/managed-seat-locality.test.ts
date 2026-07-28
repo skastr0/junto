@@ -5,7 +5,7 @@ import {
   InstallationId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
-import { factoryClaimTick } from "../src/shared/factory-tick";
+import { selectFactoryClaims } from "../src/shared/factory-tick";
 import { deriveActorSeatId } from "../src/main/vellum/station/actor-seat-compiler";
 import { isManagedSeatRuntimeLocal } from "../src/main/vellum/term/ensure-managed-seat";
 import {
@@ -280,14 +280,10 @@ describe("kernel actor and delivery identity", () => {
       ).filter((seatId) => seatId !== undefined),
     );
 
-    const claim = factoryClaimTick(
+    const selections = selectFactoryClaims(
       doc,
       "factory",
       registry.resolve,
-      {
-        id: () => "claim-history",
-        messageId: () => "claim-message",
-      },
       {
         actorEligible: (node) => {
           const actor = registry.resolve({
@@ -300,8 +296,16 @@ describe("kernel actor and delivery identity", () => {
     );
 
     expect(selectable).toEqual(new Set([actorRefs[1]!.seatId]));
-    expect(claim.claimed).toEqual([
-      { taskId: "task-1", actor: actorRefs[1] },
+    expect(selections).toEqual([
+      {
+        sink: { canvasName: "factory", nodeId: "tasks" },
+        task: {
+          kind: "task",
+          itemId: "task-1",
+          sink: { canvasName: "factory", nodeId: "tasks" },
+        },
+        actor: actorRefs[1],
+      },
     ]);
   });
 });

@@ -12,14 +12,13 @@
 // separately-named "prod" variant, by design (kernel-design.md §2, §7).
 
 import { createHash } from "node:crypto";
-import { Context, Effect, HashSet, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
 import { identityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
-import { offersOf, resolveSpec, roleOf } from "@shared/physics";
 import {
   DEFAULT_STATION_HOST_ID,
   type StationRole,
@@ -31,7 +30,11 @@ import {
   HostId,
   type HostId as HostIdValue,
 } from "@shared/remote-hosts";
-import type { ActorRef, SinkRef } from "@shared/work-protocol";
+import {
+  IntentFactBasis,
+  type ActorRef,
+  type SinkRef,
+} from "@shared/work-protocol";
 import type {
   ArmRegionResult,
   BindingHint,
@@ -48,7 +51,10 @@ import { StationFleetTargetRepository } from "../station/fleet-target-repository
 import { StationRepository } from "../station/repository";
 import { StationLivePeerRegistry } from "../station/session-registry";
 import { KernelStateRepository } from "./repository";
-import { factoryClaimTick } from "@shared/factory-tick";
+import {
+  isClaimableTaskSink,
+  selectFactoryClaims,
+} from "@shared/factory-tick";
 import { seatPaused } from "@shared/pause";
 import { WorkService } from "../work/service";
 import {
@@ -417,20 +423,6 @@ export const managedTaskDeliveryId = (
     )
     .digest("hex")}`;
 
-/**
- * Factory participation is derived from the canonical physics registry. The
- * kernel needs queues that can actually be claimed, not a parallel list of
- * entity kinds; `tasks.claim` is the capability that uniquely identifies that
- * sink in the current closed port model.
- */
-const isClaimableTaskSink = (node: CanvasNode): boolean => {
-  const spec = resolveSpec({
-    isGroup: node.type === "group",
-    kind: node.ether?.entity?.kind,
-  });
-  return roleOf(spec) === "sink" && HashSet.has(offersOf(spec), "tasks.claim");
-};
-
 const makeKernelService = (
   canvases: CanvasesShape,
   snapshots: SnapshotsShape,
@@ -641,6 +633,21 @@ const makeKernelService = (
     );
 
     const busyActorSeatIds = new Set<ActorSeatId>();
+    const pendingCommands = await Effect.runPromise(
+      workRepository.pendingCommands,
+    );
+    for (const pending of pendingCommands) {
+      if (
+        pending.resolution === undefined &&
+        pending.command.body.operation === "task.claim"
+      ) {
+        // The task remains submitted until the Remote adopts it, but the
+        // durable claim attempt already reserves the actor. Treating only
+        // material task rows as busy would let the deterministic selector
+        // choose this seat forever and starve the next eligible actor.
+        busyActorSeatIds.add(pending.command.body.actor.seatId);
+      }
+    }
     for (const doc of docs.values()) {
       for (const node of doc.nodes) {
         if (!isClaimableTaskSink(node)) continue;
@@ -661,11 +668,10 @@ const makeKernelService = (
     for (const [canvasName, doc] of docs) {
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
-      const probe = factoryClaimTick(
+      const selections = selectFactoryClaims(
         doc,
         canvasName,
         registry.resolve,
-        undefined,
         {
           seatPaused: (nodeId) => seatPaused(state, doc, nodeId),
           actorEligible: (actor) => {
@@ -681,27 +687,13 @@ const makeKernelService = (
           busyActorSeatIds,
         },
       );
-      if (probe.claimed.length === 0) continue;
-      for (const claim of probe.claimed) {
-        const candidateSinks = doc.nodes.filter((node) =>
-          isClaimableTaskSink(node) &&
-          node.ether?.tasks?.items.some((task) => task.id === claim.taskId)
-        );
-        // factoryClaimTick's current pure result names a task but not its sink.
-        // Composite work identity forbids guessing when canvas-local task ids
-        // collide, so refuse the ambiguous probe.
-        if (candidateSinks.length !== 1) {
-          console.error(
-            `[kernel] claim tick found ${candidateSinks.length} sinks for ${canvasName}/${claim.taskId}; refusing ambiguous work identity`,
-          );
-          continue;
-        }
+      for (const selection of selections) {
         const result = await Effect.runPromise(
           work.workTaskClaim(
-            canvasName,
-            candidateSinks[0]!.id,
-            claim.taskId,
-            claim.actor,
+            selection.sink.canvasName,
+            selection.sink.nodeId,
+            selection.task.itemId,
+            selection.actor,
           ),
         );
         if (
@@ -710,10 +702,10 @@ const makeKernelService = (
           result.code !== "illegal_transition"
         ) {
           console.error(
-            `[kernel] claim tick failed for ${canvasName}/${claim.taskId}: ${result.message}`,
+            `[kernel] claim tick failed for ${selection.sink.canvasName}/${selection.sink.nodeId}/${selection.task.itemId}: ${result.message}`,
           );
         }
-        if (result.ok) busyActorSeatIds.add(claim.actor.seatId);
+        if (result.ok) busyActorSeatIds.add(selection.actor.seatId);
       }
     }
   };
@@ -785,9 +777,21 @@ const makeKernelService = (
           // durably suppresses restart replay. The send→receipt crash window
           // remains intentionally at-least-once until that transport accepts
           // an idempotency key; pre-writing would instead risk silent loss.
+          const intentWitness = await Effect.runPromise(
+            canvases.activeIntentWitness(),
+          );
+          const basis = Schema.decodeUnknownSync(IntentFactBasis)({
+            kind:
+              scope.role === "command-center"
+                ? "authorial-intent"
+                : "projected-intent",
+            generation: intentWitness.generation,
+            contentSha256: intentWitness.contentSha256,
+          });
           await Effect.runPromise(
             workRepository.acceptDelivery({
               sink: sinkRef,
+              basis,
               receipt: {
                 deliveryId,
                 deliveredItem: {
