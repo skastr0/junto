@@ -738,7 +738,7 @@ export const CanvasesLive = Layer.effect(
 
   const readActive = (
     operation: string,
-  ): Effect.Effect<StoredAuthoritySnapshot, CanvasError> =>
+  ): Effect.Effect<ActivePortfolioSnapshot, CanvasError> =>
     ensureReady.pipe(
       Effect.flatMap(() =>
         state.read(operation, readActivePortfolio).pipe(
