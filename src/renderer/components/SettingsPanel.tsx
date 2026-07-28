@@ -1275,7 +1275,7 @@ export function SettingsPanel() {
           <div className="settings-panel__title">
             <Settings2 size={16} style={{ color: HUE.amber }} />
             <div>
-              <div className="settings-panel__eyebrow">station / prefs</div>
+              <div className="settings-panel__eyebrow">vellum command</div>
               <strong style={{ color: INK }}>Settings</strong>
             </div>
           </div>
