@@ -55,11 +55,22 @@ const runPaths = (
     VELLUM_INSTALL_SANDBOX_ROOT: sandbox,
     ...extraEnvironment,
   });
-  return spawnSync("/bin/bash", ["-c", script, "vellum-path-test", pathsFile], {
-    cwd: root,
-    env: environment,
-    encoding: "utf8",
-  });
+  return spawnSync(
+    "/bin/bash",
+    [
+      "-c",
+      script,
+      "vellum-path-test",
+      pathsFile,
+      sandbox,
+      join(sandbox, ".vellum", "state", "vellum.db"),
+    ],
+    {
+      cwd: root,
+      env: environment,
+      encoding: "utf8",
+    },
+  );
 };
 
 const position = (source: string, needle: string): number => {
@@ -295,6 +306,87 @@ describe("hardened app installer", () => {
     );
   });
 
+  it("detects fresh-state creation and installed-state replacement after binding", () => {
+    for (const installed of [false, true]) {
+      const sandbox = makeSandbox();
+      const result = runPaths(
+        sandbox,
+        `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+STATE_DATABASE="$INSTALL_USER_ROOT/.vellum/state/vellum.db"
+STATE_PREFLIGHT_SOURCE=""
+STATE_PREFLIGHT_DATABASE_ID=""
+${stateSourceFunctions()}
+if [[ "$INSTALL_USER_ROOT" != "$2" || "$STATE_DATABASE" != "$3" ]]; then
+  printf 'unsafe state fixture target\\n' >&2
+  exit 90
+fi
+mkdir -p "\${STATE_DATABASE%/*}"
+if [[ "$TEST_INSTALLED" == "1" ]]; then
+  printf original > "$STATE_DATABASE"
+fi
+bind_state_update_source
+printf '%s\\n' "$STATE_PREFLIGHT_SOURCE"
+assert_state_update_source_unchanged
+if [[ "$TEST_INSTALLED" == "1" ]]; then
+  mv "$STATE_DATABASE" "\${STATE_DATABASE}.bound"
+  printf replacement > "$STATE_DATABASE"
+else
+  printf appeared > "$STATE_DATABASE"
+fi
+if assert_state_update_source_unchanged; then
+  exit 91
+fi`,
+        { TEST_INSTALLED: installed ? "1" : "0" },
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(`${installed ? "installed" : "fresh"}\n`);
+      expect(result.stderr).toContain(
+        installed
+          ? "installed state source changed identity"
+          : "fresh state source changed",
+      );
+    }
+  });
+
+  it("rejects a symlink or non-file at the canonical state database path", () => {
+    for (const kind of ["symlink", "directory"] as const) {
+      const sandbox = makeSandbox();
+      const result = runPaths(
+        sandbox,
+        `set -euo pipefail
+source "$1"
+assert_installer_path_capabilities
+STATE_DATABASE="$INSTALL_USER_ROOT/.vellum/state/vellum.db"
+STATE_PREFLIGHT_SOURCE=""
+STATE_PREFLIGHT_DATABASE_ID=""
+${stateSourceFunctions()}
+if [[ "$INSTALL_USER_ROOT" != "$2" || "$STATE_DATABASE" != "$3" ]]; then
+  printf 'unsafe state fixture target\\n' >&2
+  exit 90
+fi
+mkdir -p "\${STATE_DATABASE%/*}"
+if [[ "$TEST_KIND" == "symlink" ]]; then
+  printf target > "\${STATE_DATABASE}.target"
+  ln -s "\${STATE_DATABASE}.target" "$STATE_DATABASE"
+else
+  mkdir "$STATE_DATABASE"
+fi
+if bind_state_update_source; then
+  exit 91
+fi`,
+        { TEST_KIND: kind },
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain(
+        kind === "symlink" ? "must not be a symlink" : "must be a regular file",
+      );
+    }
+  });
+
   it("bounds output and time while terminating and reaping the exact candidate process group", () => {
     const helper = stagedStatePreflightFunction();
 
@@ -452,7 +544,11 @@ mkdir -m 0700 "$STAGE_ROOT"
 bind_install_stage
 assert_install_transaction_capabilities
 safe_remove_install_stage
-printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR"`,
+STATE_DATABASE="$INSTALL_USER_ROOT/.vellum/state/vellum.db"
+if [[ "$INSTALL_USER_ROOT" != "$2" || "$STATE_DATABASE" != "$3" ]]; then
+  exit 90
+fi
+printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
     );
 
     expect(result.stderr).toBe("");
@@ -462,6 +558,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR"`,
       join(sandbox, "Library", "LaunchAgents", "skastr0.vellum.plist"),
       join(sandbox, "Library", "Logs", "Vellum Command"),
       join(sandbox, ".local", "bin"),
+      join(sandbox, ".vellum", "state", "vellum.db"),
     ]);
   });
 
