@@ -10,6 +10,7 @@ import {
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
+  STATE_SCHEMA_V1_SQL,
 } from "../src/main/vellum/state/schema";
 import {
   expectedStateSchemaIdentity,
@@ -108,7 +109,7 @@ const databaseWitness = (database: DatabaseSync) => ({
 
 describe("State schema migrations", () => {
   it("freezes the exact version-one schema witness", () => {
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V1_SQL)).toEqual(
       STATE_SCHEMA_V1_IDENTITY,
     );
   });

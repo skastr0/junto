@@ -23,8 +23,10 @@ import {
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
+  STATE_SCHEMA_V1_SQL,
 } from "../src/main/vellum/state/schema";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum/state/migrations";
+import { verifyAndStampStateSchema } from "../src/main/vellum/state/schema-identity";
 import { USAGE_STATE_SCHEMA_SQL } from "../src/main/vellum/usage/state-schema";
 const makeTempDir = (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix)).then((root) => {
@@ -55,6 +57,17 @@ const seedCurrentStateSchema = async (path: string): Promise<void> => {
   const runtime = makeRuntime(path);
   await runtime.runPromise(StateEngine);
   await disposeRuntime(runtime);
+};
+
+const seedVersionOneStateSchema = (path: string, version = 1): void => {
+  const database = new DatabaseSync(path);
+  try {
+    database.exec(STATE_SCHEMA_V1_SQL);
+    verifyAndStampStateSchema(database, STATE_SCHEMA_V1_SQL);
+    database.exec(`PRAGMA user_version = ${version}`);
+  } finally {
+    database.close();
+  }
 };
 
 const readAuthorityWitness = (path: string) => {
@@ -146,7 +159,7 @@ describe("StateEngine", () => {
     expect(info.synchronous).toBe(1);
     expect(info.foreignKeys).toBe(true);
     expect(info.schemaSha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(info.schemaVersion).toBe(1);
+    expect(info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
     expect((await lstat(join(root, "state"))).mode & 0o777).toBe(0o700);
     expect((await lstat(path)).mode & 0o777).toBe(0o600);
 
@@ -181,7 +194,7 @@ describe("StateEngine", () => {
           .update(STATE_SCHEMA_SQL)
           .digest("hex"),
       },
-      userVersion: 1,
+      userVersion: CURRENT_STATE_SCHEMA_VERSION,
     });
   });
 
@@ -282,11 +295,9 @@ describe("StateEngine", () => {
   test("adopts the exact unversioned baseline in place without losing state", async () => {
     const root = await makeTempDir("vellum-state-adopt-v1-");
     const path = join(root, "vellum.db");
-    await seedCurrentStateSchema(path);
-
+    seedVersionOneStateSchema(path, 0);
     const unversioned = new DatabaseSync(path);
     try {
-      unversioned.exec("PRAGMA user_version = 0");
       unversioned
         .prepare(
           `
@@ -310,7 +321,7 @@ describe("StateEngine", () => {
 
     const runtime = makeRuntime(path);
     const engine = await runtime.runPromise(StateEngine);
-    expect(engine.info.schemaVersion).toBe(1);
+    expect(engine.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
     expect(
       await runtime.runPromise(
         engine.read("test.adopt-v1", (reader) => ({
@@ -331,7 +342,7 @@ describe("StateEngine", () => {
         })),
       ),
     ).toEqual({
-      userVersion: 1,
+      userVersion: CURRENT_STATE_SCHEMA_VERSION,
       row: { playing: 1, ever_played: 1 },
     });
 
@@ -387,13 +398,7 @@ describe("StateEngine", () => {
   test("aborts an installed schema advance before live mutation when backup verification cannot start", async () => {
     const root = await makeTempDir("vellum-state-migration-backup-failure-");
     const path = join(root, "vellum.db");
-    await seedCurrentStateSchema(path);
-    const source = new DatabaseSync(path);
-    try {
-      source.exec("PRAGMA user_version = 0");
-    } finally {
-      source.close();
-    }
+    seedVersionOneStateSchema(path);
     const external = join(root, "external");
     await mkdir(external, { mode: 0o755 });
     await symlink(external, join(root, "backups"));
@@ -410,7 +415,7 @@ describe("StateEngine", () => {
     const after = new DatabaseSync(path, { readOnly: true });
     try {
       expect(after.prepare("PRAGMA user_version").get()).toEqual({
-        user_version: 0,
+        user_version: 1,
       });
     } finally {
       after.close();
@@ -622,7 +627,7 @@ describe("StateEngine", () => {
         foreign_keys: 1,
       });
       expect(backup.prepare("PRAGMA user_version").get()).toEqual({
-        user_version: 1,
+        user_version: CURRENT_STATE_SCHEMA_VERSION,
       });
       expect(backup.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     } finally {
@@ -685,7 +690,7 @@ describe("StateEngine", () => {
 
     const runtime = makeRuntime(path);
     await expect(runtime.runPromise(StateEngine)).rejects.toThrow(
-      /state schema identity mismatch.*unexpected=table:unexpected_state/,
+      "state schema identity table is missing",
     );
 
     const after = new DatabaseSync(path, { readOnly: true });
@@ -838,7 +843,7 @@ describe("StateEngine", () => {
 
     await expectSchemaRejectionWithoutMutation(
       path,
-      /state schema identity mismatch.*missing=/,
+      /state schema changed after its recorded identity was stamped/,
     );
   });
 

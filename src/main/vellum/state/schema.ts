@@ -2,6 +2,7 @@ import { BROWSER_PROFILES_STATE_SCHEMA_SQL } from "../browser/state-schema";
 import { BOX_STATE_SCHEMA_SQL } from "../box/state-schema";
 import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
 import { KERNEL_STATE_SCHEMA_SQL } from "../kernel/state-schema";
+import { LICENSE_STATE_SCHEMA_SQL } from "../license/state-schema";
 import { FACTORY_PAUSE_STATE_SCHEMA_SQL } from "../pause/state-schema";
 import { SETTINGS_STATE_SCHEMA_SQL } from "../settings/state-schema";
 import { SCHEDULER_STATE_SCHEMA_SQL } from "../scheduler/state-schema";
@@ -73,7 +74,12 @@ export const CANVAS_STATE_SCHEMA_SQL = `
   ) STRICT;
 `;
 
-export const STATE_SCHEMA_FRAGMENTS = [
+/**
+ * Frozen composition of release-one state. The identity test below the
+ * migration layer guards this exact source composition against accidental
+ * edits; new fragments append to STATE_SCHEMA_FRAGMENTS instead.
+ */
+export const STATE_SCHEMA_V1_FRAGMENTS = [
   STATE_SCHEMA_IDENTITY_SQL,
   CANVAS_STATE_SCHEMA_SQL,
   BROWSER_PROFILES_STATE_SCHEMA_SQL,
@@ -87,6 +93,13 @@ export const STATE_SCHEMA_FRAGMENTS = [
   STATION_STATUS_STATE_SCHEMA_SQL,
   USAGE_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_SQL,
+] as const;
+
+export const STATE_SCHEMA_V1_SQL = STATE_SCHEMA_V1_FRAGMENTS.join("\n");
+
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V1_FRAGMENTS,
+  LICENSE_STATE_SCHEMA_SQL,
 ] as const;
 
 /**

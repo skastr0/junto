@@ -15,6 +15,7 @@ import {
   verifyRecordedStateSchemaIdentity,
   type VerifiedStateSchemaIdentity,
 } from "./schema-identity";
+import { LICENSE_STATE_SCHEMA_SQL } from "../license/state-schema";
 
 export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
@@ -65,10 +66,21 @@ export const STATE_SCHEMA_V1_IDENTITY = {
     "eced07754950232548eae3015fb9deeb0f2d5829d6f588ef6a45d0763356153d",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 1;
+export const CURRENT_STATE_SCHEMA_VERSION = 2;
 
 export const STATE_SCHEMA_MIGRATIONS =
-  [] as const satisfies ReadonlyArray<StateSchemaMigration>;
+  [
+    {
+      fromVersion: 1,
+      toVersion: 2,
+      name: "add-license-activation",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V1_IDENTITY,
+      migrate: (database) => {
+        database.exec(LICENSE_STATE_SCHEMA_SQL);
+      },
+    },
+  ] as const satisfies ReadonlyArray<StateSchemaMigration>;
 
 export const STATE_SCHEMA_MIGRATION_PLAN: StateSchemaMigrationPlan = {
   baselineVersion: 1,
