@@ -189,20 +189,24 @@ A Remote durably holds:
 
 - its installation identity, pairing, and Remote configuration;
 - the latest complete intent projection received from Command Center;
+- immutable prior projection versions as audit and exact fact-basis
+  witnesses, with one head selecting the only active version;
 - work rows homed to that Remote;
 - logical events, pending dispositions, receipts, and propagation cursors;
 - browser profiles, terminals, processes, artifacts, and runtime recovery
   required for local execution.
 
-The projection is a replaceable cache of intent, not an independently
-authoritative document. A Remote does not author, merge, negotiate, elect,
-reinterpret, or veto intent, and it never coordinates intent with another
-Remote.
+The active projection is a replaceable cache of intent, not an independently
+authoritative document. Retaining immutable prior versions does not create
+multiple active intents: `station_projection_head` selects exactly one active
+version, and monotonic installation never moves that head backward. A Remote
+does not author, merge, negotiate, elect, reinterpret, or veto intent, and it
+never coordinates intent with another Remote.
 
-Projection replacement is one bounded transaction over projection residency
-only. It must not merge intent or erase, overwrite, or re-home Remote-owned
-work, receipts, cursors, pairing, configuration, browser profiles, artifacts,
-or runtime recovery state.
+Projection replacement is one bounded transaction that inserts the admitted
+immutable version and advances the active head. It must not merge intent or
+erase, overwrite, or re-home Remote-owned work, receipts, cursors, pairing,
+configuration, browser profiles, artifacts, or runtime recovery state.
 
 If Command Center is sleeping, closed, crashed, or otherwise unavailable, the
 Remote continues under its latest projection and independently advances the

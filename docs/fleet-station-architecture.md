@@ -40,7 +40,8 @@ homed there under the latest complete Command Center projection.
 Command Center authors one full canvas generation
   → compiles one complete Station projection
   → invokes fixed vellum-station over the enrolled SSH route
-  → Remote main validates and transactionally replaces station_projection
+  → Remote main validates, inserts station_projection_versions, and
+    transactionally advances station_projection_head
   → Remote simulation reads that projection and its locally homed work
 
 Command Center persists a Remote-homed mutation as pending

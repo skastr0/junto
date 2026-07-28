@@ -48,7 +48,7 @@ schema. Role changes row residency and runtime behavior, not table shape.
 | State | Command Center | Remote |
 |---|---|---|
 | Canvas intent | Full authored generations and head | No authorial canvas |
-| Station projection | Optional coordination state | One complete current projection |
+| Station projection | Immutable emitted versions + one desired head | Immutable installed versions + one active head |
 | Settings and topology | Local preferences + CC configuration | Local preferences + paired Remote configuration |
 | Hosts | Enrolled fleet registry | Local installation state only |
 | Work | CC-homed rows, every actor mailbox row, and integrated Remote replicas | Remote-home task/request/artifact/thread rows; no mailbox material rows |
@@ -186,7 +186,8 @@ operation. Pairing and Command Center configuration are mutually exclusive in
 both directions and checked in the same transaction that would write either
 row. A successful Remote configuration also deletes every authorial
 `canvas_head`, generation document, and generation row in that transaction;
-the complete `station_projection` is the Remote's only canvas residency.
+the projection selected by `station_projection_head` is the Remote's only
+active canvas residency.
 
 Projection installation is monotonic:
 
@@ -219,6 +220,19 @@ Station projections are complete, replace-only canonical portfolio envelopes.
 Their canvas bodies pass the same strict authorial decoder as Command Center
 storage. Malformed, noncanonical, or runtime-work-bearing bodies fail before
 any projection or cursor state is persisted.
+
+Projection identity has its own monotonic sequence. It is not borrowed from
+`canvas_generations`, because fleet topology can change the compiled portfolio
+without changing authorial canvas content. Every version records
+`source_canvas_generation` and `source_intent_sha256` for audit.
+
+Command Center archives an exact compiled version before transport. Remote
+installation inserts that same immutable version and advances
+`station_projection_head` in one transaction. Both roles retain
+`station_projection_versions`; `(generation, content_sha256)` is a unique
+durable witness used for response-loss reconciliation and projected-intent
+fact validation. Replace-only therefore means one active head and no merge,
+not deletion of prior audit history.
 
 ## Independent ticks
 

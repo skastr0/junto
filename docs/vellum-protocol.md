@@ -659,12 +659,27 @@ authorial generation. Compilation:
 - fails if a document is malformed, noncanonical, or already contains runtime
   work projection data.
 
+Canvas generation and projection generation are deliberately different
+sequences. The compiled candidate records its `sourceCanvasGeneration` and
+`sourceIntentSha256` for audit, then Command Center archives it in
+`station_projection_versions` before attempting transport. If the current
+archived head has the same source identity and exact compiled body, that
+version is reused. Otherwise one transaction allocates the next monotonic
+projection generation, inserts the immutable version, and advances
+`station_projection_head`.
+
+This ordering makes a lost `ProjectResponse` reconcilable. The next session
+can compare Remote status with the exact version Command Center durably
+archived before send; it never recompiles a canvas generation into a newly
+invented identity merely because an outer response was lost.
+
 ### Installation
 
 `project` carries:
 
 - target Remote `InstallationId`;
-- canonical logical generation;
+- canonical projection-specific logical generation;
+- source canvas generation and source authorial intent SHA-256 as audit facts;
 - complete encoded portfolio;
 - semantic SHA-256;
 - display timestamp.
@@ -679,7 +694,10 @@ The Remote decision is:
 | lower generation | `stale` |
 | same generation, different hash | `conflict` |
 
-An install replaces the projection in one transaction.
+An install inserts the immutable version and advances the active projection
+head in one transaction. Prior versions remain retained for audit, replay
+reconciliation, and exact work-fact basis validation. They are not alternate
+active documents and cannot be selected by a stale `project` request.
 
 ### Projection replacement boundary
 
@@ -1531,7 +1549,8 @@ Authorial rows exist only on Command Center.
 - `station_installation`
 - `station_pairing`
 - `station_configuration`
-- `station_projection`
+- `station_projection_versions`
+- `station_projection_head`
 - `station_received_cursors`
 - `station_peer_ack_cursors`
 - `station_fleet_targets`
@@ -1552,6 +1571,10 @@ Authorial rows exist only on Command Center.
 
 The exact schema must enforce:
 
+- one monotonic projection generation independent of canvas generation;
+- immutable retained projection versions, with a unique
+  `(generation, content_sha256)` identity and one composite-FK active head;
+- projection source canvas generation and source intent hash as audit fields;
 - one canonical event identity;
 - legal row state;
 - content hash presence;
