@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, SubscriptionRef } from "effect";
+import { Context, Effect, Layer, Schedule, SubscriptionRef } from "effect";
 import {
   decodeUpdateStatus,
   idleUpdateStatus,
@@ -579,7 +579,29 @@ export const makeUpdateService = (
     });
   });
 
+/**
+ * Join the application ManagedRuntime as a scoped coordinator.
+ * Background checks: ~30s after startup, then every six hours.
+ * Network failures stay quiet (Effect.ignore) and retry on the next tick.
+ */
 export const makeUpdateServiceLayer = (
   options: UpdateServiceOptions,
 ): Layer.Layer<UpdateService> =>
-  Layer.effect(UpdateService, makeUpdateService(options));
+  Layer.scoped(
+    UpdateService,
+    Effect.gen(function* () {
+      const service = yield* makeUpdateService(options);
+      // Quiet scheduled checks — only packaged Mac produces real events.
+      yield* Effect.forkScoped(
+        Effect.gen(function* () {
+          yield* Effect.sleep("30 seconds");
+          yield* service.check.pipe(Effect.ignore);
+          yield* Effect.repeat(
+            service.check.pipe(Effect.ignore),
+            Schedule.spaced("6 hours"),
+          );
+        }),
+      );
+      return service;
+    }),
+  );
