@@ -12,6 +12,11 @@ import type {
   VellumBrowserApi,
 } from "@shared/ipc";
 import type { SettingsSectionKey } from "@shared/settings";
+import {
+  decodeStateBackupId,
+  type StateBackupId,
+  type StateBackupInventoryEntry,
+} from "@shared/state-recovery";
 import { state$ } from "../lib/state";
 import { deployRecoveryGuidance } from "../lib/deploy-recovery";
 import {
@@ -31,7 +36,7 @@ import { DIM, HUE, INK } from "../lib/theme";
 import { getVellumApi } from "../lib/vellum-api";
 import { HostServeCatalog } from "./HostServeCatalog";
 import { LicenseSection } from "./license";
-import { Select } from "./ui";
+import { Button, Select } from "./ui";
 import "./settings-panel.css";
 
 /** Settings sections: prefs sections + hosts (hosts is not a SettingsSectionKey). */
@@ -481,6 +486,204 @@ function AdvancedSection() {
       {loginItemError ? (
         <p className="settings-note" style={{ color: HUE.crimson }} role="status">
           {loginItemError}
+        </p>
+      ) : null}
+      <StateRecoveryControls />
+    </div>
+  );
+}
+
+const formatBackupBytes = (bytes: number): string => {
+  if (bytes < 1_024) return `${bytes} B`;
+  if (bytes < 1_024 * 1_024) {
+    return `${Math.ceil(bytes / 1_024)} KiB`;
+  }
+  return `${(bytes / (1_024 * 1_024)).toFixed(1)} MiB`;
+};
+
+const backupOptionLabel = (
+  backup: StateBackupInventoryEntry,
+): string => {
+  const modified = new Date(backup.modifiedAtEpochMs);
+  const timestamp = Number.isNaN(modified.getTime())
+    ? "unknown date"
+    : modified.toISOString().slice(0, 16).replace("T", " ");
+  return `${timestamp} UTC · ${formatBackupBytes(backup.bytes)} · schema ${backup.schemaVersion}`;
+};
+
+function StateRecoveryControls() {
+  const [backups, setBackups] = useState<
+    ReadonlyArray<StateBackupInventoryEntry>
+  >([]);
+  const [selectedId, setSelectedId] =
+    useState<StateBackupId>();
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [notice, setNotice] = useState<{
+    readonly kind: "status" | "success" | "error";
+    readonly message: string;
+  }>();
+
+  const loadBackups = useCallback(async () => {
+    const api = getVellumApi();
+    if (!api?.stateBackupsList) {
+      setLoading(false);
+      setNotice({
+        kind: "error",
+        message: "State backup inventory is unavailable.",
+      });
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await api.stateBackupsList();
+      if (result.outcome === "error") {
+        setBackups([]);
+        setSelectedId(undefined);
+        setNotice({ kind: "error", message: result.message });
+        return;
+      }
+      const verified = [...result.backups].sort(
+        (left, right) =>
+          right.modifiedAtEpochMs - left.modifiedAtEpochMs,
+      );
+      setBackups(verified);
+      setSelectedId((current) =>
+        current !== undefined &&
+        verified.some((backup) => backup.id === current)
+          ? current
+          : verified[0]?.id,
+      );
+      setNotice(undefined);
+    } catch {
+      setBackups([]);
+      setSelectedId(undefined);
+      setNotice({
+        kind: "error",
+        message: "Vellum could not read verified state backups.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBackups();
+  }, [loadBackups]);
+
+  const exportSelected = async () => {
+    if (selectedId === undefined || exporting) return;
+    const api = getVellumApi();
+    if (!api?.stateBackupExport) {
+      setNotice({
+        kind: "error",
+        message: "State backup export is unavailable.",
+      });
+      return;
+    }
+    setExporting(true);
+    setNotice(undefined);
+    try {
+      const result = await api.stateBackupExport(selectedId);
+      if (result.outcome === "canceled") {
+        setNotice({
+          kind: "status",
+          message: "Backup export canceled.",
+        });
+      } else if (result.outcome === "error") {
+        setNotice({ kind: "error", message: result.message });
+      } else {
+        setNotice({
+          kind: "success",
+          message: `${result.fileName} was exported and verified.`,
+        });
+      }
+    } catch {
+      setNotice({
+        kind: "error",
+        message: "Vellum could not export the verified state backup.",
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <div
+      className="settings-profile-list"
+      aria-label="State backup recovery"
+    >
+      <div className="settings-profile-list__head">
+        <span>Verified retained backups</span>
+        <span>
+          Export creates a new SQLite copy for portability and evidence.
+          It cannot restore or replace this installation.
+        </span>
+      </div>
+      {loading ? (
+        <p className="settings-note">verifying retained backups…</p>
+      ) : backups.length === 0 ? (
+        <p className="settings-note">
+          No verified retained backups are available.
+        </p>
+      ) : (
+        <FieldRow
+          label="Backup"
+          hint="schema, size, and creation time"
+        >
+          <Select
+            dense
+            value={selectedId ?? ""}
+            aria-label="Verified state backup"
+            options={backups.map((backup) => ({
+              value: backup.id,
+              label: backupOptionLabel(backup),
+            }))}
+            onChange={(value) => {
+              try {
+                setSelectedId(decodeStateBackupId(value));
+                setNotice(undefined);
+              } catch {
+                setSelectedId(undefined);
+                setNotice({
+                  kind: "error",
+                  message: "The selected state backup is invalid.",
+                });
+              }
+            }}
+          />
+        </FieldRow>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button
+          variant="subtle"
+          disabled={loading || exporting}
+          onClick={() => void loadBackups()}
+        >
+          Refresh
+        </Button>
+        <Button
+          variant="primary"
+          disabled={
+            loading || exporting || selectedId === undefined
+          }
+          onClick={() => void exportSelected()}
+        >
+          {exporting ? "Exporting…" : "Export backup…"}
+        </Button>
+      </div>
+      {notice ? (
+        <p
+          className={
+            notice.kind === "error"
+              ? "settings-error"
+              : notice.kind === "success"
+                ? "settings-success"
+                : "settings-note"
+          }
+          role={notice.kind === "error" ? "alert" : "status"}
+        >
+          {notice.message}
         </p>
       ) : null}
     </div>

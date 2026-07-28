@@ -39,6 +39,11 @@ import type { AgentSeatStateEvent } from "./agent-seat-state";
 import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
 import type { ActorRef } from "./work-protocol";
 import type { LicenseApi } from "./license";
+import type {
+  StateBackupId,
+  StateRecoveryExportResult,
+  StateRecoveryListResult,
+} from "./state-recovery";
 
 export const IPC_CHANNELS = {
   doctor: "chassis:doctor",
@@ -136,6 +141,9 @@ export const IPC_CHANNELS = {
   /** Dedicated transition for normalized protected station topology. */
   settingsSetStationTopology: "vellum:settings-set-station-topology",
   settingsReset: "vellum:settings-reset",
+  // Verified state-backup inventory/export. Destination selection stays Main-owned.
+  stateBackupsList: "vellum:state-backups-list",
+  stateBackupExport: "vellum:state-backup-export",
   // OS login item (Electron get/setLoginItemSettings)
   loginItemGet: "vellum:login-item-get",
   loginItemSet: "vellum:login-item-set",
@@ -624,6 +632,12 @@ export interface VellumApi extends LicenseApi {
     station: StationPatch,
   ) => Promise<SettingsOpResult>;
   readonly settingsReset: (section?: SettingsSectionKey) => Promise<SettingsOpResult>;
+  /** Verified retained backups only; never scans arbitrary paths. */
+  readonly stateBackupsList: () => Promise<StateRecoveryListResult>;
+  /** Main opens the native save dialog; the renderer supplies no path. */
+  readonly stateBackupExport: (
+    id: StateBackupId,
+  ) => Promise<StateRecoveryExportResult>;
   readonly onSettingsChanged: (listener: (settings: Settings) => void) => () => void;
   /** OS login item — read real state; never assume. */
   readonly loginItemGet: () => Promise<LoginItemOpResult>;

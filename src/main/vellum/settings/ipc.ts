@@ -1,5 +1,5 @@
-import type { IpcMain } from "electron";
-import { app } from "electron";
+import type { IpcMain, SaveDialogOptions } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import { Effect, Either } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import {
@@ -14,6 +14,14 @@ import {
   createStartupProvider,
 } from "../login-item";
 import { SettingsService } from "./service";
+import {
+  createStateRecoveryIpcHandlers,
+  type StateRecoveryDestinationChoice,
+} from "../state/recovery-ipc";
+import {
+  exportStateBackup,
+  listStateBackups,
+} from "../state/recovery";
 
 const decodeSection = Schema.decodeUnknownEither(SettingsSectionKey);
 
@@ -32,6 +40,11 @@ export const registerSettingsIpc = (
   broadcast: (channel: string, payload: unknown) => void,
 ): void => {
   const startupProvider = createStartupProvider(app);
+  const stateRecovery = createStateRecoveryIpcHandlers({
+    listBackups: () => Effect.runPromise(listStateBackups()),
+    exportBackup: (id, destination) =>
+      Effect.runPromise(exportStateBackup(id, destination)),
+  });
   ipcMain.handle(IPC_CHANNELS.settingsGet, () =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
@@ -97,6 +110,47 @@ export const registerSettingsIpc = (
   ipcMain.handle(IPC_CHANNELS.loginItemGet, () => startupProvider.get());
   ipcMain.handle(IPC_CHANNELS.loginItemSet, (_event, openAtLogin: unknown) =>
     startupProvider.set(openAtLogin),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.stateBackupsList, () =>
+    stateRecovery.list(),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.stateBackupExport,
+    async (event, id: unknown) => {
+      const chooseDestination = async (
+        suggestedFileName: string,
+      ): Promise<StateRecoveryDestinationChoice> => {
+        const options: SaveDialogOptions = {
+          title: "Export verified Vellum state backup",
+          buttonLabel: "Export backup",
+          defaultPath: suggestedFileName,
+          filters: [
+            {
+              name: "SQLite database",
+              extensions: ["db"],
+            },
+          ],
+          properties: ["createDirectory"],
+        };
+        const owner = BrowserWindow.fromWebContents(event.sender);
+        const selected =
+          owner === null
+            ? await dialog.showSaveDialog(options)
+            : await dialog.showSaveDialog(owner, options);
+        if (selected.canceled) {
+          return { outcome: "canceled" };
+        }
+        if (selected.filePath.length === 0) {
+          throw new Error("save dialog returned no destination");
+        }
+        return {
+          outcome: "selected",
+          path: selected.filePath,
+        };
+      };
+      return stateRecovery.export(id, chooseDestination);
+    },
   );
 
   void AppRuntime.runPromise(
