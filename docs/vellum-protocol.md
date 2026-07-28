@@ -43,9 +43,10 @@ from:
 - complete replace-only intent projection;
 - idempotent replay after reconnect.
 
-The current implementation proves parts of this contract. Sections labelled
-**target** describe the direct consolidation this branch must complete before
-the document may be treated as a release claim.
+This document names the canonical contract. A source implementation, fixture,
+or unit test is evidence for its exact claim, not blanket release
+qualification. The proof matrix and packaged multi-installation gate below
+remain the authority for production claims.
 
 ## Version axes
 
@@ -61,6 +62,17 @@ App release and SQLite schema version are diagnostic facts. They do not select
 a wire codec and they do not authorize a feature. Two installations may have
 different app and schema versions while communicating through the same
 Station protocol.
+
+SQLite schema version 1 is the frozen durable baseline. The current local
+schema is version 3, reached through the immutable chain:
+
+```text
+1 → 2  add-license-activation
+2 → 3  bind-license-entitlement-to-dodo-product
+```
+
+Those numbers are local database facts. They are neither sent as migration
+instructions nor negotiated as Station behavior.
 
 Every release declares one contiguous Station-protocol support descriptor:
 
@@ -101,12 +113,20 @@ There is no session-version array, Station-API-version array,
 Work-version array, projection-version array, fallback-protocol number, or
 capability array.
 
+Likewise, literals such as `vellum/station-protocol-preface/v1` and
+`vellum-state-update-preflight/v1` are closed message-shape discriminators.
+They are not independently negotiated product version axes. Only the selected
+Station protocol integer chooses cross-installation wire behavior; the state
+preflight receipt is local to one package update and never enters Station API.
+
 ## Canonical end state
 
 The canonical implementation has:
 
 1. one `~/.vellum/state/vellum.db` per installation;
-2. one Electron-main `StateEngine` connection per database;
+2. one normal-runtime Electron-main `StateEngine` connection per database,
+   plus the exact quiesced packaged-candidate read-only preflight described
+   below;
 3. one role-independent schema per app version, migrated locally on each
    installation without requiring fleet-wide lockstep;
 4. one Command Center authoring canvas and protected topology;
@@ -128,6 +148,39 @@ or downgrade support. Unknown, drifted, and newer database versions fail
 closed without mutation; a recognized older version is upgraded and retained,
 not deleted. Released migrations are append-only, and routine evolution is
 expand/preserve/deprecate: installed rows, fields, names, and meanings survive.
+
+### Local package update is not Station negotiation
+
+Each installation upgrades its own package and database. Command Center never
+opens, copies, attaches, or migrates a Remote database through the Station
+wire, and a Remote never asks Command Center to interpret its local schema.
+
+The local update transaction is:
+
+1. stage, verify, and audit the candidate while the incumbent may run, without
+   opening the canonical database;
+2. fully quiesce the incumbent and prove that it released SQLite;
+3. invoke the exact staged packaged Electron executable in sealed
+   `--vellum-state-preflight` mode;
+4. for installed state, let that sole proof process open the fixed canonical
+   path read-only, create and verify a retained backup, clone it, and close the
+   source; for a first install, create only a disposable empty candidate;
+   migrate the candidate and decode Canvas, Work, Station, kernel-state,
+   scheduler, and active intent through current repositories;
+5. on failure before activation, resume the unchanged incumbent; on success,
+   cross the installer activation fence and let the candidate migrate live
+   state during ordinary startup;
+6. after a live schema advance or candidate-authored durable write, recover
+   forward and never launch an older binary against that state.
+
+The proof process starts no actor, browser, terminal, socket, provider, or
+fleet plane. Its strict receipt proves local state admission only. Post-update
+Station compatibility is still decided exclusively by the Station protocol
+preface and selected exact codec.
+
+Verified pre-migration backups may be inventoried and exported as portability
+or forensic evidence. They are not a restore, downgrade, alternate authority,
+or substitute Station synchronization channel.
 
 ## Terminology
 
@@ -1342,6 +1395,11 @@ The exact Station protocol 2 bundle is the first installed compatibility
 floor. Its session, Station API, control, Work, and projection codecs are
 immutable and are never widened in place.
 
+The committed protocol-2 golden corpus freezes accepted and rejected preface,
+session, five-verb, projection, Work, disposition, ACK, and status shapes.
+Changing a v2 decoder so that this corpus changes is a protocol change, not an
+internal refactor.
+
 Every negotiation-aware connection begins with one frozen compatibility
 preface before domain traffic:
 
@@ -1847,7 +1905,9 @@ The canonical protocol blocks release while any live path preserves:
 - Station-to-Station routes or credentials;
 - Remote-opened or reverse fleet connections to Command Center;
 - file-written settings, projections, status, frames, or ACKs;
-- direct SQLite access from a helper, renderer, CLI, or second process;
+- direct SQLite access from a helper, renderer, CLI, fleet caller, concurrent
+  second process, or any proof process outside the exact quiesced sealed
+  packaged-candidate preflight;
 - canvas mutation for tasks, requests, messages, artifacts, claims, or
   transitions;
 - shared offline task claiming;
@@ -1938,10 +1998,13 @@ affected consumers and deletes the superseded path.
 | Version skew is bounded | peers select the highest common exact Station protocol; no overlap mutates nothing |
 | Incompatible Remote keeps working | local simulation continues under the last valid projection while CC reports update-required |
 | Ordered data survives skew | unsupported route-head record remains durable and unacknowledged until upgrade |
+| Installed state survives updates | frozen versioned fixtures migrate through the contiguous chain with original rows and columns preserved |
+| Failed candidate is reversible | clone preflight failure occurs before package activation and resumes the unchanged incumbent |
+| Advanced state never downgrades | after live schema advance or candidate-authored durable work, no older binary is launched |
 
 ## Validation discipline
 
-During protocol development in the isolated worktree:
+During protocol development:
 
 - run TypeScript typecheck;
 - run focused unit and integration tests for changed contracts/services;
@@ -1949,8 +2012,10 @@ During protocol development in the isolated worktree:
 - do not run the Electron app, dev server, package build, or E2E while the
   operator's beta build is active.
 
-Packaged and multi-machine qualification remain required before a production
-release claim, but are a separately scheduled gate.
+The strict source-level v2 corpus and local state fixtures are committed
+evidence. They do not prove a packaged two-installation deployment. Packaged
+and real multi-machine qualification remain required before a production
+release claim and are not claimed complete by this document.
 
 ## Contract change process
 

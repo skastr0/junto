@@ -277,13 +277,26 @@ not inherently secret. It is not the canonical live authority store. Importing
 an edited document is an explicit operator action. Exporting a document does
 not grant the exported file live authority over a running factory.
 
-Canonical live and durable state is `~/.vellum/state/vellum.db`. It is an
-owner-only SQLite database opened by the Electron main process through one
-Effect `StateEngine`; renderers, CLIs, helpers, and fleet callers use
-IPC/control APIs and never open it. App-owned write/create/remove operations
-commit full-map `canvas_generations` and advance `canvas_head` transactionally.
-History is ordinary queryable database state, not a content-addressed directory
-or manifest tree.
+Canonical live and durable state is `~/.vellum/state/vellum.db`. During normal
+product operation it is an owner-only SQLite database opened by exactly one
+Electron-main `StateEngine`; renderers, CLIs, helpers, fleet callers, and other
+processes use IPC/control APIs and never open it. App-owned
+write/create/remove operations commit full-map `canvas_generations` and advance
+`canvas_head` transactionally. History is ordinary queryable database state,
+not a content-addressed directory or manifest tree.
+
+The sole narrow exception is the sealed state-preflight mode of a signed and
+audited packaged update candidate. An installer may invoke that candidate only
+after it has fully quiesced the incumbent and proved that the incumbent
+released SQLite. The candidate is then the only database opener: it opens the
+fixed canonical path read-only when an installed database exists, closes that
+connection after minting a verified backup, and performs every migration and
+repository-readiness write against a disposable clone. On a first install with
+no database, it creates only a disposable empty candidate and no backup. The
+mode accepts no database-path argument or environment redirect and starts no
+renderer, control socket, actor, browser, terminal, provider, or fleet runtime.
+Test programs may open explicitly injected disposable databases; neither
+exception is a general product data path.
 
 Every app version provides one role-independent schema. Independently updated
 installations may temporarily run different recognized schema versions; no
@@ -315,14 +328,20 @@ stamp, and the version advance commit together or all roll back. A database
 from a newer release, an unknown version, a missing migration, or a drifted
 version witness fails closed without mutation.
 
-Version 1 is the frozen post-consolidation baseline. An unversioned non-empty
-database is adopted only when both its live schema and recorded identity match
-that exact baseline. This is not a general legacy importer: there is no
-file-store reader, dual schema, downgrade, repair path, or instruction to
-delete `vellum.db`. Every schema change after version 1 must append an
-`N → N+1` migration and prove representative data preservation. A released
-migration is immutable and may never be edited, removed, reordered, or
-renumbered.
+Version 1 is the frozen post-consolidation baseline. The current chain is
+`1 → 2` (`add-license-activation`) followed by `2 → 3`
+(`bind-license-entitlement-to-dodo-product`); schema version 3 is current. The
+second step adds the seller/product-bound entitlement representation beside
+the retained version-2 license table rather than reinterpreting or deleting
+its bytes.
+
+An unversioned non-empty database is adopted only when both its live schema and
+recorded identity match the exact version-1 baseline. This is not a general
+legacy importer: there is no file-store reader, dual schema, downgrade, repair
+path, or instruction to delete `vellum.db`. Every schema change after version
+1 must append an `N → N+1` migration and prove representative data
+preservation. A released migration is immutable and may never be edited,
+removed, reordered, or renumbered.
 
 Routine migrations are expand, preserve, and deprecate. They add a new
 representation, copy forward while retaining every installed row and old
@@ -336,6 +355,47 @@ automatic retirement horizon.
 
 The transient in-memory schema compiler contains no product data and is not an
 authority connection.
+
+### Gentle package update
+
+Staging a package and changing installed state are separate phases:
+
+1. The installer downloads, stages, verifies, and audits the candidate while
+   the incumbent may continue running. This phase does not open
+   `vellum.db`.
+2. The installer fully quiesces the incumbent and proves that it released the
+   canonical database.
+3. The exact staged packaged Electron executable enters its sealed
+   `--vellum-state-preflight` mode. For installed state it opens the canonical
+   database read-only, creates and verifies a retained `VACUUM INTO` backup,
+   copies that backup to one disposable candidate database, and closes the
+   canonical source. A first install instead starts from a disposable empty
+   candidate and has no backup to retain.
+4. The candidate migrates the clone with its exact current code, verifies
+   schema identity and foreign keys, and decodes Canvas, Work, Station,
+   kernel-state, scheduler, and active-intent state through current
+   repositories. It emits one strict readiness receipt and deletes only the
+   disposable candidate tree.
+5. A failure before activation leaves installed bytes and live state
+   unchanged. The installer may resume the previously healthy incumbent.
+6. A successful receipt permits the installer to cross its existing one-way
+   activation fence. The candidate then opens and, when required, migrates the
+   live database through the same forward-only chain.
+7. Once the live schema version advances or candidate-authored durable work
+   commits, recovery is forward-only. An older binary is never launched
+   against the advanced database.
+
+Candidate preflight proves data admission and migration before the one-way
+cutover. It deliberately does not start or simulate physical actors, browser
+pages, terminals, SSH sessions, providers, or fleet processes. Those surfaces
+belong to post-activation package readiness.
+
+Verified backups under `state/backups/` may be inventoried and exported to an
+explicit new operator destination as portability and forensic evidence.
+Inventory verifies owner-only regular files, SQLite integrity, foreign keys,
+schema version, and schema identity. Export refuses overwrite and verifies the
+copy. It never replaces `vellum.db`, launches an older binary, restores a
+retired schema, or authorizes downgrade. Vellum currently has no restore path.
 
 Canvas confidentiality follows the operator's operating-system account, disk,
 backup, and export choices. Vellum does not become a general secret-management
@@ -778,7 +838,10 @@ Root or administrator authority is a real boundary.
 - Vellum does not retain an administrator password as ambient fleet authority.
 - Installation and update inputs are verified before privileged mutation.
 - Partial installs and updates are recoverable and honestly reported.
-- Read-only candidate preflight or a fully rolled-back migration does not
+- Staging and audit do not touch installed state. After exclusive incumbent
+  quiescence, the sealed packaged candidate may perform the exact read-only
+  canonical-open and disposable-clone preflight described above.
+- A failed candidate preflight or a fully rolled-back live migration does not
   advance the recovery fence: the unchanged database may resume under its
   prior binary.
 - Once a candidate commits a schema-version advance or candidate-authored
@@ -904,8 +967,9 @@ A release is blocked while any product path preserves:
   start, unclaim, steal, or implicit work re-home;
 - wall-clock ordering or a cursor that drops part of
   `(event_home, entity_home)`;
-- direct database access from a renderer, headless CLI, helper, or second
-  process;
+- direct database access from a renderer, headless CLI, helper, fleet caller,
+  concurrent second process, or any proof process outside the one sealed,
+  quiesced packaged-candidate preflight described above;
 - dual reads, dual writes, legacy imports, or compatibility adapters outside
   the explicit installed-SQLite and Station-wire boundaries;
 - permissive Station decoding, guessed downgrade, or an older wire codec kept
@@ -931,8 +995,9 @@ them by accident:
 3. Exact Command Center transfer protocol and catastrophic-action
    reauthentication.
 4. The bounded set of operator-facing host capability controls and presets.
-5. Intent-history retention and compaction policy. Coherent live backup uses
-   SQLite `VACUUM INTO`; export remains an explicit operator output.
+5. Intent-history and verified-backup retention and compaction policy.
+   Coherent backup uses SQLite `VACUUM INTO`; inventory/export is explicit
+   operator portability, not restore or downgrade.
 6. Provider-specific guarantees for harness-owned and managed-cloud actors.
 7. HTTPS/mTLS bootstrap, private-key custody, rotation, revocation, and
    permanent-loss recovery.

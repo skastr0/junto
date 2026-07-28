@@ -12,7 +12,7 @@ Vellum has one storage architecture:
 ```text
 one installation
   └── ~/.vellum/state/vellum.db
-        └── one Electron-main StateEngine connection
+        └── one normal-runtime Electron-main StateEngine connection
               ├── renderer IPC
               ├── owner-local canvas/work/browser/station controls
               └── typed Command Center → Station requests
@@ -24,15 +24,22 @@ rollback to files.
 ## Ownership
 
 - The state directory is mode `0700`; `vellum.db` is mode `0600`.
-- The Electron main process is the only production process that opens the
-  database.
+- During normal operation the app's Electron main process is the only
+  production process that opens the database.
 - Effect owns one scoped `StateEngine` connection and supplies it to every
   repository. A service must consume that shared layer, never construct a
   second connection.
 - Renderers, headless CLIs, packaged helpers, and SSH callers use app-owned
   IPC or control protocols.
-- Test and proof programs may open an explicitly injected disposable database.
-  That is not a product access path.
+- The sole packaged exception is the staged candidate's sealed
+  `--vellum-state-preflight` Electron-main mode. It may open the fixed
+  canonical path read-only, when it exists, only after the installer has fully
+  quiesced the incumbent and proved that SQLite was released. It closes that
+  source before migrating and inspecting a disposable clone, accepts no
+  database-path argument or environment redirect, and starts no product
+  runtime planes. A first install creates only a disposable empty candidate.
+- Tests may open an explicitly injected disposable database. That is not a
+  product access path.
 
 SQLite runs with WAL, `synchronous=NORMAL`, foreign keys enabled, a bounded busy
 timeout, trusted-schema disabled, and extension loading disabled. Statements
@@ -59,6 +66,19 @@ and appends exactly one synchronous migration step. Once a migration ships,
 its version, name, input witness, and behavior are immutable. A repair is a new
 forward migration, never an edit to history, because an installation may skip
 any number of releases before applying the chain.
+
+The current schema is version 3. Its immutable released chain is:
+
+| Step | Name | Expansion |
+|---|---|---|
+| `1 → 2` | `add-license-activation` | Add the first installation-local license activation table |
+| `2 → 3` | `bind-license-entitlement-to-dodo-product` | Add the current seller/product-bound entitlement table while retaining the version-2 representation |
+
+The frozen version-1 Command Center and Remote fixtures carry representative
+canvas, topology, projection, Work, cursor, and scheduler rows. Tests hash the
+fixtures, migrate disposable copies through the entire chain, and prove the
+installed rows and original column values survive before current repositories
+decode them.
 
 Routine startup evolution follows four explicit stages:
 
@@ -109,25 +129,45 @@ until an explicit recovery or compaction workflow uses them.
 A package update and a schema migration form one operator-visible update
 transaction:
 
-1. the running installation creates and verifies a coherent `VACUUM INTO`
-   pre-migration backup before it yields execution;
-2. the candidate migrates a coherent clone and proves database open, Work
-   control, Station API, simulation readiness, and current-schema integrity
-   before the current factory is stopped;
-3. only then is the live installation quiesced and the candidate allowed to
-   advance the live database;
-4. if no schema-version advance committed, the unchanged database may resume
-   under the prior binary;
-5. after a version advance or candidate-authored durable work commits,
-   recovery remains forward-only—never launch an older binary against that
-   database;
-6. retain the pre-migration backup through at least one fully healthy launch
-   and expose a bounded forward-recovery/export surface before any automatic
-   retention policy exists.
+1. **Stage and audit.** Download, stage, verify, and audit the candidate while
+   the incumbent may continue running. This phase does not open the canonical
+   database.
+2. **Quiesce.** Stop the incumbent and prove it released SQLite before another
+   process opens `vellum.db`.
+3. **Mint evidence.** Invoke the exact staged packaged Electron executable in
+   sealed `--vellum-state-preflight` mode. For installed state it is now the
+   sole opener, reads the fixed canonical database without write authority,
+   creates and verifies one retained owner-only `VACUUM INTO` backup, copies
+   that backup to a disposable candidate database, and closes the canonical
+   source. A first install instead creates a disposable empty candidate and has
+   no backup to retain.
+4. **Prove the candidate.** Run the candidate's exact migration chain against
+   the clone, verify current schema identity and foreign keys, and exercise
+   Canvas, Work, Station, kernel-state, scheduler, and active-intent repository
+   decoders. Emit one strict readiness receipt. Do not start a renderer,
+   control socket, actor, browser, terminal, provider, or fleet runtime.
+5. **Choose reversibility.** If preflight fails or is interrupted before
+   activation, delete only the disposable candidate tree and resume the
+   unchanged incumbent. The verified backup remains retained.
+6. **Cross the fence.** Only a valid receipt permits the installer to enter its
+   existing one-way package-activation phase. The candidate then opens the live
+   database and performs the same forward migration during ordinary startup.
+7. **Recover forward.** After a live schema-version advance or
+   candidate-authored durable write commits, retain or repair the candidate.
+   Never launch an older binary against advanced state.
+8. **Retain evidence.** Keep the pre-migration backup through at least one
+   fully healthy candidate launch. No automatic backup-retirement policy exists
+   yet.
 
-Remote rollout is one installation at a time. A candidate is not healthy
-merely because a socket opened: readiness includes a Station round trip,
-simulation, projection/work cursor continuity, and the migrated schema.
+The preflight receipt is a closed local installer proof, not a fourth product
+version axis or a Station protocol. Its `.../v1` discriminator freezes that
+receipt shape; it is not negotiated and grants no fleet authority.
+
+Remote rollout is one installation at a time. Clone preflight proves data
+admission but not physical operation. A candidate is not fully healthy merely
+because preflight passed or a socket opened: post-activation qualification
+still includes package launch, Station round trips, simulation, and
+projection/work cursor continuity.
 
 ## One schema, different residency
 
@@ -347,10 +387,26 @@ UUID-named, owner-only file under the engine-owned `state/backups/` directory.
 The capability accepts no destination path: an operator, renderer, helper, or
 future integration cannot redirect it into an arbitrary host directory or
 cause StateEngine to change permissions outside its private state root. It may
-run while the app owns the live database. Linux v1 does not currently expose
-that primitive through an operator, CLI, IPC, or restore surface. Copying or
-replacing `vellum.db`, its WAL, its shared-memory file, or the wider
-`~/.vellum` directory is not a product backup or recovery workflow.
+run while the app owns the live database. The sealed candidate-preflight mode
+also uses it after exclusive quiescence, through a read-only canonical
+connection, before it migrates a disposable clone.
+
+The bounded forward-recovery surface is inventory and export:
+
+- inventory scans only the fixed owner-only `state/backups/` directory and
+  fails closed on an unexpected or unsafe entry;
+- every listed backup must be a non-symlink owner-only regular file and pass
+  SQLite quick-check, foreign-key, schema-version, and schema-identity checks;
+- export selects one verified backup ID and copies it to an explicit absolute
+  new operator destination using create-exclusive semantics;
+- export refuses overwrite, verifies the copied size and schema witness, and
+  returns a content SHA-256 receipt.
+
+This is portability and forensic evidence, not restore. No product path
+replaces `vellum.db`, launches an older binary, or downgrades installed state.
+Copying the live database, its WAL, its shared-memory file, or the wider
+`~/.vellum` directory is not a coherent product backup. Vellum currently has
+no restore surface.
 
 Any app-owned backup protects only the current SQLite architecture. It does
 not preserve or restore a retired JSON, manifest, seal, or projection-file
@@ -368,8 +424,9 @@ The following are architectural defects, not compatibility features:
 - `incoming.frame`, `applied.ack`, drop directories, or SSH file mutation for
   fleet coordination;
 - a renderer, CLI, bridge, or helper opening the production database;
-- a second product database, per-service SQLite file, or direct connection
-  outside `StateEngine`;
+- a concurrent second product opener, per-service SQLite file, or direct
+  connection outside `StateEngine`, except for the exact quiesced
+  packaged-candidate read-only preflight defined above;
 - file-store importers, compatibility readers, dual writes, feature flags, or
   rollback instructions that keep an obsolete path alive.
 
@@ -391,13 +448,18 @@ A storage change is releasable only when:
    disposition;
 8. headless and SSH helpers are proven to reach the app rather than the file;
 9. `VACUUM INTO` produces a coherent owner-only backup;
-10. an older recognized SQLite version migrates in place with representative
+10. backup inventory and export verify source and copy without providing
+    restore, overwrite, or downgrade;
+11. an older recognized SQLite version migrates in place with representative
     rows and old column values preserved, while failure rolls back schema,
     data, identity, and version;
-11. skipped-release fixtures prove the append-only chain from every supported
+12. skipped-release fixtures prove the append-only chain from every supported
     installed version;
-12. destructive SQL and structural contraction are rejected by the migration
+13. destructive SQL and structural contraction are rejected by the migration
     capability;
-13. package preflight and interruption tests prove a failed candidate does not
-    strand a previously healthy factory;
-14. repository search finds no retired product-state path.
+14. sealed candidate-clone preflight proves current repository decoding without
+    starting product runtime planes;
+15. package interruption tests prove a pre-activation failure resumes the
+    unchanged incumbent and a post-advance failure never launches the older
+    binary;
+16. repository search finds no retired product-state path.
