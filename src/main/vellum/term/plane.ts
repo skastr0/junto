@@ -82,6 +82,7 @@ export class TermPlane {
   private control: TermControlServer | undefined;
   private controlStartupFailure: TermControlStartupError | undefined;
   private starting: Promise<void> | undefined;
+  private licenseRevoked = false;
   private shuttingDown = false;
   private shutdownReason = "app_quit";
   private localShutdownFlight: Promise<LocalHostShutdownResult> | undefined;
@@ -112,6 +113,9 @@ export class TermPlane {
   /** Start local control socket (idempotent). */
   start = async (options?: TermPlaneStartOptions): Promise<void> => {
     if (this.shuttingDown) throw new Error("terminal plane is stopping");
+    if (this.licenseRevoked) {
+      throw new Error("terminal plane admission closed after license revocation");
+    }
     if (this.controlStartupFailure !== undefined) throw this.controlStartupFailure;
     if (this.control) return;
     if (this.starting) return this.starting;
@@ -122,7 +126,7 @@ export class TermPlane {
           home: options?.controlHome,
         });
         this.control = control;
-        if (this.shuttingDown) control.beginShutdown();
+        if (this.shuttingDown || this.licenseRevoked) control.beginShutdown();
         console.info(`[term] control socket ${control.socketPath}`);
       } catch (error) {
         if (error instanceof TermControlStartupError) {
@@ -144,6 +148,20 @@ export class TermPlane {
       if (this.starting === current) this.starting = undefined;
     }
   };
+
+  /**
+   * Monotonic product-admission cut for license revocation.
+   *
+   * Existing local PTYs remain operator-owned and running. Only the terminal
+   * router and control socket stop admitting future product work. Normal app
+   * quit remains responsible for signaling and draining those owned PTYs.
+   */
+  suspendForLicenseRevocation(): void {
+    if (this.licenseRevoked) return;
+    this.licenseRevoked = true;
+    this.router.beginShutdown();
+    this.control?.beginShutdown();
+  }
 
   /**
    * Monotonic admission cut for local sessions, remote dials, and UDS frames.
