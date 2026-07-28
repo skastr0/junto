@@ -769,7 +769,9 @@ const makeVerifiedCommandCenterSession = (
       handleRequest: (request: StationApiRequest) =>
         request.op === "report"
           ? Deferred.await(verified).pipe(
-              Effect.zipRight(onRemoteReport(request)),
+              Effect.zipRight(
+                Effect.suspend(() => onRemoteReport(request)),
+              ),
             )
           : Effect.succeed(
               stationControlErr(

@@ -684,10 +684,9 @@ describe("OpenSSH Station peer exchange", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const opening = yield* Effect.fork(
-            harness.exchange.open(harness.route, () =>
-              Effect.sync(() => {
-                reportCalls += 1;
-              }).pipe(
+            harness.exchange.open(harness.route, () => {
+              reportCalls += 1;
+              return Effect.void.pipe(
                 Effect.zipRight(
                   Deferred.succeed(reportHandled, undefined),
                 ),
@@ -706,8 +705,8 @@ describe("OpenSSH Station peer exchange", () => {
                     }),
                   ),
                 ),
-              ),
-            ),
+              );
+            }),
           );
           yield* Deferred.await(statusObserved).pipe(
             Effect.timeoutFail({
@@ -808,16 +807,16 @@ describe("OpenSSH Station peer exchange", () => {
 
     const result = await Effect.runPromise(
       Effect.scoped(
-        harness.exchange.open(harness.route, () =>
-          Effect.sync(() => {
-            reportCalls += 1;
-            return stationControlErr(
+        harness.exchange.open(harness.route, () => {
+          reportCalls += 1;
+          return Effect.succeed(
+            stationControlErr(
               "authorization_denied",
               "unexpected report",
               false,
-            );
-          }),
-        ),
+            ),
+          );
+        }),
       ).pipe(Effect.either),
     );
 
