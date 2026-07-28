@@ -278,6 +278,13 @@
   border-color: rgb(229 72 77 / 0.45);
 }
 
+.task-board-card--retired-seat {
+  border-color: rgb(229 72 77 / 0.52);
+  background:
+    linear-gradient(135deg, rgb(229 72 77 / 0.055), transparent 52%),
+    var(--color-raise);
+}
+
 .task-board-card--dragging {
   opacity: 0.24;
 }
@@ -391,6 +398,14 @@
   justify-content: space-between;
   gap: 6px;
   padding: 0 9px 8px 32px;
+}
+
+.task-board-card__status-chips,
+.task-detail-panel__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
 }
 
 .task-board-card__history {
@@ -607,6 +622,11 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+
+.task-detail-panel__claim {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .task-detail-panel__scroll {

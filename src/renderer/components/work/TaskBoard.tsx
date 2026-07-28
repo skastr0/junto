@@ -1,4 +1,5 @@
 import { useId, useMemo, useRef, useState } from "react";
+import { use$ } from "@legendapp/state/react";
 import {
   Activity,
   CheckCircle2,
@@ -130,6 +131,15 @@ const LANES: ReadonlyArray<LaneDefinition> = [
 
 const TERMINAL_STATES = new Set<TaskState>(["completed", "canceled", "failed", "rejected"]);
 
+export const isTaskClaimantRetired = (
+  state: TaskState,
+  claimedBy: string | undefined,
+  activeActorSeatIds: ReadonlySet<string>,
+): boolean =>
+  claimedBy !== undefined
+  && !TERMINAL_STATES.has(state)
+  && !activeActorSeatIds.has(claimedBy);
+
 const laneForState = (state: TaskState): LaneId => {
   if (TERMINAL_STATES.has(state)) return "closed";
   if (state === "submitted") return "queue";
@@ -224,6 +234,7 @@ function TaskLane({
   pendingTaskId,
   editingTaskId,
   selectedTaskId,
+  activeActorSeatIds,
   onCreate,
   onSelect,
   onMove,
@@ -238,6 +249,7 @@ function TaskLane({
   readonly pendingTaskId: string | null;
   readonly editingTaskId: string | null;
   readonly selectedTaskId: string | null;
+  readonly activeActorSeatIds: ReadonlySet<string>;
   readonly onCreate: () => void;
   readonly onSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
@@ -302,6 +314,7 @@ function TaskLane({
             pending={pendingTaskId === task.id}
             editing={editingTaskId === task.id}
             selected={selectedTaskId === task.id}
+            activeActorSeatIds={activeActorSeatIds}
             onSelect={onSelect}
             onMove={onMove}
             onEdit={onEdit}
@@ -442,6 +455,7 @@ function TaskCard({
   pending,
   editing,
   selected,
+  activeActorSeatIds,
   onSelect,
   onMove,
   onEdit,
@@ -454,6 +468,7 @@ function TaskCard({
   readonly pending: boolean;
   readonly editing: boolean;
   readonly selected: boolean;
+  readonly activeActorSeatIds: ReadonlySet<string>;
   readonly onSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onEdit: (task: WorkTask) => void;
@@ -477,6 +492,11 @@ function TaskCard({
   });
   const brief = taskTitle(task);
   const claim = claimedByOf(task);
+  const claimantRetired = isTaskClaimantRetired(
+    task.state,
+    claim,
+    activeActorSeatIds,
+  );
   const role = taskRole(task);
   const context = latestText(task);
 
@@ -490,6 +510,7 @@ function TaskCard({
         sortable.isDropTarget ? "task-board-card--drop-target" : "",
         pending ? "task-board-card--pending" : "",
         selected ? "task-board-card--selected" : "",
+        claimantRetired ? "task-board-card--retired-seat" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -499,7 +520,9 @@ function TaskCard({
       role="listitem"
       tabIndex={0}
       aria-busy={pending}
-      aria-label={`Open details for ${brief}`}
+      aria-label={`Open details for ${brief}${
+        claimantRetired ? ", stalled because its claimed seat is retired" : ""
+      }`}
       aria-current={selected ? "true" : undefined}
       onClick={() => {
         if (!editing) onSelect(task.id);
@@ -549,8 +572,11 @@ function TaskCard({
             <>
               <h3 className="task-board-card__title">{brief}</h3>
               <div className="task-board-card__meta">
-                <StatusDot tone={toneForState(task.state)} pulse={task.state === "working"} />
-                <span>{claim ?? "Unclaimed"}</span>
+                <StatusDot
+                  tone={claimantRetired ? "crimson" : toneForState(task.state)}
+                  pulse={!claimantRetired && task.state === "working"}
+                />
+                <span title={claim}>{claim ?? "Unclaimed"}</span>
                 {role ? <span className="task-board-card__role">{role}</span> : null}
               </div>
               {context && (task.state === "input-required" || task.state === "auth-required") ? (
@@ -573,7 +599,17 @@ function TaskCard({
 
       {!editing ? (
         <footer className="task-board-card__footer">
-          <Chip tone={chipToneForState(task.state)}>{stateLabel(task.state)}</Chip>
+          <div className="task-board-card__status-chips">
+            <Chip tone={chipToneForState(task.state)}>{stateLabel(task.state)}</Chip>
+            {claimantRetired ? (
+              <Chip
+                tone="crimson"
+                title="This task remains claimed, but its ActorSeatId is absent from the current actor projection."
+              >
+                Stalled · retired seat
+              </Chip>
+            ) : null}
+          </div>
           {task.history.length > 1 ? (
             <span className="task-board-card__history">
               {task.history.length - 1} update{task.history.length === 2 ? "" : "s"}
@@ -700,6 +736,7 @@ function TaskCreateDialog({
 function TaskDetailPanel({
   task,
   pending,
+  claimantRetired,
   onClose,
   onSaveTitle,
   onRespond,
@@ -707,6 +744,7 @@ function TaskDetailPanel({
 }: {
   readonly task: WorkTask;
   readonly pending: boolean;
+  readonly claimantRetired: boolean;
   readonly onClose: () => void;
   readonly onSaveTitle: (task: WorkTask, title: string) => void;
   readonly onRespond: (
@@ -749,7 +787,17 @@ function TaskDetailPanel({
     <aside className="task-detail-panel" aria-label={`Details for ${taskTitle(task)}`}>
       <header className="task-detail-panel__header">
         <div>
-          <Chip tone={chipToneForState(task.state)}>{stateLabel(task.state)}</Chip>
+          <div className="task-detail-panel__chips">
+            <Chip tone={chipToneForState(task.state)}>{stateLabel(task.state)}</Chip>
+            {claimantRetired ? (
+              <Chip
+                tone="crimson"
+                title="This task remains claimed, but its ActorSeatId is absent from the current actor projection."
+              >
+                Stalled · retired seat
+              </Chip>
+            ) : null}
+          </div>
           <h2>{taskTitle(task)}</h2>
         </div>
         <IconButton aria-label="Close task details" title="Close details" onClick={onClose}>
@@ -759,7 +807,7 @@ function TaskDetailPanel({
 
       <div className="task-detail-panel__identity">
         <span title="Task ID">#{task.id}</span>
-        <span>
+        <span className="task-detail-panel__claim" title={claim}>
           <UserRound size={12} aria-hidden />
           {claim ?? "Unclaimed"}
         </span>
@@ -969,6 +1017,11 @@ export function TaskBoard({
   const [announcement, setAnnouncement] = useState("");
   const api = getVellumApi();
   const name = canvasName();
+  const actorRefs = use$(state$.actorRefs);
+  const activeActorSeatIds = useMemo(
+    () => new Set<string>(actorRefs.map((actor) => actor.seatId)),
+    [actorRefs],
+  );
 
   const visibleItems = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -1285,6 +1338,7 @@ export function TaskBoard({
                 pendingTaskId={pendingTaskId}
                 editingTaskId={editingTaskId}
                 selectedTaskId={selectedTaskId}
+                activeActorSeatIds={activeActorSeatIds}
                 onCreate={() => setCreating(true)}
                 onSelect={setSelectedTaskId}
                 onMove={(task, state) => void transitionTask(task, state)}
@@ -1299,6 +1353,11 @@ export function TaskBoard({
               key={selectedTask.id}
               task={selectedTask}
               pending={pendingTaskId === selectedTask.id}
+              claimantRetired={isTaskClaimantRetired(
+                selectedTask.state,
+                claimedByOf(selectedTask),
+                activeActorSeatIds,
+              )}
               onClose={() => setSelectedTaskId(null)}
               onSaveTitle={(task, title) => void saveTaskTitle(task, title)}
               onRespond={respondToTask}
