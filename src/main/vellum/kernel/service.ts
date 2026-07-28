@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { Context, Effect, HashSet, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
 import { identityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
@@ -55,6 +56,7 @@ import {
   isManagedSeatRuntimeLocal,
   type ManagedSeatRuntimeAuthority,
 } from "../term/ensure-managed-seat";
+import { seatStateRuntime } from "../term/agent-state";
 import { managedPulseDeliver } from "../term/managed-pulse-bridge";
 import { WorkRepository } from "../work/repository";
 import {
@@ -118,6 +120,70 @@ const SAFETY_INTERVAL_MS = 30_000;
 // array-length comparison, no evaluation work.
 const PULSE_LOG_POLL_MS = 3_000;
 export const KERNEL_OBSERVATION_PREFIX = "[vellum:kernel-observation] ";
+
+const SEAT_GENERATION_WAKE_REASONS = new Set([
+  "generation_bound",
+  "generation_replaced",
+  "binding_reconfigured",
+]);
+
+/**
+ * Only lifecycle changes that can make durable work progress wake the kernel.
+ * Stable working/attention observations are presentation state and must not
+ * turn terminal output into an evaluation loop.
+ */
+export const kernelCycleNeededForSeatEvent = (
+  event: AgentSeatStateEvent,
+): boolean =>
+  event.state === "idle" ||
+  event.state === "gone" ||
+  (event.state === "unknown" &&
+    SEAT_GENERATION_WAKE_REASONS.has(event.reason));
+
+type SeatStateSubscribe = (
+  listener: (event: AgentSeatStateEvent) => void,
+) => () => void;
+
+export const subscribeKernelSeatWake = (
+  subscribe: SeatStateSubscribe,
+  scheduleCycle: () => void,
+): (() => void) =>
+  subscribe((event) => {
+    if (kernelCycleNeededForSeatEvent(event)) scheduleCycle();
+  });
+
+/**
+ * One evaluation may run at a time. Any number of overlapping triggers retain
+ * exactly one repair pass, so lifecycle bursts cannot race shared kernel
+ * memory or grow an unbounded retry backlog.
+ */
+export const makeCoalescedKernelCycleScheduler = (
+  runCycle: () => Promise<void>,
+  onError: (error: unknown) => void = (error) =>
+    console.error("[kernel] evaluation cycle failed:", error),
+): (() => void) => {
+  let cycleInFlight = false;
+  let cycleQueued = false;
+
+  const scheduleCycle = (): void => {
+    if (cycleInFlight) {
+      cycleQueued = true;
+      return;
+    }
+    cycleInFlight = true;
+    void runCycle()
+      .catch(onError)
+      .finally(() => {
+        cycleInFlight = false;
+        if (cycleQueued) {
+          cycleQueued = false;
+          scheduleCycle();
+        }
+      });
+  };
+
+  return scheduleCycle;
+};
 
 const armedStoreKey = (canvasName: string, regionId: string): string => `${canvasName}::${regionId}`;
 
@@ -391,8 +457,6 @@ const makeKernelService = (
 
   let started = false;
   let armingFault: string | undefined;
-  let cycleInFlight = false;
-  let cycleQueued = false;
   let lastPulseLogLength = 0;
 
   const composeSnapshot = (): KernelSnapshot => {
@@ -656,7 +720,7 @@ const makeKernelService = (
 
   // A claim is the start of work. The durable task row is the assignment;
   // this is only its local managed-seat wake-up. Failed idle-gated writes are
-  // retried by the next kernel cycle.
+  // retried when that seat becomes deliverable; the safety cycle is repair.
   const deliverWorkingClaims = async (
     scope: ActiveStationScope,
     registry: ActiveActorRegistry,
@@ -741,26 +805,7 @@ const makeKernelService = (
     }
   };
 
-  // Coalesces overlapping triggers (snapshot change + doc change + the
-  // safety interval can all fire close together) into at most one queued
-  // rerun — never two concurrent cycles racing shared edge-detection memory.
-  // Ported from renderer/lib/kernel-state.ts's scheduleCycle.
-  const scheduleCycle = (): void => {
-    if (cycleInFlight) {
-      cycleQueued = true;
-      return;
-    }
-    cycleInFlight = true;
-    void runCycle()
-      .catch((err) => console.error("[kernel] evaluation cycle failed:", err))
-      .finally(() => {
-        cycleInFlight = false;
-        if (cycleQueued) {
-          cycleQueued = false;
-          scheduleCycle();
-        }
-      });
-  };
+  const scheduleCycle = makeCoalescedKernelCycleScheduler(runCycle);
 
   // --- doc hydration + mid-cycle resync ---------------------------------------
 
@@ -860,7 +905,13 @@ const makeKernelService = (
 
         canvases.subscribeChanges((name) => void resyncCanvas(name));
         snapshots.subscribe(() => scheduleCycle());
+        subscribeKernelSeatWake(
+          (listener) => seatStateRuntime.subscribe(listener),
+          scheduleCycle,
+        );
 
+        // Repair/watchdog only. Ordinary document, snapshot, and seat
+        // lifecycle progress schedules a cycle at the authoritative event.
         setInterval(scheduleCycle, SAFETY_INTERVAL_MS);
         setInterval(() => {
           const length = getPulseLog().length;
