@@ -1,8 +1,11 @@
 # Remote Station end-to-end checklist
 
+**Status:** required operator qualification; not yet a recorded two-host pass
+
 This is the operator proof for Command Center and Remote behavior on Linux and
 macOS. It tests the canonical SQLite and Station API contract, including
-offline and interrupted states.
+offline and interrupted states. The checklist defines evidence to collect; its
+presence in the repository is not evidence that any packaged pair has passed.
 
 ## Evidence source
 
@@ -87,18 +90,47 @@ The Remote must never merge or author the projection.
 
 1. With a complete projection installed, stop only Command Center.
 2. Keep the Remote app and service running.
-3. Exercise Remote-homed work, a watcher whose source is locally available,
-   and an interval timer.
-4. Confirm the Remote uses its local database and never requires a Command
-   Center RPC for locally homed execution.
-5. Confirm Command Center-homed nodes do not execute on the Remote.
-6. Restart Remote while Command Center remains closed. Confirm the projection
-   and locally durable work resume; edge-detection re-baselines and no latent
-   timer backlog fires.
-7. Restart Command Center. Confirm projection and report retries converge by
-   generation/hash and logical cursor.
+3. While Command Center is still reachable, let one idle Remote actor claim
+   exactly one submitted Command Center-home task. Confirm the accepted claim
+   is already `working`; there is no assignment or queued actor backlog.
+4. Stop Command Center. Advance that exact claimed task through several
+   transitions on the Remote. Confirm those rows and events remain durable
+   across a Remote restart.
+5. Queue another task in the Command Center-home sink before stopping it.
+   Confirm the disconnected Remote does not claim that unstarted task.
+6. Claim and advance a Remote-home task locally. Create a permitted request
+   and artifact while offline and confirm each is homed to the creating
+   installation.
+7. Exercise a watcher whose source is locally available and an interval timer.
+8. Confirm the Remote uses its local database and never requires a Command
+   Center RPC for its homed work, never calls another Remote, and never opens a
+   callback connection to Command Center.
+9. Confirm Command Center-homed actors, schedulers, and unclaimed rows do not
+   execute on the Remote.
+10. Restart Remote while Command Center remains closed. Confirm the projection
+    and locally durable work resume; edge-detection re-baselines and no latent
+    timer backlog fires.
+11. Restart Command Center. Confirm projection and report retries converge by
+    generation/hash and logical cursor, and that the advanced claimed task is
+    not overwritten by the Command Center's pre-disconnect view.
 
-## 6. Multiple machines and cadence
+## 6. Sink reach and locality
+
+1. Connect one Command Center-home tasks sink to eligible local and Remote
+   actors.
+2. Confirm a Remote actor may claim from it only during the live synchronous
+   Command Center-opened exchange; one accepted claim starts one task.
+3. Confirm one actor cannot hold a pending claim attempt plus another active
+   task, and cannot receive a reservation or future-task backlog.
+4. Confirm a Remote-home tasks sink can be claimed only by eligible actors on
+   that Remote.
+5. Confirm request/artifact creation follows current edges and ports and
+   assigns the new row to the creating actor's installation.
+6. Attempt to control a page from an actor on another installation. It must
+   fail even when the logical edge exists, because browser page control is
+   host-local.
+
+## 7. Multiple machines and cadence
 
 1. Enroll two Remotes with different Station tick cadences.
 2. Home disjoint work and timers on Command Center, Remote A, and Remote B.
@@ -106,8 +138,11 @@ The Remote must never merge or author the projection.
 4. Confirm each row and scheduler executes only at its home and never
    duplicates.
 5. Confirm cross-machine cadence changes observation latency only.
+6. Observe network connections and confirm neither Remote opens a control
+   connection to the other Remote or requires an inbound Command Center
+   callback.
 
-## 7. Failure drills
+## 8. Failure drills
 
 - Stop SSH: mark the Remote unreachable while retaining clearly labeled
   last-acknowledged generation and cursors.
@@ -123,8 +158,11 @@ The Remote must never merge or author the projection.
   head-of-line block the independent fleet target.
 - Close Command Center during propagation: no partial projection becomes
   active and acknowledged pages remain idempotent on retry.
+- Break the live CC-home task claim exchange after the durable attempt begins:
+  reconnect must resolve only that exact command identity, never assign a
+  second task or actor.
 
-## 8. No-residue audit
+## 9. No-residue audit
 
 Search source, package contents, and disposable homes. Fail the release if any
 live path creates or consumes:
@@ -142,3 +180,5 @@ transport, Chromium profile data, and package metadata are not product stores.
 Linux package qualification remains governed by
 [linux-package-qualification.md](linux-package-qualification.md); the macOS
 deployment path remains in [macos-remote-e2e.md](macos-remote-e2e.md).
+Neither a CI receipt nor a single-installation package smoke closes this
+two-installation checklist.
