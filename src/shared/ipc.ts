@@ -38,6 +38,7 @@ import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
 import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
 import type { ActorRef } from "./work-protocol";
+import type { LicenseApi } from "./license";
 
 export const IPC_CHANNELS = {
   doctor: "chassis:doctor",
@@ -163,6 +164,15 @@ export const IPC_CHANNELS = {
   // The opaque challenge is generation identity, never product authority.
   rendererSurfaceChallenge: "vellum:renderer-surface-challenge",
   rendererSurfaceReady: "vellum:renderer-surface-ready",
+  // Installation-local product admission. Recovery channels stay reachable
+  // while every product channel is denied.
+  licenseStatus: "vellum:license-status",
+  licenseActivate: "vellum:license-activate",
+  licenseRefresh: "vellum:license-refresh",
+  licenseDeactivate: "vellum:license-deactivate",
+  licenseOpenCustomerPortal: "vellum:license-open-customer-portal",
+  licenseRestart: "vellum:license-restart",
+  licenseChanged: "vellum:license-changed",
   // main -> renderer pushes
   nodeRefOpened: "vellum:node-ref-opened",
   nodeRefOpenedAck: "vellum:node-ref-opened-ack",
@@ -499,7 +509,7 @@ export type ChatFinishNodeDeleteResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly error: string };
 
-export interface VellumApi {
+export interface VellumApi extends LicenseApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
   /** Internal bootstrap receipt emitted after React commits the product shell. */

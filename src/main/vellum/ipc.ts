@@ -49,7 +49,8 @@ import {
 import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
 import type { ControlLease } from "./term/local-host";
-import { isTrustedMainWebContents, trustedRendererIpc } from "./trusted-main-webcontents";
+import { isTrustedMainWebContents } from "./trusted-main-webcontents";
+import { licensedRendererIpc } from "./license/admission";
 import type { WorkMetadata, TaskState } from "@shared/canvas";
 import type { ActorRef } from "@shared/work-protocol";
 import {
@@ -232,7 +233,7 @@ const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
 });
 
 export const registerVellumIpc = (): void => {
-  const privilegedIpc = trustedRendererIpc(ipcMain);
+  const privilegedIpc = licensedRendererIpc(ipcMain);
   registerHerdrIpc(privilegedIpc, () =>
     BrowserWindow.getAllWindows()
       .map((window) => window.webContents)
@@ -819,7 +820,7 @@ export const registerVellumIpc = (): void => {
 /** Browser-only IPC is installed after cold profile recovery succeeds. */
 export const registerVellumBrowserIpc = (sessions: BrowserSessionService): void => {
   registerBrowserIpc(
-    trustedRendererIpc(ipcMain),
+    licensedRendererIpc(ipcMain),
     sessions,
     () => BrowserWindow.getAllWindows()
       .map((window) => window.webContents)

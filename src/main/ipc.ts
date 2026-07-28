@@ -7,7 +7,7 @@ import { PrismService } from "./services/prism";
 import { AppRuntime, buildDoctorReport } from "./runtime";
 import type { BrowserSessionService } from "./vellum/browser/sessions";
 import { registerVellumBrowserIpc, registerVellumIpc } from "./vellum/ipc";
-import { trustedRendererIpc } from "./vellum/trusted-main-webcontents";
+import { licensedRendererIpc } from "./vellum/license/admission";
 
 export const registerBrowserIpcHandlers = (sessions: BrowserSessionService): void => {
   registerVellumBrowserIpc(sessions);
@@ -15,7 +15,7 @@ export const registerBrowserIpcHandlers = (sessions: BrowserSessionService): voi
 
 export const registerIpcHandlers = (): void => {
   registerVellumIpc();
-  const privilegedIpc = trustedRendererIpc(ipcMain);
+  const privilegedIpc = licensedRendererIpc(ipcMain);
   privilegedIpc.handle(IPC_CHANNELS.doctor, () => AppRuntime.runPromise(buildDoctorReport));
 
   privilegedIpc.handle(IPC_CHANNELS.selectFolder, async () => {
