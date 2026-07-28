@@ -68,7 +68,7 @@ loss is impossible. Vellum instead makes concrete, testable promises:
 - The single human operator.
 - Machines and accounts the operator explicitly enrolls.
 - Agents the operator intentionally attaches to the factory.
-- External actors and provider resources the operator explicitly enrolls.
+- Provider resources the operator explicitly enrolls.
 - Vellum processes and owner-local control transports on an enrolled station.
 
 Attached agents are trusted participants, but they are not assumed to be
@@ -144,15 +144,15 @@ Discovery may produce a visible suggestion. It never produces authority.
 The canvas and protected settings are executable operator intent. Every
 Vellum-owned path must use the current intent available to that runtime.
 
-A control path that bypasses an edge, port, station assignment, actor class, or
-role boundary is a product security failure even when the attached agent is
-trusted.
+A control path that bypasses an edge, port, installation assignment, actor
+seat, or role boundary is a product security failure even when the attached
+agent is trusted.
 
 ### 4. Advertised boundaries are real
 
-An edge, port, actor tier, host assignment, profile boundary, role, revocation,
-or termination state must not be advisory when the UI presents it as
-protective.
+An edge, port, actor-seat locality, host assignment, profile boundary, role,
+revocation, or termination state must not be advisory when the UI presents it
+as protective.
 
 Vellum may state an external limit honestly. It must not display a stronger
 guarantee than the runtime can enforce.
@@ -414,42 +414,30 @@ Command Center must deliberately yield, and the operator must directly open
 Vellum on the target installation to accept its new role. Exact transfer and
 permanent-loss recovery mechanics remain open decisions.
 
-### Actor classes
+### Actor locality and admission
 
-- **Command Center actor** — executes within the Command Center runtime.
-- **Remote actor** — executes within an enrolled Remote runtime.
-- **External actor** — executes outside a Vellum runtime but reaches an
-  assigned runtime through a supported Vellum MCP/CLI or provider connector.
-- **Facility** — acknowledged infrastructure with no Vellum execution
-  authority; not yet an actor in the execution graph.
+Every executable Vellum actor is one compiled `ActorSeatId` homed on exactly
+one installation:
 
-External describes runtime placement, not ownership: an enrolled external
-actor remains an operator-owned, trusted factory resource.
+- a Command Center actor executes in the Command Center runtime;
+- a Remote actor executes in that Remote runtime.
 
-Actor class, placement, and access tier constrain the ports and edges the
-operator may create. They do not themselves grant an action.
+The seat acts through a process bound by its host-local Vellum runtime. Its
+current edges and ports determine which projected sinks it may use.
+`ActorSeatId`, placement, and an edge are routing or authorization facts; none
+is a network credential.
 
-### Runtime access tiers
+A provider resource or machine without a local Vellum runtime is a facility or
+integration target, not an ambient Vellum actor. It cannot become an actor by
+holding a node ID, environment variable, Station route, generic MCP endpoint,
+or CLI address. A future provider adapter may expose a specifically typed
+principal only after defining an honest attribution and revocation boundary.
 
-| Tier | Relationship to Vellum | Promise |
-|---|---|---|
-| **1** | Actor can access Command Center in the same runtime | Full local protocol plus explicit factory-administration surfaces |
-| **2** | Actor can access a Remote in the same runtime | Full host-local execution within Remote assignment and current edges |
-| **3** | Actor has no local Vellum runtime but has a configured Vellum MCP/CLI route to its assigned Command Center or Remote | Protocol-enforced remote capabilities; no claim of local runtime ownership |
-| **4** | Resource has no Vellum runtime or configured Vellum MCP/CLI | Facility/onboarding value only; cannot operate in the execution graph |
+The Station session is factory control between installations. It is not an
+agent tunnel and does not create a remote actor-access tier.
 
-The product should make as much useful capability as safely and honestly
-possible available at Tier 3. Truly host-local or sensitive capabilities may
-remain Tier 2. Tier 1 should differ from Tier 2 primarily where factory
-administration genuinely requires Command Center.
-
-Enrollment may progress from acknowledged facility, through optional
-work-surface or harness integration, to a Tier 3 configured actor, and finally
-to a Tier 2 Vellum-managed Remote. Tier 1 is never granted through SSH
-enrollment.
-
-Actor class, tier, assigned runtime, and meaningful edge constraints must be
-visible on the canvas and in inspection overlays.
+Actor placement, seat identity, and meaningful edge constraints must be
+visible on the canvas and in inspection surfaces.
 
 ## Edges, ports, and enforcement
 
@@ -462,7 +450,7 @@ For every protected Vellum action:
 - the target belongs to the expected runtime and host;
 - a current edge connects actor and target;
 - the requested operation matches the edge's ports;
-- the actor's class and access tier support the route;
+- the actor seat is locally homed and process-bound for the route;
 - every Vellum-owned relay repeats the relevant checks.
 
 Process binding is automatic attribution of a live process to a seat. It must
@@ -700,7 +688,7 @@ Remotes or Command Center administration.
 
 Web content is untrusted even when the operator and attached agent are trusted.
 
-Browser automation is host-local (Tier 2). The actor and the page node must
+Browser automation is host-local. The actor and the page node must
 share the same installation. The enrolled host capability `"browser"` means
 that installation may physically host browser pages and owner-local browser
 control; it is not a remote RPC grant and never appears on the Station API.
@@ -732,17 +720,20 @@ Vellum cannot promise that arbitrary malicious same-user code, an operating
 system compromise, or an unknown browser or kernel vulnerability cannot reach
 the user's data by means outside Vellum.
 
-## Termination promises by tier
+## Termination promises by ownership
 
-- **Tier 1/2, Vellum-owned process:** revoke admission, request graceful
+- **Vellum-owned host-local process:** revoke admission, request graceful
   termination, escalate within a bounded window when safe, and verify exit.
-- **Tier 1/2, externally attached process:** revoke every Vellum capability and
-  request termination; report honestly when lifecycle ownership is external.
-- **Tier 3:** revoke protocol access, close Vellum connections, request
+- **Externally attached host-local process:** revoke every Vellum capability
+  and request termination; report honestly when lifecycle ownership is
+  external.
+- **Provider-managed operation:** revoke the typed adapter capability, request
   provider or harness cancellation where supported, and report its result.
-- **Tier 4:** no Vellum actor or execution authority exists.
+- **Facility without a Vellum runtime:** no Vellum actor or execution
+  authority exists.
 
-Vellum only claims the termination strength available at the actor's tier.
+Vellum claims only the termination strength supported by the resource's real
+ownership boundary.
 
 ## Security review discipline
 
