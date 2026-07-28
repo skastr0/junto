@@ -1,0 +1,1247 @@
+# Vellum protocol
+
+**Status:** normative target contract; implementation in progress
+
+**Version:** 2.0.0
+
+**Audience:** Vellum contributors, reviewers, and operators qualifying
+Command Center-to-Remote behavior
+
+**Governs:** installation identity, intent projection, work ownership,
+Command Center-to-Remote synchronization, offline execution, transport
+adapters, and convergence
+
+**Security doctrine:** [security-doctrine.md](security-doctrine.md)
+
+**Storage contract:** [state-architecture.md](state-architecture.md)
+
+**Factory capability model:**
+[architecture-factory-physics.md](architecture-factory-physics.md)
+
+## Summary
+
+Vellum is one operator-owned factory with one Command Center and any number of
+Remotes. Command Center is the sole author of factory intent. Each Remote keeps
+one complete replace-only projection of that intent and independently executes
+the actors, schedulers, physical resources, and work items whose authority is
+homed there.
+
+The Station API is the closed five-verb protocol connecting them:
+`pair`, `configure`, `project`, `report`, and `status`. Command Center opens the
+authenticated connection. Once a session exists, either side may send `report`
+traffic on that same connection. A Remote never opens a fleet-control
+connection to Command Center or another Remote.
+
+This is not a shared-document protocol. It has no canvas merge, CRDT, election,
+lease, shared offline queue, or clock-ordering algorithm. Correctness comes
+from:
+
+- one authorial Command Center;
+- one durable authority home per mutable work item;
+- one local executor per actor, scheduler, and physical resource;
+- logical event identities and cumulative acknowledgements;
+- complete replace-only intent projection;
+- idempotent replay after reconnect.
+
+The current implementation proves parts of this contract. Sections labelled
+**target** describe the direct consolidation this branch must complete before
+the document may be treated as a release claim.
+
+## Canonical end state
+
+The canonical implementation has:
+
+1. one `~/.vellum/state/vellum.db` per installation;
+2. one Electron-main `StateEngine` connection per database;
+3. the same exact-current schema on Command Center and every Remote;
+4. one Command Center authoring canvas and protected topology;
+5. one complete replace-only authorial projection on each Remote;
+6. normalized, single-home work rows outside canvas generations;
+7. one transport-neutral Station dispatcher with exactly five verbs;
+8. one Command Center-initiated persistent session per reachable Remote;
+9. OpenSSH as the first authenticated session adapter;
+10. a clean adapter boundary for future HTTPS with mutual TLS;
+11. no file-store, polling-protocol, remote-browser, or compatibility path
+    surviving beside that end state.
+
+This is a direct cutover. Vellum has no users or production state requiring
+runtime schema migration or protocol version coexistence. An obsolete database
+fails exact-schema startup and is replaced deliberately during development.
+
+## Terminology
+
+### Factory
+
+One operator's Vellum system: one sovereign intent, one Command Center, and
+zero or more enrolled Remotes.
+
+### Installation
+
+One installed Vellum app with one local database and one durable
+`InstallationId`. Installation identity survives ordinary app restarts. It is
+a routing and continuity fact, not a credential.
+
+### Command Center
+
+The only installation role that:
+
+- accepts direct operator authoring of canvases and protected topology;
+- owns the complete factory view;
+- enrolls Remotes and owns their route locators;
+- arbitrates claims from Command Center-home task queues;
+- initiates every fleet transport connection.
+
+### Remote
+
+The installation role that:
+
+- accepts complete Command Center projections;
+- never authors or merges canvas intent;
+- executes only its locally placed actors, schedulers, pages, and processes;
+- owns the mutable work rows homed there;
+- continues that work under its last projection while Command Center is
+  unavailable;
+- reports durable facts when the Command Center session returns.
+
+`Station` is a topology and protocol noun. The two installation roles are
+exactly `command-center` and `remote`; there is no third `station` role.
+
+### Station API
+
+The transport-neutral domain protocol between Command Center and one Remote.
+Its operation union is exactly:
+
+```text
+pair | configure | project | report | status
+```
+
+Transport framing, SSH endpoints, HTTPS URLs, certificates, socket paths, and
+process launch details are not Station API fields.
+
+### HostId
+
+An operator-visible placement and work-home key. A `HostId` is bound to one
+Remote `InstallationId` by fleet enrollment. It is not:
+
+- a network address;
+- an SSH destination;
+- a certificate;
+- proof of peer identity;
+- globally meaningful outside its factory.
+
+### Route locator
+
+Adapter-specific information Command Center uses to reach a Remote, such as an
+OpenSSH destination or future HTTPS URL. Route locators live in Command Center
+fleet state. They are not projected canvas intent, work authority, or
+credentials by themselves.
+
+### ActorRef and SinkRef
+
+Canvas node IDs are scoped by canvas. The full stable reference is:
+
+```text
+(canvasName, nodeId)
+```
+
+An actor claim stored as a node ID is interpreted within the task's canvas.
+Code must not assume an unqualified node ID is globally unique across every
+canvas.
+
+### Event home and entity home
+
+- `event_home` is the `InstallationId` that allocated and emitted an event.
+- `entity_home` is the `HostId` with durable authority over the affected work
+  item after that event.
+- `seq` is a canonical decimal logical sequence within that
+  `(event_home, entity_home)` route.
+
+The durable event identity is:
+
+```text
+(event_home, entity_home, seq)
+```
+
+The product must use `InstallationId` consistently. A second ambiguous name
+such as `originStationId` must not survive beside `originInstallationId` or
+`event_home`. There is one installation identity concept.
+
+## The five governing planes
+
+### 1. Intent plane
+
+The Command Center canvas and protected topology are operator-authored intent.
+They live in `canvas_generations`, `canvas_generation_documents`, and
+`canvas_head`.
+
+Agents cannot mutate this plane. A Remote cannot retain a hidden authorial
+head or convert its projection into one.
+
+### 2. Projection plane
+
+A Remote stores one complete authorial portfolio projection:
+
+- all canvases required to understand its factory;
+- stable node and edge identities;
+- actor, sink, scheduler, region, placement, and capability definitions;
+- no runtime task/request/message/artifact contents;
+- no SSH endpoint, transport credential, browser key, or peer-Remote route.
+
+Projection is a replaceable cache. It is never merged.
+
+### 3. Work plane
+
+Tasks, task transitions, requests, messages, artifacts, command dispositions,
+delivery receipts, and logical cursors are normalized SQLite state. They are
+not authored canvas content.
+
+Work uses single-item authority. A sink definition may be visible everywhere
+while each mutable item still has exactly one authority home.
+
+### 4. Runtime plane
+
+Actors, browser pages, terminals, processes, profiles, and scheduler ticks run
+on one physical installation. Runtime locality is not replicated away by a
+global sink definition.
+
+### 5. Transport plane
+
+An authenticated connection carries Station API frames. Authentication proves
+which network/process route delivered the frame. It does not itself grant a
+verb, change a role, author intent, or satisfy an edge.
+
+Transport acknowledgements describe contiguous delivery only. They never
+decide work ownership.
+
+## Placement, sinks, and item authority
+
+Placement and capability are separate:
+
+- placement answers **where does this executable thing run?**
+- an edge plus port answers **may this actor use this sink?**
+- item home answers **which installation may mutate this work item now?**
+
+The canonical locality table is:
+
+| Surface | Definition visibility | Execution or item authority |
+|---|---|---|
+| `agent` actor | complete projection | executes only on its placed host |
+| `task` sink | complete projection | queue home arbitrates submitted tasks; a claimed task transfers once to its actor's Remote |
+| `requests` sink | complete projection | each request is homed with its raising actor |
+| `artifacts` sink | complete projection | each artifact is homed with its publishing actor |
+| actor mailbox | projected actor seat | messages remain Command Center-homed |
+| `page` sink | complete projection | executable and browser-profile local; actor and page must share an installation |
+| `watcher` / `timer` | complete projection | evaluates only on its placed host |
+| region / furniture | complete projection | no execution authority |
+
+### Logical sinks are not executable hosts
+
+`task`, `requests`, and `artifacts` nodes are stable logical destinations.
+They are not forced to execute on the same host as every actor that can reach
+them. A Remote actor with the required edge and port may address any such sink
+present in its installed projection.
+
+The sink's home still matters:
+
+- it selects the default authority for newly submitted task backlog;
+- it selects which installation may freely arbitrate an unclaimed task;
+- it does not restrict where requests or artifacts may originate;
+- it does not grant access without the current edge and port.
+
+### Page is the deliberate exception
+
+A browser page is a sink with a physical runtime requirement. It is always
+host-local. Vellum never relays page operations through Command Center or the
+Station API.
+
+## Work authority laws
+
+1. Every mutable work item has one authority home.
+2. Only the authority home may perform its immediate material mutation.
+3. A remote command is not material authority until the destination applies
+   it and durably reports an applied disposition.
+4. An accepted fact never causes two installations to become co-authoritative.
+5. A work item never returns to an earlier home through retry.
+6. A task claim may transfer authority exactly once, from its submitted queue
+   home to the claiming actor's home.
+7. Requests and artifacts are homed where their actor creates them.
+8. Messages remain Command Center-homed.
+9. Timestamps are display facts, never ordering or ownership input.
+10. Reconnect replays events; it does not merge rows.
+
+## Task semantics
+
+### State machine
+
+The canonical task states remain:
+
+```text
+submitted
+working
+input-required
+auth-required
+completed
+canceled
+failed
+rejected
+```
+
+Terminal states are:
+
+```text
+completed | canceled | failed | rejected
+```
+
+A task in `working`, `input-required`, or `auth-required` is active work owned
+by exactly one actor.
+
+### Claim is start
+
+There is no `assigned` state, actor backlog, reservation queue, or batch of
+tasks attached to one actor.
+
+A successful claim atomically means:
+
+```text
+submitted + unclaimed
+  → working + claimedBy(actor)
+```
+
+That transition is the start of work. An actor may own at most one active task
+across its seat. A second claim fails with contention.
+
+Only `task.claim` may perform the first `submitted → working` transition.
+A generic task update cannot enter `working` from `submitted` or stamp the
+first claimant. Resuming the same claimed task from `input-required` or
+`auth-required` to `working` remains a normal owner-home transition.
+
+The transport may expose a pending command during a live claim round trip or
+while recovering its uncertain result after a connection loss. That is
+delivery state, not a task assignment state. The task remains `submitted`
+until the Remote transaction starts it.
+
+### Command Center-home queue to Remote actor
+
+For a submitted task homed on Command Center:
+
+1. Command Center's simulation selects one eligible, idle actor under the
+   current canvas edges, ports, work role, pause state, and placement.
+2. Command Center requires a live authenticated session to that actor's
+   Remote. If the Remote is already unreachable, the claim attempt does not
+   enqueue future work.
+3. Command Center persists one pending `task.claim` command targeted at that
+   actor's Remote immediately before sending it on that live session.
+4. Persisting the command reserves that actor against another pending claim,
+   but does not materialize a working task.
+5. The Remote receives the command through `report`.
+6. The Remote validates:
+   - target installation and entity home;
+   - installed projection and referenced sink/actor;
+   - actor placement is local;
+   - edge and port still permit the operation under its installed intent;
+   - predecessor identity is current;
+   - task is submitted and unclaimed;
+   - actor owns no other active task.
+7. In one SQLite transaction, the Remote:
+   - materializes the task as `working`;
+   - stamps `claimedBy`;
+   - adopts the task's entity home;
+   - writes the canonical event;
+   - writes an applied disposition for the Command Center command.
+8. Only after that transaction may the Remote acknowledge the command.
+9. Command Center receives the disposition in the same live exchange and
+   materializes its integrated read model as `working` and Remote-homed.
+
+If validation fails, the Remote writes an ordered causal rejection before
+acknowledging. Command Center leaves the task submitted and exposes the
+rejection.
+
+If Command Center or the target Remote is unavailable before step 2, no claim
+starts. This is deliberate: one live synchronous round trip arbitrates a
+shared submitted backlog.
+
+If the connection is lost after Command Center sent the durable command, its
+result is uncertain rather than failed. Command Center does not reassign the
+task. Reconnect replays the same identity until the Remote returns its durable
+applied/rejected disposition. This recovery path cannot create a new claim
+that was never attempted while both installations were connected.
+
+### Station-home queue
+
+A task sink may declare a Remote as its queue home. That Remote may create and
+claim its submitted tasks locally while Command Center is unavailable.
+
+Free local claim still requires:
+
+- actor and queue authority on the same Remote;
+- current projected edge and port;
+- one submitted unclaimed task;
+- one idle actor;
+- one atomic `submitted → working` transition.
+
+A different Remote never directly claims that queue. Command Center may later
+mediate an explicit cross-home transfer, but no Remote-to-Remote claim route
+exists.
+
+### After claim
+
+Once claimed, the task remains homed with its actor's Remote through:
+
+```text
+working ↔ input-required
+working ↔ auth-required
+working → terminal
+```
+
+Command Center closing does not interrupt those transitions. The Remote
+records them in its own database and reports them later.
+
+There is no automatic:
+
+- unclaim;
+- steal;
+- lease expiry;
+- reassignment after timeout;
+- return to submitted;
+- speculative second executor.
+
+If the actor or Remote is stalled, Vellum reports that fact. A future explicit
+operator recovery operation must define one atomic authority cutover before it
+can re-home active work.
+
+### Starting the managed actor process
+
+The durable task transition and process notification are distinct mechanisms,
+but not distinct assignment states:
+
+1. the claim transaction starts the task;
+2. a durable delivery record identifies the exact task/actor/revision prompt;
+3. the local runtime ensures that actor seat is running;
+4. it delivers the prompt at the managed actor's turn boundary;
+5. an accepted delivery receipt prevents duplicate prompt injection;
+6. a failed delivery retries without creating another claim.
+
+After a process restart, delivery resumes from SQLite receipts. A process-local
+`Set` is not sufficient product durability.
+
+## Request semantics
+
+A request is an actor-originated item asking the operator or another supported
+resolver for input.
+
+Creation is local and offline-capable:
+
+1. the actor must have the required edge and request port;
+2. the Remote writes the request in its local database;
+3. the request is homed on that actor's Remote;
+4. the raising actor is its claimant from creation;
+5. its initial attention state is `input-required` or `auth-required`;
+6. a later `report` sends the fact to Command Center.
+
+Command Center resolution is a command to the request's authority home. If the
+Remote is offline, the response remains visibly pending. The Remote applies or
+causally rejects it under the same command/disposition rules as task changes.
+
+A request sink may therefore be globally visible while its individual
+requests remain safely single-home.
+
+## Artifact semantics
+
+An artifact is an actor-published fact:
+
+- creation is local and offline-capable;
+- authority home is the publishing actor's installation;
+- identity is stable and idempotent;
+- optional task linkage does not change task ownership;
+- when a `taskId` is present, it must resolve to a task visible at the same
+  logical sink and authority home;
+- Command Center integrates the artifact after `report`;
+- another installation does not overwrite it by last-write-wins.
+
+Artifact payloads remain bounded by the protocol and storage contract. A future
+large-object transport must use an explicit content contract; it cannot smuggle
+arbitrary filesystem paths into the Station API.
+
+## Message semantics
+
+Actor mailboxes remain Command Center-managed:
+
+- messages are Command Center-homed;
+- they are not used to represent task assignment;
+- a Remote cannot append an unscoped mailbox message while Command Center is
+  unavailable;
+- persistent Station sessions improve delivery latency but do not change
+  mailbox authority.
+
+If offline Remote-to-Remote messaging becomes a requirement, it needs a new
+single-home routing design. It must not be improvised as peer connectivity.
+
+## Authorial projection
+
+### Compilation
+
+Command Center compiles one deterministic portfolio envelope from its current
+authorial generation. Compilation:
+
+- includes complete stable document structure;
+- strips runtime work lane contents and derived live state;
+- includes placement and capability intent needed by every Remote;
+- excludes host endpoints, transport credentials, browser credentials,
+  process IDs, and peer-Remote reachability;
+- fails if a document is malformed, noncanonical, or already contains runtime
+  work projection data.
+
+### Installation
+
+`project` carries:
+
+- target Remote `InstallationId`;
+- canonical logical generation;
+- complete encoded portfolio;
+- semantic SHA-256;
+- display timestamp.
+
+The Remote decision is:
+
+| Current vs incoming | Decision |
+|---|---|
+| no current projection | `install` |
+| higher generation | `install` |
+| same generation, same hash | `idempotent` |
+| lower generation | `stale` |
+| same generation, different hash | `conflict` |
+
+An install replaces the projection in one transaction.
+
+### Projection replacement boundary
+
+Projection replacement may replace only projected authorial intent. It must
+not delete, rewrite, or merge:
+
+- Remote-homed tasks, requests, artifacts, transitions, or receipts;
+- pairing or configuration;
+- logical event/cursor state;
+- browser profiles, pages, cookies, or sessions;
+- owned processes or runtime recovery records.
+
+After replacement, the runtime reevaluates local eligibility against the new
+projection. If a local resource is no longer authorized, Vellum performs the
+strongest honest revocation available on that reachable Remote.
+
+## Work events
+
+### Canonical event
+
+Every work event contains:
+
+- immutable `(event_home, entity_home, seq)` identity;
+- canvas and node reference;
+- work item identity and kind;
+- exact operation;
+- predecessor identity when causal continuity matters;
+- canonical typed payload;
+- semantic content hash excluding display timestamps;
+- origin timestamp;
+- optional received timestamp.
+
+Event payloads are strict-decoded. Unknown operations, excess fields, invalid
+state transitions, and identity/content reuse fail closed.
+
+The shared wire contract is a versioned closed sum:
+
+```text
+WorkRecord = WorkCommand | WorkFact | WorkDisposition
+```
+
+`kind: string` plus repository-private JSON is not the canonical boundary.
+Transport adapters and Station API clients must not need repository internals
+to understand a record.
+
+### Logical ordering
+
+Sequences are canonical decimal strings and compare as integers. Each route
+allocates monotonically:
+
+```text
+(event_home, entity_home) → 1, 2, 3, ...
+```
+
+No global sequence is required. Two Remotes may each emit sequence `1` without
+conflict because their event homes differ.
+
+Origin and receive time are retained for operator history. They never:
+
+- order events;
+- select a winner;
+- prove freshness;
+- expire authority;
+- coordinate ticks.
+
+### Commands, facts, and dispositions
+
+The same event substrate carries three semantic classes:
+
+**Fact**
+
+A mutation already committed at the event's entity home. A Remote reports
+local task progress, requests, artifacts, and receipts as facts.
+
+**Command**
+
+A requested mutation whose entity home is another installation. The sender
+persists it as pending and does not materialize its requested state.
+
+**Disposition**
+
+The authority home's durable result for one command:
+
+```text
+applied | rejected
+```
+
+An applied disposition references the exact command identity and content hash.
+A rejection includes a stable reason class and bounded diagnostic message.
+
+Transport delivery alone never converts a command into a fact.
+
+### Causal application
+
+For each incoming event, the receiver verifies:
+
+1. authenticated peer is the expected paired installation;
+2. event direction is legal for that peer;
+3. entity home matches the local authority required by the operation;
+4. sequence is contiguous or an idempotent replay;
+5. identity/content hash has not been reused;
+6. predecessor still matches the material row;
+7. domain transition and actor/sink rules hold.
+
+The receiver then transactionally:
+
+- remembers or verifies the event;
+- materializes the fact or command;
+- writes any disposition;
+- advances its durable received cursor.
+
+Any failure leaves the previous material state and cursor intact.
+
+## Acknowledgements and reconnect
+
+An acknowledgement means:
+
+> Every event from this home through this logical sequence has been durably
+> handled contiguously.
+
+It does not mean:
+
+- a task was assigned;
+- an actor saw a prompt;
+- an operator approved work;
+- a projection is current;
+- a Remote remains reachable.
+
+Each side stores:
+
+- received-through cursor per peer/event home;
+- peer-acknowledged cursor for its outbound stream;
+- pending commands and their dispositions;
+- content hashes for idempotence/conflict detection.
+
+On reconnect:
+
+1. transport authenticates the Remote;
+2. Command Center verifies its enrolled `InstallationId`;
+3. each side reads durable cursors;
+4. each side sends events strictly after the peer's ACK;
+5. duplicate events verify identity and content then no-op;
+6. gaps stop that route without advancing its cursor;
+7. independent Remotes continue without head-of-line blocking.
+
+Delivery is at least once. Semantic materialization is exactly once per event
+identity and content.
+
+## Station API operations
+
+### `pair`
+
+Purpose: bind one currently unenrolled Remote installation to one Command
+Center installation over an already authenticated transport.
+
+Laws:
+
+- Command Center initiates it.
+- It cannot create a Command Center role.
+- Exact replay is idempotent.
+- A different Command Center conflicts.
+- Pairing identity is not a bearer credential.
+- Pairing alone grants no work or authoring capability.
+
+### `configure`
+
+Purpose: install the exact Remote topology and enrolled host registration.
+
+Laws:
+
+- Command Center initiates it after pairing.
+- The wire can represent only `role: "remote"`.
+- Host ID and Command Center installation must match enrollment.
+- The transaction removes any dormant local authorial canvas head.
+- It does not install SSH keys, browser trust, reverse routes, or peer routes.
+- Exact replay is idempotent; identity/role change conflicts.
+
+### `project`
+
+Purpose: install one complete replace-only authorial projection.
+
+Laws:
+
+- Command Center initiates it.
+- It is generation/hash monotonic.
+- It does not carry runtime work.
+- It does not erase local work or resources.
+- It never merges.
+
+### `report`
+
+Purpose: exchange ordered work events, dispositions, delivery receipts, and
+cumulative acknowledgements.
+
+Laws:
+
+- either side may initiate `report` **on an authenticated session that Command
+  Center opened**;
+- a Remote cannot open a separate connection back to Command Center;
+- each report is bounded and pageable;
+- events retain their own logical identities independent of session ordering;
+- ACKs are cumulative and contiguous;
+- Remote commands receive a disposition before acknowledgement;
+- report replay is idempotent.
+
+`report` is the only Station API operation a configured Remote may initiate on
+the established session.
+
+### `status`
+
+Purpose: expose bounded current facts needed for fleet supervision.
+
+Status includes:
+
+- installation identity;
+- role and host configuration;
+- paired Command Center identity;
+- active projection generation/hash;
+- received and peer-acknowledged cursors;
+- database, work-control, simulation, and session readiness;
+- current observation timestamp.
+
+Cached status must be labelled last-observed. An unreachable Remote is
+`unknown/unreachable`, never optimistically healthy.
+
+## Closed protocol surface
+
+The Station API must never gain a generic:
+
+- shell command;
+- arbitrary RPC name;
+- filesystem path operation;
+- database query;
+- HTTP proxy;
+- browser verb;
+- tunnel or port-forward request;
+- peer-Remote forward;
+- plugin-defined untyped payload.
+
+If a new product operation is genuinely required, it needs an explicit
+contract review. It cannot hide inside `report.kind`, an excess JSON field, or
+an adapter-specific escape hatch.
+
+## Session contract
+
+### Direction
+
+Command Center always initiates the network/process connection:
+
+```text
+Command Center ── authenticated connect ──► Remote
+Command Center ◄════ bounded duplex frames ════► Remote
+```
+
+The established stream is duplex. Remote facts travel back immediately on
+that stream. This provides real-time behavior without:
+
+- an inbound listener on the operator's Mac;
+- a public Command Center address;
+- a Remote-held Command Center route;
+- Tailscale as an authority dependency;
+- polling every few seconds.
+
+### Framing
+
+The transport carries strict bounded frames with:
+
+- session protocol version;
+- request ID;
+- frame kind (`request` or `response`);
+- one Station API request or control envelope;
+- correlation to exactly one response.
+
+Framing may use bounded newline-delimited JSON or another explicit
+length-delimited encoding. Encoding is an adapter concern; it cannot alter
+domain semantics.
+
+Transport heartbeat and close frames are session mechanics, not extra Station
+API verbs. They carry no domain payload or authority.
+
+### Concurrency
+
+The session may have multiple in-flight requests when request IDs make
+correlation unambiguous. Domain ordering still comes exclusively from
+projection generation and event sequence.
+
+Backpressure rules:
+
+- bound total frame size;
+- bound report event count;
+- bound queued outbound bytes per Remote;
+- pause reading or producing rather than buffering without limit;
+- keep each Remote's queue independent;
+- close malformed or over-limit sessions;
+- reconnect with exponential backoff and jitter.
+
+### Session loss
+
+Session identity is ephemeral and never authority state. On loss:
+
+- no SQLite transaction is rolled back after commit;
+- unsent events remain after the peer ACK cursor;
+- unacknowledged events replay;
+- Remote simulation continues locally;
+- Command Center marks the Remote unreachable;
+- reconnect creates a new session and resumes from durable cursors.
+
+No polling protocol survives as a permanent parallel fallback after the
+persistent session cutover. Reconnection is the one recovery path.
+
+## OpenSSH adapter
+
+OpenSSH is the first production transport because it already supplies:
+
+- authenticated operator-machine access;
+- encryption and integrity;
+- host-key policy;
+- route configuration;
+- support across ordinary VPS and private networks;
+- no inbound Command Center listener.
+
+The canonical SSH shape is:
+
+```text
+Command Center
+  └── opens one persistent SSH command session
+        └── fixed packaged vellum-station helper on Remote
+              └── owner-local Remote control socket
+                    └── Remote main Station dispatcher
+```
+
+The helper:
+
+- accepts no arbitrary command, path, database location, or shell payload;
+- does not open `vellum.db`;
+- does not read or write settings/projection/status files;
+- carries bounded Station frames between stdio and the owner-local socket;
+- exits when the SSH session or Remote app disappears.
+
+OpenSSH owns SSH private keys, host-key verification, known hosts, and account
+authentication. Vellum does not copy or reissue those credentials.
+
+Tailscale, a VPN, a public IP, a provider private network, or a bastion may
+provide reachability to the SSH endpoint. None of them changes Station API
+authority.
+
+## Future HTTPS adapter
+
+Vellum must not be architected so SSH endpoints are embedded in domain
+identity or work contracts.
+
+A future public-network adapter must use HTTPS with mutual authentication.
+Plain HTTP is not an acceptable fleet transport outside an owner-local
+boundary.
+
+The HTTPS adapter must:
+
+1. keep Command Center as connection initiator;
+2. authenticate both peers before Station API decode or dispatch;
+3. bind the authenticated Remote credential to its enrolled
+   `InstallationId`;
+4. encrypt and integrity-protect the complete session;
+5. use the same five verbs, event identities, dispositions, and cursors;
+6. support certificate replacement and revocation without changing factory
+   identity;
+7. keep private key custody explicit and browser-independent;
+8. expose no generic web application, admin API, or browser relay.
+
+Mutual TLS is the expected mechanism. The exact bootstrap ceremony, certificate
+authority model, OS-keychain/private-key custody, rotation, and permanent-loss
+recovery require a separate security decision before implementation.
+
+Those credentials authenticate transport. They do not turn
+`InstallationId`, `HostId`, route URL, certificate fingerprint, pairing row, or
+canvas ID into a secret.
+
+The retired browser signing system is not a template for HTTPS. Any future
+transport credential belongs to the Station transport adapter and protects all
+five verbs uniformly.
+
+## Authorization
+
+Transport authentication is necessary but insufficient.
+
+Before dispatch, Remote main verifies:
+
+- authenticated peer is permitted by the active transport adapter;
+- request target matches this installation;
+- paired Command Center identity matches;
+- operation is legal for current enrollment/configuration state;
+- role transition is representable;
+- strict schema decode succeeds;
+- payload bounds and content hashes hold.
+
+Before work materialization, `WorkService`/`WorkRepository` verifies:
+
+- entity home and event direction;
+- local installation authority;
+- current projected node identities;
+- actor placement;
+- edge and port;
+- process-bind for actor-originated local tools;
+- predecessor and state transition;
+- one-task-per-actor invariant.
+
+No adapter bypasses the dispatcher. No dispatcher bypasses domain services to
+write SQLite.
+
+## Scheduler and clock semantics
+
+Actors, watchers, and timers execute only on their placement home. Command
+Center and Remote ticks do not coordinate phases or share a clock.
+
+`everyMinutes` uses coalesced catch-up:
+
+- sleeping through multiple intervals yields at most one firing;
+- restart establishes a new next interval;
+- no latent backlog replays.
+
+Any future absolute/calendar timer must declare:
+
+- due-time interpretation;
+- stale threshold;
+- catch-up or skip behavior;
+- time-zone behavior;
+- restart behavior.
+
+Wall-clock timestamps remain display/due metadata. They never order work or
+choose an authority.
+
+## Offline behavior matrix
+
+| Situation | Required behavior |
+|---|---|
+| Command Center closed after Remote task claim | Remote continues transitions and execution locally |
+| Command Center closed before CC-home task claim | Remote cannot claim that shared submitted task |
+| Target Remote unreachable before CC-home claim | Do not queue a future claim; leave the task submitted |
+| Remote creates request/artifact while CC closed | Persist locally; report later |
+| Remote runs Station-home queue while CC closed | Local eligible actor may claim and execute |
+| Remote tries to claim another Remote's queue | Deny; no peer route |
+| Command Center edits intent while Remote unreachable | Record new intent locally; show Remote stale until projection reaches it |
+| Edge revoked while Remote unreachable | Remote continues last projection; CC must not claim revocation arrived |
+| Session drops after event commit before ACK | Replay event; receiver verifies identity/hash and no-ops |
+| Two ticks drift in phase | Latency may differ; ownership and ordering do not |
+| Actor process restarts during working task | Recover task and delivery receipt locally; do not create another claim |
+
+## Effect architecture
+
+The implementation follows a policy/mechanism/orchestration split.
+
+### Pure policy
+
+Pure shared modules own:
+
+- Effect Schemas for every Station frame and work payload;
+- projection install decisions;
+- sequence/ACK decisions;
+- task transition and claim eligibility;
+- placement/locality rules;
+- content hashing inputs;
+- retry classification.
+
+Pure policy has no SQLite, SSH, socket, Electron, or clock I/O.
+
+### Repositories
+
+Effect repository services own transactional SQLite mechanisms:
+
+- `StateEngine`;
+- canvas authority;
+- Station enrollment/configuration/projection/cursors;
+- work rows/events/pending commands/rejections;
+- durable actor-delivery receipts.
+
+Repositories accept domain values, not raw network JSON.
+
+### Dispatcher
+
+One `StationApiDispatcher` owns the five verb handlers. Every transport adapter
+delivers an authenticated peer plus a decoded request to this dispatcher.
+
+The dispatcher does not know SSH command strings, HTTPS URLs, socket paths, or
+certificate storage formats.
+
+### Peer exchange
+
+One transport-neutral `StationPeerExchange` Effect service exposes the
+Command Center side of an authenticated session:
+
+- connect/disconnect lifecycle;
+- correlated request/response;
+- Remote-initiated report delivery on an existing session;
+- typed transport failures;
+- cancellation and backpressure.
+
+Callers pass an enrolled peer/route capability, not raw arbitrary shell
+arguments.
+
+### Adapters
+
+OpenSSH and future HTTPS implement the same peer-exchange port. They own:
+
+- dialing;
+- authentication evidence;
+- framing;
+- timeouts;
+- connection lifecycle;
+- adapter-specific route validation.
+
+They do not own Station domain decisions or work materialization.
+
+### Orchestration
+
+Fleet propagation supervises one independent scoped session per enrolled
+Remote. It:
+
+- projects new intent immediately;
+- drains durable outbound events;
+- accepts inbound reports;
+- reconciles status;
+- reconnects with bounded backoff;
+- prevents one failing Remote from blocking another.
+
+## SQLite residency
+
+The composed exact-current schema contains the canonical categories:
+
+### Canvas authority
+
+- `canvas_generations`
+- `canvas_generation_documents`
+- `canvas_head`
+
+Authorial rows exist only on Command Center.
+
+### Station state
+
+- `station_installation`
+- `station_pairing`
+- `station_configuration`
+- `station_projection`
+- `station_received_cursors`
+- `station_peer_ack_cursors`
+- `station_fleet_targets`
+
+### Work state
+
+- `work_event_sequences`
+- `work_events`
+- `work_pending_commands`
+- `work_tasks`
+- `work_requests`
+- `work_task_messages`
+- `work_messages`
+- `work_artifacts`
+- `work_task_transitions`
+- `work_rejections`
+- target durable actor-delivery receipts
+
+The exact schema must enforce:
+
+- one canonical event identity;
+- legal row state;
+- content hash presence;
+- immutable item home except the first submitted-to-working task claim;
+- immutable request/artifact home;
+- database-enforced uniqueness preventing one actor from owning two active
+  tasks;
+- valid pending-command lifecycle;
+- indexes for route replay and node projection.
+
+No second database or direct helper connection is permitted.
+
+## Failure semantics
+
+### Retryable
+
+- transport unavailable;
+- session reset;
+- bounded timeout before a response;
+- Remote app temporarily down;
+- transient SQLite busy within the configured retry contract.
+
+Retry reuses the same semantic request/event identity where applicable.
+
+### Non-retryable until state changes
+
+- strict decode failure;
+- unknown verb or excess field;
+- target installation mismatch;
+- role/topology conflict;
+- projection generation/hash conflict;
+- event identity/content conflict;
+- sequence gap;
+- causal predecessor conflict;
+- illegal task transition;
+- actor claim contention;
+- missing edge/port/locality.
+
+The error contract marks retryability explicitly. Callers do not infer it from
+message text.
+
+### Partial failure
+
+Every durable operation is transactionally all-or-nothing at one installation.
+There is no distributed transaction between Command Center and Remote.
+
+Cross-installation completion is represented explicitly:
+
+```text
+pending command
+  → Remote applied/rejected disposition
+  → Command Center integrated result
+```
+
+The UI and Doctor report that lifecycle honestly.
+
+## Forbidden residue
+
+The canonical protocol blocks release while any live path preserves:
+
+- remote browser operations or browser trust on the Station wire;
+- browser-specific keypairs, pins, certificates, session handles, or relays;
+- Station-to-Station routes or credentials;
+- Remote callbacks to Command Center;
+- file-written settings, projections, status, frames, or ACKs;
+- direct SQLite access from a helper, renderer, CLI, or second process;
+- canvas mutation for tasks, requests, messages, artifacts, claims, or
+  transitions;
+- shared offline task claiming;
+- task assignment distinct from starting work;
+- actor backlogs or more than one active task;
+- unclaim, steal, lease expiry, or implicit re-home;
+- wall-clock ordering;
+- polling as a permanent peer-exchange implementation after stream cutover;
+- simultaneous v1/v2 Station protocols;
+- compatibility decoders, dual reads/writes, legacy imports, or fallback
+  stores.
+
+## Implementation cuts
+
+Implementation proceeds in direct, reviewable cuts. Each cut updates all
+affected consumers and deletes the superseded path.
+
+### Cut 1 — freeze domain contracts
+
+- consolidate identity terminology;
+- make report direction symmetric;
+- add correlated session frames;
+- encode claim/start and item-home rules;
+- add durable delivery receipt contract;
+- update strict schemas and contract tests.
+
+### Cut 2 — finish work authority
+
+- move all task/request/artifact operations through item-home lookup;
+- complete request/artifact offline origin and convergence;
+- enforce one actor/one active task at domain and SQL boundaries;
+- remove remaining canvas work mutation;
+- make claim transfer explicit rather than a trigger-shaped special case.
+
+### Cut 3 — finish local simulation
+
+- recover working claims from SQLite;
+- ensure only local actors/schedulers/pages start;
+- replace process-memory delivery dedupe with durable receipts;
+- prove restart and Command Center-offline behavior.
+
+### Cut 4 — consolidate peer exchange
+
+- introduce transport-neutral `StationPeerExchange`;
+- move raw SSH endpoints out of propagation callers;
+- replace one-request SSH calls and polling with one persistent framed session;
+- allow Remote-initiated `report` on that CC-opened session;
+- delete the polling path after cutover.
+
+### Cut 5 — qualify convergence
+
+- prove reconnect/replay/gap/conflict behavior;
+- prove independent multi-Remote backpressure;
+- prove projection replacement does not erase local work;
+- prove stale/unreachable UI and Doctor facts;
+- run two-machine operational qualification when explicitly scheduled.
+
+### Cut 6 — preserve the HTTPS seam
+
+- keep route/auth/framing adapter-owned;
+- document the mTLS bootstrap decision before implementing it;
+- reject SSH-shaped domain fields;
+- do not ship placeholder credential tables or a dormant HTTPS listener.
+
+## Proof matrix
+
+| Claim | Required proof |
+|---|---|
+| Remote works with CC closed | claimed task progresses through terminal state from local SQLite after CC shutdown |
+| CC queue is not double-claimed | two Remotes cannot both start one submitted CC-home task |
+| One actor means one task | active and pending second claims fail across canvases |
+| Projection is non-authorial | Remote cannot call canvas mutate; replacement never changes local work rows |
+| Reconnect is idempotent | repeated report yields one semantic materialization |
+| Gaps fail closed | cursor and material state remain unchanged |
+| Clocks do not order | out-of-order timestamps retain logical event order |
+| Browser is local | no Station schema/dispatcher/runtime path represents page control |
+| No lateral fleet reach | Remote receives no peer endpoint/credential and opens no fleet connection |
+| Transport can evolve | dispatcher/work tests run without an SSH process |
+| Persistent SSH is bounded | malformed/oversize frames close only that Remote session |
+| Failure is isolated | one unreachable Remote does not block another |
+
+## Validation discipline
+
+During protocol development in the isolated worktree:
+
+- run TypeScript typecheck;
+- run focused unit and integration tests for changed contracts/services;
+- keep every completed cut committed;
+- do not run the Electron app, dev server, package build, or E2E while the
+  operator's beta build is active.
+
+Packaged and multi-machine qualification remain required before a production
+release claim, but are a separately scheduled gate.
+
+## Contract change process
+
+This document names one canonical end state. A protocol change must:
+
+1. state the invariant or product need being changed;
+2. update schemas, producers, consumers, tests, and this document in one cut;
+3. delete the superseded internal contract;
+4. avoid parallel version support unless an external runtime-skew constraint
+   is proven;
+5. name any forced exception, owner, and objective retirement trigger.
+
+“Keep the old path just in case” is not an accepted protocol design.
