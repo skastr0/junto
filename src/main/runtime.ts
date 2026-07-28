@@ -59,9 +59,17 @@ import {
   type StationStatusFacts,
 } from "./vellum/station/repository";
 import { StationApiLive } from "./vellum/station/api";
-import { StationRemoteApiClientLive } from "./vellum/station/remote-client";
 import { StationPropagationLive } from "./vellum/station/propagation";
-import { StationFleetPropagationLive } from "./vellum/station/fleet-propagation";
+import {
+  OpenSshStationPeerRouteResolverLive,
+  StationFleetPropagationLive,
+} from "./vellum/station/fleet-propagation";
+import {
+  OpenSshStationPeerExchangeLive,
+} from "./vellum/station/openssh-peer-exchange";
+import {
+  StationLivePeerRegistryLive,
+} from "./vellum/station/session-registry";
 
 // Keep this exact layer value as the sole database owner in the runtime graph.
 // Effect memoizes layers by reference, so every repository below receives the
@@ -85,29 +93,49 @@ const StateRepositoriesLive = Layer.provideMerge(
 // Canvases projects durable work rows on reads while keeping its authority
 // snapshot authorial-only, so it consumes the already memoized repository
 // graph rather than constructing another engine or work repository.
-const StatefulServicesLive = Layer.provideMerge(
-  Layer.mergeAll(CanvasesLive, StationApiLive),
+const CanvasesWithStateLive = Layer.provideMerge(
+  CanvasesLive,
   StateRepositoriesLive,
 );
 
-const StationRemoteWithSshLive = Layer.provideMerge(
-  StationRemoteApiClientLive,
-  SshTransportLive,
+const StatefulServicesLive = Layer.provideMerge(
+  StationApiLive,
+  CanvasesWithStateLive,
 );
 
 const StationPropagationServicesLive = Layer.provideMerge(
   StationPropagationLive,
-  Layer.mergeAll(StatefulServicesLive, StationRemoteWithSshLive),
+  StatefulServicesLive,
+);
+
+const OpenSshStationPeerExchangeFromStateLive = Layer.unwrapEffect(
+  Effect.gen(function* () {
+    const repository = yield* StationRepository;
+    const localInstallationId = yield* repository.installationId;
+    return OpenSshStationPeerExchangeLive(localInstallationId);
+  }),
+);
+
+const StationSessionInfrastructureLive = Layer.provideMerge(
+  Layer.mergeAll(
+    StationLivePeerRegistryLive,
+    OpenSshStationPeerRouteResolverLive,
+    OpenSshStationPeerExchangeFromStateLive,
+  ),
+  Layer.mergeAll(StateRepositoriesLive, SshTransportLive),
 );
 
 const StationFleetServicesLive = Layer.provideMerge(
   StationFleetPropagationLive,
-  Layer.mergeAll(StateRepositoriesLive, StationPropagationServicesLive),
+  Layer.mergeAll(
+    StationPropagationServicesLive,
+    StationSessionInfrastructureLive,
+  ),
 );
 
 const HostsWithSshLive = Layer.provideMerge(
   HostsServiceLive,
-  Layer.mergeAll(SshTransportLive, StatefulServicesLive),
+  Layer.mergeAll(SshTransportLive, StateRepositoriesLive),
 );
 
 // HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.
