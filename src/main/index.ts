@@ -124,6 +124,7 @@ import { StateEngine } from "./vellum/state/service";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
 import { inspectStateUpdateCandidate } from "./vellum/state/candidate-readiness";
 import { withStateUpdateCandidate } from "./vellum/state/update-candidate";
+import { installUpdateHostHooks } from "./vellum/update";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
 import {
   makeLicenseCoordinator,
@@ -1169,8 +1170,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           `${JSON.stringify(receipt)}\n`,
           () => exitAfterDetach(0, "state-update-preflight-complete"),
         );
-      } catch {
-        console.error("[state-preflight] candidate readiness failed");
+      } catch (error) {
+        console.error("[state-preflight] candidate readiness failed:", error);
         exitAfterDetach(1, "state-update-preflight-failure");
       }
       return;
@@ -1332,6 +1333,19 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
+    // UpdateService host hooks: release SQLite before sealed preflight, and
+    // relaunch without Squirrel install when readiness fails after quiesce.
+    installUpdateHostHooks({
+      quiesceForPreflight: async () => {
+        await commitMainAuthoringOnQuit();
+        detachRuntimeOnQuit("update-install-preflight");
+        await disposeRuntime();
+      },
+      relaunchWithoutInstall: () => {
+        app.relaunch();
+        app.exit(0);
+      },
+    });
     registerIpcHandlers();
     registerDemoIpcHandlers();
     if (shutdownAdmissionClosed) return;
@@ -1611,8 +1625,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     rendererWindowAdmissionReady = true;
     if (!headless) createWindow();
   })
-    .catch(() => {
-      console.error("[startup] initialization failed");
+    .catch((error) => {
+      console.error("[startup] initialization failed:", error);
       exitAfterDetach(1, "startup-failure");
     });
 }

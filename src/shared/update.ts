@@ -1,0 +1,90 @@
+import { Schema } from "effect";
+
+/**
+ * Command Center auto-update surface.
+ *
+ * electron-updater owns feed check / download / cache / quitAndInstall.
+ * Vellum owns the readiness gate only: hash the exact ZIP, expand to a
+ * proof-only staging dir, run the candidate with `--vellum-state-preflight`,
+ * bind the receipt to the ZIP digest, then permit install. Installation is
+ * explicit "Restart to update" only — never auto on quit.
+ */
+
+export const UpdatePhase = Schema.Literal(
+  "idle",
+  "checking",
+  "available",
+  "downloading",
+  "ready",
+  "installing",
+  "error",
+);
+export type UpdatePhase = typeof UpdatePhase.Type;
+
+export const UpdateDownloadProgress = Schema.Struct({
+  percent: Schema.Number.pipe(Schema.between(0, 100)),
+  bytesPerSecond: Schema.Number.pipe(Schema.nonNegative()),
+  transferred: Schema.Number.pipe(Schema.nonNegative()),
+  total: Schema.Number.pipe(Schema.nonNegative()),
+});
+export type UpdateDownloadProgress = typeof UpdateDownloadProgress.Type;
+
+export const AvailableRelease = Schema.Struct({
+  version: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64)),
+  releaseDate: Schema.optionalWith(Schema.String, { exact: true }),
+  releaseName: Schema.optionalWith(Schema.String, { exact: true }),
+  releaseNotes: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type AvailableRelease = typeof AvailableRelease.Type;
+
+export const UpdateErrorCode = Schema.Literal(
+  "not-packaged",
+  "platform-unsupported",
+  "check-failed",
+  "download-failed",
+  "readiness-failed",
+  "install-refused",
+  "not-ready",
+  "candidate-mismatch",
+  "unknown",
+);
+export type UpdateErrorCode = typeof UpdateErrorCode.Type;
+
+export const UpdateErrorInfo = Schema.Struct({
+  code: UpdateErrorCode,
+  message: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500)),
+});
+export type UpdateErrorInfo = typeof UpdateErrorInfo.Type;
+
+/**
+ * Renderer-facing update state. No filesystem paths, digests, or receipts
+ * cross this boundary — those stay main-owned readiness authority.
+ */
+export const UpdateStatus = Schema.Struct({
+  phase: UpdatePhase,
+  currentVersion: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64)),
+  available: Schema.optionalWith(AvailableRelease, { exact: true }),
+  progress: Schema.optionalWith(UpdateDownloadProgress, { exact: true }),
+  error: Schema.optionalWith(UpdateErrorInfo, { exact: true }),
+  /** True only after readiness gate bound the exact downloaded candidate. */
+  canInstall: Schema.Boolean,
+  lastCheckedAt: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type UpdateStatus = typeof UpdateStatus.Type;
+
+export const decodeUpdateStatus = Schema.decodeUnknownSync(UpdateStatus);
+
+export const idleUpdateStatus = (currentVersion: string): UpdateStatus => ({
+  phase: "idle",
+  currentVersion,
+  canInstall: false,
+});
+
+export interface UpdateApi {
+  readonly updateGetState: () => Promise<UpdateStatus>;
+  readonly updateCheck: () => Promise<UpdateStatus>;
+  readonly updateRestartAndInstall: () => Promise<UpdateStatus>;
+  readonly onUpdateStateChanged: (
+    listener: (status: UpdateStatus) => void,
+  ) => () => void;
+}

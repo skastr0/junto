@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import { Effect } from "effect";
 import {
   IPC_CHANNELS,
@@ -26,6 +26,7 @@ import { registerHostsIpc } from "./hosts/ipc";
 import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
 import { SettingsService } from "./settings/service";
+import { registerUpdateIpc } from "./update/ipc";
 import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
@@ -243,6 +244,11 @@ export const registerVellumIpc = (): void => {
   registerTerminalIpc(privilegedIpc, termPlane);
   registerSettingsIpc(privilegedIpc, broadcast);
   registerHostsIpc(privilegedIpc);
+  registerUpdateIpc(
+    privilegedIpc,
+    broadcast,
+    app.getVersion(),
+  );
   privilegedIpc.handle(IPC_CHANNELS.listCanvases, () =>
     AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.list)),
   );

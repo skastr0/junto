@@ -1,7 +1,7 @@
 {
   "name": "@skastr0/vellum",
   "version": "0.1.0",
-  "description": "Vellum Command — the deep-field station for multi-agent fleets.",
+  "description": "Vellum Command \u2014 the deep-field station for multi-agent fleets.",
   "author": {
     "name": "Guilherme Castro",
     "email": "skastr052@gmail.com"
@@ -42,12 +42,16 @@
     "electron:policy:validate": "bun scripts/electron-security-policy.ts validate",
     "electron:policy:check": "bun scripts/electron-security-policy.ts check",
     "app:build": "bash scripts/build-app.sh",
+    "app:build:beta": "bash scripts/build-app.sh --channel beta",
+    "app:build:production": "bash scripts/build-app.sh --channel production",
     "app:build:mac": "bash scripts/build-app.sh --target mac",
     "app:build:linux": "bash scripts/build-app.sh --target linux",
     "app:build:fast": "bash scripts/build-app.sh --fast",
     "app:build:verify": "bash scripts/build-app.sh --verify",
     "app:build:notarize": "bash scripts/build-app.sh --notarize",
     "app:build:ship": "bash scripts/build-app.sh --verify --notarize",
+    "app:build:beta:ship": "bash scripts/build-app.sh --channel beta --verify --notarize",
+    "app:build:production:ship": "bash scripts/build-app.sh --channel production --verify --notarize",
     "linux:release:evidence": "bun scripts/linux-release-inventory.ts",
     "linux:release:create": "bun scripts/linux-release-tool.ts create",
     "linux:release:sign": "bun scripts/linux-release-tool.ts sign",
@@ -94,7 +98,8 @@
     "react-dom": "^19.2.0",
     "thinking-orbs": "0.1.1",
     "three": "^0.185.1",
-    "ulid": "^3.0.2"
+    "ulid": "^3.0.2",
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",

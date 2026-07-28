@@ -29,6 +29,7 @@ import type { SnapshotState } from "@shared/entities";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import type { LicenseStatus } from "@shared/license";
+import type { UpdateStatus } from "@shared/update";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 import { isRendererPreloadCandidate } from "@shared/trusted-renderer-origin";
 import type {
@@ -420,6 +421,14 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.licenseRestart, IPC_TIMEOUT_MS),
   onLicenseChanged: (listener) =>
     subscribe<LicenseStatus>(IPC_CHANNELS.licenseChanged, listener),
+  updateGetState: () =>
+    invoke(IPC_CHANNELS.updateGetState, IPC_TIMEOUT_MS),
+  updateCheck: () =>
+    invoke(IPC_CHANNELS.updateCheck, IPC_TIMEOUT_MS),
+  updateRestartAndInstall: () =>
+    invoke(IPC_CHANNELS.updateRestartAndInstall, IPC_TIMEOUT_MS),
+  onUpdateStateChanged: (listener) =>
+    subscribe<UpdateStatus>(IPC_CHANNELS.updateStateChanged, listener),
   rendererSurfaceReady: () => {
     rendererSurfaceMounted = true;
     sendRendererSurfaceReceipt();

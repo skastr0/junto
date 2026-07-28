@@ -44,6 +44,8 @@ import type {
   StateRecoveryExportResult,
   StateRecoveryListResult,
 } from "./state-recovery";
+import type { UpdateApi } from "./update";
+export type { UpdateApi, UpdateStatus, AvailableRelease, UpdatePhase } from "./update";
 
 export const IPC_CHANNELS = {
   doctor: "chassis:doctor",
@@ -181,6 +183,11 @@ export const IPC_CHANNELS = {
   licenseOpenCustomerPortal: "vellum:license-open-customer-portal",
   licenseRestart: "vellum:license-restart",
   licenseChanged: "vellum:license-changed",
+  // Command Center auto-update (Mac; readiness-gated install)
+  updateGetState: "vellum:update-get-state",
+  updateCheck: "vellum:update-check",
+  updateRestartAndInstall: "vellum:update-restart-and-install",
+  updateStateChanged: "vellum:update-state-changed",
   // main -> renderer pushes
   nodeRefOpened: "vellum:node-ref-opened",
   nodeRefOpenedAck: "vellum:node-ref-opened-ack",
@@ -517,7 +524,7 @@ export type ChatFinishNodeDeleteResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly error: string };
 
-export interface VellumApi extends LicenseApi {
+export interface VellumApi extends LicenseApi, UpdateApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
   /** Internal bootstrap receipt emitted after React commits the product shell. */

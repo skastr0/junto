@@ -27,6 +27,7 @@ import {
 import { makeCanvasExternalReloadCoordinator } from "./lib/canvas-external-reload";
 import { startKernelBridge } from "./lib/kernel-view";
 import { startSettingsBridge, closeSettings } from "./lib/settings-state";
+import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { Canvas } from "./components/Canvas";
@@ -331,6 +332,7 @@ export function App() {
 
     const stopKernel = startKernelBridge();
     const stopSettings = startSettingsBridge();
+    const stopUpdate = startUpdateBridge();
     // Managed-agent seat state (attention/working) — subscribe early so canvas
     // node chrome paints before any TerminalCard mounts.
     const stopAgentSeat = subscribeAgentSeatState();
@@ -367,6 +369,7 @@ export function App() {
       offCanvasQuiesceAndFlush();
       stopKernel();
       stopSettings?.();
+      stopUpdate?.();
       stopAgentSeat?.();
     };
   }, []);

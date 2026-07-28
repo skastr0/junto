@@ -8,6 +8,10 @@ import {
   KernelStateRepositoryLive,
 } from "../kernel/repository";
 import {
+  LicenseRepository,
+  LicenseRepositoryLive,
+} from "../license/repository";
+import {
   SchedulerRepository,
   SchedulerRepositoryLive,
 } from "../scheduler/repository";
@@ -125,6 +129,7 @@ export const inspectStateUpdateCandidate = (
       StationRepositoryLive,
       KernelStateRepositoryLive,
       SchedulerRepositoryLive,
+      LicenseRepositoryLive,
     ),
     state,
   );
@@ -140,6 +145,12 @@ export const inspectStateUpdateCandidate = (
     const work = yield* WorkRepository;
     const kernel = yield* KernelStateRepository;
     const scheduler = yield* SchedulerRepository;
+    const license = yield* LicenseRepository;
+
+    // license.read may return ActivatedLicense | undefined — both OK.
+    // Corrupt or persistence failure fails preflight. No Dodo call; no
+    // license gate on update activation.
+    yield* license.read;
 
     const {
       canvasSummaries,

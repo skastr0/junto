@@ -11,6 +11,7 @@ import { GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { Dropdown } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { FirstPlayConfirm } from "./FirstPlayConfirm";
+import { UpdateChip } from "./UpdateChip";
 import { UsageHud } from "./UsageHud";
 
 function CanvasPicker({
@@ -337,6 +338,7 @@ export function TopBar({
       <SearchField canvasName={canvasName} />
       <SaveStatus />
       <div className="station-actions relative ml-auto flex items-center gap-3">
+        <UpdateChip />
         <FactoryPauseControl canvasName={canvasName} />
         <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="fleet"
           style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }}

@@ -26,6 +26,10 @@ import {
   setStationTopology,
 } from "../lib/settings-state";
 import {
+  checkForUpdates,
+  updateState$,
+} from "../lib/update-state";
+import {
   ALERT_SFX_IDS,
   SFX_LABELS,
   playAlert,
@@ -488,8 +492,82 @@ function AdvancedSection() {
           {loginItemError}
         </p>
       ) : null}
+      <UpdateCheckControls />
       <StateRecoveryControls />
     </div>
+  );
+}
+
+function UpdateCheckControls() {
+  const status = use$(updateState$.status);
+  const busy = use$(updateState$.busy);
+  const [localError, setLocalError] = useState<string | undefined>();
+
+  const summary = (() => {
+    switch (status.phase) {
+      case "checking":
+        return "checking for updates…";
+      case "available":
+        return status.available
+          ? `update ${status.available.version} available`
+          : "update available";
+      case "downloading": {
+        const percent =
+          status.progress !== undefined
+            ? Math.round(status.progress.percent)
+            : undefined;
+        return percent === undefined
+          ? "downloading update…"
+          : `downloading ${percent}%`;
+      }
+      case "ready":
+        return status.available
+          ? `ready to install ${status.available.version}`
+          : "ready to install";
+      case "installing":
+        return "installing…";
+      case "error":
+        return status.error?.message ?? "update check failed";
+      default:
+        return status.lastCheckedAt
+          ? `last checked ${status.lastCheckedAt.slice(0, 19).replace("T", " ")} UTC`
+          : "packaged Command Center only";
+    }
+  })();
+
+  return (
+    <FieldRow
+      label="Updates"
+      hint={summary}
+    >
+      <Button
+        variant="chrome"
+        size="sm"
+        disabled={busy || status.phase === "installing"}
+        aria-label="Check for updates"
+        onClick={() => {
+          setLocalError(undefined);
+          void checkForUpdates()
+            .then((next) => {
+              if (next?.phase === "error" && next.error) {
+                setLocalError(next.error.message);
+              }
+            })
+            .catch((error: unknown) => {
+              setLocalError(
+                error instanceof Error ? error.message : String(error),
+              );
+            });
+        }}
+      >
+        Check for updates
+      </Button>
+      {localError || (status.phase === "error" && status.error) ? (
+        <span className="settings-note" style={{ color: HUE.crimson }} role="status">
+          {localError ?? status.error?.message}
+        </span>
+      ) : null}
+    </FieldRow>
   );
 }
 

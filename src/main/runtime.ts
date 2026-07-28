@@ -90,6 +90,12 @@ import {
   LicenseService,
   makeLicenseService,
 } from "./vellum/license/service";
+import {
+  deferredUpdateHostHooks,
+  installUpdateProviderHandle,
+  makePlatformUpdateProvider,
+  makeUpdateServiceLayer,
+} from "./vellum/update";
 
 // Keep this exact layer value as the sole database owner in the runtime graph.
 // Effect memoizes layers by reference, so every repository below receives the
@@ -245,6 +251,23 @@ const SnapshotsWithProductsLive = Layer.provideMerge(
   ProductPlanesWithChatLive,
 );
 
+// UpdateService joins this ManagedRuntime — never a second runtime.
+// Host quiesce/relaunch hooks are late-bound from main/index after boot.
+const UpdateServiceLive = Layer.unwrapEffect(
+  Effect.sync(() => {
+    const provider = makePlatformUpdateProvider({
+      platform: process.platform,
+      isPackaged: app.isPackaged,
+    });
+    installUpdateProviderHandle(provider);
+    return makeUpdateServiceLayer({
+      currentVersion: app.getVersion() || productMetadata.version,
+      provider,
+      host: deferredUpdateHostHooks(),
+    });
+  }),
+);
+
 const BaseLayer = Layer.mergeAll(
   FolderLive,
   PrismLive,
@@ -254,6 +277,7 @@ const BaseLayer = Layer.mergeAll(
   StationFleetServicesLive,
   BoxFleetLive,
   LicenseWithStateLive,
+  UpdateServiceLive,
 );
 
 // Pause plane sits between the base services and the acting planes so the
