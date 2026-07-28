@@ -533,6 +533,13 @@ describe("SQLite settings service", () => {
     await run(
       state.transaction("test.settings.invalidRemote", (writer) => {
         writer.run(
+          `INSERT INTO station_known_installations(
+             installation_id,
+             registered_at
+           ) VALUES ('command-id', ?)`,
+          ["2026-07-27T12:00:00.000Z"],
+        );
+        writer.run(
           `INSERT INTO station_configuration(
              singleton,
              role,
