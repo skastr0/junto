@@ -27,6 +27,21 @@ import {
   stationControlSocketPath,
 } from "@shared/station-ssh-control";
 import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_BASELINE,
+  StationProtocolAccept,
+  StationProtocolOffer,
+  StationProtocolReject,
+  decodeStationProtocolPreface,
+  negotiateStationProtocol,
+  selectStationProtocolCodec,
+  stationProtocolAccept,
+  stationProtocolReject,
+  type StationAppVersion,
+  type StationProtocolVersion,
+  type StationStateSchemaVersion,
+} from "@shared/station-protocol";
+import {
   STATION_SESSION_PROTOCOL,
   StationSessionRequestFrame,
   StationSessionRequestId,
@@ -82,6 +97,9 @@ export interface StationControlServerOptions {
   readonly maxFrameBytes?: number;
   /** Tests may lower the product timeout; callers cannot raise it. */
   readonly requestTimeoutMs?: number;
+  /** Diagnostics only; neither value participates in wire selection. */
+  readonly appVersion?: StationAppVersion;
+  readonly stateSchemaVersion?: StationStateSchemaVersion;
 }
 
 export interface StationControlShutdownReceipt {
@@ -148,8 +166,14 @@ interface ActiveStationControlSession {
   partialFrameTimer: ReturnType<typeof setTimeout> | undefined;
   writeTail: Promise<void>;
   queuedWriteBytes: number;
+  negotiatedProtocol: StationProtocolVersion | undefined;
   closed: boolean;
 }
+
+type StationControlOutboundFrame =
+  | StationSessionFrame
+  | StationProtocolAccept
+  | StationProtocolReject;
 
 const MAX_PENDING_REPORTS = 64;
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
@@ -251,6 +275,11 @@ export const startStationControlServer = async (
     options.requestTimeoutMs,
     STATION_CONTROL_REQUEST_TIMEOUT_MS,
   );
+  const protocolDiagnostics = Object.freeze({
+    appVersion: options.appVersion ?? "unknown",
+    stateSchemaVersion: options.stateSchemaVersion ?? 1,
+    support: CURRENT_STATION_PROTOCOL_SUPPORT,
+  });
   prepareControlDirectory(stationHome);
   const socketPath = stationControlSocketPath(stationHome);
   const listenerLease = await acquireControlListenerLease(socketPath);
@@ -306,7 +335,8 @@ export const startStationControlServer = async (
     !shuttingDown &&
     activeSession !== undefined &&
     !activeSession.closed &&
-    !activeSession.socket.destroyed;
+    !activeSession.socket.destroyed &&
+    activeSession.negotiatedProtocol !== undefined;
 
   let observedSessionReady = false;
   const notifySessionReadiness = (): void => {
@@ -377,7 +407,7 @@ export const startStationControlServer = async (
 
   const enqueueFrame = (
     session: ActiveStationControlSession,
-    frame: StationSessionFrame,
+    frame: StationControlOutboundFrame,
   ): Promise<void> => {
     let payload: Buffer;
     try {
@@ -605,6 +635,99 @@ export const startStationControlServer = async (
     pending.resolve(reportResponse);
   };
 
+  const bindProtocol = (
+    session: ActiveStationControlSession,
+    version: StationProtocolVersion,
+  ): boolean => {
+    if (session.negotiatedProtocol !== undefined) return false;
+    if (
+      version < CURRENT_STATION_PROTOCOL_SUPPORT.compatibleFrom ||
+      version > CURRENT_STATION_PROTOCOL_SUPPORT.preferred
+    ) {
+      return false;
+    }
+    const codec = selectStationProtocolCodec(version);
+    if (Either.isLeft(codec)) return false;
+    session.negotiatedProtocol = codec.right;
+    notifySessionReadiness();
+    return true;
+  };
+
+  const processSessionFrame = async (
+    session: ActiveStationControlSession,
+    frame: StationSessionFrame,
+  ): Promise<void> => {
+    // Strict decode does not replace the exact-socket handoff check.
+    if (!localHandoffIsCurrent(session)) {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "local-handoff-lost",
+          "station owner-local handoff is no longer current",
+        ),
+      );
+      return;
+    }
+    if (frame.frame === "request") {
+      await dispatchRequest(session, frame);
+      return;
+    }
+    acceptResponse(session, frame);
+  };
+
+  const acceptProtocolOffer = async (
+    session: ActiveStationControlSession,
+    offer: StationProtocolOffer,
+  ): Promise<void> => {
+    const negotiation = negotiateStationProtocol(
+      CURRENT_STATION_PROTOCOL_SUPPORT,
+      offer.support,
+    );
+    if (negotiation._tag === "no-common") {
+      await enqueueFrame(
+        session,
+        stationProtocolReject(protocolDiagnostics),
+      );
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "protocol-error",
+          "station peers have no common protocol version",
+        ),
+        true,
+      );
+      return;
+    }
+    if (Either.isLeft(selectStationProtocolCodec(negotiation.selected))) {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "protocol-error",
+          "selected Station protocol has no installed codec",
+        ),
+      );
+      return;
+    }
+
+    await enqueueFrame(
+      session,
+      stationProtocolAccept(offer, protocolDiagnostics),
+    );
+    if (
+      session.closed ||
+      !localHandoffIsCurrent(session) ||
+      !bindProtocol(session, negotiation.selected)
+    ) {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "protocol-error",
+          "station protocol could not be bound to the admitted session",
+        ),
+      );
+    }
+  };
+
   const processFrame = async (
     session: ActiveStationControlSession,
     encoded: Buffer,
@@ -633,34 +756,56 @@ export const startStationControlServer = async (
       );
       return;
     }
+
+    if (session.negotiatedProtocol === undefined) {
+      const preface = decodeStationProtocolPreface(raw);
+      if (Either.isRight(preface)) {
+        if (preface.right.frame !== "offer") {
+          terminateSession(
+            session,
+            new StationControlReportError(
+              "protocol-error",
+              "Remote accepts only a Station protocol offer before binding",
+            ),
+          );
+          return;
+        }
+        await acceptProtocolOffer(session, preface.right);
+        return;
+      }
+
+      // Compatibility exception: an older Command Center starts directly
+      // with the frozen exact-v2 session. Bind v2 and process this same frame.
+      const legacy = decodeStationSessionFrame(raw);
+      if (
+        Either.isRight(legacy) &&
+        bindProtocol(session, STATION_PROTOCOL_BASELINE)
+      ) {
+        await processSessionFrame(session, legacy.right);
+        return;
+      }
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "protocol-error",
+          "station first frame matches neither negotiation nor exact v2",
+        ),
+      );
+      return;
+    }
+
     const decoded = decodeStationSessionFrame(raw);
     if (Either.isLeft(decoded)) {
       terminateSession(
         session,
         new StationControlReportError(
           "protocol-error",
-          "station session frame does not match the strict contract",
+          "station session frame does not match the selected strict codec",
         ),
       );
       return;
     }
-
-    // Strict decode does not replace the exact-socket handoff check.
-    if (!localHandoffIsCurrent(session)) {
-      terminateSession(
-        session,
-        new StationControlReportError(
-          "local-handoff-lost",
-          "station owner-local handoff is no longer current",
-        ),
-      );
-      return;
-    }
-    if (decoded.right.frame === "request") {
-      await dispatchRequest(session, decoded.right);
-      return;
-    }
-    acceptResponse(session, decoded.right);
+    await processSessionFrame(session, decoded.right);
   };
 
   const armPartialFrameTimeout = (
@@ -740,7 +885,11 @@ export const startStationControlServer = async (
   const server = createServer((socket) => {
     if (
       shuttingDown ||
-      sessionReady() ||
+      (
+        activeSession !== undefined &&
+        !activeSession.closed &&
+        !activeSession.socket.destroyed
+      ) ||
       !pathMatchesCapturedIdentity() ||
       !ownsSocketPath()
     ) {
@@ -768,11 +917,13 @@ export const startStationControlServer = async (
       partialFrameTimer: undefined,
       writeTail: Promise.resolve(),
       queuedWriteBytes: 0,
+      negotiatedProtocol: undefined,
       closed: false,
     };
     activeSession = session;
     notifySessionReadiness();
     sockets.add(socket);
+    armPartialFrameTimeout(session);
 
     socket.on("data", (chunk: Buffer | string) => {
       if (session.closed || shuttingDown) return;
@@ -919,7 +1070,8 @@ export const startStationControlServer = async (
       shuttingDown ||
       session === undefined ||
       session.closed ||
-      session.socket.destroyed
+      session.socket.destroyed ||
+      session.negotiatedProtocol === undefined
     ) {
       return Promise.reject(
         new StationControlReportError(

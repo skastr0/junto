@@ -30,6 +30,15 @@ import {
   stationControlSocketPath,
 } from "../src/shared/station-ssh-control";
 import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_BASELINE,
+  STATION_PROTOCOL_PREFACE,
+  StationProtocolOffer,
+  StationProtocolSupport,
+  decodeStationProtocolPreface,
+  type StationProtocolPreface,
+} from "../src/shared/station-protocol";
+import {
   STATION_SESSION_PROTOCOL,
   StationSessionRequestFrame,
   StationSessionRequestId,
@@ -137,6 +146,8 @@ const makeServer = async (options: {
         makeOwnerLocalStationControlHandoffAuthority(),
     maxFrameBytes: options.maxFrameBytes,
     requestTimeoutMs: options.requestTimeoutMs,
+    appVersion: "test-remote",
+    stateSchemaVersion: 1,
     readiness: () => ({
       database: true,
       workControl: true,
@@ -188,17 +199,19 @@ const withTimeout = <A>(
 
 interface FrameReader {
   readonly next: () => Promise<StationSessionFrame>;
+  readonly nextPreface: () => Promise<StationProtocolPreface>;
 }
 
 const makeFrameReader = (socket: Socket): FrameReader => {
+  type WireFrame = StationSessionFrame | StationProtocolPreface;
   let buffer = Buffer.alloc(0);
-  const queued: StationSessionFrame[] = [];
+  const queued: WireFrame[] = [];
   const waiting: Array<{
-    readonly resolve: (frame: StationSessionFrame) => void;
+    readonly resolve: (frame: WireFrame) => void;
     readonly reject: (error: Error) => void;
   }> = [];
 
-  const publish = (frame: StationSessionFrame): void => {
+  const publish = (frame: WireFrame): void => {
     const waiter = waiting.shift();
     if (waiter === undefined) {
       queued.push(frame);
@@ -216,13 +229,18 @@ const makeFrameReader = (socket: Socket): FrameReader => {
       if (newline < 0) return;
       const raw = JSON.parse(buffer.subarray(0, newline).toString("utf8"));
       buffer = buffer.subarray(newline + 1);
-      const decoded = decodeStationSessionFrame(raw);
-      if (Either.isLeft(decoded)) {
+      const preface = decodeStationProtocolPreface(raw);
+      if (Either.isRight(preface)) {
+        publish(preface.right);
+        continue;
+      }
+      const session = decodeStationSessionFrame(raw);
+      if (Either.isLeft(session)) {
         const error = new Error("received a malformed Station frame");
         for (const waiter of waiting.splice(0)) waiter.reject(error);
         return;
       }
-      publish(decoded.right);
+      publish(session.right);
     }
   });
   socket.once("close", () => {
@@ -230,13 +248,30 @@ const makeFrameReader = (socket: Socket): FrameReader => {
     for (const waiter of waiting.splice(0)) waiter.reject(error);
   });
 
-  return {
-    next: () => {
-      const frame = queued.shift();
-      if (frame !== undefined) return Promise.resolve(frame);
-      return new Promise((resolve, reject) => {
+  const take = (): Promise<WireFrame> => {
+    const frame = queued.shift();
+    if (frame !== undefined) return Promise.resolve(frame);
+    return new Promise((resolve, reject) => {
         waiting.push({ resolve, reject });
-      });
+    });
+  };
+
+  return {
+    next: async () => {
+      const frame = await take();
+      if (frame.frame === "request" || frame.frame === "response") return frame;
+      throw new Error("received a Station negotiation frame instead of session traffic");
+    },
+    nextPreface: async () => {
+      const frame = await take();
+      if (
+        frame.frame === "offer" ||
+        frame.frame === "accept" ||
+        frame.frame === "reject"
+      ) {
+        return frame;
+      }
+      throw new Error("received Station session traffic before negotiation completed");
     },
   };
 };
@@ -255,6 +290,37 @@ const statusFrame = (requestId: string) =>
 const waitForClose = (socket: Socket): Promise<void> => {
   if (socket.destroyed) return Promise.resolve();
   return new Promise((resolve) => socket.once("close", () => resolve()));
+};
+
+const currentProtocolOffer = () =>
+  StationProtocolOffer.make({
+    protocol: STATION_PROTOCOL_PREFACE,
+    frame: "offer",
+    appVersion: "test-command-center",
+    stateSchemaVersion: 1,
+    support: CURRENT_STATION_PROTOCOL_SUPPORT,
+  });
+
+const bindNegotiatedSession = async (
+  socket: Socket,
+  reader: FrameReader,
+): Promise<void> => {
+  socket.write(encodeStationControlFrame(currentProtocolOffer()));
+  const response = await withTimeout(
+    reader.nextPreface(),
+    "Station protocol negotiation timed out",
+  );
+  if (response.frame !== "accept") {
+    throw new Error(`Station protocol negotiation ${response.frame}ed`);
+  }
+  expect(response).toMatchObject({
+    protocol: STATION_PROTOCOL_PREFACE,
+    frame: "accept",
+    appVersion: "test-remote",
+    stateSchemaVersion: 1,
+    selected: STATION_PROTOCOL_BASELINE,
+    support: CURRENT_STATION_PROTOCOL_SUPPORT,
+  });
 };
 
 const emptyReportRequest = () =>
@@ -306,7 +372,48 @@ describe("persistent Station control stream", () => {
     });
   });
 
-  it("serves multiple strict NDJSON requests in order on one admitted session", async () => {
+  it("binds a strict offer before readiness and then serves domain traffic", async () => {
+    const fixture = await makeServer();
+    const observed: boolean[] = [];
+    const becameReady = new Promise<void>((resolve) => {
+      fixture.server.subscribeSession((ready) => {
+        observed.push(ready);
+        if (ready) resolve();
+      });
+    });
+    const socket = await connect(fixture.server.socketPath);
+    const reader = makeFrameReader(socket);
+
+    expect(fixture.server.sessionReady()).toBe(false);
+    expect(observed).toEqual([false]);
+    await expect(
+      fixture.server.report(emptyReportRequest()),
+    ).rejects.toMatchObject({ failure: "session-unavailable" });
+
+    await bindNegotiatedSession(socket, reader);
+    await withTimeout(becameReady, "negotiated session never became ready");
+    expect(observed).toEqual([false, true]);
+    expect(fixture.server.sessionReady()).toBe(true);
+
+    const request = statusFrame("negotiated-status");
+    socket.write(encodeStationControlFrame(request));
+    await expect(
+      withTimeout(reader.next(), "negotiated status response timed out"),
+    ).resolves.toMatchObject({
+      frame: "response",
+      requestId: request.requestId,
+      envelope: {
+        ok: true,
+        response: {
+          op: "status",
+          readiness: { session: true },
+        },
+      },
+    });
+    expect(fixture.handled()).toBe(1);
+  });
+
+  it("binds a legacy exact-v2 first frame and processes that same frame", async () => {
     const authority = makeOwnerLocalStationControlHandoffAuthority();
     let handoffChecks = 0;
     const fixture = await makeServer({
@@ -368,6 +475,9 @@ describe("persistent Station control stream", () => {
 
     expect(observed).toEqual([false]);
     const socket = await connect(fixture.server.socketPath);
+    const reader = makeFrameReader(socket);
+    expect(observed).toEqual([false]);
+    await bindNegotiatedSession(socket, reader);
     expect(observed).toEqual([false, true]);
 
     const closed = waitForClose(socket);
@@ -376,6 +486,92 @@ describe("persistent Station control stream", () => {
     expect(observed).toEqual([false, true, false]);
 
     unsubscribe();
+  });
+
+  it("rejects incompatible offers without stopping the listener or local runtime", async () => {
+    const fixture = await makeServer();
+    const incompatibleSocket = await connect(fixture.server.socketPath);
+    const incompatibleReader = makeFrameReader(incompatibleSocket);
+    incompatibleSocket.write(
+      encodeStationControlFrame(
+        StationProtocolOffer.make({
+          protocol: STATION_PROTOCOL_PREFACE,
+          frame: "offer",
+          appVersion: "future-command-center",
+          stateSchemaVersion: 4,
+          support: StationProtocolSupport.make({
+            preferred: 4,
+            compatibleFrom: 3,
+            warnBelow: 3,
+          }),
+        }),
+      ),
+    );
+
+    await expect(
+      withTimeout(
+        incompatibleReader.nextPreface(),
+        "incompatible Station offer did not receive a rejection",
+      ),
+    ).resolves.toMatchObject({
+      frame: "reject",
+      reason: "no-common-version",
+      retryable: false,
+      support: CURRENT_STATION_PROTOCOL_SUPPORT,
+    });
+    await withTimeout(
+      waitForClose(incompatibleSocket),
+      "incompatible Station session stayed open",
+    );
+    expect(fixture.handled()).toBe(0);
+    expect(fixture.server.ready()).toBe(true);
+    expect(fixture.server.sessionReady()).toBe(false);
+
+    const recoverySocket = await connect(fixture.server.socketPath);
+    const recoveryReader = makeFrameReader(recoverySocket);
+    const request = statusFrame("recovery-status");
+    recoverySocket.write(encodeStationControlFrame(request));
+    await expect(
+      withTimeout(
+        recoveryReader.next(),
+        "listener did not accept a compatible session after rejection",
+      ),
+    ).resolves.toMatchObject({
+      frame: "response",
+      requestId: request.requestId,
+    });
+    expect(fixture.server.sessionReady()).toBe(true);
+    expect(fixture.handled()).toBe(1);
+  });
+
+  it("times out an unbound peer that never sends its first frame", async () => {
+    const fixture = await makeServer({ requestTimeoutMs: 50 });
+    const socket = await connect(fixture.server.socketPath);
+    expect(fixture.server.sessionReady()).toBe(false);
+    await withTimeout(
+      waitForClose(socket),
+      "silent unbound Station session stayed open",
+    );
+    expect(fixture.server.ready()).toBe(true);
+    expect(fixture.server.sessionReady()).toBe(false);
+    expect(fixture.handled()).toBe(0);
+  });
+
+  it("does not let a competing socket replace an unbound admitted peer", async () => {
+    const fixture = await makeServer();
+    const admitted = await connect(fixture.server.socketPath);
+    const admittedReader = makeFrameReader(admitted);
+    const competing = await connect(fixture.server.socketPath);
+
+    await withTimeout(
+      waitForClose(competing),
+      "competing Station session was not rejected",
+    );
+    expect(admitted.destroyed).toBe(false);
+    expect(fixture.server.sessionReady()).toBe(false);
+
+    await bindNegotiatedSession(admitted, admittedReader);
+    expect(fixture.server.sessionReady()).toBe(true);
   });
 
   it("closes malformed, oversized, and stale-handoff sessions", async () => {
@@ -387,6 +583,21 @@ describe("persistent Station control stream", () => {
       "malformed session stayed open",
     );
     expect(malformed.handled()).toBe(0);
+
+    const excess = await makeServer();
+    const excessSocket = await connect(excess.server.socketPath);
+    excessSocket.write(
+      encodeStationControlFrame({
+        ...currentProtocolOffer(),
+        ignoredCapability: true,
+      }),
+    );
+    await withTimeout(
+      waitForClose(excessSocket),
+      "excess-property negotiation session stayed open",
+    );
+    expect(excess.handled()).toBe(0);
+    expect(excess.server.ready()).toBe(true);
 
     const oversized = await makeServer({ maxFrameBytes: 128 });
     const oversizedSocket = await connect(oversized.server.socketPath);
@@ -442,6 +653,7 @@ describe("persistent Station control stream", () => {
       failure: "invalid-local-request",
     });
 
+    await bindNegotiatedSession(socket, reader);
     const reportPromise = fixture.server.report(emptyReportRequest());
     const outbound = await withTimeout(
       reader.next(),
@@ -500,6 +712,7 @@ describe("persistent Station control stream", () => {
     const fixture = await makeServer();
     const socket = await connect(fixture.server.socketPath);
     const reader = makeFrameReader(socket);
+    await bindNegotiatedSession(socket, reader);
     const report = fixture.server.report(emptyReportRequest());
     const outbound = await withTimeout(
       reader.next(),
@@ -544,6 +757,7 @@ describe("persistent Station control stream", () => {
     const fixture = await makeServer({ requestTimeoutMs: 100 });
     const socket = await connect(fixture.server.socketPath);
     const reader = makeFrameReader(socket);
+    await bindNegotiatedSession(socket, reader);
     const report = fixture.server.report(emptyReportRequest());
     await withTimeout(
       reader.next(),
