@@ -244,7 +244,7 @@ describe("SQLite usage cache", () => {
     const seedRuntime = cacheRuntime(engine);
     const seed = await seedRuntime.runPromise(UsageCache);
     await seedRuntime.runPromise(
-      seed.saveLastGood(lastGood("seed", "claude", 18)),
+      seed.saveLastGood(lastGood("alpha", "claude", 18)),
     );
     let mode: "ok" | "fail" = "fail";
     const source = makeSource("alpha", () =>
