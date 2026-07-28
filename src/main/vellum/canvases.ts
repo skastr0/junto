@@ -7,6 +7,7 @@ import {
   decodeCanvasDoc,
   serializeCanvas,
   type CanvasDoc,
+  type CanvasNode,
 } from "@shared/canvas";
 import type { CanvasReadResult, CanvasSummary, CanvasWriteResult } from "@shared/ipc";
 import {
@@ -22,10 +23,24 @@ import {
 import {
   WorkRepository,
   projectWorkSnapshots,
-  stripWorkProjection,
 } from "./work/repository";
 import { decodeStationPortfolioBody } from "./station/portfolio";
 import { selectStationConfiguration } from "./station/configuration-state";
+import {
+  compileActorSeatRegistry,
+  type ProjectedActorSeat,
+} from "./station/actor-seat-compiler";
+import {
+  InstallationId,
+  type InstallationId as InstallationIdValue,
+} from "@shared/installation-id";
+import { StationHostId } from "@shared/station-api";
+import type { ActorRef } from "@shared/work-protocol";
+import {
+  mirrorArtifactsText,
+  mirrorRequestsText,
+  mirrorTasksText,
+} from "@shared/task";
 import {
   removeCanvasProjectionSidecars,
   writeCanvasProjectionSidecar,
@@ -124,6 +139,15 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
       CanvasAuthoritySnapshot,
       CanvasError
     >;
+    /**
+     * Complete compiled actor-reference surface for the active portfolio.
+     * Consumers resolve execution identity through this mapping; node IDs
+     * alone never substitute for ActorSeatId.
+     */
+    readonly activeActorRefs: () => Effect.Effect<
+      ReadonlyArray<ActorRef>,
+      CanvasError
+    >;
   }
 >() {}
 
@@ -147,6 +171,10 @@ type StoredAuthoritySnapshot = {
   readonly createdAt: string | undefined;
   readonly intentSha256: string | undefined;
   readonly documents: ReadonlyMap<string, StoredCanvas>;
+};
+
+type ActivePortfolioSnapshot = StoredAuthoritySnapshot & {
+  readonly actorRefs: ReadonlyArray<ActorRef>;
 };
 
 type StationProjectionRow = {
@@ -323,9 +351,104 @@ const readLocalStationRole = (reader: StateReader): LocalStationRole => {
   }
 };
 
+const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
+const decodeStationHostId = Schema.decodeUnknownSync(StationHostId);
+
+const actorRefsFromSeats = (
+  actorSeats: ReadonlyArray<ProjectedActorSeat>,
+): ReadonlyArray<ActorRef> =>
+  actorSeats.flatMap((seat) =>
+    seat.refs.map((ref) => ({
+      seatId: seat.seatId,
+      canvasName: ref.canvasName,
+      nodeId: ref.nodeId,
+    }))
+  );
+
+const installTopologyBinding = (
+  topology: Map<string, InstallationIdValue>,
+  hostId: string,
+  installationId: InstallationIdValue,
+): void => {
+  const established = topology.get(hostId);
+  if (established !== undefined && established !== installationId) {
+    throw new CanvasError({
+      message:
+        `active Station topology maps host ${JSON.stringify(hostId)} to ` +
+        "more than one installation",
+    });
+  }
+  topology.set(hostId, installationId);
+};
+
+/**
+ * Read the complete placement topology needed by the deterministic actor-seat
+ * compiler. This stays in the same StateEngine read as the canvas generation
+ * so a CanvasReadResult never combines documents with a separately sampled
+ * fleet map.
+ */
+const readCommandCenterTopology = (
+  reader: StateReader,
+): ReadonlyMap<string, InstallationIdValue> => {
+  const topology = new Map<string, InstallationIdValue>();
+  const configuration = selectStationConfiguration(reader)?.configuration;
+  if (configuration?.role === "command-center") {
+    const local = reader.get<{ readonly installation_id: string }>(
+      `SELECT installation_id
+       FROM station_installation
+       WHERE singleton = 1`,
+    );
+    if (local === undefined) {
+      throw new CanvasError({
+        message:
+          "Command Center configuration exists without a local installation identity",
+      });
+    }
+    installTopologyBinding(
+      topology,
+      configuration.hostId,
+      decodeInstallationId(local.installation_id),
+    );
+  }
+
+  for (const row of reader.all<{
+    readonly host_id: string;
+    readonly station_installation_id: string;
+  }>(
+    `SELECT host_id, station_installation_id
+     FROM station_fleet_targets
+     WHERE retired_at IS NULL
+     ORDER BY host_id`,
+  )) {
+    installTopologyBinding(
+      topology,
+      decodeStationHostId(row.host_id),
+      decodeInstallationId(row.station_installation_id),
+    );
+  }
+  return topology;
+};
+
+const readCommandCenterPortfolio = (
+  reader: StateReader,
+): ActivePortfolioSnapshot => {
+  const snapshot = readStoredAuthority(reader);
+  const documents = new Map(
+    [...snapshot.documents].map(([name, entry]) => [name, entry.doc]),
+  );
+  const actorSeats = compileActorSeatRegistry(
+    documents,
+    readCommandCenterTopology(reader),
+  );
+  return {
+    ...snapshot,
+    actorRefs: actorRefsFromSeats(actorSeats),
+  };
+};
+
 const readStationProjection = (
   reader: StateReader,
-): StoredAuthoritySnapshot => {
+): ActivePortfolioSnapshot => {
   const row = reader.get<StationProjectionRow>(
     `SELECT
        generation,
@@ -343,6 +466,7 @@ const readStationProjection = (
       createdAt: undefined,
       intentSha256: undefined,
       documents: new Map(),
+      actorRefs: [],
     };
   }
   const contentSha256 = revisionOf(row.body);
@@ -370,15 +494,16 @@ const readStationProjection = (
     createdAt: row.created_at,
     intentSha256: contentSha256,
     documents,
+    actorRefs: actorRefsFromSeats(decoded.actorSeats),
   };
 };
 
 const readActivePortfolio = (
   reader: StateReader,
-): StoredAuthoritySnapshot =>
+): ActivePortfolioSnapshot =>
   readLocalStationRole(reader) === "remote"
     ? readStationProjection(reader)
-    : readStoredAuthority(reader);
+    : readCommandCenterPortfolio(reader);
 
 const assertAuthorialInstallation = (
   reader: StateReader,
@@ -456,13 +581,70 @@ const commitFullGeneration = (
   return { generation, changed: true };
 };
 
+/**
+ * Remove runtime work overlays at the protected authorial boundary.
+ *
+ * WorkRepository owns the overlay mechanism; Canvases owns the inverse
+ * boundary because no repository-private document transform may be required
+ * to make authorial persistence safe.
+ */
+const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
+  ...doc,
+  nodes: doc.nodes.map((node) => {
+    const etherIn = node.ether;
+    if (
+      etherIn === undefined ||
+      (
+        etherIn.tasks === undefined &&
+        etherIn.requests === undefined &&
+        etherIn.messages === undefined &&
+        etherIn.artifacts === undefined
+      )
+    ) {
+      return node;
+    }
+
+    const {
+      tasks: _tasks,
+      requests: _requests,
+      messages: _messages,
+      artifacts: _artifacts,
+      ...ether
+    } = etherIn;
+    const kind = ether.entity?.kind;
+    const text =
+      node.type !== "text"
+        ? undefined
+        : kind === "task"
+          ? mirrorTasksText([])
+          : kind === "requests"
+            ? mirrorRequestsText([])
+            : kind === "artifacts"
+              ? mirrorArtifactsText([])
+              : node.text;
+
+    if (Object.keys(ether).length === 0) {
+      const { ether: _removed, ...withoutEther } = node;
+      return {
+        ...withoutEther,
+        ...(node.type === "text" && text !== undefined ? { text } : {}),
+      } as CanvasNode;
+    }
+    return {
+      ...node,
+      ...(node.type === "text" && text !== undefined ? { text } : {}),
+      ether,
+    } as CanvasNode;
+  }),
+});
+
 const normalizeCanvas = (
   name: CanvasName,
   doc: CanvasDoc,
   modifiedAt: string,
   operation: string,
 ): StoredCanvas => {
-  const decoded = decodeCanvasDoc(stripWorkProjection(doc));
+  const decoded = decodeCanvasDoc(stripRuntimeWorkProjection(doc));
   if (Either.isLeft(decoded)) {
     throw new CanvasError({
       message: `cannot ${operation} ${canvasLabel(name)}: ${decoded.left.message}`,
@@ -613,6 +795,9 @@ export const CanvasesLive = Layer.effect(
       return {
         name: canonicalName,
         doc: projectWorkSnapshots(entry.doc, workSnapshots),
+        actorRefs: snapshot.actorRefs.filter(
+          (actor) => actor.canvasName === canonicalName,
+        ),
         revision: entry.revision,
       };
     });
@@ -751,6 +936,7 @@ export const CanvasesLive = Layer.effect(
       return {
         name: canonicalName,
         doc: outcome.doc,
+        actorRefs: [],
         revision: outcome.revision,
       };
     });
@@ -892,6 +1078,14 @@ export const CanvasesLive = Layer.effect(
   const liveAuthorityGeneration = (): Effect.Effect<string, CanvasError> =>
     authoritySnapshot().pipe(Effect.map((snapshot) => snapshot.generation));
 
+  const activeActorRefs = (): Effect.Effect<
+    ReadonlyArray<ActorRef>,
+    CanvasError
+  > =>
+    readActive("canvas.active-actor-refs").pipe(
+      Effect.map((snapshot) => snapshot.actorRefs),
+    );
+
   return CanvasesService.of({
     doctor: ensureReady.pipe(
       Effect.flatMap(() => readAuthority("canvas.doctor")),
@@ -923,6 +1117,7 @@ export const CanvasesLive = Layer.effect(
     liveDocuments,
     liveAuthorityGeneration,
     authoritySnapshot,
+    activeActorRefs,
   });
   }),
 );

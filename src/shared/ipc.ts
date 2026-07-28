@@ -39,6 +39,7 @@ import type {
 import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
 import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
+import type { ActorRef } from "./work-protocol";
 
 export const IPC_CHANNELS = {
   doctor: "chassis:doctor",
@@ -215,6 +216,12 @@ export interface CanvasSummary {
 export interface CanvasReadResult {
   readonly name: string;
   readonly doc: CanvasDoc;
+  /**
+   * Projection-only execution identities for actor nodes on this canvas.
+   * These are compiled by main from the active portfolio and never authored
+   * into the canvas document.
+   */
+  readonly actorRefs: ReadonlyArray<ActorRef>;
   /** SHA-256 identity of the exact canonical database body. */
   readonly revision: string;
 }
