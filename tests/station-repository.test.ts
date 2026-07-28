@@ -16,14 +16,17 @@ import {
 import {
   ConfigureRequest,
   InstallationId,
-  LogicalSequence,
+  LogicalSequence as ProjectionSequence,
   PairRequest,
   ProjectRequest,
   STATION_API_PROTOCOL,
-  StationEventAck,
   StationHostId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/station-api";
+import {
+  LogicalSequence as WorkSequence,
+  RouteCursor,
+} from "../src/shared/work-protocol";
 import {
   SettingsLive,
   SettingsService,
@@ -45,7 +48,9 @@ import {
 } from "../src/main/vellum/state/engine";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
-const decodeSequence = Schema.decodeUnknownSync(LogicalSequence);
+const decodeProjectionSequence =
+  Schema.decodeUnknownSync(ProjectionSequence);
+const decodeWorkSequence = Schema.decodeUnknownSync(WorkSequence);
 const decodeHostId = Schema.decodeUnknownSync(StationHostId);
 
 const roots: string[] = [];
@@ -147,7 +152,7 @@ const projectRequest = (
     stationInstallationId: local,
     projection: {
       scope: "full",
-      generation: decodeSequence(generation),
+      generation: decodeProjectionSequence(generation),
       body,
       contentSha256: stationProjectionContentSha256(body),
       createdAt: "2026-07-27T12:00:00.000Z",
@@ -172,6 +177,7 @@ const canvasDocument = (text: string): CanvasDoc => ({
 const portfolioBody = (text: string): string =>
   compileStationPortfolioBody(
     new Map([["factory", canvasDocument(text)]]),
+    new Map(),
   );
 
 describe("StationRepository", () => {
@@ -187,6 +193,19 @@ describe("StationRepository", () => {
         return yield* repository.installationId;
       }),
     );
+    const firstState = await firstRuntime.runPromise(StateEngine);
+    expect(
+      await firstRuntime.runPromise(
+        firstState.read("test.local-known-installation", (reader) =>
+          reader
+            .all<StateRow & { readonly installation_id: string }>(
+              `SELECT installation_id
+                 FROM station_known_installations`,
+            )
+            .map((row) => row.installation_id)
+        ),
+      ),
+    ).toEqual([firstGenerated]);
     await firstRuntime.dispose();
 
     const reopenedRuntime = makeRuntime(path, secondGenerated);
@@ -432,6 +451,20 @@ describe("StationRepository", () => {
         "StationPairingConflictError",
       );
     }
+    const state = await runtime.runPromise(StateEngine);
+    expect(
+      await runtime.runPromise(
+        state.read("test.paired-known-installations", (reader) =>
+          reader
+            .all<StateRow & { readonly installation_id: string }>(
+              `SELECT installation_id
+                 FROM station_known_installations
+                ORDER BY installation_id`,
+            )
+            .map((row) => row.installation_id)
+        ),
+      ),
+    ).toEqual([cc, local]);
 
     const wrongConfiguration = await runtime.runPromise(
       repository
@@ -703,21 +736,44 @@ describe("StationRepository", () => {
     await runtime.runPromise(
       state.transaction("test.seed-projection-cursors", (writer) => {
         writer.run(
+          `INSERT INTO station_known_installations(
+             installation_id,
+             registered_at
+           ) VALUES
+             ('upstream', ?),
+             ('peer', ?)`,
+          [
+            "2026-07-27T12:03:00.000Z",
+            "2026-07-27T12:03:00.000Z",
+          ],
+        );
+        writer.run(
           `INSERT INTO station_received_cursors(
-             home,
+             event_home,
+             entity_home,
              through_sequence,
              updated_at
-           ) VALUES (?, '7', ?)`,
-          ["upstream", "2026-07-27T12:03:00.000Z"],
+           ) VALUES (?, ?, '7', ?)`,
+          [
+            "upstream",
+            local,
+            "2026-07-27T12:03:00.000Z",
+          ],
         );
         writer.run(
           `INSERT INTO station_peer_ack_cursors(
              peer_installation_id,
-             home,
+             event_home,
+             entity_home,
              through_sequence,
              acknowledged_at
-           ) VALUES (?, ?, '5', ?)`,
-          ["peer", local, "2026-07-27T12:03:00.000Z"],
+           ) VALUES (?, ?, ?, '5', ?)`,
+          [
+            "peer",
+            local,
+            local,
+            "2026-07-27T12:03:00.000Z",
+          ],
         );
       }),
     );
@@ -953,14 +1009,14 @@ describe("StationRepository", () => {
     await runtime.dispose();
   });
 
-  it("advances peer ACKs only for canonical work emitted on that route", async () => {
+  it("advances peer ACKs independently on complete InstallationId routes", async () => {
     const path = await testDatabase();
     const local = decodeInstallationId("station-outbound");
     const peer = decodeInstallationId("cc-outbound");
-    const secondPeer = decodeInstallationId("cc-outbound-b");
     const runtime = makeRuntime(path, local);
     const repository = await runtime.runPromise(StationRepository);
     const state = await runtime.runPromise(StateEngine);
+    await runtime.runPromise(repository.pair(pairRequest(local, peer)));
 
     await runtime.runPromise(
       state.transaction("test.seed-work-route", (writer) => {
@@ -970,59 +1026,84 @@ describe("StationRepository", () => {
               event_home,
               entity_home,
               last_seq
-            ) VALUES (?, ?, '2')
+            ) VALUES
+              (?, ?, '2'),
+              (?, ?, '2')
           `,
-          [local, "studio"],
+          [local, local, local, peer],
         );
-        for (const sequence of ["1", "2"]) {
-          writer.run(
-            `
-              INSERT INTO work_events(
-                event_home,
-                seq,
-                entity_home,
-                canvas_name,
-                node_id,
-                entity_kind,
-                entity_id,
-                operation,
-                origin_at,
-                received_at,
-                payload_json,
-                content_sha256
-              ) VALUES (?, ?, ?, 'factory', 'tasks', 'task', ?, ?, ?, ?, ?, ?)
-            `,
-            [
-              local,
-              sequence,
-              "studio",
-              `task-${sequence}`,
-              `task.step-${sequence}`,
-              "2026-07-27T12:00:00.000Z",
-              "2026-07-27T12:00:00.000Z",
-              `{"sequence":"${sequence}"}`,
-              sequence.repeat(64),
-            ],
-          );
+        for (const entityHome of [local, peer]) {
+          for (const sequence of ["1", "2"]) {
+            writer.run(
+              `
+                INSERT INTO work_events(
+                  event_home,
+                  entity_home,
+                  seq,
+                  protocol,
+                  record_type,
+                  item_kind,
+                  item_id,
+                  item_canvas_name,
+                  item_node_id,
+                  operation,
+                  content_sha256,
+                  origin_at,
+                  received_at
+                ) VALUES (
+                  ?, ?, ?, 'vellum/work/v2', ?, 'task', ?,
+                  'factory', 'tasks', 'task.create', ?, ?, ?
+                )
+              `,
+              [
+                local,
+                entityHome,
+                sequence,
+                entityHome === local ? "fact" : "command",
+                `task-${entityHome}-${sequence}`,
+                sequence.repeat(64),
+                "2026-07-27T12:00:00.000Z",
+                "2026-07-27T12:00:00.000Z",
+              ],
+            );
+          }
         }
+        writer.run(
+          `INSERT INTO station_received_cursors(
+             event_home,
+             entity_home,
+             through_sequence,
+             updated_at
+           ) VALUES
+             (?, ?, '1', ?),
+             (?, ?, '2', ?)`,
+          [
+            peer,
+            local,
+            "2026-07-27T12:00:00.000Z",
+            peer,
+            peer,
+            "2026-07-27T12:00:00.000Z",
+          ],
+        );
       }),
     );
 
-    const ackTwo = StationEventAck.make({
-      home: local,
-      through: decodeSequence("2"),
-    });
+    const cursor = (
+      entityHome: InstallationIdValue,
+      through: string,
+    ) =>
+      RouteCursor.make({
+        eventHome: local,
+        entityHome,
+        through: decodeWorkSequence(through),
+      });
+
     const atomicAckFailure = await runtime.runPromise(
       repository
-        .advancePeerAcks(peer, "studio", [
-          StationEventAck.make({
-            home: local,
-            through: decodeSequence("1"),
-          }),
-          StationEventAck.make({
-            home: local,
-            through: decodeSequence("3"),
-          }),
+        .advancePeerAcks(peer, [
+          cursor(local, "1"),
+          cursor(peer, "3"),
         ])
         .pipe(Effect.either),
     );
@@ -1035,55 +1116,64 @@ describe("StationRepository", () => {
     const advanced = await runtime.runPromise(
       repository.advancePeerAcks(
         peer,
-        "studio",
-        [ackTwo],
+        [cursor(local, "2"), cursor(peer, "1")],
         "2026-07-27T12:01:00.000Z",
       ),
     );
-    expect(advanced[0]?._tag).toBe("advanced");
+    expect(advanced.map((decision) => decision._tag)).toEqual([
+      "advanced",
+      "advanced",
+    ]);
 
     const regressed = await runtime.runPromise(
-      repository.advancePeerAcks(peer, "studio", [
-        StationEventAck.make({
-          home: local,
-          through: decodeSequence("1"),
-        }),
-      ]),
+      repository.advancePeerAcks(peer, [cursor(local, "1")]),
     );
     expect(regressed[0]?._tag).toBe("regression");
-    await runtime.runPromise(
-      repository.advancePeerAcks(secondPeer, "studio", [
-        StationEventAck.make({
-          home: local,
-          through: decodeSequence("1"),
-        }),
-      ]),
-    );
 
     const impossible = await runtime.runPromise(
       repository
-        .advancePeerAcks(peer, "studio", [
-          StationEventAck.make({
-            home: local,
-            through: decodeSequence("3"),
-          }),
-        ])
+        .advancePeerAcks(peer, [cursor(peer, "3")])
         .pipe(Effect.either),
     );
     expect(Either.isLeft(impossible)).toBe(true);
     if (Either.isLeft(impossible)) {
-      expect(impossible.left._tag).toBe("StationCursorError");
+      expect(impossible.left).toMatchObject({
+        _tag: "StationCursorError",
+        message: expect.stringContaining(
+          `${local}/${peer}/3`,
+        ),
+      });
     }
 
     const facts = await runtime.runPromise(repository.statusFacts);
+    expect(facts.receivedThrough).toEqual([
+      {
+        eventHome: peer,
+        entityHome: peer,
+        through: "2",
+      },
+      {
+        eventHome: peer,
+        entityHome: local,
+        through: "1",
+      },
+    ]);
     expect(facts.peerAcknowledgedThrough).toEqual([
       {
         peerInstallationId: peer,
-        acknowledgement: { home: local, through: "2" },
+        acknowledgement: {
+          eventHome: local,
+          entityHome: peer,
+          through: "1",
+        },
       },
       {
-        peerInstallationId: secondPeer,
-        acknowledgement: { home: local, through: "1" },
+        peerInstallationId: peer,
+        acknowledgement: {
+          eventHome: local,
+          entityHome: local,
+          through: "2",
+        },
       },
     ]);
     await runtime.dispose();

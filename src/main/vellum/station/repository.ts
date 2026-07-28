@@ -3,32 +3,36 @@ import { Context, Effect, Either, Layer, Schema } from "effect";
 import {
   ConfigureResponse,
   DisplayTimestamp,
-  InstallationId,
   LogicalSequence,
   PairResponse,
   ProjectResponse,
   RemoteHostRegistration,
   STATION_API_MAX_ACKS_PER_REPORT,
   STATION_API_PROTOCOL,
-  StationEventAck,
   StationProjectionBody,
   StationProjectionReference,
   StationSha256,
-  decideAckAdvance,
   decideProjectionInstall,
-  type AckAdvanceDecision,
   type ConfigureRequest,
   type ConfigureResponse as ConfigureResponseValue,
-  type InstallationId as InstallationIdValue,
   type PairRequest,
   type PairResponse as PairResponseValue,
   type ProjectRequest,
   type ProjectResponse as ProjectResponseValue,
   type StationConfiguration as StationConfigurationValue,
-  type StationEventAck as StationEventAckValue,
   type StationProjectionBody as StationProjectionBodyValue,
   type StationProjectionReference as StationProjectionReferenceValue,
   type StationSha256 as StationSha256Value,
+} from "@shared/station-api";
+import {
+  InstallationId,
+  type InstallationId as InstallationIdValue,
+} from "@shared/installation-id";
+import {
+  RouteCursor,
+  decideRouteCursorAdvance,
+  type RouteCursor as RouteCursorValue,
+  type RouteCursorAdvanceDecision,
 } from "@shared/station-api";
 import {
   hermesKeyFor,
@@ -44,6 +48,7 @@ import {
   type StateEngineError,
   type StateReader,
   type StateRow,
+  type StateWriter,
 } from "../state/service";
 import {
   selectStationConfigurationRow,
@@ -168,7 +173,7 @@ export type StationConfigurationRecord = {
 
 export type StationPeerAcknowledgement = {
   readonly peerInstallationId: InstallationIdValue;
-  readonly acknowledgement: StationEventAckValue;
+  readonly acknowledgement: RouteCursorValue;
 };
 
 export type StationStatusFacts = {
@@ -177,7 +182,7 @@ export type StationStatusFacts = {
   readonly configuration?: StationConfigurationValue;
   readonly configuredAt?: string;
   readonly projection?: StationProjectionReferenceValue;
-  readonly receivedThrough: ReadonlyArray<StationEventAckValue>;
+  readonly receivedThrough: ReadonlyArray<RouteCursorValue>;
   readonly peerAcknowledgedThrough: ReadonlyArray<StationPeerAcknowledgement>;
 };
 
@@ -214,11 +219,10 @@ export class StationRepository extends Context.Tag("@vellum/StationRepository")<
     ) => Effect.Effect<ProjectResponseValue, StationRepositoryError>;
     readonly advancePeerAcks: (
       peerInstallationId: InstallationIdValue,
-      entityHome: string,
-      acknowledgements: ReadonlyArray<StationEventAckValue>,
+      acknowledgements: ReadonlyArray<RouteCursorValue>,
       acknowledgedAt?: string,
     ) => Effect.Effect<
-      ReadonlyArray<AckAdvanceDecision>,
+      ReadonlyArray<RouteCursorAdvanceDecision>,
       StationRepositoryError
     >;
     readonly statusFacts: Effect.Effect<
@@ -249,7 +253,8 @@ type ProjectionRow = StateRow & {
 };
 
 type CursorRow = StateRow & {
-  readonly home: string;
+  readonly event_home: string;
+  readonly entity_home: string;
   readonly through_sequence: string;
 };
 
@@ -268,7 +273,7 @@ const decodeProjectionBody = Schema.decodeUnknownSync(StationProjectionBody);
 const decodeProjectionReference = Schema.decodeUnknownSync(
   StationProjectionReference,
 );
-const decodeAck = Schema.decodeUnknownSync(StationEventAck);
+const decodeCursor = Schema.decodeUnknownSync(RouteCursor);
 
 const sha256 = (value: string): StationSha256Value =>
   decodeHash(createHash("sha256").update(value, "utf8").digest("hex"));
@@ -325,6 +330,21 @@ const selectInstallation = (
        FROM station_installation
       WHERE singleton = 1`,
   );
+
+const registerKnownInstallation = (
+  writer: StateWriter,
+  installationId: InstallationIdValue,
+  registeredAt: string,
+): void => {
+  writer.run(
+    `INSERT INTO station_known_installations(
+       installation_id,
+       registered_at
+     ) VALUES (?, ?)
+     ON CONFLICT(installation_id) DO NOTHING`,
+    [installationId, registeredAt],
+  );
+};
 
 const selectPairing = (reader: StateReader): PairingRow | undefined =>
   reader.get<PairingRow>(
@@ -390,9 +410,10 @@ const projectionReferenceFromRow = (
     receivedAt: row.received_at,
   });
 
-const ackFromRow = (row: CursorRow): StationEventAckValue =>
-  decodeAck({
-    home: row.home,
+const cursorFromRow = (row: CursorRow): RouteCursorValue =>
+  decodeCursor({
+    eventHome: row.event_home,
+    entityHome: row.entity_home,
     through: row.through_sequence,
   });
 
@@ -450,18 +471,22 @@ const receivedCursorRows = (
   reader: StateReader,
 ): ReadonlyArray<CursorRow> =>
   reader.all<CursorRow>(
-    `SELECT home, through_sequence
+    `SELECT event_home, entity_home, through_sequence
        FROM station_received_cursors
-      ORDER BY home`,
+      ORDER BY event_home, entity_home`,
   );
 
 const peerAckRows = (
   reader: StateReader,
 ): ReadonlyArray<PeerAckRow> =>
   reader.all<PeerAckRow>(
-    `SELECT peer_installation_id, home, through_sequence
+    `SELECT
+       peer_installation_id,
+       event_home,
+       entity_home,
+       through_sequence
        FROM station_peer_ack_cursors
-      ORDER BY peer_installation_id, home`,
+      ORDER BY peer_installation_id, event_home, entity_home`,
   );
 
 export type StationRepositoryOptions = {
@@ -497,6 +522,11 @@ export const makeStationRepositoryLive = (
             return decodeInstallationId(existing.installation_id);
           }
           const created = makeInstallationId();
+          registerKnownInstallation(
+            writer,
+            created,
+            installationCreatedAt,
+          );
           writer.run(
             `INSERT INTO station_installation(
                singleton,
@@ -582,6 +612,11 @@ export const makeStationRepositoryLive = (
               }
               const current = selectPairing(writer);
               if (current === undefined) {
+                registerKnownInstallation(
+                  writer,
+                  request.commandCenterInstallationId,
+                  admittedPairedAt,
+                );
                 writer.run(
                   `INSERT INTO station_pairing(
                      singleton,
@@ -950,8 +985,7 @@ export const makeStationRepositoryLive = (
         "StationRepository.advancePeerAcks",
       )(function* (
         peerInstallationId: InstallationIdValue,
-        entityHome: string,
-        acknowledgements: ReadonlyArray<StationEventAckValue>,
+        acknowledgements: ReadonlyArray<RouteCursorValue>,
         acknowledgedAt = clock(),
       ) {
         const admittedAcknowledgedAt = yield* admitTimestamp(
@@ -966,12 +1000,6 @@ export const makeStationRepositoryLive = (
               "an installation cannot acknowledge events as its own peer",
           });
         }
-        if (entityHome.length === 0) {
-          return yield* StationCursorError.make({
-            operation: "advance-peer-acks",
-            message: "entity home must not be empty",
-          });
-        }
         if (acknowledgements.length > STATION_API_MAX_ACKS_PER_REPORT) {
           return yield* StationCursorError.make({
             operation: "advance-peer-acks",
@@ -983,13 +1011,12 @@ export const makeStationRepositoryLive = (
           yield* ensureLocalIdentity(
             "advance-peer-acks",
             installationId,
-            acknowledgement.home,
+            acknowledgement.eventHome,
           );
         }
         const outcome = yield* engine
           .transaction("station.advance-peer-acks", (writer) => {
             for (const proposed of acknowledgements) {
-              if (proposed.through === "0") continue;
               const emitted = writer.get<StateRow>(
                 `
                   SELECT event_home
@@ -998,42 +1025,67 @@ export const makeStationRepositoryLive = (
                     AND entity_home = ?
                     AND seq = ?
                 `,
-                [installationId, entityHome, proposed.through],
+                [
+                  proposed.eventHome,
+                  proposed.entityHome,
+                  proposed.through,
+                ],
               );
               if (emitted === undefined) {
                 return {
                   _tag: "beyond-emitted" as const,
+                  route: {
+                    eventHome: proposed.eventHome,
+                    entityHome: proposed.entityHome,
+                  },
                   through: proposed.through,
                 };
               }
             }
-            const decisions: AckAdvanceDecision[] = [];
+            const decisions: RouteCursorAdvanceDecision[] = [];
             for (const proposed of acknowledgements) {
               const row = writer.get<CursorRow>(
-                `SELECT home, through_sequence
+                `SELECT
+                   event_home,
+                   entity_home,
+                   through_sequence
                    FROM station_peer_ack_cursors
                   WHERE peer_installation_id = ?
-                    AND home = ?`,
-                [peerInstallationId, proposed.home],
+                    AND event_home = ?
+                    AND entity_home = ?`,
+                [
+                  peerInstallationId,
+                  proposed.eventHome,
+                  proposed.entityHome,
+                ],
               );
               const current =
-                row === undefined ? undefined : ackFromRow(row);
-              const decision = decideAckAdvance(current, proposed);
+                row === undefined ? undefined : cursorFromRow(row);
+              const decision = decideRouteCursorAdvance(
+                current,
+                proposed,
+              );
               decisions.push(decision);
               if (decision._tag === "advanced") {
                 writer.run(
                   `INSERT INTO station_peer_ack_cursors(
                      peer_installation_id,
-                     home,
+                     event_home,
+                     entity_home,
                      through_sequence,
                      acknowledged_at
-                   ) VALUES (?, ?, ?, ?)
-                   ON CONFLICT(peer_installation_id, home) DO UPDATE SET
+                   ) VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(
+                     peer_installation_id,
+                     event_home,
+                     entity_home
+                   ) DO UPDATE SET
                      through_sequence = excluded.through_sequence,
                      acknowledged_at = excluded.acknowledged_at`,
                   [
                     peerInstallationId,
-                    decision.cursor.home,
+                    decision.cursor.eventHome,
+                    decision.cursor.entityHome,
                     decision.cursor.through,
                     admittedAcknowledgedAt,
                   ],
@@ -1054,7 +1106,8 @@ export const makeStationRepositoryLive = (
           return yield* StationCursorError.make({
             operation: "advance-peer-acks",
             message:
-              `peer acknowledged ${outcome.through}, but that route event was not emitted`,
+              `peer acknowledged ${outcome.route.eventHome}/${outcome.route.entityHome}/${outcome.through}, ` +
+              "but that exact route event was not emitted",
           });
         }
         return outcome.decisions;
@@ -1102,12 +1155,12 @@ export const makeStationRepositoryLive = (
                     configuredAt: configuration.configuredAt,
                   }),
               ...(projection === undefined ? {} : { projection }),
-              receivedThrough: rows.received.map(ackFromRow),
+              receivedThrough: rows.received.map(cursorFromRow),
               peerAcknowledgedThrough: rows.peerAcks.map((row) => ({
                 peerInstallationId: decodeInstallationId(
                   row.peer_installation_id,
                 ),
-                acknowledgement: ackFromRow(row),
+                acknowledgement: cursorFromRow(row),
               })),
             };
           }),
