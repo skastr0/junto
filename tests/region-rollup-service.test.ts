@@ -16,7 +16,12 @@ import {
   RegionRollupService,
 } from "../src/main/vellum/region-rollup";
 import { SnapshotsService } from "../src/main/vellum/snapshots";
+import {
+  actorRefsForDoc,
+  claimedByNode,
+} from "./helpers/actor-ref-fixtures";
 import { spawnedLocalAcp } from "./helpers/acp-child";
+import { taskItem } from "./helpers/task-fixtures";
 
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
@@ -95,6 +100,51 @@ const docActivity: CanvasDoc = {
   edges: [],
 };
 
+const docStoppage: CanvasDoc = {
+  nodes: [
+    { ...region },
+    {
+      id: "tasks",
+      type: "text",
+      text: "tasks",
+      x: 10,
+      y: 10,
+      width: 100,
+      height: 40,
+      ether: {
+        entity: { kind: "task" },
+        tasks: {
+          items: [
+            claimedByNode(
+              taskItem("task-1", "needs operator", "input-required"),
+              "actor",
+              "ops",
+            ),
+          ],
+        },
+      },
+    },
+    {
+      id: "actor",
+      type: "text",
+      text: "actor",
+      x: 10,
+      y: 60,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind: "agent", name: "local:actor" } },
+    },
+  ],
+  edges: [
+    {
+      id: "wait",
+      fromNode: "tasks",
+      toNode: "actor",
+      ether: { criteria: { mode: "tasks" } },
+    },
+  ],
+};
+
 // --- stubbed planes (kernel-arming-transaction idiom) -------------------------
 
 const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "" });
@@ -111,7 +161,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
           ? Effect.succeed({
               name,
               doc,
-              actorRefs: [],
+              actorRefs: actorRefsForDoc(doc, name),
               revision: `${name}-r1`,
             })
           : Effect.fail(new CanvasError({ message: `canvas "${name}" does not exist` }));
@@ -121,7 +171,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       create: (name: string) => Effect.succeed({
         name,
         doc: { nodes: [], edges: [] },
-        actorRefs: [],
+        actorRefs: actorRefsForDoc({ nodes: [], edges: [] }, name),
         revision: `${name}-r1`,
       }),
       remove: (name: string) => Effect.succeed({ name }),
@@ -240,6 +290,22 @@ describe("RegionRollupService — activity wiring", () => {
       const agent = rollup?.members.find((member) => member.nodeId === "a1");
       expect(agent?.severity).toBe("attention");
       expect(agent?.reasons).toEqual(["permission:pending"]);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("attributes task stoppage through CanvasReadResult actorRefs", async () => {
+    const chat = new ChatService(noSpawn, (host) => host === "local");
+    const runtime = makeRuntime(chat, new Map([["ops", docStoppage]]));
+    try {
+      const [rollup] = await rollups(runtime, "ops");
+      expect(
+        rollup?.members.find((member) => member.nodeId === "actor"),
+      ).toMatchObject({
+        severity: "blocked",
+        reasons: ["edge:1 need input · needs operator"],
+      });
     } finally {
       await runtime.dispose();
     }

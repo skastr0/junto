@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
+import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { deriveRegionRollups, type AgentActivity, type RegionRollup } from "@shared/region-rollup";
 import { CanvasesService, type CanvasError } from "./canvases";
 import { ChatServiceContext, type ChatService } from "./chat/service";
@@ -50,7 +51,7 @@ export const makeRegionRollupLive = (
 
         rollups: (canvasName) =>
           Effect.gen(function* () {
-            const { doc } = yield* canvases.read(canvasName);
+            const { doc, actorRefs } = yield* canvases.read(canvasName);
             const state = yield* snapshots.current;
 
             const agentActivity = new Map<string, AgentActivity>();
@@ -80,6 +81,7 @@ export const makeRegionRollupLive = (
 
             return deriveRegionRollups({
               doc,
+              ...executionGraphContextFromActorRefs(canvasName, actorRefs),
               snapshots: state,
               agentActivity,
               terminalStatusByNodeId,
