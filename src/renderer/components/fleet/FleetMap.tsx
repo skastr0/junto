@@ -221,7 +221,7 @@ function FleetMapInner({
         ditherPixelSize: resolvedDitherPixelSize,
         onSelect: () => onSelect(host.id),
       },
-      ariaLabel: `${host.label}, enrolled station, ${
+      ariaLabel: `${host.label}, enrolled machine, ${
         probes[host.id]?.status ?? "link untested"
       }`,
       selected: selectedId === host.id,
@@ -324,7 +324,7 @@ function FleetMapInner({
       <div className="fleet-map__context" role="status">
         <span>Command Center routes</span>
         <span>
-          {stations.length} enrolled · {peers.length} visible on mesh
+          {stations.length} enrolled · {peers.length} discovered
         </span>
       </div>
       <div

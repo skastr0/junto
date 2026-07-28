@@ -76,8 +76,8 @@ function CommandCenterDetail({ hostId }: { readonly hostId: string }) {
           <span>{hostId || "local"}</span>
         </div>
         <p className="fleet-detail__note">
-          The human-authored core of the fleet. It distributes complete intent to enrolled
-          stations; it does not create station-to-station reach.
+          Work is authored here and handed to the machines enrolled in the
+          fleet.
         </p>
       </section>
     </div>
@@ -137,11 +137,11 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     try {
       if (kind === "configure") {
         const result = await api.hostsConfigureRemote(host.id);
-        setActionLine(result.detail || (result.ok ? "configured as Remote station" : (result.message ?? "configure failed")));
+        setActionLine(result.detail || (result.ok ? "configured as a Remote" : (result.message ?? "configure failed")));
       } else if (kind === "deploy") {
         const result = await api.hostsDeployRemote({ id: host.id });
         if (result.authorizationRequest) {
-          setActionLine("Fresh administrator authorization required — finish the deploy from Settings → Hosts.");
+          setActionLine("Administrator authorization required — finish the deploy from Settings → Hosts.");
         } else {
           setActionLine(result.detail || (result.ok ? "Remote deployed and ready" : (result.message ?? "deploy failed")));
         }
@@ -215,7 +215,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
 
       <section className="fleet-detail__section">
         <div className="fleet-detail__section-label">Machine signature</div>
-        <div className="fleet-detail__swatches" role="group" aria-label="Station color">
+        <div className="fleet-detail__swatches" role="group" aria-label="Machine color">
           {FLEET_COLORS.map((swatch) => {
             const active = color === swatch;
             return (
@@ -224,7 +224,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
                 type="button"
                 className={`fleet-swatch${active ? " fleet-swatch--active" : ""}`}
                 style={{ background: swatch }}
-                aria-label={`Set station color ${swatch}`}
+                aria-label={`Set machine color ${swatch}`}
                 aria-pressed={active}
                 {...activateOnPointerUp(() =>
                   saveAppearance({
@@ -240,14 +240,14 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           <span>{automatic ? "Automatic silhouette" : "Custom silhouette"}</span>
           <strong>{fleetMachineLabel(resolvedModel)}</strong>
         </div>
-        <div className="fleet-detail__models" role="group" aria-label="Station silhouette">
+        <div className="fleet-detail__models" role="group" aria-label="Machine silhouette">
           <button
             type="button"
             className={`fleet-model-choice fleet-model-choice--auto${
               automatic ? " fleet-model-choice--active" : ""
             }`}
             style={automatic ? { color, borderColor: withAlpha(color, 0.6) } : undefined}
-            aria-label="Automatically choose station silhouette"
+            aria-label="Automatically choose machine silhouette"
             aria-pressed={automatic}
             title="Automatic"
             {...activateOnPointerUp(() =>
@@ -305,7 +305,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             disabled={actionBusy !== ""}
             {...activateOnPointerUp(() => void runAction("configure"))}
           >
-            {actionBusy === "configure" ? "configuring…" : "Configure station"}
+            {actionBusy === "configure" ? "configuring…" : "Configure Remote"}
           </Button>
           <Button
             variant="primary"
@@ -361,12 +361,12 @@ function GhostDetail({
   return (
     <div className="fleet-detail__body">
       <section className="fleet-detail__section">
-        <div className="fleet-detail__section-label">Observed identity</div>
+        <div className="fleet-detail__section-label">Identity</div>
         <div className="fleet-detail__kv">
           <span>os</span>
           <span>{peer.os ?? "unknown"}</span>
           <span>status</span>
-          <span>{peer.online ? "online on the tailnet" : "offline"}</span>
+          <span>{peer.online ? "online" : "offline"}</span>
           {peer.addresses.map((address, index) => (
             <Fragment key={address}>
               <span>{index === 0 ? (peer.addresses.length > 1 ? "addresses" : "address") : ""}</span>
@@ -375,8 +375,8 @@ function GhostDetail({
           ))}
         </div>
         <p className="fleet-detail__note">
-          Seen on the Tailscale mesh, but outside the execution graph. Claiming only enrolls the
-          host; configuration and installation remain separate operator actions.
+          Visible on your network but not yet enrolled. Enrolling only adds it
+          to the fleet — configure and deploy it afterward.
         </p>
       </section>
 
@@ -388,7 +388,7 @@ function GhostDetail({
             size="xs"
             {...activateOnPointerUp(() => onClaim(peer))}
           >
-            Claim as station
+            Enroll this machine
           </Button>
         </div>
       </section>
@@ -431,10 +431,10 @@ export function FleetDetailPanel({
         : selection.peer.name;
   const kind =
     selection.kind === "cc"
-      ? "Authorial core"
+      ? "This machine"
       : selection.kind === "station"
-        ? "Enrolled station"
-        : "Discovered peer";
+        ? "Enrolled machine"
+        : "Discovered machine";
   const color =
     selection.kind === "cc"
       ? HUE.amber
