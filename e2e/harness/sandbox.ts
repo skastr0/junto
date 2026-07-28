@@ -24,14 +24,24 @@ import {
   makeStateEngineLive,
 } from "../../src/main/vellum/state/engine";
 import { StateEngine } from "../../src/main/vellum/state/service";
+import {
+  SettingsLive,
+  SettingsService,
+} from "../../src/main/vellum/settings/service";
 import { makeHostsRegistry } from "../../src/main/vellum/hosts/registry";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
-import { resolveNodeHostId } from "../../src/shared/station";
 import {
-  stripWorkProjection,
   WorkRepository,
   WorkRepositoryLive,
 } from "../../src/main/vellum/work/repository";
+import {
+  StationRepository,
+  StationRepositoryLive,
+} from "../../src/main/vellum/station/repository";
+import {
+  compileActorSeatRegistry,
+} from "../../src/main/vellum/station/actor-seat-compiler";
+import type { ActorRef } from "../../src/shared/work-protocol";
 
 export interface Sandbox {
   readonly root: string;
@@ -65,21 +75,12 @@ export const destroySandbox = async (sandbox: Sandbox): Promise<void> => {
   await rm(sandbox.root, { recursive: true, force: true }).catch(() => undefined);
 };
 
-const hasSeedWork = (node: CanvasNode): boolean => {
-  const ether = node.ether;
-  return (
-    (ether?.tasks?.items.length ?? 0) > 0 ||
-    (ether?.requests?.items.length ?? 0) > 0 ||
-    (ether?.messages?.items.length ?? 0) > 0 ||
-    (ether?.artifacts?.items.length ?? 0) > 0
-  );
-};
-
 /**
  * Seed through the same scoped Effect services used by Electron, then close
- * the SQLite owner before Electron starts. Fixture work containers are split
- * into WorkRepository rows; no `.canvas`, manifest, pointer, or seal is ever
- * created as an alternate authority.
+ * the SQLite owner before Electron starts. CanvasesService strips runtime
+ * overlays at the authorial boundary; each fixture item is then committed by
+ * its explicit WorkRepository verb. No `.canvas`, generic work mutation,
+ * manifest, pointer, or seal exists as an alternate authority.
  */
 export const writeFixtureCanvas = async (
   sandbox: Sandbox,
@@ -92,30 +93,186 @@ export const writeFixtureCanvas = async (
   const state = makeStateEngineLive(
     join(sandbox.homeDir, ".vellum", "state", "vellum.db"),
   );
-  const repositories = Layer.provideMerge(WorkRepositoryLive, state);
+  const repositories = Layer.provideMerge(
+    Layer.mergeAll(
+      WorkRepositoryLive,
+      StationRepositoryLive,
+      SettingsLive,
+    ),
+    state,
+  );
   const canvases = Layer.provideMerge(CanvasesLive, repositories);
   const runtime = ManagedRuntime.make(canvases);
 
   try {
-    const [canvasService, workRepository] = await runtime.runPromise(
-      Effect.all([CanvasesService, WorkRepository]),
-    );
-    const authoredDoc = stripWorkProjection(doc);
-    await runtime.runPromise(canvasService.write(name, authoredDoc));
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const canvasService = yield* CanvasesService;
+        const workRepository = yield* WorkRepository;
+        const stations = yield* StationRepository;
+        const settings = yield* SettingsService;
 
-    for (const node of doc.nodes.filter(hasSeedWork)) {
-      await runtime.runPromise(
-        workRepository.mutate({
-          canvasName: name,
-          nodeId: node.id,
-          entityHome: resolveNodeHostId(node),
-          eventHome: "e2e-command-center",
-          operation: "e2e.seed",
-          authoredDoc,
-          transform: () => ({ doc, value: undefined }),
-        }),
-      );
-    }
+        yield* settings.setStationTopology({
+          role: "command-center",
+          hostId: "local",
+          supervisedPreferred: true,
+        });
+        yield* canvasService.write(name, doc);
+
+        const installationId = yield* stations.installationId;
+        const actorRefs: ReadonlyArray<ActorRef> =
+          compileActorSeatRegistry(
+            new Map([[name, doc]]),
+            new Map([["local", installationId]]),
+          ).flatMap((seat) =>
+            seat.refs.map((ref) => ({
+              seatId: seat.seatId,
+              canvasName: ref.canvasName,
+              nodeId: ref.nodeId,
+            }))
+          );
+        const adjacentActor = (sinkNodeId: string): ActorRef => {
+          const adjacentNodeIds = new Set(
+            doc.edges.flatMap((edge) =>
+              edge.fromNode === sinkNodeId
+                ? [edge.toNode]
+                : edge.toNode === sinkNodeId
+                  ? [edge.fromNode]
+                  : []
+            ),
+          );
+          const candidates = actorRefs.filter(
+            (actor) =>
+              actor.nodeId === sinkNodeId ||
+              adjacentNodeIds.has(actor.nodeId),
+          );
+          if (candidates.length !== 1) {
+            throw new Error(
+              `fixture ${JSON.stringify(name)} sink ${JSON.stringify(sinkNodeId)} ` +
+                `requires exactly one local compiled actor, found ${String(candidates.length)}`,
+            );
+          }
+          return candidates[0]!;
+        };
+        const actorForTask = (
+          sinkNodeId: string,
+          task: Task,
+        ): ActorRef => {
+          if (task.claimedBy === undefined) return adjacentActor(sinkNodeId);
+          const claimant = actorRefs.filter(
+            (actor) => actor.seatId === task.claimedBy,
+          );
+          if (claimant.length !== 1) {
+            throw new Error(
+              `fixture task ${JSON.stringify(task.id)} claimant is not one local compiled actor`,
+            );
+          }
+          return claimant[0]!;
+        };
+
+        for (const node of doc.nodes) {
+          const sink = { canvasName: name, nodeId: node.id };
+          for (const task of node.ether?.tasks?.items ?? []) {
+            const {
+              state: targetState,
+              claimedBy: targetClaimant,
+              ...submittedBody
+            } = task;
+            if (targetState === "submitted" && targetClaimant !== undefined) {
+              throw new Error(
+                `fixture submitted task ${JSON.stringify(task.id)} cannot carry a claimant`,
+              );
+            }
+            yield* workRepository.createTask({
+              sink,
+              task: {
+                ...submittedBody,
+                state: "submitted",
+              },
+            });
+
+            const requiresClaim =
+              targetState === "working" ||
+              targetState === "input-required" ||
+              targetState === "auth-required" ||
+              targetClaimant !== undefined;
+            if (requiresClaim) {
+              yield* workRepository.claimLocalTask({
+                sink,
+                taskId: task.id,
+                actor: actorForTask(node.id, task),
+              });
+            }
+            if (
+              targetState !== "submitted" &&
+              targetState !== "working"
+            ) {
+              yield* workRepository.transitionTask({
+                sink,
+                taskId: task.id,
+                state: targetState,
+              });
+            }
+          }
+
+          for (const request of node.ether?.requests?.items ?? []) {
+            if (
+              request.state !== "input-required" &&
+              request.state !== "auth-required" &&
+              request.state !== "completed" &&
+              request.state !== "rejected"
+            ) {
+              throw new Error(
+                `fixture request ${JSON.stringify(request.id)} has unsupported state ${JSON.stringify(request.state)}`,
+              );
+            }
+            const actor = actorForTask(node.id, request);
+            const {
+              state: targetState,
+              claimedBy: _targetClaimant,
+              response,
+              ...requestBody
+            } = request;
+            yield* workRepository.createRequest({
+              sink,
+              request: {
+                ...requestBody,
+                state:
+                  targetState === "auth-required"
+                    ? "auth-required"
+                    : "input-required",
+                claimedBy: actor.seatId,
+              },
+              raisedBy: actor,
+            });
+            if (targetState === "completed" || targetState === "rejected") {
+              yield* workRepository.resolveRequest({
+                sink,
+                requestId: request.id,
+                response: response ?? "fixture resolved",
+                disposition: targetState,
+              });
+            }
+          }
+
+          for (const message of node.ether?.messages?.items ?? []) {
+            yield* workRepository.appendMessage({
+              sink,
+              message,
+              sentBy: adjacentActor(node.id),
+            });
+          }
+
+          for (const artifact of node.ether?.artifacts?.items ?? []) {
+            yield* workRepository.publishArtifact({
+              sink,
+              artifact,
+              publishedBy: adjacentActor(node.id),
+            });
+          }
+        }
+      }),
+    );
   } finally {
     try {
       await runtime.dispose();
@@ -228,9 +385,9 @@ export const herdrTextNode = (input: {
   },
 });
 
-/** An agent-bound node for the scripted ACP scenario.
- * Double-click opens its ACP work surface. `key` is a hermes agent key
- * ("<host>:<profile>"). */
+/** A managed agent seat for scripted scenarios.
+ * `key` is the process-bind agent key (`<host>:<profile>`); the same stable
+ * key is its fixture binding identity. */
 export const agentTextNode = (input: {
   readonly id: string;
   readonly key: string;
@@ -246,7 +403,14 @@ export const agentTextNode = (input: {
   y: input.y ?? 0,
   width: 240,
   height: 96,
-  ether: { entity: { kind: "agent", name: input.key }, host: input.host ?? "local" },
+  ether: {
+    entity: { kind: "agent", name: input.key },
+    host: input.host ?? "local",
+    terminal: {
+      bindingId: input.key,
+      harness: "codex",
+    },
+  },
 });
 
 export const canvasDoc = (
