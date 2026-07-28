@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
 import { assessSupervisedRuntime } from "@shared/station";
+import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import {
   assessStationDoctor,
   kernelRecordFromSnapshot,
@@ -55,6 +57,7 @@ import {
 import { stationControlReadiness } from "./vellum/station/control-server";
 import { workControlReadiness } from "./vellum/work/control";
 import { StateEngineLive } from "./vellum/state/engine";
+import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
 import {
   StationFleetTargetRepositoryLive,
 } from "./vellum/station/fleet-target-repository";
@@ -119,7 +122,11 @@ const OpenSshStationPeerExchangeFromStateLive = Layer.unwrapEffect(
   Effect.gen(function* () {
     const repository = yield* StationRepository;
     const localInstallationId = yield* repository.installationId;
-    return OpenSshStationPeerExchangeLive(localInstallationId);
+    return OpenSshStationPeerExchangeLive(localInstallationId, {
+      appVersion: productMetadata.version,
+      stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
+      support: CURRENT_STATION_PROTOCOL_SUPPORT,
+    });
   }),
 );
 

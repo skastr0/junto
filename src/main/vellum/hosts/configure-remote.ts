@@ -8,6 +8,7 @@ import {
   type ConfigureResponse,
 } from "@shared/station-api";
 import { stationControlErr } from "@shared/station-api-envelope";
+import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import type { StationSettings } from "@shared/settings";
 import {
   planRemoteStationConfig,
@@ -23,6 +24,7 @@ import {
   admitEnrolledOpenSshStationPeer,
   makeOpenSshStationPeerExchange,
 } from "../station/openssh-peer-exchange";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../state/migrations";
 
 type Ssh = typeof SshTransport.Service;
 
@@ -272,6 +274,11 @@ export const configureRemoteHost = (
     const exchange = makeOpenSshStationPeerExchange(
       ssh,
       options.commandCenterInstallationId,
+      {
+        appVersion: options.appVersion,
+        stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
+        support: CURRENT_STATION_PROTOCOL_SUPPORT,
+      },
     );
     const configured = yield* Effect.scoped(
       Effect.gen(function* () {
