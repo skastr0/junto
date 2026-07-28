@@ -14,6 +14,7 @@ import {
   WORK_PROTOCOL_MAX_ID_CHARS,
   WORK_PROTOCOL_MAX_NODE_ID_CHARS,
 } from "./work-reference";
+import { STATION_PROTOCOL_BASELINE } from "./station-protocol";
 
 export { ActorSeatId };
 export {
@@ -34,7 +35,8 @@ export {
  * reports, and SQLite repositories. It deliberately contains no ReportBatch,
  * SSH, socket, database, or wall-clock orchestration concerns.
  */
-export const WORK_PROTOCOL = "vellum/work/v2" as const;
+export const WORK_PROTOCOL =
+  `vellum/work/v${STATION_PROTOCOL_BASELINE}` as const;
 
 /** Intrinsic limits for one work record, independent of report batching. */
 export const WORK_PROTOCOL_MAX_RECORD_BYTES = 256 * 1024;

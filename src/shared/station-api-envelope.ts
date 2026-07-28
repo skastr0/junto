@@ -3,6 +3,7 @@ import {
   StationApiRequest,
   StationApiResponse,
 } from "./station-api";
+import { STATION_PROTOCOL_BASELINE } from "./station-protocol";
 
 /**
  * Transport-neutral Station API envelope.
@@ -10,7 +11,8 @@ import {
  * Ok/err wrappers, error codes, and decode helpers live here. Framing bytes,
  * socket paths, and OpenSSH timeouts live in `station-ssh-control.ts`.
  */
-export const STATION_CONTROL_PROTOCOL = "vellum/station-control/v2" as const;
+export const STATION_CONTROL_PROTOCOL =
+  `vellum/station-control/v${STATION_PROTOCOL_BASELINE}` as const;
 
 export const StationControlErrorCode = Schema.Literal(
   "protocol_error",

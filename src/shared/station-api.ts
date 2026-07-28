@@ -13,6 +13,7 @@ import {
   type WorkRecordId as WorkRecordIdValue,
   type WorkRoute as WorkRouteValue,
 } from "./work-protocol";
+import { STATION_PROTOCOL_BASELINE } from "./station-protocol";
 
 export { InstallationId } from "./installation-id";
 export { RouteCursor, WorkRecord } from "./work-protocol";
@@ -25,7 +26,8 @@ export { RouteCursor, WorkRecord } from "./work-protocol";
  * credentials. Work identity is carried completely by each WorkRecord; no
  * transport adapter may infer or smuggle half of a route.
  */
-export const STATION_API_PROTOCOL = "vellum/station-api/v2" as const;
+export const STATION_API_PROTOCOL =
+  `vellum/station-api/v${STATION_PROTOCOL_BASELINE}` as const;
 
 export const STATION_API_MAX_PROJECTION_CHARS = 64 * 1024 * 1024;
 export const STATION_API_MAX_RECORDS_PER_REPORT = 256;

@@ -5,6 +5,7 @@ import {
   reportResponseSwapsDirection,
 } from "./station-api";
 import { StationControlEnvelope } from "./station-api-envelope";
+import { STATION_PROTOCOL_BASELINE } from "./station-protocol";
 
 /**
  * Correlated, transport-neutral framing for one persistent Station session.
@@ -14,7 +15,8 @@ import { StationControlEnvelope } from "./station-api-envelope";
  * projection generations and WorkRecord routes; request IDs only correlate
  * concurrent calls on one ephemeral connection.
  */
-export const STATION_SESSION_PROTOCOL = "vellum/station-session/v2" as const;
+export const STATION_SESSION_PROTOCOL =
+  `vellum/station-session/v${STATION_PROTOCOL_BASELINE}` as const;
 
 export const StationSessionRequestId = Schema.String.pipe(
   Schema.minLength(1),
