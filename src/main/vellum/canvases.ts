@@ -354,7 +354,7 @@ const readStationProjection = (
   }
   const decoded = decodeStationPortfolioBody(row.body);
   const documents = new Map<string, StoredCanvas>();
-  for (const [name, doc] of decoded) {
+  for (const [name, doc] of decoded.documents) {
     const canonicalName = canvasNameFrom(name);
     const body = serializeCanvas(doc);
     documents.set(canonicalName, {

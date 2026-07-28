@@ -139,6 +139,7 @@ describe("CanvasesService Station projection", () => {
       );
       const body = compileStationPortfolioBody(
         new Map([["command-floor", note("remote intent")]]),
+        new Map([["studio", local]]),
       );
       await runtime.runPromise(
         station.installProjection(
