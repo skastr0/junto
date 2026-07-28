@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { relayStationControlSession } from "../src/main/vellum/station/control-relay";
-import { STATION_PROTOCOL_NEGOTIATION_ARG } from "../src/shared/station-protocol";
+import { STATION_PROTOCOL_NEGOTIATION_ARG } from "../src/main/vellum/station/helper-contract";
 
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);

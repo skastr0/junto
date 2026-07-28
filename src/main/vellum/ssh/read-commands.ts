@@ -11,7 +11,7 @@
 
 import type { Context } from "effect";
 import { Effect, Schema } from "effect";
-import { STATION_PROTOCOL_NEGOTIATION_ARG } from "@shared/station-protocol";
+import { STATION_PROTOCOL_NEGOTIATION_ARG } from "../station/helper-contract";
 import {
   inspectSshTarget,
   makeRemoteCommand,

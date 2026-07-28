@@ -20,6 +20,11 @@ import {
   type StationSessionFrame,
   type StationSessionRequestFrame,
 } from "../src/shared/station-session";
+import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_PREFACE,
+  StationProtocolAccept,
+} from "../src/shared/station-protocol";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
   configureRemoteHost,
@@ -147,6 +152,28 @@ const makeSsh = (
         const lease: SshLease = {
           write: (bytes) =>
             Effect.gen(function* () {
+              const raw = JSON.parse(
+                decoder.decode(bytes).trim(),
+              ) as Record<string, unknown>;
+              if (!bootstrap && raw.frame === "offer") {
+                events.push("protocol-offer");
+                yield* Queue.offer(
+                  peerOutput,
+                  encoder.encode(
+                    `${JSON.stringify(
+                      StationProtocolAccept.make({
+                        protocol: STATION_PROTOCOL_PREFACE,
+                        frame: "accept",
+                        appVersion: "0.1.0",
+                        stateSchemaVersion: 1,
+                        support: CURRENT_STATION_PROTOCOL_SUPPORT,
+                        selected: 2,
+                      }),
+                    )}\n`,
+                  ),
+                );
+                return;
+              }
               const request = parseRequest(bytes);
               requests.push(request);
               if (bootstrap) {
@@ -256,6 +283,7 @@ describe("configureRemoteHost", () => {
       "bootstrap-input-close",
       "bootstrap-close",
       "peer-open",
+      "protocol-offer",
       "pair",
       "configure",
       "peer-close",

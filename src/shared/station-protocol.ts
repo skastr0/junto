@@ -90,9 +90,6 @@ export type StationStateSchemaVersion = typeof StationStateSchemaVersion.Type;
 
 export const STATION_PROTOCOL_PREFACE =
   "vellum/station-protocol-preface/v1" as const;
-/** The one sealed OpenSSH helper mode that admits the compatibility preface. */
-export const STATION_PROTOCOL_NEGOTIATION_ARG =
-  "--protocol-preface" as const;
 
 const StationProtocolPeerDiagnostics = {
   appVersion: StationAppVersion,
