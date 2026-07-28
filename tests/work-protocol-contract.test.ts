@@ -224,6 +224,32 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
 
     expect(
+      Either.isRight(
+        decodeWorkResult({
+          operation: "request.resolve",
+          request: {
+            id: "request-1",
+            state: "completed",
+            claimedBy: seatId,
+            history: [],
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeWorkResult({
+          operation: "request.resolve",
+          request: {
+            id: "request-1",
+            state: "completed",
+            history: [],
+          },
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
       Either.isLeft(
         decodeWorkRecord({
           ...artifactFact,

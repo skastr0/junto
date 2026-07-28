@@ -302,9 +302,10 @@ export const RequestResult = Schema.Struct({
       );
     }
     return (
-      result.request.state === "completed" ||
-      result.request.state === "rejected" ||
-      "request.resolve result requires a completed or rejected request"
+      ((result.request.state === "completed" ||
+        result.request.state === "rejected") &&
+        result.request.claimedBy !== undefined) ||
+      "request.resolve result requires a completed or rejected request with its original claimant"
     );
   }),
 );
