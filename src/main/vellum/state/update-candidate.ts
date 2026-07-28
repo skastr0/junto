@@ -167,18 +167,17 @@ const createEmptyCandidate = (path: string): void => {
  * proof process calls it. The source connection is read-only; all migration
  * and readiness writes happen against the disposable clone.
  *
- * Tests may inject another database path. Product update code calls the
- * zero-argument form and therefore cannot redirect authority.
+ * Product code cannot supply or redirect the source path. Unit tests replace
+ * the canonical path resolver at the module boundary rather than widening
+ * this filesystem capability.
  */
-export const prepareStateUpdateCandidate = (
-  configuredPath: string = stateDatabasePath(),
-): Effect.Effect<
+export const prepareStateUpdateCandidate = (): Effect.Effect<
   PreparedStateUpdateCandidate,
   StateUpdateCandidateError
 > =>
   Effect.try({
     try: () => {
-      const path = resolve(configuredPath);
+      const path = resolve(stateDatabasePath());
       const stateDirectory = dirname(path);
       assertRealDirectory(stateDirectory);
       const candidatesRoot = join(
@@ -299,10 +298,9 @@ export const withStateUpdateCandidate = <A, E, R>(
   use: (
     candidate: PreparedStateUpdateCandidate,
   ) => Effect.Effect<A, E, R>,
-  configuredPath?: string,
 ): Effect.Effect<A, E | StateUpdateCandidateError, R> =>
   Effect.acquireUseRelease(
-    prepareStateUpdateCandidate(configuredPath),
+    prepareStateUpdateCandidate(),
     use,
     (candidate) =>
       releaseStateUpdateCandidate(candidate).pipe(Effect.orDie),

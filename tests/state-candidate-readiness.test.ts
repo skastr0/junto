@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Either } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   inspectStateUpdateCandidate,
   STATE_UPDATE_PREFLIGHT_PROTOCOL,
@@ -18,6 +18,14 @@ import { verifyAndStampStateSchema } from "../src/main/vellum/state/schema-ident
 import {
   withStateUpdateCandidate,
 } from "../src/main/vellum/state/update-candidate";
+
+const candidateSource = vi.hoisted(() => ({ path: "" }));
+vi.mock("../src/main/vellum/state/engine", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../src/main/vellum/state/engine")
+  >()),
+  stateDatabasePath: () => candidateSource.path,
+}));
 
 const roots: string[] = [];
 
@@ -90,11 +98,11 @@ describe("state candidate readiness", () => {
   it("migrates and semantically reads an installed v1 clone without touching the source", async () => {
     const path = await makeDatabasePath();
     const intentSha256 = seedVersionOne(path);
+    candidateSource.path = path;
 
     const receipt = await Effect.runPromise(
       withStateUpdateCandidate(
         inspectStateUpdateCandidate,
-        path,
       ),
     );
 
@@ -141,10 +149,10 @@ describe("state candidate readiness", () => {
 
   it("proves a fresh current-schema candidate without retaining a fake backup", async () => {
     const path = await makeDatabasePath();
+    candidateSource.path = path;
     const receipt = await Effect.runPromise(
       withStateUpdateCandidate(
         inspectStateUpdateCandidate,
-        path,
       ),
     );
 
@@ -195,12 +203,12 @@ describe("state candidate readiness", () => {
     } finally {
       database.close();
     }
+    candidateSource.path = path;
 
     const result = await Effect.runPromise(
       Effect.either(
         withStateUpdateCandidate(
           inspectStateUpdateCandidate,
-          path,
         ),
       ),
     );

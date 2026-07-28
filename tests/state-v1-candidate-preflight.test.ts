@@ -10,13 +10,21 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   inspectStateUpdateCandidate,
   STATE_UPDATE_PREFLIGHT_PROTOCOL,
 } from "../src/main/vellum/state/candidate-readiness";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum/state/migrations";
 import { withStateUpdateCandidate } from "../src/main/vellum/state/update-candidate";
+
+const candidateSource = vi.hoisted(() => ({ path: "" }));
+vi.mock("../src/main/vellum/state/engine", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../src/main/vellum/state/engine")
+  >()),
+  stateDatabasePath: () => candidateSource.path,
+}));
 
 const roots: string[] = [];
 
@@ -70,11 +78,11 @@ describe("frozen v1 candidate preflight", () => {
       await mkdir(stateDirectory);
       await copyFile(source, installed);
       const before = await fileSha256(installed);
+      candidateSource.path = installed;
 
       const receipt = await Effect.runPromise(
         withStateUpdateCandidate(
           inspectStateUpdateCandidate,
-          installed,
         ),
       );
 

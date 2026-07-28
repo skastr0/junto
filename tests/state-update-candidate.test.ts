@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   prepareStateUpdateCandidate,
   releaseStateUpdateCandidate,
@@ -18,6 +18,14 @@ import {
 } from "../src/main/vellum/state/update-candidate";
 import { STATE_SCHEMA_V1_SQL } from "../src/main/vellum/state/schema";
 import { verifyAndStampStateSchema } from "../src/main/vellum/state/schema-identity";
+
+const candidateSource = vi.hoisted(() => ({ path: "" }));
+vi.mock("../src/main/vellum/state/engine", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../src/main/vellum/state/engine")
+  >()),
+  stateDatabasePath: () => candidateSource.path,
+}));
 
 const roots: string[] = [];
 
@@ -74,9 +82,10 @@ describe("state update candidate", () => {
   it("mints a retained verified backup and a separate disposable clone", async () => {
     const layout = await makeRoot();
     seedVersionOne(layout.databasePath);
+    candidateSource.path = layout.databasePath;
 
     const candidate = await Effect.runPromise(
-      prepareStateUpdateCandidate(layout.databasePath),
+      prepareStateUpdateCandidate(),
     );
     expect(candidate.source._tag).toBe("installed");
     if (candidate.source._tag !== "installed") {
@@ -124,6 +133,7 @@ describe("state update candidate", () => {
 
   it("prepares a fresh disposable database without manufacturing a backup", async () => {
     const layout = await makeRoot();
+    candidateSource.path = layout.databasePath;
     const result = await Effect.runPromise(
       withStateUpdateCandidate(
         (candidate) =>
@@ -132,7 +142,6 @@ describe("state update candidate", () => {
             candidatePath: candidate.databasePath,
             candidateDirectory: candidate.directoryPath,
           })),
-        layout.databasePath,
       ),
     );
 
@@ -145,6 +154,7 @@ describe("state update candidate", () => {
   it("cleans only the disposable clone when candidate use fails", async () => {
     const layout = await makeRoot();
     seedVersionOne(layout.databasePath);
+    candidateSource.path = layout.databasePath;
     let candidateDirectory = "";
     let backupPath = "";
 
@@ -158,7 +168,6 @@ describe("state update candidate", () => {
             }
             return Effect.fail("candidate refused");
           },
-          layout.databasePath,
         ),
       ),
     );
@@ -177,9 +186,10 @@ describe("state update candidate", () => {
     seedVersionOne(target);
     const { symlink } = await import("node:fs/promises");
     await symlink(target, layout.databasePath);
+    candidateSource.path = layout.databasePath;
 
     const exit = await Effect.runPromise(
-      Effect.exit(prepareStateUpdateCandidate(layout.databasePath)),
+      Effect.exit(prepareStateUpdateCandidate()),
     );
     expect(exit._tag).toBe("Failure");
     if (exit._tag === "Failure") {
@@ -222,8 +232,9 @@ describe("state update candidate", () => {
 
   it("refuses to remove a replacement at a minted candidate path", async () => {
     const layout = await makeRoot();
+    candidateSource.path = layout.databasePath;
     const candidate = await Effect.runPromise(
-      prepareStateUpdateCandidate(layout.databasePath),
+      prepareStateUpdateCandidate(),
     );
     await rm(candidate.directoryPath, { recursive: true, force: true });
     await mkdir(candidate.directoryPath);
