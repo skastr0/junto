@@ -1,6 +1,7 @@
 # Vellum protocol
 
-**Status:** normative target contract; implementation in progress
+**Status:** normative contract; foundation implemented, package and
+multi-installation qualification in progress
 
 **Last revised:** 2026-07-28
 
@@ -612,6 +613,12 @@ There is no automatic:
 If the actor or Remote is stalled, Vellum reports that fact. A future explicit
 operator recovery operation must define one atomic authority cutover before it
 can re-home active work.
+
+Deleting an actor retires its stable seat and stops its Vellum-owned runtime;
+it never deletes attribution, artifacts, receipts, or completed history. An
+active task claimed by that seat stays claimed and single-home and is surfaced
+as stalled/orphaned lifecycle state. Vellum does not silently turn actor
+deletion into unclaim, requeue, steal, or reassignment.
 
 ### Starting the managed actor process
 
@@ -1507,6 +1514,18 @@ removed only after every enrolled Station selecting 2 has upgraded or been
 explicitly retired and every durable protocol-2 record has been reconciled.
 The fleet protocol owner owns that retirement too.
 
+Before Vellum ships its second installed release, release qualification must
+exercise real packaged skew in both directions:
+
+1. candidate Command Center against the previous installed Remote;
+2. previous installed Command Center against the candidate Remote.
+
+Both runs must select their highest common exact Station protocol and preserve
+offline Remote work plus ordered reconciliation. Local SQLite schema versions
+may differ and remain diagnostic only. This gate does not justify a new
+Station protocol number: that number changes only when the closed wire bundle
+changes.
+
 ## OpenSSH adapter
 
 OpenSSH is the first production transport because it already supplies:
@@ -1925,52 +1944,53 @@ The canonical protocol blocks release while any live path preserves:
 - inferred message residency without an explicit mailbox/task/request
   destination.
 
-## Implementation cuts
+## Implementation status and remaining cuts
 
-Implementation proceeds in direct, reviewable cuts. Each cut updates all
-affected consumers and deletes the superseded path.
+The foundation already landed:
 
-### Cut 1 — freeze domain contracts
+- canonical SQLite state with contiguous forward migrations, frozen v1
+  fixtures, sealed candidate-clone preflight, retained verified backups, and
+  no legacy file-store path;
+- strict Station protocol 2 domain codecs and golden corpus;
+- canonical installation/event/entity identity and single-home Work records;
+- claim-is-start and one-active-task-per-seat constraints;
+- transport-neutral `StationPeerExchange`;
+- one persistent bounded Command Center-opened OpenSSH session with duplex
+  `report`, reconnect, and no permanent polling path;
+- local-only browser control and deletion of remote-browser protocol/PKI.
 
-- consolidate identity terminology;
-- make report direction symmetric;
-- add correlated session frames;
-- encode claim/start and item-home rules;
-- add durable delivery receipt contract;
-- update strict schemas and contract tests.
+Remaining work is qualification and lifecycle closure, not a parallel
+architecture:
 
-### Cut 2 — finish work authority
+### Cut 1 — finish lifecycle coherence
 
-- move all task/request/artifact operations through item-home lookup;
-- complete request/artifact offline origin and convergence;
-- enforce one actor/one active task at domain and SQL boundaries;
-- remove remaining canvas work mutation;
-- make claim transfer explicit rather than a trigger-shaped special case.
+- make seat running/idle/exited/replaced/retired authoritative lifecycle
+  events;
+- wake pending delivery from seat readiness instead of relying on a watchdog;
+- give Work projection its own monotonic renderer invalidation fact;
+- surface retired-seat active claims as stalled/orphaned without requeue;
+- retain immutable artifact and task attribution across seat retirement.
 
-### Cut 3 — finish local simulation
+### Cut 2 — qualify local simulation and convergence
 
-- recover working claims from SQLite;
-- ensure only local actors/schedulers/pages start;
-- replace process-memory delivery dedupe with durable receipts;
-- prove restart and Command Center-offline behavior.
-
-### Cut 4 — consolidate peer exchange
-
-- introduce transport-neutral `StationPeerExchange`;
-- move raw SSH endpoints out of propagation callers;
-- replace one-request SSH calls and polling with one persistent framed session;
-- allow Remote-initiated `report` on that CC-opened session;
-- delete the polling path after cutover.
-
-### Cut 5 — qualify convergence
-
+- prove working-claim recovery from SQLite with Command Center shut down;
+- prove only local actors/schedulers/pages start;
 - prove reconnect/replay/gap/conflict behavior;
 - prove independent multi-Remote backpressure;
 - prove projection replacement does not erase local work;
-- prove stale/unreachable UI and Doctor facts;
-- run two-machine operational qualification when explicitly scheduled.
+- prove stale/unreachable UI and Doctor facts.
 
-### Cut 6 — preserve the HTTPS seam
+### Cut 3 — qualify packages and installed skew
+
+- run the signed macOS Command Center to signed Ubuntu Remote matrix;
+- retain the exact bounded qualification evidence named by the release
+  manifest;
+- qualify candidate/previous packages in both directions before the second
+  installed release;
+- close every supported package-manager update route around the same sealed
+  state-preflight fence.
+
+### Cut 4 — preserve the HTTPS seam
 
 - keep route/auth/framing adapter-owned;
 - document the mTLS bootstrap decision before implementing it;
@@ -1996,6 +2016,7 @@ affected consumers and deletes the superseded path.
 | Persistent SSH is bounded | malformed/oversize frames close only that Remote session |
 | Failure is isolated | one unreachable Remote does not block another |
 | Version skew is bounded | peers select the highest common exact Station protocol; no overlap mutates nothing |
+| Installed releases interoperate | candidate CC→previous Remote and previous CC→candidate Remote both converge over their highest common exact protocol |
 | Incompatible Remote keeps working | local simulation continues under the last valid projection while CC reports update-required |
 | Ordered data survives skew | unsupported route-head record remains durable and unacknowledged until upgrade |
 | Installed state survives updates | frozen versioned fixtures migrate through the contiguous chain with original rows and columns preserved |
@@ -2016,6 +2037,10 @@ The strict source-level v2 corpus and local state fixtures are committed
 evidence. They do not prove a packaged two-installation deployment. Packaged
 and real multi-machine qualification remain required before a production
 release claim and are not claimed complete by this document.
+
+Before the second installed release, qualification additionally requires the
+candidate/previous package matrix in both directions. Passing same-build
+source tests is not evidence for installed version skew.
 
 ## Contract change process
 

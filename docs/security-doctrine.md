@@ -561,6 +561,15 @@ When a page is deleted or moved to another Station, Vellum does everything
 available at that actor tier to close its page, session, and owned
 connections. When an actor node is deleted, Vellum does everything available
 at that tier to stop the actor's Vellum-owned process and revoke its tools.
+Deletion retires the actor seat; it does not erase immutable attribution,
+artifacts, receipts, or completed history.
+
+An active task claimed by a retired seat remains claimed and single-home. It
+becomes a visible stalled/orphaned lifecycle condition; it is never silently
+unclaimed, requeued, stolen, or assigned to a replacement actor. Any future
+operator recovery action must name an explicit disposition and perform one
+atomic authority transition. Until that contract exists, preservation and
+honest stoppage are safer than invented progress.
 
 Actions already completed in an external system cannot be reversed. Failure to
 terminate a resource must be visible; Vellum must not manufacture a successful
