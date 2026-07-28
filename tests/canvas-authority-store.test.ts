@@ -9,6 +9,12 @@ import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { StateEngine } from "../src/main/vellum/state/service";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+import {
+  StationFleetTargetRepositoryLive,
+} from "../src/main/vellum/station/fleet-target-repository";
+import {
+  StationLivePeerRegistryLive,
+} from "../src/main/vellum/station/session-registry";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import {
   SettingsLive,
@@ -64,12 +70,18 @@ describe("CanvasesService SQLite authority", () => {
       Layer.mergeAll(
         WorkRepositoryLive,
         StationRepositoryLive,
+        StationFleetTargetRepositoryLive,
         SettingsLive,
       ),
       makeStateEngineLive(path),
     );
     const canvases = Layer.provideMerge(CanvasesLive, repositories);
-    return ManagedRuntime.make(Layer.provideMerge(WorkLive, canvases));
+    return ManagedRuntime.make(
+      Layer.provideMerge(
+        WorkLive,
+        Layer.mergeAll(canvases, StationLivePeerRegistryLive),
+      ),
+    );
   };
   let runtime: ReturnType<typeof makeCanvasRuntime> | undefined;
 

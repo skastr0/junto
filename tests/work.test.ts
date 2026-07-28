@@ -67,7 +67,14 @@ const agentNode = (id = "agent"): CanvasDoc["nodes"][number] => ({
   y: 0,
   width: 200,
   height: 100,
-  ether: { entity: { kind: "agent", name: "local:mira" } },
+  ether: {
+    entity: { kind: "agent", name: `local:${id}` },
+    terminal: {
+      bindingId: `binding-${id}`,
+      harness: "claude",
+      launch: { kind: "harness", argv: ["claude"] },
+    },
+  },
 });
 
 describe("work pure transforms", () => {
@@ -402,6 +409,12 @@ import {
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { StationRepositoryLive } from "../src/main/vellum/station/repository";
 import {
+  StationFleetTargetRepositoryLive,
+} from "../src/main/vellum/station/fleet-target-repository";
+import {
+  StationLivePeerRegistryLive,
+} from "../src/main/vellum/station/session-registry";
+import {
   SettingsLive,
   SettingsService,
 } from "../src/main/vellum/settings/service";
@@ -411,6 +424,7 @@ const repositoriesLive = Layer.provideMerge(
   Layer.mergeAll(
     WorkRepositoryLive,
     StationRepositoryLive,
+    StationFleetTargetRepositoryLive,
     SettingsLive,
   ),
   stateLive,
@@ -420,7 +434,10 @@ const canvasesLive = Layer.provideMerge(
   repositoriesLive,
 );
 const workRuntime = ManagedRuntime.make(
-  Layer.provideMerge(WorkLive, canvasesLive),
+  Layer.provideMerge(
+    WorkLive,
+    Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
+  ),
 );
 let work: Context.Tag.Service<typeof WorkService>;
 let canvases: Context.Tag.Service<typeof CanvasesService>;
@@ -461,11 +478,25 @@ describe("WorkService — concurrent ops", () => {
             height: 100,
             ether: { entity: { kind: "task" } },
           },
+          agentNode("actor-a"),
+          agentNode("actor-b"),
+          agentNode("actor-c"),
         ],
-        edges: [],
+        edges: [
+          { id: "edge-a", fromNode: "actor-a", toNode: "tasks" },
+          { id: "edge-b", fromNode: "actor-b", toNode: "tasks" },
+          { id: "edge-c", fromNode: "actor-c", toNode: "tasks" },
+        ],
       }),
     );
     const authorialBefore = await workRuntime.runPromise(canvases.read(name));
+    const actors = ["actor-a", "actor-b", "actor-c"].map((nodeId) => {
+      const actor = authorialBefore.actorRefs.find(
+        (candidate) => candidate.nodeId === nodeId,
+      );
+      if (actor === undefined) throw new Error(`missing actor ref for ${nodeId}`);
+      return actor;
+    });
 
     const created = await workRuntime.runPromise(
       work.workTaskCreate(name, "tasks", "race me"),
@@ -476,11 +507,13 @@ describe("WorkService — concurrent ops", () => {
     const taskId = created.data.id;
 
     // First claim must win; concurrent claims by different actors.
-    const results = await Promise.all([
-      workRuntime.runPromise(work.workTaskClaim(name, "tasks", taskId, "actor-a")),
-      workRuntime.runPromise(work.workTaskClaim(name, "tasks", taskId, "actor-b")),
-      workRuntime.runPromise(work.workTaskClaim(name, "tasks", taskId, "actor-c")),
-    ]);
+    const results = await Promise.all(
+      actors.map((actor) =>
+        workRuntime.runPromise(
+          work.workTaskClaim(name, "tasks", taskId, actor),
+        )
+      ),
+    );
 
     const wins = results.filter((r) => r.ok);
     const losses = results.filter((r) => !r.ok);
@@ -495,11 +528,16 @@ describe("WorkService — concurrent ops", () => {
     );
     const task = snapshot.tasks.items.find((item) => item.id === taskId);
     expect(task?.state).toBe("working");
-    expect(typeof task?.metadata?.claimedBy).toBe("string");
+    expect(actors.map((actor) => actor.seatId)).toContain(task?.claimedBy);
 
     // Explicit second claim by different actor after settle
     const other = await workRuntime.runPromise(
-      work.workTaskClaim(name, "tasks", taskId, "intruder"),
+      work.workTaskClaim(
+        name,
+        "tasks",
+        taskId,
+        actors.find((actor) => actor.seatId !== task?.claimedBy)!,
+      ),
     );
     expect(other.ok).toBe(false);
     if (!other.ok) expect(other.code).toBe("claim_contention");
@@ -556,7 +594,8 @@ describe("WorkService — concurrent ops", () => {
       canvases.write(name, {
         nodes: [
           emptyRequestsNode("requests"),
-          agentNode("agent"),
+          agentNode("sender"),
+          agentNode("recipient"),
           {
             id: "artifacts",
             type: "text",
@@ -570,13 +609,32 @@ describe("WorkService — concurrent ops", () => {
             },
           },
         ],
-        edges: [],
+        edges: [
+          { id: "edge-request", fromNode: "sender", toNode: "requests" },
+          {
+            id: "edge-message",
+            fromNode: "sender",
+            toNode: "recipient",
+            ether: { ports: ["msg.send"] },
+          },
+          { id: "edge-artifact", fromNode: "sender", toNode: "artifacts" },
+        ],
       }),
     );
     const authorialBefore = await workRuntime.runPromise(canvases.read(name));
+    const actor = authorialBefore.actorRefs.find(
+      (candidate) => candidate.nodeId === "sender",
+    );
+    if (actor === undefined) throw new Error("missing actor ref for sender");
 
     const request = await workRuntime.runPromise(
-      work.workRequestCreate(name, "requests", "approve release"),
+      work.workRequestCreate(
+        name,
+        "requests",
+        "approve release",
+        undefined,
+        actor,
+      ),
     );
     expect(request.ok).toBe(true);
     if (!request.ok) return;
@@ -597,9 +655,18 @@ describe("WorkService — concurrent ops", () => {
       parts: [{ kind: "text", text: "start" }],
     };
     const appended = await workRuntime.runPromise(
-      work.workMessageAppend(name, "agent", null, inboxMessage),
+      work.workMessageAppend(
+        name,
+        "recipient",
+        null,
+        inboxMessage,
+        actor,
+      ),
     );
-    expect(appended.ok).toBe(true);
+    if (!appended.ok) {
+      throw new Error(`${appended.code}: ${appended.message}`);
+    }
+    expect(appended).toMatchObject({ ok: true });
 
     const artifact: Artifact = {
       artifactId: "artifact-lane-1",
@@ -607,7 +674,7 @@ describe("WorkService — concurrent ops", () => {
       parts: [{ kind: "text", text: "sha256:abc" }],
     };
     const published = await workRuntime.runPromise(
-      work.workArtifactPublish(name, "artifacts", artifact),
+      work.workArtifactPublish(name, "artifacts", artifact, actor),
     );
     expect(published.ok).toBe(true);
 
@@ -619,7 +686,7 @@ describe("WorkService — concurrent ops", () => {
         .items[0],
     ).toMatchObject({ state: "completed", response: "approved" });
     expect(
-      snapshots.find((snapshot) => snapshot.nodeId === "agent")?.messages
+      snapshots.find((snapshot) => snapshot.nodeId === "recipient")?.messages
         .items,
     ).toEqual([expect.objectContaining({ messageId: "inbox-lane-1" })]);
     expect(

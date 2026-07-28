@@ -1,56 +1,99 @@
-// WorkService — durable work-plane mutations over SQLite.
-// The authorial canvas is read only for topology/kind/home validation. Existing
-// callers receive a temporary work projection; it is never committed as intent.
+// WorkService — one repository-native orchestration seam for the SQLite work
+// plane. Canvas documents are read-only topology plus runtime projections;
+// every durable mutation goes through a specific WorkRepository verb.
 
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Either, Layer, Schema } from "effect";
 import type {
-  WorkMetadata,
-  Task,
   Artifact,
   CanvasDoc,
+  CanvasNode,
   Message,
+  Task,
   TaskState,
+  WorkMetadata,
 } from "@shared/canvas";
-import type { WorkOpResult } from "@shared/ipc";
+import type {
+  CanvasReadResult,
+  WorkOpResult,
+} from "@shared/ipc";
+import type {
+  InstallationId as InstallationIdValue,
+} from "@shared/installation-id";
+import type {
+  StationConfiguration as StationConfigurationValue,
+} from "@shared/station-api";
+import { resolveNodeHostId } from "@shared/station";
 import {
   WorkError,
   workArtifactPublish,
   workMessageAppend,
   workRequestCreate,
   workRequestResolve,
-  workTaskClaim,
   workTaskCreate,
   workTaskDescribe,
   workTaskTransition,
   type WorkIds,
 } from "@shared/work";
-import { CanvasesService, CanvasError } from "../canvases";
-import { resolveNodeHostId } from "@shared/station";
+import type {
+  ActorRef,
+  WorkAction as WorkActionValue,
+  WorkItemRef,
+} from "@shared/work-protocol";
+import { ulid } from "ulid";
+import {
+  CanvasesService,
+  CanvasError,
+} from "../canvases";
+import {
+  StationFleetTargetRepository,
+} from "../station/fleet-target-repository";
 import { StationRepository } from "../station/repository";
+import {
+  StationLivePeerRegistry,
+} from "../station/session-registry";
+import { admitWorkTarget } from "./authz";
 import { clearSeatBlockedByRequest } from "./blocked-seat";
 import { messageDelivery } from "./message-delivery";
 import {
-  COMMAND_CENTER_WORK_HOME,
+  WorkAuthorityError,
   WorkRepository,
   WorkRepositoryError,
-  type WorkCommandStatus,
+  type PendingCommand,
 } from "./repository";
-import { ulid } from "ulid";
 
-export class WorkServiceError extends Schema.TaggedError<WorkServiceError>()("WorkServiceError", {
-  code: Schema.Literal(
-    "canvas_not_found",
-    "node_not_found",
-    "task_not_found",
-    "illegal_kind",
-    "illegal_transition",
-    "claim_contention",
-    "invalid",
-  ),
-  message: Schema.String,
-}) {}
+export class WorkServiceError extends Schema.TaggedError<WorkServiceError>()(
+  "WorkServiceError",
+  {
+    code: Schema.Literal(
+      "canvas_not_found",
+      "node_not_found",
+      "task_not_found",
+      "illegal_kind",
+      "illegal_transition",
+      "claim_contention",
+      "invalid",
+    ),
+    message: Schema.String,
+  },
+) {}
 
 export type { WorkOpResult };
+
+export type WorkCommandStatus = {
+  readonly counts: {
+    readonly pending: number;
+    readonly applied: number;
+    readonly rejected: number;
+  };
+  readonly pending: ReadonlyArray<PendingCommand>;
+  readonly rejections: ReadonlyArray<PendingCommand>;
+  readonly truncated: {
+    readonly pending: boolean;
+    readonly rejections: boolean;
+  };
+};
+
+const COMMAND_STATUS_DETAIL_LIMIT = 100;
 
 const defaultIds = (): WorkIds => ({
   id: () => ulid(),
@@ -58,19 +101,48 @@ const defaultIds = (): WorkIds => ({
 });
 
 const toWorkServiceError = (error: unknown): WorkServiceError => {
-  if (error instanceof WorkError) {
-    return new WorkServiceError({ code: error.code, message: error.message });
-  }
   if (error instanceof WorkServiceError) return error;
+  if (error instanceof WorkError) {
+    return new WorkServiceError({
+      code: error.code,
+      message: error.message,
+    });
+  }
+  if (error instanceof WorkAuthorityError) {
+    const code = (() => {
+      switch (error.reason) {
+        case "missing-entity":
+          return "task_not_found" as const;
+        case "invalid-transition":
+          return "illegal_transition" as const;
+        case "claim-contention":
+          return "claim_contention" as const;
+        case "authority-mismatch":
+        case "causal-conflict":
+        case "identity-conflict":
+        case "target-mismatch":
+          return "invalid" as const;
+      }
+    })();
+    return new WorkServiceError({ code, message: error.message });
+  }
   if (error instanceof WorkRepositoryError) {
-    return new WorkServiceError({ code: "invalid", message: error.message });
+    return new WorkServiceError({
+      code: "invalid",
+      message: error.message,
+    });
   }
   if (error instanceof CanvasError) {
-    const msg = error.message;
-    if (msg.includes("ENOENT") || msg.includes("no such file") || msg.includes("does not exist")) {
-      return new WorkServiceError({ code: "canvas_not_found", message: msg });
-    }
-    return new WorkServiceError({ code: "invalid", message: msg });
+    const message = error.message;
+    return new WorkServiceError({
+      code:
+        message.includes("ENOENT") ||
+        message.includes("no such file") ||
+        message.includes("does not exist")
+          ? "canvas_not_found"
+          : "invalid",
+      message,
+    });
   }
   return new WorkServiceError({
     code: "invalid",
@@ -78,11 +150,14 @@ const toWorkServiceError = (error: unknown): WorkServiceError => {
   });
 };
 
-type WorkApplyOk<T> = {
+type WorkMutationOutcome<T> = {
   readonly value: T;
+  readonly disposition: "applied" | "queued";
+};
+
+type WorkApplyOk<T> = WorkMutationOutcome<T> & {
   readonly doc: CanvasDoc;
   readonly revision: string;
-  readonly disposition: "applied" | "queued";
 };
 
 const asResult = <T>(
@@ -98,14 +173,46 @@ const asResult = <T>(
         disposition,
       }),
     ),
-    Effect.catchAll((err) =>
+    Effect.catchAll((error) =>
       Effect.succeed({
         ok: false as const,
-        code: err.code,
-        message: err.message,
+        code: error.code,
+        message: error.message,
       }),
     ),
   );
+
+type StationContext = {
+  readonly localInstallationId: InstallationIdValue;
+  readonly configuration: StationConfigurationValue;
+};
+
+const sinkRef = (
+  canvasName: string,
+  nodeId: string,
+): WorkItemRef["sink"] => ({ canvasName, nodeId });
+
+const workItem = (
+  kind: WorkItemRef["kind"],
+  itemId: string,
+  canvasName: string,
+  nodeId: string,
+): WorkItemRef => ({
+  kind,
+  itemId,
+  sink: sinkRef(canvasName, nodeId),
+});
+
+const sameActor = (left: ActorRef, right: ActorRef): boolean =>
+  left.seatId === right.seatId &&
+  left.canvasName === right.canvasName &&
+  left.nodeId === right.nodeId;
+
+const nodeById = (
+  doc: CanvasDoc,
+  nodeId: string,
+): CanvasNode | undefined =>
+  doc.nodes.find((node) => node.id === nodeId);
 
 export class WorkService extends Context.Tag("@vellum/WorkService")<
   WorkService,
@@ -134,20 +241,21 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       canvas: string,
       nodeId: string,
       taskId: string,
-      actor: string,
+      actor: ActorRef,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workMessageAppend: (
       canvas: string,
       nodeId: string,
       taskId: string | null,
       message: Message,
+      sentBy: ActorRef,
     ) => Effect.Effect<WorkOpResult<Message>>;
     readonly workRequestCreate: (
       canvas: string,
       nodeId: string,
       brief: string,
-      metadata?: WorkMetadata,
-      raisedBy?: string,
+      metadata: WorkMetadata | undefined,
+      raisedBy: ActorRef,
       reason?: string,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workRequestResolve: (
@@ -161,6 +269,7 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       canvas: string,
       nodeId: string,
       artifact: Artifact,
+      publishedBy: ActorRef,
     ) => Effect.Effect<WorkOpResult<Artifact>>;
     readonly commandStatus: Effect.Effect<
       WorkCommandStatus,
@@ -175,271 +284,588 @@ export const WorkLive = Layer.effect(
     const canvases = yield* CanvasesService;
     const repository = yield* WorkRepository;
     const stations = yield* StationRepository;
+    const fleetTargets = yield* StationFleetTargetRepository;
+    const livePeers = yield* StationLivePeerRegistry;
     const ids = defaultIds();
 
-    const apply = <T>(
-      canvas: string,
-      nodeId: string,
-      operation: string,
-      fn: (doc: CanvasDoc) => { doc: CanvasDoc; value: T },
-      options: {
-        readonly messageHome?: boolean;
-        readonly entityHome?: string;
-      } = {},
-    ): Effect.Effect<WorkApplyOk<T>, WorkServiceError> =>
-      Effect.gen(function* () {
-        const eventHome = yield* stations.installationId.pipe(
-          Effect.mapError(toWorkServiceError),
-        );
-        const station = yield* stations.configuration.pipe(
-          Effect.mapError(toWorkServiceError),
-        );
-        if (station === undefined) {
-          return yield* new WorkServiceError({
-            code: "invalid",
-            message:
-              "station role is not configured; choose Command Center or Remote before mutating work",
-          });
-        }
-        if (
-          options.messageHome &&
-          station.configuration.role === "remote"
-        ) {
-          return yield* new WorkServiceError({
-            code: "invalid",
-            message:
-              "messages are Command-Center-homed and cannot be authored on a Remote",
-          });
-        }
-        const read = yield* canvases
-          .read(canvas)
-          .pipe(Effect.mapError(toWorkServiceError));
-        const node = read.doc.nodes.find((candidate) => candidate.id === nodeId);
-        if (!node) {
-          return yield* new WorkServiceError({
-            code: "node_not_found",
-            message: `node "${nodeId}" not found`,
-          });
-        }
-        const entityHome = options.messageHome
-          ? COMMAND_CENTER_WORK_HOME
-          : options.entityHome ?? resolveNodeHostId(node);
-        if (
-          station.configuration.role === "remote" &&
-          entityHome !== station.configuration.hostId
-        ) {
-          return yield* new WorkServiceError({
-            code: "invalid",
-            message:
-              `Remote "${station.configuration.hostId}" cannot mutate work homed on "${entityHome}"`,
-          });
-        }
-        const result = yield* repository
-          .mutate({
-            canvasName: canvas,
-            nodeId,
-            entityHome,
-            eventHome,
-            materialization:
-              station.configuration.role === "command-center" &&
-                !options.messageHome &&
-                entityHome !== station.configuration.hostId
-                ? "on-disposition"
-                : "immediate",
-            operation,
-            authoredDoc: read.doc,
-            transform: fn,
+    const stationContext: Effect.Effect<
+      StationContext,
+      WorkServiceError
+    > = Effect.all({
+      localInstallationId: stations.installationId,
+      configured: stations.configuration,
+    }).pipe(
+      Effect.mapError(toWorkServiceError),
+      Effect.flatMap(({ localInstallationId, configured }) =>
+        configured === undefined
+          ? Effect.fail(
+            new WorkServiceError({
+              code: "invalid",
+              message:
+                "station role is not configured; choose Command Center or Remote before mutating work",
+            }),
+          )
+          : Effect.succeed({
+            localInstallationId,
+            configuration: configured.configuration,
           })
-          .pipe(Effect.mapError(toWorkServiceError));
-        return {
-          value: result.value,
-          doc: result.projectedDoc,
-          // Work mutations do not advance authorial canvas revision.
-          revision: read.revision,
-          disposition: result.disposition,
-        };
+      ),
+    );
+
+    const readCanvas = (canvasName: string) =>
+      canvases.read(canvasName).pipe(Effect.mapError(toWorkServiceError));
+
+    const runPolicy = <A>(thunk: () => A): Effect.Effect<A, WorkServiceError> =>
+      Effect.try({
+        try: thunk,
+        catch: toWorkServiceError,
       });
 
-    const itemHome = (
-      lane: "task" | "request",
-      canvas: string,
-      nodeId: string,
-      taskId: string,
-    ): Effect.Effect<string | undefined, WorkServiceError> =>
-      repository
-        .itemHome(lane, canvas, nodeId, taskId)
-        .pipe(Effect.mapError(toWorkServiceError));
+    const complete = <T>(
+      canvasName: string,
+      outcome: WorkMutationOutcome<T>,
+    ): Effect.Effect<WorkApplyOk<T>, WorkServiceError> =>
+      readCanvas(canvasName).pipe(
+        Effect.map((read) => ({
+          ...outcome,
+          doc: read.doc,
+          revision: read.revision,
+        })),
+      );
 
-    const actorHome = (
-      canvas: string,
-      actor: string,
-    ): Effect.Effect<string, WorkServiceError> =>
-      stations.configuration.pipe(
+    const requireNode = (
+      doc: CanvasDoc,
+      nodeId: string,
+    ): Effect.Effect<CanvasNode, WorkServiceError> => {
+      const node = nodeById(doc, nodeId);
+      return node === undefined
+        ? Effect.fail(
+          new WorkServiceError({
+            code: "node_not_found",
+            message: `node "${nodeId}" not found`,
+          }),
+        )
+        : Effect.succeed(node);
+    };
+
+    const requireActor = (
+      read: CanvasReadResult,
+      actor: ActorRef,
+      targetNodeId: string,
+      op:
+        | "tasks.claim"
+        | "msg.send"
+        | "request.create"
+        | "artifact.publish",
+    ): Effect.Effect<CanvasNode, WorkServiceError> => {
+      const exact = read.actorRefs.filter((candidate) =>
+        sameActor(candidate, actor)
+      );
+      if (exact.length !== 1) {
+        return Effect.fail(
+          new WorkServiceError({
+            code: "invalid",
+            message:
+              `actor ${JSON.stringify(actor.nodeId)} does not identify exactly one ` +
+              "compiled actor seat in the current projection",
+          }),
+        );
+      }
+      const admitted = admitWorkTarget(
+        read.doc,
+        actor.nodeId,
+        targetNodeId,
+        op,
+      );
+      if (Either.isLeft(admitted)) {
+        return Effect.fail(
+          new WorkServiceError({
+            code:
+              admitted.left.type === "UnknownTarget"
+                ? "node_not_found"
+                : "invalid",
+            message: admitted.left.message,
+          }),
+        );
+      }
+      const actorNode = nodeById(read.doc, actor.nodeId);
+      return actorNode === undefined
+        ? Effect.fail(
+          new WorkServiceError({
+            code: "node_not_found",
+            message: `actor node "${actor.nodeId}" not found`,
+          }),
+        )
+        : Effect.succeed(actorNode);
+    };
+
+    const homeForNode = (
+      node: CanvasNode,
+      context: StationContext,
+    ): Effect.Effect<InstallationIdValue, WorkServiceError> => {
+      const hostId = resolveNodeHostId(node);
+      if (hostId === context.configuration.hostId) {
+        return Effect.succeed(context.localInstallationId);
+      }
+      if (context.configuration.role === "remote") {
+        return Effect.succeed(
+          context.configuration.commandCenterInstallationId,
+        );
+      }
+      return fleetTargets.get(hostId).pipe(
         Effect.mapError(toWorkServiceError),
-        Effect.flatMap((station) =>
-          station === undefined
+        Effect.flatMap((target) =>
+          target === undefined
             ? Effect.fail(
               new WorkServiceError({
                 code: "invalid",
                 message:
-                  "station role is not configured; choose Command Center or Remote before mutating work",
+                  `host ${JSON.stringify(hostId)} has no enrolled Station installation`,
               }),
             )
-            : canvases.read(canvas).pipe(
-              Effect.mapError(toWorkServiceError),
-              Effect.flatMap((read) => {
-                const actorNode = read.doc.nodes.find(
-                  (node) => node.id === actor,
-                );
-                return actorNode === undefined
-                  ? Effect.fail(
-                    new WorkServiceError({
-                      code: "node_not_found",
-                      message: `actor node "${actor}" not found`,
-                    }),
-                  )
-                  : Effect.succeed(resolveNodeHostId(actorNode));
+            : Effect.succeed(target.stationInstallationId)
+        ),
+      );
+    };
+
+    const requireRoutableRemote = (
+      targetInstallationId: InstallationIdValue,
+      context: StationContext,
+    ): Effect.Effect<void, WorkServiceError> => {
+      if (targetInstallationId === context.localInstallationId) {
+        return Effect.fail(
+          new WorkServiceError({
+            code: "invalid",
+            message: "remote command target must differ from this installation",
+          }),
+        );
+      }
+      if (context.configuration.role === "remote") {
+        return targetInstallationId ===
+            context.configuration.commandCenterInstallationId
+          ? Effect.void
+          : Effect.fail(
+            new WorkServiceError({
+              code: "invalid",
+              message: "a Remote may enqueue work only to its Command Center",
+            }),
+          );
+      }
+      return fleetTargets.list.pipe(
+        Effect.mapError(toWorkServiceError),
+        Effect.flatMap((targets) =>
+          targets.some(
+            (target) =>
+              target.stationInstallationId === targetInstallationId,
+          )
+            ? Effect.void
+            : Effect.fail(
+              new WorkServiceError({
+                code: "invalid",
+                message:
+                  `Station installation ${JSON.stringify(targetInstallationId)} is not an active fleet target`,
               }),
             )
         ),
       );
+    };
+
+    const enqueue = <T>(
+      context: StationContext,
+      targetInstallationId: InstallationIdValue,
+      item: WorkItemRef,
+      action: Exclude<
+        WorkActionValue,
+        { readonly operation: "task.claim" }
+      >,
+      value: T,
+    ): Effect.Effect<WorkMutationOutcome<T>, WorkServiceError> =>
+      requireRoutableRemote(targetInstallationId, context).pipe(
+        Effect.flatMap(() =>
+          repository.enqueueRemoteCommand({
+            sink: item.sink,
+            targetInstallationId,
+            item,
+            action,
+          })
+        ),
+        Effect.mapError(toWorkServiceError),
+        Effect.as({
+          value,
+          disposition: "queued" as const,
+        }),
+      );
+
+    const local = <T>(
+      effect: Effect.Effect<
+        { readonly value: T },
+        unknown
+      >,
+    ): Effect.Effect<WorkMutationOutcome<T>, WorkServiceError> =>
+      effect.pipe(
+        Effect.mapError(toWorkServiceError),
+        Effect.map(({ value }) => ({
+          value,
+          disposition: "applied" as const,
+        })),
+      );
+
+    const itemHome = (
+      lane: "task" | "request",
+      canvasName: string,
+      nodeId: string,
+      itemId: string,
+    ): Effect.Effect<InstallationIdValue, WorkServiceError> =>
+      repository.itemHome(lane, canvasName, nodeId, itemId).pipe(
+        Effect.mapError(toWorkServiceError),
+        Effect.flatMap((home) =>
+          home === undefined
+            ? Effect.fail(
+              new WorkServiceError({
+                code: "task_not_found",
+                message: `${lane} "${itemId}" not found`,
+              }),
+            )
+            : Effect.succeed(home)
+        ),
+      );
+
+    const commandStatus = repository.pendingCommands.pipe(
+      Effect.mapError(toWorkServiceError),
+      Effect.map((commands): WorkCommandStatus => {
+        const pending = commands.filter(
+          (entry) => entry.resolution === undefined,
+        );
+        const applied = commands.filter(
+          (entry) => entry.resolution?.status === "applied",
+        );
+        const rejected = commands.filter(
+          (entry) => entry.resolution?.status === "rejected",
+        );
+        return {
+          counts: {
+            pending: pending.length,
+            applied: applied.length,
+            rejected: rejected.length,
+          },
+          pending: pending.slice(0, COMMAND_STATUS_DETAIL_LIMIT),
+          rejections: rejected.slice(0, COMMAND_STATUS_DETAIL_LIMIT),
+          truncated: {
+            pending: pending.length > COMMAND_STATUS_DETAIL_LIMIT,
+            rejections: rejected.length > COMMAND_STATUS_DETAIL_LIMIT,
+          },
+        };
+      }),
+    );
 
     return WorkService.of({
       workTaskCreate: (canvas, nodeId, brief, metadata, reason) =>
         asResult(
-          apply(
-            canvas,
-            nodeId,
-            "task.create",
-            (doc) => {
-              const result = workTaskCreate(
-                doc,
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            const node = yield* requireNode(read.doc, nodeId);
+            const policy = yield* runPolicy(() =>
+              workTaskCreate(
+                read.doc,
                 canvas,
                 nodeId,
                 brief,
                 metadata,
                 ids,
                 reason,
+              )
+            );
+            const home = yield* homeForNode(node, context);
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.createTask({
+                  sink: sinkRef(canvas, nodeId),
+                  task: policy.task,
+                }),
+              )
+              : yield* enqueue(
+                context,
+                home,
+                workItem("task", policy.task.id, canvas, nodeId),
+                { operation: "task.create", task: policy.task },
+                policy.task,
               );
-              return { doc: result.doc, value: result.task };
-            },
-          ),
+            return yield* complete(canvas, outcome);
+          }),
         ),
 
       workTaskDescribe: (canvas, nodeId, taskId, brief) =>
         asResult(
-          itemHome("task", canvas, nodeId, taskId).pipe(
-            Effect.flatMap((home) =>
-              apply(
+          Effect.gen(function* () {
+            const [context, read, home] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("task", canvas, nodeId, taskId),
+            ]);
+            const policy = yield* runPolicy(() =>
+              workTaskDescribe(
+                read.doc,
                 canvas,
                 nodeId,
-                "task.describe",
-                (doc) => {
-                  const result = workTaskDescribe(
-                    doc,
-                    canvas,
-                    nodeId,
-                    taskId,
-                    brief,
-                    ids,
-                  );
-                  return { doc: result.doc, value: result.task };
-                },
-                { ...(home === undefined ? {} : { entityHome: home }) },
+                taskId,
+                brief,
+                ids,
               )
-            ),
-          ),
+            );
+            const message = policy.task.history[0]!;
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.describeTask({
+                  sink: sinkRef(canvas, nodeId),
+                  taskId,
+                  message,
+                }),
+              )
+              : yield* enqueue(
+                context,
+                home,
+                workItem("task", taskId, canvas, nodeId),
+                { operation: "task.describe", taskId, message },
+                policy.task,
+              );
+            return yield* complete(canvas, outcome);
+          }),
         ),
 
       workTaskTransition: (canvas, nodeId, taskId, state, note) =>
         asResult(
-          itemHome("task", canvas, nodeId, taskId).pipe(
-            Effect.flatMap((home) =>
-              apply(
+          Effect.gen(function* () {
+            const [context, read, home] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("task", canvas, nodeId, taskId),
+            ]);
+            const before = nodeById(read.doc, nodeId)?.ether?.tasks?.items
+              .find((task) => task.id === taskId);
+            const policy = yield* runPolicy(() =>
+              workTaskTransition(
+                read.doc,
                 canvas,
                 nodeId,
-                "task.transition",
-                (doc) => {
-                  const result = workTaskTransition(
-                    doc,
-                    canvas,
-                    nodeId,
-                    taskId,
-                    state,
-                    note,
-                    ids,
-                  );
-                  return { doc: result.doc, value: result.task };
-                },
-                { ...(home === undefined ? {} : { entityHome: home }) },
+                taskId,
+                state,
+                note,
+                ids,
               )
-            ),
-          ),
+            );
+            const message =
+              before !== undefined &&
+                policy.task.history.length > before.history.length
+                ? policy.task.history.at(-1)
+                : undefined;
+            const action = {
+              operation: "task.transition" as const,
+              taskId,
+              state,
+              ...(message === undefined ? {} : { message }),
+            };
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.transitionTask({
+                  sink: sinkRef(canvas, nodeId),
+                  taskId,
+                  state,
+                  ...(message === undefined ? {} : { message }),
+                }),
+              )
+              : yield* enqueue(
+                context,
+                home,
+                workItem("task", taskId, canvas, nodeId),
+                action,
+                policy.task,
+              );
+            return yield* complete(canvas, outcome);
+          }),
         ),
 
       workTaskClaim: (canvas, nodeId, taskId, actor) =>
         asResult(
-          actorHome(canvas, actor).pipe(
-            Effect.flatMap((home) =>
-              apply(
-                canvas,
-                nodeId,
-                "task.claim",
-                (doc) => {
-                  const result = workTaskClaim(
-                    doc,
-                    canvas,
-                    nodeId,
-                    taskId,
-                    actor,
-                    ids,
-                  );
-                  return { doc: result.doc, value: result.task };
-                },
-                { entityHome: home },
-              )
-            ),
-          ),
+          Effect.gen(function* () {
+            const [context, read, sourceHome] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("task", canvas, nodeId, taskId),
+            ]);
+            const actorNode = yield* requireActor(
+              read,
+              actor,
+              nodeId,
+              "tasks.claim",
+            );
+            const actorHome = yield* homeForNode(actorNode, context);
+            if (sourceHome !== context.localInstallationId) {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  "first claim must execute on the installation that owns the submitted queue",
+              });
+            }
+            const sourceTask = nodeById(read.doc, nodeId)?.ether?.tasks?.items
+              .find((task) => task.id === taskId);
+            if (sourceTask === undefined) {
+              return yield* new WorkServiceError({
+                code: "task_not_found",
+                message: `task "${taskId}" not found`,
+              });
+            }
+            let outcome: WorkMutationOutcome<Task>;
+            if (actorHome === context.localInstallationId) {
+              outcome = yield* local(
+                repository.claimLocalTask({
+                  sink: sinkRef(canvas, nodeId),
+                  taskId,
+                  actor,
+                }),
+              );
+            } else {
+              if (context.configuration.role !== "command-center") {
+                return yield* new WorkServiceError({
+                  code: "invalid",
+                  message:
+                    "a Remote cannot relay a task claim to another installation",
+                });
+              }
+              const hostId = resolveNodeHostId(actorNode);
+              const target = yield* fleetTargets.get(hostId).pipe(
+                Effect.mapError(toWorkServiceError),
+              );
+              if (
+                target === undefined ||
+                target.stationInstallationId !== actorHome
+              ) {
+                return yield* new WorkServiceError({
+                  code: "invalid",
+                  message:
+                    `actor host ${JSON.stringify(hostId)} has no exact enrolled Station target`,
+                });
+              }
+              const witness = yield* livePeers
+                .require(hostId, actorHome)
+                .pipe(Effect.mapError(toWorkServiceError));
+              yield* livePeers.withSession(
+                witness,
+                repository.reserveRemoteTaskClaim({
+                  sink: sinkRef(canvas, nodeId),
+                  taskId,
+                  actor,
+                  targetInstallationId: actorHome,
+                }),
+              ).pipe(Effect.mapError(toWorkServiceError));
+              outcome = {
+                value: sourceTask,
+                disposition: "queued",
+              };
+            }
+            return yield* complete(canvas, outcome);
+          }),
         ),
 
-      workMessageAppend: (canvas, nodeId, taskId, message) =>
+      workMessageAppend: (
+        canvas,
+        nodeId,
+        taskId,
+        message,
+        sentBy,
+      ) =>
         asResult(
-          apply(
-            canvas,
-            nodeId,
-            "message.append",
-            (doc) => {
-              const result = workMessageAppend(
-                doc,
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            yield* requireActor(
+              read,
+              sentBy,
+              nodeId,
+              "msg.send",
+            );
+            const targetNode = yield* requireNode(read.doc, nodeId);
+            const policy = yield* runPolicy(() =>
+              workMessageAppend(
+                read.doc,
                 canvas,
                 nodeId,
                 taskId,
                 message,
+              )
+            );
+            const home = taskId === null
+              ? yield* homeForNode(targetNode, context)
+              : targetNode.ether?.entity?.kind === "requests"
+                ? yield* itemHome(
+                  "request",
+                  canvas,
+                  nodeId,
+                  taskId,
+                )
+                : yield* itemHome("task", canvas, nodeId, taskId);
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.appendMessage({
+                  sink: sinkRef(canvas, nodeId),
+                  message: policy.message,
+                  sentBy,
+                }),
+              )
+              : yield* enqueue(
+                context,
+                home,
+                workItem(
+                  "message",
+                  policy.message.messageId,
+                  canvas,
+                  nodeId,
+                ),
+                {
+                  operation: "message.append",
+                  message: policy.message,
+                  sentBy,
+                },
+                policy.message,
               );
-              return { doc: result.doc, value: result.message };
-            },
-            { messageHome: taskId === null },
-          ),
-        ).pipe(
-          Effect.tap((result) => {
-            // Nudge channel: only actor inboxes (taskId null).
-            // Task/request history is a pull surface — never auto-delivered.
-            if (result.ok && taskId === null) {
-              messageDelivery.notifyAppended(canvas, nodeId, result.data);
+            if (outcome.disposition === "applied" && taskId === null) {
+              messageDelivery.notifyAppended(
+                canvas,
+                nodeId,
+                outcome.value,
+              );
             }
-            return Effect.void;
+            return yield* complete(canvas, outcome);
           }),
         ),
 
-      workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy, reason) =>
+      workRequestCreate: (
+        canvas,
+        nodeId,
+        brief,
+        metadata,
+        raisedBy,
+        reason,
+      ) =>
         asResult(
-          apply(
-            canvas,
-            nodeId,
-            "request.create",
-            (doc) => {
-              const result = workRequestCreate(
-                doc,
+          Effect.gen(function* () {
+            const [, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            yield* requireActor(
+              read,
+              raisedBy,
+              nodeId,
+              "request.create",
+            );
+            const policy = yield* runPolicy(() =>
+              workRequestCreate(
+                read.doc,
                 canvas,
                 nodeId,
                 brief,
@@ -447,66 +873,120 @@ export const WorkLive = Layer.effect(
                 ids,
                 raisedBy,
                 reason,
-              );
-              return { doc: result.doc, value: result.task };
-            },
-          ),
-        ),
-
-      workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
-        asResult(
-          itemHome("request", canvas, nodeId, taskId).pipe(
-            Effect.flatMap((home) =>
-              apply(
-                canvas,
-                nodeId,
-                "request.resolve",
-                (doc) => {
-                  const result = workRequestResolve(
-                    doc,
-                    canvas,
-                    nodeId,
-                    taskId,
-                    responseText,
-                    disposition,
-                    ids,
-                  );
-                  return { doc: result.doc, value: result.task };
-                },
-                { ...(home === undefined ? {} : { entityHome: home }) },
               )
-            ),
-          ),
-        ).pipe(
-          Effect.tap((result) => {
-            // Escalate seats clear when the operator answers the request.
-            if (result.ok) {
-              clearSeatBlockedByRequest(canvas, taskId);
-            }
-            return Effect.void;
+            );
+            const outcome = yield* local(
+              repository.createRequest({
+                sink: sinkRef(canvas, nodeId),
+                request: policy.task,
+                raisedBy,
+              }),
+            );
+            return yield* complete(canvas, outcome);
           }),
         ),
 
-      workArtifactPublish: (canvas, nodeId, artifact) =>
+      workRequestResolve: (
+        canvas,
+        nodeId,
+        taskId,
+        responseText,
+        disposition,
+      ) =>
         asResult(
-          apply(
-            canvas,
-            nodeId,
-            "artifact.publish",
-            (doc) => {
-              const result = workArtifactPublish(
-                doc,
+          Effect.gen(function* () {
+            const [context, read, home] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("request", canvas, nodeId, taskId),
+            ]);
+            const before = nodeById(read.doc, nodeId)?.ether?.requests?.items
+              .find((task) => task.id === taskId);
+            const policy = yield* runPolicy(() =>
+              workRequestResolve(
+                read.doc,
+                canvas,
+                nodeId,
+                taskId,
+                responseText,
+                disposition,
+                ids,
+              )
+            );
+            const message =
+              before !== undefined &&
+                policy.task.history.length > before.history.length
+                ? policy.task.history.at(-1)
+                : undefined;
+            const action = {
+              operation: "request.resolve" as const,
+              requestId: taskId,
+              response: policy.task.response!,
+              disposition,
+              ...(message === undefined ? {} : { message }),
+            };
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.resolveRequest({
+                  sink: sinkRef(canvas, nodeId),
+                  requestId: taskId,
+                  response: policy.task.response!,
+                  disposition,
+                  ...(message === undefined ? {} : { message }),
+                }),
+              )
+              : yield* enqueue(
+                context,
+                home,
+                workItem("request", taskId, canvas, nodeId),
+                action,
+                policy.task,
+              );
+            if (outcome.disposition === "applied") {
+              clearSeatBlockedByRequest(canvas, taskId);
+            }
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workArtifactPublish: (
+        canvas,
+        nodeId,
+        artifact,
+        publishedBy,
+      ) =>
+        asResult(
+          Effect.gen(function* () {
+            const [, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            yield* requireActor(
+              read,
+              publishedBy,
+              nodeId,
+              "artifact.publish",
+            );
+            const policy = yield* runPolicy(() =>
+              workArtifactPublish(
+                read.doc,
                 canvas,
                 nodeId,
                 artifact,
-              );
-              return { doc: result.doc, value: result.artifact };
-            },
-          ),
+              )
+            );
+            const outcome = yield* local(
+              repository.publishArtifact({
+                sink: sinkRef(canvas, nodeId),
+                artifact: policy.artifact,
+                publishedBy,
+              }),
+            );
+            return yield* complete(canvas, outcome);
+          }),
         ),
-      commandStatus: repository.commandStatus.pipe(
-        Effect.mapError(toWorkServiceError),
-      ),
+
+      commandStatus,
     });
   }),
 );
