@@ -135,7 +135,11 @@ const StationFleetServicesLive = Layer.provideMerge(
 
 const HostsWithSshLive = Layer.provideMerge(
   HostsServiceLive,
-  Layer.mergeAll(SshTransportLive, StateRepositoriesLive),
+  Layer.mergeAll(
+    SshTransportLive,
+    StateRepositoriesLive,
+    StationFleetServicesLive,
+  ),
 );
 
 // HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.
