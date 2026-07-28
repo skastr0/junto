@@ -454,7 +454,7 @@ export const registerVellumIpc = (): void => {
         ok: false as const,
         code: "invalid" as const,
         message:
-          "Remote station cannot mutate authorial canvases. Author on the Command Center.",
+          "Operator work authoring is available only on the Command Center.",
       };
     }
     return null;
