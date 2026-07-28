@@ -7,6 +7,7 @@ import {
   type LinuxReleaseHostFacts,
   type LinuxReleasePackageIdentity,
 } from "./linux-release-bundle";
+import type { StationProtocolSupport } from "../src/shared/station-protocol";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 
@@ -14,9 +15,7 @@ const parseOptions = (
   args: ReadonlyArray<string>,
 ): {
   readonly bundle: string;
-  readonly peerVersion: string;
-  readonly peerStationApiProtocol: string;
-  readonly peerWorkControlProtocol: string;
+  readonly peerStationProtocol: StationProtocolSupport;
   readonly keyring: string;
   readonly trustedKeyringRevision: number;
   readonly trustedKeyringSha256: string;
@@ -29,9 +28,9 @@ const parseOptions = (
     const current = args[index];
     if (
       current !== "--bundle" &&
-      current !== "--peer-version" &&
-      current !== "--peer-station-api-protocol" &&
-      current !== "--peer-work-control-protocol" &&
+      current !== "--peer-station-protocol-preferred" &&
+      current !== "--peer-station-protocol-compatible-from" &&
+      current !== "--peer-station-protocol-warn-below" &&
       current !== "--keyring" &&
       current !== "--trusted-keyring-revision" &&
       current !== "--trusted-keyring-sha256" &&
@@ -49,9 +48,11 @@ const parseOptions = (
     index += 1;
   }
   const bundle = values.get("--bundle");
-  const peerVersion = values.get("--peer-version");
-  const stationApi = values.get("--peer-station-api-protocol");
-  const workControl = values.get("--peer-work-control-protocol");
+  const preferred = values.get("--peer-station-protocol-preferred");
+  const compatibleFrom = values.get(
+    "--peer-station-protocol-compatible-from",
+  );
+  const warnBelow = values.get("--peer-station-protocol-warn-below");
   const keyring = values.get("--keyring");
   const keyringRevision = values.get("--trusted-keyring-revision");
   const keyringSha256 = values.get("--trusted-keyring-sha256");
@@ -61,10 +62,15 @@ const parseOptions = (
   );
   if (
     bundle === undefined ||
-    peerVersion === undefined ||
-    stationApi === undefined ||
-    stationApi.length === 0 ||
-    workControl === undefined ||
+    preferred === undefined ||
+    !/^[1-9][0-9]*$/u.test(preferred) ||
+    !Number.isSafeInteger(Number(preferred)) ||
+    compatibleFrom === undefined ||
+    !/^[1-9][0-9]*$/u.test(compatibleFrom) ||
+    !Number.isSafeInteger(Number(compatibleFrom)) ||
+    warnBelow === undefined ||
+    !/^[1-9][0-9]*$/u.test(warnBelow) ||
+    !Number.isSafeInteger(Number(warnBelow)) ||
     keyring === undefined ||
     keyringRevision === undefined ||
     !/^[1-9][0-9]*$/u.test(keyringRevision) ||
@@ -74,14 +80,16 @@ const parseOptions = (
     trustedKeyFingerprintSha256 === undefined
   ) {
     throw new Error(
-      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-version X.Y.Z --peer-station-api-protocol vellum/station-api/v2 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z]",
+      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-station-protocol-preferred N --peer-station-protocol-compatible-from N --peer-station-protocol-warn-below N [--installed-version X.Y.Z]",
     );
   }
   return {
     bundle,
-    peerVersion,
-    peerStationApiProtocol: stationApi,
-    peerWorkControlProtocol: workControl,
+    peerStationProtocol: {
+      preferred: Number(preferred),
+      compatibleFrom: Number(compatibleFrom),
+      warnBelow: Number(warnBelow),
+    },
     keyring,
     trustedKeyringRevision: Number(keyringRevision),
     trustedKeyringSha256: keyringSha256,
@@ -200,9 +208,7 @@ export const linuxReleaseVerifyMain = async (
     bundleDirectory,
     host,
     packageIdentity,
-    peerVersion: options.peerVersion,
-    stationApiProtocol: options.peerStationApiProtocol,
-    workControlProtocol: options.peerWorkControlProtocol,
+    peerStationProtocol: options.peerStationProtocol,
     trustedKeyring,
     trustedKeyringRevision: options.trustedKeyringRevision,
     trustedKeyringSha256: options.trustedKeyringSha256,

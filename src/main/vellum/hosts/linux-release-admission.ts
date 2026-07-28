@@ -4,9 +4,7 @@ import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import embeddedReleaseKeyring from "../../../../build/linux/release-keyring.json";
 import embeddedReleaseTrustPolicy from "../../../../build/linux/release-trust-policy.json";
-import productMetadata from "../../../../package.json";
-import { STATION_API_PROTOCOL } from "../../../shared/station-api";
-import { WORK_PROTOCOL_VERSION } from "../../../shared/work-control";
+import { CURRENT_STATION_PROTOCOL_SUPPORT } from "../../../shared/station-protocol";
 import {
   LINUX_RELEASE_MANIFEST,
   LINUX_RELEASE_TARGET,
@@ -297,9 +295,7 @@ export const verifyProductionLinuxDeployBundle = async (
       libcVersion: LINUX_RELEASE_TARGET.libc.minimumVersion,
     },
     packageIdentity,
-    peerVersion: productMetadata.version,
-    stationApiProtocol: STATION_API_PROTOCOL,
-    workControlProtocol: WORK_PROTOCOL_VERSION,
+    peerStationProtocol: CURRENT_STATION_PROTOCOL_SUPPORT,
     trustedKeyring: trust.keyring,
     trustedKeyringRevision: trust.trustedKeyringRevision,
     trustedKeyringSha256: trust.trustedKeyringSha256,

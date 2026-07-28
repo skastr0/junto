@@ -62,9 +62,10 @@ not qualified in v1.
    the staged directory is not entirely root-owned and non-writable by the
    station user. The verifier's exact-inventory check rejects symlinks,
    undeclared files, missing files, and changed bytes in this protected copy.
-4. From the Command Center, record the peer product version, station-api
-   protocol, and work-control protocol. Linux v1 expects station-api
-   `vellum/station-api/v2` and work-control `vellum-work/v1`.
+4. From the Command Center, record its one Station protocol support descriptor:
+   `preferred`, `compatibleFrom`, and `warnBelow`. The current policy is
+   `2/2/2`. App release and local Work-control versions are not peer
+   compatibility gates.
 5. Check the verifier against the independently authenticated hash, then run
    it as the ordinary station user with the independently authenticated trust
    values:
@@ -80,9 +81,9 @@ not qualified in v1.
      --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
      --trusted-key-id AUTHENTICATED_KEY_ID \
      --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
-     --peer-version X.Y.Z \
-     --peer-station-api-protocol vellum/station-api/v2 \
-     --peer-work-control-protocol vellum-work/v1
+     --peer-station-protocol-preferred 2 \
+     --peer-station-protocol-compatible-from 2 \
+     --peer-station-protocol-warn-below 2
    ```
 
 Run the staged verifier as the ordinary station user, never with `sudo`. It
@@ -359,9 +360,9 @@ contain receipts and bounded status, never `~/.vellum` itself.
       --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
       --trusted-key-id AUTHENTICATED_KEY_ID \
       --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
-      --peer-version X.Y.Z \
-     --peer-station-api-protocol vellum/station-api/v2 \
-     --peer-work-control-protocol vellum-work/v1 \
+      --peer-station-protocol-preferred 2 \
+      --peer-station-protocol-compatible-from 2 \
+      --peer-station-protocol-warn-below 2 \
      --installed-version CURRENT_VERSION
    ```
 

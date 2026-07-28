@@ -65,7 +65,6 @@ export const linuxReleaseToolMain = async (
         "--created-at",
         "--expires-at",
         "--download-locator",
-        "--minimum-peer-version",
         "--key-id",
       ]),
     );
@@ -76,7 +75,6 @@ export const linuxReleaseToolMain = async (
       createdAt: required(parsed, "--created-at"),
       expiresAt: required(parsed, "--expires-at"),
       downloadLocator: required(parsed, "--download-locator"),
-      minimumPeerVersion: required(parsed, "--minimum-peer-version"),
       keyId: required(parsed, "--key-id"),
     });
     process.stdout.write(

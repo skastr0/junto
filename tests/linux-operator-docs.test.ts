@@ -64,10 +64,14 @@ describe("Linux v1 operator documentation", () => {
     expect(runbook).toContain(
       "Run the staged verifier as the ordinary station user, never with `sudo`",
     );
+    expect(runbook).toContain("--peer-station-protocol-preferred 2");
     expect(runbook).toContain(
-      "--peer-station-api-protocol vellum/station-api/v2",
+      "--peer-station-protocol-compatible-from 2",
     );
-    expect(runbook).toContain("--peer-work-control-protocol vellum-work/v1");
+    expect(runbook).toContain("--peer-station-protocol-warn-below 2");
+    expect(runbook).not.toContain("--peer-version");
+    expect(runbook).not.toContain("--peer-station-api-protocol");
+    expect(runbook).not.toContain("--peer-work-control-protocol");
     expect(runbook).not.toContain("--peer-station-browser-protocol");
     expect(runbook).toContain("systemctl --user enable --now vellum-remote.service");
     expect(runbook).toContain("loginctl enable-linger");

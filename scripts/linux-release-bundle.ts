@@ -15,6 +15,13 @@ import {
 } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
+import { Either, Schema } from "effect";
+import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  StationProtocolSupport as StationProtocolSupportSchema,
+  negotiateStationProtocol,
+  type StationProtocolSupport,
+} from "../src/shared/station-protocol";
 import { isRecognizedSpdxExpression } from "./spdx-license";
 
 export const LINUX_RELEASE_MANIFEST = "release-manifest.json";
@@ -36,11 +43,6 @@ export const LINUX_RELEASE_TARGET = Object.freeze({
     minimumVersion: "2.39",
   },
   packageKind: "deb",
-} as const);
-
-export const LINUX_RELEASE_PROTOCOLS = Object.freeze({
-  stationApi: "vellum/station-api/v2",
-  workControl: "vellum-work/v1",
 } as const);
 
 export const LINUX_RELEASE_UNSUPPORTED = Object.freeze([
@@ -78,7 +80,7 @@ export interface LinuxReleaseFile {
 }
 
 export interface LinuxReleaseManifest {
-  readonly schema: "vellum/linux-release-manifest/v3";
+  readonly schema: "vellum/linux-release-manifest/v4";
   readonly release: {
     readonly product: "Vellum Command";
     readonly version: string;
@@ -99,11 +101,7 @@ export interface LinuxReleaseManifest {
     readonly bytes: number;
     readonly sha256: string;
   };
-  readonly protocols: {
-    readonly stationApi: "vellum/station-api/v2";
-    readonly workControl: "vellum-work/v1";
-    readonly minimumPeerVersion: string;
-  };
+  readonly stationProtocol: StationProtocolSupport;
   readonly downgrade: { readonly policy: "forbid" };
   readonly trust: {
     readonly algorithm: "ed25519";
@@ -169,9 +167,7 @@ export interface LinuxReleaseVerificationInput {
   readonly bundleDirectory: string;
   readonly host: LinuxReleaseHostFacts;
   readonly packageIdentity: LinuxReleasePackageIdentity;
-  readonly peerVersion: string;
-  readonly stationApiProtocol: string;
-  readonly workControlProtocol: string;
+  readonly peerStationProtocol: StationProtocolSupport;
   readonly installedVersion?: string;
   readonly trustedKeyring: LinuxReleaseKeyring;
   readonly trustedKeyringRevision: number;
@@ -358,6 +354,19 @@ const requireInteger = (
     throw new Error(`invalid ${label}`);
   }
   return value;
+};
+
+const decodeStationProtocolSupport = (
+  value: unknown,
+  label: string,
+): StationProtocolSupport => {
+  const decoded = Schema.decodeUnknownEither(StationProtocolSupportSchema, {
+    onExcessProperty: "error",
+  })(value);
+  if (Either.isLeft(decoded)) {
+    throw new Error(`invalid ${label}`);
+  }
+  return decoded.right;
 };
 
 const requireIsoTimestamp = (value: unknown, label: string): string => {
@@ -725,7 +734,7 @@ export const decodeLinuxReleaseManifest = (
       "source",
       "target",
       "package",
-      "protocols",
+      "stationProtocol",
       "downgrade",
       "trust",
       "files",
@@ -733,7 +742,7 @@ export const decodeLinuxReleaseManifest = (
     ],
     "Linux release manifest",
   );
-  if (manifest.schema !== "vellum/linux-release-manifest/v3") {
+  if (manifest.schema !== "vellum/linux-release-manifest/v4") {
     throw new Error("unsupported Linux release manifest");
   }
 
@@ -801,21 +810,9 @@ export const decodeLinuxReleaseManifest = (
     "package SHA-256",
   );
 
-  const protocols = record(manifest.protocols, "release protocols");
-  exactKeys(
-    protocols,
-    ["stationApi", "workControl", "minimumPeerVersion"],
-    "release protocols",
-  );
-  if (
-    protocols.stationApi !== LINUX_RELEASE_PROTOCOLS.stationApi ||
-    protocols.workControl !== LINUX_RELEASE_PROTOCOLS.workControl
-  ) {
-    throw new Error("Linux release protocol identity mismatch");
-  }
-  const minimumPeerVersion = requireSemver(
-    protocols.minimumPeerVersion,
-    "minimum peer version",
+  const stationProtocol = decodeStationProtocolSupport(
+    manifest.stationProtocol,
+    "release Station protocol support",
   );
 
   const downgrade = record(manifest.downgrade, "downgrade policy");
@@ -863,7 +860,7 @@ export const decodeLinuxReleaseManifest = (
   }
 
   return {
-    schema: "vellum/linux-release-manifest/v3",
+    schema: "vellum/linux-release-manifest/v4",
     release: {
       product: "Vellum Command",
       version,
@@ -884,11 +881,7 @@ export const decodeLinuxReleaseManifest = (
       bytes: packageBytes,
       sha256: packageSha256,
     },
-    protocols: {
-      stationApi: "vellum/station-api/v2",
-      workControl: "vellum-work/v1",
-      minimumPeerVersion,
-    },
+    stationProtocol,
     downgrade: { policy: "forbid" },
     trust: {
       algorithm: "ed25519",
@@ -1814,16 +1807,18 @@ const validateCompatibility = (
   ) {
     throw new Error("deb metadata does not match the signed release manifest");
   }
-  const peerVersion = requireSemver(input.peerVersion, "peer version");
-  if (
-    compareReleaseVersions(
-      peerVersion,
-      manifest.protocols.minimumPeerVersion,
-    ) < 0 ||
-    input.stationApiProtocol !== manifest.protocols.stationApi ||
-    input.workControlProtocol !== manifest.protocols.workControl
-  ) {
-    throw new Error("release protocol is incompatible with the selected peer");
+  const peerStationProtocol = decodeStationProtocolSupport(
+    input.peerStationProtocol,
+    "peer Station protocol support",
+  );
+  const negotiation = negotiateStationProtocol(
+    manifest.stationProtocol,
+    peerStationProtocol,
+  );
+  if (negotiation._tag === "no-common") {
+    throw new Error(
+      "release Station protocol has no exact version in common with the selected peer",
+    );
   }
   if (input.installedVersion !== undefined) {
     const installed = requireSemver(
@@ -2053,7 +2048,6 @@ export const createLinuxReleaseManifest = async (input: {
   readonly createdAt: string;
   readonly expiresAt: string;
   readonly downloadLocator: string;
-  readonly minimumPeerVersion: string;
   readonly keyId: string;
 }): Promise<LinuxReleaseManifest> => {
   const directory = path.resolve(input.bundleDirectory);
@@ -2109,12 +2103,8 @@ export const createLinuxReleaseManifest = async (input: {
   if (packageReceipt === undefined) {
     throw new Error("Linux release bundle is missing its deb");
   }
-  const minimumPeerVersion = requireSemver(
-    input.minimumPeerVersion,
-    "minimum peer version",
-  );
   const manifest: LinuxReleaseManifest = {
-    schema: "vellum/linux-release-manifest/v3",
+    schema: "vellum/linux-release-manifest/v4",
     release: {
       product: "Vellum Command",
       version,
@@ -2135,10 +2125,8 @@ export const createLinuxReleaseManifest = async (input: {
       bytes: packageReceipt.bytes,
       sha256: packageReceipt.sha256,
     },
-    protocols: {
-      stationApi: LINUX_RELEASE_PROTOCOLS.stationApi,
-      workControl: LINUX_RELEASE_PROTOCOLS.workControl,
-      minimumPeerVersion,
+    stationProtocol: {
+      ...CURRENT_STATION_PROTOCOL_SUPPORT,
     },
     downgrade: { policy: "forbid" },
     trust: {

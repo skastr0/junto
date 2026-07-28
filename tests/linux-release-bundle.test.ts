@@ -17,10 +17,10 @@ import {
   LINUX_RELEASE_CHECKSUMS,
   LINUX_RELEASE_KEYRING,
   LINUX_RELEASE_MANIFEST,
-  LINUX_RELEASE_PROTOCOLS,
   LINUX_RELEASE_SIGNATURE,
   createLinuxReleaseManifest,
   decodeLinuxReleaseKeyring,
+  decodeLinuxReleaseManifest,
   releaseKeyringSha256,
   releasePublicKeyFingerprint,
   signLinuxReleaseMetadata,
@@ -28,6 +28,10 @@ import {
   type LinuxReleaseHostFacts,
   type LinuxReleaseKeyring,
 } from "../scripts/linux-release-bundle";
+import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  type StationProtocolSupport,
+} from "../src/shared/station-protocol";
 import { verifyProductionLinuxDeployBundle } from "../src/main/vellum/hosts/linux-release-admission";
 
 const roots: string[] = [];
@@ -340,7 +344,6 @@ const createFixture = async (options: {
     expiresAt: EXPIRES_AT,
     downloadLocator:
       `https://releases.example.test/vellum-${VERSION}-ubuntu-24.04-x64-release.tar.gz`,
-    minimumPeerVersion: VERSION,
     keyId: KEY_ID,
   });
   await signLinuxReleaseMetadata({
@@ -371,9 +374,7 @@ const verifyFixture = async (
       version: VERSION,
       architecture: "amd64",
     },
-    peerVersion: VERSION,
-    stationApiProtocol: LINUX_RELEASE_PROTOCOLS.stationApi,
-    workControlProtocol: LINUX_RELEASE_PROTOCOLS.workControl,
+    peerStationProtocol: CURRENT_STATION_PROTOCOL_SUPPORT,
     trustedKeyring,
     trustedKeyringRevision: trustedKeyring.revision,
     trustedKeyringSha256: releaseKeyringSha256(trustedKeyring),
@@ -387,10 +388,19 @@ const verifyFixture = async (
 
 describe("signed Linux release bundle", () => {
   it("verifies both detached signatures, every payload, target, and protocol", async () => {
-    expect(LINUX_RELEASE_PROTOCOLS.stationApi).toBe(
-      "vellum/station-api/v2",
-    );
     const fixture = await createFixture();
+    const manifest = decodeLinuxReleaseManifest(JSON.parse(
+      await readFile(
+        path.join(fixture.directory, LINUX_RELEASE_MANIFEST),
+        "utf8",
+      ),
+    ));
+    expect(manifest.schema).toBe("vellum/linux-release-manifest/v4");
+    expect(manifest.stationProtocol).toEqual({
+      preferred: 2,
+      compatibleFrom: 2,
+      warnBelow: 2,
+    });
     await expect(verifyFixture(fixture.directory)).resolves.toEqual({
       schema: "vellum/linux-release-verification-receipt/v1",
       ok: true,
@@ -529,7 +539,7 @@ describe("signed Linux release bundle", () => {
     );
   });
 
-  it("fails target, expiry, package, peer, and protocol checks before admission", async () => {
+  it("fails target, expiry, package, peer range, and trust checks before admission", async () => {
     const fixture = await createFixture();
     const cases: ReadonlyArray<
       Partial<Parameters<typeof verifyLinuxReleaseBundle>[0]>
@@ -544,10 +554,28 @@ describe("signed Linux release bundle", () => {
           architecture: "amd64",
         },
       },
-      { peerVersion: "0.0.9" },
-      { stationApiProtocol: "vellum/station-api/v1" },
-      { stationApiProtocol: "vellum/station-browser/v1" },
-      { workControlProtocol: "vellum-work/v2" },
+      {
+        peerStationProtocol: {
+          preferred: 1,
+          compatibleFrom: 1,
+          warnBelow: 1,
+        },
+      },
+      {
+        peerStationProtocol: {
+          preferred: 2,
+          compatibleFrom: 3,
+          warnBelow: 2,
+        } as StationProtocolSupport,
+      },
+      {
+        peerStationProtocol: {
+          preferred: 2,
+          compatibleFrom: 2,
+          warnBelow: 2,
+          stationApi: "vellum/station-api/v2",
+        } as unknown as StationProtocolSupport,
+      },
       { trustedKeyId: "vellum-linux-other" },
       { trustedKeyringRevision: 8 },
       { trustedKeyringSha256: "0".repeat(64) },
@@ -558,6 +586,41 @@ describe("signed Linux release bundle", () => {
         verifyFixture(fixture.directory, candidate),
       ).rejects.toThrow();
     }
+  });
+
+  it("accepts a deprecated but exact overlapping Station codec", async () => {
+    const fixture = await createFixture();
+    await expect(
+      verifyFixture(fixture.directory, {
+        peerStationProtocol: {
+          preferred: 3,
+          compatibleFrom: 2,
+          warnBelow: 3,
+        },
+      }),
+    ).resolves.toMatchObject({ ok: true, version: VERSION });
+  });
+
+  it("strictly rejects the retired multi-axis v3 manifest shape", async () => {
+    const fixture = await createFixture();
+    const manifest = JSON.parse(
+      await readFile(
+        path.join(fixture.directory, LINUX_RELEASE_MANIFEST),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    const { stationProtocol: _, ...withoutStationProtocol } = manifest;
+    expect(() =>
+      decodeLinuxReleaseManifest({
+        ...withoutStationProtocol,
+        schema: "vellum/linux-release-manifest/v3",
+        protocols: {
+          stationApi: "vellum/station-api/v2",
+          workControl: "vellum-work/v1",
+          minimumPeerVersion: VERSION,
+        },
+      })
+    ).toThrow(/unsupported|manifest/u);
   });
 
   it("rejects every downgrade after cutover", async () => {
