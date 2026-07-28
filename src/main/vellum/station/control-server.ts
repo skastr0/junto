@@ -12,6 +12,7 @@ import {
   reportResponseSwapsDirection,
   type ReportRequest,
   type ReportResponse,
+  type StationApiRequest,
   type StationReadiness,
 } from "@shared/station-api";
 import {
@@ -77,6 +78,10 @@ import {
 
 export type { RunStationApi };
 
+export type StationControlRequestAdmission = (
+  request: StationApiRequest,
+) => boolean;
+
 type StationControlReadinessObservation =
   & Omit<StationReadiness, "session">
   & { readonly session?: boolean };
@@ -100,6 +105,13 @@ export interface StationControlServerOptions {
   /** Diagnostics only; neither value participates in wire selection. */
   readonly appVersion?: StationAppVersion;
   readonly stateSchemaVersion?: StationStateSchemaVersion;
+  /**
+   * Optional operation admission for a deliberately reduced Station surface.
+   * The request is already strict-decoded. Omission preserves the full
+   * admitted transport contract; a false result or thrown error denies only
+   * that request and never reaches readiness probes or the domain service.
+   */
+  readonly admitRequest?: StationControlRequestAdmission;
 }
 
 export interface StationControlShutdownReceipt {
@@ -513,6 +525,27 @@ export const startStationControlServer = async (
     session: ActiveStationControlSession,
     requestFrame: StationSessionRequestFrameValue,
   ): Promise<void> => {
+    let admitted = true;
+    if (options.admitRequest !== undefined) {
+      try {
+        admitted = options.admitRequest(requestFrame.request) === true;
+      } catch {
+        admitted = false;
+      }
+    }
+    if (!admitted) {
+      await respondToRequest(
+        session,
+        requestFrame,
+        stationControlErr(
+          "authorization_denied",
+          "station operation is not admitted",
+          false,
+        ),
+      );
+      return;
+    }
+
     let readiness: StationReadiness;
     if (requestFrame.request.op === "status") {
       let observed: StationControlReadinessObservation;

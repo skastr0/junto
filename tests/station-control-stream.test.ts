@@ -14,12 +14,14 @@ import {
 } from "vitest";
 import {
   InstallationId,
+  ProjectRequest,
   ReportRequest,
   ReportResponse,
   STATION_API_PROTOCOL,
   StatusRequest,
   StatusResponse,
   type ReportRequest as ReportRequestValue,
+  type StationApiRequest as StationApiRequestValue,
   type StationReadiness,
 } from "../src/shared/station-api";
 import {
@@ -53,6 +55,7 @@ import {
   StationControlReportError,
   startStationControlServer,
   stationControlReadiness,
+  type StationControlRequestAdmission,
   type StationControlServer,
 } from "../src/main/vellum/station/control-server";
 import {
@@ -105,6 +108,7 @@ const makeServer = async (options: {
   readonly localHandoffAuthority?: StationControlLocalHandoffAuthority;
   readonly maxFrameBytes?: number;
   readonly requestTimeoutMs?: number;
+  readonly admitRequest?: StationControlRequestAdmission;
 } = {}): Promise<ServerFixture> => {
   const root = await mkdtemp(join(tmpdir(), "vellum-station-stream-"));
   roots.push(root);
@@ -146,6 +150,7 @@ const makeServer = async (options: {
         makeOwnerLocalStationControlHandoffAuthority(),
     maxFrameBytes: options.maxFrameBytes,
     requestTimeoutMs: options.requestTimeoutMs,
+    admitRequest: options.admitRequest,
     appVersion: "test-remote",
     stateSchemaVersion: 1,
     readiness: () => ({
@@ -276,15 +281,40 @@ const makeFrameReader = (socket: Socket): FrameReader => {
   };
 };
 
-const statusFrame = (requestId: string) =>
+const requestFrame = (
+  requestId: string,
+  request: StationApiRequestValue,
+) =>
   StationSessionRequestFrame.make({
     protocol: STATION_SESSION_PROTOCOL,
     frame: "request",
     requestId: StationSessionRequestId.make(requestId),
-    request: StatusRequest.make({
+    request,
+  });
+
+const statusFrame = (requestId: string) =>
+  requestFrame(
+    requestId,
+    StatusRequest.make({
       protocol: STATION_API_PROTOCOL,
       op: "status",
     }),
+  );
+
+const emptyProjectRequest = () =>
+  Schema.decodeUnknownSync(ProjectRequest)({
+    protocol: STATION_API_PROTOCOL,
+    op: "project",
+    stationInstallationId: REMOTE,
+    projection: {
+      scope: "full",
+      generation: "1",
+      sourceCanvasGeneration: "1",
+      sourceIntentSha256: "a".repeat(64),
+      body: "{}",
+      contentSha256: "b".repeat(64),
+      createdAt: OBSERVED_AT,
+    },
   });
 
 const waitForClose = (socket: Socket): Promise<void> => {
@@ -411,6 +441,106 @@ describe("persistent Station control stream", () => {
       },
     });
     expect(fixture.handled()).toBe(1);
+  });
+
+  it("denies unadmitted operations at the transport boundary and fails closed", async () => {
+    const observedOperations: StationApiRequestValue["op"][] = [];
+    const fixture = await makeServer({
+      admitRequest: (request) => {
+        observedOperations.push(request.op);
+        if (request.op === "report") {
+          throw new Error("admission probe failed");
+        }
+        return (
+          request.op === "status" ||
+          request.op === "pair" ||
+          request.op === "configure"
+        );
+      },
+    });
+    const socket = await connect(fixture.server.socketPath);
+    const reader = makeFrameReader(socket);
+    await bindNegotiatedSession(socket, reader);
+
+    const allowed = statusFrame("bootstrap-status");
+    socket.write(encodeStationControlFrame(allowed));
+    await expect(
+      withTimeout(reader.next(), "admitted status response timed out"),
+    ).resolves.toMatchObject({
+      frame: "response",
+      requestId: allowed.requestId,
+      envelope: {
+        ok: true,
+        response: { op: "status" },
+      },
+    });
+    expect(fixture.handled()).toBe(1);
+
+    const project = requestFrame(
+      "bootstrap-project",
+      emptyProjectRequest(),
+    );
+    socket.write(encodeStationControlFrame(project));
+    await expect(
+      withTimeout(reader.next(), "denied project response timed out"),
+    ).resolves.toMatchObject({
+      frame: "response",
+      requestId: project.requestId,
+      envelope: {
+        ok: false,
+        error: {
+          code: "authorization_denied",
+          message: "station operation is not admitted",
+          retryable: false,
+        },
+      },
+    });
+    expect(fixture.handled()).toBe(1);
+
+    const report = requestFrame(
+      "bootstrap-report",
+      emptyReportRequest(),
+    );
+    socket.write(encodeStationControlFrame(report));
+    await expect(
+      withTimeout(reader.next(), "fail-closed report response timed out"),
+    ).resolves.toMatchObject({
+      frame: "response",
+      requestId: report.requestId,
+      envelope: {
+        ok: false,
+        error: {
+          code: "authorization_denied",
+          message: "station operation is not admitted",
+          retryable: false,
+        },
+      },
+    });
+    expect(fixture.handled()).toBe(1);
+
+    const stillAllowed = statusFrame("bootstrap-status-after-denial");
+    socket.write(encodeStationControlFrame(stillAllowed));
+    await expect(
+      withTimeout(
+        reader.next(),
+        "session did not survive an operation denial",
+      ),
+    ).resolves.toMatchObject({
+      frame: "response",
+      requestId: stillAllowed.requestId,
+      envelope: {
+        ok: true,
+        response: { op: "status" },
+      },
+    });
+    expect(fixture.handled()).toBe(2);
+    expect(observedOperations).toEqual([
+      "status",
+      "project",
+      "report",
+      "status",
+    ]);
+    expect(socket.destroyed).toBe(false);
   });
 
   it("binds a legacy exact-v2 first frame and processes that same frame", async () => {
