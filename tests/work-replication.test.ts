@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,8 +16,11 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
+  AuthorialIntentFactBasis,
+  ProjectedIntentFactBasis,
   RouteCursor,
   WorkRecord,
+  type WorkCommand as WorkCommandValue,
   type WorkRecord as WorkRecordValue,
 } from "../src/shared/work-protocol";
 import {
@@ -26,12 +29,39 @@ import {
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
+import { stationProjectionContentSha256 } from "../src/main/vellum/station/repository";
+import { compileStationPortfolioBody } from "../src/main/vellum/station/portfolio";
 import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/vellum/state/engine";
 
 const observedAt = "2026-07-27T18:00:00.000Z";
+const authorialBody = JSON.stringify({ nodes: [], edges: [] });
+const authorialIntentSha256 = "a".repeat(64);
+const authorialDocumentSha256 = createHash("sha256")
+  .update(authorialBody, "utf8")
+  .digest("hex");
+const projectedBody = compileStationPortfolioBody(
+  new Map([["factory", { nodes: [], edges: [] }]]),
+  new Map(),
+);
+const projectedContentSha256 =
+  stationProjectionContentSha256(projectedBody);
+const authorialBasis = Schema.decodeUnknownSync(
+  AuthorialIntentFactBasis,
+)({
+  kind: "authorial-intent",
+  generation: "1",
+  contentSha256: authorialIntentSha256,
+});
+const projectedBasis = Schema.decodeUnknownSync(
+  ProjectedIntentFactBasis,
+)({
+  kind: "projected-intent",
+  generation: "1",
+  contentSha256: projectedContentSha256,
+});
 const opened: Array<{
   readonly root: string;
   readonly dispose: () => Promise<void>;
@@ -131,12 +161,101 @@ const openInstallation = async (
           ? [role, "local", null, null, observedAt]
           : [role, "remote", "remote", peers[0], observedAt],
       );
+      writer.run(
+        `
+          INSERT INTO canvas_generations(
+            generation,
+            created_at,
+            cause,
+            intent_sha256,
+            document_count
+          ) VALUES (?, ?, ?, ?, 1)
+        `,
+        [
+          authorialBasis.generation,
+          observedAt,
+          "test work replication basis",
+          authorialBasis.contentSha256,
+        ],
+      );
+      writer.run(
+        `
+          INSERT INTO canvas_generation_documents(
+            generation,
+            name,
+            body,
+            sha256,
+            modified_at
+          ) VALUES (?, 'factory', ?, ?, ?)
+        `,
+        [
+          authorialBasis.generation,
+          authorialBody,
+          authorialDocumentSha256,
+          observedAt,
+        ],
+      );
+      writer.run(
+        `
+          INSERT INTO canvas_head(singleton, generation)
+          VALUES (1, ?)
+        `,
+        [authorialBasis.generation],
+      );
+      writer.run(
+        `
+          INSERT INTO station_projection_versions(
+            generation,
+            content_sha256,
+            source_canvas_generation,
+            source_intent_sha256,
+            body,
+            created_at,
+            received_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          projectedBasis.generation,
+          projectedBasis.contentSha256,
+          authorialBasis.generation,
+          authorialBasis.contentSha256,
+          projectedBody,
+          observedAt,
+          observedAt,
+        ],
+      );
+      writer.run(
+        `
+          INSERT INTO station_projection_head(
+            singleton,
+            generation,
+            content_sha256
+          ) VALUES (1, ?, ?)
+        `,
+        [
+          projectedBasis.generation,
+          projectedBasis.contentSha256,
+        ],
+      );
     }),
   );
-  return { runtime, repository, state };
+  return {
+    runtime,
+    repository,
+    state,
+    basis: role === "command-center"
+      ? authorialBasis
+      : projectedBasis,
+  };
 };
 
 const admitted = () => ({ _tag: "admitted" as const });
+
+const commandBasis = (command: WorkCommandValue) => ({
+  kind: "command" as const,
+  command: command.id,
+  commandSha256: command.contentSha256,
+});
 
 const accept = (
   repository: typeof WorkRepository.Service,
@@ -199,6 +318,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const localFact = await commandCenter.runtime.runPromise(
       commandCenter.repository.createTask({
         sink,
+        basis: commandCenter.basis,
         task: {
           id: "local-outbound",
           state: "submitted",
@@ -275,11 +395,15 @@ describe("WorkRepository v2 report reconciliation", () => {
       ]),
     );
 
-    await commandCenter.runtime.runPromise(
+    const accepted = await commandCenter.runtime.runPromise(
       accept(commandCenter.repository, remote, [remoteCommand], {
         peerAcknowledgements: [acknowledgement],
       }),
     );
+    expect(accepted.emitted[0]).toMatchObject({
+      recordType: "fact",
+      basis: commandBasis(remoteCommand),
+    });
     expect(
       await commandCenter.runtime.runPromise(
         commandCenter.state.read(
@@ -372,6 +496,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       throw new Error("message command did not emit its fact and disposition");
     }
     expect(fact.body.sentBy).toEqual(sender);
+    expect(fact.basis).toEqual(commandBasis(command));
 
     const changedSender = actor("9", "different-sender");
     const changedFact = reseal({
@@ -480,6 +605,7 @@ describe("WorkRepository v2 report reconciliation", () => {
           seq: "1",
         },
         recordType: "fact",
+        basis: commandBasis(command),
         item: command.item,
         operation: "message.append",
         contentSha256: "0".repeat(64),
@@ -584,6 +710,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const created = await station.runtime.runPromise(
       station.repository.createTask({
         sink,
+        basis: station.basis,
         task: {
           id: taskId,
           state: "submitted",
@@ -607,6 +734,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const appended = await station.runtime.runPromise(
       station.repository.appendMessage({
         sink,
+        basis: station.basis,
         message: note,
         sentBy: actor("5", "remote-note-sender"),
         destination: { kind: "task", itemId: taskId },
@@ -650,6 +778,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const created = await commandCenter.runtime.runPromise(
       commandCenter.repository.createTask({
         sink,
+        basis: commandCenter.basis,
         task: {
           id: "task-first-adoption",
           state: "submitted",
@@ -731,6 +860,7 @@ describe("WorkRepository v2 report reconciliation", () => {
         claimedBy: worker,
         task: { state: "working", claimedBy: worker.seatId },
       },
+      basis: commandBasis(command),
     });
     expect(applied).toMatchObject({
       recordType: "disposition",
@@ -800,6 +930,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const completed = await station.runtime.runPromise(
       station.repository.transitionTask({
         sink,
+        basis: station.basis,
         taskId: created.value.id,
         state: "completed",
         message: message(
@@ -861,6 +992,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const created = await commandCenter.runtime.runPromise(
       commandCenter.repository.createTask({
         sink,
+        basis: commandCenter.basis,
         task: {
           id: "task-replay",
           state: "submitted",
@@ -964,6 +1096,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const created = await commandCenter.runtime.runPromise(
       commandCenter.repository.createTask({
         sink,
+        basis: commandCenter.basis,
         task: {
           id: "task-integrity",
           state: "submitted",
@@ -1112,6 +1245,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const request = await station.runtime.runPromise(
       station.repository.createRequest({
         sink: requestSink,
+        basis: station.basis,
         raisedBy: requester,
         request: {
           id: "request-remote",
@@ -1177,6 +1311,10 @@ describe("WorkRepository v2 report reconciliation", () => {
       "2",
       "3",
     ]);
+    expect(remoteResolution.emitted[0]).toMatchObject({
+      recordType: "fact",
+      basis: commandBasis(resolve),
+    });
     await commandCenter.runtime.runPromise(
       accept(
         commandCenter.repository,
@@ -1202,6 +1340,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const taskCreated = await station.runtime.runPromise(
       station.repository.createTask({
         sink: taskSink,
+        basis: station.basis,
         task: {
           id: "artifact-source-task",
           state: "submitted",
@@ -1221,6 +1360,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const taskClaimed = await station.runtime.runPromise(
       station.repository.claimLocalTask({
         sink: taskSink,
+        basis: station.basis,
         taskId: taskCreated.value.id,
         actor: taskClaimant,
         originAt: observedAt,
@@ -1235,6 +1375,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const artifact = await station.runtime.runPromise(
       station.repository.publishArtifact({
         sink: artifactSink,
+        basis: station.basis,
         publishedBy: artifactPublisher,
         artifact: {
           artifactId: "artifact-remote",
