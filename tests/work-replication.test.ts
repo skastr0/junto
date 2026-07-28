@@ -1484,6 +1484,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       station.repository
         .appendMessage({
           sink: inbox,
+          basis: station.basis,
           message: message("remote-mail", "agent", "must stay CC-homed"),
           sentBy: requester,
           destination: { kind: "mailbox" },
