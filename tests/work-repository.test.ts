@@ -338,6 +338,11 @@ describe("WorkRepository v2 local authority", () => {
         receivedAt: observedAt,
       }),
     );
+    expect(
+      await runtime.runPromise(
+        repository.hasAcceptedDelivery(artifacts, "delivery-1"),
+      ),
+    ).toBe(false);
     await runtime.runPromise(
       repository.acceptDelivery({
         sink: artifacts,
@@ -355,6 +360,11 @@ describe("WorkRepository v2 local authority", () => {
         receivedAt: observedAt,
       }),
     );
+    expect(
+      await runtime.runPromise(
+        repository.hasAcceptedDelivery(artifacts, "delivery-1"),
+      ),
+    ).toBe(true);
 
     expect(
       (

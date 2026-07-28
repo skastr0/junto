@@ -2889,6 +2889,10 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
       nodeId: string,
       itemId: string,
     ) => Effect.Effect<InstallationId | undefined, WorkRepositoryError>;
+    readonly hasAcceptedDelivery: (
+      sink: SinkRefValue,
+      deliveryId: string,
+    ) => Effect.Effect<boolean, WorkRepositoryError>;
     readonly createTask: (
       input: CreateTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
@@ -3004,6 +3008,31 @@ export const WorkRepositoryLive = Layer.effect(
         .pipe(
           Effect.mapError((error) =>
             toRepositoryError("work.itemHome", error),
+          ),
+        );
+
+    const hasAcceptedDelivery = (
+      sink: SinkRefValue,
+      deliveryId: string,
+    ): Effect.Effect<boolean, WorkRepositoryError> =>
+      state
+        .read(
+          "work.hasAcceptedDelivery",
+          (reader) =>
+            reader.get<StateRow>(
+              `
+                SELECT 1
+                FROM work_delivery_receipts
+                WHERE delivered_canvas_name = ?
+                  AND delivered_node_id = ?
+                  AND delivery_id = ?
+              `,
+              [sink.canvasName, sink.nodeId, deliveryId],
+            ) !== undefined,
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            toRepositoryError("work.hasAcceptedDelivery", error),
           ),
         );
 
@@ -4021,6 +4050,7 @@ export const WorkRepositoryLive = Layer.effect(
       readSnapshot,
       snapshotsForCanvas: readSnapshotsForCanvas,
       itemHome,
+      hasAcceptedDelivery,
       createTask,
       describeTask,
       transitionTask,
