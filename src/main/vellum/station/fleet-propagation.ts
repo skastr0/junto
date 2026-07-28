@@ -1,232 +1,974 @@
 import {
-  Cause,
+  Clock,
   Context,
+  Deferred,
+  Duration,
   Effect,
-  Exit,
-  Fiber,
+  FiberMap,
   Layer,
+  Option,
+  Queue,
+  Random,
+  Ref,
   Schema,
 } from "effect";
-import { StationHostId } from "@shared/station-api";
-import type { HostId } from "@shared/remote-hosts";
+import {
+  InstallationId,
+  StationHostId,
+  type ReportRequest,
+  type StationReadiness,
+} from "@shared/station-api";
+import {
+  HostId,
+  type HostId as HostIdValue,
+} from "@shared/remote-hosts";
+import { stationControlOk } from "@shared/station-api-envelope";
+import {
+  CanvasesService,
+} from "../canvases";
+import {
+  parseSshEndpoint,
+} from "../ssh/domain";
+import {
+  resolveRemotePackagedPlatform,
+} from "../ssh/read-commands";
+import {
+  SshTransport,
+} from "../ssh/service";
+import {
+  sshEndpointForHostId,
+  subscribeHostsSnapshot,
+} from "../hosts/snapshot";
+import {
+  WorkRepository,
+} from "../work/repository";
+import {
+  StationApiService,
+} from "./api";
+import {
+  stationControlErrorEnvelope,
+} from "./dispatcher";
 import {
   StationFleetTargetRepository,
+  type StationFleetTarget,
   type StationFleetTargetRepositoryError,
 } from "./fleet-target-repository";
 import {
+  admitEnrolledOpenSshStationPeer,
+} from "./openssh-peer-exchange";
+import {
+  StationPeerExchange,
+  type StationPeerExchangeError,
+  type StationPeerRoute,
+} from "./peer-exchange";
+import {
+  type StationPeerSessionClosedError,
+} from "./peer-session";
+import {
   StationPropagation,
-  StationPropagationInvariantError,
   type StationPropagationError,
   type StationPropagationReceipt,
+  type StationPropagationTarget,
 } from "./propagation";
-import { parseSshEndpoint } from "../ssh/domain";
-import { sshEndpointForHostId } from "../hosts/snapshot";
+import {
+  StationLivePeerRegistry,
+  type StationLivePeerUnavailable,
+} from "./session-registry";
+
+export const STATION_FLEET_RECONNECT_MIN_MS = 250;
+export const STATION_FLEET_RECONNECT_MAX_MS = 30_000;
+export const STATION_FLEET_SYNCHRONIZE_TIMEOUT_MS = 15_000;
+
+const READY: StationReadiness = {
+  database: true,
+  workControl: true,
+  simulation: true,
+  session: true,
+};
+
+export class StationPeerRouteResolutionError extends Schema.TaggedError<StationPeerRouteResolutionError>()(
+  "StationPeerRouteResolutionError",
+  {
+    hostId: HostId,
+    stationInstallationId: InstallationId,
+    reason: Schema.Literal(
+      "missing-route",
+      "invalid-route",
+      "platform-unavailable",
+    ),
+    message: Schema.String,
+  },
+) {}
+
+export class StationFleetPeerUnavailable extends Schema.TaggedError<StationFleetPeerUnavailable>()(
+  "StationFleetPeerUnavailable",
+  {
+    hostId: HostId,
+    stationInstallationId: Schema.optionalWith(InstallationId, {
+      exact: true,
+    }),
+    reason: Schema.Literal(
+      "not-enrolled",
+      "not-running",
+      "route-unavailable",
+      "connection-failed",
+      "synchronization-failed",
+      "deadline",
+      "stopped",
+    ),
+    causeTag: Schema.optionalWith(Schema.String, { exact: true }),
+    message: Schema.String,
+  },
+) {}
+
+export type StationFleetPeerPhase =
+  | "connecting"
+  | "synchronizing"
+  | "ready"
+  | "backoff"
+  | "stopped";
+
+export type StationFleetPeerStatus = {
+  readonly hostId: HostIdValue;
+  readonly stationInstallationId: StationFleetTarget["stationInstallationId"];
+  readonly phase: StationFleetPeerPhase;
+  readonly sessionOpen: boolean;
+  readonly attempt: number;
+  readonly updatedAt: string;
+  readonly nextRetryAt?: string;
+  readonly lastReceipt?: StationPropagationReceipt;
+  readonly lastFailure?: StationFleetPeerUnavailable;
+};
 
 export type StationFleetPropagationResult =
   | {
       readonly ok: true;
-      readonly hostId: HostId;
+      readonly hostId: HostIdValue;
+      readonly stationInstallationId:
+        StationFleetTarget["stationInstallationId"];
       readonly receipt: StationPropagationReceipt;
+      readonly status: StationFleetPeerStatus;
     }
   | {
       readonly ok: false;
-      readonly hostId: HostId;
-      readonly error: StationPropagationError;
+      readonly hostId: HostIdValue;
+      readonly stationInstallationId?:
+        StationFleetTarget["stationInstallationId"];
+      readonly error: StationFleetPeerUnavailable;
+      readonly status?: StationFleetPeerStatus;
     };
 
 /**
- * One bounded fleet pass.
- *
- * A failed Remote is data in the result, not a failure of the whole pass, so
- * one offline machine cannot head-of-line block the other independently homed
- * stations. Failure to read the canonical fleet registry remains fatal.
+ * Transport admission port. The supervisor understands enrolled peer
+ * identity only; OpenSSH endpoint/platform mechanics remain in this adapter.
  */
+export class StationPeerRouteResolver extends Context.Tag(
+  "@vellum/StationPeerRouteResolver",
+)<
+  StationPeerRouteResolver,
+  {
+    readonly resolve: (
+      target: StationPropagationTarget,
+    ) => Effect.Effect<
+      StationPeerRoute,
+      StationPeerRouteResolutionError
+    >;
+  }
+>() {}
+
+const routeResolutionError = (
+  target: StationPropagationTarget,
+  reason: StationPeerRouteResolutionError["reason"],
+  message: string,
+): StationPeerRouteResolutionError =>
+  StationPeerRouteResolutionError.make({
+    hostId: target.hostId,
+    stationInstallationId: target.stationInstallationId,
+    reason,
+    message,
+  });
+
+export const OpenSshStationPeerRouteResolverLive = Layer.effect(
+  StationPeerRouteResolver,
+  Effect.map(SshTransport, (ssh) =>
+    StationPeerRouteResolver.of({
+      resolve: (target) =>
+        Effect.gen(function* () {
+          const raw = sshEndpointForHostId(target.hostId);
+          if (raw === undefined) {
+            return yield* routeResolutionError(
+              target,
+              "missing-route",
+              "Station host has no enrolled SSH route",
+            );
+          }
+          const endpoint = yield* parseSshEndpoint(raw).pipe(
+            Effect.mapError(() =>
+              routeResolutionError(
+                target,
+                "invalid-route",
+                "Station SSH route is invalid",
+              )
+            ),
+          );
+          const platform = yield* resolveRemotePackagedPlatform(
+            ssh,
+            endpoint,
+          ).pipe(
+            Effect.mapError(() =>
+              routeResolutionError(
+                target,
+                "platform-unavailable",
+                "Station packaged platform is unavailable",
+              )
+            ),
+          );
+          return admitEnrolledOpenSshStationPeer({
+            peerInstallationId: target.stationInstallationId,
+            endpoint,
+            platform,
+          });
+        }).pipe(Effect.withSpan("station.fleet.resolve-route")),
+    }),
+  ),
+);
+
 export class StationFleetPropagation extends Context.Tag(
   "@vellum/StationFleetPropagation",
 )<
   StationFleetPropagation,
   {
-    readonly synchronizeAll: Effect.Effect<
+    /** Start one scoped child per current enrolled fleet target. */
+    readonly start: () => Effect.Effect<
+      void,
+      StationFleetTargetRepositoryError
+    >;
+    /** Fire-and-coalesce invalidation onto existing scoped workers. */
+    readonly request: (
+      hostId?: HostIdValue,
+    ) => Effect.Effect<void>;
+    /**
+     * Await one bounded reconciliation on selected existing workers. This
+     * never opens a second connection or falls back to one-shot Station RPC.
+     */
+    readonly synchronize: (
+      hostId?: HostIdValue,
+    ) => Effect.Effect<
       ReadonlyArray<StationFleetPropagationResult>,
       StationFleetTargetRepositoryError
     >;
-    /** Start the installation-local reconvergence cadence exactly once. */
-    readonly start: (
-      intervalMs?: number,
-    ) => Effect.Effect<void>;
-    /** Coalesce an authored canvas change into one near-term fleet pass. */
-    readonly request: (
-      delayMs?: number,
-    ) => Effect.Effect<void>;
-    /** Stop timers and interrupt an in-flight pass during runtime disposal. */
+    readonly status: (
+      hostId: HostIdValue,
+    ) => Effect.Effect<StationFleetPeerStatus | undefined>;
+    readonly statuses: Effect.Effect<
+      ReadonlyArray<StationFleetPeerStatus>
+    >;
+    /** Interrupt all target scopes and reject outstanding waiters. */
     readonly stop: Effect.Effect<void>;
   }
 >() {}
 
-const DEFAULT_FLEET_INTERVAL_MS = 8_000;
-const DEFAULT_CHANGE_COALESCE_MS = 400;
+type AttemptError =
+  | StationPeerRouteResolutionError
+  | StationPeerExchangeError
+  | StationPropagationError
+  | StationLivePeerUnavailable
+  | StationPeerSessionClosedError;
+
+type WorkerWaiter = Deferred.Deferred<StationFleetPropagationResult>;
+
+interface WorkerControl {
+  readonly target: StationFleetTarget;
+  readonly propagationTarget: StationPropagationTarget;
+  readonly wake: Queue.Queue<void>;
+  readonly waiters: Ref.Ref<ReadonlyArray<WorkerWaiter>>;
+}
+
+type Lifecycle = "idle" | "running" | "stopped";
+
+const causeTag = (error: unknown): string | undefined =>
+  typeof error === "object" &&
+    error !== null &&
+    "_tag" in error &&
+    typeof error._tag === "string"
+    ? error._tag
+    : undefined;
+
+const unavailable = (
+  hostId: HostIdValue,
+  stationInstallationId:
+    | StationFleetTarget["stationInstallationId"]
+    | undefined,
+  reason: StationFleetPeerUnavailable["reason"],
+  message: string,
+  error?: unknown,
+): StationFleetPeerUnavailable =>
+  StationFleetPeerUnavailable.make({
+    hostId,
+    ...(stationInstallationId === undefined
+      ? {}
+      : { stationInstallationId }),
+    reason,
+    ...(causeTag(error) === undefined
+      ? {}
+      : { causeTag: causeTag(error) }),
+    message,
+  });
+
+const unavailableFromAttempt = (
+  target: StationFleetTarget,
+  error: AttemptError,
+): StationFleetPeerUnavailable => {
+  if (error instanceof StationPeerRouteResolutionError) {
+    return unavailable(
+      target.hostId,
+      target.stationInstallationId,
+      "route-unavailable",
+      error.message,
+      error,
+    );
+  }
+  if (
+    error._tag === "StationPeerExchangeError" ||
+    error._tag === "StationPeerSessionClosedError" ||
+    error._tag === "StationLivePeerUnavailable"
+  ) {
+    return unavailable(
+      target.hostId,
+      target.stationInstallationId,
+      "connection-failed",
+      "persistent Station session is unavailable",
+      error,
+    );
+  }
+  return unavailable(
+    target.hostId,
+    target.stationInstallationId,
+    "synchronization-failed",
+    "Station synchronization failed",
+    error,
+  );
+};
+
+const toPropagationTarget = (
+  target: StationFleetTarget,
+): StationPropagationTarget => ({
+  stationInstallationId: target.stationInstallationId,
+  hostId: Schema.decodeUnknownSync(StationHostId)(target.hostId),
+});
+
+const retryDelay = (
+  failureCount: number,
+): Effect.Effect<number> =>
+  Random.next.pipe(
+    Effect.map((random) => {
+      const exponential = Math.min(
+        STATION_FLEET_RECONNECT_MAX_MS,
+        STATION_FLEET_RECONNECT_MIN_MS *
+          2 ** Math.min(failureCount, 16),
+      );
+      const jitter = 0.8 + random * 0.4;
+      return Math.max(
+        STATION_FLEET_RECONNECT_MIN_MS,
+        Math.min(
+          STATION_FLEET_RECONNECT_MAX_MS,
+          Math.round(exponential * jitter),
+        ),
+      );
+    }),
+  );
+
+const nowIso = Clock.currentTimeMillis.pipe(
+  Effect.map((now) => new Date(now).toISOString()),
+);
 
 export const StationFleetPropagationLive = Layer.scoped(
   StationFleetPropagation,
   Effect.gen(function* () {
     const targets = yield* StationFleetTargetRepository;
     const propagation = yield* StationPropagation;
+    const routeResolver = yield* StationPeerRouteResolver;
+    const exchange = yield* StationPeerExchange;
+    const livePeers = yield* StationLivePeerRegistry;
+    const api = yield* StationApiService;
+    const canvases = yield* CanvasesService;
+    const work = yield* WorkRepository;
 
-    const synchronizeAll = targets.list.pipe(
-      Effect.flatMap((fleet) =>
-        Effect.forEach(
-          fleet,
-          (target) => {
-            const route = sshEndpointForHostId(target.hostId);
-            if (route === undefined) {
-              return Effect.succeed({
-                ok: false as const,
-                hostId: target.hostId,
-                error: StationPropagationInvariantError.make({
-                  operation: "synchronize",
-                  reason: "station-host-mismatch",
-                  message:
-                    `host ${JSON.stringify(target.hostId)} has no enrolled SSH route`,
-                }),
-              } satisfies StationFleetPropagationResult);
-            }
-            return parseSshEndpoint(route).pipe(
-              Effect.mapError((error) =>
-                StationPropagationInvariantError.make({
-                  operation: "synchronize",
-                  reason: "station-host-mismatch",
-                  message: error.message,
-                })
-              ),
-              Effect.flatMap((endpoint) =>
-                propagation.synchronize({
-                  endpoint,
-                  stationInstallationId: target.stationInstallationId,
-                  hostId: Schema.decodeUnknownSync(StationHostId)(
-                    target.hostId,
-                  ),
-                })
-              ),
-              Effect.match({
-                onFailure: (error): StationFleetPropagationResult => ({
-                  ok: false,
-                  hostId: target.hostId,
-                  error,
-                }),
-                onSuccess: (receipt): StationFleetPropagationResult => ({
-                  ok: true,
-                  hostId: target.hostId,
-                  receipt,
-                }),
-              }),
-            );
-          },
-          { concurrency: 4 },
+    const fibers = yield* FiberMap.make<HostIdValue, void, never>();
+    const lifecycle = yield* Ref.make<Lifecycle>("idle");
+    const peerStatuses = yield* Ref.make<
+      ReadonlyMap<HostIdValue, StationFleetPeerStatus>
+    >(new Map());
+    const reconcileLock = yield* Effect.makeSemaphore(1);
+    const invalidations = yield* Queue.dropping<void>(1);
+    const workers = new Map<HostIdValue, WorkerControl>();
+    const pendingInvalidationHosts = new Set<HostIdValue>();
+    let pendingInvalidateAll = false;
+
+    const readStatuses = Ref.get(peerStatuses).pipe(
+      Effect.map((current) =>
+        [...current.values()].sort((left, right) =>
+          left.hostId.localeCompare(right.hostId)
         )
       ),
-      Effect.withSpan("station.fleet.synchronize-all"),
     );
 
-    let interval: ReturnType<typeof setInterval> | undefined;
-    let debounce: ReturnType<typeof setTimeout> | undefined;
-    let active:
-      | Fiber.RuntimeFiber<
-          ReadonlyArray<StationFleetPropagationResult>,
-          StationFleetTargetRepositoryError
-        >
-      | undefined;
-    let pending = false;
-    let started = false;
-    let stopped = false;
+    const readStatus = (hostId: HostIdValue) =>
+      Ref.get(peerStatuses).pipe(
+        Effect.map((current) => current.get(hostId)),
+      );
 
-    const clearTimers = (): void => {
-      if (interval !== undefined) clearInterval(interval);
-      if (debounce !== undefined) clearTimeout(debounce);
-      interval = undefined;
-      debounce = undefined;
-    };
+    const setStatus = (
+      target: StationFleetTarget,
+      update: Omit<
+        StationFleetPeerStatus,
+        "hostId" | "stationInstallationId" | "updatedAt"
+      >,
+    ): Effect.Effect<StationFleetPeerStatus> =>
+      Effect.gen(function* () {
+        const updatedAt = yield* nowIso;
+        const status: StationFleetPeerStatus = {
+          hostId: target.hostId,
+          stationInstallationId: target.stationInstallationId,
+          updatedAt,
+          ...update,
+        };
+        yield* Ref.update(peerStatuses, (current) => {
+          const next = new Map(current);
+          next.set(target.hostId, status);
+          return next;
+        });
+        return status;
+      });
 
-    const launch = (): void => {
-      if (stopped || !started) return;
-      if (active !== undefined) {
-        pending = true;
-        return;
-      }
-      const fiber = Effect.runFork(synchronizeAll);
-      active = fiber;
-      fiber.addObserver((exit) => {
-        if (active === fiber) active = undefined;
-        if (Exit.isFailure(exit)) {
-          console.error(
-            "[station] fleet synchronization failed:",
-            Cause.pretty(exit.cause),
+    const successResult = (
+      target: StationFleetTarget,
+      receipt: StationPropagationReceipt,
+      status: StationFleetPeerStatus,
+    ): StationFleetPropagationResult => ({
+      ok: true,
+      hostId: target.hostId,
+      stationInstallationId: target.stationInstallationId,
+      receipt,
+      status,
+    });
+
+    const failureResult = (
+      target: StationFleetTarget,
+      error: StationFleetPeerUnavailable,
+      status?: StationFleetPeerStatus,
+    ): StationFleetPropagationResult => ({
+      ok: false,
+      hostId: target.hostId,
+      stationInstallationId: target.stationInstallationId,
+      error,
+      ...(status === undefined ? {} : { status }),
+    });
+
+    const completeWaiters = (
+      control: WorkerControl,
+      result: StationFleetPropagationResult,
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const waiters = yield* Ref.getAndSet(control.waiters, []);
+        yield* Effect.forEach(
+          waiters,
+          (waiter) => Deferred.succeed(waiter, result),
+          { discard: true },
+        );
+      });
+
+    const synchronizeSession = (
+      control: WorkerControl,
+      session: Parameters<
+        Context.Tag.Service<typeof StationLivePeerRegistry>["activate"]
+      >[2],
+      attempt: number,
+    ): Effect.Effect<StationPropagationReceipt, StationPropagationError> =>
+      Effect.gen(function* () {
+        const previous = yield* readStatus(control.target.hostId);
+        yield* setStatus(control.target, {
+          phase: "synchronizing",
+          sessionOpen: true,
+          attempt,
+          ...(previous?.lastReceipt === undefined
+            ? {}
+            : { lastReceipt: previous.lastReceipt }),
+        });
+        const receipt = yield* propagation.synchronize(
+          control.propagationTarget,
+          session,
+        );
+        return receipt;
+      });
+
+    const markSynchronized = (
+      control: WorkerControl,
+      receipt: StationPropagationReceipt,
+      attempt: number,
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const status = yield* setStatus(control.target, {
+          phase: "ready",
+          sessionOpen: true,
+          attempt,
+          lastReceipt: receipt,
+        });
+        yield* completeWaiters(
+          control,
+          successResult(control.target, receipt, status),
+        );
+      });
+
+    const worker = (
+      control: WorkerControl,
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        let failureCount = 0;
+        let attempt = 0;
+
+        while (true) {
+          attempt += 1;
+          const beforeConnect = yield* readStatus(
+            control.target.hostId,
           );
-        } else {
-          for (const result of exit.value) {
-            if (result.ok) continue;
-            console.error(
-              `[station] ${result.hostId} synchronization failed:`,
-              result.error._tag,
+          yield* setStatus(control.target, {
+            phase: "connecting",
+            sessionOpen: false,
+            attempt,
+            ...(beforeConnect?.lastReceipt === undefined
+              ? {}
+              : { lastReceipt: beforeConnect.lastReceipt }),
+          });
+
+          const attempted = yield* Effect.scoped(
+            Effect.gen(function* () {
+              const route = yield* routeResolver.resolve(
+                control.propagationTarget,
+              );
+              const onRemoteReport = (request: ReportRequest) =>
+                api.handle(
+                  request,
+                  READY,
+                  {
+                    _tag: "enrolled-remote",
+                    installationId:
+                      control.target.stationInstallationId,
+                  },
+                ).pipe(
+                  Effect.tap((response) =>
+                    Effect.sync(() => {
+                      if (
+                        request.batch.hasMore ||
+                        (
+                          response.op === "report" &&
+                          response.batch.hasMore
+                        )
+                      ) {
+                        control.wake.unsafeOffer(undefined);
+                      }
+                    })
+                  ),
+                  Effect.map(stationControlOk),
+                  Effect.catchAll((error) =>
+                    Effect.succeed(
+                      stationControlErrorEnvelope(error),
+                    )
+                  ),
+                );
+              const session = yield* exchange.open(
+                route,
+                onRemoteReport,
+              );
+              const receipt = yield* synchronizeSession(
+                control,
+                session,
+                attempt,
+              );
+              yield* livePeers.activate(
+                control.target.hostId,
+                control.target.stationInstallationId,
+                session,
+              );
+              failureCount = 0;
+              yield* markSynchronized(
+                control,
+                receipt,
+                attempt,
+              );
+
+              while (true) {
+                yield* Effect.raceFirst(
+                  Queue.take(control.wake),
+                  session.awaitClosed.pipe(
+                    Effect.flatMap(Effect.fail),
+                  ),
+                );
+                const nextReceipt = yield* synchronizeSession(
+                  control,
+                  session,
+                  attempt,
+                );
+                yield* markSynchronized(
+                  control,
+                  nextReceipt,
+                  attempt,
+                );
+              }
+
+              return receipt;
+            }),
+          ).pipe(Effect.either);
+
+          if (attempted._tag === "Right") continue;
+
+          const failure = unavailableFromAttempt(
+            control.target,
+            attempted.left,
+          );
+          const delay = yield* retryDelay(failureCount);
+          failureCount += 1;
+          const currentTime = yield* Clock.currentTimeMillis;
+          const beforeBackoff = yield* readStatus(
+            control.target.hostId,
+          );
+          const status = yield* setStatus(control.target, {
+            phase: "backoff",
+            sessionOpen: false,
+            attempt,
+            nextRetryAt: new Date(currentTime + delay).toISOString(),
+            ...(beforeBackoff?.lastReceipt === undefined
+              ? {}
+              : { lastReceipt: beforeBackoff.lastReceipt }),
+            lastFailure: failure,
+          });
+          yield* completeWaiters(
+            control,
+            failureResult(control.target, failure, status),
+          );
+
+          yield* Effect.raceFirst(
+            Effect.sleep(Duration.millis(delay)),
+            Queue.take(control.wake),
+          );
+        }
+      });
+
+    const removeWorker = (
+      hostId: HostIdValue,
+      control: WorkerControl,
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        workers.delete(hostId);
+        yield* FiberMap.remove(fibers, hostId);
+        yield* Queue.shutdown(control.wake);
+        const stopped = unavailable(
+          hostId,
+          control.target.stationInstallationId,
+          "stopped",
+          "Station fleet target is no longer supervised",
+        );
+        const status = yield* setStatus(control.target, {
+          phase: "stopped",
+          sessionOpen: false,
+          attempt: 0,
+          lastFailure: stopped,
+        });
+        yield* completeWaiters(
+          control,
+          failureResult(control.target, stopped, status),
+        );
+        yield* Ref.update(peerStatuses, (current) => {
+          const next = new Map(current);
+          next.delete(hostId);
+          return next;
+        });
+      });
+
+    const ensureWorker = (
+      target: StationFleetTarget,
+    ): Effect.Effect<WorkerControl> =>
+      Effect.gen(function* () {
+        const existing = workers.get(target.hostId);
+        if (existing !== undefined) {
+          if (!(yield* FiberMap.has(fibers, target.hostId))) {
+            yield* FiberMap.run(
+              fibers,
+              target.hostId,
+              worker(existing),
+              { onlyIfMissing: true },
             );
           }
+          return existing;
         }
-        if (pending && !stopped) {
-          pending = false;
-          launch();
-        }
+
+        const control: WorkerControl = {
+          target,
+          propagationTarget: toPropagationTarget(target),
+          wake: yield* Queue.dropping<void>(1),
+          waiters: yield* Ref.make<ReadonlyArray<WorkerWaiter>>([]),
+        };
+        workers.set(target.hostId, control);
+        yield* FiberMap.run(
+          fibers,
+          target.hostId,
+          worker(control),
+          { onlyIfMissing: true },
+        );
+        return control;
       });
+
+    const reconcile = reconcileLock.withPermits(1)(
+      Effect.gen(function* () {
+        if ((yield* Ref.get(lifecycle)) !== "running") return;
+        const fleet = yield* targets.list;
+        const current = new Map(
+          fleet.map((target) => [target.hostId, target] as const),
+        );
+
+        for (const [hostId, control] of workers) {
+          if (!current.has(hostId)) {
+            yield* removeWorker(hostId, control);
+          }
+        }
+        for (const target of fleet) {
+          yield* ensureWorker(target);
+        }
+      }),
+    );
+
+    const wakeSelected = (
+      hostId?: HostIdValue,
+    ): Effect.Effect<void> =>
+      Effect.sync(() => {
+        if (hostId === undefined) {
+          for (const control of workers.values()) {
+            control.wake.unsafeOffer(undefined);
+          }
+          return;
+        }
+        workers.get(hostId)?.wake.unsafeOffer(undefined);
+      });
+
+    const coordinator = Effect.forever(
+      Queue.take(invalidations).pipe(
+        Effect.flatMap(() =>
+          Effect.sync(() => {
+            const all = pendingInvalidateAll;
+            const hosts = [...pendingInvalidationHosts];
+            pendingInvalidateAll = false;
+            pendingInvalidationHosts.clear();
+            return { all, hosts };
+          })
+        ),
+        Effect.flatMap(({ all, hosts }) =>
+          reconcile.pipe(
+            Effect.zipRight(
+              all
+                ? wakeSelected()
+                : Effect.forEach(
+                    hosts,
+                    wakeSelected,
+                    { discard: true },
+                  ),
+            ),
+          )
+        ),
+        Effect.catchAll((error) =>
+          Effect.logWarning(
+            "Station fleet reconciliation failed",
+            error,
+          )
+        ),
+      ),
+    );
+    yield* Effect.forkScoped(coordinator);
+
+    const invalidate = (hostId?: HostIdValue): void => {
+      if (hostId === undefined) {
+        pendingInvalidateAll = true;
+        pendingInvalidationHosts.clear();
+      } else if (!pendingInvalidateAll) {
+        pendingInvalidationHosts.add(hostId);
+      }
+      invalidations.unsafeOffer(undefined);
     };
-
-    const start = (intervalMs = DEFAULT_FLEET_INTERVAL_MS) =>
+    const unsubscribeCanvases = canvases.subscribeChanges(() =>
+      invalidate()
+    );
+    const unsubscribeWork = work.subscribeChanges(() => invalidate());
+    const unsubscribeHosts = subscribeHostsSnapshot(() => invalidate());
+    yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
-        if (stopped || interval !== undefined) return;
-        const admittedInterval = Number.isSafeInteger(intervalMs) &&
-            intervalMs >= 1_000 &&
-            intervalMs <= 60 * 60 * 1_000
-          ? intervalMs
-          : DEFAULT_FLEET_INTERVAL_MS;
-        started = true;
-        interval = setInterval(launch, admittedInterval);
-        if (typeof interval === "object" && "unref" in interval) {
-          interval.unref();
-        }
-        launch();
+        unsubscribeCanvases();
+        unsubscribeWork();
+        unsubscribeHosts();
+      })
+    );
+
+    const start = (): Effect.Effect<
+      void,
+      StationFleetTargetRepositoryError
+    > =>
+      Effect.gen(function* () {
+        const shouldStart = yield* Ref.modify(
+          lifecycle,
+          (state): readonly [boolean, Lifecycle] =>
+            state === "idle"
+              ? [true, "running"]
+              : [false, state],
+        );
+        if (shouldStart) yield* reconcile;
       });
 
-    const request = (delayMs = DEFAULT_CHANGE_COALESCE_MS) =>
-      Effect.sync(() => {
-        if (stopped || !started) return;
-        const admittedDelay = Number.isSafeInteger(delayMs) &&
-            delayMs >= 0 &&
-            delayMs <= 60_000
-          ? delayMs
-          : DEFAULT_CHANGE_COALESCE_MS;
-        if (debounce !== undefined) clearTimeout(debounce);
-        debounce = setTimeout(() => {
-          debounce = undefined;
-          launch();
-        }, admittedDelay);
-        if (typeof debounce === "object" && "unref" in debounce) {
-          debounce.unref();
+    const request = (
+      hostId?: HostIdValue,
+    ): Effect.Effect<void> =>
+      Ref.get(lifecycle).pipe(
+        Effect.flatMap((state) =>
+          state === "running"
+            ? Effect.sync(() => invalidate(hostId))
+            : Effect.void
+        ),
+      );
+
+    const waitForWorker = (
+      control: WorkerControl,
+    ): Effect.Effect<StationFleetPropagationResult> =>
+      Effect.gen(function* () {
+        const waiter = yield* Deferred.make<
+          StationFleetPropagationResult
+        >();
+        yield* Ref.update(control.waiters, (current) => [
+          ...current,
+          waiter,
+        ]);
+        const currentStatus = yield* readStatus(control.target.hostId);
+        if (
+          currentStatus?.phase === "ready" ||
+          currentStatus?.phase === "backoff" ||
+          currentStatus?.phase === "stopped"
+        ) {
+          control.wake.unsafeOffer(undefined);
         }
+
+        const completed = yield* Deferred.await(waiter).pipe(
+          Effect.timeoutOption(
+            Duration.millis(
+              STATION_FLEET_SYNCHRONIZE_TIMEOUT_MS,
+            ),
+          ),
+          Effect.ensuring(
+            Ref.update(control.waiters, (current) =>
+              current.filter((candidate) => candidate !== waiter)
+            ),
+          ),
+        );
+        if (Option.isSome(completed)) return completed.value;
+
+        const current = yield* readStatus(control.target.hostId);
+        const failure = unavailable(
+          control.target.hostId,
+          control.target.stationInstallationId,
+          "deadline",
+          "Station did not complete reconciliation before the bounded deadline",
+        );
+        return failureResult(
+          control.target,
+          failure,
+          current,
+        );
+      });
+
+    const synchronize = (
+      hostId?: HostIdValue,
+    ): Effect.Effect<
+      ReadonlyArray<StationFleetPropagationResult>,
+      StationFleetTargetRepositoryError
+    > =>
+      Effect.gen(function* () {
+        const state = yield* Ref.get(lifecycle);
+        if (state === "stopped") {
+          return hostId === undefined
+            ? []
+            : [
+                {
+                  ok: false as const,
+                  hostId,
+                  error: unavailable(
+                    hostId,
+                    undefined,
+                    "stopped",
+                    "Station fleet supervisor is stopped",
+                  ),
+                },
+              ];
+        }
+        yield* start();
+        yield* reconcile;
+
+        const selected =
+          hostId === undefined
+            ? [...workers.values()]
+            : workers.get(hostId) === undefined
+              ? []
+              : [workers.get(hostId)!];
+        if (hostId !== undefined && selected.length === 0) {
+          return [
+            {
+              ok: false,
+              hostId,
+              error: unavailable(
+                hostId,
+                undefined,
+                "not-enrolled",
+                "Station host is not an enrolled fleet target",
+              ),
+            },
+          ];
+        }
+        return yield* Effect.forEach(
+          selected,
+          waitForWorker,
+          { concurrency: "unbounded" },
+        );
       });
 
     const stop = Effect.gen(function* () {
-      stopped = true;
-      started = false;
-      pending = false;
-      clearTimers();
-      const current = active;
-      active = undefined;
-      if (current !== undefined) yield* Fiber.interrupt(current);
+      const previous = yield* Ref.getAndSet(lifecycle, "stopped");
+      if (previous === "stopped") return;
+      const controls = [...workers.values()];
+      workers.clear();
+      yield* FiberMap.clear(fibers);
+      for (const control of controls) {
+        yield* Queue.shutdown(control.wake);
+        const failure = unavailable(
+          control.target.hostId,
+          control.target.stationInstallationId,
+          "stopped",
+          "Station fleet supervisor stopped",
+        );
+        const status = yield* setStatus(control.target, {
+          phase: "stopped",
+          sessionOpen: false,
+          attempt: 0,
+          lastFailure: failure,
+        });
+        yield* completeWaiters(
+          control,
+          failureResult(control.target, failure, status),
+        );
+      }
     });
 
     yield* Effect.addFinalizer(() => stop);
 
     return StationFleetPropagation.of({
-      synchronizeAll,
       start,
       request,
+      synchronize,
+      status: readStatus,
+      statuses: readStatuses,
       stop,
     });
   }),
