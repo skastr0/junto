@@ -41,6 +41,14 @@ export interface TermPlaneStartOptions {
   readonly controlHome?: string;
 }
 
+export interface TermProductAutomationSuspension {
+  /**
+   * Drop Vellum-owned attach/write/retry authority without signaling the PTY
+   * process. Implementations must be monotonic and idempotent.
+   */
+  readonly suspend: () => void;
+}
+
 const TERM_PLANE_SHUTDOWN_DEADLINE_MS = 5_000;
 
 const settledBefore = async <A>(
@@ -82,6 +90,9 @@ export class TermPlane {
   private control: TermControlServer | undefined;
   private controlStartupFailure: TermControlStartupError | undefined;
   private starting: Promise<void> | undefined;
+  private productAutomationSuspension:
+    | TermProductAutomationSuspension
+    | undefined;
   private licenseRevoked = false;
   private shuttingDown = false;
   private shutdownReason = "app_quit";
@@ -91,6 +102,35 @@ export class TermPlane {
   constructor(host = productionLocalSessionHost()) {
     this.host = host;
     this.router = new TerminalRouter(host);
+  }
+
+  /**
+   * Bind the exact process-local managed-drive/message-delivery authority.
+   * A late bind after revocation or shutdown is suspended immediately, so
+   * asynchronous IPC boot cannot reopen the terminal write path.
+   */
+  bindProductAutomationSuspension(
+    suspension: TermProductAutomationSuspension,
+  ): void {
+    const existing = this.productAutomationSuspension;
+    if (existing !== undefined && existing !== suspension) {
+      throw new Error(
+        "terminal product automation suspension is already bound",
+      );
+    }
+    this.productAutomationSuspension = suspension;
+    if (this.licenseRevoked || this.shuttingDown) {
+      suspension.suspend();
+    }
+  }
+
+  private suspendProductAutomation(): void {
+    try {
+      this.productAutomationSuspension?.suspend();
+    } catch {
+      // Router/control admission is still closed by the caller. A product
+      // automation cleanup failure cannot reopen those stronger boundaries.
+    }
   }
 
   private startLocalShutdown(reason: string): Promise<LocalHostShutdownResult> {
@@ -159,6 +199,7 @@ export class TermPlane {
   suspendForLicenseRevocation(): void {
     if (this.licenseRevoked) return;
     this.licenseRevoked = true;
+    this.suspendProductAutomation();
     this.router.beginShutdown();
     this.control?.beginShutdown();
   }
@@ -172,6 +213,7 @@ export class TermPlane {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
     this.shutdownReason = reason;
+    this.suspendProductAutomation();
     this.startLocalShutdown(reason);
     this.router.beginShutdown();
     this.control?.beginShutdown();

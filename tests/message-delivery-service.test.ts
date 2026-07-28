@@ -426,4 +426,70 @@ describe("MessageDeliveryService", () => {
     });
     expect(sendCount).toBe(1);
   });
+
+  it("suspension prevents append, attach, idle, resume, and reconfiguration delivery", async () => {
+    const msg = userMsg("revoked", "do not send");
+    const store = makeStore({ c: agentDoc([msg]) });
+    let sendCount = 0;
+    const transport: MessageDeliveryTransport = {
+      sendManagedTerminalPrompt: async () => {
+        sendCount += 1;
+        return true;
+      },
+    };
+    const service = new MessageDeliveryService();
+    service.configure({ transport, store });
+
+    service.suspend();
+    service.suspend();
+    service.configure({ transport, store });
+    service.notifyAppended("c", "agent", msg);
+    service.onTerminalAttached("bind-mira");
+    service.onManagedTerminalIdle("bind-mira");
+    service.onResumed();
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(sendCount).toBe(0);
+    expect(
+      (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]
+        ?.metadata?.deliveredAt,
+    ).toBeUndefined();
+  });
+
+  it("a scan suspended across an async store read never reaches transport", async () => {
+    const msg = userMsg("read-race", "do not race");
+    const underlying = makeStore({ c: agentDoc([msg]) });
+    let releaseNames!: (
+      names: ReadonlyArray<string>,
+    ) => void;
+    const names = new Promise<ReadonlyArray<string>>((resolve) => {
+      releaseNames = resolve;
+    });
+    let scanStarted = false;
+    let sendCount = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async () => {
+          sendCount += 1;
+          return true;
+        },
+      },
+      store: {
+        ...underlying,
+        listCanvasNames: async () => {
+          scanStarted = true;
+          return names;
+        },
+      },
+    });
+
+    service.onManagedTerminalIdle("bind-mira");
+    await waitUntil(() => scanStarted);
+    service.suspend();
+    releaseNames(["c"]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(sendCount).toBe(0);
+  });
 });

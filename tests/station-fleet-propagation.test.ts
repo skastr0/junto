@@ -799,6 +799,44 @@ describe("StationFleetPropagation persistent supervisor", () => {
     });
   });
 
+  it("closes admission synchronously and interrupts an outbound reconnect", async () => {
+    const remote = target("revoked-host", "revoked-station");
+    const harness = makeHarness([remote], {
+      blockSecondRouteFor: remote.hostId,
+    });
+
+    await withRuntime(harness, async (runtime) => {
+      const service = await runtime.runPromise(StationFleetPropagation);
+      const initial = await runtime.runPromise(
+        service.synchronize(remote.hostId),
+      );
+      expect(initial[0]?.ok).toBe(true);
+
+      await runtime.runPromise(
+        harness.disconnect(remote.stationInstallationId),
+      );
+      await runtime.runPromise(service.request(remote.hostId));
+      await runtime.runPromise(harness.secondRouteStarted);
+
+      service.beginShutdown();
+      const denied = await runtime.runPromise(
+        service.synchronize(remote.hostId),
+      );
+      await runtime.runPromise(service.stop);
+
+      expect(denied[0]?.ok).toBe(false);
+      if (denied[0]?.ok === false) {
+        expect(denied[0].error.reason).toBe("stopped");
+      }
+      expect(harness.openCount(remote.stationInstallationId)).toBe(1);
+      expect(harness.closeCount(remote.stationInstallationId)).toBe(1);
+
+      await runtime.runPromise(service.request(remote.hostId));
+      await runtime.runPromise(Effect.yieldNow());
+      expect(harness.openCount(remote.stationInstallationId)).toBe(1);
+    });
+  });
+
   it("serializes stop behind an admitted reconciliation and leaves no worker alive", async () => {
     const remote = target("stop-race-host", "stop-race-station");
     const harness = makeHarness([remote], {

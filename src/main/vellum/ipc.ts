@@ -635,7 +635,9 @@ export const registerVellumIpc = (): void => {
       // Managed-terminal drive: process-local control leases for factory typing.
       // Takeover is intentional — the factory owns control; UI attaches as observe.
       const driveLeases = new Map<string, ControlLease>();
+      let productAutomationSuspended = false;
       const ensureDriveLease = (bindingId: string): ControlLease | undefined => {
+        if (productAutomationSuspended) return undefined;
         const existing = driveLeases.get(bindingId);
         if (existing) {
           // Epoch/session may have rotated — host.write rejects stale leases.
@@ -681,7 +683,26 @@ export const registerVellumIpc = (): void => {
           );
         },
       });
+      const productAutomationSuspension = Object.freeze({
+        suspend: (): void => {
+          if (productAutomationSuspended) return;
+          productAutomationSuspended = true;
+          // Cut every Vellum-owned source before releasing its exact control
+          // leases. LocalSessionHost.release never signals the PTY process.
+          managedDrive.suspend();
+          messageDelivery.suspend();
+          setManagedPulseDeliver(undefined);
+          for (const lease of driveLeases.values()) {
+            termPlane.host.release(lease);
+          }
+          driveLeases.clear();
+        },
+      });
+      termPlane.bindProductAutomationSuspension(
+        productAutomationSuspension,
+      );
       const driveReady = (bindingId: string): boolean => {
+        if (productAutomationSuspended) return false;
         const slot = seatStateRuntime.machine.getSlot(bindingId);
         return isManagedTerminalReady({
           harness: slot?.harness,
@@ -740,7 +761,11 @@ export const registerVellumIpc = (): void => {
         }
       });
       // Kernel pulses for managed seats (not ACP).
-      setManagedPulseDeliver((bindingId, text) => writeManagedPulse(bindingId, text));
+      setManagedPulseDeliver(
+        productAutomationSuspended
+          ? undefined
+          : (bindingId, text) => writeManagedPulse(bindingId, text),
+      );
 
       // Message nudge channel: ether.messages -> live managed terminal seats.
       // Retry only on session-live / seat-idle (no polling store).

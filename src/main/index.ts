@@ -64,6 +64,7 @@ import {
   startStationRemoteReportPump,
   type StationRemoteReportPump,
 } from "./vellum/station/remote-report-pump";
+import { StationFleetPropagation } from "./vellum/station/fleet-propagation";
 import { StationApiService } from "./vellum/station/api";
 import { StationRepository } from "./vellum/station/repository";
 import { WorkRepository } from "./vellum/work/repository";
@@ -299,7 +300,14 @@ type HermesPlaneService = Context.Tag.Service<typeof HermesPlane>;
 let herdrPlaneService: HerdrPlaneService | undefined;
 let hermesPlaneService: HermesPlaneService | undefined;
 type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
+type StationFleetPropagationShape = Context.Tag.Service<
+  typeof StationFleetPropagation
+>;
 let kernelService: KernelServiceShape | undefined;
+let stationFleetPropagationService:
+  | StationFleetPropagationShape
+  | undefined;
+let stationFleetPropagationShutdown: Promise<void> | undefined;
 let licenseCoordinator: LicenseCoordinator | undefined;
 let unregisterLicenseIpc: (() => void) | undefined;
 let licenseClockChangeSubscription: number | undefined;
@@ -357,6 +365,18 @@ let quitConfirmGeneration = 0;
 /** True while a native confirm dialog is open — blocks a second dialog, not signal force. */
 let quitConfirmPending = false;
 
+const beginStationFleetPropagationShutdown = (): void => {
+  const service = stationFleetPropagationService;
+  if (service === undefined) return;
+  // The synchronous cut prevents any continuation from opening another
+  // outbound route. The retained promise owns exact worker/session teardown
+  // and is awaited before the shared Effect runtime is disposed.
+  service.beginShutdown();
+  stationFleetPropagationShutdown ??= AppRuntime.runPromise(
+    service.stop,
+  );
+};
+
 /**
  * License loss is a monotonic product-admission cut, not an application quit.
  *
@@ -376,6 +396,7 @@ const suspendProductRuntimeForLicenseRevocation = (): void => {
   disconnectNodeRefIngress = () => undefined;
 
   kernelService?.suspend();
+  beginStationFleetPropagationShutdown();
   termPlane.suspendForLicenseRevocation();
   workControl?.beginShutdown();
   canvasControl?.beginShutdown();
@@ -1299,6 +1320,18 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
+    // Retain the exact scoped supervisor before any product IPC can start it.
+    // License revocation must be able to cut its synchronous admission and
+    // drive its worker/session shutdown even when renderer IPC startup is
+    // still between asynchronous boundaries.
+    stationFleetPropagationService = await AppRuntime.runPromise(
+      StationFleetPropagation,
+    );
+    if (shutdownAdmissionClosed) {
+      beginStationFleetPropagationShutdown();
+      return;
+    }
+
     registerIpcHandlers();
     registerDemoIpcHandlers();
     if (shutdownAdmissionClosed) return;
@@ -1628,6 +1661,7 @@ const beginShutdownAdmission = (reason: string): void => {
   hermesShutdown ??= hermesPlaneService?.shutdown.drainOnQuit();
   adapterShutdown ??= terminateAdapterChildrenOnQuit();
   beginBoxProcessShutdown();
+  beginStationFleetPropagationShutdown();
 
   workControl?.beginShutdown();
   stationRemoteReportPumpShutdown ??= stationRemoteReportPump?.close();
@@ -1776,6 +1810,19 @@ const requireCleanStationRemoteReportPumpShutdown = async (): Promise<void> => {
   stationRemoteReportPump = undefined;
 };
 
+const requireCleanStationFleetPropagationShutdown =
+  async (): Promise<void> => {
+    if (
+      stationFleetPropagationService === undefined &&
+      stationFleetPropagationShutdown === undefined
+    ) {
+      return;
+    }
+    beginStationFleetPropagationShutdown();
+    await stationFleetPropagationShutdown;
+    stationFleetPropagationService = undefined;
+  };
+
 const requireCleanCanvasControlShutdown = async (): Promise<void> => {
   if (canvasControl === undefined && canvasControlShutdown === undefined) {
     return;
@@ -1885,6 +1932,7 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   await requireCleanTermPlaneShutdown(reason);
   await requireCleanCanvasControlShutdown();
   await requireCleanStationRemoteReportPumpShutdown();
+  await requireCleanStationFleetPropagationShutdown();
   await requireCleanStationControlShutdown();
   await requireCleanWorkControlShutdown();
   await requireCleanHostOperationsShutdown();

@@ -162,6 +162,7 @@ const fleetWithStatus = (
 ): Fleet =>
   StationFleetPropagation.of({
     start: () => Effect.void,
+    beginShutdown: () => undefined,
     request: () => Effect.void,
     synchronize: (selected) => {
       if (selected === undefined) return Effect.succeed([]);
@@ -441,6 +442,7 @@ describe("remote hosts doctor", () => {
     });
     const fleet = StationFleetPropagation.of({
       start: () => Effect.void,
+      beginShutdown: () => undefined,
       request: () => Effect.void,
       synchronize: () =>
         Effect.succeed([

@@ -116,6 +116,8 @@ export class ManagedTerminalDrive {
   private readonly awaitingTurn = new Set<string>();
   /** bindingId → earliest write time (Grok post-spawn, etc.). */
   private readonly readyAfter = new Map<string, number>();
+  private suspended = false;
+  private lifecycleGeneration = 0;
 
   constructor(options: ManagedTerminalDriveOptions) {
     this.writeFn = options.write;
@@ -131,7 +133,27 @@ export class ManagedTerminalDrive {
 
   /** Mark a binding as just spawned — enforces min delay before first paste. */
   markSpawned(bindingId: string, minDelayMs: number = GROK_MIN_POST_SPAWN_MS): void {
+    if (this.suspended) return;
     this.readyAfter.set(bindingId, this.now() + Math.max(0, minDelayMs));
+  }
+
+  /**
+   * Monotonic license-revocation cut.
+   *
+   * Existing PTY processes and their host generations remain alive. This
+   * drive only drops its Vellum-owned write authority: queued text resolves
+   * refused, stall retries are canceled, delayed preflight continuations
+   * become stale, and no later paste/CR/interrupt reaches the writer.
+   */
+  suspend(): void {
+    if (this.suspended) return;
+    this.suspended = true;
+    this.lifecycleGeneration += 1;
+    this.clearTransientState();
+  }
+
+  private active(generation: number): boolean {
+    return !this.suspended && generation === this.lifecycleGeneration;
   }
 
   /**
@@ -144,6 +166,8 @@ export class ManagedTerminalDrive {
     text: string,
     opts: WritePromptOptions = {},
   ): Promise<boolean> {
+    const generation = this.lifecycleGeneration;
+    if (!this.active(generation)) return false;
     const ready = opts.ready ?? true;
     const queueIfBusy = opts.queueIfBusy ?? true;
     if (!ready) {
@@ -169,6 +193,7 @@ export class ManagedTerminalDrive {
         const t = setTimeout(r, waitMs);
         t.unref?.();
       });
+      if (!this.active(generation)) return false;
       this.readyAfter.delete(bindingId);
     }
 
@@ -179,6 +204,7 @@ export class ManagedTerminalDrive {
       } catch {
         safe = false;
       }
+      if (!this.active(generation)) return false;
       if (!safe) {
         this.onAttention?.(bindingId, "clipboard-unsafe");
         return false;
@@ -189,6 +215,10 @@ export class ManagedTerminalDrive {
       if (!queueIfBusy) return false;
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
       return new Promise<boolean>((resolve) => {
+        if (!this.active(generation)) {
+          resolve(false);
+          return;
+        }
         const entry: QueuedPrompt = {
           text,
           resolve: (ok) => {
@@ -200,6 +230,10 @@ export class ManagedTerminalDrive {
         };
         entry.timer = setTimeout(() => {
           entry.timer = undefined;
+          if (!this.active(generation)) {
+            resolve(false);
+            return;
+          }
           // Drop this entry from the queue if still waiting.
           const q = this.queues.get(bindingId);
           if (q) {
@@ -220,7 +254,7 @@ export class ManagedTerminalDrive {
       });
     }
 
-    return this.executePrompt(bindingId, text);
+    return this.executePrompt(bindingId, text, generation);
   }
 
   /**
@@ -228,6 +262,8 @@ export class ManagedTerminalDrive {
    * Mid-turn: always allowed. Idle: enforces min gap between consecutive 0x03.
    */
   async interrupt(bindingId: string): Promise<boolean> {
+    const generation = this.lifecycleGeneration;
+    if (!this.active(generation)) return false;
     const idle = this.isSeatIdle(bindingId);
     const now = this.now();
     if (
@@ -241,6 +277,7 @@ export class ManagedTerminalDrive {
       return false;
     }
     const ok = await Promise.resolve(this.writeFn(bindingId, INTERRUPT_BYTE));
+    if (!this.active(generation)) return false;
     if (ok && idle) {
       this.lastIdleInterruptAt.set(bindingId, now);
     }
@@ -252,6 +289,7 @@ export class ManagedTerminalDrive {
    * Phase 2 state machine calls this on working→idle.
    */
   onSeatIdle(bindingId: string): void {
+    if (this.suspended) return;
     void this.drainOne(bindingId);
   }
 
@@ -259,6 +297,7 @@ export class ManagedTerminalDrive {
    * Turn-start ack (title flip, hook event, OSC). Clears stall watch for the seat.
    */
   onTurnStart(bindingId: string): void {
+    if (this.suspended) return;
     this.awaitingTurn.delete(bindingId);
     this.stallRetried.delete(bindingId);
     const timer = this.stallTimers.get(bindingId);
@@ -268,8 +307,7 @@ export class ManagedTerminalDrive {
     }
   }
 
-  /** Test / shutdown seam — drop queues and timers. */
-  resetForTest(): void {
+  private clearTransientState(): void {
     for (const timer of this.stallTimers.values()) clearTimeout(timer);
     this.stallTimers.clear();
     for (const q of this.queues.values()) {
@@ -286,62 +324,104 @@ export class ManagedTerminalDrive {
     this.readyAfter.clear();
   }
 
+  /** Test seam — restore a fresh instance-like admission state. */
+  resetForTest(): void {
+    this.lifecycleGeneration += 1;
+    this.clearTransientState();
+    this.suspended = false;
+  }
+
   /** Queued prompt count for one binding (tests / diagnostics). */
   queuedCount(bindingId: string): number {
     return this.queues.get(bindingId)?.length ?? 0;
   }
 
   private async drainOne(bindingId: string): Promise<void> {
+    const generation = this.lifecycleGeneration;
+    if (!this.active(generation)) return;
     if (!this.isSeatIdle(bindingId) || this.writing.has(bindingId)) return;
     const q = this.queues.get(bindingId);
     if (!q || q.length === 0) return;
     const next = q.shift()!;
     if (q.length === 0) this.queues.delete(bindingId);
     else this.queues.set(bindingId, q);
-    const ok = await this.executePrompt(bindingId, next.text);
+    const ok = await this.executePrompt(
+      bindingId,
+      next.text,
+      generation,
+    );
     next.resolve(ok);
   }
 
-  private async executePrompt(bindingId: string, text: string): Promise<boolean> {
+  private async executePrompt(
+    bindingId: string,
+    text: string,
+    generation: number,
+  ): Promise<boolean> {
+    if (!this.active(generation)) return false;
     this.writing.add(bindingId);
     try {
-      const ok = await this.writePasteAndCr(bindingId, text);
+      const ok = await this.writePasteAndCr(
+        bindingId,
+        text,
+        generation,
+      );
+      if (!this.active(generation)) return false;
       if (!ok) {
         this.onAttention?.(bindingId, "write-failed");
         return false;
       }
-      if (this.stallWatch) this.armStallWatch(bindingId, text);
+      if (this.stallWatch) {
+        this.armStallWatch(bindingId, text, generation);
+      }
       return true;
     } finally {
       this.writing.delete(bindingId);
     }
   }
 
-  private async writePasteAndCr(bindingId: string, text: string): Promise<boolean> {
+  private async writePasteAndCr(
+    bindingId: string,
+    text: string,
+    generation: number,
+  ): Promise<boolean> {
+    if (!this.active(generation)) return false;
     const [paste, cr] = buildPromptWriteSequence(text);
     // ONE write for the full paste envelope…
     if (!(await Promise.resolve(this.writeFn(bindingId, paste)))) return false;
+    if (!this.active(generation)) return false;
     // …then a SEPARATE CR write. Never join; never LF.
     if (!(await Promise.resolve(this.writeFn(bindingId, cr)))) return false;
-    return true;
+    return this.active(generation);
   }
 
-  private armStallWatch(bindingId: string, text: string): void {
+  private armStallWatch(
+    bindingId: string,
+    text: string,
+    generation: number,
+  ): void {
+    if (!this.active(generation)) return;
     const prior = this.stallTimers.get(bindingId);
     if (prior !== undefined) clearTimeout(prior);
     this.awaitingTurn.add(bindingId);
     const timer = setTimeout(() => {
       this.stallTimers.delete(bindingId);
+      if (!this.active(generation)) return;
       if (!this.awaitingTurn.has(bindingId)) return;
       if (!this.stallRetried.has(bindingId)) {
         this.stallRetried.add(bindingId);
-        void this.writePasteAndCr(bindingId, text).then((ok) => {
+        void this.writePasteAndCr(
+          bindingId,
+          text,
+          generation,
+        ).then((ok) => {
+          if (!this.active(generation)) return;
           if (!ok) {
             this.onAttention?.(bindingId, "write-failed");
             this.awaitingTurn.delete(bindingId);
             return;
           }
-          this.armStallWatch(bindingId, text);
+          this.armStallWatch(bindingId, text, generation);
         });
         return;
       }

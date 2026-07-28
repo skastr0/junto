@@ -250,6 +250,11 @@ export class StationFleetPropagation extends Context.Tag(
       void,
       StationFleetTargetRepositoryError
     >;
+    /**
+     * Synchronously and monotonically close outbound admission. Callers then
+     * run `stop` to interrupt and await the exact worker/session teardown.
+     */
+    readonly beginShutdown: () => void;
     /** Fire-and-coalesce invalidation onto existing scoped workers. */
     readonly request: (
       hostId?: HostIdValue,
@@ -492,6 +497,12 @@ export const StationFleetPropagationLive = Layer.scoped(
     const workers = new Map<HostIdValue, WorkerControl>();
     const pendingInvalidationHosts = new Set<HostIdValue>();
     let pendingInvalidateAll = false;
+    // Synchronous process-lifetime cut used by license revocation and normal
+    // shutdown. Effect Ref remains the observable lifecycle; this boolean
+    // prevents continuations already suspended at an async boundary from
+    // opening or writing another Station session before worker interruption
+    // finishes.
+    let admissionClosed = false;
 
     const readStatuses = Ref.get(peerStatuses).pipe(
       Effect.map((current) =>
@@ -527,6 +538,33 @@ export const StationFleetPropagationLive = Layer.scoped(
           return next;
         });
         return status;
+      });
+
+    const markTargetStopped = (
+      target: StationFleetTarget,
+      message: string,
+    ): Effect.Effect<{
+      readonly failure: StationFleetPeerUnavailable;
+      readonly status: StationFleetPeerStatus;
+    }> =>
+      Effect.gen(function* () {
+        const failure = unavailable(
+          target.hostId,
+          target.stationInstallationId,
+          "stopped",
+          message,
+        );
+        const previous = yield* readStatus(target.hostId);
+        const status = yield* setStatus(target, {
+          phase: "stopped",
+          sessionOpen: false,
+          attempt: 0,
+          ...(previous?.protocol === undefined
+            ? {}
+            : { protocol: previous.protocol }),
+          lastFailure: failure,
+        });
+        return { failure, status };
       });
 
     const successResult = (
@@ -620,7 +658,7 @@ export const StationFleetPropagationLive = Layer.scoped(
         let failureCount = 0;
         let attempt = 0;
 
-        while (true) {
+        while (!admissionClosed) {
           attempt += 1;
           let synchronizedAt: number | undefined;
           const beforeConnect = yield* readStatus(
@@ -640,9 +678,11 @@ export const StationFleetPropagationLive = Layer.scoped(
 
           const attempted = yield* Effect.scoped(
             Effect.gen(function* () {
+              if (admissionClosed) return;
               const route = yield* routeResolver.resolve(
                 control.propagationTarget,
               );
+              if (admissionClosed) return;
               const onRemoteReport = (request: ReportRequest) =>
                 api.handle(
                   request,
@@ -677,11 +717,13 @@ export const StationFleetPropagationLive = Layer.scoped(
                 route,
                 onRemoteReport,
               );
+              if (admissionClosed) return;
               const receipt = yield* synchronizeSession(
                 control,
                 session,
                 attempt,
               );
+              if (admissionClosed) return;
               yield* livePeers.activate(
                 control.target.hostId,
                 control.target.stationInstallationId,
@@ -694,13 +736,14 @@ export const StationFleetPropagationLive = Layer.scoped(
                 attempt,
               );
 
-              while (true) {
+              while (!admissionClosed) {
                 yield* Effect.raceFirst(
                   Queue.take(control.wake),
                   session.awaitClosed.pipe(
                     Effect.flatMap(Effect.fail),
                   ),
                 );
+                if (admissionClosed) return receipt;
                 const nextReceipt = yield* synchronizeSession(
                   control,
                   session,
@@ -717,6 +760,7 @@ export const StationFleetPropagationLive = Layer.scoped(
             }),
           ).pipe(Effect.either);
 
+          if (admissionClosed) return;
           if (attempted._tag === "Right") continue;
 
           const failure = unavailableFromAttempt(
@@ -818,11 +862,13 @@ export const StationFleetPropagationLive = Layer.scoped(
 
     const ensureWorker = (
       target: StationFleetTarget,
-    ): Effect.Effect<WorkerControl> =>
+    ): Effect.Effect<WorkerControl | undefined> =>
       Effect.gen(function* () {
+        if (admissionClosed) return undefined;
         const existing = workers.get(target.hostId);
         if (existing !== undefined) {
           if (!(yield* FiberMap.has(fibers, target.hostId))) {
+            if (admissionClosed) return undefined;
             yield* FiberMap.run(
               fibers,
               target.hostId,
@@ -839,6 +885,10 @@ export const StationFleetPropagationLive = Layer.scoped(
           wake: yield* Queue.dropping<void>(1),
           waiters: yield* Ref.make<ReadonlyArray<WorkerWaiter>>([]),
         };
+        if (admissionClosed) {
+          yield* Queue.shutdown(control.wake);
+          return undefined;
+        }
         workers.set(target.hostId, control);
         yield* FiberMap.run(
           fibers,
@@ -851,9 +901,29 @@ export const StationFleetPropagationLive = Layer.scoped(
 
     const reconcile = reconcileLock.withPermits(1)(
       Effect.gen(function* () {
-        if ((yield* Ref.get(lifecycle)) !== "running") return;
+        if (
+          admissionClosed ||
+          (yield* Ref.get(lifecycle)) !== "running"
+        ) return;
         const fleet = yield* targets.list;
-        if ((yield* Ref.get(lifecycle)) !== "running") return;
+        if (
+          admissionClosed ||
+          (yield* Ref.get(lifecycle)) !== "running"
+        ) {
+          // Preserve the observable stopped status for targets discovered by
+          // a reconciliation that was already admitted when the cut landed.
+          // No worker or outbound session is created on this branch.
+          yield* Effect.forEach(
+            fleet,
+            (target) =>
+              markTargetStopped(
+                target,
+                "Station fleet supervisor stopped",
+              ),
+            { discard: true },
+          );
+          return;
+        }
         const current = new Map(
           fleet.map((target) => [target.hostId, target] as const),
         );
@@ -864,7 +934,10 @@ export const StationFleetPropagationLive = Layer.scoped(
           }
         }
         for (const target of fleet) {
-          if ((yield* Ref.get(lifecycle)) !== "running") return;
+          if (
+            admissionClosed ||
+            (yield* Ref.get(lifecycle)) !== "running"
+          ) return;
           yield* ensureWorker(target);
         }
       }),
@@ -874,6 +947,7 @@ export const StationFleetPropagationLive = Layer.scoped(
       hostId?: HostIdValue,
     ): Effect.Effect<void> =>
       Effect.sync(() => {
+        if (admissionClosed) return;
         if (hostId === undefined) {
           for (const control of workers.values()) {
             control.wake.unsafeOffer(undefined);
@@ -918,6 +992,7 @@ export const StationFleetPropagationLive = Layer.scoped(
     yield* Effect.forkScoped(coordinator);
 
     const invalidate = (hostId?: HostIdValue): void => {
+      if (admissionClosed) return;
       if (hostId === undefined) {
         pendingInvalidateAll = true;
         pendingInvalidationHosts.clear();
@@ -948,6 +1023,7 @@ export const StationFleetPropagationLive = Layer.scoped(
       StationFleetTargetRepositoryError
     > =>
       Effect.gen(function* () {
+        if (admissionClosed) return;
         const shouldStart = yield* Ref.modify(
           lifecycle,
           (state): readonly [boolean, Lifecycle] =>
@@ -961,12 +1037,16 @@ export const StationFleetPropagationLive = Layer.scoped(
     const request = (
       hostId?: HostIdValue,
     ): Effect.Effect<void> =>
-      Ref.get(lifecycle).pipe(
-        Effect.flatMap((state) =>
-          state === "running"
-            ? Effect.sync(() => invalidate(hostId))
-            : Effect.void
-        ),
+      Effect.suspend(() =>
+        admissionClosed
+          ? Effect.void
+          : Ref.get(lifecycle).pipe(
+              Effect.flatMap((state) =>
+                !admissionClosed && state === "running"
+                  ? Effect.sync(() => invalidate(hostId))
+                  : Effect.void,
+              ),
+            ),
       );
 
     const waitForWorker = (
@@ -1041,6 +1121,22 @@ export const StationFleetPropagationLive = Layer.scoped(
       StationFleetTargetRepositoryError
     > =>
       Effect.gen(function* () {
+        if (admissionClosed) {
+          return hostId === undefined
+            ? []
+            : [
+                {
+                  ok: false as const,
+                  hostId,
+                  error: unavailable(
+                    hostId,
+                    undefined,
+                    "stopped",
+                    "Station fleet supervisor is stopped",
+                  ),
+                },
+              ];
+        }
         const state = yield* Ref.get(lifecycle);
         if (state === "stopped") {
           return hostId === undefined
@@ -1088,39 +1184,45 @@ export const StationFleetPropagationLive = Layer.scoped(
         );
       });
 
-    const stop = reconcileLock.withPermits(1)(
-      Effect.gen(function* () {
-        const previous = yield* Ref.getAndSet(lifecycle, "stopped");
-        if (previous === "stopped") return;
-        const controls = [...workers.values()];
-        workers.clear();
-        yield* FiberMap.clear(fibers);
-        for (const control of controls) {
-          yield* Queue.shutdown(control.wake);
-          const failure = unavailable(
-            control.target.hostId,
-            control.target.stationInstallationId,
-            "stopped",
-            "Station fleet supervisor stopped",
-          );
-          const status = yield* setStatus(control.target, {
-            phase: "stopped",
-            sessionOpen: false,
-            attempt: 0,
-            lastFailure: failure,
-          });
-          yield* completeWaiters(
-            control,
-            failureResult(control.target, failure, status),
-          );
-        }
-      }),
-    );
+    const stop = Effect.gen(function* () {
+      // This statement runs before the first Effect boundary when the stop
+      // fiber starts. Every async worker continuation checks it before another
+      // route/session/synchronization operation.
+      admissionClosed = true;
+      yield* Ref.set(lifecycle, "stopped");
+
+      // Interrupt live outbound sessions before waiting behind an admitted
+      // target-list reconciliation. Reconcile observes admissionClosed and
+      // cannot create a replacement; the second clear under the lock closes a
+      // worker that raced between its last check and this first cut.
+      yield* FiberMap.clear(fibers);
+      yield* reconcileLock.withPermits(1)(
+        Effect.gen(function* () {
+          yield* FiberMap.clear(fibers);
+          const controls = [...workers.values()];
+          workers.clear();
+          for (const control of controls) {
+            yield* Queue.shutdown(control.wake);
+            const { failure, status } = yield* markTargetStopped(
+              control.target,
+              "Station fleet supervisor stopped",
+            );
+            yield* completeWaiters(
+              control,
+              failureResult(control.target, failure, status),
+            );
+          }
+        }),
+      );
+    });
 
     yield* Effect.addFinalizer(() => stop);
 
     return StationFleetPropagation.of({
       start,
+      beginShutdown: () => {
+        admissionClosed = true;
+      },
       request,
       synchronize,
       status: readStatus,

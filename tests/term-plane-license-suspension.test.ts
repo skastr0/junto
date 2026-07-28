@@ -27,6 +27,10 @@ describe("TermPlane license suspension", () => {
         control: { beginShutdown: () => void };
       }
     ).control = { beginShutdown: controlBeginShutdown };
+    const productAutomationSuspend = vi.fn();
+    plane.bindProductAutomationSuspension({
+      suspend: productAutomationSuspend,
+    });
 
     plane.suspendForLicenseRevocation();
     plane.suspendForLicenseRevocation();
@@ -35,6 +39,7 @@ describe("TermPlane license suspension", () => {
     expect(processes.controllers[0]?.signals).toEqual([]);
     expect(host.runningCount()).toBe(1);
     expect(controlBeginShutdown).toHaveBeenCalledTimes(1);
+    expect(productAutomationSuspend).toHaveBeenCalledTimes(1);
     await expect(
       plane.router.create({ bindingId: "late", hostId: "local" }),
     ).rejects.toThrow(/stopping/);
@@ -54,5 +59,20 @@ describe("TermPlane license suspension", () => {
       retainedLabels: [],
     });
     expect(processes.controllers[0]?.signals).toEqual(["SIGTERM"]);
+  });
+
+  it("immediately suspends product automation bound after revocation without touching the PTY", async () => {
+    const { plane, processes } = makePlane();
+    await plane.router.create({
+      bindingId: "retained",
+      hostId: "local",
+    });
+    plane.suspendForLicenseRevocation();
+
+    const suspend = vi.fn();
+    plane.bindProductAutomationSuspension({ suspend });
+
+    expect(suspend).toHaveBeenCalledTimes(1);
+    expect(processes.controllers[0]?.signals).toEqual([]);
   });
 });

@@ -53,6 +53,8 @@ export class MessageDeliveryService {
   private transport: MessageDeliveryTransport | undefined;
   private store: MessageDeliveryStore | undefined;
   private now: MessageDeliveryClock = () => Date.now();
+  private suspended = false;
+  private lifecycleGeneration = 0;
 
   private seatPausedLookup: ((canvas: string, doc: CanvasDoc, nodeId: string) => boolean) | undefined;
 
@@ -63,6 +65,7 @@ export class MessageDeliveryService {
     /** Pause plane: a paused target keeps its messages pending (delivered on resume). */
     readonly seatPaused?: (canvas: string, doc: CanvasDoc, nodeId: string) => boolean;
   }): void {
+    if (this.suspended) return;
     this.transport = input.transport;
     this.store = input.store;
     if (input.now) this.now = input.now;
@@ -71,11 +74,36 @@ export class MessageDeliveryService {
 
   /** Test seam — drop all in-flight marks and deps. */
   resetForTest(): void {
+    this.lifecycleGeneration += 1;
     this.inFlight.clear();
     this.transportAccepted.clear();
     this.transport = undefined;
     this.store = undefined;
     this.now = () => Date.now();
+    this.seatPausedLookup = undefined;
+    this.suspended = false;
+  }
+
+  /**
+   * Monotonically stop product-driven delivery for this process.
+   *
+   * Pending messages remain durable and unstamped for a later licensed
+   * process. Already accepted transport writes may finish their delivery
+   * stamp, but no attach/idle/resume scan may reach a PTY after this cut.
+   */
+  suspend(): void {
+    if (this.suspended) return;
+    this.suspended = true;
+    this.lifecycleGeneration += 1;
+    this.transport = undefined;
+    this.store = undefined;
+    this.seatPausedLookup = undefined;
+    this.inFlight.clear();
+    this.transportAccepted.clear();
+  }
+
+  private active(generation: number): boolean {
+    return !this.suspended && generation === this.lifecycleGeneration;
   }
 
   /**
@@ -83,12 +111,14 @@ export class MessageDeliveryService {
    * task-history appends never reach here (caller filters taskId !== null).
    */
   notifyAppended(canvas: string, nodeId: string, message: Message): void {
+    if (this.suspended) return;
     if (!isPendingDelivery(message)) return;
     void this.attemptOne(canvas, nodeId, message);
   }
 
   /** Native terminal session attached — offer pending messages as unsubmitted paste. */
   onTerminalAttached(bindingId: string): void {
+    if (this.suspended) return;
     void this.scanAndDeliver(
       (target) => target.bindingId === bindingId,
     );
@@ -100,6 +130,7 @@ export class MessageDeliveryService {
    * so idle-gated prompts that returned false while busy can land.
    */
   onManagedTerminalIdle(bindingId: string): void {
+    if (this.suspended) return;
     void this.scanAndDeliver(
       (target) => target.bindingId === bindingId,
     );
@@ -107,12 +138,15 @@ export class MessageDeliveryService {
 
   /** Pause released — re-drive everything held pending while paused. */
   onResumed(): void {
+    if (this.suspended) return;
     void this.scanAndDeliver(() => true);
   }
 
   private async scanAndDeliver(
     match: (target: SurfaceDeliveryTarget) => boolean,
   ): Promise<void> {
+    const generation = this.lifecycleGeneration;
+    if (!this.active(generation)) return;
     const store = this.store;
     if (!store) return;
     let names: ReadonlyArray<string>;
@@ -121,15 +155,19 @@ export class MessageDeliveryService {
     } catch {
       return;
     }
+    if (!this.active(generation)) return;
     for (const canvas of names) {
+      if (!this.active(generation)) return;
       let doc: CanvasDoc | undefined;
       try {
         doc = await store.readDoc(canvas);
       } catch {
         continue;
       }
+      if (!this.active(generation)) return;
       if (!doc) continue;
       for (const pending of listPendingDeliveries(doc)) {
+        if (!this.active(generation)) return;
         if (!match(pending.target)) continue;
         await this.attemptOne(canvas, pending.nodeId, pending.message);
       }
@@ -141,6 +179,8 @@ export class MessageDeliveryService {
     nodeId: string,
     message: Message,
   ): Promise<void> {
+    const generation = this.lifecycleGeneration;
+    if (!this.active(generation)) return;
     if (!isPendingDelivery(message)) return;
     const transport = this.transport;
     const store = this.store;
@@ -153,6 +193,7 @@ export class MessageDeliveryService {
     try {
       // Re-read before send: another worker may have stamped already.
       const doc = await store.readDoc(canvas);
+      if (!this.active(generation)) return;
       if (!doc) return;
       const node = doc.nodes.find((n) => n.id === nodeId);
       if (!node) return;
@@ -171,6 +212,7 @@ export class MessageDeliveryService {
 
       // At-most-once: never re-hit the transport after a prior accept.
       if (!this.transportAccepted.has(key)) {
+        if (!this.active(generation)) return;
         const payload = composeMessageDeliveryPayload(live);
         const delivered = await this.deliver(transport, target, payload, live.messageId);
         if (!delivered) return;
