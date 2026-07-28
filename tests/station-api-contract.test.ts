@@ -12,6 +12,7 @@ import {
   ReportResponse,
   RouteCursor,
   STATION_API_MAX_ACKS_PER_REPORT,
+  STATION_API_MAX_COMMANDS_PER_REPORT,
   STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT,
   STATION_API_MAX_RECORDS_PER_REPORT,
   STATION_API_MAX_REPORT_BATCH_BYTES,
@@ -148,6 +149,40 @@ const claimFact = (
       },
       claimedBy: actor,
       previousHome,
+    },
+  });
+
+const taskCreateCommand = (
+  seq: string,
+  sender = cc,
+  target = remote,
+): WorkRecordValue =>
+  decodeWorkRecord({
+    protocol: WORK_PROTOCOL,
+    id: {
+      route: {
+        eventHome: sender,
+        entityHome: target,
+      },
+      seq,
+    },
+    recordType: "command",
+    item: {
+      kind: "task",
+      itemId: `created-task-${seq}`,
+      sink,
+    },
+    operation: "task.create",
+    contentSha256: hashA,
+    originAt: timestamp,
+    predecessor: null,
+    body: {
+      operation: "task.create",
+      task: {
+        id: `created-task-${seq}`,
+        state: "submitted",
+        history: [],
+      },
     },
   });
 
@@ -391,7 +426,7 @@ describe("Station API v2 contract", () => {
     expect("StationEventAck" in StationApi).toBe(false);
   });
 
-  it("bounds report records, acknowledgements, claims, and encoded bytes", () => {
+  it("bounds report records, response-producing commands, acknowledgements, claims, and encoded bytes", () => {
     const records = Array.from(
       { length: STATION_API_MAX_RECORDS_PER_REPORT + 1 },
       (_, index) => messageFact(String(index + 1)),
@@ -400,6 +435,37 @@ describe("Station API v2 contract", () => {
       Either.isLeft(
         decodeStrict(ReportBatch)({
           records,
+          acknowledge: [],
+          hasMore: true,
+        }),
+      ),
+    ).toBe(true);
+
+    expect(STATION_API_MAX_COMMANDS_PER_REPORT * 2).toBeLessThanOrEqual(
+      STATION_API_MAX_RECORDS_PER_REPORT,
+    );
+    expect((STATION_API_MAX_COMMANDS_PER_REPORT + 1) * 2).toBeGreaterThan(
+      STATION_API_MAX_RECORDS_PER_REPORT,
+    );
+    const commands = Array.from(
+      { length: STATION_API_MAX_COMMANDS_PER_REPORT + 1 },
+      (_, index) => taskCreateCommand(String(index + 1)),
+    );
+    expect(
+      decideReportBatchAdmission({
+        records: commands,
+        acknowledge: [],
+        hasMore: true,
+      }),
+    ).toMatchObject({
+      _tag: "command-response-capacity-limit",
+      actual: STATION_API_MAX_COMMANDS_PER_REPORT + 1,
+      limit: STATION_API_MAX_COMMANDS_PER_REPORT,
+    });
+    expect(
+      Either.isLeft(
+        decodeStrict(ReportBatch)({
+          records: commands,
           acknowledge: [],
           hasMore: true,
         }),

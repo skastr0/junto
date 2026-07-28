@@ -29,6 +29,13 @@ export const STATION_API_PROTOCOL = "vellum/station-api/v2" as const;
 
 export const STATION_API_MAX_PROJECTION_CHARS = 64 * 1024 * 1024;
 export const STATION_API_MAX_RECORDS_PER_REPORT = 256;
+/**
+ * Every admitted Work command can produce a mandatory fact plus disposition.
+ * Reserving two response records per command makes a valid request's mandatory
+ * response representable under the same fixed ReportBatch record bound.
+ */
+export const STATION_API_MAX_COMMANDS_PER_REPORT =
+  Math.floor(STATION_API_MAX_RECORDS_PER_REPORT / 2);
 export const STATION_API_MAX_ACKS_PER_REPORT = 256;
 export const STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT = 64;
 export const STATION_API_MAX_REPORT_BATCH_BYTES = 8 * 1024 * 1024;
@@ -217,6 +224,7 @@ export type ReportBatchAdmissionDecision =
   | {
       readonly _tag: "admitted";
       readonly encodedBytes: number;
+      readonly commands: number;
       readonly firstDeliveryClaims: number;
     }
   | {
@@ -226,6 +234,11 @@ export type ReportBatchAdmissionDecision =
     }
   | {
       readonly _tag: "acknowledgement-limit";
+      readonly actual: number;
+      readonly limit: number;
+    }
+  | {
+      readonly _tag: "command-response-capacity-limit";
       readonly actual: number;
       readonly limit: number;
     }
@@ -294,6 +307,17 @@ export const decideReportBatchAdmission = (
       limit: STATION_API_MAX_ACKS_PER_REPORT,
     };
   }
+  const commands = candidate.records.reduce(
+    (count, record) => count + (record.recordType === "command" ? 1 : 0),
+    0,
+  );
+  if (commands > STATION_API_MAX_COMMANDS_PER_REPORT) {
+    return {
+      _tag: "command-response-capacity-limit",
+      actual: commands,
+      limit: STATION_API_MAX_COMMANDS_PER_REPORT,
+    };
+  }
   const firstDeliveryClaims = candidate.records.reduce(
     (count, record) => count + (isFirstDeliveryTaskClaim(record) ? 1 : 0),
     0,
@@ -317,7 +341,12 @@ export const decideReportBatchAdmission = (
       limit: STATION_API_MAX_REPORT_BATCH_BYTES,
     };
   }
-  return { _tag: "admitted", encodedBytes, firstDeliveryClaims };
+  return {
+    _tag: "admitted",
+    encodedBytes,
+    commands,
+    firstDeliveryClaims,
+  };
 };
 
 const reportBatchAdmissionMessage = (
@@ -328,6 +357,8 @@ const reportBatchAdmissionMessage = (
       return `Report batch has ${decision.actual} records; maximum is ${decision.limit}`;
     case "acknowledgement-limit":
       return `Report batch has ${decision.actual} acknowledgements; maximum is ${decision.limit}`;
+    case "command-response-capacity-limit":
+      return `Report batch has ${decision.actual} commands; maximum is ${decision.limit} so every mandatory fact and disposition fits its response`;
     case "first-delivery-claim-limit":
       return `Report batch has ${decision.actual} task.claim commands; maximum is ${decision.limit}`;
     case "not-json":
