@@ -272,6 +272,7 @@ describe("Work protocol v2 contract", () => {
           operation: "message.append",
           message: appendedMessage,
           sentBy: actor,
+          destination: { kind: "mailbox" },
         }),
       ),
     ).toBe(true);
@@ -281,6 +282,7 @@ describe("Work protocol v2 contract", () => {
           operation: "message.append",
           message: appendedMessage,
           sentBy: actor,
+          destination: { kind: "mailbox" },
         }),
       ),
     ).toBe(true);
@@ -289,6 +291,7 @@ describe("Work protocol v2 contract", () => {
         decodeWorkAction({
           operation: "message.append",
           message: appendedMessage,
+          destination: { kind: "mailbox" },
         }),
       ),
     ).toBe(true);
@@ -297,6 +300,41 @@ describe("Work protocol v2 contract", () => {
         decodeWorkResult({
           operation: "message.append",
           message: appendedMessage,
+          destination: { kind: "mailbox" },
+        }),
+      ),
+    ).toBe(true);
+
+    const taskMessage = {
+      ...appendedMessage,
+      taskId: "task-1",
+    };
+    expect(
+      Either.isRight(
+        decodeWorkAction({
+          operation: "message.append",
+          message: taskMessage,
+          sentBy: actor,
+          destination: { kind: "task", itemId: "task-1" },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeWorkAction({
+          operation: "message.append",
+          message: taskMessage,
+          sentBy: actor,
+          destination: { kind: "request", itemId: "request-1" },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeWorkAction({
+          operation: "message.append",
+          message: taskMessage,
+          sentBy: actor,
         }),
       ),
     ).toBe(true);

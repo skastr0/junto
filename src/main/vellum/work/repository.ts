@@ -22,6 +22,7 @@ import {
   ActorRef as ActorRefSchema,
   DisplayTimestamp,
   LogicalSequence,
+  MessageAppendDestination as MessageAppendDestinationSchema,
   RouteCursor,
   SinkRef,
   WORK_PROTOCOL,
@@ -35,6 +36,7 @@ import {
   type DeliveryReceipt,
   type DisplayTimestamp as DisplayTimestampValue,
   type LogicalSequence as LogicalSequenceValue,
+  type MessageAppendDestination,
   type RouteCursor as RouteCursorValue,
   type SinkRef as SinkRefValue,
   type WorkAction as WorkActionValue,
@@ -266,6 +268,7 @@ export type ResolveRequestInput = LocalWorkInput & {
 export type AppendMessageInput = LocalWorkInput & {
   readonly message: MessageValue;
   readonly sentBy: ActorRef;
+  readonly destination: MessageAppendDestination;
 };
 
 export type PublishArtifactInput = LocalWorkInput & {
@@ -842,6 +845,71 @@ const authorityError = (
   reason: WorkAuthorityError["reason"],
   message: string,
 ): WorkAuthorityError => WorkAuthorityError.make({ reason, message });
+
+type ThreadMessageDestination = Exclude<
+  MessageAppendDestination,
+  { readonly kind: "mailbox" }
+>;
+
+const requireThreadParent = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  destination: ThreadMessageDestination,
+  entityHome: InstallationId,
+): IdentityRow => {
+  const parent = selectTaskIdentity(
+    reader,
+    destination.kind,
+    sink,
+    destination.itemId,
+  );
+  if (parent === undefined) {
+    throw authorityError(
+      "missing-entity",
+      `${destination.kind} "${destination.itemId}" does not exist at the message sink`,
+    );
+  }
+  if (parent.entity_home !== entityHome) {
+    throw authorityError(
+      "authority-mismatch",
+      `${destination.kind} message history must share its parent entity home`,
+    );
+  }
+  return parent;
+};
+
+const assertMessageIdentityAvailable = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  messageId: string,
+): void => {
+  const existing = reader.get<StateRow>(
+    `
+      SELECT 1
+      FROM work_messages
+      WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+      UNION ALL
+      SELECT 1
+      FROM work_task_messages
+      WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+      LIMIT 1
+    `,
+    [
+      sink.canvasName,
+      sink.nodeId,
+      messageId,
+      sink.canvasName,
+      sink.nodeId,
+      messageId,
+    ],
+  );
+  if (existing !== undefined) {
+    throw authorityError(
+      "identity-conflict",
+      `message "${messageId}" already exists at the sink`,
+    );
+  }
+};
 
 const replicationError = (
   senderInstallationId: InstallationId,
@@ -1513,6 +1581,81 @@ const writeTask = (
   );
 };
 
+const writeThreadMessage = (
+  writer: StateWriter,
+  sink: SinkRefValue,
+  destination: ThreadMessageDestination,
+  message: MessageValue,
+  fact: WorkFactValue,
+  receivedAt: DisplayTimestampValue,
+): void => {
+  const position = Number(
+    writer.get<StateRow & { readonly next_position: number }>(
+      `
+        SELECT coalesce(max(position) + 1, 0) AS next_position
+        FROM work_task_messages
+        WHERE canvas_name = ?
+          AND node_id = ?
+          AND parent_lane = ?
+          AND item_id = ?
+      `,
+      [
+        sink.canvasName,
+        sink.nodeId,
+        destination.kind,
+        destination.itemId,
+      ],
+    )?.next_position ?? 0,
+  );
+  writer.run(
+    `
+      INSERT INTO work_task_messages(
+        canvas_name,
+        node_id,
+        parent_lane,
+        item_id,
+        message_id,
+        position,
+        message_kind,
+        entity_home,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
+        role,
+        parts_json,
+        context_id,
+        reference_task_ids_json,
+        metadata_json,
+        origin_at,
+        received_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'history', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      sink.canvasName,
+      sink.nodeId,
+      destination.kind,
+      destination.itemId,
+      message.messageId,
+      position,
+      fact.id.route.entityHome,
+      fact.id.route.eventHome,
+      fact.id.route.entityHome,
+      fact.id.seq,
+      message.role,
+      canonicalJson(message.parts),
+      message.contextId ?? null,
+      message.referenceTaskIds === undefined
+        ? null
+        : canonicalJson(message.referenceTaskIds),
+      message.metadata === undefined
+        ? null
+        : canonicalJson(message.metadata),
+      fact.originAt,
+      receivedAt,
+    ],
+  );
+};
+
 const writeInboxMessage = (
   writer: StateWriter,
   sink: SinkRefValue,
@@ -1701,16 +1844,29 @@ const materializeFact = (
         receivedAt,
       );
       return;
-    case "message.append":
-      writeInboxMessage(
-        writer,
-        fact.item.sink,
-        fact.body.message,
-        fact.body.sentBy,
-        fact,
-        receivedAt,
-      );
+    case "message.append": {
+      const destination = fact.body.destination;
+      if (destination.kind === "mailbox") {
+        writeInboxMessage(
+          writer,
+          fact.item.sink,
+          fact.body.message,
+          fact.body.sentBy,
+          fact,
+          receivedAt,
+        );
+      } else {
+        writeThreadMessage(
+          writer,
+          fact.item.sink,
+          destination,
+          fact.body.message,
+          fact,
+          receivedAt,
+        );
+      }
       return;
+    }
     case "artifact.publish":
       writeArtifact(
         writer,
@@ -2187,29 +2343,33 @@ const resultForCommand = (
       };
     }
     case "message.append": {
-      const exists = writer.get<StateRow>(
-        `
-          SELECT 1
-          FROM work_messages
-          WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-        `,
-        [
-          command.item.sink.canvasName,
-          command.item.sink.nodeId,
-          action.message.messageId,
-        ],
-      );
-      if (exists !== undefined) {
-        throw authorityError(
-          "identity-conflict",
-          `message "${action.message.messageId}" already exists`,
+      const authority = canonicalLocalWorkAuthority(writer);
+      if (action.destination.kind === "mailbox") {
+        if (authority.role !== "command-center") {
+          throw authorityError(
+            "authority-mismatch",
+            "actor mailbox messages are Command Center-homed",
+          );
+        }
+      } else {
+        requireThreadParent(
+          writer,
+          command.item.sink,
+          action.destination,
+          command.id.route.entityHome,
         );
       }
+      assertMessageIdentityAvailable(
+        writer,
+        command.item.sink,
+        action.message.messageId,
+      );
       return {
         body: {
           operation: "message.append",
           message: action.message,
           sentBy: action.sentBy,
+          destination: action.destination,
         },
       };
     }
@@ -2764,25 +2924,19 @@ const validateIncomingFact = (
       return;
     }
     case "message.append": {
-      if (
-        writer.get<StateRow>(
-          `
-            SELECT 1
-            FROM work_messages
-            WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-          `,
-          [
-            fact.item.sink.canvasName,
-            fact.item.sink.nodeId,
-            fact.item.itemId,
-          ],
-        ) !== undefined
-      ) {
-        throw authorityError(
-          "identity-conflict",
-          `message "${fact.item.itemId}" already exists`,
+      if (fact.body.destination.kind !== "mailbox") {
+        requireThreadParent(
+          writer,
+          fact.item.sink,
+          fact.body.destination,
+          sender,
         );
       }
+      assertMessageIdentityAvailable(
+        writer,
+        fact.item.sink,
+        fact.item.itemId,
+      );
       return;
     }
     case "artifact.publish": {
@@ -2879,11 +3033,15 @@ const validateDisposition = (
     if (
       command.body.operation === "message.append" &&
       fact.body.operation === "message.append" &&
-      !sameActor(command.body.sentBy, fact.body.sentBy)
+      (canonicalJson(command.body.message) !==
+          canonicalJson(fact.body.message) ||
+        canonicalJson(command.body.destination) !==
+          canonicalJson(fact.body.destination) ||
+        !sameActor(command.body.sentBy, fact.body.sentBy))
     ) {
       throw authorityError(
         "causal-conflict",
-        "message append fact changed the command sender",
+        "message append fact changed the command payload, destination, or sender",
       );
     }
   }
@@ -3464,39 +3622,51 @@ export const WorkRepositoryLive = Layer.effect(
         ActorRefSchema,
         strictDecode,
       )(input.sentBy);
+      const destination = Schema.decodeUnknownSync(
+        MessageAppendDestinationSchema,
+        strictDecode,
+      )(input.destination);
       return transaction("work.message.append", input.sink, (writer) => {
         const authority = canonicalLocalWorkAuthority(writer);
         const localInstallationId = authority.installationId;
-        if (
-          message.taskId === undefined &&
-          authority.role !== "command-center"
-        ) {
-          throw authorityError(
-            "authority-mismatch",
-            "standalone actor mailbox messages are Command Center-homed",
+        if (destination.kind === "mailbox") {
+          if (authority.role !== "command-center") {
+            throw authorityError(
+              "authority-mismatch",
+              "actor mailbox messages are Command Center-homed",
+            );
+          }
+        } else {
+          if (message.taskId !== destination.itemId) {
+            throw authorityError(
+              "target-mismatch",
+              "task/request message destination must equal Message.taskId",
+            );
+          }
+          requireThreadParent(
+            writer,
+            input.sink,
+            destination,
+            localInstallationId,
           );
         }
-        if (
-          writer.get<StateRow>(
-            `
-              SELECT 1 FROM work_messages
-              WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-            `,
-            [input.sink.canvasName, input.sink.nodeId, message.messageId],
-          ) !== undefined
-        ) {
-          throw authorityError(
-            "identity-conflict",
-            `message "${message.messageId}" already exists`,
-          );
-        }
+        assertMessageIdentityAvailable(
+          writer,
+          input.sink,
+          message.messageId,
+        );
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
           item: item("message", message.messageId, input.sink),
           operation: "message.append",
           predecessor: null,
-          body: { operation: "message.append", message, sentBy },
+          body: {
+            operation: "message.append",
+            message,
+            sentBy,
+            destination,
+          },
           value: message,
           originAt,
           receivedAt,

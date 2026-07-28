@@ -231,11 +231,49 @@ export const RequestResolveAction = Schema.Struct({
 });
 export type RequestResolveAction = typeof RequestResolveAction.Type;
 
-export const MessageAppendAction = Schema.Struct({
-  operation: Schema.Literal("message.append"),
+/**
+ * `Message.taskId` is an A2A cross-reference, not a storage-lane tag. The
+ * destination is therefore explicit on every append record so a receiver can
+ * materialize it without consulting transport context or guessing from
+ * optional message fields.
+ */
+export const MessageAppendDestination = Schema.Union(
+  Schema.Struct({
+    kind: Schema.Literal("mailbox"),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("task"),
+    itemId: BoundedId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("request"),
+    itemId: BoundedId,
+  }),
+);
+export type MessageAppendDestination =
+  typeof MessageAppendDestination.Type;
+
+const MessageAppendPayload = {
   message: Message,
   sentBy: ActorRef,
-});
+  destination: MessageAppendDestination,
+} as const;
+
+const destinationMatchesMessage = (
+  input: {
+    readonly message: Message;
+    readonly destination: MessageAppendDestination;
+  },
+): boolean | string =>
+  input.destination.kind === "mailbox" ||
+    input.message.taskId === input.destination.itemId
+    ? true
+    : "task/request message destination must equal Message.taskId";
+
+export const MessageAppendAction = Schema.Struct({
+  operation: Schema.Literal("message.append"),
+  ...MessageAppendPayload,
+}).pipe(Schema.filter(destinationMatchesMessage));
 export type MessageAppendAction = typeof MessageAppendAction.Type;
 
 export const ArtifactPublishAction = Schema.Struct({
@@ -325,9 +363,8 @@ export type RequestResult = typeof RequestResult.Type;
 
 export const MessageAppendResult = Schema.Struct({
   operation: Schema.Literal("message.append"),
-  message: Message,
-  sentBy: ActorRef,
-});
+  ...MessageAppendPayload,
+}).pipe(Schema.filter(destinationMatchesMessage));
 export type MessageAppendResult = typeof MessageAppendResult.Type;
 
 export const ArtifactPublishResult = Schema.Struct({

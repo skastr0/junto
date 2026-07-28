@@ -437,6 +437,7 @@ describe("WorkRepository v2 local authority", () => {
         sink: inbox,
         message: message("mail-1", "agent", "hello", "mail-context-task"),
         sentBy: actor,
+        destination: { kind: "mailbox" },
         originAt: observedAt,
         receivedAt: observedAt,
       }),

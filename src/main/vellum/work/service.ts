@@ -825,6 +825,17 @@ export const WorkLive = Layer.effect(
                 message,
               )
             );
+            const destination = taskId === null
+              ? { kind: "mailbox" as const }
+              : targetNode.ether?.entity?.kind === "requests"
+                ? {
+                    kind: "request" as const,
+                    itemId: taskId,
+                  }
+                : {
+                    kind: "task" as const,
+                    itemId: taskId,
+                  };
             const home = taskId === null
               ? context.configuration.role === "command-center"
                 ? context.localInstallationId
@@ -843,6 +854,7 @@ export const WorkLive = Layer.effect(
                   sink: sinkRef(canvas, nodeId),
                   message: policy.message,
                   sentBy,
+                  destination,
                 }),
               )
               : yield* enqueue(
@@ -858,6 +870,7 @@ export const WorkLive = Layer.effect(
                   operation: "message.append",
                   message: policy.message,
                   sentBy,
+                  destination,
                 },
                 policy.message,
               );

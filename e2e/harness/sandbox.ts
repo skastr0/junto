@@ -260,6 +260,7 @@ export const writeFixtureCanvas = async (
               sink,
               message,
               sentBy: adjacentActor(node.id),
+              destination: { kind: "mailbox" },
             });
           }
 

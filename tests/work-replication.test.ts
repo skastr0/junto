@@ -211,6 +211,7 @@ describe("WorkRepository v2 report reconciliation", () => {
           operation: "message.append",
           message: appended,
           sentBy: sender,
+          destination: { kind: "mailbox" },
         },
         originAt: observedAt,
         receivedAt: observedAt,
@@ -220,6 +221,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       operation: "message.append",
       message: appended,
       sentBy: sender,
+      destination: { kind: "mailbox" },
     });
 
     const response = await commandCenter.runtime.runPromise(
@@ -889,6 +891,7 @@ describe("WorkRepository v2 report reconciliation", () => {
           sink: inbox,
           message: message("remote-mail", "agent", "must stay CC-homed"),
           sentBy: requester,
+          destination: { kind: "mailbox" },
           originAt: observedAt,
           receivedAt: observedAt,
         })

@@ -211,6 +211,8 @@ const messageFact = (
         role: "agent",
         parts: [{ kind: "text", text }],
       },
+      sentBy: actor,
+      destination: { kind: "mailbox" },
     },
   });
 
