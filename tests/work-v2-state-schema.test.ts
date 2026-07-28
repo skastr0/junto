@@ -666,13 +666,15 @@ describe("Work v2 exact-current SQLite schema", () => {
         taskId: "remote-task",
       }),
     ).toThrow(/work mailbox messages must be Command Center-homed/u);
-    insertMessage(remote, {
-      messageId: "cc-message",
-      entityHome: "cc-installation",
-      factEventHome: "cc-installation",
-      factEntityHome: "cc-installation",
-      taskId: "cc-task-reference",
-    });
+    expect(() =>
+      insertMessage(remote, {
+        messageId: "cc-message",
+        entityHome: "cc-installation",
+        factEventHome: "cc-installation",
+        factEntityHome: "cc-installation",
+        taskId: "cc-task-reference",
+      }),
+    ).toThrow(/work mailbox messages must be Command Center-homed/u);
     expect(
       remote
         .prepare(
@@ -683,13 +685,7 @@ describe("Work v2 exact-current SQLite schema", () => {
           `,
         )
         .all(),
-    ).toEqual([
-      {
-        message_id: "cc-message",
-        entity_home: "cc-installation",
-        task_id: "cc-task-reference",
-      },
-    ]);
+    ).toEqual([]);
   });
 
   test("requires every thread message to name an exact same-home parent", () => {

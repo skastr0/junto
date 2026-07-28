@@ -1092,18 +1092,8 @@ export const WORK_STATE_SCHEMA_SQL = `
       JOIN station_installation AS installation
         ON installation.singleton = configuration.singleton
       WHERE configuration.singleton = 1
-        AND (
-          (
-            configuration.role = 'command-center'
-            AND NEW.entity_home = installation.installation_id
-          )
-          OR
-          (
-            configuration.role = 'remote'
-            AND NEW.entity_home =
-              configuration.command_center_installation_id
-          )
-        )
+        AND configuration.role = 'command-center'
+        AND NEW.entity_home = installation.installation_id
     )
   BEGIN
     SELECT RAISE(

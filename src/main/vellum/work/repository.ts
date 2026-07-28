@@ -470,22 +470,6 @@ type LocalWorkAuthority = {
   readonly role: StationApiRoleValue;
 };
 
-const canonicalLocalInstallation = (
-  reader: StateReader,
-): InstallationId => {
-  const row = reader.get<StateRow & { readonly installation_id: string }>(
-    `
-      SELECT installation_id
-      FROM station_installation
-      WHERE singleton = 1
-    `,
-  );
-  if (row === undefined) {
-    throw new Error("local Station installation identity is not initialized");
-  }
-  return Schema.decodeUnknownSync(InstallationId)(row.installation_id);
-};
-
 /**
  * Resolve the complete authority required by every locally initiated Work
  * mutation inside its transaction. Installation identity without an explicit
@@ -2658,6 +2642,65 @@ const findPendingClaim = (
   return record?.recordType === "command" ? record : undefined;
 };
 
+const findPendingMessageCommand = (
+  reader: StateReader,
+  local: InstallationId,
+  sender: InstallationId,
+  fact: WorkFactValue,
+): WorkCommandValue | undefined => {
+  if (fact.body.operation !== "message.append") return undefined;
+  const row = reader.get<
+    StateRow & {
+      readonly event_home: string;
+      readonly entity_home: string;
+      readonly seq: string;
+    }
+  >(
+    `
+      SELECT event_home, entity_home, seq
+      FROM work_pending_commands
+      WHERE event_home = ?
+        AND entity_home = ?
+        AND operation = 'message.append'
+        AND item_canvas_name = ?
+        AND item_node_id = ?
+        AND item_id = ?
+        AND resolution_event_home IS NULL
+      LIMIT 1
+    `,
+    [
+      local,
+      sender,
+      fact.item.sink.canvasName,
+      fact.item.sink.nodeId,
+      fact.item.itemId,
+    ],
+  );
+  if (row === undefined) return undefined;
+  const record = loadRecord(
+    reader,
+    recordId(
+      row.event_home as InstallationId,
+      row.entity_home as InstallationId,
+      row.seq,
+    ),
+  );
+  if (
+    record?.recordType !== "command" ||
+    record.body.operation !== "message.append" ||
+    !sameItem(record.item, fact.item) ||
+    !sameId(record.predecessor, fact.predecessor) ||
+    canonicalJson(record.body.message) !==
+      canonicalJson(fact.body.message) ||
+    canonicalJson(record.body.destination) !==
+      canonicalJson(fact.body.destination) ||
+    !sameActor(record.body.sentBy, fact.body.sentBy)
+  ) {
+    return undefined;
+  }
+  return record;
+};
+
 const taskWithoutHistory = (task: TaskValue): unknown => {
   const { history: _history, ...rest } = task;
   return rest;
@@ -2924,14 +2967,35 @@ const validateIncomingFact = (
       return;
     }
     case "message.append": {
-      if (fact.body.destination.kind !== "mailbox") {
-        requireThreadParent(
-          writer,
-          fact.item.sink,
-          fact.body.destination,
-          sender,
+      const authority = canonicalLocalWorkAuthority(writer);
+      if (authority.role === "remote") {
+        if (
+          findPendingMessageCommand(
+            writer,
+            local,
+            sender,
+            fact,
+          ) === undefined
+        ) {
+          throw authorityError(
+            "causal-conflict",
+            "Command Center message fact has no exact local pending command",
+          );
+        }
+        return;
+      }
+      if (fact.body.destination.kind === "mailbox") {
+        throw authorityError(
+          "authority-mismatch",
+          "mailbox facts cannot originate from a Remote",
         );
       }
+      requireThreadParent(
+        writer,
+        fact.item.sink,
+        fact.body.destination,
+        sender,
+      );
       assertMessageIdentityAvailable(
         writer,
         fact.item.sink,
@@ -4072,7 +4136,8 @@ export const WorkRepositoryLive = Layer.effect(
 
       return state
         .transaction("work.acceptRecords", (writer) => {
-          const localInstallationId = canonicalLocalInstallation(writer);
+          const localAuthority = canonicalLocalWorkAuthority(writer);
+          const localInstallationId = localAuthority.installationId;
           const routes = new Map<string, WorkRecordValue[]>();
           for (const record of decoded) {
             const key = `${record.id.route.eventHome}\u0000${record.id.route.entityHome}`;
@@ -4213,11 +4278,19 @@ export const WorkRepositoryLive = Layer.effect(
                   }
                 }
               } else if (record.recordType === "fact") {
-                materializeFact(writer, record, observedAt);
-                accepted += 1;
-                changed.add(
-                  `${record.item.sink.canvasName}\u0000${record.item.sink.nodeId}`,
+                const materializesHere = !(
+                  localAuthority.role === "remote" &&
+                  record.body.operation === "message.append"
                 );
+                if (materializesHere) {
+                  materializeFact(writer, record, observedAt);
+                }
+                accepted += 1;
+                if (materializesHere) {
+                  changed.add(
+                    `${record.item.sink.canvasName}\u0000${record.item.sink.nodeId}`,
+                  );
+                }
               } else {
                 resolvePending(writer, record, observedAt);
                 accepted += 1;

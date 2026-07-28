@@ -271,6 +271,17 @@ describe("WorkRepository v2 report reconciliation", () => {
       accept(station.repository, cc, response.emitted),
     );
     expect(
+      await station.runtime.runPromise(
+        station.state.read(
+          "test.read-remote-mailbox-material",
+          (reader) =>
+            reader.get<{ readonly count: number }>(
+              "SELECT count(*) AS count FROM work_messages",
+            )!.count,
+        ),
+      ),
+    ).toBe(0);
+    expect(
       await commandCenter.runtime.runPromise(
         commandCenter.state.read(
           "test.read-command-message-sender",
@@ -291,6 +302,199 @@ describe("WorkRepository v2 report reconciliation", () => {
         station.repository.pendingCommands,
       ))[0],
     ).toMatchObject({ resolution: { status: "applied" } });
+  });
+
+  it("retains an exact CC message response on a Remote without materializing nonlocal thread state", async () => {
+    const cc = installation("cc-thread-response");
+    const remote = installation("remote-thread-response");
+    const station = await openInstallation(remote, [cc], "remote");
+    const sink = { canvasName: "factory", nodeId: "cc-tasks" };
+    const sender = actor("7", "remote-thread-sender");
+    const appended = message(
+      "thread-response-message",
+      "agent",
+      "online note for the CC-owned task",
+      "cc-task",
+    );
+    const command = await station.runtime.runPromise(
+      station.repository.enqueueRemoteCommand({
+        targetInstallationId: cc,
+        sink,
+        item: {
+          kind: "message",
+          itemId: appended.messageId,
+          sink,
+        },
+        action: {
+          operation: "message.append",
+          message: appended,
+          sentBy: sender,
+          destination: { kind: "task", itemId: "cc-task" },
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const fact = reseal(
+      Schema.decodeUnknownSync(WorkRecord, {
+        onExcessProperty: "error",
+      })({
+        protocol: "vellum/work/v2",
+        id: {
+          route: { eventHome: cc, entityHome: cc },
+          seq: "1",
+        },
+        recordType: "fact",
+        item: command.item,
+        operation: "message.append",
+        contentSha256: "0".repeat(64),
+        originAt: observedAt,
+        predecessor: command.predecessor,
+        body: {
+          operation: "message.append",
+          message: appended,
+          sentBy: sender,
+          destination: { kind: "task", itemId: "cc-task" },
+        },
+      }),
+    );
+    if (fact.recordType !== "fact") {
+      throw new Error("thread response fixture is not a fact");
+    }
+    const disposition = reseal(
+      Schema.decodeUnknownSync(WorkRecord, {
+        onExcessProperty: "error",
+      })({
+        protocol: "vellum/work/v2",
+        id: {
+          route: { eventHome: cc, entityHome: cc },
+          seq: "2",
+        },
+        recordType: "disposition",
+        item: command.item,
+        operation: "message.append",
+        contentSha256: "0".repeat(64),
+        originAt: observedAt,
+        body: {
+          status: "applied",
+          command: command.id,
+          commandSha256: command.contentSha256,
+          fact: fact.id,
+          factSha256: fact.contentSha256,
+        },
+      }),
+    );
+    const forged = reseal({
+      ...fact,
+      body: {
+        ...fact.body,
+        sentBy: actor("6", "forged-thread-sender"),
+      },
+    });
+    const denied = await station.runtime.runPromise(
+      accept(station.repository, cc, [forged]).pipe(Effect.either),
+    );
+    expect(Either.isLeft(denied)).toBe(true);
+
+    const accepted = await station.runtime.runPromise(
+      accept(station.repository, cc, [fact, disposition]),
+    );
+    expect(accepted.acknowledge).toEqual([
+      { eventHome: cc, entityHome: cc, through: "2" },
+    ]);
+    expect(
+      await station.runtime.runPromise(
+        station.state.read(
+          "test.read-nonlocal-thread-residency",
+          (reader) => ({
+            cursor: reader.get<{ readonly through_sequence: string }>(
+              `
+                SELECT through_sequence
+                FROM station_received_cursors
+                WHERE event_home = ? AND entity_home = ?
+              `,
+              [cc, cc],
+            )?.through_sequence,
+            inbox: reader.get<{ readonly count: number }>(
+              "SELECT count(*) AS count FROM work_messages",
+            )!.count,
+            threads: reader.get<{ readonly count: number }>(
+              "SELECT count(*) AS count FROM work_task_messages",
+            )!.count,
+          }),
+        ),
+      ),
+    ).toEqual({ cursor: "2", inbox: 0, threads: 0 });
+    expect(
+      (await station.runtime.runPromise(
+        station.repository.pendingCommands,
+      ))[0],
+    ).toMatchObject({ resolution: { status: "applied" } });
+  });
+
+  it("materializes Remote-home task notes into the Command Center replica", async () => {
+    const cc = installation("cc-thread-replica");
+    const remote = installation("remote-thread-replica");
+    const commandCenter = await openInstallation(
+      cc,
+      [remote],
+      "command-center",
+    );
+    const station = await openInstallation(remote, [cc], "remote");
+    const sink = { canvasName: "factory", nodeId: "remote-tasks" };
+    const taskId = "remote-thread-task";
+    const created = await station.runtime.runPromise(
+      station.repository.createTask({
+        sink,
+        task: {
+          id: taskId,
+          state: "submitted",
+          history: [
+            message("remote-thread-brief", "user", "do it", taskId),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [created.record]),
+    );
+    const note = message(
+      "remote-thread-note",
+      "agent",
+      "progress",
+      taskId,
+    );
+    const appended = await station.runtime.runPromise(
+      station.repository.appendMessage({
+        sink,
+        message: note,
+        sentBy: actor("5", "remote-note-sender"),
+        destination: { kind: "task", itemId: taskId },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [appended.record]),
+    );
+
+    const remoteHistory = (
+      await station.runtime.runPromise(
+        station.repository.readSnapshot(sink.canvasName, sink.nodeId),
+      )
+    ).tasks.items[0]!.history;
+    const commandCenterHistory = (
+      await commandCenter.runtime.runPromise(
+        commandCenter.repository.readSnapshot(
+          sink.canvasName,
+          sink.nodeId,
+        ),
+      )
+    ).tasks.items[0]!.history;
+    expect(remoteHistory).toEqual([created.value.history[0], note]);
+    expect(commandCenterHistory).toEqual(remoteHistory);
   });
 
   it("adopts one CC task on a Remote and integrates returned facts rather than replaying the command", async () => {
