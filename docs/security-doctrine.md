@@ -331,7 +331,8 @@ Mutable work remains single-home:
   synchronous Command Center-to-Remote exchange;
 - claim is the atomic `submitted → working` start of work, not a separate
   assignment state;
-- one actor owns at most one active task;
+- one compiled `ActorSeatId` owns at most one pending claim attempt or active
+  task across every canvas reference to that executable seat;
 - after claim, the task remains homed to that Remote and progresses there
   while Command Center is unavailable;
 - an unreachable Remote cannot receive a newly queued future claim;
@@ -649,9 +650,13 @@ for general SSH, provider, operating-system, browser, or root credentials.
 
 Transport credentials and logical pairing are separate:
 
-- OpenSSH keys or future mTLS certificates authenticate a transport peer;
-- pairing binds that authenticated peer to the enrolled logical factory and
-  installation;
+- OpenSSH authenticates the Remote host to Command Center and the operator
+  account to the Remote SSH daemon; it does not authenticate a Command Center
+  `InstallationId` inside Remote main;
+- current SSH pairing records the Command Center-declared installation/factory
+  identity accepted over that operator-controlled route;
+- future mTLS may cryptographically bind an authenticated Station credential
+  to an enrolled `InstallationId` only when its handoff preserves that proof;
 - `InstallationId`, `HostId`, factory, actor, resource, route URL, and pairing
   rows do not authenticate or authorize by themselves.
 

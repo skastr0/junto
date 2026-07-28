@@ -140,23 +140,48 @@ credentials by themselves.
 
 ### ActorRef and SinkRef
 
-Canvas node IDs are scoped by canvas. The full stable reference is:
+Canvas node IDs are scoped by canvas. A sink reference is:
 
 ```text
-(canvasName, nodeId)
+SinkRef {
+  canvasName: string
+  nodeId: string
+}
 ```
 
-An actor claim stored as a node ID is interpreted within the task's canvas.
-Code must not assume an unqualified node ID is globally unique across every
-canvas.
+An actor additionally has one globally stable execution-seat identity:
+
+```text
+ActorSeatId = branded string
+
+ActorRef {
+  seatId: ActorSeatId
+  canvasName: string
+  nodeId: string
+}
+```
+
+`ActorSeatId` is compiled, not authored. It is stable for one executable actor
+principal on one authority installation and is included in each Station
+projection. If more than one canvas reference resolves to the same executable
+principal, those references must carry the same seat ID; an ambiguous or
+conflicting compile fails closed. Active-task and pending-claim uniqueness key
+on `ActorSeatId`, never an unqualified node ID or canvas-local `ActorRef`.
 
 ### Event home and entity home
 
 - `event_home` is the `InstallationId` that allocated and emitted an event.
-- `entity_home` is the `InstallationId` with durable authority over the
-  affected work item after that event.
+- `entity_home` is the `InstallationId` whose authority lane the record
+  addresses.
 - `seq` is a canonical decimal logical sequence within that
   `(event_home, entity_home)` route.
+
+For a fact, `entity_home` is the installation that committed and owns the
+resulting material row. For a command, it is the prospective authority asked
+to apply the mutation; the command alone does not transfer the underlying
+item. For a disposition, it equals the referenced command's `entity_home`.
+This one interpretation keeps command delivery, fact replay, dispositions,
+and route cursors on the same stable route key.
 
 The durable event identity is:
 
@@ -389,8 +414,8 @@ live-arbitrated attempt, not delayed offline claiming.
 The pending-command store must enforce:
 
 - at most one unresolved claim attempt for a task identity;
-- at most one unresolved claim attempt for an actor reference across canvases;
-- one active task for an actor after adoption;
+- at most one unresolved claim attempt for an `ActorSeatId`;
+- one active task for an `ActorSeatId` after adoption;
 - exact identity/content replay or a hard conflict.
 
 ### Claim command payload
@@ -414,9 +439,10 @@ The outer `WorkCommand` supplies the command `WorkRecordId`, command content
 hash, item identity, and adopted `entityHome`. The Remote is not expected to
 reconstruct or independently prove the Command Center's source row: Command
 Center is the authority that arbitrated it. The Remote instead proves the
-authenticated command, snapshot coherence, local target and placement,
-installed capability edge/port, actor idleness, and absence of a conflicting
-adoption. An exact prior applied/rejected disposition is an idempotent replay.
+strict admitted command and paired Command Center declaration, snapshot
+coherence, local target and placement, installed capability edge/port, actor
+idleness, and absence of a conflicting adoption. An exact prior
+applied/rejected disposition is an idempotent replay.
 
 ### Station-home queue
 
@@ -624,16 +650,24 @@ WorkRecordCommon {
   recordType: "command" | "fact" | "disposition"
   item: WorkItemRef
   operation: WorkOperation
-  predecessor: WorkRecordId | null
   contentSha256: Sha256
   originAt: DisplayTimestamp
-  receivedAt?: DisplayTimestamp
 }
 ```
 
 `contentSha256` covers the canonical semantic record excluding
-`contentSha256`, `originAt`, and `receivedAt`. Receive time is local display
-metadata and is not forwarded as new semantic content.
+`contentSha256` and `originAt`. Receive time is not a wire field. The local
+repository wraps a decoded record after acceptance:
+
+```text
+StoredWorkRecord {
+  record: WorkRecord
+  receivedAt: DisplayTimestamp
+}
+```
+
+That distinction prevents one installation's local receive timestamp from
+becoming another installation's forwarded wire value.
 
 The exact operation vocabulary is:
 
@@ -701,11 +735,13 @@ The versioned wire record is:
 ```text
 WorkCommand = WorkRecordCommon & {
   recordType: "command"
+  predecessor: WorkRecordId | null
   body: WorkAction
 }
 
 WorkFact = WorkRecordCommon & {
   recordType: "fact"
+  predecessor: WorkRecordId | null
   body: WorkResult
 }
 
@@ -755,6 +791,25 @@ identity/content reuse fail closed.
 `kind: string` plus repository-private JSON is not the canonical boundary.
 Transport adapters and Station API clients must not need repository internals
 to understand a record.
+
+### Predecessor law
+
+`WorkCommand.predecessor` and `WorkFact.predecessor` name the prior material
+fact for that item on the record's `entityHome` authority lane. A normal
+command is applied only when that predecessor matches the target's local row.
+A disposition needs no second predecessor because it already references the
+exact command identity and hash.
+
+First adoption is the deliberate exception with two different lineages:
+
+- the `task.claim` command's outer `predecessor` is `null`, because the
+  prospective Remote authority lane has no material task row;
+- `TaskClaimAction.sourcePredecessor` names the last Command Center-authority
+  fact frozen by Command Center during arbitration;
+- the Remote validates the embedded source snapshot and command coherence but
+  does not match `sourcePredecessor` against a nonexistent local source row;
+- the resulting first Remote `task.claim` fact also has `predecessor: null`;
+- later Remote facts name the preceding fact in the Remote authority lane.
 
 ### Logical ordering
 
@@ -812,7 +867,8 @@ For each incoming event, the receiver verifies:
 3. entity home matches the local authority required by the operation;
 4. sequence is contiguous or an idempotent replay;
 5. identity/content hash has not been reused;
-6. predecessor still matches the material row;
+6. an ordinary command/fact predecessor matches the target authority lane, or
+   the exact first-adoption rule above applies;
 7. domain transition and actor/sink rules hold.
 
 The receiver then transactionally:
@@ -895,16 +951,35 @@ and carries no authority. A peer with more than one active route pages fairly
 instead of draining one route without bound. A batch is additionally bounded
 by encoded byte size. Empty records with non-empty ACKs are valid.
 
+The decoded batch must also satisfy:
+
+- every `record.id.route.eventHome` equals `senderInstallationId`;
+- every `acknowledge.eventHome` equals `targetInstallationId`;
+- sender and target equal the paired installations for this session;
+- each record direction and `entityHome` is legal for its operation;
+- the response swaps the request's sender and target exactly.
+
 Every ACK is a `RouteCursor`. ACK lookup, status, replay, paging, and gap
 detection all key on the complete `(eventHome, entityHome)` route. A cursor
 that stores only peer or event home is invalid.
+
+A report request may contain at most 64 unresolved first-delivery
+`task.claim` commands. The responder reserves response capacity before adding
+ordinary backlog records. For every such claim, the correlated response must
+contain exactly one durable disposition; an applied disposition's referenced
+`task.claim` fact must be present in that same response. A claim command cannot
+be cumulatively acknowledged past its sequence until those required records
+are durable and included. If the mandatory response cannot fit the record or
+byte bound, the request fails without advancing its ACK. On replay, the same
+fact/disposition identities are returned.
 
 ## Station API operations
 
 ### `pair`
 
 Purpose: bind one currently unenrolled Remote installation to one Command
-Center installation over an already authenticated transport.
+Center declaration after the adapter's actual transport-authentication
+boundary has succeeded.
 
 Laws:
 
@@ -1347,9 +1422,9 @@ The exact schema must enforce:
 - entity and event homes reference installation identities, never HostId or a
   Command Center sentinel;
 - at most one unresolved claim command per task identity;
-- at most one unresolved claim command per actor reference across canvases;
-- database-enforced uniqueness preventing one actor from owning two active
-  tasks;
+- at most one unresolved claim command per `ActorSeatId`;
+- database-enforced uniqueness preventing one `ActorSeatId` from owning two
+  active tasks;
 - valid pending-command lifecycle;
 - indexes for route replay and node projection.
 
