@@ -1,13 +1,15 @@
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { StationApiService } from "./api";
+import { StationRepository } from "./repository";
 import {
-  StationRepository,
-  type StationRepositoryError,
-} from "./repository";
-import type { StationControlServer } from "./control-server";
+  StationControlReportError,
+  type StationControlServer,
+} from "./control-server";
 import { WorkRepository } from "../work/repository";
 
 const MAX_REPORT_ROUNDS_PER_WAKE = 32;
+const REPORT_RETRY_INITIAL_DELAY_MS = 100;
+const REPORT_RETRY_MAX_DELAY_MS = 5_000;
 
 type StationApiShape = Pick<
   typeof StationApiService.Service,
@@ -45,7 +47,20 @@ export type StationRemoteReportPumpInput = {
     "report" | "sessionReady" | "subscribeSession"
   >;
   readonly reportRoundLimit?: number;
+  /** Tests may lower the retry delay; production callers use the protocol policy. */
+  readonly retryPolicy?: Partial<StationRemoteReportRetryPolicy>;
 };
+
+export type StationRemoteReportRetryPolicy = {
+  readonly initialDelayMs: number;
+  readonly maxDelayMs: number;
+};
+
+export const STATION_REMOTE_REPORT_RETRY_POLICY: StationRemoteReportRetryPolicy =
+  Object.freeze({
+    initialDelayMs: REPORT_RETRY_INITIAL_DELAY_MS,
+    maxDelayMs: REPORT_RETRY_MAX_DELAY_MS,
+  });
 
 const describeFailure = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -57,6 +72,58 @@ const boundedRoundLimit = (requested: number | undefined): number =>
     requested <= MAX_REPORT_ROUNDS_PER_WAKE
     ? requested
     : MAX_REPORT_ROUNDS_PER_WAKE;
+
+const boundedRetryDelay = (
+  requested: number | undefined,
+  fallback: number,
+): number =>
+  requested !== undefined &&
+    Number.isSafeInteger(requested) &&
+    requested >= 0
+    ? requested
+    : fallback;
+
+const retryPolicy = (
+  requested: Partial<StationRemoteReportRetryPolicy> | undefined,
+): StationRemoteReportRetryPolicy => {
+  const initialDelayMs = boundedRetryDelay(
+    requested?.initialDelayMs,
+    STATION_REMOTE_REPORT_RETRY_POLICY.initialDelayMs,
+  );
+  const maxDelayMs = Math.max(
+    initialDelayMs,
+    boundedRetryDelay(
+      requested?.maxDelayMs,
+      STATION_REMOTE_REPORT_RETRY_POLICY.maxDelayMs,
+    ),
+  );
+  return Object.freeze({ initialDelayMs, maxDelayMs });
+};
+
+const reportRetryDelay = (
+  attempt: number,
+  policy: StationRemoteReportRetryPolicy,
+): number =>
+  Math.min(
+    policy.maxDelayMs,
+    policy.initialDelayMs * 2 ** Math.min(attempt, 16),
+  );
+
+/**
+ * Only failures whose typed Station boundary says that the same live session
+ * can make progress qualify. Session loss is recovered by session replacement;
+ * malformed, unauthorized, and state-conflicting traffic parks until state
+ * changes instead of becoming an autonomous retry loop.
+ */
+const retryableOnSameSession = (error: unknown): boolean => {
+  if (!(error instanceof StationControlReportError)) return false;
+  if (error.failure === "capacity-exceeded") return true;
+  return (
+    error.failure === "remote-rejected" &&
+    error.envelope?.ok === false &&
+    error.envelope.error.retryable
+  );
+};
 
 /**
  * Drain Remote-owned facts and Remote→CC commands over the already admitted
@@ -70,9 +137,13 @@ export const startStationRemoteReportPump = (
   input: StationRemoteReportPumpInput,
 ): StationRemoteReportPump => {
   const roundLimit = boundedRoundLimit(input.reportRoundLimit);
+  const retry = retryPolicy(input.retryPolicy);
   let closed = false;
   let pending = false;
   let running = false;
+  let sessionGeneration = 0;
+  let retryAttempt = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let lastCompletedAt: string | undefined;
   let lastFailure: string | undefined;
   let currentDrain: Promise<void> = Promise.resolve();
@@ -89,7 +160,9 @@ export const startStationRemoteReportPump = (
       );
       const response = yield* Effect.tryPromise({
         try: () => input.control.report(request),
-        catch: (cause) => new Error(describeFailure(cause)),
+        // Preserve StationControlReportError: its retryability is protocol
+        // policy, not text for this coordinator to reinterpret.
+        catch: (cause) => cause,
       });
       const integrated = yield* input.api.acceptReportResponse(
         pairing.commandCenterInstallationId,
@@ -102,32 +175,82 @@ export const startStationRemoteReportPump = (
     // Yield a bounded page window to the event loop, then keep the same
     // durable cursor drain pending. This is backlog convergence, not polling.
     pending = true;
-  }).pipe(
-    Effect.mapError((error: StationRepositoryError | unknown) => error),
-  );
+  });
+
+  const clearRetryTimer = (): void => {
+    if (retryTimer === undefined) return;
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+  };
+
+  const scheduleRetry = (
+    expectedSessionGeneration: number,
+    delayMs: number,
+  ): void => {
+    clearRetryTimer();
+    const timer = setTimeout(() => {
+      if (retryTimer !== timer) return;
+      retryTimer = undefined;
+      if (
+        closed ||
+        expectedSessionGeneration !== sessionGeneration ||
+        !input.control.sessionReady()
+      ) {
+        return;
+      }
+      beginDrain();
+    }, delayMs);
+    timer.unref();
+    retryTimer = timer;
+  };
 
   const beginDrain = (): void => {
-    if (closed || running || !pending) return;
+    if (closed || running || !pending || retryTimer !== undefined) return;
     running = true;
     currentDrain = (async () => {
       try {
         while (!closed && pending) {
           pending = false;
+          const attemptedSessionGeneration = sessionGeneration;
           try {
-            await Effect.runPromise(reconcile);
-            lastCompletedAt = new Date().toISOString();
-            lastFailure = undefined;
-          } catch (error) {
-            // A failed exchange remains fully recoverable from SQLite. Do not
-            // spin; a work change or the next admitted session wakes it.
-            lastFailure = describeFailure(error);
+            const attempted = await Effect.runPromise(
+              Effect.either(reconcile),
+            );
+            if (Either.isRight(attempted)) {
+              lastCompletedAt = new Date().toISOString();
+              lastFailure = undefined;
+              retryAttempt = 0;
+            } else {
+              const error = attempted.left;
+              lastFailure = describeFailure(error);
+              if (
+                retryableOnSameSession(error) &&
+                attemptedSessionGeneration === sessionGeneration &&
+                input.control.sessionReady()
+              ) {
+                // Durable rows remain after the peer ACK. Keep their drain
+                // pending and give the same admitted session bounded
+                // exponential backoff. The capped counter prevents overflow;
+                // the timer remains a protocol wake until success or session
+                // replacement, not a general polling fallback.
+                pending = true;
+                const delayMs = reportRetryDelay(retryAttempt, retry);
+                retryAttempt = Math.min(retryAttempt + 1, 16);
+                scheduleRetry(attemptedSessionGeneration, delayMs);
+              }
+              break;
+            }
+          } catch (defect) {
+            lastFailure = describeFailure(defect);
             break;
           }
           if (pending) await Promise.resolve();
         }
       } finally {
         running = false;
-        if (!closed && pending) queueMicrotask(beginDrain);
+        if (!closed && pending && retryTimer === undefined) {
+          queueMicrotask(beginDrain);
+        }
       }
     })();
   };
@@ -140,6 +263,9 @@ export const startStationRemoteReportPump = (
 
   const unsubscribeWork = input.work.subscribeChanges(() => request());
   const unsubscribeSession = input.control.subscribeSession((ready) => {
+    sessionGeneration += 1;
+    retryAttempt = 0;
+    clearRetryTimer();
     if (ready) request();
   });
 
@@ -154,6 +280,7 @@ export const startStationRemoteReportPump = (
     if (closed) return;
     closed = true;
     pending = false;
+    clearRetryTimer();
     unsubscribeWork();
     unsubscribeSession();
     await currentDrain;

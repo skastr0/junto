@@ -10,6 +10,8 @@ import {
   STATION_API_PROTOCOL,
   StationHostId,
 } from "../src/shared/station-api";
+import { stationControlErr } from "../src/shared/station-api-envelope";
+import { StationControlReportError } from "../src/main/vellum/station/control-server";
 import {
   startStationRemoteReportPump,
 } from "../src/main/vellum/station/remote-report-pump";
@@ -32,7 +34,11 @@ const waitFor = async (predicate: () => boolean): Promise<void> => {
 
 const fixture = (
   role: "remote" | "command-center",
-  options: { readonly firstPageHasMore?: boolean } = {},
+  options: {
+    readonly firstPageHasMore?: boolean;
+    readonly reportFailures?: ReadonlyArray<StationControlReportError>;
+    readonly retryDelayMs?: number;
+  } = {},
 ) => {
   const workListeners = new Set<
     (canvasName: string, nodeId: string) => void
@@ -42,6 +48,7 @@ const fixture = (
   let prepared = 0;
   let reported = 0;
   let accepted = 0;
+  const reportFailures = [...(options.reportFailures ?? [])];
 
   const api = {
     prepareReport: () => {
@@ -114,6 +121,8 @@ const fixture = (
   const control = {
     report: async () => {
       reported += 1;
+      const failure = reportFailures.shift();
+      if (failure !== undefined) throw failure;
       return ReportResponse.make({
         protocol: STATION_API_PROTOCOL,
         op: "report",
@@ -135,11 +144,28 @@ const fixture = (
   };
 
   return {
-    input: { api, stations, work, control },
+    input: {
+      api,
+      stations,
+      work,
+      control,
+      ...(options.retryDelayMs === undefined
+        ? {}
+        : {
+            retryPolicy: {
+              initialDelayMs: options.retryDelayMs,
+              maxDelayMs: options.retryDelayMs,
+            },
+          }),
+    },
     counts: () => ({ prepared, reported, accepted }),
     connect: () => {
       sessionReady = true;
       for (const listener of sessionListeners) listener(true);
+    },
+    disconnect: () => {
+      sessionReady = false;
+      for (const listener of sessionListeners) listener(false);
     },
     changeWork: () => {
       for (const listener of workListeners) {
@@ -191,6 +217,70 @@ describe("Remote Station report pump", () => {
     state.connect();
     await waitFor(() => state.counts().accepted === 1);
     expect(state.counts().reported).toBe(1);
+    await pump.close();
+  });
+
+  it("retries a retryable rejection on the same live session", async () => {
+    const state = fixture("remote", {
+      reportFailures: [
+        new StationControlReportError(
+          "remote-rejected",
+          "Command Center database is temporarily busy",
+          stationControlErr(
+            "unavailable",
+            "Command Center database is temporarily busy",
+            true,
+          ),
+        ),
+      ],
+      retryDelayMs: 1,
+    });
+    const pump = startStationRemoteReportPump(state.input);
+
+    state.connect();
+    await waitFor(() => state.counts().accepted === 1);
+
+    expect(state.counts()).toEqual({
+      prepared: 2,
+      reported: 2,
+      accepted: 1,
+    });
+    expect(pump.status()).toMatchObject({
+      running: false,
+      pending: false,
+    });
+    await pump.close();
+  });
+
+  it("cancels same-session backoff and wakes on session replacement", async () => {
+    const state = fixture("remote", {
+      reportFailures: [
+        new StationControlReportError(
+          "capacity-exceeded",
+          "station report correlation capacity is exhausted",
+        ),
+      ],
+      retryDelayMs: 60_000,
+    });
+    const pump = startStationRemoteReportPump(state.input);
+
+    state.connect();
+    await waitFor(
+      () =>
+        state.counts().reported === 1 &&
+        pump.status().running === false &&
+        pump.status().pending,
+    );
+
+    state.disconnect();
+    state.connect();
+    await waitFor(() => state.counts().accepted === 1);
+
+    expect(state.counts()).toEqual({
+      prepared: 2,
+      reported: 2,
+      accepted: 1,
+    });
     await pump.close();
   });
 
