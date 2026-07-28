@@ -82,7 +82,6 @@
         "id": "remote-v2",
         "label": "Remote V2",
         "kind": "remote",
-        "sshEndpoint": "vellum-remote-v2",
         "capabilities": [
           "terminal"
         ]
@@ -105,6 +104,75 @@
         "body": "{\"protocol\":\"vellum/station-portfolio/v2\",\"documents\":[],\"actorSeats\":[]}",
         "contentSha256": "12b1109c9d7d83401a2470ee5cd0c8ef90fb6e8dc5ebb8df23c7b900f43cad25",
         "createdAt": "2026-07-28T12:00:00.000Z"
+      }
+    }
+  },
+  {
+    "name": "configure ssh endpoint",
+    "surface": "request",
+    "wire": {
+      "protocol": "vellum/station-api/v2",
+      "op": "configure",
+      "installationId": "remote-installation-v2",
+      "configuration": {
+        "role": "remote",
+        "hostId": "remote-v2",
+        "agentHostId": "remote-v2",
+        "commandCenterInstallationId": "cc-installation-v2",
+        "supervisedPreferred": true
+      },
+      "host": {
+        "id": "remote-v2",
+        "label": "Remote V2",
+        "kind": "remote",
+        "capabilities": ["terminal"],
+        "sshEndpoint": "vellum-remote-v2"
+      }
+    }
+  },
+  {
+    "name": "configure ssh identity file",
+    "surface": "request",
+    "wire": {
+      "protocol": "vellum/station-api/v2",
+      "op": "configure",
+      "installationId": "remote-installation-v2",
+      "configuration": {
+        "role": "remote",
+        "hostId": "remote-v2",
+        "agentHostId": "remote-v2",
+        "commandCenterInstallationId": "cc-installation-v2",
+        "supervisedPreferred": true
+      },
+      "host": {
+        "id": "remote-v2",
+        "label": "Remote V2",
+        "kind": "remote",
+        "capabilities": ["terminal"],
+        "sshIdentityFile": "/Users/operator/.ssh/id_ed25519"
+      }
+    }
+  },
+  {
+    "name": "configure ssh host key policy",
+    "surface": "request",
+    "wire": {
+      "protocol": "vellum/station-api/v2",
+      "op": "configure",
+      "installationId": "remote-installation-v2",
+      "configuration": {
+        "role": "remote",
+        "hostId": "remote-v2",
+        "agentHostId": "remote-v2",
+        "commandCenterInstallationId": "cc-installation-v2",
+        "supervisedPreferred": true
+      },
+      "host": {
+        "id": "remote-v2",
+        "label": "Remote V2",
+        "kind": "remote",
+        "capabilities": ["terminal"],
+        "sshHostKeyPolicy": "accept-new"
       }
     }
   },

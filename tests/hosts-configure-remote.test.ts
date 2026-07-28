@@ -323,7 +323,13 @@ describe("configureRemoteHost", () => {
         commandCenterInstallationId,
         supervisedPreferred: true,
       },
-      host: remoteHost,
+      host: {
+        id: "studio",
+        label: "Studio",
+        kind: "remote",
+        hermesId: "fleet-studio",
+        capabilities: ["herdr", "hermes", "browser"],
+      },
     });
     expect(result).toMatchObject({
       ok: true,

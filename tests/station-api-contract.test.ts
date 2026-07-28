@@ -316,7 +316,6 @@ describe("Station API v2 contract", () => {
           id: "remote-1",
           label: "Remote one",
           kind: "remote",
-          sshEndpoint: "vellum-remote",
           capabilities: ["terminal", "browser"],
         },
       },
@@ -715,6 +714,23 @@ describe("Station API v2 contract", () => {
         }),
       ),
     ).toBe(true);
+    for (const [retiredRouteField, retiredRouteValue] of [
+      ["sshEndpoint", "remote-alias"],
+      ["sshIdentityFile", "/tmp/id_ed25519"],
+      ["sshHostKeyPolicy", "accept-new"],
+    ] as const) {
+      expect(
+        Either.isLeft(
+          decodeStrict(ConfigureRequest)({
+            ...configure,
+            host: {
+              ...configure.host,
+              [retiredRouteField]: retiredRouteValue,
+            },
+          }),
+        ),
+      ).toBe(true);
+    }
   });
 
   it("orders projections logically and rejects equal-generation conflicts", () => {

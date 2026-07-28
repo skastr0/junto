@@ -4,6 +4,7 @@ import {
   InstallationId,
   PairRequest,
   RemoteConfiguration,
+  RemoteHostRegistration,
   STATION_API_PROTOCOL,
   type ConfigureResponse,
 } from "@shared/station-api";
@@ -147,17 +148,25 @@ const stationSettingsFromResponse = (
   });
 };
 
+const remoteHostRegistration = (
+  host: RemoteHost,
+): typeof RemoteHostRegistration.Type =>
+  Schema.decodeUnknownSync(RemoteHostRegistration)({
+    id: host.id,
+    label: host.label,
+    kind: "remote",
+    capabilities: host.capabilities,
+    ...(host.hermesId === undefined ? {} : { hermesId: host.hermesId }),
+  });
+
 const sameHostRegistration = (
-  left: RemoteHost,
-  right: RemoteHost,
+  left: typeof RemoteHostRegistration.Type,
+  right: typeof RemoteHostRegistration.Type,
 ): boolean =>
   left.id === right.id &&
   left.label === right.label &&
   left.kind === right.kind &&
-  left.sshEndpoint === right.sshEndpoint &&
   left.hermesId === right.hermesId &&
-  left.appearance?.color === right.appearance?.color &&
-  left.appearance?.glyph === right.appearance?.glyph &&
   left.capabilities.length === right.capabilities.length &&
   left.capabilities.every((capability) =>
     right.capabilities.includes(capability)
@@ -259,10 +268,7 @@ export const configureRemoteHost = (
         op: "configure",
         installationId: status.installationId,
         configuration,
-        host: {
-          ...host,
-          kind: "remote",
-        },
+        host: remoteHostRegistration(host),
       },
       "Station configure",
     );
@@ -306,7 +312,7 @@ export const configureRemoteHost = (
       station.agentHostId !== plan.station.agentHostId ||
       station.supervisedPreferred !==
         plan.station.supervisedPreferred ||
-      !sameHostRegistration(configured.host, host)
+      !sameHostRegistration(configured.host, remoteHostRegistration(host))
     ) {
       return yield* Effect.fail(
         new RemoteHostsError(

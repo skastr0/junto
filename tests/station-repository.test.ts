@@ -121,7 +121,6 @@ const remoteConfigurationRequest = (
       id: "studio",
       label: "Studio Mini",
       kind: "remote",
-      sshEndpoint: "studio",
       capabilities: options.capabilities ?? [
         "terminal",
         "browser",
@@ -276,7 +275,6 @@ describe("StationRepository", () => {
         id: "other-studio",
         label: "Other Studio",
         kind: "remote",
-        sshEndpoint: "other-studio",
         capabilities: ["browser"],
       },
     });
@@ -509,7 +507,6 @@ describe("StationRepository", () => {
             id: "other-studio",
             label: "Other Studio",
             kind: "remote",
-            sshEndpoint: "other-studio",
             capabilities: ["browser", "hermes"],
           },
         }),
@@ -586,7 +583,6 @@ describe("StationRepository", () => {
               id: "shared",
               label: "Shared",
               kind: "remote",
-              sshEndpoint: "shared",
               capabilities: ["browser", "hermes"],
             },
           }),
@@ -1079,7 +1075,6 @@ describe("StationRepository", () => {
       id: "studio",
       label: "Studio Mini",
       kind: "remote",
-      sshEndpoint: "studio",
       capabilities: ["terminal", "browser", "hermes"],
     });
     expect(findHostById("studio")).toEqual(configured.host);
@@ -1146,7 +1141,7 @@ describe("StationRepository", () => {
       id: "studio",
       label: "Studio Mini",
       kind: "remote",
-      ssh_endpoint: "studio",
+      ssh_endpoint: null,
       capability_mask: 11,
       sort_order: 1,
     });

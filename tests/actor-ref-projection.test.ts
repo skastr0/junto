@@ -299,7 +299,6 @@ describe("active ActorRef projection", () => {
               id: "remote-a",
               label: "Remote A",
               kind: "remote",
-              sshEndpoint: "remote-a",
               capabilities: ["terminal"],
             },
           }),

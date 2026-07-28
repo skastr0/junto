@@ -1206,7 +1206,6 @@ describe("WorkService — concurrent ops", () => {
               id: hostId,
               label: "Studio",
               kind: "remote",
-              sshEndpoint: "studio",
               capabilities: ["terminal"],
             },
           }),

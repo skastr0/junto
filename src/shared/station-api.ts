@@ -1,5 +1,10 @@
 import { Schema } from "effect";
-import { RemoteHost } from "./remote-hosts";
+import {
+  HermesHostKey,
+  HostCapability,
+  HostId,
+  HostLabel,
+} from "./remote-hosts";
 import { STATION_ROLES } from "./station";
 import {
   InstallationId,
@@ -137,8 +142,14 @@ export type RemoteConfiguration = typeof RemoteConfiguration.Type;
  * Center-owned fleet state and are not projected authority.
  */
 export const RemoteHostRegistration = Schema.Struct({
-  ...RemoteHost.fields,
+  id: HostId,
+  label: HostLabel,
   kind: Schema.Literal("remote"),
+  capabilities: Schema.Array(HostCapability).pipe(
+    Schema.minItems(1),
+    Schema.maxItems(4),
+  ),
+  hermesId: Schema.optionalWith(HermesHostKey, { exact: true }),
 }).pipe(
   Schema.filter(
     (host) =>
