@@ -1,5 +1,6 @@
 import { Context, Effect, Either, Layer, Ref, Schema } from "effect";
 import { PAUSED_CANVAS, type CanvasPauseState, type PauseScope } from "@shared/pause";
+import { licenseFactoryHold } from "./license/factory-hold";
 import { FactoryPauseRepository } from "./pause/repository";
 
 // Factory pause plane — the safety switch that decides whether the factory
@@ -100,8 +101,19 @@ export const PausePlaneLive = Layer.effect(
     // Sync hot read for kernel cycle + work control dispatch. Effect.runSync
     // over a Ref read is the house-legal sync boundary (KernelService
     // .getSnapshot precedent) — never blocks, never suspends.
-    const stateFor = (canvas: string): CanvasPauseState =>
-      Effect.runSync(Ref.get(memory)).canvases.get(canvas) ?? PAUSED_CANVAS;
+    // License maintenance forces a non-playing projection without clobbering
+    // the durable everPlayed latch — reactivation does not auto-play.
+    const stateFor = (canvas: string): CanvasPauseState => {
+      const stored =
+        Effect.runSync(Ref.get(memory)).canvases.get(canvas) ?? PAUSED_CANVAS;
+      if (!licenseFactoryHold.forcesPaused()) return stored;
+      return {
+        playing: false,
+        everPlayed: stored.everPlayed,
+        pausedNodes: stored.pausedNodes,
+        pausedRegions: stored.pausedRegions,
+      };
+    };
 
     // SQLite-first: one typed domain mutation commits before memory changes,
     // so a failed write changes nothing anywhere.
@@ -137,8 +149,17 @@ export const PausePlaneLive = Layer.effect(
         }),
       );
 
-    const setPlaying = (canvas: string, playing: boolean) =>
-      persist(canvas, repository.setPlaying(canvas, playing));
+    const setPlaying = (canvas: string, playing: boolean) => {
+      if (playing && licenseFactoryHold.forcesPaused()) {
+        return Effect.fail(
+          new PauseStateError({
+            message:
+              "factory is in license maintenance — resume after access is restored",
+          }),
+        );
+      }
+      return persist(canvas, repository.setPlaying(canvas, playing));
+    };
 
     const setScopePaused = (canvas: string, scope: PauseScope, paused: boolean) =>
       scope.kind === "canvas"

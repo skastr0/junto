@@ -1,4 +1,8 @@
 import type { WorkOpName } from "@shared/work-control";
+import {
+  productLicenseAdmission,
+  ProductLicenseAuthoringRefused,
+} from "./license/admission";
 
 /**
  * Every main-process ingress that can eventually change a canvas document.
@@ -325,6 +329,16 @@ export const createMainAuthoringGate = (): MainAuthoringGate => {
   const run = <A>(label: MainAuthoringLabel, operation: () => Promise<A>): Promise<A> => {
     if (phase !== "open") {
       return Promise.reject(new MainAuthoringRefused(phase, epoch, label));
+    }
+    // License maintenance: canvas stays readable; authorial mutations refuse.
+    // Final-write permits during precommit flush remain available so the
+    // flush→commit transaction can land pending edits before custody sticks.
+    const license = productLicenseAdmission.snapshot();
+    if (
+      license.admitted &&
+      license.mode === "maintenance"
+    ) {
+      return Promise.reject(new ProductLicenseAuthoringRefused());
     }
     return retain(label, operation);
   };

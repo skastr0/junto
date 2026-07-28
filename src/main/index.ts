@@ -109,6 +109,7 @@ import {
 } from "./vellum/quit-live-work";
 import { getArmed, getNextFire } from "./vellum/kernel/cycle";
 import { mainAuthoringGate } from "./vellum/main-authoring-gate";
+import { remoteLeaseState } from "./vellum/license/remote-lease-state";
 import {
   installTrustedRendererPermissionPolicy,
   installTrustedRendererProtocol,
@@ -379,13 +380,9 @@ const beginStationFleetPropagationShutdown = (): void => {
 };
 
 /**
- * License loss is a monotonic product-admission cut, not an application quit.
- *
- * Main-process IPC admission has already been revoked synchronously by the
- * LicenseCoordinator before this hook runs. Close every remaining product
- * ingress immediately, but deliberately leave local PTYs and attached
- * processes alive; the ordinary quit path remains their sole signal/drain
- * authority.
+ * Hard denial only (never activated / unusable product). Closes product
+ * ingress but deliberately leaves local PTYs alive — quit remains signal
+ * authority. Prefer enterLicenseMaintenance for lapsed prior grants.
  */
 const suspendProductRuntimeForLicenseRevocation = (): void => {
   if (productRuntimeSuspended) return;
@@ -410,6 +407,27 @@ const suspendProductRuntimeForLicenseRevocation = (): void => {
   browserShutdown ??= browserComposition?.drainOnQuit(
     "license_revoked",
   );
+};
+
+/**
+ * Custody entry after a previously valid grant lapses.
+ *
+ * Factory hold (coordinator) forces the play control into maintenance and
+ * seatPaused=true; productLicenseAdmission mode=maintenance refuses authorial
+ * mutations. Owned PTYs/agents are not killed — they stay blocked by pause.
+ * Kernel/term monotonic suspend is reserved for hard denial only so full
+ * access can return seamlessly without a restart.
+ */
+const enterLicenseMaintenance = (): void => {
+  // Hooks exist for future flush orchestration / UI telemetry. Law is already
+  // enforced by licenseFactoryHold + productLicenseAdmission mode.
+};
+
+/**
+ * Full access restored. Does not auto-unblock seats or auto-play the factory.
+ */
+const returnFromLicenseMaintenance = (): void => {
+  // Operator re-plays / unblocks explicitly after entitlement returns.
 };
 
 const CANVAS_FLUSH_TIMEOUT_MS = 45_000;
@@ -1301,7 +1319,10 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         relaunch: () => app.relaunch(),
         quit: () => app.quit(),
       },
+      onEnterMaintenance: enterLicenseMaintenance,
+      onReturnToFull: returnFromLicenseMaintenance,
       onAccessRevoked: suspendProductRuntimeForLicenseRevocation,
+      remoteLastCheckInAtMs: () => remoteLeaseState.read(),
     });
     licenseCoordinator = coordinator;
     unregisterLicenseIpc = coordinator.registerIpc(ipcMain);

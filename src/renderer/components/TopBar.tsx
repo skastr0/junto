@@ -160,6 +160,7 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [licenseMaintenance, setLicenseMaintenance] = useState(false);
 
   useEffect(() => {
     setPauseState(undefined);
@@ -180,10 +181,26 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
     };
   }, [canvasName]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const syncLicense = (status: { access: string; canPlayFactory?: boolean }) => {
+      if (cancelled) return;
+      setLicenseMaintenance(
+        status.access === "maintenance" || status.canPlayFactory === false,
+      );
+    };
+    void window.vellum?.licenseStatus?.().then(syncLicense).catch(() => undefined);
+    const unsub = window.vellum?.onLicenseChanged?.(syncLicense);
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, []);
+
   if (!canvasName || !pauseState) return null;
 
   const apply = async (paused: boolean) => {
-    if (busy) return;
+    if (busy || licenseMaintenance) return;
     setBusy(true);
     try {
       const result = await window.vellum?.factoryPauseSet(
@@ -206,6 +223,7 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
   };
 
   const onClick = () => {
+    if (licenseMaintenance) return;
     if (pauseState.playing) {
       void apply(true); // pausing is always instant
       return;
@@ -217,22 +235,35 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
     void apply(false);
   };
 
-  const playing = pauseState.playing;
+  const playing = pauseState.playing && !licenseMaintenance;
+  const pauseLabel = licenseMaintenance
+    ? "maintenance"
+    : playing
+      ? "playing"
+      : "paused";
   return (
     <>
       <button
         type="button"
         data-testid="factory-pause"
-        data-pause-state={playing ? "playing" : "paused"}
-        aria-label={playing ? "Pause factory" : "Play factory"}
+        data-pause-state={pauseLabel}
+        aria-label={
+          licenseMaintenance
+            ? "Factory in license maintenance"
+            : playing
+              ? "Pause factory"
+              : "Play factory"
+        }
         title={
           error
             ? `pause switch: ${error}`
-            : playing
-              ? "factory playing — click to pause"
-              : "factory paused — click to play"
+            : licenseMaintenance
+              ? "license maintenance — factory work blocked until access is restored"
+              : playing
+                ? "factory playing — click to pause"
+                : "factory paused — click to play"
         }
-        disabled={busy}
+        disabled={busy || licenseMaintenance}
         onClick={onClick}
         style={{
           display: "inline-flex",
@@ -245,24 +276,36 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
           fontSize: 9,
           letterSpacing: ".14em",
           textTransform: "uppercase",
-          cursor: busy ? "wait" : "pointer",
+          cursor: busy || licenseMaintenance ? "not-allowed" : "pointer",
           border: "1px solid",
-          ...(playing
+          ...(licenseMaintenance
             ? {
-                color: GREEN,
-                borderColor: withAlpha(GREEN, 0.28),
-                background: "rgba(255,255,255,0.02)",
+                color: HUE.crimson,
+                borderColor: withAlpha(HUE.crimson, 0.45),
+                background: withAlpha(HUE.crimson, 0.1),
               }
-            : {
-                color: HUE.amber,
-                borderColor: withAlpha(HUE.amber, 0.55),
-                background: withAlpha(HUE.amber, 0.12),
-                boxShadow: `0 0 0 3px ${withAlpha(HUE.amber, 0.08)}`,
-              }),
+            : playing
+              ? {
+                  color: GREEN,
+                  borderColor: withAlpha(GREEN, 0.28),
+                  background: "rgba(255,255,255,0.02)",
+                }
+              : {
+                  color: HUE.amber,
+                  borderColor: withAlpha(HUE.amber, 0.55),
+                  background: withAlpha(HUE.amber, 0.12),
+                  boxShadow: `0 0 0 3px ${withAlpha(HUE.amber, 0.08)}`,
+                }),
         }}
       >
-        {playing ? <Play size={11} fill="currentColor" /> : <Pause size={11} fill="currentColor" />}
-        <span>{playing ? "playing" : "paused"}</span>
+        {licenseMaintenance ? (
+          <Pause size={11} fill="currentColor" />
+        ) : playing ? (
+          <Play size={11} fill="currentColor" />
+        ) : (
+          <Pause size={11} fill="currentColor" />
+        )}
+        <span>{pauseLabel}</span>
       </button>
       {error ? (
         <span

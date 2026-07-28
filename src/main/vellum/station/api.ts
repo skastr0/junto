@@ -1,6 +1,7 @@
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { InstallationId as InstallationIdValue } from "@shared/installation-id";
+import { remoteLeaseState } from "../license/remote-lease-state";
 import {
   LogicalSequence,
   ReportBatch,
@@ -1313,7 +1314,10 @@ const handleProject = (
         "projection install requires a paired Command Center",
       );
     }
-    return yield* repository.installProjection(request);
+    const installed = yield* repository.installProjection(request);
+    // Successful CC projection renews the Remote product lease (3-day TTL).
+    remoteLeaseState.stamp();
+    return installed;
   }).pipe(Effect.withSpan("station-api.project"));
 
 const handleStatus = (
