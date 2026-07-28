@@ -120,8 +120,10 @@ process launch details are not Station API fields.
 
 ### HostId
 
-An operator-visible placement and work-home key. A `HostId` is bound to one
-Remote `InstallationId` by fleet enrollment. It is not:
+An operator-visible placement key. A `HostId` is bound to one
+`InstallationId` by fleet enrollment. It selects where projected actors and
+physical resources run, but it is not itself a durable work-authority
+identity. It is not:
 
 - a network address;
 - an SSH destination;
@@ -151,8 +153,8 @@ canvas.
 ### Event home and entity home
 
 - `event_home` is the `InstallationId` that allocated and emitted an event.
-- `entity_home` is the `HostId` with durable authority over the affected work
-  item after that event.
+- `entity_home` is the `InstallationId` with durable authority over the
+  affected work item after that event.
 - `seq` is a canonical decimal logical sequence within that
   `(event_home, entity_home)` route.
 
@@ -162,9 +164,12 @@ The durable event identity is:
 (event_home, entity_home, seq)
 ```
 
-The product must use `InstallationId` consistently. A second ambiguous name
-such as `originStationId` must not survive beside `originInstallationId` or
-`event_home`. There is one installation identity concept.
+The product must use `InstallationId` consistently. Legacy aliases such as
+`originStationId` and `originInstallationId` must not survive beside canonical
+`eventHome`; all three attempted to name the same concept. Command Center work
+uses the Command Center's real `InstallationId`; there is no
+`COMMAND_CENTER_WORK_HOME` sentinel. `HostId` remains a placement label whose
+fleet enrollment resolves to an installation.
 
 ## The five governing planes
 
@@ -226,9 +231,9 @@ The canonical locality table is:
 | Surface | Definition visibility | Execution or item authority |
 |---|---|---|
 | `agent` actor | complete projection | executes only on its placed host |
-| `task` sink | complete projection | queue home arbitrates submitted tasks; a claimed task transfers once to its actor's Remote |
-| `requests` sink | complete projection | each request is homed with its raising actor |
-| `artifacts` sink | complete projection | each artifact is homed with its publishing actor |
+| `task` sink | complete projection | queue installation arbitrates submitted tasks; a claimed task transfers once to its actor's authority installation |
+| `requests` sink | complete projection | each request is homed with its raising actor's authority installation |
+| `artifacts` sink | complete projection | each artifact is homed with its publishing actor's authority installation |
 | actor mailbox | projected actor seat | messages remain Command Center-homed |
 | `page` sink | complete projection | executable and browser-profile local; actor and page must share an installation |
 | `watcher` / `timer` | complete projection | evaluates only on its placed host |
@@ -263,7 +268,7 @@ Station API.
 4. An accepted fact never causes two installations to become co-authoritative.
 5. A work item never returns to an earlier home through retry.
 6. A task claim may transfer authority exactly once, from its submitted queue
-   home to the claiming actor's home.
+   installation to the claiming actor's authority installation.
 7. Requests and artifacts are homed where their actor creates them.
 8. Messages remain Command Center-homed.
 9. Timestamps are display facts, never ordering or ownership input.
@@ -320,6 +325,11 @@ while recovering its uncertain result after a connection loss. That is
 delivery state, not a task assignment state. The task remains `submitted`
 until the Remote transaction starts it.
 
+When the selected actor is homed on Command Center, claim is one local SQLite
+transaction and task authority remains on Command Center. The protocol flow
+below exists only for the first claim of a Command Center-home task by an actor
+whose authority installation is a Remote.
+
 ### Command Center-home queue to Remote actor
 
 For a submitted task homed on Command Center:
@@ -329,24 +339,30 @@ For a submitted task homed on Command Center:
 2. Command Center requires a live authenticated session to that actor's
    Remote. If the Remote is already unreachable, the claim attempt does not
    enqueue future work.
-3. Command Center persists one pending `task.claim` command targeted at that
-   actor's Remote immediately before sending it on that live session.
-4. Persisting the command reserves that actor against another pending claim,
-   but does not materialize a working task.
+3. While that session is live, Command Center transactionally persists one
+   pending `task.claim` command targeted at that Remote and reserves both the
+   source task and actor.
+4. Committing that transaction is the claim-attempt boundary. It proves that
+   Command Center synchronously arbitrated this exact task/actor pair while
+   the route was live, but it does not materialize a working task.
 5. The Remote receives the command through `report`.
 6. The Remote validates:
-   - target installation and entity home;
-   - installed projection and referenced sink/actor;
+   - the command arrived through the active CC-opened session for its paired
+     Command Center;
+   - command identity and semantic content hash;
+   - source queue home is that paired Command Center installation;
+   - the embedded source task is canonical, `submitted`, and unclaimed;
+   - target and adopted entity home are the local Remote installation;
+   - installed projection contains the referenced sink, actor, edge, and port;
    - actor placement is local;
    - edge and port still permit the operation under its installed intent;
-   - predecessor identity is current;
-   - task is submitted and unclaimed;
+   - no conflicting local adoption exists for the task identity;
    - actor owns no other active task.
 7. In one SQLite transaction, the Remote:
-   - materializes the task as `working`;
+   - adopts the embedded canonical task snapshot as `working`;
    - stamps `claimedBy`;
-   - adopts the task's entity home;
-   - writes the canonical event;
+   - adopts the task's entity home as its own `InstallationId`;
+   - writes the resulting canonical fact;
    - writes an applied disposition for the Command Center command.
 8. Only after that transaction may the Remote acknowledge the command.
 9. Command Center receives the disposition in the same live exchange and
@@ -356,15 +372,51 @@ If validation fails, the Remote writes an ordered causal rejection before
 acknowledging. Command Center leaves the task submitted and exposes the
 rejection.
 
-If Command Center or the target Remote is unavailable before step 2, no claim
-starts. This is deliberate: one live synchronous round trip arbitrates a
-shared submitted backlog.
+If Command Center or the target Remote is unavailable before step 3, no claim
+attempt exists and nothing is queued for a future actor. This is the precise
+meaning of synchronous claim arbitration: Command Center must be live, must
+select the actor, and must create the durable attempt while an active session
+exists. Vellum does not pretend the two SQLite transactions are one distributed
+transaction.
 
-If the connection is lost after Command Center sent the durable command, its
-result is uncertain rather than failed. Command Center does not reassign the
-task. Reconnect replays the same identity until the Remote returns its durable
-applied/rejected disposition. This recovery path cannot create a new claim
-that was never attempted while both installations were connected.
+If the connection is lost after step 3, including after commit but before the
+first frame write completes, the result is uncertain rather than failed.
+Command Center does not reassign the task or select a replacement actor.
+Reconnect may replay only that same command identity and content until the
+Remote returns its durable applied/rejected disposition. This is recovery of a
+live-arbitrated attempt, not delayed offline claiming.
+
+The pending-command store must enforce:
+
+- at most one unresolved claim attempt for a task identity;
+- at most one unresolved claim attempt for an actor reference across canvases;
+- one active task for an actor after adoption;
+- exact identity/content replay or a hard conflict.
+
+### Claim command payload
+
+A `task.claim` command is self-contained because projection deliberately
+excludes work rows. Its typed body contains:
+
+```text
+TaskClaimAction {
+  operation: "task.claim"
+  sourceQueueHome: InstallationId
+  sourcePredecessor: WorkRecordId | null
+  sourceTask: Task                     // exactly submitted and unclaimed
+  sink: SinkRef                        // (canvasName, nodeId)
+  actor: ActorRef                      // (canvasName, nodeId)
+  targetHome: InstallationId
+}
+```
+
+The outer `WorkCommand` supplies the command `WorkRecordId`, command content
+hash, item identity, and adopted `entityHome`. The Remote is not expected to
+reconstruct or independently prove the Command Center's source row: Command
+Center is the authority that arbitrated it. The Remote instead proves the
+authenticated command, snapshot coherence, local target and placement,
+installed capability edge/port, actor idleness, and absence of a conflicting
+adoption. An exact prior applied/rejected disposition is an idempotent replay.
 
 ### Station-home queue
 
@@ -379,13 +431,13 @@ Free local claim still requires:
 - one idle actor;
 - one atomic `submitted → working` transition.
 
-A different Remote never directly claims that queue. Command Center may later
-mediate an explicit cross-home transfer, but no Remote-to-Remote claim route
+A different Remote never claims that queue. No Remote-to-Remote claim route
 exists.
 
 ### After claim
 
-Once claimed, the task remains homed with its actor's Remote through:
+Once claimed, the task remains homed with its actor's authority installation
+through:
 
 ```text
 working ↔ input-required
@@ -433,7 +485,7 @@ Creation is local and offline-capable:
 
 1. the actor must have the required edge and request port;
 2. the Remote writes the request in its local database;
-3. the request is homed on that actor's Remote;
+3. the request is homed on that actor's authority installation;
 4. the raising actor is its claimant from creation;
 5. its initial attention state is `input-required` or `auth-required`;
 6. a later `report` sends the fact to Command Center.
@@ -532,26 +584,173 @@ strongest honest revocation available on that reachable Remote.
 
 ### Canonical event
 
-Every work event contains:
-
-- immutable `(event_home, entity_home, seq)` identity;
-- canvas and node reference;
-- work item identity and kind;
-- exact operation;
-- predecessor identity when causal continuity matters;
-- canonical typed payload;
-- semantic content hash excluding display timestamps;
-- origin timestamp;
-- optional received timestamp.
-
-Event payloads are strict-decoded. Unknown operations, excess fields, invalid
-state transitions, and identity/content reuse fail closed.
-
-The shared wire contract is a versioned closed sum:
+The shared contract first names a complete route and identity:
 
 ```text
+WorkRoute {
+  eventHome: InstallationId
+  entityHome: InstallationId
+}
+
+WorkRecordId {
+  route: WorkRoute
+  seq: LogicalSequence
+}
+
+RouteCursor {
+  eventHome: InstallationId
+  entityHome: InstallationId
+  through: LogicalSequence
+}
+
+WorkNodeRef {
+  canvasName: string
+  nodeId: string
+}
+
+WorkItemRef {
+  kind: "task" | "request" | "message" | "artifact" | "delivery"
+  itemId: string
+  sink: WorkNodeRef
+}
+```
+
+Every record has the following exact common envelope:
+
+```text
+WorkRecordCommon {
+  protocol: "vellum/work/v2"
+  id: WorkRecordId
+  recordType: "command" | "fact" | "disposition"
+  item: WorkItemRef
+  operation: WorkOperation
+  predecessor: WorkRecordId | null
+  contentSha256: Sha256
+  originAt: DisplayTimestamp
+  receivedAt?: DisplayTimestamp
+}
+```
+
+`contentSha256` covers the canonical semantic record excluding
+`contentSha256`, `originAt`, and `receivedAt`. Receive time is local display
+metadata and is not forwarded as new semantic content.
+
+The exact operation vocabulary is:
+
+```text
+WorkOperation =
+  | "task.create"
+  | "task.describe"
+  | "task.transition"
+  | "task.claim"
+  | "request.create"
+  | "request.resolve"
+  | "message.append"
+  | "artifact.publish"
+  | "delivery.accepted"
+```
+
+The command input is also a closed sum. Create operations carry pre-allocated
+canonical objects so retries never mint new IDs:
+
+```text
+WorkAction =
+  | { operation: "task.create", task: Task }
+  | { operation: "task.describe", taskId: string, message: Message }
+  | { operation: "task.transition", taskId: string,
+      state: TaskState, message?: Message }
+  | TaskClaimAction
+  | { operation: "request.create", request: Task, raisedBy: ActorRef }
+  | { operation: "request.resolve", requestId: string, response: string,
+      disposition: "completed" | "rejected", message?: Message }
+  | { operation: "message.append", message: Message }
+  | { operation: "artifact.publish", artifact: Artifact,
+      publishedBy: ActorRef }
+  | { operation: "delivery.accepted", receipt: DeliveryReceipt }
+```
+
+`Task`, `TaskState`, `Message`, and `Artifact` are the strict shared domain
+schemas in `src/shared/work-model.ts`; the wire never defines looser copies.
+`DeliveryReceipt` is:
+
+```text
+DeliveryReceipt {
+  deliveryId: string
+  deliveredItem: WorkItemRef
+  actor: ActorRef
+  acceptedAt: DisplayTimestamp
+}
+```
+
+Facts carry the exact resulting domain snapshot, not a patch:
+
+```text
+WorkResult =
+  | { operation: "task.create" | "task.describe" | "task.transition",
+      task: Task }
+  | { operation: "task.claim", task: Task, claimedBy: ActorRef,
+      previousHome: InstallationId }
+  | { operation: "request.create" | "request.resolve", request: Task }
+  | { operation: "message.append", message: Message }
+  | { operation: "artifact.publish", artifact: Artifact }
+  | { operation: "delivery.accepted", receipt: DeliveryReceipt }
+```
+
+The versioned wire record is:
+
+```text
+WorkCommand = WorkRecordCommon & {
+  recordType: "command"
+  body: WorkAction
+}
+
+WorkFact = WorkRecordCommon & {
+  recordType: "fact"
+  body: WorkResult
+}
+
+WorkDisposition = WorkRecordCommon & {
+  recordType: "disposition"
+  body:
+    | {
+        status: "applied"
+        command: WorkRecordId
+        commandSha256: Sha256
+        fact: WorkRecordId
+        factSha256: Sha256
+      }
+    | {
+        status: "rejected"
+        command: WorkRecordId
+        commandSha256: Sha256
+        reason: WorkRejectionReason
+        message: BoundedDiagnostic
+      }
+}
+
 WorkRecord = WorkCommand | WorkFact | WorkDisposition
 ```
+
+`WorkRejectionReason` is closed:
+
+```text
+authority-mismatch
+| capability-denied
+| causal-conflict
+| claim-contention
+| identity-conflict
+| invalid-transition
+| locality-mismatch
+| missing-entity
+| projection-conflict
+| target-mismatch
+```
+
+The outer `operation` must equal the inner action/result operation or the
+referenced command's operation. The item identity must equal the typed body
+identity. Event payloads are strict-decoded. Unknown operations, unknown
+rejection reasons, excess fields, invalid state transitions, and
+identity/content reuse fail closed.
 
 `kind: string` plus repository-private JSON is not the canonical boundary.
 Transport adapters and Station API clients must not need repository internals
@@ -608,7 +807,7 @@ Transport delivery alone never converts a command into a fact.
 
 For each incoming event, the receiver verifies:
 
-1. authenticated peer is the expected paired installation;
+1. the active transport session is admitted for the expected paired route;
 2. event direction is legal for that peer;
 3. entity home matches the local authority required by the operation;
 4. sequence is contiguous or an idempotent replay;
@@ -629,8 +828,8 @@ Any failure leaves the previous material state and cursor intact.
 
 An acknowledgement means:
 
-> Every event from this home through this logical sequence has been durably
-> handled contiguously.
+> Every event on this exact `(eventHome, entityHome)` route through this
+> logical sequence has been durably handled contiguously.
 
 It does not mean:
 
@@ -642,8 +841,8 @@ It does not mean:
 
 Each side stores:
 
-- received-through cursor per peer/event home;
-- peer-acknowledged cursor for its outbound stream;
+- received-through `RouteCursor` values containing both homes;
+- peer-acknowledged `RouteCursor` values containing both homes;
 - pending commands and their dispositions;
 - content hashes for idempotence/conflict detection.
 
@@ -659,6 +858,46 @@ On reconnect:
 
 Delivery is at least once. Semantic materialization is exactly once per event
 identity and content.
+
+### Report batch contract
+
+Reports are symmetric: the initiator and responder each send one bounded
+batch. No half of event identity is inferred from the SSH route, session, or
+array that contained it.
+
+```text
+ReportBatch {
+  records: readonly WorkRecord[]       // at most 256
+  acknowledge: readonly RouteCursor[]  // at most 256
+  hasMore: boolean
+}
+
+ReportRequest {
+  protocol: "vellum/station-api/v2"
+  op: "report"
+  senderInstallationId: InstallationId
+  targetInstallationId: InstallationId
+  batch: ReportBatch
+}
+
+ReportResponse {
+  protocol: "vellum/station-api/v2"
+  op: "report"
+  senderInstallationId: InstallationId
+  targetInstallationId: InstallationId
+  batch: ReportBatch
+}
+```
+
+The response swaps sender and target. `hasMore` means the batch sender has
+additional records after the final included route position; it is not an ACK
+and carries no authority. A peer with more than one active route pages fairly
+instead of draining one route without bound. A batch is additionally bounded
+by encoded byte size. Empty records with non-empty ACKs are valid.
+
+Every ACK is a `RouteCursor`. ACK lookup, status, replay, paging, and gap
+detection all key on the complete `(eventHome, entityHome)` route. A cursor
+that stores only peer or event home is invalid.
 
 ## Station API operations
 
@@ -815,6 +1054,9 @@ Session identity is ephemeral and never authority state. On loss:
 - no SQLite transaction is rolled back after commit;
 - unsent events remain after the peer ACK cursor;
 - unacknowledged events replay;
+- an unresolved claim command may replay only if its durable attempt was
+  created while the prior session was live; reconnect never creates or
+  retargets a claim attempt;
 - Remote simulation continues locally;
 - Command Center marks the Remote unreachable;
 - reconnect creates a new session and resumes from durable cursors.
@@ -853,6 +1095,26 @@ The helper:
 
 OpenSSH owns SSH private keys, host-key verification, known hosts, and account
 authentication. Vellum does not copy or reissue those credentials.
+
+The security boundary is stated narrowly:
+
+- Command Center's SSH client authenticates the Remote host under configured
+  host-key policy;
+- the Remote SSH daemon authenticates the operator account and starts the
+  fixed helper;
+- the helper-to-app owner-local socket handoff is trusted same-user
+  containment;
+- Remote main does **not** receive cryptographic proof of the original SSH peer
+  through process ancestry or the local socket.
+
+The fixed command removes arbitrary shell arguments and narrows the reachable
+surface. It is not a second credential or channel binding. Under Vellum's
+single-operator threat model, an arbitrary malicious process already running
+as that same Remote account is outside the promised isolation boundary.
+Remote main still strict-decodes every frame and validates pairing, target,
+verb, state transition, and work authority. Future HTTPS may terminate mTLS in
+an adapter capable of supplying real authenticated peer evidence, but it may
+not retroactively overstate what the SSH helper proves.
 
 Tailscale, a VPN, a public IP, a provider private network, or a bastion may
 provide reachability to the SSH endpoint. None of them changes Station API
@@ -898,7 +1160,7 @@ Transport authentication is necessary but insufficient.
 
 Before dispatch, Remote main verifies:
 
-- authenticated peer is permitted by the active transport adapter;
+- the request arrived through the configured adapter's admitted local handoff;
 - request target matches this installation;
 - paired Command Center identity matches;
 - operation is legal for current enrollment/configuration state;
@@ -917,8 +1179,10 @@ Before work materialization, `WorkService`/`WorkRepository` verifies:
 - predecessor and state transition;
 - one-task-per-actor invariant.
 
-No adapter bypasses the dispatcher. No dispatcher bypasses domain services to
-write SQLite.
+For OpenSSH, the first bullet is owner-local helper containment, not
+cryptographic continuation of SSH identity into Electron main. For future
+mTLS, it may include a real authenticated peer binding. No adapter bypasses
+the dispatcher. No dispatcher bypasses domain services to write SQLite.
 
 ## Scheduler and clock semantics
 
@@ -991,7 +1255,9 @@ Repositories accept domain values, not raw network JSON.
 ### Dispatcher
 
 One `StationApiDispatcher` owns the five verb handlers. Every transport adapter
-delivers an authenticated peer plus a decoded request to this dispatcher.
+delivers its admitted transport context plus a decoded request to this
+dispatcher. The context may contain cryptographic peer evidence only when the
+adapter can actually provide it.
 
 The dispatcher does not know SSH command strings, HTTPS URLs, socket paths, or
 certificate storage formats.
@@ -1078,6 +1344,10 @@ The exact schema must enforce:
 - content hash presence;
 - immutable item home except the first submitted-to-working task claim;
 - immutable request/artifact home;
+- entity and event homes reference installation identities, never HostId or a
+  Command Center sentinel;
+- at most one unresolved claim command per task identity;
+- at most one unresolved claim command per actor reference across canvases;
 - database-enforced uniqueness preventing one actor from owning two active
   tasks;
 - valid pending-command lifecycle;
@@ -1136,7 +1406,7 @@ The canonical protocol blocks release while any live path preserves:
 - remote browser operations or browser trust on the Station wire;
 - browser-specific keypairs, pins, certificates, session handles, or relays;
 - Station-to-Station routes or credentials;
-- Remote callbacks to Command Center;
+- Remote-opened or reverse fleet connections to Command Center;
 - file-written settings, projections, status, frames, or ACKs;
 - direct SQLite access from a helper, renderer, CLI, or second process;
 - canvas mutation for tasks, requests, messages, artifacts, claims, or

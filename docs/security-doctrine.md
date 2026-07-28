@@ -292,8 +292,8 @@ and active, not which storage implementation exists:
 One durable row has one home. Re-homing is an explicit move; it is never a
 dual-read or dual-write interval. The first successful task claim is one such
 explicit cutover: a submitted queue-home task becomes `working`, gains one
-claimant, and transfers authority to that actor's Remote in the same accepted
-claim operation.
+claimant, and transfers authority to that actor's authority installation in
+the same accepted claim operation.
 
 Startup accepts only a fresh database or exactly the current composed schema.
 Inside one transaction, Vellum executes the current DDL and compares the
@@ -543,18 +543,21 @@ SSH endpoint. It is optional connectivity, not Vellum authority and not a
 Station credential plane.
 
 A future public transport, if shipped, is HTTPS with mutual TLS, never plain
-HTTP. Both adapters must authenticate the transport peer before Station API
-decode and dispatch. The five verbs, work identities, dispositions, and
-cursors do not change with the adapter.
+HTTP. Each adapter authenticates at the boundary it actually owns before
+Station API handling. OpenSSH authenticates the Remote host and operator
+account at the SSH boundary; future HTTPS authenticates both peers through
+mTLS. The five verbs, work identities, dispositions, and cursors do not change
+with the adapter.
 
-The owner-local socket is transport containment, not a fleet credential.
-Remote main admits only the active Station transport adapter into the
-dispatcher. The OpenSSH adapter binds admission to the fixed packaged helper
-running under the authenticated SSH command path; a future HTTPS adapter binds
-admission to the mutually authenticated TLS peer. Exact process observation or
-certificate mechanics belong to the adapter and must state the real boundary
-they enforce. They must not claim containment of an arbitrary malicious
-same-user process.
+The owner-local socket is transport containment, not a fleet credential or
+cryptographic continuation of SSH identity. The fixed packaged helper carries
+frames from the SSH command to the Remote app under the same operator account.
+Remote main cannot infer the original SSH peer from process ancestry or the
+local socket; it strictly validates target, pairing, verb, state transition,
+and work authority instead. The fixed command narrows attack surface but does
+not claim containment of an arbitrary malicious same-user process. A future
+HTTPS adapter may pass real mTLS peer evidence only when its termination and
+handoff genuinely preserve that evidence.
 
 OpenSSH's authenticated operator account is the authority for the current
 network route; no second Vellum bearer credential or compatibility path
@@ -562,8 +565,8 @@ exists.
 
 Installation, host, factory, actor, resource, event-home, and entity-home
 identifiers on this protocol are routing facts, not credentials. Vellum has
-one `InstallationId` concept; aliases such as `originStationId` must not create
-a second identity or authority interpretation.
+one `InstallationId` concept; aliases such as `originStationId` and
+`originInstallationId` must not survive beside canonical `eventHome`.
 
 Authenticated transport does not grant role-promotion authority. The Station
 wire's `configure` request contains only `RemoteConfiguration`; Command Center
@@ -589,9 +592,12 @@ phase and wall-clock drift can change propagation latency, never ownership or
 ordering.
 
 A Command Center-home task claim is attempted only while both Command Center
-and the target Remote have a live authenticated session. If the connection is
-lost after sending, reconnect resolves the same uncertain command identity; it
-does not assign the task elsewhere or invent a delayed new claim.
+and the target Remote have a live authenticated session. While that session is
+live, Command Center transactionally creates the exact pending claim and
+reserves both task and actor. That commit is the claim-attempt boundary. If the
+connection is lost afterwards—including before the first frame write
+completes—reconnect resolves only that same uncertain command identity; it
+does not select another actor or invent a delayed new claim.
 
 Role is never inferred, and an unconfigured installation rejects every work
 mutation without writing an event or material row. Configured role and host
@@ -600,12 +606,14 @@ host-to-installation bindings follow the same rule: retirement preserves the
 identity tombstone, exact reactivation is allowed, and fresh-install
 replacement requires a new host identity.
 
-A Remote may immediately mutate only rows homed on its configured host. The
-single exception is the accepted first claim transaction, which adopts one
-submitted queue-home task as `working` on the local actor's home. Actor inbox
+A Remote may immediately mutate only rows homed on its own `InstallationId`.
+The single exception is one accepted first-claim transaction for a
+Command Center-home task delivered by that paired Command Center through a
+live CC-opened claim attempt to an actor placed locally. It adopts that exact
+canonical submitted task as `working` on the Remote installation. Actor inbox
 messages are always Command Center-homed: a Remote cannot append an unscoped
-inbox message, while host-local task, request, artifact, receipt, and transition
-history remains permitted.
+inbox message, while installation-local task, request, artifact, receipt, and
+transition history remains permitted.
 
 Schedulers obey the same single-home law. A local tick evaluates only
 schedulers homed on that installation. The current interval timer kind
@@ -784,8 +792,8 @@ A release is blocked while any product path preserves:
 - Station-browser verbs or relays, browser PKI/certificate stores, projected
   browser trust, cross-installation browser handles, or compatibility paths to
   any of them;
-- Remote callbacks to Command Center, Remote-to-Remote routes, or credentials
-  that create lateral fleet reach;
+- Remote-opened or reverse fleet connections to Command Center,
+  Remote-to-Remote routes, or credentials that create lateral fleet reach;
 - shared offline task claiming, actor backlogs, assignment distinct from task
   start, unclaim, steal, or implicit work re-home;
 - wall-clock ordering or a cursor that drops part of
