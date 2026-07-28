@@ -172,8 +172,8 @@ export const prepareStateUpdateCandidate = (
             id,
             databasePath,
             directoryPath,
-            source: { _tag: "fresh" },
-          };
+            source: { _tag: "fresh" as const },
+          } satisfies PreparedStateUpdateCandidate;
         }
 
         const source = new DatabaseSync(path, {
@@ -208,8 +208,8 @@ export const prepareStateUpdateCandidate = (
           id,
           databasePath,
           directoryPath,
-          source: { _tag: "installed", backup },
-        };
+          source: { _tag: "installed" as const, backup },
+        } satisfies PreparedStateUpdateCandidate;
       } catch (error) {
         rmSync(directoryPath, { recursive: true, force: true });
         throw error;
@@ -252,5 +252,6 @@ export const withStateUpdateCandidate = <A, E, R>(
   Effect.acquireUseRelease(
     prepareStateUpdateCandidate(configuredPath),
     use,
-    releaseStateUpdateCandidate,
+    (candidate) =>
+      releaseStateUpdateCandidate(candidate).pipe(Effect.orDie),
   );
