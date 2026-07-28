@@ -444,7 +444,7 @@ export const registerVellumIpc = (): void => {
     AppRuntime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(name))),
   );
 
-  // work plane — seven ops, all serialized through CanvasesService write.
+  // work plane — renderer commands call repository-native WorkService verbs.
   // Remote stations get a typed WorkOpResult (never a rejected IPC promise).
   const denyRemoteWork = Effect.gen(function* () {
     const settings = yield* SettingsService;

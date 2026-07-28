@@ -151,11 +151,6 @@ export const IPC_CHANNELS = {
   hostsDeployRemote: "vellum:hosts-deploy-remote",
   /** Effective install capabilities (RELEASE ∩ operator ∩ role) for UI gates. */
   hostsInstallCapabilities: "vellum:hosts-install-capabilities",
-  /** Compile + apply factory plugin (local or remote SSH). */
-  /** Route-token list (no secrets). */
-  /** Mint route-token — plaintext returned once. */
-  /** Rotate route-token — new plaintext once. */
-  /** Revoke route-token. */
   // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
   // The opaque challenge is generation identity, never product authority.
   rendererSurfaceChallenge: "vellum:renderer-surface-challenge",
@@ -537,7 +532,8 @@ export interface VellumApi {
   // Region severity rollups for the bottom bar, derived live per call from
   // the document + snapshots + ACP chat activity (shared/region-rollup.ts).
   readonly regionRollups: (name: string) => Promise<ReadonlyArray<RegionRollup>>;
-  // work plane — all mutations serialized through main canvas write path.
+  // work plane — repository-native SQLite mutations; canvas reads provide
+  // topology and runtime projection only.
   readonly workTaskCreate: (
     canvas: string,
     nodeId: string,
@@ -621,9 +617,8 @@ export interface VellumApi {
   readonly hostsDeployRemote: (
     input: HostsDeployRemoteInput,
   ) => Promise<HostsDeployRemoteResult>;
-  /** SoT for Deploy / Install plugin / route-token button enablement. */
+  /** SoT for Deploy and Install plugin capability gates. */
   readonly hostsInstallCapabilities: () => Promise<HostsInstallCapabilitiesResult>;
-  /** Install factory plugin for one or more harness targets. */
 }
 
 export interface HostsOpResult {

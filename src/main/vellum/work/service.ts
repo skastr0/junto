@@ -2,7 +2,7 @@
 // plane. Canvas documents are read-only topology plus runtime projections;
 // every durable mutation goes through a specific WorkRepository verb.
 
-import { Context, Effect, Either, Layer, Schema } from "effect";
+import { Context, Effect, Either, Layer, Match, Schema } from "effect";
 import type {
   Artifact,
   CanvasDoc,
@@ -23,6 +23,7 @@ import type {
   StationConfiguration as StationConfigurationValue,
 } from "@shared/station-api";
 import { resolveNodeHostId } from "@shared/station";
+import { resolveSpec } from "@shared/physics";
 import {
   WorkError,
   workArtifactPublish,
@@ -885,9 +886,17 @@ export const WorkLive = Layer.effect(
                 message,
               )
             );
+            const targetSpec = resolveSpec({
+              isGroup: false,
+              kind: targetNode.ether?.entity?.kind,
+            });
+            const isRequestSink = Match.value(targetSpec).pipe(
+              Match.when({ _tag: "Sink", kind: "requests" }, () => true),
+              Match.orElse(() => false),
+            );
             const destination = taskId === null
               ? { kind: "mailbox" as const }
-              : targetNode.ether?.entity?.kind === "requests"
+              : isRequestSink
                 ? {
                     kind: "request" as const,
                     itemId: taskId,
@@ -900,7 +909,7 @@ export const WorkLive = Layer.effect(
               ? context.configuration.role === "command-center"
                 ? context.localInstallationId
                 : context.configuration.commandCenterInstallationId
-              : targetNode.ether?.entity?.kind === "requests"
+              : isRequestSink
                 ? yield* itemHome(
                   "request",
                   canvas,
