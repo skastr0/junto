@@ -118,6 +118,14 @@ export interface StationControlServer {
   readonly stationHome: string;
   readonly ready: () => boolean;
   readonly sessionReady: () => boolean;
+  /**
+   * Observe the Remote-side Command Center session lifecycle. The listener is
+   * called immediately with the current state, then only when readiness
+   * changes. It is a wake-up signal, never durable identity or authority.
+   */
+  readonly subscribeSession: (
+    listener: (ready: boolean) => void,
+  ) => () => void;
   readonly report: (request: ReportRequest) => Promise<ReportResponse>;
   beginShutdown(): void;
   close(): Promise<StationControlShutdownReceipt>;
@@ -256,6 +264,7 @@ export const startStationControlServer = async (
   const readinessAuthority = Symbol("station-control-listener");
   const sockets = new Set<Socket>();
   const dispatches = new Set<Promise<unknown>>();
+  const sessionListeners = new Set<(ready: boolean) => void>();
   let activeSession: ActiveStationControlSession | undefined;
   let shuttingDown = false;
   let socketIdentity: ControlSocketPathIdentity | undefined;
@@ -298,6 +307,20 @@ export const startStationControlServer = async (
     !activeSession.closed &&
     !activeSession.socket.destroyed;
 
+  let observedSessionReady = false;
+  const notifySessionReadiness = (): void => {
+    const current = sessionReady();
+    if (current === observedSessionReady) return;
+    observedSessionReady = current;
+    for (const listener of sessionListeners) {
+      try {
+        listener(current);
+      } catch {
+        // Observation cannot interfere with the admitted transport.
+      }
+    }
+  };
+
   const peerStillAuthorized = (
     session: ActiveStationControlSession,
   ): boolean => {
@@ -334,6 +357,7 @@ export const startStationControlServer = async (
       session.partialFrameTimer = undefined;
     }
     if (activeSession === session) activeSession = undefined;
+    notifySessionReadiness();
     rejectPendingReports(session, error);
     if (graceful && !session.socket.destroyed) {
       session.socket.end();
@@ -743,6 +767,7 @@ export const startStationControlServer = async (
       closed: false,
     };
     activeSession = session;
+    notifySessionReadiness();
     sockets.add(socket);
 
     socket.on("data", (chunk: Buffer | string) => {
@@ -946,11 +971,26 @@ export const startStationControlServer = async (
     });
   };
 
+  const subscribeSession = (
+    listener: (ready: boolean) => void,
+  ): (() => void) => {
+    sessionListeners.add(listener);
+    try {
+      listener(sessionReady());
+    } catch {
+      // Observation cannot interfere with the admitted transport.
+    }
+    return () => {
+      sessionListeners.delete(listener);
+    };
+  };
+
   const beginShutdown = (): void => {
     liveStationControlListeners.delete(readinessAuthority);
     liveStationControlSessions.delete(readinessAuthority);
     if (shuttingDown) return;
     shuttingDown = true;
+    notifySessionReadiness();
 
     if (existsSync(socketPath) && !pathMatchesCapturedIdentity()) {
       // libuv may unlink a replacement pathname while closing a Unix server.
@@ -1022,6 +1062,7 @@ export const startStationControlServer = async (
     stationHome,
     ready,
     sessionReady,
+    subscribeSession,
     report,
     beginShutdown,
     close,

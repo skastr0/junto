@@ -353,6 +353,25 @@ describe("persistent Station control stream", () => {
     expect(socket.destroyed).toBe(false);
   });
 
+  it("publishes exact session readiness transitions for reconciliation wakeups", async () => {
+    const fixture = await makeServer();
+    const observed: boolean[] = [];
+    const unsubscribe = fixture.server.subscribeSession((ready) => {
+      observed.push(ready);
+    });
+
+    expect(observed).toEqual([false]);
+    const socket = await connect(fixture.server.socketPath);
+    expect(observed).toEqual([false, true]);
+
+    const closed = waitForClose(socket);
+    socket.end();
+    await withTimeout(closed, "session readiness test did not close");
+    expect(observed).toEqual([false, true, false]);
+
+    unsubscribe();
+  });
+
   it("closes malformed, oversized, and authority-changed sessions", async () => {
     const malformed = await makeServer();
     const malformedSocket = await connect(malformed.server.socketPath);
