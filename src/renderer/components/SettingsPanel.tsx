@@ -30,11 +30,12 @@ import {
 import { DIM, HUE, INK } from "../lib/theme";
 import { getVellumApi } from "../lib/vellum-api";
 import { HostServeCatalog } from "./HostServeCatalog";
+import { LicenseSection } from "./license";
 import { Select } from "./ui";
 import "./settings-panel.css";
 
 /** Settings sections: prefs sections + hosts (hosts is not a SettingsSectionKey). */
-type PanelSection = SettingsSectionKey | "hosts";
+type PanelSection = SettingsSectionKey | "hosts" | "license";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "station", label: "Machine", blurb: "Command Center or Remote role" },
@@ -42,6 +43,7 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
   { key: "canvas", label: "Canvas", blurb: "defaults for the portfolio field" },
   { key: "hosts", label: "Hosts", blurb: "fleet + network services" },
   { key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" },
+  { key: "license", label: "License", blurb: "access, billing, and this installation" },
   { key: "kernel", label: "Kernel", blurb: "pulse retention and debug" },
   { key: "browser", label: "Browser", blurb: "surface and warm-session limits" },
   { key: "advanced", label: "Advanced", blurb: "startup and recovery prefs" },
@@ -1235,6 +1237,12 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <BrowserSection />;
     case "advanced":
       return <AdvancedSection />;
+    case "license": {
+      const api = getVellumApi();
+      return api
+        ? <LicenseSection api={api} />
+        : <p className="settings-error">License service is unavailable.</p>;
+    }
   }
 }
 
@@ -1280,7 +1288,7 @@ export function SettingsPanel() {
             </div>
           </div>
           <div className="settings-panel__header-actions">
-            {section !== "hosts" ? (
+            {section !== "hosts" && section !== "license" ? (
               <button
                 type="button"
                 className="settings-panel__ghost"
