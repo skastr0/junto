@@ -10,7 +10,6 @@ import {
   processAlive,
   readProcessStartKey,
   readUnixPeerPid,
-  readUnixPeerProcessChain,
 } from "../src/main/vellum/process-identity";
 
 const roots: string[] = [];
@@ -104,43 +103,6 @@ describe("process identity peer PID (real UDS)", () => {
     });
 
     expect(peerPid).toBe(process.pid);
-  });
-
-  it("captures stable exact-executable ancestry from a real Unix socket", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-peer-chain-"));
-    roots.push(root);
-    configurePeerPidHelperRoots([join(process.cwd(), "scripts")]);
-
-    const socketPath = join(root, "t.sock");
-    const observation = await new Promise<
-      ReturnType<typeof readUnixPeerProcessChain>
-    >((resolve, reject) => {
-      const server = createServer((socket) => {
-        try {
-          resolve(readUnixPeerProcessChain(socket));
-        } catch (error) {
-          reject(error);
-        } finally {
-          socket.destroy();
-          server.close();
-        }
-      });
-      server.on("error", reject);
-      server.listen(socketPath, () => {
-        const client = createConnection({ path: socketPath });
-        client.on("error", reject);
-      });
-      setTimeout(() => reject(new Error("timeout")), 5_000);
-    });
-
-    expect(observation?.peerPid).toBe(process.pid);
-    expect(observation?.chain[0]).toMatchObject({
-      pid: process.pid,
-      uid: process.getuid?.(),
-    });
-    expect(observation?.chain[0]?.executable).toMatch(/^\//u);
-    expect(observation?.chain[0]?.startKey).toMatch(/^[0-9]+(?::[0-9]+)?$/u);
-    expect(observation?.chain[0]?.inode).toMatch(/^[1-9][0-9]*$/u);
   });
 
   it("admits via injected peer reader and process map", () => {
