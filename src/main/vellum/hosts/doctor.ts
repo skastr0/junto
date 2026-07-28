@@ -180,18 +180,26 @@ const probeSshHost = (
       const detail = result === undefined
         ? "Station is not enrolled in the persistent fleet"
         : describeFleetFailure(result.error);
+      const updateRequired =
+        result?.ok === false &&
+        result.error.reason === "update-required";
       return {
-        status: "error" as const,
+        status: updateRequired ? "warning" as const : "error" as const,
         detail: `${host.label}: ${detail}`,
         observation: {
           hostId: host.id,
           endpoint: host.sshEndpoint,
           reachability:
-            result?.ok === false &&
+            updateRequired
+              ? "reachable" as const
+              : result?.ok === false &&
               result.error.reason === "not-enrolled"
               ? "unknown" as const
               : "unreachable" as const,
-          reachabilityError: detail,
+          ...(updateRequired ? {} : { reachabilityError: detail }),
+          ...(result?.status?.protocol === undefined
+            ? {}
+            : { protocol: result.status.protocol }),
           observationError: detail,
         },
       };
@@ -203,12 +211,32 @@ const probeSshHost = (
       `Station API ${station.state}`,
       `installation ${station.installationId}`,
     ];
+    const protocol = result.status.protocol;
     let worst: "ok" | "warning" | "error" = "ok";
     const problems: string[] = [];
     const raise = (severity: "warning" | "error", problem: string) => {
       if (severity === "error" || worst === "ok") worst = severity;
       problems.push(problem);
     };
+
+    if (protocol !== undefined) {
+      parts.push(
+        protocol.compatibility === "update-required"
+          ? "protocol update required"
+          : `protocol ${protocol.negotiatedProtocol} ${protocol.compatibility}${protocol.legacy ? " · legacy preface" : ""}`,
+      );
+      if (
+        protocol.compatibility === "deprecated" ||
+        (protocol.compatibility !== "update-required" && protocol.legacy)
+      ) {
+        raise(
+          "warning",
+          protocol.legacy
+            ? "Station uses the legacy v2 connection preface"
+            : `Station protocol ${protocol.negotiatedProtocol} is deprecated`,
+        );
+      }
+    }
 
     if (configuration === undefined) {
       parts.push("configuration absent");
@@ -262,6 +290,7 @@ const probeSshHost = (
         hostId: host.id,
         endpoint: host.sshEndpoint,
         reachability: "reachable" as const,
+        ...(protocol === undefined ? {} : { protocol }),
         station,
         ...(problems.length === 0
           ? {}
@@ -467,6 +496,7 @@ export const testHostConnection = (
   readonly ok: boolean;
   readonly detail: string;
   readonly reachability?: "reachable" | "unreachable" | "unknown";
+  readonly protocol?: StationRemoteObservation["protocol"];
 }> =>
   host.kind === "local"
     ? Effect.gen(function* () {
@@ -500,5 +530,8 @@ export const testHostConnection = (
           ok: result.status === "ok",
           detail: result.detail,
           reachability: result.observation.reachability,
+          ...(result.observation.protocol === undefined
+            ? {}
+            : { protocol: result.observation.protocol }),
         })),
       );

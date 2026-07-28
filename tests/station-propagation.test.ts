@@ -24,6 +24,11 @@ import {
   CanvasesService,
 } from "../src/main/vellum/canvases";
 import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  StationAppVersion,
+  StationStateSchemaVersion,
+} from "../src/shared/station-protocol";
+import {
   StationApiService,
 } from "../src/main/vellum/station/api";
 import {
@@ -33,6 +38,9 @@ import {
 import type {
   StationApiResponseFor,
   StationPeerSession,
+} from "../src/main/vellum/station/peer-session";
+import {
+  bindNegotiatedStationProtocol,
 } from "../src/main/vellum/station/peer-session";
 import {
   StationPropagation,
@@ -54,6 +62,16 @@ const NOW = "2026-07-27T12:00:00.000Z";
 const AUTHORITY_SHA256 =
   stationProjectionContentSha256("test canvas authority");
 const projectionSequence = Schema.decodeUnknownSync(LogicalSequence);
+const PROTOCOL_DIAGNOSTICS = {
+  appVersion: StationAppVersion.make("propagation-test"),
+  stateSchemaVersion: StationStateSchemaVersion.make(1),
+  support: CURRENT_STATION_PROTOCOL_SUPPORT,
+};
+const PROTOCOL = bindNegotiatedStationProtocol({
+  negotiatedProtocol: 2,
+  local: PROTOCOL_DIAGNOSTICS,
+  peer: PROTOCOL_DIAGNOSTICS,
+});
 
 const TARGET: StationFleetTarget = {
   hostId: REMOTE_HOST,
@@ -194,6 +212,7 @@ const session = (
 ): StationPeerSession => ({
   localInstallationId: COMMAND_CENTER,
   peerInstallationId,
+  protocol: PROTOCOL,
   request: handle,
   withOpen: (effect) => effect,
   isOpen: Effect.succeed(true),

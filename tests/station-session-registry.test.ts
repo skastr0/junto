@@ -13,7 +13,15 @@ import {
 import { describe, expect, it } from "vitest";
 import { HostId } from "../src/shared/remote-hosts";
 import { InstallationId } from "../src/shared/installation-id";
-import type { StationPeerSession } from "../src/main/vellum/station/peer-session";
+import {
+  bindNegotiatedStationProtocol,
+  type StationPeerSession,
+} from "../src/main/vellum/station/peer-session";
+import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  StationAppVersion,
+  StationStateSchemaVersion,
+} from "../src/shared/station-protocol";
 import {
   StationLivePeerRegistry,
   StationLivePeerRegistryLive,
@@ -26,6 +34,16 @@ const COMMAND_CENTER = installationId("registry-command-center");
 const REMOTE = installationId("registry-remote");
 const OTHER_REMOTE = installationId("registry-other-remote");
 const HOST = hostId("registry-host");
+const PROTOCOL_DIAGNOSTICS = {
+  appVersion: StationAppVersion.make("registry-test"),
+  stateSchemaVersion: StationStateSchemaVersion.make(1),
+  support: CURRENT_STATION_PROTOCOL_SUPPORT,
+};
+const PROTOCOL = bindNegotiatedStationProtocol({
+  negotiatedProtocol: 2,
+  local: PROTOCOL_DIAGNOSTICS,
+  peer: PROTOCOL_DIAGNOSTICS,
+});
 
 const makeSession = (
   peerInstallationId = REMOTE,
@@ -39,6 +57,7 @@ const makeSession = (
     const session: StationPeerSession = {
       localInstallationId: COMMAND_CENTER,
       peerInstallationId,
+      protocol: PROTOCOL,
       request: () => Effect.die("registry test does not issue requests"),
       withOpen: (effect) =>
         lifecycle.withPermits(1)(
@@ -72,6 +91,9 @@ describe("StationLivePeerRegistry", () => {
           yield* registry.activate(HOST, REMOTE, peer.session);
 
           expect(yield* registry.isLive(HOST, REMOTE)).toBe(true);
+          expect((yield* registry.require(HOST, REMOTE)).protocol).toEqual(
+            PROTOCOL,
+          );
           expect(yield* registry.isLive(HOST, OTHER_REMOTE)).toBe(false);
 
           const wrongIdentity = yield* registry.require(

@@ -41,6 +41,11 @@ import type {
   StationSessionFrame,
 } from "../src/shared/station-session";
 import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  StationAppVersion,
+  StationStateSchemaVersion,
+} from "../src/shared/station-protocol";
+import {
   IntentFactBasis,
   WorkRecord,
   type ActorRef,
@@ -70,6 +75,7 @@ import {
   compileStationPortfolioBody,
 } from "../src/main/vellum/station/portfolio";
 import {
+  bindNegotiatedStationProtocol,
   makeStationPeerSession,
   type StationPeerSession,
   type StationSessionFrameTransport,
@@ -111,6 +117,16 @@ const readiness: StationReadiness = {
   simulation: true,
   session: true,
 };
+const PROTOCOL_DIAGNOSTICS = {
+  appVersion: StationAppVersion.make("offline-roundtrip-test"),
+  stateSchemaVersion: StationStateSchemaVersion.make(1),
+  support: CURRENT_STATION_PROTOCOL_SUPPORT,
+};
+const PROTOCOL = bindNegotiatedStationProtocol({
+  negotiatedProtocol: 2,
+  local: PROTOCOL_DIAGNOSTICS,
+  peer: PROTOCOL_DIAGNOSTICS,
+});
 
 const installation = (value: string): InstallationIdValue =>
   Schema.decodeUnknownSync(InstallationId)(value);
@@ -332,6 +348,7 @@ const openProductSessionConnection = async (
         localRole: "command-center",
         localInstallationId: commandCenterId,
         peerInstallationId: remoteId,
+        protocol: PROTOCOL,
         transport: duplex.commandCenter,
         handleRequest: apiEnvelope(commandCenter, {
           _tag: "enrolled-remote",
@@ -342,6 +359,7 @@ const openProductSessionConnection = async (
         localRole: "remote",
         localInstallationId: remoteId,
         peerInstallationId: commandCenterId,
+        protocol: PROTOCOL,
         transport: duplex.remote,
         handleRequest: apiEnvelope(remote, {
           _tag: "command-center-route",

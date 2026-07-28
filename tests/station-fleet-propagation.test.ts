@@ -44,10 +44,19 @@ import {
 import {
   mintStationPeerRoute,
   StationPeerExchange,
+  StationPeerExchangeError,
   type StationRemoteReportHandler,
 } from "../src/main/vellum/station/peer-exchange";
 import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  StationAppVersion,
+  StationProtocolSupport,
+  StationStateSchemaVersion,
+} from "../src/shared/station-protocol";
+import {
   StationPeerSessionClosedError,
+  bindNegotiatedStationProtocol,
+  type StationPeerProtocolBinding,
   type StationPeerSession,
 } from "../src/main/vellum/station/peer-session";
 import {
@@ -66,6 +75,38 @@ const sha256 = Schema.decodeUnknownSync(StationSha256);
 const stationHostId = Schema.decodeUnknownSync(StationHostId);
 
 const COMMAND_CENTER = installationId("fleet-command-center");
+const PROTOCOL_DIAGNOSTICS = {
+  appVersion: StationAppVersion.make("fleet-test"),
+  stateSchemaVersion: StationStateSchemaVersion.make(1),
+  support: CURRENT_STATION_PROTOCOL_SUPPORT,
+};
+const PROTOCOL = bindNegotiatedStationProtocol({
+  negotiatedProtocol: 2,
+  local: PROTOCOL_DIAGNOSTICS,
+  peer: PROTOCOL_DIAGNOSTICS,
+});
+const INCOMPATIBLE_PEER_DIAGNOSTICS = {
+  appVersion: StationAppVersion.make("future-remote"),
+  stateSchemaVersion: StationStateSchemaVersion.make(3),
+  support: StationProtocolSupport.make({
+    preferred: 3,
+    compatibleFrom: 3,
+    warnBelow: 3,
+  }),
+};
+const DEPRECATED_PROTOCOL = bindNegotiatedStationProtocol({
+  negotiatedProtocol: 2,
+  local: {
+    appVersion: StationAppVersion.make("future-command-center"),
+    stateSchemaVersion: StationStateSchemaVersion.make(3),
+    support: StationProtocolSupport.make({
+      preferred: 3,
+      compatibleFrom: 2,
+      warnBelow: 3,
+    }),
+  },
+  peer: PROTOCOL_DIAGNOSTICS,
+});
 
 const target = (host: string, station: string): StationFleetTarget => ({
   hostId: hostId(host),
@@ -141,6 +182,8 @@ type SessionRecord = {
 
 type HarnessOptions = {
   readonly failRouteFor?: ReadonlySet<HostIdValue>;
+  readonly protocolIncompatibleFor?: ReadonlySet<HostIdValue>;
+  readonly sessionProtocol?: StationPeerProtocolBinding;
   readonly blockSecondRouteFor?: HostIdValue;
   readonly blockFirstSynchronizationFor?: HostIdValue;
   readonly blockFirstTargetList?: boolean;
@@ -285,6 +328,17 @@ const makeHarness = (
         if (enrolled === undefined) {
           return yield* Effect.die("exchange received an unknown peer");
         }
+        if (
+          options.protocolIncompatibleFor?.has(enrolled.hostId) === true
+        ) {
+          return yield* StationPeerExchangeError.make({
+            peerInstallationId: remote,
+            reason: "protocol-incompatible",
+            message: "test peers have no common Station protocol",
+            localProtocol: PROTOCOL_DIAGNOSTICS,
+            peerProtocol: INCOMPATIBLE_PEER_DIAGNOSTICS,
+          });
+        }
         openCounts.set(remote, (openCounts.get(remote) ?? 0) + 1);
         const open = yield* Ref.make(true);
         const closed = yield* Deferred.make<StationPeerSessionClosedError>();
@@ -305,6 +359,7 @@ const makeHarness = (
         const session: StationPeerSession = {
           localInstallationId: COMMAND_CENTER,
           peerInstallationId: remote,
+          protocol: options.sessionProtocol ?? PROTOCOL,
           request: () => Effect.die("fake propagation owns request behavior"),
           withOpen: (effect) => effect,
           isOpen: Ref.get(open),
@@ -537,6 +592,39 @@ describe("StationFleetPropagation persistent supervisor", () => {
       expect(
         harness.synchronizationCount(remote.hostId),
       ).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  it("keeps a deprecated exact codec live and mutation-capable with a warning status", async () => {
+    const remote = target("deprecated-host", "deprecated-station");
+    const harness = makeHarness([remote], {
+      sessionProtocol: DEPRECATED_PROTOCOL,
+    });
+
+    await withRuntime(harness, async (runtime) => {
+      const service = await runtime.runPromise(StationFleetPropagation);
+      const registry = await runtime.runPromise(StationLivePeerRegistry);
+      const [result] = await runtime.runPromise(
+        service.synchronize(remote.hostId),
+      );
+
+      expect(result?.ok).toBe(true);
+      if (result?.ok === true) {
+        expect(result.status).toMatchObject({
+          phase: "ready",
+          sessionOpen: true,
+          protocol: {
+            compatibility: "deprecated",
+            negotiatedProtocol: 2,
+            legacy: false,
+          },
+        });
+      }
+      expect(
+        await runtime.runPromise(
+          registry.isLive(remote.hostId, remote.stationInstallationId),
+        ),
+      ).toBe(true);
     });
   });
 
@@ -792,6 +880,56 @@ describe("StationFleetPropagation persistent supervisor", () => {
       expect(explicitlyRetried[0]?.ok).toBe(false);
       expect(harness.routeResolutionCount(remote.hostId)).toBe(
         parkedResolutionCount + 1,
+      );
+    });
+  });
+
+  it("parks an incompatible peer as update-required without minting live claim authority", async () => {
+    const remote = target("future-host", "future-station");
+    const harness = makeHarness([remote], {
+      protocolIncompatibleFor: new Set([remote.hostId]),
+    });
+
+    await withRuntime(harness, async (runtime) => {
+      const service = await runtime.runPromise(StationFleetPropagation);
+      const registry = await runtime.runPromise(StationLivePeerRegistry);
+      await runtime.runPromise(service.start());
+      await runtime.runPromise(
+        Effect.gen(function* () {
+          while (
+            (yield* service.status(remote.hostId))?.phase !==
+              "update-required"
+          ) {
+            yield* Effect.yieldNow();
+          }
+        }),
+      );
+      const status = await runtime.runPromise(service.status(remote.hostId));
+
+      expect(status?.lastFailure?.reason).toBe("update-required");
+      expect(status?.lastFailure?.message).toContain("running locally");
+      expect(status).toMatchObject({
+        phase: "update-required",
+        sessionOpen: false,
+        protocol: {
+          compatibility: "update-required",
+          local: PROTOCOL_DIAGNOSTICS,
+          peer: INCOMPATIBLE_PEER_DIAGNOSTICS,
+        },
+      });
+      expect(harness.synchronizationCount(remote.hostId)).toBe(0);
+      expect(
+        await runtime.runPromise(
+          registry.isLive(remote.hostId, remote.stationInstallationId),
+        ),
+      ).toBe(false);
+
+      const parkedResolutionCount = harness.routeResolutionCount(
+        remote.hostId,
+      );
+      await runtime.runPromise(Effect.sleep("600 millis"));
+      expect(harness.routeResolutionCount(remote.hostId)).toBe(
+        parkedResolutionCount,
       );
     });
   });

@@ -23,6 +23,7 @@ import {
   type HostId as HostIdValue,
 } from "@shared/remote-hosts";
 import { stationControlOk } from "@shared/station-api-envelope";
+import type { StationProtocolObservation } from "@shared/station-status";
 import {
   CanvasesService,
 } from "../canvases";
@@ -62,6 +63,7 @@ import {
   type StationPeerRoute,
 } from "./peer-exchange";
 import {
+  type StationPeerProtocolBinding,
   type StationPeerSessionClosedError,
 } from "./peer-session";
 import {
@@ -114,6 +116,7 @@ export class StationFleetPeerUnavailable extends Schema.TaggedError<StationFleet
       "not-running",
       "route-unavailable",
       "connection-failed",
+      "update-required",
       "synchronization-failed",
       "deadline",
       "stopped",
@@ -127,6 +130,7 @@ export type StationFleetPeerPhase =
   | "connecting"
   | "synchronizing"
   | "ready"
+  | "update-required"
   | "backoff"
   | "stopped";
 
@@ -138,6 +142,7 @@ export type StationFleetPeerStatus = {
   readonly attempt: number;
   readonly updatedAt: string;
   readonly nextRetryAt?: string;
+  readonly protocol?: StationProtocolObservation;
   readonly lastReceipt?: StationPropagationReceipt;
   readonly lastFailure?: StationFleetPeerUnavailable;
 };
@@ -331,6 +336,18 @@ const unavailableFromAttempt = (
     );
   }
   if (
+    error._tag === "StationPeerExchangeError" &&
+    error.reason === "protocol-incompatible"
+  ) {
+    return unavailable(
+      target.hostId,
+      target.stationInstallationId,
+      "update-required",
+      "Remote is running locally — Station protocol update required",
+      error,
+    );
+  }
+  if (
     error._tag === "StationPeerExchangeError" ||
     error._tag === "StationPeerSessionClosedError" ||
     error._tag === "StationLivePeerUnavailable"
@@ -351,6 +368,38 @@ const unavailableFromAttempt = (
     error,
   );
 };
+
+const protocolObservationFromBinding = (
+  binding: StationPeerProtocolBinding,
+): StationProtocolObservation =>
+  binding._tag === "legacy-v2"
+    ? {
+        compatibility: "compatible",
+        negotiatedProtocol: binding.negotiatedProtocol,
+        legacy: true,
+        local: binding.local,
+      }
+    : {
+        compatibility: binding.compatibility,
+        negotiatedProtocol: binding.negotiatedProtocol,
+        legacy: false,
+        local: binding.local,
+        peer: binding.peer,
+      };
+
+const protocolObservationFromAttempt = (
+  error: AttemptError,
+): StationProtocolObservation | undefined =>
+  error._tag === "StationPeerExchangeError" &&
+    error.reason === "protocol-incompatible" &&
+    error.localProtocol !== undefined &&
+    error.peerProtocol !== undefined
+    ? {
+        compatibility: "update-required",
+        local: error.localProtocol,
+        peer: error.peerProtocol,
+      }
+    : undefined;
 
 /**
  * Transport loss is retried autonomously. Configuration, identity, protocol,
@@ -530,6 +579,7 @@ export const StationFleetPropagationLive = Layer.scoped(
           phase: "synchronizing",
           sessionOpen: true,
           attempt,
+          protocol: protocolObservationFromBinding(session.protocol),
           ...(previous?.lastReceipt === undefined
             ? {}
             : { lastReceipt: previous.lastReceipt }),
@@ -547,10 +597,14 @@ export const StationFleetPropagationLive = Layer.scoped(
       attempt: number,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        const previous = yield* readStatus(control.target.hostId);
         const status = yield* setStatus(control.target, {
           phase: "ready",
           sessionOpen: true,
           attempt,
+          ...(previous?.protocol === undefined
+            ? {}
+            : { protocol: previous.protocol }),
           lastReceipt: receipt,
         });
         yield* completeWaiters(
@@ -576,6 +630,9 @@ export const StationFleetPropagationLive = Layer.scoped(
             phase: "connecting",
             sessionOpen: false,
             attempt,
+            ...(beforeConnect?.protocol === undefined
+              ? {}
+              : { protocol: beforeConnect.protocol }),
             ...(beforeConnect?.lastReceipt === undefined
               ? {}
               : { lastReceipt: beforeConnect.lastReceipt }),
@@ -682,10 +739,20 @@ export const StationFleetPropagationLive = Layer.scoped(
           const beforeBackoff = yield* readStatus(
             control.target.hostId,
           );
+          const incompatibleProtocol = protocolObservationFromAttempt(
+            attempted.left,
+          );
           const status = yield* setStatus(control.target, {
-            phase: "backoff",
+            phase: failure.reason === "update-required"
+              ? "update-required"
+              : "backoff",
             sessionOpen: false,
             attempt,
+            ...(incompatibleProtocol !== undefined
+              ? { protocol: incompatibleProtocol }
+              : beforeBackoff?.protocol === undefined
+                ? {}
+                : { protocol: beforeBackoff.protocol }),
             ...(delay === undefined
               ? {}
               : {
@@ -728,10 +795,14 @@ export const StationFleetPropagationLive = Layer.scoped(
           "stopped",
           "Station fleet target is no longer supervised",
         );
+        const previous = yield* readStatus(control.target.hostId);
         const status = yield* setStatus(control.target, {
           phase: "stopped",
           sessionOpen: false,
           attempt: 0,
+          ...(previous?.protocol === undefined
+            ? {}
+            : { protocol: previous.protocol }),
           lastFailure: stopped,
         });
         yield* completeWaiters(

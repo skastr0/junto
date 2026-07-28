@@ -15,6 +15,7 @@ import {
 } from "@shared/installation-id";
 import {
   StationPeerSessionClosedError,
+  type StationPeerProtocolBinding,
   type StationPeerSession,
 } from "./peer-session";
 
@@ -30,6 +31,7 @@ export interface StationLivePeer {
   readonly [StationLivePeerTypeId]: typeof StationLivePeerTypeId;
   readonly hostId: HostIdValue;
   readonly installationId: InstallationIdValue;
+  readonly protocol: StationPeerProtocolBinding;
 }
 
 interface ActivePeer {
@@ -145,6 +147,7 @@ export const StationLivePeerRegistryLive = Layer.effect(
             [StationLivePeerTypeId]: StationLivePeerTypeId,
             hostId,
             installationId,
+            protocol: session.protocol,
           }) as StationLivePeer;
           const peer: ActivePeer = { witness, session, lifetime };
           const admitted = yield* registryLock.withPermits(1)(

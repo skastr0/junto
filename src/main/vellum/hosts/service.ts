@@ -1,5 +1,6 @@
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
+import type { StationProtocolObservation } from "@shared/station-status";
 import {
   defaultRemoteHostsDocument,
   RemoteHost,
@@ -68,6 +69,7 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
         readonly ok: boolean;
         readonly detail: string;
         readonly reachability?: "reachable" | "unreachable" | "unknown";
+        readonly protocol?: StationProtocolObservation;
       },
       RemoteHostsError
     >;

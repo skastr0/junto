@@ -13,6 +13,15 @@ import {
   defaultRemoteHostsDocument,
   HostId,
 } from "../src/shared/remote-hosts";
+import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  StationAppVersion,
+  StationProtocolSupport,
+  StationStateSchemaVersion,
+} from "../src/shared/station-protocol";
+import type {
+  StationProtocolObservation,
+} from "../src/shared/station-status";
 import type { CliResult } from "../src/main/vellum/adapters/exec";
 import {
   runRemoteHostsDoctor,
@@ -37,6 +46,20 @@ const localHost = defaultRemoteHostsDocument().hosts[0]!;
 const unusedSsh = {} as Parameters<typeof testHostConnection>[0];
 type Fleet = Context.Tag.Service<typeof StationFleetPropagation>;
 const unusedFleet = {} as Fleet;
+const localProtocol = {
+  appVersion: StationAppVersion.make("1.2.0"),
+  stateSchemaVersion: StationStateSchemaVersion.make(2),
+  support: CURRENT_STATION_PROTOCOL_SUPPORT,
+};
+const futureProtocol = {
+  appVersion: StationAppVersion.make("2.0.0"),
+  stateSchemaVersion: StationStateSchemaVersion.make(3),
+  support: StationProtocolSupport.make({
+    preferred: 3,
+    compatibleFrom: 3,
+    warnBelow: 3,
+  }),
+};
 
 const stationStatus = (
   id: string,
@@ -87,6 +110,7 @@ const stationStatus = (
 const successfulResult = (
   id: string,
   remoteStatus: StatusResponse,
+  protocol?: StationProtocolObservation,
 ): StationFleetPropagationResult => {
   const active = remoteStatus.projection;
   if (active === undefined) {
@@ -118,6 +142,7 @@ const successfulResult = (
     sessionOpen: true,
     attempt: 1,
     updatedAt: "2026-07-27T12:00:01.000Z",
+    ...(protocol === undefined ? {} : { protocol }),
     lastReceipt: receipt,
   };
   return {
@@ -133,6 +158,7 @@ const fleetWithStatus = (
   read: (
     id: string,
   ) => Effect.Effect<StatusResponse, StationFleetPeerUnavailable>,
+  protocol?: StationProtocolObservation,
 ): Fleet =>
   StationFleetPropagation.of({
     start: () => Effect.void,
@@ -140,7 +166,9 @@ const fleetWithStatus = (
     synchronize: (selected) => {
       if (selected === undefined) return Effect.succeed([]);
       return read(selected).pipe(
-        Effect.map((status) => [successfulResult(selected, status)]),
+        Effect.map((status) => [
+          successfulResult(selected, status, protocol),
+        ]),
         Effect.catchAll((error) =>
           Effect.succeed([
             {
@@ -396,6 +424,80 @@ describe("remote hosts doctor", () => {
     expect(snapshot.observations[0]).not.toHaveProperty("station");
     expect(snapshot.observations[0]).not.toHaveProperty("settingsState");
     expect(snapshot.observations[0]).not.toHaveProperty("statusState");
+  });
+
+  it("reports an incompatible but reachable Remote as update-required", async () => {
+    const protocol: StationProtocolObservation = {
+      compatibility: "update-required",
+      local: localProtocol,
+      peer: futureProtocol,
+    };
+    const error = StationFleetPeerUnavailable.make({
+      hostId: hostId("studio"),
+      stationInstallationId: installationId("station-studio"),
+      reason: "update-required",
+      causeTag: "StationPeerExchangeError",
+      message: "Remote is running locally — Station protocol update required",
+    });
+    const fleet = StationFleetPropagation.of({
+      start: () => Effect.void,
+      request: () => Effect.void,
+      synchronize: () =>
+        Effect.succeed([
+          {
+            ok: false as const,
+            hostId: hostId("studio"),
+            stationInstallationId: installationId("station-studio"),
+            error,
+            status: {
+              hostId: hostId("studio"),
+              stationInstallationId: installationId("station-studio"),
+              phase: "update-required" as const,
+              sessionOpen: false,
+              attempt: 1,
+              updatedAt: "2026-07-27T12:00:01.000Z",
+              protocol,
+              lastFailure: error,
+            },
+          },
+        ]),
+      status: () => Effect.succeed(undefined),
+      statuses: Effect.succeed([]),
+      stop: Effect.void,
+    });
+    const registry = {
+      list: async () => [
+        {
+          id: "studio",
+          label: "Studio",
+          kind: "remote" as const,
+          sshEndpoint: "studio-box",
+          capabilities: [],
+        },
+      ],
+    } as unknown as HostsRegistry;
+
+    const snapshot = await Effect.runPromise(
+      runRemoteHostsDoctorSnapshot(
+        registry,
+        unusedSsh,
+        fleet,
+        async () => ({ ok: true, stdout: "" }),
+      ),
+    );
+
+    expect(snapshot.check.status).toBe("warning");
+    expect(snapshot.check.detail).toContain("running locally");
+    expect(snapshot.observations).toEqual([
+      {
+        hostId: "studio",
+        endpoint: "studio-box",
+        reachability: "reachable",
+        protocol,
+        observationError:
+          "Remote is running locally — Station protocol update required",
+      },
+    ]);
   });
 
   it("does not use bootstrap status as a Doctor fallback for an unenrolled host", async () => {

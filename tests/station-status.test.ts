@@ -28,6 +28,12 @@ import {
   resolveNodeHostId,
 } from "../src/shared/station";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  StationAppVersion,
+  StationProtocolSupport,
+  StationStateSchemaVersion,
+} from "../src/shared/station-protocol";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const hostId = Schema.decodeUnknownSync(StationHostId);
@@ -37,6 +43,20 @@ const stationSha256 = Schema.decodeUnknownSync(StationSha256);
 const commandCenterInstallationId = installationId("cc-installation");
 const configuredAt = "2026-07-23T11:00:00.000Z";
 const observedAt = "2026-07-23T11:59:30.000Z";
+const localProtocol = {
+  appVersion: StationAppVersion.make("1.2.0"),
+  stateSchemaVersion: StationStateSchemaVersion.make(2),
+  support: CURRENT_STATION_PROTOCOL_SUPPORT,
+};
+const futureProtocol = {
+  appVersion: StationAppVersion.make("2.0.0"),
+  stateSchemaVersion: StationStateSchemaVersion.make(3),
+  support: StationProtocolSupport.make({
+    preferred: 3,
+    compatibleFrom: 3,
+    warnBelow: 3,
+  }),
+};
 
 const commandCenterConfiguration = (): StationConfiguration => ({
   role: "command-center",
@@ -394,6 +414,41 @@ describe("station status doctor", () => {
       remoteCount: "1",
       remoteFleetBlindCount: "0",
       "remote.studio.state": "warning",
+    });
+  });
+
+  it("keeps protocol incompatibility reachable but fleet-blind and update-required", () => {
+    const check = assessStationDoctor({
+      ...localDoctorInput(),
+      registeredRemoteEndpoints: { studio: "studio-box" },
+      remoteObservations: [
+        observedRemote({
+          station: undefined,
+          protocol: {
+            compatibility: "update-required",
+            local: localProtocol,
+            peer: futureProtocol,
+          },
+          observationError:
+            "Remote is running locally — Station protocol update required",
+        }),
+      ],
+    });
+
+    expect(check.status).toBe("warning");
+    expect(check.detail).toContain("running locally — update required");
+    expect(check.detail).toContain("protocol update-required");
+    expect(check.metadata).toMatchObject({
+      remoteFleetBlindCount: "1",
+      "remote.studio.reachability": "reachable",
+      "remote.studio.state": "fleet-blind",
+      "remote.studio.protocolCompatibility": "update-required",
+      "remote.studio.localAppVersion": "1.2.0",
+      "remote.studio.localStateSchemaVersion": "2",
+      "remote.studio.peerAppVersion": "2.0.0",
+      "remote.studio.peerStateSchemaVersion": "3",
+      "remote.studio.localProtocolPreferred": "2",
+      "remote.studio.peerProtocolCompatibleFrom": "3",
     });
   });
 

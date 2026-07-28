@@ -15,6 +15,12 @@ import {
   assessSupervisedRuntime,
   type SupervisedInstallState,
 } from "./station";
+import type {
+  StationAppVersion,
+  StationProtocolSupport,
+  StationProtocolVersion,
+  StationStateSchemaVersion,
+} from "./station-protocol";
 
 /**
  * Durable operational observations. Authoritative station configuration,
@@ -95,11 +101,40 @@ export const StationStatusDocument = Schema.Struct({
 });
 export type StationStatusDocument = typeof StationStatusDocument.Type;
 
+export type StationProtocolPeerObservation = {
+  readonly appVersion: StationAppVersion;
+  readonly stateSchemaVersion: StationStateSchemaVersion;
+  readonly support: StationProtocolSupport;
+};
+
+/**
+ * Ephemeral compatibility truth for one CC-opened Station connection.
+ *
+ * This is deliberately not part of the v2 Station API response or the
+ * durable status document. The compatibility preface owns these diagnostics;
+ * Doctor and Fleet merely project them for the operator.
+ */
+export type StationProtocolObservation =
+  | {
+      readonly compatibility: "compatible" | "deprecated";
+      readonly negotiatedProtocol: StationProtocolVersion;
+      /** True only for the bounded pre-preface v2 compatibility path. */
+      readonly legacy: boolean;
+      readonly local: StationProtocolPeerObservation;
+      readonly peer?: StationProtocolPeerObservation;
+    }
+  | {
+      readonly compatibility: "update-required";
+      readonly local: StationProtocolPeerObservation;
+      readonly peer: StationProtocolPeerObservation;
+    };
+
 export type StationRemoteObservation = {
   readonly hostId: string;
   readonly endpoint: string;
   readonly reachability: "reachable" | "unreachable" | "unknown";
   readonly reachabilityError?: string;
+  readonly protocol?: StationProtocolObservation;
   /** Exact typed response from the Remote's Station API. */
   readonly station?: StatusResponseValue;
   readonly observationError?: string;
@@ -401,6 +436,7 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       ? observationByHost.get(remoteHostId)
       : undefined;
     const station = observation?.station;
+    const protocol = observation?.protocol;
     const problems: string[] = [];
     let hardError = false;
     let fleetBlind = false;
@@ -442,6 +478,9 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       );
       hardError = true;
       fleetBlind = true;
+    } else if (protocol?.compatibility === "update-required") {
+      problems.push("running locally — update required");
+      fleetBlind = true;
     } else if (station === undefined) {
       problems.push(
         `fleet-blind: ${boundedDiagnostic(
@@ -451,6 +490,15 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       );
       fleetBlind = true;
     } else {
+      if (protocol?.compatibility === "deprecated") {
+        problems.push(
+          `Station protocol ${protocol.negotiatedProtocol} deprecated`,
+        );
+      } else if (protocol?.legacy) {
+        problems.push(
+          `Station protocol ${protocol.negotiatedProtocol} uses legacy preface`,
+        );
+      }
       if (
         station.configuration?.role !== "remote" ||
         station.configuration.hostId !== remoteHostId
@@ -498,6 +546,13 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       line:
         `Remote ${remoteHostId} (${endpoint}): Station API ${station?.state ?? "unavailable"} · ` +
         `installation ${station?.installationId ?? "unknown"} · ` +
+        (protocol === undefined
+          ? ""
+          : `protocol ${protocol.compatibility}${
+            protocol.compatibility === "update-required"
+              ? ""
+              : `/${protocol.negotiatedProtocol}${protocol.legacy ? "/legacy" : ""}`
+          } · `) +
         `projection ${station?.projection?.generation ?? "absent"} · ` +
         `received ${station?.receivedThrough.length ?? 0} · ` +
         `peer-acked ${station?.peerAcknowledgedThrough.length ?? 0} · ` +
@@ -506,6 +561,55 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         [`${prefix}state`]: state,
         [`${prefix}reachability`]: observation?.reachability ?? "unknown",
         [`${prefix}apiState`]: station?.state ?? "unavailable",
+        [`${prefix}protocolCompatibility`]:
+          protocol?.compatibility ?? "unknown",
+        [`${prefix}protocolNegotiated`]:
+          protocol !== undefined &&
+            protocol.compatibility !== "update-required"
+            ? String(protocol.negotiatedProtocol)
+            : "",
+        [`${prefix}protocolLegacy`]:
+          protocol !== undefined &&
+            protocol.compatibility !== "update-required" &&
+            protocol.legacy
+            ? "true"
+            : "false",
+        [`${prefix}localAppVersion`]:
+          protocol?.local.appVersion ?? "",
+        [`${prefix}localStateSchemaVersion`]:
+          protocol === undefined
+            ? ""
+            : String(protocol.local.stateSchemaVersion),
+        [`${prefix}localProtocolPreferred`]:
+          protocol === undefined
+            ? ""
+            : String(protocol.local.support.preferred),
+        [`${prefix}localProtocolCompatibleFrom`]:
+          protocol === undefined
+            ? ""
+            : String(protocol.local.support.compatibleFrom),
+        [`${prefix}localProtocolWarnBelow`]:
+          protocol === undefined
+            ? ""
+            : String(protocol.local.support.warnBelow),
+        [`${prefix}peerAppVersion`]:
+          protocol?.peer?.appVersion ?? "",
+        [`${prefix}peerStateSchemaVersion`]:
+          protocol?.peer === undefined
+            ? ""
+            : String(protocol.peer.stateSchemaVersion),
+        [`${prefix}peerProtocolPreferred`]:
+          protocol?.peer === undefined
+            ? ""
+            : String(protocol.peer.support.preferred),
+        [`${prefix}peerProtocolCompatibleFrom`]:
+          protocol?.peer === undefined
+            ? ""
+            : String(protocol.peer.support.compatibleFrom),
+        [`${prefix}peerProtocolWarnBelow`]:
+          protocol?.peer === undefined
+            ? ""
+            : String(protocol.peer.support.warnBelow),
         [`${prefix}installationId`]: station?.installationId ?? "",
         [`${prefix}role`]: station?.configuration?.role ?? "unknown",
         [`${prefix}projectionGeneration`]:
