@@ -21,6 +21,10 @@ import {
   decodeStationSessionFrame,
   stationSessionResponse,
 } from "../src/shared/station-session";
+import {
+  STATION_PROTOCOL_PREFACE,
+  StationProtocolOffer,
+} from "../src/shared/station-protocol";
 
 const requestId = Schema.decodeUnknownSync(StationSessionRequestId)(
   "status-01",
@@ -249,6 +253,17 @@ describe("Station session v2 frame contract", () => {
 
     expect(STATION_SESSION_PROTOCOL).toBe("vellum/station-session/v2");
     expect(STATION_CONTROL_PROTOCOL).toBe("vellum/station-control/v2");
+  });
+
+  it("keeps the protocol preface outside the frozen v2 session frame", () => {
+    const preface = StationProtocolOffer.make({
+      protocol: STATION_PROTOCOL_PREFACE,
+      frame: "offer",
+      appVersion: "0.1.0",
+      stateSchemaVersion: 1,
+      support: { preferred: 2, compatibleFrom: 2, warnBelow: 2 },
+    });
+    expect(Either.isLeft(decodeStationSessionFrame(preface))).toBe(true);
   });
 
   it("bounds and brands request IDs", () => {
