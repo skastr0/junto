@@ -13,6 +13,7 @@ import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch } from "@legendapp/state";
 import type { BindingHint } from "@shared/ipc";
+import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { DEFAULT_STATION_HOST_ID, isValidStationHostId } from "@shared/station";
 import { state$ } from "./state";
@@ -142,6 +143,7 @@ const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => 
     state$.selectedEdgeId.set(selectedEdgeId);
     state$.focusNodeId.set(focusNodeId);
     state$.editNodeId.set(editNodeId);
+    state$.actorRefs.set([...authority.actorRefs]);
   }
 
   state$.saveState.set(pendingSave?.name === failed.name ? "saving" : "saved");
@@ -180,6 +182,7 @@ const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void>
 
   if (state$.canvasName.peek() === failed.name) {
     state$.canvasName.set(created.name);
+    state$.actorRefs.set([...created.actorRefs]);
   }
 
   await api.listCanvases()
@@ -442,6 +445,13 @@ export const clearAbandonedCanvas = (name: string): void => {
   abandonedNames.delete(name);
 };
 
+/** Replace the open canvas's compiled execution-reference projection. */
+export const replaceActiveActorRefs = (
+  actorRefs: ReadonlyArray<ActorRef>,
+): void => {
+  state$.actorRefs.set([...actorRefs]);
+};
+
 // Commit a new document. `structural` bumps docVersion so React Flow rebuilds;
 // pass false for pure position writes RF already reflects (drag stop).
 export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = structural): void => {
@@ -480,6 +490,9 @@ export const loadDoc = (doc: CanvasDoc, revision?: string, name = state$.canvasN
   syncHistoryState();
   state$.saveState.set("saved");
   state$.doc.set(doc);
+  // `loadDoc` without a corresponding CanvasReadResult must fail closed.
+  // App installs the exact compiled refs in the same Legend batch.
+  state$.actorRefs.set([]);
   state$.docVersion.set(state$.docVersion.peek() + 1);
   state$.docEpoch.set(state$.docEpoch.peek() + 1);
 };

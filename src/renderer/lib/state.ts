@@ -5,6 +5,7 @@ import type { CanvasSummary, DigestResult, DiscoveredPeer } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { defaultSettings, type Settings } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
+import type { ActorRef } from "@shared/work-protocol";
 import type { FleetProbeState } from "./fleet-state";
 
 export const EMPTY_DOC: CanvasDoc = { nodes: [], edges: [] };
@@ -35,6 +36,9 @@ export const state$ = observable({
   // Per-node severity for minimap dots (from region rollups). App-local.
   regionSeverityByNodeId: {} as Readonly<Record<string, string>>,
   doc: EMPTY_DOC as CanvasDoc,
+  // Compiled execution identities for actor nodes in the open canvas.
+  // Projection-only: never written back into the authorial document.
+  actorRefs: [] as ReadonlyArray<ActorRef>,
   // Incremented on every structural change (add/remove/edit/flag) and on
   // external reload — NOT on drag, which RF already reflects.
   docVersion: 0,

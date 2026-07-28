@@ -14,6 +14,7 @@ import {
   hasPendingCanvasChanges,
   loadDoc,
   prepareCanvasRemoval,
+  replaceActiveActorRefs,
   redo,
   retrySave,
   undo,
@@ -108,7 +109,10 @@ const openCanvas = async (name: string) => {
       clearAbandonedCanvas(result.name);
       state$.canvasName.set(result.name);
       resetCanvasView();
-      loadDoc(result.doc, result.revision, result.name);
+      batch(() => {
+        loadDoc(result.doc, result.revision, result.name);
+        replaceActiveActorRefs(result.actorRefs);
+      });
       state$.error.set("");
       await refreshSnapshotsSoft(result.doc);
     } catch (error) {
@@ -139,7 +143,10 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
     clearAbandonedCanvas(result.name);
     state$.canvasName.set(result.name);
     resetCanvasView();
-    loadDoc(result.doc, result.revision, result.name);
+    batch(() => {
+      loadDoc(result.doc, result.revision, result.name);
+      replaceActiveActorRefs(result.actorRefs);
+    });
     state$.selectedNodeId.set(event.nodeId);
     state$.focusNodeId.set(event.nodeId);
     state$.canvasLoading.set(false);
@@ -165,7 +172,11 @@ const externalCanvasReload = makeCanvasExternalReloadCoordinator({
   currentRevision: getCanvasRevision,
   hasPendingChanges: hasPendingCanvasChanges,
   acceptRevision: acceptCanvasRevision,
-  apply: (result) => loadDoc(result.doc, result.revision, result.name),
+  apply: (result) =>
+    batch(() => {
+      loadDoc(result.doc, result.revision, result.name);
+      replaceActiveActorRefs(result.actorRefs);
+    }),
   onFailure: setError,
 });
 
@@ -185,7 +196,10 @@ const createCanvas = async (name: string) => {
       if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) return;
       state$.canvasName.set(result.name);
       resetCanvasView();
-      loadDoc(result.doc, result.revision, result.name);
+      batch(() => {
+        loadDoc(result.doc, result.revision, result.name);
+        replaceActiveActorRefs(result.actorRefs);
+      });
       state$.error.set("");
       await refreshSnapshotsSoft(result.doc);
     } catch (error) {

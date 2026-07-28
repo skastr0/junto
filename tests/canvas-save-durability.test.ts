@@ -24,6 +24,7 @@ const writeCanvas = vi.fn(
 const createCanvas = vi.fn(async (name: string) => ({
   name,
   doc: { nodes: [], edges: [] } satisfies CanvasDoc,
+  actorRefs: [],
   revision: `${name}-created`,
 }));
 const listCanvases = vi.fn(async () => createCanvas.mock.calls.map(([name]) => ({
@@ -33,6 +34,7 @@ const listCanvases = vi.fn(async () => createCanvas.mock.calls.map(([name]) => (
 const readCanvas = vi.fn(async (name: string) => ({
   name,
   doc: doc("disk-external"),
+  actorRefs: [],
   revision: `${name}-disk`,
 }));
 
@@ -66,6 +68,7 @@ describe("renderer canvas save durability", () => {
     readCanvas.mockImplementation(async (name: string) => ({
       name,
       doc: doc("disk-external"),
+      actorRefs: [],
       revision: `${name}-disk`,
     }));
     revisions.clear();
