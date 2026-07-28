@@ -51,6 +51,7 @@ import { termPlane } from "./term/plane";
 import type { ControlLease } from "./term/local-host";
 import { isTrustedMainWebContents, trustedRendererIpc } from "./trusted-main-webcontents";
 import type { WorkMetadata, Artifact, Message, TaskState } from "@shared/canvas";
+import type { ActorRef } from "@shared/work-protocol";
 import {
   MainAuthoringRefused,
   MainAuthoringTransitionError,
@@ -157,6 +158,71 @@ const runRendererWorkAuthoring = <A>(
     return Promise.reject(error);
   });
 
+export const resolveProjectedIpcActorRef = (
+  actorRefs: ReadonlyArray<ActorRef>,
+  canvasName: string,
+  nodeId: string,
+): ActorRef | undefined => {
+  const matches = actorRefs.filter(
+    (actor) =>
+      actor.canvasName === canvasName &&
+      actor.nodeId === nodeId,
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+};
+
+type RendererActorResolution =
+  | { readonly ok: true; readonly actor: ActorRef }
+  | { readonly ok: false; readonly result: WorkOpResult<never> };
+
+const resolveRendererActor = (
+  canvasName: string,
+  nodeId: string,
+): Effect.Effect<RendererActorResolution, never, CanvasesService> =>
+  Effect.gen(function* () {
+    const canvases = yield* CanvasesService;
+    const read = yield* canvases.read(canvasName).pipe(Effect.either);
+    if (read._tag === "Left") {
+      return {
+        ok: false,
+        result: {
+          ok: false,
+          code: "invalid",
+          message:
+            `cannot resolve actor ${JSON.stringify(nodeId)} on ` +
+            `${JSON.stringify(canvasName)} from the current projection`,
+        },
+      };
+    }
+    const actor = resolveProjectedIpcActorRef(
+      read.right.actorRefs,
+      canvasName,
+      nodeId,
+    );
+    return actor === undefined
+      ? {
+        ok: false,
+        result: {
+          ok: false,
+          code: "invalid",
+          message:
+            `actor ${JSON.stringify(nodeId)} does not identify exactly one ` +
+            "compiled actor seat in the current projection",
+        },
+      }
+      : { ok: true, actor };
+  });
+
+const actorIdentityRequired = (
+  operation: "message append" | "request create" | "artifact publish",
+): WorkOpResult<never> => ({
+  ok: false,
+  code: "invalid",
+  message:
+    `renderer ${operation} has no process-bound actor identity; ` +
+    "use the process-bound work control surface",
+});
+
 /**
  * Doctrine: only Command Center authors the canvas. Remote and unconfigured
  * installations must fail closed — never mint authorial power by defaulting to CC.
@@ -251,7 +317,14 @@ export const registerVellumIpc = (): void => {
         const snapshots = yield* SnapshotsService;
         const result = yield* canvases.read(name);
         const state = yield* snapshots.current;
-        const digest = digestCanvas(name, result.doc, state);
+        const digest = digestCanvas(name, result.doc, state, {
+          resolveActorRef: ({ canvasName, nodeId }) =>
+            resolveProjectedIpcActorRef(
+              result.actorRefs,
+              canvasName,
+              nodeId,
+            ),
+        });
         const path = yield* canvases.writeSidecar(name, "digest.txt", digest);
         return { digest, path };
       }),
@@ -458,8 +531,15 @@ export const registerVellumIpc = (): void => {
           Effect.gen(function* () {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
+            const resolved = yield* resolveRendererActor(canvas, actor);
+            if (!resolved.ok) return resolved.result;
             const work = yield* WorkService;
-            return yield* work.workTaskClaim(canvas, nodeId, taskId, actor);
+            return yield* work.workTaskClaim(
+              canvas,
+              nodeId,
+              taskId,
+              resolved.actor,
+            );
           }),
         ),
       ),
@@ -473,8 +553,11 @@ export const registerVellumIpc = (): void => {
           Effect.gen(function* () {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
-            const work = yield* WorkService;
-            return yield* work.workMessageAppend(canvas, nodeId, taskId, message);
+            void canvas;
+            void nodeId;
+            void taskId;
+            void message;
+            return actorIdentityRequired("message append");
           }),
         ),
       ),
@@ -488,8 +571,20 @@ export const registerVellumIpc = (): void => {
           Effect.gen(function* () {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
+            if (raisedBy === undefined) {
+              return actorIdentityRequired("request create");
+            }
+            const resolved = yield* resolveRendererActor(canvas, raisedBy);
+            if (!resolved.ok) return resolved.result;
             const work = yield* WorkService;
-            return yield* work.workRequestCreate(canvas, nodeId, brief, metadata, raisedBy, reason);
+            return yield* work.workRequestCreate(
+              canvas,
+              nodeId,
+              brief,
+              metadata,
+              resolved.actor,
+              reason,
+            );
           }),
         ),
       ),
@@ -531,8 +626,10 @@ export const registerVellumIpc = (): void => {
           Effect.gen(function* () {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
-            const work = yield* WorkService;
-            return yield* work.workArtifactPublish(canvas, nodeId, artifact);
+            void canvas;
+            void nodeId;
+            void artifact;
+            return actorIdentityRequired("artifact publish");
           }),
         ),
       ),
@@ -567,9 +664,6 @@ export const registerVellumIpc = (): void => {
       });
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
-      // Kernel flag mutate also notifies via subscribeCanvasMutated so an open
-      // renderer's doc stays coherent with a kernel write (app-owned path).
-      kernel.subscribeCanvasMutated((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       kernel.subscribe((snapshot) => {
         broadcast(IPC_CHANNELS.kernelChanged, snapshot);
         // Fleet Doctor reads this bounded heartbeat over SSH. Never persist

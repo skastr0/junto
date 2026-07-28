@@ -66,11 +66,10 @@ describe("main authoring architecture", () => {
     ].sort());
   });
 
-  it("routes both kernel document mirrors through retained authoring promises", () => {
-    const kernelPath = join(mainRoot, "vellum", "kernel", "service.ts");
-    expect(
-      [...stringArgumentsForCalls(kernelPath, new Set(["mainAuthoringGate.run"]))].sort(),
-    ).toEqual(["kernel.flag-mirror", "kernel.phase-mirror"]);
+  it("keeps kernel execution out of the authorial canvas write path", () => {
+    const kernel = source("src/main/vellum/kernel/service.ts");
+    expect(kernel).not.toContain("canvases.mutate(");
+    expect(kernel).not.toContain("mainAuthoringGate.run(");
   });
 
   it("keeps WorkService product ingress closed to the classified IPC and control planes", () => {
@@ -83,6 +82,7 @@ describe("main authoring architecture", () => {
       .sort();
     expect(importers).toEqual([
       "src/main/vellum/ipc.ts",
+      "src/main/vellum/kernel/service.ts",
       "src/main/vellum/work/control.ts",
     ]);
 
@@ -90,6 +90,23 @@ describe("main authoring architecture", () => {
     expect(control).toContain("mainAuthoringLabelForWorkOperation(req.op)");
     expect(control).toContain("authoringGate.run(authoringLabel, run)");
     expect(control).toContain('workErr(\n              "RuntimeDown"');
+  });
+
+  it("keeps actor authority compiled in main and absent from identityless IPC calls", () => {
+    const ipc = source("src/main/vellum/ipc.ts");
+    const control = source("src/main/vellum/work/control.ts");
+
+    expect(ipc).toContain("resolveProjectedIpcActorRef");
+    expect(ipc).toContain("read.right.actorRefs");
+    expect(ipc).not.toContain("work.workMessageAppend(");
+    expect(ipc).not.toContain("work.workArtifactPublish(");
+    expect(control).toContain(
+      "resolveProcessBoundActorRef(read.actorRefs, caller)",
+    );
+    expect(control).not.toContain("decoded.right.actor");
+    expect(control).not.toContain(
+      "decoded.right.actor?.trim() || caller.nodeId",
+    );
   });
 
   it("keeps the final-write authority narrow and out of renderer/preload surfaces", () => {

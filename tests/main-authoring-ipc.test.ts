@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { IPC_CHANNELS } from "../src/shared/ipc";
+import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 
 type InvokeEvent = Readonly<{
   sender: Readonly<{
@@ -54,6 +55,32 @@ beforeEach(() => {
 });
 
 describe("renderer canvas final-write IPC", () => {
+  it("resolves only one exact projected actor reference", async () => {
+    const { resolveProjectedIpcActorRef } = await import(
+      "../src/main/vellum/ipc"
+    );
+    const actor = actorRefFixture("agent", "factory");
+    expect(
+      resolveProjectedIpcActorRef([actor], "factory", "agent"),
+    ).toEqual(actor);
+    expect(
+      resolveProjectedIpcActorRef([], "factory", "agent"),
+    ).toBeUndefined();
+    expect(
+      resolveProjectedIpcActorRef(
+        [
+          actor,
+          {
+            ...actor,
+            seatId: actorRefFixture("other", "factory").seatId,
+          },
+        ],
+        "factory",
+        "agent",
+      ),
+    ).toBeUndefined();
+  });
+
   it("binds one exact main permit to Electron sender, request, and operation", async () => {
     const { registerVellumIpc } = await import("../src/main/vellum/ipc");
     const {
