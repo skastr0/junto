@@ -9,6 +9,7 @@ import {
   workTaskClaim,
   workTaskCreate,
   workTaskDescribe,
+  workTaskTransition,
   type WorkIds,
 } from "../src/shared/work";
 import {
@@ -218,6 +219,185 @@ const rewriteEventBody = (
 };
 
 describe("WorkRepository station replication", () => {
+  it("transfers one submitted CC task into one Remote working claim and converges completion", async () => {
+    const commandCenter = runtime();
+    const remote = runtime();
+    const ccRepository = await commandCenter.runPromise(WorkRepository);
+    const remoteRepository = await remote.runPromise(WorkRepository);
+    const cc = installation("cc-claim-transfer");
+    const station = installation("station-claim-transfer");
+    const canvas = "factory";
+    const node = "global-tasks";
+    const route = "studio";
+    const workIds = ids("claim-transfer");
+    const authoredDoc = taskCanvas(node, "local");
+
+    const created = await commandCenter.runPromise(
+      createTask(ccRepository, {
+        canvasName: canvas,
+        nodeId: node,
+        entityHome: "local",
+        eventHome: cc,
+        brief: "ship the beta demo",
+        ids: workIds,
+        materialization: "immediate",
+      }),
+    );
+    const queued = await commandCenter.runPromise(
+      ccRepository.mutate({
+        canvasName: canvas,
+        nodeId: node,
+        entityHome: route,
+        eventHome: cc,
+        materialization: "on-disposition",
+        operation: "task.claim",
+        authoredDoc,
+        transform: (projected) => {
+          const result = workTaskClaim(
+            projected,
+            canvas,
+            node,
+            created.value.id,
+            "remote-worker",
+            workIds,
+          );
+          return { doc: result.doc, value: result.task };
+        },
+      }),
+    );
+    expect(queued.disposition).toBe("queued");
+    const second = await commandCenter.runPromise(
+      createTask(ccRepository, {
+        canvasName: canvas,
+        nodeId: node,
+        entityHome: "local",
+        eventHome: cc,
+        brief: "must wait for the actor",
+        ids: workIds,
+        materialization: "immediate",
+      }),
+    );
+    const secondClaim = await commandCenter.runPromise(
+      ccRepository.mutate({
+        canvasName: canvas,
+        nodeId: node,
+        entityHome: route,
+        eventHome: cc,
+        materialization: "on-disposition",
+        operation: "task.claim",
+        authoredDoc,
+        transform: (projected) => {
+          const result = workTaskClaim(
+            projected,
+            canvas,
+            node,
+            second.value.id,
+            "remote-worker",
+            workIds,
+          );
+          return { doc: result.doc, value: result.task };
+        },
+      }).pipe(Effect.either),
+    );
+    expect(Either.isLeft(secondClaim)).toBe(true);
+    if (Either.isLeft(secondClaim)) {
+      expect(secondClaim.left).toMatchObject({
+        code: "claim_contention",
+      });
+      expect(secondClaim.left.message).toContain(
+        "already has a pending task claim",
+      );
+    }
+    expect(
+      (await commandCenter.runPromise(
+        ccRepository.readSnapshot(canvas, node),
+      )).tasks.items[0],
+    ).toMatchObject({ state: "submitted" });
+
+    const [claimCommand] = await commandCenter.runPromise(
+      events(ccRepository, cc, route),
+    );
+    expect(claimCommand?.body).toContain('"operation":"task.claim"');
+    await remote.runPromise(
+      acceptCommands(remoteRepository, {
+        local: station,
+        commandCenter: cc,
+        route,
+        events: [claimCommand!],
+      }),
+    );
+    expect(
+      (await remote.runPromise(
+        remoteRepository.readSnapshot(canvas, node),
+      )).tasks.items[0],
+    ).toMatchObject({
+      state: "working",
+      metadata: { claimedBy: "remote-worker" },
+    });
+
+    const [applied] = await remote.runPromise(
+      events(remoteRepository, station, route),
+    );
+    await commandCenter.runPromise(
+      acceptRemoteFacts(ccRepository, {
+        local: cc,
+        remote: station,
+        route,
+        events: [applied!],
+      }),
+    );
+    expect(
+      (await commandCenter.runPromise(
+        ccRepository.readSnapshot(canvas, node),
+      )).tasks.items[0],
+    ).toMatchObject({
+      state: "working",
+      metadata: { claimedBy: "remote-worker" },
+    });
+
+    await remote.runPromise(
+      remoteRepository.mutate({
+        canvasName: canvas,
+        nodeId: node,
+        entityHome: route,
+        eventHome: station,
+        operation: "task.transition",
+        authoredDoc,
+        transform: (projected) => {
+          const result = workTaskTransition(
+            projected,
+            canvas,
+            node,
+            created.value.id,
+            "completed",
+            "demo shipped",
+            workIds,
+          );
+          return { doc: result.doc, value: result.task };
+        },
+      }),
+    );
+    const remoteProgress = await remote.runPromise(
+      events(remoteRepository, station, route, "1"),
+    );
+    await commandCenter.runPromise(
+      acceptRemoteFacts(ccRepository, {
+        local: cc,
+        remote: station,
+        route,
+        events: remoteProgress,
+      }),
+    );
+    expect(
+      (await commandCenter.runPromise(
+        ccRepository.readSnapshot(canvas, node),
+      )).tasks.items[0],
+    ).toMatchObject({ state: "completed" });
+
+    await commandCenter.dispose();
+    await remote.dispose();
+  });
+
   it("rejects a route sequence gap without materializing or advancing its ACK", async () => {
     const commandCenter = runtime();
     const remote = runtime();

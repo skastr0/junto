@@ -156,8 +156,10 @@ const BaseLayer = Layer.mergeAll(
 // kernel, work control, and IPC all share ONE born-paused switch instance.
 const BaseWithPauseLive = Layer.provideMerge(PausePlaneLive, BaseLayer);
 
+const KernelWithWorkLive = Layer.provideMerge(KernelLive, WorkLive);
+
 export const RootLayer = Layer.provideMerge(
-  Layer.mergeAll(KernelLive, RegionRollupLive, WorkLive),
+  Layer.mergeAll(KernelWithWorkLive, RegionRollupLive),
   BaseWithPauseLive,
 );
 

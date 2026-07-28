@@ -20,6 +20,7 @@ import { SchedulerRepository } from "../src/main/vellum/scheduler/repository";
 import { PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { __resetKernelMemoryForTest, getArmed } from "../src/main/vellum/kernel/cycle";
 import { SettingsService } from "../src/main/vellum/settings/service";
+import { WorkService } from "../src/main/vellum/work/service";
 import { defaultSettings } from "../src/shared/settings";
 
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
@@ -131,6 +132,20 @@ const runArm = (
       reconcileHome: () => Effect.succeed(0),
       readIntervalState: () => Effect.succeed(undefined),
     }),
+    Layer.succeed(
+      WorkService,
+      WorkService.of({
+        workTaskCreate: () => Effect.dieMessage("unused work service"),
+        workTaskDescribe: () => Effect.dieMessage("unused work service"),
+        workTaskTransition: () => Effect.dieMessage("unused work service"),
+        workTaskClaim: () => Effect.dieMessage("unused work service"),
+        workMessageAppend: () => Effect.dieMessage("unused work service"),
+        workRequestCreate: () => Effect.dieMessage("unused work service"),
+        workRequestResolve: () => Effect.dieMessage("unused work service"),
+        workArtifactPublish: () => Effect.dieMessage("unused work service"),
+        commandStatus: Effect.dieMessage("unused work service"),
+      }),
+    ),
   );
   const layer = Layer.provide(KernelLive, Layer.mergeAll(deps, PausePlaneAllPlaying));
   const runtime = ManagedRuntime.make(layer);

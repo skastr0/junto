@@ -13,9 +13,16 @@
 
 import { Context, Effect, Layer } from "effect";
 import { applyPhaseMirror, type CanvasDoc, type CanvasNode, type EdgePhase, type EtherFlag } from "@shared/canvas";
+import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import { identityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
-import { DEFAULT_STATION_HOST_ID } from "@shared/station";
+import {
+  DEFAULT_STATION_HOST_ID,
+  isNodeEligibleOnStation,
+  resolveNodeHostId,
+  type StationRole,
+} from "@shared/station";
+import { claimedByOf, taskBrief } from "@shared/task";
 import type {
   ArmRegionResult,
   BindingHint,
@@ -31,9 +38,8 @@ import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
 import { KernelStateRepository } from "./repository";
 import { factoryClaimTick } from "@shared/factory-tick";
-import { listPendingDeliveries } from "@shared/message-delivery";
 import { seatPaused } from "@shared/pause";
-import { messageDelivery } from "../work/message-delivery";
+import { WorkService } from "../work/service";
 import { ensureManagedSeatRunning } from "../term/ensure-managed-seat";
 import { managedPulseDeliver } from "../term/managed-pulse-bridge";
 import {
@@ -178,18 +184,33 @@ type KernelStateShape = Context.Tag.Service<typeof KernelStateRepository>;
 type PauseShape = Context.Tag.Service<typeof PausePlane>;
 type SettingsShape = Context.Tag.Service<typeof SettingsService>;
 type SchedulerShape = Context.Tag.Service<typeof SchedulerRepository>;
+type WorkShape = Context.Tag.Service<typeof WorkService>;
 type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
 
-const refreshStationScope = async (settings: SettingsShape): Promise<void> => {
+type ActiveStationScope = {
+  readonly hostId: string;
+  readonly role: StationRole | "";
+};
+
+const refreshStationScope = async (
+  settings: SettingsShape,
+): Promise<ActiveStationScope> => {
   try {
     const current = await Effect.runPromise(settings.get);
-    setStationScope({
+    const scope = {
       hostId: current.station.hostId,
       role: current.station.role,
-    });
+    } satisfies ActiveStationScope;
+    setStationScope(scope);
+    return scope;
   } catch {
     // Fail closed: unreadable settings never mint Command Center authority.
-    setStationScope({ hostId: DEFAULT_STATION_HOST_ID, role: "" });
+    const scope = {
+      hostId: DEFAULT_STATION_HOST_ID,
+      role: "",
+    } satisfies ActiveStationScope;
+    setStationScope(scope);
+    return scope;
   }
 };
 
@@ -200,6 +221,7 @@ const makeKernelService = (
   settings: SettingsShape,
   pause: PauseShape,
   scheduler: SchedulerShape,
+  work: WorkShape,
 ): KernelServiceShape => {
   const docs = new Map<string, CanvasDoc>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
@@ -219,6 +241,7 @@ const makeKernelService = (
   let cycleInFlight = false;
   let cycleQueued = false;
   let lastPulseLogLength = 0;
+  const deliveredTaskClaims = new Set<string>();
 
   const composeSnapshot = (): KernelSnapshot => {
     const canvasesOut: Record<
@@ -359,24 +382,26 @@ const makeKernelService = (
   // a factory claim tick. A newly-created seat can still be `starting` (and its
   // managed drive not ready), so cycle.ts retains zero-acceptance scheduled
   // pulses and this pre-pass offers them again on a later cycle.
-  const startManagedSeats = (): void => {
+  const startManagedSeats = (scope: ActiveStationScope): void => {
     for (const [canvasName, doc] of docs) {
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
       for (const node of doc.nodes) {
         if (seatPaused(state, doc, node.id)) continue;
+        if (!isNodeEligibleOnStation(node, scope.hostId)) continue;
         ensureManagedSeatRunning(canvasName, doc, node);
       }
     }
   };
 
   const runCycle = async (): Promise<void> => {
-    await refreshStationScope(settings);
+    const scope = await refreshStationScope(settings);
     __setSnapshotsForTest(await Effect.runPromise(snapshots.current));
-    startManagedSeats();
+    startManagedSeats(scope);
     retryPendingPulseDeliveries();
     await Promise.all([runEvaluationCycle(), checkTimers()]);
-    await runClaimTicks();
+    await runClaimTicks(scope);
+    await deliverWorkingClaims(scope);
     // Sweep stale watcher/timer runtime entries for nodes removed on a still-
     // existing canvas (whole-canvas deletes are handled by purgeCanvasMemory
     // on resync). Runs after evaluation so this cycle's fresh entries stand.
@@ -384,56 +409,89 @@ const makeKernelService = (
     emitSnapshot();
   };
 
-  // The claim simulation breathes only while the operator has pressed play:
-  // a paused canvas ticks nothing, and paused seats/regions never claim or
-  // get drained. Writes go through the authoring gate like every kernel
-  // document mutation.
-  const runClaimTicks = async (): Promise<void> => {
+  // The document projection plans claims; WorkService is the only mutation
+  // authority. A Command Center may arbitrate an edged actor on any Station.
+  // A Remote may only arbitrate its local actors (for Station-local queues).
+  const runClaimTicks = async (
+    scope: ActiveStationScope,
+  ): Promise<void> => {
+    if (scope.role === "") return;
     for (const [canvasName, doc] of docs) {
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
-      // Probe on the tracked doc; only touch authority when something claims.
       const probe = factoryClaimTick(doc, canvasName, undefined, {
         seatPaused: (nodeId) => seatPaused(state, doc, nodeId),
+        actorEligible: (actor) =>
+          scope.role === "command-center" ||
+          resolveNodeHostId(actor) === scope.hostId,
       });
       if (probe.claimed.length === 0) continue;
-      await mainAuthoringGate
-        .run("kernel.claim-tick", async () => {
-          // Re-run inside mutate on the authoritative doc — never a stale write.
-          await Effect.runPromise(
-            canvases.mutate(
-              canvasName,
-              (current) =>
-                factoryClaimTick(current, canvasName, undefined, {
-                  seatPaused: (nodeId) => seatPaused(state, current, nodeId),
-                }).doc,
-            ),
+      for (const claim of probe.claimed) {
+        const result = await Effect.runPromise(
+          work.workTaskClaim(
+            canvasName,
+            doc.nodes.find((node) =>
+              node.ether?.entity?.kind === "task" &&
+              node.ether.tasks?.items.some((task) => task.id === claim.taskId)
+            )?.id ?? "",
+            claim.taskId,
+            claim.actor,
+          ),
+        );
+        if (
+          !result.ok &&
+          result.code !== "claim_contention" &&
+          result.code !== "illegal_transition"
+        ) {
+          console.error(
+            `[kernel] claim tick failed for ${canvasName}/${claim.taskId}: ${result.message}`,
           );
-          const result = await Effect.runPromise(Effect.either(canvases.read(canvasName)));
-          if (result._tag === "Right") {
-            docs.set(canvasName, result.right.doc);
-            // Ensure claimed actors have a live PTY (claim may race first open).
-            for (const claim of probe.claimed) {
-              const actor = result.right.doc.nodes.find(
-                (n) => n.id === claim.actor || n.ether?.entity?.name === claim.actor,
-              );
-              if (actor) ensureManagedSeatRunning(canvasName, result.right.doc, actor);
-            }
-            // Assignment messages on actor seats → managed drive mailbox.
-            for (const pending of listPendingDeliveries(result.right.doc)) {
-              messageDelivery.notifyAppended(
-                canvasName,
-                pending.nodeId,
-                pending.message,
-              );
-            }
+        }
+      }
+    }
+  };
+
+  // A claim is the start of work. The durable task row is the assignment;
+  // this is only its local managed-seat wake-up. Failed idle-gated writes are
+  // retried by the next kernel cycle.
+  const deliverWorkingClaims = async (
+    scope: ActiveStationScope,
+  ): Promise<void> => {
+    for (const [canvasName, doc] of docs) {
+      const state = pause.stateFor(canvasName);
+      if (!state.playing) continue;
+      for (const sink of doc.nodes) {
+        if (sink.ether?.entity?.kind !== "task") continue;
+        for (const task of sink.ether.tasks?.items ?? []) {
+          if (task.state !== "working") continue;
+          const actorId = claimedByOf(task);
+          if (!actorId) continue;
+          const actor = doc.nodes.find((node) => node.id === actorId);
+          if (
+            actor === undefined ||
+            !isNodeEligibleOnStation(actor, scope.hostId) ||
+            seatPaused(state, doc, actor.id)
+          ) {
+            continue;
           }
-          for (const listener of canvasMutatedListeners) listener(canvasName);
-        })
-        .catch((error) => {
-          if (error instanceof MainAuthoringRefused) return;
-          console.error(`[kernel] claim tick write failed for ${canvasName}:`, error);
-        });
+          const key = `${canvasName}::${sink.id}::${task.id}::${actorId}`;
+          if (deliveredTaskClaims.has(key)) continue;
+          const surface = actorDeliverySurfaceOf(actor);
+          if (surface?._tag !== "managedAgent") continue;
+          ensureManagedSeatRunning(canvasName, doc, actor);
+          const accepted = await managedPulseDeliver(
+            surface.bindingId,
+            [
+              `[factory claim] task ${task.id}: ${taskBrief(task)}`,
+              "",
+              "You claimed this task from the factory pull queue.",
+              "Run `vellum onboard`, do the work, and update it with `vellum tasks update`.",
+              "If blocked on a human, use `vellum escalate` or create a request.",
+            ].join("\n"),
+          );
+          if (accepted) deliveredTaskClaims.add(key);
+        }
+      }
     }
   };
 
@@ -626,6 +684,7 @@ export const KernelLive = Layer.effect(
     const settings = yield* SettingsService;
     const pause = yield* PausePlane;
     const scheduler = yield* SchedulerRepository;
+    const work = yield* WorkService;
     return makeKernelService(
       canvases,
       snapshots,
@@ -633,6 +692,7 @@ export const KernelLive = Layer.effect(
       settings,
       pause,
       scheduler,
+      work,
     );
   }),
 );

@@ -56,12 +56,16 @@ export const factoryClaimTick = (
   doc: CanvasDoc,
   canvasName: string,
   ids: WorkIds = defaultIds(),
-  opts?: { readonly seatPaused?: (nodeId: string) => boolean },
+  opts?: {
+    readonly seatPaused?: (nodeId: string) => boolean;
+    readonly actorEligible?: (actor: CanvasNode) => boolean;
+  },
 ): { readonly doc: CanvasDoc; readonly claimed: ReadonlyArray<{ taskId: string; actor: string }> } => {
   let next = doc;
   const claimed: Array<{ taskId: string; actor: string }> = [];
   const busy = new Set(busyWorkerIds(doc));
   const isPausedSeat = opts?.seatPaused ?? (() => false);
+  const actorEligible = opts?.actorEligible ?? (() => true);
 
   const byId = new Map(next.nodes.map((n) => [n.id, n] as const));
 
@@ -89,6 +93,7 @@ export const factoryClaimTick = (
     const freeActors = peerIds
       .map((id) => byId.get(id))
       .filter((n): n is CanvasNode => n !== undefined && isActor(n))
+      .filter(actorEligible)
       .filter((actor) => {
         const id = workerClaimId(actor);
         if (isPausedSeat(actor.id)) return false;

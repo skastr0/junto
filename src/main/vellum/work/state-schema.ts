@@ -379,9 +379,22 @@ export const WORK_STATE_SCHEMA_SQL = `
 
   CREATE TRIGGER IF NOT EXISTS work_tasks_home_immutable
   BEFORE UPDATE OF home_station ON work_tasks
-  WHEN OLD.home_station <> NEW.home_station
+  WHEN
+    OLD.home_station <> NEW.home_station
+    AND NOT (
+      OLD.state = 'submitted'
+      AND NEW.state = 'working'
+      AND (
+        OLD.metadata_json IS NULL
+        OR json_extract(OLD.metadata_json, '$.claimedBy') IS NULL
+      )
+      AND json_extract(NEW.metadata_json, '$.claimedBy') IS NOT NULL
+    )
   BEGIN
-    SELECT RAISE(ABORT, 'work task home is immutable; use explicit re-home');
+    SELECT RAISE(
+      ABORT,
+      'work task home is immutable except for its first submitted-to-working claim'
+    );
   END;
 
   CREATE TRIGGER IF NOT EXISTS work_requests_home_immutable

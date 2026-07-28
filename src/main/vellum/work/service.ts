@@ -182,7 +182,10 @@ export const WorkLive = Layer.effect(
       nodeId: string,
       operation: string,
       fn: (doc: CanvasDoc) => { doc: CanvasDoc; value: T },
-      options: { readonly messageHome?: boolean } = {},
+      options: {
+        readonly messageHome?: boolean;
+        readonly entityHome?: string;
+      } = {},
     ): Effect.Effect<WorkApplyOk<T>, WorkServiceError> =>
       Effect.gen(function* () {
         const eventHome = yield* stations.installationId.pipe(
@@ -220,7 +223,7 @@ export const WorkLive = Layer.effect(
         }
         const entityHome = options.messageHome
           ? COMMAND_CENTER_WORK_HOME
-          : resolveNodeHostId(node);
+          : options.entityHome ?? resolveNodeHostId(node);
         if (
           station.configuration.role === "remote" &&
           entityHome !== station.configuration.hostId
@@ -257,6 +260,50 @@ export const WorkLive = Layer.effect(
         };
       });
 
+    const itemHome = (
+      lane: "task" | "request",
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+    ): Effect.Effect<string | undefined, WorkServiceError> =>
+      repository
+        .itemHome(lane, canvas, nodeId, taskId)
+        .pipe(Effect.mapError(toWorkServiceError));
+
+    const actorHome = (
+      canvas: string,
+      actor: string,
+    ): Effect.Effect<string, WorkServiceError> =>
+      stations.configuration.pipe(
+        Effect.mapError(toWorkServiceError),
+        Effect.flatMap((station) =>
+          station === undefined
+            ? Effect.fail(
+              new WorkServiceError({
+                code: "invalid",
+                message:
+                  "station role is not configured; choose Command Center or Remote before mutating work",
+              }),
+            )
+            : canvases.read(canvas).pipe(
+              Effect.mapError(toWorkServiceError),
+              Effect.flatMap((read) => {
+                const actorNode = read.doc.nodes.find(
+                  (node) => node.id === actor,
+                );
+                return actorNode === undefined
+                  ? Effect.fail(
+                    new WorkServiceError({
+                      code: "node_not_found",
+                      message: `actor node "${actor}" not found`,
+                    }),
+                  )
+                  : Effect.succeed(resolveNodeHostId(actorNode));
+              }),
+            )
+        ),
+      );
+
     return WorkService.of({
       workTaskCreate: (canvas, nodeId, brief, metadata, reason) =>
         asResult(
@@ -281,62 +328,77 @@ export const WorkLive = Layer.effect(
 
       workTaskDescribe: (canvas, nodeId, taskId, brief) =>
         asResult(
-          apply(
-            canvas,
-            nodeId,
-            "task.describe",
-            (doc) => {
-              const result = workTaskDescribe(
-                doc,
+          itemHome("task", canvas, nodeId, taskId).pipe(
+            Effect.flatMap((home) =>
+              apply(
                 canvas,
                 nodeId,
-                taskId,
-                brief,
-                ids,
-              );
-              return { doc: result.doc, value: result.task };
-            },
+                "task.describe",
+                (doc) => {
+                  const result = workTaskDescribe(
+                    doc,
+                    canvas,
+                    nodeId,
+                    taskId,
+                    brief,
+                    ids,
+                  );
+                  return { doc: result.doc, value: result.task };
+                },
+                { ...(home === undefined ? {} : { entityHome: home }) },
+              )
+            ),
           ),
         ),
 
       workTaskTransition: (canvas, nodeId, taskId, state, note) =>
         asResult(
-          apply(
-            canvas,
-            nodeId,
-            "task.transition",
-            (doc) => {
-              const result = workTaskTransition(
-                doc,
+          itemHome("task", canvas, nodeId, taskId).pipe(
+            Effect.flatMap((home) =>
+              apply(
                 canvas,
                 nodeId,
-                taskId,
-                state,
-                note,
-                ids,
-              );
-              return { doc: result.doc, value: result.task };
-            },
+                "task.transition",
+                (doc) => {
+                  const result = workTaskTransition(
+                    doc,
+                    canvas,
+                    nodeId,
+                    taskId,
+                    state,
+                    note,
+                    ids,
+                  );
+                  return { doc: result.doc, value: result.task };
+                },
+                { ...(home === undefined ? {} : { entityHome: home }) },
+              )
+            ),
           ),
         ),
 
       workTaskClaim: (canvas, nodeId, taskId, actor) =>
         asResult(
-          apply(
-            canvas,
-            nodeId,
-            "task.claim",
-            (doc) => {
-              const result = workTaskClaim(
-                doc,
+          actorHome(canvas, actor).pipe(
+            Effect.flatMap((home) =>
+              apply(
                 canvas,
                 nodeId,
-                taskId,
-                actor,
-                ids,
-              );
-              return { doc: result.doc, value: result.task };
-            },
+                "task.claim",
+                (doc) => {
+                  const result = workTaskClaim(
+                    doc,
+                    canvas,
+                    nodeId,
+                    taskId,
+                    actor,
+                    ids,
+                  );
+                  return { doc: result.doc, value: result.task };
+                },
+                { entityHome: home },
+              )
+            ),
           ),
         ),
 
@@ -393,22 +455,27 @@ export const WorkLive = Layer.effect(
 
       workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
         asResult(
-          apply(
-            canvas,
-            nodeId,
-            "request.resolve",
-            (doc) => {
-              const result = workRequestResolve(
-                doc,
+          itemHome("request", canvas, nodeId, taskId).pipe(
+            Effect.flatMap((home) =>
+              apply(
                 canvas,
                 nodeId,
-                taskId,
-                responseText,
-                disposition,
-                ids,
-              );
-              return { doc: result.doc, value: result.task };
-            },
+                "request.resolve",
+                (doc) => {
+                  const result = workRequestResolve(
+                    doc,
+                    canvas,
+                    nodeId,
+                    taskId,
+                    responseText,
+                    disposition,
+                    ids,
+                  );
+                  return { doc: result.doc, value: result.task };
+                },
+                { ...(home === undefined ? {} : { entityHome: home }) },
+              )
+            ),
           ),
         ).pipe(
           Effect.tap((result) => {

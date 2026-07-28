@@ -24,6 +24,7 @@ import {
   type WorkSnapshot,
 } from "@shared/work-model";
 import {
+  claimedByOf,
   mirrorArtifactsText,
   mirrorRequestsText,
   mirrorTasksText,
@@ -1089,7 +1090,7 @@ const planMutation = (
 };
 
 const existingTaskHome = (
-  writer: StateWriter,
+  writer: StateReader,
   lane: WorkLane,
   canvasName: string,
   nodeId: string,
@@ -1128,6 +1129,83 @@ const assertImmutableHome = (
     throw new WorkError(
       "invalid",
       `${entity} is homed on "${existing}"; explicit re-home is required before "${requested}"`,
+    );
+  }
+};
+
+const isFirstTaskClaimTransfer = (
+  operation: string,
+  change: TaskChange,
+  existingHome: string | undefined,
+  requestedHome: string,
+): boolean =>
+  change.lane === "task" &&
+  operation === "task.claim" &&
+  existingHome !== undefined &&
+  existingHome !== requestedHome &&
+  change.before?.state === "submitted" &&
+  claimedByOf(change.before) === undefined &&
+  change.after.state === "working" &&
+  claimedByOf(change.after) !== undefined;
+
+const assertActorClaimAvailable = (
+  reader: StateReader,
+  input: {
+    readonly actor: string;
+    readonly canvasName: string;
+    readonly nodeId: string;
+    readonly taskId: string;
+  },
+): void => {
+  const active = reader.get<StateRow>(
+    `
+      SELECT 1 AS occupied
+      FROM work_tasks
+      WHERE json_extract(metadata_json, '$.claimedBy') = ?
+        AND state IN ('working', 'input-required', 'auth-required')
+        AND NOT (
+          canvas_name = ?
+          AND node_id = ?
+          AND task_id = ?
+        )
+      LIMIT 1
+    `,
+    [input.actor, input.canvasName, input.nodeId, input.taskId],
+  );
+  if (active !== undefined) {
+    throw new WorkError(
+      "claim_contention",
+      `actor "${input.actor}" already owns a non-terminal task`,
+    );
+  }
+
+  const pending = reader.get<StateRow>(
+    `
+      SELECT 1 AS occupied
+      FROM work_pending_commands AS command
+      JOIN work_events AS event
+        ON event.event_home = command.event_home
+       AND event.entity_home = command.entity_home
+       AND event.seq = command.seq
+      WHERE command.status = 'pending'
+        AND event.operation = 'task.claim'
+        AND json_extract(
+          event.payload_json,
+          '$.body.task.metadata.claimedBy'
+        ) = ?
+        AND NOT (
+          event.canvas_name = ?
+          AND event.node_id = ?
+          AND event.entity_id = ?
+        )
+      LIMIT 1
+    `,
+    [input.actor, input.canvasName, input.nodeId, input.taskId],
+  );
+  if (pending !== undefined) {
+    throw new WorkError(
+      "claim_contention",
+      `actor "${input.actor}" already has a pending task claim`,
     );
   }
 };
@@ -1331,11 +1409,19 @@ const materializeTaskChange = (
     input.nodeId,
     change.after.id,
   );
-  assertImmutableHome(
-    `${change.lane} "${change.after.id}"`,
+  const transfersOnClaim = isFirstTaskClaimTransfer(
+    input.operation,
+    change,
     existingHome,
     input.entityHome,
   );
+  if (!transfersOnClaim) {
+    assertImmutableHome(
+      `${change.lane} "${change.after.id}"`,
+      existingHome,
+      input.entityHome,
+    );
+  }
   if (!change.before) {
     writer.run(
       `
@@ -1382,6 +1468,7 @@ const materializeTaskChange = (
       `
         UPDATE ${table}
         SET
+          home_station = ?,
           event_home = ?,
           event_seq = ?,
           state = ?,
@@ -1399,6 +1486,7 @@ const materializeTaskChange = (
           AND home_station = ?
       `,
       [
+        input.entityHome,
         input.event.eventHome,
         input.event.seq,
         change.after.state,
@@ -1413,7 +1501,7 @@ const materializeTaskChange = (
         input.canvasName,
         input.nodeId,
         change.after.id,
-        input.entityHome,
+        existingHome!,
       ],
     );
     if (Number(updated.changes) !== 1) {
@@ -1545,6 +1633,18 @@ const writeTaskChange = (
     readonly change: TaskChange;
   },
 ): WorkEventIdentity => {
+  const actor =
+    input.operation === "task.claim"
+      ? claimedByOf(input.change.after)
+      : undefined;
+  if (actor !== undefined) {
+    assertActorClaimAvailable(writer, {
+      actor,
+      canvasName: input.canvasName,
+      nodeId: input.nodeId,
+      taskId: input.change.after.id,
+    });
+  }
   if (input.materialization === "on-disposition") {
     assertNoPendingCommandForEntity(writer, {
       ...input,
@@ -2436,7 +2536,19 @@ const materializeReplicatedWorkEvent = (
     event.nodeId,
     event.entityId,
   );
-  if (!sameEventIdentity(currentIdentity, event.envelope.predecessor)) {
+  const incomingFirstClaim =
+    lane === "task" &&
+    event.operation === "task.claim" &&
+    current === undefined &&
+    currentIdentity === null &&
+    event.envelope.predecessor !== null &&
+    event.envelope.predecessor.entityHome !== event.homeStation &&
+    event.task?.state === "working" &&
+    claimedByOf(event.task) !== undefined;
+  if (
+    !incomingFirstClaim &&
+    !sameEventIdentity(currentIdentity, event.envelope.predecessor)
+  ) {
     throw replicationError(
       event.source.identity.home,
       event.source.identity.sequence,
@@ -2472,6 +2584,27 @@ const materializeReplicatedWorkEvent = (
       "invalid-payload",
       "task event does not produce one material state change",
     );
+  }
+  const actor =
+    event.operation === "task.claim"
+      ? claimedByOf(change.after)
+      : undefined;
+  if (actor !== undefined) {
+    try {
+      assertActorClaimAvailable(writer, {
+        actor,
+        canvasName: event.canvasName,
+        nodeId: event.nodeId,
+        taskId: event.entityId,
+      });
+    } catch (error) {
+      throw replicationError(
+        event.source.identity.home,
+        event.source.identity.sequence,
+        "causal-conflict",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   if (remember) rememberReplicatedEvent(writer, event, receivedAt);
@@ -2509,6 +2642,12 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
       canvasName: string,
       nodeId: string,
     ) => Effect.Effect<WorkSnapshot, WorkRepositoryError>;
+    readonly itemHome: (
+      lane: "task" | "request",
+      canvasName: string,
+      nodeId: string,
+      taskId: string,
+    ) => Effect.Effect<string | undefined, WorkRepositoryError>;
     readonly snapshotsForCanvas: (
       canvasName: string,
     ) => Effect.Effect<ReadonlyArray<WorkSnapshot>, WorkRepositoryError>;
@@ -2590,6 +2729,22 @@ export const WorkRepositoryLive = Layer.effect(
         .pipe(
           Effect.mapError((error) =>
             toRepositoryError("work.snapshotsForCanvas", error),
+          ),
+        );
+
+    const itemHome = (
+      lane: "task" | "request",
+      canvasName: string,
+      nodeId: string,
+      taskId: string,
+    ): Effect.Effect<string | undefined, WorkRepositoryError> =>
+      state
+        .read("work.itemHome", (reader) =>
+          existingTaskHome(reader, lane, canvasName, nodeId, taskId)
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            toRepositoryError("work.itemHome", error)
           ),
         );
 
@@ -3139,6 +3294,7 @@ export const WorkRepositoryLive = Layer.effect(
 
     return WorkRepository.of({
       readSnapshot,
+      itemHome,
       snapshotsForCanvas,
       mutate,
       eventsAfter,
