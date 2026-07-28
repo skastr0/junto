@@ -116,11 +116,13 @@ not own or rewrite it. Do not copy, archive, synchronize, or replace
 `~/.vellum`, `vellum.db`, its WAL, or its shared-memory file as an install,
 upgrade, or recovery procedure.
 
-`StateEngine` implements the coherent SQLite `VACUUM INTO` primitive, but Linux
-v1 does not yet expose an operator backup, restore, import, CLI, or IPC surface
-for it. Do not synthesize one from filesystem commands. Linux package cutover
-is one-way; forward repair uses a newer signed release and never changes
-product state.
+`StateEngine` creates coherent SQLite backups with `VACUUM INTO`. Settings →
+Advanced lists verified retained backups and can export one through a native
+save dialog to a new file; the renderer supplies only the backup identity and
+cannot select a source or overwrite a destination. This is portability and
+evidence only. There is no restore, import, replacement, or downgrade surface,
+and operators must not synthesize one from filesystem commands. Linux package
+cutover is one-way; repair moves forward with a newer signed release.
 
 ## Fresh install
 
@@ -420,9 +422,10 @@ after confirming the user has no other lingering services.
 
 ## Disaster recovery
 
-Linux v1 has no supported operator state-restore surface. A `VACUUM INTO`
-artifact is coherent only when produced through the app-owned `StateEngine`;
-the release currently exposes no operation that emits or consumes one.
+Linux v1 has no supported operator state-restore surface. A backup is coherent
+only when produced and verified through the app-owned `StateEngine`; Settings →
+Advanced may export that inert evidence, but no release operation consumes it
+or installs it as `vellum.db`.
 
 1. Keep the affected host offline. Record the package version, signed manifest
    digest, key ID, Doctor status, and service metadata.

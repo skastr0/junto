@@ -40,7 +40,8 @@ authorial canvas generations, fleet enrollment, and Command Center-homed work.
 A Remote persists its configuration, one complete projection, local work,
 events, receipts, and cursors. Logical sink identities may appear in every
 projection, but each mutable work entity and event has one authoritative
-installation home. Messages remain Command Center-homed.
+installation home. Actor mailbox messages remain Command Center-homed;
+task/request thread messages share their exact parent row's home.
 
 The following are release blockers:
 
@@ -52,10 +53,12 @@ The following are release blockers:
   database;
 - dual read/write, legacy import, or rollback to a retired store.
 
-The only coherent backup mechanism implemented in `StateEngine` is `VACUUM
-INTO`; Linux v1 exposes no operator backup or restore command. Linux release
-cutover is one-way: an older binary is never activated. Forward repair uses a
-newer signed release and never restores, replaces, or downgrades product state.
+The coherent backup mechanism is `StateEngine`'s `VACUUM INTO`. Settings →
+Advanced lists verified retained backups and can export one to a new
+operator-selected file without overwriting it. Export is portability/evidence,
+not restore: Linux v1 has no operation that replaces `vellum.db`, activates an
+older binary, or downgrades product state. Forward repair uses a newer signed
+release.
 
 ## Boot ready
 

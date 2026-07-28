@@ -183,10 +183,11 @@ process-group signal primitive.
   Shared SSH commands use `ControlPersist=no`; `-O exit` remains confined to
   the explicit host removal/edit operation and is never a scope finalizer.
 - Canvas names share one bounded ASCII contract across settings, node refs,
-  pull, and the repository. Document and sidecar writes use exclusive
-  same-directory temporary files, file sync, atomic publication, and a
-  best-effort directory sync. The sidecar sink enforces its runtime allowlist,
-  and remote pull has no caller-selected destination root.
+  projections, and the repository. Full authorial generations commit through
+  the one app-owned `StateEngine`; render/export sidecars are outputs rather
+  than product durability. Station projection installation is a typed,
+  replace-only database operation and has no caller-selected filesystem
+  destination.
 - The Electron quit transaction synchronously closes authoring and resource
   admission, then awaits the canvas, browser, work-control, terminal, host,
   Hermes/Herdr, launchctl, and central process drains before deciding whether
