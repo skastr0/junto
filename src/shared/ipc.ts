@@ -738,6 +738,8 @@ export interface HostsTestResult {
   /** Raw SSH link truth — `ok` is the strict all-checks verdict; this is
    * whether the host answered at all (remote probes only). */
   readonly reachability?: "reachable" | "unreachable" | "unknown";
+  /** Process-local Station wire compatibility; never persisted or added to v2. */
+  readonly protocol?: import("./station-status").StationProtocolObservation;
   readonly code?: string;
   readonly message?: string;
 }

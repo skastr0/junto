@@ -793,6 +793,9 @@ export const registerHostsIpc = (
                 ...(result.right.reachability === undefined
                   ? {}
                   : { reachability: result.right.reachability }),
+                ...(result.right.protocol === undefined
+                  ? {}
+                  : { protocol: result.right.protocol }),
               } satisfies HostsTestResult;
             }
             return {

@@ -1,10 +1,12 @@
 import { state$ } from "./state";
+import type { StationProtocolObservation } from "@shared/station-status";
 
 /** Per-host reachability probe state for the fleet overlay. */
 export interface FleetProbeState {
   readonly status: "probing" | "reachable" | "unreachable";
   readonly latencyMs?: number;
   readonly detail?: string;
+  readonly protocol?: StationProtocolObservation;
 }
 
 /** Warm the lazy fleet chunk (three.js) before the operator clicks. */
@@ -80,10 +82,16 @@ export const probeHost = async (id: string): Promise<void> => {
               ? {}
               : { latencyMs: result.latencyMs }),
             detail: result.detail,
+            ...(result.protocol === undefined
+              ? {}
+              : { protocol: result.protocol }),
           }
         : {
             status: "unreachable",
             detail: result.detail ?? result.message ?? "probe failed",
+            ...(result.protocol === undefined
+              ? {}
+              : { protocol: result.protocol }),
           },
     );
   } catch (error) {

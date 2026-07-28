@@ -48,8 +48,30 @@ function reachabilityLine(probe?: FleetProbeState): {
     case "probing":
       return { text: "probing link…", color: HUE.cyan };
     case "reachable":
+      if (probe.protocol?.compatibility === "update-required") {
+        return {
+          text: "reachable · update required",
+          detail: probe.detail,
+          color: HUE.amber,
+        };
+      }
+      if (
+        probe.protocol?.compatibility === "deprecated" ||
+        probe.protocol?.legacy
+      ) {
+        return {
+          text:
+            `reachable · protocol ${probe.protocol.negotiatedProtocol} ${
+              probe.protocol.legacy ? "legacy" : "deprecated"
+            }`,
+          detail: probe.detail,
+          color: HUE.amber,
+        };
+      }
       return {
-        text: probe.latencyMs !== undefined ? `reachable · ${probe.latencyMs} ms` : "reachable",
+        text: probe.latencyMs !== undefined
+          ? `reachable · ${probe.latencyMs} ms`
+          : "reachable",
         detail: probe.detail,
         color: "#5FB98E",
       };
@@ -203,6 +225,39 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <summary>Probe detail</summary>
             <p>{reach.detail}</p>
           </details>
+        ) : null}
+        {probe?.protocol ? (
+          <div className="fleet-detail__kv">
+            <span>protocol</span>
+            <span>
+              {probe.protocol.compatibility === "update-required"
+                ? "update required"
+                : `${probe.protocol.negotiatedProtocol} · ${probe.protocol.compatibility}${probe.protocol.legacy ? " · legacy" : ""}`}
+            </span>
+            <span>local app / schema</span>
+            <span>
+              {probe.protocol.local.appVersion} /{" "}
+              {probe.protocol.local.stateSchemaVersion}
+            </span>
+            <span>local support</span>
+            <span>
+              {probe.protocol.local.support.compatibleFrom}–
+              {probe.protocol.local.support.preferred} · warn below{" "}
+              {probe.protocol.local.support.warnBelow}
+            </span>
+            <span>Remote app / schema</span>
+            <span>
+              {probe.protocol.peer
+                ? `${probe.protocol.peer.appVersion} / ${probe.protocol.peer.stateSchemaVersion}`
+                : "legacy peer · diagnostics unavailable"}
+            </span>
+            <span>Remote support</span>
+            <span>
+              {probe.protocol.peer
+                ? `${probe.protocol.peer.support.compatibleFrom}–${probe.protocol.peer.support.preferred} · warn below ${probe.protocol.peer.support.warnBelow}`
+                : "protocol 2 inferred"}
+            </span>
+          </div>
         ) : null}
         <Button
           size="xs"
