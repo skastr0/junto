@@ -71,7 +71,7 @@ export const admitBrowserHostCapability = (
       ok: false,
       code: "unsupported_capability",
       reason: "station-identity-unavailable",
-      message: "physical station identity is not ready for browser work",
+      message: "this machine's identity is not ready for browser work",
     };
   }
   const roleMatchesPhysicalHost =
@@ -87,7 +87,7 @@ export const admitBrowserHostCapability = (
       ok: false,
       code: "unsupported_capability",
       reason: "physical-host-mismatch",
-      message: "page host does not match this physical station",
+      message: "page host does not match this machine",
     };
   }
   return { ok: true, host };

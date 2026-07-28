@@ -800,8 +800,8 @@ function TaskDetailPanel({
               <p>
                 {requestContext ??
                   (authorizationRequired
-                    ? "The worker requested explicit operator authority to proceed."
-                    : "The worker requested additional context before continuing.")}
+                    ? "The worker needs your approval to proceed."
+                    : "The worker asked for more context before continuing.")}
               </p>
             </div>
 
