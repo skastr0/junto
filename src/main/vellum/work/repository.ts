@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { ActorSeatId } from "@shared/actor-seat";
-import type { InstallationId } from "@shared/installation-id";
+import { InstallationId } from "@shared/installation-id";
 import {
   Artifact,
   Message,
@@ -197,6 +197,7 @@ export class WorkReplicationError extends Schema.TaggedError<WorkReplicationErro
       "causal-conflict",
       "cursor-regression",
       "sequence-gap",
+      "response-capacity",
     ),
     senderInstallationId: Schema.String,
     sequence: Schema.optionalWith(LogicalSequence, { exact: true }),
@@ -213,7 +214,6 @@ type ReplicationFailure =
   | WorkReplicationError;
 
 export type LocalWorkInput = {
-  readonly localInstallationId: InstallationId;
   readonly sink: SinkRefValue;
   readonly originAt?: string;
   readonly receivedAt?: string;
@@ -311,8 +311,21 @@ export type WorkCommandAuthorization =
       readonly message: string;
     };
 
+export type WorkFactAuthorization = WorkCommandAuthorization;
+
+export type WorkResponseAdmission =
+  | { readonly _tag: "admitted" }
+  | {
+      readonly _tag: "rejected";
+      readonly message: string;
+    };
+
+export type WorkResponseCandidate = {
+  readonly emitted: ReadonlyArray<WorkRecordValue>;
+  readonly acknowledge: ReadonlyArray<RouteCursorValue>;
+};
+
 export type AcceptRecordsInput = {
-  readonly localInstallationId: InstallationId;
   /** Identity already authenticated by the Station transport. */
   readonly senderInstallationId: InstallationId;
   readonly records: ReadonlyArray<WorkRecordValue>;
@@ -325,6 +338,17 @@ export type AcceptRecordsInput = {
   readonly authorizeCommand: (
     command: WorkCommandValue,
   ) => WorkCommandAuthorization;
+  /** Pure projection/locality admission; denied facts roll back without ACK. */
+  readonly authorizeFact: (
+    fact: WorkFactValue,
+  ) => WorkFactAuthorization;
+  /**
+   * Transport-neutral capacity gate. A rejected mandatory response aborts the
+   * transaction, including materialization and receive-cursor advancement.
+   */
+  readonly admitResponse: (
+    response: WorkResponseCandidate,
+  ) => WorkResponseAdmission;
 };
 
 export type AcceptRecordsResult = {
@@ -423,6 +447,22 @@ type SequenceRow = StateRow & {
 
 type CursorRow = StateRow & {
   readonly through_sequence: string;
+};
+
+const canonicalLocalInstallation = (
+  reader: StateReader,
+): InstallationId => {
+  const row = reader.get<StateRow & { readonly installation_id: string }>(
+    `
+      SELECT installation_id
+      FROM station_installation
+      WHERE singleton = 1
+    `,
+  );
+  if (row === undefined) {
+    throw new Error("local Station installation identity is not initialized");
+  }
+  return Schema.decodeUnknownSync(InstallationId)(row.installation_id);
 };
 
 const textNode = (node: CanvasNode): CanvasNode =>
@@ -597,7 +637,7 @@ const loadInbox = (
           message_id,
           role,
           parts_json,
-          NULL AS task_id,
+          task_id,
           context_id,
           reference_task_ids_json,
           metadata_json
@@ -788,6 +828,13 @@ const unwrapStateFailure = <E extends Error>(
     ? cause
     : toRepositoryError(operation, error);
 };
+
+const stateCause = (error: unknown): unknown =>
+  typeof error === "object" &&
+  error !== null &&
+  "cause" in error
+    ? (error as { readonly cause: unknown }).cause
+    : undefined;
 
 const allocateSequence = (
   writer: StateWriter,
@@ -1441,12 +1488,13 @@ const writeInboxMessage = (
         fact_seq,
         role,
         parts_json,
+        task_id,
         context_id,
         reference_task_ids_json,
         metadata_json,
         origin_at,
         received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       sink.canvasName,
@@ -1459,6 +1507,7 @@ const writeInboxMessage = (
       fact.id.seq,
       message.role,
       canonicalJson(message.parts),
+      message.taskId ?? null,
       message.contextId ?? null,
       message.referenceTaskIds === undefined
         ? null
@@ -2389,14 +2438,47 @@ const findPendingClaim = (
   return record?.recordType === "command" ? record : undefined;
 };
 
+const taskWithoutHistory = (task: TaskValue): unknown => {
+  const { history: _history, ...rest } = task;
+  return rest;
+};
+
+const taskWithoutStateHistoryResponse = (task: TaskValue): unknown => {
+  const {
+    state: _state,
+    history: _history,
+    response: _response,
+    ...rest
+  } = task;
+  return rest;
+};
+
+const historyIsSameOrOneAppend = (
+  current: ReadonlyArray<MessageValue>,
+  next: ReadonlyArray<MessageValue>,
+): boolean =>
+  canonicalJson(next) === canonicalJson(current) ||
+  (next.length === current.length + 1 &&
+    canonicalJson(next.slice(0, current.length)) ===
+      canonicalJson(current));
+
 const validateIncomingFact = (
   writer: StateWriter,
   local: InstallationId,
   sender: InstallationId,
   fact: WorkFactValue,
-): ActorSeatId | undefined => {
+): void => {
   switch (fact.body.operation) {
     case "task.create": {
+      if (
+        fact.body.task.state !== "submitted" ||
+        fact.body.task.claimedBy !== undefined
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          "task.create fact must contain a submitted unclaimed task",
+        );
+      }
       if (
         selectTaskIdentity(
           writer,
@@ -2410,7 +2492,7 @@ const validateIncomingFact = (
           `task "${fact.item.itemId}" already exists`,
         );
       }
-      return undefined;
+      return;
     }
     case "task.claim": {
       const crossesHome = fact.body.previousHome !== sender;
@@ -2447,54 +2529,127 @@ const validateIncomingFact = (
           canonicalJson(current.task) !== canonicalJson(action.sourceTask) ||
           action.actor.seatId !== fact.body.claimedBy.seatId ||
           action.actor.seatId !== fact.body.task.claimedBy ||
-          action.targetHome !== sender
+          action.targetHome !== sender ||
+          canonicalJson(fact.body.task) !==
+            canonicalJson({
+              ...action.sourceTask,
+              state: "working",
+              claimedBy: action.actor.seatId,
+            })
         ) {
           throw authorityError(
             "causal-conflict",
             "first task adoption does not match its reserved source snapshot",
           );
         }
-        return undefined;
+        return;
       }
-      const current = selectTaskIdentity(
+      const current = loadTask(
         writer,
         "task",
         fact.item.sink,
         fact.item.itemId,
       );
       assertCurrentPredecessor(
-        current,
+        current?.row,
         fact.predecessor,
         `task "${fact.item.itemId}"`,
       );
-      if (current!.entity_home !== sender) {
+      if (current!.row.entity_home !== sender) {
         throw authorityError(
           "authority-mismatch",
           "task fact sender does not own the material task",
         );
       }
-      return undefined;
+      if (
+        current!.task.state !== "submitted" ||
+        current!.task.claimedBy !== undefined ||
+        canonicalJson(fact.body.task) !==
+          canonicalJson({
+            ...current!.task,
+            state: "working",
+            claimedBy: fact.body.claimedBy.seatId,
+          })
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          "same-home task claim must atomically start one submitted task",
+        );
+      }
+      assertActorAvailable(
+        writer,
+        fact.body.claimedBy.seatId,
+        fact.item.itemId,
+      );
+      return;
     }
-    case "task.describe":
-    case "task.transition": {
-      const current = selectTaskIdentity(
+    case "task.describe": {
+      const current = loadTask(
         writer,
         "task",
         fact.item.sink,
         fact.item.itemId,
       );
       assertCurrentPredecessor(
-        current,
+        current?.row,
         fact.predecessor,
         `task "${fact.item.itemId}"`,
       );
-      if (current!.entity_home !== sender) {
+      if (current!.row.entity_home !== sender) {
         throw authorityError(
           "authority-mismatch",
           "task fact sender does not own the material task",
         );
       }
-      return undefined;
+      const next = fact.body.task;
+      if (
+        canonicalJson(taskWithoutHistory(next)) !==
+          canonicalJson(taskWithoutHistory(current!.task)) ||
+        next.history.length !== Math.max(1, current!.task.history.length) ||
+        canonicalJson(next.history.slice(1)) !==
+          canonicalJson(current!.task.history.slice(1))
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          "task.describe fact changed state outside the brief",
+        );
+      }
+      return;
+    }
+    case "task.transition": {
+      const current = loadTask(
+        writer,
+        "task",
+        fact.item.sink,
+        fact.item.itemId,
+      );
+      assertCurrentPredecessor(
+        current?.row,
+        fact.predecessor,
+        `task "${fact.item.itemId}"`,
+      );
+      if (current!.row.entity_home !== sender) {
+        throw authorityError(
+          "authority-mismatch",
+          "task fact sender does not own the material task",
+        );
+      }
+      const next = fact.body.task;
+      if (
+        !canTransitionTaskState(current!.task.state, next.state) ||
+        canonicalJson(taskWithoutStateHistoryResponse(next)) !==
+          canonicalJson(
+            taskWithoutStateHistoryResponse(current!.task),
+          ) ||
+        next.response !== current!.task.response ||
+        !historyIsSameOrOneAppend(current!.task.history, next.history)
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          "task.transition fact is not one legal state transition",
+        );
+      }
+      return;
     }
     case "request.create": {
       if (
@@ -2510,34 +2665,123 @@ const validateIncomingFact = (
           `request "${fact.item.itemId}" already exists`,
         );
       }
-      return undefined;
+      return;
     }
     case "request.resolve": {
-      const current = selectTaskIdentity(
+      const current = loadTask(
         writer,
         "request",
         fact.item.sink,
         fact.item.itemId,
       );
       assertCurrentPredecessor(
-        current,
+        current?.row,
         fact.predecessor,
         `request "${fact.item.itemId}"`,
       );
-      if (current!.entity_home !== sender) {
+      if (current!.row.entity_home !== sender) {
         throw authorityError(
           "authority-mismatch",
           "request fact sender does not own the material request",
         );
       }
-      return undefined;
+      const next = fact.body.request;
+      if (
+        !canTransitionTaskState(current!.task.state, next.state) ||
+        (next.state !== "completed" && next.state !== "rejected") ||
+        canonicalJson(taskWithoutStateHistoryResponse(next)) !==
+          canonicalJson(
+            taskWithoutStateHistoryResponse(current!.task),
+          ) ||
+        next.response === undefined ||
+        !historyIsSameOrOneAppend(current!.task.history, next.history)
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          "request.resolve fact is not one legal retained-claimant resolution",
+        );
+      }
+      return;
     }
-    case "message.append":
-      return undefined;
-    case "artifact.publish":
-      return fact.body.publishedBy.seatId;
-    case "delivery.accepted":
-      return undefined;
+    case "message.append": {
+      if (
+        writer.get<StateRow>(
+          `
+            SELECT 1
+            FROM work_messages
+            WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+          `,
+          [
+            fact.item.sink.canvasName,
+            fact.item.sink.nodeId,
+            fact.item.itemId,
+          ],
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `message "${fact.item.itemId}" already exists`,
+        );
+      }
+      return;
+    }
+    case "artifact.publish": {
+      if (
+        writer.get<StateRow>(
+          `
+            SELECT 1
+            FROM work_artifacts
+            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+          `,
+          [
+            fact.item.sink.canvasName,
+            fact.item.sink.nodeId,
+            fact.item.itemId,
+          ],
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `artifact "${fact.item.itemId}" already exists`,
+        );
+      }
+      return;
+    }
+    case "delivery.accepted": {
+      const receipt = fact.body.receipt;
+      if (
+        receipt.deliveredItem.sink.canvasName !==
+          fact.item.sink.canvasName ||
+        receipt.deliveredItem.sink.nodeId !== fact.item.sink.nodeId
+      ) {
+        throw authorityError(
+          "target-mismatch",
+          "delivery fact sink differs from its delivered item",
+        );
+      }
+      if (
+        writer.get<StateRow>(
+          `
+            SELECT 1
+            FROM work_delivery_receipts
+            WHERE delivered_canvas_name = ?
+              AND delivered_node_id = ?
+              AND delivery_id = ?
+          `,
+          [
+            receipt.deliveredItem.sink.canvasName,
+            receipt.deliveredItem.sink.nodeId,
+            receipt.deliveryId,
+          ],
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `delivery "${receipt.deliveryId}" already exists`,
+        );
+      }
+      return;
+    }
   }
 };
 
@@ -2784,6 +3028,13 @@ export const WorkRepositoryLive = Layer.effect(
       const receivedAt = timestamp(input.receivedAt);
       const task = Schema.decodeUnknownSync(Task, strictDecode)(input.task);
       return transaction("work.task.create", input.sink, (writer) => {
+        const localInstallationId = canonicalLocalInstallation(writer);
+        if (task.state !== "submitted" || task.claimedBy !== undefined) {
+          throw authorityError(
+            "invalid-transition",
+            "task.create requires a submitted unclaimed task",
+          );
+        }
         if (
           selectTaskIdentity(
             writer,
@@ -2798,7 +3049,7 @@ export const WorkRepositoryLive = Layer.effect(
           );
         }
         return commitLocalFact(writer, {
-          localInstallationId: input.localInstallationId,
+          localInstallationId,
           sink: input.sink,
           item: item("task", task.id, input.sink),
           operation: "task.create",
@@ -2821,6 +3072,7 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.message);
       return transaction("work.task.describe", input.sink, (writer) => {
+        const localInstallationId = canonicalLocalInstallation(writer);
         const current = loadTask(
           writer,
           "task",
@@ -2833,7 +3085,7 @@ export const WorkRepositoryLive = Layer.effect(
             `task "${input.taskId}" does not exist`,
           );
         }
-        if (current.row.entity_home !== input.localInstallationId) {
+        if (current.row.entity_home !== localInstallationId) {
           throw authorityError(
             "authority-mismatch",
             "local installation does not own this task",
@@ -2855,7 +3107,7 @@ export const WorkRepositoryLive = Layer.effect(
           history: [message, ...current.task.history.slice(1)],
         };
         return commitLocalFact(writer, {
-          localInstallationId: input.localInstallationId,
+          localInstallationId,
           sink: input.sink,
           item: item("task", task.id, input.sink),
           operation: "task.describe",
@@ -2878,6 +3130,7 @@ export const WorkRepositoryLive = Layer.effect(
           ? undefined
           : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
       return transaction("work.task.transition", input.sink, (writer) => {
+        const localInstallationId = canonicalLocalInstallation(writer);
         const current = loadTask(
           writer,
           "task",
@@ -2890,7 +3143,7 @@ export const WorkRepositoryLive = Layer.effect(
             `task "${input.taskId}" does not exist`,
           );
         }
-        if (current.row.entity_home !== input.localInstallationId) {
+        if (current.row.entity_home !== localInstallationId) {
           throw authorityError(
             "authority-mismatch",
             "local installation does not own this task",
@@ -2911,7 +3164,7 @@ export const WorkRepositoryLive = Layer.effect(
               : [...current.task.history, message],
         });
         return commitLocalFact(writer, {
-          localInstallationId: input.localInstallationId,
+          localInstallationId,
           sink: input.sink,
           item: item("task", task.id, input.sink),
           operation: "task.transition",
@@ -2930,6 +3183,7 @@ export const WorkRepositoryLive = Layer.effect(
       const originAt = timestamp(input.originAt);
       const receivedAt = timestamp(input.receivedAt);
       return transaction("work.task.claim-local", input.sink, (writer) => {
+        const localInstallationId = canonicalLocalInstallation(writer);
         const current = loadTask(
           writer,
           "task",
@@ -2942,7 +3196,7 @@ export const WorkRepositoryLive = Layer.effect(
             `task "${input.taskId}" does not exist`,
           );
         }
-        if (current.row.entity_home !== input.localInstallationId) {
+        if (current.row.entity_home !== localInstallationId) {
           throw authorityError(
             "authority-mismatch",
             "local installation does not own this task queue",
@@ -2964,7 +3218,7 @@ export const WorkRepositoryLive = Layer.effect(
           claimedBy: input.actor.seatId,
         });
         return commitLocalFact(writer, {
-          localInstallationId: input.localInstallationId,
+          localInstallationId,
           sink: input.sink,
           item: item("task", task.id, input.sink),
           operation: "task.claim",
@@ -2973,7 +3227,7 @@ export const WorkRepositoryLive = Layer.effect(
             operation: "task.claim",
             task,
             claimedBy: input.actor,
-            previousHome: input.localInstallationId,
+            previousHome: localInstallationId,
           },
           value: task,
           originAt,
@@ -2991,6 +3245,17 @@ export const WorkRepositoryLive = Layer.effect(
         input.request,
       );
       return transaction("work.request.create", input.sink, (writer) => {
+        const localInstallationId = canonicalLocalInstallation(writer);
+        if (
+          (request.state !== "input-required" &&
+            request.state !== "auth-required") ||
+          request.claimedBy !== input.raisedBy.seatId
+        ) {
+          throw authorityError(
+            "authority-mismatch",
+            "request must be attention-state work claimed by its exact raiser",
+          );
+        }
         if (
           selectTaskIdentity(
             writer,
@@ -3005,7 +3270,7 @@ export const WorkRepositoryLive = Layer.effect(
           );
         }
         return commitLocalFact(writer, {
-          localInstallationId: input.localInstallationId,
+          localInstallationId,
           sink: input.sink,
           item: item("request", request.id, input.sink),
           operation: "request.create",
@@ -3028,6 +3293,7 @@ export const WorkRepositoryLive = Layer.effect(
           ? undefined
           : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
       return transaction("work.request.resolve", input.sink, (writer) => {
+        const localInstallationId = canonicalLocalInstallation(writer);
         const current = loadTask(
           writer,
           "request",
@@ -3040,7 +3306,7 @@ export const WorkRepositoryLive = Layer.effect(
             `request "${input.requestId}" does not exist`,
           );
         }
-        if (current.row.entity_home !== input.localInstallationId) {
+        if (current.row.entity_home !== localInstallationId) {
           throw authorityError(
             "authority-mismatch",
             "local installation does not own this request",
@@ -3067,7 +3333,7 @@ export const WorkRepositoryLive = Layer.effect(
               : [...current.task.history, message],
         });
         return commitLocalFact(writer, {
-          localInstallationId: input.localInstallationId,
+          localInstallationId,
           sink: input.sink,
           item: item("request", request.id, input.sink),
           operation: "request.resolve",
@@ -3090,6 +3356,7 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.message);
       return transaction("work.message.append", input.sink, (writer) => {
+        const localInstallationId = canonicalLocalInstallation(writer);
         if (
           writer.get<StateRow>(
             `
@@ -3105,7 +3372,7 @@ export const WorkRepositoryLive = Layer.effect(
           );
         }
         return commitLocalFact(writer, {
-          localInstallationId: input.localInstallationId,
+          localInstallationId,
           sink: input.sink,
           item: item("message", message.messageId, input.sink),
           operation: "message.append",
@@ -3128,6 +3395,7 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.artifact);
       return transaction("work.artifact.publish", input.sink, (writer) => {
+        const localInstallationId = canonicalLocalInstallation(writer);
         if (
           writer.get<StateRow>(
             `
@@ -3147,7 +3415,7 @@ export const WorkRepositoryLive = Layer.effect(
           );
         }
         return commitLocalFact(writer, {
-          localInstallationId: input.localInstallationId,
+          localInstallationId,
           sink: input.sink,
           item: item("artifact", artifact.artifactId, input.sink),
           operation: "artifact.publish",
@@ -3170,7 +3438,17 @@ export const WorkRepositoryLive = Layer.effect(
       const originAt = timestamp(input.originAt);
       const receivedAt = timestamp(input.receivedAt);
       return transaction("work.delivery.accepted", input.sink, (writer) => {
+        const localInstallationId = canonicalLocalInstallation(writer);
         const receipt = input.receipt;
+        if (
+          receipt.deliveredItem.sink.canvasName !== input.sink.canvasName ||
+          receipt.deliveredItem.sink.nodeId !== input.sink.nodeId
+        ) {
+          throw authorityError(
+            "target-mismatch",
+            "delivery receipt sink differs from the accepted item sink",
+          );
+        }
         if (
           writer.get<StateRow>(
             `
@@ -3193,7 +3471,7 @@ export const WorkRepositoryLive = Layer.effect(
           );
         }
         return commitLocalFact(writer, {
-          localInstallationId: input.localInstallationId,
+          localInstallationId,
           sink: input.sink,
           item: item("delivery", receipt.deliveryId, input.sink),
           operation: "delivery.accepted",
@@ -3215,8 +3493,9 @@ export const WorkRepositoryLive = Layer.effect(
         "work.task.reserve-remote-claim",
         input.sink,
         (writer) => {
+          const localInstallationId = canonicalLocalInstallation(writer);
           if (
-            input.targetInstallationId === input.localInstallationId
+            input.targetInstallationId === localInstallationId
           ) {
             throw authorityError(
               "target-mismatch",
@@ -3236,7 +3515,7 @@ export const WorkRepositoryLive = Layer.effect(
             );
           }
           if (
-            current.row.entity_home !== input.localInstallationId ||
+            current.row.entity_home !== localInstallationId ||
             current.task.state !== "submitted" ||
             current.task.claimedBy !== undefined
           ) {
@@ -3251,7 +3530,7 @@ export const WorkRepositoryLive = Layer.effect(
             strictDecode,
           )({
             operation: "task.claim",
-            sourceQueueHome: input.localInstallationId,
+            sourceQueueHome: localInstallationId,
             sourcePredecessor: currentIdentity(current.row),
             sourceTask: current.task,
             sink: input.sink,
@@ -3260,7 +3539,7 @@ export const WorkRepositoryLive = Layer.effect(
           });
           const command = makeCommand(
             writer,
-            input.localInstallationId,
+            localInstallationId,
             input.targetInstallationId,
             item("task", input.taskId, input.sink),
             null,
@@ -3283,8 +3562,9 @@ export const WorkRepositoryLive = Layer.effect(
         `work.${input.action.operation}.enqueue`,
         input.sink,
         (writer) => {
+          const localInstallationId = canonicalLocalInstallation(writer);
           if (
-            input.targetInstallationId === input.localInstallationId
+            input.targetInstallationId === localInstallationId
           ) {
             throw authorityError(
               "target-mismatch",
@@ -3326,7 +3606,7 @@ export const WorkRepositoryLive = Layer.effect(
           }
           const command = makeCommand(
             writer,
-            input.localInstallationId,
+            localInstallationId,
             input.targetInstallationId,
             input.item,
             predecessor,
@@ -3474,28 +3754,32 @@ export const WorkRepositoryLive = Layer.effect(
     ): Effect.Effect<AcceptRecordsResult, ReplicationFailure> => {
       const observedAt = timestamp(input.receivedAt);
       const decoded: WorkRecordValue[] = [];
-      for (const candidate of input.records) {
-        const result = decodeWorkRecord(candidate);
-        if (Either.isLeft(result)) {
-          return Effect.fail(
-            replicationError(
-              input.senderInstallationId,
-              "integrity",
-              "report contains a malformed Work record",
-            ),
-          );
+      try {
+        for (const candidate of input.records) {
+          const result = decodeWorkRecord(candidate);
+          if (Either.isLeft(result)) {
+            return Effect.fail(
+              replicationError(
+                input.senderInstallationId,
+                "integrity",
+                "report contains a malformed Work record",
+              ),
+            );
+          }
+          validateIncomingHash(input.senderInstallationId, result.right);
+          decoded.push(result.right);
         }
-        validateIncomingDirection(
-          input.localInstallationId,
-          input.senderInstallationId,
-          result.right,
+      } catch (error) {
+        return Effect.fail(
+          error instanceof WorkReplicationError
+            ? error
+            : toRepositoryError("work.acceptRecords.decode", error),
         );
-        validateIncomingHash(input.senderInstallationId, result.right);
-        decoded.push(result.right);
       }
 
       return state
         .transaction("work.acceptRecords", (writer) => {
+          const localInstallationId = canonicalLocalInstallation(writer);
           const routes = new Map<string, WorkRecordValue[]>();
           for (const record of decoded) {
             const key = `${record.id.route.eventHome}\u0000${record.id.route.entityHome}`;
@@ -3526,6 +3810,11 @@ export const WorkRepositoryLive = Layer.effect(
             let through = cursor === undefined ? 0n : BigInt(cursor);
 
             for (const record of records) {
+              validateIncomingDirection(
+                localInstallationId,
+                input.senderInstallationId,
+                record,
+              );
               const seqValue = BigInt(record.id.seq);
               const existing = eventRow(writer, record.id);
               if (seqValue <= through) {
@@ -3535,8 +3824,12 @@ export const WorkRepositoryLive = Layer.effect(
                 ) {
                   throw replicationError(
                     input.senderInstallationId,
-                    "cursor-regression",
-                    "record at or below the receive cursor is not an exact replay",
+                    existing === undefined
+                      ? "cursor-regression"
+                      : "identity-conflict",
+                    existing === undefined
+                      ? "receive cursor has no corresponding durable record"
+                      : "record identity was reused with different content",
                     record.id.seq,
                   );
                 }
@@ -3564,6 +3857,25 @@ export const WorkRepositoryLive = Layer.effect(
                 );
               }
 
+              if (record.recordType === "fact") {
+                const admission = input.authorizeFact(record);
+                if (admission._tag === "rejected") {
+                  throw replicationError(
+                    input.senderInstallationId,
+                    "causal-conflict",
+                    `fact admission denied (${admission.reason}): ${admission.message}`,
+                    record.id.seq,
+                  );
+                }
+                validateIncomingFact(
+                  writer,
+                  localInstallationId,
+                  input.senderInstallationId,
+                  record,
+                );
+              } else if (record.recordType === "disposition") {
+                validateDisposition(writer, record);
+              }
               rememberIncomingSequence(writer, record.id);
               insertRecord(writer, record, observedAt);
 
@@ -3572,7 +3884,7 @@ export const WorkRepositoryLive = Layer.effect(
                 if (admission._tag === "rejected") {
                   const disposition = rejectCommand(
                     writer,
-                    input.localInstallationId,
+                    localInstallationId,
                     record,
                     admission.reason,
                     admission.message,
@@ -3584,7 +3896,7 @@ export const WorkRepositoryLive = Layer.effect(
                   try {
                     const outcome = applyCommand(
                       writer,
-                      input.localInstallationId,
+                      localInstallationId,
                       record,
                       observedAt,
                     );
@@ -3597,7 +3909,7 @@ export const WorkRepositoryLive = Layer.effect(
                     if (!(error instanceof WorkAuthorityError)) throw error;
                     const disposition = rejectCommand(
                       writer,
-                      input.localInstallationId,
+                      localInstallationId,
                       record,
                       error.reason,
                       error.message,
@@ -3608,19 +3920,12 @@ export const WorkRepositoryLive = Layer.effect(
                   }
                 }
               } else if (record.recordType === "fact") {
-                validateIncomingFact(
-                  writer,
-                  input.localInstallationId,
-                  input.senderInstallationId,
-                  record,
-                );
                 materializeFact(writer, record, observedAt);
                 accepted += 1;
                 changed.add(
                   `${record.item.sink.canvasName}\u0000${record.item.sink.nodeId}`,
                 );
               } else {
-                validateDisposition(writer, record);
                 resolvePending(writer, record, observedAt);
                 accepted += 1;
               }
@@ -3659,6 +3964,18 @@ export const WorkRepositoryLive = Layer.effect(
             }
           }
 
+          const responseAdmission = input.admitResponse({
+            emitted,
+            acknowledge,
+          });
+          if (responseAdmission._tag === "rejected") {
+            throw replicationError(
+              input.senderInstallationId,
+              "response-capacity",
+              responseAdmission.message,
+            );
+          }
+
           return {
             accepted,
             idempotent,
@@ -3669,13 +3986,20 @@ export const WorkRepositoryLive = Layer.effect(
           };
         })
         .pipe(
-          Effect.mapError((error) =>
-            unwrapStateFailure(
-              "work.acceptRecords",
-              error,
-              WorkReplicationError as unknown as new (...args: never[]) => WorkReplicationError,
-            ),
-          ),
+          Effect.mapError((error) => {
+            const cause = stateCause(error);
+            if (cause instanceof WorkReplicationError) return cause;
+            if (cause instanceof WorkAuthorityError) {
+              return replicationError(
+                input.senderInstallationId,
+                cause.reason === "identity-conflict"
+                  ? "identity-conflict"
+                  : "causal-conflict",
+                cause.message,
+              );
+            }
+            return toRepositoryError("work.acceptRecords", error);
+          }),
           Effect.tap((result) =>
             Effect.sync(() => {
               for (const key of result.changed) {

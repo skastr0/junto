@@ -64,6 +64,7 @@ const message = (
 
 const seedInstallations = (
   installations: ReadonlyArray<InstallationIdValue>,
+  local: InstallationIdValue,
 ) =>
   state.transaction("test.seed-installations", (writer) => {
     for (const installation of installations) {
@@ -77,12 +78,22 @@ const seedInstallations = (
         [installation, observedAt],
       );
     }
+    writer.run(
+      `
+        INSERT INTO station_installation(
+          singleton,
+          installation_id,
+          created_at
+        ) VALUES (1, ?, ?)
+      `,
+      [local, observedAt],
+    );
   });
 
 beforeAll(async () => {
   repository = await runtime.runPromise(WorkRepository);
   state = await runtime.runPromise(StateEngine);
-  await runtime.runPromise(seedInstallations([cc, remote]));
+  await runtime.runPromise(seedInstallations([cc, remote], cc));
 });
 
 afterAll(async () => {
@@ -95,7 +106,6 @@ describe("WorkRepository v2 local authority", () => {
     const sink = { canvasName: "factory", nodeId: "tasks-local" };
     const created = await runtime.runPromise(
       repository.createTask({
-        localInstallationId: cc,
         sink,
         task: {
           id: "task-local",
@@ -110,7 +120,6 @@ describe("WorkRepository v2 local authority", () => {
     );
     const claimed = await runtime.runPromise(
       repository.claimLocalTask({
-        localInstallationId: cc,
         sink,
         taskId: created.value.id,
         actor,
@@ -120,7 +129,6 @@ describe("WorkRepository v2 local authority", () => {
     );
     const completed = await runtime.runPromise(
       repository.transitionTask({
-        localInstallationId: cc,
         sink,
         taskId: created.value.id,
         state: "completed",
@@ -182,7 +190,6 @@ describe("WorkRepository v2 local authority", () => {
     const sink = { canvasName: "factory", nodeId: "tasks-remote" };
     const created = await runtime.runPromise(
       repository.createTask({
-        localInstallationId: cc,
         sink,
         task: {
           id: "task-remote",
@@ -197,7 +204,6 @@ describe("WorkRepository v2 local authority", () => {
     );
     const command = await runtime.runPromise(
       repository.reserveRemoteTaskClaim({
-        localInstallationId: cc,
         targetInstallationId: remote,
         sink,
         taskId: created.value.id,
@@ -243,7 +249,6 @@ describe("WorkRepository v2 local authority", () => {
     const pendingSink = { canvasName: "factory", nodeId: "tasks-pending" };
     await runtime.runPromise(
       repository.createTask({
-        localInstallationId: cc,
         sink: pendingSink,
         task: {
           id: "task-pending-actor",
@@ -264,7 +269,6 @@ describe("WorkRepository v2 local authority", () => {
     const contention = await runtime.runPromise(
       repository
         .claimLocalTask({
-          localInstallationId: cc,
           sink: pendingSink,
           taskId: "task-pending-actor",
           actor,
@@ -288,7 +292,6 @@ describe("WorkRepository v2 local authority", () => {
     const artifacts = { canvasName: "factory", nodeId: "artifacts" };
     const request = await runtime.runPromise(
       repository.createRequest({
-        localInstallationId: cc,
         sink: requestSink,
         raisedBy: actor,
         request: {
@@ -305,7 +308,6 @@ describe("WorkRepository v2 local authority", () => {
     );
     await runtime.runPromise(
       repository.resolveRequest({
-        localInstallationId: cc,
         sink: requestSink,
         requestId: request.value.id,
         response: "Approved",
@@ -317,16 +319,14 @@ describe("WorkRepository v2 local authority", () => {
     );
     await runtime.runPromise(
       repository.appendMessage({
-        localInstallationId: cc,
         sink: inbox,
-        message: message("mail-1", "agent", "hello"),
+        message: message("mail-1", "agent", "hello", "mail-context-task"),
         originAt: observedAt,
         receivedAt: observedAt,
       }),
     );
     const artifact = await runtime.runPromise(
       repository.publishArtifact({
-        localInstallationId: cc,
         sink: artifacts,
         publishedBy: actor,
         artifact: {
@@ -340,7 +340,6 @@ describe("WorkRepository v2 local authority", () => {
     );
     await runtime.runPromise(
       repository.acceptDelivery({
-        localInstallationId: cc,
         sink: artifacts,
         receipt: {
           deliveryId: "delivery-1",
@@ -370,7 +369,9 @@ describe("WorkRepository v2 local authority", () => {
           repository.readSnapshot(inbox.canvasName, inbox.nodeId),
         )
       ).messages.items,
-    ).toHaveLength(1);
+    ).toEqual([
+      message("mail-1", "agent", "hello", "mail-context-task"),
+    ]);
     expect(
       (
         await runtime.runPromise(
@@ -378,5 +379,45 @@ describe("WorkRepository v2 local authority", () => {
         )
       ).artifacts.items,
     ).toEqual([artifact.value]);
+  });
+
+  it("derives fact authority from the database singleton, never caller input", async () => {
+    const sink = { canvasName: "factory", nodeId: "tasks-authority" };
+    const attemptedOverride = {
+      localInstallationId: remote,
+      sink,
+      task: {
+        id: "task-authority",
+        state: "submitted" as const,
+        history: [
+          message(
+            "brief-authority",
+            "user",
+            "use canonical authority",
+            "task-authority",
+          ),
+        ],
+      },
+      originAt: observedAt,
+      receivedAt: observedAt,
+    };
+    const created = await runtime.runPromise(
+      repository.createTask(attemptedOverride),
+    );
+
+    expect(created.record.id.route).toEqual({
+      eventHome: cc,
+      entityHome: cc,
+    });
+    expect(
+      await runtime.runPromise(
+        repository.itemHome(
+          "task",
+          sink.canvasName,
+          sink.nodeId,
+          created.value.id,
+        ),
+      ),
+    ).toBe(cc);
   });
 });

@@ -263,9 +263,20 @@ export const WorkAction = Schema.Union(
 );
 export type WorkAction = typeof WorkAction.Type;
 
+export const TaskCreateResult = Schema.Struct({
+  operation: Schema.Literal("task.create"),
+  task: Task,
+}).pipe(
+  Schema.filter(
+    ({ task }) =>
+      (task.state === "submitted" && task.claimedBy === undefined) ||
+      "task.create result requires a submitted unclaimed task",
+  ),
+);
+export type TaskCreateResult = typeof TaskCreateResult.Type;
+
 export const TaskMutationResult = Schema.Struct({
   operation: Schema.Literal(
-    "task.create",
     "task.describe",
     "task.transition",
   ),
@@ -331,6 +342,7 @@ export const DeliveryAcceptedResult = Schema.Struct({
 export type DeliveryAcceptedResult = typeof DeliveryAcceptedResult.Type;
 
 export const WorkResult = Schema.Union(
+  TaskCreateResult,
   TaskMutationResult,
   TaskClaimResult,
   RequestResult,

@@ -565,6 +565,11 @@ export const WORK_STATE_SCHEMA_SQL = `
     fact_seq TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('user', 'agent')),
     parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
+    task_id TEXT
+      CHECK (
+        task_id IS NULL
+        OR length(task_id) BETWEEN 1 AND 256
+      ),
     context_id TEXT,
     reference_task_ids_json TEXT
       CHECK (

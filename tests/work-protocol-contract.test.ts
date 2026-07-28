@@ -372,6 +372,34 @@ describe("Work protocol v2 contract", () => {
     ).toBe(true);
   });
 
+  it("admits only submitted unclaimed task.create facts", () => {
+    const taskCreateFact = {
+      ...claimFact,
+      operation: "task.create",
+      predecessor: null,
+      body: {
+        operation: "task.create",
+        task: sourceTask,
+      },
+    };
+    expect(Either.isRight(decodeWorkRecord(taskCreateFact))).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeWorkRecord({
+          ...taskCreateFact,
+          body: {
+            operation: "task.create",
+            task: {
+              ...sourceTask,
+              state: "completed",
+              claimedBy: actor.seatId,
+            },
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("keeps receivedAt local to StoredWorkRecord", () => {
     expect(
       Either.isLeft(

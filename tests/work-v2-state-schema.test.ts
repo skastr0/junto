@@ -343,6 +343,20 @@ describe("Work v2 exact-current SQLite schema", () => {
       .all()
       .map((row) => (row as { readonly name: string }).name);
     expect(eventColumns).not.toContain("payload_json");
+    const messageTaskId = database
+      .prepare("PRAGMA table_info(work_messages)")
+      .all()
+      .find(
+        (row) =>
+          (row as { readonly name: string }).name === "task_id",
+      ) as
+      | { readonly name: string; readonly type: string; readonly notnull: number }
+      | undefined;
+    expect(messageTaskId).toMatchObject({
+      name: "task_id",
+      type: "TEXT",
+      notnull: 0,
+    });
     expect(WORK_STATE_SCHEMA_SQL).not.toMatch(
       /home_station|vellum:command-center|payload_json/u,
     );

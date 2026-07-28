@@ -1,1198 +1,773 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Either, Layer, ManagedRuntime, Schema } from "effect";
+import {
+  Effect,
+  Either,
+  Layer,
+  ManagedRuntime,
+  Schema,
+} from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
-import {
-  workTaskClaim,
-  workTaskCreate,
-  workTaskDescribe,
-  workTaskTransition,
-  type WorkIds,
-} from "../src/shared/work";
-import {
-  COMMAND_CENTER_WORK_HOME,
-  WorkRepository,
-  WorkRepositoryLive,
-  stationEventFromWorkEvent,
-} from "../src/main/vellum/work/repository";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { ActorSeatId } from "../src/shared/actor-seat";
 import {
   InstallationId,
-  ConfigureRequest,
-  PairRequest,
-  STATION_API_PROTOCOL,
-  StationHostId,
-  StationSha256,
   type InstallationId as InstallationIdValue,
-  type StationEvent,
-} from "../src/shared/station-api";
+} from "../src/shared/installation-id";
 import {
-  StationRepository,
-  StationRepositoryLive,
-} from "../src/main/vellum/station/repository";
+  WorkRecord,
+  type WorkRecord as WorkRecordValue,
+} from "../src/shared/work-protocol";
 import {
-  SettingsLive,
-  SettingsService,
-} from "../src/main/vellum/settings/service";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
-import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+  workRecordContentSha256,
+  WorkReplicationError,
+  WorkRepository,
+  WorkRepositoryLive,
+} from "../src/main/vellum/work/repository";
+import {
+  makeStateEngineLive,
+  StateEngine,
+} from "../src/main/vellum/state/engine";
 
-const roots: string[] = [];
+const observedAt = "2026-07-27T18:00:00.000Z";
+const opened: Array<{
+  readonly root: string;
+  readonly dispose: () => Promise<void>;
+}> = [];
 
 afterEach(async () => {
+  const closing = opened.splice(0);
+  await Promise.all(closing.map(({ dispose }) => dispose()));
   await Promise.all(
-    roots.splice(0).map((root) =>
-      rm(root, { recursive: true, force: true })
+    closing.map(({ root }) =>
+      rm(root, { recursive: true, force: true }),
     ),
   );
 });
-
-const runtimeAt = (path: string) =>
-  ManagedRuntime.make(
-    Layer.provideMerge(
-      WorkRepositoryLive,
-      makeStateEngineLive(path),
-    ),
-  );
-
-const runtime = () => {
-  const root = join(tmpdir(), `vellum-work-replication-${randomUUID()}`);
-  roots.push(root);
-  return runtimeAt(join(root, "vellum.db"));
-};
-
-const serviceRuntime = () => {
-  const root = join(tmpdir(), `vellum-work-service-replication-${randomUUID()}`);
-  roots.push(root);
-  const state = makeStateEngineLive(join(root, "vellum.db"));
-  const repositories = Layer.provideMerge(
-    Layer.mergeAll(
-      WorkRepositoryLive,
-      StationRepositoryLive,
-      SettingsLive,
-    ),
-    state,
-  );
-  const canvases = Layer.provideMerge(CanvasesLive, repositories);
-  return ManagedRuntime.make(Layer.provideMerge(WorkLive, canvases));
-};
 
 const installation = (value: string): InstallationIdValue =>
   Schema.decodeUnknownSync(InstallationId)(value);
 
-const stationHost = (value: string) =>
-  Schema.decodeUnknownSync(StationHostId)(value);
-
-const ids = (prefix: string): WorkIds => {
-  let task = 0;
-  let message = 0;
-  return {
-    id: () => `${prefix}-task-${++task}`,
-    messageId: () => `${prefix}-message-${++message}`,
-  };
-};
-
-const taskCanvas = (nodeId: string, host: string): CanvasDoc => ({
-  nodes: [{
-    id: nodeId,
-    type: "text",
-    text: "station task sink",
-    x: 0,
-    y: 0,
-    width: 220,
-    height: 100,
-    ether: {
-      entity: { kind: "task" },
-      host,
-    },
-  }],
-  edges: [],
+const actor = (digit: string, nodeId = `actor-${digit}`) => ({
+  seatId: Schema.decodeUnknownSync(ActorSeatId)(
+    `seat_${digit.repeat(64)}`,
+  ),
+  canvasName: "factory",
+  nodeId,
 });
 
-const createTask = (
-  repository: typeof WorkRepository.Service,
-  input: {
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly entityHome: string;
-    readonly eventHome: InstallationIdValue;
-    readonly brief: string;
-    readonly ids: WorkIds;
-    readonly materialization: "immediate" | "on-disposition";
-  },
-) =>
-  repository.mutate({
-    canvasName: input.canvasName,
-    nodeId: input.nodeId,
-    entityHome: input.entityHome,
-    eventHome: input.eventHome,
-    materialization: input.materialization,
-    operation: "task.create",
-    authoredDoc: taskCanvas(input.nodeId, input.entityHome),
-    transform: (projected) => {
-      const result = workTaskCreate(
-        projected,
-        input.canvasName,
-        input.nodeId,
-        input.brief,
-        undefined,
-        input.ids,
-      );
-      return { doc: result.doc, value: result.task };
-    },
-  });
+const message = (
+  messageId: string,
+  role: "user" | "agent",
+  text: string,
+  taskId?: string,
+) => ({
+  messageId,
+  role,
+  parts: [{ kind: "text" as const, text }],
+  ...(taskId === undefined ? {} : { taskId }),
+  contextId: "factory",
+});
 
-const events = (
-  repository: typeof WorkRepository.Service,
-  eventHome: InstallationIdValue,
-  entityHome: string,
-  afterSeq = "0",
-) =>
-  repository.eventsAfter({ eventHome, entityHome, afterSeq }).pipe(
-    Effect.map((items) => items.map(stationEventFromWorkEvent)),
+const openInstallation = async (
+  local: InstallationIdValue,
+  peers: ReadonlyArray<InstallationIdValue>,
+) => {
+  const root = join(
+    tmpdir(),
+    `vellum-work-replication-v2-${local}-${randomUUID()}`,
   );
-
-const acceptCommands = (
-  repository: typeof WorkRepository.Service,
-  input: {
-    readonly local: InstallationIdValue;
-    readonly commandCenter: InstallationIdValue;
-    readonly route: string;
-    readonly events: ReadonlyArray<StationEvent>;
-  },
-) =>
-  repository.acceptReplicated({
-    localEventHome: input.local,
-    eventHome: input.commandCenter,
-    entityHome: input.route,
-    events: input.events,
-    causalConflict: "reject-command",
-  });
-
-const acceptRemoteFacts = (
-  repository: typeof WorkRepository.Service,
-  input: {
-    readonly local: InstallationIdValue;
-    readonly remote: InstallationIdValue;
-    readonly route: string;
-    readonly events: ReadonlyArray<StationEvent>;
-  },
-) =>
-  repository.acceptReplicated({
-    localEventHome: input.local,
-    eventHome: input.remote,
-    entityHome: input.route,
-    events: input.events,
-    causalConflict: "fail",
-  });
-
-const canonicalJson = (value: unknown): string => {
-  const normalize = (entry: unknown): unknown => {
-    if (Array.isArray(entry)) return entry.map(normalize);
-    if (entry === null || typeof entry !== "object") return entry;
-    return Object.fromEntries(
-      Object.entries(entry as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, nested]) => [key, normalize(nested)]),
-    );
-  };
-  return JSON.stringify(normalize(value));
-};
-
-const rewriteEventBody = (
-  event: StationEvent,
-  rewrite: (body: Record<string, unknown>) => Record<string, unknown>,
-): StationEvent => {
-  const body = canonicalJson(
-    rewrite(JSON.parse(event.body) as Record<string, unknown>),
-  );
-  return {
-    ...event,
-    body,
-    contentSha256: Schema.decodeUnknownSync(StationSha256)(
-      createHash("sha256").update(body, "utf8").digest("hex"),
+  const runtime = ManagedRuntime.make(
+    Layer.provideMerge(
+      WorkRepositoryLive,
+      makeStateEngineLive(join(root, "vellum.db")),
     ),
-  };
+  );
+  opened.push({
+    root,
+    dispose: () => runtime.dispose(),
+  });
+  const repository = await runtime.runPromise(WorkRepository);
+  const state = await runtime.runPromise(StateEngine);
+  await runtime.runPromise(
+    state.transaction("test.seed-installation", (writer) => {
+      for (const known of new Set([local, ...peers])) {
+        writer.run(
+          `
+            INSERT INTO station_known_installations(
+              installation_id,
+              registered_at
+            ) VALUES (?, ?)
+          `,
+          [known, observedAt],
+        );
+      }
+      writer.run(
+        `
+          INSERT INTO station_installation(
+            singleton,
+            installation_id,
+            created_at
+          ) VALUES (1, ?, ?)
+        `,
+        [local, observedAt],
+      );
+    }),
+  );
+  return { runtime, repository, state };
 };
 
-describe("WorkRepository station replication", () => {
-  it("transfers one submitted CC task into one Remote working claim and converges completion", async () => {
-    const commandCenter = runtime();
-    const remote = runtime();
-    const ccRepository = await commandCenter.runPromise(WorkRepository);
-    const remoteRepository = await remote.runPromise(WorkRepository);
-    const cc = installation("cc-claim-transfer");
-    const station = installation("station-claim-transfer");
-    const canvas = "factory";
-    const node = "global-tasks";
-    const route = "studio";
-    const workIds = ids("claim-transfer");
-    const authoredDoc = taskCanvas(node, "local");
+const admitted = () => ({ _tag: "admitted" as const });
 
-    const created = await commandCenter.runPromise(
-      createTask(ccRepository, {
-        canvasName: canvas,
-        nodeId: node,
-        entityHome: "local",
-        eventHome: cc,
-        brief: "ship the beta demo",
-        ids: workIds,
-        materialization: "immediate",
-      }),
-    );
-    const queued = await commandCenter.runPromise(
-      ccRepository.mutate({
-        canvasName: canvas,
-        nodeId: node,
-        entityHome: route,
-        eventHome: cc,
-        materialization: "on-disposition",
-        operation: "task.claim",
-        authoredDoc,
-        transform: (projected) => {
-          const result = workTaskClaim(
-            projected,
-            canvas,
-            node,
-            created.value.id,
-            "remote-worker",
-            workIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
-      }),
-    );
-    expect(queued.disposition).toBe("queued");
-    const second = await commandCenter.runPromise(
-      createTask(ccRepository, {
-        canvasName: canvas,
-        nodeId: node,
-        entityHome: "local",
-        eventHome: cc,
-        brief: "must wait for the actor",
-        ids: workIds,
-        materialization: "immediate",
-      }),
-    );
-    const secondClaim = await commandCenter.runPromise(
-      ccRepository.mutate({
-        canvasName: canvas,
-        nodeId: node,
-        entityHome: route,
-        eventHome: cc,
-        materialization: "on-disposition",
-        operation: "task.claim",
-        authoredDoc,
-        transform: (projected) => {
-          const result = workTaskClaim(
-            projected,
-            canvas,
-            node,
-            second.value.id,
-            "remote-worker",
-            workIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
-      }).pipe(Effect.either),
-    );
-    expect(Either.isLeft(secondClaim)).toBe(true);
-    if (Either.isLeft(secondClaim)) {
-      expect(secondClaim.left).toMatchObject({
-        code: "claim_contention",
-      });
-      expect(secondClaim.left.message).toContain(
-        "already has a pending task claim",
-      );
-    }
-    expect(
-      (await commandCenter.runPromise(
-        ccRepository.readSnapshot(canvas, node),
-      )).tasks.items[0],
-    ).toMatchObject({ state: "submitted" });
-
-    const [claimCommand] = await commandCenter.runPromise(
-      events(ccRepository, cc, route),
-    );
-    expect(claimCommand?.body).toContain('"operation":"task.claim"');
-    await remote.runPromise(
-      acceptCommands(remoteRepository, {
-        local: station,
-        commandCenter: cc,
-        route,
-        events: [claimCommand!],
-      }),
-    );
-    expect(
-      (await remote.runPromise(
-        remoteRepository.readSnapshot(canvas, node),
-      )).tasks.items[0],
-    ).toMatchObject({
-      state: "working",
-      metadata: { claimedBy: "remote-worker" },
-    });
-
-    const [applied] = await remote.runPromise(
-      events(remoteRepository, station, route),
-    );
-    await commandCenter.runPromise(
-      acceptRemoteFacts(ccRepository, {
-        local: cc,
-        remote: station,
-        route,
-        events: [applied!],
-      }),
-    );
-    expect(
-      (await commandCenter.runPromise(
-        ccRepository.readSnapshot(canvas, node),
-      )).tasks.items[0],
-    ).toMatchObject({
-      state: "working",
-      metadata: { claimedBy: "remote-worker" },
-    });
-
-    await remote.runPromise(
-      remoteRepository.mutate({
-        canvasName: canvas,
-        nodeId: node,
-        entityHome: route,
-        eventHome: station,
-        operation: "task.transition",
-        authoredDoc,
-        transform: (projected) => {
-          const result = workTaskTransition(
-            projected,
-            canvas,
-            node,
-            created.value.id,
-            "completed",
-            "demo shipped",
-            workIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
-      }),
-    );
-    const remoteProgress = await remote.runPromise(
-      events(remoteRepository, station, route, "1"),
-    );
-    await commandCenter.runPromise(
-      acceptRemoteFacts(ccRepository, {
-        local: cc,
-        remote: station,
-        route,
-        events: remoteProgress,
-      }),
-    );
-    expect(
-      (await commandCenter.runPromise(
-        ccRepository.readSnapshot(canvas, node),
-      )).tasks.items[0],
-    ).toMatchObject({ state: "completed" });
-
-    await commandCenter.dispose();
-    await remote.dispose();
+const accept = (
+  repository: typeof WorkRepository.Service,
+  senderInstallationId: InstallationIdValue,
+  records: ReadonlyArray<WorkRecordValue>,
+  options?: {
+    readonly authorizeCommand?: Parameters<
+      typeof repository.acceptRecords
+    >[0]["authorizeCommand"];
+    readonly authorizeFact?: Parameters<
+      typeof repository.acceptRecords
+    >[0]["authorizeFact"];
+    readonly admitResponse?: Parameters<
+      typeof repository.acceptRecords
+    >[0]["admitResponse"];
+  },
+) =>
+  repository.acceptRecords({
+    senderInstallationId,
+    records,
+    receivedAt: observedAt,
+    authorizeCommand: options?.authorizeCommand ?? admitted,
+    authorizeFact: options?.authorizeFact ?? admitted,
+    admitResponse: options?.admitResponse ?? admitted,
   });
 
-  it("rejects a route sequence gap without materializing or advancing its ACK", async () => {
-    const commandCenter = runtime();
-    const remote = runtime();
-    const source = await commandCenter.runPromise(WorkRepository);
-    const target = await remote.runPromise(WorkRepository);
-    const cc = installation("cc-gap");
-    const station = installation("station-gap");
+const reseal = (
+  candidate: WorkRecordValue,
+): WorkRecordValue => {
+  const {
+    contentSha256: _contentSha256,
+    originAt: _originAt,
+    ...semantic
+  } = candidate;
+  return Schema.decodeUnknownSync(WorkRecord, {
+    onExcessProperty: "error",
+  })({
+    ...candidate,
+    contentSha256: workRecordContentSha256(
+      semantic as Parameters<typeof workRecordContentSha256>[0],
+    ),
+  });
+};
 
-    await commandCenter.runPromise(
-      createTask(source, {
-        canvasName: "factory",
-        nodeId: "remote-tasks",
-        entityHome: "studio",
-        eventHome: cc,
-        brief: "first routed command",
-        ids: ids("gap"),
-        materialization: "on-disposition",
+describe("WorkRepository v2 report reconciliation", () => {
+  it("adopts one CC task on a Remote and integrates returned facts rather than replaying the command", async () => {
+    const cc = installation("cc-first-adoption");
+    const remote = installation("remote-first-adoption");
+    const commandCenter = await openInstallation(cc, [remote]);
+    const station = await openInstallation(remote, [cc]);
+    const sink = { canvasName: "factory", nodeId: "shared-tasks" };
+    const worker = actor("a", "remote-worker");
+
+    const created = await commandCenter.runtime.runPromise(
+      commandCenter.repository.createTask({
+        sink,
+        task: {
+          id: "task-first-adoption",
+          state: "submitted",
+          history: [
+            message(
+              "brief-first-adoption",
+              "user",
+              "ship the beta",
+              "task-first-adoption",
+            ),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
       }),
     );
-    const [first] = await commandCenter.runPromise(
-      events(source, cc, "studio"),
+    const command = await commandCenter.runtime.runPromise(
+      commandCenter.repository.reserveRemoteTaskClaim({
+        targetInstallationId: remote,
+        sink,
+        taskId: created.value.id,
+        actor: worker,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
     );
-    const gap = await remote.runPromise(
-      acceptCommands(target, {
-        local: station,
-        commandCenter: cc,
-        route: "studio",
-        events: [{
-          ...first!,
-          identity: { ...first!.identity, sequence: "2" as never },
-        }],
+
+    const capacityDenied = await station.runtime.runPromise(
+      accept(station.repository, cc, [command], {
+        admitResponse: () => ({
+          _tag: "rejected",
+          message: "mandatory response exceeds ReportBatch capacity",
+        }),
       }).pipe(Effect.either),
     );
-    expect(Either.isLeft(gap)).toBe(true);
-    if (Either.isLeft(gap)) {
-      expect(gap.left).toMatchObject({
-        _tag: "WorkReplicationError",
-        reason: "sequence-gap",
+    expect(Either.isLeft(capacityDenied)).toBe(true);
+    if (Either.isLeft(capacityDenied)) {
+      expect(capacityDenied.left).toMatchObject({
+        reason: "response-capacity",
       });
     }
     expect(
-      (await remote.runPromise(
-        target.readSnapshot("factory", "remote-tasks"),
-      )).tasks.items,
+      (
+        await station.runtime.runPromise(
+          station.repository.readSnapshot(
+            sink.canvasName,
+            sink.nodeId,
+          ),
+        )
+      ).tasks.items,
     ).toEqual([]);
 
-    const accepted = await remote.runPromise(
-      acceptCommands(target, {
-        local: station,
-        commandCenter: cc,
-        route: "studio",
-        events: [first!],
-      }),
+    const remoteResult = await station.runtime.runPromise(
+      accept(station.repository, cc, [command]),
     );
-    expect(accepted.acknowledgement.through).toBe("1");
-
-    await commandCenter.dispose();
-    await remote.dispose();
-  });
-
-  it("rejects excess outer and nested work-event fields before persistence", async () => {
-    const commandCenter = runtime();
-    const remote = runtime();
-    const source = await commandCenter.runPromise(WorkRepository);
-    const target = await remote.runPromise(WorkRepository);
-    const cc = installation("cc-strict");
-    const station = installation("station-strict");
-
-    await commandCenter.runPromise(
-      createTask(source, {
-        canvasName: "factory",
-        nodeId: "remote-tasks",
-        entityHome: "studio",
-        eventHome: cc,
-        brief: "strict routed command",
-        ids: ids("strict"),
-        materialization: "on-disposition",
-      }),
-    );
-    const [event] = await commandCenter.runPromise(
-      events(source, cc, "studio"),
-    );
-    const outer = rewriteEventBody(event!, (body) => ({
-      ...body,
-      legacyToken: "retired",
-    }));
-    const nested = rewriteEventBody(event!, (body) => ({
-      ...body,
-      body: {
-        ...(body.body as Record<string, unknown>),
-        legacyToken: "retired",
-      },
-    }));
-
-    for (const candidate of [outer, nested]) {
-      const rejected = await remote.runPromise(
-        acceptCommands(target, {
-          local: station,
-          commandCenter: cc,
-          route: "studio",
-          events: [candidate],
-        }).pipe(Effect.either),
-      );
-      expect(Either.isLeft(rejected)).toBe(true);
-      if (Either.isLeft(rejected)) {
-        expect(rejected.left).toMatchObject({
-          _tag: "WorkReplicationError",
-          reason: "invalid-payload",
-        });
-      }
-    }
-    expect(
-      (await remote.runPromise(
-        target.readSnapshot("factory", "remote-tasks"),
-      )).tasks.items,
-    ).toEqual([]);
-
-    const accepted = await remote.runPromise(
-      acceptCommands(target, {
-        local: station,
-        commandCenter: cc,
-        route: "studio",
-        events: [event!],
-      }),
-    );
-    expect(accepted.acknowledgement.through).toBe("1");
-
-    await commandCenter.dispose();
-    await remote.dispose();
-  });
-
-  it("keeps a Remote command pending on CC until the ordered applied disposition returns", async () => {
-    const commandCenter = runtime();
-    const remote = runtime();
-    const ccRepository = await commandCenter.runPromise(WorkRepository);
-    const remoteRepository = await remote.runPromise(WorkRepository);
-    const cc = installation("cc-accepted");
-    const station = installation("station-accepted");
-
-    const queued = await commandCenter.runPromise(
-      createTask(ccRepository, {
-        canvasName: "factory",
-        nodeId: "remote-tasks",
-        entityHome: "studio",
-        eventHome: cc,
-        brief: "render the release",
-        ids: ids("accepted"),
-        materialization: "on-disposition",
-      }),
-    );
-    expect(queued.disposition).toBe("queued");
-    expect(
-      await commandCenter.runPromise(ccRepository.commandStatus),
-    ).toMatchObject({
-      counts: { pending: 1, applied: 0, rejected: 0 },
-      pending: [{
-        command: { eventHome: cc, entityHome: "studio", seq: "1" },
-        canvasName: "factory",
-        nodeId: "remote-tasks",
-        entityKind: "task",
-        operation: "task.create",
-      }],
-      rejections: [],
-      truncated: { pending: false, rejections: false },
-    });
-    expect(
-      (await commandCenter.runPromise(
-        ccRepository.readSnapshot("factory", "remote-tasks"),
-      )).tasks.items,
-    ).toEqual([]);
-
-    const commands = await commandCenter.runPromise(
-      events(ccRepository, cc, "studio"),
-    );
-    const commandReceipt = await remote.runPromise(
-      acceptCommands(remoteRepository, {
-        local: station,
-        commandCenter: cc,
-        route: "studio",
-        events: commands,
-      }),
-    );
-    expect(commandReceipt).toMatchObject({
+    expect(remoteResult).toMatchObject({
       accepted: 1,
+      idempotent: 0,
       rejected: 0,
-      acknowledgement: { home: cc, through: "1" },
+      acknowledge: [
+        { eventHome: cc, entityHome: remote, through: "1" },
+      ],
+    });
+    expect(remoteResult.emitted.map((record) => record.recordType)).toEqual([
+      "fact",
+      "disposition",
+    ]);
+    const [claimFact, applied] = remoteResult.emitted;
+    expect(claimFact).toMatchObject({
+      recordType: "fact",
+      operation: "task.claim",
+      predecessor: null,
+      id: {
+        route: { eventHome: remote, entityHome: remote },
+        seq: "1",
+      },
+      body: {
+        previousHome: cc,
+        claimedBy: worker,
+        task: { state: "working", claimedBy: worker.seatId },
+      },
+    });
+    expect(applied).toMatchObject({
+      recordType: "disposition",
+      id: {
+        route: { eventHome: remote, entityHome: remote },
+        seq: "2",
+      },
+      body: {
+        status: "applied",
+        command: command.id,
+        commandSha256: command.contentSha256,
+      },
     });
     expect(
-      (await remote.runPromise(
-        remoteRepository.readSnapshot("factory", "remote-tasks"),
-      )).tasks.items[0]?.history[0]?.parts[0],
-    ).toEqual({ kind: "text", text: "render the release" });
-
-    const dispositions = await remote.runPromise(
-      events(remoteRepository, station, "studio"),
-    );
-    expect(dispositions).toHaveLength(1);
-    expect(dispositions[0]?.body).toContain(
-      '"disposition":"applied"',
-    );
-    await commandCenter.runPromise(
-      acceptRemoteFacts(ccRepository, {
-        local: cc,
-        remote: station,
-        route: "studio",
-        events: dispositions,
-      }),
-    );
-    expect(
-      await commandCenter.runPromise(ccRepository.commandStatus),
-    ).toMatchObject({
-      counts: { pending: 0, applied: 1, rejected: 0 },
-      pending: [],
-      rejections: [],
-    });
-    expect(
-      (await commandCenter.runPromise(
-        ccRepository.readSnapshot("factory", "remote-tasks"),
-      )).tasks.items[0]?.history[0]?.parts[0],
-    ).toEqual({ kind: "text", text: "render the release" });
-
-    const retry = await remote.runPromise(
-      acceptCommands(remoteRepository, {
-        local: station,
-        commandCenter: cc,
-        route: "studio",
-        events: commands,
-      }),
-    );
-    expect(retry).toMatchObject({
-      accepted: 0,
-      idempotent: 1,
-      rejected: 0,
-      acknowledgement: { home: cc, through: "1" },
-    });
-    expect(
-      await remote.runPromise(events(remoteRepository, station, "studio")),
-    ).toHaveLength(1);
-
-    await commandCenter.dispose();
-    await remote.dispose();
-  });
-
-  it("fails closed before role selection, then queues and converges after explicit CC/Remote configuration", async () => {
-    const commandCenter = serviceRuntime();
-    const remote = serviceRuntime();
-    const ccWork = await commandCenter.runPromise(WorkService);
-    const ccCanvases = await commandCenter.runPromise(CanvasesService);
-    const ccRepository = await commandCenter.runPromise(WorkRepository);
-    const ccStations = await commandCenter.runPromise(StationRepository);
-    const ccSettings = await commandCenter.runPromise(SettingsService);
-    const remoteWork = await remote.runPromise(WorkService);
-    const remoteRepository = await remote.runPromise(WorkRepository);
-    const remoteStations = await remote.runPromise(StationRepository);
-    const cc = await commandCenter.runPromise(ccStations.installationId);
-    const station = await remote.runPromise(remoteStations.installationId);
-    const canvas = "explicit-topology";
-    const node = "studio-tasks";
-    const route = "studio";
-
-    await commandCenter.runPromise(
-      ccCanvases.write(canvas, taskCanvas(node, route)),
-    );
-    const unset = await commandCenter.runPromise(
-      ccWork.workTaskCreate(canvas, node, "must not infer a role"),
-    );
-    const denied = [
-      unset,
-      await commandCenter.runPromise(
-        ccWork.workTaskDescribe(canvas, node, "task", "brief"),
-      ),
-      await commandCenter.runPromise(
-        ccWork.workTaskTransition(canvas, node, "task", "working"),
-      ),
-      await commandCenter.runPromise(
-        ccWork.workTaskClaim(canvas, node, "task", "actor"),
-      ),
-      await commandCenter.runPromise(
-        ccWork.workMessageAppend(canvas, node, null, {
-          messageId: "message",
-          role: "user",
-          parts: [{ kind: "text", text: "message" }],
-        }),
-      ),
-      await commandCenter.runPromise(
-        ccWork.workRequestCreate(canvas, node, "request"),
-      ),
-      await commandCenter.runPromise(
-        ccWork.workRequestResolve(
-          canvas,
-          node,
-          "request",
-          "response",
-          "completed",
+      await station.runtime.runPromise(
+        station.repository.itemHome(
+          "task",
+          sink.canvasName,
+          sink.nodeId,
+          created.value.id,
         ),
       ),
-      await commandCenter.runPromise(
-        ccWork.workArtifactPublish(canvas, node, {
-          artifactId: "artifact",
-          parts: [{ kind: "text", text: "artifact" }],
-        }),
-      ),
-    ];
-    expect(denied).toHaveLength(8);
-    for (const result of denied) {
-      expect(result).toMatchObject({
-        ok: false,
-        code: "invalid",
-        message: expect.stringContaining("station role is not configured"),
-      });
-    }
-    expect(
-      await commandCenter.runPromise(events(ccRepository, cc, route)),
-    ).toEqual([]);
-    expect(
-      await commandCenter.runPromise(ccRepository.commandStatus),
-    ).toMatchObject({
-      counts: { pending: 0, applied: 0, rejected: 0 },
-    });
+    ).toBe(remote);
 
-    await commandCenter.runPromise(
-      ccSettings.setStationTopology({
-        role: "command-center",
-        hostId: "command",
-        supervisedPreferred: true,
-      }),
+    const integrated = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, remoteResult.emitted),
     );
-    await remote.runPromise(
-      remoteStations.pair(
-        PairRequest.make({
-          protocol: STATION_API_PROTOCOL,
-          op: "pair",
-          commandCenterInstallationId: cc,
-          stationInstallationId: station,
-          stationLabel: "Studio",
-          appVersion: "test",
-        }),
-      ),
-    );
-    await remote.runPromise(
-      remoteStations.configureRemote(
-        ConfigureRequest.make({
-          protocol: STATION_API_PROTOCOL,
-          op: "configure",
-          installationId: station,
-          configuration: {
-            role: "remote",
-            hostId: stationHost(route),
-            agentHostId: stationHost(route),
-            commandCenterInstallationId: cc,
-            supervisedPreferred: true,
-          },
-          host: {
-            id: route,
-            label: route,
-            kind: "remote",
-            sshEndpoint: route,
-            capabilities: ["terminal", "browser", "hermes"],
-          },
-        }),
-      ),
-    );
-    const remoteInbox = await remote.runPromise(
-      remoteWork.workMessageAppend("remote-inbox", "agent", null, {
-        messageId: "remote-inbox-message",
-        role: "user",
-        parts: [{ kind: "text", text: "must stay on Command Center" }],
-      }),
-    );
-    expect(remoteInbox).toMatchObject({
-      ok: false,
-      code: "invalid",
-      message: expect.stringContaining(
-        "messages are Command-Center-homed",
-      ),
+    expect(integrated).toMatchObject({
+      accepted: 2,
+      idempotent: 0,
+      rejected: 0,
+      acknowledge: [
+        { eventHome: remote, entityHome: remote, through: "2" },
+      ],
+      emitted: [],
     });
     expect(
-      await remote.runPromise(
-        events(
-          remoteRepository,
-          station,
-          COMMAND_CENTER_WORK_HOME,
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(
+            sink.canvasName,
+            sink.nodeId,
+          ),
+        )
+      ).tasks.items[0],
+    ).toMatchObject({
+      id: created.value.id,
+      state: "working",
+      claimedBy: worker.seatId,
+    });
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.repository.itemHome(
+          "task",
+          sink.canvasName,
+          sink.nodeId,
+          created.value.id,
         ),
       ),
-    ).toEqual([]);
+    ).toBe(remote);
     expect(
-      (await remote.runPromise(
-        remoteRepository.readSnapshot("remote-inbox", "agent"),
-      )).messages.items,
-    ).toEqual([]);
+      (await commandCenter.runtime.runPromise(
+        commandCenter.repository.pendingCommands,
+      ))[0],
+    ).toMatchObject({ resolution: { status: "applied" } });
 
-    const queued = await commandCenter.runPromise(
-      ccWork.workTaskCreate(canvas, node, "explicitly routed"),
-    );
-    expect(queued).toMatchObject({
-      ok: true,
-      disposition: "queued",
-    });
-    const commands = await commandCenter.runPromise(
-      events(ccRepository, cc, route),
-    );
-    expect(commands).toHaveLength(1);
-    await remote.runPromise(
-      acceptCommands(remoteRepository, {
-        local: station,
-        commandCenter: cc,
-        route,
-        events: commands,
+    const completed = await station.runtime.runPromise(
+      station.repository.transitionTask({
+        sink,
+        taskId: created.value.id,
+        state: "completed",
+        message: message(
+          "done-first-adoption",
+          "agent",
+          "done",
+          created.value.id,
+        ),
+        originAt: observedAt,
+        receivedAt: observedAt,
       }),
     );
-    const dispositions = await remote.runPromise(
-      events(remoteRepository, station, route),
-    );
-    await commandCenter.runPromise(
-      acceptRemoteFacts(ccRepository, {
-        local: cc,
-        remote: station,
-        route,
-        events: dispositions,
-      }),
-    );
-
-    expect(
-      (await commandCenter.runPromise(
-        ccRepository.readSnapshot(canvas, node),
-      )).tasks.items[0]?.history[0]?.parts[0],
-    ).toEqual({ kind: "text", text: "explicitly routed" });
-    expect(
-      await commandCenter.runPromise(ccRepository.commandStatus),
-    ).toMatchObject({
-      counts: { pending: 0, applied: 1, rejected: 0 },
+    expect(completed.record.id.seq).toBe("3");
+    expect(completed.record.predecessor).toEqual(claimFact!.id);
+    const wrongPredecessor = reseal({
+      ...completed.record,
+      predecessor: remoteResult.emitted[1]!.id,
     });
-
-    await commandCenter.dispose();
-    await remote.dispose();
+    const causalFailure = await commandCenter.runtime.runPromise(
+      accept(
+        commandCenter.repository,
+        remote,
+        [wrongPredecessor],
+      ).pipe(Effect.either),
+    );
+    expect(Either.isLeft(causalFailure)).toBe(true);
+    if (Either.isLeft(causalFailure)) {
+      expect(causalFailure.left).toMatchObject({
+        reason: "causal-conflict",
+      });
+    }
+    await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [completed.record]),
+    );
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(
+            sink.canvasName,
+            sink.nodeId,
+          ),
+        )
+      ).tasks.items[0]?.state,
+    ).toBe("completed");
   });
 
-  it("converges an offline Remote branch through rejection and accepts the next reconciled command", async () => {
-    const commandCenter = runtime();
-    const remote = runtime();
-    const ccRepository = await commandCenter.runPromise(WorkRepository);
-    const remoteRepository = await remote.runPromise(WorkRepository);
-    const cc = installation("cc-concurrent");
-    const station = installation("station-concurrent");
-    const route = "studio";
-    const node = "remote-tasks";
-    const canvas = "factory";
-    const sourceIds = ids("cc");
-    const remoteIds = ids("remote");
-    const authoredDoc = taskCanvas(node, route);
+  it("replays the exact durable fact/disposition and commits rejections as outcomes", async () => {
+    const cc = installation("cc-replay");
+    const remote = installation("remote-replay");
+    const commandCenter = await openInstallation(cc, [remote]);
+    const station = await openInstallation(remote, [cc]);
+    const sink = { canvasName: "factory", nodeId: "replay-tasks" };
+    const worker = actor("b");
 
-    const created = await commandCenter.runPromise(
-      createTask(ccRepository, {
-        canvasName: canvas,
-        nodeId: node,
-        entityHome: route,
-        eventHome: cc,
-        brief: "initial brief",
-        ids: sourceIds,
-        materialization: "on-disposition",
-      }),
-    );
-    const createCommands = await commandCenter.runPromise(
-      events(ccRepository, cc, route),
-    );
-    await remote.runPromise(
-      acceptCommands(remoteRepository, {
-        local: station,
-        commandCenter: cc,
-        route,
-        events: createCommands,
-      }),
-    );
-    const initialDisposition = await remote.runPromise(
-      events(remoteRepository, station, route),
-    );
-    await commandCenter.runPromise(
-      acceptRemoteFacts(ccRepository, {
-        local: cc,
-        remote: station,
-        route,
-        events: initialDisposition,
-      }),
-    );
-
-    await remote.runPromise(
-      remoteRepository.mutate({
-        canvasName: canvas,
-        nodeId: node,
-        entityHome: route,
-        eventHome: station,
-        materialization: "immediate",
-        operation: "task.claim",
-        authoredDoc,
-        transform: (projected) => {
-          const result = workTaskClaim(
-            projected,
-            canvas,
-            node,
-            created.value.id,
-            "agent-studio",
-            remoteIds,
-          );
-          return { doc: result.doc, value: result.task };
+    const created = await commandCenter.runtime.runPromise(
+      commandCenter.repository.createTask({
+        sink,
+        task: {
+          id: "task-replay",
+          state: "submitted",
+          history: [
+            message("brief-replay", "user", "retry me", "task-replay"),
+          ],
         },
+        originAt: observedAt,
+        receivedAt: observedAt,
       }),
     );
-    await commandCenter.runPromise(
-      ccRepository.mutate({
-        canvasName: canvas,
-        nodeId: node,
-        entityHome: route,
-        eventHome: cc,
-        materialization: "on-disposition",
-        operation: "task.describe",
-        authoredDoc,
-        transform: (projected) => {
-          const result = workTaskDescribe(
-            projected,
-            canvas,
-            node,
-            created.value.id,
-            "stale Command Center edit",
-            sourceIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
+    const command = await commandCenter.runtime.runPromise(
+      commandCenter.repository.reserveRemoteTaskClaim({
+        targetInstallationId: remote,
+        sink,
+        taskId: created.value.id,
+        actor: worker,
+        originAt: observedAt,
+        receivedAt: observedAt,
       }),
     );
-    expect(
-      await commandCenter.runPromise(ccRepository.commandStatus),
-    ).toMatchObject({
-      counts: { pending: 1, applied: 1, rejected: 0 },
-      pending: [{
-        command: { eventHome: cc, entityHome: route, seq: "2" },
-        operation: "task.describe",
-      }],
-    });
-    const duplicatePending = await commandCenter.runPromise(
-      ccRepository.mutate({
-        canvasName: canvas,
-        nodeId: node,
-        entityHome: route,
-        eventHome: cc,
-        materialization: "on-disposition",
-        operation: "task.describe",
-        authoredDoc,
-        transform: (projected) => {
-          const result = workTaskDescribe(
-            projected,
-            canvas,
-            node,
-            created.value.id,
-            "second speculative edit",
-            sourceIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
-      }).pipe(Effect.either),
-    );
-    expect(Either.isLeft(duplicatePending)).toBe(true);
-    if (Either.isLeft(duplicatePending)) {
-      expect(duplicatePending.left).toMatchObject({
-        code: "invalid",
-      });
-      expect(duplicatePending.left.message).toContain(
-        "already has a pending Remote command",
-      );
-    }
-    const [staleCommand] = await commandCenter.runPromise(
-      events(ccRepository, cc, route, "1"),
-    );
-
-    const rejected = await remote.runPromise(
-      acceptCommands(remoteRepository, {
-        local: station,
-        commandCenter: cc,
-        route,
-        events: [staleCommand!],
+    const first = await station.runtime.runPromise(
+      accept(station.repository, cc, [command], {
+        authorizeCommand: () => ({
+          _tag: "rejected",
+          reason: "capability-denied",
+          message: "projection edge was revoked",
+        }),
       }),
     );
-    expect(rejected).toMatchObject({
+    expect(first).toMatchObject({
       accepted: 0,
       rejected: 1,
-      acknowledgement: { home: cc, through: "2" },
+      idempotent: 0,
     });
-    expect(
-      await remote.runPromise(remoteRepository.commandStatus),
-    ).toMatchObject({
-      counts: { pending: 0, applied: 0, rejected: 0 },
-      pending: [],
-      rejections: [],
-      truncated: { pending: false, rejections: false },
-    });
-
-    const orderedRemoteFacts = await remote.runPromise(
-      events(remoteRepository, station, route, "1"),
-    );
-    expect(orderedRemoteFacts).toHaveLength(2);
-    expect(orderedRemoteFacts[0]?.body).toContain('"operation":"task.claim"');
-    expect(orderedRemoteFacts[1]?.body).toContain(
-      '"disposition":"rejected"',
-    );
-    await commandCenter.runPromise(
-      acceptRemoteFacts(ccRepository, {
-        local: cc,
-        remote: station,
-        route,
-        events: orderedRemoteFacts,
-      }),
-    );
-
-    const converged = await commandCenter.runPromise(
-      ccRepository.readSnapshot(canvas, node),
-    );
-    expect(converged.tasks.items[0]).toMatchObject({
-      state: "working",
-      metadata: { claimedBy: "agent-studio" },
-    });
-    expect(converged.tasks.items[0]?.history[0]?.parts[0]).toEqual({
-      kind: "text",
-      text: "initial brief",
-    });
-    expect(
-      await commandCenter.runPromise(
-        ccRepository.rejectionsForRoute(route),
-      ),
-    ).toMatchObject([{
-      rejected: { eventHome: cc, entityHome: route, seq: "2" },
-      reportedBy: station,
-      reason: "causal-conflict",
-    }]);
-    expect(
-      await commandCenter.runPromise(ccRepository.commandStatus),
-    ).toMatchObject({
-      counts: { pending: 0, applied: 1, rejected: 1 },
-      pending: [],
-      rejections: [{
-        rejected: { eventHome: cc, entityHome: route, seq: "2" },
-        reportedBy: station,
-        reason: "causal-conflict",
-      }],
-      truncated: { pending: false, rejections: false },
+    expect(first.emitted).toHaveLength(1);
+    expect(first.emitted[0]).toMatchObject({
+      recordType: "disposition",
+      body: {
+        status: "rejected",
+        reason: "capability-denied",
+        command: command.id,
+      },
     });
 
-    const retry = await remote.runPromise(
-      acceptCommands(remoteRepository, {
-        local: station,
-        commandCenter: cc,
-        route,
-        events: [staleCommand!],
-      }),
+    const replay = await station.runtime.runPromise(
+      accept(station.repository, cc, [command]),
     );
-    expect(retry).toMatchObject({
+    expect(replay).toMatchObject({
       accepted: 0,
-      idempotent: 1,
       rejected: 0,
-      acknowledgement: { home: cc, through: "2" },
+      idempotent: 1,
+      acknowledge: [
+        { eventHome: cc, entityHome: remote, through: "1" },
+      ],
     });
+    expect(replay.emitted).toEqual(first.emitted);
 
-    await commandCenter.runPromise(
-      ccRepository.mutate({
-        canvasName: canvas,
-        nodeId: node,
-        entityHome: route,
-        eventHome: cc,
-        materialization: "on-disposition",
-        operation: "task.describe",
-        authoredDoc,
-        transform: (projected) => {
-          const result = workTaskDescribe(
-            projected,
-            canvas,
-            node,
-            created.value.id,
-            "reconciled Command Center edit",
-            sourceIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
-      }),
+    await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, first.emitted),
     );
-    const [nextCommand] = await commandCenter.runPromise(
-      events(ccRepository, cc, route, "2"),
-    );
-    await remote.runPromise(
-      acceptCommands(remoteRepository, {
-        local: station,
-        commandCenter: cc,
-        route,
-        events: [nextCommand!],
-      }),
-    );
-    const [appliedDisposition] = await remote.runPromise(
-      events(remoteRepository, station, route, "3"),
-    );
-    await commandCenter.runPromise(
-      acceptRemoteFacts(ccRepository, {
-        local: cc,
-        remote: station,
-        route,
-        events: [appliedDisposition!],
-      }),
-    );
-
-    const ccFinal = await commandCenter.runPromise(
-      ccRepository.readSnapshot(canvas, node),
-    );
-    const remoteFinal = await remote.runPromise(
-      remoteRepository.readSnapshot(canvas, node),
-    );
-    expect(ccFinal.tasks.items).toEqual(remoteFinal.tasks.items);
-    expect(ccFinal.tasks.items[0]?.history[0]?.parts[0]).toEqual({
-      kind: "text",
-      text: "reconciled Command Center edit",
-    });
-
-    await commandCenter.dispose();
-    await remote.dispose();
+    const source = (
+      await commandCenter.runtime.runPromise(
+        commandCenter.repository.readSnapshot(
+          sink.canvasName,
+          sink.nodeId,
+        ),
+      )
+    ).tasks.items[0]!;
+    expect(source.state).toBe("submitted");
+    expect(source.claimedBy).toBeUndefined();
+    expect(
+      (await commandCenter.runtime.runPromise(
+        commandCenter.repository.pendingCommands,
+      ))[0],
+    ).toMatchObject({ resolution: { status: "rejected" } });
   });
 
-  it("isolates two Remote routes that each originate sequence one", async () => {
-    const commandCenter = runtime();
-    const remoteA = runtime();
-    const remoteB = runtime();
-    const ccRepository = await commandCenter.runPromise(WorkRepository);
-    const cc = installation("cc-routes");
-    const routes = [
-      {
-        runtime: remoteA,
-        repository: await remoteA.runPromise(WorkRepository),
-        host: "host-a",
-        node: "tasks-a",
-        station: installation("station-a"),
-      },
-      {
-        runtime: remoteB,
-        repository: await remoteB.runPromise(WorkRepository),
-        host: "host-b",
-        node: "tasks-b",
-        station: installation("station-b"),
-      },
-    ] as const;
+  it("rolls back gaps, hash conflicts, fact denial, and false local authority without advancing a cursor", async () => {
+    const cc = installation("cc-integrity");
+    const remote = installation("remote-integrity");
+    const impostor = installation("other-known-installation");
+    const commandCenter = await openInstallation(cc, [remote, impostor]);
+    const station = await openInstallation(remote, [cc, impostor]);
+    const other = await openInstallation(impostor, [cc, remote]);
+    const sink = { canvasName: "factory", nodeId: "integrity-tasks" };
+    const worker = actor("c");
 
-    for (const route of routes) {
-      await commandCenter.runPromise(
-        createTask(ccRepository, {
-          canvasName: "factory",
-          nodeId: route.node,
-          entityHome: route.host,
-          eventHome: cc,
-          brief: `work for ${route.host}`,
-          ids: ids(route.host),
-          materialization: "on-disposition",
-        }),
-      );
-      const commands = await commandCenter.runPromise(
-        events(ccRepository, cc, route.host),
-      );
-      expect(commands[0]?.identity.sequence).toBe("1");
-      await route.runtime.runPromise(
-        acceptCommands(route.repository, {
-          local: route.station,
-          commandCenter: cc,
-          route: route.host,
-          events: commands,
-        }),
-      );
-      const dispositions = await route.runtime.runPromise(
-        events(route.repository, route.station, route.host),
-      );
-      expect(dispositions[0]?.identity.sequence).toBe("1");
-      await commandCenter.runPromise(
-        acceptRemoteFacts(ccRepository, {
-          local: cc,
-          remote: route.station,
-          route: route.host,
-          events: dispositions,
-        }),
-      );
+    const created = await commandCenter.runtime.runPromise(
+      commandCenter.repository.createTask({
+        sink,
+        task: {
+          id: "task-integrity",
+          state: "submitted",
+          history: [
+            message(
+              "brief-integrity",
+              "user",
+              "protect me",
+              "task-integrity",
+            ),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const command = await commandCenter.runtime.runPromise(
+      commandCenter.repository.reserveRemoteTaskClaim({
+        targetInstallationId: remote,
+        sink,
+        taskId: created.value.id,
+        actor: worker,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+
+    const gap = reseal({
+      ...command,
+      id: { ...command.id, seq: "2" as typeof command.id.seq },
+    });
+    const gapResult = await station.runtime.runPromise(
+      accept(station.repository, cc, [gap]).pipe(Effect.either),
+    );
+    expect(Either.isLeft(gapResult)).toBe(true);
+    if (Either.isLeft(gapResult)) {
+      expect(gapResult.left).toMatchObject({ reason: "sequence-gap" });
     }
 
-    expect(
-      (await commandCenter.runPromise(
-        ccRepository.readSnapshot("factory", "tasks-a"),
-      )).tasks.items[0]?.history[0]?.parts[0],
-    ).toEqual({ kind: "text", text: "work for host-a" });
-    expect(
-      (await commandCenter.runPromise(
-        ccRepository.readSnapshot("factory", "tasks-b"),
-      )).tasks.items[0]?.history[0]?.parts[0],
-    ).toEqual({ kind: "text", text: "work for host-b" });
+    const falseAuthority = await other.runtime.runPromise(
+      accept(other.repository, cc, [command]).pipe(Effect.either),
+    );
+    expect(Either.isLeft(falseAuthority)).toBe(true);
+    if (Either.isLeft(falseAuthority)) {
+      expect(falseAuthority.left).toMatchObject({
+        reason: "direction-mismatch",
+      });
+    }
 
-    await commandCenter.dispose();
-    await remoteA.dispose();
-    await remoteB.dispose();
+    const badHash = {
+      ...command,
+      contentSha256: "f".repeat(64) as typeof command.contentSha256,
+    };
+    const hashResult = await station.runtime.runPromise(
+      accept(station.repository, cc, [badHash]).pipe(Effect.either),
+    );
+    expect(Either.isLeft(hashResult)).toBe(true);
+    if (Either.isLeft(hashResult)) {
+      expect(hashResult.left).toMatchObject({ reason: "integrity" });
+    }
+
+    const remoteResult = await station.runtime.runPromise(
+      accept(station.repository, cc, [command]),
+    );
+    expect(remoteResult.acknowledge).toEqual([
+      { eventHome: cc, entityHome: remote, through: "1" },
+    ]);
+    const denied = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, remoteResult.emitted, {
+        authorizeFact: () => ({
+          _tag: "rejected",
+          reason: "locality-mismatch",
+          message: "projection no longer admits this fact",
+        }),
+      }).pipe(Effect.either),
+    );
+    expect(Either.isLeft(denied)).toBe(true);
+    if (Either.isLeft(denied)) {
+      expect(denied.left).toMatchObject({ reason: "causal-conflict" });
+    }
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(
+            sink.canvasName,
+            sink.nodeId,
+          ),
+        )
+      ).tasks.items[0]?.state,
+    ).toBe("submitted");
+    expect(
+      (await commandCenter.runtime.runPromise(
+        commandCenter.repository.pendingCommands,
+      ))[0]?.resolution,
+    ).toBeUndefined();
+
+    const admittedResult = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, remoteResult.emitted),
+    );
+    expect(admittedResult.acknowledge).toEqual([
+      { eventHome: remote, entityHome: remote, through: "2" },
+    ]);
+
+    if (command.body.operation !== "task.claim") {
+      throw new Error("test claim command narrowed incorrectly");
+    }
+    const conflicting = reseal({
+      ...command,
+      body: {
+        ...command.body,
+        sourceTask: {
+          ...command.body.sourceTask,
+          metadata: { conflicting: true },
+        },
+      },
+    });
+    const conflict = await station.runtime.runPromise(
+      accept(station.repository, cc, [conflicting]).pipe(Effect.either),
+    );
+    expect(Either.isLeft(conflict)).toBe(true);
+    if (Either.isLeft(conflict)) {
+      expect(conflict.left).toBeInstanceOf(WorkReplicationError);
+      expect(conflict.left).toMatchObject({
+        reason: "identity-conflict",
+      });
+    }
+  });
+
+  it("round-trips request.resolve commands and standalone Remote request/artifact facts", async () => {
+    const cc = installation("cc-remote-facts");
+    const remote = installation("remote-facts");
+    const commandCenter = await openInstallation(cc, [remote]);
+    const station = await openInstallation(remote, [cc]);
+    const requester = actor("d", "requester");
+    const requestSink = { canvasName: "factory", nodeId: "requests" };
+    const artifactSink = { canvasName: "factory", nodeId: "artifacts" };
+    const inbox = { canvasName: "factory", nodeId: "cc-mail" };
+
+    const request = await station.runtime.runPromise(
+      station.repository.createRequest({
+        sink: requestSink,
+        raisedBy: requester,
+        request: {
+          id: "request-remote",
+          state: "input-required",
+          claimedBy: requester.seatId,
+          history: [
+            message(
+              "request-remote-brief",
+              "agent",
+              "Approve deployment?",
+              "request-remote",
+            ),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const receivedRequest = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [request.record]),
+    );
+    expect(receivedRequest.acknowledge).toEqual([
+      { eventHome: remote, entityHome: remote, through: "1" },
+    ]);
+
+    const resolve = await commandCenter.runtime.runPromise(
+      commandCenter.repository.enqueueRemoteCommand({
+        targetInstallationId: remote,
+        sink: requestSink,
+        item: {
+          kind: "request",
+          itemId: request.value.id,
+          sink: requestSink,
+        },
+        action: {
+          operation: "request.resolve",
+          requestId: request.value.id,
+          response: "Approved",
+          disposition: "completed",
+          message: message(
+            "request-remote-answer",
+            "user",
+            "Approved",
+            request.value.id,
+          ),
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(resolve.predecessor).toEqual(request.record.id);
+
+    const remoteResolution = await station.runtime.runPromise(
+      accept(station.repository, cc, [resolve]),
+    );
+    expect(remoteResolution).toMatchObject({
+      accepted: 1,
+      acknowledge: [
+        { eventHome: cc, entityHome: remote, through: "1" },
+      ],
+    });
+    expect(remoteResolution.emitted.map((record) => record.id.seq)).toEqual([
+      "2",
+      "3",
+    ]);
+    await commandCenter.runtime.runPromise(
+      accept(
+        commandCenter.repository,
+        remote,
+        remoteResolution.emitted,
+      ),
+    );
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(
+            requestSink.canvasName,
+            requestSink.nodeId,
+          ),
+        )
+      ).requests.items[0],
+    ).toMatchObject({
+      state: "completed",
+      claimedBy: requester.seatId,
+      response: "Approved",
+    });
+
+    const artifact = await station.runtime.runPromise(
+      station.repository.publishArtifact({
+        sink: artifactSink,
+        publishedBy: requester,
+        artifact: {
+          artifactId: "artifact-remote",
+          name: "remote proof",
+          parts: [{ kind: "text", text: "proof" }],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(artifact.record.id.seq).toBe("4");
+    const artifactReport = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [artifact.record]),
+    );
+    expect(artifactReport.acknowledge).toEqual([
+      { eventHome: remote, entityHome: remote, through: "4" },
+    ]);
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(
+            artifactSink.canvasName,
+            artifactSink.nodeId,
+          ),
+        )
+      ).artifacts.items[0],
+    ).toEqual(artifact.value);
+
+    const mail = await station.runtime.runPromise(
+      station.repository.appendMessage({
+        sink: inbox,
+        message: message("remote-mail", "agent", "must stay CC-homed"),
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const deniedMail = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [mail.record], {
+        authorizeFact: (fact) =>
+          fact.operation === "message.append"
+            ? {
+                _tag: "rejected",
+                reason: "locality-mismatch",
+                message: "mail authority is Command Center",
+              }
+            : admitted(),
+      }).pipe(Effect.either),
+    );
+    expect(Either.isLeft(deniedMail)).toBe(true);
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(
+            inbox.canvasName,
+            inbox.nodeId,
+          ),
+        )
+      ).messages.items,
+    ).toEqual([]);
+
+    expect(
+      (await commandCenter.runtime.runPromise(
+        commandCenter.repository.pendingCommands,
+      ))[0],
+    ).toMatchObject({ resolution: { status: "applied" } });
   });
 });
