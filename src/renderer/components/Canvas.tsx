@@ -18,6 +18,7 @@ import {
 import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { EtherEdgeKind, EtherFlag, TextNode } from "@shared/canvas";
+import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { Ban, Boxes, Expand, Eye, FileText, Globe, Link2, ListChecks, Plus, ScanLine, SquareDashed, Terminal, Timer, Trash2 } from "lucide-react";
 import { allTemplates, type HarnessId } from "@shared/managed-terminal-templates";
 import { state$ } from "../lib/state";
@@ -99,15 +100,27 @@ const withEdgeImpact = (
   return rest;
 };
 
+const currentExecutionGraphContext = () =>
+  executionGraphContextFromActorRefs(
+    state$.canvasName.peek(),
+    state$.actorRefs.peek(),
+  );
+
 function stampImpactShell(
   nodes: FlowNode[],
   edges: FlowEdge[],
   selectedNodeId: string,
   selectedEdgeId: string,
 ): { nodes: FlowNode[]; edges: FlowEdge[]; impact: ImpactSelection } {
+  const context = currentExecutionGraphContext();
   const impact = selectedNodeId
-    ? selectionImpact(state$.doc.peek(), selectedNodeId, kernel$.execution.peek())
-    : selectionImpact(state$.doc.peek(), "", null);
+    ? selectionImpact(
+        state$.doc.peek(),
+        selectedNodeId,
+        kernel$.execution.peek(),
+        context,
+      )
+    : selectionImpact(state$.doc.peek(), "", null, context);
   if (impactModeActive$.peek() !== impact.active) impactModeActive$.set(impact.active);
   return {
     impact,
@@ -146,7 +159,12 @@ function applyStructuralRebuild(
   edgeFilter: EtherEdgeKind | "",
   flagFilter: EtherFlag | "",
 ): void {
-  const built = toFlow(state$.doc.peek(), kernel$.execution.peek(), flowCache);
+  const built = toFlow(
+    state$.doc.peek(),
+    currentExecutionGraphContext(),
+    kernel$.execution.peek(),
+    flowCache,
+  );
   const nodeId = state$.selectedNodeId.peek();
   const edgeId = state$.selectedEdgeId.peek();
   const visibleNodes = flagFilter
@@ -239,6 +257,7 @@ function useCanvasDocument(
   useEffect(() => {
     const offs = [
       state$.docVersion.onChange(() => rebuild()),
+      state$.actorRefs.onChange(() => rebuild()),
       kernel$.executionRev.onChange(() => rebuild()),
     ];
     return () => {
@@ -267,9 +286,15 @@ function useCanvasDocument(
       pendingSelection = false;
       const selectedNodeId = state$.selectedNodeId.peek();
       const selectedEdgeId = state$.selectedEdgeId.peek();
+      const context = currentExecutionGraphContext();
       const impact: ImpactSelection = selectedNodeId
-        ? selectionImpact(state$.doc.peek(), selectedNodeId, kernel$.execution.peek())
-        : selectionImpact(state$.doc.peek(), "", null);
+        ? selectionImpact(
+            state$.doc.peek(),
+            selectedNodeId,
+            kernel$.execution.peek(),
+            context,
+          )
+        : selectionImpact(state$.doc.peek(), "", null, context);
       if (impactModeActive$.peek() !== impact.active) impactModeActive$.set(impact.active);
 
       setNodes((nodes) => {
@@ -1329,13 +1354,22 @@ function ImpactSeedChip() {
   const selectedNodeId = use$(state$.selectedNodeId);
   const docVersion = use$(state$.docVersion);
   const executionRev = use$(kernel$.executionRev);
-  const impact = useMemo(
-    () =>
-      selectedNodeId
-        ? selectionImpact(state$.doc.peek(), selectedNodeId, kernel$.execution.peek())
-        : selectionImpact(state$.doc.peek(), "", null),
-    [selectedNodeId, docVersion, executionRev],
-  );
+  const canvasName = use$(state$.canvasName);
+  const actorRefs = use$(state$.actorRefs);
+  const impact = useMemo(() => {
+    const context = executionGraphContextFromActorRefs(
+      canvasName,
+      actorRefs,
+    );
+    return selectedNodeId
+      ? selectionImpact(
+          state$.doc.peek(),
+          selectedNodeId,
+          kernel$.execution.peek(),
+          context,
+        )
+      : selectionImpact(state$.doc.peek(), "", null, context);
+  }, [actorRefs, canvasName, selectedNodeId, docVersion, executionRev]);
   if (!impact.active) return null;
   return (
     <Panel position="top-left" className="impact-hud-panel">

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
+import { executionGraphContextFromActorRefs } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { deriveRegionRollups } from "@shared/region-rollup";
 import { use$ } from "@legendapp/state/react";
@@ -120,6 +121,7 @@ const fuseWorst = (
 export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const canvasName = use$(state$.canvasName);
   const doc = use$(state$.doc);
+  const actorRefs = use$(state$.actorRefs);
   const docVersion = use$(state$.docVersion);
   const docEpoch = use$(state$.docEpoch);
   const snapshots = use$(state$.snapshots);
@@ -178,12 +180,13 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     () =>
       deriveRegionRollups({
         doc,
+        ...executionGraphContextFromActorRefs(canvasName, actorRefs),
         agentActivity,
         terminalStatusByNodeId,
       }),
     // docVersion/docEpoch bound doc identity; herdr/chat/seat via maps above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [docVersion, docEpoch, canvasName, herdrKey, agentActivity, terminalStatusByNodeId],
+    [actorRefs, docVersion, docEpoch, canvasName, herdrKey, agentActivity, terminalStatusByNodeId],
   );
 
   const [live, setLive] = useState<ReadonlyArray<RegionRollup>>([]);
