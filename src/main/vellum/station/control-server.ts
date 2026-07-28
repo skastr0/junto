@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -5,14 +6,19 @@ import {
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { homedir } from "node:os";
-import { Either } from "effect";
+import { Either, Schema } from "effect";
 import {
-  decodeStationControlRequest,
+  ReportRequest as ReportRequestSchema,
+  reportResponseSwapsDirection,
+  type ReportRequest,
+  type ReportResponse,
+  type StationReadiness,
+} from "@shared/station-api";
+import {
   stationControlErr,
   type StationControlEnvelope,
 } from "@shared/station-api-envelope";
 import {
-  STATION_CONTROL_MAX_CLIENTS,
   STATION_CONTROL_MAX_FRAME_BYTES,
   STATION_CONTROL_HOME_ENV,
   STATION_CONTROL_REQUEST_TIMEOUT_MS,
@@ -20,10 +26,17 @@ import {
   stationControlDir,
   stationControlSocketPath,
 } from "@shared/station-ssh-control";
-import type {
-  StationApiRequest,
-  StationReadiness,
-} from "@shared/station-api";
+import {
+  STATION_SESSION_PROTOCOL,
+  StationSessionRequestFrame,
+  StationSessionRequestId,
+  decideStationSessionCorrelation,
+  decodeStationSessionFrame,
+  stationSessionResponse,
+  type StationSessionFrame,
+  type StationSessionRequestFrame as StationSessionRequestFrameValue,
+  type StationSessionResponseFrame,
+} from "@shared/station-session";
 import {
   acquireControlListenerLease,
   captureControlSocketPathIdentity,
@@ -35,9 +48,6 @@ import {
   removeOwnedControlSocketPath,
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
-// OpenSSH local-socket transport adapter for the Station API.
-// Framing + peer authority live here; request execution goes through
-// `dispatcher.ts` (sole path to StationApiService.handle).
 import type {
   StationControlPeerAdmission,
   StationControlPeerAuthority,
@@ -47,15 +57,20 @@ import {
   dispatchStationApiRequest,
   stationControlErrorEnvelope,
   type RunStationApi,
+  type StationTransportAdmission,
 } from "./dispatcher";
 
 export type { RunStationApi };
 
+type StationControlReadinessObservation =
+  & Omit<StationReadiness, "session">
+  & { readonly session?: boolean };
+
 export interface StationControlServerOptions {
   readonly run: RunStationApi;
   readonly readiness: () =>
-    | StationReadiness
-    | Promise<StationReadiness>;
+    | StationControlReadinessObservation
+    | Promise<StationControlReadinessObservation>;
   /**
    * Mandatory authority seam. Production supplies the fixed-client +
    * authenticated-sshd authority; tests may inject a closed fixture.
@@ -63,6 +78,10 @@ export interface StationControlServerOptions {
   readonly peerAuthority: StationControlPeerAuthority;
   readonly home?: string;
   readonly stationHome?: string;
+  /** Tests may lower the product frame bound; callers cannot raise it. */
+  readonly maxFrameBytes?: number;
+  /** Tests may lower the product timeout; callers cannot raise it. */
+  readonly requestTimeoutMs?: number;
 }
 
 export interface StationControlShutdownReceipt {
@@ -73,13 +92,63 @@ export interface StationControlShutdownReceipt {
   readonly socketPathRetained: boolean;
 }
 
+export type StationControlReportFailure =
+  | "session-unavailable"
+  | "authority-changed"
+  | "capacity-exceeded"
+  | "request-timeout"
+  | "invalid-local-request"
+  | "protocol-error"
+  | "remote-rejected";
+
+export class StationControlReportError extends Error {
+  readonly name = "StationControlReportError";
+
+  constructor(
+    readonly failure: StationControlReportFailure,
+    message: string,
+    readonly envelope?: StationControlEnvelope,
+  ) {
+    super(message);
+  }
+}
+
 export interface StationControlServer {
   readonly socketPath: string;
   readonly stationHome: string;
   readonly ready: () => boolean;
+  readonly sessionReady: () => boolean;
+  readonly report: (request: ReportRequest) => Promise<ReportResponse>;
   beginShutdown(): void;
   close(): Promise<StationControlShutdownReceipt>;
 }
+
+interface PendingReport {
+  readonly frame: StationSessionRequestFrameValue;
+  readonly request: ReportRequest;
+  readonly resolve: (response: ReportResponse) => void;
+  readonly reject: (error: StationControlReportError) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
+interface ActiveStationControlSession {
+  readonly socket: Socket;
+  readonly peerAdmission: StationControlPeerAdmission;
+  readonly transportAdmission: StationTransportAdmission;
+  readonly pendingReports: Map<string, PendingReport>;
+  buffer: Buffer;
+  partialFrameTimer: ReturnType<typeof setTimeout> | undefined;
+  writeTail: Promise<void>;
+  queuedWriteBytes: number;
+  closed: boolean;
+}
+
+const MAX_PENDING_REPORTS = 64;
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+const decodeReportRequest = Schema.decodeUnknownEither(
+  ReportRequestSchema,
+  { onExcessProperty: "error" },
+);
 
 const liveStationControlListeners = new Map<symbol, () => boolean>();
 
@@ -112,17 +181,15 @@ export const resolveStationControlHome = (
 /** @deprecated Prefer importing from `./dispatcher` — re-exported for tests. */
 export { stationControlErrorEnvelope };
 
-const writeEnvelope = (
-  socket: Socket,
-  envelope: StationControlEnvelope,
-): void => {
-  if (socket.destroyed) return;
-  try {
-    socket.end(encodeStationControlFrame(envelope));
-  } catch {
-    socket.destroy();
-  }
-};
+const boundedPositiveInteger = (
+  requested: number | undefined,
+  maximum: number,
+): number =>
+  requested !== undefined &&
+    Number.isFinite(requested) &&
+    requested > 0
+    ? Math.min(Math.floor(requested), maximum)
+    : maximum;
 
 const closeNetServer = (server: Server): Promise<void> =>
   new Promise((resolve) => {
@@ -157,6 +224,14 @@ export const startStationControlServer = async (
     options.home,
     options.stationHome,
   );
+  const maxFrameBytes = boundedPositiveInteger(
+    options.maxFrameBytes,
+    STATION_CONTROL_MAX_FRAME_BYTES,
+  );
+  const requestTimeoutMs = boundedPositiveInteger(
+    options.requestTimeoutMs,
+    STATION_CONTROL_REQUEST_TIMEOUT_MS,
+  );
   prepareControlDirectory(stationHome);
   const socketPath = stationControlSocketPath(stationHome);
   const listenerLease = await acquireControlListenerLease(socketPath);
@@ -170,6 +245,7 @@ export const startStationControlServer = async (
   const readinessAuthority = Symbol("station-control-listener");
   const sockets = new Set<Socket>();
   const dispatches = new Set<Promise<unknown>>();
+  let activeSession: ActiveStationControlSession | undefined;
   let shuttingDown = false;
   let socketIdentity: ControlSocketPathIdentity | undefined;
   let listenerClose: Promise<void> | undefined;
@@ -205,12 +281,431 @@ export const startStationControlServer = async (
     }
   };
 
-  const server = createServer((socket) => {
+  const sessionReady = (): boolean =>
+    !shuttingDown &&
+    activeSession !== undefined &&
+    !activeSession.closed &&
+    !activeSession.socket.destroyed;
+
+  const peerStillAuthorized = (
+    session: ActiveStationControlSession,
+  ): boolean => {
+    try {
+      return options.peerAuthority.revalidate(
+        session.socket,
+        session.peerAdmission,
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const rejectPendingReports = (
+    session: ActiveStationControlSession,
+    error: StationControlReportError,
+  ): void => {
+    for (const pending of session.pendingReports.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    session.pendingReports.clear();
+  };
+
+  const terminateSession = (
+    session: ActiveStationControlSession,
+    error: StationControlReportError,
+    graceful = false,
+  ): void => {
+    if (session.closed) return;
+    session.closed = true;
+    if (session.partialFrameTimer !== undefined) {
+      clearTimeout(session.partialFrameTimer);
+      session.partialFrameTimer = undefined;
+    }
+    if (activeSession === session) activeSession = undefined;
+    rejectPendingReports(session, error);
+    if (graceful && !session.socket.destroyed) {
+      session.socket.end();
+    } else {
+      session.socket.destroy();
+    }
+  };
+
+  const trackDispatch = <A>(operation: Promise<A>): Promise<A> => {
+    dispatches.add(operation);
+    void operation
+      .finally(() => dispatches.delete(operation))
+      .catch(() => undefined);
+    return operation;
+  };
+
+  const enqueueFrame = (
+    session: ActiveStationControlSession,
+    frame: StationSessionFrame,
+  ): Promise<void> => {
+    let payload: Buffer;
+    try {
+      payload = Buffer.from(encodeStationControlFrame(frame), "utf8");
+    } catch {
+      const error = new StationControlReportError(
+        "protocol-error",
+        "station session frame exceeded its product bound",
+      );
+      terminateSession(session, error);
+      return Promise.reject(error);
+    }
     if (
-      shuttingDown ||
-      sockets.size >= STATION_CONTROL_MAX_CLIENTS
+      payload.byteLength > maxFrameBytes ||
+      session.queuedWriteBytes + payload.byteLength > maxFrameBytes
     ) {
-      socket.end();
+      const error = new StationControlReportError(
+        "capacity-exceeded",
+        "station session write queue exceeded its bound",
+      );
+      terminateSession(session, error);
+      return Promise.reject(error);
+    }
+
+    session.queuedWriteBytes += payload.byteLength;
+    const write = session.writeTail.then(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          if (session.closed || session.socket.destroyed) {
+            reject(
+              new StationControlReportError(
+                "session-unavailable",
+                "station session is not connected",
+              ),
+            );
+            return;
+          }
+          session.socket.write(payload, (error?: Error | null) => {
+            if (error !== undefined && error !== null) {
+              reject(
+                new StationControlReportError(
+                  "session-unavailable",
+                  "station session write failed",
+                ),
+              );
+              return;
+            }
+            resolve();
+          });
+        }),
+    );
+    const settled = write
+      .catch((error: unknown) => {
+        const reportError =
+          error instanceof StationControlReportError
+            ? error
+            : new StationControlReportError(
+              "session-unavailable",
+              "station session write failed",
+            );
+        terminateSession(session, reportError);
+        throw reportError;
+      })
+      .finally(() => {
+        session.queuedWriteBytes -= payload.byteLength;
+      });
+    session.writeTail = settled.catch(() => undefined);
+    return settled;
+  };
+
+  const respondToRequest = async (
+    session: ActiveStationControlSession,
+    requestFrame: StationSessionRequestFrameValue,
+    envelope: StationControlEnvelope,
+  ): Promise<void> => {
+    if (!peerStillAuthorized(session)) {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "authority-changed",
+          "station session peer authority changed",
+        ),
+      );
+      return;
+    }
+    let response: StationSessionResponseFrame;
+    try {
+      response = stationSessionResponse(requestFrame, envelope);
+    } catch {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "protocol-error",
+          "station dispatcher produced an uncorrelated response",
+        ),
+      );
+      return;
+    }
+    await enqueueFrame(session, response);
+  };
+
+  const dispatchRequest = async (
+    session: ActiveStationControlSession,
+    requestFrame: StationSessionRequestFrameValue,
+  ): Promise<void> => {
+    let readiness: StationReadiness;
+    if (requestFrame.request.op === "status") {
+      let observed: StationControlReadinessObservation;
+      try {
+        observed = await options.readiness();
+      } catch {
+        await respondToRequest(
+          session,
+          requestFrame,
+          stationControlErr(
+            "unavailable",
+            "station readiness could not be observed",
+            true,
+          ),
+        );
+        return;
+      }
+      readiness = {
+        database: observed.database,
+        workControl: observed.workControl,
+        simulation: observed.simulation,
+        session: sessionReady(),
+      };
+    } else {
+      // Mutating verbs do not depend on observational probes. The fallback is
+      // nevertheless a complete StationReadiness value for the service.
+      readiness = {
+        database: true,
+        workControl: false,
+        simulation: false,
+        session: sessionReady(),
+      };
+    }
+
+    // Readiness and large schema decoding may both take material time. Bind
+    // dispatch to a fresh observation of the exact admitted process chain.
+    if (!peerStillAuthorized(session)) {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "authority-changed",
+          "station session peer authority changed",
+        ),
+      );
+      return;
+    }
+
+    let envelope: StationControlEnvelope;
+    try {
+      envelope = await dispatchStationApiRequest(
+        session.transportAdmission,
+        requestFrame.request,
+        readiness,
+        options.run,
+      );
+    } catch (error) {
+      envelope = stationControlErrorEnvelope(error);
+    }
+    await respondToRequest(session, requestFrame, envelope);
+  };
+
+  const acceptResponse = (
+    session: ActiveStationControlSession,
+    response: StationSessionResponseFrame,
+  ): void => {
+    const pending = session.pendingReports.get(response.requestId);
+    if (pending === undefined) {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "protocol-error",
+          "station session returned an unexpected response",
+        ),
+      );
+      return;
+    }
+    const correlation = decideStationSessionCorrelation(
+      pending.frame,
+      response,
+    );
+    if (correlation._tag !== "correlated") {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "protocol-error",
+          "station session returned an uncorrelated response",
+        ),
+      );
+      return;
+    }
+
+    if (!response.envelope.ok) {
+      clearTimeout(pending.timer);
+      session.pendingReports.delete(response.requestId);
+      pending.reject(
+        new StationControlReportError(
+          "remote-rejected",
+          response.envelope.error.message,
+          response.envelope,
+        ),
+      );
+      return;
+    }
+    const reportResponse = response.envelope.response;
+    if (
+      reportResponse.op !== "report" ||
+      !reportResponseSwapsDirection(pending.request, reportResponse)
+    ) {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "protocol-error",
+          "station report response has an invalid direction",
+        ),
+      );
+      return;
+    }
+    clearTimeout(pending.timer);
+    session.pendingReports.delete(response.requestId);
+    pending.resolve(reportResponse);
+  };
+
+  const processFrame = async (
+    session: ActiveStationControlSession,
+    encoded: Buffer,
+  ): Promise<void> => {
+    // Re-observe authority before parsing caller-controlled bytes.
+    if (!peerStillAuthorized(session)) {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "authority-changed",
+          "station session peer authority changed",
+        ),
+      );
+      return;
+    }
+
+    let raw: unknown;
+    try {
+      raw = JSON.parse(UTF8_DECODER.decode(encoded)) as unknown;
+    } catch {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "protocol-error",
+          "station session frame is not valid UTF-8 JSON",
+        ),
+      );
+      return;
+    }
+    const decoded = decodeStationSessionFrame(raw);
+    if (Either.isLeft(decoded)) {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "protocol-error",
+          "station session frame does not match the strict contract",
+        ),
+      );
+      return;
+    }
+
+    // Decode does not preserve stale authority. Every frame receives a second
+    // process-chain observation immediately before domain dispatch/correlation.
+    if (!peerStillAuthorized(session)) {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "authority-changed",
+          "station session peer authority changed",
+        ),
+      );
+      return;
+    }
+    if (decoded.right.frame === "request") {
+      await dispatchRequest(session, decoded.right);
+      return;
+    }
+    acceptResponse(session, decoded.right);
+  };
+
+  const armPartialFrameTimeout = (
+    session: ActiveStationControlSession,
+  ): void => {
+    if (session.partialFrameTimer !== undefined) {
+      clearTimeout(session.partialFrameTimer);
+    }
+    session.partialFrameTimer = setTimeout(() => {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "request-timeout",
+          "station session partial frame timed out",
+        ),
+      );
+    }, requestTimeoutMs);
+    session.partialFrameTimer.unref();
+  };
+
+  const processChunk = async (
+    session: ActiveStationControlSession,
+    chunk: Buffer,
+  ): Promise<void> => {
+    if (session.closed || shuttingDown) return;
+    session.buffer = Buffer.concat([session.buffer, chunk]);
+
+    while (!session.closed) {
+      const newline = session.buffer.indexOf(0x0a);
+      if (newline < 0) {
+        if (session.buffer.byteLength >= maxFrameBytes) {
+          terminateSession(
+            session,
+            new StationControlReportError(
+              "protocol-error",
+              "station session frame exceeded its bound",
+            ),
+          );
+          return;
+        }
+        if (session.buffer.byteLength > 0) {
+          armPartialFrameTimeout(session);
+        }
+        return;
+      }
+      if (newline + 1 > maxFrameBytes) {
+        terminateSession(
+          session,
+          new StationControlReportError(
+            "protocol-error",
+            "station session frame exceeded its bound",
+          ),
+        );
+        return;
+      }
+
+      const frame = session.buffer.subarray(0, newline);
+      session.buffer = session.buffer.subarray(newline + 1);
+      if (session.partialFrameTimer !== undefined) {
+        clearTimeout(session.partialFrameTimer);
+        session.partialFrameTimer = undefined;
+      }
+      if (frame.byteLength === 0) {
+        terminateSession(
+          session,
+          new StationControlReportError(
+            "protocol-error",
+            "station session does not accept empty frames",
+          ),
+        );
+        return;
+      }
+      await processFrame(session, frame);
+    }
+  };
+
+  const server = createServer((socket) => {
+    if (shuttingDown || sessionReady()) {
+      socket.destroy();
       return;
     }
 
@@ -221,204 +716,76 @@ export const startStationControlServer = async (
       peerAdmission = undefined;
     }
     if (peerAdmission === undefined) {
-      writeEnvelope(
-        socket,
-        stationControlErr(
-          "authorization_denied",
-          "station control requires the packaged client under authenticated SSH",
-          false,
-        ),
-      );
+      socket.destroy();
       return;
     }
 
+    const session: ActiveStationControlSession = {
+      socket,
+      peerAdmission,
+      transportAdmission: admitOpenSshPeer(peerAdmission),
+      pendingReports: new Map(),
+      buffer: Buffer.alloc(0),
+      partialFrameTimer: undefined,
+      writeTail: Promise.resolve(),
+      queuedWriteBytes: 0,
+      closed: false,
+    };
+    activeSession = session;
     sockets.add(socket);
-    const chunks: Buffer[] = [];
-    let bufferedBytes = 0;
-    let frameAdmitted = false;
-    const inputTimer = setTimeout(() => {
-      if (frameAdmitted || socket.destroyed) return;
-      writeEnvelope(
-        socket,
-        stationControlErr(
-          "protocol_error",
-          "station request frame timed out",
-          true,
-        ),
-      );
-    }, STATION_CONTROL_REQUEST_TIMEOUT_MS);
-
-    const transportAdmission = admitOpenSshPeer(peerAdmission);
-
-    const dispatch = async (
-      request: StationApiRequest,
-    ): Promise<void> => {
-      try {
-        // Readiness is observational state for status only. A failed probe
-        // must never block pair/configure/project/report mutations.
-        let readiness: StationReadiness;
-        if (request.op === "status") {
-          try {
-            readiness = await options.readiness();
-          } catch {
-            writeEnvelope(
-              socket,
-              stationControlErr(
-                "unavailable",
-                "station readiness could not be observed",
-                true,
-              ),
-            );
-            return;
-          }
-        } else {
-          readiness = {
-            database: true,
-            workControl: false,
-            simulation: false,
-          };
-        }
-        const envelope = await dispatchStationApiRequest(
-          transportAdmission,
-          request,
-          readiness,
-          options.run,
-        );
-        writeEnvelope(socket, envelope);
-      } catch (error) {
-        writeEnvelope(socket, stationControlErrorEnvelope(error));
-      }
-    };
-
-    const peerStillAuthorized = (
-      admission: StationControlPeerAdmission,
-    ): boolean => {
-      try {
-        return options.peerAuthority.revalidate(socket, admission);
-      } catch {
-        return false;
-      }
-    };
-
-    const denyChangedPeer = (): void => {
-      writeEnvelope(
-        socket,
-        stationControlErr(
-          "authorization_denied",
-          "station control peer authority changed",
-          false,
-        ),
-      );
-    };
 
     socket.on("data", (chunk: Buffer | string) => {
-      if (frameAdmitted || shuttingDown) {
-        writeEnvelope(
-          socket,
-          stationControlErr(
-            "protocol_error",
-            "station control accepts one request per connection",
-            false,
-          ),
-        );
-        return;
-      }
-
-      const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      const newline = part.indexOf(0x0a);
-      const framePart = newline < 0 ? part : part.subarray(0, newline);
-      bufferedBytes += framePart.byteLength;
-      if (bufferedBytes > STATION_CONTROL_MAX_FRAME_BYTES) {
-        frameAdmitted = true;
-        clearTimeout(inputTimer);
-        writeEnvelope(
-          socket,
-          stationControlErr(
-            "protocol_error",
-            `station frame exceeds ${STATION_CONTROL_MAX_FRAME_BYTES} bytes`,
-            false,
-          ),
-        );
-        return;
-      }
-
-      chunks.push(framePart);
-      if (newline < 0) return;
-      frameAdmitted = true;
-      clearTimeout(inputTimer);
+      if (session.closed || shuttingDown) return;
       socket.pause();
-      // Re-observe the kernel peer and every process epoch before parsing any
-      // caller-controlled JSON. An authenticated session that changed while
-      // streaming the frame has no residual authority.
-      if (!peerStillAuthorized(peerAdmission)) {
-        denyChangedPeer();
-        return;
-      }
-      const trailing = part.subarray(newline + 1).toString("utf8").trim();
-      if (trailing.length > 0) {
-        writeEnvelope(
-          socket,
-          stationControlErr(
-            "protocol_error",
-            "station control accepts one request per connection",
-            false,
-          ),
-        );
-        return;
-      }
-
-      let raw: unknown;
-      try {
-        const text = new TextDecoder("utf-8", { fatal: true }).decode(
-          Buffer.concat(chunks, bufferedBytes),
-        );
-        raw = JSON.parse(text) as unknown;
-      } catch {
-        writeEnvelope(
-          socket,
-          stationControlErr(
-            "protocol_error",
-            "station request is not valid UTF-8 JSON",
-            false,
-          ),
-        );
-        return;
-      } finally {
-        chunks.length = 0;
-        bufferedBytes = 0;
-      }
-
-      const decoded = decodeStationControlRequest(raw);
-      if (Either.isLeft(decoded)) {
-        writeEnvelope(
-          socket,
-          stationControlErr(
-            "protocol_error",
-            "station request does not match the API contract",
-            false,
-          ),
-        );
-        return;
-      }
-
-      // Decoding a maximum projection can take material time. Bind dispatch
-      // to a fresh identical process-chain observation so pair/configure/
-      // project/report/status never run on a stale ancestry proof.
-      if (!peerStillAuthorized(peerAdmission)) {
-        denyChangedPeer();
-        return;
-      }
-      const operation = dispatch(decoded.right);
-      dispatches.add(operation);
-      void operation.finally(() => dispatches.delete(operation));
+      const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const operation = trackDispatch(processChunk(session, part));
+      void operation.then(
+        () => {
+          if (!session.closed && !shuttingDown && !socket.destroyed) {
+            socket.resume();
+          }
+        },
+        () => {
+          terminateSession(
+            session,
+            new StationControlReportError(
+              "protocol-error",
+              "station session frame processing failed",
+            ),
+          );
+        },
+      );
     });
-
+    socket.once("end", () => {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "session-unavailable",
+          "station session peer closed",
+        ),
+        true,
+      );
+    });
+    socket.once("error", () => {
+      terminateSession(
+        session,
+        new StationControlReportError(
+          "session-unavailable",
+          "station session transport failed",
+        ),
+      );
+    });
     socket.once("close", () => {
-      clearTimeout(inputTimer);
+      if (!session.closed) {
+        terminateSession(
+          session,
+          new StationControlReportError(
+            "session-unavailable",
+            "station session closed",
+          ),
+        );
+      }
       sockets.delete(socket);
-    });
-    socket.on("error", () => {
-      clearTimeout(inputTimer);
     });
   });
 
@@ -492,6 +859,80 @@ export const startStationControlServer = async (
     liveStationControlListeners.delete(readinessAuthority);
   });
 
+  const report = (
+    input: ReportRequest,
+  ): Promise<ReportResponse> => {
+    const decoded = decodeReportRequest(input);
+    if (Either.isLeft(decoded)) {
+      return Promise.reject(
+        new StationControlReportError(
+          "invalid-local-request",
+          "only a strict report request may originate on a Remote session",
+        ),
+      );
+    }
+    const session = activeSession;
+    if (
+      shuttingDown ||
+      session === undefined ||
+      session.closed ||
+      session.socket.destroyed
+    ) {
+      return Promise.reject(
+        new StationControlReportError(
+          "session-unavailable",
+          "Command Center has no active Station session",
+        ),
+      );
+    }
+    if (session.pendingReports.size >= MAX_PENDING_REPORTS) {
+      return Promise.reject(
+        new StationControlReportError(
+          "capacity-exceeded",
+          "station report correlation capacity is exhausted",
+        ),
+      );
+    }
+    if (!peerStillAuthorized(session)) {
+      const error = new StationControlReportError(
+        "authority-changed",
+        "station session peer authority changed",
+      );
+      terminateSession(session, error);
+      return Promise.reject(error);
+    }
+
+    const requestId = StationSessionRequestId.make(randomUUID());
+    const frame = StationSessionRequestFrame.make({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "request",
+      requestId,
+      request: decoded.right,
+    });
+    return new Promise<ReportResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const pending = session.pendingReports.get(requestId);
+        if (pending === undefined) return;
+        session.pendingReports.delete(requestId);
+        const error = new StationControlReportError(
+          "request-timeout",
+          "station report response timed out",
+        );
+        pending.reject(error);
+        terminateSession(session, error);
+      }, requestTimeoutMs);
+      timer.unref();
+      session.pendingReports.set(requestId, {
+        frame,
+        request: decoded.right,
+        resolve,
+        reject,
+        timer,
+      });
+      void enqueueFrame(session, frame).catch(() => undefined);
+    });
+  };
+
   const beginShutdown = (): void => {
     liveStationControlListeners.delete(readinessAuthority);
     if (shuttingDown) return;
@@ -505,8 +946,15 @@ export const startStationControlServer = async (
     } else {
       listenerClose = closeNetServer(server);
     }
-    for (const socket of sockets) {
-      if (!socket.destroyed) socket.end();
+    if (activeSession !== undefined) {
+      terminateSession(
+        activeSession,
+        new StationControlReportError(
+          "session-unavailable",
+          "station control is shutting down",
+        ),
+        true,
+      );
     }
   };
 
@@ -559,6 +1007,8 @@ export const startStationControlServer = async (
     socketPath,
     stationHome,
     ready,
+    sessionReady,
+    report,
     beginShutdown,
     close,
   });
