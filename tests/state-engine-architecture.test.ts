@@ -8,7 +8,9 @@ const allowed = new Set([
   "src/main/vellum/state/backup.ts",
   "src/main/vellum/state/engine.ts",
   "src/main/vellum/state/migrations.ts",
+  "src/main/vellum/state/recovery.ts",
   "src/main/vellum/state/schema-identity.ts",
+  "src/main/vellum/state/update-candidate.ts",
 ]);
 
 const filesUnder = (directory: string): string[] => {
