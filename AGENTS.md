@@ -56,13 +56,16 @@ fleet compatibility evidence, and explicit operator approval. Never ask an
 installed system to delete `vellum.db`; never add a downgrade, old-schema
 runtime reader, dual write, or file-store compatibility path.
 
-**Station skew law:** the exact Station v2 wire is the installed compatibility
-floor. A newer Command Center must keep an enrolled older Remote operating
-under its last valid projection and select only a mutually supported strict
-wire/profile. Unsupported projection or Work capability means no mutation and
-an explicit `update required` state, never a generic retry loop or partial
-down-conversion. A version codec may retire only after every enrolled Station
-using it is upgraded or explicitly retired and its pending records are
+**Station skew law:** app release, local SQLite schema, and Station protocol
+are distinct facts. Only the one Station protocol integer selects wire
+behavior. Each release advertises
+`{ preferred, compatibleFrom, warnBelow }`; peers choose the highest common
+exact codec and warn when the result is below either threshold. Current policy
+is protocol 2 with `2/2/2`. No overlap means explicit `update required` while
+the Remote continues locally under its last projection; it never means partial
+down-conversion. Do not add separate session/API/Work/projection version
+negotiation or capability arrays. A codec retires only after every enrolled
+Station using it is upgraded or explicitly retired and its pending records are
 reconciled.
 
 ## The agent surface (headless — no GUI needed)

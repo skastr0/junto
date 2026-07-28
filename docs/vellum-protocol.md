@@ -2,7 +2,7 @@
 
 **Status:** normative target contract; implementation in progress
 
-**Version:** 2.1.0
+**Last revised:** 2026-07-28
 
 **Audience:** Vellum contributors, reviewers, and operators qualifying
 Command Center-to-Remote behavior
@@ -47,6 +47,60 @@ The current implementation proves parts of this contract. Sections labelled
 **target** describe the direct consolidation this branch must complete before
 the document may be treated as a release claim.
 
+## Version axes
+
+Vellum exposes exactly three version facts:
+
+1. **App release** identifies the shipped application bundle.
+2. **SQLite schema version** identifies the local durable shape selected by
+   `PRAGMA user_version`.
+3. **Station protocol** is the one integer negotiated for a
+   Command Center-to-Remote session.
+
+App release and SQLite schema version are diagnostic facts. They do not select
+a wire codec and they do not authorize a feature. Two installations may have
+different app and schema versions while communicating through the same
+Station protocol.
+
+Every release declares one contiguous Station-protocol support descriptor:
+
+```text
+StationProtocolSupport {
+  preferred: integer
+  compatibleFrom: integer
+  warnBelow: integer
+}
+```
+
+The invariant is:
+
+```text
+compatibleFrom <= warnBelow <= preferred
+```
+
+`preferred` is the highest exact Station codec the release implements and
+prefers. `compatibleFrom` is the oldest exact codec it will accept.
+`warnBelow` is the deprecation threshold: a selected protocol below either
+peer's threshold remains compatible but produces an operator-visible upgrade
+warning.
+
+The current baseline is Station protocol **2**, with support policy:
+
+```text
+{ preferred: 2, compatibleFrom: 2, warnBelow: 2 }
+```
+
+This negotiation work does not invent protocol 3. A new Station protocol
+number exists only when the actual closed wire bundle changes.
+
+One negotiated integer selects the complete strict bundle: session framing,
+control envelope, five Station API operations, Work records, projection
+encoding, bounds, and failure semantics. Their current `.../v2` discriminators
+are members of Station protocol 2, not independently negotiated versions.
+There is no session-version array, Station-API-version array,
+Work-version array, projection-version array, fallback-protocol number, or
+capability array.
+
 ## Canonical end state
 
 The canonical implementation has:
@@ -62,7 +116,8 @@ The canonical implementation has:
 8. one Command Center-initiated persistent session per reachable Remote;
 9. OpenSSH as the first authenticated session adapter;
 10. a clean adapter boundary for future HTTPS with mutual TLS;
-11. no file-store, polling-protocol, remote-browser, or retired internal
+11. one negotiated Station protocol integer bound before domain mutation;
+12. no file-store, polling-protocol, remote-browser, or retired internal
     compatibility path surviving beside that end state.
 
 The file-store-to-SQLite change was a direct cutover. SQLite version 1 is now
@@ -1171,8 +1226,9 @@ Purpose: expose bounded current facts needed for fleet supervision.
 Status includes:
 
 - installation identity;
-- application and local SQLite schema versions;
-- supported Station session/API/Work versions and capability identifiers;
+- application release and local SQLite schema version for diagnosis;
+- local `StationProtocolSupport`, selected Station protocol, and any
+  deprecated/update-required state observed for the live route;
 - role and host configuration;
 - paired Command Center identity;
 - active projection generation/hash;
@@ -1182,6 +1238,11 @@ Status includes:
 
 Cached status must be labelled last-observed. An unreachable Remote is
 `unknown/unreachable`, never optimistically healthy.
+
+These compatibility facts belong to the session supervisor and operator
+status surfaces. They do not widen the frozen Station protocol 2
+`StatusResponse`; a legacy v2 peer proves its version through the narrowly
+bounded compatibility path below.
 
 ## Closed protocol surface
 
@@ -1225,7 +1286,7 @@ that stream. This provides real-time behavior without:
 
 The transport carries strict bounded frames with:
 
-- session protocol version;
+- the discriminator required by the selected Station protocol codec;
 - request ID;
 - frame kind (`request` or `response`);
 - one Station API request or control envelope;
@@ -1277,35 +1338,72 @@ Command Center and Remotes are installed applications and cannot be updated
 atomically. That is a proven runtime-skew constraint, not speculative backward
 compatibility.
 
-The exact v2 session, Station API, control envelope, Work protocol, and
-projection contracts are frozen as the first installed wire profile. They are
-never widened in place. A future session revision begins with a strict
-compatibility exchange before domain traffic:
+The exact Station protocol 2 bundle is the first installed compatibility
+floor. Its session, Station API, control, Work, and projection codecs are
+immutable and are never widened in place.
+
+Every negotiation-aware connection begins with one frozen compatibility
+preface before domain traffic:
 
 ```text
-CompatibilityProfile {
+CompatibilityOffer {
+  protocol: "vellum/station-protocol-preface/v1"
+  frame: "offer"
   appVersion                 // display/diagnostic only
+  stateSchemaVersion         // display/diagnostic only
+  support: StationProtocolSupport
+}
+
+CompatibilityAccept {
+  protocol: "vellum/station-protocol-preface/v1"
+  frame: "accept"
+  appVersion
   stateSchemaVersion
-  sessionVersions[]
-  stationApiVersions[]
-  workProtocolVersions[]
-  projectionVersions[]
-  capabilities[]
+  support: StationProtocolSupport
+  selected: integer
+}
+
+CompatibilityReject {
+  protocol: "vellum/station-protocol-preface/v1"
+  frame: "reject"
+  appVersion
+  stateSchemaVersion
+  support: StationProtocolSupport
+  reason: "no-common-version"
+  retryable: false
 }
 ```
 
-The negotiated profile is bound to the live session and is the only evidence
-used to select an encoder or authorize a feature. Application SemVer, cached
-host metadata, and mere socket liveness are not compatibility authority.
+For local support `L` and peer support `P`:
+
+```text
+lower = max(L.compatibleFrom, P.compatibleFrom)
+upper = min(L.preferred, P.preferred)
+```
+
+If `lower <= upper`, the selected Station protocol is `upper`: the highest
+common exact codec. Each peer recomputes and verifies that selection before
+binding it to the live session. If the selected number is below either
+`warnBelow`, the session works and the operator sees a deprecation warning.
+
+If there is no overlap, the result is a typed, non-retryable
+`update-required` software state. The Remote keeps its local factory running
+under its last valid projection. Command Center sends no domain mutation,
+does not reserve a task or actor, does not create a claim command, and does
+not acknowledge past an unsupported route head.
+
+The bound Station protocol integer is the only evidence used to select a wire
+codec. App release, SQLite schema version, cached host metadata, and mere
+socket liveness are not compatibility authority.
 
 Rules:
 
-1. Use the highest mutually supported strict profile.
+1. Use the highest mutually supported exact Station protocol.
 2. Keep closed version-specific decoders; never ignore excess fields.
-3. New Command Center may reconnect with frozen v2 only when the initial
-   negotiation proves the peer is pre-negotiation v2. It must not fall back
-   after an identity, authorization, integrity, or domain failure.
-4. New Remote accepts a currently supported older Command Center profile.
+3. One selected protocol activates one complete codec bundle. Unsupported
+   behavior means the peers do not share that protocol; it is never repaired
+   with a capability array or partial down-conversion.
+4. New Remote accepts a currently supported older Command Center protocol.
 5. Gate durable mutation before reservation. An unsupported remote claim
    leaves task submitted, actor free, and creates no command row.
 6. Never down-convert or partially install a projection. Retain the last valid
@@ -1313,13 +1411,43 @@ Rules:
 7. Never skip an unsupported record in a contiguous route. Retain it at the
    durable head and leave the acknowledgement unchanged.
 8. One incompatible Remote does not block synchronization with another.
-9. No-common-profile is a typed, non-retryable software state, not network
+9. No-common-protocol is a typed, non-retryable software state, not network
    unavailability.
 
-Frozen v2 may be removed only after every enrolled Station that used it has
-negotiated a newer profile or been explicitly retired and every v2 record has
-been reconciled. The fleet protocol owner owns that retirement; elapsed time
-or a new Command Center release is not sufficient evidence.
+#### Narrow pre-negotiation v2 boundary
+
+Protocol 2 shipped before the compatibility preface. Independently updated
+installed Stations make one temporary boundary unavoidable:
+
+- A negotiation-aware Remote that receives a strict protocol 2 domain frame
+  as the first frame may bind protocol 2 and process that same frame, but only
+  when its support interval includes 2.
+- A negotiation-aware Command Center uses one sealed compatibility-mode
+  invocation of the packaged SSH helper and sends the compatibility offer
+  first. It may open exactly one fresh authenticated protocol 2 connection
+  only when the offer was fully written, zero peer bytes or frames were
+  observed, and that fixed invocation exits with reserved code `64`. The old
+  helper uses that code when it rejects the unknown fixed argument before
+  reaching the owner-local relay; this complete witness is the only evidence
+  of a pre-negotiation-v2 peer.
+- Any peer byte, explicit rejection, malformed frame, timeout, authentication,
+  setup, write, identity, authorization, integrity, relay, or domain failure,
+  or any exit code other than `64`, forbids fallback.
+- Successful exact protocol 2 identity/status exchange binds the expected
+  enrolled installation before any mutation.
+
+This is a bounded runtime-skew exception, not a second permanent session
+design. Its canonical end state is that every connection uses the
+compatibility preface. The **fleet protocol owner** owns deletion. The
+objective retirement trigger is: every enrolled Station has successfully used
+the compatibility preface at least once or has been explicitly retired, and
+no enrolled route remains recorded as legacy-v2. Elapsed time or a new app
+release is not evidence.
+
+The exact protocol 2 codec has its own later retirement trigger. It may be
+removed only after every enrolled Station selecting 2 has upgraded or been
+explicitly retired and every durable protocol-2 record has been reconciled.
+The fleet protocol owner owns that retirement too.
 
 ## OpenSSH adapter
 
@@ -1442,6 +1570,14 @@ canvas ID into a secret.
 The retired browser signing system is not a template for HTTPS. Any future
 transport credential belongs to the Station transport adapter and protects all
 five verbs uniformly.
+
+A future mobile app acting as a standalone Command Center uses this same
+Station protocol over the HTTPS adapter to control its enrolled Remotes. A
+mobile app acting as a mirror of a sovereign desktop Command Center is a
+different product relationship: its future control/synchronization API is not
+the Station protocol, does not add a Station verb, and does not make two
+Command Centers sovereign over the same factory. That mirror API requires its
+own contract and security decision before implementation.
 
 ## Authorization
 
@@ -1799,7 +1935,7 @@ affected consumers and deletes the superseded path.
 | Transport can evolve | dispatcher/work tests run without an SSH process |
 | Persistent SSH is bounded | malformed/oversize frames close only that Remote session |
 | Failure is isolated | one unreachable Remote does not block another |
-| Version skew is bounded | new CC speaks frozen v2 to an enrolled v2 Remote; unsupported capability mutates nothing |
+| Version skew is bounded | peers select the highest common exact Station protocol; no overlap mutates nothing |
 | Incompatible Remote keeps working | local simulation continues under the last valid projection while CC reports update-required |
 | Ordered data survives skew | unsupported route-head record remains durable and unacknowledged until upgrade |
 

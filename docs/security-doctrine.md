@@ -572,6 +572,12 @@ account at the SSH boundary; future HTTPS authenticates both peers through
 mTLS. The five verbs, work identities, dispositions, and cursors do not change
 with the adapter.
 
+A future mobile app acting as a standalone Command Center may use that HTTPS
+adapter and the same Station protocol. A mobile mirror of an existing
+sovereign Command Center requires a separate future control/synchronization
+API; it is not a Station peer, adds no sixth Station verb, and cannot create
+two sovereign Command Centers for one factory.
+
 The owner-local socket is transport containment, not a fleet credential or
 cryptographic continuation of SSH identity. The fixed packaged helper carries
 frames from the SSH command to the Remote app under the same operator account.
@@ -586,13 +592,24 @@ OpenSSH's authenticated operator account is the authority for the current
 network route; no second Vellum bearer credential exists. Wire-version
 compatibility does not create another credential or weaken route admission.
 
-Installed Station version skew is an unavoidable runtime boundary. The exact
-Station API/session/work v2 contracts are the first installed compatibility
-floor and remain immutable. Future protocol evolution negotiates a strict
-version/capability profile before domain traffic and selects the highest
-mutually supported closed codec. It never ignores unknown fields, guesses from
-application SemVer, partially decodes a report, or down-converts operator
-intent.
+Installed Station version skew is an unavoidable runtime boundary. Vellum
+tracks three facts without turning them into a version soup: app release,
+local SQLite schema version, and one Station protocol integer. App and schema
+versions are diagnostic only. Each release declares Station support as
+`{ preferred, compatibleFrom, warnBelow }`, with
+`compatibleFrom <= warnBelow <= preferred`. Peers select the highest integer
+in the overlap of their support intervals and bind that one protocol before
+domain traffic. Selection below either warning threshold remains operational
+with an explicit upgrade warning.
+
+The current baseline and installed floor is Station protocol 2 with policy
+`{ preferred: 2, compatibleFrom: 2, warnBelow: 2 }`. One Station protocol
+number selects one complete closed bundle: framing, control envelope, the five
+verbs, Work records, projection encoding, bounds, and failure semantics. The
+exact v2 discriminators inside that bundle are not separately negotiated
+versions. There are no session/API/Work/projection version arrays, capability
+arrays, or fallback-protocol number. Negotiation itself does not invent
+protocol 3.
 
 A newer Command Center must retain the exact older wire codec while an
 enrolled, non-retired Station still needs it or has unreconciled records under
@@ -600,7 +617,7 @@ it. A newer Remote likewise accepts the currently supported older Command
 Center codec. Compatibility lives only at the transport/domain boundary and
 normalizes immediately into the one current internal model.
 
-If no compatible profile exists:
+If no compatible Station protocol exists:
 
 - the Remote continues local execution under its last valid projection;
 - Command Center sends no projection, claim, command, or acknowledgement that
@@ -611,10 +628,24 @@ If no compatible profile exists:
 - Command Center reports `running locally — update required`, not generic
   unavailability or healthy synchronization.
 
-A Station codec may retire only after every enrolled Station using it has
-upgraded or been explicitly retired and all durable records in that codec have
-been reconciled. This is the objective retirement trigger for the runtime-skew
-exception.
+A pre-negotiation v2 peer is the only temporary fallback boundary. A new
+Command Center may retry one fresh authenticated exact-v2 connection only
+when its fully written compatibility offer was sent through the sealed
+compatibility-mode SSH-helper invocation, zero peer bytes were observed, and
+that invocation exits with the old helper's reserved pre-relay code `64`.
+Any byte, explicit reject, malformed frame, timeout, authentication, setup,
+write, identity, authorization, integrity, relay, or domain failure, or any
+other exit code, forbids fallback. A new Remote may bind v2 when the first
+frame is an exact v2 domain frame and its support interval includes 2.
+
+The canonical end state is that every connection begins with the
+compatibility preface. The fleet protocol owner removes the legacy-v2 entry
+path after every enrolled Station has successfully negotiated or been
+explicitly retired and no enrolled route remains recorded as legacy-v2. A
+Station codec itself may retire only after every enrolled Station selecting
+it has upgraded or been explicitly retired and all durable records in that
+codec have been reconciled. Elapsed time or a new app release satisfies
+neither trigger.
 
 Installation, host, factory, actor, resource, event-home, and entity-home
 identifiers on this protocol are routing facts, not credentials. Vellum has
