@@ -240,6 +240,15 @@ const openInstallation = async (
   const root = await mkdtemp(
     join(tmpdir(), `vellum-station-offline-${localInstallationId}-`),
   );
+  const harness = await openInstallationAt(root, localInstallationId);
+  opened.push(harness);
+  return harness;
+};
+
+const openInstallationAt = async (
+  root: string,
+  localInstallationId: InstallationIdValue,
+): Promise<InstallationHarness> => {
   const runtime = makeInstallationRuntime(
     join(root, "vellum.db"),
     localInstallationId,
@@ -264,8 +273,24 @@ const openInstallation = async (
     runtime,
     ...services,
   } satisfies InstallationHarness;
-  opened.push(harness);
   return harness;
+};
+
+const restartInstallation = async (
+  harness: InstallationHarness,
+  localInstallationId: InstallationIdValue,
+): Promise<InstallationHarness> => {
+  const openedIndex = opened.indexOf(harness);
+  if (openedIndex < 0) {
+    throw new Error("cannot restart an installation outside the test harness");
+  }
+  await harness.runtime.dispose();
+  const restarted = await openInstallationAt(
+    harness.root,
+    localInstallationId,
+  );
+  opened[openedIndex] = restarted;
+  return restarted;
 };
 
 const message = (
@@ -1035,7 +1060,7 @@ describe("Station work authority survives Command Center downtime", () => {
     const remoteHost = hostId("product-remote");
     const remoteStationHost = stationHostId(remoteHost);
     const commandCenter = await openInstallation(commandCenterId);
-    const remote = await openInstallation(remoteId);
+    let remote = await openInstallation(remoteId);
     const document = productPathDocument(
       remoteHost,
       "binding-product-remote-worker",
@@ -1215,6 +1240,31 @@ describe("Station work authority survives Command Center downtime", () => {
         commandCenter.livePeers.isLive(remoteHost, remoteId),
       ),
     ).toBe(false);
+
+    remote = await restartInstallation(remote, remoteId);
+    expect(
+      (
+        await remote.runtime.runPromise(
+          remote.work.readSnapshot("factory", "shared-tasks"),
+        )
+      ).tasks.items,
+    ).toEqual([
+      expect.objectContaining({
+        id: taskId,
+        state: "working",
+        claimedBy: actor.seatId,
+      }),
+    ]);
+    expect(
+      await remote.runtime.runPromise(
+        remote.work.itemHome(
+          "task",
+          "factory",
+          "shared-tasks",
+          taskId,
+        ),
+      ),
+    ).toBe(remoteId);
 
     const completed = await remote.runtime.runPromise(
       remote.workService.workTaskTransition(
