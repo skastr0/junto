@@ -96,8 +96,8 @@ describe("settings state architecture", () => {
     expect(gate).toContain("Look for a Command Center");
     expect(gate).toContain("No Command Center found");
     expect(gate).toContain("commandCenterFound: false");
-    expect(gate).toContain("self-assigns Remote");
-    expect(gate).toContain("You cannot enroll this machine yourself");
+    expect(gate).toContain('role: "command-center"');
+    expect(gate).not.toContain('role: "remote"');
     expect(panel).not.toContain("Pull from Command Center");
     expect(panel).toContain("Remote identity cannot be changed locally");
   });
