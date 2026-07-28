@@ -32,11 +32,24 @@ import {
   type WorkControlShutdownReceipt,
 } from "../src/main/vellum/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
-import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
+import {
+  WorkRepository,
+  WorkRepositoryLive,
+} from "../src/main/vellum/work/repository";
 import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+import {
+  StationFleetTargetRepositoryLive,
+} from "../src/main/vellum/station/fleet-target-repository";
+import {
+  StationLivePeerRegistryLive,
+} from "../src/main/vellum/station/session-registry";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
+import {
+  SettingsLive,
+  SettingsService,
+} from "../src/main/vellum/settings/service";
 import { WORK_MAX_FRAME_BYTES } from "../src/shared/work-control";
 
 const REPO = process.cwd();
@@ -293,7 +306,13 @@ const seed = (): import("../src/shared/canvas").CanvasDoc =>
       width: 140,
       height: 56,
       text: "agent",
-      ether: { entity: { kind: "agent", name: "local:default" } },
+      ether: {
+        entity: { kind: "agent", name: "local:default" },
+        terminal: {
+          bindingId: "work-acceptance-agent",
+          harness: "claude",
+        },
+      },
     },
     {
       id: TASKS,
@@ -305,36 +324,6 @@ const seed = (): import("../src/shared/canvas").CanvasDoc =>
       text: "ship it",
       ether: {
         entity: { kind: "task" as const },
-        tasks: {
-          items: [
-            {
-              id: "t1",
-              state: "submitted" as const,
-              history: [
-                {
-                  messageId: "m0",
-                  role: "user" as const,
-                  parts: [{ kind: "text" as const, text: "ship it" }],
-                  contextId: CANVAS,
-                  taskId: "t1",
-                },
-              ],
-            },
-            {
-              id: "t2",
-              state: "submitted" as const,
-              history: [
-                {
-                  messageId: "m1",
-                  role: "user" as const,
-                  parts: [{ kind: "text" as const, text: "also this" }],
-                  contextId: CANVAS,
-                  taskId: "t2",
-                },
-              ],
-            },
-          ],
-        },
       },
     },
     {
@@ -345,7 +334,7 @@ const seed = (): import("../src/shared/canvas").CanvasDoc =>
       width: 160,
       height: 80,
       text: "0 pending",
-      ether: { entity: { kind: "requests" as const }, requests: { items: [] } },
+      ether: { entity: { kind: "requests" as const } },
     },
     {
       id: ARTS,
@@ -355,7 +344,7 @@ const seed = (): import("../src/shared/canvas").CanvasDoc =>
       width: 160,
       height: 80,
       text: "artifacts",
-      ether: { entity: { kind: "artifacts" as const }, artifacts: { items: [] } },
+      ether: { entity: { kind: "artifacts" as const } },
     },
     {
       id: "region",
@@ -459,17 +448,60 @@ const main = async () => {
     killGraceMs: CLI_KILL_CLOSE_GRACE_MS,
   });
   const repositoriesLive = Layer.provideMerge(
-    Layer.mergeAll(WorkRepositoryLive, StationRepositoryLive),
+    Layer.mergeAll(
+      WorkRepositoryLive,
+      StationRepositoryLive,
+      StationFleetTargetRepositoryLive,
+      SettingsLive,
+    ),
     makeStateEngineLive(join(root, "state", "vellum.db")),
   );
   const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
-  const workLive = Layer.provideMerge(WorkLive, canvasesLive);
+  const workLive = Layer.provideMerge(
+    WorkLive,
+    Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
+  );
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(workLive, PausePlaneAllPlaying),
   );
-  // Seed through the same app-owned SQLite authority used in production.
+  // Establish the same canonical role and topology services used in the app.
+  const settings = await runtime.runPromise(SettingsService);
+  await runtime.runPromise(
+    settings.setStationTopology({
+      role: "command-center",
+      hostId: "local",
+      supervisedPreferred: true,
+    }),
+  );
+
+  // Author only topology, then seed fixed acceptance work through explicit
+  // WorkRepository verbs. The canvas never carries a durable work projection.
   const canvasesSvc = await runtime.runPromise(CanvasesService);
   await runtime.runPromise(canvasesSvc.write(CANVAS, seed()));
+  const repository = await runtime.runPromise(WorkRepository);
+  for (const [id, messageId, brief] of [
+    ["t1", "m0", "ship it"],
+    ["t2", "m1", "also this"],
+  ] as const) {
+    await runtime.runPromise(
+      repository.createTask({
+        sink: { canvasName: CANVAS, nodeId: TASKS },
+        task: {
+          id,
+          state: "submitted",
+          history: [
+            {
+              messageId,
+              role: "user",
+              parts: [{ kind: "text", text: brief }],
+              contextId: CANVAS,
+              taskId: id,
+            },
+          ],
+        },
+      }),
+    );
+  }
   // Bind the acceptance runner PID. CLI children walk PPID to this process.
   const processMap = makeProcessIdentityMap();
   processMap.bind(process.pid, { agentKey: "local:default" });
