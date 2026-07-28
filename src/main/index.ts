@@ -120,6 +120,8 @@ import { loadStationSupervisor } from "./vellum/supervision/select";
 import { SettingsService } from "./vellum/settings/service";
 import { StateEngine } from "./vellum/state/service";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
+import { inspectStateUpdateCandidate } from "./vellum/state/candidate-readiness";
+import { withStateUpdateCandidate } from "./vellum/state/update-candidate";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
 import {
   makeLicenseCoordinator,
@@ -248,7 +250,10 @@ if (startupNodeRefUri !== undefined) queueNodeRefUri(startupNodeRefUri);
 // Explicit headless mode keeps the runtime, watchers, kernel, and local UDS
 // services alive without creating a renderer. It replaces the former dev CDP
 // listener: headless qualification must never require a network control port.
-const headless = process.argv.includes("--vellum-headless");
+const stateUpdatePreflight =
+  process.argv.includes("--vellum-state-preflight");
+const headless =
+  stateUpdatePreflight || process.argv.includes("--vellum-headless");
 
 // Playwright E2E needs a real authoring renderer (not --vellum-headless), but
 // must never steal macOS focus or plant Dock icons. VELLUM_E2E_SHOW=1 opts out
@@ -1117,6 +1122,36 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         app.dock?.hide();
       },
     });
+    // The signed/audited candidate runs this sealed mode only after the
+    // installer has quiesced the incumbent and proved it released SQLite.
+    // It opens the fixed canonical database read-only, migrates and inspects
+    // only a disposable verified clone, emits one strict receipt, and starts
+    // no renderer, socket, actor, browser, terminal, provider, or fleet plane.
+    //
+    // Keep this inside the ordinary packaged Electron process: RunAsNode stays
+    // fused off. No argument or environment value can select another database.
+    if (stateUpdatePreflight) {
+      if (!app.isPackaged) {
+        console.error(
+          "[state-preflight] packaged candidate execution is required",
+        );
+        exitAfterDetach(1, "state-update-preflight-unpackaged");
+        return;
+      }
+      try {
+        const receipt = await Effect.runPromise(
+          withStateUpdateCandidate(inspectStateUpdateCandidate),
+        );
+        process.stdout.write(
+          `${JSON.stringify(receipt)}\n`,
+          () => exitAfterDetach(0, "state-update-preflight-complete"),
+        );
+      } catch {
+        console.error("[state-preflight] candidate readiness failed");
+        exitAfterDetach(1, "state-update-preflight-failure");
+      }
+      return;
+    }
     if (!(await ensureSupervised())) return;
     if (shutdownAdmissionClosed) return;
 
