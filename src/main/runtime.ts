@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
@@ -79,6 +80,16 @@ import {
 import {
   StationLivePeerRegistryLive,
 } from "./vellum/station/session-registry";
+import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
+import { makeDodoLicenseClient } from "./vellum/license/dodo-client";
+import {
+  LicenseRepository,
+  LicenseRepositoryLive,
+} from "./vellum/license/repository";
+import {
+  LicenseService,
+  makeLicenseService,
+} from "./vellum/license/service";
 
 // Keep this exact layer value as the sole database owner in the runtime graph.
 // Effect memoizes layers by reference, so every repository below receives the
@@ -96,8 +107,38 @@ const StateRepositoriesLive = Layer.provideMerge(
     StationRepositoryLive,
     StationFleetTargetRepositoryLive,
     BoxOwnershipRepositoryLive,
+    LicenseRepositoryLive,
   ),
   StateEngineLive,
+);
+
+const LicenseServiceFromStateLive = Layer.effect(
+  LicenseService,
+  Effect.gen(function* () {
+    const repository = yield* LicenseRepository;
+    const station = yield* StationRepository;
+    const installationId = yield* station.installationId;
+    const config = compiledLicenseBuildConfig(app.isPackaged);
+    const client =
+      config.configured && config.environment !== null
+        ? makeDodoLicenseClient({ environment: config.environment })
+        : undefined;
+
+    return makeLicenseService({
+      config,
+      installationId,
+      repository,
+      ...(client === undefined ? {} : { client }),
+    });
+  }),
+);
+
+// License state and installation identity come from the same memoized
+// repository graph as every other product plane. In particular, licensing
+// never constructs or opens a second StateEngine connection.
+const LicenseWithStateLive = Layer.provideMerge(
+  LicenseServiceFromStateLive,
+  StateRepositoriesLive,
 );
 
 // Canvases projects durable work rows on reads while keeping its authority
@@ -212,6 +253,7 @@ const BaseLayer = Layer.mergeAll(
   HostsWithSshLive,
   StationFleetServicesLive,
   BoxFleetLive,
+  LicenseWithStateLive,
 );
 
 // Pause plane sits between the base services and the acting planes so the
