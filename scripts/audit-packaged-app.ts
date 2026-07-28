@@ -12,7 +12,11 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getRawHeader } from "@electron/asar";
+import {
+  extractFile,
+  getRawHeader,
+  statFile,
+} from "@electron/asar";
 import {
   FuseState,
   FuseV1Options,
@@ -95,6 +99,7 @@ export interface PackageAuditReceipt {
   readonly runtimeVersion: string;
   readonly minimumSystemVersion: string;
   readonly fuses: Readonly<Record<FuseName, "Enabled" | "Disabled">>;
+  readonly stateUpdatePreflight: PackagedStateUpdatePreflightAuditReceipt;
   readonly machO: {
     readonly count: number;
     readonly maxMinOS: string;
@@ -102,6 +107,32 @@ export interface PackageAuditReceipt {
     readonly emptyEntitlementsCount: number;
     readonly forbiddenEntitlementsCount: 0;
   };
+}
+
+export const PACKAGED_STATE_UPDATE_PREFLIGHT_SWITCH =
+  "--vellum-state-preflight" as const;
+export const PACKAGED_STATE_UPDATE_PREFLIGHT_PROTOCOL =
+  "vellum-state-update-preflight/v1" as const;
+export const PACKAGED_STATE_UPDATE_PREFLIGHT_MAIN_ENTRY =
+  "out/main/index.js" as const;
+
+const PACKAGED_STATE_UPDATE_PREFLIGHT_MAX_MAIN_BYTES =
+  8 * 1024 * 1024;
+const PACKAGED_STATE_UPDATE_PREFLIGHT_REQUIRED_MARKERS = [
+  PACKAGED_STATE_UPDATE_PREFLIGHT_SWITCH,
+  PACKAGED_STATE_UPDATE_PREFLIGHT_PROTOCOL,
+  "[state-preflight] packaged candidate execution is required",
+  "state-update-preflight-unpackaged",
+  "state-update-preflight-complete",
+  "state-update-preflight-failure",
+] as const;
+
+export interface PackagedStateUpdatePreflightAuditReceipt {
+  readonly entry: typeof PACKAGED_STATE_UPDATE_PREFLIGHT_MAIN_ENTRY;
+  readonly switch: typeof PACKAGED_STATE_UPDATE_PREFLIGHT_SWITCH;
+  readonly protocol: typeof PACKAGED_STATE_UPDATE_PREFLIGHT_PROTOCOL;
+  readonly packagedOnly: true;
+  readonly bytes: number;
 }
 
 export const EXPECTED_JIT_MACHO_PATHS = [
@@ -563,6 +594,85 @@ const requireExecutable = async (filePath: string): Promise<void> => {
   await access(filePath, fsConstants.X_OK);
 };
 
+const countExactMarker = (
+  source: string,
+  marker: string,
+): number => {
+  let count = 0;
+  let offset = 0;
+  while (offset <= source.length - marker.length) {
+    const found = source.indexOf(marker, offset);
+    if (found === -1) break;
+    count += 1;
+    offset = found + marker.length;
+  }
+  return count;
+};
+
+export const validatePackagedStateUpdatePreflightMain = (
+  bytes: Uint8Array,
+): PackagedStateUpdatePreflightAuditReceipt => {
+  if (
+    bytes.byteLength < 1 ||
+    bytes.byteLength > PACKAGED_STATE_UPDATE_PREFLIGHT_MAX_MAIN_BYTES
+  ) {
+    throw new Error(
+      `packaged state update preflight main is outside its byte bound: ${bytes.byteLength}`,
+    );
+  }
+  const source = Buffer.from(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength,
+  ).toString("utf8");
+  for (const marker of PACKAGED_STATE_UPDATE_PREFLIGHT_REQUIRED_MARKERS) {
+    const count = countExactMarker(source, marker);
+    if (count !== 1) {
+      throw new Error(
+        `packaged state update preflight main requires exactly one ${marker} marker, got ${count}`,
+      );
+    }
+  }
+  return {
+    entry: PACKAGED_STATE_UPDATE_PREFLIGHT_MAIN_ENTRY,
+    switch: PACKAGED_STATE_UPDATE_PREFLIGHT_SWITCH,
+    protocol: PACKAGED_STATE_UPDATE_PREFLIGHT_PROTOCOL,
+    packagedOnly: true,
+    bytes: bytes.byteLength,
+  };
+};
+
+export const auditPackagedStateUpdatePreflight = (
+  appAsarPath: string,
+): PackagedStateUpdatePreflightAuditReceipt => {
+  const entry = statFile(
+    appAsarPath,
+    PACKAGED_STATE_UPDATE_PREFLIGHT_MAIN_ENTRY,
+    false,
+  );
+  if (
+    !("size" in entry) ||
+    entry.unpacked ||
+    entry.size < 1 ||
+    entry.size > PACKAGED_STATE_UPDATE_PREFLIGHT_MAX_MAIN_BYTES
+  ) {
+    throw new Error(
+      "packaged state update preflight main must be one bounded packed regular file",
+    );
+  }
+  const bytes = extractFile(
+    appAsarPath,
+    PACKAGED_STATE_UPDATE_PREFLIGHT_MAIN_ENTRY,
+    false,
+  );
+  if (bytes.byteLength !== entry.size) {
+    throw new Error(
+      "packaged state update preflight main changed size during audit",
+    );
+  }
+  return validatePackagedStateUpdatePreflightMain(bytes);
+};
+
 export const isMachOMagic = (bytes: Uint8Array): boolean =>
   bytes.byteLength >= 4 &&
   MAC_O_MAGICS.has(Buffer.from(bytes.subarray(0, 4)).toString("hex"));
@@ -930,6 +1040,8 @@ export const auditPackagedApp = async (
     browserCliPath,
     stationCliPath,
   });
+  const stateUpdatePreflight =
+    auditPackagedStateUpdatePreflight(appAsarPath);
 
   runFixedCommand("/usr/bin/codesign", [
     "--verify",
@@ -974,6 +1086,7 @@ export const auditPackagedApp = async (
     runtimeVersion: codesign.runtimeVersion,
     minimumSystemVersion: policy.minimumSystemVersion,
     fuses,
+    stateUpdatePreflight,
     machO,
   };
 };

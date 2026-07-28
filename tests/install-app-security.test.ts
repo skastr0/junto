@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -67,6 +68,71 @@ const position = (source: string, needle: string): number => {
   return index;
 };
 
+const stagedStatePreflightFunction = (): string => {
+  const start = position(
+    install,
+    "run_staged_state_update_preflight() {",
+  );
+  const end = position(install, "\napp_cdhash() {");
+  return install.slice(start, end);
+};
+
+const runStagedStatePreflight = (
+  executableBody: string,
+) => {
+  const sandbox = makeSandbox();
+  const stage = join(
+    sandbox,
+    "Applications",
+    "Vellum Command.app.new.4242",
+    "Vellum Command.app",
+  );
+  const executable = join(
+    stage,
+    "Contents",
+    "MacOS",
+    "Vellum Command",
+  );
+  mkdirSync(join(stage, "Contents", "MacOS"), { recursive: true });
+  writeFileSync(executable, `#!/bin/bash\n${executableBody}\n`);
+  chmodSync(executable, 0o755);
+  return spawnSync(
+    "/bin/bash",
+    [
+      "-c",
+      `set -euo pipefail
+PRODUCT_NAME='Vellum Command'
+STAGE="$TEST_STAGE"
+ACCOUNT_HOME="$TEST_ACCOUNT_HOME"
+INSTALL_SANDBOX_ROOT=""
+SCRIPT_DIR="$TEST_SCRIPT_DIR"
+STAGED_APP_ID="42:42"
+assert_install_transaction_capabilities() { return 0; }
+path_identity() { printf '42:42'; }
+current_user_test_temp_root() { printf '%s' "$TEST_TEMP_ROOT"; }
+log() { printf 'LOG:%s\\n' "$*"; }
+err() { printf 'ERR:%s\\n' "$*" >&2; }
+${stagedStatePreflightFunction()}
+if run_staged_state_update_preflight; then
+  printf 'RESULT:success\\n'
+else
+  printf 'RESULT:failure\\n'
+fi`,
+    ],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        TEST_STAGE: stage,
+        TEST_ACCOUNT_HOME: sandbox,
+        TEST_TEMP_ROOT: sandbox,
+        TEST_SCRIPT_DIR: join(root, "scripts"),
+      },
+      encoding: "utf8",
+    },
+  );
+};
+
 afterEach(() => {
   for (const sandbox of temporaryRoots.splice(0)) {
     rmSync(sandbox, { recursive: true, force: true });
@@ -79,6 +145,9 @@ describe("hardened app installer", () => {
     const stageCopy = position(install, 'ditto --rsrc "$APP_SRC" "$STAGE"');
     const staged = position(install, 'audit_app_bundle "$STAGE"');
     const quiesce = position(install, "unload_launchd");
+    const statePreflight = install.lastIndexOf(
+      "run_staged_state_update_preflight",
+    );
     const replace = position(install, "publish_staged_app_candidate");
     const installed = position(install, 'audit_app_bundle "$APP_DST"');
     const success = position(install, 'log "installed $APP_DST"');
@@ -86,9 +155,104 @@ describe("hardened app installer", () => {
     expect(candidate).toBeLessThan(stageCopy);
     expect(stageCopy).toBeLessThan(staged);
     expect(staged).toBeLessThan(quiesce);
-    expect(quiesce).toBeLessThan(replace);
+    expect(quiesce).toBeLessThan(statePreflight);
+    expect(statePreflight).toBeLessThan(replace);
     expect(replace).toBeLessThan(installed);
     expect(installed).toBeLessThan(success);
+  });
+
+  it("runs the audited staged Electron preflight with one fixed mode and a clean environment", () => {
+    const helperStart = position(
+      install,
+      "run_staged_state_update_preflight() {",
+    );
+    const helperEnd = position(install, "\napp_cdhash() {");
+    const helper = install.slice(helperStart, helperEnd);
+
+    expect(helper).toContain(
+      'local executable="$STAGE/Contents/MacOS/$PRODUCT_NAME"',
+    );
+    expect(helper).toContain("/usr/bin/env -i \\");
+    expect(helper).toContain(
+      '"$executable" --vellum-state-preflight',
+    );
+    expect(helper).toContain('HOME="$ACCOUNT_HOME"');
+    expect(helper).toContain('TMPDIR="$temp_root"');
+    expect(helper).toContain('PATH="/usr/bin:/bin"');
+    expect(helper).not.toContain("ELECTRON_RUN_AS_NODE");
+    expect(helper).not.toContain("NODE_OPTIONS=");
+    expect(helper).not.toContain("DYLD_");
+    expect(helper).not.toContain("VELLUM_STATE");
+    expect(helper).toContain(
+      'printf \'%s\' "$receipt" | /usr/bin/env -i',
+    );
+    expect(helper).toContain(
+      '"$SCRIPT_DIR/state-update-preflight-receipt.ts"',
+    );
+    expect(helper).toContain(
+      "state update preflight is unavailable in the filesystem-only install sandbox",
+    );
+    expect(helper).not.toContain(
+      "vellum-state-update-preflight/v1\\\",.*",
+    );
+  });
+
+  it("frames exactly one successful receipt and fails before activation otherwise", () => {
+    const helperStart = position(
+      install,
+      "run_staged_state_update_preflight() {",
+    );
+    const helperEnd = position(install, "\napp_cdhash() {");
+    const helper = install.slice(helperStart, helperEnd);
+    const call = position(
+      install,
+      "if ! run_staged_state_update_preflight; then",
+    );
+    const cutover = position(
+      install,
+      'begin_one_way_app_cutover "$CURRENT_APP_ID"',
+    );
+
+    expect(helper).toContain("separator=$'\\036'");
+    expect(helper).toContain("payload=\"${framed%\"$separator\"*}\"");
+    expect(helper).toContain(
+      'child_status="${framed##*"$separator"}"',
+    );
+    expect(helper).toContain('if [[ "$payload" != *$\'\\n\' ]]');
+    expect(helper).toContain('receipt="${payload%$\'\\n\'}"');
+    expect(helper).not.toContain("ACTIVATION_STARTED=");
+    expect(call).toBeLessThan(cutover);
+    expect(
+      position(
+        install.slice(call, cutover),
+        "candidate state readiness failed before activation",
+      ),
+    ).toBeGreaterThan(0);
+    expect(install).toContain(
+      'if [[ "$status" -ne 0 && "$ACTIVATION_STARTED" -eq 0 && "$LAUNCHD_WAS_LOADED" -eq 1 ]] && ! resume_launchd_job',
+    );
+  });
+
+  it("accepts only one successful strict receipt from the staged executable", () => {
+    const receipt =
+      '{"protocol":"vellum-state-update-preflight/v1","candidateId":"00000000-0000-4000-8000-000000000000","source":"fresh","sourceSchemaVersion":0,"targetSchemaVersion":2,"targetSchemaSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","installationId":"installation:fresh","role":"unenrolled","canvasCount":0,"actorSeatCount":0,"workSnapshotCount":0,"pendingCommandCount":0,"armedRegionCount":0,"schedulerCursorCount":0,"ready":true}';
+    const success = runStagedStatePreflight(
+      `printf '%s\\n' '${receipt}'`,
+    );
+    expect(success.status).toBe(0);
+    expect(success.stderr).toBe("");
+    expect(success.stdout).toContain(`${receipt}\nRESULT:success\n`);
+
+    for (const body of [
+      `printf '%s\\n%s\\n' '${receipt}' extra`,
+      "printf '%s\\n' '{\"ready\":true}'",
+      `printf '%s\\n' '${receipt}'; exit 9`,
+    ]) {
+      const failure = runStagedStatePreflight(body);
+      expect(failure.status).toBe(0);
+      expect(failure.stdout).toContain("RESULT:failure");
+      expect(failure.stderr).toContain("staged state update preflight");
+    }
   });
 
   it("fixes production identities and write targets while retaining read-only candidate selection", () => {

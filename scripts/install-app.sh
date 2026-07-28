@@ -158,6 +158,96 @@ audit_app_bundle() {
   bun "$SCRIPT_DIR/audit-packaged-app.ts" "$app"
 }
 
+run_staged_state_update_preflight() {
+  local executable="$STAGE/Contents/MacOS/$PRODUCT_NAME"
+  local account_name temp_root bun_executable framed separator payload child_status receipt
+  separator=$'\036'
+
+  assert_install_transaction_capabilities || return 1
+  if [[ -n "$INSTALL_SANDBOX_ROOT" ]]; then
+    err "state update preflight is unavailable in the filesystem-only install sandbox"
+    return 1
+  fi
+  if [[
+    -z "${STAGED_APP_ID:-}" ||
+    -L "$STAGE" ||
+    "$(path_identity "$STAGE" 2>/dev/null)" != "$STAGED_APP_ID"
+  ]]; then
+    err "staged app changed identity before state update preflight"
+    return 1
+  fi
+  if [[ ! -f "$executable" || -L "$executable" || ! -x "$executable" ]]; then
+    err "staged state update preflight executable is not a regular executable"
+    return 1
+  fi
+
+  account_name="$(id -un)" || return 1
+  temp_root="$(current_user_test_temp_root)" || return 1
+  bun_executable="$(type -P bun || true)"
+  if [[ -z "$bun_executable" || ! -x "$bun_executable" ]]; then
+    err "Bun is required to validate the state update preflight receipt"
+    return 1
+  fi
+  log "proving staged state update candidate"
+  # Frame stdout with the child's exit status so command substitution cannot
+  # erase the distinction between exactly one receipt line and extra output.
+  # A clean environment denies Node/Electron/Bun loader and Vellum test/demo
+  # controls; HOME and TMPDIR are re-derived from fixed OS account facts.
+  framed="$(
+    set +e
+    cd "$ACCOUNT_HOME" || exit 70
+    /usr/bin/env -i \
+      HOME="$ACCOUNT_HOME" \
+      LOGNAME="$account_name" \
+      PATH="/usr/bin:/bin" \
+      PWD="$ACCOUNT_HOME" \
+      TMPDIR="$temp_root" \
+      USER="$account_name" \
+      "$executable" --vellum-state-preflight
+    child_status=$?
+    printf '\036%s' "$child_status"
+  )"
+
+  if [[ "$framed" != *"$separator"* ]]; then
+    err "staged state update preflight returned no bounded status"
+    return 1
+  fi
+  payload="${framed%"$separator"*}"
+  child_status="${framed##*"$separator"}"
+  if [[
+    "$payload" == *"$separator"* ||
+    ! "$child_status" =~ ^[0-9]+$ ||
+    "$child_status" -ne 0
+  ]]; then
+    err "staged state update preflight failed"
+    return 1
+  fi
+  if [[ "$payload" != *$'\n' ]]; then
+    err "staged state update preflight did not emit one receipt line"
+    return 1
+  fi
+  receipt="${payload%$'\n'}"
+  if ! printf '%s' "$receipt" | /usr/bin/env -i \
+    HOME="$ACCOUNT_HOME" \
+    PATH="/usr/bin:/bin" \
+    TMPDIR="$temp_root" \
+    "$bun_executable" \
+    "$SCRIPT_DIR/state-update-preflight-receipt.ts"
+  then
+    err "staged state update preflight emitted an invalid receipt"
+    return 1
+  fi
+  if [[
+    -L "$STAGE" ||
+    "$(path_identity "$STAGE" 2>/dev/null)" != "$STAGED_APP_ID"
+  ]]; then
+    err "staged app changed identity during state update preflight"
+    return 1
+  fi
+  assert_install_transaction_capabilities || return 1
+  printf '%s\n' "$receipt"
+}
+
 app_cdhash() {
   local app="$1"
   local metadata hash
@@ -278,6 +368,7 @@ if [[ "$STAGED_CDHASH" != "$CANDIDATE_CDHASH" ]]; then
   err "staged app CDHash does not match the audited candidate"
   exit 1
 fi
+STAGED_APP_ID="$(path_identity "$STAGE")"
 
 # Detach before binary swap: launchd unload + soft quit so before-quit runs
 # and herdrStreams.detachAllOnQuit releases control (panes stay alive).
@@ -289,6 +380,17 @@ if launchd_loaded || vellum_processes_running; then
 fi
 # Brief settle so control clients exit and release PTYs.
 sleep 0.5
+
+assert_install_transaction_capabilities
+if ! run_staged_state_update_preflight; then
+  err "candidate state readiness failed before activation"
+  exit 1
+fi
+if launchd_loaded || vellum_processes_running; then
+  err "Vellum resumed during state update preflight; activation remains unstarted"
+  exit 1
+fi
+assert_install_transaction_capabilities
 
 log "installing → $APP_DST"
 assert_install_transaction_capabilities
@@ -303,7 +405,6 @@ fi
 # and directly removes that generation without caching it.
 begin_one_way_app_cutover "$CURRENT_APP_ID"
 assert_install_transaction_capabilities
-STAGED_APP_ID="$(path_identity "$STAGE")"
 CANDIDATE_MOVE_PENDING=1
 publish_staged_app_candidate
 CANDIDATE_PUBLISHED=1
