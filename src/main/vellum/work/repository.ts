@@ -30,6 +30,7 @@ import {
   WORK_PROTOCOL,
   WorkAction,
   WorkCommand,
+  FactBasis,
   WorkFact,
   WorkRecord,
   WorkSha256,
@@ -37,6 +38,8 @@ import {
   type ActorRef,
   type DeliveryReceipt,
   type DisplayTimestamp as DisplayTimestampValue,
+  type FactBasis as FactBasisValue,
+  type IntentFactBasis as IntentFactBasisValue,
   type LogicalSequence as LogicalSequenceValue,
   type MessageAppendDestination,
   type RouteCursor as RouteCursorValue,
@@ -229,10 +232,14 @@ type ReplicationFailure =
   | WorkRepositoryError
   | WorkReplicationError;
 
-export type LocalWorkInput = {
+export type WorkRepositoryInput = {
   readonly sink: SinkRefValue;
   readonly originAt?: string;
   readonly receivedAt?: string;
+};
+
+export type LocalWorkInput = WorkRepositoryInput & {
+  readonly basis: IntentFactBasisValue;
 };
 
 export type CreateTaskInput = LocalWorkInput & {
@@ -282,13 +289,13 @@ export type AcceptDeliveryInput = LocalWorkInput & {
   readonly receipt: DeliveryReceipt;
 };
 
-export type ReserveRemoteTaskClaimInput = LocalWorkInput & {
+export type ReserveRemoteTaskClaimInput = WorkRepositoryInput & {
   readonly taskId: string;
   readonly actor: ActorRef;
   readonly targetInstallationId: InstallationId;
 };
 
-export type EnqueueRemoteCommandInput = LocalWorkInput & {
+export type EnqueueRemoteCommandInput = WorkRepositoryInput & {
   readonly targetInstallationId: InstallationId;
   readonly item: WorkItemRef;
   readonly action: Exclude<WorkActionValue, { readonly operation: "task.claim" }>;
@@ -406,6 +413,18 @@ type VariantRow = StateRow & {
   readonly body_json: string;
 };
 
+type FactVariantRow = VariantRow & {
+  readonly basis_kind: FactBasisValue["kind"];
+  readonly basis_authorial_generation: string | null;
+  readonly basis_authorial_content_sha256: string | null;
+  readonly basis_projected_generation: string | null;
+  readonly basis_projected_content_sha256: string | null;
+  readonly basis_command_event_home: string | null;
+  readonly basis_command_entity_home: string | null;
+  readonly basis_command_seq: string | null;
+  readonly basis_command_sha256: string | null;
+};
+
 type DispositionRow = StateRow & {
   readonly status: "applied" | "rejected";
   readonly command_event_home: string;
@@ -515,6 +534,76 @@ const canonicalLocalWorkAuthority = (
     ),
     role: Schema.decodeUnknownSync(StationApiRole)(row.role),
   };
+};
+
+/**
+ * Reassert the exact intent snapshot captured by WorkService inside the same
+ * SQLite transaction that will materialize the fact. This closes the
+ * read/policy/write race without turning current intent into a retroactive
+ * validator for already committed historical facts.
+ */
+const assertCurrentIntentBasis = (
+  reader: StateReader,
+  authority: LocalWorkAuthority,
+  sink: SinkRefValue,
+  basis: IntentFactBasisValue,
+): void => {
+  if (authority.role === "command-center") {
+    if (basis.kind !== "authorial-intent") {
+      throw authorityError(
+        "authority-mismatch",
+        "Command Center local work requires an authorial intent basis",
+      );
+    }
+    const current = reader.get<StateRow>(
+      `
+        SELECT 1
+        FROM canvas_head AS head
+        JOIN canvas_generations AS generation
+          ON generation.generation = head.generation
+        JOIN canvas_generation_documents AS document
+          ON document.generation = generation.generation
+        WHERE head.singleton = 1
+          AND generation.generation = ?
+          AND generation.intent_sha256 = ?
+          AND document.name = ?
+      `,
+      [basis.generation, basis.contentSha256, sink.canvasName],
+    );
+    if (current === undefined) {
+      throw authorityError(
+        "causal-conflict",
+        "authorial intent changed before the local Work mutation committed",
+      );
+    }
+    return;
+  }
+
+  if (basis.kind !== "projected-intent") {
+    throw authorityError(
+      "authority-mismatch",
+      "Remote local work requires a projected intent basis",
+    );
+  }
+  const current = reader.get<StateRow>(
+    `
+      SELECT 1
+      FROM station_projection_head AS head
+      JOIN station_projection_versions AS version
+        ON version.generation = head.generation
+        AND version.content_sha256 = head.content_sha256
+      WHERE head.singleton = 1
+        AND version.generation = ?
+        AND version.content_sha256 = ?
+    `,
+    [basis.generation, basis.contentSha256],
+  );
+  if (current === undefined) {
+    throw authorityError(
+      "causal-conflict",
+      "projected intent changed before the local Work mutation committed",
+    );
+  }
 };
 
 const textNode = (node: CanvasNode): CanvasNode =>
@@ -1139,6 +1228,32 @@ const predecessorFromRow = (
         row.predecessor_seq,
       );
 
+const factBasisFromRow = (row: FactVariantRow): FactBasisValue => {
+  const candidate =
+    row.basis_kind === "authorial-intent"
+      ? {
+          kind: "authorial-intent" as const,
+          generation: row.basis_authorial_generation,
+          contentSha256: row.basis_authorial_content_sha256,
+        }
+      : row.basis_kind === "projected-intent"
+        ? {
+            kind: "projected-intent" as const,
+            generation: row.basis_projected_generation,
+            contentSha256: row.basis_projected_content_sha256,
+          }
+        : {
+            kind: "command" as const,
+            command: recordId(
+              row.basis_command_event_home as InstallationId,
+              row.basis_command_entity_home as InstallationId,
+              row.basis_command_seq!,
+            ),
+            commandSha256: row.basis_command_sha256,
+          };
+  return Schema.decodeUnknownSync(FactBasis, strictDecode)(candidate);
+};
+
 const loadRecord = (
   reader: StateReader,
   identity: WorkRecordId,
@@ -1188,12 +1303,21 @@ const loadRecord = (
     });
   }
   if (common.record_type === "fact") {
-    const row = reader.get<VariantRow>(
+    const row = reader.get<FactVariantRow>(
       `
         SELECT
           predecessor_event_home,
           predecessor_entity_home,
           predecessor_seq,
+          basis_kind,
+          basis_authorial_generation,
+          basis_authorial_content_sha256,
+          basis_projected_generation,
+          basis_projected_content_sha256,
+          basis_command_event_home,
+          basis_command_entity_home,
+          basis_command_seq,
+          basis_command_sha256,
           result_json AS body_json
         FROM work_facts
         WHERE event_home = ? AND entity_home = ? AND seq = ?
@@ -1208,6 +1332,7 @@ const loadRecord = (
     return Schema.decodeUnknownSync(WorkFact, strictDecode)({
       ...base,
       recordType: "fact",
+      basis: factBasisFromRow(row),
       predecessor: predecessorFromRow(row),
       body: parseJson(row.body_json),
     });
@@ -1344,8 +1469,17 @@ const insertRecord = (
           predecessor_event_home,
           predecessor_entity_home,
           predecessor_seq,
+          basis_kind,
+          basis_authorial_generation,
+          basis_authorial_content_sha256,
+          basis_projected_generation,
+          basis_projected_content_sha256,
+          basis_command_event_home,
+          basis_command_entity_home,
+          basis_command_seq,
+          basis_command_sha256,
           result_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         record.id.route.eventHome,
@@ -1354,6 +1488,31 @@ const insertRecord = (
         record.predecessor?.route.eventHome ?? null,
         record.predecessor?.route.entityHome ?? null,
         record.predecessor?.seq ?? null,
+        record.basis.kind,
+        record.basis.kind === "authorial-intent"
+          ? record.basis.generation
+          : null,
+        record.basis.kind === "authorial-intent"
+          ? record.basis.contentSha256
+          : null,
+        record.basis.kind === "projected-intent"
+          ? record.basis.generation
+          : null,
+        record.basis.kind === "projected-intent"
+          ? record.basis.contentSha256
+          : null,
+        record.basis.kind === "command"
+          ? record.basis.command.route.eventHome
+          : null,
+        record.basis.kind === "command"
+          ? record.basis.command.route.entityHome
+          : null,
+        record.basis.kind === "command"
+          ? record.basis.command.seq
+          : null,
+        record.basis.kind === "command"
+          ? record.basis.commandSha256
+          : null,
         canonicalJson(record.body),
       ],
     );
@@ -2048,6 +2207,7 @@ const makeFact = (
   itemRef: WorkItemRef,
   operation: WorkOperation,
   predecessor: WorkRecordId | null,
+  basis: FactBasisValue,
   body: WorkResult,
   originAt: DisplayTimestampValue,
 ): WorkFactValue => {
@@ -2070,6 +2230,7 @@ const makeFact = (
       item: itemRef,
       operation,
       predecessor,
+      basis,
       body,
     },
     originAt,
@@ -2171,18 +2332,28 @@ const commitLocalFact = <A>(
     readonly item: WorkItemRef;
     readonly operation: WorkOperation;
     readonly predecessor: WorkRecordId | null;
+    readonly basis: IntentFactBasisValue;
     readonly body: WorkResult;
     readonly value: A;
     readonly originAt: DisplayTimestampValue;
     readonly receivedAt: DisplayTimestampValue;
   },
 ): LocalFactResult<A> => {
+  const authority = canonicalLocalWorkAuthority(writer);
+  if (authority.installationId !== input.localInstallationId) {
+    throw authorityError(
+      "authority-mismatch",
+      "local Work authority changed inside its transaction",
+    );
+  }
+  assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
   const fact = makeFact(
     writer,
     input.localInstallationId,
     input.item,
     input.operation,
     input.predecessor,
+    input.basis,
     input.body,
     input.originAt,
   );
@@ -3314,11 +3485,14 @@ const validateDisposition = (
       fact.recordType !== "fact" ||
       fact.contentSha256 !== disposition.body.factSha256 ||
       fact.operation !== disposition.operation ||
-      !sameItem(fact.item, disposition.item)
+      !sameItem(fact.item, disposition.item) ||
+      fact.basis.kind !== "command" ||
+      !sameId(fact.basis.command, command.id) ||
+      fact.basis.commandSha256 !== command.contentSha256
     ) {
       throw authorityError(
         "causal-conflict",
-        "applied disposition fact reference is not coherent",
+        "applied disposition fact does not carry the exact command basis",
       );
     }
     if (
@@ -3374,6 +3548,11 @@ const applyCommand = (
     command.item,
     command.operation,
     predecessor,
+    {
+      kind: "command",
+      command: command.id,
+      commandSha256: command.contentSha256,
+    },
     result.body,
     observedAt,
   );
@@ -3600,6 +3779,7 @@ export const WorkRepositoryLive = Layer.effect(
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
+          basis: input.basis,
           item: item("task", task.id, input.sink),
           operation: "task.create",
           predecessor: null,
@@ -3659,6 +3839,7 @@ export const WorkRepositoryLive = Layer.effect(
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
+          basis: input.basis,
           item: item("task", task.id, input.sink),
           operation: "task.describe",
           predecessor: currentIdentity(current.row),
@@ -3717,6 +3898,7 @@ export const WorkRepositoryLive = Layer.effect(
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
+          basis: input.basis,
           item: item("task", task.id, input.sink),
           operation: "task.transition",
           predecessor: currentIdentity(current.row),
@@ -3772,6 +3954,7 @@ export const WorkRepositoryLive = Layer.effect(
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
+          basis: input.basis,
           item: item("task", task.id, input.sink),
           operation: "task.claim",
           predecessor: currentIdentity(current.row),
@@ -3825,6 +4008,7 @@ export const WorkRepositoryLive = Layer.effect(
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
+          basis: input.basis,
           item: item("request", request.id, input.sink),
           operation: "request.create",
           predecessor: null,
@@ -3889,6 +4073,7 @@ export const WorkRepositoryLive = Layer.effect(
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
+          basis: input.basis,
           item: item("request", request.id, input.sink),
           operation: "request.resolve",
           predecessor: currentIdentity(current.row),
@@ -3949,6 +4134,7 @@ export const WorkRepositoryLive = Layer.effect(
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
+          basis: input.basis,
           item: item("message", message.messageId, input.sink),
           operation: "message.append",
           predecessor: null,
@@ -4004,6 +4190,7 @@ export const WorkRepositoryLive = Layer.effect(
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
+          basis: input.basis,
           item: item("artifact", artifact.artifactId, input.sink),
           operation: "artifact.publish",
           predecessor: null,
@@ -4061,6 +4248,7 @@ export const WorkRepositoryLive = Layer.effect(
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
+          basis: input.basis,
           item: item("delivery", receipt.deliveryId, input.sink),
           operation: "delivery.accepted",
           predecessor: null,

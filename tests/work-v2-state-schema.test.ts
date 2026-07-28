@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test } from "vitest";
+import { CANVAS_STATE_SCHEMA_SQL } from "../src/main/vellum/state/schema";
 import { STATION_STATE_SCHEMA_SQL } from "../src/main/vellum/station/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../src/main/vellum/work/state-schema";
 
@@ -16,9 +17,41 @@ const makeDatabase = (): DatabaseSync => {
   database.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA trusted_schema = OFF;
+    ${CANVAS_STATE_SCHEMA_SQL}
     ${STATION_STATE_SCHEMA_SQL}
     ${WORK_STATE_SCHEMA_SQL}
   `);
+  database
+    .prepare(
+      `
+        INSERT INTO canvas_generations(
+          generation,
+          created_at,
+          cause,
+          intent_sha256,
+          document_count
+        ) VALUES ('1', ?, 'test', ?, 1)
+      `,
+    )
+    .run(observedAt, hash("f"));
+  database
+    .prepare(
+      `
+        INSERT INTO canvas_generation_documents(
+          generation,
+          name,
+          body,
+          sha256,
+          modified_at
+        ) VALUES ('1', 'factory', '{}', ?, ?)
+      `,
+    )
+    .run(hash("e"), observedAt);
+  database
+    .prepare(
+      "INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')",
+    )
+    .run();
   return database;
 };
 
@@ -185,6 +218,33 @@ const insertFact = (
   record: Omit<RecordFixture, "recordType">,
 ): void => {
   insertRecord(database, { ...record, recordType: "fact" });
+  const command = database
+    .prepare(
+      `
+        SELECT event_home, entity_home, seq, content_sha256
+        FROM work_events
+        WHERE record_type = 'command'
+          AND entity_home = ?
+          AND operation = ?
+          AND item_kind = ?
+          AND item_id = ?
+        ORDER BY length(seq), seq
+        LIMIT 1
+      `,
+    )
+    .get(
+      record.entityHome,
+      record.operation,
+      record.itemKind,
+      record.itemId,
+    ) as
+    | {
+        readonly event_home: string;
+        readonly entity_home: string;
+        readonly seq: string;
+        readonly content_sha256: string;
+      }
+    | undefined;
   database
     .prepare(
       `
@@ -192,11 +252,30 @@ const insertFact = (
           event_home,
           entity_home,
           seq,
+          basis_kind,
+          basis_authorial_generation,
+          basis_authorial_content_sha256,
+          basis_command_event_home,
+          basis_command_entity_home,
+          basis_command_seq,
+          basis_command_sha256,
           result_json
-        ) VALUES (?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
-    .run(record.eventHome, record.entityHome, record.seq, "{}");
+    .run(
+      record.eventHome,
+      record.entityHome,
+      record.seq,
+      command === undefined ? "authorial-intent" : "command",
+      command === undefined ? "1" : null,
+      command === undefined ? hash("f") : null,
+      command?.event_home ?? null,
+      command?.entity_home ?? null,
+      command?.seq ?? null,
+      command?.content_sha256 ?? null,
+      "{}",
+    );
 };
 
 afterEach(() => {
@@ -424,6 +503,154 @@ describe("Work v2 exact-current SQLite schema", () => {
     expect(WORK_STATE_SCHEMA_SQL).not.toMatch(
       /home_station|vellum:command-center|payload_json/u,
     );
+  });
+
+  test("requires one resolvable closed basis group on every fact", () => {
+    const database = makeDatabase();
+    registerInstallation(database, "cc-installation");
+    registerInstallation(database, "remote-installation");
+    registerRoute(database, "cc-installation", "cc-installation", "3");
+    registerRoute(
+      database,
+      "remote-installation",
+      "remote-installation",
+      "1",
+    );
+
+    const factVariant = database.prepare(
+      `
+        INSERT INTO work_facts(
+          event_home,
+          entity_home,
+          seq,
+          basis_kind,
+          basis_authorial_generation,
+          basis_authorial_content_sha256,
+          basis_projected_generation,
+          basis_projected_content_sha256,
+          result_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}')
+      `,
+    );
+
+    insertRecord(database, {
+      eventHome: "cc-installation",
+      entityHome: "cc-installation",
+      seq: "1",
+      recordType: "fact",
+      operation: "task.create",
+      itemKind: "task",
+      itemId: "task-1",
+      contentSha256: hash("1"),
+    });
+    expect(() =>
+      database
+        .prepare(
+          `
+            INSERT INTO work_facts(
+              event_home,
+              entity_home,
+              seq,
+              result_json
+            ) VALUES ('cc-installation', 'cc-installation', '1', '{}')
+          `,
+        )
+        .run(),
+    ).toThrow(/NOT NULL constraint failed/u);
+    factVariant.run(
+      "cc-installation",
+      "cc-installation",
+      "1",
+      "authorial-intent",
+      "1",
+      hash("f"),
+      null,
+      null,
+    );
+
+    insertRecord(database, {
+      eventHome: "cc-installation",
+      entityHome: "cc-installation",
+      seq: "2",
+      recordType: "fact",
+      operation: "task.create",
+      itemKind: "task",
+      itemId: "task-2",
+      contentSha256: hash("2"),
+    });
+    expect(() =>
+      factVariant.run(
+        "cc-installation",
+        "cc-installation",
+        "2",
+        "authorial-intent",
+        "1",
+        hash("0"),
+        null,
+        null,
+      ),
+    ).toThrow(
+      /authorial fact basis must resolve its exact sink canvas generation/u,
+    );
+
+    database
+      .prepare(
+        `
+          INSERT INTO station_projection_versions(
+            generation,
+            content_sha256,
+            source_canvas_generation,
+            source_intent_sha256,
+            body,
+            created_at,
+            received_at
+          ) VALUES ('7', ?, '1', ?, '{}', ?, ?)
+        `,
+      )
+      .run(hash("7"), hash("f"), observedAt, observedAt);
+    insertRecord(database, {
+      eventHome: "remote-installation",
+      entityHome: "remote-installation",
+      seq: "1",
+      recordType: "fact",
+      operation: "task.create",
+      itemKind: "task",
+      itemId: "task-3",
+      contentSha256: hash("3"),
+    });
+    factVariant.run(
+      "remote-installation",
+      "remote-installation",
+      "1",
+      "projected-intent",
+      null,
+      null,
+      "7",
+      hash("7"),
+    );
+
+    insertRecord(database, {
+      eventHome: "cc-installation",
+      entityHome: "cc-installation",
+      seq: "3",
+      recordType: "fact",
+      operation: "task.create",
+      itemKind: "task",
+      itemId: "task-4",
+      contentSha256: hash("4"),
+    });
+    expect(() =>
+      factVariant.run(
+        "cc-installation",
+        "cc-installation",
+        "3",
+        "authorial-intent",
+        "1",
+        hash("f"),
+        "7",
+        hash("7"),
+      ),
+    ).toThrow(/CHECK constraint failed/u);
   });
 
   test("requires immutable canonical sender seats on material mailbox rows", () => {

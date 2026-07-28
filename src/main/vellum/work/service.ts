@@ -38,9 +38,11 @@ import {
 } from "@shared/work";
 import type {
   ActorRef,
+  IntentFactBasis as IntentFactBasisValue,
   WorkAction as WorkActionValue,
   WorkItemRef,
 } from "@shared/work-protocol";
+import { IntentFactBasis } from "@shared/work-protocol";
 import { ulid } from "ulid";
 import {
   CanvasesService,
@@ -322,7 +324,31 @@ export const WorkLive = Layer.effect(
     );
 
     const readCanvas = (canvasName: string) =>
-      canvases.read(canvasName).pipe(Effect.mapError(toWorkServiceError));
+      canvases.readWithIntentWitness(canvasName).pipe(
+        Effect.mapError(toWorkServiceError),
+        Effect.map(({ read, intentWitness }) => ({
+          ...read,
+          intentWitness,
+        })),
+      );
+
+    const intentBasis = (
+      context: StationContext,
+      witness: {
+        readonly generation: string;
+        readonly contentSha256: string;
+      },
+    ): IntentFactBasisValue =>
+      Schema.decodeUnknownSync(IntentFactBasis, {
+        onExcessProperty: "error",
+      })({
+        kind:
+          context.configuration.role === "command-center"
+            ? "authorial-intent"
+            : "projected-intent",
+        generation: witness.generation,
+        contentSha256: witness.contentSha256,
+      });
 
     const runPolicy = <A>(thunk: () => A): Effect.Effect<A, WorkServiceError> =>
       Effect.try({
@@ -618,6 +644,7 @@ export const WorkLive = Layer.effect(
               ? yield* local(
                 repository.createTask({
                   sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
                   task: policy.task,
                 }),
               )
@@ -655,6 +682,7 @@ export const WorkLive = Layer.effect(
               ? yield* local(
                 repository.describeTask({
                   sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
                   taskId,
                   message,
                 }),
@@ -706,6 +734,7 @@ export const WorkLive = Layer.effect(
               ? yield* local(
                 repository.transitionTask({
                   sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
                   taskId,
                   state,
                   ...(message === undefined ? {} : { message }),
@@ -758,6 +787,7 @@ export const WorkLive = Layer.effect(
               ? yield* local(
                 repository.transitionTask({
                   sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
                   taskId,
                   state: disposition,
                   message,
@@ -809,6 +839,7 @@ export const WorkLive = Layer.effect(
               outcome = yield* local(
                 repository.claimLocalTask({
                   sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
                   taskId,
                   actor,
                 }),
@@ -921,6 +952,7 @@ export const WorkLive = Layer.effect(
               ? yield* local(
                 repository.appendMessage({
                   sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
                   message: policy.message,
                   sentBy,
                   destination,
@@ -990,6 +1022,7 @@ export const WorkLive = Layer.effect(
             const outcome = yield* local(
               repository.createRequest({
                 sink: sinkRef(canvas, nodeId),
+                basis: intentBasis(context, read.intentWitness),
                 request: policy.task,
                 raisedBy,
               }),
@@ -1041,6 +1074,7 @@ export const WorkLive = Layer.effect(
               ? yield* local(
                 repository.resolveRequest({
                   sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
                   requestId: taskId,
                   response: policy.task.response!,
                   disposition,
@@ -1091,6 +1125,7 @@ export const WorkLive = Layer.effect(
             const outcome = yield* local(
               repository.publishArtifact({
                 sink: sinkRef(canvas, nodeId),
+                basis: intentBasis(context, read.intentWitness),
                 artifact: policy.artifact,
                 publishedBy,
               }),

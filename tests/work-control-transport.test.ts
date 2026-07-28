@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import {
   WORK_PROTOCOL_VERSION,
   decodeWorkResponse,
@@ -52,7 +52,11 @@ import {
 import {
   actorRefFixture,
 } from "./helpers/actor-ref-fixtures";
-import type { ActorRef } from "../src/shared/work-protocol";
+import {
+  IntentFactBasis,
+  type ActorRef,
+  type IntentFactBasis as IntentFactBasisValue,
+} from "../src/shared/work-protocol";
 
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
@@ -82,6 +86,19 @@ const runtimes: Array<ReturnType<typeof makeWorkTestRuntime>> = [];
 const authoringGates: MainAuthoringGate[] = [];
 /** Peer PID for transport tests — must be a live process (epoch-checked). */
 const TEST_PEER_PID = process.pid;
+
+const authorialBasis = async (
+  runtime: ReturnType<typeof makeWorkTestRuntime>,
+): Promise<IntentFactBasisValue> => {
+  const canvases = await runtime.runPromise(CanvasesService);
+  const witness = await runtime.runPromise(canvases.activeIntentWitness());
+  return Schema.decodeUnknownSync(IntentFactBasis, {
+    onExcessProperty: "error",
+  })({
+    kind: "authorial-intent",
+    ...witness,
+  });
+};
 
 const deferred = <A>() => {
   let resolve!: (value: A | PromiseLike<A>) => void;
@@ -179,6 +196,7 @@ const seedCanonicalWork = async (
   await runtime.runPromise(
     repository.createTask({
       sink: { canvasName: "work-cli", nodeId: "tasks" },
+      basis: await authorialBasis(runtime),
       task: {
         id: "t1",
         state: "submitted",
@@ -991,6 +1009,7 @@ describe("work control transport", () => {
     await runtime.runPromise(
       repository.claimLocalTask({
         sink: { canvasName: "work-cli", nodeId: "tasks" },
+        basis: await authorialBasis(runtime),
         taskId: "t1",
         actor: other,
       }),

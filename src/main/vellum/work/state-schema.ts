@@ -161,8 +161,113 @@ export const WORK_STATE_SCHEMA_SQL = `
         length(result_json) BETWEEN 2 AND 262144
         AND json_valid(result_json)
       ),
+    basis_kind TEXT NOT NULL
+      CHECK (
+        basis_kind IN (
+          'authorial-intent',
+          'projected-intent',
+          'command'
+        )
+      ),
+    basis_authorial_generation TEXT
+      CHECK (
+        basis_authorial_generation IS NULL
+        OR (
+          length(basis_authorial_generation) BETWEEN 1 AND 32
+          AND basis_authorial_generation NOT GLOB '*[^0-9]*'
+          AND (
+            basis_authorial_generation = '0'
+            OR substr(basis_authorial_generation, 1, 1) <> '0'
+          )
+        )
+      ),
+    basis_authorial_content_sha256 TEXT
+      CHECK (
+        basis_authorial_content_sha256 IS NULL
+        OR (
+          length(basis_authorial_content_sha256) = 64
+          AND basis_authorial_content_sha256 NOT GLOB '*[^a-f0-9]*'
+        )
+      ),
+    basis_projected_generation TEXT
+      CHECK (
+        basis_projected_generation IS NULL
+        OR (
+          length(basis_projected_generation) BETWEEN 1 AND 32
+          AND basis_projected_generation NOT GLOB '*[^0-9]*'
+          AND (
+            basis_projected_generation = '0'
+            OR substr(basis_projected_generation, 1, 1) <> '0'
+          )
+        )
+      ),
+    basis_projected_content_sha256 TEXT
+      CHECK (
+        basis_projected_content_sha256 IS NULL
+        OR (
+          length(basis_projected_content_sha256) = 64
+          AND basis_projected_content_sha256 NOT GLOB '*[^a-f0-9]*'
+        )
+      ),
+    basis_command_event_home TEXT,
+    basis_command_entity_home TEXT,
+    basis_command_seq TEXT
+      CHECK (
+        basis_command_seq IS NULL
+        OR (
+          length(basis_command_seq) BETWEEN 1 AND 32
+          AND basis_command_seq NOT GLOB '*[^0-9]*'
+          AND substr(basis_command_seq, 1, 1) <> '0'
+        )
+      ),
+    basis_command_sha256 TEXT
+      CHECK (
+        basis_command_sha256 IS NULL
+        OR (
+          length(basis_command_sha256) = 64
+          AND basis_command_sha256 NOT GLOB '*[^a-f0-9]*'
+        )
+      ),
     PRIMARY KEY (event_home, entity_home, seq),
     CHECK (event_home = entity_home),
+    CHECK (
+      (
+        basis_kind = 'authorial-intent'
+        AND basis_authorial_generation IS NOT NULL
+        AND basis_authorial_content_sha256 IS NOT NULL
+        AND basis_projected_generation IS NULL
+        AND basis_projected_content_sha256 IS NULL
+        AND basis_command_event_home IS NULL
+        AND basis_command_entity_home IS NULL
+        AND basis_command_seq IS NULL
+        AND basis_command_sha256 IS NULL
+      )
+      OR
+      (
+        basis_kind = 'projected-intent'
+        AND basis_authorial_generation IS NULL
+        AND basis_authorial_content_sha256 IS NULL
+        AND basis_projected_generation IS NOT NULL
+        AND basis_projected_content_sha256 IS NOT NULL
+        AND basis_command_event_home IS NULL
+        AND basis_command_entity_home IS NULL
+        AND basis_command_seq IS NULL
+        AND basis_command_sha256 IS NULL
+      )
+      OR
+      (
+        basis_kind = 'command'
+        AND basis_authorial_generation IS NULL
+        AND basis_authorial_content_sha256 IS NULL
+        AND basis_projected_generation IS NULL
+        AND basis_projected_content_sha256 IS NULL
+        AND basis_command_event_home IS NOT NULL
+        AND basis_command_entity_home IS NOT NULL
+        AND basis_command_seq IS NOT NULL
+        AND basis_command_sha256 IS NOT NULL
+        AND basis_command_entity_home = entity_home
+      )
+    ),
     CHECK (
       (
         predecessor_event_home IS NULL
@@ -186,6 +291,36 @@ export const WORK_STATE_SCHEMA_SQL = `
       predecessor_entity_home,
       predecessor_seq
     ) REFERENCES work_facts(event_home, entity_home, seq)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT,
+    FOREIGN KEY (basis_authorial_generation)
+      REFERENCES canvas_generations(generation)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT,
+    FOREIGN KEY (
+      basis_projected_generation,
+      basis_projected_content_sha256
+    ) REFERENCES station_projection_versions(generation, content_sha256)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT,
+    FOREIGN KEY (
+      basis_command_event_home,
+      basis_command_entity_home,
+      basis_command_seq
+    ) REFERENCES work_commands(event_home, entity_home, seq)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT,
+    FOREIGN KEY (
+      basis_command_event_home,
+      basis_command_entity_home,
+      basis_command_seq,
+      basis_command_sha256
+    ) REFERENCES work_events(
+      event_home,
+      entity_home,
+      seq,
+      content_sha256
+    )
       ON DELETE RESTRICT
       ON UPDATE RESTRICT
   ) STRICT, WITHOUT ROWID;
@@ -901,6 +1036,31 @@ export const WORK_STATE_SCHEMA_SQL = `
     SELECT RAISE(ABORT, 'work command records are immutable');
   END;
 
+  CREATE TRIGGER IF NOT EXISTS work_fact_authorial_basis_resolves
+  BEFORE INSERT ON work_facts
+  WHEN
+    NEW.basis_kind = 'authorial-intent'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM canvas_generations AS generation
+      JOIN canvas_generation_documents AS document
+        ON document.generation = generation.generation
+      JOIN work_events AS record
+        ON record.event_home = NEW.event_home
+        AND record.entity_home = NEW.entity_home
+        AND record.seq = NEW.seq
+      WHERE generation.generation = NEW.basis_authorial_generation
+        AND generation.intent_sha256 =
+          NEW.basis_authorial_content_sha256
+        AND document.name = record.item_canvas_name
+    )
+  BEGIN
+    SELECT RAISE(
+      ABORT,
+      'authorial fact basis must resolve its exact sink canvas generation'
+    );
+  END;
+
   CREATE TRIGGER IF NOT EXISTS work_facts_immutable_update
   BEFORE UPDATE ON work_facts
   BEGIN
@@ -911,6 +1071,29 @@ export const WORK_STATE_SCHEMA_SQL = `
   BEFORE DELETE ON work_facts
   BEGIN
     SELECT RAISE(ABORT, 'work fact records are immutable');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS work_applied_disposition_fact_basis_matches
+  BEFORE INSERT ON work_dispositions
+  WHEN
+    NEW.status = 'applied'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM work_facts AS fact
+      WHERE fact.event_home = NEW.fact_event_home
+        AND fact.entity_home = NEW.fact_entity_home
+        AND fact.seq = NEW.fact_seq
+        AND fact.basis_kind = 'command'
+        AND fact.basis_command_event_home = NEW.command_event_home
+        AND fact.basis_command_entity_home = NEW.command_entity_home
+        AND fact.basis_command_seq = NEW.command_seq
+        AND fact.basis_command_sha256 = NEW.command_sha256
+    )
+  BEGIN
+    SELECT RAISE(
+      ABORT,
+      'applied disposition fact must carry its exact command basis'
+    );
   END;
 
   CREATE TRIGGER IF NOT EXISTS work_dispositions_immutable_update
