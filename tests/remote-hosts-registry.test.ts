@@ -42,9 +42,13 @@ import { HerdrMirrorRegistry } from "../src/main/vellum/herdr/mirrors";
 import type { MirrorTransport } from "../src/main/vellum/herdr/mirror-transport";
 import { SshTransport } from "../src/main/vellum/ssh/service";
 import { acpVerboseLogging } from "../src/main/vellum/chat/acp-client";
+import { StationFleetPropagation } from "../src/main/vellum/station/fleet-propagation";
 
 const dirs: string[] = [];
 const originalHome = process.env.HOME;
+const unusedFleet = {} as Context.Tag.Service<
+  typeof StationFleetPropagation
+>;
 const stateDisposers: Array<() => Promise<void>> = [];
 const stateByPath = new Map<
   string,
@@ -257,6 +261,7 @@ describe("remote hosts registry", () => {
     const service = makeHostsService(
       observingRegistry,
       {} as Context.Tag.Service<typeof SshTransport>,
+      unusedFleet,
     );
 
     const result = await Effect.runPromise(
@@ -406,6 +411,7 @@ describe("remote hosts registry", () => {
     const service = makeHostsService(
       delayedRegistry,
       {} as Context.Tag.Service<typeof SshTransport>,
+      unusedFleet,
     );
     const fiber = Effect.runFork(
       service.upsert({

@@ -31,6 +31,7 @@ import {
   testHostConnection,
   type RemoteHostsDoctorSnapshot,
 } from "./doctor";
+import { StationFleetPropagation } from "../station/fleet-propagation";
 import {
   getDefaultHostsRegistry,
   type HostsRegistry,
@@ -48,7 +49,7 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
   HostsService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
-    /** One SSH pass shared by fleet Doctor and Station projection. */
+    /** Observation from the one persistent fleet supervisor/session per Remote. */
     readonly doctorSnapshot: Effect.Effect<RemoteHostsDoctorSnapshot>;
     readonly list: Effect.Effect<ReadonlyArray<RemoteHostT>, RemoteHostsError>;
     readonly get: (
@@ -127,6 +128,7 @@ const loadHostsIntoRoutingSnapshot = (
 export const makeHostsService = (
   registry: HostsRegistry,
   ssh: Context.Tag.Service<typeof SshTransport>,
+  fleet: Context.Tag.Service<typeof StationFleetPropagation>,
   operations: {
     readonly configureRemoteHost: typeof configureRemoteHost;
     readonly deployRemoteHost: typeof deployRemoteHost;
@@ -156,8 +158,12 @@ export const makeHostsService = (
     mutationLockFor(mutationTarget(host)).withPermits(1)(effect);
 
   return {
-    doctor: runRemoteHostsDoctor(registry, ssh),
-    doctorSnapshot: runRemoteHostsDoctorSnapshot(registry, ssh),
+    doctor: runRemoteHostsDoctor(registry, ssh, fleet),
+    doctorSnapshot: runRemoteHostsDoctorSnapshot(
+      registry,
+      ssh,
+      fleet,
+    ),
     // Listing is the explicit durable reload boundary used by Settings and IPC.
     // Keep the synchronous routing snapshot in the same successful operation.
     list: loadHostsIntoRoutingSnapshot(() => registry.reload()),
@@ -204,7 +210,7 @@ export const makeHostsService = (
             new RemoteHostsError("not_found", `unknown host: ${id}`),
           );
         }
-        return yield* testHostConnection(ssh, host);
+        return yield* testHostConnection(ssh, fleet, host);
       }),
     configureRemote: (id, options) =>
       Effect.gen(function* () {
@@ -381,6 +387,7 @@ export const HostsServiceLive = Layer.effect(
   Effect.gen(function* () {
     const ssh = yield* SshTransport;
     const state = yield* StateEngine;
+    const fleet = yield* StationFleetPropagation;
     const registry = getDefaultHostsRegistry(state);
     // Layer acquisition is the normal-boot barrier: the persisted database is
     // visible to synchronous Herdr/Hermes routing before this layer can feed
@@ -395,6 +402,6 @@ export const HostsServiceLive = Layer.effect(
         }),
       ),
     );
-    return makeHostsService(registry, ssh);
+    return makeHostsService(registry, ssh, fleet);
   }),
 );

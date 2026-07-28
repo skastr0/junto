@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Context, Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import { RemoteHostsError } from "../src/shared/remote-hosts";
@@ -21,6 +21,7 @@ vi.mock("@shared/release-capabilities", () => ({
 import { makeHostsService } from "../src/main/vellum/hosts/service";
 import type { HostsRegistry } from "../src/main/vellum/hosts/registry";
 import type { ConfiguredRemoteDeployResult } from "../src/main/vellum/hosts/deploy-configured-remote";
+import { StationFleetPropagation } from "../src/main/vellum/station/fleet-propagation";
 
 const remote = (id: string, endpoint = "shared-box"): RemoteHost => ({
   id,
@@ -60,6 +61,9 @@ const failedResult = (host: RemoteHost): ConfiguredRemoteDeployResult => ({
 });
 
 const unused = () => Effect.die(new Error("unexpected operation"));
+const unusedFleet = {} as Context.Tag.Service<
+  typeof StationFleetPropagation
+>;
 
 describe("HostsService configured deploy admission", () => {
   it("runs the durable admission barrier before any remote mutation", async () => {
@@ -72,6 +76,7 @@ describe("HostsService configured deploy admission", () => {
     const service = makeHostsService(
       registryFor([host]),
       {} as never,
+      unusedFleet,
       {
         configureRemoteHost: unused as never,
         deployRemoteHost: unused as never,
@@ -100,6 +105,7 @@ describe("HostsService configured deploy admission", () => {
     const service = makeHostsService(
       registryFor([host]),
       {} as never,
+      unusedFleet,
       {
         configureRemoteHost: unused as never,
         deployRemoteHost: unused as never,
@@ -148,6 +154,7 @@ describe("HostsService configured deploy admission", () => {
     const service = makeHostsService(
       registryFor([first, second]),
       {} as never,
+      unusedFleet,
       {
         configureRemoteHost: unused as never,
         deployRemoteHost: unused as never,
@@ -185,6 +192,7 @@ describe("HostsService configured deploy admission", () => {
     const service = makeHostsService(
       registryFor([first, second]),
       {} as never,
+      unusedFleet,
       {
         configureRemoteHost: unused as never,
         deployRemoteHost: unused as never,

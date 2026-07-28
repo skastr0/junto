@@ -1,13 +1,18 @@
 import { readFileSync } from "node:fs";
-import { Effect, Schema } from "effect";
+import { Context, Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   InstallationId,
+  LogicalSequence,
   StationHostId,
   STATION_API_PROTOCOL,
+  StationSha256,
   StatusResponse,
 } from "../src/shared/station-api";
-import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
+import {
+  defaultRemoteHostsDocument,
+  HostId,
+} from "../src/shared/remote-hosts";
 import type { CliResult } from "../src/main/vellum/adapters/exec";
 import {
   runRemoteHostsDoctor,
@@ -16,16 +21,22 @@ import {
   type HostCliRunner,
 } from "../src/main/vellum/hosts/doctor";
 import type { HostsRegistry } from "../src/main/vellum/hosts/registry";
-import type { StationRemote } from "../src/main/vellum/hosts/configure-remote";
-import { StationRemoteExecutionError } from "../src/main/vellum/station/remote-client";
-import { SshEndpoint } from "../src/main/vellum/ssh/domain";
+import {
+  StationFleetPeerUnavailable,
+  StationFleetPropagation,
+  type StationFleetPropagationResult,
+} from "../src/main/vellum/station/fleet-propagation";
 import { OPENSSH_CLIENT_EXECUTABLE } from "../src/main/vellum/ssh/live";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const stationHostId = Schema.decodeUnknownSync(StationHostId);
-const sshEndpoint = Schema.decodeUnknownSync(SshEndpoint);
+const hostId = Schema.decodeUnknownSync(HostId);
+const sequence = Schema.decodeUnknownSync(LogicalSequence);
+const sha256 = Schema.decodeUnknownSync(StationSha256);
 const localHost = defaultRemoteHostsDocument().hosts[0]!;
 const unusedSsh = {} as Parameters<typeof testHostConnection>[0];
+type Fleet = Context.Tag.Service<typeof StationFleetPropagation>;
+const unusedFleet = {} as Fleet;
 
 const stationStatus = (
   id: string,
@@ -61,19 +72,96 @@ const stationStatus = (
       simulation: true,
       session: true,
     },
+    ...(input.configured === false
+      ? {}
+      : {
+          projection: {
+            generation: sequence("1"),
+            contentSha256: sha256("a".repeat(64)),
+            receivedAt: "2026-07-27T12:00:00.000Z",
+          },
+        }),
     observedAt: "2026-07-27T12:00:01.000Z",
   });
 
-const remoteWithStatus = (
-  status: StationRemote["status"],
-): StationRemote =>
-  ({
+const successfulResult = (
+  id: string,
+  remoteStatus: StatusResponse,
+): StationFleetPropagationResult => {
+  const active = remoteStatus.projection;
+  if (active === undefined) {
+    throw new Error("successful fleet observation requires a projection");
+  }
+  const receipt = {
+    stationInstallationId: remoteStatus.installationId,
+    remoteStatus,
+    projection: {
+      decision: "unchanged" as const,
+      active,
+    },
+    report: {
+      rounds: 1,
+      outboundSent: 0,
+      inboundReceived: 0,
+      inboundAccepted: 0,
+      inboundIdempotent: 0,
+      inboundRejected: 0,
+      receivedThrough: [],
+      hasMoreOutbound: false,
+      hasMoreInbound: false,
+    },
+  };
+  const status = {
+    hostId: hostId(id),
+    stationInstallationId: remoteStatus.installationId,
+    phase: "ready" as const,
+    sessionOpen: true,
+    attempt: 1,
+    updatedAt: "2026-07-27T12:00:01.000Z",
+    lastReceipt: receipt,
+  };
+  return {
+    ok: true,
+    hostId: hostId(id),
+    stationInstallationId: remoteStatus.installationId,
+    receipt,
     status,
-    pair: () => Effect.die("pair must not run"),
-    configure: () => Effect.die("configure must not run"),
-    project: () => Effect.die("project must not run"),
-    report: () => Effect.die("report must not run"),
-  }) as StationRemote;
+  };
+};
+
+const fleetWithStatus = (
+  read: (
+    id: string,
+  ) => Effect.Effect<StatusResponse, StationFleetPeerUnavailable>,
+): Fleet =>
+  StationFleetPropagation.of({
+    start: () => Effect.void,
+    request: () => Effect.void,
+    synchronize: (selected) => {
+      if (selected === undefined) return Effect.succeed([]);
+      return read(selected).pipe(
+        Effect.map((status) => [successfulResult(selected, status)]),
+        Effect.catchAll((error) =>
+          Effect.succeed([
+            {
+              ok: false as const,
+              hostId: selected,
+              ...(error.stationInstallationId === undefined
+                ? {}
+                : {
+                    stationInstallationId:
+                      error.stationInstallationId,
+                  }),
+              error,
+            },
+          ])
+        ),
+      );
+    },
+    status: () => Effect.succeed(undefined),
+    statuses: Effect.succeed([]),
+    stop: Effect.void,
+  });
 
 describe("remote hosts doctor", () => {
   it("contains no alternate store or SSH executable authority", () => {
@@ -106,7 +194,7 @@ describe("remote hosts doctor", () => {
     } as unknown as HostsRegistry;
 
     const report = await Effect.runPromise(
-      runRemoteHostsDoctor(registry, unusedSsh, run),
+      runRemoteHostsDoctor(registry, unusedSsh, unusedFleet, run),
     );
 
     expect(run.mock.calls).toEqual([
@@ -135,7 +223,12 @@ describe("remote hosts doctor", () => {
     } as unknown as HostsRegistry;
 
     const snapshot = await Effect.runPromise(
-      runRemoteHostsDoctorSnapshot(registry, unusedSsh, run),
+      runRemoteHostsDoctorSnapshot(
+        registry,
+        unusedSsh,
+        unusedFleet,
+        run,
+      ),
     );
 
     expect(snapshot.check.status).toBe("ok");
@@ -156,7 +249,12 @@ describe("remote hosts doctor", () => {
         : { ok: true, stdout: "hermes ready" };
 
     const failed = await Effect.runPromise(
-      testHostConnection(unusedSsh, localHost, failedRun),
+      testHostConnection(
+        unusedSsh,
+        unusedFleet,
+        localHost,
+        failedRun,
+      ),
     );
     expect(failed.ok).toBe(false);
 
@@ -165,7 +263,12 @@ describe("remote hosts doctor", () => {
       stdout: `${command} changelog: not found wording is harmless`,
     });
     const successful = await Effect.runPromise(
-      testHostConnection(unusedSsh, localHost, successfulRun),
+      testHostConnection(
+        unusedSsh,
+        unusedFleet,
+        localHost,
+        successfulRun,
+      ),
     );
     expect(successful.ok).toBe(true);
   });
@@ -173,13 +276,13 @@ describe("remote hosts doctor", () => {
   it("probes Station APIs concurrently", async () => {
     let active = 0;
     let maxActive = 0;
-    const remote = remoteWithStatus((endpoint) =>
+    const fleet = fleetWithStatus((id) =>
       Effect.gen(function* () {
         active += 1;
         maxActive = Math.max(maxActive, active);
         yield* Effect.sleep(20);
         active -= 1;
-        return stationStatus(endpoint);
+        return stationStatus(id);
       }),
     );
     const registry = {
@@ -197,8 +300,8 @@ describe("remote hosts doctor", () => {
       runRemoteHostsDoctor(
         registry,
         unusedSsh,
+        fleet,
         async () => ({ ok: true, stdout: "" }),
-        remote,
       ),
     );
 
@@ -208,7 +311,7 @@ describe("remote hosts doctor", () => {
   });
 
   it("returns typed observations from Station API status", async () => {
-    const remote = remoteWithStatus(() =>
+    const fleet = fleetWithStatus(() =>
       Effect.succeed(stationStatus("studio")),
     );
     const registry = {
@@ -227,8 +330,8 @@ describe("remote hosts doctor", () => {
       runRemoteHostsDoctorSnapshot(
         registry,
         unusedSsh,
+        fleet,
         async () => ({ ok: true, stdout: "" }),
-        remote,
       ),
     );
 
@@ -248,12 +351,13 @@ describe("remote hosts doctor", () => {
   });
 
   it("keeps failed Station API observations fleet-blind", async () => {
-    const remote = remoteWithStatus(() =>
+    const fleet = fleetWithStatus(() =>
       Effect.fail(
-        StationRemoteExecutionError.make({
-          endpoint: sshEndpoint("studio-box"),
-          operation: "status",
-          exitCode: 1,
+        StationFleetPeerUnavailable.make({
+          hostId: hostId("studio"),
+          stationInstallationId: installationId("station-studio"),
+          reason: "connection-failed",
+          causeTag: "StationPeerSessionClosedError",
           message: "station runtime down",
         }),
       ),
@@ -274,8 +378,8 @@ describe("remote hosts doctor", () => {
       runRemoteHostsDoctorSnapshot(
         registry,
         unusedSsh,
+        fleet,
         async () => ({ ok: true, stdout: "" }),
-        remote,
       ),
     );
 
@@ -294,12 +398,13 @@ describe("remote hosts doctor", () => {
     expect(snapshot.observations[0]).not.toHaveProperty("statusState");
   });
 
-  it("marks a reachable but unconfigured Station as warning", async () => {
-    const remote = remoteWithStatus(() =>
-      Effect.succeed(
-        stationStatus("studio", {
-          state: "unenrolled",
-          configured: false,
+  it("does not use bootstrap status as a Doctor fallback for an unenrolled host", async () => {
+    const fleet = fleetWithStatus(() =>
+      Effect.fail(
+        StationFleetPeerUnavailable.make({
+          hostId: hostId("studio"),
+          reason: "not-enrolled",
+          message: "Station host is not an enrolled fleet target",
         }),
       ),
     );
@@ -314,16 +419,18 @@ describe("remote hosts doctor", () => {
     const result = await Effect.runPromise(
       testHostConnection(
         unusedSsh,
+        fleet,
         host,
         async () => ({ ok: true, stdout: "" }),
-        remote,
       ),
     );
 
     expect(result).toMatchObject({
       ok: false,
-      reachability: "reachable",
+      reachability: "unknown",
     });
-    expect(result.detail).toContain("configuration absent");
+    expect(result.detail).toContain(
+      "not enrolled in the persistent fleet",
+    );
   });
 });

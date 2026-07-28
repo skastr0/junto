@@ -19,16 +19,15 @@ import { oneShot } from "../ssh/program";
 import { remoteProductVersion } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
 import {
-  makeStationRemoteApiClient,
-  type StationRemoteApiError,
-  StationRemoteApiClient,
-} from "../station/remote-client";
+  StationFleetPropagation,
+  type StationFleetPeerUnavailable,
+} from "../station/fleet-propagation";
 import type { HostsRegistry } from "./registry";
 
 const HOST_PROBE_TOTAL_TIMEOUT_MS = 20_000;
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
-type StationRemote = Context.Tag.Service<typeof StationRemoteApiClient>;
+type Fleet = Context.Tag.Service<typeof StationFleetPropagation>;
 export type HostCliRunner = (
   command: string,
   args: ReadonlyArray<string>,
@@ -95,12 +94,12 @@ const describeSshError = (error: SshError): string => {
   }
 };
 
-const describeRemoteError = (error: StationRemoteApiError): string => {
-  if (error._tag.startsWith("Ssh")) {
-    return describeSshError(error as SshError);
-  }
-  return error.message;
-};
+const describeFleetFailure = (
+  error: StationFleetPeerUnavailable,
+): string =>
+  error.reason === "not-enrolled"
+    ? "Station is not enrolled in the persistent fleet"
+    : error.message;
 
 const localBinary = async (
   binary: "herdr" | "hermes",
@@ -157,7 +156,7 @@ const remoteBinary = (
 
 const probeSshHost = (
   ssh: Ssh,
-  remote: StationRemote,
+  fleet: Fleet,
   host: RemoteHost,
 ): Effect.Effect<RemoteHostProbeResult> =>
   Effect.gen(function* () {
@@ -175,8 +174,30 @@ const probeSshHost = (
       };
     }
 
-    const endpoint = yield* parseSshEndpoint(host.sshEndpoint);
-    const station = yield* remote.status(endpoint);
+    const synchronized = yield* fleet.synchronize(host.id);
+    const result = synchronized[0];
+    if (result === undefined || result.ok === false) {
+      const detail = result === undefined
+        ? "Station is not enrolled in the persistent fleet"
+        : describeFleetFailure(result.error);
+      return {
+        status: "error" as const,
+        detail: `${host.label}: ${detail}`,
+        observation: {
+          hostId: host.id,
+          endpoint: host.sshEndpoint,
+          reachability:
+            result?.ok === false &&
+              result.error.reason === "not-enrolled"
+              ? "unknown" as const
+              : "unreachable" as const,
+          reachabilityError: detail,
+          observationError: detail,
+        },
+      };
+    }
+
+    const station = result.receipt.remoteStatus;
     const configuration = station.configuration;
     const parts = [
       `Station API ${station.state}`,
@@ -248,8 +269,14 @@ const probeSshHost = (
       },
     };
   }).pipe(
-    Effect.catchAll((error: StationRemoteApiError) => {
-      const detail = describeRemoteError(error);
+    Effect.catchAll((error) => {
+      const detail =
+        typeof error === "object" &&
+          error !== null &&
+          "message" in error &&
+          typeof error.message === "string"
+          ? error.message
+          : String(error);
       return Effect.succeed({
         status: "error" as const,
         detail: `${host.label}: ${detail}`,
@@ -266,10 +293,10 @@ const probeSshHost = (
 
 const boundedProbeSshHost = (
   ssh: Ssh,
-  remote: StationRemote,
+  fleet: Fleet,
   host: RemoteHost,
 ): Effect.Effect<RemoteHostProbeResult> =>
-  probeSshHost(ssh, remote, host).pipe(
+  probeSshHost(ssh, fleet, host).pipe(
     Effect.timeoutFail({
       duration: HOST_PROBE_TOTAL_TIMEOUT_MS,
       onTimeout: () => new Error("remote host doctor deadline exceeded"),
@@ -293,8 +320,8 @@ const boundedProbeSshHost = (
 export const runRemoteHostsDoctorSnapshot = (
   registry: HostsRegistry,
   ssh: Ssh,
+  fleet: Fleet,
   run: HostCliRunner = runCli,
-  remote: StationRemote = makeStationRemoteApiClient(ssh),
 ): Effect.Effect<RemoteHostsDoctorSnapshot> =>
   Effect.gen(function* () {
     const hosts = yield* Effect.tryPromise({
@@ -366,7 +393,7 @@ export const runRemoteHostsDoctorSnapshot = (
         ? []
         : yield* Effect.forEach(
             remoteHosts,
-            (host) => boundedProbeSshHost(ssh, remote, host),
+            (host) => boundedProbeSshHost(ssh, fleet, host),
             { concurrency: "unbounded" },
           );
     if (remoteHosts.length === 0) {
@@ -424,18 +451,18 @@ export const runRemoteHostsDoctorSnapshot = (
 export const runRemoteHostsDoctor = (
   registry: HostsRegistry,
   ssh: Ssh,
+  fleet: Fleet,
   run: HostCliRunner = runCli,
-  remote: StationRemote = makeStationRemoteApiClient(ssh),
 ): Effect.Effect<ServiceCheck> =>
-  runRemoteHostsDoctorSnapshot(registry, ssh, run, remote).pipe(
+  runRemoteHostsDoctorSnapshot(registry, ssh, fleet, run).pipe(
     Effect.map((snapshot) => snapshot.check),
   );
 
 export const testHostConnection = (
   ssh: Ssh,
+  fleet: Fleet,
   host: RemoteHost,
   run: HostCliRunner = runCli,
-  remote: StationRemote = makeStationRemoteApiClient(ssh),
 ): Effect.Effect<{
   readonly ok: boolean;
   readonly detail: string;
@@ -468,7 +495,7 @@ export const testHostConnection = (
             "local host ready",
         };
       })
-    : probeSshHost(ssh, remote, host).pipe(
+    : probeSshHost(ssh, fleet, host).pipe(
         Effect.map((result) => ({
           ok: result.status === "ok",
           detail: result.detail,
