@@ -633,6 +633,17 @@ describe("remote deploy transaction behavior", () => {
           'touch "$FAKE_STATE/tar-ran"',
         ].join("\n"),
       ),
+      ditto: executable(
+        "ditto",
+        [
+          'touch "$FAKE_STATE/ditto-ran"',
+          'exit 1',
+        ].join("\n"),
+      ),
+      shasum: executable(
+        "shasum",
+        'echo "0000000000000000000000000000000000000000000000000000000000000000  -"',
+      ),
       codesign: executable(
         "codesign",
         [

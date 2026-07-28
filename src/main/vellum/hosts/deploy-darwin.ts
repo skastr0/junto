@@ -9,8 +9,20 @@
  * browser-capable until an offscreen parent window lands.
  */
 
-import { constants as fsConstants, existsSync } from "node:fs";
-import { access, lstat, realpath } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  constants as fsConstants,
+  createReadStream,
+  existsSync,
+} from "node:fs";
+import {
+  access,
+  lstat,
+  mkdtemp,
+  realpath,
+  rm,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { Context } from "effect";
 import { Effect, Stream } from "effect";
@@ -19,6 +31,7 @@ import {
   DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
   RELEASE_CAPABILITIES,
 } from "@shared/release-capabilities";
+import { REMOTE_UPDATE_IDLE_PRODUCT_COPY } from "@shared/remote-update-status";
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
 import type { SshTarget } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
@@ -90,10 +103,371 @@ export type LocalBundleProvenanceReceipt = {
   readonly cdHash: string;
 };
 
+/**
+ * Artifact input for Darwin Remote deploy.
+ * - `live-app` packages the admitted .app directory (running CC / local release).
+ * - `release-zip` is the final shippable ZIP (Cloudflare feed / notarized artifact).
+ */
+export type DarwinDeployArtifactInput =
+  | {
+      readonly kind: "live-app";
+      readonly appPath?: string;
+    }
+  | {
+      readonly kind: "release-zip";
+      readonly zipPath: string;
+      /** Expected SHA-256 of the ZIP bytes (lowercase hex). */
+      readonly sha256: string;
+      /** Optional version pin cross-checked after local admission. */
+      readonly version?: string;
+    };
+
+export type DarwinDeployArtifactAdmission = {
+  readonly kind: "live-app" | "release-zip";
+  readonly localApp: LocalBundleProvenanceReceipt;
+  /** Present when the transfer streams a release ZIP for remote expansion. */
+  readonly archive?: {
+    readonly zipPath: string;
+    readonly sha256: string;
+  };
+  /** Dispose staging directories (expanded ZIP). */
+  readonly dispose: () => Promise<void>;
+};
+
+export type DarwinRemoteArtifactAuthority = {
+  readonly resolve: () => Promise<DarwinDeployArtifactAdmission>;
+};
+
+export type DarwinRemoteLiveWorkEvidence = {
+  readonly activeTerminalSessions: number;
+  readonly observationId: string;
+};
+
+export type DarwinRemoteLiveWorkAdmission =
+  | {
+      readonly acquired: true;
+      readonly evidence: DarwinRemoteLiveWorkEvidence & {
+        readonly activeTerminalSessions: 0;
+      };
+      readonly release: Effect.Effect<void, never>;
+    }
+  | {
+      readonly acquired: false;
+      readonly reason:
+        | "active-terminal-sessions"
+        | "maintenance-held"
+        | "shutting-down";
+      readonly evidence: DarwinRemoteLiveWorkEvidence;
+    };
+
+export type DarwinRemoteLiveWorkAuthority = {
+  readonly acquire: (
+    input: RemoteDeploymentProviderInput,
+    installedPresent: boolean,
+    proveBootstrapAbsence: () => Promise<boolean>,
+  ) => Effect.Effect<DarwinRemoteLiveWorkAdmission, Error>;
+};
+
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
+const MAX_ACTIVE_TERMINAL_SESSIONS = 4_096;
+const OBSERVATION = /^[0-9A-Za-z][0-9A-Za-z._:-]{0,127}$/u;
+
 export {
   decodeRemoteHomeDirectoryOutput,
   isSafeRemoteHomePath,
 } from "./remote-home";
+
+/** Pure path/shape checks for a release ZIP artifact (no I/O). */
+export const validateReleaseZipArtifactInput = (input: {
+  readonly zipPath: string;
+  readonly sha256: string;
+  readonly version?: string;
+}): { readonly zipPath: string; readonly sha256: string; readonly version?: string } => {
+  const zipPath = input.zipPath.trim();
+  if (!zipPath.startsWith("/") || zipPath.includes("\0")) {
+    throw new Error("release ZIP path must be an absolute path");
+  }
+  if (!zipPath.toLowerCase().endsWith(".zip")) {
+    throw new Error("release ZIP path must end in .zip");
+  }
+  const sha256 = input.sha256.trim().toLowerCase();
+  if (!SHA256_HEX.test(sha256)) {
+    throw new Error("release ZIP sha256 must be 64 lowercase hex characters");
+  }
+  const version = input.version?.trim();
+  if (version !== undefined && version.length === 0) {
+    throw new Error("release ZIP version pin must be non-empty when provided");
+  }
+  return {
+    zipPath,
+    sha256,
+    ...(version !== undefined ? { version } : {}),
+  };
+};
+
+export const hashFileSha256Hex = async (path: string): Promise<string> =>
+  new Promise((resolveHash, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+    stream.on("data", (chunk) => {
+      hash.update(chunk);
+    });
+    stream.on("error", reject);
+    stream.on("end", () => {
+      resolveHash(hash.digest("hex"));
+    });
+  });
+
+/**
+ * Admit a notarized release ZIP: digest match, native expand (`ditto`), then
+ * local Developer ID / bundle / team provenance. Remote re-expands the same
+ * ZIP and re-verifies signature + archive digest before generation swap.
+ */
+export const admitReleaseZipArtifact = async (
+  input: Extract<DarwinDeployArtifactInput, { readonly kind: "release-zip" }>,
+): Promise<DarwinDeployArtifactAdmission> => {
+  const validated = validateReleaseZipArtifactInput(input);
+  const requestedAbsolute = resolve(validated.zipPath);
+  const canonicalZip = await realpath(requestedAbsolute);
+  if (canonicalZip !== requestedAbsolute) {
+    throw new Error("release ZIP may not be a symlink or path alias");
+  }
+  const meta = await lstat(canonicalZip);
+  if (!meta.isFile() || meta.isSymbolicLink()) {
+    throw new Error("release ZIP must be a regular file");
+  }
+  if (meta.size <= 0) {
+    throw new Error("release ZIP is empty");
+  }
+
+  const digest = await hashFileSha256Hex(canonicalZip);
+  if (digest !== validated.sha256) {
+    throw new Error("release ZIP digest does not match expected sha256");
+  }
+
+  const stageRoot = await mkdtemp(join(tmpdir(), "vellum-darwin-release-zip-"));
+  let disposed = false;
+  const dispose = async (): Promise<void> => {
+    if (disposed) return;
+    disposed = true;
+    await rm(stageRoot, { recursive: true, force: true });
+  };
+
+  try {
+    const expand = await runProcess(
+      "/usr/bin/ditto",
+      ["-x", "-k", canonicalZip, stageRoot],
+      { timeoutMs: 10 * 60 * 1000, maxOutputBytes: 64 * 1024 },
+    );
+    if (expand.code !== 0) {
+      throw new Error(
+        `ditto failed to expand release ZIP${expand.stderr ? `: ${expand.stderr.slice(0, 500)}` : ""}`,
+      );
+    }
+    const appPath = join(stageRoot, APP_BUNDLE_NAME);
+    if (!existsSync(join(appPath, "Contents", "MacOS", PRODUCT_NAME))) {
+      throw new Error(
+        `release ZIP must contain ${APP_BUNDLE_NAME} at archive root`,
+      );
+    }
+    const localApp = await admitLocalAppBundle(appPath);
+    if (
+      validated.version !== undefined &&
+      localApp.version !== validated.version
+    ) {
+      throw new Error(
+        `release ZIP version ${localApp.version} does not match pin ${validated.version}`,
+      );
+    }
+    return Object.freeze({
+      kind: "release-zip" as const,
+      localApp,
+      archive: Object.freeze({
+        zipPath: canonicalZip,
+        sha256: validated.sha256,
+      }),
+      dispose,
+    });
+  } catch (error) {
+    await dispose();
+    throw error;
+  }
+};
+
+export const admitLiveAppArtifact = async (
+  appPath?: string,
+): Promise<DarwinDeployArtifactAdmission> => {
+  const resolved = appPath?.trim() || resolveLocalAppBundle();
+  if (!resolved) {
+    throw new Error(
+      "no local Vellum Command.app found — package/install on Command Center first (/Applications or release/mac-arm64)",
+    );
+  }
+  const localApp = await admitLocalAppBundle(resolved);
+  return Object.freeze({
+    kind: "live-app" as const,
+    localApp,
+    dispose: async () => undefined,
+  });
+};
+
+/** Resolve and admit either live-app or release-zip artifact input. */
+export const admitDarwinDeployArtifact = async (
+  input: DarwinDeployArtifactInput,
+): Promise<DarwinDeployArtifactAdmission> => {
+  if (input.kind === "release-zip") {
+    return admitReleaseZipArtifact(input);
+  }
+  return admitLiveAppArtifact(input.appPath);
+};
+
+/**
+ * Production artifact source: explicit env release ZIP (feed download path)
+ * else live local .app. Env is a test/operator seam; fleet feed download
+ * will mint the same release-zip input shape.
+ */
+export const resolveProductionDarwinArtifactInput =
+  (): DarwinDeployArtifactInput => {
+    const zipPath = process.env.VELLUM_REMOTE_RELEASE_ZIP?.trim();
+    const sha256 = process.env.VELLUM_REMOTE_RELEASE_ZIP_SHA256?.trim();
+    if (zipPath && sha256) {
+      return { kind: "release-zip", zipPath, sha256 };
+    }
+    return { kind: "live-app" };
+  };
+
+export const makeProductionDarwinArtifactAuthority = (
+  resolveInput: () => DarwinDeployArtifactInput = resolveProductionDarwinArtifactInput,
+): DarwinRemoteArtifactAuthority =>
+  Object.freeze({
+    resolve: () => admitDarwinDeployArtifact(resolveInput()),
+  });
+
+/**
+ * Terminal-session idle gate for Darwin Remote package activation.
+ * Same plane as Linux: only `acquireRemoteHostMaintenance` / bootstrap.
+ */
+export const makeProductionDarwinLiveWorkAuthority =
+  (): DarwinRemoteLiveWorkAuthority =>
+    Object.freeze({
+      acquire: (providerInput, installedPresent, proveBootstrapAbsence) =>
+        Effect.tryPromise({
+          try: async () => {
+            const { termPlane } = await import("../term/plane");
+            if (!installedPresent) {
+              const lease =
+                await termPlane.router.acquireRemoteHostBootstrapMaintenance(
+                  providerInput.target.host.id,
+                  {
+                    prove: async (target) => {
+                      if (
+                        target.endpoint !==
+                        String(providerInput.target.endpoint)
+                      ) {
+                        throw new Error("terminal bootstrap target changed");
+                      }
+                      if (!(await proveBootstrapAbsence())) {
+                        throw new Error(
+                          "remote bootstrap absence proof was denied",
+                        );
+                      }
+                      return {
+                        hostId: target.hostId,
+                        endpoint: target.endpoint,
+                        packageState: "absent" as const,
+                        unitState: "not-found" as const,
+                      };
+                    },
+                  },
+                );
+              return {
+                acquired: true as const,
+                evidence: {
+                  activeTerminalSessions: 0 as const,
+                  observationId: `bootstrap-${providerInput.target.host.id}`,
+                },
+                release: Effect.sync(() => {
+                  lease.release();
+                }),
+              };
+            }
+            const admission =
+              await termPlane.router.acquireRemoteHostMaintenance(
+                providerInput.target.host.id,
+              );
+            if (!admission.acquired) {
+              const reason = {
+                active_sessions: "active-terminal-sessions",
+                maintenance_held: "maintenance-held",
+                shutting_down: "shutting-down",
+              } as const;
+              return {
+                acquired: false as const,
+                reason: reason[admission.reason],
+                evidence: admission.evidence,
+              };
+            }
+            return {
+              acquired: true as const,
+              evidence: admission.evidence,
+              release: Effect.sync(() => {
+                admission.lease.release();
+              }),
+            };
+          },
+          catch: (error) =>
+            error instanceof Error ? error : new Error(String(error)),
+        }),
+    });
+
+/**
+ * Map live-work refusal into DeployRemoteResult.
+ * Fleet status: `mapIdleGateToUpdateStatus` / `waitingForIdleUpdateStatus`
+ * (shared) — never force-close active Remote terminals.
+ */
+export const darwinLiveWorkRefusalResult = (input: {
+  readonly hostLabel: string;
+  readonly stages: readonly string[];
+  readonly version?: string;
+  readonly refusal: Extract<
+    DarwinRemoteLiveWorkAdmission,
+    { readonly acquired: false }
+  >;
+}): DeployRemoteResult => {
+  if (input.refusal.reason === "active-terminal-sessions") {
+    return {
+      ok: false,
+      detail:
+        `${input.hostLabel}: package activation deferred — ` +
+        `${input.refusal.evidence.activeTerminalSessions} Vellum terminal session(s) active. ` +
+        REMOTE_UPDATE_IDLE_PRODUCT_COPY,
+      code: "conflict",
+      message: REMOTE_UPDATE_IDLE_PRODUCT_COPY,
+      stages: [...input.stages],
+      disposition: "not-started",
+      ...(input.version !== undefined ? { version: input.version } : {}),
+      recoveryAction: {
+        kind: "close-active-vellum-terminals",
+        activeTerminalSessions: input.refusal.evidence.activeTerminalSessions,
+      },
+    };
+  }
+  return {
+    ok: false,
+    detail:
+      input.refusal.reason === "maintenance-held"
+        ? `${input.hostLabel}: another package activation holds the Remote terminal route cut`
+        : `${input.hostLabel}: the Remote terminal plane is shutting down`,
+    code: "conflict",
+    stages: [...input.stages],
+    disposition: "not-started",
+    ...(input.version !== undefined ? { version: input.version } : {}),
+    recoveryAction: {
+      kind: "restore-terminal-live-work-observation",
+    },
+  };
+};
+
 
 const singleCodesignValue = (output: string, key: string): string => {
   const prefix = `${key}=`;
@@ -512,6 +886,8 @@ type RemoteDeployScriptCommands = {
   readonly lsof: string;
   readonly uuidgen: string;
   readonly tar: string;
+  readonly ditto: string;
+  readonly shasum: string;
   readonly codesign: string;
   readonly find: string;
   readonly plutil: string;
@@ -519,6 +895,14 @@ type RemoteDeployScriptCommands = {
   readonly osascript: string;
   readonly sleep: string;
 };
+
+/** Transfer encoding: app-directory tar (live-app) or notarized release ZIP. */
+export type DarwinRemoteArtifactTransfer =
+  | { readonly kind: "app-tar" }
+  | {
+      readonly kind: "release-zip";
+      readonly expectedArchiveSha256: string;
+    };
 
 type RemoteDeployScriptRuntime = {
   readonly appPath: string;
@@ -537,6 +921,8 @@ const PRODUCTION_DEPLOY_SCRIPT_RUNTIME: RemoteDeployScriptRuntime = {
     lsof: "/usr/sbin/lsof",
     uuidgen: "/usr/bin/uuidgen",
     tar: "/usr/bin/tar",
+    ditto: "/usr/bin/ditto",
+    shasum: "/usr/bin/shasum",
     codesign: "/usr/bin/codesign",
     find: "/usr/bin/find",
     plutil: "/usr/bin/plutil",
@@ -555,12 +941,19 @@ const buildRemoteDeployScriptWithRuntime = (
   remoteHome: string,
   expectedCdHash: string,
   runtime: RemoteDeployScriptRuntime,
+  transfer: DarwinRemoteArtifactTransfer = { kind: "app-tar" },
 ): string => {
   if (!isSafeRemoteHomePath(remoteHome)) {
     throw new Error("remote home must be a canonical absolute path");
   }
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(expectedCdHash)) {
     throw new Error("expected code-directory hash is invalid");
+  }
+  if (
+    transfer.kind === "release-zip" &&
+    !SHA256_HEX.test(transfer.expectedArchiveSha256)
+  ) {
+    throw new Error("expected release ZIP sha256 is invalid");
   }
   const remoteAppPath = runtime.appPath;
   const remoteExecutablePath = `${remoteAppPath}/Contents/MacOS/${PRODUCT_NAME}`;
@@ -604,6 +997,8 @@ LAUNCHCTL=${shellLiteral(runtime.commands.launchctl)}
 LSOF=${shellLiteral(runtime.commands.lsof)}
 UUIDGEN=${shellLiteral(runtime.commands.uuidgen)}
 TAR=${shellLiteral(runtime.commands.tar)}
+DITTO=${shellLiteral(runtime.commands.ditto)}
+SHASUM=${shellLiteral(runtime.commands.shasum)}
 CODESIGN=${shellLiteral(runtime.commands.codesign)}
 FIND=${shellLiteral(runtime.commands.find)}
 PLUTIL=${shellLiteral(runtime.commands.plutil)}
@@ -637,6 +1032,15 @@ RETIRED_PLIST=${shellLiteral(`${runtime.lockPath}/retired-plist`)}
 RETIRED_TERM_SOCKET=${shellLiteral(`${runtime.lockPath}/retired-term-socket`)}
 RETIRED_BROWSER_SOCKET=${shellLiteral(`${runtime.lockPath}/retired-browser-socket`)}
 EXPECTED_CDHASH=${shellLiteral(expectedCdHash.toLowerCase())}
+${
+  transfer.kind === "release-zip"
+    ? `ARTIFACT_KIND=release-zip
+EXPECTED_ARCHIVE_SHA256=${shellLiteral(transfer.expectedArchiveSha256)}
+ARCHIVE=${shellLiteral(`${incomingPath}.release.zip`)}
+`
+    : `ARTIFACT_KIND=app-tar
+`
+}
 DEVELOPER_ID_REQUIREMENT=${shellLiteral(DEVELOPER_ID_REQUIREMENT)}
 UID_VALUE="$("$ID" -u)"
 DOMAIN="gui/$UID_VALUE"
@@ -1257,13 +1661,33 @@ done
 
 # Extract and verify the incoming signed artifact while the old generation is
 # still running. Archive or signature failures therefore leave it untouched.
+# ARTIFACT_KIND=app-tar streams tar of .app contents; release-zip streams the
+# notarized ZIP, verifies digest, and expands with ditto (native macOS).
 /bin/mkdir -p "$APP_PARENT"
 /bin/mkdir "$IN"
 IN_ID="$(owned_directory_identity "$IN" 2>/dev/null || true)"
 [ -n "$IN_ID" ] || { echo "INCOMING_IDENTITY_INVALID $IN" >&2; exit 8; }
 IN_CREATED=1
-/bin/mkdir "$IN/$BUNDLE"
-"$TAR" -C "$IN/$BUNDLE" -xf -
+if [ "$ARTIFACT_KIND" = "release-zip" ]; then
+  /bin/cat > "$ARCHIVE"
+  ARCHIVE_SHA="$("$SHASUM" -a 256 "$ARCHIVE" | /usr/bin/awk '{print $1}')"
+  [ "$ARCHIVE_SHA" = "$EXPECTED_ARCHIVE_SHA256" ] || {
+    echo "INCOMING_ARCHIVE_DIGEST_MISMATCH" >&2
+    exit 3
+  }
+  "$DITTO" -x -k "$ARCHIVE" "$IN" || {
+    echo "INCOMING_ARCHIVE_EXPAND_FAILED" >&2
+    exit 3
+  }
+  /bin/rm -f "$ARCHIVE" || true
+  [ -d "$IN/$BUNDLE" ] || {
+    echo "INCOMING_ARCHIVE_MISSING_BUNDLE $IN/$BUNDLE" >&2
+    exit 3
+  }
+else
+  /bin/mkdir "$IN/$BUNDLE"
+  "$TAR" -C "$IN/$BUNDLE" -xf -
+fi
 test -x "$IN_EXE"
 test -f "$IN_STATION_EXE" && test ! -L "$IN_STATION_EXE" && test -x "$IN_STATION_EXE" || {
   echo "INCOMING_STATION_HELPER_INVALID $IN_STATION_EXE" >&2
@@ -1741,17 +2165,20 @@ exit 2
 export const buildRemoteDeployScript = (
   remoteHome: string,
   expectedCdHash: string,
+  transfer: DarwinRemoteArtifactTransfer = { kind: "app-tar" },
 ): string =>
   buildRemoteDeployScriptWithRuntime(
     remoteHome,
     expectedCdHash,
     PRODUCTION_DEPLOY_SCRIPT_RUNTIME,
+    transfer,
   );
 
 export const buildRemoteDeployScriptForTest = (
   remoteHome: string,
   expectedCdHash: string,
   runtime: RemoteDeployScriptTestRuntime,
+  transfer: DarwinRemoteArtifactTransfer = { kind: "app-tar" },
 ): string => {
   if (process.env.NODE_ENV !== "test" || runtime.testOnly !== true) {
     throw new Error("remote deploy runtime overrides are test-only");
@@ -1764,14 +2191,19 @@ export const buildRemoteDeployScriptForTest = (
   ) {
     throw new Error("test deploy runtime requires absolute fixed paths");
   }
-  return buildRemoteDeployScriptWithRuntime(remoteHome, expectedCdHash, runtime);
+  return buildRemoteDeployScriptWithRuntime(
+    remoteHome,
+    expectedCdHash,
+    runtime,
+    transfer,
+  );
 };
 
-const streamAppToRemote = (
+const streamArtifactToRemote = (
   ssh: Ssh,
   endpoint: SshTarget,
   input: {
-    readonly localApp: LocalBundleProvenanceReceipt;
+    readonly admission: DarwinDeployArtifactAdmission;
     readonly remoteHome: string;
   },
 ): Effect.Effect<
@@ -1780,24 +2212,56 @@ const streamAppToRemote = (
 > =>
   Effect.scoped(
     Effect.gen(function* () {
+      const transfer: DarwinRemoteArtifactTransfer =
+        input.admission.kind === "release-zip" && input.admission.archive
+          ? {
+              kind: "release-zip",
+              expectedArchiveSha256: input.admission.archive.sha256,
+            }
+          : { kind: "app-tar" };
       const remoteScript = buildRemoteDeployScript(
         input.remoteHome,
-        input.localApp.cdHash,
+        input.admission.localApp.cdHash,
+        transfer,
       );
 
-      const tar = yield* Effect.acquireRelease(
+      const source = yield* Effect.acquireRelease(
         Effect.try({
           try: () => {
+            if (
+              transfer.kind === "release-zip" &&
+              input.admission.archive
+            ) {
+              const lease = appProcessPlane.spawnChild({
+                source: "hosts.deploy-remote.zip",
+                purpose: "stream release ZIP to remote host",
+                command: "/bin/cat",
+                args: [input.admission.archive.zipPath],
+              });
+              return {
+                lease,
+                exit: watchTarExit(lease.io),
+                stderr: captureTarStderr(lease.io.stderr),
+                label: "zip" as const,
+              };
+            }
             const lease = appProcessPlane.spawnChild({
               source: "hosts.deploy-remote.tar",
               purpose: "stream app bundle to remote host",
               command: "/usr/bin/tar",
-              args: ["-C", input.localApp.appPath, "-cf", "-", "."],
+              args: [
+                "-C",
+                input.admission.localApp.appPath,
+                "-cf",
+                "-",
+                ".",
+              ],
             });
             return {
               lease,
               exit: watchTarExit(lease.io),
               stderr: captureTarStderr(lease.io.stderr),
+              label: "tar" as const,
             };
           },
           catch: (error) =>
@@ -1809,29 +2273,31 @@ const streamAppToRemote = (
             : Effect.sync(() =>
                 appProcessPlane.forceTerminate(
                   lease,
-                  "deploy tar scope finalized",
+                  "deploy artifact stream scope finalized",
                 ),
               ).pipe(
-                Effect.zipRight(Effect.promise(() => awaitTarCloseBounded(exit, 2_000))),
+                Effect.zipRight(
+                  Effect.promise(() => awaitTarCloseBounded(exit, 2_000)),
+                ),
               ),
       );
       const command = yield* compileDarwinRemoteDeployScript(remoteScript);
       const output = yield* ssh.transfer(
         sharedStream(endpoint, command),
         Stream.fromAsyncIterable(
-          tar.lease.io.stdout,
+          source.lease.io.stdout,
           (error) =>
             new Error(
-              `local tar stream failed: ${error instanceof Error ? error.message : String(error)}`,
+              `local ${source.label} stream failed: ${error instanceof Error ? error.message : String(error)}`,
             ),
         ).pipe(Stream.map((chunk) => Uint8Array.from(chunk))),
         DEPLOY_TIMEOUT_MS,
       );
-      const tarResult = yield* Effect.promise(() => tar.exit.settlement);
-      if (!tarResult.ok) {
+      const sourceResult = yield* Effect.promise(() => source.exit.settlement);
+      if (!sourceResult.ok) {
         return yield* Effect.fail(
           new Error(
-            `local tar failed: ${tarResult.error.message}${tar.stderr() ? `: ${tar.stderr()}` : ""}`,
+            `local ${source.label} failed: ${sourceResult.error.message}${source.stderr() ? `: ${source.stderr()}` : ""}`,
           ),
         );
       }
@@ -1839,164 +2305,263 @@ const streamAppToRemote = (
     }),
   );
 
-const deployDarwinRemote = (
-  input: RemoteDeploymentProviderInput,
-): Effect.Effect<DeployRemoteResult, never> =>
-  Effect.gen(function* () {
-    const stages: string[] = [];
-    const { ssh, target } = input;
-    const { host } = target;
-    // Beta Cut 3: refuse before any freeform bash -lc script compilation.
-    // Production loader also gates on RELEASE_CAPABILITIES.darwinRemoteDeploy
-    // before importing this module; this is defense-in-depth for direct import.
-    if (!RELEASE_CAPABILITIES.darwinRemoteDeploy) {
-      return {
-        ok: false,
-        detail: DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
-        code: "validation" as const,
-        message: DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
-        stages,
-        disposition: "not-started" as const,
-      };
-    }
-    if (target.platform.platform !== "darwin") {
-      return {
-        ok: false,
-        detail: `${host.label}: Darwin deployment provider refused ${target.platform.kernelName}`,
-        code: "validation" as const,
-        message: "remote not Darwin",
-        stages,
-        disposition: "not-started" as const,
-        unsupportedTarget: {
-          kind: "unsupported-target" as const,
-          evidence: "unsupported" as const,
-          reportedKernel: target.platform.kernelName,
-          platform: target.platform.platform,
-        },
-      };
-    }
-    if (process.platform !== "darwin") {
-      return {
-        ok: false,
-        detail:
-          "Deploy Remote must run from a macOS Command Center (local .app source)",
-        code: "validation" as const,
-        stages,
-        disposition: "not-started" as const,
-      };
-    }
-    const resolvedLocalApp = resolveLocalAppBundle();
-    if (!resolvedLocalApp) {
-      return {
-        ok: false,
-        detail:
-          "no local Vellum Command.app found — package/install on Command Center first (/Applications or release/mac-arm64)",
-        code: "not_found" as const,
-        message: "local app bundle missing",
-        stages,
-        disposition: "not-started" as const,
-      };
-    }
-    push(stages, `local bundle candidate ${resolvedLocalApp}`);
-
-    const admittedLocalApp = yield* Effect.tryPromise({
-      try: () => admitLocalAppBundle(resolvedLocalApp),
-      catch: (error) =>
-        error instanceof Error ? error : new Error(String(error)),
-    }).pipe(Effect.either);
-    if (admittedLocalApp._tag === "Left") {
-      return {
-        ok: false,
-        detail: `${host.label}: local bundle provenance refused — ${admittedLocalApp.left.message}`,
-        code: "validation" as const,
-        message: admittedLocalApp.left.message,
-        stages,
-        disposition: "not-started" as const,
-      };
-    }
-    const localApp = admittedLocalApp.right;
-    push(
-      stages,
-      `local bundle admitted id=${admittedLocalApp.right.bundleIdentifier} team=${admittedLocalApp.right.teamIdentifier}`,
-    );
-    for (const stage of target.progress) push(stages, stage);
-
-    const homeResult = yield* ssh
-      .run(homeDirectoryLookup(target.sshTarget))
-      .pipe(Effect.either);
-    if (homeResult._tag === "Left") {
-      return {
-        ok: false,
-        detail: `${host.label}: remote home lookup failed`,
-        code: "io" as const,
-        stages,
-        disposition: "not-started" as const,
-      };
-    }
-    const home = decodeRemoteHomeDirectoryOutput(homeResult.right.stdout);
-    if (home === null) {
-      return {
-        ok: false,
-        detail: `${host.label}: remote home is not a canonical absolute path`,
-        code: "io" as const,
-        stages,
-        disposition: "not-started" as const,
-      };
-    }
-    push(stages, `remote home ${home}`);
-
-    const streamed = yield* streamAppToRemote(ssh, target.sshTarget, {
-      localApp,
-      remoteHome: home,
-    }).pipe(Effect.either);
-
-    if (streamed._tag === "Left") {
-      const disposition = classifyDeployTransferDisposition(streamed.left);
-      return {
-        ok: false,
-        detail: `${host.label}: ${describeDeployTransferFailure(streamed.left)}`,
-        code: "io" as const,
-        message: describeDeployTransferFailure(streamed.left),
-        stages,
-        disposition,
-        version: localApp.version,
-      };
-    }
-    push(stages, streamed.right.detail);
-    if (!streamed.right.ok) {
-      return {
-        ok: false,
-        detail: `${host.label}: ${streamed.right.detail}`,
-        code: "io" as const,
-        message: streamed.right.detail,
-        stages,
-        disposition: "indeterminate" as const,
-        version: localApp.version,
-      };
-    }
-
-    const tokenPath = join(home, ".vellum", "term", "token");
-    const tokenCmd = yield* remoteTestFileExists(tokenPath).pipe(Effect.either);
-    if (tokenCmd._tag === "Right") {
-      const tokenProbe = yield* ssh
-        .run(oneShot(target.sshTarget, tokenCmd.right, { budget: "short" }))
-        .pipe(Effect.either);
-      if (tokenProbe._tag === "Right")
-        push(stages, "term control token present");
-      else push(stages, "term control token not yet visible");
-    }
-
-    return {
-      ok: true,
-      detail: `${host.label} (${host.sshEndpoint}): ${streamed.right.detail}`,
-      stages,
-      disposition: "ready",
-      version: localApp.version,
-    } satisfies DeployRemoteResult;
-  });
-
-export const darwinRemoteDeploymentProvider: RemoteDeploymentProvider = {
+export const makeDarwinRemoteDeploymentProvider = (deps: {
+  readonly artifactAuthority: DarwinRemoteArtifactAuthority;
+  readonly liveWorkAuthority: DarwinRemoteLiveWorkAuthority;
+}): RemoteDeploymentProvider => ({
   platform: "darwin",
   supportsBrowser: true,
-  deploy: deployDarwinRemote,
-};
+  deploy: (providerInput) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const stages: string[] = [];
+        const { ssh, target } = providerInput;
+        const { host } = target;
+        // Beta Cut 3: refuse before any freeform bash -lc script compilation.
+        // Production loader also gates on RELEASE_CAPABILITIES.darwinRemoteDeploy
+        // before importing this module; this is defense-in-depth for direct import.
+        if (!RELEASE_CAPABILITIES.darwinRemoteDeploy) {
+          return {
+            ok: false,
+            detail: DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
+            code: "validation" as const,
+            message: DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
+            stages,
+            disposition: "not-started" as const,
+          };
+        }
+        if (target.platform.platform !== "darwin") {
+          return {
+            ok: false,
+            detail: `${host.label}: Darwin deployment provider refused ${target.platform.kernelName}`,
+            code: "validation" as const,
+            message: "remote not Darwin",
+            stages,
+            disposition: "not-started" as const,
+            unsupportedTarget: {
+              kind: "unsupported-target" as const,
+              evidence: "unsupported" as const,
+              reportedKernel: target.platform.kernelName,
+              platform: target.platform.platform,
+            },
+          };
+        }
+        if (process.platform !== "darwin") {
+          return {
+            ok: false,
+            detail:
+              "Deploy Remote must run from a macOS Command Center (local .app or release ZIP source)",
+            code: "validation" as const,
+            stages,
+            disposition: "not-started" as const,
+          };
+        }
+
+        const resolvedArtifact = yield* Effect.tryPromise({
+          try: () => deps.artifactAuthority.resolve(),
+          catch: (error) =>
+            error instanceof Error ? error : new Error(String(error)),
+        }).pipe(Effect.either);
+        if (resolvedArtifact._tag === "Left") {
+          return {
+            ok: false,
+            detail: `${host.label}: deploy artifact unavailable — ${resolvedArtifact.left.message}`,
+            code: "not_found" as const,
+            message: resolvedArtifact.left.message,
+            stages,
+            disposition: "not-started" as const,
+          };
+        }
+        const admission = resolvedArtifact.right;
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(() => admission.dispose()).pipe(
+            Effect.catchAll(() => Effect.void),
+          ),
+        );
+        push(
+          stages,
+          admission.kind === "release-zip"
+            ? `release ZIP admitted version=${admission.localApp.version} sha256=${admission.archive?.sha256.slice(0, 12)}…`
+            : `local bundle candidate ${admission.localApp.appPath}`,
+        );
+        push(
+          stages,
+          `local bundle admitted id=${admission.localApp.bundleIdentifier} team=${admission.localApp.teamIdentifier}`,
+        );
+        for (const stage of target.progress) push(stages, stage);
+
+        const homeResult = yield* ssh
+          .run(homeDirectoryLookup(target.sshTarget))
+          .pipe(Effect.either);
+        if (homeResult._tag === "Left") {
+          return {
+            ok: false,
+            detail: `${host.label}: remote home lookup failed`,
+            code: "io" as const,
+            stages,
+            disposition: "not-started" as const,
+            version: admission.localApp.version,
+          };
+        }
+        const home = decodeRemoteHomeDirectoryOutput(homeResult.right.stdout);
+        if (home === null) {
+          return {
+            ok: false,
+            detail: `${host.label}: remote home is not a canonical absolute path`,
+            code: "io" as const,
+            stages,
+            disposition: "not-started" as const,
+            version: admission.localApp.version,
+          };
+        }
+        push(stages, `remote home ${home}`);
+
+        // Terminal-session idle only — never force-close active Remote sessions.
+        const installedProbeCmd = yield* remoteTestFileExists(
+          join(REMOTE_APP_PATH, "Contents", "MacOS", PRODUCT_NAME),
+        ).pipe(Effect.either);
+        let installedPresent = false;
+        if (installedProbeCmd._tag === "Right") {
+          const installedProbe = yield* ssh
+            .run(
+              oneShot(target.sshTarget, installedProbeCmd.right, {
+                budget: "short",
+              }),
+            )
+            .pipe(Effect.either);
+          installedPresent = installedProbe._tag === "Right";
+        }
+        const proveBootstrapAbsence = async (): Promise<boolean> => {
+          if (installedProbeCmd._tag === "Left") return false;
+          const rerun = await Effect.runPromise(
+            ssh.run(
+              oneShot(target.sshTarget, installedProbeCmd.right, {
+                budget: "short",
+              }),
+            ),
+          ).then(
+            () => false,
+            () => true,
+          );
+          return rerun;
+        };
+        const maintenance = yield* Effect.acquireRelease(
+          deps.liveWorkAuthority.acquire(
+            providerInput,
+            installedPresent,
+            proveBootstrapAbsence,
+          ),
+          (lease) => (lease.acquired ? lease.release : Effect.void),
+        ).pipe(Effect.either);
+        if (maintenance._tag === "Left") {
+          return {
+            ok: false,
+            detail: `${host.label}: the Command Center could not hold the Remote terminal route closed for package activation`,
+            code: "conflict" as const,
+            stages,
+            disposition: "not-started" as const,
+            version: admission.localApp.version,
+            recoveryAction: {
+              kind: "restore-terminal-live-work-observation" as const,
+            },
+          };
+        }
+        const liveWork = maintenance.right;
+        if (
+          !Number.isSafeInteger(liveWork.evidence.activeTerminalSessions) ||
+          liveWork.evidence.activeTerminalSessions < 0 ||
+          liveWork.evidence.activeTerminalSessions >
+            MAX_ACTIVE_TERMINAL_SESSIONS ||
+          !OBSERVATION.test(liveWork.evidence.observationId) ||
+          (liveWork.acquired &&
+            liveWork.evidence.activeTerminalSessions !== 0) ||
+          (!liveWork.acquired &&
+            liveWork.reason === "active-terminal-sessions" &&
+            liveWork.evidence.activeTerminalSessions === 0)
+        ) {
+          return {
+            ok: false,
+            detail: `${host.label}: the Remote terminal maintenance receipt was malformed`,
+            code: "conflict" as const,
+            stages,
+            disposition: "not-started" as const,
+            version: admission.localApp.version,
+            recoveryAction: {
+              kind: "restore-terminal-live-work-observation" as const,
+            },
+          };
+        }
+        if (!liveWork.acquired) {
+          return darwinLiveWorkRefusalResult({
+            hostLabel: host.label,
+            stages,
+            version: admission.localApp.version,
+            refusal: liveWork,
+          });
+        }
+        push(
+          stages,
+          `terminal route cut held observation=${liveWork.evidence.observationId}`,
+        );
+
+        const streamed = yield* streamArtifactToRemote(ssh, target.sshTarget, {
+          admission,
+          remoteHome: home,
+        }).pipe(Effect.either);
+
+        if (streamed._tag === "Left") {
+          const disposition = classifyDeployTransferDisposition(streamed.left);
+          return {
+            ok: false,
+            detail: `${host.label}: ${describeDeployTransferFailure(streamed.left)}`,
+            code: "io" as const,
+            message: describeDeployTransferFailure(streamed.left),
+            stages,
+            disposition,
+            version: admission.localApp.version,
+          };
+        }
+        push(stages, streamed.right.detail);
+        if (!streamed.right.ok) {
+          return {
+            ok: false,
+            detail: `${host.label}: ${streamed.right.detail}`,
+            code: "io" as const,
+            message: streamed.right.detail,
+            stages,
+            disposition: "indeterminate" as const,
+            version: admission.localApp.version,
+          };
+        }
+
+        const tokenPath = join(home, ".vellum", "term", "token");
+        const tokenCmd = yield* remoteTestFileExists(tokenPath).pipe(
+          Effect.either,
+        );
+        if (tokenCmd._tag === "Right") {
+          const tokenProbe = yield* ssh
+            .run(
+              oneShot(target.sshTarget, tokenCmd.right, { budget: "short" }),
+            )
+            .pipe(Effect.either);
+          if (tokenProbe._tag === "Right")
+            push(stages, "term control token present");
+          else push(stages, "term control token not yet visible");
+        }
+
+        return {
+          ok: true,
+          detail: `${host.label} (${host.sshEndpoint}): ${streamed.right.detail}`,
+          stages,
+          disposition: "ready",
+          version: admission.localApp.version,
+        } satisfies DeployRemoteResult;
+      }),
+    ),
+});
+
+export const darwinRemoteDeploymentProvider: RemoteDeploymentProvider =
+  makeDarwinRemoteDeploymentProvider({
+    artifactAuthority: makeProductionDarwinArtifactAuthority(),
+    liveWorkAuthority: makeProductionDarwinLiveWorkAuthority(),
+  });
