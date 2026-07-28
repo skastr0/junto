@@ -16,6 +16,7 @@ import {
   inspectOwnedBox,
   type OwnedBox,
 } from "./ownership";
+import { SettingsService } from "../settings/service";
 
 const decodeBoxId = Schema.decodeUnknown(BoxId);
 
@@ -26,11 +27,19 @@ export class BoxFleetValidationError extends Schema.TaggedError<BoxFleetValidati
   },
 ) {}
 
+export class BoxFleetAuthorizationError extends Schema.TaggedError<BoxFleetAuthorizationError>()(
+  "BoxFleetAuthorizationError",
+  {
+    detail: Schema.String,
+  },
+) {}
+
 export type BoxFleetError =
   | BoxCliError
   | BoxOwnershipError
   | BoxOwnershipPersistenceError
-  | BoxFleetValidationError;
+  | BoxFleetValidationError
+  | BoxFleetAuthorizationError;
 
 export interface CreateFleetBoxOptions {
   readonly includeAccountSecrets?: boolean;
@@ -72,6 +81,8 @@ const validationError = (cause: unknown): BoxFleetValidationError =>
 export const makeBoxFleetService = (
   cli: Context.Tag.Service<typeof BoxCli>,
   ownership: Context.Tag.Service<typeof BoxOwnershipRepository>,
+  authorizeMutation: Effect.Effect<void, BoxFleetAuthorizationError> =
+    Effect.void,
 ): Context.Tag.Service<typeof BoxFleetService> => {
   const owned = (boxId: string) =>
     decodeBoxId(boxId).pipe(
@@ -83,7 +94,8 @@ export const makeBoxFleetService = (
     boxId: string,
     operation: (box: OwnedBox) => Effect.Effect<BoxMachine, BoxCliError>,
   ): Effect.Effect<BoxResource, BoxFleetError> =>
-    owned(boxId).pipe(
+    authorizeMutation.pipe(
+      Effect.andThen(owned(boxId)),
       Effect.flatMap((box) =>
         operation(box).pipe(
           Effect.flatMap((machine) =>
@@ -99,22 +111,31 @@ export const makeBoxFleetService = (
     availability: cli.availability,
     list: ownership.list,
     create: (options = {}) =>
-      cli
-        .create({
-          autoStop: false,
-          includeAccountSecrets: options.includeAccountSecrets,
-        })
-        .pipe(
-          // A created machine is not returned to product callers until the
-          // ownership record and Fleet host are one committed transaction.
-          Effect.flatMap((machine) => ownership.enrollCreated(machine)),
-          Effect.map((box) => inspectOwnedBox(box)),
+      authorizeMutation.pipe(
+        Effect.andThen(
+          Effect.suspend(() =>
+            cli
+              .create({
+                autoStop: false,
+                includeAccountSecrets: options.includeAccountSecrets,
+              })
+              .pipe(
+                // A created machine is not returned to product callers until the
+                // ownership record and Fleet host are one committed transaction.
+                Effect.flatMap((machine) => ownership.enrollCreated(machine)),
+                Effect.map((box) => inspectOwnedBox(box)),
+              ),
+          ),
         ),
+      ),
     refresh: (boxId) => persist(boxId, (box) => cli.info(box)),
     stop: (boxId) => persist(boxId, (box) => cli.stop(box)),
     resume: (boxId) => persist(boxId, (box) => cli.resume(box)),
     ssh: (boxId, command) =>
-      owned(boxId).pipe(Effect.flatMap((box) => cli.ssh(box, command))),
+      authorizeMutation.pipe(
+        Effect.andThen(owned(boxId)),
+        Effect.flatMap((box) => cli.ssh(box, command)),
+      ),
   });
 };
 
@@ -123,6 +144,27 @@ export const BoxFleetServiceLive = Layer.effect(
   Effect.gen(function* () {
     const cli = yield* BoxCli;
     const ownership = yield* BoxOwnershipRepository;
-    return makeBoxFleetService(cli, ownership);
+    const settings = yield* SettingsService;
+    const authorizeMutation = settings.get.pipe(
+      Effect.flatMap((document) =>
+        document.station.role === "command-center"
+          ? Effect.void
+          : Effect.fail(
+              BoxFleetAuthorizationError.make({
+                detail:
+                  "Only Command Center may operate a Fleet Box",
+              }),
+            ),
+      ),
+      Effect.mapError((error) =>
+        error instanceof BoxFleetAuthorizationError
+          ? error
+          : BoxFleetAuthorizationError.make({
+              detail:
+                error instanceof Error ? error.message : String(error),
+            }),
+      ),
+    );
+    return makeBoxFleetService(cli, ownership, authorizeMutation);
   }),
 );

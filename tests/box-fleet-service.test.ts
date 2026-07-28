@@ -12,6 +12,7 @@ import {
   BoxOwnershipRepository,
 } from "../src/main/vellum/box/repository";
 import { makeBoxFleetService } from "../src/main/vellum/box/service";
+import { BoxFleetAuthorizationError } from "../src/main/vellum/box/service";
 import { makeHostsRegistry } from "../src/main/vellum/hosts/registry";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { StateEngine } from "../src/main/vellum/state/service";
@@ -106,6 +107,36 @@ describe("Box Fleet service ownership", () => {
       "BoxOwnershipNotFoundError",
     );
     expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("keeps Command Center authorization inside the Fleet capability", async () => {
+    const { repository } = await fixture();
+    const create = vi.fn(() => Effect.succeed(machine()));
+    const cli = BoxCli.of({
+      availability: Effect.never,
+      create,
+      info: vi.fn(() => Effect.succeed(machine())),
+      stop: vi.fn(() => Effect.succeed(machine("stopped"))),
+      resume: vi.fn(() => Effect.succeed(machine())),
+      ssh: vi.fn(() => Effect.succeed("")),
+    });
+    const service = makeBoxFleetService(
+      cli,
+      repository,
+      Effect.fail(
+        BoxFleetAuthorizationError.make({
+          detail: "Only Command Center may operate a Fleet Box",
+        }),
+      ),
+    );
+
+    const result = await Effect.runPromise(Effect.either(service.create()));
+
+    expect(result._tag).toBe("Left");
+    expect(result._tag === "Left" ? result.left._tag : "").toBe(
+      "BoxFleetAuthorizationError",
+    );
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("refreshes the Fleet SSH route when an owned Box resumes at a new IP", async () => {

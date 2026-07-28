@@ -468,6 +468,18 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.hostsDeployRemote, 1_200_000, input),
   hostsInstallCapabilities: () =>
     invoke(IPC_CHANNELS.hostsInstallCapabilities, IPC_TIMEOUT_MS),
+  boxAvailability: () =>
+    invoke(IPC_CHANNELS.boxAvailability, IPC_TIMEOUT_MS),
+  boxListOwned: () =>
+    invoke(IPC_CHANNELS.boxListOwned, IPC_TIMEOUT_MS),
+  boxCreate: () =>
+    invoke(IPC_CHANNELS.boxCreate, 120_000),
+  boxRefresh: (boxId: string) =>
+    invoke(IPC_CHANNELS.boxRefresh, IPC_TIMEOUT_MS, boxId),
+  boxStop: (boxId: string) =>
+    invoke(IPC_CHANNELS.boxStop, 180_000, boxId),
+  boxResume: (boxId: string) =>
+    invoke(IPC_CHANNELS.boxResume, 180_000, boxId),
   settingsGet: () => invoke<SettingsOpResult>(IPC_CHANNELS.settingsGet, IPC_TIMEOUT_MS),
   settingsPatch: (patch: SettingsPatch) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsPatch, IPC_TIMEOUT_MS, patch),

@@ -24,7 +24,13 @@ export interface HostOperationAdmission {
     | "hosts.remove"
     | "hosts.test"
     | "hosts.configure-remote"
-    | "hosts.deploy-remote";
+    | "hosts.deploy-remote"
+    | "box.availability"
+    | "box.list-owned"
+    | "box.create"
+    | "box.refresh"
+    | "box.stop"
+    | "box.resume";
   readonly kind: HostOperationKind;
 }
 
@@ -51,6 +57,30 @@ export const HOST_OPERATION_ADMISSIONS = Object.freeze({
   } satisfies HostOperationAdmission),
   deployRemote: Object.freeze({
     label: "hosts.deploy-remote",
+    kind: "remote-mutation",
+  } satisfies HostOperationAdmission),
+  boxAvailability: Object.freeze({
+    label: "box.availability",
+    kind: "remote-probe",
+  } satisfies HostOperationAdmission),
+  boxListOwned: Object.freeze({
+    label: "box.list-owned",
+    kind: "registry-read",
+  } satisfies HostOperationAdmission),
+  boxCreate: Object.freeze({
+    label: "box.create",
+    kind: "remote-mutation",
+  } satisfies HostOperationAdmission),
+  boxRefresh: Object.freeze({
+    label: "box.refresh",
+    kind: "remote-probe",
+  } satisfies HostOperationAdmission),
+  boxStop: Object.freeze({
+    label: "box.stop",
+    kind: "remote-mutation",
+  } satisfies HostOperationAdmission),
+  boxResume: Object.freeze({
+    label: "box.resume",
     kind: "remote-mutation",
   } satisfies HostOperationAdmission),
 });

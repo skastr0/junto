@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { Plus, RefreshCw } from "lucide-react";
+import { CloudCog, Plus, RefreshCw } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
 import { type FleetDitherLevel } from "../../lib/fleet-layout";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
@@ -11,6 +11,7 @@ import { getVellumApi } from "../../lib/vellum-api";
 import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
 import { FleetDetailPanel, type FleetSelection } from "./FleetDetailPanel";
+import { FleetBoxPanel } from "./FleetBoxPanel";
 import { FleetHostForm } from "./FleetHostForm";
 import { COMMAND_CENTER_ID, FleetMap, ghostNodeId } from "./FleetMap";
 
@@ -23,6 +24,7 @@ function FleetOverlayInner() {
   const probes = use$(state$.fleetProbe);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(null);
+  const [boxPanelOpen, setBoxPanelOpen] = useState(false);
   const [ccHostId, setCcHostId] = useState("");
   const ditherLevel = use$(state$.settings.fleet.ditherLevel);
   const stations = hosts.filter((host) => host.kind === "remote");
@@ -106,6 +108,14 @@ function FleetOverlayInner() {
             <Button
               size="sm"
               variant="subtle"
+              {...activateOnPointerUp(() => setBoxPanelOpen(true))}
+            >
+              <CloudCog size={12} />
+              Box
+            </Button>
+            <Button
+              size="sm"
+              variant="subtle"
               disabled={loading}
               {...activateOnPointerUp(() => void refreshFleet())}
             >
@@ -149,6 +159,12 @@ function FleetOverlayInner() {
         ) : null}
       </div>
       {form ? <FleetHostForm initialLabel={form.label} initialEndpoint={form.endpoint} onClose={() => setForm(null)} /> : null}
+      {boxPanelOpen ? (
+        <FleetBoxPanel
+          onClose={() => setBoxPanelOpen(false)}
+          onFleetChanged={refreshFleet}
+        />
+      ) : null}
     </FocusSurface>
   );
 }
