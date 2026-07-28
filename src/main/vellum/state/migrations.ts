@@ -59,8 +59,8 @@ export type StateSchemaMigrationResult =
 /**
  * Version 1 is the one-way cut after the SQLite/work-protocol consolidation.
  * These literals are immutable release evidence. Future schema edits advance
- * CURRENT_STATE_SCHEMA_VERSION and append a 1 -> 2 migration; they never
- * rewrite this witness.
+ * CURRENT_STATE_SCHEMA_VERSION and append the next contiguous migration; they
+ * never rewrite this witness.
  */
 export const STATE_SCHEMA_V1_IDENTITY = {
   actualSchemaSha256:
