@@ -3,46 +3,48 @@ import {
   InstallationId,
   LogicalSequence,
   ProjectRequest,
-  ReportRequest,
-  STATION_API_MAX_EVENTS_PER_REPORT,
   STATION_API_PROTOCOL,
   StationHostId,
+  StatusRequest,
   compareLogicalSequence,
   type ProjectResponse,
-  type StationEventAck,
+  type RouteCursor,
   type StationProjectionReference,
 } from "@shared/station-api";
-import { SshEndpoint } from "../ssh/domain";
 import {
   CanvasesService,
   type CanvasAuthoritySnapshot,
   type CanvasError,
 } from "../canvases";
 import {
+  StationApiService,
+  type StationApiError,
+} from "./api";
+import {
+  StationFleetTargetRepository,
+  type StationFleetTargetRepositoryError,
+} from "./fleet-target-repository";
+import {
+  type StationPeerRequestError,
+  type StationPeerSession,
+} from "./peer-session";
+import {
   StationRepository,
   stationProjectionContentSha256,
   type StationRepositoryError,
 } from "./repository";
 import {
-  WorkRepository,
-  WorkRepositoryError,
-  WorkReplicationError,
-  stationEventFromWorkEvent,
-} from "../work/repository";
-import {
   StationPortfolioError,
   compileStationPortfolioBody,
 } from "./portfolio";
-import {
-  StationRemoteApiClient,
-  type StationRemoteApiError,
-} from "./remote-client";
 
-const ZERO_SEQUENCE = Schema.decodeUnknownSync(LogicalSequence)("0");
 export const STATION_PROPAGATION_MAX_REPORT_ROUNDS = 32;
 
+/**
+ * Stable fleet identity only. Transport locators and credentials belong to
+ * the peer-exchange adapter and never enter propagation semantics.
+ */
 export const StationPropagationTarget = Schema.Struct({
-  endpoint: SshEndpoint,
   stationInstallationId: InstallationId,
   hostId: StationHostId,
 });
@@ -55,17 +57,19 @@ export class StationPropagationInvariantError extends Schema.TaggedError<Station
     operation: Schema.String,
     reason: Schema.Literal(
       "command-center-role-required",
+      "session-identity-mismatch",
       "station-identity-mismatch",
       "remote-configuration-required",
       "station-host-mismatch",
       "command-center-mismatch",
       "database-unavailable",
+      "work-control-unavailable",
+      "simulation-unavailable",
+      "session-unavailable",
       "invalid-generation",
       "projection-stale",
       "projection-conflict",
       "projection-result-mismatch",
-      "event-home-mismatch",
-      "ack-home-mismatch",
       "report-round-limit",
     ),
     message: Schema.String,
@@ -75,10 +79,10 @@ export class StationPropagationInvariantError extends Schema.TaggedError<Station
 export type StationPropagationError =
   | CanvasError
   | StationRepositoryError
-  | WorkRepositoryError
-  | WorkReplicationError
+  | StationFleetTargetRepositoryError
   | StationPortfolioError
-  | StationRemoteApiError
+  | StationApiError
+  | StationPeerRequestError
   | StationPropagationInvariantError;
 
 export type StationProjectionSyncReceipt = {
@@ -92,14 +96,15 @@ export type StationReportSyncReceipt = {
   readonly inboundReceived: number;
   readonly inboundAccepted: number;
   readonly inboundIdempotent: number;
-  readonly acknowledgeInbound: ReadonlyArray<StationEventAck>;
-  readonly acknowledgeOutbound: ReadonlyArray<StationEventAck>;
+  readonly inboundRejected: number;
+  readonly receivedThrough: ReadonlyArray<RouteCursor>;
   readonly hasMoreOutbound: boolean;
   readonly hasMoreInbound: boolean;
 };
 
 export type StationPropagationReceipt = {
-  readonly stationInstallationId: InstallationId;
+  readonly stationInstallationId:
+    StationPropagationTarget["stationInstallationId"];
   readonly projection: StationProjectionSyncReceipt;
   readonly report: StationReportSyncReceipt;
 };
@@ -124,6 +129,10 @@ const invariant = (
 
 const desiredProjection = (
   snapshot: CanvasAuthoritySnapshot,
+  installationByHostId: ReadonlyMap<
+    string,
+    StationPropagationTarget["stationInstallationId"]
+  >,
 ): Effect.Effect<
   DesiredProjection,
   StationPortfolioError | StationPropagationInvariantError
@@ -140,7 +149,11 @@ const desiredProjection = (
       );
     }
     const body = yield* Effect.try({
-      try: () => compileStationPortfolioBody(snapshot.documents),
+      try: () =>
+        compileStationPortfolioBody(
+          snapshot.documents,
+          installationByHostId,
+        ),
       catch: (error) =>
         error instanceof StationPortfolioError
           ? error
@@ -202,13 +215,13 @@ const ensureProjectionResult = (
 };
 
 const synchronizeProjection = (
-  remote: Context.Tag.Service<typeof StationRemoteApiClient>,
+  session: StationPeerSession,
   target: StationPropagationTarget,
   current: StationProjectionReference | undefined,
   desired: DesiredProjection,
 ): Effect.Effect<
   StationProjectionSyncReceipt,
-  StationRemoteApiError | StationPropagationInvariantError
+  StationPeerRequestError | StationPropagationInvariantError
 > => {
   if (current !== undefined) {
     const order = compareLogicalSequence(
@@ -244,236 +257,77 @@ const synchronizeProjection = (
     }
   }
 
-  return remote
-    .project(
-      target.endpoint,
-      ProjectRequest.make({
-        protocol: STATION_API_PROTOCOL,
-        op: "project",
-        stationInstallationId: target.stationInstallationId,
-        projection: {
-          scope: "full",
-          generation: desired.generation,
-          body: desired.body,
-          contentSha256: desired.contentSha256,
-          createdAt: desired.createdAt,
-        },
-      }),
-    )
-    .pipe(
-      Effect.flatMap((response) =>
-        ensureProjectionResult(desired, response)
-      ),
-    );
+  return session.request(
+    ProjectRequest.make({
+      protocol: STATION_API_PROTOCOL,
+      op: "project",
+      stationInstallationId: target.stationInstallationId,
+      projection: {
+        scope: "full",
+        generation: desired.generation,
+        body: desired.body,
+        contentSha256: desired.contentSha256,
+        createdAt: desired.createdAt,
+      },
+    }),
+  ).pipe(
+    Effect.flatMap((response) =>
+      ensureProjectionResult(desired, response)
+    ),
+  );
 };
 
-const requireEventHomes = (
-  operation: string,
-  events: ReadonlyArray<{
-    readonly identity: { readonly home: InstallationId };
-  }>,
-  expected: InstallationId,
-): Effect.Effect<void, StationPropagationInvariantError> =>
-  events.every((event) => event.identity.home === expected)
-    ? Effect.void
-    : Effect.fail(
-        invariant(
-          operation,
-          "event-home-mismatch",
-          "Station report crossed a single-home event boundary",
-        ),
-      );
-
-const requireAckHomes = (
-  operation: string,
-  acknowledgements: ReadonlyArray<StationEventAck>,
-  expected: InstallationId,
-): Effect.Effect<void, StationPropagationInvariantError> =>
-  acknowledgements.every(
-      (acknowledgement) => acknowledgement.home === expected,
-    ) &&
-    acknowledgements.length <= 1
-    ? Effect.void
-    : Effect.fail(
-        invariant(
-          operation,
-          "ack-home-mismatch",
-          "Station report crossed or duplicated a single-home acknowledgement boundary",
-        ),
-      );
-
-type StationReportRoundReceipt = Omit<
-  StationReportSyncReceipt,
-  "rounds"
->;
-
-const synchronizeReportRound = (
-  repository: Context.Tag.Service<typeof StationRepository>,
-  work: Context.Tag.Service<typeof WorkRepository>,
-  remote: Context.Tag.Service<typeof StationRemoteApiClient>,
-  target: StationPropagationTarget,
-  commandCenterInstallationId: InstallationId,
-  remoteReceivedThrough: ReadonlyArray<StationEventAck>,
-): Effect.Effect<
-  StationReportRoundReceipt,
-  | StationRepositoryError
-  | WorkRepositoryError
-  | WorkReplicationError
-  | StationRemoteApiError
-  | StationPropagationInvariantError
-> =>
-  Effect.gen(function* () {
-    yield* requireAckHomes(
-      "status",
-      remoteReceivedThrough,
-      commandCenterInstallationId,
-    );
-    if (remoteReceivedThrough.length > 0) {
-      yield* repository.advancePeerAcks(
-        target.stationInstallationId,
-        target.hostId,
-        remoteReceivedThrough,
-      );
-    }
-
-    const remoteCursor =
-      remoteReceivedThrough.find(
-        (acknowledgement) =>
-          acknowledgement.home === commandCenterInstallationId,
-      )?.through ?? ZERO_SEQUENCE;
-    const outbound = (
-      yield* work.eventsAfter({
-        eventHome: commandCenterInstallationId,
-        entityHome: target.hostId,
-        afterSeq: remoteCursor,
-        limit: STATION_API_MAX_EVENTS_PER_REPORT,
-      })
-    ).map(stationEventFromWorkEvent);
-    yield* requireEventHomes(
-      "report-outbound",
-      outbound,
-      commandCenterInstallationId,
-    );
-
-    const localFacts = yield* repository.statusFacts;
-    const acknowledgeInbound = localFacts.receivedThrough.filter(
-      (acknowledgement) =>
-        acknowledgement.home === target.stationInstallationId,
-    );
-    yield* requireAckHomes(
-      "report-request",
-      acknowledgeInbound,
-      target.stationInstallationId,
-    );
-
-    const response = yield* remote.report(
-      target.endpoint,
-      ReportRequest.make({
-        protocol: STATION_API_PROTOCOL,
-        op: "report",
-        stationInstallationId: target.stationInstallationId,
-        outbound,
-        acknowledgeInbound,
-      }),
-    );
-    yield* requireEventHomes(
-      "report-inbound",
-      response.inbound,
-      target.stationInstallationId,
-    );
-    yield* requireAckHomes(
-      "report-response",
-      response.acknowledgeOutbound,
-      commandCenterInstallationId,
-    );
-
-    const accepted = yield* work.acceptReplicated({
-      localEventHome: commandCenterInstallationId,
-      eventHome: target.stationInstallationId,
-      entityHome: target.hostId,
-      events: response.inbound,
-      causalConflict: "fail",
-    });
-    if (response.acknowledgeOutbound.length > 0) {
-      yield* repository.advancePeerAcks(
-        target.stationInstallationId,
-        target.hostId,
-        response.acknowledgeOutbound,
-      );
-    }
-
-    return {
-      outboundSent: outbound.length,
-      inboundReceived: response.inbound.length,
-      inboundAccepted: accepted.accepted,
-      inboundIdempotent: accepted.idempotent,
-      acknowledgeInbound,
-      acknowledgeOutbound: response.acknowledgeOutbound,
-      hasMoreOutbound:
-        outbound.length === STATION_API_MAX_EVENTS_PER_REPORT,
-      hasMoreInbound:
-        response.inbound.length === STATION_API_MAX_EVENTS_PER_REPORT,
-    };
-  }).pipe(Effect.withSpan("station.propagation.report-round"));
-
 const synchronizeReport = (
-  repository: Context.Tag.Service<typeof StationRepository>,
-  work: Context.Tag.Service<typeof WorkRepository>,
-  remote: Context.Tag.Service<typeof StationRemoteApiClient>,
+  api: Context.Tag.Service<typeof StationApiService>,
+  session: StationPeerSession,
   target: StationPropagationTarget,
-  commandCenterInstallationId: InstallationId,
-  initialRemoteReceivedThrough: ReadonlyArray<StationEventAck>,
 ): Effect.Effect<
   StationReportSyncReceipt,
-  | StationRepositoryError
-  | WorkRepositoryError
-  | WorkReplicationError
-  | StationRemoteApiError
-  | StationPropagationInvariantError
+  StationApiError | StationPeerRequestError | StationPropagationInvariantError
 > =>
   Effect.gen(function* () {
-    let remoteReceivedThrough = initialRemoteReceivedThrough;
     let outboundSent = 0;
     let inboundReceived = 0;
     let inboundAccepted = 0;
     let inboundIdempotent = 0;
+    let inboundRejected = 0;
+    let receivedThrough: ReadonlyArray<RouteCursor> = [];
 
     for (
       let round = 1;
       round <= STATION_PROPAGATION_MAX_REPORT_ROUNDS;
       round += 1
     ) {
-      const receipt = yield* synchronizeReportRound(
-        repository,
-        work,
-        remote,
-        target,
-        commandCenterInstallationId,
-        remoteReceivedThrough,
+      const request = yield* api.prepareReport(
+        target.stationInstallationId,
       );
-      outboundSent += receipt.outboundSent;
-      inboundReceived += receipt.inboundReceived;
-      inboundAccepted += receipt.inboundAccepted;
-      inboundIdempotent += receipt.inboundIdempotent;
+      const response = yield* session.request(request);
+      const integrated = yield* api.acceptReportResponse(
+        target.stationInstallationId,
+        request,
+        response,
+      );
 
-      if (!receipt.hasMoreOutbound && !receipt.hasMoreInbound) {
+      outboundSent += request.batch.records.length;
+      inboundReceived += response.batch.records.length;
+      inboundAccepted += integrated.accepted;
+      inboundIdempotent += integrated.idempotent;
+      inboundRejected += integrated.rejected;
+      receivedThrough = integrated.receivedThrough;
+
+      if (!request.batch.hasMore && !integrated.peerHasMore) {
         return {
           rounds: round,
           outboundSent,
           inboundReceived,
           inboundAccepted,
           inboundIdempotent,
-          acknowledgeInbound: receipt.acknowledgeInbound,
-          acknowledgeOutbound: receipt.acknowledgeOutbound,
+          inboundRejected,
+          receivedThrough,
           hasMoreOutbound: false,
           hasMoreInbound: false,
         };
       }
-
-      // The response ACK is the only admissible cursor for the next outbound
-      // page. It was already persisted by the completed round; carrying it
-      // here also makes a lost outer receipt harmless on retry.
-      remoteReceivedThrough = receipt.acknowledgeOutbound;
     }
 
     return yield* invariant(
@@ -490,6 +344,7 @@ export class StationPropagation extends Context.Tag(
   {
     readonly synchronize: (
       target: StationPropagationTarget,
+      session: StationPeerSession,
     ) => Effect.Effect<StationPropagationReceipt, StationPropagationError>;
   }
 >() {}
@@ -499,11 +354,14 @@ export const StationPropagationLive = Layer.effect(
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const repository = yield* StationRepository;
-    const work = yield* WorkRepository;
-    const remote = yield* StationRemoteApiClient;
+    const api = yield* StationApiService;
+    const fleetTargets = yield* StationFleetTargetRepository;
 
     const synchronize = Effect.fn("StationPropagation.synchronize")(
-      function* (target: StationPropagationTarget) {
+      function* (
+        target: StationPropagationTarget,
+        session: StationPeerSession,
+      ) {
         const commandCenterInstallationId =
           yield* repository.installationId;
         const localConfiguration = yield* repository.configuration;
@@ -516,13 +374,28 @@ export const StationPropagationLive = Layer.effect(
             "only a configured Command Center may propagate fleet state",
           );
         }
+        if (
+          session.localInstallationId !== commandCenterInstallationId ||
+          session.peerInstallationId !== target.stationInstallationId
+        ) {
+          return yield* invariant(
+            "synchronize",
+            "session-identity-mismatch",
+            "Station session does not match the local Command Center and enrolled Remote",
+          );
+        }
 
-        const status = yield* remote.status(target.endpoint);
+        const status = yield* session.request(
+          StatusRequest.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "status",
+          }),
+        );
         if (status.installationId !== target.stationInstallationId) {
           return yield* invariant(
             "status",
             "station-identity-mismatch",
-            "remote status does not match the enrolled Station identity",
+            "Remote status does not match the enrolled Station identity",
           );
         }
         if (status.configuration?.role !== "remote") {
@@ -556,23 +429,58 @@ export const StationPropagationLive = Layer.effect(
             "Remote database is not ready for propagation",
           );
         }
+        if (!status.readiness.workControl) {
+          return yield* invariant(
+            "status",
+            "work-control-unavailable",
+            "Remote work control is not ready for propagation",
+          );
+        }
+        if (!status.readiness.simulation) {
+          return yield* invariant(
+            "status",
+            "simulation-unavailable",
+            "Remote simulation is not ready for propagation",
+          );
+        }
+        if (!status.readiness.session) {
+          return yield* invariant(
+            "status",
+            "session-unavailable",
+            "Remote persistent Station session is not ready",
+          );
+        }
 
-        const snapshot = yield* canvases.authoritySnapshot();
-        const desired = yield* desiredProjection(snapshot);
+        const [snapshot, enrolledTargets] = yield* Effect.all([
+          canvases.authoritySnapshot(),
+          fleetTargets.list,
+        ]);
+        const installationByHostId = new Map<
+          string,
+          StationPropagationTarget["stationInstallationId"]
+        >([
+          [
+            localConfiguration.configuration.hostId,
+            commandCenterInstallationId,
+          ],
+        ]);
+        for (const enrolled of enrolledTargets) {
+          installationByHostId.set(
+            enrolled.hostId,
+            enrolled.stationInstallationId,
+          );
+        }
+        const desired = yield* desiredProjection(
+          snapshot,
+          installationByHostId,
+        );
         const projection = yield* synchronizeProjection(
-          remote,
+          session,
           target,
           status.projection,
           desired,
         );
-        const report = yield* synchronizeReport(
-          repository,
-          work,
-          remote,
-          target,
-          commandCenterInstallationId,
-          status.receivedThrough,
-        );
+        const report = yield* synchronizeReport(api, session, target);
 
         return {
           stationInstallationId: target.stationInstallationId,
