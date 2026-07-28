@@ -12,12 +12,13 @@
 // separately-named "prod" variant, by design (kernel-design.md §2, §7).
 
 import { createHash } from "node:crypto";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, HashSet, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { ActorRefResolver } from "@shared/attention";
 import { identityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
+import { offersOf, resolveSpec, roleOf } from "@shared/physics";
 import {
   DEFAULT_STATION_HOST_ID,
   type StationRole,
@@ -350,6 +351,20 @@ export const managedTaskDeliveryId = (
     )
     .digest("hex")}`;
 
+/**
+ * Factory participation is derived from the canonical physics registry. The
+ * kernel needs queues that can actually be claimed, not a parallel list of
+ * entity kinds; `tasks.claim` is the capability that uniquely identifies that
+ * sink in the current closed port model.
+ */
+const isClaimableTaskSink = (node: CanvasNode): boolean => {
+  const spec = resolveSpec({
+    isGroup: node.type === "group",
+    kind: node.ether?.entity?.kind,
+  });
+  return roleOf(spec) === "sink" && HashSet.has(offersOf(spec), "tasks.claim");
+};
+
 const makeKernelService = (
   canvases: CanvasesShape,
   snapshots: SnapshotsShape,
@@ -564,8 +579,8 @@ const makeKernelService = (
     const busyActorSeatIds = new Set<ActorSeatId>();
     for (const doc of docs.values()) {
       for (const node of doc.nodes) {
-        if (node.ether?.entity?.kind !== "task") continue;
-        for (const task of node.ether.tasks?.items ?? []) {
+        if (!isClaimableTaskSink(node)) continue;
+        for (const task of node.ether?.tasks?.items ?? []) {
           if (
             task.state !== "working" &&
             task.state !== "input-required" &&
@@ -605,8 +620,8 @@ const makeKernelService = (
       if (probe.claimed.length === 0) continue;
       for (const claim of probe.claimed) {
         const candidateSinks = doc.nodes.filter((node) =>
-          node.ether?.entity?.kind === "task" &&
-          node.ether.tasks?.items.some((task) => task.id === claim.taskId)
+          isClaimableTaskSink(node) &&
+          node.ether?.tasks?.items.some((task) => task.id === claim.taskId)
         );
         // factoryClaimTick's current pure result names a task but not its sink.
         // Composite work identity forbids guessing when canvas-local task ids
@@ -651,8 +666,8 @@ const makeKernelService = (
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
       for (const sink of doc.nodes) {
-        if (sink.ether?.entity?.kind !== "task") continue;
-        for (const task of sink.ether.tasks?.items ?? []) {
+        if (!isClaimableTaskSink(sink)) continue;
+        for (const task of sink.ether?.tasks?.items ?? []) {
           if (task.state !== "working") continue;
           const actorSeatId = claimedByOf(task);
           if (actorSeatId === undefined) continue;
