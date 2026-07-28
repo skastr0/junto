@@ -269,13 +269,25 @@ describe("StationPropagation", () => {
   it("runs status, projection, and report on the supplied persistent session", async () => {
     const operations: StationApiRequest["op"][] = [];
     let projected: ProjectRequest | undefined;
+    let statusRequests = 0;
     const peer = session(<R extends StationApiRequest>(request: R) => {
       operations.push(request.op);
       switch (request.op) {
-        case "status":
-          return Effect.succeed(status()) as Effect.Effect<
-            StationApiResponseFor<R>
-          >;
+        case "status": {
+          statusRequests += 1;
+          return Effect.succeed(
+            status(
+              statusRequests === 1 || projected === undefined
+                ? undefined
+                : {
+                    generation: projected.projection.generation,
+                    contentSha256:
+                      projected.projection.contentSha256,
+                    receivedAt: NOW,
+                  },
+            ),
+          ) as Effect.Effect<StationApiResponseFor<R>>;
+        }
         case "project": {
           projected = request;
           return Effect.succeed(
@@ -316,7 +328,12 @@ describe("StationPropagation", () => {
         ),
       );
 
-      expect(operations).toEqual(["status", "project", "report"]);
+      expect(operations).toEqual([
+        "status",
+        "project",
+        "report",
+        "status",
+      ]);
       expect(projected?.projection.scope).toBe("full");
       expect(projected?.projection.contentSha256).toBe(
         stationProjectionContentSha256(
@@ -327,6 +344,10 @@ describe("StationPropagation", () => {
       expect(receipt.remoteStatus).toMatchObject({
         installationId: REMOTE,
         state: "ready",
+        projection: {
+          generation: projected?.projection.generation,
+          contentSha256: projected?.projection.contentSha256,
+        },
         readiness: {
           database: true,
           workControl: true,
@@ -434,7 +455,7 @@ describe("StationPropagation", () => {
         ),
       );
 
-      expect(operations).toEqual(["status", "report"]);
+      expect(operations).toEqual(["status", "report", "status"]);
       expect(receipt.projection.decision).toBe("unchanged");
     } finally {
       await stationRuntime.dispose();

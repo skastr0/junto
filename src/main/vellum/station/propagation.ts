@@ -484,10 +484,25 @@ export const StationPropagationLive = Layer.effect(
           desired,
         );
         const report = yield* synchronizeReport(api, session, target);
+        const finalStatus = yield* session.request(
+          StatusRequest.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "status",
+          }),
+        );
+        if (
+          finalStatus.installationId !== target.stationInstallationId
+        ) {
+          return yield* invariant(
+            "status",
+            "station-identity-mismatch",
+            "Final Remote status does not match the enrolled Station identity",
+          );
+        }
 
         return {
           stationInstallationId: target.stationInstallationId,
-          remoteStatus: status,
+          remoteStatus: finalStatus,
           projection,
           report,
         };
