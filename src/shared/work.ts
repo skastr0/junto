@@ -10,6 +10,7 @@ import type {
   Message,
   TaskState,
 } from "./work-model";
+import type { ActorRef } from "./work-protocol";
 import {
   canTransitionTaskState,
   claimedByOf,
@@ -224,20 +225,33 @@ const patchTaskInList = (
 ): { readonly items: Task[]; readonly task: Task } => {
   const idx = items.findIndex((t) => t.id === taskId);
   if (idx < 0) throw new WorkError("task_not_found", `task "${taskId}" not found`);
-  const next = items.map((t, i) => (i === idx ? patch(t) : t));
+  const next = items.map((t, i) => {
+    if (i !== idx) return t;
+    rejectRetiredClaimMetadata(t.metadata);
+    return patch(t);
+  });
   return { items: next as Task[], task: next[idx]! };
 };
 
-const mergeMetadata = (
-  existing: WorkMetadata | undefined,
-  patch: WorkMetadata | undefined,
-): WorkMetadata | undefined => {
-  if (!existing && !patch) return undefined;
-  return { ...(existing ?? {}), ...(patch ?? {}) };
+const rejectRetiredClaimMetadata = (
+  metadata: WorkMetadata | undefined,
+): void => {
+  if (
+    metadata !== undefined &&
+    Object.prototype.hasOwnProperty.call(metadata, "claimedBy")
+  ) {
+    throw new WorkError(
+      "invalid",
+      "metadata.claimedBy is retired; use Task.claimedBy",
+    );
+  }
 };
 
 export type WorkTaskCreateResult = { readonly doc: CanvasDoc; readonly task: Task };
 export type WorkTaskResult = { readonly doc: CanvasDoc; readonly task: Task };
+export type WorkTaskClaimResult = WorkTaskResult & {
+  readonly claimedBy: ActorRef;
+};
 export type WorkMessageResult = { readonly doc: CanvasDoc; readonly message: Message };
 export type WorkArtifactResult = { readonly doc: CanvasDoc; readonly artifact: Artifact };
 
@@ -254,6 +268,7 @@ export const workTaskCreate = (
   requireSink(node, ["task"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
+  rejectRetiredClaimMetadata(metadata);
   const taskId = ids.id();
   const contextId = regionContextId(doc, nodeId, canvasName);
   const briefMessage = makeUserMessage({
@@ -350,26 +365,16 @@ export const workTaskClaim = (
   canvasName: string,
   nodeId: string,
   taskId: string,
-  actor: string,
+  actor: ActorRef,
   ids: WorkIds,
-): WorkTaskResult => {
+): WorkTaskClaimResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
-  const actorTrim = actor.trim();
-  if (!actorTrim) throw new WorkError("invalid", "actor must be non-empty");
-  // Claiming is a worker/factory act — never the human operator label.
-  const reserved = actorTrim.toLowerCase();
-  if (reserved === "operator" || reserved === "user" || reserved === "human") {
-    throw new WorkError(
-      "invalid",
-      `claimedBy must be a worker identity, not "${actorTrim}"`,
-    );
-  }
   const items = node.ether?.tasks?.items ?? [];
   const contextId = regionContextId(doc, nodeId, canvasName);
   const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
     const existing = claimedByOf(current);
-    if (existing && existing !== actorTrim) {
+    if (existing && existing !== actor.seatId) {
       throw new WorkError(
         "claim_contention",
         `task "${taskId}" already claimed by "${existing}"`,
@@ -385,31 +390,32 @@ export const workTaskClaim = (
         `cannot claim task "${taskId}" in state ${current.state}`,
       );
     }
-    const metadata = mergeMetadata(current.metadata, { claimedBy: actorTrim });
-    // Idempotent re-claim by same actor keeps working + claimedBy.
-    if (current.state === "working" && existing === actorTrim) {
-      return { ...current, metadata };
+    // Exact replay may arrive through another canvas reference to the same
+    // executable seat. Idempotency keys on ActorSeatId, never node identity.
+    if (current.state === "working" && existing === actor.seatId) {
+      return current;
     }
-    const history =
-      current.state === "working"
-        ? current.history
-        : [
-            ...current.history,
-            makeAgentMessage({
-              messageId: ids.messageId(),
-              text: `claimed by ${actorTrim}`,
-              contextId,
-              taskId,
-            }),
-          ];
+    const history = [
+      ...current.history,
+      makeAgentMessage({
+        messageId: ids.messageId(),
+        text: `claimed by ${actor.seatId}`,
+        contextId,
+        taskId,
+      }),
+    ];
     return {
       ...current,
       state: "working",
+      claimedBy: actor.seatId,
       history,
-      ...(metadata ? { metadata } : {}),
     };
   });
-  return { doc: withTasks(doc, nodeId, nextItems), task };
+  return {
+    doc: withTasks(doc, nodeId, nextItems),
+    task,
+    claimedBy: actor,
+  };
 };
 
 export const workMessageAppend = (
@@ -458,26 +464,16 @@ export const workRequestCreate = (
   brief: string,
   metadata: WorkMetadata | undefined,
   ids: WorkIds,
-  raisedBy?: string,
+  raisedBy: ActorRef,
   reason?: string,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["requests"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
-  // A request raised by an actor is claimed by that actor at birth — the
+  rejectRetiredClaimMetadata(metadata);
+  // A request is actor-originated and claimed by its raiser at birth. The
   // raiser is the worker waiting on the answer, so stoppage lands on it.
-  // Operator-seeded requests (no raiser) are unclaimed inventory.
-  const raiser = raisedBy?.trim();
-  if (raiser !== undefined && raiser.length > 0) {
-    const reserved = raiser.toLowerCase();
-    if (reserved === "operator" || reserved === "user" || reserved === "human") {
-      throw new WorkError(
-        "invalid",
-        `raisedBy must be a worker seat, not "${raiser}"`,
-      );
-    }
-  }
   const taskId = ids.id();
   const contextId = regionContextId(doc, nodeId, canvasName);
   const briefMessage = makeUserMessage({
@@ -486,15 +482,13 @@ export const workRequestCreate = (
     contextId,
     taskId,
   });
-  const stamped = raiser
-    ? mergeMetadata(metadata, { claimedBy: raiser })
-    : metadata;
   const why = reason?.trim();
   const task: Task = {
     id: taskId,
     state: "input-required",
+    claimedBy: raisedBy.seatId,
     history: [briefMessage],
-    ...(stamped ? { metadata: stamped } : {}),
+    ...(metadata ? { metadata } : {}),
     ...(why ? { reason: why } : {}),
   };
   const items = [...(node.ether?.requests?.items ?? []), task];

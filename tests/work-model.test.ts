@@ -1,6 +1,7 @@
 import { Either, Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  Task,
   WorkSnapshot,
   type WorkSnapshot as WorkSnapshotType,
 } from "../src/shared/work-model";
@@ -10,14 +11,26 @@ import {
 } from "../src/shared/canvas";
 import { taskItem } from "./helpers/task-fixtures";
 
+const seatId = `seat_${"1".repeat(64)}`;
+
 const snapshotInput = {
   canvasName: "factory",
   nodeId: "task-sink",
   tasks: {
-    items: [taskItem("task-1", "Ship the release", "working")],
+    items: [
+      {
+        ...taskItem("task-1", "Ship the release", "working"),
+        claimedBy: seatId,
+      },
+    ],
   },
   requests: {
-    items: [taskItem("request-1", "Approve release?", "input-required")],
+    items: [
+      {
+        ...taskItem("request-1", "Approve release?", "input-required"),
+        claimedBy: seatId,
+      },
+    ],
   },
   messages: {
     items: [
@@ -73,5 +86,45 @@ describe("WorkSnapshot", () => {
   it("keeps the canvas export as the same schema and derived type", () => {
     expect(CanvasWorkSnapshot).toBe(WorkSnapshot);
     expectTypeOf<CanvasWorkSnapshotType>().toEqualTypeOf<WorkSnapshotType>();
+  });
+});
+
+describe("Task claimant invariant", () => {
+  const decode = (state: string, claimedBy?: string, metadata?: unknown) =>
+    Schema.decodeUnknownEither(Task)({
+      id: `task-${state}`,
+      state,
+      history: [],
+      ...(claimedBy === undefined ? {} : { claimedBy }),
+      ...(metadata === undefined ? {} : { metadata }),
+    });
+
+  it("requires submitted inventory to be unclaimed", () => {
+    expect(Either.isRight(decode("submitted"))).toBe(true);
+    expect(Either.isLeft(decode("submitted", seatId))).toBe(true);
+  });
+
+  it("requires every active state to have a claimant", () => {
+    for (const state of [
+      "working",
+      "input-required",
+      "auth-required",
+    ]) {
+      expect(Either.isLeft(decode(state))).toBe(true);
+      expect(Either.isRight(decode(state, seatId))).toBe(true);
+    }
+  });
+
+  it("allows terminal history with or without its former claimant", () => {
+    for (const state of ["completed", "canceled", "failed", "rejected"]) {
+      expect(Either.isRight(decode(state))).toBe(true);
+      expect(Either.isRight(decode(state, seatId))).toBe(true);
+    }
+  });
+
+  it("rejects the retired metadata claimant for every state", () => {
+    expect(
+      Either.isLeft(decode("submitted", undefined, { claimedBy: seatId })),
+    ).toBe(true);
   });
 });

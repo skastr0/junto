@@ -95,12 +95,26 @@ export const Task = Schema.Struct({
   /** The operator's answer (first-class, stamped on resolve). */
   response: Schema.optionalWith(Schema.String, { exact: true }),
 }).pipe(
-  Schema.filter(
-    ({ metadata }) =>
-      metadata === undefined ||
-      !Object.prototype.hasOwnProperty.call(metadata, "claimedBy") ||
-      "metadata.claimedBy is retired; use Task.claimedBy",
-  ),
+  Schema.filter(({ state, claimedBy, metadata }) => {
+    if (
+      metadata !== undefined &&
+      Object.prototype.hasOwnProperty.call(metadata, "claimedBy")
+    ) {
+      return "metadata.claimedBy is retired; use Task.claimedBy";
+    }
+    if (state === "submitted" && claimedBy !== undefined) {
+      return "submitted tasks must be unclaimed";
+    }
+    if (
+      (state === "working" ||
+        state === "input-required" ||
+        state === "auth-required") &&
+      claimedBy === undefined
+    ) {
+      return `${state} tasks require claimedBy`;
+    }
+    return true;
+  }),
 );
 export type Task = typeof Task.Type;
 

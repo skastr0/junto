@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Layer, ManagedRuntime } from "effect";
+import { Context, Layer, ManagedRuntime, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   workMessageAppend,
@@ -16,6 +16,7 @@ import {
 } from "../src/shared/work";
 import type { Artifact, CanvasDoc, Message } from "../src/shared/canvas";
 import { canTransitionTaskState } from "../src/shared/task";
+import { ActorRef } from "../src/shared/work-protocol";
 
 const ids = (() => {
   let n = 0;
@@ -24,6 +25,17 @@ const ids = (() => {
     messageId: () => `msg-${++n}`,
   };
 })();
+
+const actorRef = (
+  digit: string,
+  nodeId: string,
+  canvasName = "alpha",
+) =>
+  Schema.decodeUnknownSync(ActorRef)({
+    seatId: `seat_${digit.repeat(64)}`,
+    canvasName,
+    nodeId,
+  });
 
 const emptyTaskNode = (id = "tasks"): CanvasDoc["nodes"][number] => ({
   id,
@@ -68,16 +80,47 @@ describe("work pure transforms", () => {
     expect(created.task.history[0]?.contextId).toBe("alpha");
     expect((doc.nodes[0] as { text: string }).text).toBe("ship docs");
 
-    const claimed = workTaskClaim(doc, "alpha", "tasks", created.task.id, "worker-1", ids);
+    const worker = actorRef("1", "worker-1");
+    const claimed = workTaskClaim(doc, "alpha", "tasks", created.task.id, worker, ids);
     doc = claimed.doc;
     expect(claimed.task.state).toBe("working");
-    expect(claimed.task.metadata?.claimedBy).toBe("worker-1");
+    expect(claimed.task.claimedBy).toBe(worker.seatId);
+    expect(claimed.claimedBy).toEqual(worker);
+
+    const historyLength = claimed.task.history.length;
+    const alias = actorRef("1", "worker-alias", "beta");
+    const replayed = workTaskClaim(
+      doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      alias,
+      ids,
+    );
+    doc = replayed.doc;
+    expect(replayed.task.history).toHaveLength(historyLength);
+    expect(replayed.task.claimedBy).toBe(worker.seatId);
+    expect(replayed.claimedBy).toEqual(alias);
 
     expect(() =>
-      workTaskClaim(doc, "alpha", "tasks", created.task.id, "other-agent", ids),
+      workTaskClaim(
+        doc,
+        "alpha",
+        "tasks",
+        created.task.id,
+        actorRef("2", "other-agent"),
+        ids,
+      ),
     ).toThrow(WorkError);
     try {
-      workTaskClaim(doc, "alpha", "tasks", created.task.id, "other-agent", ids);
+      workTaskClaim(
+        doc,
+        "alpha",
+        "tasks",
+        created.task.id,
+        actorRef("2", "other-agent"),
+        ids,
+      );
     } catch (e) {
       expect(e).toBeInstanceOf(WorkError);
       expect((e as WorkError).code).toBe("claim_contention");
@@ -97,26 +140,25 @@ describe("work pure transforms", () => {
     expect(done.task.history.at(-1)?.parts[0]).toEqual({ kind: "text", text: "shipped" });
   });
 
-  it("claim refuses attention states — an unclaimed human wait is never consumed", () => {
-    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+  it("generic transition cannot turn unclaimed submitted work into attention", () => {
+    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "c", "tasks", "needs answer", undefined, ids);
-    doc = created.doc;
-    const waiting = workTaskTransition(
-      doc,
-      "c",
-      "tasks",
-      created.task.id,
-      "input-required",
-      undefined,
-      ids,
-    );
-    doc = waiting.doc;
-    try {
-      workTaskClaim(doc, "c", "tasks", created.task.id, "worker-1", ids);
-      expect.unreachable("claiming an unclaimed attention task must throw");
-    } catch (e) {
-      expect(e).toBeInstanceOf(WorkError);
-      expect((e as WorkError).code).toBe("illegal_transition");
+    for (const state of ["input-required", "auth-required"] as const) {
+      expect(() =>
+        workTaskTransition(
+          created.doc,
+          "c",
+          "tasks",
+          created.task.id,
+          state,
+          undefined,
+          ids,
+        ),
+      ).toThrowError(
+        expect.objectContaining<Partial<WorkError>>({
+          code: "illegal_transition",
+        }),
+      );
     }
   });
 
@@ -124,14 +166,24 @@ describe("work pure transforms", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", undefined, ids);
     doc = created.doc;
-    const noted = workTaskTransition(doc, "alpha", "tasks", created.task.id, "working", "on it", ids);
+    const noted = workTaskClaim(
+      doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      actorRef("1", "worker-1"),
+      ids,
+    );
     doc = noted.doc;
 
     const described = workTaskDescribe(doc, "alpha", "tasks", created.task.id, "ship the docs site", ids);
     doc = described.doc;
     expect(described.task.history[0]?.parts[0]).toEqual({ kind: "text", text: "ship the docs site" });
     expect(described.task.history[0]?.role).toBe("user");
-    expect(described.task.history.at(-1)?.parts[0]).toEqual({ kind: "text", text: "on it" });
+    expect(described.task.history.at(-1)?.parts[0]).toEqual({
+      kind: "text",
+      text: `claimed by ${actorRef("1", "worker-1").seatId}`,
+    });
     expect(described.task.state).toBe("working");
     expect((doc.nodes[0] as { text: string }).text).toBe("ship the docs site");
   });
@@ -159,6 +211,17 @@ describe("work pure transforms", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "c", "tasks", "x", undefined, ids);
     doc = created.doc;
+    expect(() =>
+      workTaskTransition(
+        doc,
+        "c",
+        "tasks",
+        created.task.id,
+        "working",
+        undefined,
+        ids,
+      ),
+    ).toThrow(/cannot transition/);
     const completed = workTaskTransition(
       doc,
       "c",
@@ -177,6 +240,20 @@ describe("work pure transforms", () => {
     );
   });
 
+  it("rejects the retired metadata claimant instead of tolerating a dual shape", () => {
+    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    expect(() =>
+      workTaskCreate(
+        doc,
+        "c",
+        "tasks",
+        "x",
+        { claimedBy: actorRef("1", "worker-1", "c").seatId },
+        ids,
+      ),
+    ).toThrow(/metadata\.claimedBy is retired/);
+  });
+
   it("request raised by an actor is claimed by that actor at birth, with its reason", () => {
     const doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
     const raised = workRequestCreate(
@@ -186,16 +263,12 @@ describe("work pure transforms", () => {
       "need a key",
       undefined,
       ids,
-      "actor-7",
+      actorRef("7", "actor-7", "c"),
       "signing is gated on the operator's key",
     );
     expect(raised.task.state).toBe("input-required");
-    expect(raised.task.metadata?.claimedBy).toBe("actor-7");
+    expect(raised.task.claimedBy).toBe(actorRef("7", "actor-7", "c").seatId);
     expect(raised.task.reason).toBe("signing is gated on the operator's key");
-
-    expect(() =>
-      workRequestCreate(doc, "c", "req", "need a key", undefined, ids, "operator"),
-    ).toThrow(WorkError);
   });
 
   it("task create records its reason first-class", () => {
@@ -208,11 +281,19 @@ describe("work pure transforms", () => {
 
   it("request create + resolve appends user message and clears input-required", () => {
     let doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
-    const created = workRequestCreate(doc, "c", "req", "need approval", { class: "review" }, ids);
+    const created = workRequestCreate(
+      doc,
+      "c",
+      "req",
+      "need approval",
+      { class: "review" },
+      ids,
+      actorRef("4", "actor-4", "c"),
+    );
     doc = created.doc;
     expect(created.task.state).toBe("input-required");
     expect(created.task.metadata?.class).toBe("review");
-    expect(created.task.metadata?.claimedBy).toBeUndefined();
+    expect(created.task.claimedBy).toBe(actorRef("4", "actor-4", "c").seatId);
     expect((doc.nodes[0] as { text: string }).text.startsWith("1 pending")).toBe(true);
 
     const resolved = workRequestResolve(
@@ -291,7 +372,7 @@ describe("work pure transforms", () => {
 
   it("state machine: terminal has no exits", () => {
     expect(canTransitionTaskState("completed", "working")).toBe(false);
-    expect(canTransitionTaskState("submitted", "working")).toBe(true);
+    expect(canTransitionTaskState("submitted", "working")).toBe(false);
     expect(canTransitionTaskState("input-required", "rejected")).toBe(true);
     // Attention states are symmetric: both can fail, complete, or swap.
     expect(canTransitionTaskState("input-required", "failed")).toBe(true);

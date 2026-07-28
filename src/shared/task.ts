@@ -6,6 +6,7 @@ import type {
   Part,
   TaskState,
 } from "./work-model";
+import type { ActorSeatId } from "./actor-seat";
 
 // Display + transition helpers for the work plane. Pure — no I/O.
 
@@ -28,13 +29,10 @@ export const isTerminalTaskState = (state: TaskState): boolean =>
 /** Legal outbound transitions. Terminal states have no exits. */
 const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
   submitted: new Set([
-    "working",
-    "input-required",
     "completed",
     "canceled",
     "failed",
     "rejected",
-    "auth-required",
   ]),
   working: new Set([
     "working",
@@ -139,7 +137,5 @@ export const makeAgentMessage = (params: {
   ...(params.metadata ? { metadata: params.metadata } : {}),
 });
 
-export const claimedByOf = (task: Task): string | undefined => {
-  const raw = task.metadata?.claimedBy;
-  return typeof raw === "string" && raw.length > 0 ? raw : undefined;
-};
+export const claimedByOf = (task: Task): ActorSeatId | undefined =>
+  task.claimedBy;
