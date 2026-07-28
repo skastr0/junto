@@ -224,10 +224,24 @@ export const createVerifiedStateBackup = (
     throw new Error(`backup destination already exists: ${path}`);
   }
   database.prepare("VACUUM INTO ?").run(path);
-  const identity = makeOwnerOnlyWithoutFollowing(path);
+  const created = lstatSync(path);
+  if (!created.isFile() || created.isSymbolicLink()) {
+    throw new Error(`state backup is not a regular file: ${path}`);
+  }
+  const identity = {
+    device: created.dev,
+    inode: created.ino,
+  };
   let backup: DatabaseSync | undefined;
   let verified = false;
   try {
+    const secured = makeOwnerOnlyWithoutFollowing(path);
+    if (
+      secured.device !== identity.device ||
+      secured.inode !== identity.inode
+    ) {
+      throw new Error(`state backup path changed during creation: ${path}`);
+    }
     backup = new DatabaseSync(path, {
       open: true,
       readOnly: true,
