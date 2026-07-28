@@ -248,6 +248,25 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     termRef.current = term;
     fitRef.current = fit;
 
+    // Viewport CSS is overflow:hidden (no web scrollbar). Without DOM scroll,
+    // wheel would not move client scrollback — translate to buffer scroll when
+    // the app is not mouse-reporting (TUIs own the wheel via mouse protocol).
+    const onWheel = (ev: WheelEvent): void => {
+      if (term.modes.mouseTrackingMode !== "none") return;
+      if (ev.ctrlKey || ev.metaKey) return;
+      if (ev.deltaY === 0) return;
+      const cellH =
+        (term as unknown as { _core?: XtermCore })._core?._renderService
+          ?.dimensions?.css?.cell?.height ?? FALLBACK_CELL_H;
+      const lines = Math.max(
+        1,
+        Math.round(Math.abs(ev.deltaY) / Math.max(1, cellH)),
+      );
+      term.scrollLines(ev.deltaY > 0 ? lines : -lines);
+      ev.preventDefault();
+    };
+    host.addEventListener("wheel", onWheel, { passive: false });
+
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const settleTimers: ReturnType<typeof setTimeout>[] = [];
     /** Last real host box — detect pin reflow size jumps. */
@@ -314,6 +333,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     }
 
     return () => {
+      host.removeEventListener("wheel", onWheel);
       window.removeEventListener("resize", onWindowResize);
       observer.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);

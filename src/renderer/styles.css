@@ -539,9 +539,11 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
 .workbench-resize-handle--left:active {
   background: rgba(232, 163, 61, 0.25);
 }
-/* xterm absolute-fill so it never drives host content height (island loop). */
+/* xterm absolute-fill so it never drives host content height (island loop).
+   No DOM overflow — same contract as native-terminal-surface. */
 .herdr-xterm {
   outline: none;
+  overflow: hidden;
 }
 .herdr-xterm .xterm {
   position: absolute !important;
@@ -550,14 +552,22 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   height: 100% !important;
   padding: 6px 8px;
   box-sizing: border-box;
+  overflow: hidden !important;
 }
 .herdr-xterm .xterm-viewport {
   width: 100% !important;
   height: 100% !important;
-  overflow-y: hidden !important;
+  overflow: hidden !important;
+  scrollbar-width: none;
+}
+.herdr-xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .herdr-xterm .xterm-screen {
   width: 100% !important;
+  overflow: hidden !important;
 }
 
 /* Generic desktop chrome. macOS adds hiddenInset geometry below. */
@@ -2268,7 +2278,11 @@ ol.note-md__list > .note-md__li::before {
   overflow: hidden;
   outline: none;
 }
-/* Absolute fill so .xterm never drives host content height. */
+/* Absolute fill so .xterm never drives host content height.
+   No DOM overflow anywhere in this tree — a web scrollbar here steals wheel
+   from full-screen TUIs (Claude Code, etc.) and double-scrolls with the app.
+   Match herdr: overflow hidden; PTY/TUI owns scroll; buffer scrollback still
+   works via keyboard / xterm.scrollLines. */
 .native-terminal-surface__xterm .xterm {
   position: absolute !important;
   inset: 0;
@@ -2276,22 +2290,29 @@ ol.note-md__list > .note-md__li::before {
   height: 100% !important;
   padding: 6px 8px;
   box-sizing: border-box;
+  overflow: hidden !important;
 }
-/* Match xterm default scroll (scroll, not auto) so the SmoothScrollableElement
-   scrollbar + wheel stay wired after pin remount / dock reflow. height:100%
-   fills the absolute host; do not set overflow hidden — that kills scrollback. */
 .native-terminal-surface__xterm .xterm-viewport {
   width: 100% !important;
   height: 100% !important;
-  overflow-y: scroll !important;
+  overflow: hidden !important;
+  /* belt: xterm.css defaults overflow-y:scroll and paints a track */
+  scrollbar-width: none;
+}
+.native-terminal-surface__xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .native-terminal-surface__xterm .xterm-screen {
   width: 100% !important;
+  overflow: hidden !important;
 }
 /* xterm 6 scrollable wrapper must fill the viewport for wheel hit-testing. */
 .native-terminal-surface__xterm .xterm-scrollable-element {
   width: 100% !important;
   height: 100% !important;
+  overflow: hidden !important;
 }
 
 /* =============================================================================
