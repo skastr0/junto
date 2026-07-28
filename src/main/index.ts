@@ -24,6 +24,7 @@ import {
   terminateAdapterChildrenOnQuit,
 } from "./vellum/adapters/exec";
 import { appProcessPlane } from "./vellum/app-process-plane";
+import { beginBoxProcessShutdown } from "./vellum/box";
 import { AppRuntime } from "./runtime";
 import { releaseDemoRuntimeIsolation } from "./vellum/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
@@ -1400,6 +1401,7 @@ const beginShutdownAdmission = (reason: string): void => {
   browserShutdown ??= browserComposition?.drainOnQuit(reason);
   hermesShutdown ??= hermesPlaneService?.shutdown.drainOnQuit();
   adapterShutdown ??= terminateAdapterChildrenOnQuit();
+  beginBoxProcessShutdown();
 
   workControl?.beginShutdown();
   stationControl?.beginShutdown();
