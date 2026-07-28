@@ -46,6 +46,7 @@ import {
   createStationReadinessCoordinator,
   stationReadinessMetadata,
 } from "./vellum/station-readiness";
+import { stationControlReadiness } from "./vellum/station/control-server";
 import { workControlReadiness } from "./vellum/work/control";
 import { StateEngineLive } from "./vellum/state/engine";
 import {
@@ -306,6 +307,7 @@ export const buildDoctorReport = Effect.gen(function* () {
         database: true,
         workControl: workControlReady,
         simulation: kernelRecord.fault === undefined,
+        session: stationControlReadiness.sessionReady(),
       },
     });
     const readiness = yield* assessCurrentStationReadiness({

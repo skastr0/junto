@@ -54,10 +54,12 @@ const stationStatus = (
           configuredAt: "2026-07-27T12:00:00.000Z",
         }),
     receivedThrough: [],
+    peerAcknowledgedThrough: [],
     readiness: {
       database: true,
       workControl: input.ready ?? true,
       simulation: true,
+      session: true,
     },
     observedAt: "2026-07-27T12:00:01.000Z",
   });
@@ -242,6 +244,7 @@ describe("remote hosts doctor", () => {
     expect(snapshot.check.detail).toContain(
       "readiness database=true work=true simulation=true",
     );
+    expect(snapshot.observations[0]?.station?.readiness.session).toBe(true);
   });
 
   it("keeps failed Station API observations fleet-blind", async () => {
