@@ -147,6 +147,38 @@ describe("SSH architecture", () => {
     expect(doctor).toContain("fleet.synchronize");
   });
 
+  it("keeps Box as lifecycle/preparation glue outside steady-state transport", () => {
+    const boxDirectory = join(root, "src/main/vellum/box");
+    const boxFiles = sourceFiles(boxDirectory);
+    const boxService = readFileSync(join(boxDirectory, "service.ts"), "utf8");
+    const boxCli = readFileSync(join(boxDirectory, "cli.ts"), "utf8");
+    const stationFiles = sourceFiles(join(root, "src/main/vellum/station"));
+
+    expect(boxService).not.toMatch(
+      /readonly\s+ssh\s*:\s*\([^)]*command\s*:/u,
+    );
+    expect(boxCli).not.toMatch(
+      /prepareSsh\s*:\s*\([^)]*,\s*command\s*:/u,
+    );
+    expect(
+      boxFiles.filter((path) =>
+        /from\s+["'][^"']*\/station(?:\/|["'])/u.test(
+          readFileSync(path, "utf8"),
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      stationFiles.filter((path) =>
+        /\bBoxCli\b/u.test(readFileSync(path, "utf8")),
+      ),
+    ).toEqual([]);
+
+    const schema = readFileSync(join(boxDirectory, "state-schema.ts"), "utf8");
+    expect(schema).not.toMatch(
+      /\b(?:api_token|access_token|private_key|credential|secret_value)\b/iu,
+    );
+  });
+
   it("product modules outside ssh/ do not import makeRemoteCommand", () => {
     // Brand must mean safe product operation — free-form mint is sealed to
     // ssh/* plan compilers and read-commands factories only.

@@ -156,7 +156,11 @@ const BoxCliWithProcessLive = Layer.provideMerge(
 
 const BoxFleetLive = Layer.provideMerge(
   BoxFleetServiceLive,
-  Layer.mergeAll(BoxCliWithProcessLive, StateRepositoriesLive),
+  Layer.mergeAll(
+    BoxCliWithProcessLive,
+    StateRepositoriesLive,
+    HostsWithSshLive,
+  ),
 );
 
 // HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.

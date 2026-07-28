@@ -480,6 +480,8 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.boxCreate, 120_000),
   boxRefresh: (boxId: string) =>
     invoke(IPC_CHANNELS.boxRefresh, IPC_TIMEOUT_MS, boxId),
+  boxPrepareSsh: (boxId: string) =>
+    invoke(IPC_CHANNELS.boxPrepareSsh, 180_000, boxId),
   boxStop: (boxId: string) =>
     invoke(IPC_CHANNELS.boxStop, 180_000, boxId),
   boxResume: (boxId: string) =>

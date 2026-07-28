@@ -416,17 +416,35 @@ const DISCOVER_PEERS_EMPTY: HostsDiscoverPeersResult = {
 
 const projectBoxResource = (resource: BoxResourceType): BoxFleetResource => ({
   boxId: resource.machine.id,
-  hostId: resource.hostId,
+  ...(resource.hostId ? { hostId: resource.hostId } : {}),
   name: resource.machine.name,
   ip: resource.machine.ip,
   state: resource.machine.state,
   createdAt: resource.machine.createdAt,
   updatedAt: resource.machine.updatedAt,
   enrolledAt: resource.enrolledAt,
+  ...(resource.sshPreparedAt
+    ? { sshPreparedAt: resource.sshPreparedAt }
+    : {}),
+  ...(resource.sshVerifiedAt
+    ? { sshVerifiedAt: resource.sshVerifiedAt }
+    : {}),
 });
 
 const boxFailure = (error: unknown): BoxFleetResult => ({
   ok: false,
+  ...(typeof error === "object" &&
+  error !== null &&
+  "boxId" in error &&
+  typeof error.boxId === "string"
+    ? { recoveryBoxId: error.boxId }
+    : {}),
+  ...(typeof error === "object" &&
+  error !== null &&
+  "stage" in error &&
+  typeof error.stage === "string"
+    ? { provisioningStage: error.stage }
+    : {}),
   code:
     typeof error === "object" &&
     error !== null &&
@@ -573,6 +591,33 @@ export const registerHostsIpc = (
             }
             const boxes = yield* BoxFleetService;
             const result = yield* Effect.either(boxes.stop(boxId));
+            return result._tag === "Right"
+              ? {
+                  ok: true,
+                  box: projectBoxResource(result.right),
+                } satisfies BoxFleetResult
+              : boxFailure(result.left);
+          }),
+        ),
+      ),
+      (error) => boxFailure(error),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.boxPrepareSsh, (_event, boxId: unknown) =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.boxPrepareSsh, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            if (typeof boxId !== "string" || boxId.length === 0) {
+              return {
+                ok: false,
+                code: "validation",
+                message: "Box id required",
+              } satisfies BoxFleetResult;
+            }
+            const boxes = yield* BoxFleetService;
+            const result = yield* Effect.either(boxes.prepareSsh(boxId));
             return result._tag === "Right"
               ? {
                   ok: true,

@@ -5,7 +5,7 @@ export const BOX_STATE_SCHEMA_SQL = `
         length(box_id) = 11
         AND box_id GLOB 'bx_[23456789abcdefghjkmnpqrstuvwxyz][23456789abcdefghjkmnpqrstuvwxyz][23456789abcdefghjkmnpqrstuvwxyz][23456789abcdefghjkmnpqrstuvwxyz][23456789abcdefghjkmnpqrstuvwxyz][23456789abcdefghjkmnpqrstuvwxyz][23456789abcdefghjkmnpqrstuvwxyz][23456789abcdefghjkmnpqrstuvwxyz]'
       ),
-    host_id TEXT NOT NULL UNIQUE
+    host_id TEXT UNIQUE
       REFERENCES host_registry(id) ON DELETE RESTRICT,
     name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 255),
     machine_ip TEXT,
@@ -16,11 +16,17 @@ export const BOX_STATE_SCHEMA_SQL = `
     provider_updated_at TEXT CHECK (
       provider_updated_at IS NULL OR length(provider_updated_at) > 0
     ),
+    ssh_prepared_at TEXT CHECK (
+      ssh_prepared_at IS NULL OR length(ssh_prepared_at) > 0
+    ),
+    ssh_verified_at TEXT CHECK (
+      ssh_verified_at IS NULL OR length(ssh_verified_at) > 0
+    ),
     enrolled_at TEXT NOT NULL CHECK (length(enrolled_at) > 0)
   ) STRICT;
 
   CREATE TRIGGER IF NOT EXISTS box_resources_immutable_identity
-  BEFORE UPDATE OF box_id, host_id ON box_resources
+  BEFORE UPDATE OF box_id ON box_resources
   BEGIN
     SELECT RAISE(ABORT, 'Box ownership identity is immutable');
   END;

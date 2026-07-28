@@ -64,10 +64,15 @@ export function FleetBoxPanel({
     try {
       const result = await api.boxCreate();
       if (!result.ok) {
-        setMessage(result.message ?? "Box creation failed.");
+        const recovery =
+          result.recoveryBoxId && result.provisioningStage
+            ? ` Box ${result.recoveryBoxId} exists; retry from stage ${result.provisioningStage}.`
+            : "";
+        setMessage(`${result.message ?? "Box creation failed."}${recovery}`);
+        await Promise.all([load(), onFleetChanged()]);
         return;
       }
-      setMessage("Box created and enrolled in Command Fleet.");
+      setMessage("Box created, SSH verified, and enrolled in Command Fleet.");
       await Promise.all([load(), onFleetChanged()]);
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : String(cause));
@@ -77,16 +82,18 @@ export function FleetBoxPanel({
   };
 
   const operate = async (
-    operation: "refresh" | "stop" | "resume",
+    operation: "refresh" | "prepare" | "stop" | "resume",
     boxId: string,
   ) => {
     const api = getVellumApi();
     const invoke =
       operation === "refresh"
         ? api?.boxRefresh
-        : operation === "stop"
-          ? api?.boxStop
-          : api?.boxResume;
+        : operation === "prepare"
+          ? api?.boxPrepareSsh
+          : operation === "stop"
+            ? api?.boxStop
+            : api?.boxResume;
     if (!invoke) return;
     setBusy(`${operation}:${boxId}`);
     setMessage("");
@@ -221,6 +228,12 @@ export function FleetBoxPanel({
                 box.state === "resuming" ||
                 box.state === "provisioning";
               const boxBusy = busy?.endsWith(`:${box.boxId}`) === true;
+              const providerSshUsable =
+                box.ip !== null &&
+                (box.state === "ready" ||
+                  box.state === "idle" ||
+                  box.state === "running");
+              const routeReady = box.sshVerifiedAt !== undefined;
               return (
                 <article key={box.boxId} className="fleet-box-card">
                   <div className="fleet-box-card__identity">
@@ -233,6 +246,13 @@ export function FleetBoxPanel({
                     </div>
                   </div>
                   <Chip tone={stateTone(box.state)}>{box.state}</Chip>
+                  <Chip tone={routeReady ? "green" : "amber"}>
+                    {routeReady
+                      ? "SSH verified"
+                      : box.sshPreparedAt
+                        ? "SSH needs verification"
+                        : "SSH not prepared"}
+                  </Chip>
                   <div className="fleet-box-card__actions">
                     <Button
                       size="xs"
@@ -243,6 +263,19 @@ export function FleetBoxPanel({
                       <RefreshCw size={11} />
                       Refresh
                     </Button>
+                    {!routeReady && providerSshUsable ? (
+                      <Button
+                        size="xs"
+                        variant="primary"
+                        disabled={boxBusy}
+                        onClick={() =>
+                          void operate("prepare", box.boxId)
+                        }
+                      >
+                        <Play size={11} />
+                        Prepare SSH
+                      </Button>
+                    ) : null}
                     <Button
                       size="xs"
                       variant={stopped ? "primary" : "chrome"}

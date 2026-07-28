@@ -1,4 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { BoxCli } from "./cli";
 import {
   BoxId,
@@ -17,6 +19,8 @@ import {
   type OwnedBox,
 } from "./ownership";
 import { SettingsService } from "../settings/service";
+import { HostsService } from "../hosts/service";
+import { parseSshRoute, SshTransport } from "../ssh";
 
 const decodeBoxId = Schema.decodeUnknown(BoxId);
 
@@ -34,12 +38,29 @@ export class BoxFleetAuthorizationError extends Schema.TaggedError<BoxFleetAutho
   },
 ) {}
 
+export class BoxFleetProvisioningError extends Schema.TaggedError<BoxFleetProvisioningError>()(
+  "BoxFleetProvisioningError",
+  {
+    boxId: BoxId,
+    stage: Schema.Literal(
+      "record-ownership",
+      "prepare-ssh",
+      "record-ssh-preparation",
+      "verify-openssh",
+      "enroll-host",
+      "refresh-routing",
+    ),
+    detail: Schema.String,
+  },
+) {}
+
 export type BoxFleetError =
   | BoxCliError
   | BoxOwnershipError
   | BoxOwnershipPersistenceError
   | BoxFleetValidationError
-  | BoxFleetAuthorizationError;
+  | BoxFleetAuthorizationError
+  | BoxFleetProvisioningError;
 
 export interface CreateFleetBoxOptions {
   readonly includeAccountSecrets?: boolean;
@@ -65,6 +86,9 @@ export class BoxFleetService extends Context.Tag("@vellum/box/BoxFleetService")<
     readonly resume: (
       boxId: string,
     ) => Effect.Effect<BoxResource, BoxFleetError>;
+    readonly prepareSsh: (
+      boxId: string,
+    ) => Effect.Effect<BoxResource, BoxFleetError>;
   }
 >() {}
 
@@ -74,11 +98,49 @@ const validationError = (cause: unknown): BoxFleetValidationError =>
       cause instanceof Error ? cause.message : "A valid Box id is required",
   });
 
+export interface BoxOpenSshHandoff {
+  readonly identityFile: string;
+  readonly verify: (machine: BoxMachine) => Effect.Effect<void, unknown>;
+  readonly convergeHosts: Effect.Effect<void, unknown>;
+}
+
+const defaultHandoff: BoxOpenSshHandoff = {
+  identityFile: "/Users/operator/.ssh/ascii_box_ed25519",
+  verify: () => Effect.void,
+  convergeHosts: Effect.void,
+};
+
+const provisioningError = (
+  boxId: BoxMachine["id"],
+  stage: BoxFleetProvisioningError["stage"],
+  cause: unknown,
+): BoxFleetProvisioningError =>
+  BoxFleetProvisioningError.make({
+    boxId,
+    stage,
+    detail:
+      cause &&
+      typeof cause === "object" &&
+      "detail" in cause &&
+      typeof cause.detail === "string"
+        ? cause.detail
+        : cause instanceof Error
+          ? cause.message
+          : String(cause),
+  });
+
+const sshUsable = (machine: BoxMachine): boolean =>
+  machine.ip !== null &&
+  (machine.state === "ready" ||
+    machine.state === "idle" ||
+    machine.state === "running");
+
 export const makeBoxFleetService = (
   cli: Context.Tag.Service<typeof BoxCli>,
   ownership: Context.Tag.Service<typeof BoxOwnershipRepository>,
   authorizeMutation: Effect.Effect<void, BoxFleetAuthorizationError> =
     Effect.void,
+  handoff: BoxOpenSshHandoff = defaultHandoff,
 ): Context.Tag.Service<typeof BoxFleetService> => {
   const owned = (boxId: string) =>
     decodeBoxId(boxId).pipe(
@@ -86,22 +148,87 @@ export const makeBoxFleetService = (
       Effect.flatMap((id) => ownership.requireOwned(id)),
     );
 
-  const persist = (
+  const convergeHosts = (boxId: BoxMachine["id"]) =>
+    handoff.convergeHosts.pipe(
+      Effect.mapError((error) =>
+        provisioningError(boxId, "refresh-routing", error),
+      ),
+    );
+
+  const persistOwned = (
     boxId: string,
     operation: (box: OwnedBox) => Effect.Effect<BoxMachine, BoxCliError>,
-  ): Effect.Effect<BoxResource, BoxFleetError> =>
+  ): Effect.Effect<OwnedBox, BoxFleetError> =>
     authorizeMutation.pipe(
       Effect.andThen(owned(boxId)),
       Effect.flatMap((box) =>
         operation(box).pipe(
           Effect.flatMap((machine) =>
-            ownership.updateMachine(box, machine).pipe(
-              Effect.map((updated) => inspectOwnedBox(updated)),
+            ownership.updateMachine(box, machine),
+          ),
+        ),
+      ),
+      Effect.tap((updated) =>
+        convergeHosts(inspectOwnedBox(updated).machine.id),
+      ),
+    );
+
+  const prepareOwned = (
+    box: OwnedBox,
+  ): Effect.Effect<BoxResource, BoxFleetError> => {
+    const initial = inspectOwnedBox(box);
+    return cli.prepareSsh(box).pipe(
+      Effect.mapError((error) =>
+        provisioningError(initial.machine.id, "prepare-ssh", error),
+      ),
+      Effect.flatMap(() =>
+        ownership.markSshPrepared(box).pipe(
+          Effect.mapError((error) =>
+            provisioningError(
+              initial.machine.id,
+              "record-ssh-preparation",
+              error,
             ),
           ),
         ),
       ),
+      Effect.flatMap((prepared) => {
+        const record = inspectOwnedBox(prepared);
+        if (!sshUsable(record.machine)) {
+          return Effect.fail(
+            provisioningError(
+              record.machine.id,
+              "verify-openssh",
+              new Error("Box is not running with an SSH address"),
+            ),
+          );
+        }
+        return handoff.verify(record.machine).pipe(
+          Effect.mapError((error) =>
+            provisioningError(record.machine.id, "verify-openssh", error),
+          ),
+          Effect.as(prepared),
+        );
+      }),
+      Effect.flatMap((prepared) =>
+        ownership
+          .enrollVerifiedHost(prepared, handoff.identityFile)
+          .pipe(
+            Effect.mapError((error) =>
+              provisioningError(
+                inspectOwnedBox(prepared).machine.id,
+                "enroll-host",
+                error,
+              ),
+            ),
+          ),
+      ),
+      Effect.tap((verified) =>
+        convergeHosts(inspectOwnedBox(verified).machine.id),
+      ),
+      Effect.map(inspectOwnedBox),
     );
+  };
 
   return BoxFleetService.of({
     availability: cli.availability,
@@ -116,17 +243,43 @@ export const makeBoxFleetService = (
                 includeAccountSecrets: options.includeAccountSecrets,
               })
               .pipe(
-                // A created machine is not returned to product callers until the
-                // ownership record and Fleet host are one committed transaction.
-                Effect.flatMap((machine) => ownership.enrollCreated(machine)),
-                Effect.map((box) => inspectOwnedBox(box)),
+                Effect.flatMap((machine) =>
+                  ownership.enrollCreated(machine).pipe(
+                    Effect.mapError((error) =>
+                      provisioningError(
+                        machine.id,
+                        "record-ownership",
+                        error,
+                      ),
+                    ),
+                  ),
+                ),
+                Effect.flatMap(prepareOwned),
               ),
           ),
         ),
       ),
-    refresh: (boxId) => persist(boxId, (box) => cli.info(box)),
-    stop: (boxId) => persist(boxId, (box) => cli.stop(box)),
-    resume: (boxId) => persist(boxId, (box) => cli.resume(box)),
+    refresh: (boxId) =>
+      persistOwned(boxId, (box) => cli.info(box)).pipe(
+        Effect.map(inspectOwnedBox),
+      ),
+    stop: (boxId) =>
+      persistOwned(boxId, (box) => cli.stop(box)).pipe(
+        Effect.map(inspectOwnedBox),
+      ),
+    resume: (boxId) =>
+      persistOwned(boxId, (box) => cli.resume(box)).pipe(
+        Effect.flatMap((resumed) =>
+          sshUsable(inspectOwnedBox(resumed).machine)
+            ? prepareOwned(resumed)
+            : Effect.succeed(inspectOwnedBox(resumed)),
+        ),
+      ),
+    prepareSsh: (boxId) =>
+      authorizeMutation.pipe(
+        Effect.andThen(owned(boxId)),
+        Effect.flatMap(prepareOwned),
+      ),
   });
 };
 
@@ -136,6 +289,8 @@ export const BoxFleetServiceLive = Layer.effect(
     const cli = yield* BoxCli;
     const ownership = yield* BoxOwnershipRepository;
     const settings = yield* SettingsService;
+    const ssh = yield* SshTransport;
+    const hosts = yield* HostsService;
     const authorizeMutation = settings.get.pipe(
       Effect.flatMap((document) =>
         document.station.role === "command-center"
@@ -156,6 +311,16 @@ export const BoxFleetServiceLive = Layer.effect(
             }),
       ),
     );
-    return makeBoxFleetService(cli, ownership, authorizeMutation);
+    const identityFile = join(homedir(), ".ssh", "ascii_box_ed25519");
+    return makeBoxFleetService(cli, ownership, authorizeMutation, {
+      identityFile,
+      verify: (machine) =>
+        parseSshRoute({
+          endpoint: machine.ip === null ? undefined : `user@${machine.ip}`,
+          identityFile,
+          hostKeyPolicy: "accept-new",
+        }).pipe(Effect.flatMap((route) => ssh.warm(route))),
+      convergeHosts: hosts.list.pipe(Effect.asVoid),
+    });
   }),
 );

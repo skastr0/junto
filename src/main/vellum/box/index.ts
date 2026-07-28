@@ -18,6 +18,7 @@ export {
   BoxFleetService,
   BoxFleetServiceLive,
   type BoxFleetError,
+  type BoxOpenSshHandoff,
   type CreateFleetBoxOptions,
 } from "./service";
 export {

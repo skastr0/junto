@@ -156,6 +156,7 @@ export const IPC_CHANNELS = {
   boxListOwned: "vellum:box-list-owned",
   boxCreate: "vellum:box-create",
   boxRefresh: "vellum:box-refresh",
+  boxPrepareSsh: "vellum:box-prepare-ssh",
   boxStop: "vellum:box-stop",
   boxResume: "vellum:box-resume",
   // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
@@ -636,6 +637,7 @@ export interface VellumApi {
   readonly boxListOwned: () => Promise<BoxFleetResult>;
   readonly boxCreate: () => Promise<BoxFleetResult>;
   readonly boxRefresh: (boxId: string) => Promise<BoxFleetResult>;
+  readonly boxPrepareSsh: (boxId: string) => Promise<BoxFleetResult>;
   readonly boxStop: (boxId: string) => Promise<BoxFleetResult>;
   readonly boxResume: (boxId: string) => Promise<BoxFleetResult>;
 }
@@ -672,19 +674,24 @@ export interface BoxAvailabilityResult {
 
 export interface BoxFleetResource {
   readonly boxId: string;
-  readonly hostId: string;
+  readonly hostId?: string;
   readonly name: string;
   readonly ip: string | null;
   readonly state: string;
   readonly createdAt: string | null;
   readonly updatedAt: string | null;
   readonly enrolledAt: string;
+  readonly sshPreparedAt?: string;
+  readonly sshVerifiedAt?: string;
 }
 
 export interface BoxFleetResult {
   readonly ok: boolean;
   readonly boxes?: ReadonlyArray<BoxFleetResource>;
   readonly box?: BoxFleetResource;
+  /** Provider identity retained when a post-create local stage fails. */
+  readonly recoveryBoxId?: string;
+  readonly provisioningStage?: string;
   readonly code?: string;
   readonly message?: string;
 }

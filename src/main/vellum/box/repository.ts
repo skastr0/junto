@@ -18,19 +18,23 @@ import {
 
 export const BoxResource = Schema.Struct({
   machine: BoxMachine,
-  hostId: Schema.String,
+  hostId: Schema.optionalWith(Schema.String, { exact: true }),
   enrolledAt: Schema.String,
+  sshPreparedAt: Schema.optionalWith(Schema.String, { exact: true }),
+  sshVerifiedAt: Schema.optionalWith(Schema.String, { exact: true }),
 });
 export type BoxResource = typeof BoxResource.Type;
 
 type BoxResourceRow = {
   readonly box_id: string;
-  readonly host_id: string;
+  readonly host_id: string | null;
   readonly name: string;
   readonly machine_ip: string | null;
   readonly machine_state: string;
   readonly provider_created_at: string | null;
   readonly provider_updated_at: string | null;
+  readonly ssh_prepared_at: string | null;
+  readonly ssh_verified_at: string | null;
   readonly enrolled_at: string;
 };
 
@@ -65,8 +69,14 @@ const rowToResource = (row: BoxResourceRow): BoxResource =>
       createdAt: row.provider_created_at,
       updatedAt: row.provider_updated_at,
     },
-    hostId: row.host_id,
+    ...(row.host_id === null ? {} : { hostId: row.host_id }),
     enrolledAt: row.enrolled_at,
+    ...(row.ssh_prepared_at === null
+      ? {}
+      : { sshPreparedAt: row.ssh_prepared_at }),
+    ...(row.ssh_verified_at === null
+      ? {}
+      : { sshVerifiedAt: row.ssh_verified_at }),
   });
 
 const selectByBoxId = (
@@ -82,6 +92,8 @@ const selectByBoxId = (
        machine_state,
        provider_created_at,
        provider_updated_at,
+       ssh_prepared_at,
+       ssh_verified_at,
        enrolled_at
      FROM box_resources
      WHERE box_id = ?`,
@@ -98,7 +110,10 @@ const toPersistenceError = (
     cause,
   });
 
-const hostForMachine = (machine: BoxMachineType): RemoteHost => {
+const hostForMachine = (
+  machine: BoxMachineType,
+  identityFile: string,
+): RemoteHost => {
   if (machine.ip === null || machine.ip.trim() === "") {
     throw new Error(`Box ${machine.id} did not provide an SSH address`);
   }
@@ -107,10 +122,15 @@ const hostForMachine = (machine: BoxMachineType): RemoteHost => {
     label: machine.name.trim() || `Box ${machine.id.slice(3)}`,
     kind: "remote",
     sshEndpoint: `user@${machine.ip}`,
+    sshIdentityFile: identityFile,
+    sshHostKeyPolicy: "accept-new",
     capabilities: ["terminal", "browser", "herdr", "hermes"],
     appearance: { glyph: "compute-tower" },
   };
 };
+
+const isSshUsableState = (state: string): boolean =>
+  state === "ready" || state === "idle" || state === "running";
 
 export class BoxOwnershipRepository extends Context.Tag(
   "@vellum/box/BoxOwnershipRepository",
@@ -131,6 +151,13 @@ export class BoxOwnershipRepository extends Context.Tag(
       box: OwnedBox,
       machine: BoxMachineType,
     ) => Effect.Effect<OwnedBox, BoxOwnershipPersistenceError>;
+    readonly markSshPrepared: (
+      box: OwnedBox,
+    ) => Effect.Effect<OwnedBox, BoxOwnershipPersistenceError>;
+    readonly enrollVerifiedHost: (
+      box: OwnedBox,
+      identityFile: string,
+    ) => Effect.Effect<OwnedBox, BoxOwnershipPersistenceError>;
   }
 >() {}
 
@@ -141,14 +168,12 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
 
     const enrollCreated = Effect.fn("BoxOwnershipRepository.enrollCreated")(
       function* (machine: BoxMachineType) {
-        const host = hostForMachine(machine);
         const enrolledAt = new Date().toISOString();
         const record = yield* state
           .transaction("box.ownership.enroll", (writer) => {
             ensureHostRegistryState(writer, enrolledAt);
             const existing = selectByBoxId(writer, machine.id);
             if (existing !== undefined) return rowToResource(existing);
-            upsertHostState(writer, host);
             writer.run(
               `INSERT INTO box_resources(
                  box_id,
@@ -158,11 +183,12 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
                  machine_state,
                  provider_created_at,
                  provider_updated_at,
+                 ssh_prepared_at,
+                 ssh_verified_at,
                  enrolled_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+               ) VALUES (?, NULL, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
               [
                 machine.id,
-                host.id,
                 machine.name,
                 machine.ip,
                 machine.state,
@@ -173,7 +199,6 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
             );
             return {
               machine,
-              hostId: host.id,
               enrolledAt,
             } satisfies BoxResource;
           })
@@ -221,6 +246,8 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
                machine_state,
                provider_created_at,
                provider_updated_at,
+               ssh_prepared_at,
+               ssh_verified_at,
                enrolled_at
              FROM box_resources
              ORDER BY enrolled_at, box_id`,
@@ -247,32 +274,42 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
             if (row === undefined) {
               throw new Error("Box ownership disappeared during update");
             }
-            if (machine.ip !== null && machine.ip.trim() !== "") {
-              upsertHostState(writer, {
-                ...hostForMachine(machine),
-                id: row.host_id,
-              });
-            }
+            const routeInvalidated =
+              row.machine_ip !== machine.ip ||
+              !isSshUsableState(machine.state);
             writer.run(
               `UPDATE box_resources
                SET name = ?,
                    machine_ip = ?,
                    machine_state = ?,
-                   provider_updated_at = ?
+                   provider_updated_at = ?,
+                   host_id = CASE WHEN ? THEN NULL ELSE host_id END,
+                   ssh_prepared_at =
+                     CASE WHEN ? THEN NULL ELSE ssh_prepared_at END,
+                   ssh_verified_at =
+                     CASE WHEN ? THEN NULL ELSE ssh_verified_at END
                WHERE box_id = ?`,
               [
                 machine.name,
                 machine.ip,
                 machine.state,
                 machine.updatedAt,
+                routeInvalidated ? 1 : 0,
+                routeInvalidated ? 1 : 0,
+                routeInvalidated ? 1 : 0,
                 machine.id,
               ],
             );
-            return {
-              machine,
-              hostId: row.host_id,
-              enrolledAt: row.enrolled_at,
-            } satisfies BoxResource;
+            if (routeInvalidated && row.host_id !== null) {
+              writer.run("DELETE FROM host_registry WHERE id = ?", [
+                row.host_id,
+              ]);
+            }
+            const updated = selectByBoxId(writer, machine.id);
+            if (updated === undefined) {
+              throw new Error("Box ownership disappeared after update");
+            }
+            return rowToResource(updated);
           })
           .pipe(
             Effect.mapError((error) =>
@@ -283,11 +320,93 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
       },
     );
 
+    const markSshPrepared = Effect.fn(
+      "BoxOwnershipRepository.markSshPrepared",
+    )(function* (box: OwnedBox) {
+      const current = inspectOwnedBox(box);
+      const preparedAt = new Date().toISOString();
+      const record = yield* state
+        .transaction("box.ownership.mark-ssh-prepared", (writer) => {
+          const row = selectByBoxId(writer, current.machine.id);
+          if (row === undefined) {
+            throw new Error("Box ownership disappeared before SSH preparation");
+          }
+          writer.run(
+            `UPDATE box_resources
+             SET ssh_prepared_at = ?,
+                 ssh_verified_at = NULL
+             WHERE box_id = ?`,
+            [preparedAt, current.machine.id],
+          );
+          const updated = selectByBoxId(writer, current.machine.id);
+          if (updated === undefined) {
+            throw new Error("Box ownership disappeared after SSH preparation");
+          }
+          return rowToResource(updated);
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            toPersistenceError("mark-ssh-prepared", error),
+          ),
+        );
+      return admitOwnedBox(record satisfies OwnedBoxRecord);
+    });
+
+    const enrollVerifiedHost = Effect.fn(
+      "BoxOwnershipRepository.enrollVerifiedHost",
+    )(function* (box: OwnedBox, identityFile: string) {
+      const current = inspectOwnedBox(box);
+      if (
+        !isSshUsableState(current.machine.state) ||
+        current.machine.ip === null
+      ) {
+        return yield* BoxOwnershipPersistenceError.make({
+          operation: "enroll-verified-host",
+          detail: "Box is not ready for an OpenSSH route",
+          cause: new Error("provider machine is not SSH-usable"),
+        });
+      }
+      const host = hostForMachine(current.machine, identityFile);
+      const verifiedAt = new Date().toISOString();
+      const record = yield* state
+        .transaction("box.ownership.enroll-verified-host", (writer) => {
+          const row = selectByBoxId(writer, current.machine.id);
+          if (row === undefined) {
+            throw new Error("Box ownership disappeared before host enrollment");
+          }
+          if (row.machine_ip !== current.machine.ip) {
+            throw new Error("Box route changed during OpenSSH verification");
+          }
+          ensureHostRegistryState(writer, verifiedAt);
+          upsertHostState(writer, host);
+          writer.run(
+            `UPDATE box_resources
+             SET host_id = ?,
+                 ssh_verified_at = ?
+             WHERE box_id = ?`,
+            [host.id, verifiedAt, current.machine.id],
+          );
+          const updated = selectByBoxId(writer, current.machine.id);
+          if (updated === undefined) {
+            throw new Error("Box ownership disappeared after host enrollment");
+          }
+          return rowToResource(updated);
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            toPersistenceError("enroll-verified-host", error),
+          ),
+        );
+      return admitOwnedBox(record satisfies OwnedBoxRecord);
+    });
+
     return BoxOwnershipRepository.of({
       enrollCreated,
       requireOwned,
       list,
       updateMachine,
+      markSshPrepared,
+      enrollVerifiedHost,
     });
   }),
 );

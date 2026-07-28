@@ -9,8 +9,10 @@ export interface OwnedBox {
 
 export interface OwnedBoxRecord {
   readonly machine: BoxMachine;
-  readonly hostId: string;
+  readonly hostId?: string;
   readonly enrolledAt: string;
+  readonly sshPreparedAt?: string;
+  readonly sshVerifiedAt?: string;
 }
 
 const authority = new WeakMap<OwnedBox, OwnedBoxRecord>();
@@ -32,4 +34,3 @@ export const inspectOwnedBox = (handle: OwnedBox): OwnedBoxRecord => {
 
 export const ownedBoxId = (handle: OwnedBox): BoxId =>
   inspectOwnedBox(handle).machine.id;
-
