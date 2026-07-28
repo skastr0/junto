@@ -65,6 +65,10 @@ describe("factory physics architecture", () => {
     const retired: ReadonlyArray<readonly [RegExp, string]> = [
       [/\bRuntimeTier\b/u, "the tier scale is gone — placement is data, not a permission axis"],
       [/\bPORT_TIER_FLOOR\b|\btierAllowsPort\b/u, "ports are not gated by tier"],
+      [
+        /["'`](?:tier|facility)["'`]/u,
+        "retired tier/facility denial branches must not survive beside geography",
+      ],
       [/\bActorClass\b/u, "there is no actor class"],
       [/\brouteToken|RouteToken\b/u, "there is one admission path: process-bind"],
       [/["'`]half-agent["'`]|\bhalfAgent\b/u, "an actor is legal or it is not; there is no half"],

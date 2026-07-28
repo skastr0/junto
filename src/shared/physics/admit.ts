@@ -25,15 +25,11 @@ export const ScopeDenialReason = Schema.Literal(
   "unknown_node",
   /** Stale / missing placement projection — fail closed (I18). */
   "placement_unknown",
-  /** Facility (tier 4) never admits and never wields (I19). */
-  "facility",
   /**
    * Cross-runtime route is not CC↔Station (e.g. Station↔Station).
    * Names the missing CC route — never silently relayed as no_port.
    */
   "route",
-  /** Caller tier above the port's floor (I19). */
-  "tier",
 );
 export type ScopeDenialReason = typeof ScopeDenialReason.Type;
 
@@ -132,11 +128,9 @@ const placementOf = (
 };
 
 /**
- * Placement checks ordered before ports (I18/I19):
+ * Placement checks ordered before ports:
  * 1. unknown placement → deny
- * 2. facility on either side → deny always
- * 3. cross-runtime must be CC↔Station
- * 4. caller tier must satisfy port floor
+ * 2. cross-runtime must be CC↔Station
  */
 const checkPlacement = (
   view: CapabilityView,

@@ -88,15 +88,15 @@ export const FleetDitherLevel = Schema.Literal(
 export type FleetDitherLevel = typeof FleetDitherLevel.Type;
 
 /**
- * Fleet operator prefs (not secrets). Kill-switch for remote package + plugin
- * installs; UI shows disabled buttons when false. Main re-gates every invoke.
+ * Fleet operator prefs (not secrets). Remote deployment kill-switch; the UI
+ * shows disabled controls when false and main re-gates every invoke.
  */
 export const FleetSettings = Schema.Struct({
   /** Ordered-dither density for the Fleet map. */
   ditherLevel: FleetDitherLevel,
   /**
-   * When false (default), remote T2 deploy and remote T3 plugin install refuse
-   * even if the release line enables them. Local plugin install is unaffected.
+   * When false (default), managed Remote deployment refuses even if the
+   * release line enables it.
    */
   remoteManagedInstalls: Schema.Boolean,
 });
@@ -317,7 +317,7 @@ export const defaultAdvanced = (): AdvancedSettings => ({
   openLastCanvas: true,
 });
 
-/** Fail-closed: remote package/plugin installs require explicit operator opt-in. */
+/** Fail-closed: managed Remote deployment requires explicit operator opt-in. */
 export const defaultFleet = (): FleetSettings => ({
   ditherLevel: "fine",
   remoteManagedInstalls: false,
