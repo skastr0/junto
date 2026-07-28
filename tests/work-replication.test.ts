@@ -16,6 +16,7 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
+  RouteCursor,
   WorkRecord,
   type WorkRecord as WorkRecordValue,
 } from "../src/shared/work-protocol";
@@ -142,6 +143,9 @@ const accept = (
   senderInstallationId: InstallationIdValue,
   records: ReadonlyArray<WorkRecordValue>,
   options?: {
+    readonly peerAcknowledgements?: Parameters<
+      typeof repository.acceptRecords
+    >[0]["peerAcknowledgements"];
     readonly authorizeCommand?: Parameters<
       typeof repository.acceptRecords
     >[0]["authorizeCommand"];
@@ -156,6 +160,7 @@ const accept = (
   repository.acceptRecords({
     senderInstallationId,
     records,
+    peerAcknowledgements: options?.peerAcknowledgements ?? [],
     receivedAt: observedAt,
     authorizeCommand: options?.authorizeCommand ?? admitted,
     authorizeFact: options?.authorizeFact ?? admitted,
@@ -181,6 +186,136 @@ const reseal = (
 };
 
 describe("WorkRepository v2 report reconciliation", () => {
+  it("commits peer acknowledgement only with the inbound records it accepts", async () => {
+    const cc = installation("cc-atomic-inbound");
+    const remote = installation("remote-atomic-inbound");
+    const commandCenter = await openInstallation(
+      cc,
+      [remote],
+      "command-center",
+    );
+    const station = await openInstallation(remote, [cc], "remote");
+    const sink = { canvasName: "factory", nodeId: "tasks" };
+    const localFact = await commandCenter.runtime.runPromise(
+      commandCenter.repository.createTask({
+        sink,
+        task: {
+          id: "local-outbound",
+          state: "submitted",
+          history: [],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const acknowledgement = RouteCursor.make({
+      eventHome: cc,
+      entityHome: cc,
+      through: localFact.record.id.seq,
+    });
+    const remoteCommand = await station.runtime.runPromise(
+      station.repository.enqueueRemoteCommand({
+        targetInstallationId: cc,
+        sink,
+        item: {
+          kind: "task",
+          itemId: "remote-created",
+          sink,
+        },
+        action: {
+          operation: "task.create",
+          task: {
+            id: "remote-created",
+            state: "submitted",
+            history: [],
+          },
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const rejected = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [remoteCommand], {
+        peerAcknowledgements: [acknowledgement],
+        admitResponse: () => ({
+          _tag: "rejected",
+          message: "mandatory response is intentionally rejected",
+        }),
+      }).pipe(Effect.either),
+    );
+    expect(Either.isLeft(rejected)).toBe(true);
+    if (Either.isLeft(rejected)) {
+      expect(rejected.left).toMatchObject({
+        reason: "response-capacity",
+      });
+    }
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.state.read(
+          "test.peer-ack-rolled-back",
+          (reader) =>
+            reader.get<{ readonly count: number }>(
+              "SELECT count(*) AS count FROM station_peer_ack_cursors",
+            )!.count,
+        ),
+      ),
+    ).toBe(0);
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(
+            sink.canvasName,
+            sink.nodeId,
+          ),
+        )
+      ).tasks.items,
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "remote-created" }),
+      ]),
+    );
+
+    await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [remoteCommand], {
+        peerAcknowledgements: [acknowledgement],
+      }),
+    );
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.state.read(
+          "test.peer-ack-committed",
+          (reader) =>
+            reader.get<{
+              readonly through_sequence: string;
+            }>(
+              `
+                SELECT through_sequence
+                FROM station_peer_ack_cursors
+                WHERE peer_installation_id = ?
+                  AND event_home = ?
+                  AND entity_home = ?
+              `,
+              [remote, cc, cc],
+            )?.through_sequence,
+        ),
+      ),
+    ).toBe(acknowledgement.through);
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(
+            sink.canvasName,
+            sink.nodeId,
+          ),
+        )
+      ).tasks.items,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "remote-created" }),
+      ]),
+    );
+  });
+
   it("preserves the exact sender through a Remote-to-CC mailbox command and fact", async () => {
     const cc = installation("cc-message-provenance");
     const remote = installation("remote-message-provenance");

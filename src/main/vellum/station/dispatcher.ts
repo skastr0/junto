@@ -112,7 +112,6 @@ export const stationControlErrorEnvelope = (
       message = "station payload failed its integrity check";
       break;
     case "StationPairingConflictError":
-    case "StationCursorError":
     case "WorkReplicationError":
       code = "state_conflict";
       message = "station state conflicts with the request";

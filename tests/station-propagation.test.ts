@@ -125,7 +125,6 @@ const repository = (
     pair: () => Effect.die("unused"),
     configureRemote: () => Effect.die("unused"),
     installProjection: () => Effect.die("unused"),
-    advancePeerAcks: () => Effect.die("unused"),
     statusFacts: Effect.die("unused"),
   });
 

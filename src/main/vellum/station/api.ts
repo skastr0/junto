@@ -1038,24 +1038,22 @@ const acceptInboundBatch = (
   StationApiError
 > =>
   Effect.gen(function* () {
-    yield* repository.advancePeerAcks(
-      topology.peerInstallationId,
-      batch.acknowledge,
-    );
-    const facts = yield* repository.statusFacts;
+    const initialFacts = yield* repository.statusFacts;
     const existingAcknowledge = peerReceivedCursors(
-      facts,
+      initialFacts,
       topology.peerInstallationId,
     );
     const authorization = makeStationWorkAdmission(topology);
     const accepted = yield* work.acceptRecords({
       senderInstallationId: topology.peerInstallationId,
       records: batch.records,
+      peerAcknowledgements: batch.acknowledge,
       authorizeCommand: authorization.authorizeCommand,
       authorizeFact: authorization.authorizeFact,
       admitResponse:
         admitTransactionalResponse(existingAcknowledge),
     });
+    const facts = yield* repository.statusFacts;
     return {
       accepted,
       acknowledge: mergeCursors(

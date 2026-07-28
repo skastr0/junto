@@ -7,7 +7,6 @@ import {
   PairResponse,
   ProjectResponse,
   RemoteHostRegistration,
-  STATION_API_MAX_ACKS_PER_REPORT,
   STATION_API_PROTOCOL,
   StationProjectionBody,
   StationProjectionReference,
@@ -30,9 +29,7 @@ import {
 } from "@shared/installation-id";
 import {
   RouteCursor,
-  decideRouteCursorAdvance,
   type RouteCursor as RouteCursorValue,
-  type RouteCursorAdvanceDecision,
 } from "@shared/station-api";
 import {
   hermesKeyFor,
@@ -126,14 +123,6 @@ export class StationProjectionIntegrityError extends Schema.TaggedError<StationP
   },
 ) {}
 
-export class StationCursorError extends Schema.TaggedError<StationCursorError>()(
-  "StationCursorError",
-  {
-    operation: Schema.String,
-    message: Schema.String,
-  },
-) {}
-
 export class StationMetadataError extends Schema.TaggedError<StationMetadataError>()(
   "StationMetadataError",
   {
@@ -151,7 +140,6 @@ export type StationRepositoryError =
   | StationSelfPairingError
   | StationConfigurationError
   | StationProjectionIntegrityError
-  | StationCursorError
   | StationMetadataError
   | StationPortfolioError;
 
@@ -217,14 +205,6 @@ export class StationRepository extends Context.Tag("@vellum/StationRepository")<
       request: ProjectRequest,
       receivedAt?: string,
     ) => Effect.Effect<ProjectResponseValue, StationRepositoryError>;
-    readonly advancePeerAcks: (
-      peerInstallationId: InstallationIdValue,
-      acknowledgements: ReadonlyArray<RouteCursorValue>,
-      acknowledgedAt?: string,
-    ) => Effect.Effect<
-      ReadonlyArray<RouteCursorAdvanceDecision>,
-      StationRepositoryError
-    >;
     readonly statusFacts: Effect.Effect<
       StationStatusFacts,
       StationRepositoryError
@@ -981,138 +961,6 @@ export const makeStationRepositoryLive = (
         });
       });
 
-      const advancePeerAcks = Effect.fn(
-        "StationRepository.advancePeerAcks",
-      )(function* (
-        peerInstallationId: InstallationIdValue,
-        acknowledgements: ReadonlyArray<RouteCursorValue>,
-        acknowledgedAt = clock(),
-      ) {
-        const admittedAcknowledgedAt = yield* admitTimestamp(
-          "advance-peer-acks",
-          "acknowledgedAt",
-          acknowledgedAt,
-        );
-        if (peerInstallationId === installationId) {
-          return yield* StationCursorError.make({
-            operation: "advance-peer-acks",
-            message:
-              "an installation cannot acknowledge events as its own peer",
-          });
-        }
-        if (acknowledgements.length > STATION_API_MAX_ACKS_PER_REPORT) {
-          return yield* StationCursorError.make({
-            operation: "advance-peer-acks",
-            message:
-              `acknowledgement batch exceeds ${STATION_API_MAX_ACKS_PER_REPORT}`,
-          });
-        }
-        for (const acknowledgement of acknowledgements) {
-          yield* ensureLocalIdentity(
-            "advance-peer-acks",
-            installationId,
-            acknowledgement.eventHome,
-          );
-        }
-        const outcome = yield* engine
-          .transaction("station.advance-peer-acks", (writer) => {
-            for (const proposed of acknowledgements) {
-              const emitted = writer.get<StateRow>(
-                `
-                  SELECT event_home
-                  FROM work_events
-                  WHERE event_home = ?
-                    AND entity_home = ?
-                    AND seq = ?
-                `,
-                [
-                  proposed.eventHome,
-                  proposed.entityHome,
-                  proposed.through,
-                ],
-              );
-              if (emitted === undefined) {
-                return {
-                  _tag: "beyond-emitted" as const,
-                  route: {
-                    eventHome: proposed.eventHome,
-                    entityHome: proposed.entityHome,
-                  },
-                  through: proposed.through,
-                };
-              }
-            }
-            const decisions: RouteCursorAdvanceDecision[] = [];
-            for (const proposed of acknowledgements) {
-              const row = writer.get<CursorRow>(
-                `SELECT
-                   event_home,
-                   entity_home,
-                   through_sequence
-                   FROM station_peer_ack_cursors
-                  WHERE peer_installation_id = ?
-                    AND event_home = ?
-                    AND entity_home = ?`,
-                [
-                  peerInstallationId,
-                  proposed.eventHome,
-                  proposed.entityHome,
-                ],
-              );
-              const current =
-                row === undefined ? undefined : cursorFromRow(row);
-              const decision = decideRouteCursorAdvance(
-                current,
-                proposed,
-              );
-              decisions.push(decision);
-              if (decision._tag === "advanced") {
-                writer.run(
-                  `INSERT INTO station_peer_ack_cursors(
-                     peer_installation_id,
-                     event_home,
-                     entity_home,
-                     through_sequence,
-                     acknowledged_at
-                   ) VALUES (?, ?, ?, ?, ?)
-                   ON CONFLICT(
-                     peer_installation_id,
-                     event_home,
-                     entity_home
-                   ) DO UPDATE SET
-                     through_sequence = excluded.through_sequence,
-                     acknowledged_at = excluded.acknowledged_at`,
-                  [
-                    peerInstallationId,
-                    decision.cursor.eventHome,
-                    decision.cursor.entityHome,
-                    decision.cursor.through,
-                    admittedAcknowledgedAt,
-                  ],
-                );
-              }
-            }
-            return {
-              _tag: "advanced" as const,
-              decisions,
-            };
-          })
-          .pipe(
-            Effect.mapError((error) =>
-              persistenceError("advance-peer-acks", error),
-            ),
-          );
-        if (outcome._tag === "beyond-emitted") {
-          return yield* StationCursorError.make({
-            operation: "advance-peer-acks",
-            message:
-              `peer acknowledged ${outcome.route.eventHome}/${outcome.route.entityHome}/${outcome.through}, ` +
-              "but that exact route event was not emitted",
-          });
-        }
-        return outcome.decisions;
-      });
-
       const statusFacts = engine
         .read("station.status-facts", (reader) => ({
           pairing: selectPairing(reader),
@@ -1175,7 +1023,6 @@ export const makeStationRepositoryLive = (
         pair,
         configureRemote,
         installProjection,
-        advancePeerAcks,
         statusFacts,
       });
     }),

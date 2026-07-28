@@ -4,7 +4,9 @@ import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { ActorSeatId } from "@shared/actor-seat";
 import { InstallationId } from "@shared/installation-id";
 import {
+  STATION_API_MAX_ACKS_PER_REPORT,
   StationApiRole,
+  decideRouteCursorAdvance,
   type StationApiRole as StationApiRoleValue,
 } from "@shared/station-api";
 import {
@@ -345,6 +347,11 @@ export type AcceptRecordsInput = {
   /** Identity already authenticated by the Station transport. */
   readonly senderInstallationId: InstallationId;
   readonly records: ReadonlyArray<WorkRecordValue>;
+  /**
+   * Cumulative acknowledgement of records emitted by this installation.
+   * These cursors commit in the exact transaction that accepts `records`.
+   */
+  readonly peerAcknowledgements: ReadonlyArray<RouteCursorValue>;
   readonly receivedAt?: string;
   /**
    * Pure capability/projection admission. It executes inside the SQLite
@@ -2706,6 +2713,114 @@ const validateIncomingDirection = (
   }
 };
 
+const advancePeerAcknowledgements = (
+  writer: StateWriter,
+  localInstallationId: InstallationId,
+  peerInstallationId: InstallationId,
+  acknowledgements: ReadonlyArray<RouteCursorValue>,
+  acknowledgedAt: DisplayTimestampValue,
+): void => {
+  if (peerInstallationId === localInstallationId) {
+    throw replicationError(
+      peerInstallationId,
+      "direction-mismatch",
+      "an installation cannot acknowledge events as its own peer",
+    );
+  }
+  if (acknowledgements.length > STATION_API_MAX_ACKS_PER_REPORT) {
+    throw replicationError(
+      peerInstallationId,
+      "integrity",
+      `acknowledgement batch exceeds ${STATION_API_MAX_ACKS_PER_REPORT}`,
+    );
+  }
+
+  for (const proposed of acknowledgements) {
+    if (proposed.eventHome !== localInstallationId) {
+      throw replicationError(
+        peerInstallationId,
+        "direction-mismatch",
+        "peer acknowledgement eventHome does not match the local emitter",
+        proposed.through,
+      );
+    }
+    const emitted = writer.get<StateRow>(
+      `
+        SELECT event_home
+        FROM work_events
+        WHERE event_home = ?
+          AND entity_home = ?
+          AND seq = ?
+      `,
+      [
+        proposed.eventHome,
+        proposed.entityHome,
+        proposed.through,
+      ],
+    );
+    if (emitted === undefined) {
+      throw replicationError(
+        peerInstallationId,
+        "cursor-regression",
+        `peer acknowledged ${proposed.eventHome}/${proposed.entityHome}/${proposed.through}, but that exact route event was not emitted`,
+        proposed.through,
+      );
+    }
+  }
+
+  for (const proposed of acknowledgements) {
+    const row = writer.get<CursorRow>(
+      `
+        SELECT through_sequence
+        FROM station_peer_ack_cursors
+        WHERE peer_installation_id = ?
+          AND event_home = ?
+          AND entity_home = ?
+      `,
+      [
+        peerInstallationId,
+        proposed.eventHome,
+        proposed.entityHome,
+      ],
+    );
+    const current =
+      row === undefined
+        ? undefined
+        : RouteCursor.make({
+            eventHome: proposed.eventHome,
+            entityHome: proposed.entityHome,
+            through: sequence(row.through_sequence),
+          });
+    const decision = decideRouteCursorAdvance(current, proposed);
+    if (decision._tag !== "advanced") continue;
+    writer.run(
+      `
+        INSERT INTO station_peer_ack_cursors(
+          peer_installation_id,
+          event_home,
+          entity_home,
+          through_sequence,
+          acknowledged_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(
+          peer_installation_id,
+          event_home,
+          entity_home
+        ) DO UPDATE SET
+          through_sequence = excluded.through_sequence,
+          acknowledged_at = excluded.acknowledged_at
+      `,
+      [
+        peerInstallationId,
+        decision.cursor.eventHome,
+        decision.cursor.entityHome,
+        decision.cursor.through,
+        acknowledgedAt,
+      ],
+    );
+  }
+};
+
 const findPendingClaim = (
   reader: StateReader,
   sender: InstallationId,
@@ -4459,6 +4574,13 @@ export const WorkRepositoryLive = Layer.effect(
               responseAdmission.message,
             );
           }
+          advancePeerAcknowledgements(
+            writer,
+            localInstallationId,
+            input.senderInstallationId,
+            input.peerAcknowledgements,
+            observedAt,
+          );
 
           return {
             accepted,
