@@ -165,8 +165,8 @@ but its live representation is stored in SQLite:
 
 Every authorial commit is a full-map transaction. A generation is either
 complete and selected or absent; no pointer file or manifest can become
-half-written. History is queryable database state. Retention is keep-all until
-an explicit product policy changes it.
+half-written. History is queryable database state. Retention is keep-all by
+default; physical retirement is a separate operator-approved compaction.
 
 JSON Canvas files, digests, SVG renders, screenshots, diagnostic bundles, and
 plugin payloads are deliberate outputs or interoperability formats. The app
