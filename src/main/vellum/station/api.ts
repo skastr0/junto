@@ -360,6 +360,24 @@ const authorizeMessageDestination = (
       );
 };
 
+const authorizeArtifactTaskProjection = (
+  topology: CapturedWorkTopology,
+  fact: WorkFact,
+): WorkFactAuthorization => {
+  if (
+    fact.body.operation !== "artifact.publish" ||
+    fact.body.artifact.task === undefined
+  ) {
+    return admitted();
+  }
+  const taskSink = findSink(
+    topology,
+    fact.body.artifact.task.sink,
+    "task",
+  );
+  return "_tag" in taskSink ? taskSink : admitted();
+};
+
 const seatForRef = (
   topology: CapturedWorkTopology,
   actor: ActorRef,
@@ -609,6 +627,13 @@ export const makeStationWorkAdmission = (
         fact.body.destination,
       );
       if (destination._tag === "rejected") return destination;
+    }
+    if (fact.body.operation === "artifact.publish") {
+      const taskProjection = authorizeArtifactTaskProjection(
+        topology,
+        fact,
+      );
+      if (taskProjection._tag === "rejected") return taskProjection;
     }
     const sender = fact.id.route.eventHome;
     if (

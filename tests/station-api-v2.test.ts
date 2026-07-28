@@ -115,6 +115,19 @@ const document = (connected: boolean) =>
           host: "local",
         },
       },
+      {
+        id: "artifacts",
+        type: "text",
+        x: 600,
+        y: 0,
+        width: 240,
+        height: 100,
+        text: "Artifacts",
+        ether: {
+          entity: { kind: "artifacts" },
+          host: "local",
+        },
+      },
     ],
     edges: connected
       ? [
@@ -128,6 +141,11 @@ const document = (connected: boolean) =>
             fromNode: remoteActor.nodeId,
             toNode: "cc-recipient",
             ether: { ports: ["msg.send"] },
+          },
+          {
+            id: "actor-artifacts",
+            fromNode: remoteActor.nodeId,
+            toNode: "artifacts",
           },
           {
             id: "cc-actor-tasks",
@@ -328,6 +346,40 @@ const threadFact = (): WorkFactValue =>
     },
   });
 
+const artifactFact = (
+  taskNodeId = "tasks",
+): WorkFactValue =>
+  Schema.decodeUnknownSync(WorkFact, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: remote, entityHome: remote },
+      seq: "2",
+    },
+    recordType: "fact",
+    item: {
+      kind: "artifact",
+      itemId: "artifact-1",
+      sink: { canvasName: "factory", nodeId: "artifacts" },
+    },
+    operation: "artifact.publish",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "artifact.publish",
+      artifact: {
+        artifactId: "artifact-1",
+        parts: [{ kind: "text", text: "proof" }],
+        task: {
+          kind: "task",
+          itemId: "task-1",
+          sink: { canvasName: "factory", nodeId: taskNodeId },
+        },
+      },
+      publishedBy: remoteActor,
+    },
+  });
+
 const taskDescribeCommand = (
   sender: InstallationIdValue,
   target: InstallationIdValue,
@@ -484,6 +536,36 @@ describe("Station API v2 work routing", () => {
 
     expect(admission.authorizeFact(threadFact())).toEqual({
       _tag: "admitted",
+    });
+  });
+
+  it("requires every linked artifact task sink in the installed projection", () => {
+    const admission = makeStationWorkAdmission(
+      topology("command-center"),
+    );
+    expect(admission.authorizeFact(artifactFact())).toEqual({
+      _tag: "admitted",
+    });
+    expect(
+      admission.authorizeFact(artifactFact("missing-tasks")),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "missing-entity",
+    });
+    expect(
+      admission.authorizeFact(artifactFact("cc-recipient")),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
+
+    const absentCanvas = makeStationWorkAdmission({
+      ...topology("command-center"),
+      documents: new Map(),
+    });
+    expect(absentCanvas.authorizeFact(artifactFact())).toMatchObject({
+      _tag: "rejected",
+      reason: "projection-conflict",
     });
   });
 
