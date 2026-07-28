@@ -138,7 +138,7 @@ OpenSSH destination or future HTTPS URL. Route locators live in Command Center
 fleet state. They are not projected canvas intent, work authority, or
 credentials by themselves.
 
-### ActorRef and SinkRef
+### ActorRef, SinkRef, and TaskRef
 
 Canvas node IDs are scoped by canvas. A sink reference is:
 
@@ -159,6 +159,12 @@ ActorRef {
   canvasName: string
   nodeId: string
 }
+
+TaskRef {
+  kind: "task"
+  itemId: string
+  sink: SinkRef
+}
 ```
 
 `ActorSeatId` is compiled, not authored. It is stable for one executable actor
@@ -167,6 +173,11 @@ projection. If more than one canvas reference resolves to the same executable
 principal, those references must carry the same seat ID; an ambiguous or
 conflicting compile fails closed. Active-task and pending-claim uniqueness key
 on `ActorSeatId`, never an unqualified node ID or canvas-local `ActorRef`.
+
+Task IDs are likewise sink-local. `TaskRef` is the only artifact-to-task
+reference: the task item ID is inseparable from its canvas and task-sink node.
+An artifact `taskId` field or any lookup by item ID alone is not a supported
+contract.
 
 ### Event home and entity home
 
@@ -295,7 +306,8 @@ Station API.
 6. A task claim may transfer authority exactly once, from its submitted queue
    installation to the claiming actor's authority installation.
 7. Requests and artifacts are homed where their actor creates them.
-8. Messages remain Command Center-homed.
+8. Actor mailbox messages remain Command Center-homed; task/request thread
+   messages share their exact parent row's home.
 9. Timestamps are display facts, never ordering or ownership input.
 10. Reconnect replays events; it does not merge rows.
 
@@ -430,7 +442,7 @@ TaskClaimAction {
   sourcePredecessor: WorkRecordId | null
   sourceTask: Task                     // exactly submitted and unclaimed
   sink: SinkRef                        // (canvasName, nodeId)
-  actor: ActorRef                      // (canvasName, nodeId)
+  actor: ActorRef                      // (seatId, canvasName, nodeId)
   targetHome: InstallationId
 }
 ```
@@ -541,11 +553,39 @@ An artifact is an actor-published fact:
 - creation is local and offline-capable;
 - authority home is the publishing actor's installation;
 - identity is stable and idempotent;
-- optional task linkage does not change task ownership;
-- when a `taskId` is present, it must resolve to a task visible at the same
-  logical sink and authority home;
+- optional `task?: TaskRef` linkage does not change task ownership;
+- unbound artifacts remain valid;
+- a linked reference must name the same canvas as the artifact sink, but may
+  name a different node because task and artifact sinks are distinct logical
+  surfaces;
+- Station admission requires that canvas and task-sink node to exist in the
+  installed projection and requires the projected node kind to be `task`;
+- the repository then requires the exact
+  `(canvasName, taskNodeId, taskId, entityHome)` row to exist, to have a
+  non-null claimant, and to share the artifact fact's entity home;
+- the publisher is retained independently and need not be the task claimant;
 - Command Center integrates the artifact after `report`;
 - another installation does not overwrite it by last-write-wins.
+
+The projection check proves intent shape. The repository check proves material
+task existence, a completed claim (and first-home transfer when applicable),
+and current authority. Neither check substitutes publisher identity for
+claimant identity. Invalid incoming facts fail before event insertion, cursor
+advancement, materialization, or acknowledgement.
+
+```text
+Artifact {
+  artifactId: string
+  name?: string
+  parts: Part[]
+  task?: TaskRef
+  metadata?: WorkMetadata
+}
+```
+
+The local control/CLI boundary accepts the ergonomic
+`task: { target, id }` input and resolves it to a canonical `TaskRef` in the
+caller's canvas. The retired artifact `taskId` input fails strict decode.
 
 Artifact payloads remain bounded by the protocol and storage contract. A future
 large-object transport must use an explicit content contract; it cannot smuggle
@@ -553,17 +593,53 @@ arbitrary filesystem paths into the Station API.
 
 ## Message semantics
 
-Actor mailboxes remain Command Center-managed:
+Every message append carries an explicit destination:
+
+```text
+MessageAppendDestination =
+  | { kind: "mailbox" }
+  | { kind: "task", itemId: string }
+  | { kind: "request", itemId: string }
+```
+
+The destination is event semantics, not transport context. A receiver never
+infers mailbox versus thread residency from the optional A2A
+`Message.taskId`, from the enclosing report, or from a repository-private
+column.
+
+Actor mailboxes are the first residency:
 
 - messages are Command Center-homed;
+- `destination: { kind: "mailbox" }` must address a projected actor node;
 - they are not used to represent task assignment;
 - every append command and resulting fact carries the exact projected
   `ActorRef` of its sender; the material mailbox row retains that immutable
   `ActorSeatId`;
-- a Remote cannot append an unscoped mailbox message while Command Center is
-  unavailable;
+- a Remote actor sends a mailbox command to Command Center and cannot
+  materialize that mailbox while Command Center is unavailable;
+- Command Center materializes the mailbox row and returns the correlated
+  fact/disposition; the Remote stores that response as event/resolution state
+  only and never creates a duplicate local mailbox row;
 - persistent Station sessions improve delivery latency but do not change
   mailbox authority.
+
+Task and request threads are the second residency:
+
+- `destination.kind` must match the projected sink kind (`task` or
+  `requests`);
+- `destination.itemId` selects one exact material parent row;
+- for a task/request append, `Message.taskId` must be present and equal the
+  explicit destination item ID, but remains an A2A cross-reference rather than
+  a storage-lane discriminator;
+- the parent must exist at the same `entity_home` as the thread message;
+- the authority installation materializes the thread, and Command Center may
+  integrate a Remote-home thread fact into its replica;
+- a non-authority Remote receiving the correlated result for a
+  Command Center-home thread keeps the event/disposition only.
+
+This split is one protocol with two explicit residencies, not parallel mailbox
+and thread transports. `work_messages` holds Command Center mailbox rows;
+`work_task_messages` holds exact task/request thread rows.
 
 If offline Remote-to-Remote messaging becomes a requirement, it needs a new
 single-home routing design. It must not be improvised as peer connectivity.
@@ -653,6 +729,12 @@ WorkItemRef {
   itemId: string
   sink: WorkNodeRef
 }
+
+TaskRef {
+  kind: "task"
+  itemId: string
+  sink: WorkNodeRef
+}
 ```
 
 Every record has the following exact common envelope:
@@ -712,7 +794,7 @@ WorkAction =
   | { operation: "request.resolve", requestId: string, response: string,
       disposition: "completed" | "rejected", message?: Message }
   | { operation: "message.append", message: Message,
-      sentBy: ActorRef }
+      sentBy: ActorRef, destination: MessageAppendDestination }
   | { operation: "artifact.publish", artifact: Artifact,
       publishedBy: ActorRef }
   | { operation: "delivery.accepted", receipt: DeliveryReceipt }
@@ -720,6 +802,9 @@ WorkAction =
 
 `Task`, `TaskState`, `Message`, and `Artifact` are the strict shared domain
 schemas in `src/shared/work-model.ts`; the wire never defines looser copies.
+`Artifact.task`, when present, is exactly `TaskRef`; there is no artifact
+`taskId` compatibility field. `MessageAppendDestination` is the closed
+mailbox/task/request sum above.
 `DeliveryReceipt` is:
 
 ```text
@@ -741,8 +826,9 @@ WorkResult =
       previousHome: InstallationId }
   | { operation: "request.create" | "request.resolve", request: Task }
   | { operation: "message.append", message: Message,
-      sentBy: ActorRef }
-  | { operation: "artifact.publish", artifact: Artifact }
+      sentBy: ActorRef, destination: MessageAppendDestination }
+  | { operation: "artifact.publish", artifact: Artifact,
+      publishedBy: ActorRef }
   | { operation: "delivery.accepted", receipt: DeliveryReceipt }
 ```
 
@@ -885,7 +971,11 @@ For each incoming event, the receiver verifies:
 5. identity/content hash has not been reused;
 6. an ordinary command/fact predecessor matches the target authority lane, or
    the exact first-adoption rule above applies;
-7. domain transition and actor/sink rules hold.
+7. explicit message destination matches projected sink kind and exact parent
+   residency;
+8. a linked artifact's `TaskRef` resolves to a projected task sink, then to an
+   exact claimed same-home task row;
+9. domain transition and actor/sink rules hold.
 
 The receiver then transactionally:
 
@@ -1474,7 +1564,15 @@ The exact schema must enforce:
 - database-enforced uniqueness preventing one `ActorSeatId` from owning two
   active tasks;
 - valid pending-command lifecycle;
+- exact message destination residency: Command Center-only mailbox rows and
+  same-home task/request thread parents;
 - immutable actor-seat provenance for every material mailbox message;
+- nullable-as-a-group artifact task reference columns
+  `(task_canvas_name, task_node_id, task_id, task_entity_home)`;
+- a composite artifact-to-task foreign key on
+  `(canvas_name, node_id, task_id, entity_home)`;
+- linked artifact rejection unless the exact task is already claimed and
+  same-home, without coupling artifact publisher seat to task claimant seat;
 - indexes for route replay and node projection.
 
 No second database or direct helper connection is permitted.
@@ -1543,7 +1641,10 @@ The canonical protocol blocks release while any live path preserves:
 - polling as a permanent peer-exchange implementation after stream cutover;
 - simultaneous v1/v2 Station protocols;
 - compatibility decoders, dual reads/writes, legacy imports, or fallback
-  stores.
+  stores;
+- artifact `taskId` fields or item-ID-only artifact/task joins;
+- inferred message residency without an explicit mailbox/task/request
+  destination.
 
 ## Implementation cuts
 
@@ -1607,6 +1708,8 @@ affected consumers and deletes the superseded path.
 | Projection is non-authorial | Remote cannot call canvas mutate; replacement never changes local work rows |
 | Reconnect is idempotent | repeated report yields one semantic materialization |
 | Gaps fail closed | cursor and material state remain unchanged |
+| Artifact provenance is exact | linked artifacts require a projected task sink and an exact claimed same-home SQLite task row; publisher may differ from claimant |
+| Message residency is explicit | mailbox and task/request destinations materialize only in their declared authority lane |
 | Clocks do not order | out-of-order timestamps retain logical event order |
 | Browser is local | no Station schema/dispatcher/runtime path represents page control |
 | No lateral fleet reach | Remote receives no peer endpoint/credential and opens no fleet connection |

@@ -285,7 +285,8 @@ and active, not which storage implementation exists:
   coordination, and all work homed to Command Center;
 - a Remote holds its complete replace-only projection, Station pairing and
   configuration, logical propagation cursors, and work homed to that Station;
-- messages remain Command Center-homed;
+- actor mailbox messages remain Command Center-homed; task/request thread
+  messages share their exact parent row's home;
 - browser profiles and other physical resources remain on the installation
   that owns them.
 
@@ -339,7 +340,8 @@ Mutable work remains single-home:
 - a Remote-home task queue may be claimed locally by an eligible local actor;
 - requests and artifacts may be created locally while offline and are homed
   with their raising or publishing actor;
-- messages remain Command Center-homed.
+- actor mailbox messages remain Command Center-homed; task/request thread
+  messages share their exact parent row's home.
 
 There is no actor backlog, unclaim, steal, lease expiry, shared offline task
 claim, last-write-wins row merge, or CRDT work plane. Reconnect exchanges

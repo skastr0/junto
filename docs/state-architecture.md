@@ -51,7 +51,7 @@ schema. Role changes row residency and runtime behavior, not table shape.
 | Station projection | Optional coordination state | One complete current projection |
 | Settings and topology | Local preferences + CC configuration | Local preferences + paired Remote configuration |
 | Hosts | Enrolled fleet registry | Local installation state only |
-| Work | CC-homed rows; messages always here | Rows single-homed to this Station |
+| Work | CC-homed rows, every actor mailbox row, and integrated Remote replicas | Remote-home task/request/artifact/thread rows; no mailbox material rows |
 | Events and receipts | Route-scoped Work streams, pending commands, dispositions, and transport ACK cursors | Route-scoped Work streams, dispositions, and transport ACK cursors |
 | Browser/process resources | Resources physically owned here | Resources physically owned here |
 
@@ -97,8 +97,35 @@ one without ambiguity. Every Station API event has:
 - a stable semantic content hash for idempotence.
 
 Ordering within a route compares logical sequences as integers. Wall-clock
-timestamps never order fleet history. Messages remain Command Center-homed
-because Command Center manages seat mailboxes.
+timestamps never order fleet history. Actor mailbox messages remain Command
+Center-homed; task/request thread messages share their exact parent row's
+home.
+
+Message append events carry an explicit closed destination:
+`mailbox`, `task(itemId)`, or `request(itemId)`. Mailbox facts materialize only
+in Command Center `work_messages`; a Remote that issued the corresponding
+command retains the returned fact/disposition as event state without creating
+a local mailbox row. Task and request appends materialize in
+`work_task_messages` only when the exact parent exists at the same
+`entity_home`. `Message.taskId` remains an A2A cross-reference and must not be
+used to infer residency; for task/request appends it must be present and agree
+with the explicit destination item ID.
+
+Artifacts may carry `task?: TaskRef`, where the reference contains
+`kind: "task"`, item ID, canvas name, and task-sink node ID. Unbound artifacts
+remain valid. A linked artifact is admitted only when the installed projection
+contains that canvas and a task-kind sink at the referenced node. Durable
+materialization then requires an exact already-claimed task at the artifact's
+`entity_home`. The artifact publisher seat is preserved independently and may
+differ from the task claimant.
+
+SQLite represents that optional reference as one nullable group:
+`task_canvas_name`, `task_node_id`, `task_id`, and `task_entity_home`. A
+composite foreign key targets
+`work_tasks(canvas_name, node_id, task_id, entity_home)`; a trigger requires
+the referenced task's claimant to be non-null. Partial references, missing or
+wrong sinks, cross-home references, and reference rewrites fail closed. There
+is no legacy artifact `taskId` decoder, item-ID-only lookup, or fallback path.
 
 A Command Center mutation homed on a Remote is first persisted as a pending
 command. It is not materialized at Command Center. The Remote atomically
@@ -121,7 +148,8 @@ disconnect after commit may replay only the same unresolved identity. Once the
 Remote accepts the claim, the task remains homed there through terminal state
 and continues while Command Center is unavailable. A Remote-home queue may
 claim locally. Requests and artifacts are homed with their raising/publishing
-actor; messages remain Command Center-homed.
+actor. Actor mailbox messages remain Command Center-homed; task/request thread
+messages share their exact parent row's home.
 
 ## Station API
 
@@ -173,6 +201,12 @@ acknowledged full-route sequence. Cursors retain both `event_home` and
 receiver accepts only contiguous progress; gaps fail closed. A Remote writes
 the command disposition before acknowledging the command. Completed ACKs are
 durable, so replay or losing an outer response cannot duplicate semantic work.
+
+Before repository acceptance, Station admission checks any artifact
+`TaskRef` against the installed projection and rejects an absent canvas,
+absent sink, or non-task node. The repository remains authoritative for task
+row existence, non-null claimant, and same-home checks. Either failure occurs
+before incoming event persistence or cursor/ACK advancement.
 
 Every installation must be explicitly configured before Work may mutate.
 Configured role and host identity are immutable until an explicit transfer
@@ -240,10 +274,14 @@ A storage change is releasable only when:
 2. one scoped `StateEngine` connection serves all repositories;
 3. canvas commits, work changes, topology changes, projection installs, and
    ACK advancement are transactionally proven;
-4. a Remote can continue its local simulation from its database while Command
+4. linked artifact references prove projected task-sink presence, exact
+   claimed same-home SQLite identity, and publisher/claimant independence;
+5. mailbox and task/request message destinations prove their distinct
+   material residency without inference from `Message.taskId`;
+6. a Remote can continue its local simulation from its database while Command
    Center is closed;
-5. reconnect retries converge by generation, route cursor, and durable command
+7. reconnect retries converge by generation, route cursor, and durable command
    disposition;
-6. headless and SSH helpers are proven to reach the app rather than the file;
-7. `VACUUM INTO` produces a coherent owner-only backup;
-8. repository search finds no retired product-state path.
+8. headless and SSH helpers are proven to reach the app rather than the file;
+9. `VACUUM INTO` produces a coherent owner-only backup;
+10. repository search finds no retired product-state path.
