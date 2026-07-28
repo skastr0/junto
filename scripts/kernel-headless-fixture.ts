@@ -5,7 +5,19 @@ export const KERNEL_PROBE_REGION_ID = "probe-region";
 export const KERNEL_PROBE_TIMER_ID = "probe-timer";
 export const KERNEL_PROBE_AGENT_ID = "probe-agent";
 export const KERNEL_PROBE_AGENT_KEY = "local:default";
+export const KERNEL_PROBE_HOST_ID = "local";
 export const KERNEL_PROBE_TIMER_EVERY_MINUTES = 0.02;
+
+/**
+ * The probe seeds this through SettingsService after StationRepository has
+ * minted the installation identity. `local` is therefore an explicit
+ * Command Center host binding, never an unresolved-placement fallback.
+ */
+export const KERNEL_PROBE_COMMAND_CENTER_TOPOLOGY = {
+  role: "command-center" as const,
+  hostId: KERNEL_PROBE_HOST_ID,
+  supervisedPreferred: false,
+};
 
 /**
  * Isolated headless-proof document. The timer is an executable entity and its
@@ -36,7 +48,7 @@ export const makeKernelHeadlessFixture = (): CanvasDoc => ({
       text: "probe timer",
       ether: {
         entity: { kind: "timer" },
-        host: "local",
+        host: KERNEL_PROBE_HOST_ID,
         timer: { everyMinutes: KERNEL_PROBE_TIMER_EVERY_MINUTES },
       },
     },
@@ -50,7 +62,7 @@ export const makeKernelHeadlessFixture = (): CanvasDoc => ({
       text: "probe agent",
       ether: {
         entity: { kind: "agent", name: KERNEL_PROBE_AGENT_KEY },
-        host: "local",
+        host: KERNEL_PROBE_HOST_ID,
         terminal: {
           bindingId: "kernel-probe-agent-seat",
           harness: "hermes",

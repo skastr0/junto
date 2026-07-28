@@ -13,6 +13,7 @@ import {
   KERNEL_PROBE_AGENT_KEY,
   KERNEL_PROBE_AGENT_ID,
   KERNEL_PROBE_CANVAS,
+  KERNEL_PROBE_HOST_ID,
   KERNEL_PROBE_TIMER_ID,
   makeKernelHeadlessFixture,
 } from "../scripts/kernel-headless-fixture";
@@ -78,6 +79,11 @@ describe("kernel headless proof fixture", () => {
     );
     expect(seedSource).toContain("KernelStateRepository");
     expect(seedSource).toContain("CanvasesService");
+    expect(seedSource).toContain("StationRepository");
+    expect(seedSource).toContain("SettingsService");
+    expect(seedSource).toContain("setStationTopology");
+    expect(seedSource).not.toContain("station_configuration");
+    expect(seedSource).not.toContain("station_installation");
     expect(seedSource).not.toContain("node:fs");
     expect(seedSource).not.toContain("writeFile");
     expect(seedSource).not.toMatch(/\.canvas\b/u);
@@ -96,13 +102,14 @@ describe("kernel headless proof fixture", () => {
       agentKey: KERNEL_PROBE_AGENT_KEY,
       bindingId: "kernel-probe-agent-seat",
       harness: "hermes",
+      hostId: KERNEL_PROBE_HOST_ID,
     });
     expect(
       agentKeysForExecutableSource(
         doc,
         KERNEL_PROBE_TIMER_ID,
         "remote",
-        "local",
+        KERNEL_PROBE_HOST_ID,
       ),
     ).toEqual([KERNEL_PROBE_AGENT_KEY]);
   });
@@ -116,7 +123,7 @@ describe("kernel headless proof fixture", () => {
         edgeFree,
         KERNEL_PROBE_TIMER_ID,
         "remote",
-        "local",
+        KERNEL_PROBE_HOST_ID,
       ),
     ).toEqual([]);
   });

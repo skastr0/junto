@@ -5,10 +5,19 @@ import {
   KernelStateRepository,
   KernelStateRepositoryLive,
 } from "../src/main/vellum/kernel/repository";
+import {
+  SettingsLive,
+  SettingsService,
+} from "../src/main/vellum/settings/service";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import {
+  StationRepository,
+  StationRepositoryLive,
+} from "../src/main/vellum/station/repository";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 import {
   KERNEL_PROBE_CANVAS,
+  KERNEL_PROBE_COMMAND_CENTER_TOPOLOGY,
   KERNEL_PROBE_REGION_ID,
   makeKernelHeadlessFixture,
 } from "./kernel-headless-fixture";
@@ -27,7 +36,12 @@ if (
 
 const stateLayer = makeStateEngineLive(stateDatabase);
 const repositories = Layer.provideMerge(
-  Layer.mergeAll(WorkRepositoryLive, KernelStateRepositoryLive),
+  Layer.mergeAll(
+    WorkRepositoryLive,
+    KernelStateRepositoryLive,
+    SettingsLive,
+    StationRepositoryLive,
+  ),
   stateLayer,
 );
 const seedServices = Layer.provideMerge(CanvasesLive, repositories);
@@ -38,6 +52,16 @@ try {
     Effect.gen(function* () {
       const canvases = yield* CanvasesService;
       const kernelState = yield* KernelStateRepository;
+      const settings = yield* SettingsService;
+      const stations = yield* StationRepository;
+
+      // Actor-seat compilation resolves HostId through durable topology. Mint
+      // this isolated installation first, then bind its authorial host through
+      // the same Command Center settings operation used by the product.
+      yield* stations.installationId;
+      yield* settings.setStationTopology(
+        KERNEL_PROBE_COMMAND_CENTER_TOPOLOGY,
+      );
       yield* canvases.write(
         KERNEL_PROBE_CANVAS,
         makeKernelHeadlessFixture(),
