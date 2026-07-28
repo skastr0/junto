@@ -1,5 +1,8 @@
 # Linux package qualification
 
+**Status:** required evidence contract; no two-installation pass is implied by
+this document or by CI
+
 Vellum Linux v1 supports one release target: Ubuntu 24.04 LTS, glibc, x86-64.
 The release unit is a versioned `deb`; the matching `.unpacked` directory is a
 diagnostic artifact, not an installer. AppImage, Snap, Flatpak, RPM, musl, and
@@ -103,6 +106,35 @@ contract. Do not invent new readiness infrastructure.
 Everything below. Cross-build, container-as-host-kernel, and remote SSH-only
 smoke without a real install do **not** close Phase 2.
 
+### Required two-installation receipt
+
+The operator-run fleet proof produces exactly
+`station-qualification-receipt.json` with schema
+`vellum/station-two-installation-qualification/v1`. It binds the proof to one
+source commit, the exact `deb` filename and SHA-256, the selected Station
+protocol, and the observed Command Center and Remote installation identities
+and app versions. The Remote identity also records
+`platform: "linux"`, `distribution: "ubuntu"`,
+`distributionVersion: "24.04"`, and `architecture: "x64"`.
+
+The receipt's ordered `checks` are:
+
+1. `pair`
+2. `configure`
+3. `project`
+4. `status`
+5. `report`
+6. `project-response-loss-retry`
+7. `remote-offline-work`
+8. `report-response-loss-retry`
+9. `protocol-no-overlap-rejection`
+
+`ok: true` is valid only when all nine checks pass against those exact
+installations and package bytes. CI cannot create this receipt. The final
+release promotion gate separately hashes and binds it in
+`release-promotion-receipt.json`; neither filename may be synthesized from
+package-smoke success.
+
 ### A. Native x86_64 Ubuntu Command Center proof
 
 Run as an ordinary desktop user after a root `deb` install (not under the
@@ -191,12 +223,20 @@ CI-only package construction without a disposable Ubuntu desktop/Remote host:
   password ceremony
 - Cross-host fleet (macOS or Linux Command Center → Linux Remote) with live
   Station API projection/report convergence and edge-routed pulse
+- Synchronous CC-home task start on a Remote actor, continued progress with
+  Command Center closed, and rejection of any new disconnected CC-home claim
+- Remote-home task claim plus permitted request/artifact creation while
+  offline, followed by cursor-based reconciliation without overwriting
+  Remote-owned state
+- Proof that neither Remote callbacks nor Remote-to-Remote control connections
+  are required
 
 CI (`.github/workflows/linux-release.yml`) records target-native package,
 installed PTY, and installed GUI/sandbox smoke under Xvfb when that workflow
 runs. CI evidence is necessary for promotion eligibility; it does not replace
 operator Phase 2 recording of Command Center desktop and Remote unit proofs
-above.
+above, and its output remains explicitly unqualified until the exact
+two-installation receipt is supplied.
 
 ## Disposable-host discipline
 
