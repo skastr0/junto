@@ -15,6 +15,7 @@ import {
   type WorkSnapshot as WorkSnapshotValue,
 } from "@shared/work-model";
 import {
+  ActorRef as ActorRefSchema,
   DisplayTimestamp,
   LogicalSequence,
   RouteCursor,
@@ -142,6 +143,11 @@ const sameItem = (left: WorkItemRef, right: WorkItemRef): boolean =>
   left.sink.canvasName === right.sink.canvasName &&
   left.sink.nodeId === right.sink.nodeId;
 
+const sameActor = (left: ActorRef, right: ActorRef): boolean =>
+  left.seatId === right.seatId &&
+  left.canvasName === right.canvasName &&
+  left.nodeId === right.nodeId;
+
 const item = (
   kind: WorkItemRef["kind"],
   itemId: string,
@@ -255,6 +261,7 @@ export type ResolveRequestInput = LocalWorkInput & {
 
 export type AppendMessageInput = LocalWorkInput & {
   readonly message: MessageValue;
+  readonly sentBy: ActorRef;
 };
 
 export type PublishArtifactInput = LocalWorkInput & {
@@ -1464,6 +1471,7 @@ const writeInboxMessage = (
   writer: StateWriter,
   sink: SinkRefValue,
   message: MessageValue,
+  sentBy: ActorRef,
   fact: WorkFactValue,
   receivedAt: DisplayTimestampValue,
 ): void => {
@@ -1485,6 +1493,7 @@ const writeInboxMessage = (
         message_id,
         position,
         entity_home,
+        actor_seat_id,
         fact_event_home,
         fact_entity_home,
         fact_seq,
@@ -1496,7 +1505,7 @@ const writeInboxMessage = (
         metadata_json,
         origin_at,
         received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       sink.canvasName,
@@ -1504,6 +1513,7 @@ const writeInboxMessage = (
       message.messageId,
       position,
       fact.id.route.entityHome,
+      sentBy.seatId,
       fact.id.route.eventHome,
       fact.id.route.entityHome,
       fact.id.seq,
@@ -1650,6 +1660,7 @@ const materializeFact = (
         writer,
         fact.item.sink,
         fact.body.message,
+        fact.body.sentBy,
         fact,
         receivedAt,
       );
@@ -2152,6 +2163,7 @@ const resultForCommand = (
         body: {
           operation: "message.append",
           message: action.message,
+          sentBy: action.sentBy,
         },
       };
     }
@@ -2818,6 +2830,16 @@ const validateDisposition = (
         "applied disposition fact reference is not coherent",
       );
     }
+    if (
+      command.body.operation === "message.append" &&
+      fact.body.operation === "message.append" &&
+      !sameActor(command.body.sentBy, fact.body.sentBy)
+    ) {
+      throw authorityError(
+        "causal-conflict",
+        "message append fact changed the command sender",
+      );
+    }
   }
 };
 
@@ -3386,6 +3408,10 @@ export const WorkRepositoryLive = Layer.effect(
         Message,
         strictDecode,
       )(input.message);
+      const sentBy = Schema.decodeUnknownSync(
+        ActorRefSchema,
+        strictDecode,
+      )(input.sentBy);
       return transaction("work.message.append", input.sink, (writer) => {
         const localInstallationId = canonicalLocalInstallation(writer);
         if (
@@ -3408,7 +3434,7 @@ export const WorkRepositoryLive = Layer.effect(
           item: item("message", message.messageId, input.sink),
           operation: "message.append",
           predecessor: null,
-          body: { operation: "message.append", message },
+          body: { operation: "message.append", message, sentBy },
           value: message,
           originAt,
           receivedAt,

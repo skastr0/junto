@@ -234,6 +234,7 @@ export type RequestResolveAction = typeof RequestResolveAction.Type;
 export const MessageAppendAction = Schema.Struct({
   operation: Schema.Literal("message.append"),
   message: Message,
+  sentBy: ActorRef,
 });
 export type MessageAppendAction = typeof MessageAppendAction.Type;
 
@@ -325,6 +326,7 @@ export type RequestResult = typeof RequestResult.Type;
 export const MessageAppendResult = Schema.Struct({
   operation: Schema.Literal("message.append"),
   message: Message,
+  sentBy: ActorRef,
 });
 export type MessageAppendResult = typeof MessageAppendResult.Type;
 

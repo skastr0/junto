@@ -260,6 +260,46 @@ describe("Work protocol v2 contract", () => {
         }),
       ),
     ).toBe(true);
+
+    const appendedMessage = {
+      messageId: "message-provenance",
+      role: "agent" as const,
+      parts: [{ kind: "text" as const, text: "sent from this seat" }],
+    };
+    expect(
+      Either.isRight(
+        decodeWorkAction({
+          operation: "message.append",
+          message: appendedMessage,
+          sentBy: actor,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isRight(
+        decodeWorkResult({
+          operation: "message.append",
+          message: appendedMessage,
+          sentBy: actor,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeWorkAction({
+          operation: "message.append",
+          message: appendedMessage,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeWorkResult({
+          operation: "message.append",
+          message: appendedMessage,
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("rejects excess properties at every decoded boundary", () => {

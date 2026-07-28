@@ -560,6 +560,12 @@ export const WORK_STATE_SCHEMA_SQL = `
     message_id TEXT NOT NULL CHECK (length(message_id) BETWEEN 1 AND 256),
     position INTEGER NOT NULL CHECK (position >= 0),
     entity_home TEXT NOT NULL,
+    actor_seat_id TEXT NOT NULL
+      CHECK (
+        length(actor_seat_id) = 69
+        AND substr(actor_seat_id, 1, 5) = 'seat_'
+        AND substr(actor_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+      ),
     fact_event_home TEXT NOT NULL,
     fact_entity_home TEXT NOT NULL,
     fact_seq TEXT NOT NULL,
@@ -1039,6 +1045,13 @@ export const WORK_STATE_SCHEMA_SQL = `
   WHEN OLD.entity_home <> NEW.entity_home
   BEGIN
     SELECT RAISE(ABORT, 'work message home is immutable');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS work_messages_actor_immutable
+  BEFORE UPDATE OF actor_seat_id ON work_messages
+  WHEN OLD.actor_seat_id <> NEW.actor_seat_id
+  BEGIN
+    SELECT RAISE(ABORT, 'work message actor seat is immutable');
   END;
 
   CREATE TRIGGER IF NOT EXISTS work_artifacts_home_immutable

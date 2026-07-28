@@ -321,6 +321,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.appendMessage({
         sink: inbox,
         message: message("mail-1", "agent", "hello", "mail-context-task"),
+        sentBy: actor,
         originAt: observedAt,
         receivedAt: observedAt,
       }),
@@ -382,6 +383,22 @@ describe("WorkRepository v2 local authority", () => {
     ).toEqual([
       message("mail-1", "agent", "hello", "mail-context-task"),
     ]);
+    expect(
+      await runtime.runPromise(
+        state.read(
+          "test.read-message-sender",
+          (reader) =>
+            reader.get<{ readonly actor_seat_id: string }>(
+              `
+                SELECT actor_seat_id
+                FROM work_messages
+                WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+              `,
+              [inbox.canvasName, inbox.nodeId, "mail-1"],
+            )?.actor_seat_id,
+        ),
+      ),
+    ).toBe(actor.seatId);
     expect(
       (
         await runtime.runPromise(

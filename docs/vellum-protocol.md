@@ -557,6 +557,9 @@ Actor mailboxes remain Command Center-managed:
 
 - messages are Command Center-homed;
 - they are not used to represent task assignment;
+- every append command and resulting fact carries the exact projected
+  `ActorRef` of its sender; the material mailbox row retains that immutable
+  `ActorSeatId`;
 - a Remote cannot append an unscoped mailbox message while Command Center is
   unavailable;
 - persistent Station sessions improve delivery latency but do not change
@@ -708,7 +711,8 @@ WorkAction =
   | { operation: "request.create", request: Task, raisedBy: ActorRef }
   | { operation: "request.resolve", requestId: string, response: string,
       disposition: "completed" | "rejected", message?: Message }
-  | { operation: "message.append", message: Message }
+  | { operation: "message.append", message: Message,
+      sentBy: ActorRef }
   | { operation: "artifact.publish", artifact: Artifact,
       publishedBy: ActorRef }
   | { operation: "delivery.accepted", receipt: DeliveryReceipt }
@@ -736,7 +740,8 @@ WorkResult =
   | { operation: "task.claim", task: Task, claimedBy: ActorRef,
       previousHome: InstallationId }
   | { operation: "request.create" | "request.resolve", request: Task }
-  | { operation: "message.append", message: Message }
+  | { operation: "message.append", message: Message,
+      sentBy: ActorRef }
   | { operation: "artifact.publish", artifact: Artifact }
   | { operation: "delivery.accepted", receipt: DeliveryReceipt }
 ```
@@ -1469,6 +1474,7 @@ The exact schema must enforce:
 - database-enforced uniqueness preventing one `ActorSeatId` from owning two
   active tasks;
 - valid pending-command lifecycle;
+- immutable actor-seat provenance for every material mailbox message;
 - indexes for route replay and node projection.
 
 No second database or direct helper connection is permitted.

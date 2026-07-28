@@ -65,8 +65,9 @@ type RecordFixture = {
   readonly operation:
     | "task.create"
     | "task.claim"
+    | "message.append"
     | "delivery.accepted";
-  readonly itemKind: "task" | "delivery";
+  readonly itemKind: "task" | "message" | "delivery";
   readonly itemId: string;
   readonly contentSha256: string;
 };
@@ -103,7 +104,11 @@ const insertRecord = (
       record.itemKind,
       record.itemId,
       "factory",
-      record.itemKind === "task" ? "tasks" : "deliveries",
+      record.itemKind === "task"
+        ? "tasks"
+        : record.itemKind === "message"
+          ? "messages"
+          : "deliveries",
       record.operation,
       record.contentSha256,
       observedAt,
@@ -357,9 +362,114 @@ describe("Work v2 exact-current SQLite schema", () => {
       type: "TEXT",
       notnull: 0,
     });
+    const messageActorSeat = database
+      .prepare("PRAGMA table_info(work_messages)")
+      .all()
+      .find(
+        (row) =>
+          (row as { readonly name: string }).name === "actor_seat_id",
+      ) as
+      | { readonly name: string; readonly type: string; readonly notnull: number }
+      | undefined;
+    expect(messageActorSeat).toMatchObject({
+      name: "actor_seat_id",
+      type: "TEXT",
+      notnull: 1,
+    });
     expect(WORK_STATE_SCHEMA_SQL).not.toMatch(
       /home_station|vellum:command-center|payload_json/u,
     );
+  });
+
+  test("requires immutable canonical sender seats on material mailbox rows", () => {
+    const database = makeDatabase();
+    registerInstallation(database, "cc-installation");
+    registerRoute(database, "cc-installation", "cc-installation", "1");
+    insertFact(database, {
+      eventHome: "cc-installation",
+      entityHome: "cc-installation",
+      seq: "1",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "message-1",
+      contentSha256: hash("a"),
+    });
+
+    const append = database.prepare(`
+      INSERT INTO work_messages(
+        canvas_name,
+        node_id,
+        message_id,
+        position,
+        entity_home,
+        actor_seat_id,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
+        role,
+        parts_json,
+        origin_at,
+        received_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    expect(() =>
+      append.run(
+        "factory",
+        "messages",
+        "message-1",
+        0,
+        "cc-installation",
+        "not-a-seat",
+        "cc-installation",
+        "cc-installation",
+        "1",
+        "agent",
+        "[]",
+        observedAt,
+        observedAt,
+      ),
+    ).toThrow();
+    append.run(
+      "factory",
+      "messages",
+      "message-1",
+      0,
+      "cc-installation",
+      seat("a"),
+      "cc-installation",
+      "cc-installation",
+      "1",
+      "agent",
+      "[]",
+      observedAt,
+      observedAt,
+    );
+    expect(
+      database
+        .prepare(
+          `
+            SELECT actor_seat_id
+            FROM work_messages
+            WHERE canvas_name = 'factory'
+              AND node_id = 'messages'
+              AND message_id = 'message-1'
+          `,
+        )
+        .get(),
+    ).toEqual({ actor_seat_id: seat("a") });
+    expect(() =>
+      database
+        .prepare(
+          `
+            UPDATE work_messages
+            SET actor_seat_id = ?
+            WHERE canvas_name = 'factory'
+              AND node_id = 'messages'
+              AND message_id = 'message-1'
+          `,
+        )
+        .run(seat("b")),
+    ).toThrow(/work message actor seat is immutable/u);
   });
 
   test("reserves at most one unresolved task claim per item and actor seat", () => {

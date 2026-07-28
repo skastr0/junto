@@ -164,6 +164,112 @@ const reseal = (
 };
 
 describe("WorkRepository v2 report reconciliation", () => {
+  it("preserves the exact sender through a Remote-to-CC mailbox command and fact", async () => {
+    const cc = installation("cc-message-provenance");
+    const remote = installation("remote-message-provenance");
+    const commandCenter = await openInstallation(cc, [remote]);
+    const station = await openInstallation(remote, [cc]);
+    const inbox = { canvasName: "factory", nodeId: "cc-inbox" };
+    const sender = actor("8", "remote-sender");
+    const appended = message(
+      "message-with-provenance",
+      "agent",
+      "I sent this",
+    );
+
+    const command = await station.runtime.runPromise(
+      station.repository.enqueueRemoteCommand({
+        targetInstallationId: cc,
+        sink: inbox,
+        item: {
+          kind: "message",
+          itemId: appended.messageId,
+          sink: inbox,
+        },
+        action: {
+          operation: "message.append",
+          message: appended,
+          sentBy: sender,
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(command.body).toEqual({
+      operation: "message.append",
+      message: appended,
+      sentBy: sender,
+    });
+
+    const response = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [command]),
+    );
+    const [fact, disposition] = response.emitted;
+    if (
+      fact?.recordType !== "fact" ||
+      fact.body.operation !== "message.append" ||
+      disposition?.recordType !== "disposition" ||
+      disposition.body.status !== "applied"
+    ) {
+      throw new Error("message command did not emit its fact and disposition");
+    }
+    expect(fact.body.sentBy).toEqual(sender);
+
+    const changedSender = actor("9", "different-sender");
+    const changedFact = reseal({
+      ...fact,
+      body: {
+        ...fact.body,
+        sentBy: changedSender,
+      },
+    });
+    const changedDisposition = reseal({
+      ...disposition,
+      body: {
+        ...disposition.body,
+        factSha256: changedFact.contentSha256,
+      },
+    });
+    const changedResponse = await station.runtime.runPromise(
+      accept(
+        station.repository,
+        cc,
+        [changedFact, changedDisposition],
+      ).pipe(Effect.either),
+    );
+    expect(Either.isLeft(changedResponse)).toBe(true);
+    if (Either.isLeft(changedResponse)) {
+      expect(changedResponse.left).toMatchObject({
+        reason: "causal-conflict",
+      });
+    }
+
+    await station.runtime.runPromise(
+      accept(station.repository, cc, response.emitted),
+    );
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.state.read(
+          "test.read-command-message-sender",
+          (reader) =>
+            reader.get<{ readonly actor_seat_id: string }>(
+              `
+                SELECT actor_seat_id
+                FROM work_messages
+                WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+              `,
+              [inbox.canvasName, inbox.nodeId, appended.messageId],
+            )?.actor_seat_id,
+        ),
+      ),
+    ).toBe(sender.seatId);
+    expect(
+      (await station.runtime.runPromise(
+        station.repository.pendingCommands,
+      ))[0],
+    ).toMatchObject({ resolution: { status: "applied" } });
+  });
+
   it("adopts one CC task on a Remote and integrates returned facts rather than replaying the command", async () => {
     const cc = installation("cc-first-adoption");
     const remote = installation("remote-first-adoption");
@@ -736,6 +842,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       station.repository.appendMessage({
         sink: inbox,
         message: message("remote-mail", "agent", "must stay CC-homed"),
+        sentBy: requester,
         originAt: observedAt,
         receivedAt: observedAt,
       }),
