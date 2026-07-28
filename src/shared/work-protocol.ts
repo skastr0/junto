@@ -88,6 +88,63 @@ export const WorkRecordId = Schema.Struct({
 });
 export type WorkRecordId = typeof WorkRecordId.Type;
 
+/**
+ * Canonical non-negative intent generation.
+ *
+ * Intent generations are independent from positive-only Work route
+ * sequences. A fresh projection may legitimately identify generation zero.
+ */
+export const FactBasisGeneration = Schema.String.pipe(
+  Schema.pattern(/^(0|[1-9][0-9]*)$/),
+  Schema.maxLength(32),
+  Schema.brand("FactBasisGeneration"),
+);
+export type FactBasisGeneration = typeof FactBasisGeneration.Type;
+
+export const AuthorialIntentFactBasis = Schema.Struct({
+  kind: Schema.Literal("authorial-intent"),
+  generation: FactBasisGeneration,
+  contentSha256: WorkSha256,
+});
+export type AuthorialIntentFactBasis =
+  typeof AuthorialIntentFactBasis.Type;
+
+export const ProjectedIntentFactBasis = Schema.Struct({
+  kind: Schema.Literal("projected-intent"),
+  generation: FactBasisGeneration,
+  contentSha256: WorkSha256,
+});
+export type ProjectedIntentFactBasis =
+  typeof ProjectedIntentFactBasis.Type;
+
+export const CommandFactBasis = Schema.Struct({
+  kind: Schema.Literal("command"),
+  command: WorkRecordId,
+  commandSha256: WorkSha256,
+});
+export type CommandFactBasis = typeof CommandFactBasis.Type;
+
+/**
+ * Immutable proof of the authority context under which a fact was emitted.
+ *
+ * Local operator/actor mutations name the exact authorial or projected intent
+ * snapshot that admitted them. Applying a remote command names that exact
+ * command instead, so later topology changes cannot retroactively invalidate
+ * its correlated result.
+ */
+export const FactBasis = Schema.Union(
+  AuthorialIntentFactBasis,
+  ProjectedIntentFactBasis,
+  CommandFactBasis,
+);
+export type FactBasis = typeof FactBasis.Type;
+
+export const IntentFactBasis = Schema.Union(
+  AuthorialIntentFactBasis,
+  ProjectedIntentFactBasis,
+);
+export type IntentFactBasis = typeof IntentFactBasis.Type;
+
 export const RouteCursor = Schema.Struct({
   eventHome: InstallationId,
   entityHome: InstallationId,
@@ -581,6 +638,7 @@ export type WorkCommand = typeof WorkCommand.Type;
 const WorkFactShape = Schema.Struct({
   ...WorkRecordCommon.fields,
   recordType: Schema.Literal("fact"),
+  basis: FactBasis,
   predecessor: Schema.NullOr(WorkRecordId),
   body: WorkResult,
 });
@@ -595,6 +653,12 @@ export const WorkFact = WorkFactShape.pipe(
     }
     if (!itemMatchesResult(record.item, record.body)) {
       return "Work fact item must match its result identity";
+    }
+    if (
+      record.basis.kind === "command" &&
+      record.basis.command.route.entityHome !== record.id.route.entityHome
+    ) {
+      return "Command fact basis must address the fact authority lane";
     }
     if (record.body.operation === "task.claim") {
       const crossesAuthority =

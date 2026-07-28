@@ -84,6 +84,11 @@ const claimFact = {
   protocol: WORK_PROTOCOL,
   id: factId,
   recordType: "fact",
+  basis: {
+    kind: "command",
+    command: commandId,
+    commandSha256: hash,
+  },
   item: {
     kind: "task",
     itemId: sourceTask.id,
@@ -142,6 +147,11 @@ const artifactFact = {
     seq: "3",
   },
   recordType: "fact",
+  basis: {
+    kind: "projected-intent",
+    generation: "9",
+    contentSha256: "f".repeat(64),
+  },
   item: {
     kind: "artifact",
     itemId: "artifact-1",
@@ -194,6 +204,68 @@ describe("Work protocol v2 contract", () => {
           eventHome: remote,
           entityHome: remote,
           through: "0",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("requires one strict fact basis and keeps it off commands and dispositions", () => {
+    const { basis: _basis, ...basisLessFact } = claimFact;
+    expect(Either.isLeft(decodeWorkRecord(basisLessFact))).toBe(true);
+
+    expect(
+      Either.isRight(
+        decodeWorkRecord({
+          ...claimFact,
+          basis: {
+            kind: "authorial-intent",
+            generation: "11",
+            contentSha256: "1".repeat(64),
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isRight(
+        decodeWorkRecord({
+          ...claimFact,
+          basis: {
+            kind: "projected-intent",
+            generation: "11",
+            contentSha256: "2".repeat(64),
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeWorkRecord({
+          ...claimFact,
+          basis: {
+            kind: "command",
+            command: {
+              ...commandId,
+              route: { eventHome: cc, entityHome: cc },
+            },
+            commandSha256: hash,
+          },
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        decodeWorkRecord({
+          ...claimCommand,
+          basis: claimFact.basis,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeWorkRecord({
+          ...appliedDisposition,
+          basis: claimFact.basis,
         }),
       ),
     ).toBe(true);
