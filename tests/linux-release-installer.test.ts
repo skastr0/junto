@@ -75,6 +75,16 @@ const sha256 = (value: Uint8Array | string): string =>
 const revision = "a".repeat(40);
 const generation = "b".repeat(32);
 const bootId = "12345678-1234-1234-1234-123456789abc";
+const appArmorProfile = `abi <abi/4.0>,
+include <tunables/global>
+
+# Ubuntu 24.04 restricts unprivileged user namespaces by AppArmor label.
+# Vellum needs only the userns feature grant; the app otherwise remains
+# unconfined by this compatibility profile.
+profile vellum "/opt/Vellum Command/vellum" flags=(unconfined) {
+  userns,
+}
+`;
 
 afterEach(async () => {
   await Promise.all(
@@ -104,6 +114,7 @@ interface FakeMachine {
   failQuarantine: boolean;
   statePreflight: "ready" | "failed" | "malformed" | "transport-active";
   preflightActive: boolean;
+  candidateAppArmor: "exact" | "broadened";
   events: string[];
 }
 
@@ -117,6 +128,7 @@ interface Fixture {
     readonly dpkgInfoRoot: string;
     readonly installedRoot: string;
     readonly bridgeRoot: string;
+    readonly appArmorProfiles: string;
   };
   readonly home: string;
   readonly invocation: LinuxReleaseInstallerInvocation;
@@ -611,7 +623,9 @@ const makeRunner = (
           });
         } else {
           const payload = path.join(destination, "opt", "Vellum Command");
+          const resources = path.join(payload, "resources");
           await mkdir(payload, { recursive: true, mode: 0o755 });
+          await mkdir(resources, { recursive: true, mode: 0o755 });
           await chmod(path.join(destination, "opt"), 0o755);
           await chmod(payload, 0o755);
           await writeFile(
@@ -625,6 +639,13 @@ const makeRunner = (
             { mode: 0o755 },
           );
           await chmod(path.join(payload, "vellum"), 0o755);
+          await writeFile(
+            path.join(resources, "apparmor-profile"),
+            machine.candidateAppArmor === "exact"
+              ? appArmorProfile
+              : `${appArmorProfile}network,\n`,
+            { mode: 0o644 },
+          );
         }
         return result(0);
       }
@@ -639,6 +660,33 @@ const makeRunner = (
       if (field === "Essential" || field === "Pre-Depends") return result(0);
       if (field === "Depends") return result(0, "libc6\n");
       throw new Error(`unexpected deb field ${field}`);
+    }
+    if (executable === "/usr/sbin/apparmor_parser") {
+      const profile = argumentsArray.at(-1) ?? "";
+      expect(profile).toMatch(
+        /\/preflight\/[0-9a-f]{32}-[0-9a-f]{64}\/payload\/opt\/Vellum Command\/resources\/apparmor-profile$/u,
+      );
+      if (argumentsArray[0] === "--replace") {
+        expect(argumentsArray).toEqual([
+          "--replace",
+          "--skip-read-cache",
+          profile,
+        ]);
+        machine.events.push("apparmor-load");
+        await writeFile(
+          paths.appArmorProfiles,
+          "vellum (unconfined)\n",
+          { mode: 0o600 },
+        );
+        return result(0);
+      }
+      if (argumentsArray[0] === "--remove") {
+        expect(argumentsArray).toEqual(["--remove", profile]);
+        machine.events.push("apparmor-remove");
+        await writeFile(paths.appArmorProfiles, "", { mode: 0o600 });
+        return result(0);
+      }
+      throw new Error("unexpected AppArmor parser operation");
     }
     if (executable === "/usr/bin/systemd-run") {
       const unit = argumentsArray.find((value) => value.startsWith("--unit="))
@@ -665,7 +713,6 @@ const makeRunner = (
           `--unit=${unit}`,
           `--property=BindReadOnlyPaths=${candidateOpt}:/opt`,
           "--property=KillMode=control-group",
-          "--property=PrivateTmp=yes",
           "--property=TimeoutStopSec=10s",
           "--property=RuntimeMaxSec=180s",
           "--property=UMask=0077",
@@ -782,7 +829,9 @@ const makeRunner = (
           "opt",
           "Vellum Command",
         );
+        const resources = path.join(payload, "resources");
         await mkdir(payload, { recursive: true, mode: 0o755 });
+        await mkdir(resources, { recursive: true, mode: 0o755 });
         await chmod(path.join(paths.installedRoot, "opt"), 0o755);
         await chmod(payload, 0o755);
         await writeFile(
@@ -797,13 +846,23 @@ const makeRunner = (
         );
         await chmod(path.join(payload, "vellum"), 0o755);
         await writeFile(
+          path.join(resources, "apparmor-profile"),
+          appArmorProfile,
+          { mode: 0o644 },
+        );
+        await writeFile(
+          paths.appArmorProfiles,
+          "vellum (unconfined)\n",
+          { mode: 0o600 },
+        );
+        await writeFile(
           path.join(paths.dpkgInfoRoot, "vellum.md5sums"),
           "fake-md5\n",
           { mode: 0o644 },
         );
         await writeFile(
           path.join(paths.dpkgInfoRoot, "vellum.list"),
-          "/opt\n/opt/Vellum Command\n/opt/Vellum Command/app.bin\n/opt/Vellum Command/vellum\n",
+          "/opt\n/opt/Vellum Command\n/opt/Vellum Command/app.bin\n/opt/Vellum Command/resources\n/opt/Vellum Command/resources/apparmor-profile\n/opt/Vellum Command/vellum\n",
           { mode: 0o644 },
         );
         if (
@@ -962,6 +1021,7 @@ const createFixture = async (
     dpkgInfoRoot: path.join(root, "dpkg-info"),
     installedRoot: path.join(root, "installed"),
     bridgeRoot: path.join(root, "bridge"),
+    appArmorProfiles: path.join(root, "apparmor-profiles"),
   };
   const home = path.join(root, "home");
   await mkdir(home, { mode: 0o700 });
@@ -978,6 +1038,7 @@ const createFixture = async (
   // authority exercised in production.
   execFileSync("/bin/chmod", ["1733", paths.bridgeRoot]);
   expect((await stat(paths.bridgeRoot)).mode & 0o7777).toBe(0o1733);
+  await writeFile(paths.appArmorProfiles, "", { mode: 0o600 });
   const invocation: LinuxReleaseInstallerInvocation = {
     effectiveUid: 0,
     arguments: [],
@@ -1003,6 +1064,7 @@ const createFixture = async (
     failQuarantine: false,
     statePreflight: "ready",
     preflightActive: false,
+    candidateAppArmor: "exact",
     events: [],
   };
   const lock = { held: false };
@@ -1035,6 +1097,7 @@ const createFixture = async (
     ownerGid: rootOwnerGid(),
     verifyProtectedBundle: verifier,
     runCommand: makeRunner(machine, paths, home),
+    appArmorProfilesPath: paths.appArmorProfiles,
     isProcessLive: async () => false,
     acquireKernelLock: async () => {
       if (lock.held) throw new InstallerError("busy", "held");
@@ -1090,7 +1153,9 @@ const seedInstalledBaseline = async (
     "opt",
     "Vellum Command",
   );
+  const resources = path.join(directory, "resources");
   await mkdir(directory, { recursive: true, mode: 0o755 });
+  await mkdir(resources, { mode: 0o755 });
   await chmod(path.join(fixture.paths.installedRoot, "opt"), 0o755);
   await chmod(directory, 0o755);
   await writeFile(path.join(directory, "app.bin"), `payload:${version}`, {
@@ -1101,14 +1166,24 @@ const seedInstalledBaseline = async (
   });
   await chmod(path.join(directory, "vellum"), 0o755);
   await writeFile(
+    path.join(resources, "apparmor-profile"),
+    appArmorProfile,
+    { mode: 0o644 },
+  );
+  await writeFile(
     path.join(fixture.paths.dpkgInfoRoot, "vellum.md5sums"),
     "fake-md5\n",
     { mode: 0o644 },
   );
   await writeFile(
     path.join(fixture.paths.dpkgInfoRoot, "vellum.list"),
-    "/opt\n/opt/Vellum Command\n/opt/Vellum Command/app.bin\n/opt/Vellum Command/vellum\n",
+    "/opt\n/opt/Vellum Command\n/opt/Vellum Command/app.bin\n/opt/Vellum Command/resources\n/opt/Vellum Command/resources/apparmor-profile\n/opt/Vellum Command/vellum\n",
     { mode: 0o644 },
+  );
+  await writeFile(
+    fixture.paths.appArmorProfiles,
+    "vellum (unconfined)\n",
+    { mode: 0o600 },
   );
   const stateDirectory = path.join(fixture.home, ".vellum", "state");
   await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
@@ -1460,6 +1535,47 @@ describe("Linux privileged release installer", () => {
     expect(await readdir(fixture.paths.preflightRoot)).toEqual([]);
   });
 
+  it("unloads an interrupted bootstrap profile before orphan cleanup", async () => {
+    const fixture = await createFixture();
+    await fixture.host.ensureLayout();
+    await mkdir(fixture.paths.preflightRoot, { mode: 0o711 });
+    await chmod(fixture.paths.preflightRoot, 0o711);
+    const transaction = path.join(
+      fixture.paths.preflightRoot,
+      `${"46".repeat(16)}-${"b".repeat(64)}`,
+    );
+    const payload = path.join(transaction, "payload");
+    const resources = path.join(
+      payload,
+      "opt",
+      "Vellum Command",
+      "resources",
+    );
+    await mkdir(transaction, { mode: 0o711 });
+    await chmod(transaction, 0o711);
+    await mkdir(resources, { recursive: true, mode: 0o755 });
+    await chmod(payload, 0o711);
+    const profile = path.join(resources, "apparmor-profile");
+    const profileText = appArmorProfile;
+    await writeFile(profile, profileText, { mode: 0o644 });
+    await writeFile(
+      path.join(transaction, ".bootstrap-apparmor"),
+      `${sha256(profileText)}\n`,
+      { mode: 0o600 },
+    );
+    await writeFile(
+      fixture.paths.appArmorProfiles,
+      "vellum (unconfined)\n",
+      { mode: 0o600 },
+    );
+
+    await fixture.host.reconcileOrphans();
+
+    expect(fixture.machine.events).toEqual(["apparmor-remove"]);
+    expect(await readFile(fixture.paths.appArmorProfiles, "utf8")).toBe("");
+    expect(await readdir(fixture.paths.preflightRoot)).toEqual([]);
+  });
+
   it("installs a first release without requiring a prior service quarantine", async () => {
     const fixture = await createFixture();
     const { receipt } = await install(fixture, "1.0.0", "5".repeat(32));
@@ -1482,7 +1598,9 @@ describe("Linux privileged release installer", () => {
 
     expect(receipt).toMatchObject({ ok: true, state: "ready" });
     expect(fixture.machine.events).toEqual([
+      "apparmor-load",
       "state-preflight",
+      "apparmor-remove",
       "install:1.0.0",
       "restart:1.0.0",
     ]);
@@ -1498,6 +1616,41 @@ describe("Linux privileged release installer", () => {
     expect(receipt).toMatchObject({ ok: true, state: "ready" });
     expect(fixture.machine.events).toContain("state-preflight");
     expect(fixture.machine.events).toContain("install:2.0.0");
+  });
+
+  it("unloads bootstrap AppArmor authority when first-install preflight fails", async () => {
+    const fixture = await createFixture();
+    fixture.machine.statePreflight = "failed";
+
+    const { receipt } = await install(fixture, "1.0.0", "58".repeat(16));
+
+    expect(receipt).toMatchObject({ ok: false, code: "verification" });
+    expect(fixture.machine.events).toEqual([
+      "apparmor-load",
+      "state-preflight",
+      "apparmor-remove",
+    ]);
+    expect(await readFile(fixture.paths.appArmorProfiles, "utf8")).toBe("");
+    expect(await readdir(fixture.paths.preflightRoot)).toEqual([]);
+    expect(fixture.machine.events).not.toContain("install:1.0.0");
+  });
+
+  it("rejects a signed candidate whose bootstrap profile exceeds userns-only", async () => {
+    const fixture = await createFixture();
+    expect(
+      await readFile(
+        path.join(process.cwd(), "build", "linux", "apparmor-profile"),
+        "utf8",
+      ),
+    ).toBe(appArmorProfile);
+    fixture.machine.candidateAppArmor = "broadened";
+
+    const { receipt } = await install(fixture, "1.0.0", "59".repeat(16));
+
+    expect(receipt).toMatchObject({ ok: false, code: "verification" });
+    expect(fixture.machine.events).toEqual([]);
+    expect(await readFile(fixture.paths.appArmorProfiles, "utf8")).toBe("");
+    expect(await readdir(fixture.paths.preflightRoot)).toEqual([]);
   });
 
   it("quarantines before upgrade mutation and retains forward repair on dpkg failure", async () => {

@@ -80,6 +80,21 @@ const FIXED_INSTALLER = "/usr/libexec/vellum-release-installer";
 const FIXED_STATE_ROOT = "/var/lib/vellum-release-installer";
 const FIXED_SPOOL_ROOT = "/var/lib/vellum-release-installer/spool";
 const FIXED_PREFLIGHT_ROOT = "/run/vellum-release-preflight";
+const FIXED_APPARMOR_PROFILES =
+  "/sys/kernel/security/apparmor/profiles";
+const BOOTSTRAP_APPARMOR_MARKER = ".bootstrap-apparmor";
+const CANDIDATE_APPARMOR_PROFILE =
+  "opt/Vellum Command/resources/apparmor-profile";
+const EXACT_CANDIDATE_APPARMOR_PROFILE = `abi <abi/4.0>,
+include <tunables/global>
+
+# Ubuntu 24.04 restricts unprivileged user namespaces by AppArmor label.
+# Vellum needs only the userns feature grant; the app otherwise remains
+# unconfined by this compatibility profile.
+profile vellum "/opt/Vellum Command/vellum" flags=(unconfined) {
+  userns,
+}
+`;
 const JOURNAL_FILE = "transaction.json";
 const LOCK_FILE = "transaction.lock";
 const MAX_JOURNAL_BYTES = 64 * 1024;
@@ -548,6 +563,7 @@ export interface LinuxReleaseInstallerHost {
     stage: ProtectedStage,
     verified: VerifiedProtectedLinuxBundle,
     invocation: LinuxReleaseInstallerInvocation,
+    incumbentPackage: "present" | "absent",
   ) => Promise<LinuxReleaseInstallerStatePreflightReceipt>;
   readonly quiesceCandidatePreflight: (
     transactionId: string,
@@ -629,6 +645,7 @@ export interface NodeLinuxReleaseInstallerHostOptions {
     target: LinuxReleaseInstallerTarget,
   ) => Promise<LinuxReleaseFenceControl>;
   readonly readMachineIdSha256?: () => Promise<string>;
+  readonly appArmorProfilesPath?: string;
 }
 
 export class InstallerError extends Error {
@@ -1632,6 +1649,7 @@ const runPreparedInstall = async (
           stage,
           verified,
           invocation,
+          fromVersion === null ? "absent" : "present",
         );
       } catch (error) {
         throw new InstallerError(
@@ -2310,6 +2328,7 @@ export class NodeLinuxReleaseInstallerHost
   readonly #verifier: VerifyProtectedLinuxBundle;
   readonly #runtimeRoot: string;
   readonly #preflightRoot: string;
+  readonly #appArmorProfilesPath: string;
   readonly #dpkgInfoRoot: string;
   readonly #installedRoot: string;
   readonly #bridgeStageRoot: string;
@@ -2338,6 +2357,9 @@ export class NodeLinuxReleaseInstallerHost
     this.#runtimeRoot = path.resolve(options.paths.runtimeRoot ?? "/run/user");
     this.#preflightRoot = path.resolve(
       options.paths.preflightRoot ?? FIXED_PREFLIGHT_ROOT,
+    );
+    this.#appArmorProfilesPath = path.resolve(
+      options.appArmorProfilesPath ?? FIXED_APPARMOR_PROFILES,
     );
     this.#dpkgInfoRoot = path.resolve(
       options.paths.dpkgInfoRoot ?? "/var/lib/dpkg/info",
@@ -3714,6 +3736,223 @@ export class NodeLinuxReleaseInstallerHost
     );
   }
 
+  async #candidateAppArmorProfile(
+    payloadDirectory: string,
+  ): Promise<{
+    readonly file: string;
+    readonly sha256: string;
+  }> {
+    const file = path.join(payloadDirectory, CANDIDATE_APPARMOR_PROFILE);
+    const metadata = await lstat(file);
+    if (
+      !metadata.isFile() ||
+      metadata.isSymbolicLink() ||
+      metadata.uid !== this.#ownerUid ||
+      metadata.gid !== this.#ownerGid ||
+      metadata.nlink !== 1 ||
+      (metadata.mode & 0o022) !== 0 ||
+      metadata.size < 1 ||
+      metadata.size > 64 * 1024 ||
+      await realpath(file) !== path.resolve(file)
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "candidate AppArmor profile is not exact",
+      );
+    }
+    const handle = await open(
+      file,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+    );
+    try {
+      const content = await handle.readFile();
+      if (
+        !content.equals(
+          Buffer.from(EXACT_CANDIDATE_APPARMOR_PROFILE, "utf8"),
+        )
+      ) {
+        throw new InstallerError(
+          "policy",
+          "candidate AppArmor profile exceeds the userns-only policy",
+        );
+      }
+      return {
+        file,
+        sha256: createHash("sha256").update(content).digest("hex"),
+      };
+    } finally {
+      await handle.close();
+    }
+  }
+
+  async #appArmorProfileLoaded(): Promise<boolean> {
+    const profiles = await readFile(this.#appArmorProfilesPath);
+    if (
+      profiles.byteLength > 8 * 1024 * 1024 ||
+      profiles.includes(0)
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "AppArmor profile inventory is malformed",
+      );
+    }
+    return profiles.toString("utf8").split("\n").some((line) =>
+      line.startsWith("vellum (") && line.endsWith(")")
+    );
+  }
+
+  async #prepareBootstrapAppArmor(
+    transactionDirectory: string,
+    payloadDirectory: string,
+  ): Promise<void> {
+    if (await this.#appArmorProfileLoaded()) {
+      throw new InstallerError(
+        "unsafe-state",
+        "an absent package has a stale Vellum AppArmor profile",
+      );
+    }
+    const profile = await this.#candidateAppArmorProfile(payloadDirectory);
+    const marker = path.join(
+      transactionDirectory,
+      BOOTSTRAP_APPARMOR_MARKER,
+    );
+    const handle = await open(
+      marker,
+      fsConstants.O_WRONLY |
+        fsConstants.O_CREAT |
+        fsConstants.O_EXCL |
+        fsConstants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      await handle.writeFile(`${profile.sha256}\n`, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await syncDirectory(transactionDirectory);
+    const loaded = await this.#run(
+      "/usr/sbin/apparmor_parser",
+      ["--replace", "--skip-read-cache", profile.file],
+      30_000,
+    );
+    if (
+      loaded.code !== 0 ||
+      loaded.stdout !== "" ||
+      loaded.stderr !== "" ||
+      !(await this.#appArmorProfileLoaded())
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "candidate bootstrap AppArmor profile did not load exactly",
+      );
+    }
+  }
+
+  async #cleanupBootstrapAppArmorTransaction(
+    transactionDirectory: string,
+  ): Promise<void> {
+    const marker = path.join(
+      transactionDirectory,
+      BOOTSTRAP_APPARMOR_MARKER,
+    );
+    let digest: string;
+    try {
+      digest = (await readBoundedProtectedFile(
+        marker,
+        this.#ownerUid,
+        65,
+      )).toString("utf8");
+    } catch (error) {
+      if (isMissing(error)) return;
+      throw error;
+    }
+    if (
+      digest.length !== 65 ||
+      !digest.endsWith("\n") ||
+      !SHA256.test(digest.slice(0, -1))
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "candidate bootstrap AppArmor marker is malformed",
+      );
+    }
+    const payloadDirectory = path.join(transactionDirectory, "payload");
+    const profile = await this.#candidateAppArmorProfile(payloadDirectory);
+    if (`${profile.sha256}\n` !== digest) {
+      throw new InstallerError(
+        "unsafe-state",
+        "candidate bootstrap AppArmor profile changed after loading",
+      );
+    }
+    if (await this.#appArmorProfileLoaded()) {
+      const removed = await this.#run(
+        "/usr/sbin/apparmor_parser",
+        ["--remove", profile.file],
+        30_000,
+      );
+      if (
+        removed.code !== 0 ||
+        removed.stdout !== "" ||
+        removed.stderr !== "" ||
+        await this.#appArmorProfileLoaded()
+      ) {
+        throw new InstallerError(
+          "unsafe-state",
+          "candidate bootstrap AppArmor profile did not unload exactly",
+        );
+      }
+    }
+    await unlink(marker);
+    await syncDirectory(transactionDirectory);
+  }
+
+  async #cleanupBootstrapAppArmor(
+    transactionId: string,
+  ): Promise<void> {
+    let entries;
+    try {
+      await assertProtectedTraverseDirectory(
+        this.#preflightRoot,
+        this.#ownerUid,
+        this.#ownerGid,
+      );
+      entries = await readdir(this.#preflightRoot, {
+        withFileTypes: true,
+      });
+    } catch (error) {
+      if (isMissing(error)) return;
+      throw error;
+    }
+    for (const entry of entries) {
+      const match =
+        /^([0-9a-f]{32})-([0-9a-f]{64})$/u.exec(entry.name);
+      if (
+        match === null ||
+        !entry.isDirectory() ||
+        entry.isSymbolicLink()
+      ) {
+        throw new InstallerError(
+          "unsafe-state",
+          "candidate execution root contains an unsafe entry",
+        );
+      }
+      if (match[1] !== transactionId) continue;
+      const transactionDirectory = path.join(
+        this.#preflightRoot,
+        entry.name,
+      );
+      await assertProtectedTraverseDirectory(
+        transactionDirectory,
+        this.#ownerUid,
+        this.#ownerGid,
+      );
+      await this.#cleanupBootstrapAppArmorTransaction(
+        transactionDirectory,
+      );
+    }
+  }
+
   async #removePreflightTransaction(
     transactionDirectory: string,
   ): Promise<void> {
@@ -3780,6 +4019,7 @@ export class NodeLinuxReleaseInstallerHost
           "candidate execution root contains an unsafe entry",
         );
       }
+      await this.quiesceCandidatePreflight(match[1]!);
       await this.#removePreflightTransaction(
         path.join(this.#preflightRoot, entry.name),
       );
@@ -3816,12 +4056,14 @@ export class NodeLinuxReleaseInstallerHost
         "interrupted candidate preflight remains active",
       );
     }
+    await this.#cleanupBootstrapAppArmor(transactionId);
   }
 
   public async preflightCandidateState(
     stage: ProtectedStage,
     verified: VerifiedProtectedLinuxBundle,
     invocation: LinuxReleaseInstallerInvocation,
+    incumbentPackage: "present" | "absent",
   ): Promise<LinuxReleaseInstallerStatePreflightReceipt> {
     await ensureProtectedTraverseDirectory(
       this.#preflightRoot,
@@ -3874,6 +4116,12 @@ export class NodeLinuxReleaseInstallerHost
         throw new InstallerError(
           "unsafe-state",
           "candidate execution payload changed before preflight",
+        );
+      }
+      if (incumbentPackage === "absent") {
+        await this.#prepareBootstrapAppArmor(
+          transactionDirectory,
+          payloadDirectory,
         );
       }
       const source = await this.#statePreflightSource(invocation);
@@ -4229,7 +4477,6 @@ export class NodeLinuxReleaseInstallerHost
         `--unit=${unit}`,
         `--property=BindReadOnlyPaths=${candidateOpt}:/opt`,
         "--property=KillMode=control-group",
-        "--property=PrivateTmp=yes",
         "--property=TimeoutStopSec=10s",
         "--property=RuntimeMaxSec=180s",
         "--property=UMask=0077",
