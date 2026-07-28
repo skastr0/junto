@@ -18,7 +18,11 @@ import {
 } from "../src/shared/work";
 import type { Artifact, CanvasDoc, Message } from "../src/shared/canvas";
 import { canTransitionTaskState } from "../src/shared/task";
-import { ActorRef } from "../src/shared/work-protocol";
+import {
+  ActorRef,
+  IntentFactBasis,
+  type IntentFactBasis as IntentFactBasisValue,
+} from "../src/shared/work-protocol";
 import { InstallationId } from "../src/shared/installation-id";
 import { HostId } from "../src/shared/remote-hosts";
 import {
@@ -599,6 +603,20 @@ const makeWorkRuntime = (databasePath: string) => {
   );
 };
 
+const activeIntentBasis = async (
+  runtime: ReturnType<typeof makeWorkRuntime>,
+  kind: IntentFactBasisValue["kind"],
+): Promise<IntentFactBasisValue> => {
+  const canvases = await runtime.runPromise(CanvasesService);
+  const witness = await runtime.runPromise(canvases.activeIntentWitness());
+  return Schema.decodeUnknownSync(IntentFactBasis, {
+    onExcessProperty: "error",
+  })({
+    kind,
+    ...witness,
+  });
+};
+
 const workRuntime = makeWorkRuntime(
   join(mockCanvasesHome, "state", "vellum.db"),
 );
@@ -770,11 +788,16 @@ describe("WorkService — concurrent ops", () => {
     );
     if (actor === undefined) throw new Error("missing operator response worker");
     await workRuntime.runPromise(work.workTaskClaim(name, "tasks", taskId, actor));
+    const basis = await activeIntentBasis(
+      workRuntime,
+      "authorial-intent",
+    );
     await workRuntime.runPromise(
       repository.transitionTask({
         sink: { canvasName: name, nodeId: "tasks" },
         taskId,
         state: "input-required",
+        basis,
       }),
     );
 
@@ -1263,6 +1286,10 @@ describe("WorkService — concurrent ops", () => {
       if (sender === undefined) throw new Error("missing Remote sender actor");
       const remoteWork = await runtime.runPromise(WorkService);
       const remoteRepository = await runtime.runPromise(WorkRepository);
+      const basis = await activeIntentBasis(
+        runtime,
+        "projected-intent",
+      );
       await runtime.runPromise(
         remoteRepository.createTask({
           sink: { canvasName, nodeId: "tasks" },
@@ -1279,6 +1306,7 @@ describe("WorkService — concurrent ops", () => {
               },
             ],
           },
+          basis,
         }),
       );
       await runtime.runPromise(
@@ -1286,6 +1314,7 @@ describe("WorkService — concurrent ops", () => {
           sink: { canvasName, nodeId: "tasks" },
           taskId: "remote-operator-response",
           actor: sender,
+          basis,
         }),
       );
       await runtime.runPromise(
@@ -1293,6 +1322,7 @@ describe("WorkService — concurrent ops", () => {
           sink: { canvasName, nodeId: "tasks" },
           taskId: "remote-operator-response",
           state: "input-required",
+          basis,
         }),
       );
       const deniedResponse = await runtime.runPromise(

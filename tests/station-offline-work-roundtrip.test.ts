@@ -39,7 +39,11 @@ import {
 import type {
   StationSessionFrame,
 } from "../src/shared/station-session";
-import type { ActorRef } from "../src/shared/work-protocol";
+import {
+  IntentFactBasis,
+  type ActorRef,
+  type IntentFactBasis as IntentFactBasisValue,
+} from "../src/shared/work-protocol";
 import {
   CanvasesLive,
   CanvasesService,
@@ -74,7 +78,6 @@ import {
 import {
   makeStationRepositoryLive,
   StationRepository,
-  stationProjectionContentSha256,
 } from "../src/main/vellum/station/repository";
 import {
   StationLivePeerRegistry,
@@ -161,6 +164,19 @@ type InstallationHarness = {
   readonly station: typeof StationRepository.Service;
   readonly livePeers: typeof StationLivePeerRegistry.Service;
   readonly propagation: typeof StationPropagation.Service;
+};
+
+const activeIntentBasis = async (
+  harness: InstallationHarness,
+  kind: IntentFactBasisValue["kind"],
+): Promise<IntentFactBasisValue> => {
+  const witness = await harness.runtime.runPromise(
+    harness.canvases.activeIntentWitness(),
+  );
+  return Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
+    kind,
+    ...witness,
+  });
 };
 
 const opened: Array<InstallationHarness> = [];
@@ -506,24 +522,25 @@ describe("Station work authority survives Command Center downtime", () => {
         [remoteHost, remoteId],
       ]),
     );
+    const archivedProjection =
+      await commandCenter.runtime.runPromise(
+        commandCenter.station.archiveProjection({
+          scope: "full",
+          sourceCanvasGeneration: generation(authority.generation),
+          sourceIntentSha256: projectionSha256(
+            authority.intentSha256,
+          ),
+          body: projectionBody,
+          createdAt: now,
+        }),
+      );
     await remote.runtime.runPromise(
       remote.api.handle(
         ProjectRequest.make({
           protocol: STATION_API_PROTOCOL,
           op: "project",
           stationInstallationId: remoteId,
-          projection: {
-            scope: "full",
-            generation: generation("1"),
-            sourceCanvasGeneration: generation(authority.generation),
-            sourceIntentSha256: projectionSha256(
-              authority.intentSha256,
-            ),
-            body: projectionBody,
-            contentSha256:
-              stationProjectionContentSha256(projectionBody),
-            createdAt: now,
-          },
+          projection: archivedProjection,
         }),
         readiness,
         { _tag: "command-center-route" },
@@ -532,6 +549,14 @@ describe("Station work authority survives Command Center downtime", () => {
 
     const firstTaskId = "task-offline-roundtrip";
     const secondTaskId = "task-must-not-claim-offline";
+    const commandCenterBasis = await activeIntentBasis(
+      commandCenter,
+      "authorial-intent",
+    );
+    const remoteBasis = await activeIntentBasis(
+      remote,
+      "projected-intent",
+    );
     await commandCenter.runtime.runPromise(
       commandCenter.work.createTask({
         sink,
@@ -547,6 +572,7 @@ describe("Station work authority survives Command Center downtime", () => {
             ),
           ],
         },
+        basis: commandCenterBasis,
         originAt: now,
         receivedAt: now,
       }),
@@ -566,6 +592,7 @@ describe("Station work authority survives Command Center downtime", () => {
             ),
           ],
         },
+        basis: commandCenterBasis,
         originAt: now,
         receivedAt: now,
       }),
@@ -721,6 +748,7 @@ describe("Station work authority survives Command Center downtime", () => {
         sink,
         taskId: secondTaskId,
         actor,
+        basis: remoteBasis,
         originAt: now,
         receivedAt: now,
       }).pipe(Effect.either),
@@ -746,6 +774,7 @@ describe("Station work authority survives Command Center downtime", () => {
           "completed without Command Center",
           firstTaskId,
         ),
+        basis: remoteBasis,
         // Display time deliberately ties every fact. Logical route sequence,
         // not wall clock/LWW, establishes the terminal state.
         originAt: now,
