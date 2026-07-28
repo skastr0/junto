@@ -1,7 +1,7 @@
 {
   "name": "@skastr0/vellum",
   "version": "0.1.0",
-  "description": "Vellum Command \u2014 the deep-field station for multi-agent fleets.",
+  "description": "Vellum Command — the deep-field station for multi-agent fleets.",
   "author": {
     "name": "Guilherme Castro",
     "email": "skastr052@gmail.com"
