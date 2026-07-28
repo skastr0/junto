@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   inspectStateUpdateCandidate,
@@ -160,5 +160,56 @@ describe("state candidate readiness", () => {
     expect(receipt).not.toHaveProperty("backupFile");
     expect(receipt).not.toHaveProperty("activeIntent");
     expect(existsSync(path)).toBe(false);
+  });
+
+  it("rejects a corrupt historical Work record that is absent from current material state", async () => {
+    const path = await makeDatabasePath();
+    await copyFile(
+      join(
+        process.cwd(),
+        "tests/fixtures/state-v1/command-center-v1.db",
+      ),
+      path,
+    );
+    const database = new DatabaseSync(path);
+    try {
+      const immutableUpdate = database.prepare(
+        `
+          SELECT sql
+          FROM sqlite_schema
+          WHERE type = 'trigger'
+            AND name = 'work_facts_immutable_update'
+        `,
+      ).get() as { readonly sql: string };
+      database.exec("DROP TRIGGER work_facts_immutable_update");
+      database.prepare(
+        `
+          UPDATE work_facts
+          SET result_json = '{}'
+          WHERE event_home = 'command-center-v1'
+            AND entity_home = 'command-center-v1'
+            AND seq = '1'
+        `,
+      ).run();
+      database.exec(immutableUpdate.sql);
+    } finally {
+      database.close();
+    }
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        withStateUpdateCandidate(
+          inspectStateUpdateCandidate,
+          path,
+        ),
+      ),
+    );
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isRight(result)) {
+      throw new Error("corrupt historical Work record passed preflight");
+    }
+    expect(result.left).toMatchObject({
+      operation: "readiness",
+    });
   });
 });

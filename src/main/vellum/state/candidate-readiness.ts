@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { Effect, Layer, Schema } from "effect";
 import { InstallationId } from "@shared/installation-id";
+import type { LogicalSequence } from "@shared/work-protocol";
 import { CanvasesLive, CanvasesService } from "../canvases";
 import {
   KernelStateRepository,
@@ -87,6 +88,11 @@ type SchedulerCursorKey = {
   readonly timer_key: string;
 };
 
+type WorkRouteKey = {
+  readonly event_home: string;
+  readonly entity_home: string;
+};
+
 const readinessError = (
   cause: unknown,
 ): StateUpdateCandidateError =>
@@ -143,6 +149,7 @@ export const inspectStateUpdateCandidate = (
       armedRegions,
       debugPulseRing,
       schedulerKeys,
+      workRoutes,
     } = yield* Effect.all({
       canvasSummaries: canvases.list,
       actorRefs: canvases.activeActorRefs(),
@@ -161,12 +168,50 @@ export const inspectStateUpdateCandidate = (
             `,
           ),
       ),
+      workRoutes: engine.read(
+        "state-update.work-routes",
+        (reader) =>
+          reader.all<WorkRouteKey>(
+            `
+              SELECT DISTINCT event_home, entity_home
+              FROM work_events
+              ORDER BY event_home, entity_home
+            `,
+          ),
+      ),
     });
     // Reading every material snapshot forces current Work decoders across the
     // migrated clone rather than proving only that its tables exist.
     const workSnapshots = yield* Effect.forEach(
       canvasSummaries,
       (canvas) => work.snapshotsForCanvas(canvas.name),
+      { concurrency: 1 },
+    );
+    // A current material snapshot does not prove already-resolved history.
+    // Walk every immutable route through the public repository decoder so a
+    // corrupt historical fact, command, or disposition blocks activation.
+    yield* Effect.forEach(
+      workRoutes,
+      (key) =>
+        Effect.gen(function* () {
+          const eventHome = Schema.decodeUnknownSync(InstallationId)(
+            key.event_home,
+          );
+          const entityHome = Schema.decodeUnknownSync(InstallationId)(
+            key.entity_home,
+          );
+          let after: LogicalSequence | undefined;
+          while (true) {
+            const page = yield* work.recordsAfter({
+              route: { eventHome, entityHome },
+              ...(after === undefined ? {} : { after }),
+              limit: 256,
+            });
+            if (page.length === 0) break;
+            after = page.at(-1)!.id.seq;
+            if (page.length < 256) break;
+          }
+        }),
       { concurrency: 1 },
     );
     // Likewise, exercise the scheduler's typed decoder for every retained
