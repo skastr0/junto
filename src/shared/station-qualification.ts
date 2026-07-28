@@ -15,7 +15,9 @@ import { DisplayTimestamp, RouteCursor } from "./work-protocol";
  * before the two real installations have been exercised.
  */
 export const STATION_QUALIFICATION_SCHEMA =
-  "vellum/station-two-installation-qualification/v2" as const;
+  "vellum/station-two-installation-qualification/v1" as const;
+export const STATION_QUALIFICATION_RECEIPT_FILE =
+  "station-qualification-receipt.json" as const;
 
 export const StationQualificationSourceCommit = Schema.String.pipe(
   Schema.pattern(/^[a-f0-9]{40}$/),
@@ -30,8 +32,17 @@ export const StationQualificationSha256 = Schema.String.pipe(
 );
 export type StationQualificationSha256 = typeof StationQualificationSha256.Type;
 
+export const StationQualificationPackageFile = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(180),
+  Schema.pattern(/^(?!\.{1,2}$)[^/\\\u0000-\u001f\u007f]+$/),
+  Schema.brand("StationQualificationPackageFile"),
+);
+export type StationQualificationPackageFile =
+  typeof StationQualificationPackageFile.Type;
+
 const PackageBinding = Schema.Struct({
-  file: Schema.NonEmptyString.pipe(Schema.maxLength(256)),
+  file: StationQualificationPackageFile,
   sha256: StationQualificationSha256,
 });
 export type StationQualificationPackage = typeof PackageBinding.Type;
@@ -124,8 +135,14 @@ export type StationQualificationDoctorStatus =
   typeof StationQualificationDoctorStatus.Type;
 
 const DoctorWitness = Schema.Struct({
-  commandCenter: Schema.Struct({ status: StationQualificationDoctorStatus, witness: Witness }),
-  remote: Schema.Struct({ status: StationQualificationDoctorStatus, witness: Witness }),
+  commandCenter: Schema.Struct({
+    status: StationQualificationDoctorStatus,
+    witness: Witness,
+  }),
+  remote: Schema.Struct({
+    status: StationQualificationDoctorStatus,
+    witness: Witness,
+  }),
 });
 
 const SyntheticNoOverlapWitness = Schema.Struct({
@@ -191,7 +208,10 @@ export const decodeStationQualification = Schema.decodeUnknownEither(
 );
 
 export const pendingStationQualification = (
-  binding: Omit<PendingStationQualification, "schema" | "ok" | "status" | "reason" | "stationProtocol">,
+  binding: Omit<
+    PendingStationQualification,
+    "schema" | "ok" | "status" | "reason" | "stationProtocol"
+  >,
 ): PendingStationQualification =>
   PendingStationQualification.make({
     schema: STATION_QUALIFICATION_SCHEMA,

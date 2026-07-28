@@ -18,8 +18,6 @@ import {
   LINUX_RELEASE_KEYRING,
   LINUX_RELEASE_MANIFEST,
   LINUX_RELEASE_SIGNATURE,
-  LINUX_STATION_QUALIFICATION_CHECKS,
-  LINUX_STATION_QUALIFICATION_RECEIPT,
   createLinuxReleaseManifest,
   decodeLinuxReleaseKeyring,
   decodeLinuxReleaseManifest,
@@ -30,6 +28,10 @@ import {
   type LinuxReleaseHostFacts,
   type LinuxReleaseKeyring,
 } from "../scripts/linux-release-bundle";
+import {
+  STATION_QUALIFICATION_RECEIPT_FILE,
+  STATION_QUALIFICATION_SCHEMA,
+} from "../src/shared/station-qualification";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   type StationProtocolSupport,
@@ -115,7 +117,8 @@ const createFixture = async (options: {
   readonly promotionStationQualificationSha256?: string;
   readonly stationQualificationPackageSha256?: string;
   readonly stationQualificationSourceCommit?: string;
-  readonly stationQualificationChecks?: ReadonlyArray<string>;
+  readonly stationQualificationIncomplete?: boolean;
+  readonly stationQualificationPending?: boolean;
   readonly omitStationQualification?: boolean;
 } = {}) => {
   const directory = await mkdtemp(
@@ -310,40 +313,122 @@ const createFixture = async (options: {
     ciEvidenceManifest,
     { encoding: "utf8", mode: 0o644 },
   );
-  const stationQualificationReceipt = canonical({
-    schema: "vellum/station-two-installation-qualification/v1",
-    ok: true,
-    sourceCommit: options.stationQualificationSourceCommit ?? REVISION,
-    package: {
-      file: PACKAGE,
-      sha256:
-        options.stationQualificationPackageSha256 ??
-          sha256(payloads[PACKAGE]),
+  const qualificationWitness = (character: string) => ({
+    evidenceSha256: character.repeat(64),
+    observedAt: "2026-07-23T11:45:00.000Z",
+  });
+  const qualificationCursor = (
+    eventHome: string,
+    entityHome: string,
+    through: string,
+  ) => ({ eventHome, entityHome, through });
+  const qualificationConvergence = {
+    commandCenterReceived:
+      qualificationCursor("fixture-remote", "fixture-remote", "2"),
+    remoteAcknowledgedByCommandCenter:
+      qualificationCursor("fixture-remote", "fixture-remote", "2"),
+    remoteReceived:
+      qualificationCursor("fixture-command-center", "fixture-command-center", "3"),
+    commandCenterAcknowledgedByRemote:
+      qualificationCursor("fixture-command-center", "fixture-command-center", "3"),
+  };
+  const qualificationPhases = {
+    pair: { witness: qualificationWitness("1") },
+    configure: { witness: qualificationWitness("2") },
+    project: { witness: qualificationWitness("3") },
+    report: {
+      witness: qualificationWitness("4"),
+      convergence: qualificationConvergence,
     },
-    stationProtocol: 2,
-    installations: {
+    status: { witness: qualificationWitness("5") },
+    commandCenterOfflineClaimedTask: {
+      witness: qualificationWitness("6"),
+      taskId: "fixture-task",
+      advancedState: "completed",
+    },
+    projectResponseRetry: {
+      interruptionWitness: qualificationWitness("7"),
+      retryWitness: qualificationWitness("8"),
+      outcome: "idempotent",
+    },
+    reportResponseRetry: {
+      interruptionWitness: qualificationWitness("9"),
+      retryWitness: qualificationWitness("a"),
+      convergence: qualificationConvergence,
+    },
+    doctor: {
       commandCenter: {
-        installationId: "fixture-command-center",
-        appVersion: VERSION,
+        status: "ok",
+        witness: qualificationWitness("b"),
       },
       remote: {
-        installationId: "fixture-remote",
-        appVersion: VERSION,
-        platform: "linux",
-        distribution: "ubuntu",
-        distributionVersion: "24.04",
-        architecture: "x64",
+        status: "ok",
+        witness: qualificationWitness("c"),
       },
     },
-    checks: (
-      options.stationQualificationChecks ??
-        LINUX_STATION_QUALIFICATION_CHECKS
-    ).map((name) => ({ name, status: "passed" })),
-    completedAt: "2026-07-23T11:50:00.000Z",
-  });
+    syntheticNoOverlap: {
+      synthetic: true,
+      witness: qualificationWitness("d"),
+      commandCenterSupport: {
+        preferred: 4,
+        compatibleFrom: 3,
+        warnBelow: 3,
+      },
+      remoteSupport: {
+        preferred: 2,
+        compatibleFrom: 1,
+        warnBelow: 1,
+      },
+      outcome: "update-required",
+    },
+  };
+  const { report: _report, ...incompleteQualificationPhases } =
+    qualificationPhases;
+  const stationQualification = options.stationQualificationPending === true
+    ? {
+      schema: STATION_QUALIFICATION_SCHEMA,
+      ok: false,
+      status: "pending",
+      reason: "operator-run-required",
+      sourceCommit: options.stationQualificationSourceCommit ?? REVISION,
+      package: {
+        file: PACKAGE,
+        sha256:
+          options.stationQualificationPackageSha256 ??
+            sha256(payloads[PACKAGE]),
+      },
+      stationProtocol: 2,
+    }
+    : {
+      schema: STATION_QUALIFICATION_SCHEMA,
+      ok: true,
+      sourceCommit: options.stationQualificationSourceCommit ?? REVISION,
+      package: {
+        file: PACKAGE,
+        sha256:
+          options.stationQualificationPackageSha256 ??
+            sha256(payloads[PACKAGE]),
+      },
+      stationProtocol: 2,
+      installations: {
+        commandCenter: {
+          installationId: "fixture-command-center",
+          appVersion: VERSION,
+        },
+        remote: {
+          installationId: "fixture-remote",
+          appVersion: VERSION,
+        },
+      },
+      phases: options.stationQualificationIncomplete === true
+        ? incompleteQualificationPhases
+        : qualificationPhases,
+      completedAt: "2026-07-23T11:50:00.000Z",
+    };
+  const stationQualificationReceipt = canonical(stationQualification);
   if (options.omitStationQualification !== true) {
     await writeFile(
-      path.join(directory, LINUX_STATION_QUALIFICATION_RECEIPT),
+      path.join(directory, STATION_QUALIFICATION_RECEIPT_FILE),
       stationQualificationReceipt,
       { encoding: "utf8", mode: 0o644 },
     );
@@ -365,7 +450,7 @@ const createFixture = async (options: {
         sha256: sha256(ciEvidenceManifest),
       },
       stationQualification: {
-        file: LINUX_STATION_QUALIFICATION_RECEIPT,
+        file: STATION_QUALIFICATION_RECEIPT_FILE,
         sha256:
           options.promotionStationQualificationSha256 ??
             sha256(stationQualificationReceipt),
@@ -755,10 +840,12 @@ describe("signed Linux release bundle", () => {
     ).rejects.toThrow(/two-installation Station qualification/u);
     await expect(
       createFixture({
-        stationQualificationChecks:
-          LINUX_STATION_QUALIFICATION_CHECKS.slice(1),
+        stationQualificationIncomplete: true,
       }),
-    ).rejects.toThrow(/two-installation Station qualification/u);
+    ).rejects.toThrow(/passed two-installation Station qualification/u);
+    await expect(
+      createFixture({ stationQualificationPending: true }),
+    ).rejects.toThrow(/passed two-installation Station qualification/u);
     await expect(
       createFixture({
         promotionStationQualificationSha256: "0".repeat(64),

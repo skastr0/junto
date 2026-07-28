@@ -113,25 +113,30 @@ The operator-run fleet proof produces exactly
 `vellum/station-two-installation-qualification/v1`. It binds the proof to one
 source commit, the exact `deb` filename and SHA-256, the selected Station
 protocol, and the observed Command Center and Remote installation identities
-and app versions. The Remote identity also records
-`platform: "linux"`, `distribution: "ubuntu"`,
-`distributionVersion: "24.04"`, and `architecture: "x64"`.
+and app versions. The package filename is a safe basename; path-bearing
+package claims fail decode.
 
-The receipt's ordered `checks` are:
+The receipt has one strict structured `phases` object:
 
-1. `pair`
-2. `configure`
-3. `project`
-4. `status`
-5. `report`
-6. `project-response-loss-retry`
-7. `remote-offline-work`
-8. `report-response-loss-retry`
-9. `protocol-no-overlap-rejection`
+- `pair`, `configure`, `project`, and `status` each carry a hashed,
+  timestamped witness;
+- `report` carries its witness plus matching positive full-route cursors in
+  both directions;
+- `commandCenterOfflineClaimedTask` names one already-claimed task that
+  completed while Command Center was unavailable;
+- `projectResponseRetry` proves an interrupted project response retried
+  idempotently;
+- `reportResponseRetry` proves an interrupted report response converged to
+  the same bidirectional cursors;
+- `doctor` carries successful Command Center and Remote Doctor witnesses;
+- `syntheticNoOverlap` is explicitly labelled synthetic and proves two
+  non-overlapping protocol ranges produce `update-required`.
 
-`ok: true` is valid only when all nine checks pass against those exact
-installations and package bytes. CI cannot create this receipt. The final
-release promotion gate separately hashes and binds it in
+`ok: true` is valid only when every structured phase decodes against those
+exact installations and package bytes. An `ok: false` receipt means only
+`operator-run-required` and is never release evidence. CI creates neither
+variant. The final release promotion gate separately hashes and binds the
+passed receipt in
 `release-promotion-receipt.json`; neither filename may be synthesized from
 package-smoke success.
 

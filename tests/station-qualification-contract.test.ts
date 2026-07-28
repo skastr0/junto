@@ -2,6 +2,7 @@ import { Either, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   STATION_QUALIFICATION_SCHEMA,
+  StationQualificationPackageFile,
   StationQualificationSha256,
   StationQualificationSourceCommit,
   decodeStationQualification,
@@ -87,7 +88,9 @@ describe("two-installation Station qualification contract", () => {
     const pending = pendingStationQualification({
       sourceCommit: Schema.decodeUnknownSync(StationQualificationSourceCommit)("a".repeat(40)),
       package: {
-        file: "vellum.deb",
+        file: Schema.decodeUnknownSync(StationQualificationPackageFile)(
+          "vellum.deb",
+        ),
         sha256: Schema.decodeUnknownSync(StationQualificationSha256)(hash("b")),
       },
     });
@@ -131,5 +134,34 @@ describe("two-installation Station qualification contract", () => {
 
   it("strictly rejects receipt excess", () => {
     expect(Either.isLeft(decodeStationQualification({ ...qualified(), extra: true }))).toBe(true);
+  });
+
+  it("has one first-shipped v1 discriminator and safe package basenames", () => {
+    expect(STATION_QUALIFICATION_SCHEMA).toBe(
+      "vellum/station-two-installation-qualification/v1",
+    );
+    expect(Either.isLeft(decodeStationQualification({
+      ...qualified(),
+      schema: "vellum/station-two-installation-qualification/v2",
+    }))).toBe(true);
+    const { phases: _phases, ...legacyHeader } = qualified();
+    expect(Either.isLeft(decodeStationQualification({
+      ...legacyHeader,
+      checks: [{ name: "pair", status: "passed" }],
+    }))).toBe(true);
+
+    for (
+      const file of [
+        ".",
+        "..",
+        "../vellum.deb",
+        "nested/vellum.deb",
+        "bad\0.deb",
+      ]
+    ) {
+      const receipt = qualified();
+      receipt.package.file = file;
+      expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
+    }
   });
 });
