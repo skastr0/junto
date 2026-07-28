@@ -1,4 +1,3 @@
-import type { Context } from "effect";
 import { Effect, Either, Schema } from "effect";
 import {
   ConfigureRequest,
@@ -8,6 +7,7 @@ import {
   STATION_API_PROTOCOL,
   type ConfigureResponse,
 } from "@shared/station-api";
+import { stationControlErr } from "@shared/station-api-envelope";
 import type { StationSettings } from "@shared/settings";
 import {
   planRemoteStationConfig,
@@ -16,17 +16,15 @@ import {
 import type { RemoteHost } from "@shared/remote-hosts";
 import { hermesKeyFor, RemoteHostsError } from "@shared/remote-hosts";
 import { parseSshEndpoint } from "../ssh/domain";
+import { resolveRemotePackagedPlatform } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
+import { bootstrapOpenSshStationStatus } from "../station/openssh-bootstrap";
 import {
-  makeStationRemoteApiClient,
-  type StationRemoteApiError,
-  StationRemoteApiClient,
-} from "../station/remote-client";
+  admitEnrolledOpenSshStationPeer,
+  makeOpenSshStationPeerExchange,
+} from "../station/openssh-peer-exchange";
 
-type Ssh = Context.Tag.Service<typeof SshTransport>;
-export type StationRemote = Context.Tag.Service<
-  typeof StationRemoteApiClient
->;
+type Ssh = typeof SshTransport.Service;
 
 export type ConfigureRemoteOptions = {
   /** Durable identity of this Command Center's SQLite installation. */
@@ -46,39 +44,71 @@ export type ConfigureRemoteResult = {
   readonly message?: string;
 };
 
-const remoteErrorCode = (
-  error: StationRemoteApiError,
+const taggedError = (
+  error: unknown,
+): {
+  readonly _tag?: string;
+  readonly code?: string;
+  readonly reason?: string;
+  readonly message?: string;
+} =>
+  typeof error === "object" && error !== null
+    ? error as {
+        readonly _tag?: string;
+        readonly code?: string;
+        readonly reason?: string;
+        readonly message?: string;
+      }
+    : {};
+
+const stationErrorCode = (
+  error: unknown,
 ): "io" | "validation" | "conflict" => {
-  if (error._tag === "RemotePlatformProbeError") return "validation";
-  if (error._tag === "StationRemoteRejectedError") {
-    if (error.code === "state_conflict") return "conflict";
+  const tagged = taggedError(error);
+  if (tagged._tag === "RemotePlatformProbeError") return "validation";
+  if (tagged._tag === "StationPeerRejectedError") {
+    if (tagged.code === "state_conflict") return "conflict";
     if (
-      error.code === "protocol_error" ||
-      error.code === "request_rejected" ||
-      error.code === "integrity_error"
+      tagged.code === "protocol_error" ||
+      tagged.code === "request_rejected" ||
+      tagged.code === "integrity_error" ||
+      tagged.code === "authorization_denied"
     ) {
       return "validation";
     }
   }
-  if (error._tag === "StationRemoteProtocolError") return "validation";
+  if (
+    tagged._tag === "StationPeerSessionProtocolError" ||
+    tagged._tag === "StationPeerSessionCapacityError" ||
+    tagged._tag === "SshInputError"
+  ) {
+    return "validation";
+  }
+  if (tagged._tag === "StationSessionTransportError") {
+    return tagged.reason === "malformed-frame" ||
+        tagged.reason === "frame-too-large" ||
+        tagged.reason === "queue-capacity"
+      ? "validation"
+      : "io";
+  }
+  if (tagged._tag === "OpenSshStationBootstrapError") {
+    return tagged.reason === "timeout" ? "io" : "validation";
+  }
   return "io";
 };
 
-const remoteErrorMessage = (error: StationRemoteApiError): string => {
-  switch (error._tag) {
-    case "RemotePlatformProbeError":
-    case "StationRemoteRejectedError":
-    case "StationRemoteProtocolError":
-    case "StationRemoteExecutionError":
-    case "SshInputError":
-    case "SshSpawnError":
-    case "SshTimeoutError":
-    case "SshExitError":
-      return error.message;
-    default:
-      return String(error);
-  }
-};
+const stationErrorMessage = (error: unknown): string =>
+  taggedError(error).message ??
+  (error instanceof Error ? error.message : String(error));
+
+const mapStationError = (
+  host: RemoteHost,
+  error: unknown,
+): RemoteHostsError =>
+  new RemoteHostsError(
+    stationErrorCode(error),
+    `${host.label}: ${stationErrorMessage(error)}`,
+  );
 
 const decodeRequest = <A, I>(
   schema: Schema.Schema<A, I>,
@@ -141,7 +171,6 @@ export const configureRemoteHost = (
   ssh: Ssh,
   host: RemoteHost,
   options: ConfigureRemoteOptions,
-  remote: StationRemote = makeStationRemoteApiClient(ssh),
 ): Effect.Effect<ConfigureRemoteResult, RemoteHostsError> =>
   Effect.gen(function* () {
     if (host.kind !== "remote") {
@@ -185,14 +214,15 @@ export const configureRemoteHost = (
         ),
     });
 
-    const status = yield* remote.status(endpoint).pipe(
-      Effect.mapError(
-        (error) =>
-          new RemoteHostsError(
-            remoteErrorCode(error),
-            `${host.label}: ${remoteErrorMessage(error)}`,
-          ),
-      ),
+    const platform = yield* resolveRemotePackagedPlatform(ssh, endpoint).pipe(
+      Effect.mapError((error) => mapStationError(host, error)),
+    );
+    const status = yield* bootstrapOpenSshStationStatus(
+      ssh,
+      endpoint,
+      platform,
+    ).pipe(
+      Effect.mapError((error) => mapStationError(host, error)),
     );
 
     const pairRequest = yield* decodeRequest(
@@ -208,16 +238,6 @@ export const configureRemoteHost = (
       },
       "Station pair",
     );
-    yield* remote.pair(endpoint, pairRequest).pipe(
-      Effect.mapError(
-        (error) =>
-          new RemoteHostsError(
-            remoteErrorCode(error),
-            `${host.label}: ${remoteErrorMessage(error)}`,
-          ),
-      ),
-    );
-
     const configuration = yield* decodeRequest(
       RemoteConfiguration,
       {
@@ -244,17 +264,34 @@ export const configureRemoteHost = (
       },
       "Station configure",
     );
-    const configured = yield* remote
-      .configure(endpoint, configureRequest)
-      .pipe(
-        Effect.mapError(
-          (error) =>
-            new RemoteHostsError(
-              remoteErrorCode(error),
-              `${host.label}: ${remoteErrorMessage(error)}`,
+    const route = admitEnrolledOpenSshStationPeer({
+      peerInstallationId: status.installationId,
+      endpoint,
+      platform,
+    });
+    const exchange = makeOpenSshStationPeerExchange(
+      ssh,
+      options.commandCenterInstallationId,
+    );
+    const configured = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const session = yield* exchange.open(
+          route,
+          () =>
+            Effect.succeed(
+              stationControlErr(
+                "authorization_denied",
+                "Remote reports are not admitted during enrollment",
+                false,
+              ),
             ),
-        ),
-      );
+        );
+        yield* session.request(pairRequest);
+        return yield* session.request(configureRequest);
+      }),
+    ).pipe(
+      Effect.mapError((error) => mapStationError(host, error)),
+    );
     const station = yield* stationSettingsFromResponse(configured);
 
     if (

@@ -8,7 +8,6 @@ import {
   configureRemoteHost,
   type ConfigureRemoteOptions,
   type ConfigureRemoteResult,
-  type StationRemote,
 } from "./configure-remote";
 import {
   dispatchRemoteDeployment,
@@ -69,7 +68,6 @@ export type ConfiguredRemoteDeployOperations = {
     ssh: Ssh,
     host: RemoteHost,
     options: ConfigureRemoteOptions,
-    remote?: StationRemote,
   ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
 };
 
