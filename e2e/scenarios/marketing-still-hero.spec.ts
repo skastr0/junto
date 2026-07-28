@@ -211,13 +211,21 @@ test("still 00 — factory hero board", async () => {
         {
           artifactId: "a-1",
           name: "hero-copy.md",
-          taskId: "t-a1",
+          task: {
+            kind: "task",
+            itemId: "t-a1",
+            sink: { canvasName: "factory", nodeId: "tasks-scribe" },
+          },
           parts: [{ kind: "text", text: "# All your agents. One factory." }],
         },
         {
           artifactId: "a-2",
           name: "launch-notes.md",
-          taskId: "t-a1",
+          task: {
+            kind: "task",
+            itemId: "t-a1",
+            sink: { canvasName: "factory", nodeId: "tasks-scribe" },
+          },
           parts: [{ kind: "text", text: "# Beta launch\n\n- hero still\n- fleet map" }],
         },
       ] satisfies Artifact[],

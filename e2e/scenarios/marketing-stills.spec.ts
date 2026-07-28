@@ -918,13 +918,21 @@ test("still 05 — five regions agent square", async () => {
         {
           artifactId: "a-1",
           name: "tokens.json",
-          taskId: "t-1",
+          task: {
+            kind: "task",
+            itemId: "t-1",
+            sink: { canvasName: "portfolio", nodeId: "tasks-forge" },
+          },
           parts: [{ kind: "text", text: '{ "signal": "#E6A94A" }' }],
         },
         {
           artifactId: "a-2",
           name: "release-notes.md",
-          taskId: "t-4",
+          task: {
+            kind: "task",
+            itemId: "t-4",
+            sink: { canvasName: "portfolio", nodeId: "tasks-forge" },
+          },
           parts: [{ kind: "text", text: "# Beta stills\n\n- factory board\n- fleet map" }],
         },
       ] satisfies Artifact[],
@@ -1114,7 +1122,11 @@ test("still 06 — work UI grid", async () => {
         {
           artifactId: "a-1",
           name: "release-v1.4.2-sigstore.json",
-          taskId: "t-2",
+          task: {
+            kind: "task",
+            itemId: "t-2",
+            sink: { canvasName: "portfolio", nodeId: "tasks1" },
+          },
           parts: [
             {
               kind: "text",
@@ -1126,7 +1138,11 @@ test("still 06 — work UI grid", async () => {
         {
           artifactId: "a-2",
           name: "station-deployment-report",
-          taskId: "t-5",
+          task: {
+            kind: "task",
+            itemId: "t-5",
+            sink: { canvasName: "portfolio", nodeId: "tasks1" },
+          },
           parts: [{ kind: "text", text: "All five stations projected generation 12." }],
         },
         {

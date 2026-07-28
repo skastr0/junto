@@ -358,7 +358,10 @@ describe("WorkRepository v2 report reconciliation", () => {
         },
       }),
     );
-    if (fact.recordType !== "fact") {
+    if (
+      fact.recordType !== "fact" ||
+      fact.body.operation !== "message.append"
+    ) {
       throw new Error("thread response fixture is not a fact");
     }
     const disposition = reseal(

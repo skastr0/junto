@@ -249,7 +249,11 @@ const nodes: CanvasNode[] = [
       {
         artifactId: "a-1",
         name: "release-v1.4.2-sigstore.json",
-        taskId: "t-2",
+        task: {
+          kind: "task",
+          itemId: "t-2",
+          sink: { canvasName: "design-audit", nodeId: "tasks1" },
+        },
         parts: [
           {
             kind: "text",
@@ -261,7 +265,11 @@ const nodes: CanvasNode[] = [
       {
         artifactId: "a-2",
         name: "station-deployment-report",
-        taskId: "t-5",
+        task: {
+          kind: "task",
+          itemId: "t-5",
+          sink: { canvasName: "design-audit", nodeId: "tasks1" },
+        },
         parts: [
           {
             kind: "url",
