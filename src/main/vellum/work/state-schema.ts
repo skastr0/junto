@@ -325,8 +325,9 @@ export const WORK_STATE_SCHEMA_SQL = `
       CHECK (
         claim_actor_seat_id IS NULL
         OR (
-          length(claim_actor_seat_id) = 64
-          AND claim_actor_seat_id NOT GLOB '*[^a-f0-9]*'
+          length(claim_actor_seat_id) = 69
+          AND substr(claim_actor_seat_id, 1, 5) = 'seat_'
+          AND substr(claim_actor_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
         )
       ),
     resolution_status TEXT
@@ -393,8 +394,9 @@ export const WORK_STATE_SCHEMA_SQL = `
       CHECK (
         actor_seat_id IS NULL
         OR (
-          length(actor_seat_id) = 64
-          AND actor_seat_id NOT GLOB '*[^a-f0-9]*'
+          length(actor_seat_id) = 69
+          AND substr(actor_seat_id, 1, 5) = 'seat_'
+          AND substr(actor_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
         )
       ),
     fact_event_home TEXT NOT NULL,
@@ -460,8 +462,9 @@ export const WORK_STATE_SCHEMA_SQL = `
     entity_home TEXT NOT NULL,
     actor_seat_id TEXT NOT NULL
       CHECK (
-        length(actor_seat_id) = 64
-        AND actor_seat_id NOT GLOB '*[^a-f0-9]*'
+        length(actor_seat_id) = 69
+        AND substr(actor_seat_id, 1, 5) = 'seat_'
+        AND substr(actor_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
       ),
     fact_event_home TEXT NOT NULL,
     fact_entity_home TEXT NOT NULL,
@@ -594,8 +597,9 @@ export const WORK_STATE_SCHEMA_SQL = `
     entity_home TEXT NOT NULL,
     actor_seat_id TEXT NOT NULL
       CHECK (
-        length(actor_seat_id) = 64
-        AND actor_seat_id NOT GLOB '*[^a-f0-9]*'
+        length(actor_seat_id) = 69
+        AND substr(actor_seat_id, 1, 5) = 'seat_'
+        AND substr(actor_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
       ),
     fact_event_home TEXT NOT NULL,
     fact_entity_home TEXT NOT NULL,
@@ -632,8 +636,9 @@ export const WORK_STATE_SCHEMA_SQL = `
       CHECK (
         actor_seat_id IS NULL
         OR (
-          length(actor_seat_id) = 64
-          AND actor_seat_id NOT GLOB '*[^a-f0-9]*'
+          length(actor_seat_id) = 69
+          AND substr(actor_seat_id, 1, 5) = 'seat_'
+          AND substr(actor_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
         )
       ),
     fact_event_home TEXT NOT NULL,
@@ -717,8 +722,9 @@ export const WORK_STATE_SCHEMA_SQL = `
       CHECK (length(delivered_node_id) BETWEEN 1 AND 256),
     actor_seat_id TEXT NOT NULL
       CHECK (
-        length(actor_seat_id) = 64
-        AND actor_seat_id NOT GLOB '*[^a-f0-9]*'
+        length(actor_seat_id) = 69
+        AND substr(actor_seat_id, 1, 5) = 'seat_'
+        AND substr(actor_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
       ),
     actor_canvas_name TEXT NOT NULL
       CHECK (length(actor_canvas_name) BETWEEN 1 AND 256),

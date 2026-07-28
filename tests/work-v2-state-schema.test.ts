@@ -6,7 +6,7 @@ import { WORK_STATE_SCHEMA_SQL } from "../src/main/vellum/work/state-schema";
 const databases: DatabaseSync[] = [];
 const observedAt = "2026-07-27T12:00:00.000Z";
 const hash = (digit: string): string => digit.repeat(64);
-const seat = (digit: string): string => digit.repeat(64);
+const seat = (digit: string): string => `seat_${digit.repeat(64)}`;
 
 const makeDatabase = (): DatabaseSync => {
   const database = new DatabaseSync(":memory:", {
@@ -387,6 +387,26 @@ describe("Work v2 exact-current SQLite schema", () => {
         ) VALUES (?, ?, ?, 'task.claim', 'task', 'factory', 'tasks', ?, ?, ?)
       `,
     );
+    expect(() =>
+      insertPending.run(
+        "cc-installation",
+        "remote-a",
+        "1",
+        "task-1",
+        hash("a"),
+        observedAt,
+      ),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      insertPending.run(
+        "cc-installation",
+        "remote-a",
+        "1",
+        "task-1",
+        seat("a").toUpperCase(),
+        observedAt,
+      ),
+    ).toThrow(/CHECK constraint failed/u);
     insertPending.run(
       "cc-installation",
       "remote-a",
