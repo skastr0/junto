@@ -630,9 +630,10 @@ If no compatible Station protocol exists:
 
 A pre-negotiation v2 peer is the only temporary fallback boundary. A new
 Command Center may retry one fresh authenticated exact-v2 connection only
-when its fully written compatibility offer was sent through the sealed
-compatibility-mode SSH-helper invocation, zero peer bytes were observed, and
-that invocation exits with the old helper's reserved pre-relay code `64`.
+when the sealed compatibility-mode SSH-helper invocation observes zero peer
+stdout bytes and exits with the old helper's reserved pre-relay code `64`.
+The offer may race with that immediate rejection and is not part of the
+fallback proof.
 Any byte, explicit reject, malformed frame, timeout, authentication, setup,
 write, identity, authorization, integrity, relay, or domain failure, or any
 other exit code, forbids fallback. A new Remote may bind v2 when the first

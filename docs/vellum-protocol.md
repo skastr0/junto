@@ -1425,11 +1425,11 @@ installed Stations make one temporary boundary unavoidable:
 - A negotiation-aware Command Center uses one sealed compatibility-mode
   invocation of the packaged SSH helper and sends the compatibility offer
   first. It may open exactly one fresh authenticated protocol 2 connection
-  only when the offer was fully written, zero peer bytes or frames were
-  observed, and that fixed invocation exits with reserved code `64`. The old
-  helper uses that code when it rejects the unknown fixed argument before
-  reaching the owner-local relay; this complete witness is the only evidence
-  of a pre-negotiation-v2 peer.
+  only when that fixed invocation observes zero peer stdout bytes and exits
+  with reserved code `64`. The offer may race with this immediate rejection
+  and is not part of the proof. The old helper uses that code when it rejects
+  the unknown fixed argument before reaching the owner-local relay; this
+  complete witness is the only evidence of a pre-negotiation-v2 peer.
 - Any peer byte, explicit rejection, malformed frame, timeout, authentication,
   setup, write, identity, authorization, integrity, relay, or domain failure,
   or any exit code other than `64`, forbids fallback.
