@@ -119,6 +119,9 @@ const createFixture = async (options: {
   readonly stationQualificationSourceCommit?: string;
   readonly stationQualificationIncomplete?: boolean;
   readonly stationQualificationPending?: boolean;
+  readonly stationQualificationWrongPlatform?:
+    | "command-center"
+    | "remote";
   readonly omitStationQualification?: boolean;
 } = {}) => {
   const directory = await mkdtemp(
@@ -332,6 +335,12 @@ const createFixture = async (options: {
     commandCenterAcknowledgedByRemote:
       qualificationCursor("fixture-command-center", "fixture-command-center", "3"),
   };
+  const qualificationPlatform = (wrong: boolean) => ({
+    os: wrong ? "darwin" : "linux",
+    distribution: "ubuntu",
+    version: "24.04",
+    architecture: "x64",
+  });
   const qualificationPhases = {
     pair: { witness: qualificationWitness("1") },
     configure: { witness: qualificationWitness("2") },
@@ -414,10 +423,16 @@ const createFixture = async (options: {
         commandCenter: {
           installationId: "fixture-command-center",
           appVersion: VERSION,
+          nativePlatform: qualificationPlatform(
+            options.stationQualificationWrongPlatform === "command-center",
+          ),
         },
         remote: {
           installationId: "fixture-remote",
           appVersion: VERSION,
+          nativePlatform: qualificationPlatform(
+            options.stationQualificationWrongPlatform === "remote",
+          ),
         },
       },
       phases: options.stationQualificationIncomplete === true
@@ -846,6 +861,14 @@ describe("signed Linux release bundle", () => {
     await expect(
       createFixture({ stationQualificationPending: true }),
     ).rejects.toThrow(/passed two-installation Station qualification/u);
+    await expect(
+      createFixture({
+        stationQualificationWrongPlatform: "command-center",
+      }),
+    ).rejects.toThrow(/does not bind the signed release/u);
+    await expect(
+      createFixture({ stationQualificationWrongPlatform: "remote" }),
+    ).rejects.toThrow(/does not bind the signed release/u);
     await expect(
       createFixture({
         promotionStationQualificationSha256: "0".repeat(64),

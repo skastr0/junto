@@ -25,6 +25,7 @@ import {
 import {
   decodeStationQualification,
   STATION_QUALIFICATION_RECEIPT_FILE,
+  type StationQualificationNativePlatform,
 } from "../src/shared/station-qualification";
 import { isRecognizedSpdxExpression } from "./spdx-license";
 
@@ -1516,6 +1517,13 @@ const validateStationQualificationReceipt = (
     qualification.completedAt,
     "Station qualification completion time",
   );
+  const matchesReleaseTarget = (
+    platform: StationQualificationNativePlatform,
+  ): boolean =>
+    platform.os === manifest.target.os &&
+    platform.distribution === manifest.target.distribution &&
+    platform.version === manifest.target.distributionVersion &&
+    platform.architecture === manifest.target.architecture;
   if (
     qualification.sourceCommit !== manifest.source.revision ||
     qualification.package.file !== manifest.package.file ||
@@ -1525,6 +1533,10 @@ const validateStationQualificationReceipt = (
       manifest.release.version ||
     qualification.installations.remote.appVersion !==
       manifest.release.version ||
+    !matchesReleaseTarget(
+      qualification.installations.commandCenter.nativePlatform,
+    ) ||
+    !matchesReleaseTarget(qualification.installations.remote.nativePlatform) ||
     Date.parse(completedAt) >
       Date.parse(manifest.release.createdAt) + LINUX_RELEASE_CLOCK_SKEW_MS
   ) {

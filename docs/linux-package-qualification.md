@@ -113,21 +113,27 @@ The operator-run fleet proof produces exactly
 `vellum/station-two-installation-qualification/v1`. It binds the proof to one
 source commit, the exact `deb` filename and SHA-256, the selected Station
 protocol, and the observed Command Center and Remote installation identities
-and app versions. The package filename is a safe basename; path-bearing
-package claims fail decode.
+and app versions. Each installation records one closed `nativePlatform` fact
+with `os`, `distribution`, `version`, and `architecture`. For this Linux
+release, both facts must be exactly `linux` / `ubuntu` / `24.04` / `x64`.
+The package filename is a safe basename; path-bearing package claims fail
+decode.
 
 The receipt has one strict structured `phases` object:
 
 - `pair`, `configure`, `project`, and `status` each carry a hashed,
   timestamped witness;
 - `report` carries its witness plus matching positive full-route cursors in
-  both directions;
+  both directions. Remote-originated cursors name the exact Remote as
+  `eventHome`; Command-Center-originated cursors name the exact Command Center.
+  `entityHome` may be either of those two installations, preserving
+  cross-home work after claim;
 - `commandCenterOfflineClaimedTask` names one already-claimed task that
   completed while Command Center was unavailable;
 - `projectResponseRetry` proves an interrupted project response retried
   idempotently;
 - `reportResponseRetry` proves an interrupted report response converged to
-  the same bidirectional cursors;
+  the same bidirectional cursors under those same outer-identity rules;
 - `doctor` carries successful Command Center and Remote Doctor witnesses;
 - `syntheticNoOverlap` is explicitly labelled synthetic and proves two
   non-overlapping protocol ranges produce `update-required`.

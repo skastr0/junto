@@ -182,6 +182,22 @@ describe("Linux v1 operator documentation", () => {
     );
   });
 
+  it("documents the exact structured two-installation qualification", async () => {
+    const qualification = await readDoc("linux-package-qualification.md");
+    for (const required of [
+      "`nativePlatform`",
+      "`commandCenterOfflineClaimedTask`",
+      "`reportResponseRetry`",
+      "`syntheticNoOverlap`",
+      "`eventHome`",
+      "`entityHome`",
+      "`linux` / `ubuntu` / `24.04` / `x64`",
+    ]) {
+      expect(qualification).toContain(required);
+    }
+    expect(qualification).not.toContain("ordered `checks`");
+  });
+
   it("documents custody, rotation, revocation, and the remaining human ceremony", async () => {
     const policy = await readDoc("linux-release-key-policy.md");
     expect(policy).toContain("CI has read-only repository permission");

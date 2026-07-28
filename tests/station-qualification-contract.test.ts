@@ -19,6 +19,12 @@ const cursor = (eventHome: string, entityHome: string, through = "1") => ({
   entityHome,
   through,
 });
+const nativePlatform = () => ({
+  os: "linux",
+  distribution: "ubuntu",
+  version: "24.04",
+  architecture: "x64",
+});
 
 const qualified = () => ({
   schema: STATION_QUALIFICATION_SCHEMA,
@@ -27,8 +33,16 @@ const qualified = () => ({
   package: { file: "vellum.deb", sha256: hash("b") },
   stationProtocol: 2,
   installations: {
-    commandCenter: { installationId: "cc-01", appVersion: "0.1.0" },
-    remote: { installationId: "remote-01", appVersion: "0.1.0" },
+    commandCenter: {
+      installationId: "cc-01",
+      appVersion: "0.1.0",
+      nativePlatform: nativePlatform(),
+    },
+    remote: {
+      installationId: "remote-01",
+      appVersion: "0.1.0",
+      nativePlatform: nativePlatform(),
+    },
   },
   phases: {
     pair: { witness: witness("c") },
@@ -114,6 +128,42 @@ describe("two-installation Station qualification contract", () => {
     expect(Either.isLeft(decodeStationQualification(divergent))).toBe(true);
   });
 
+  it("binds every converged cursor to the outer qualified installations", () => {
+    const unrelatedReport = qualified();
+    unrelatedReport.phases.report.convergence = {
+      commandCenterReceived: cursor("unrelated-remote", "unrelated-remote"),
+      remoteAcknowledgedByCommandCenter:
+        cursor("unrelated-remote", "unrelated-remote"),
+      remoteReceived: cursor("unrelated-cc", "unrelated-cc"),
+      commandCenterAcknowledgedByRemote:
+        cursor("unrelated-cc", "unrelated-cc"),
+    };
+    expect(Either.isLeft(decodeStationQualification(unrelatedReport))).toBe(true);
+
+    const unrelatedRetry = qualified();
+    unrelatedRetry.phases.reportResponseRetry.convergence = {
+      commandCenterReceived:
+        cursor("unrelated-remote", "unrelated-remote", "2"),
+      remoteAcknowledgedByCommandCenter:
+        cursor("unrelated-remote", "unrelated-remote", "2"),
+      remoteReceived: cursor("unrelated-cc", "unrelated-cc", "2"),
+      commandCenterAcknowledgedByRemote:
+        cursor("unrelated-cc", "unrelated-cc", "2"),
+    };
+    expect(Either.isLeft(decodeStationQualification(unrelatedRetry))).toBe(true);
+  });
+
+  it("permits either exact installation as entity home", () => {
+    const crossHome = qualified();
+    crossHome.phases.report.convergence = {
+      commandCenterReceived: cursor("remote-01", "cc-01"),
+      remoteAcknowledgedByCommandCenter: cursor("remote-01", "cc-01"),
+      remoteReceived: cursor("cc-01", "remote-01"),
+      commandCenterAcknowledgedByRemote: cursor("cc-01", "remote-01"),
+    };
+    expect(Either.isRight(decodeStationQualification(crossHome))).toBe(true);
+  });
+
   it("requires distinct installations, protocol v2, and a labelled synthetic no-overlap", () => {
     const sameInstallation = qualified();
     sameInstallation.installations.remote.installationId = "cc-01";
@@ -130,6 +180,12 @@ describe("two-installation Station qualification contract", () => {
       warnBelow: 2,
     };
     expect(Either.isLeft(decodeStationQualification(overlap))).toBe(true);
+
+    const invalidPlatformFact = qualified();
+    invalidPlatformFact.installations.commandCenter.nativePlatform.os =
+      "linux/other";
+    expect(Either.isLeft(decodeStationQualification(invalidPlatformFact)))
+      .toBe(true);
   });
 
   it("strictly rejects receipt excess", () => {

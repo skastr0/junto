@@ -53,14 +53,31 @@ const Witness = Schema.Struct({
 });
 export type StationQualificationWitness = typeof Witness.Type;
 
+const NativePlatformFactValue = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(64),
+  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+);
+
+export const StationQualificationNativePlatform = Schema.Struct({
+  os: NativePlatformFactValue,
+  distribution: NativePlatformFactValue,
+  version: NativePlatformFactValue,
+  architecture: NativePlatformFactValue,
+});
+export type StationQualificationNativePlatform =
+  typeof StationQualificationNativePlatform.Type;
+
 const QualifiedInstallations = Schema.Struct({
   commandCenter: Schema.Struct({
     installationId: InstallationId,
     appVersion: Schema.NonEmptyString.pipe(Schema.maxLength(64)),
+    nativePlatform: StationQualificationNativePlatform,
   }),
   remote: Schema.Struct({
     installationId: InstallationId,
     appVersion: Schema.NonEmptyString.pipe(Schema.maxLength(64)),
+    nativePlatform: StationQualificationNativePlatform,
   }),
 }).pipe(
   Schema.filter(
@@ -106,6 +123,37 @@ const ReportConvergence = Schema.Struct({
 );
 export type StationQualificationReportConvergence =
   typeof ReportConvergence.Type;
+
+/**
+ * Event home proves which qualified installation emitted the record.
+ * Entity home may be either qualified installation because a Remote can
+ * advance work that began in a Command Center-home queue.
+ */
+const convergenceMatchesQualifiedInstallations = (
+  convergence: StationQualificationReportConvergence,
+  installations: StationQualificationInstallations,
+): boolean => {
+  const commandCenter = installations.commandCenter.installationId;
+  const remote = installations.remote.installationId;
+  const entityHomeIsQualified = (entityHome: string): boolean =>
+    entityHome === commandCenter || entityHome === remote;
+  return (
+    convergence.commandCenterReceived.eventHome === remote &&
+    convergence.remoteAcknowledgedByCommandCenter.eventHome === remote &&
+    convergence.remoteReceived.eventHome === commandCenter &&
+    convergence.commandCenterAcknowledgedByRemote.eventHome === commandCenter &&
+    entityHomeIsQualified(
+      convergence.commandCenterReceived.entityHome,
+    ) &&
+    entityHomeIsQualified(
+      convergence.remoteAcknowledgedByCommandCenter.entityHome,
+    ) &&
+    entityHomeIsQualified(convergence.remoteReceived.entityHome) &&
+    entityHomeIsQualified(
+      convergence.commandCenterAcknowledgedByRemote.entityHome,
+    )
+  );
+};
 
 const ReportWitness = Schema.Struct({
   witness: Witness,
@@ -180,7 +228,23 @@ const PassedQualification = Schema.Struct({
     syntheticNoOverlap: SyntheticNoOverlapWitness,
   }),
   completedAt: DisplayTimestamp,
-});
+}).pipe(
+  Schema.filter(
+    ({ installations, phases }) =>
+      convergenceMatchesQualifiedInstallations(
+        phases.report.convergence,
+        installations,
+      ) &&
+      convergenceMatchesQualifiedInstallations(
+        phases.reportResponseRetry.convergence,
+        installations,
+      ),
+    {
+      message: () =>
+        "qualification cursors must name the exact qualified installations",
+    },
+  ),
+);
 export type PassedStationQualification = typeof PassedQualification.Type;
 
 /** A coordinator must replace this only with real, operator-run evidence. */
