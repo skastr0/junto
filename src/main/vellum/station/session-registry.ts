@@ -92,6 +92,15 @@ export class StationLivePeerRegistry extends Context.Tag(
       hostId: HostIdValue,
       installationId: InstallationIdValue,
     ) => Effect.Effect<StationLivePeer, StationLivePeerUnavailable>;
+    /**
+     * Read-only scheduling hint for actor selection. This does not mint a
+     * witness or authorize work; reservation must still use require +
+     * withSession at the commit boundary.
+     */
+    readonly isLive: (
+      hostId: HostIdValue,
+      installationId: InstallationIdValue,
+    ) => Effect.Effect<boolean>;
     readonly withSession: <A, E, R>(
       witness: StationLivePeer,
       effect: Effect.Effect<A, E, R>,
@@ -200,6 +209,18 @@ export const StationLivePeerRegistryLive = Layer.effect(
         }),
       );
 
+    const isLive: Context.Tag.Service<
+      typeof StationLivePeerRegistry
+    >["isLive"] = (hostId, installationId) =>
+      registryLock.withPermits(1)(
+        Effect.gen(function* () {
+          const peer = active.get(hostId);
+          return peer !== undefined &&
+            peer.witness.installationId === installationId &&
+            (yield* peer.session.isOpen);
+        }),
+      );
+
     const withSession: Context.Tag.Service<
       typeof StationLivePeerRegistry
     >["withSession"] = (witness, effect) => {
@@ -240,6 +261,7 @@ export const StationLivePeerRegistryLive = Layer.effect(
     return StationLivePeerRegistry.of({
       activate,
       require: requirePeer,
+      isLive,
       withSession,
     });
   }),
