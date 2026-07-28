@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // { ok:false } instead of the old fire-and-forget that diverged them and
 // discarded the rejection.
 
-import { CanvasesService } from "../src/main/vellum/canvases";
+import {
+  CanvasError,
+  CanvasesService,
+} from "../src/main/vellum/canvases";
 import { SnapshotsService } from "../src/main/vellum/snapshots";
 import { ChatService, ChatServiceContext } from "../src/main/vellum/chat/service";
 import type { SpawnFn } from "../src/main/vellum/chat/acp-client";
