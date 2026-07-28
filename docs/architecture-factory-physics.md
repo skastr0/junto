@@ -147,8 +147,8 @@ substitute for process-bind identity.
 
 - **Seat** — stable `agent` node where one host-local process may bind. Survives
   occupant restarts; authored by humans and compiled to one installation.
-- **Occupant** — live bound process (ACP agent, herdr pane, registered CLI
-  descendant). Ephemeral; process-bind admits it.
+- **Occupant** — live Vellum-spawned agent process and its registered
+  descendants in that seat. Ephemeral; process-bind admits it.
 
 Occupancy spectrum (live, derived — not stored as permanent document truth):
 
