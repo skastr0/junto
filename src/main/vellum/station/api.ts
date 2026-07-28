@@ -22,6 +22,7 @@ import {
 } from "@shared/station-api";
 import {
   type ActorRef,
+  type MessageAppendDestination,
   type RouteCursor,
   type SinkRef,
   type WorkCommand,
@@ -340,6 +341,25 @@ const findSink = (
   return node;
 };
 
+const authorizeMessageDestination = (
+  sink: CanvasNode,
+  destination: MessageAppendDestination,
+): WorkCommandAuthorization => {
+  const actual = nodeKind(sink);
+  const expected =
+    destination.kind === "mailbox"
+      ? "agent"
+      : destination.kind === "task"
+        ? "task"
+        : "requests";
+  return actual === expected
+    ? admitted()
+    : rejected(
+        "capability-denied",
+        `${destination.kind} message destination does not match projected ${JSON.stringify(actual)} node`,
+      );
+};
+
 const seatForRef = (
   topology: CapturedWorkTopology,
   actor: ActorRef,
@@ -482,6 +502,13 @@ export const makeStationWorkAdmission = (
   ): WorkCommandAuthorization => {
     const sink = findSink(topology, command.item.sink, command.item.kind);
     if ("_tag" in sink) return sink;
+    if (command.body.operation === "message.append") {
+      const destination = authorizeMessageDestination(
+        sink,
+        command.body.destination,
+      );
+      if (destination._tag === "rejected") return destination;
+    }
     if (
       command.id.route.eventHome !== topology.peerInstallationId ||
       command.id.route.entityHome !== topology.localInstallationId
@@ -555,17 +582,34 @@ export const makeStationWorkAdmission = (
           "locality-mismatch",
           `${command.body.operation} must originate as a local actor fact`,
         );
-      case "message.append":
-        return rejected(
-          "authority-mismatch",
-          "messages remain Command Center-homed and cannot be commanded onto a Remote",
+      case "message.append": {
+        if (command.body.destination.kind === "mailbox") {
+          return rejected(
+            "authority-mismatch",
+            "actor mailboxes remain Command Center-homed",
+          );
+        }
+        return authorizeActor(
+          topology,
+          command.body.sentBy,
+          topology.peerInstallationId,
+          command.item.sink,
+          "msg.send",
         );
+      }
     }
   };
 
   const authorizeFact = (fact: WorkFact): WorkFactAuthorization => {
     const sink = findSink(topology, fact.item.sink, fact.item.kind);
     if ("_tag" in sink) return sink;
+    if (fact.body.operation === "message.append") {
+      const destination = authorizeMessageDestination(
+        sink,
+        fact.body.destination,
+      );
+      if (destination._tag === "rejected") return destination;
+    }
     const sender = fact.id.route.eventHome;
     if (
       sender !== topology.peerInstallationId ||
@@ -588,15 +632,23 @@ export const makeStationWorkAdmission = (
           )
         : rejected(
             "authority-mismatch",
-            `Command Center may return only mailbox facts to a Remote, not ${fact.body.operation}`,
+            `Command Center may return only correlated message facts to a Remote, not ${fact.body.operation}`,
           );
     }
 
     if (fact.body.operation === "message.append") {
-      return rejected(
-        "authority-mismatch",
-        "mailbox material state is Command Center-homed, never emitted by a Remote",
-      );
+      return fact.body.destination.kind === "mailbox"
+        ? rejected(
+            "authority-mismatch",
+            "mailbox material state is Command Center-homed, never emitted by a Remote",
+          )
+        : authorizeActor(
+            topology,
+            fact.body.sentBy,
+            sender,
+            fact.item.sink,
+            "msg.send",
+          );
     }
 
     if (fact.body.operation === "task.create") {

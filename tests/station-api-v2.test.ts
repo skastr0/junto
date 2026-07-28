@@ -52,6 +52,14 @@ const remoteActor: ActorRef = {
   nodeId: "remote-actor",
 };
 
+const commandCenterActor: ActorRef = {
+  seatId: Schema.decodeUnknownSync(ActorSeatId)(
+    `seat_${"c".repeat(64)}`,
+  ),
+  canvasName: "factory",
+  nodeId: "cc-actor",
+};
+
 const document = (connected: boolean) =>
   Schema.decodeUnknownSync(CanvasDoc, strictDecode)({
     nodes: [
@@ -66,6 +74,32 @@ const document = (connected: boolean) =>
         ether: {
           entity: { kind: "agent", name: "remote:builder" },
           host: "remote",
+        },
+      },
+      {
+        id: commandCenterActor.nodeId,
+        type: "text",
+        x: 0,
+        y: 140,
+        width: 240,
+        height: 100,
+        text: "Command Center actor",
+        ether: {
+          entity: { kind: "agent", name: "local:operator" },
+          host: "local",
+        },
+      },
+      {
+        id: "cc-recipient",
+        type: "text",
+        x: 320,
+        y: 140,
+        width: 240,
+        height: 100,
+        text: "Command Center recipient",
+        ether: {
+          entity: { kind: "agent", name: "local:recipient" },
+          host: "local",
         },
       },
       {
@@ -87,6 +121,17 @@ const document = (connected: boolean) =>
           {
             id: "actor-tasks",
             fromNode: remoteActor.nodeId,
+            toNode: "tasks",
+          },
+          {
+            id: "actor-mailbox",
+            fromNode: remoteActor.nodeId,
+            toNode: "cc-recipient",
+            ether: { ports: ["msg.send"] },
+          },
+          {
+            id: "cc-actor-tasks",
+            fromNode: commandCenterActor.nodeId,
             toNode: "tasks",
           },
         ]
@@ -115,6 +160,28 @@ const projectedRemoteActor = Schema.decodeUnknownSync(
   ],
 });
 
+const projectedCommandCenterActor = Schema.decodeUnknownSync(
+  ProjectedActorSeat,
+  strictDecode,
+)({
+  seatId: commandCenterActor.seatId,
+  authorityInstallationId: cc,
+  hostId: "local",
+  bindingId: "cc-operator",
+  agentKey: "local:operator",
+  harness: "codex",
+  primaryRef: {
+    canvasName: commandCenterActor.canvasName,
+    nodeId: commandCenterActor.nodeId,
+  },
+  refs: [
+    {
+      canvasName: commandCenterActor.canvasName,
+      nodeId: commandCenterActor.nodeId,
+    },
+  ],
+});
+
 type AdmissionTopology = Parameters<typeof makeStationWorkAdmission>[0];
 
 const topology = (
@@ -126,7 +193,7 @@ const topology = (
   localRole,
   localHostId: localRole === "command-center" ? "local" : "remote",
   documents: new Map([["factory", document(connected)]]),
-  actorSeats: [projectedRemoteActor],
+  actorSeats: [projectedRemoteActor, projectedCommandCenterActor],
   installationByHostId: new Map([
     ["local", cc],
     ["remote", remote],
@@ -153,7 +220,7 @@ const messageCommand = (
     item: {
       kind: "message",
       itemId: message.messageId,
-      sink: { canvasName: "factory", nodeId: "tasks" },
+      sink: { canvasName: "factory", nodeId: "cc-recipient" },
     },
     operation: "message.append",
     contentSha256,
@@ -163,6 +230,7 @@ const messageCommand = (
       operation: "message.append",
       message,
       sentBy,
+      destination: { kind: "mailbox" },
     },
   });
 
@@ -177,7 +245,7 @@ const messageFact = (): WorkFactValue =>
     item: {
       kind: "message",
       itemId: message.messageId,
-      sink: { canvasName: "factory", nodeId: "tasks" },
+      sink: { canvasName: "factory", nodeId: "cc-recipient" },
     },
     operation: "message.append",
     contentSha256,
@@ -187,6 +255,76 @@ const messageFact = (): WorkFactValue =>
       operation: "message.append",
       message,
       sentBy: remoteActor,
+      destination: { kind: "mailbox" },
+    },
+  });
+
+const threadMessage = {
+  ...message,
+  messageId: "task-note-1",
+  taskId: "task-1",
+};
+
+const threadCommand = (): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: cc, entityHome: remote },
+      seq: "1",
+    },
+    recordType: "command",
+    item: {
+      kind: "message",
+      itemId: threadMessage.messageId,
+      sink: { canvasName: "factory", nodeId: "tasks" },
+    },
+    operation: "message.append",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "message.append",
+      message: threadMessage,
+      sentBy: commandCenterActor,
+      destination: { kind: "task", itemId: "task-1" },
+    },
+  });
+
+const remoteThreadCommand = (): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    ...threadCommand(),
+    id: {
+      route: { eventHome: remote, entityHome: cc },
+      seq: "2",
+    },
+    body: {
+      ...threadCommand().body,
+      sentBy: remoteActor,
+    },
+  });
+
+const threadFact = (): WorkFactValue =>
+  Schema.decodeUnknownSync(WorkFact, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: remote, entityHome: remote },
+      seq: "1",
+    },
+    recordType: "fact",
+    item: {
+      kind: "message",
+      itemId: threadMessage.messageId,
+      sink: { canvasName: "factory", nodeId: "tasks" },
+    },
+    operation: "message.append",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "message.append",
+      message: threadMessage,
+      sentBy: remoteActor,
+      destination: { kind: "task", itemId: "task-1" },
     },
   });
 
@@ -319,6 +457,54 @@ describe("Station API v2 work routing", () => {
     expect(
       admission.authorizeCommand(taskDescribeCommand(cc, remote)),
     ).toEqual({ _tag: "admitted" });
+  });
+
+  it("admits Command Center thread commands onto Remote-owned rows", () => {
+    const admission = makeStationWorkAdmission(topology("remote"));
+
+    expect(admission.authorizeCommand(threadCommand())).toEqual({
+      _tag: "admitted",
+    });
+  });
+
+  it("admits Remote thread commands onto Command Center-owned rows", () => {
+    const admission = makeStationWorkAdmission(
+      topology("command-center"),
+    );
+
+    expect(admission.authorizeCommand(remoteThreadCommand())).toEqual({
+      _tag: "admitted",
+    });
+  });
+
+  it("admits Remote thread facts into the Command Center replica", () => {
+    const admission = makeStationWorkAdmission(
+      topology("command-center"),
+    );
+
+    expect(admission.authorizeFact(threadFact())).toEqual({
+      _tag: "admitted",
+    });
+  });
+
+  it("rejects a message destination that does not match the projected sink kind", () => {
+    const mismatched = Schema.decodeUnknownSync(
+      WorkCommand,
+      strictDecode,
+    )({
+      ...threadCommand(),
+      item: {
+        kind: "message",
+        itemId: threadMessage.messageId,
+        sink: { canvasName: "factory", nodeId: "cc-recipient" },
+      },
+    });
+    const admission = makeStationWorkAdmission(topology("remote"));
+
+    expect(admission.authorizeCommand(mismatched)).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
   });
 
   it("binds the exact enrolled Remote identity into an opaque dispatcher admission", async () => {
