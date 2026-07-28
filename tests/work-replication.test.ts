@@ -476,6 +476,30 @@ describe("WorkRepository v2 report reconciliation", () => {
         receivedAt: observedAt,
       }),
     );
+    const decoyMessage = message(
+      "message-decoy-command",
+      "agent",
+      "do not correlate me",
+    );
+    const decoyCommand = await station.runtime.runPromise(
+      station.repository.enqueueRemoteCommand({
+        targetInstallationId: cc,
+        sink: inbox,
+        item: {
+          kind: "message",
+          itemId: decoyMessage.messageId,
+          sink: inbox,
+        },
+        action: {
+          operation: "message.append",
+          message: decoyMessage,
+          sentBy: sender,
+          destination: { kind: "mailbox" },
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
     expect(command.body).toEqual({
       operation: "message.append",
       message: appended,
@@ -497,6 +521,28 @@ describe("WorkRepository v2 report reconciliation", () => {
     }
     expect(fact.body.sentBy).toEqual(sender);
     expect(fact.basis).toEqual(commandBasis(command));
+
+    const wrongCommandBasis = reseal({
+      ...fact,
+      basis: {
+        kind: "command" as const,
+        command: decoyCommand.id,
+        commandSha256: decoyCommand.contentSha256,
+      },
+    });
+    const wrongCommandResult = await station.runtime.runPromise(
+      accept(
+        station.repository,
+        cc,
+        [wrongCommandBasis],
+      ).pipe(Effect.either),
+    );
+    expect(Either.isLeft(wrongCommandResult)).toBe(true);
+    if (Either.isLeft(wrongCommandResult)) {
+      expect(wrongCommandResult.left).toMatchObject({
+        reason: "causal-conflict",
+      });
+    }
 
     const changedSender = actor("9", "different-sender");
     const changedFact = reseal({
@@ -805,6 +851,36 @@ describe("WorkRepository v2 report reconciliation", () => {
         receivedAt: observedAt,
       }),
     );
+    const decoyTask = await commandCenter.runtime.runPromise(
+      commandCenter.repository.createTask({
+        sink,
+        basis: commandCenter.basis,
+        task: {
+          id: "task-decoy-adoption",
+          state: "submitted",
+          history: [
+            message(
+              "brief-decoy-adoption",
+              "user",
+              "do not correlate me",
+              "task-decoy-adoption",
+            ),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const decoyCommand = await commandCenter.runtime.runPromise(
+      commandCenter.repository.reserveRemoteTaskClaim({
+        targetInstallationId: remote,
+        sink,
+        taskId: decoyTask.value.id,
+        actor: actor("b", "remote-decoy-worker"),
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
 
     const capacityDenied = await station.runtime.runPromise(
       accept(station.repository, cc, [command], {
@@ -885,6 +961,49 @@ describe("WorkRepository v2 report reconciliation", () => {
       ),
     ).toBe(remote);
 
+    if (claimFact?.recordType !== "fact") {
+      throw new Error("claim command did not emit a fact");
+    }
+    const wrongCommandBasis = reseal({
+      ...claimFact,
+      basis: {
+        kind: "command" as const,
+        command: decoyCommand.id,
+        commandSha256: decoyCommand.contentSha256,
+      },
+    });
+    const wrongCommandResult = await commandCenter.runtime.runPromise(
+      accept(
+        commandCenter.repository,
+        remote,
+        [wrongCommandBasis],
+      ).pipe(Effect.either),
+    );
+    expect(Either.isLeft(wrongCommandResult)).toBe(true);
+    if (Either.isLeft(wrongCommandResult)) {
+      expect(wrongCommandResult.left).toMatchObject({
+        reason: "causal-conflict",
+      });
+    }
+    const sourceAfterWrongBasis = (
+      await commandCenter.runtime.runPromise(
+        commandCenter.repository.readSnapshot(
+          sink.canvasName,
+          sink.nodeId,
+        ),
+      )
+    ).tasks.items.find((task) => task.id === created.value.id);
+    expect(sourceAfterWrongBasis).toMatchObject({
+      id: created.value.id,
+      state: "submitted",
+    });
+    expect(sourceAfterWrongBasis?.claimedBy).toBeUndefined();
+    expect(
+      (await commandCenter.runtime.runPromise(
+        commandCenter.repository.pendingCommands,
+      ))[0]?.resolution,
+    ).toBeUndefined();
+
     const integrated = await commandCenter.runtime.runPromise(
       accept(commandCenter.repository, remote, remoteResult.emitted),
     );
@@ -905,7 +1024,7 @@ describe("WorkRepository v2 report reconciliation", () => {
             sink.nodeId,
           ),
         )
-      ).tasks.items[0],
+      ).tasks.items.find((task) => task.id === created.value.id),
     ).toMatchObject({
       id: created.value.id,
       state: "working",
@@ -924,7 +1043,12 @@ describe("WorkRepository v2 report reconciliation", () => {
     expect(
       (await commandCenter.runtime.runPromise(
         commandCenter.repository.pendingCommands,
-      ))[0],
+      )).find((pending) =>
+        pending.command.id.route.eventHome === command.id.route.eventHome &&
+        pending.command.id.route.entityHome ===
+          command.id.route.entityHome &&
+        pending.command.id.seq === command.id.seq
+      ),
     ).toMatchObject({ resolution: { status: "applied" } });
 
     const completed = await station.runtime.runPromise(
@@ -973,7 +1097,7 @@ describe("WorkRepository v2 report reconciliation", () => {
             sink.nodeId,
           ),
         )
-      ).tasks.items[0]?.state,
+      ).tasks.items.find((task) => task.id === created.value.id)?.state,
     ).toBe("completed");
   });
 

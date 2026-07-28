@@ -2,12 +2,14 @@ import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { InstallationId as InstallationIdValue } from "@shared/installation-id";
 import {
+  LogicalSequence,
   ReportBatch,
   ReportRequest,
   ReportResponse,
   STATION_API_MAX_REPORT_BATCH_BYTES,
   STATION_API_MAX_RECORDS_PER_REPORT,
   STATION_API_PROTOCOL,
+  StationSha256,
   StatusResponse,
   decideReportBatchAdmission,
   reportResponseSwapsDirection,
@@ -513,6 +515,20 @@ const actorFromFact = (
   }
 };
 
+const authorizeFactRoute = (
+  topology: CapturedWorkTopology,
+  fact: WorkFact,
+): WorkFactAuthorization => {
+  const sender = fact.id.route.eventHome;
+  return sender === topology.peerInstallationId &&
+      fact.id.route.entityHome === topology.peerInstallationId
+    ? admitted()
+    : rejected(
+        "authority-mismatch",
+        "fact route does not belong to the admitted peer authority",
+      );
+};
+
 /**
  * Capture mutable intent before entering WorkRepository's SQLite transaction,
  * then hand it only pure admission callbacks. No callback yields, reads
@@ -625,6 +641,8 @@ export const makeStationWorkAdmission = (
   };
 
   const authorizeFact = (fact: WorkFact): WorkFactAuthorization => {
+    const route = authorizeFactRoute(topology, fact);
+    if (route._tag === "rejected") return route;
     const sink = findSink(topology, fact.item.sink, fact.item.kind);
     if ("_tag" in sink) return sink;
     if (fact.body.operation === "message.append") {
@@ -642,15 +660,6 @@ export const makeStationWorkAdmission = (
       if (taskProjection._tag === "rejected") return taskProjection;
     }
     const sender = fact.id.route.eventHome;
-    if (
-      sender !== topology.peerInstallationId ||
-      fact.id.route.entityHome !== topology.peerInstallationId
-    ) {
-      return rejected(
-        "authority-mismatch",
-        "fact route does not belong to the admitted peer authority",
-      );
-    }
 
     if (topology.localRole === "remote") {
       return fact.body.operation === "message.append"
@@ -728,6 +737,142 @@ export const makeStationWorkAdmission = (
 
   return { authorizeCommand, authorizeFact };
 };
+
+const projectionBasisKey = (
+  basis: Extract<WorkFact["basis"], { readonly kind: "projected-intent" }>,
+): string => `${basis.generation}\u0000${basis.contentSha256}`;
+
+const topologyFromHistoricalProjection = (
+  current: CapturedWorkTopology,
+  body: string,
+): Effect.Effect<CapturedWorkTopology, StationApiError> =>
+  Effect.gen(function* () {
+    const portfolio = yield* Effect.try({
+      try: () => decodeStationPortfolioBody(body),
+      catch: (cause) =>
+        dependency(
+          "report-topology",
+          "historical Station projection could not be decoded",
+          cause,
+        ),
+    });
+    const installationByHostId =
+      new Map<string, InstallationIdValue>([
+        [current.localHostId, current.localInstallationId],
+      ]);
+    for (const seat of portfolio.actorSeats) {
+      const established = installationByHostId.get(seat.hostId);
+      if (
+        established !== undefined &&
+        established !== seat.authorityInstallationId
+      ) {
+        return yield* invariant(
+          "report",
+          "topology-invalid",
+          `historical host ${JSON.stringify(seat.hostId)} resolves to conflicting installations`,
+        );
+      }
+      installationByHostId.set(
+        seat.hostId,
+        seat.authorityInstallationId,
+      );
+    }
+    return {
+      ...current,
+      documents: portfolio.documents,
+      actorSeats: portfolio.actorSeats,
+      installationByHostId,
+    };
+  });
+
+/**
+ * New commands are judged against current intent. Facts are different:
+ * projected facts name the immutable projection that admitted their action,
+ * while command facts name the exact delegated command enforced inside the
+ * WorkRepository transaction.
+ */
+const historicalFactAuthorization = (
+  current: CapturedWorkTopology,
+  projected: ReadonlyMap<string, StationWorkAdmission>,
+): ((fact: WorkFact) => WorkFactAuthorization) =>
+  (fact) => {
+    const route = authorizeFactRoute(current, fact);
+    if (route._tag === "rejected") return route;
+    switch (fact.basis.kind) {
+      case "command":
+        return current.localRole === "remote" &&
+            fact.body.operation !== "message.append"
+          ? rejected(
+              "authority-mismatch",
+              `Command Center may return only correlated message facts to a Remote, not ${fact.body.operation}`,
+            )
+          : admitted();
+      case "authorial-intent":
+        return rejected(
+          "authority-mismatch",
+          "authorial Command Center facts are not replicated to a Station peer",
+        );
+      case "projected-intent": {
+        if (current.localRole !== "command-center") {
+          return rejected(
+            "authority-mismatch",
+            "only Command Center accepts a Remote projected-intent fact",
+          );
+        }
+        const admission = projected.get(projectionBasisKey(fact.basis));
+        return admission === undefined
+          ? rejected(
+              "projection-conflict",
+              "fact names no immutable projection retained by this Command Center",
+            )
+          : admission.authorizeFact(fact);
+      }
+    }
+  };
+
+const loadHistoricalFactAdmissions = (
+  repository: Context.Tag.Service<typeof StationRepository>,
+  topology: CapturedWorkTopology,
+  records: ReadonlyArray<WorkRecord>,
+): Effect.Effect<
+  ReadonlyMap<string, StationWorkAdmission>,
+  StationApiError
+> =>
+  Effect.gen(function* () {
+    const references = new Map<
+      string,
+      Extract<
+        WorkFact["basis"],
+        { readonly kind: "projected-intent" }
+      >
+    >();
+    for (const record of records) {
+      if (
+        record.recordType === "fact" &&
+        record.basis.kind === "projected-intent"
+      ) {
+        references.set(projectionBasisKey(record.basis), record.basis);
+      }
+    }
+    const admissions = new Map<string, StationWorkAdmission>();
+    for (const [key, reference] of references) {
+      const projection = yield* repository.projectionByReference({
+        generation: Schema.decodeUnknownSync(LogicalSequence)(
+          reference.generation,
+        ),
+        contentSha256: Schema.decodeUnknownSync(StationSha256)(
+          reference.contentSha256,
+        ),
+      });
+      if (projection === undefined) continue;
+      const historical = yield* topologyFromHistoricalProjection(
+        topology,
+        projection.body,
+      );
+      admissions.set(key, makeStationWorkAdmission(historical));
+    }
+    return admissions;
+  });
 
 const stationApiStatusState = (
   facts: StationStatusFacts,
@@ -1078,13 +1223,21 @@ const acceptInboundBatch = (
       initialFacts,
       topology.peerInstallationId,
     );
-    const authorization = makeStationWorkAdmission(topology);
+    const currentAuthorization = makeStationWorkAdmission(topology);
+    const historicalAdmissions = yield* loadHistoricalFactAdmissions(
+      repository,
+      topology,
+      batch.records,
+    );
     const accepted = yield* work.acceptRecords({
       senderInstallationId: topology.peerInstallationId,
       records: batch.records,
       peerAcknowledgements: batch.acknowledge,
-      authorizeCommand: authorization.authorizeCommand,
-      authorizeFact: authorization.authorizeFact,
+      authorizeCommand: currentAuthorization.authorizeCommand,
+      authorizeFact: historicalFactAuthorization(
+        topology,
+        historicalAdmissions,
+      ),
       admitResponse:
         admitTransactionalResponse(existingAcknowledge),
     });

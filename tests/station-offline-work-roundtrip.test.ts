@@ -27,6 +27,7 @@ import {
   LogicalSequence,
   PairRequest,
   ProjectRequest,
+  ReportRequest,
   STATION_API_PROTOCOL,
   StationHostId,
   StationSha256,
@@ -41,8 +42,10 @@ import type {
 } from "../src/shared/station-session";
 import {
   IntentFactBasis,
+  WorkRecord,
   type ActorRef,
   type IntentFactBasis as IntentFactBasisValue,
+  type WorkRecord as WorkRecordValue,
 } from "../src/shared/work-protocol";
 import {
   CanvasesLive,
@@ -94,6 +97,7 @@ import {
   WorkService,
 } from "../src/main/vellum/work/service";
 import {
+  workRecordContentSha256,
   WorkAuthorityError,
   WorkRepository,
   WorkRepositoryLive,
@@ -176,6 +180,22 @@ const activeIntentBasis = async (
   return Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
     kind,
     ...witness,
+  });
+};
+
+const resealWorkRecord = (
+  candidate: WorkRecordValue,
+): WorkRecordValue => {
+  const {
+    contentSha256: _contentSha256,
+    originAt: _originAt,
+    ...semantic
+  } = candidate;
+  return Schema.decodeUnknownSync(WorkRecord, strictDecode)({
+    ...candidate,
+    contentSha256: workRecordContentSha256(
+      semantic as Parameters<typeof workRecordContentSha256>[0],
+    ),
   });
 };
 
@@ -702,6 +722,54 @@ describe("Station work authority survives Command Center downtime", () => {
       ),
     ).toBe(remoteId);
 
+    // Command Center advances to G2 and revokes the Remote actor before the
+    // G1 claim response arrives. The Remote stays disconnected on installed
+    // G1; Command Center retains both immutable projection witnesses.
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.write("factory", {
+        ...document,
+        nodes: document.nodes.filter(
+          (node) => node.id !== actor.nodeId,
+        ),
+        edges: [],
+      }),
+    );
+    const authorityG2 = await commandCenter.runtime.runPromise(
+      commandCenter.canvases.authoritySnapshot(),
+    );
+    const projectionG2 = await commandCenter.runtime.runPromise(
+      commandCenter.station.archiveProjection({
+        scope: "full",
+        sourceCanvasGeneration: generation(authorityG2.generation),
+        sourceIntentSha256: projectionSha256(
+          authorityG2.intentSha256,
+        ),
+        body: compileStationPortfolioBody(
+          authorityG2.documents,
+          new Map([
+            ["local", commandCenterId],
+            [remoteHost, remoteId],
+          ]),
+        ),
+        createdAt: now,
+      }),
+    );
+    expect(projectionG2.generation).toBe("2");
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.station.projection,
+      ),
+    ).toMatchObject({
+      generation: "2",
+      contentSha256: projectionG2.contentSha256,
+    });
+    expect(
+      await remote.runtime.runPromise(remote.station.projection),
+    ).toMatchObject({
+      generation: archivedProjection.generation,
+      contentSha256: archivedProjection.contentSha256,
+    });
+
     await commandCenter.runtime.runPromise(
       commandCenter.api.acceptReportResponse(
         remoteId,
@@ -741,8 +809,8 @@ describe("Station work authority survives Command Center downtime", () => {
       ),
     ).toBe(remoteId);
 
-    // No Command Center effect runs between this point and the later report.
-    // The Remote owns the adopted row and can durably advance it by itself.
+    // No Command Center exchange runs between this point and the later report.
+    // The Remote owns the adopted row and can durably advance it under G1.
     const unreservedOfflineClaim = await remote.runtime.runPromise(
       remote.work.claimLocalTask({
         sink,
@@ -813,6 +881,82 @@ describe("Station work authority survives Command Center downtime", () => {
       ["disposition", "task.claim", "2"],
       ["fact", "task.transition", "3"],
     ]);
+
+    if (completed.record.basis.kind !== "projected-intent") {
+      throw new Error("offline transition did not retain projected intent");
+    }
+    const statusBeforeForgedFacts =
+      await commandCenter.runtime.runPromise(
+        commandCenter.station.statusFacts,
+      );
+    const forgedBases: ReadonlyArray<
+      typeof completed.record.basis
+    > = [
+      {
+        ...completed.record.basis,
+        generation:
+          "999" as typeof completed.record.basis.generation,
+      },
+      {
+        ...completed.record.basis,
+        contentSha256:
+          "f".repeat(64) as typeof completed.record.basis.contentSha256,
+      },
+    ];
+    for (const forgedBasis of forgedBases) {
+      const forgedFact = resealWorkRecord({
+        ...completed.record,
+        basis: forgedBasis,
+      });
+      const forgedRequest = ReportRequest.make({
+        ...progressRequest,
+        batch: {
+          ...progressRequest.batch,
+          records: progressRequest.batch.records.map((record) =>
+            record.recordType === "fact" && record.id.seq === "3"
+              ? forgedFact
+              : record
+          ),
+        },
+      });
+      const denied = await commandCenter.runtime.runPromise(
+        commandCenter.api.handle(
+          forgedRequest,
+          readiness,
+          {
+            _tag: "enrolled-remote",
+            installationId: remoteId,
+          },
+        ).pipe(Effect.either),
+      );
+      expect(Either.isLeft(denied)).toBe(true);
+      expect(
+        await commandCenter.runtime.runPromise(
+          commandCenter.station.statusFacts,
+        ),
+      ).toEqual(statusBeforeForgedFacts);
+      expect(
+        (
+          await commandCenter.runtime.runPromise(
+            commandCenter.work.readSnapshot(
+              sink.canvasName,
+              sink.nodeId,
+            ),
+          )
+        ).tasks.items.find((task) => task.id === firstTaskId)?.state,
+      ).toBe("working");
+      expect(
+        await commandCenter.runtime.runPromise(
+          commandCenter.work.recordsAfter({
+            route: {
+              eventHome: remoteId,
+              entityHome: remoteId,
+            },
+            after: claimResponse.batch.records[1]!.id.seq,
+          }),
+        ),
+      ).toEqual([]);
+    }
 
     const progressResponse = await commandCenter.runtime.runPromise(
       commandCenter.api.handle(

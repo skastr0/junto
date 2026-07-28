@@ -2992,105 +2992,214 @@ const advancePeerAcknowledgements = (
   }
 };
 
-const findPendingClaim = (
-  reader: StateReader,
-  sender: InstallationId,
-  fact: WorkFactValue,
-): WorkCommandValue | undefined => {
-  const row = reader.get<
-    StateRow & {
-      readonly event_home: string;
-      readonly entity_home: string;
-      readonly seq: string;
-    }
-  >(
-    `
-      SELECT event_home, entity_home, seq
-      FROM work_pending_commands
-      WHERE entity_home = ?
-        AND operation = 'task.claim'
-        AND item_canvas_name = ?
-        AND item_node_id = ?
-        AND item_id = ?
-        AND resolution_event_home IS NULL
-      LIMIT 1
-    `,
-    [
-      sender,
-      fact.item.sink.canvasName,
-      fact.item.sink.nodeId,
-      fact.item.itemId,
-    ],
-  );
-  if (row === undefined) return undefined;
-  const record = loadRecord(
-    reader,
-    recordId(
-      row.event_home as InstallationId,
-      row.entity_home as InstallationId,
-      row.seq,
-    ),
-  );
-  return record?.recordType === "command" ? record : undefined;
-};
-
-const findPendingMessageCommand = (
+const exactPendingCommandForFact = (
   reader: StateReader,
   local: InstallationId,
   sender: InstallationId,
   fact: WorkFactValue,
 ): WorkCommandValue | undefined => {
-  if (fact.body.operation !== "message.append") return undefined;
-  const row = reader.get<
-    StateRow & {
-      readonly event_home: string;
-      readonly entity_home: string;
-      readonly seq: string;
-    }
-  >(
-    `
-      SELECT event_home, entity_home, seq
-      FROM work_pending_commands
-      WHERE event_home = ?
-        AND entity_home = ?
-        AND operation = 'message.append'
-        AND item_canvas_name = ?
-        AND item_node_id = ?
-        AND item_id = ?
-        AND resolution_event_home IS NULL
-      LIMIT 1
-    `,
-    [
-      local,
-      sender,
-      fact.item.sink.canvasName,
-      fact.item.sink.nodeId,
-      fact.item.itemId,
-    ],
-  );
-  if (row === undefined) return undefined;
-  const record = loadRecord(
-    reader,
-    recordId(
-      row.event_home as InstallationId,
-      row.entity_home as InstallationId,
-      row.seq,
-    ),
-  );
+  if (fact.basis.kind !== "command") return undefined;
+  const command = loadRecord(reader, fact.basis.command);
   if (
-    record?.recordType !== "command" ||
-    record.body.operation !== "message.append" ||
-    !sameItem(record.item, fact.item) ||
-    !sameId(record.predecessor, fact.predecessor) ||
-    canonicalJson(record.body.message) !==
-      canonicalJson(fact.body.message) ||
-    canonicalJson(record.body.destination) !==
-      canonicalJson(fact.body.destination) ||
-    !sameActor(record.body.sentBy, fact.body.sentBy)
+    command?.recordType !== "command" ||
+    command.contentSha256 !== fact.basis.commandSha256 ||
+    command.id.route.eventHome !== local ||
+    command.id.route.entityHome !== sender ||
+    command.operation !== fact.operation ||
+    !sameItem(command.item, fact.item)
   ) {
     return undefined;
   }
-  return record;
+  const pending = reader.get<
+    StateRow & { readonly resolution_event_home: string | null }
+  >(
+    `
+      SELECT resolution_event_home
+      FROM work_pending_commands
+      WHERE event_home = ?
+        AND entity_home = ?
+        AND seq = ?
+    `,
+    [
+      command.id.route.eventHome,
+      command.id.route.entityHome,
+      command.id.seq,
+    ],
+  );
+  if (
+    pending === undefined ||
+    pending.resolution_event_home !== null
+  ) {
+    return undefined;
+  }
+  const priorFact = reader.get<StateRow>(
+    `
+      SELECT 1
+      FROM work_facts
+      WHERE basis_kind = 'command'
+        AND basis_command_event_home = ?
+        AND basis_command_entity_home = ?
+        AND basis_command_seq = ?
+      LIMIT 1
+    `,
+    [
+      command.id.route.eventHome,
+      command.id.route.entityHome,
+      command.id.seq,
+    ],
+  );
+  return priorFact === undefined ? command : undefined;
+};
+
+const assertCorrelatedCommandFact = (
+  command: WorkCommandValue,
+  fact: WorkFactValue,
+): void => {
+  const expectedPredecessor =
+    command.body.operation === "task.claim"
+      ? null
+      : command.predecessor;
+  if (!sameId(expectedPredecessor, fact.predecessor)) {
+    throw authorityError(
+      "causal-conflict",
+      "command fact predecessor differs from the exact pending command",
+    );
+  }
+  const action = command.body;
+  switch (action.operation) {
+    case "task.create":
+      if (
+        fact.body.operation !== "task.create" ||
+        canonicalJson(fact.body.task) !== canonicalJson(action.task)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "task creation fact differs from the exact pending command",
+        );
+      }
+      return;
+    case "task.describe":
+      if (
+        fact.body.operation !== "task.describe" ||
+        canonicalJson(fact.body.task.history[0]) !==
+          canonicalJson(action.message)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "task description fact differs from the exact pending command",
+        );
+      }
+      return;
+    case "task.transition": {
+      if (
+        fact.body.operation !== "task.transition" ||
+        fact.body.task.state !== action.state
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "task transition fact differs from the exact pending command",
+        );
+      }
+      if (
+        action.message !== undefined &&
+        canonicalJson(fact.body.task.history.at(-1)) !==
+          canonicalJson(action.message)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "task transition fact omits the exact commanded message",
+        );
+      }
+      return;
+    }
+    case "task.claim":
+      if (
+        fact.body.operation !== "task.claim" ||
+        fact.body.previousHome !== action.sourceQueueHome ||
+        !sameActor(fact.body.claimedBy, action.actor) ||
+        canonicalJson(fact.body.task) !==
+          canonicalJson({
+            ...action.sourceTask,
+            state: "working",
+            claimedBy: action.actor.seatId,
+          })
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "task claim fact differs from the exact pending command",
+        );
+      }
+      return;
+    case "request.create":
+      if (
+        fact.body.operation !== "request.create" ||
+        canonicalJson(fact.body.request) !==
+          canonicalJson(action.request)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "request creation fact differs from the exact pending command",
+        );
+      }
+      return;
+    case "request.resolve":
+      if (
+        fact.body.operation !== "request.resolve" ||
+        fact.body.request.state !== action.disposition ||
+        fact.body.request.response !== action.response ||
+        (
+          action.message !== undefined &&
+          canonicalJson(fact.body.request.history.at(-1)) !==
+            canonicalJson(action.message)
+        )
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "request resolution fact differs from the exact pending command",
+        );
+      }
+      return;
+    case "message.append":
+      if (
+        fact.body.operation !== "message.append" ||
+        canonicalJson(action.message) !==
+          canonicalJson(fact.body.message) ||
+        canonicalJson(action.destination) !==
+          canonicalJson(fact.body.destination) ||
+        !sameActor(action.sentBy, fact.body.sentBy)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "message append fact differs from the exact pending command",
+        );
+      }
+      return;
+    case "artifact.publish":
+      if (
+        fact.body.operation !== "artifact.publish" ||
+        canonicalJson(action.artifact) !==
+          canonicalJson(fact.body.artifact) ||
+        !sameActor(action.publishedBy, fact.body.publishedBy)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "artifact fact differs from the exact pending command",
+        );
+      }
+      return;
+    case "delivery.accepted":
+      if (
+        fact.body.operation !== "delivery.accepted" ||
+        canonicalJson(action.receipt) !==
+          canonicalJson(fact.body.receipt)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "delivery fact differs from the exact pending command",
+        );
+      }
+      return;
+  }
 };
 
 const taskWithoutHistory = (task: TaskValue): unknown => {
@@ -3123,6 +3232,19 @@ const validateIncomingFact = (
   sender: InstallationId,
   fact: WorkFactValue,
 ): void => {
+  const correlatedCommand =
+    fact.basis.kind === "command"
+      ? exactPendingCommandForFact(writer, local, sender, fact)
+      : undefined;
+  if (fact.basis.kind === "command") {
+    if (correlatedCommand === undefined) {
+      throw authorityError(
+        "causal-conflict",
+        "fact does not name its exact unresolved local command",
+      );
+    }
+    assertCorrelatedCommandFact(correlatedCommand, fact);
+  }
   switch (fact.body.operation) {
     case "task.create": {
       if (
@@ -3158,7 +3280,7 @@ const validateIncomingFact = (
             "first task adoption does not originate from this installation",
           );
         }
-        const command = findPendingClaim(writer, sender, fact);
+        const command = correlatedCommand;
         if (
           command === undefined ||
           command.body.operation !== "task.claim"
@@ -3361,14 +3483,7 @@ const validateIncomingFact = (
     case "message.append": {
       const authority = canonicalLocalWorkAuthority(writer);
       if (authority.role === "remote") {
-        if (
-          findPendingMessageCommand(
-            writer,
-            local,
-            sender,
-            fact,
-          ) === undefined
-        ) {
+        if (correlatedCommand?.body.operation !== "message.append") {
           throw authorityError(
             "causal-conflict",
             "Command Center message fact has no exact local pending command",
