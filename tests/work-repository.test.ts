@@ -26,6 +26,7 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/vellum/state/engine";
+import { IntentFactBasis } from "../src/shared/work-protocol";
 
 const root = join(tmpdir(), `vellum-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -41,6 +42,32 @@ let state: Context.Tag.Service<typeof StateEngine>;
 const observedAt = "2026-07-27T18:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-repository");
 const remote = Schema.decodeUnknownSync(InstallationId)("remote-repository");
+const currentIntentSha256 = "d".repeat(64);
+const staleIntentSha256 = "e".repeat(64);
+const wrongIntentSha256 = "f".repeat(64);
+const decodeIntentFactBasis = Schema.decodeUnknownSync(IntentFactBasis, {
+  onExcessProperty: "error",
+});
+const authorialBasis = decodeIntentFactBasis({
+  kind: "authorial-intent",
+  generation: "1",
+  contentSha256: currentIntentSha256,
+});
+const staleAuthorialBasis = decodeIntentFactBasis({
+  kind: "authorial-intent",
+  generation: "0",
+  contentSha256: staleIntentSha256,
+});
+const wrongAuthorialBasis = decodeIntentFactBasis({
+  kind: "authorial-intent",
+  generation: "1",
+  contentSha256: wrongIntentSha256,
+});
+const projectedBasis = decodeIntentFactBasis({
+  kind: "projected-intent",
+  generation: "1",
+  contentSha256: currentIntentSha256,
+});
 const actor = {
   seatId: Schema.decodeUnknownSync(ActorSeatId)(
     `seat_${"a".repeat(64)}`,
@@ -118,6 +145,41 @@ const seedInstallations = (
       `,
       [observedAt],
     );
+    for (const [generation, intentSha256] of [
+      ["0", staleIntentSha256],
+      ["1", currentIntentSha256],
+    ] as const) {
+      writer.run(
+        `
+          INSERT INTO canvas_generations(
+            generation,
+            created_at,
+            cause,
+            intent_sha256,
+            document_count
+          ) VALUES (?, ?, 'test intent', ?, 1)
+        `,
+        [generation, observedAt, intentSha256],
+      );
+      writer.run(
+        `
+          INSERT INTO canvas_generation_documents(
+            generation,
+            name,
+            body,
+            sha256,
+            modified_at
+          ) VALUES (?, 'factory', '{}', ?, ?)
+        `,
+        [generation, generation.repeat(64), observedAt],
+      );
+    }
+    writer.run(
+      `
+        INSERT INTO canvas_head(singleton, generation)
+        VALUES (1, '1')
+      `,
+    );
   });
 
 beforeAll(async () => {
@@ -185,6 +247,7 @@ describe("WorkRepository v2 local authority", () => {
               canvasName: "factory",
               nodeId: "unconfigured-tasks",
             },
+            basis: authorialBasis,
             task: {
               id: "must-not-exist",
               state: "submitted",
@@ -233,11 +296,95 @@ describe("WorkRepository v2 local authority", () => {
     }
   });
 
+  it("rejects stale, mismatched, and role-wrong intent bases transactionally", async () => {
+    const sink = { canvasName: "factory", nodeId: "basis-rejections" };
+    const persistedState = () =>
+      state.read("test.read-rejected-basis-state", (reader) => ({
+        lastSequence:
+          reader.get<{ readonly last_seq: string }>(
+            `
+              SELECT last_seq
+              FROM work_event_sequences
+              WHERE event_home = ? AND entity_home = ?
+            `,
+            [cc, cc],
+          )?.last_seq ?? null,
+        events: reader.get<{ readonly count: number }>(
+          `
+            SELECT count(*) AS count
+            FROM work_events
+            WHERE item_canvas_name = ? AND item_node_id = ?
+          `,
+          [sink.canvasName, sink.nodeId],
+        )!.count,
+        facts: reader.get<{ readonly count: number }>(
+          `
+            SELECT count(*) AS count
+            FROM work_facts AS fact
+            JOIN work_events AS event
+              ON event.event_home = fact.event_home
+              AND event.entity_home = fact.entity_home
+              AND event.seq = fact.seq
+            WHERE event.item_canvas_name = ? AND event.item_node_id = ?
+          `,
+          [sink.canvasName, sink.nodeId],
+        )!.count,
+        tasks: reader.get<{ readonly count: number }>(
+          `
+            SELECT count(*) AS count
+            FROM work_tasks
+            WHERE canvas_name = ? AND node_id = ?
+          `,
+          [sink.canvasName, sink.nodeId],
+        )!.count,
+      }));
+    const before = await runtime.runPromise(persistedState());
+
+    for (const [taskId, basis, reason] of [
+      ["stale-basis-task", staleAuthorialBasis, "causal-conflict"],
+      ["wrong-hash-task", wrongAuthorialBasis, "causal-conflict"],
+      ["wrong-role-task", projectedBasis, "authority-mismatch"],
+    ] as const) {
+      const result = await runtime.runPromise(
+        repository
+          .createTask({
+            sink,
+            basis,
+            task: {
+              id: taskId,
+              state: "submitted",
+              history: [
+                message(
+                  `${taskId}-brief`,
+                  "user",
+                  "must not commit",
+                  taskId,
+                ),
+              ],
+            },
+            originAt: observedAt,
+            receivedAt: observedAt,
+          })
+          .pipe(Effect.either),
+      );
+      expect(result).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "WorkAuthorityError",
+          reason,
+        },
+      });
+    }
+
+    expect(await runtime.runPromise(persistedState())).toEqual(before);
+  });
+
   it("commits typed task facts on one full route with strict predecessors", async () => {
     const sink = { canvasName: "factory", nodeId: "tasks-local" };
     const created = await runtime.runPromise(
       repository.createTask({
         sink,
+        basis: authorialBasis,
         task: {
           id: "task-local",
           state: "submitted",
@@ -252,6 +399,7 @@ describe("WorkRepository v2 local authority", () => {
     const claimed = await runtime.runPromise(
       repository.claimLocalTask({
         sink,
+        basis: authorialBasis,
         taskId: created.value.id,
         actor,
         originAt: observedAt,
@@ -261,6 +409,7 @@ describe("WorkRepository v2 local authority", () => {
     const completed = await runtime.runPromise(
       repository.transitionTask({
         sink,
+        basis: authorialBasis,
         taskId: created.value.id,
         state: "completed",
         message: message(
@@ -317,11 +466,54 @@ describe("WorkRepository v2 local authority", () => {
     ).toBe(cc);
   });
 
+  it("roundtrips the exact immutable intent basis on an emitted fact", async () => {
+    const sink = { canvasName: "factory", nodeId: "basis-roundtrip" };
+    const created = await runtime.runPromise(
+      repository.createTask({
+        sink,
+        basis: authorialBasis,
+        task: {
+          id: "basis-roundtrip-task",
+          state: "submitted",
+          history: [
+            message(
+              "basis-roundtrip-brief",
+              "user",
+              "retain the admitting intent",
+              "basis-roundtrip-task",
+            ),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+
+    expect(created.record.basis).toEqual(authorialBasis);
+    const stored = (
+      await runtime.runPromise(
+        repository.recordsAfter({
+          route: created.record.id.route,
+        }),
+      )
+    ).find(
+      (record) =>
+        record.id.seq === created.record.id.seq &&
+        record.contentSha256 === created.record.contentSha256,
+    );
+    expect(stored).toEqual(created.record);
+    expect(stored?.recordType).toBe("fact");
+    if (stored?.recordType === "fact") {
+      expect(stored.basis).toEqual(authorialBasis);
+    }
+  });
+
   it("persists a remote claim attempt without assigning or starting the source task", async () => {
     const sink = { canvasName: "factory", nodeId: "tasks-remote" };
     const created = await runtime.runPromise(
       repository.createTask({
         sink,
+        basis: authorialBasis,
         task: {
           id: "task-remote",
           state: "submitted",
@@ -381,6 +573,7 @@ describe("WorkRepository v2 local authority", () => {
     await runtime.runPromise(
       repository.createTask({
         sink: pendingSink,
+        basis: authorialBasis,
         task: {
           id: "task-pending-actor",
           state: "submitted",
@@ -401,6 +594,7 @@ describe("WorkRepository v2 local authority", () => {
       repository
         .claimLocalTask({
           sink: pendingSink,
+          basis: authorialBasis,
           taskId: "task-pending-actor",
           actor,
           originAt: observedAt,
@@ -424,6 +618,7 @@ describe("WorkRepository v2 local authority", () => {
     const request = await runtime.runPromise(
       repository.createRequest({
         sink: requestSink,
+        basis: authorialBasis,
         raisedBy: actor,
         request: {
           id: "request-1",
@@ -440,6 +635,7 @@ describe("WorkRepository v2 local authority", () => {
     await runtime.runPromise(
       repository.resolveRequest({
         sink: requestSink,
+        basis: authorialBasis,
         requestId: request.value.id,
         response: "Approved",
         disposition: "completed",
@@ -451,6 +647,7 @@ describe("WorkRepository v2 local authority", () => {
     await runtime.runPromise(
       repository.appendMessage({
         sink: inbox,
+        basis: authorialBasis,
         message: message("mail-1", "agent", "hello", "mail-context-task"),
         sentBy: actor,
         destination: { kind: "mailbox" },
@@ -461,6 +658,7 @@ describe("WorkRepository v2 local authority", () => {
     const artifact = await runtime.runPromise(
       repository.publishArtifact({
         sink: artifacts,
+        basis: authorialBasis,
         publishedBy: actor,
         artifact: {
           artifactId: "artifact-1",
@@ -479,6 +677,7 @@ describe("WorkRepository v2 local authority", () => {
     await runtime.runPromise(
       repository.acceptDelivery({
         sink: artifacts,
+        basis: authorialBasis,
         receipt: {
           deliveryId: "delivery-1",
           deliveredItem: {
@@ -552,6 +751,7 @@ describe("WorkRepository v2 local authority", () => {
     const created = await runtime.runPromise(
       repository.createTask({
         sink: taskSink,
+        basis: authorialBasis,
         task: {
           id: "artifact-source-task",
           state: "submitted",
@@ -578,6 +778,7 @@ describe("WorkRepository v2 local authority", () => {
       repository
         .publishArtifact({
           sink: artifactSink,
+          basis: authorialBasis,
           publishedBy: artifactPublisher,
           artifact: {
             artifactId: "artifact-before-claim",
@@ -599,6 +800,7 @@ describe("WorkRepository v2 local authority", () => {
     await runtime.runPromise(
       repository.claimLocalTask({
         sink: taskSink,
+        basis: authorialBasis,
         taskId: created.value.id,
         actor: artifactClaimant,
         originAt: observedAt,
@@ -608,6 +810,7 @@ describe("WorkRepository v2 local authority", () => {
     const published = await runtime.runPromise(
       repository.publishArtifact({
         sink: artifactSink,
+        basis: authorialBasis,
         publishedBy: artifactPublisher,
         artifact: {
           artifactId: "artifact-with-task",
@@ -687,6 +890,7 @@ describe("WorkRepository v2 local authority", () => {
         repository
           .publishArtifact({
             sink: artifactSink,
+            basis: authorialBasis,
             publishedBy: artifactPublisher,
             artifact: {
               artifactId,
@@ -731,6 +935,7 @@ describe("WorkRepository v2 local authority", () => {
     await runtime.runPromise(
       repository.createTask({
         sink: taskSink,
+        basis: authorialBasis,
         task: {
           id: "thread-task-1",
           state: "submitted",
@@ -750,6 +955,7 @@ describe("WorkRepository v2 local authority", () => {
     await runtime.runPromise(
       repository.createRequest({
         sink: requestSink,
+        basis: authorialBasis,
         raisedBy: actor,
         request: {
           id: "thread-request-1",
@@ -772,6 +978,7 @@ describe("WorkRepository v2 local authority", () => {
     await runtime.runPromise(
       repository.appendMessage({
         sink: taskSink,
+        basis: authorialBasis,
         message: message(
           "thread-task-note",
           "agent",
@@ -787,6 +994,7 @@ describe("WorkRepository v2 local authority", () => {
     await runtime.runPromise(
       repository.appendMessage({
         sink: requestSink,
+        basis: authorialBasis,
         message: message(
           "thread-request-note",
           "agent",
@@ -849,6 +1057,7 @@ describe("WorkRepository v2 local authority", () => {
       repository
         .appendMessage({
           sink: taskSink,
+          basis: authorialBasis,
           message: message(
             "missing-thread-note",
             "agent",
@@ -876,6 +1085,7 @@ describe("WorkRepository v2 local authority", () => {
     const attemptedOverride = {
       localInstallationId: remote,
       sink,
+      basis: authorialBasis,
       task: {
         id: "task-authority",
         state: "submitted" as const,
