@@ -387,6 +387,9 @@ const verifyFixture = async (
 
 describe("signed Linux release bundle", () => {
   it("verifies both detached signatures, every payload, target, and protocol", async () => {
+    expect(LINUX_RELEASE_PROTOCOLS.stationApi).toBe(
+      "vellum/station-api/v2",
+    );
     const fixture = await createFixture();
     await expect(verifyFixture(fixture.directory)).resolves.toEqual({
       schema: "vellum/linux-release-verification-receipt/v1",
@@ -542,6 +545,7 @@ describe("signed Linux release bundle", () => {
         },
       },
       { peerVersion: "0.0.9" },
+      { stationApiProtocol: "vellum/station-api/v1" },
       { stationApiProtocol: "vellum/station-browser/v1" },
       { workControlProtocol: "vellum-work/v2" },
       { trustedKeyId: "vellum-linux-other" },

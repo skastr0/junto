@@ -74,7 +74,7 @@ const parseOptions = (
     trustedKeyFingerprintSha256 === undefined
   ) {
     throw new Error(
-      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-version X.Y.Z --peer-station-api-protocol vellum/station-api/v1 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z]",
+      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-version X.Y.Z --peer-station-api-protocol vellum/station-api/v2 --peer-work-control-protocol vellum-work/v1 [--installed-version X.Y.Z]",
     );
   }
   return {

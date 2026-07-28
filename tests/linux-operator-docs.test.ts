@@ -65,7 +65,7 @@ describe("Linux v1 operator documentation", () => {
       "Run the staged verifier as the ordinary station user, never with `sudo`",
     );
     expect(runbook).toContain(
-      "--peer-station-api-protocol vellum/station-api/v1",
+      "--peer-station-api-protocol vellum/station-api/v2",
     );
     expect(runbook).toContain("--peer-work-control-protocol vellum-work/v1");
     expect(runbook).not.toContain("--peer-station-browser-protocol");

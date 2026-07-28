@@ -5,10 +5,10 @@ import path from "node:path";
 import embeddedReleaseKeyring from "../../../../build/linux/release-keyring.json";
 import embeddedReleaseTrustPolicy from "../../../../build/linux/release-trust-policy.json";
 import productMetadata from "../../../../package.json";
+import { STATION_API_PROTOCOL } from "../../../shared/station-api";
 import { WORK_PROTOCOL_VERSION } from "../../../shared/work-control";
 import {
   LINUX_RELEASE_MANIFEST,
-  LINUX_RELEASE_PROTOCOLS,
   LINUX_RELEASE_TARGET,
   decodeLinuxReleaseKeyring,
   decodeLinuxReleaseManifest,
@@ -298,7 +298,7 @@ export const verifyProductionLinuxDeployBundle = async (
     },
     packageIdentity,
     peerVersion: productMetadata.version,
-    stationApiProtocol: LINUX_RELEASE_PROTOCOLS.stationApi,
+    stationApiProtocol: STATION_API_PROTOCOL,
     workControlProtocol: WORK_PROTOCOL_VERSION,
     trustedKeyring: trust.keyring,
     trustedKeyringRevision: trust.trustedKeyringRevision,

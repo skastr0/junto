@@ -39,7 +39,7 @@ export const LINUX_RELEASE_TARGET = Object.freeze({
 } as const);
 
 export const LINUX_RELEASE_PROTOCOLS = Object.freeze({
-  stationApi: "vellum/station-api/v1",
+  stationApi: "vellum/station-api/v2",
   workControl: "vellum-work/v1",
 } as const);
 
@@ -100,7 +100,7 @@ export interface LinuxReleaseManifest {
     readonly sha256: string;
   };
   readonly protocols: {
-    readonly stationApi: "vellum/station-api/v1";
+    readonly stationApi: "vellum/station-api/v2";
     readonly workControl: "vellum-work/v1";
     readonly minimumPeerVersion: string;
   };
@@ -885,7 +885,7 @@ export const decodeLinuxReleaseManifest = (
       sha256: packageSha256,
     },
     protocols: {
-      stationApi: "vellum/station-api/v1",
+      stationApi: "vellum/station-api/v2",
       workControl: "vellum-work/v1",
       minimumPeerVersion,
     },
