@@ -335,7 +335,7 @@ describe("Station API v2 contract", () => {
     ).toBeDefined();
   });
 
-  it("rejects v1 reports, opaque events, credentials, and sixth verbs", () => {
+  it("rejects v1 reports, opaque events, excess fields, and sixth verbs", () => {
     expect(
       Either.isLeft(
         decodeStationControlRequest({
@@ -373,7 +373,7 @@ describe("Station API v2 contract", () => {
         decodeStationControlRequest({
           protocol: STATION_API_PROTOCOL,
           op: "status",
-          routeToken: "credentials-never-enter-the-domain",
+          extra: "strict-decode",
         }),
       ),
     ).toBe(true);
