@@ -954,7 +954,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     }
   });
 
-  it("round-trips request.resolve commands and standalone Remote request/artifact facts", async () => {
+  it("round-trips Remote request resolution and exact artifact task provenance", async () => {
     const cc = installation("cc-remote-facts");
     const remote = installation("remote-facts");
     const commandCenter = await openInstallation(
@@ -964,7 +964,10 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     const station = await openInstallation(remote, [cc], "remote");
     const requester = actor("d", "requester");
+    const taskClaimant = actor("e", "artifact-task-worker");
+    const artifactPublisher = actor("f", "artifact-publisher");
     const requestSink = { canvasName: "factory", nodeId: "requests" };
+    const taskSink = { canvasName: "factory", nodeId: "artifact-tasks" };
     const artifactSink = { canvasName: "factory", nodeId: "artifacts" };
     const inbox = { canvasName: "factory", nodeId: "cc-mail" };
 
@@ -1058,25 +1061,63 @@ describe("WorkRepository v2 report reconciliation", () => {
       response: "Approved",
     });
 
-    const artifact = await station.runtime.runPromise(
-      station.repository.publishArtifact({
-        sink: artifactSink,
-        publishedBy: requester,
-        artifact: {
-          artifactId: "artifact-remote",
-          name: "remote proof",
-          parts: [{ kind: "text", text: "proof" }],
+    const taskCreated = await station.runtime.runPromise(
+      station.repository.createTask({
+        sink: taskSink,
+        task: {
+          id: "artifact-source-task",
+          state: "submitted",
+          history: [
+            message(
+              "artifact-source-brief",
+              "user",
+              "produce remote proof",
+              "artifact-source-task",
+            ),
+          ],
         },
         originAt: observedAt,
         receivedAt: observedAt,
       }),
     );
-    expect(artifact.record.id.seq).toBe("4");
+    const taskClaimed = await station.runtime.runPromise(
+      station.repository.claimLocalTask({
+        sink: taskSink,
+        taskId: taskCreated.value.id,
+        actor: taskClaimant,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const task = {
+      kind: "task" as const,
+      itemId: taskClaimed.value.id,
+      sink: taskSink,
+    };
+    const artifact = await station.runtime.runPromise(
+      station.repository.publishArtifact({
+        sink: artifactSink,
+        publishedBy: artifactPublisher,
+        artifact: {
+          artifactId: "artifact-remote",
+          name: "remote proof",
+          parts: [{ kind: "text", text: "proof" }],
+          task,
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(artifact.record.id.seq).toBe("6");
     const artifactReport = await commandCenter.runtime.runPromise(
-      accept(commandCenter.repository, remote, [artifact.record]),
+      accept(commandCenter.repository, remote, [
+        taskCreated.record,
+        taskClaimed.record,
+        artifact.record,
+      ]),
     );
     expect(artifactReport.acknowledge).toEqual([
-      { eventHome: remote, entityHome: remote, through: "4" },
+      { eventHome: remote, entityHome: remote, through: "6" },
     ]);
     expect(
       (
@@ -1088,6 +1129,77 @@ describe("WorkRepository v2 report reconciliation", () => {
         )
       ).artifacts.items[0],
     ).toEqual(artifact.value);
+
+    if (artifact.record.body.operation !== "artifact.publish") {
+      throw new Error("artifact fixture did not produce an artifact fact");
+    }
+    const forgedArtifact = reseal({
+      ...artifact.record,
+      id: {
+        ...artifact.record.id,
+        seq: "7" as typeof artifact.record.id.seq,
+      },
+      item: {
+        ...artifact.record.item,
+        itemId: "artifact-forged-missing-task",
+      },
+      body: {
+        ...artifact.record.body,
+        artifact: {
+          ...artifact.record.body.artifact,
+          artifactId: "artifact-forged-missing-task",
+          task: {
+            ...task,
+            itemId: "missing-task",
+          },
+        },
+      },
+    });
+    const deniedArtifact = await commandCenter.runtime.runPromise(
+      accept(
+        commandCenter.repository,
+        remote,
+        [forgedArtifact],
+      ).pipe(Effect.either),
+    );
+    expect(Either.isLeft(deniedArtifact)).toBe(true);
+    if (Either.isLeft(deniedArtifact)) {
+      expect(deniedArtifact.left).toMatchObject({
+        reason: "causal-conflict",
+      });
+    }
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.state.read(
+          "test.read-denied-artifact-reference",
+          (reader) => ({
+            cursor: reader.get<{ readonly through_sequence: string }>(
+              `
+                SELECT through_sequence
+                FROM station_received_cursors
+                WHERE event_home = ? AND entity_home = ?
+              `,
+              [remote, remote],
+            )?.through_sequence,
+            forgedEvents: reader.get<{ readonly count: number }>(
+              `
+                SELECT count(*) AS count
+                FROM work_events
+                WHERE event_home = ? AND entity_home = ? AND seq = '7'
+              `,
+              [remote, remote],
+            )!.count,
+            artifacts: reader.get<{ readonly count: number }>(
+              "SELECT count(*) AS count FROM work_artifacts",
+            )!.count,
+          }),
+        ),
+      ),
+    ).toEqual({
+      cursor: "6",
+      forgedEvents: 0,
+      artifacts: 1,
+    });
 
     const deniedMail = await station.runtime.runPromise(
       station.repository

@@ -144,10 +144,21 @@ const seedDoc = (): CanvasDoc => ({
       text: "orphan",
       ether: { entity: { kind: "task" } },
     },
+    {
+      id: "artifacts",
+      type: "text",
+      x: 600,
+      y: 0,
+      width: 120,
+      height: 48,
+      text: "artifacts",
+      ether: { entity: { kind: "artifacts" } },
+    },
   ],
   edges: [
     { id: "e1", fromNode: "agent", toNode: "tasks" },
     { id: "e2", fromNode: "agent", toNode: "req" },
+    { id: "e3", fromNode: "agent", toNode: "artifacts" },
   ],
 });
 
@@ -909,6 +920,68 @@ describe("work control transport", () => {
     expect(res.data.claimedBy).toBe(actor.seatId);
   });
 
+  it("publishes exact task provenance through the local control boundary", async () => {
+    const server = servers[0]!;
+    const claimed = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.claim",
+      args: { target: "tasks", task: "t1" },
+    })) as { ok: boolean };
+    expect(claimed.ok).toBe(true);
+
+    const published = (await call(server.socketPath, {
+      token: token(),
+      op: "artifact.publish",
+      args: {
+        target: "artifacts",
+        artifactId: "artifact-task-control",
+        task: { target: "tasks", id: "t1" },
+        parts: [{ kind: "text", text: "proof" }],
+      },
+    })) as {
+      ok: true;
+      data: {
+        artifactId: string;
+        task: {
+          kind: "task";
+          itemId: string;
+          sink: { canvasName: string; nodeId: string };
+        };
+      };
+    };
+    expect(published).toMatchObject({
+      ok: true,
+      data: {
+        artifactId: "artifact-task-control",
+        task: {
+          kind: "task",
+          itemId: "t1",
+          sink: {
+            canvasName: "work-cli",
+            nodeId: "tasks",
+          },
+        },
+      },
+    });
+
+    const legacy = (await call(server.socketPath, {
+      token: token(),
+      op: "artifact.publish",
+      args: {
+        target: "artifacts",
+        artifactId: "artifact-legacy-task-id",
+        taskId: "t1",
+        parts: [{ kind: "text", text: "legacy" }],
+      },
+    })) as {
+      ok: false;
+      error: { type: string; details?: { path?: string } };
+    };
+    expect(legacy.ok).toBe(false);
+    expect(legacy.error.type).toBe("InputError");
+    expect(legacy.error.details?.path).toBe("args");
+  });
+
   it("denies task updates from a connected actor that does not own the claim", async () => {
     const runtime = runtimes.at(-1);
     if (runtime === undefined) throw new Error("missing work-control runtime");
@@ -983,7 +1056,14 @@ describe("work control transport", () => {
       data: { connected: Array<{ id: string; grants: string[] }> };
     };
     expect(res.ok).toBe(true);
-    expect(res.data.connected.map((c) => c.id)).toEqual(["req", "tasks"]);
+    expect(res.data.connected.map((c) => c.id)).toEqual([
+      "artifacts",
+      "req",
+      "tasks",
+    ]);
+    expect(
+      res.data.connected.find((c) => c.id === "artifacts")?.grants,
+    ).toContain("artifact.publish");
     expect(res.data.connected.find((c) => c.id === "tasks")?.grants).toContain(
       "tasks.claim",
     );
