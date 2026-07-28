@@ -676,8 +676,8 @@ export interface BoxFleetResource {
   readonly name: string;
   readonly ip: string | null;
   readonly state: string;
-  readonly createdAt: string;
-  readonly updatedAt: string;
+  readonly createdAt: string | null;
+  readonly updatedAt: string | null;
   readonly enrolledAt: string;
 }
 

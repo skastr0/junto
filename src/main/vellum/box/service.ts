@@ -65,10 +65,6 @@ export class BoxFleetService extends Context.Tag("@vellum/box/BoxFleetService")<
     readonly resume: (
       boxId: string,
     ) => Effect.Effect<BoxResource, BoxFleetError>;
-    readonly ssh: (
-      boxId: string,
-      command: ReadonlyArray<string>,
-    ) => Effect.Effect<string, BoxFleetError>;
   }
 >() {}
 
@@ -131,11 +127,6 @@ export const makeBoxFleetService = (
     refresh: (boxId) => persist(boxId, (box) => cli.info(box)),
     stop: (boxId) => persist(boxId, (box) => cli.stop(box)),
     resume: (boxId) => persist(boxId, (box) => cli.resume(box)),
-    ssh: (boxId, command) =>
-      authorizeMutation.pipe(
-        Effect.andThen(owned(boxId)),
-        Effect.flatMap((box) => cli.ssh(box, command)),
-      ),
   });
 };
 

@@ -1,12 +1,16 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import {
+  BoxActionEnvelope,
   BoxCliCommandError,
   BoxCliProtocolError,
   BoxCliStatus,
   BoxCliUnavailableError,
+  BoxId,
   BoxMachineEnvelope,
+  BoxNewLine,
   type BoxCliAvailability,
   type BoxCliError,
+  type BoxId as BoxIdType,
   type BoxMachine,
 } from "./domain";
 import {
@@ -20,6 +24,12 @@ const decodeStatus = Schema.decodeUnknown(BoxCliStatus, {
   onExcessProperty: "ignore",
 });
 const decodeMachineEnvelope = Schema.decodeUnknown(BoxMachineEnvelope, {
+  onExcessProperty: "ignore",
+});
+const decodeActionEnvelope = Schema.decodeUnknown(BoxActionEnvelope, {
+  onExcessProperty: "ignore",
+});
+const decodeNewLine = Schema.decodeUnknown(BoxNewLine, {
   onExcessProperty: "ignore",
 });
 
@@ -54,13 +64,19 @@ const commandError = (
   operation: string,
   result: {
     readonly exitCode: number;
+    readonly stdout: string;
     readonly stderr: string;
   },
 ): BoxCliCommandError =>
   BoxCliCommandError.make({
     operation,
     exitCode: result.exitCode,
+    ...(() => {
+      const boxId = boxIdFromJsonLines(result.stdout);
+      return boxId === undefined ? {} : { boxId };
+    })(),
     detail:
+      errorDetailFromJsonLines(result.stdout) ||
       result.stderr.trim() ||
       `Box CLI ${operation} exited with status ${result.exitCode}`,
   });
@@ -80,6 +96,62 @@ export interface BoxCliOptions {
   readonly homeDirectory?: string;
 }
 
+const parseJsonLines = (
+  operation: string,
+  stdout: string,
+): Effect.Effect<ReadonlyArray<unknown>, BoxCliProtocolError> =>
+  Effect.try({
+    try: () => {
+      const lines = stdout
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+      if (lines.length === 0) throw new Error("response contained no JSON lines");
+      return lines.map((line) => JSON.parse(line) as unknown);
+    },
+    catch: (cause) =>
+      BoxCliProtocolError.make({
+        operation,
+        detail: `Box CLI returned invalid JSONL: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+      }),
+  });
+
+const boxIdFromJsonLines = (stdout: string): BoxIdType | undefined => {
+  for (const line of stdout.split(/\r?\n/u)) {
+    try {
+      const value = JSON.parse(line) as { readonly id?: unknown };
+      const decoded = Schema.decodeUnknownEither(
+        Schema.Struct({ id: BoxId }),
+        { onExcessProperty: "ignore" },
+      )(value);
+      if (decoded._tag === "Right") return decoded.right.id;
+    } catch {
+      // Best-effort recovery metadata only; the typed protocol decoder reports
+      // malformed success output on the normal path.
+    }
+  }
+  return undefined;
+};
+
+const errorDetailFromJsonLines = (stdout: string): string | undefined => {
+  for (const line of stdout.split(/\r?\n/u).reverse()) {
+    try {
+      const value = JSON.parse(line) as {
+        readonly event?: unknown;
+        readonly error?: unknown;
+      };
+      if (value.event === "error" && typeof value.error === "string") {
+        return value.error;
+      }
+    } catch {
+      // Fall through to stderr or the generic exit detail.
+    }
+  }
+  return undefined;
+};
+
 export class BoxCli extends Context.Tag("@vellum/box/BoxCli")<
   BoxCli,
   {
@@ -96,10 +168,11 @@ export class BoxCli extends Context.Tag("@vellum/box/BoxCli")<
       box: OwnedBox,
       options?: { readonly includeAccountSecrets?: boolean },
     ) => Effect.Effect<BoxMachine, BoxCliError>;
-    readonly ssh: (
-      box: OwnedBox,
-      command: ReadonlyArray<string>,
-    ) => Effect.Effect<string, BoxCliError>;
+    /**
+     * Ask Box to create/refresh and authorize its CLI-managed SSH key for this
+     * exact owned machine. Ordinary remote traffic belongs to SshTransport.
+     */
+    readonly prepareSsh: (box: OwnedBox) => Effect.Effect<void, BoxCliError>;
   }
 >() {}
 
@@ -164,6 +237,104 @@ export const makeBoxCli = (
         ),
       ),
       Effect.map((envelope) => envelope.box),
+    );
+
+  const infoByCreatedId = (
+    boxId: BoxIdType,
+  ): Effect.Effect<BoxMachine, BoxCliError> =>
+    jsonMachine("info-created", ["info", boxId]).pipe(
+      Effect.flatMap((machine) =>
+        machine.id === boxId
+          ? Effect.succeed(machine)
+          : Effect.fail(
+              BoxCliProtocolError.make({
+                operation: "info-created",
+                detail: "Box info did not match the created Box identity",
+              }),
+            ),
+      ),
+    );
+
+  const createMachine = (
+    createOptions: {
+      readonly autoStop?: boolean;
+      readonly includeAccountSecrets?: boolean;
+    },
+  ): Effect.Effect<BoxMachine, BoxCliError> =>
+    run(
+      "new",
+      [
+        "--json",
+        "new",
+        ...(createOptions.autoStop === false ? ["--no-auto-stop"] : []),
+        ...(createOptions.includeAccountSecrets === false ? ["--no-env"] : []),
+      ],
+      120_000,
+    ).pipe(
+      Effect.flatMap((result) => parseJsonLines("new", result.stdout)),
+      Effect.flatMap((values) =>
+        Effect.forEach(values, (value) =>
+          decodeNewLine(value).pipe(
+            Effect.mapError((error) => protocolError("new", error)),
+          ),
+        ),
+      ),
+      Effect.flatMap((lines) => {
+        const created = lines.find((line) => line.event === "created");
+        const ready = lines.find((line) => line.event === "ready");
+        const failure = lines.find((line) => line.event === "error");
+        if (failure?.event === "error") {
+          return Effect.fail(
+            BoxCliCommandError.make({
+              operation: "new",
+              detail: failure.error,
+              ...(created?.event === "created" ? { boxId: created.id } : {}),
+            }),
+          );
+        }
+        if (
+          created?.event !== "created" ||
+          ready?.event !== "ready" ||
+          created.id !== ready.id
+        ) {
+          return Effect.fail(
+            BoxCliProtocolError.make({
+              operation: "new",
+              detail:
+                "Box creation did not produce matching created and ready receipts",
+            }),
+          );
+        }
+        return infoByCreatedId(created.id);
+      }),
+    );
+
+  const actionMachine = (
+    operation: "stop" | "resume",
+    box: OwnedBox,
+    args: ReadonlyArray<string>,
+  ): Effect.Effect<BoxMachine, BoxCliError> =>
+    run(operation, ["--json", ...args], 120_000).pipe(
+      Effect.flatMap((result) => parseJson(operation, result.stdout)),
+      Effect.flatMap((value) =>
+        decodeActionEnvelope(value).pipe(
+          Effect.mapError((error) => protocolError(operation, error)),
+        ),
+      ),
+      Effect.flatMap((receipt) => {
+        const expected = ownedBoxId(box);
+        if (receipt.id !== expected || receipt.box?.id !== expected) {
+          return receipt.box === null && receipt.id === expected
+            ? jsonMachine(`${operation}-info`, ["info", expected])
+            : Effect.fail(
+                BoxCliProtocolError.make({
+                  operation,
+                  detail: "Box action receipt did not match the owned Box",
+                }),
+              );
+        }
+        return Effect.succeed(receipt.box);
+      }),
     );
 
   const availability: Effect.Effect<BoxCliAvailability> =
@@ -242,18 +413,13 @@ export const makeBoxCli = (
 
   return BoxCli.of({
     availability,
-    create: (createOptions = {}) =>
-      jsonMachine("new", [
-        "new",
-        ...(createOptions.autoStop === false ? ["--no-auto-stop"] : []),
-        ...(createOptions.includeAccountSecrets === false ? ["--no-env"] : []),
-      ]),
+    create: (createOptions = {}) => createMachine(createOptions),
     info: (box) => jsonMachine("info", ["info", ownedBoxId(box)]),
-    stop: (box) =>
-      jsonMachine("stop", ["stop", ownedBoxId(box)], 120_000),
+    stop: (box) => actionMachine("stop", box, ["stop", ownedBoxId(box)]),
     resume: (box, resumeOptions = {}) =>
-      jsonMachine(
+      actionMachine(
         "resume",
+        box,
         [
           "resume",
           ownedBoxId(box),
@@ -261,11 +427,10 @@ export const makeBoxCli = (
             ? ["--no-env"]
             : []),
         ],
-        120_000,
       ),
-    ssh: (box, command) =>
-      run("ssh", ["ssh", ownedBoxId(box), ...command], 120_000).pipe(
-        Effect.map((result) => result.stdout),
+    prepareSsh: (box) =>
+      run("prepare-ssh", ["ssh", ownedBoxId(box), "true"], 120_000).pipe(
+        Effect.asVoid,
       ),
   });
 };

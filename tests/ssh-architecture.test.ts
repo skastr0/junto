@@ -59,8 +59,8 @@ describe("SSH architecture", () => {
       "scripts/packaged-runtime-smoke.ts",
       // Doctor only checks executability of the OpenSSH client path; spawn stays in kernel.
       "src/main/vellum/hosts/doctor.ts",
-      // This is the Box CLI's own `ssh` subcommand, not an OpenSSH binary.
-      // The generic Box runner still owns the single, argv-only `box` process.
+      // Box invokes its fixed `ssh <id> true` preparation operation; ordinary
+      // remote traffic remains inside the central OpenSSH transport.
       "src/main/vellum/box/cli.ts",
     ]);
     const violations = files.flatMap((path) => {

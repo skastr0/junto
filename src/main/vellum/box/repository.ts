@@ -29,8 +29,8 @@ type BoxResourceRow = {
   readonly name: string;
   readonly machine_ip: string | null;
   readonly machine_state: string;
-  readonly provider_created_at: string;
-  readonly provider_updated_at: string;
+  readonly provider_created_at: string | null;
+  readonly provider_updated_at: string | null;
   readonly enrolled_at: string;
 };
 

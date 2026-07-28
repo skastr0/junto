@@ -67,7 +67,7 @@ describe("Box Fleet service ownership", () => {
       info: vi.fn(() => Effect.succeed(machine())),
       stop: vi.fn(() => Effect.succeed(machine("stopped"))),
       resume: vi.fn(() => Effect.succeed(machine())),
-      ssh: vi.fn(() => Effect.succeed("")),
+      prepareSsh: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(cli, repository);
 
@@ -94,7 +94,7 @@ describe("Box Fleet service ownership", () => {
       info: vi.fn(() => Effect.succeed(machine())),
       stop,
       resume: vi.fn(() => Effect.succeed(machine())),
-      ssh: vi.fn(() => Effect.succeed("")),
+      prepareSsh: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(cli, repository);
 
@@ -118,7 +118,7 @@ describe("Box Fleet service ownership", () => {
       info: vi.fn(() => Effect.succeed(machine())),
       stop: vi.fn(() => Effect.succeed(machine("stopped"))),
       resume: vi.fn(() => Effect.succeed(machine())),
-      ssh: vi.fn(() => Effect.succeed("")),
+      prepareSsh: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(
       cli,
@@ -149,7 +149,7 @@ describe("Box Fleet service ownership", () => {
       info: vi.fn(() => Effect.succeed(machine())),
       stop: vi.fn(() => Effect.succeed(machine("stopped"))),
       resume: vi.fn(() => Effect.succeed(resumed)),
-      ssh: vi.fn(() => Effect.succeed("")),
+      prepareSsh: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(cli, repository);
 

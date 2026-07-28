@@ -137,10 +137,32 @@ describe("Box CLI adapter", () => {
     expect(calls.flatMap((call) => call.args)).not.toContain("list");
   });
 
-  it("creates no-env Boxes and decodes only non-secret machine fields", async () => {
-    let request: BoxProcessRequest | undefined;
+  it("creates no-env Boxes from JSONL receipts and reads the complete machine", async () => {
+    const requests: BoxProcessRequest[] = [];
     const runner = makeRunner((next) => {
-      request = next;
+      requests.push(next);
+      if (next.args.includes("new")) {
+        return success(
+          [
+            JSON.stringify({
+              event: "created",
+              id: boxId,
+              ttlSeconds: null,
+            }),
+            JSON.stringify({
+              event: "state",
+              id: boxId,
+              state: "provisioning",
+            }),
+            JSON.stringify({
+              event: "ready",
+              id: boxId,
+              state: "ready",
+              ip: "203.0.113.8",
+            }),
+          ].join("\n"),
+        );
+      }
       return success(JSON.stringify(machine));
     });
 
@@ -148,12 +170,15 @@ describe("Box CLI adapter", () => {
       cli.create({ autoStop: false, includeAccountSecrets: false }),
     );
 
-    expect(request?.args).toEqual([
-      "--no-update",
-      "--json",
-      "new",
-      "--no-auto-stop",
-      "--no-env",
+    expect(requests.map((request) => request.args)).toEqual([
+      [
+        "--no-update",
+        "--json",
+        "new",
+        "--no-auto-stop",
+        "--no-env",
+      ],
+      ["--no-update", "--json", "info", boxId],
     ]);
     expect(result).toEqual({
       id: boxId,
@@ -166,26 +191,48 @@ describe("Box CLI adapter", () => {
     expect("desktopUrl" in result).toBe(false);
   });
 
-  it("passes remote commands as argv instead of shell text", async () => {
+  it("prepares SSH with one fixed no-op and exposes no command surface", async () => {
     let request: BoxProcessRequest | undefined;
     const runner = makeRunner((next) => {
       request = next;
       return success("ok\n");
     });
 
-    const stdout = await withCli(runner, "/bin/true", (cli) =>
-      cli.ssh(ownedBox, ["printf", "%s", "hello; touch /tmp/no"]),
-    );
+    await withCli(runner, "/bin/true", (cli) => cli.prepareSsh(ownedBox));
 
-    expect(stdout).toBe("ok\n");
     expect(request?.args).toEqual([
       "--no-update",
       "ssh",
       boxId,
-      "printf",
-      "%s",
-      "hello; touch /tmp/no",
+      "true",
     ]);
+  });
+
+  it("preserves the created Box identity when a later creation event fails", async () => {
+    const runner = makeRunner(() => ({
+      exitCode: 1,
+      stdout: [
+        JSON.stringify({ event: "created", id: boxId, ttlSeconds: null }),
+        JSON.stringify({
+          event: "error",
+          error: "machine provisioning failed",
+        }),
+      ].join("\n"),
+      stderr: "",
+    }));
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        makeBoxCli(runner, { executablePath: "/bin/true" }).create(),
+      ),
+    );
+
+    expect(result._tag).toBe("Left");
+    expect(result._tag === "Left" ? result.left : undefined).toMatchObject({
+      _tag: "BoxCliCommandError",
+      boxId,
+      detail: "machine provisioning failed",
+    });
   });
 
   it("surfaces nonzero exits and malformed JSON as typed failures", async () => {

@@ -17,14 +17,53 @@ export const BoxMachine = Schema.Struct({
   name: Schema.String,
   ip: Schema.NullOr(Schema.String),
   state: BoxMachineState,
-  createdAt: Schema.String,
-  updatedAt: Schema.String,
+  createdAt: Schema.NullOr(Schema.String),
+  updatedAt: Schema.NullOr(Schema.String),
 });
 export type BoxMachine = typeof BoxMachine.Type;
 
 export const BoxMachineEnvelope = Schema.Struct({
   box: BoxMachine,
 });
+
+export const BoxActionEnvelope = Schema.Struct({
+  id: BoxId,
+  status: Schema.String,
+  box: Schema.NullOr(BoxMachine),
+});
+
+export const BoxNewCreatedLine = Schema.Struct({
+  event: Schema.Literal("created"),
+  id: BoxId,
+  ttlSeconds: Schema.NullOr(Schema.Number),
+});
+
+export const BoxNewStateLine = Schema.Struct({
+  event: Schema.Literal("state"),
+  id: BoxId,
+  state: BoxMachineState,
+});
+
+export const BoxNewReadyLine = Schema.Struct({
+  event: Schema.Literal("ready"),
+  id: BoxId,
+  state: BoxMachineState,
+  ip: Schema.NullOr(Schema.String),
+});
+
+export const BoxNewErrorLine = Schema.Struct({
+  event: Schema.Literal("error"),
+  error: Schema.String,
+  code: Schema.optionalWith(Schema.String, { exact: true }),
+  status: Schema.optionalWith(Schema.Number, { exact: true }),
+});
+
+export const BoxNewLine = Schema.Union(
+  BoxNewCreatedLine,
+  BoxNewStateLine,
+  BoxNewReadyLine,
+  BoxNewErrorLine,
+);
 
 export const BoxCliStatus = Schema.Struct({
   account: Schema.Struct({
@@ -69,6 +108,7 @@ export class BoxCliCommandError extends Schema.TaggedError<BoxCliCommandError>()
     operation: Schema.String,
     detail: Schema.String,
     exitCode: Schema.optionalWith(Schema.Number, { exact: true }),
+    boxId: Schema.optionalWith(BoxId, { exact: true }),
   },
 ) {}
 
@@ -84,4 +124,3 @@ export type BoxCliError =
   | BoxCliUnavailableError
   | BoxCliCommandError
   | BoxCliProtocolError;
-

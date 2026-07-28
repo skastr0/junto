@@ -10,8 +10,12 @@ export const BOX_STATE_SCHEMA_SQL = `
     name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 255),
     machine_ip TEXT,
     machine_state TEXT NOT NULL CHECK (length(machine_state) BETWEEN 1 AND 32),
-    provider_created_at TEXT NOT NULL CHECK (length(provider_created_at) > 0),
-    provider_updated_at TEXT NOT NULL CHECK (length(provider_updated_at) > 0),
+    provider_created_at TEXT CHECK (
+      provider_created_at IS NULL OR length(provider_created_at) > 0
+    ),
+    provider_updated_at TEXT CHECK (
+      provider_updated_at IS NULL OR length(provider_updated_at) > 0
+    ),
     enrolled_at TEXT NOT NULL CHECK (length(enrolled_at) > 0)
   ) STRICT;
 
@@ -21,4 +25,3 @@ export const BOX_STATE_SCHEMA_SQL = `
     SELECT RAISE(ABORT, 'Box ownership identity is immutable');
   END;
 `;
-
