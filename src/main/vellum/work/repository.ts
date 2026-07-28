@@ -3426,6 +3426,26 @@ const validateIncomingFact = (
           "task.transition fact is not one legal state transition",
         );
       }
+      if (
+        correlatedCommand?.body.operation === "task.transition"
+      ) {
+        const expectedHistory =
+          correlatedCommand.body.message === undefined
+            ? current!.task.history
+            : [
+                ...current!.task.history,
+                correlatedCommand.body.message,
+              ];
+        if (
+          canonicalJson(next.history) !==
+            canonicalJson(expectedHistory)
+        ) {
+          throw authorityError(
+            "causal-conflict",
+            "task transition fact history differs from the exact pending command",
+          );
+        }
+      }
       return;
     }
     case "request.create": {
@@ -3477,6 +3497,26 @@ const validateIncomingFact = (
           "invalid-transition",
           "request.resolve fact is not one legal retained-claimant resolution",
         );
+      }
+      if (
+        correlatedCommand?.body.operation === "request.resolve"
+      ) {
+        const expectedHistory =
+          correlatedCommand.body.message === undefined
+            ? current!.task.history
+            : [
+                ...current!.task.history,
+                correlatedCommand.body.message,
+              ];
+        if (
+          canonicalJson(next.history) !==
+            canonicalJson(expectedHistory)
+        ) {
+          throw authorityError(
+            "causal-conflict",
+            "request resolution fact history differs from the exact pending command",
+          );
+        }
       }
       return;
     }

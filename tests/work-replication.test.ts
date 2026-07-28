@@ -1409,12 +1409,6 @@ describe("WorkRepository v2 report reconciliation", () => {
           requestId: request.value.id,
           response: "Approved",
           disposition: "completed",
-          message: message(
-            "request-remote-answer",
-            "user",
-            "Approved",
-            request.value.id,
-          ),
         },
         originAt: observedAt,
         receivedAt: observedAt,
@@ -1439,6 +1433,44 @@ describe("WorkRepository v2 report reconciliation", () => {
       recordType: "fact",
       basis: commandBasis(resolve),
     });
+    const resolutionFact = remoteResolution.emitted[0];
+    if (
+      resolutionFact?.recordType !== "fact" ||
+      resolutionFact.body.operation !== "request.resolve"
+    ) {
+      throw new Error("request resolution did not emit its fact");
+    }
+    const uncommandedHistory = reseal({
+      ...resolutionFact,
+      body: {
+        ...resolutionFact.body,
+        request: {
+          ...resolutionFact.body.request,
+          history: [
+            ...resolutionFact.body.request.history,
+            message(
+              "uncommanded-request-history",
+              "user",
+              "this was not in the command",
+              request.value.id,
+            ),
+          ],
+        },
+      },
+    });
+    const deniedHistory = await commandCenter.runtime.runPromise(
+      accept(
+        commandCenter.repository,
+        remote,
+        [uncommandedHistory],
+      ).pipe(Effect.either),
+    );
+    expect(Either.isLeft(deniedHistory)).toBe(true);
+    if (Either.isLeft(deniedHistory)) {
+      expect(deniedHistory.left).toMatchObject({
+        reason: "causal-conflict",
+      });
+    }
     await commandCenter.runtime.runPromise(
       accept(
         commandCenter.repository,
