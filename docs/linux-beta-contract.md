@@ -16,7 +16,8 @@ does not weaken [linux-production-contract.md](linux-production-contract.md) or
 | Fleet control | Fixed `vellum-station`; `pair`, `configure`, `project`, `report`, `status` |
 | Projection | One complete replace-only Command Center projection |
 | Station events | Per-home logical sequences and cumulative ACK cursors |
-| Local work | Agents, chat, native terminal, browser pages, work control |
+| Local runtimes | Host-local agents, native terminals, browser pages, watchers, and timers |
+| Logical sinks | Stable projected task/request/artifact identity with single-home mutable rows |
 
 Command Center and Remote use the same schema. Role changes row residency and
 execution, not the storage implementation.
@@ -85,6 +86,25 @@ Remote ticks execute only Remote-homed state. Command Center and Remote ticks
 need no phase alignment. Current interval timers coalesce missed intervals into
 at most one firing.
 
+Actors and physical runtimes are host-local. Sink placement never forms a
+capability tier and a projected sink does not become multi-writer:
+
+- a Command Center-home task may start on a Remote actor only through a live
+  synchronous Command Center-opened claim exchange;
+- claim is the exact `submitted → working` start, never assignment or actor
+  backlog reservation;
+- after acceptance, that task advances on the Remote while Command Center is
+  closed;
+- a Remote-home task may be claimed locally by an eligible Remote actor;
+- permitted requests and artifacts may be created locally at the actor's
+  installation;
+- browser page control requires actor and page on the same installation.
+
+Command Center owns every OpenSSH fleet connection and reconnect. The duplex
+session carries only the five Station verbs; a Remote never needs a callback
+route and never opens a peer route to another Remote. Tailscale is optional
+reachability, not authority.
+
 ## Doctrine alignment
 
 - one trusted operator and one Command Center per factory;
@@ -107,3 +127,8 @@ Do not label an artifact beta-ready until native Ubuntu evidence proves:
 - only single-home work, watchers, and timers execute;
 - no retired state path is present in source or the package;
 - signed package and readiness qualification pass for the exact artifact.
+
+This repository contract and CI package smoke do not themselves prove that
+two-installation run. The operator qualification must be recorded against the
+exact source commit and `deb` SHA-256; absent that receipt, the candidate
+remains unqualified.

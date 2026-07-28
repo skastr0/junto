@@ -1,5 +1,7 @@
 # macOS Remote station — end-to-end (terminals + host-local browser)
 
+**Status:** required operator qualification; not yet a recorded two-host pass
+
 Command Center (this Mac) deploys the **same** `Vellum Command.app` to a **macOS**
 remote (e.g. Mac mini), starts it under LaunchAgent, and uses SSH for the
 Station API and for terminal capability sockets.
@@ -11,6 +13,9 @@ before that capability may be enabled.
 Browser automation is host-local on the Remote. Command Center does not forward
 or relay browser control sockets; a page on the Remote is driven only by actors
 on that installation when the host declares the `"browser"` capability.
+All actors and physical runtimes follow the same locality law. Stable projected
+task/request/artifact sinks may be addressed across placement, but every
+mutable row and event has one installation authority home.
 
 ## Prerequisites
 
@@ -35,6 +40,8 @@ on that installation when the host declares the `"browser"` capability.
    owner-local socket handoff is trusted containment, not proof of the
    original SSH peer. Remote main validates pairing, target, verb, transition,
    and work authority on every frame.
+   Command Center owns this connection and every reconnect. The Remote needs
+   no callback route and never connects to another Remote.
 4. **Deploy Remote** (only when the release capability is enabled) — stage the
    app bundle + LaunchAgent, start it, configure through Station API, and wait
    for:
@@ -50,6 +57,7 @@ on that installation when the host declares the `"browser"` capability.
 CC TerminalRouter(hostId)
   → SSH forward remote ~/.vellum/term/control.sock
   → TermControlClient (NDJSON + token)
+  → operator terminal surface only; does not bind a CC actor to a Remote seat
 
 Remote host-local browser (same installation as page + actor)
   → ~/.vellum/browser/control.sock on the Remote only
@@ -63,7 +71,9 @@ CC fleet coordination
 ```
 
 Station API verbs remain `pair`, `configure`, `project`, `report`, and
-`status` only. Browser ops never use that wire.
+`status` only. Browser ops and terminal control never use that wire. Tailscale
+may make the enrolled SSH endpoint reachable, but is optional and supplies no
+Station authority.
 
 ## Why not `--vellum-headless` on deploy
 
@@ -78,6 +88,13 @@ browser RPC.
 - [ ] `status → pair → configure` returns the expected installation identity
 - [ ] Station status reports database/work/simulation ready
 - [ ] Complete projection generation/hash persists across Remote restart
+- [ ] A CC-home submitted task starts on one Remote actor only through a live
+      synchronous claim exchange; it is immediately `working`, not assigned
+      into a backlog
+- [ ] With CC closed, that exact claimed task and Remote-home work continue
+      from the Remote SQLite database; no new CC-home task is claimed
+- [ ] Permitted Remote-home request/artifact creation persists offline and
+      reconciles idempotently by logical cursor after CC returns
 - [ ] `ssh remote 'test -S ~/.vellum/term/control.sock && echo ok'`
 - [ ] Remote terminal create/type/resize from CC
 - [ ] Quit CC → remote shell still running (ssh/process list)
@@ -86,6 +103,12 @@ browser RPC.
 - [ ] Host-local browser: open a page on the Remote when that host declares `browser`
 - [ ] No settings, host, status, projection, manifest, ACK, or seal file appears
 - [ ] No browserTrust / commandCenterRef / Station-browser protocol residue
+- [ ] Remote opens no callback connection to CC and no peer connection to
+      another Remote
+
+Passing source tests, package audit, or a single installed app is not this
+proof. Record the two-installation result against the exact source commit and
+packaged app digest before treating the path as qualified.
 
 ## Failure modes
 

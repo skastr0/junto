@@ -38,7 +38,9 @@ packaged helpers, and SSH callers reach main through typed control surfaces.
 The same schema boots for Command Center and Remote. Command Center persists
 authorial canvas generations, fleet enrollment, and Command Center-homed work.
 A Remote persists its configuration, one complete projection, local work,
-events, receipts, and cursors. Messages remain Command Center-homed.
+events, receipts, and cursors. Logical sink identities may appear in every
+projection, but each mutable work entity and event has one authoritative
+installation home. Messages remain Command Center-homed.
 
 The following are release blockers:
 
@@ -105,10 +107,22 @@ No fleet request accepts a remote path or shell body. The helper never opens
 the database. No settings stamp, canvas pull, drop file, or status-file read is
 part of the contract.
 
-Each executable node and work row has one home. Each installation's tick
-operates only its local home. Cross-machine tick alignment affects latency,
-not correctness. `everyMinutes` timers coalesce missed intervals into at most
-one firing.
+Command Center owns the OpenSSH connection and every reconnect. A configured
+Remote may send bounded `report` traffic over that already authenticated
+duplex session, but it never opens a callback route to Command Center and never
+connects to another Remote. Tailscale may provide reachability to SSH; it is
+optional and grants no Vellum authority. Browser and actor control are
+host-local and never become Station API verbs.
+
+Each executable actor, physical runtime, work entity, work event, watcher, and
+timer has one installation home. A Command Center-home task may start on a
+Remote actor only through a live synchronous claim exchange. Claim is
+`submitted → working`, not assignment or backlog reservation; after acceptance
+that exact task advances on the Remote while Command Center is closed.
+Remote-home tasks may be claimed locally, and permitted requests/artifacts may
+be created locally. Each installation's tick operates only its local home.
+Cross-machine tick alignment affects latency, not correctness.
+`everyMinutes` timers coalesce missed intervals into at most one firing.
 
 ## Secure
 
@@ -155,3 +169,9 @@ Linux is production-ready only when:
 - no retired state or SSH file protocol exists in the packaged tree;
 - UI and Doctor report reachability, projection, cursors, and residual limits
   truthfully.
+
+CI package construction and single-installation smoke are necessary evidence,
+but do not satisfy these exit gates. Production qualification requires a real
+two-installation Command Center/Remote run bound to the exact source commit and
+`deb` SHA-256. Until that operator receipt exists, the artifact is explicitly
+unqualified rather than implicitly passed.
