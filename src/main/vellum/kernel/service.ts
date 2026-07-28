@@ -11,18 +11,25 @@
 // setters ARE the production injection points — cycle.ts exposes no
 // separately-named "prod" variant, by design (kernel-design.md §2, §7).
 
-import { Context, Effect, Layer } from "effect";
-import { applyPhaseMirror, type CanvasDoc, type CanvasNode, type EdgePhase, type EtherFlag } from "@shared/canvas";
+import { createHash } from "node:crypto";
+import { Context, Effect, Layer, Schema } from "effect";
+import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import type { ActorRefResolver } from "@shared/attention";
 import { identityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
 import {
   DEFAULT_STATION_HOST_ID,
-  isNodeEligibleOnStation,
-  resolveNodeHostId,
   type StationRole,
 } from "@shared/station";
 import { claimedByOf, taskBrief } from "@shared/task";
+import type { InstallationId } from "@shared/installation-id";
+import type { ActorSeatId } from "@shared/actor-seat";
+import {
+  HostId,
+  type HostId as HostIdValue,
+} from "@shared/remote-hosts";
+import type { ActorRef, SinkRef } from "@shared/work-protocol";
 import type {
   ArmRegionResult,
   BindingHint,
@@ -32,16 +39,23 @@ import type {
 } from "@shared/ipc";
 import { CanvasesService } from "../canvases";
 import { SnapshotsService } from "../snapshots";
-import { SettingsService } from "../settings/service";
-import { MainAuthoringRefused, mainAuthoringGate } from "../main-authoring-gate";
 import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
+import { deriveActorSeatId } from "../station/actor-seat-compiler";
+import { StationFleetTargetRepository } from "../station/fleet-target-repository";
+import { StationRepository } from "../station/repository";
+import { StationLivePeerRegistry } from "../station/session-registry";
 import { KernelStateRepository } from "./repository";
 import { factoryClaimTick } from "@shared/factory-tick";
 import { seatPaused } from "@shared/pause";
 import { WorkService } from "../work/service";
-import { ensureManagedSeatRunning } from "../term/ensure-managed-seat";
+import {
+  ensureManagedSeatRunning,
+  isManagedSeatRuntimeLocal,
+  type ManagedSeatRuntimeAuthority,
+} from "../term/ensure-managed-seat";
 import { managedPulseDeliver } from "../term/managed-pulse-bridge";
+import { WorkRepository } from "../work/repository";
 import {
   checkTimers,
   deliverPulse,
@@ -54,6 +68,7 @@ import {
   reconcileLiveCanvasMemory,
   retryPendingPulseDeliveries,
   runEvaluationCycle,
+  setActorRefResolver,
   setArmed,
   setDocs,
   setPausedLookup,
@@ -89,10 +104,6 @@ export class KernelService extends Context.Tag("@vellum/KernelService")<
     ) => Effect.Effect<void>;
     // Pushed on cycle end + on arming/pulse changes — never per-watcher.
     readonly subscribe: (listener: (snapshot: KernelSnapshot) => void) => () => void;
-    // Kernel flag mutate() also notifies via CanvasesService.subscribeChanges
-    // on app-owned writes. Callers that need a dedicated canvasChanged path for
-    // live-view coherence can still subscribe here separately.
-    readonly subscribeCanvasMutated: (listener: (name: string) => void) => () => void;
   }
 >() {}
 
@@ -105,48 +116,9 @@ const SAFETY_INTERVAL_MS = 30_000;
 // the next full cycle (worst case SAFETY_INTERVAL_MS later). Cheap: just an
 // array-length comparison, no evaluation work.
 const PULSE_LOG_POLL_MS = 3_000;
-const KNOWN_FLAGS: ReadonlySet<string> = new Set(["blocker", "parked", "attention"]);
 export const KERNEL_OBSERVATION_PREFIX = "[vellum:kernel-observation] ";
 
 const armedStoreKey = (canvasName: string, regionId: string): string => `${canvasName}::${regionId}`;
-
-const without = <T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> => {
-  const { [key]: _removed, ...rest } = value;
-  return rest;
-};
-
-// Pure, idempotent transform for the kernel's flag mirror. Explicit desired
-// state is required because CanvasesService.mutate may reapply the transform
-// after observing a newer direct-file revision.
-const setFlagInDoc = (
-  doc: CanvasDoc,
-  nodeId: string,
-  flag: string,
-  enabled: boolean,
-): CanvasDoc => {
-  if (!KNOWN_FLAGS.has(flag)) return doc;
-  const etherFlag = flag as EtherFlag;
-  return {
-    ...doc,
-    nodes: doc.nodes.map((node): CanvasNode => {
-      if (node.id !== nodeId) return node;
-      const flags = node.ether?.flags ?? [];
-      const has = flags.includes(etherFlag);
-      if (has === enabled) return node;
-      const nextFlags = enabled ? [...flags, etherFlag] : flags.filter((f) => f !== etherFlag);
-      if (nextFlags.length > 0) {
-        return { ...node, ether: { ...(node.ether ?? {}), flags: nextFlags } };
-      }
-      if (!node.ether) return node;
-      const nextEther = without(node.ether, "flags");
-      return Object.keys(nextEther).length > 0
-        ? { ...node, ether: nextEther }
-        : (without(node, "ether") as CanvasNode);
-    }),
-  };
-};
-
-
 
 // Splits a `${canvasName}::${id}` module-memory key back into its parts.
 // Canvas names are restricted to [a-z0-9-] (canvases.ts NAME_PATTERN) and
@@ -182,24 +154,49 @@ type CanvasesShape = Context.Tag.Service<typeof CanvasesService>;
 type SnapshotsShape = Context.Tag.Service<typeof SnapshotsService>;
 type KernelStateShape = Context.Tag.Service<typeof KernelStateRepository>;
 type PauseShape = Context.Tag.Service<typeof PausePlane>;
-type SettingsShape = Context.Tag.Service<typeof SettingsService>;
 type SchedulerShape = Context.Tag.Service<typeof SchedulerRepository>;
+type FleetTargetsShape = Context.Tag.Service<
+  typeof StationFleetTargetRepository
+>;
+type StationsShape = Context.Tag.Service<typeof StationRepository>;
+type LivePeersShape = Context.Tag.Service<typeof StationLivePeerRegistry>;
 type WorkShape = Context.Tag.Service<typeof WorkService>;
+type WorkRepositoryShape = Context.Tag.Service<typeof WorkRepository>;
 type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
 
-type ActiveStationScope = {
-  readonly hostId: string;
-  readonly role: StationRole | "";
-};
+type ActiveStationScope =
+  | {
+      readonly role: "";
+      readonly hostId: typeof DEFAULT_STATION_HOST_ID;
+    }
+  | {
+      readonly role: StationRole;
+      readonly hostId: string;
+      readonly installationId: InstallationId;
+    };
 
 const refreshStationScope = async (
-  settings: SettingsShape,
+  stations: StationsShape,
 ): Promise<ActiveStationScope> => {
   try {
-    const current = await Effect.runPromise(settings.get);
+    const current = await Effect.runPromise(
+      Effect.all({
+        installationId: stations.installationId,
+        configuration: stations.configuration,
+      }),
+    );
+    if (current.configuration === undefined) {
+      const scope = {
+        hostId: DEFAULT_STATION_HOST_ID,
+        role: "",
+      } satisfies ActiveStationScope;
+      setStationScope(scope);
+      return scope;
+    }
     const scope = {
-      hostId: current.station.hostId,
-      role: current.station.role,
+      installationId: current.installationId,
+      hostId: current.configuration.configuration.hostId,
+      role: current.configuration.configuration.role,
     } satisfies ActiveStationScope;
     setStationScope(scope);
     return scope;
@@ -214,18 +211,159 @@ const refreshStationScope = async (
   }
 };
 
+const actorRefKey = (canvasName: string, nodeId: string): string =>
+  `${canvasName}\u0000${nodeId}`;
+
+const actorSeatCanvasKey = (
+  seatId: ActorSeatId,
+  canvasName: string,
+): string => `${seatId}\u0000${canvasName}`;
+
+type ActiveActorRegistry = {
+  readonly resolve: ActorRefResolver;
+  readonly actorOnCanvas: (
+    seatId: ActorSeatId,
+    canvasName: string,
+  ) => ActorRef | undefined;
+};
+
+/**
+ * Convert the compiler-owned portfolio identity surface into fail-closed
+ * runtime lookups. Any duplicate reference is ambiguous and therefore absent.
+ */
+export const activeActorRegistry = (
+  actorRefs: ReadonlyArray<ActorRef>,
+): ActiveActorRegistry => {
+  const byReference = new Map<string, ActorRef | null>();
+  const bySeatCanvas = new Map<string, ActorRef | null>();
+  const insert = (
+    map: Map<string, ActorRef | null>,
+    key: string,
+    actor: ActorRef,
+  ): void => {
+    map.set(key, map.has(key) ? null : actor);
+  };
+  for (const actor of actorRefs) {
+    insert(
+      byReference,
+      actorRefKey(actor.canvasName, actor.nodeId),
+      actor,
+    );
+    insert(
+      bySeatCanvas,
+      actorSeatCanvasKey(actor.seatId, actor.canvasName),
+      actor,
+    );
+  }
+  return {
+    resolve: ({ canvasName, nodeId }) =>
+      byReference.get(actorRefKey(canvasName, nodeId)) ?? undefined,
+    actorOnCanvas: (seatId, canvasName) =>
+      bySeatCanvas.get(actorSeatCanvasKey(seatId, canvasName)) ?? undefined,
+  };
+};
+
+const runtimeAuthority = (
+  scope: ActiveStationScope,
+  registry: ActiveActorRegistry,
+  canvasName: string,
+  node: CanvasNode,
+): ManagedSeatRuntimeAuthority | undefined => {
+  if (scope.role === "") return undefined;
+  const actor = registry.resolve({ canvasName, nodeId: node.id });
+  return actor === undefined
+    ? undefined
+    : {
+        actor,
+        installationId: scope.installationId,
+        hostId: scope.hostId,
+      };
+};
+
+type ActorAvailability = {
+  readonly installationForHost: (
+    hostId: HostIdValue,
+  ) => Promise<InstallationId | undefined>;
+  readonly isLive: (
+    hostId: HostIdValue,
+    installationId: InstallationId,
+  ) => Promise<boolean>;
+};
+
+/**
+ * Selection admission is deliberately stricter than eventual delivery:
+ * Command Center never picks an offline Remote actor and queues future work.
+ * The later WorkService reservation still holds a live-session witness across
+ * its SQLite transaction, closing the check/use race at the authority seam.
+ */
+export const actorSeatSelectableNow = async (
+  canvasName: string,
+  node: CanvasNode,
+  actor: ActorRef,
+  scope: Exclude<ActiveStationScope, { readonly role: "" }>,
+  availability: ActorAvailability,
+): Promise<boolean> => {
+  const localAuthority = {
+    actor,
+    installationId: scope.installationId,
+    hostId: scope.hostId,
+  } satisfies ManagedSeatRuntimeAuthority;
+  if (isManagedSeatRuntimeLocal(canvasName, node, localAuthority)) return true;
+  if (scope.role !== "command-center") return false;
+
+  const surface = actorDeliverySurfaceOf(node);
+  if (surface?._tag !== "managedAgent") return false;
+  const decodedHost = Schema.decodeUnknownEither(HostId)(surface.hostId);
+  if (decodedHost._tag === "Left") return false;
+  try {
+    const installationId = await availability.installationForHost(
+      decodedHost.right,
+    );
+    if (
+      installationId === undefined ||
+      deriveActorSeatId(installationId, surface.bindingId) !== actor.seatId
+    ) {
+      return false;
+    }
+    return availability.isLive(decodedHost.right, installationId);
+  } catch {
+    return false;
+  }
+};
+
+/** Stable restart-safe identity for one managed task-start prompt. */
+export const managedTaskDeliveryId = (
+  sink: SinkRef,
+  taskId: string,
+  actorSeatId: ActorSeatId,
+): string =>
+  `delivery_${createHash("sha256")
+    .update(
+      JSON.stringify([
+        "vellum/managed-task-delivery/v1",
+        sink.canvasName,
+        sink.nodeId,
+        taskId,
+        actorSeatId,
+      ]),
+      "utf8",
+    )
+    .digest("hex")}`;
+
 const makeKernelService = (
   canvases: CanvasesShape,
   snapshots: SnapshotsShape,
   kernelState: KernelStateShape,
-  settings: SettingsShape,
   pause: PauseShape,
   scheduler: SchedulerShape,
+  fleetTargets: FleetTargetsShape,
+  stations: StationsShape,
+  livePeers: LivePeersShape,
   work: WorkShape,
+  workRepository: WorkRepositoryShape,
 ): KernelServiceShape => {
   const docs = new Map<string, CanvasDoc>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
-  const canvasMutatedListeners = new Set<(name: string) => void>();
 
   // Pulse deliveries consult the pause plane per source seat; a canvas with
   // no tracked doc falls back to the canvas-level switch (fail closed).
@@ -241,7 +379,6 @@ const makeKernelService = (
   let cycleInFlight = false;
   let cycleQueued = false;
   let lastPulseLogLength = 0;
-  const deliveredTaskClaims = new Set<string>();
 
   const composeSnapshot = (): KernelSnapshot => {
     const canvasesOut: Record<
@@ -329,52 +466,10 @@ const makeKernelService = (
       ),
   });
 
-  // --- flag mirror: CanvasesService.mutate, routed by (canvasName, nodeId).
-  // The evaluator that fires a flag write always knows which canvas the node
-  // came from (evaluation iterates per-doc), so cycle.ts threads canvasName
-  // through FlagWriterDeps.setFlag directly — no node->canvas reverse
-  // index, and therefore no cross-canvas collision to disambiguate. JSON
-  // Canvas node ids are document-local by spec; the same id on two canvases
-  // now routes to the right document instead of being safe-dropped.
-  __setFlagWriterForTest({
-    setFlag: (canvasName, nodeId, flag, enabled) => {
-      void mainAuthoringGate.run("kernel.flag-mirror", async () => {
-        await Effect.runPromise(
-          canvases.mutate(canvasName, (doc) => setFlagInDoc(doc, nodeId, flag, enabled)),
-        );
-        const result = await Effect.runPromise(Effect.either(canvases.read(canvasName)));
-          if (result._tag === "Right") docs.set(canvasName, result.right.doc);
-          for (const listener of canvasMutatedListeners) listener(canvasName);
-          emitSnapshot();
-      }).catch((error: unknown) => {
-        // Refusal is the expected result of the synchronous quit fence. Other
-        // failures remain visible because the kernel write itself failed.
-        if (error instanceof MainAuthoringRefused) return;
-        console.error(`[kernel] flag write failed for ${canvasName}/${nodeId}:`, error);
-      });
-    },
-  });
-
-  // Mirror derived criteria-edge phases into ether.kind for offline readers.
-  __setPhaseMirrorForTest({
-    mirrorPhases: (canvasName, phaseByEdgeId) => {
-      void mainAuthoringGate.run("kernel.phase-mirror", async () => {
-        await Effect.runPromise(
-          canvases.mutate(
-            canvasName,
-            (doc) => applyPhaseMirror(doc, phaseByEdgeId as ReadonlyMap<string, EdgePhase>),
-          ),
-        );
-        const result = await Effect.runPromise(Effect.either(canvases.read(canvasName)));
-          if (result._tag === "Right") docs.set(canvasName, result.right.doc);
-          for (const listener of canvasMutatedListeners) listener(canvasName);
-          emitSnapshot();
-      }).catch((error: unknown) => {
-        if (error instanceof MainAuthoringRefused) return;
-        console.error(`[kernel] phase mirror failed for ${canvasName}:`, error);
-      });
-    },
-  });
+  // Derived flags and edge phases are runtime projection only. They never
+  // write back into the authorial canvas, especially on a Remote.
+  __setFlagWriterForTest(undefined);
+  __setPhaseMirrorForTest(undefined);
 
   // --- evaluation cycle --------------------------------------------------------
 
@@ -382,26 +477,42 @@ const makeKernelService = (
   // a factory claim tick. A newly-created seat can still be `starting` (and its
   // managed drive not ready), so cycle.ts retains zero-acceptance scheduled
   // pulses and this pre-pass offers them again on a later cycle.
-  const startManagedSeats = (scope: ActiveStationScope): void => {
+  const startManagedSeats = (
+    scope: ActiveStationScope,
+    registry: ActiveActorRegistry,
+  ): void => {
     for (const [canvasName, doc] of docs) {
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
       for (const node of doc.nodes) {
         if (seatPaused(state, doc, node.id)) continue;
-        if (!isNodeEligibleOnStation(node, scope.hostId)) continue;
-        ensureManagedSeatRunning(canvasName, doc, node);
+        const authority = runtimeAuthority(
+          scope,
+          registry,
+          canvasName,
+          node,
+        );
+        if (authority === undefined) continue;
+        ensureManagedSeatRunning(canvasName, doc, node, authority);
       }
     }
   };
 
   const runCycle = async (): Promise<void> => {
-    const scope = await refreshStationScope(settings);
+    const scope = await refreshStationScope(stations);
+    const registry =
+      scope.role === ""
+        ? activeActorRegistry([])
+        : activeActorRegistry(
+            await Effect.runPromise(canvases.activeActorRefs()),
+          );
+    setActorRefResolver(registry.resolve);
     __setSnapshotsForTest(await Effect.runPromise(snapshots.current));
-    startManagedSeats(scope);
+    startManagedSeats(scope, registry);
     retryPendingPulseDeliveries();
     await Promise.all([runEvaluationCycle(), checkTimers()]);
-    await runClaimTicks(scope);
-    await deliverWorkingClaims(scope);
+    await runClaimTicks(scope, registry);
+    await deliverWorkingClaims(scope, registry);
     // Sweep stale watcher/timer runtime entries for nodes removed on a still-
     // existing canvas (whole-canvas deletes are handled by purgeCanvasMemory
     // on resync). Runs after evaluation so this cycle's fresh entries stand.
@@ -414,26 +525,102 @@ const makeKernelService = (
   // A Remote may only arbitrate its local actors (for Station-local queues).
   const runClaimTicks = async (
     scope: ActiveStationScope,
+    registry: ActiveActorRegistry,
   ): Promise<void> => {
     if (scope.role === "") return;
+    const uniqueActors = new Map<
+      ActorSeatId,
+      { readonly canvasName: string; readonly node: CanvasNode; readonly actor: ActorRef }
+    >();
+    for (const [canvasName, doc] of docs) {
+      for (const node of doc.nodes) {
+        const actor = registry.resolve({ canvasName, nodeId: node.id });
+        if (actor !== undefined && !uniqueActors.has(actor.seatId)) {
+          uniqueActors.set(actor.seatId, { canvasName, node, actor });
+        }
+      }
+    }
+    const selectableActorSeatIds = new Set<ActorSeatId>();
+    await Promise.all(
+      [...uniqueActors].map(async ([seatId, candidate]) => {
+        const selectable = await actorSeatSelectableNow(
+          candidate.canvasName,
+          candidate.node,
+          candidate.actor,
+          scope,
+          {
+            installationForHost: async (hostId) =>
+              (
+                await Effect.runPromise(fleetTargets.get(hostId))
+              )?.stationInstallationId,
+            isLive: (hostId, installationId) =>
+              Effect.runPromise(livePeers.isLive(hostId, installationId)),
+          },
+        );
+        if (selectable) selectableActorSeatIds.add(seatId);
+      }),
+    );
+
+    const busyActorSeatIds = new Set<ActorSeatId>();
+    for (const doc of docs.values()) {
+      for (const node of doc.nodes) {
+        if (node.ether?.entity?.kind !== "task") continue;
+        for (const task of node.ether.tasks?.items ?? []) {
+          if (
+            task.state !== "working" &&
+            task.state !== "input-required" &&
+            task.state !== "auth-required"
+          ) {
+            continue;
+          }
+          const actorSeatId = claimedByOf(task);
+          if (actorSeatId !== undefined) busyActorSeatIds.add(actorSeatId);
+        }
+      }
+    }
+
     for (const [canvasName, doc] of docs) {
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
-      const probe = factoryClaimTick(doc, canvasName, undefined, {
-        seatPaused: (nodeId) => seatPaused(state, doc, nodeId),
-        actorEligible: (actor) =>
-          scope.role === "command-center" ||
-          resolveNodeHostId(actor) === scope.hostId,
-      });
+      const probe = factoryClaimTick(
+        doc,
+        canvasName,
+        registry.resolve,
+        undefined,
+        {
+          seatPaused: (nodeId) => seatPaused(state, doc, nodeId),
+          actorEligible: (actor) => {
+            const actorRef = registry.resolve({
+              canvasName,
+              nodeId: actor.id,
+            });
+            return (
+              actorRef !== undefined &&
+              selectableActorSeatIds.has(actorRef.seatId)
+            );
+          },
+          busyActorSeatIds,
+        },
+      );
       if (probe.claimed.length === 0) continue;
       for (const claim of probe.claimed) {
+        const candidateSinks = doc.nodes.filter((node) =>
+          node.ether?.entity?.kind === "task" &&
+          node.ether.tasks?.items.some((task) => task.id === claim.taskId)
+        );
+        // factoryClaimTick's current pure result names a task but not its sink.
+        // Composite work identity forbids guessing when canvas-local task ids
+        // collide, so refuse the ambiguous probe.
+        if (candidateSinks.length !== 1) {
+          console.error(
+            `[kernel] claim tick found ${candidateSinks.length} sinks for ${canvasName}/${claim.taskId}; refusing ambiguous work identity`,
+          );
+          continue;
+        }
         const result = await Effect.runPromise(
           work.workTaskClaim(
             canvasName,
-            doc.nodes.find((node) =>
-              node.ether?.entity?.kind === "task" &&
-              node.ether.tasks?.items.some((task) => task.id === claim.taskId)
-            )?.id ?? "",
+            candidateSinks[0]!.id,
             claim.taskId,
             claim.actor,
           ),
@@ -447,6 +634,7 @@ const makeKernelService = (
             `[kernel] claim tick failed for ${canvasName}/${claim.taskId}: ${result.message}`,
           );
         }
+        if (result.ok) busyActorSeatIds.add(claim.actor.seatId);
       }
     }
   };
@@ -456,7 +644,9 @@ const makeKernelService = (
   // retried by the next kernel cycle.
   const deliverWorkingClaims = async (
     scope: ActiveStationScope,
+    registry: ActiveActorRegistry,
   ): Promise<void> => {
+    if (scope.role === "") return;
     for (const [canvasName, doc] of docs) {
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
@@ -464,21 +654,42 @@ const makeKernelService = (
         if (sink.ether?.entity?.kind !== "task") continue;
         for (const task of sink.ether.tasks?.items ?? []) {
           if (task.state !== "working") continue;
-          const actorId = claimedByOf(task);
-          if (!actorId) continue;
-          const actor = doc.nodes.find((node) => node.id === actorId);
+          const actorSeatId = claimedByOf(task);
+          if (actorSeatId === undefined) continue;
+          const actorRef = registry.actorOnCanvas(actorSeatId, canvasName);
+          if (actorRef === undefined) continue;
+          const actor = doc.nodes.find(
+            (node) => node.id === actorRef.nodeId,
+          );
+          if (actor === undefined || seatPaused(state, doc, actor.id)) continue;
+          const authority = runtimeAuthority(
+            scope,
+            registry,
+            canvasName,
+            actor,
+          );
           if (
-            actor === undefined ||
-            !isNodeEligibleOnStation(actor, scope.hostId) ||
-            seatPaused(state, doc, actor.id)
+            authority === undefined ||
+            !isManagedSeatRuntimeLocal(canvasName, actor, authority)
           ) {
             continue;
           }
-          const key = `${canvasName}::${sink.id}::${task.id}::${actorId}`;
-          if (deliveredTaskClaims.has(key)) continue;
           const surface = actorDeliverySurfaceOf(actor);
           if (surface?._tag !== "managedAgent") continue;
-          ensureManagedSeatRunning(canvasName, doc, actor);
+          const sinkRef = { canvasName, nodeId: sink.id } satisfies SinkRef;
+          const deliveryId = managedTaskDeliveryId(
+            sinkRef,
+            task.id,
+            actorSeatId,
+          );
+          if (
+            await Effect.runPromise(
+              workRepository.hasAcceptedDelivery(sinkRef, deliveryId),
+            )
+          ) {
+            continue;
+          }
+          ensureManagedSeatRunning(canvasName, doc, actor, authority);
           const accepted = await managedPulseDeliver(
             surface.bindingId,
             [
@@ -489,7 +700,27 @@ const makeKernelService = (
               "If blocked on a human, use `vellum escalate` or create a request.",
             ].join("\n"),
           );
-          if (accepted) deliveredTaskClaims.add(key);
+          if (!accepted) continue;
+
+          // Record only after the managed transport accepted the prompt. This
+          // durably suppresses restart replay. The send→receipt crash window
+          // remains intentionally at-least-once until that transport accepts
+          // an idempotency key; pre-writing would instead risk silent loss.
+          await Effect.runPromise(
+            workRepository.acceptDelivery({
+              sink: sinkRef,
+              receipt: {
+                deliveryId,
+                deliveredItem: {
+                  kind: "task",
+                  itemId: task.id,
+                  sink: sinkRef,
+                },
+                actor: actorRef,
+                acceptedAt: new Date().toISOString(),
+              },
+            }),
+          );
         }
       }
     }
@@ -668,10 +899,6 @@ const makeKernelService = (
       return () => snapshotListeners.delete(listener);
     },
 
-    subscribeCanvasMutated: (listener) => {
-      canvasMutatedListeners.add(listener);
-      return () => canvasMutatedListeners.delete(listener);
-    },
   });
 };
 
@@ -681,18 +908,24 @@ export const KernelLive = Layer.effect(
     const canvases = yield* CanvasesService;
     const snapshots = yield* SnapshotsService;
     const kernelState = yield* KernelStateRepository;
-    const settings = yield* SettingsService;
     const pause = yield* PausePlane;
     const scheduler = yield* SchedulerRepository;
+    const fleetTargets = yield* StationFleetTargetRepository;
+    const stations = yield* StationRepository;
+    const livePeers = yield* StationLivePeerRegistry;
     const work = yield* WorkService;
+    const workRepository = yield* WorkRepository;
     return makeKernelService(
       canvases,
       snapshots,
       kernelState,
-      settings,
       pause,
       scheduler,
+      fleetTargets,
+      stations,
+      livePeers,
       work,
+      workRepository,
     );
   }),
 );

@@ -4,21 +4,59 @@
  */
 
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import {
-  actorDeliverySurfaceOf,
-  isManagedAgentNode,
-} from "@shared/actor-surface";
+import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import type { InstallationId } from "@shared/installation-id";
+import type { ActorRef } from "@shared/work-protocol";
+import { deriveActorSeatId } from "../station/actor-seat-compiler";
 import { launchForManagedSpawn } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
+
+export type ManagedSeatRuntimeAuthority = {
+  readonly actor: ActorRef;
+  readonly installationId: InstallationId;
+  readonly hostId: string;
+};
+
+/**
+ * Prove that a compiled actor reference names this installation's executable
+ * seat before any host process is inspected or created.
+ *
+ * HostId is authored placement; ActorSeatId binds that placement to the
+ * durable InstallationId and terminal binding. Both must agree. A complete
+ * Remote projection therefore remains safe to inspect without accidentally
+ * starting a foreign actor.
+ */
+export const isManagedSeatRuntimeLocal = (
+  canvasName: string,
+  node: CanvasNode,
+  authority: ManagedSeatRuntimeAuthority,
+): boolean => {
+  const surface = actorDeliverySurfaceOf(node);
+  if (surface?._tag !== "managedAgent") return false;
+  if (
+    authority.actor.canvasName !== canvasName ||
+    authority.actor.nodeId !== node.id ||
+    surface.hostId !== authority.hostId
+  ) {
+    return false;
+  }
+  return (
+    deriveActorSeatId(authority.installationId, surface.bindingId) ===
+    authority.actor.seatId
+  );
+};
 
 export const ensureManagedSeatRunning = (
   canvasName: string,
   doc: CanvasDoc,
   node: CanvasNode,
+  authority: ManagedSeatRuntimeAuthority,
 ): boolean => {
-  // Kind-discriminated: only managedAgent surface starts harness PTYs.
+  if (!isManagedSeatRuntimeLocal(canvasName, node, authority)) return false;
+
+  // The locality proof above already established this exact managed surface.
   const surface = actorDeliverySurfaceOf(node);
-  if (!surface || surface._tag !== "managedAgent") return false;
+  if (surface?._tag !== "managedAgent") return false;
 
   const live = termPlane.host.get(surface.bindingId);
   if (live?.status === "running" || live?.status === "starting") return true;
@@ -54,17 +92,4 @@ export const ensureManagedSeatRunning = (
     );
     return false;
   }
-};
-
-/** Start every managed actor seat on the canvas. */
-export const ensureManagedSeatsForCanvas = (
-  canvasName: string,
-  doc: CanvasDoc,
-): number => {
-  let started = 0;
-  for (const node of doc.nodes) {
-    if (!isManagedAgentNode(node)) continue;
-    if (ensureManagedSeatRunning(canvasName, doc, node)) started += 1;
-  }
-  return started;
 };

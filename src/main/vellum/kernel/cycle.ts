@@ -26,6 +26,7 @@ import type {
   SchedulerClaimInput,
   SchedulerClaimResult,
 } from "../scheduler/repository";
+import type { ActorRefResolver } from "@shared/attention";
 import {
   detectPulses,
   evaluateWatcher,
@@ -199,6 +200,7 @@ let flagWriterDeps: FlagWriterDeps | undefined = undefined;
 let phaseMirrorDeps: PhaseMirrorDeps | undefined = undefined;
 let timerSchedulerDeps: TimerSchedulerDeps | undefined = undefined;
 let glyphFetcher: ((project: string) => Promise<ReadonlyArray<TowerGlyphRow> | undefined>) | undefined = undefined;
+let resolveActorRef: ActorRefResolver = () => undefined;
 
 // Test seams
 export const setPausedLookup = (
@@ -213,6 +215,10 @@ export const __setDocsForTest = (docsMap: Map<string, CanvasDoc>): void => {
 
 export const __setSnapshotsForTest = (state: SnapshotState): void => {
   snapshots = state;
+};
+
+export const setActorRefResolver = (resolver: ActorRefResolver): void => {
+  resolveActorRef = resolver;
 };
 
 export const setArmed = (key: string, value: boolean): void => {
@@ -253,6 +259,7 @@ export const __resetKernelMemoryForTest = (): void => {
   phaseMirrorDeps = undefined;
   timerSchedulerDeps = undefined;
   glyphFetcher = undefined;
+  resolveActorRef = () => undefined;
   nextFire.clear();
   executionByCanvas.clear();
   resetWatcherMemory();
@@ -589,7 +596,10 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
       let contextBlocks: ReadonlyArray<string> | undefined;
       if (params.regionId !== undefined && region?.type === "group") {
         const memberIds = groupMembers(doc).get(params.regionId) ?? [];
-        const graph = deriveExecutionGraph(doc);
+        const graph = deriveExecutionGraph(doc, {
+          canvasName: params.canvasName,
+          resolveActorRef,
+        });
         const executionContext = composeRegionExecutionContext(
           doc,
           params.regionId,
@@ -784,8 +794,14 @@ const executionByCanvas = new Map<string, ExecutionSnapshot>();
 
 export const getExecutionByCanvas = (): ReadonlyMap<string, ExecutionSnapshot> => executionByCanvas;
 
-const snapshotFromGraph = (doc: CanvasDoc): ExecutionSnapshot => {
-  const graph = deriveExecutionGraph(doc);
+const snapshotFromGraph = (
+  canvasName: string,
+  doc: CanvasDoc,
+): ExecutionSnapshot => {
+  const graph = deriveExecutionGraph(doc, {
+    canvasName,
+    resolveActorRef,
+  });
   const phaseByEdgeId: Record<string, EdgePhase> = {};
   const detailByEdgeId: Record<string, string> = {};
   for (const [id, phase] of graph.phaseByEdgeId) phaseByEdgeId[id] = phase;
@@ -858,7 +874,7 @@ export const runEvaluationCycle = async (): Promise<void> => {
   // Evaluate each canvas with per-canvas isolation
   for (const [canvasName, doc] of docs.entries()) {
     try {
-      const execution = snapshotFromGraph(doc);
+      const execution = snapshotFromGraph(canvasName, doc);
       executionByCanvas.set(canvasName, execution);
 
       // Mirror derived phase into stored kind for criteria edges (offline

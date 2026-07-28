@@ -1,4 +1,4 @@
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // Arming is transactional: the typed SQLite repository write lands
@@ -17,13 +17,18 @@ import {
   KernelStateRepository,
 } from "../src/main/vellum/kernel/repository";
 import { SchedulerRepository } from "../src/main/vellum/scheduler/repository";
+import { StationFleetTargetRepository } from "../src/main/vellum/station/fleet-target-repository";
+import { StationRepository } from "../src/main/vellum/station/repository";
+import { StationLivePeerRegistry } from "../src/main/vellum/station/session-registry";
 import { PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
 import { __resetKernelMemoryForTest, getArmed } from "../src/main/vellum/kernel/cycle";
-import { SettingsService } from "../src/main/vellum/settings/service";
 import { WorkService } from "../src/main/vellum/work/service";
-import { defaultSettings } from "../src/shared/settings";
+import { WorkRepository } from "../src/main/vellum/work/repository";
+import { InstallationId } from "../src/shared/installation-id";
 
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
+const localInstallationId =
+  Schema.decodeUnknownSync(InstallationId)("kernel-test-installation");
 
 const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "" });
 const emptyDoc = (name: string) => ({
@@ -106,25 +111,71 @@ const runArm = (
   regionId: string,
   armed: boolean,
 ) => {
-  const fakeSettings = Layer.succeed(SettingsService, {
-    doctor: Effect.succeed({
-      id: "settings",
-      label: "settings",
-      status: "ok" as const,
-      detail: "test",
-    }),
-    get: Effect.succeed(defaultSettings()),
-    patch: () => Effect.succeed(defaultSettings()),
-    setStationTopology: () => Effect.succeed(defaultSettings()),
-    reset: () => Effect.succeed(defaultSettings()),
-    subscribe: () => () => undefined,
-  });
   const deps = Layer.mergeAll(
     fakeCanvases,
     fakeSnapshots,
     makeKernelState(opts, writes),
     Layer.succeed(ChatServiceContext, new ChatService(noSpawn, (host) => host === "local")),
-    fakeSettings,
+    Layer.succeed(
+      StationRepository,
+      StationRepository.of({
+        installationId: Effect.succeed(localInstallationId),
+        pairing: Effect.succeed(undefined),
+        configuration: Effect.succeed(undefined),
+        projection: Effect.succeed(undefined),
+        pair: () => Effect.dieMessage("unused station repository"),
+        configureRemote: () => Effect.dieMessage("unused station repository"),
+        installProjection: () => Effect.dieMessage("unused station repository"),
+        advancePeerAcks: () => Effect.dieMessage("unused station repository"),
+        statusFacts: Effect.dieMessage("unused station repository"),
+      }),
+    ),
+    Layer.succeed(
+      StationFleetTargetRepository,
+      StationFleetTargetRepository.of({
+        bind: () => Effect.dieMessage("unused fleet target repository"),
+        get: () => Effect.succeed(undefined),
+        list: Effect.succeed([]),
+        remove: () => Effect.dieMessage("unused fleet target repository"),
+      }),
+    ),
+    Layer.succeed(
+      StationLivePeerRegistry,
+      StationLivePeerRegistry.of({
+        activate: () => Effect.dieMessage("unused live peer registry"),
+        require: () => Effect.dieMessage("unused live peer registry"),
+        isLive: () => Effect.succeed(false),
+        withSession: (_witness, effect) => effect,
+      }),
+    ),
+    Layer.succeed(
+      WorkRepository,
+      WorkRepository.of({
+        readSnapshot: () => Effect.dieMessage("unused work repository"),
+        snapshotsForCanvas: () =>
+          Effect.dieMessage("unused work repository"),
+        itemHome: () => Effect.dieMessage("unused work repository"),
+        hasAcceptedDelivery: () =>
+          Effect.dieMessage("unused work repository"),
+        createTask: () => Effect.dieMessage("unused work repository"),
+        describeTask: () => Effect.dieMessage("unused work repository"),
+        transitionTask: () => Effect.dieMessage("unused work repository"),
+        claimLocalTask: () => Effect.dieMessage("unused work repository"),
+        createRequest: () => Effect.dieMessage("unused work repository"),
+        resolveRequest: () => Effect.dieMessage("unused work repository"),
+        appendMessage: () => Effect.dieMessage("unused work repository"),
+        publishArtifact: () => Effect.dieMessage("unused work repository"),
+        acceptDelivery: () => Effect.dieMessage("unused work repository"),
+        reserveRemoteTaskClaim: () =>
+          Effect.dieMessage("unused work repository"),
+        enqueueRemoteCommand: () =>
+          Effect.dieMessage("unused work repository"),
+        recordsAfter: () => Effect.dieMessage("unused work repository"),
+        pendingCommands: Effect.dieMessage("unused work repository"),
+        acceptRecords: () => Effect.dieMessage("unused work repository"),
+        subscribeChanges: () => () => undefined,
+      }),
+    ),
     Layer.succeed(SchedulerRepository, {
       claimInterval: () =>
         Effect.succeed({
