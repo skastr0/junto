@@ -1561,10 +1561,12 @@ export const StationApiLive = Layer.effect(
         case "pair":
           return requireRemoteInbound("pair", peer).pipe(
             Effect.flatMap(() => repository.pair(request)),
+            Effect.tap(() => Effect.sync(() => remoteLeaseState.stamp())),
           );
         case "configure":
           return requireRemoteInbound("configure", peer).pipe(
             Effect.flatMap(() => repository.configureRemote(request)),
+            Effect.tap(() => Effect.sync(() => remoteLeaseState.stamp())),
           );
         case "project":
           return requireRemoteInbound("project", peer).pipe(
@@ -1575,6 +1577,7 @@ export const StationApiLive = Layer.effect(
         case "status":
           return requireRemoteInbound("status", peer).pipe(
             Effect.flatMap(() => handleStatus(repository, readiness)),
+            Effect.tap(() => Effect.sync(() => remoteLeaseState.stamp())),
           );
       }
     });
