@@ -14,6 +14,11 @@ with this doctrine, the conflict must be removed. Internal compatibility,
 dual-read, dual-write, and dormant fallback paths are not exceptions to the
 doctrine.
 
+The exact multi-installation contract is
+[`vellum-protocol.md`](vellum-protocol.md). That document may refine protocol
+mechanics, but it cannot weaken the trust boundaries or forbidden residue
+defined here.
+
 ## Product position
 
 Vellum is unapologetically a **one-person business factory**.
@@ -174,49 +179,47 @@ Any future cross-station action must route through Command Center and remain
 subject to current operator intent. Mere network adjacency does not create a
 route.
 
-### 7. Stateless Stations
+### 7. Remote projection and durable work authority
 
-**Stateless here applies to authorial intent and fleet coordination.** It does
-not mean a Station has no durable database or stateful runtime.
+Command Center is the sole authority for authored intent. A Remote is not
+authorially stateful, but it is operationally stateful: it owns one SQLite
+database and the work and physical resources homed there.
 
-Command Center is the sole authority for intent. A Station holds only:
+A Remote durably holds:
 
-- its factory and Command Center pairing;
-- the latest complete intent projection it received;
-- rows single-homed to that installation, including work, receipts, cursors,
-  and the local runtime resources required to execute them.
+- its installation identity, pairing, and Remote configuration;
+- the latest complete intent projection received from Command Center;
+- work rows homed to that Remote;
+- logical events, pending dispositions, receipts, and propagation cursors;
+- browser profiles, terminals, processes, artifacts, and runtime recovery
+  required for local execution.
 
-Station-hosted actors, Sinks, browser profiles, cookies, terminals, processes,
-artifacts, and runtime recovery data may be stateful or persistent. They remain
-physical or operational resources governed by the current projection; they do
-not become an independently authoritative copy of factory intent.
+The projection is a replaceable cache of intent, not an independently
+authoritative document. A Remote does not author, merge, negotiate, elect,
+reinterpret, or veto intent, and it never coordinates intent with another
+Remote.
 
-The Station projection is a replaceable cache, not an independently
-authoritative document.
-
-A Station does not author, merge, negotiate, elect, reinterpret, or veto
-intent. It does not coordinate intent with another Station.
-
-When a complete projection arrives through the paired Command Center's
-authenticated Station API route, that projection supersedes the previous
-projection in one transaction and the Station enacts it. Projection generation
-and content hash enforce idempotence and conflict detection; they are not a
-consensus protocol.
+Projection replacement is one bounded transaction over projection residency
+only. It must not merge intent or erase, overwrite, or re-home Remote-owned
+work, receipts, cursors, pairing, configuration, browser profiles, artifacts,
+or runtime recovery state.
 
 If Command Center is sleeping, closed, crashed, or otherwise unavailable, the
-Station continues under the latest intent it received. There is no delegation
-ceremony, lease state machine, election, or recovery protocol on the Station.
+Remote continues under its latest projection and independently advances the
+work already homed there. There is no delegation ceremony, lease state
+machine, election, or recovery protocol on the Remote.
 
-If Command Center cannot reach a Station, it cannot update or command that
-Station. It must:
+If Command Center cannot reach a Remote, it cannot update intent there,
+mediate a new Command Center-home queue claim, or claim that revocation
+arrived. It must:
 
-- mark the Station and affected canvas resources as unreachable or stale;
-- show the last acknowledged projection;
+- mark the Remote and affected canvas resources as unreachable or stale;
+- show the last acknowledged projection and logical cursors;
 - warn the operator without claiming synchronization or control;
 - offer visible, safe diagnostic tools;
 - leave remediation and fleet/network decisions with the operator.
 
-The unreachable Station continues under its last received intent. Vellum does
+The unreachable Remote continues under its last received intent. Vellum does
 not attempt to solve a network or machine the operator cannot reach.
 
 ### 8. Honest operator tools
@@ -287,7 +290,10 @@ and active, not which storage implementation exists:
   that owns them.
 
 One durable row has one home. Re-homing is an explicit move; it is never a
-dual-read or dual-write interval.
+dual-read or dual-write interval. The first successful task claim is one such
+explicit cutover: a submitted queue-home task becomes `working`, gains one
+claimant, and transfers authority to that actor's Remote in the same accepted
+claim operation.
 
 Startup accepts only a fresh database or exactly the current composed schema.
 Inside one transaction, Vellum executes the current DDL and compares the
@@ -311,6 +317,36 @@ Agents may receive deterministic text or visual projections, scoped context,
 pulse briefings, work requests, messages, and artifact facilities. They do not
 receive an authorial canvas mutation path.
 
+### Work authority and sink reach
+
+Logical `task`, `requests`, and `artifacts` sink nodes are part of the complete
+intent projection. Their stable node identity may therefore be addressed by
+an edged actor on any installation. Sink visibility does not create shared row
+authority.
+
+Mutable work remains single-home:
+
+- a Command Center-home task queue is arbitrated only by Command Center;
+- claiming a Command Center-home task for a Remote actor requires a live,
+  synchronous Command Center-to-Remote exchange;
+- claim is the atomic `submitted → working` start of work, not a separate
+  assignment state;
+- one actor owns at most one active task;
+- after claim, the task remains homed to that Remote and progresses there
+  while Command Center is unavailable;
+- an unreachable Remote cannot receive a newly queued future claim;
+- a Remote-home task queue may be claimed locally by an eligible local actor;
+- requests and artifacts may be created locally while offline and are homed
+  with their raising or publishing actor;
+- messages remain Command Center-homed.
+
+There is no actor backlog, unclaim, steal, lease expiry, shared offline task
+claim, last-write-wins row merge, or CRDT work plane. Reconnect exchanges
+ordered facts, commands, dispositions, receipts, and cumulative cursors.
+
+Browser `page` remains the deliberate sink exception: it has a physical
+runtime requirement, so actor and page must share one installation.
+
 ### Portability and derivatives
 
 JSON Canvas files, digests, SVG renders, screenshots, diagnostic bundles, and
@@ -331,7 +367,7 @@ turning deliberate operator portability into a warning ceremony.
 
 ### Protected settings
 
-Station role, Command Center identity, factory membership, host enrollment,
+Installation role, Command Center identity, factory membership, host enrollment,
 security capabilities, and equivalent topology state are protected operator
 intent. They are normalized rows in `vellum.db` and are mutated only through
 app-owned services. There is no plaintext settings or hosts document whose
@@ -346,6 +382,10 @@ pairing, and recovery design remain open decisions below.
 
 ## Factory topology
 
+`Station API` is the protocol name. `Station` may describe an installation in
+fleet topology, but role-bearing text and code use exactly `Command Center` or
+`Remote`; there is no third Station role.
+
 ### One Command Center per factory
 
 There is exactly one Command Center for one Vellum factory.
@@ -357,7 +397,7 @@ factory membership and never disables a new installation.
 A new installation may:
 
 - create a new factory;
-- explicitly join an existing factory as a Station;
+- explicitly join an existing factory as a Remote;
 - remain an unenrolled local installation or facility.
 
 One Vellum installation belongs to at most one factory and has one role in that
@@ -365,7 +405,7 @@ factory.
 
 ### Command Center transfer
 
-A Station never becomes Command Center through SSH enrollment, a CLI request,
+A Remote never becomes Command Center through SSH enrollment, a CLI request,
 an agent tool, a canvas edit, or a settings mutation.
 
 Command Center transfer is a catastrophic operator workflow. The current
@@ -376,7 +416,7 @@ permanent-loss recovery mechanics remain open decisions.
 ### Actor classes
 
 - **Command Center actor** — executes within the Command Center runtime.
-- **Station actor** — executes within an enrolled Station runtime.
+- **Remote actor** — executes within an enrolled Remote runtime.
 - **External actor** — executes outside a Vellum runtime but reaches an
   assigned runtime through a supported Vellum MCP/CLI or provider connector.
 - **Facility** — acknowledged infrastructure with no Vellum execution
@@ -393,8 +433,8 @@ operator may create. They do not themselves grant an action.
 | Tier | Relationship to Vellum | Promise |
 |---|---|---|
 | **1** | Actor can access Command Center in the same runtime | Full local protocol plus explicit factory-administration surfaces |
-| **2** | Actor can access a Station in the same runtime | Full host-local execution within Station assignment and current edges |
-| **3** | Actor has no local Vellum runtime but has a configured Vellum MCP/CLI route to its assigned Command Center or Station | Protocol-enforced remote capabilities; no claim of local runtime ownership |
+| **2** | Actor can access a Remote in the same runtime | Full host-local execution within Remote assignment and current edges |
+| **3** | Actor has no local Vellum runtime but has a configured Vellum MCP/CLI route to its assigned Command Center or Remote | Protocol-enforced remote capabilities; no claim of local runtime ownership |
 | **4** | Resource has no Vellum runtime or configured Vellum MCP/CLI | Facility/onboarding value only; cannot operate in the execution graph |
 
 The product should make as much useful capability as safely and honestly
@@ -404,7 +444,7 @@ administration genuinely requires Command Center.
 
 Enrollment may progress from acknowledged facility, through optional
 work-surface or harness integration, to a Tier 3 configured actor, and finally
-to a Tier 2 Vellum-managed Station. Tier 1 is never granted through SSH
+to a Tier 2 Vellum-managed Remote. Tier 1 is never granted through SSH
 enrollment.
 
 Actor class, tier, assigned runtime, and meaningful edge constraints must be
@@ -476,40 +516,54 @@ special disclosure ceremony for an operator-owned resource.
 
 ### Command Center-to-Station protocol
 
-Fleet coordination is a transport-neutral typed request/response protocol with
-exactly five verbs: `pair`, `configure`, `project`, `report`, and `status`.
-Browser operations are never Station API verbs. There is no Station-browser
-protocol, browser PKI, or browser session-handle exchange on this wire.
+Fleet coordination is a transport-neutral typed protocol with exactly five
+verbs: `pair`, `configure`, `project`, `report`, and `status`. Every payload is
+strict-decoded; unknown verbs and excess fields fail closed. No generic exec,
+tunnel, forward, plugin, browser, or arbitrary RPC operation may smuggle a
+sixth capability through a verb or transport adapter.
 
-The current transport adapter is OpenSSH. Command Center invokes the fixed
-`vellum-station` command and exchanges one bounded JSON request on stdin for
-one bounded JSON response on stdout. The helper connects to the Remote app's
-owner-local control socket; the Remote main process validates the request and
-owns every database transaction. SSH never writes settings, projections,
-acknowledgements, status, or database files.
+Browser operations are never Station API verbs. There is no Station-browser
+protocol, browser PKI, projected browser trust, browser session-handle
+exchange, or cross-installation browser relay on this wire.
+
+Command Center initiates every fleet connection. A Remote never dials Command
+Center or another Remote for fleet control. Once Command Center establishes an
+authenticated persistent session, the channel is duplex: either side may send
+bounded `report` traffic, but `report` is the only Station verb a configured
+Remote may initiate on that existing session.
+
+The first transport adapter is OpenSSH. Command Center invokes the fixed
+`vellum-station` command as one persistent framed session. The helper connects
+to the Remote app's owner-local control socket; Remote main strictly decodes
+and authorizes each frame and owns every database transaction. SSH never writes
+settings, projections, acknowledgements, status, or database files.
 
 Tailscale (or other mesh/VPN) may supply network reachability to the enrolled
 SSH endpoint. It is optional connectivity, not Vellum authority and not a
 Station credential plane.
 
-A future public transport, if shipped, is authenticated HTTPS — not plain
-HTTP. That remains a future ship unit; the five verbs and their semantics do
-not change with the adapter.
+A future public transport, if shipped, is HTTPS with mutual TLS, never plain
+HTTP. Both adapters must authenticate the transport peer before Station API
+decode and dispatch. The five verbs, work identities, dispositions, and
+cursors do not change with the adapter.
 
-The owner-only socket is transport containment, not sufficient authority.
-Remote main reads the socket's kernel peer PID and requires the peer itself to
-be the exact packaged `vellum-station` executable under a bounded ancestry
-containing the root-owned system `/usr/sbin/sshd`. Identity is exact executable
-realpath plus file device/inode and pid/ppid/start epoch at every hop; process
-names and client claims are irrelevant. Main takes a coherent observation
-before reading caller JSON, then an identical fresh observation before decode
-and before dispatch. Direct same-account socket clients and direct local
-`vellum-station` invocations are denied before even `status` disclosure.
-OpenSSH's authenticated operator account is the authority for this route; no
-second Vellum credential or compatibility path exists.
+The owner-local socket is transport containment, not a fleet credential.
+Remote main admits only the active Station transport adapter into the
+dispatcher. The OpenSSH adapter binds admission to the fixed packaged helper
+running under the authenticated SSH command path; a future HTTPS adapter binds
+admission to the mutually authenticated TLS peer. Exact process observation or
+certificate mechanics belong to the adapter and must state the real boundary
+they enforce. They must not claim containment of an arbitrary malicious
+same-user process.
 
-Installation, host, factory, actor, and resource identifiers on this protocol
-are routing facts, not credentials.
+OpenSSH's authenticated operator account is the authority for the current
+network route; no second Vellum bearer credential or compatibility path
+exists.
+
+Installation, host, factory, actor, resource, event-home, and entity-home
+identifiers on this protocol are routing facts, not credentials. Vellum has
+one `InstallationId` concept; aliases such as `originStationId` must not create
+a second identity or authority interpretation.
 
 Authenticated transport does not grant role-promotion authority. The Station
 wire's `configure` request contains only `RemoteConfiguration`; Command Center
@@ -522,13 +576,22 @@ a dormant Command Center document plane behind its projection.
 
 Projection transfer is complete and replace-only. Work and receipt propagation
 uses route-local `(event_home, entity_home, seq)` identities and cumulative
-acknowledgements. Retries send canonical Work rows after the last acknowledged
-route sequence and are idempotent. A Command Center mutation homed on a Remote
-remains a pending command until that Remote durably applies or causally rejects
-it and returns an ordered disposition; transport ACK alone never materializes
-it. Origin and received timestamps are retained for operator display; neither
-is an ordering key. Tick phase and wall-clock drift can change propagation
-latency, never ownership or ordering.
+acknowledgements that retain both homes. The wire record is a strict closed sum
+of command, fact, and disposition; it is not an opaque `kind` plus
+repository-private JSON.
+
+Retries send canonical records after the last acknowledged route sequence and
+are idempotent. A Command Center mutation homed on a Remote remains pending
+until that Remote durably applies or causally rejects it and returns an ordered
+disposition; transport ACK alone never materializes it. Origin and received
+timestamps are retained for operator display; neither is an ordering key. Tick
+phase and wall-clock drift can change propagation latency, never ownership or
+ordering.
+
+A Command Center-home task claim is attempted only while both Command Center
+and the target Remote have a live authenticated session. If the connection is
+lost after sending, reconnect resolves the same uncertain command identity; it
+does not assign the task elsewhere or invent a delayed new claim.
 
 Role is never inferred, and an unconfigured installation rejects every work
 mutation without writing an event or material row. Configured role and host
@@ -537,9 +600,12 @@ host-to-installation bindings follow the same rule: retirement preserves the
 identity tombstone, exact reactivation is allowed, and fresh-install
 replacement requires a new host identity.
 
-A Remote may mutate only rows homed on its configured host. Actor inbox
+A Remote may immediately mutate only rows homed on its configured host. The
+single exception is the accepted first claim transaction, which adopts one
+submitted queue-home task as `working` on the local actor's home. Actor inbox
 messages are always Command Center-homed: a Remote cannot append an unscoped
-inbox message, while host-local task and request history remains permitted.
+inbox message, while host-local task, request, artifact, receipt, and transition
+history remains permitted.
 
 Schedulers obey the same single-home law. A local tick evaluates only
 schedulers homed on that installation. The current interval timer kind
@@ -562,17 +628,24 @@ the operator's operating system, network, harness, or provider.
 - Tailscale identity and credentials remain owned by Tailscale and the
   operator's installation.
 - Browser cookies and authenticated session data remain in the browser profile
-  on the Station that hosts the page. Moving or recreating a page elsewhere
+  on the installation that hosts the page. Moving or recreating a page elsewhere
   does not copy or migrate that profile.
 - Administrator passwords may cross Vellum only for one explicit privileged
   transaction, remain memory-bounded, and are never retained as fleet
   credentials.
 
 Vellum may mint only credentials intrinsic to a Vellum-owned protocol, such as
-owner-local control tokens or the minimum factory/Station pairing material
-required by the final transport. Those credentials are narrowly scoped to
-Vellum; they never substitute for general SSH, provider, operating-system, or
-root credentials.
+owner-local control tokens or future mTLS material for the HTTPS Station
+adapter. Those credentials are narrowly scoped to Vellum; they never substitute
+for general SSH, provider, operating-system, browser, or root credentials.
+
+Transport credentials and logical pairing are separate:
+
+- OpenSSH keys or future mTLS certificates authenticate a transport peer;
+- pairing binds that authenticated peer to the enrolled logical factory and
+  installation;
+- `InstallationId`, `HostId`, factory, actor, resource, route URL, and pairing
+  rows do not authenticate or authorize by themselves.
 
 Before introducing a Vellum-specific credential, the design must show that it:
 
@@ -584,8 +657,10 @@ Before introducing a Vellum-specific credential, the design must show that it:
    proof that the underlying system does not enforce.
 
 If those conditions are not met, Vellum reuses the native authenticated
-transport and adds no credential. Factory, Station, actor, and resource
-identifiers are not secrets merely because they participate in routing.
+transport and adds no credential. Future mTLS design must explicitly define
+bootstrap, private-key custody, rotation, revocation, replacement, and recovery
+before implementation. Retired browser signing or pinning is not a template
+for fleet transport.
 
 ## Privilege and machine safety
 
@@ -604,9 +679,9 @@ Root or administrator authority is a real boundary.
 These controls prevent catastrophic mistakes and corrupted input. They do not
 exist to simulate isolation from the trusted operator account.
 
-Remote machines are physical blast-radius boundaries. Enrollment of one
-Station must not silently provide it reusable credentials or direct routes to
-other Stations or Command Center administration.
+Remote machines are physical blast-radius boundaries. Enrollment of one Remote
+must not silently provide it reusable credentials or direct routes to other
+Remotes or Command Center administration.
 
 ## Browser and external-content boundary
 
@@ -706,6 +781,15 @@ A release is blocked while any product path preserves:
 - topology keys, topology seals, hosts keys, or hosts seals;
 - `incoming.frame`, `applied.ack`, or SSH writes/reads that substitute files
   for the Station API;
+- Station-browser verbs or relays, browser PKI/certificate stores, projected
+  browser trust, cross-installation browser handles, or compatibility paths to
+  any of them;
+- Remote callbacks to Command Center, Remote-to-Remote routes, or credentials
+  that create lateral fleet reach;
+- shared offline task claiming, actor backlogs, assignment distinct from task
+  start, unclaim, steal, or implicit work re-home;
+- wall-clock ordering or a cursor that drops part of
+  `(event_home, entity_home)`;
 - direct database access from a renderer, headless CLI, helper, or second
   process;
 - dual reads, dual writes, legacy imports, compatibility adapters, or a
@@ -729,14 +813,12 @@ them by accident:
    Stations.
 3. Exact Command Center transfer protocol and catastrophic-action
    reauthentication.
-4. Exact Sink and scheduler taxonomy, ownership, and behavior while Command
-   Center is unavailable.
-5. Exact contents of a Station's scoped intent projection, including global
-   resources.
-6. The bounded set of operator-facing host capability controls and presets.
-7. Intent-history retention and compaction policy. Coherent live backup uses
+4. The bounded set of operator-facing host capability controls and presets.
+5. Intent-history retention and compaction policy. Coherent live backup uses
    SQLite `VACUUM INTO`; export remains an explicit operator output.
-8. Provider-specific guarantees for harness-owned and managed-cloud actors.
+6. Provider-specific guarantees for harness-owned and managed-cloud actors.
+7. HTTPS/mTLS bootstrap, private-key custody, rotation, revocation, and
+   permanent-loss recovery.
 
 Until decided, these remain product questions rather than invitations to add a
 general distributed system or a stricter threat model.
