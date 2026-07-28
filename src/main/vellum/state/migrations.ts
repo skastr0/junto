@@ -20,14 +20,18 @@ export type StateSchemaMigrationDatabase = Pick<
   "exec" | "prepare"
 >;
 
+export const STATE_SCHEMA_MIGRATION_SAFETY = "expand-only" as const;
+
 export type StateSchemaMigration = {
   readonly fromVersion: number;
   readonly toVersion: number;
   readonly name: string;
+  readonly safety: typeof STATE_SCHEMA_MIGRATION_SAFETY;
   readonly fromIdentity: VerifiedStateSchemaIdentity;
   /**
    * Runs synchronously inside StateEngine's startup BEGIN IMMEDIATE. Throwing
-   * rolls back DDL, transformed data, schema identity, and user_version.
+   * rolls back DDL, copied-forward data, schema identity, and user_version.
+   * The supplied connection rejects destructive schema/data operations.
    */
   readonly migrate: (database: StateSchemaMigrationDatabase) => void;
 };
@@ -134,17 +138,74 @@ const assertForeignKeys = (database: DatabaseSync): void => {
   }
 };
 
+const destructiveMigrationActions = new Set<number>([
+  constants.SQLITE_DELETE,
+  constants.SQLITE_DROP_INDEX,
+  constants.SQLITE_DROP_TABLE,
+  constants.SQLITE_DROP_TEMP_INDEX,
+  constants.SQLITE_DROP_TEMP_TABLE,
+  constants.SQLITE_DROP_TEMP_TRIGGER,
+  constants.SQLITE_DROP_TEMP_VIEW,
+  constants.SQLITE_DROP_TRIGGER,
+  constants.SQLITE_DROP_VIEW,
+  constants.SQLITE_DROP_VTABLE,
+  constants.SQLITE_ATTACH,
+  constants.SQLITE_DETACH,
+  constants.SQLITE_REINDEX,
+  constants.SQLITE_ANALYZE,
+]);
+
+const migrationOwnedPragmas = new Set([
+  "application_id",
+  "journal_mode",
+  "legacy_alter_table",
+  "schema_version",
+  "user_version",
+  "writable_schema",
+]);
+
+const assertExpandOnlyMigrationSql = (sql: string): void => {
+  const withoutComments = sql
+    .replace(/--[^\r\n]*/gu, " ")
+    .replace(/\/\*[\s\S]*?\*\//gu, " ");
+  if (
+    /\balter\s+table\b[\s\S]*?\b(?:rename(?:\s+(?:to|column))?|drop\s+column)\b/iu
+      .test(withoutComments)
+  ) {
+    throw new Error(
+      "state schema startup migrations may not rename or drop tables or columns",
+    );
+  }
+  if (/\b(?:insert\s+or\s+replace|replace\s+into)\b/iu.test(withoutComments)) {
+    throw new Error(
+      "state schema startup migrations may not replace existing rows",
+    );
+  }
+};
+
 const runMigrationStep = (
   database: DatabaseSync,
   migration: StateSchemaMigration,
 ): void => {
   const connection: StateSchemaMigrationDatabase = {
-    exec: (sql) => database.exec(sql),
-    prepare: (sql, options) => database.prepare(sql, options),
+    exec: (sql) => {
+      assertExpandOnlyMigrationSql(sql);
+      database.exec(sql);
+    },
+    prepare: (sql, options) => {
+      assertExpandOnlyMigrationSql(sql);
+      return database.prepare(sql, options);
+    },
   };
-  database.setAuthorizer((actionCode) =>
+  database.setAuthorizer((actionCode, arg1) =>
     actionCode === constants.SQLITE_TRANSACTION ||
-      actionCode === constants.SQLITE_SAVEPOINT
+      actionCode === constants.SQLITE_SAVEPOINT ||
+      destructiveMigrationActions.has(actionCode) ||
+      (
+        actionCode === constants.SQLITE_PRAGMA &&
+        arg1 !== null &&
+        migrationOwnedPragmas.has(arg1.toLowerCase())
+      )
       ? constants.SQLITE_DENY
       : constants.SQLITE_OK
   );
@@ -203,7 +264,8 @@ export const validateStateSchemaMigrationPlan = (
       migration.fromVersion < plan.baselineVersion ||
       migration.toVersion !== migration.fromVersion + 1 ||
       migration.toVersion > plan.currentVersion ||
-      migration.name.length === 0
+      migration.name.length === 0 ||
+      migration.safety !== STATE_SCHEMA_MIGRATION_SAFETY
     ) {
       throw new Error(
         `invalid state schema migration ${migration.fromVersion} -> ${migration.toVersion}`,

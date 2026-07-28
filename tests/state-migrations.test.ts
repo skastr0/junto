@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
+  STATE_SCHEMA_MIGRATION_SAFETY,
   STATE_SCHEMA_V1_IDENTITY,
   migrateStateSchema,
   validateStateSchemaMigrationPlan,
@@ -71,6 +72,7 @@ const migrationPlan = (
         fromVersion: 1,
         toVersion: 2,
         name: "add-migration-note",
+        safety: STATE_SCHEMA_MIGRATION_SAFETY,
         fromIdentity: versionOne,
         migrate,
       },
@@ -124,6 +126,7 @@ describe("State schema migrations", () => {
             fromVersion: 1,
             toVersion: 2,
             name: "one-to-two",
+            safety: STATE_SCHEMA_MIGRATION_SAFETY,
             fromIdentity: identity,
             migrate: () => undefined,
           },
@@ -141,6 +144,7 @@ describe("State schema migrations", () => {
             fromVersion: 1,
             toVersion: 2,
             name: "first",
+            safety: STATE_SCHEMA_MIGRATION_SAFETY,
             fromIdentity: identity,
             migrate: () => undefined,
           },
@@ -148,6 +152,7 @@ describe("State schema migrations", () => {
             fromVersion: 1,
             toVersion: 2,
             name: "branch",
+            safety: STATE_SCHEMA_MIGRATION_SAFETY,
             fromIdentity: identity,
             migrate: () => undefined,
           },
@@ -309,6 +314,42 @@ describe("State schema migrations", () => {
     },
   );
 
+  it.each([
+    ["row deletion", "DELETE FROM migration_items"],
+    ["table removal", "DROP TABLE migration_items"],
+    [
+      "table rename",
+      "ALTER TABLE migration_items RENAME TO retired_items",
+    ],
+    [
+      "column removal",
+      "ALTER TABLE migration_items DROP COLUMN payload",
+    ],
+    [
+      "row replacement",
+      "INSERT OR REPLACE INTO migration_items(id, payload) VALUES ('preserved', 'lost')",
+    ],
+    ["version rewriting", "PRAGMA user_version = 99"],
+  ])(
+    "rejects destructive startup migration operation: %s",
+    (_label, sql) => {
+      const database = openDatabase();
+      try {
+        seedVersionOne(database);
+        const before = databaseWitness(database);
+        expect(() =>
+          migrateStateSchema(
+            database,
+            migrationPlan((connection) => connection.exec(sql)),
+          )
+        ).toThrow();
+        expect(databaseWitness(database)).toEqual(before);
+      } finally {
+        database.close();
+      }
+    },
+  );
+
   it("rolls back a completed step when the final schema is not exact", () => {
     const database = openDatabase();
     try {
@@ -357,6 +398,7 @@ describe("State schema migrations", () => {
               fromVersion: 1,
               toVersion: 2,
               name: "add-invalid-child",
+              safety: STATE_SCHEMA_MIGRATION_SAFETY,
               fromIdentity: versionOne,
               migrate: (connection) => {
                 connection.exec(`
