@@ -9,6 +9,14 @@ export {
   remoteRolloutTargetVersion,
   type AuthorizedUpdateCandidate,
 } from "./domain";
+export {
+  planFleetRemoteUpdates,
+  remotesMayReceiveFeedVersion,
+  sequentialAutoDeployHostIds,
+  type FleetRemoteObservation,
+  type FleetUpdatePlan,
+  type FleetUpdatePlanItem,
+} from "./fleet-reconciler";
 export { UpdateError, updateError } from "./errors";
 export {
   captureInstallAuthority,

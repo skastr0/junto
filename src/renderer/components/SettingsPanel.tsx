@@ -536,38 +536,44 @@ function UpdateCheckControls() {
   })();
 
   return (
-    <FieldRow
-      label="Updates"
-      hint={summary}
-    >
-      <Button
-        variant="chrome"
-        size="sm"
-        disabled={busy || status.phase === "installing"}
-        aria-label="Check for updates"
-        onClick={() => {
-          setLocalError(undefined);
-          void checkForUpdates()
-            .then((next) => {
-              if (next?.phase === "error" && next.error) {
-                setLocalError(next.error.message);
-              }
-            })
-            .catch((error: unknown) => {
-              setLocalError(
-                error instanceof Error ? error.message : String(error),
-              );
-            });
-        }}
+    <>
+      <FieldRow
+        label="Updates"
+        hint={summary}
       >
-        Check for updates
-      </Button>
-      {localError || (status.phase === "error" && status.error) ? (
-        <span className="settings-note" style={{ color: HUE.crimson }} role="status">
-          {localError ?? status.error?.message}
-        </span>
-      ) : null}
-    </FieldRow>
+        <Button
+          variant="chrome"
+          size="sm"
+          disabled={busy || status.phase === "installing"}
+          aria-label="Check for updates"
+          onClick={() => {
+            setLocalError(undefined);
+            void checkForUpdates()
+              .then((next) => {
+                if (next?.phase === "error" && next.error) {
+                  setLocalError(next.error.message);
+                }
+              })
+              .catch((error: unknown) => {
+                setLocalError(
+                  error instanceof Error ? error.message : String(error),
+                );
+              });
+          }}
+        >
+          Check for updates
+        </Button>
+        {localError || (status.phase === "error" && status.error) ? (
+          <span className="settings-note" style={{ color: HUE.crimson }} role="status">
+            {localError ?? status.error?.message}
+          </span>
+        ) : null}
+      </FieldRow>
+      <p className="settings-note">
+        Vellum contacts its release server to check for application updates.
+        No persistent updater identity or update telemetry is sent.
+      </p>
+    </>
   );
 }
 

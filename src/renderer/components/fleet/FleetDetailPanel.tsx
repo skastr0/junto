@@ -10,6 +10,12 @@ import { Command, WandSparkles, X } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
 import type { HostsDeployCapabilities } from "@shared/deploy-capabilities";
 import type { RemoteHost } from "@shared/remote-hosts";
+import {
+  deriveRemoteUpdateStatus,
+  remoteUpdateStatusLabel,
+  REMOTE_UPDATE_IDLE_PRODUCT_COPY,
+  shouldAutoWalkRemoteUpdate,
+} from "@shared/remote-update-status";
 import { setFleetAppearance } from "../../lib/fleet-appearance";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
 import { FLEET_COLORS, hostColor } from "../../lib/fleet-layout";
@@ -24,6 +30,7 @@ import {
 import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
 import { HUE, withAlpha } from "../../lib/theme";
+import { updateState$ } from "../../lib/update-state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
 
@@ -109,6 +116,8 @@ function CommandCenterDetail({ hostId }: { readonly hostId: string }) {
 function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly probe?: FleetProbeState }) {
   const remoteManagedInstalls = use$(state$.settings.fleet.remoteManagedInstalls);
   const stationRole = use$(state$.settings.station.role);
+  const ccVersion = use$(updateState$.status.currentVersion);
+  const availableUpdate = use$(updateState$.status.available);
   const [actionBusy, setActionBusy] = useState<
     "" | "configure" | "deploy" | "remove"
   >("");
@@ -122,6 +131,26 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   const automatic = !FLEET_MACHINE_CATALOG.some(
     ({ id }) => id === host.appearance?.glyph,
   );
+  // Available Remote release is the CC-running version once self-update has
+  // landed (CC-first). While a newer CC feed is pending, Remotes wait.
+  const availableRemoteVersion =
+    availableUpdate?.version !== undefined && availableUpdate.version !== ccVersion
+      ? undefined
+      : (availableUpdate?.version ?? ccVersion);
+  const installedRemoteVersion = probe?.protocol?.peer?.appVersion;
+  const remoteUpdate = deriveRemoteUpdateStatus({
+    ...(installedRemoteVersion !== undefined
+      ? { installedVersion: installedRemoteVersion }
+      : {}),
+    ...(availableRemoteVersion !== undefined
+      ? { availableVersion: availableRemoteVersion }
+      : {}),
+  });
+  const autoWalkWouldRun = shouldAutoWalkRemoteUpdate({
+    availableRemoteReleaseVersion: availableRemoteVersion,
+    commandCenterVersion: ccVersion,
+    remoteManagedInstalls,
+  });
 
   const loadCaps = useCallback(async () => {
     const api = getVellumApi();
@@ -266,6 +295,39 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         >
           {probing ? "probing…" : "Test link"}
         </Button>
+      </section>
+
+      <section className="fleet-detail__section">
+        <div className="fleet-detail__section-label">Software update</div>
+        <div className="fleet-detail__kv">
+          <span>Installed version</span>
+          <span>{remoteUpdate.installedVersion ?? "unknown"}</span>
+          <span>Available version</span>
+          <span>
+            {remoteUpdate.availableVersion ??
+              (availableUpdate?.version !== undefined &&
+              availableUpdate.version !== ccVersion
+                ? `waiting for CC ${availableUpdate.version}`
+                : "—")}
+          </span>
+          <span>Update status</span>
+          <span>{remoteUpdateStatusLabel(remoteUpdate.updateStatus)}</span>
+        </div>
+        {remoteUpdate.updateStatus === "update-available" ? (
+          <p className="fleet-detail__note">
+            {deployEnabled
+              ? autoWalkWouldRun
+                ? "Eligible for automatic managed update when idle (one Remote at a time)."
+                : remoteManagedInstalls
+                  ? "Update available. Command Center must match this release before Remotes auto-update."
+                  : "Update available. Enable “Allow remote managed installs” for fleet auto-update, or Deploy when ready."
+              : deployDetail ??
+                "Managed Remote package deployment is disabled in this release."}
+          </p>
+        ) : null}
+        {remoteUpdate.updateStatus === "waiting-for-idle" ? (
+          <p className="fleet-detail__note">{REMOTE_UPDATE_IDLE_PRODUCT_COPY}</p>
+        ) : null}
       </section>
 
       <section className="fleet-detail__section">
