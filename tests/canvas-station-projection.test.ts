@@ -168,6 +168,16 @@ describe("CanvasesService Station projection", () => {
         (await runtime.runPromise(canvases.read("command-floor"))).doc
           .nodes[0],
       ).toMatchObject({ text: "remote intent" });
+      const projectedWitness = await runtime.runPromise(
+        canvases.readWithIntentWitness("command-floor"),
+      );
+      expect(projectedWitness).toMatchObject({
+        read: { name: "command-floor" },
+        intentWitness: {
+          generation: "8",
+          contentSha256: stationProjectionContentSha256(body),
+        },
+      });
       await expect(
         runtime.runPromise(canvases.read("local-draft")),
       ).rejects.toThrow("active portfolio");

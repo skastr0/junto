@@ -123,6 +123,17 @@ describe("CanvasesService SQLite authority", () => {
     expect(gen1.generation).toBe("1");
     expect([...gen1.documents.keys()]).toEqual(["alpha"]);
     expect(gen1.documents.get("alpha")?.nodes[0]).toMatchObject({ text: "one" });
+    expect(
+      await runtime.runPromise(
+        canvases.readWithIntentWitness("alpha"),
+      ),
+    ).toMatchObject({
+      read: { name: "alpha" },
+      intentWitness: {
+        generation: gen1.generation,
+        contentSha256: gen1.intentSha256,
+      },
+    });
 
     await runtime.runPromise(canvases.write("alpha", noteDoc("two")));
     await runtime.runPromise(canvases.create("beta"));
