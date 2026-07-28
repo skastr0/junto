@@ -319,6 +319,26 @@ describe("buildRemoteDeployScript", () => {
     );
   });
 
+  it("refuses an exact unsupervised incumbent before issuing a stop request", () => {
+    const refusal = script.indexOf(
+      "UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT",
+    );
+    const supervisionRace = script.indexOf(
+      "INCUMBENT_SUPERVISION_CHANGED_DURING_ADMISSION",
+      refusal,
+    );
+    const stopRequested = script.indexOf(
+      "INCUMBENT_STOP_REQUESTED=1",
+      supervisionRace,
+    );
+    const quit = script.indexOf('"$OSASCRIPT" -e', stopRequested);
+
+    expect(refusal).toBeGreaterThan(0);
+    expect(supervisionRace).toBeGreaterThan(refusal);
+    expect(stopRequested).toBeGreaterThan(supervisionRace);
+    expect(quit).toBeGreaterThan(stopRequested);
+  });
+
   it("uses launchd exclusively and requires a distinct executable-backed generation", () => {
     expect(script).toContain('"$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST"');
     expect(script).toContain('"$LAUNCHCTL" kickstart -p "$JOB"');
@@ -569,8 +589,12 @@ describe("remote deploy transaction behavior", () => {
           '  echo "observer failed" >&2',
           "  exit 1",
           "fi",
-          'test -f "$FAKE_STATE/loaded" || exit 0',
-          'pid="$(cat "$FAKE_STATE/pid")"',
+          'if [ -f "$FAKE_STATE/loaded" ]; then',
+          '  pid="$(cat "$FAKE_STATE/pid")"',
+          "else",
+          '  pid="$FAKE_UNSUPERVISED_PID"',
+          "fi",
+          'test -n "$pid" || exit 0',
           'if [ "$is_pid" = "1" ]; then',
           '  requested=""',
           '  previous=""',
@@ -681,7 +705,10 @@ describe("remote deploy transaction behavior", () => {
           'printf \'%s:%s\\n\' "$prefix" "$kind"',
         ].join("\n"),
       ),
-      osascript: executable("osascript", "exit 0"),
+      osascript: executable(
+        "osascript",
+        'echo "quit-requested" >> "$FAKE_STATE/osascript.log"',
+      ),
       sleep: executable("sleep", "exit 0"),
     } satisfies RemoteDeployScriptTestRuntime["commands"];
 
@@ -719,6 +746,7 @@ describe("remote deploy transaction behavior", () => {
           FAKE_LIVE_SOCKET: "",
           FAKE_SWAP_APP_CONTENTS: "0",
           FAKE_PREFLIGHT_MODE: "success",
+          FAKE_UNSUPERVISED_PID: "",
           FAKE_APP: appPath,
           FAKE_PLIST: plistPath,
           ...overrides,
@@ -900,6 +928,48 @@ describe("remote deploy transaction behavior", () => {
         } finally {
           harness.cleanup();
         }
+      }
+    },
+    35_000,
+  );
+
+  it(
+    "does not stop an exact incumbent running outside its LaunchAgent",
+    () => {
+      const harness = makeHarness();
+      try {
+        rmSync(join(harness.state, "loaded"));
+        rmSync(join(harness.state, "pid"));
+
+        const result = harness.run({
+          FAKE_UNSUPERVISED_PID: "333",
+        });
+
+        expect(result.status, result.stderr).toBe(12);
+        expect(result.stderr).toContain(
+          "UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT exe_pids=333,",
+        );
+        expect(result.stderr).toContain("DEPLOY_NOT_STARTED");
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "old-generation",
+        );
+        expect(readFileSync(harness.plistPath, "utf8")).toBe("old-plist");
+        expect(
+          existsSync(join(harness.state, "osascript.log")),
+        ).toBe(false);
+        expect(
+          existsSync(join(harness.state, "preflight.log")),
+        ).toBe(false);
+        const launchctlLog = readFileSync(
+          join(harness.state, "launchctl.log"),
+          "utf8",
+        );
+        expect(launchctlLog).not.toContain("bootout");
+        expect(launchctlLog).not.toContain("kickstart");
+        expect(existsSync(`${harness.appPath}.incoming`)).toBe(false);
+        expect(existsSync(`${harness.plistPath}.incoming`)).toBe(false);
+      } finally {
+        harness.cleanup();
       }
     },
     35_000,

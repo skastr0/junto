@@ -8,6 +8,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   stat,
@@ -21,6 +22,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   InstallerError,
   NodeLinuxReleaseInstallerHost,
+  decodeLinuxReleaseInstallerStatePreflightReceipt,
   linuxReleaseInstallerReceiptExitCode,
   runLinuxReleaseInstaller,
   type FixedCommandResult,
@@ -100,6 +102,8 @@ interface FakeMachine {
   failInstallAfterMutation: boolean;
   failActivation: boolean;
   failQuarantine: boolean;
+  statePreflight: "ready" | "failed" | "malformed" | "transport-active";
+  preflightActive: boolean;
   events: string[];
 }
 
@@ -109,6 +113,7 @@ interface Fixture {
     readonly stateRoot: string;
     readonly spoolRoot: string;
     readonly runtimeRoot: string;
+    readonly preflightRoot: string;
     readonly dpkgInfoRoot: string;
     readonly installedRoot: string;
     readonly bridgeRoot: string;
@@ -605,7 +610,7 @@ const makeRunner = (
             mode: 0o644,
           });
         } else {
-          const payload = path.join(destination, "opt", "Vellum");
+          const payload = path.join(destination, "opt", "Vellum Command");
           await mkdir(payload, { recursive: true, mode: 0o755 });
           await chmod(path.join(destination, "opt"), 0o755);
           await chmod(payload, 0o755);
@@ -614,6 +619,12 @@ const makeRunner = (
             `payload:${decoded.version}`,
             { mode: 0o644 },
           );
+          await writeFile(
+            path.join(payload, "vellum"),
+            `electron:${decoded.version}`,
+            { mode: 0o755 },
+          );
+          await chmod(path.join(payload, "vellum"), 0o755);
         }
         return result(0);
       }
@@ -632,6 +643,127 @@ const makeRunner = (
     if (executable === "/usr/bin/systemd-run") {
       const unit = argumentsArray.find((value) => value.startsWith("--unit="))
         ?.slice("--unit=".length) ?? "";
+      const candidate = argumentsArray.indexOf(
+        "/opt/Vellum Command/vellum",
+      );
+      if (candidate >= 0) {
+        const runuser = argumentsArray.indexOf("/usr/sbin/runuser");
+        const candidateOpt = argumentsArray.find((value) =>
+          value.startsWith("--property=BindReadOnlyPaths=")
+        )?.slice("--property=BindReadOnlyPaths=".length)
+          .split(":", 1)[0];
+        expect(candidateOpt).toMatch(
+          /\/preflight\/[0-9a-f]{32}-[0-9a-f]{64}\/payload\/opt$/u,
+        );
+        expect(argumentsArray.slice(0, runuser)).toEqual([
+          "--system",
+          "--quiet",
+          "--wait",
+          "--collect",
+          "--pipe",
+          "--service-type=exec",
+          `--unit=${unit}`,
+          `--property=BindReadOnlyPaths=${candidateOpt}:/opt`,
+          "--property=KillMode=control-group",
+          "--property=PrivateTmp=yes",
+          "--property=TimeoutStopSec=10s",
+          "--property=RuntimeMaxSec=180s",
+          "--property=UMask=0077",
+          "--",
+        ]);
+        expect(unit).toMatch(
+          /^vellum-state-preflight-[0-9a-f]{32}\.service$/u,
+        );
+        const xvfb = argumentsArray.indexOf("/usr/bin/xvfb-run");
+        expect(argumentsArray.slice(runuser + 1, xvfb)).toEqual([
+          "--user",
+          "vellum",
+          "--",
+          "/usr/bin/env",
+          "--ignore-environment",
+          "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+          "LANG=C",
+          "LC_ALL=C",
+          `HOME=${home}`,
+          `XDG_RUNTIME_DIR=${path.join(
+            paths.runtimeRoot,
+            String(targetUid()),
+          )}`,
+          `DBUS_SESSION_BUS_ADDRESS=unix:path=${path.join(
+            paths.runtimeRoot,
+            String(targetUid()),
+            "bus",
+          )}`,
+        ]);
+        expect(argumentsArray.slice(xvfb + 1, candidate)).toEqual([
+          "--auto-servernum",
+          "--server-num=97",
+          "--error-file=/dev/stderr",
+          "--server-args=-screen 0 1280x1024x24 -nolisten tcp",
+        ]);
+        expect(argumentsArray.slice(candidate + 1)).toEqual([
+          "--vellum-state-preflight",
+          "--ozone-platform=x11",
+        ]);
+        expect(
+          argumentsArray.some((value) =>
+            value.startsWith("ELECTRON_RUN_AS_NODE=")
+          ),
+        ).toBe(false);
+        machine.events.push("state-preflight");
+        if (machine.statePreflight === "failed") {
+          return result(1, "", "candidate state preflight failed\n");
+        }
+        if (machine.statePreflight === "malformed") {
+          return result(0, "{}\n");
+        }
+        if (machine.statePreflight === "transport-active") {
+          machine.preflightActive = true;
+          return result(1, "", "systemd transport failed\n");
+        }
+        let installed = false;
+        try {
+          installed = (await lstat(
+            path.join(home, ".vellum", "state", "vellum.db"),
+          )).isFile();
+        } catch {
+          installed = false;
+        }
+        return result(
+          0,
+          `${JSON.stringify({
+            protocol: "vellum-state-update-preflight/v1",
+            candidateId: "12345678-1234-4234-8234-123456789abc",
+            source: installed ? "installed" : "fresh",
+            sourceSchemaVersion: installed ? 1 : 0,
+            targetSchemaVersion: 2,
+            targetSchemaSha256: "a".repeat(64),
+            ...(installed
+              ? {
+                backupFile:
+                  "vellum-backup-12345678-1234-4234-8234-123456789abc.db",
+              }
+              : {}),
+            installationId: "installation-test",
+            role: installed ? "remote" : "unenrolled",
+            canvasCount: installed ? 1 : 0,
+            actorSeatCount: installed ? 1 : 0,
+            workSnapshotCount: installed ? 1 : 0,
+            pendingCommandCount: 0,
+            armedRegionCount: 0,
+            schedulerCursorCount: 0,
+            ...(installed
+              ? {
+                activeIntent: {
+                  generation: "1",
+                  contentSha256: "b".repeat(64),
+                },
+              }
+              : {}),
+            ready: true,
+          })}\n`,
+        );
+      }
       const dpkg = argumentsArray.indexOf("/usr/bin/dpkg");
       const operation = argumentsArray[dpkg + 1];
       if (operation === "--install") {
@@ -648,7 +780,7 @@ const makeRunner = (
         const payload = path.join(
           paths.installedRoot,
           "opt",
-          "Vellum",
+          "Vellum Command",
         );
         await mkdir(payload, { recursive: true, mode: 0o755 });
         await chmod(path.join(paths.installedRoot, "opt"), 0o755);
@@ -659,13 +791,19 @@ const makeRunner = (
           { mode: 0o644 },
         );
         await writeFile(
+          path.join(payload, "vellum"),
+          `electron:${decoded.version}`,
+          { mode: 0o755 },
+        );
+        await chmod(path.join(payload, "vellum"), 0o755);
+        await writeFile(
           path.join(paths.dpkgInfoRoot, "vellum.md5sums"),
           "fake-md5\n",
           { mode: 0o644 },
         );
         await writeFile(
           path.join(paths.dpkgInfoRoot, "vellum.list"),
-          "/opt\n/opt/Vellum\n/opt/Vellum/app.bin\n",
+          "/opt\n/opt/Vellum Command\n/opt/Vellum Command/app.bin\n/opt/Vellum Command/vellum\n",
           { mode: 0o644 },
         );
         if (
@@ -678,6 +816,30 @@ const makeRunner = (
       }
     }
     if (executable === "/usr/bin/systemctl") {
+      if (
+        argumentsArray[0] === "stop" &&
+        argumentsArray[1]?.startsWith("vellum-state-preflight-")
+      ) {
+        if (machine.preflightActive) {
+          machine.preflightActive = false;
+          machine.events.push("preflight-stop-active");
+          return result(0);
+        }
+        return result(
+          5,
+          "",
+          `Failed to stop ${argumentsArray[1]}: Unit ${argumentsArray[1]} not loaded.\n`,
+        );
+      }
+      if (
+        argumentsArray[0] === "is-active" &&
+        argumentsArray[1]?.startsWith("vellum-state-preflight-")
+      ) {
+        if (machine.preflightActive) {
+          return result(0, "active\n");
+        }
+        return result(4, "unknown\n");
+      }
     }
     if (executable === "/usr/bin/loginctl") {
       if (argumentsArray[0] === "show-user") {
@@ -746,6 +908,7 @@ const makeRunner = (
         return result(0);
       }
       if (command[0] === "start" || command[0] === "restart") {
+        machine.events.push(`restart:${machine.version ?? "absent"}`);
         machine.service = machine.service.startsWith("disabled")
           ? "disabled-active"
           : "enabled-active";
@@ -795,6 +958,7 @@ const createFixture = async (
     stateRoot: path.join(root, "state"),
     spoolRoot: path.join(root, "spool"),
     runtimeRoot: path.join(root, "run"),
+    preflightRoot: path.join(root, "preflight"),
     dpkgInfoRoot: path.join(root, "dpkg-info"),
     installedRoot: path.join(root, "installed"),
     bridgeRoot: path.join(root, "bridge"),
@@ -837,6 +1001,8 @@ const createFixture = async (
     failInstallAfterMutation: false,
     failActivation: false,
     failQuarantine: false,
+    statePreflight: "ready",
+    preflightActive: false,
     events: [],
   };
   const lock = { held: false };
@@ -922,7 +1088,7 @@ const seedInstalledBaseline = async (
   const directory = path.join(
     fixture.paths.installedRoot,
     "opt",
-    "Vellum",
+    "Vellum Command",
   );
   await mkdir(directory, { recursive: true, mode: 0o755 });
   await chmod(path.join(fixture.paths.installedRoot, "opt"), 0o755);
@@ -930,6 +1096,10 @@ const seedInstalledBaseline = async (
   await writeFile(path.join(directory, "app.bin"), `payload:${version}`, {
     mode: 0o644,
   });
+  await writeFile(path.join(directory, "vellum"), `electron:${version}`, {
+    mode: 0o755,
+  });
+  await chmod(path.join(directory, "vellum"), 0o755);
   await writeFile(
     path.join(fixture.paths.dpkgInfoRoot, "vellum.md5sums"),
     "fake-md5\n",
@@ -937,9 +1107,18 @@ const seedInstalledBaseline = async (
   );
   await writeFile(
     path.join(fixture.paths.dpkgInfoRoot, "vellum.list"),
-    "/opt\n/opt/Vellum\n/opt/Vellum/app.bin\n",
+    "/opt\n/opt/Vellum Command\n/opt/Vellum Command/app.bin\n/opt/Vellum Command/vellum\n",
     { mode: 0o644 },
   );
+  const stateDirectory = path.join(fixture.home, ".vellum", "state");
+  await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
+  const database = path.join(stateDirectory, "vellum.db");
+  await writeFile(database, "installed-state", { mode: 0o600 });
+  if (rootOwnerUid() === 0) {
+    await chown(path.join(fixture.home, ".vellum"), targetUid(), targetGid());
+    await chown(stateDirectory, targetUid(), targetGid());
+    await chown(database, targetUid(), targetGid());
+  }
 };
 
 describe("Linux privileged release installer", () => {
@@ -1258,11 +1437,67 @@ describe("Linux privileged release installer", () => {
     ).toBe("absent");
   });
 
+  it("reconciles an interrupted fixed preflight execution tree", async () => {
+    const fixture = await createFixture();
+    await fixture.host.ensureLayout();
+    await mkdir(fixture.paths.preflightRoot, { mode: 0o711 });
+    await chmod(fixture.paths.preflightRoot, 0o711);
+    const transaction = path.join(
+      fixture.paths.preflightRoot,
+      `${"45".repeat(16)}-${"a".repeat(64)}`,
+    );
+    const payload = path.join(transaction, "payload");
+    await mkdir(transaction, { mode: 0o711 });
+    await chmod(transaction, 0o711);
+    await mkdir(payload, { mode: 0o711 });
+    await chmod(payload, 0o711);
+    await writeFile(path.join(payload, "partial"), "candidate", {
+      mode: 0o644,
+    });
+
+    await fixture.host.reconcileOrphans();
+
+    expect(await readdir(fixture.paths.preflightRoot)).toEqual([]);
+  });
+
   it("installs a first release without requiring a prior service quarantine", async () => {
     const fixture = await createFixture();
     const { receipt } = await install(fixture, "1.0.0", "5".repeat(32));
     expect(receipt).toMatchObject({ ok: true, state: "ready", operation: "install" });
+    expect(fixture.machine.events).toContain("state-preflight");
     expect(fixture.machine.events).toContain("install:1.0.0");
+    expect(fixture.machine.events.indexOf("state-preflight"))
+      .toBeLessThan(fixture.machine.events.indexOf("install:1.0.0"));
+  });
+
+  it("derives candidate source from retained state rather than package presence", async () => {
+    const fixture = await createFixture();
+    const stateDirectory = path.join(fixture.home, ".vellum", "state");
+    await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
+    await writeFile(path.join(stateDirectory, "vellum.db"), "retained-state", {
+      mode: 0o600,
+    });
+
+    const { receipt } = await install(fixture, "1.0.0", "56".repeat(16));
+
+    expect(receipt).toMatchObject({ ok: true, state: "ready" });
+    expect(fixture.machine.events).toEqual([
+      "state-preflight",
+      "install:1.0.0",
+      "restart:1.0.0",
+    ]);
+  });
+
+  it("preflights a never-started installed package as fresh state", async () => {
+    const fixture = await createFixture();
+    await seedInstalledBaseline(fixture, "1.0.0");
+    await rm(path.join(fixture.home, ".vellum", "state", "vellum.db"));
+
+    const { receipt } = await install(fixture, "2.0.0", "57".repeat(16));
+
+    expect(receipt).toMatchObject({ ok: true, state: "ready" });
+    expect(fixture.machine.events).toContain("state-preflight");
+    expect(fixture.machine.events).toContain("install:2.0.0");
   });
 
   it("quarantines before upgrade mutation and retains forward repair on dpkg failure", async () => {
@@ -1276,11 +1511,123 @@ describe("Linux privileged release installer", () => {
     expect(fixture.machine.events).toContain("install:2.0.0");
     expect(fixture.machine.events.indexOf("quarantine"))
       .toBeLessThan(fixture.machine.events.indexOf("install:2.0.0"));
+    expect(fixture.machine.events.indexOf("state-preflight"))
+      .toBeLessThan(fixture.machine.events.indexOf("install:2.0.0"));
     expect(fixture.machine.events).not.toContain("install:1.0.0");
     expect(await fixture.host.readJournal()).toMatchObject({ phase: "dpkg-started", fromVersion: "1.0.0", toVersion: "2.0.0" });
     expect(fixture.fence.events).toContain("publish");
     expect(fixture.fence.events).not.toContain("clear");
   });
+
+  it.each(["failed", "malformed"] as const)(
+    "restores the exact incumbent when candidate state preflight is %s",
+    async (statePreflight) => {
+      const fixture = await createFixture();
+      await seedInstalledBaseline(fixture, "1.0.0");
+      fixture.machine.service = "enabled-active";
+      fixture.machine.statePreflight = statePreflight;
+
+      const { receipt } = await install(
+        fixture,
+        "2.0.0",
+        statePreflight === "failed" ? "61".repeat(16) : "62".repeat(16),
+      );
+
+      expect(receipt).toMatchObject({
+        ok: false,
+        code: "verification",
+        action: "obtain-a-valid-signed-release",
+      });
+      expect(fixture.machine.events).toEqual([
+        "quarantine",
+        "state-preflight",
+        "restart:1.0.0",
+      ]);
+      expect(fixture.machine.version).toBe("1.0.0");
+      expect(fixture.machine.service).toBe("enabled-active");
+      expect(await fixture.host.readJournal()).toBeNull();
+      expect(fixture.fence.events).toContain("clear");
+      expect(
+        await readdir(fixture.paths.preflightRoot),
+      ).toEqual([]);
+    },
+  );
+
+  it("stops a still-active preflight unit before removing candidate bytes", async () => {
+    const fixture = await createFixture();
+    await seedInstalledBaseline(fixture, "1.0.0");
+    fixture.machine.statePreflight = "transport-active";
+
+    const { receipt } = await install(
+      fixture,
+      "2.0.0",
+      "6210".repeat(8),
+    );
+
+    expect(receipt).toMatchObject({ ok: false, code: "verification" });
+    expect(fixture.machine.events).toEqual([
+      "quarantine",
+      "state-preflight",
+      "preflight-stop-active",
+      "restart:1.0.0",
+    ]);
+    expect(fixture.machine.preflightActive).toBe(false);
+    expect(await readdir(fixture.paths.preflightRoot)).toEqual([]);
+    expect(fixture.machine.events).not.toContain("install:2.0.0");
+  });
+
+  it.each([
+    "incumbent-quarantine-started",
+    "incumbent-quarantined",
+    "state-preflight-started",
+    "state-preflight-passed",
+  ] as const)(
+    "recovers interrupted %s by proving the incumbent before a new transaction",
+    async (phase) => {
+      const fixture = await createFixture();
+      await seedInstalledBaseline(fixture, "1.0.0");
+      fixture.machine.service = "disabled-inactive";
+      await fixture.host.ensureLayout();
+      const prior = bundle("2.0.0", "63".repeat(16));
+      await fixture.host.writeJournal({
+        schema: "vellum/linux-release-installer-journal/v4",
+        transactionId: prior.request.transactionId,
+        operation: "install",
+        owner: fixture.invocation.process,
+        target: prior.request.target,
+        fence: journalFence(
+          prior,
+          prior.request.transactionId,
+          "install",
+          phase,
+        ),
+        manifestSha256: prior.candidate.manifestSha256,
+        debSha256: prior.candidate.debSha256,
+        sourceRevision: revision,
+        fromVersion: "1.0.0",
+        toVersion: "2.0.0",
+        phase,
+      });
+
+      const { receipt } = await install(
+        fixture,
+        "2.0.0",
+        "64".repeat(16),
+      );
+
+      expect(receipt).toMatchObject({
+        ok: true,
+        state: "ready",
+        recoveredTransactionId: prior.request.transactionId,
+      });
+      expect(fixture.machine.events[0]).toBe("restart:1.0.0");
+      expect(fixture.machine.events.indexOf("restart:1.0.0"))
+        .toBeLessThan(fixture.machine.events.indexOf("quarantine"));
+      expect(fixture.machine.events.indexOf("state-preflight"))
+        .toBeLessThan(fixture.machine.events.indexOf("install:2.0.0"));
+      expect(await fixture.host.readJournal()).toBeNull();
+    },
+  );
 
   it("adopts an exact same-version baseline without dpkg", async () => {
     const fixture = await createFixture();
@@ -1296,7 +1643,12 @@ describe("Linux privileged release installer", () => {
     const fixture = await createFixture();
     await seedInstalledBaseline(fixture, "1.0.0");
     await writeFile(
-      path.join(fixture.paths.installedRoot, "opt", "Vellum", "app.bin"),
+      path.join(
+        fixture.paths.installedRoot,
+        "opt",
+        "Vellum Command",
+        "app.bin",
+      ),
       "tampered",
     );
     const { receipt } = await install(fixture, "1.0.0", "71".repeat(16));
@@ -1313,7 +1665,7 @@ describe("Linux privileged release installer", () => {
     const { receipt } = await install(fixture, "2.0.0", "72".repeat(16));
     expect(receipt).toMatchObject({ ok: false, code: "install-failed", action: "repair-installed-package-manually" });
     expect(fixture.machine.service).toBe("disabled-inactive");
-    expect(await fixture.host.readJournal()).toMatchObject({ schema: "vellum/linux-release-installer-journal/v3", phase: "activation-started" });
+    expect(await fixture.host.readJournal()).toMatchObject({ schema: "vellum/linux-release-installer-journal/v4", phase: "activation-started" });
     expect(fixture.fence.events).not.toContain("clear");
   });
 
@@ -1325,16 +1677,18 @@ describe("Linux privileged release installer", () => {
     expect(fixture.machine.events).toEqual([]);
   });
 
-  it("retains forward authority when quarantine proof fails", async () => {
+  it("restarts the unchanged incumbent and clears authority when quarantine proof fails", async () => {
     const fixture = await createFixture();
     await seedInstalledBaseline(fixture, "1.0.0");
     fixture.machine.service = "enabled-active";
     fixture.machine.failQuarantine = true;
     const { receipt } = await install(fixture, "2.0.0", "74".repeat(16));
     expect(receipt).toMatchObject({ ok: false, code: "unsafe-state", action: "repair-root-installer-state-manually" });
-    expect(await fixture.host.readJournal()).toMatchObject({ schema: "vellum/linux-release-installer-journal/v3", phase: "prepared" });
+    expect(await fixture.host.readJournal()).toBeNull();
+    expect(fixture.machine.service).toBe("enabled-active");
     expect(fixture.fence.events).toContain("publish");
-    expect(fixture.fence.events).not.toContain("clear");
+    expect(fixture.fence.events).toContain("clear");
+    expect(fixture.machine.events).toContain("restart:1.0.0");
     expect(fixture.machine.events.filter((event) => event.startsWith("install:")))
       .toEqual([]);
   });
@@ -1344,7 +1698,7 @@ describe("Linux privileged release installer", () => {
     await fixture.host.ensureLayout();
     const prior = bundle("2.0.0", "75".repeat(16));
     await fixture.host.writeJournal({
-      schema: "vellum/linux-release-installer-journal/v3",
+      schema: "vellum/linux-release-installer-journal/v4",
       transactionId: prior.request.transactionId,
       operation: "install",
       owner: fixture.invocation.process,
@@ -1379,7 +1733,7 @@ describe("Linux privileged release installer", () => {
       postGeneration: generation,
     };
     await fixture.host.writeJournal({
-      schema: "vellum/linux-release-installer-journal/v3",
+      schema: "vellum/linux-release-installer-journal/v4",
       transactionId: prior.request.transactionId,
       operation: "install",
       owner: fixture.invocation.process,
@@ -1412,6 +1766,56 @@ describe("Linux privileged release installer", () => {
     expect(fixture.machine.events).toEqual([]);
   });
 
+  it("strictly decodes the sealed candidate state-preflight receipt", () => {
+    const exact = {
+      protocol: "vellum-state-update-preflight/v1",
+      candidateId: "12345678-1234-4234-8234-123456789abc",
+      source: "installed",
+      sourceSchemaVersion: 1,
+      targetSchemaVersion: 2,
+      targetSchemaSha256: "a".repeat(64),
+      backupFile:
+        "vellum-backup-12345678-1234-4234-8234-123456789abc.db",
+      installationId: "installation-test",
+      role: "remote",
+      canvasCount: 1,
+      actorSeatCount: 2,
+      workSnapshotCount: 3,
+      pendingCommandCount: 4,
+      armedRegionCount: 5,
+      schedulerCursorCount: 6,
+      activeIntent: {
+        generation: "7",
+        contentSha256: "b".repeat(64),
+      },
+      ready: true,
+    } as const;
+    expect(
+      decodeLinuxReleaseInstallerStatePreflightReceipt(exact),
+    ).toEqual(exact);
+    expect(() =>
+      decodeLinuxReleaseInstallerStatePreflightReceipt({
+        ...exact,
+        excess: true,
+      })
+    ).toThrow();
+    expect(() =>
+      decodeLinuxReleaseInstallerStatePreflightReceipt({
+        ...exact,
+        source: "fresh",
+      })
+    ).toThrow();
+    expect(() =>
+      decodeLinuxReleaseInstallerStatePreflightReceipt({
+        ...exact,
+        activeIntent: {
+          ...exact.activeIntent,
+          path: "/tmp/state.db",
+        },
+      })
+    ).toThrow();
+  });
+
   it("rejects v2 and rollback-shaped durable receipts and journals", () => {
     expect(() => decodeLinuxReleaseInstallerReceipt({
       schema: "vellum/linux-release-installer-receipt/v2",
@@ -1420,6 +1824,9 @@ describe("Linux privileged release installer", () => {
     })).toThrow();
     expect(() => decodeLinuxReleaseInstallerJournal({
       schema: "vellum/linux-release-installer-journal/v3",
+    })).toThrow();
+    expect(() => decodeLinuxReleaseInstallerJournal({
+      schema: "vellum/linux-release-installer-journal/v4",
       transactionId: "7".repeat(32),
       operation: "install",
       owner: { pid: 1, startTicks: "1", bootId },
@@ -1430,7 +1837,7 @@ describe("Linux privileged release installer", () => {
       oldServiceState: "enabled-active",
     })).toThrow();
     expect(() => decodeLinuxReleaseInstallerJournal({
-      schema: "vellum/linux-release-installer-journal/v3",
+      schema: "vellum/linux-release-installer-journal/v4",
       transactionId: "9".repeat(32),
       operation: "install",
       owner: { pid: 1, startTicks: "1", bootId },

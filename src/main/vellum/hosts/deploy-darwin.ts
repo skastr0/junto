@@ -1405,6 +1405,24 @@ if job_exists; then
     "$SLEEP" 1
   done
   [ "$OLD_IDENTITY_OK" = "1" ] || { echo "OLD_LAUNCHD_EXECUTABLE_NOT_PROVEN pid=$OLD_PID" >&2; exit 4; }
+else
+  # An exact installed process outside the admitted LaunchAgent has no
+  # supervisor generation the transaction can faithfully resume. Refuse
+  # before asking either the app or launchd to stop anything.
+  UNSUPERVISED_EXE_PIDS=""
+  if ! UNSUPERVISED_EXE_PIDS="$(exact_exe_pids)"; then
+    echo "PROCESS_OBSERVATION_FAILED" >&2
+    exit 4
+  fi
+  if [ -n "$UNSUPERVISED_EXE_PIDS" ]; then
+    UNSUPERVISED_PID_LIST="$(/usr/bin/printf '%s\n' "$UNSUPERVISED_EXE_PIDS" | /usr/bin/tr '\n' ',')"
+    echo "UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT exe_pids=$UNSUPERVISED_PID_LIST" >&2
+    exit 4
+  fi
+  if job_exists; then
+    echo "INCUMBENT_SUPERVISION_CHANGED_DURING_ADMISSION $JOB" >&2
+    exit 4
+  fi
 fi
 
 # Ask both the app and launchd to retire the old generation. Neither command is

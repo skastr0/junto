@@ -5,6 +5,7 @@ import {
   type Stats,
 } from "node:fs";
 import {
+  chmod,
   lstat,
   mkdir,
   open,
@@ -78,12 +79,22 @@ import {
 const FIXED_INSTALLER = "/usr/libexec/vellum-release-installer";
 const FIXED_STATE_ROOT = "/var/lib/vellum-release-installer";
 const FIXED_SPOOL_ROOT = "/var/lib/vellum-release-installer/spool";
+const FIXED_PREFLIGHT_ROOT = "/run/vellum-release-preflight";
 const JOURNAL_FILE = "transaction.json";
 const LOCK_FILE = "transaction.lock";
 const MAX_JOURNAL_BYTES = 64 * 1024;
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
+const MAX_STATE_PREFLIGHT_RECEIPT_BYTES = 16 * 1024;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const POSITIVE_DECIMAL = /^[1-9][0-9]*$/u;
+const STATE_PREFLIGHT_PROTOCOL =
+  "vellum-state-update-preflight/v1" as const;
+const STATE_PREFLIGHT_BACKUP =
+  /^vellum-backup-[0-9a-f-]{36}\.db$/u;
+const INSTALLATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const SAFE_USER = /^[a-z_][a-z0-9_-]{0,31}$/u;
 const DECIMAL_ID = /^(0|[1-9][0-9]{0,9})$/u;
 const DANGEROUS_ENVIRONMENT = [
@@ -217,9 +228,228 @@ export interface LinuxDebInspection {
   readonly depends: string;
 }
 
+export interface LinuxReleaseInstallerStatePreflightReceipt {
+  readonly protocol: typeof STATE_PREFLIGHT_PROTOCOL;
+  readonly candidateId: string;
+  readonly source: "fresh" | "installed";
+  readonly sourceSchemaVersion: number;
+  readonly targetSchemaVersion: number;
+  readonly targetSchemaSha256: string;
+  readonly backupFile?: string;
+  readonly installationId: string;
+  readonly role: "unenrolled" | "command-center" | "remote";
+  readonly canvasCount: number;
+  readonly actorSeatCount: number;
+  readonly workSnapshotCount: number;
+  readonly pendingCommandCount: number;
+  readonly armedRegionCount: number;
+  readonly schedulerCursorCount: number;
+  readonly activeIntent?: {
+    readonly generation: string;
+    readonly contentSha256: string;
+  };
+  readonly ready: true;
+}
+
+const statePreflightRecord = (
+  value: unknown,
+  label: string,
+): Record<string, unknown> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+};
+
+const statePreflightInteger = (
+  value: unknown,
+  label: string,
+  minimum: number,
+): number => {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < minimum
+  ) {
+    throw new Error(`${label} is invalid`);
+  }
+  return value;
+};
+
+/**
+ * Closed decoder for the one stdout line emitted by the signed candidate's
+ * sealed Electron preflight mode. This intentionally does not import the
+ * candidate implementation: the incumbent installer must judge candidate
+ * output as untrusted boundary input.
+ */
+export const decodeLinuxReleaseInstallerStatePreflightReceipt = (
+  value: unknown,
+): LinuxReleaseInstallerStatePreflightReceipt => {
+  const input = statePreflightRecord(value, "state preflight receipt");
+  const required = [
+    "protocol",
+    "candidateId",
+    "source",
+    "sourceSchemaVersion",
+    "targetSchemaVersion",
+    "targetSchemaSha256",
+    "installationId",
+    "role",
+    "canvasCount",
+    "actorSeatCount",
+    "workSnapshotCount",
+    "pendingCommandCount",
+    "armedRegionCount",
+    "schedulerCursorCount",
+    "ready",
+  ];
+  const hasBackup = Object.hasOwn(input, "backupFile");
+  const hasActiveIntent = Object.hasOwn(input, "activeIntent");
+  const expected = [
+    ...required,
+    ...(hasBackup ? ["backupFile"] : []),
+    ...(hasActiveIntent ? ["activeIntent"] : []),
+  ].sort();
+  if (
+    JSON.stringify(Object.keys(input).sort()) !== JSON.stringify(expected) ||
+    input.protocol !== STATE_PREFLIGHT_PROTOCOL ||
+    !UUID.test(typeof input.candidateId === "string" ? input.candidateId : "") ||
+    (input.source !== "fresh" && input.source !== "installed") ||
+    typeof input.targetSchemaSha256 !== "string" ||
+    !SHA256.test(input.targetSchemaSha256) ||
+    typeof input.installationId !== "string" ||
+    !INSTALLATION_ID.test(input.installationId) ||
+    !new Set(["unenrolled", "command-center", "remote"]).has(
+      typeof input.role === "string" ? input.role : "",
+    ) ||
+    input.ready !== true
+  ) {
+    throw new Error("state preflight receipt is malformed");
+  }
+  if (
+    (input.source === "installed") !== hasBackup ||
+    (hasBackup &&
+      (typeof input.backupFile !== "string" ||
+        !STATE_PREFLIGHT_BACKUP.test(input.backupFile)))
+  ) {
+    throw new Error("state preflight source receipt is inconsistent");
+  }
+  const sourceSchemaVersion = statePreflightInteger(
+    input.sourceSchemaVersion,
+    "state preflight source schema version",
+    0,
+  );
+  const targetSchemaVersion = statePreflightInteger(
+    input.targetSchemaVersion,
+    "state preflight target schema version",
+    1,
+  );
+  if (sourceSchemaVersion > targetSchemaVersion) {
+    throw new Error("state preflight source schema exceeds its target");
+  }
+  let activeIntent:
+    | LinuxReleaseInstallerStatePreflightReceipt["activeIntent"]
+    | undefined;
+  if (hasActiveIntent) {
+    const intent = statePreflightRecord(
+      input.activeIntent,
+      "state preflight active intent",
+    );
+    if (
+      JSON.stringify(Object.keys(intent).sort()) !==
+        JSON.stringify(["contentSha256", "generation"]) ||
+      typeof intent.generation !== "string" ||
+      !POSITIVE_DECIMAL.test(intent.generation) ||
+      typeof intent.contentSha256 !== "string" ||
+      !SHA256.test(intent.contentSha256)
+    ) {
+      throw new Error("state preflight active intent is malformed");
+    }
+    activeIntent = Object.freeze({
+      generation: intent.generation,
+      contentSha256: intent.contentSha256,
+    });
+  }
+  const canvasCount = statePreflightInteger(
+    input.canvasCount,
+    "state preflight canvas count",
+    0,
+  );
+  const actorSeatCount = statePreflightInteger(
+    input.actorSeatCount,
+    "state preflight actor count",
+    0,
+  );
+  const workSnapshotCount = statePreflightInteger(
+    input.workSnapshotCount,
+    "state preflight work count",
+    0,
+  );
+  const pendingCommandCount = statePreflightInteger(
+    input.pendingCommandCount,
+    "state preflight pending command count",
+    0,
+  );
+  const armedRegionCount = statePreflightInteger(
+    input.armedRegionCount,
+    "state preflight armed-region count",
+    0,
+  );
+  const schedulerCursorCount = statePreflightInteger(
+    input.schedulerCursorCount,
+    "state preflight scheduler-cursor count",
+    0,
+  );
+  if (
+    (canvasCount === 0) !== (activeIntent === undefined) ||
+    (input.source === "fresh" &&
+      (sourceSchemaVersion !== 0 ||
+        input.role !== "unenrolled" ||
+        canvasCount !== 0 ||
+        actorSeatCount !== 0 ||
+        workSnapshotCount !== 0 ||
+        pendingCommandCount !== 0 ||
+        armedRegionCount !== 0 ||
+        schedulerCursorCount !== 0 ||
+        activeIntent !== undefined))
+  ) {
+    throw new Error("state preflight receipt relationships are inconsistent");
+  }
+  return Object.freeze({
+    protocol: STATE_PREFLIGHT_PROTOCOL,
+    candidateId: input.candidateId as string,
+    source: input.source,
+    sourceSchemaVersion,
+    targetSchemaVersion,
+    targetSchemaSha256: input.targetSchemaSha256,
+    ...(hasBackup ? { backupFile: input.backupFile as string } : {}),
+    installationId: input.installationId,
+    role: input.role as LinuxReleaseInstallerStatePreflightReceipt["role"],
+    canvasCount,
+    actorSeatCount,
+    workSnapshotCount,
+    pendingCommandCount,
+    armedRegionCount,
+    schedulerCursorCount,
+    ...(activeIntent === undefined ? {} : { activeIntent }),
+    ready: true,
+  });
+};
+
 interface ProtectedStage {
   readonly transactionId: string;
   readonly files: ReadonlySet<string>;
+}
+
+interface CandidatePayloadEntry {
+  readonly relative: string;
+  readonly type: "directory" | "file" | "symlink";
+  readonly mode: number;
+  readonly uid: number;
+  readonly gid: number;
+  readonly bytes?: number;
+  readonly sha256?: string;
+  readonly link?: string;
 }
 
 export interface ImportedBridgeStage {
@@ -314,6 +544,14 @@ export interface LinuxReleaseInstallerHost {
     verified: VerifiedProtectedLinuxBundle,
     invocation: LinuxReleaseInstallerInvocation,
   ) => Promise<void>;
+  readonly preflightCandidateState: (
+    stage: ProtectedStage,
+    verified: VerifiedProtectedLinuxBundle,
+    invocation: LinuxReleaseInstallerInvocation,
+  ) => Promise<LinuxReleaseInstallerStatePreflightReceipt>;
+  readonly quiesceCandidatePreflight: (
+    transactionId: string,
+  ) => Promise<void>;
   readonly installCandidate: (
     stage: ProtectedStage,
     verified: VerifiedProtectedLinuxBundle,
@@ -323,6 +561,10 @@ export interface LinuxReleaseInstallerHost {
     invocation: LinuxReleaseInstallerInvocation,
   ) => Promise<void>;
   readonly activateAndVerify: (
+    invocation: LinuxReleaseInstallerInvocation,
+    version: string,
+  ) => Promise<LinuxReleaseInstallerReadinessEvidence>;
+  readonly restartAndVerifyIncumbent: (
     invocation: LinuxReleaseInstallerInvocation,
     version: string,
   ) => Promise<LinuxReleaseInstallerReadinessEvidence>;
@@ -350,6 +592,7 @@ export interface LinuxReleaseInstallerPaths {
   readonly stateRoot: string;
   readonly spoolRoot: string;
   readonly runtimeRoot?: string;
+  readonly preflightRoot?: string;
   readonly dpkgInfoRoot?: string;
   readonly installedRoot?: string;
 }
@@ -747,7 +990,24 @@ const PRE_MUTATION_PHASES = new Set<LinuxReleaseInstallerJournalPhase>([
   "fence-published",
   "fence-acknowledged",
   "prepared",
+  "incumbent-quarantine-started",
+  "incumbent-quarantined",
+  "state-preflight-started",
+  "state-preflight-passed",
 ]);
+
+/**
+ * These phases deliberately begin before asking systemd to stop the incumbent.
+ * A crash can therefore conservatively restart and re-prove the unchanged
+ * installed package even when quarantine completion was never observed.
+ */
+const INCUMBENT_RESTART_PHASES =
+  new Set<LinuxReleaseInstallerJournalPhase>([
+    "incumbent-quarantine-started",
+    "incumbent-quarantined",
+    "state-preflight-started",
+    "state-preflight-passed",
+  ]);
 
 const ABORTED_RESOLUTION_PHASES =
   new Set<LinuxReleaseInstallerJournalPhase>([
@@ -773,6 +1033,84 @@ const projectedVersionAfterRecovery = (
     ABORTED_RESOLUTION_PHASES.has(journal.phase)
     ? journal.fromVersion
     : journal.toVersion;
+
+const interruptedIncumbentMustRestart = (
+  journal: LinuxReleaseInstallerJournal,
+): boolean =>
+  journal.fromVersion !== null &&
+  INCUMBENT_RESTART_PHASES.has(journal.phase);
+
+const restartIncumbentAndAcquireLease = async (
+  host: LinuxReleaseInstallerHost,
+  invocation: LinuxReleaseInstallerInvocation,
+  fenceControl: LinuxReleaseFenceControl,
+  journal: LinuxReleaseInstallerJournal,
+  priorToken?: {
+    readonly device: string;
+    readonly inode: string;
+  },
+): Promise<LinuxReleaseMaintenanceLease> => {
+  if (journal.fromVersion === null) {
+    throw new InstallerError(
+      "unsafe-state",
+      "an absent incumbent cannot be restarted",
+    );
+  }
+  await host.quiesceCandidatePreflight(journal.transactionId);
+  let readiness: LinuxReleaseInstallerReadinessEvidence;
+  try {
+    readiness = await host.restartAndVerifyIncumbent(
+      invocation,
+      journal.fromVersion,
+    );
+  } catch (error) {
+    throw new InstallerError(
+      "unsafe-state",
+      error instanceof Error
+        ? error.message
+        : "installed incumbent restart failed",
+    );
+  }
+  const deadline = Date.now() + 5_000;
+  let lease: LinuxReleaseMaintenanceLease | undefined;
+  while (Date.now() < deadline) {
+    try {
+      lease = await fenceControl.acquire();
+      break;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  if (lease === undefined) {
+    throw new InstallerError(
+      "unsafe-state",
+      "restarted incumbent did not publish TermControl",
+    );
+  }
+  try {
+    if (
+      lease.peer.generation !== readiness.generation ||
+      lease.peer.generation === journal.fence.preGeneration ||
+      (priorToken !== undefined &&
+        lease.tokenDevice === priorToken.device &&
+        lease.tokenInode === priorToken.inode)
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "restarted incumbent generation is not fresh and exact",
+      );
+    }
+    await host.verifyCurrentReadiness(
+      invocation,
+      journal.fromVersion,
+      lease.peer.generation,
+    );
+    return lease;
+  } catch (error) {
+    await lease.release().catch(() => undefined);
+    throw error;
+  }
+};
 
 const inspectInterruptedTransaction = async (
   host: LinuxReleaseInstallerHost,
@@ -977,6 +1315,8 @@ const runPreparedInstall = async (
   let finalLease: LinuxReleaseMaintenanceLease | undefined;
   let fencePublished = false;
   let mutationStarted = false;
+  let preTokenDevice: string | undefined;
+  let preTokenInode: string | undefined;
   try {
     await lock.assertHeld();
     await host.reserveBundle(
@@ -1117,7 +1457,27 @@ const runPreparedInstall = async (
         }
       }
     }
-    firstLease = await fenceControl.acquire();
+    if (
+      interrupted !== null &&
+      interruptedIncumbentMustRestart(interrupted.journal)
+    ) {
+      firstLease = await restartIncumbentAndAcquireLease(
+        host,
+        invocation,
+        fenceControl,
+        interrupted.journal,
+      );
+    } else {
+      if (
+        interrupted !== null &&
+        INCUMBENT_RESTART_PHASES.has(interrupted.journal.phase)
+      ) {
+        await host.quiesceCandidatePreflight(
+          interrupted.journal.transactionId,
+        );
+      }
+      firstLease = await fenceControl.acquire();
+    }
     if (
       interruptedAuthority !== undefined &&
       interruptedFencePublished
@@ -1232,25 +1592,66 @@ const runPreparedInstall = async (
     activeJournal = phaseJournal(activeJournal, "prepared");
     await host.writeJournal(activeJournal);
     await lock.assertHeld();
-    const preTokenDevice = firstLease.tokenDevice;
-    const preTokenInode = firstLease.tokenInode;
-    await firstLease.release();
-    firstLease = undefined;
+    preTokenDevice = firstLease.tokenDevice;
+    preTokenInode = firstLease.tokenInode;
 
     let readiness: LinuxReleaseInstallerReadinessEvidence;
     {
-      // Quarantine the existing generation before a package mutation.  A
-      // crash after this point can leave only a stopped, disabled service.
+      // The incumbent is still the exact installed package throughout this
+      // reversible window. Record restart intent before asking systemd to
+      // quarantine it, then prove the signed candidate against a disposable
+      // database clone before dpkg receives any authority.
       if (fromVersion !== null) {
-        // Once the prior generation is fenced, forward repair owns this
-        // transaction even if quarantine proof itself fails.
-        mutationStarted = true;
-        await host.quarantineRemote(invocation);
-      }
-      mutationStarted = true;
-      if (operation === "install") {
-        activeJournal = phaseJournal(activeJournal, "dpkg-started");
+        activeJournal = phaseJournal(
+          activeJournal,
+          "incumbent-quarantine-started",
+        );
         await host.writeJournal(activeJournal);
+        await firstLease.release();
+        firstLease = undefined;
+        try {
+          await host.quarantineRemote(invocation);
+        } catch (error) {
+          throw new InstallerError(
+            "unsafe-state",
+            error instanceof Error
+              ? error.message
+              : "incumbent quarantine failed",
+          );
+        }
+        activeJournal = phaseJournal(
+          activeJournal,
+          "incumbent-quarantined",
+        );
+        await host.writeJournal(activeJournal);
+      }
+      activeJournal = phaseJournal(activeJournal, "state-preflight-started");
+      await host.writeJournal(activeJournal);
+      try {
+        await host.preflightCandidateState(
+          stage,
+          verified,
+          invocation,
+        );
+      } catch (error) {
+        throw new InstallerError(
+          "verification",
+          error instanceof Error
+            ? error.message
+            : "candidate state preflight failed",
+        );
+      }
+      activeJournal = phaseJournal(activeJournal, "state-preflight-passed");
+      await host.writeJournal(activeJournal);
+      if (firstLease !== undefined) {
+        await firstLease.release();
+        firstLease = undefined;
+      }
+      if (operation === "install") {
+        const dpkgStarted = phaseJournal(activeJournal, "dpkg-started");
+        await host.writeJournal(dpkgStarted);
+        activeJournal = dpkgStarted;
+        mutationStarted = true;
         try {
           await host.installCandidate(stage, verified);
         } catch (error) {
@@ -1261,6 +1662,10 @@ const runPreparedInstall = async (
         }
         activeJournal = phaseJournal(activeJournal, "dpkg-installed");
         await host.writeJournal(activeJournal);
+      } else {
+        // Adoption executes the already installed candidate. Preserve the
+        // existing forward-repair behavior once activation is licensed.
+        mutationStarted = true;
       }
       activeJournal = phaseJournal(activeJournal, "activation-started");
       await host.writeJournal(activeJournal);
@@ -1375,7 +1780,27 @@ const runPreparedInstall = async (
       try {
         await lock.assertHeld();
         if (fencePublished) {
-          const clearingLease = firstLease ?? finalLease;
+          let clearingLease = firstLease ?? finalLease;
+          if (
+            interruptedIncumbentMustRestart(activeJournal)
+          ) {
+            await clearingLease?.release().catch(() => undefined);
+            firstLease = undefined;
+            finalLease = undefined;
+            clearingLease = await restartIncumbentAndAcquireLease(
+              host,
+              invocation,
+              fenceControl,
+              activeJournal,
+              preTokenDevice === undefined || preTokenInode === undefined
+                ? undefined
+                : {
+                  device: preTokenDevice,
+                  inode: preTokenInode,
+                },
+            );
+            finalLease = clearingLease;
+          }
           if (clearingLease === undefined) {
             throw new Error("pre-mutation fence lease is unavailable");
           }
@@ -1624,6 +2049,49 @@ const ensureProtectedDirectory = async (
   await assertProtectedDirectory(directory, ownerUid, ownerGid);
 };
 
+const assertProtectedTraverseDirectory = async (
+  directory: string,
+  ownerUid: number,
+  ownerGid: number,
+): Promise<void> => {
+  const metadata = await lstat(directory);
+  if (
+    !metadata.isDirectory() ||
+    metadata.isSymbolicLink() ||
+    metadata.uid !== ownerUid ||
+    metadata.gid !== ownerGid ||
+    modeOf(metadata) !== 0o711 ||
+    await realpath(directory) !== path.resolve(directory)
+  ) {
+    throw new InstallerError(
+      "unsafe-state",
+      "candidate execution directory is not root-owned mode 0711",
+    );
+  }
+};
+
+const ensureProtectedTraverseDirectory = async (
+  directory: string,
+  ownerUid: number,
+  ownerGid: number,
+): Promise<void> => {
+  try {
+    await mkdir(directory, { mode: 0o711 });
+    await chmod(directory, 0o711);
+    await syncDirectory(path.dirname(directory));
+  } catch (error) {
+    if (
+      typeof error !== "object" ||
+      error === null ||
+      !("code" in error) ||
+      (error as { readonly code?: unknown }).code !== "EEXIST"
+    ) {
+      throw error;
+    }
+  }
+  await assertProtectedTraverseDirectory(directory, ownerUid, ownerGid);
+};
+
 const hashHandle = async (
   handle: FileHandle,
   bytes?: number,
@@ -1841,6 +2309,7 @@ export class NodeLinuxReleaseInstallerHost
   readonly #ownerGid: number;
   readonly #verifier: VerifyProtectedLinuxBundle;
   readonly #runtimeRoot: string;
+  readonly #preflightRoot: string;
   readonly #dpkgInfoRoot: string;
   readonly #installedRoot: string;
   readonly #bridgeStageRoot: string;
@@ -1867,6 +2336,9 @@ export class NodeLinuxReleaseInstallerHost
     this.#ownerGid = options.ownerGid;
     this.#verifier = options.verifyProtectedBundle;
     this.#runtimeRoot = path.resolve(options.paths.runtimeRoot ?? "/run/user");
+    this.#preflightRoot = path.resolve(
+      options.paths.preflightRoot ?? FIXED_PREFLIGHT_ROOT,
+    );
     this.#dpkgInfoRoot = path.resolve(
       options.paths.dpkgInfoRoot ?? "/var/lib/dpkg/info",
     );
@@ -2253,6 +2725,7 @@ export class NodeLinuxReleaseInstallerHost
     if (stateEntries.some((entry) => entry.name.startsWith(".journal."))) {
       await syncDirectory(this.#paths.stateRoot);
     }
+    await this.#reconcilePreflightOrphans();
   }
 
   public async readJournal(): Promise<LinuxReleaseInstallerJournal | null> {
@@ -2830,28 +3303,10 @@ export class NodeLinuxReleaseInstallerHost
     }
   }
 
-  async #candidatePayloadEntries(payloadRoot: string): Promise<
-    ReadonlyArray<{
-      readonly relative: string;
-      readonly type: "directory" | "file" | "symlink";
-      readonly mode: number;
-      readonly uid: number;
-      readonly gid: number;
-      readonly bytes?: number;
-      readonly sha256?: string;
-      readonly link?: string;
-    }>
-  > {
-    const collected: Array<{
-      readonly relative: string;
-      readonly type: "directory" | "file" | "symlink";
-      readonly mode: number;
-      readonly uid: number;
-      readonly gid: number;
-      readonly bytes?: number;
-      readonly sha256?: string;
-      readonly link?: string;
-    }> = [];
+  async #candidatePayloadEntries(
+    payloadRoot: string,
+  ): Promise<ReadonlyArray<CandidatePayloadEntry>> {
+    const collected: CandidatePayloadEntry[] = [];
     let totalBytes = 0;
     const visit = async (directory: string, prefix: string): Promise<void> => {
       const entries = await readdir(directory, { withFileTypes: true });
@@ -2931,6 +3386,130 @@ export class NodeLinuxReleaseInstallerHost
     };
     await visit(payloadRoot, "");
     return collected;
+  }
+
+  #executionPayloadWitness(
+    payloadRoot: string,
+    entries: ReadonlyArray<CandidatePayloadEntry>,
+  ): string {
+    for (const entry of entries) {
+      if (entry.uid !== this.#ownerUid || entry.gid !== this.#ownerGid) {
+        throw new InstallerError(
+          "unsafe-state",
+          "candidate execution payload is not root-owned",
+        );
+      }
+      if (entry.type === "directory") {
+        if ((entry.mode & 0o022) !== 0 || (entry.mode & 0o001) === 0) {
+          throw new InstallerError(
+            "unsafe-state",
+            "candidate execution directory is writable or not traversable",
+          );
+        }
+      } else if (entry.type === "file") {
+        if ((entry.mode & 0o022) !== 0) {
+          throw new InstallerError(
+            "unsafe-state",
+            "candidate execution file is group/world writable",
+          );
+        }
+      } else {
+        const target = entry.link;
+        if (
+          target === undefined ||
+          path.posix.isAbsolute(target) ||
+          target.includes("\0")
+        ) {
+          throw new InstallerError(
+            "unsafe-state",
+            "candidate execution symlink is unsafe",
+          );
+        }
+        const resolved = path.posix.normalize(
+          path.posix.join(path.posix.dirname(entry.relative), target),
+        );
+        if (
+          resolved === ".." ||
+          resolved.startsWith("../") ||
+          path.posix.isAbsolute(resolved) ||
+          (entry.relative.startsWith("opt/") &&
+            resolved !== "opt" &&
+            !resolved.startsWith("opt/"))
+        ) {
+          throw new InstallerError(
+            "unsafe-state",
+            "candidate execution symlink escapes its mounted payload",
+          );
+        }
+      }
+      const materialized = path.join(payloadRoot, entry.relative);
+      if (
+        path.relative(payloadRoot, materialized).startsWith("..")
+      ) {
+        throw new InstallerError(
+          "unsafe-state",
+          "candidate execution entry escapes its payload",
+        );
+      }
+    }
+    return createHash("sha256")
+      .update(JSON.stringify(entries), "utf8")
+      .digest("hex");
+  }
+
+  async #candidateExecutionWitness(
+    payloadRoot: string,
+  ): Promise<string> {
+    const entries = await this.#candidatePayloadEntries(payloadRoot);
+    return this.#executionPayloadWitness(payloadRoot, entries);
+  }
+
+  async #assertCandidateExecutable(
+    payloadRoot: string,
+  ): Promise<string> {
+    const applicationRoot = path.join(
+      payloadRoot,
+      "opt",
+      "Vellum Command",
+    );
+    const executable = path.join(applicationRoot, "vellum");
+    for (const directory of [
+      payloadRoot,
+      path.join(payloadRoot, "opt"),
+      applicationRoot,
+    ]) {
+      const metadata = await lstat(directory);
+      if (
+        !metadata.isDirectory() ||
+        metadata.isSymbolicLink() ||
+        metadata.uid !== this.#ownerUid ||
+        metadata.gid !== this.#ownerGid ||
+        (metadata.mode & 0o022) !== 0 ||
+        await realpath(directory) !== path.resolve(directory)
+      ) {
+        throw new InstallerError(
+          "unsafe-state",
+          "candidate Electron ancestry is not exact",
+        );
+      }
+    }
+    const metadata = await lstat(executable);
+    if (
+      !metadata.isFile() ||
+      metadata.isSymbolicLink() ||
+      metadata.uid !== this.#ownerUid ||
+      metadata.gid !== this.#ownerGid ||
+      metadata.nlink !== 1 ||
+      (metadata.mode & 0o022) !== 0 ||
+      (metadata.mode & 0o005) !== 0o005 ||
+      await realpath(executable) !== path.resolve(executable)
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "candidate Electron executable is not exact",
+      );
+    }
+    return executable;
   }
 
   async #proveInstalledPayload(
@@ -3054,6 +3633,312 @@ export class NodeLinuxReleaseInstallerHost
     await rmdir(root);
   }
 
+  async #extractVerifiedCandidateDeb(
+    stage: ProtectedStage,
+    verified: VerifiedProtectedLinuxBundle,
+    destination: string,
+  ): Promise<void> {
+    const deb = this.#stageFile(stage, verified.debFile);
+    const handle = await openVerifiedProtectedFile(
+      deb,
+      this.#ownerUid,
+      verified.debBytes,
+      verified.debSha256,
+    );
+    await handle.close();
+    const extraction = await this.#run(
+      "/usr/bin/dpkg-deb",
+      ["--extract", deb, destination],
+      60_000,
+    );
+    if (
+      extraction.code !== 0 ||
+      extraction.stdout !== "" ||
+      extraction.stderr !== ""
+    ) {
+      throw new InstallerError(
+        "verification",
+        "candidate payload could not be inspected",
+      );
+    }
+  }
+
+  async #extractCandidatePayload(
+    stage: ProtectedStage,
+    verified: VerifiedProtectedLinuxBundle,
+  ): Promise<string> {
+    const directory = stageDirectories.get(stage);
+    if (directory === undefined) {
+      throw new InstallerError("unsafe-state", "stage authority is invalid");
+    }
+    const payloadDirectory = path.join(directory, ".candidate-payload");
+    await mkdir(payloadDirectory, { mode: 0o700 });
+    try {
+      await this.#extractVerifiedCandidateDeb(
+        stage,
+        verified,
+        payloadDirectory,
+      );
+      await assertProtectedDirectory(
+        payloadDirectory,
+        this.#ownerUid,
+        this.#ownerGid,
+      );
+      await this.#candidatePayloadEntries(payloadDirectory);
+      await syncDirectory(payloadDirectory);
+      await syncDirectory(directory);
+      return payloadDirectory;
+    } catch (error) {
+      await this.#removeExtractedTree(payloadDirectory).catch(() => undefined);
+      await syncDirectory(directory).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  #preflightTransactionDirectory(
+    stage: ProtectedStage,
+    verified: VerifiedProtectedLinuxBundle,
+  ): string {
+    if (
+      !/^[0-9a-f]{32}$/u.test(stage.transactionId) ||
+      !SHA256.test(verified.debSha256)
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "candidate execution identity is malformed",
+      );
+    }
+    return path.join(
+      this.#preflightRoot,
+      `${stage.transactionId}-${verified.debSha256}`,
+    );
+  }
+
+  async #removePreflightTransaction(
+    transactionDirectory: string,
+  ): Promise<void> {
+    await assertProtectedTraverseDirectory(
+      transactionDirectory,
+      this.#ownerUid,
+      this.#ownerGid,
+    );
+    const entries = await readdir(transactionDirectory, {
+      withFileTypes: true,
+    });
+    if (
+      entries.length > 1 ||
+      entries.some((entry) =>
+        entry.name !== "payload" ||
+        !entry.isDirectory() ||
+        entry.isSymbolicLink()
+      )
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "candidate execution transaction contains an unsafe entry",
+      );
+    }
+    if (entries.length === 1) {
+      const payloadDirectory = path.join(transactionDirectory, "payload");
+      await assertProtectedTraverseDirectory(
+        payloadDirectory,
+        this.#ownerUid,
+        this.#ownerGid,
+      );
+      await this.#removeExtractedTree(payloadDirectory);
+    }
+    await syncDirectory(transactionDirectory);
+    await rmdir(transactionDirectory);
+    await syncDirectory(this.#preflightRoot);
+  }
+
+  async #reconcilePreflightOrphans(): Promise<void> {
+    let entries;
+    try {
+      await assertProtectedTraverseDirectory(
+        this.#preflightRoot,
+        this.#ownerUid,
+        this.#ownerGid,
+      );
+      entries = await readdir(this.#preflightRoot, {
+        withFileTypes: true,
+      });
+    } catch (error) {
+      if (isMissing(error)) return;
+      throw error;
+    }
+    for (const entry of entries) {
+      const match =
+        /^([0-9a-f]{32})-([0-9a-f]{64})$/u.exec(entry.name);
+      if (
+        match === null ||
+        !entry.isDirectory() ||
+        entry.isSymbolicLink()
+      ) {
+        throw new InstallerError(
+          "unsafe-state",
+          "candidate execution root contains an unsafe entry",
+        );
+      }
+      await this.#removePreflightTransaction(
+        path.join(this.#preflightRoot, entry.name),
+      );
+    }
+  }
+
+  public async quiesceCandidatePreflight(
+    transactionId: string,
+  ): Promise<void> {
+    const unit = this.#statePreflightUnit(transactionId);
+    const stopped = await this.#run(
+      "/usr/bin/systemctl",
+      ["stop", unit],
+      30_000,
+    );
+    if (stopped.code !== 0 && stopped.code !== 5) {
+      throw new InstallerError(
+        "unsafe-state",
+        "interrupted candidate preflight could not be stopped",
+      );
+    }
+    const active = await this.#run(
+      "/usr/bin/systemctl",
+      ["is-active", unit],
+      30_000,
+    );
+    if (
+      active.code === 0 ||
+      active.stderr !== "" ||
+      !new Set(["inactive\n", "failed\n", "unknown\n"]).has(active.stdout)
+    ) {
+      throw new InstallerError(
+        "unsafe-state",
+        "interrupted candidate preflight remains active",
+      );
+    }
+  }
+
+  public async preflightCandidateState(
+    stage: ProtectedStage,
+    verified: VerifiedProtectedLinuxBundle,
+    invocation: LinuxReleaseInstallerInvocation,
+  ): Promise<LinuxReleaseInstallerStatePreflightReceipt> {
+    await ensureProtectedTraverseDirectory(
+      this.#preflightRoot,
+      this.#ownerUid,
+      this.#ownerGid,
+    );
+    const transactionDirectory = this.#preflightTransactionDirectory(
+      stage,
+      verified,
+    );
+    await mkdir(transactionDirectory, { mode: 0o711 });
+    await chmod(transactionDirectory, 0o711);
+    await assertProtectedTraverseDirectory(
+      transactionDirectory,
+      this.#ownerUid,
+      this.#ownerGid,
+    );
+    await syncDirectory(this.#preflightRoot);
+    const payloadDirectory = path.join(transactionDirectory, "payload");
+    await mkdir(payloadDirectory, { mode: 0o711 });
+    await chmod(payloadDirectory, 0o711);
+    try {
+      await this.#extractVerifiedCandidateDeb(
+        stage,
+        verified,
+        payloadDirectory,
+      );
+      await assertProtectedTraverseDirectory(
+        payloadDirectory,
+        this.#ownerUid,
+        this.#ownerGid,
+      );
+      const materializedWitness = await this.#candidateExecutionWitness(
+        payloadDirectory,
+      );
+      const executable = await this.#assertCandidateExecutable(
+        payloadDirectory,
+      );
+      await syncDirectory(payloadDirectory);
+      await syncDirectory(transactionDirectory);
+
+      // The execution tree is root-owned and non-writable to the target user.
+      // Re-hash every byte and link target after materialization and again as
+      // the final tree operation before crossing the runuser boundary.
+      if (
+        await this.#candidateExecutionWitness(payloadDirectory) !==
+          materializedWitness ||
+        await this.#assertCandidateExecutable(payloadDirectory) !== executable
+      ) {
+        throw new InstallerError(
+          "unsafe-state",
+          "candidate execution payload changed before preflight",
+        );
+      }
+      const source = await this.#statePreflightSource(invocation);
+      const result = await this.#runCandidateStatePreflight(
+        stage,
+        invocation,
+        payloadDirectory,
+      );
+      if (await this.#statePreflightSource(invocation) !== source) {
+        throw new InstallerError(
+          "unsafe-state",
+          "installed state source changed during candidate preflight",
+        );
+      }
+      const receiptText = result.stdout.endsWith("\n")
+        ? result.stdout.slice(0, -1)
+        : "";
+      if (
+        result.code !== 0 ||
+        result.stderr !== "" ||
+        receiptText === "" ||
+        Buffer.byteLength(receiptText, "utf8") >
+          MAX_STATE_PREFLIGHT_RECEIPT_BYTES ||
+        /[\u0000-\u001f\u007f]/u.test(receiptText)
+      ) {
+        throw new InstallerError(
+          "verification",
+          "candidate state preflight did not emit one exact receipt",
+        );
+      }
+      let receipt: LinuxReleaseInstallerStatePreflightReceipt;
+      try {
+        receipt = decodeLinuxReleaseInstallerStatePreflightReceipt(
+          JSON.parse(receiptText),
+        );
+      } catch (error) {
+        throw new InstallerError(
+          "verification",
+          error instanceof Error
+            ? error.message
+            : "candidate state preflight receipt is malformed",
+        );
+      }
+      if (receipt.source !== source) {
+        throw new InstallerError(
+          "verification",
+          "candidate state preflight source differs from the installed baseline",
+        );
+      }
+      if (JSON.stringify(receipt) !== receiptText) {
+        throw new InstallerError(
+          "verification",
+          "candidate state preflight receipt is not canonical",
+        );
+      }
+      return receipt;
+    } finally {
+      // A failed systemd-run transport is not evidence that the transient
+      // service stopped. Prove the exact cgroup inactive before removing bytes
+      // that Electron or one of its helpers may still be executing.
+      await this.quiesceCandidatePreflight(stage.transactionId);
+      await this.#removePreflightTransaction(transactionDirectory);
+    }
+  }
+
   public async adoptInstalledCandidate(
     stage: ProtectedStage,
     verified: VerifiedProtectedLinuxBundle,
@@ -3071,9 +3956,8 @@ export class NodeLinuxReleaseInstallerHost
       throw new InstallerError("unsafe-state", "stage authority is invalid");
     }
     const controlDirectory = path.join(directory, ".candidate-control");
-    const payloadDirectory = path.join(directory, ".candidate-payload");
     await mkdir(controlDirectory, { mode: 0o700 });
-    await mkdir(payloadDirectory, { mode: 0o700 });
+    let payloadDirectory: string | undefined;
     try {
       const extraction = await this.#run(
         "/usr/bin/dpkg-deb",
@@ -3086,17 +3970,7 @@ export class NodeLinuxReleaseInstallerHost
           "candidate control archive could not be inspected",
         );
       }
-      const payloadExtraction = await this.#run(
-        "/usr/bin/dpkg-deb",
-        ["--extract", deb, payloadDirectory],
-        60_000,
-      );
-      if (payloadExtraction.code !== 0) {
-        throw new InstallerError(
-          "verification",
-          "candidate payload could not be inspected",
-        );
-      }
+      payloadDirectory = await this.#extractCandidatePayload(stage, verified);
       await assertProtectedDirectory(
         controlDirectory,
         this.#ownerUid,
@@ -3205,15 +4079,18 @@ export class NodeLinuxReleaseInstallerHost
       }
       await syncDirectory(controlDirectory);
       await rmdir(controlDirectory);
-      await this.#removeExtractedTree(payloadDirectory);
+      if (payloadDirectory !== undefined) {
+        await this.#removeExtractedTree(payloadDirectory);
+      }
       await syncDirectory(directory);
     }
   }
 
-  async #runUserSystemctl(
+  async #targetUserArguments(
     invocation: LinuxReleaseInstallerInvocation,
+    executable: string,
     arguments_: ReadonlyArray<string>,
-  ): Promise<FixedCommandResult> {
+  ): Promise<ReadonlyArray<string>> {
     /*
      * The single-owner user manager is an operational actuator and
      * work-preservation witness, not the root authorization boundary. Its
@@ -3242,24 +4119,136 @@ export class NodeLinuxReleaseInstallerHost
       );
     }
     const home = await this.#resolveTargetHome(invocation);
+    return [
+      "--user",
+      invocation.sudoUser,
+      "--",
+      "/usr/bin/env",
+      "--ignore-environment",
+      "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+      "LANG=C",
+      "LC_ALL=C",
+      `HOME=${home}`,
+      `XDG_RUNTIME_DIR=${runtimeDirectory}`,
+      `DBUS_SESSION_BUS_ADDRESS=unix:path=${runtimeDirectory}/bus`,
+      executable,
+      ...arguments_,
+    ];
+  }
+
+  async #runAsTargetUser(
+    invocation: LinuxReleaseInstallerInvocation,
+    executable: string,
+    arguments_: ReadonlyArray<string>,
+    timeoutMs: number,
+  ): Promise<FixedCommandResult> {
     return await this.#run(
       "/usr/sbin/runuser",
+      await this.#targetUserArguments(
+        invocation,
+        executable,
+        arguments_,
+      ),
+      timeoutMs,
+    );
+  }
+
+  #statePreflightUnit(transactionId: string): string {
+    if (!/^[0-9a-f]{32}$/u.test(transactionId)) {
+      throw new InstallerError(
+        "unsafe-state",
+        "candidate preflight unit identity is malformed",
+      );
+    }
+    return `vellum-state-preflight-${transactionId}.service`;
+  }
+
+  async #statePreflightSource(
+    invocation: LinuxReleaseInstallerInvocation,
+  ): Promise<"fresh" | "installed"> {
+    const home = await this.#resolveTargetHome(invocation);
+    const database = path.join(home, ".vellum", "state", "vellum.db");
+    try {
+      const metadata = await lstat(database);
+      if (!metadata.isFile() || metadata.isSymbolicLink()) {
+        throw new InstallerError(
+          "unsafe-state",
+          "installed state source is not a regular file",
+        );
+      }
+      return "installed";
+    } catch (error) {
+      if (isMissing(error)) return "fresh";
+      throw error;
+    }
+  }
+
+  async #runCandidateStatePreflight(
+    stage: ProtectedStage,
+    invocation: LinuxReleaseInstallerInvocation,
+    payloadDirectory: string,
+  ): Promise<FixedCommandResult> {
+    const unit = this.#statePreflightUnit(stage.transactionId);
+    const candidateOpt = path.join(payloadDirectory, "opt");
+    if (/[\s:]/u.test(candidateOpt)) {
+      throw new InstallerError(
+        "unsafe-state",
+        "candidate preflight bind path is not systemd-safe",
+      );
+    }
+    /*
+     * Ubuntu's packaged Chromium sandbox authority attaches to the exact
+     * /opt/Vellum Command/vellum path. A read-only private bind of the already
+     * witnessed candidate opt tree preserves those candidate bytes while
+     * executing under that supported AppArmor attachment. The host /opt tree
+     * is never changed and no no-sandbox/setuid fallback is licensed.
+     */
+    const mountedExecutable = "/opt/Vellum Command/vellum";
+    const targetArguments = await this.#targetUserArguments(
+      invocation,
+      "/usr/bin/xvfb-run",
       [
-        "--user",
-        invocation.sudoUser,
-        "--",
-        "/usr/bin/env",
-        "--ignore-environment",
-        "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
-        "LANG=C",
-        "LC_ALL=C",
-        `HOME=${home}`,
-        `XDG_RUNTIME_DIR=${runtimeDirectory}`,
-        `DBUS_SESSION_BUS_ADDRESS=unix:path=${runtimeDirectory}/bus`,
-        "/usr/bin/systemctl",
-        "--user",
-        ...arguments_,
+        "--auto-servernum",
+        "--server-num=97",
+        "--error-file=/dev/stderr",
+        "--server-args=-screen 0 1280x1024x24 -nolisten tcp",
+        mountedExecutable,
+        "--vellum-state-preflight",
+        "--ozone-platform=x11",
       ],
+    );
+    return await this.#run(
+      "/usr/bin/systemd-run",
+      [
+        "--system",
+        "--quiet",
+        "--wait",
+        "--collect",
+        "--pipe",
+        "--service-type=exec",
+        `--unit=${unit}`,
+        `--property=BindReadOnlyPaths=${candidateOpt}:/opt`,
+        "--property=KillMode=control-group",
+        "--property=PrivateTmp=yes",
+        "--property=TimeoutStopSec=10s",
+        "--property=RuntimeMaxSec=180s",
+        "--property=UMask=0077",
+        "--",
+        "/usr/sbin/runuser",
+        ...targetArguments,
+      ],
+      210_000,
+    );
+  }
+
+  async #runUserSystemctl(
+    invocation: LinuxReleaseInstallerInvocation,
+    arguments_: ReadonlyArray<string>,
+  ): Promise<FixedCommandResult> {
+    return await this.#runAsTargetUser(
+      invocation,
+      "/usr/bin/systemctl",
+      ["--user", ...arguments_],
       // restart may spend TimeoutStopSec=20s + TimeoutStartSec=45s; keep
       // margin so the installer does not kill an in-window activation.
       70_000,
@@ -3794,6 +4783,19 @@ export class NodeLinuxReleaseInstallerHost
       version,
       generation,
     );
+  }
+
+  public async restartAndVerifyIncumbent(
+    invocation: LinuxReleaseInstallerInvocation,
+    version: string,
+  ): Promise<LinuxReleaseInstallerReadinessEvidence> {
+    if (await this.currentVersion() !== version) {
+      throw new InstallerError(
+        "unsafe-state",
+        "installed incumbent version changed before reversible recovery",
+      );
+    }
+    return await this.activateAndVerify(invocation, version);
   }
 
   public async currentServiceGeneration(

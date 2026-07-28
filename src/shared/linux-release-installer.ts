@@ -20,7 +20,7 @@ import {
 export const LINUX_RELEASE_INSTALLER_PROTOCOL =
   "vellum/linux-release-installer/v3" as const;
 export const LINUX_RELEASE_INSTALLER_JOURNAL =
-  "vellum/linux-release-installer-journal/v3" as const;
+  "vellum/linux-release-installer-journal/v4" as const;
 export const LINUX_RELEASE_INSTALLER_RECEIPT =
   "vellum/linux-release-installer-receipt/v3" as const;
 
@@ -81,12 +81,22 @@ export interface LinuxReleaseInstallerProcessIdentity {
   readonly bootId: string;
 }
 
+/**
+ * Journal v4 makes the quarantined candidate-clone window explicit. Every
+ * phase through `state-preflight-passed` is reversible because dpkg has not
+ * been invoked: recovery re-proves the unchanged incumbent before clearing
+ * its fence. `dpkg-started` remains the first forward-only phase.
+ */
 export const LINUX_RELEASE_INSTALLER_JOURNAL_PHASES = [
   "fence-intent",
   "fence-prepared",
   "fence-published",
   "fence-acknowledged",
   "prepared",
+  "incumbent-quarantine-started",
+  "incumbent-quarantined",
+  "state-preflight-started",
+  "state-preflight-passed",
   "dpkg-started",
   "dpkg-installed",
   "activation-started",
