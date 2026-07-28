@@ -438,7 +438,8 @@ export const makeEdgeGrantService = (
       ? { ok: true }
       : {
           ok: false,
-          message: "Remote browser admission requires a current pull witness",
+          message:
+            "Remote browser admission requires a current installed projection witness",
         };
   };
 
