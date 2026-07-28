@@ -8,6 +8,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
@@ -21,6 +22,11 @@ const STATE_BACKUP_FILE_PREFIX = "vellum-backup-";
 type BackupSchemaIdentity = {
   readonly actualSchemaSha256: string;
   readonly sourceSchemaSha256: string;
+};
+
+type BackupFileIdentity = {
+  readonly device: number | bigint;
+  readonly inode: number | bigint;
 };
 
 type BackupWitness = {
@@ -58,7 +64,9 @@ const assertRegularOrMissing = (path: string): boolean => {
   }
 };
 
-const makeOwnerOnlyWithoutFollowing = (path: string): void => {
+const makeOwnerOnlyWithoutFollowing = (
+  path: string,
+): BackupFileIdentity => {
   const descriptor = openSync(
     path,
     constants.O_RDONLY | constants.O_NOFOLLOW,
@@ -78,8 +86,31 @@ const makeOwnerOnlyWithoutFollowing = (path: string): void => {
     ) {
       throw new Error(`state backup path changed during creation: ${path}`);
     }
+    return {
+      device: opened.dev,
+      inode: opened.ino,
+    };
   } finally {
     closeSync(descriptor);
+  }
+};
+
+const unlinkExactBackup = (
+  path: string,
+  identity: BackupFileIdentity,
+): void => {
+  try {
+    const linked = lstatSync(path);
+    if (
+      linked.isFile() &&
+      !linked.isSymbolicLink() &&
+      linked.dev === identity.device &&
+      linked.ino === identity.inode
+    ) {
+      unlinkSync(path);
+    }
+  } catch {
+    // Preserve the verification failure. Never remove a replacement.
   }
 };
 
@@ -193,18 +224,19 @@ export const createVerifiedStateBackup = (
     throw new Error(`backup destination already exists: ${path}`);
   }
   database.prepare("VACUUM INTO ?").run(path);
-  makeOwnerOnlyWithoutFollowing(path);
-
-  const backup = new DatabaseSync(path, {
-    open: true,
-    readOnly: true,
-    allowExtension: false,
-    enableForeignKeyConstraints: true,
-    enableDoubleQuotedStringLiterals: false,
-    allowBareNamedParameters: false,
-    allowUnknownNamedParameters: false,
-  });
+  const identity = makeOwnerOnlyWithoutFollowing(path);
+  let backup: DatabaseSync | undefined;
+  let verified = false;
   try {
+    backup = new DatabaseSync(path, {
+      open: true,
+      readOnly: true,
+      allowExtension: false,
+      enableForeignKeyConstraints: true,
+      enableDoubleQuotedStringLiterals: false,
+      allowBareNamedParameters: false,
+      allowUnknownNamedParameters: false,
+    });
     const quickCheck = backup.prepare("PRAGMA quick_check").all() as unknown as
       ReadonlyArray<{ readonly quick_check: SQLOutputValue }>;
     if (
@@ -220,8 +252,10 @@ export const createVerifiedStateBackup = (
       );
     }
     assertBackupWitness(source, readBackupWitness(backup));
+    verified = true;
   } finally {
-    backup.close();
+    backup?.close();
+    if (!verified) unlinkExactBackup(path, identity);
   }
   return {
     path,

@@ -20,6 +20,7 @@ import {
   StateEngine,
   StateEngineError,
 } from "../src/main/vellum/state/engine";
+import { createVerifiedStateBackup } from "../src/main/vellum/state/backup";
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
@@ -639,6 +640,44 @@ describe("StateEngine", () => {
     expect(secondReceipt.path).not.toBe(backupPath);
     expect(await readFile(backupPath)).toEqual(firstBytes);
     expect((await lstat(secondReceipt.path)).mode & 0o777).toBe(0o600);
+  });
+
+  test("failed backup verification removes only the newly minted invalid file", async () => {
+    const root = await makeTempDir("vellum-state-backup-failure-cleanup-");
+    const stateDirectory = join(root, "state");
+    await mkdir(stateDirectory);
+    const database = new DatabaseSync(join(stateDirectory, "vellum.db"));
+    try {
+      database.exec(`
+        PRAGMA foreign_keys = OFF;
+        ${STATE_SCHEMA_IDENTITY_SQL}
+        CREATE TABLE parent (id TEXT PRIMARY KEY) STRICT;
+        CREATE TABLE child (
+          id TEXT PRIMARY KEY,
+          parent_id TEXT NOT NULL REFERENCES parent(id)
+        ) STRICT;
+        INSERT INTO state_schema_identity(
+          singleton,
+          actual_schema_sha256,
+          source_schema_sha256,
+          verified_at
+        ) VALUES (
+          1,
+          '${"a".repeat(64)}',
+          '${"b".repeat(64)}',
+          '2026-07-28T00:00:00.000Z'
+        );
+        INSERT INTO child(id, parent_id) VALUES ('orphan', 'missing');
+        PRAGMA user_version = 1;
+      `);
+
+      expect(() =>
+        createVerifiedStateBackup(database, stateDirectory)
+      ).toThrow(/foreign-key violation/u);
+      expect(await readdir(join(stateDirectory, "backups"))).toEqual([]);
+    } finally {
+      database.close();
+    }
   });
 
   test("caller input cannot redirect backup writes or chmod a shared directory", async () => {

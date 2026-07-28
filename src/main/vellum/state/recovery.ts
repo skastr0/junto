@@ -24,6 +24,15 @@ import {
   type StateBackupInventoryEntry,
 } from "@shared/state-recovery";
 import { stateDatabasePath } from "./engine";
+import {
+  STATE_SCHEMA_MIGRATION_PLAN,
+  type StateSchemaMigrationPlan,
+} from "./migrations";
+import {
+  expectedStateSchemaIdentity,
+  verifyRecordedStateSchemaIdentity,
+  type VerifiedStateSchemaIdentity,
+} from "./schema-identity";
 
 export {
   StateBackupId,
@@ -139,6 +148,7 @@ const openOwnedBackup = (path: string): OpenedBackup => {
 const inspectBackup = (
   path: string,
   file: string,
+  migrationPlan: StateSchemaMigrationPlan = STATE_SCHEMA_MIGRATION_PLAN,
 ): StateBackupInventoryEntry => {
   const opened = openOwnedBackup(path);
   closeSync(opened.descriptor);
@@ -168,21 +178,32 @@ const inspectBackup = (
     const version = database.prepare("PRAGMA user_version").get() as
       | { readonly user_version: SQLOutputValue }
       | undefined;
-    const identity = database.prepare(
-      `
-        SELECT actual_schema_sha256
-        FROM state_schema_identity
-        WHERE singleton = 1
-      `,
-    ).get() as
-      | { readonly actual_schema_sha256: SQLOutputValue }
-      | undefined;
+    const schemaVersion = Number(version?.user_version);
     if (
-      identity === undefined ||
-      typeof identity.actual_schema_sha256 !== "string"
+      !Number.isSafeInteger(schemaVersion) ||
+      schemaVersion < 0 ||
+      schemaVersion > migrationPlan.currentVersion
     ) {
       throw new Error(
-        `state backup has no schema identity witness: ${file}`,
+        `state backup has an unsupported schema version: ${file}`,
+      );
+    }
+    const recorded = verifyRecordedStateSchemaIdentity(database);
+    const expected: VerifiedStateSchemaIdentity | undefined =
+      schemaVersion === 0
+        ? migrationPlan.baselineIdentity
+        : schemaVersion === migrationPlan.currentVersion
+          ? expectedStateSchemaIdentity(migrationPlan.currentSchemaSql)
+          : migrationPlan.migrations.find(
+            (migration) => migration.fromVersion === schemaVersion,
+          )?.fromIdentity;
+    if (
+      expected === undefined ||
+      recorded.actualSchemaSha256 !== expected.actualSchemaSha256 ||
+      recorded.sourceSchemaSha256 !== expected.sourceSchemaSha256
+    ) {
+      throw new Error(
+        `state backup schema is not a recognized Vellum version: ${file}`,
       );
     }
     return decodeStateBackupInventoryEntry({
@@ -190,8 +211,8 @@ const inspectBackup = (
       file,
       bytes: Number(opened.metadata.size),
       modifiedAtEpochMs: Math.floor(opened.metadata.mtimeMs),
-      schemaVersion: Number(version?.user_version),
-      schemaSha256: identity.actual_schema_sha256,
+      schemaVersion,
+      schemaSha256: recorded.actualSchemaSha256,
     });
   } finally {
     database.close();

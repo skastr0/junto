@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import { Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -124,6 +125,21 @@ describe("state recovery", () => {
     await expect(
       Effect.runPromise(listStateBackups(layout.database)),
     ).rejects.toThrow(/owner-only regular file/u);
+  });
+
+  it("rejects a backup whose recorded schema witness no longer matches its DDL", async () => {
+    const layout = await makeLayout();
+    const created = await createBackup(layout.database);
+    const drifted = new DatabaseSync(created.path);
+    try {
+      drifted.exec("CREATE TABLE injected_state (value TEXT) STRICT");
+    } finally {
+      drifted.close();
+    }
+
+    await expect(
+      Effect.runPromise(listStateBackups(layout.database)),
+    ).rejects.toThrow(/schema changed after its recorded identity/u);
   });
 
   it("rejects a relative export destination", async () => {
