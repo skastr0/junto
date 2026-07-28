@@ -163,6 +163,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
               doc,
               actorRefs: actorRefsForDoc(doc, name),
               revision: `${name}-r1`,
+              workRevision: "0",
             })
           : Effect.fail(new CanvasError({ message: `canvas "${name}" does not exist` }));
       },
@@ -173,6 +174,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
         doc: { nodes: [], edges: [] },
         actorRefs: actorRefsForDoc({ nodes: [], edges: [] }, name),
         revision: `${name}-r1`,
+        workRevision: "0",
       }),
       remove: (name: string) => Effect.succeed({ name }),
       ensureSeed: Effect.void,

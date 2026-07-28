@@ -88,6 +88,7 @@ const makeRuntime = (input: {
             revision: "a".repeat(64),
             doc: current,
             actorRefs: input.actorRefs?.get(name) ?? [],
+            workRevision: "0",
           });
     },
     write: () => Effect.fail(new CanvasError({ message: "not used" })),

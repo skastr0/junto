@@ -751,6 +751,17 @@ const loadSnapshot = (
     artifacts: { items: loadArtifacts(reader, sink) },
   });
 
+export type CanvasWorkProjection = {
+  readonly snapshots: ReadonlyArray<WorkSnapshotValue>;
+  /**
+   * Opaque monotonic invalidation identity for this canvas's runtime Work
+   * projection. Work events are immutable and every materialized Work change
+   * is backed by a fact event, so the per-canvas event count cannot remain
+   * unchanged when a projected task/request/message/artifact changes.
+   */
+  readonly workRevision: string;
+};
+
 const snapshotsForCanvas = (
   reader: StateReader,
   canvasName: string,
@@ -771,6 +782,30 @@ const snapshotsForCanvas = (
   return nodes.map(({ node_id }) =>
     loadSnapshot(reader, { canvasName, nodeId: node_id }),
   );
+};
+
+/**
+ * Read the complete runtime Work overlay and its invalidation identity through
+ * one caller-owned StateReader. CanvasesService uses this with the authorial
+ * portfolio read so one CanvasReadResult never mixes SQLite snapshots.
+ */
+export const readCanvasWorkProjection = (
+  reader: StateReader,
+  canvasName: string,
+): CanvasWorkProjection => {
+  const workRevision =
+    reader.get<{ readonly work_revision: string }>(
+      `
+        SELECT CAST(count(*) AS TEXT) AS work_revision
+        FROM work_events
+        WHERE item_canvas_name = ?
+      `,
+      [canvasName],
+    )?.work_revision ?? "0";
+  return {
+    snapshots: snapshotsForCanvas(reader, canvasName),
+    workRevision,
+  };
 };
 
 const currentIdentity = (

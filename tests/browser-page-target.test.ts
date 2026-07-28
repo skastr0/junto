@@ -41,6 +41,7 @@ const reader = (docs: Readonly<Record<string, CanvasDoc>>): CanvasNodeReader => 
           doc,
           actorRefs: [],
           revision: `${name}-r1`,
+          workRevision: "0",
         });
   },
 });

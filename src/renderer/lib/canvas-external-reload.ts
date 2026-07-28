@@ -18,6 +18,8 @@ export interface CanvasExternalReloadDeps {
 }
 
 export interface CanvasExternalReloadCoordinator {
+  /** Seed/replace the accepted Work epoch after an explicit canvas load. */
+  readonly accept: (result: ExternalCanvasRead) => void;
   readonly changed: (name: string) => Promise<void>;
 }
 
@@ -32,12 +34,16 @@ export const makeCanvasExternalReloadCoordinator = (
   deps: CanvasExternalReloadDeps,
 ): CanvasExternalReloadCoordinator => {
   let latestRequest = 0;
+  const acceptedWorkRevisions = new Map<string, string>();
 
   const isCurrentRequest = (request: number, name: string): boolean =>
     request === latestRequest
     && deps.currentCanvasName() === name;
 
   return {
+    accept: (result) => {
+      acceptedWorkRevisions.set(result.name, result.workRevision);
+    },
     changed: async (name) => {
       const request = ++latestRequest;
       if (deps.currentCanvasName() !== name) return;
@@ -50,6 +56,7 @@ export const makeCanvasExternalReloadCoordinator = (
         if (!isCurrentRequest(request, name)) return;
 
         const baselineRevision = deps.currentRevision(name);
+        const baselineWorkRevision = acceptedWorkRevisions.get(name);
         const baselineDocEpoch = deps.currentDocEpoch();
         const result = await deps.readCanvas(name);
         if (!isCurrentRequest(request, name)) return;
@@ -66,12 +73,17 @@ export const makeCanvasExternalReloadCoordinator = (
           || deps.currentDocEpoch() !== baselineDocEpoch
         ) return;
 
-        if (result.revision === baselineRevision) return;
+        if (
+          result.revision === baselineRevision
+          && result.workRevision === baselineWorkRevision
+        ) return;
         if (JSON.stringify(result.doc) === JSON.stringify(deps.currentDoc())) {
           deps.acceptRevision(name, result.revision);
+          acceptedWorkRevisions.set(name, result.workRevision);
           return;
         }
         deps.apply(result);
+        acceptedWorkRevisions.set(name, result.workRevision);
       } catch (error) {
         // A superseded request cannot own the visible error channel.
         if (request === latestRequest && deps.currentCanvasName() === name) {

@@ -36,6 +36,7 @@ const emptyDoc = (name: string) => ({
   doc: { nodes: [], edges: [] },
   actorRefs: [],
   revision: `${name}-r1`,
+  workRevision: "0",
 });
 
 const fakeCanvases = Layer.succeed(

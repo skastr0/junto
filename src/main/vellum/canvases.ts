@@ -23,6 +23,7 @@ import {
 import {
   WorkRepository,
   projectWorkSnapshots,
+  readCanvasWorkProjection,
 } from "./work/repository";
 import { decodeStationPortfolioBody } from "./station/portfolio";
 import { selectStationConfiguration } from "./station/configuration-state";
@@ -780,26 +781,31 @@ export const CanvasesLive = Layer.effect(
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
       });
-      const snapshot = yield* readActive("canvas.read");
-      const entry = snapshot.documents.get(canonicalName);
-      if (entry === undefined) {
-        return yield* Effect.fail(
-          new CanvasError({
-            message: `canvas "${canonicalName}" is not in the active portfolio`,
-          }),
-        );
-      }
-      const workSnapshots = yield* work
-        .snapshotsForCanvas(canonicalName)
+      yield* ensureReady;
+      return yield* state
+        .read("canvas.read", (reader) => {
+          const snapshot = readActivePortfolio(reader);
+          const entry = snapshot.documents.get(canonicalName);
+          if (entry === undefined) {
+            throw new CanvasError({
+              message: `canvas "${canonicalName}" is not in the active portfolio`,
+            });
+          }
+          const projection = readCanvasWorkProjection(
+            reader,
+            canonicalName,
+          );
+          return {
+            name: canonicalName,
+            doc: projectWorkSnapshots(entry.doc, projection.snapshots),
+            actorRefs: snapshot.actorRefs.filter(
+              (actor) => actor.canvasName === canonicalName,
+            ),
+            revision: entry.revision,
+            workRevision: projection.workRevision,
+          };
+        })
         .pipe(Effect.mapError(toCanvasError));
-      return {
-        name: canonicalName,
-        doc: projectWorkSnapshots(entry.doc, workSnapshots),
-        actorRefs: snapshot.actorRefs.filter(
-          (actor) => actor.canvasName === canonicalName,
-        ),
-        revision: entry.revision,
-      };
     });
 
   const write = (
@@ -933,12 +939,7 @@ export const CanvasesLive = Layer.effect(
           next: outcome.doc,
         }),
       );
-      return {
-        name: canonicalName,
-        doc: outcome.doc,
-        actorRefs: [],
-        revision: outcome.revision,
-      };
+      return yield* read(canonicalName);
     });
 
   const remove = (name: string): Effect.Effect<{ name: string }, CanvasError> =>

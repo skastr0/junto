@@ -215,6 +215,12 @@ export interface CanvasReadResult {
   readonly actorRefs: ReadonlyArray<ActorRef>;
   /** SHA-256 identity of the exact canonical database body. */
   readonly revision: string;
+  /**
+   * Opaque monotonic identity of this canvas's runtime Work projection.
+   * This is deliberately separate from the authorial body revision: agents
+   * advance SQLite Work without authoring the canvas.
+   */
+  readonly workRevision: string;
 }
 
 export interface CanvasWriteResult {

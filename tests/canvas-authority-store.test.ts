@@ -267,6 +267,8 @@ describe("CanvasesService SQLite authority", () => {
     const authorial = await runtime.runPromise(canvases.authoritySnapshot());
     expect(authorial.generation).toBe("1");
     expect(authorial.documents.get("work")?.nodes[0]?.ether?.tasks).toBeUndefined();
+    const projectedBefore = await runtime.runPromise(canvases.read("work"));
+    expect(projectedBefore.workRevision).toBe("0");
 
     const changed: string[] = [];
     const unsubscribe = canvases.subscribeChanges((name) => changed.push(name));
@@ -281,6 +283,10 @@ describe("CanvasesService SQLite authority", () => {
     expect(changed).toEqual(["work"]);
 
     const projected = await runtime.runPromise(canvases.read("work"));
+    expect(projected.revision).toBe(projectedBefore.revision);
+    expect(BigInt(projected.workRevision)).toBeGreaterThan(
+      BigInt(projectedBefore.workRevision),
+    );
     expect(projected.doc.nodes[0]?.ether?.tasks?.items).toHaveLength(1);
     expect(projected.doc.nodes[0]).toMatchObject({
       text: "ship the SQLite cutover",

@@ -113,6 +113,7 @@ const openCanvas = async (name: string) => {
         loadDoc(result.doc, result.revision, result.name);
         replaceActiveActorRefs(result.actorRefs);
       });
+      externalCanvasReload.accept(result);
       state$.error.set("");
       await refreshSnapshotsSoft(result.doc);
     } catch (error) {
@@ -147,6 +148,7 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
       loadDoc(result.doc, result.revision, result.name);
       replaceActiveActorRefs(result.actorRefs);
     });
+    externalCanvasReload.accept(result);
     state$.selectedNodeId.set(event.nodeId);
     state$.focusNodeId.set(event.nodeId);
     state$.canvasLoading.set(false);
@@ -200,6 +202,7 @@ const createCanvas = async (name: string) => {
         loadDoc(result.doc, result.revision, result.name);
         replaceActiveActorRefs(result.actorRefs);
       });
+      externalCanvasReload.accept(result);
       state$.error.set("");
       await refreshSnapshotsSoft(result.doc);
     } catch (error) {

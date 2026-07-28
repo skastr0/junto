@@ -22,6 +22,7 @@ const canvas = (name: string, nodeIds: ReadonlyArray<string>): CanvasReadResult 
   doc: { nodes: nodeIds.map(textNode), edges: [] },
   actorRefs: [],
   revision: `${name}-revision`,
+  workRevision: "0",
 });
 
 const event = (canvasName: string, nodeId: string): NodeRefOpenedEvent => ({

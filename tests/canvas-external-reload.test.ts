@@ -70,6 +70,7 @@ describe("canvas external reload ordering", () => {
       doc: doc("newer"),
       actorRefs: [],
       revision: "r2",
+      workRevision: "0",
     });
     await newer;
     expect(current).toEqual(doc("newer"));
@@ -80,6 +81,7 @@ describe("canvas external reload ordering", () => {
       doc: doc("older"),
       actorRefs: [],
       revision: "r1",
+      workRevision: "0",
     });
     await older;
     expect(current).toEqual(doc("newer"));
@@ -123,11 +125,58 @@ describe("canvas external reload ordering", () => {
       doc: doc("external"),
       actorRefs: [],
       revision: "external-r1",
+      workRevision: "0",
     });
     await pending;
 
     expect(apply).not.toHaveBeenCalled();
     expect(current).toEqual(doc("local-edit"));
     expect(revision).toBe("r0");
+  });
+
+  it("applies a Work-only projection when the authorial revision is unchanged", async () => {
+    let revision = "authorial-r1";
+    let epoch = 0;
+    let current = doc("queued");
+    const apply = vi.fn((result: ExternalCanvasRead) => {
+      revision = result.revision;
+      epoch += 1;
+      current = result.doc;
+    });
+    const coordinator = makeCanvasExternalReloadCoordinator({
+      flushLocalEdits: async () => undefined,
+      readCanvas: async () => ({
+        name: "alpha",
+        doc: doc("working"),
+        actorRefs: [],
+        revision: "authorial-r1",
+        workRevision: "2",
+      }),
+      currentCanvasName: () => "alpha",
+      currentDoc: () => current,
+      currentDocEpoch: () => epoch,
+      currentRevision: () => revision,
+      hasPendingChanges: () => false,
+      acceptRevision: (_canvasName, nextRevision) => {
+        revision = nextRevision;
+      },
+      apply,
+      onFailure: (error) => {
+        throw error;
+      },
+    });
+    coordinator.accept({
+      name: "alpha",
+      doc: current,
+      actorRefs: [],
+      revision,
+      workRevision: "1",
+    });
+
+    await coordinator.changed("alpha");
+
+    expect(apply).toHaveBeenCalledOnce();
+    expect(current).toEqual(doc("working"));
+    expect(revision).toBe("authorial-r1");
   });
 });

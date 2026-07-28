@@ -53,6 +53,7 @@ const reader = (
           doc,
           actorRefs: [],
           revision: `${name}-r1`,
+          workRevision: "0",
         });
     },
   };
