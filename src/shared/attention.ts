@@ -1,7 +1,13 @@
+import { Schema } from "effect";
 import type { Task, CanvasDoc, CanvasNode } from "./canvas";
 import { claimedByOf, isTerminalTaskState } from "./task";
 import { isBlockableNode, type ExecutionGraph } from "./execution-graph";
 import { resolveSpec, roleOf } from "./physics/kinds";
+import {
+  ActorRef,
+  type ActorRef as ActorRefValue,
+  type SinkRef,
+} from "./work-protocol";
 
 /**
  * Fire / ice attention language — glance layer over the factory board.
@@ -113,15 +119,36 @@ export const workRolesInDoc = (doc: CanvasDoc): ReadonlyArray<string> => {
 };
 
 /**
- * Worker claim identity for a seat: the vellum node id, nothing else.
- * entity.name is a display label and the work role is a routing tag — using
- * either as identity collapses or aliases seats. Claims address the node.
+ * Compiler-owned actor lookup.
+ *
+ * The resolver returns an ActorRef only when the canvas reference identifies
+ * exactly one compiled executable seat. It returns undefined for unresolved
+ * or ambiguous references.
  */
-export const workerClaimId = (node: CanvasNode): string => node.id;
+export type ActorRefResolver = (ref: SinkRef) => ActorRefValue | undefined;
 
-export const isReservedClaimActor = (actor: string): boolean => {
-  const t = actor.trim().toLowerCase();
-  return t.length === 0 || t === "operator" || t === "user" || t === "human";
+/**
+ * Resolve one exact canvas-scoped actor reference.
+ *
+ * A malformed result or a resolver result for another reference fails closed.
+ * There is deliberately no node-id claimant fallback.
+ */
+export const resolveCompiledActorRef = (
+  resolver: ActorRefResolver,
+  canvasName: string,
+  node: CanvasNode | undefined,
+): ActorRefValue | undefined => {
+  if (node === undefined || roleOfNode(node) !== "actor") return undefined;
+  const actor = resolver({ canvasName, nodeId: node.id });
+  if (
+    actor === undefined ||
+    !Schema.is(ActorRef)(actor) ||
+    actor.canvasName !== canvasName ||
+    actor.nodeId !== node.id
+  ) {
+    return undefined;
+  }
+  return actor;
 };
 
 export { claimedByOf, needsHuman, inFlight };

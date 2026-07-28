@@ -6,8 +6,12 @@ import type {
   EdgeCriteria,
   EdgePhase,
 } from "./canvas";
+import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf, isTerminalTaskState, taskBrief } from "./task";
-import { workerClaimId } from "./attention";
+import {
+  resolveCompiledActorRef,
+  type ActorRefResolver,
+} from "./attention";
 import { seatMayBeBlocked } from "./physics/phase-membership";
 import {
   findApproval,
@@ -23,9 +27,9 @@ import {
 // Authorial edge model — criteria only:
 //   - no criteria → soft "relates" (never generates stoppage)
 //   - criteria tasks → a CLAIMED attention item (input-required | auth-required)
-//     generates blocks on the claimant toNode actor only; unclaimed attention
-//     is human inventory, never worker stoppage. Tasks are claimed by the
-//     pulling worker; requests are claimed by their raiser at creation.
+//     generates blocks on the claimant toNode actor only. Tasks are claimed
+//     by the pulling actor; requests are claimed by their raiser at creation.
+//     An unresolved toNode actor identity never substitutes its canvas node ID.
 //   - criteria proof / approval → blocks until trust view clears
 //
 // Evaluation (no cascade):
@@ -37,6 +41,12 @@ import {
 export type LiveTrustViews = {
   readonly stamps?: StampView;
   readonly approvals?: ApprovalView;
+};
+
+/** Complete pure inputs required to attribute canvas-local actor references. */
+export type ExecutionGraphContext = LiveTrustViews & {
+  readonly canvasName: string;
+  readonly resolveActorRef: ActorRefResolver;
 };
 
 export type BlockedReason =
@@ -115,7 +125,7 @@ const softRelates = (detail = "relates"): EdgeEval => ({
 const evalTasksCriteria = (
   criteria: Extract<EdgeCriteria, { mode: "tasks" }>,
   fromNode: CanvasNode | undefined,
-  toNode: CanvasNode | undefined,
+  toActorSeatId: ActorSeatId | undefined,
 ): EdgeEval => {
   const fromKind = fromNode?.ether?.entity?.kind;
   const items = workItemsOn(fromNode);
@@ -127,18 +137,20 @@ const evalTasksCriteria = (
     return softRelates(fromKind === "requests" ? "no pending requests" : "no open tasks");
   }
   const open = scoped.filter((item) => isAttentionTaskItem(item));
-  // Blocking is worker-state for tasks AND requests: only an attention item
-  // CLAIMED by this edge's toNode worker stops it. Tasks are claimed by the
-  // worker that pulled them; requests are claimed by the actor that raised
-  // them. Unclaimed attention is inventory for a human — it stops nobody.
+  // Blocking is actor-state for tasks AND requests: only an attention item
+  // claimed by this edge's compiled toNode seat stops it.
   const held =
-    toNode === undefined
+    toActorSeatId === undefined
       ? []
-      : open.filter((item) => claimedByOf(item) === workerClaimId(toNode));
+      : open.filter((item) => claimedByOf(item) === toActorSeatId);
   const noun = fromKind === "requests" ? "pending" : "need input";
   if (held.length === 0) {
     if (open.length > 0) {
-      return softRelates(`${open.length} ${noun} · not this worker's wait`);
+      return softRelates(
+        toActorSeatId === undefined
+          ? `${open.length} ${noun} · actor identity unresolved`
+          : `${open.length} ${noun} · not this actor's wait`,
+      );
     }
     return softRelates(
       fromKind === "requests"
@@ -204,17 +216,25 @@ export const evaluateEdge = (
   edge: CanvasEdge,
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
-  trust: LiveTrustViews = {},
+  context: ExecutionGraphContext,
 ): EdgeEval => {
   const criteria = edge.ether?.criteria;
   if (!criteria) return softRelates();
   switch (criteria.mode) {
     case "tasks":
-      return evalTasksCriteria(criteria, fromNode, toNode);
+      return evalTasksCriteria(
+        criteria,
+        fromNode,
+        resolveCompiledActorRef(
+          context.resolveActorRef,
+          context.canvasName,
+          toNode,
+        )?.seatId,
+      );
     case "proof":
-      return evalProofCriteria(criteria, fromNode, trust.stamps);
+      return evalProofCriteria(criteria, fromNode, context.stamps);
     case "approval":
-      return evalApprovalCriteria(criteria, trust.approvals);
+      return evalApprovalCriteria(criteria, context.approvals);
   }
 };
 
@@ -242,7 +262,7 @@ export const clearingStampsForDoc = (
 
 export const deriveExecutionGraph = (
   doc: CanvasDoc,
-  trust: LiveTrustViews = {},
+  context: ExecutionGraphContext,
 ): ExecutionGraph => {
   const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
 
@@ -251,7 +271,12 @@ export const deriveExecutionGraph = (
   const edgeEvalById = new Map<string, EdgeEval>();
 
   for (const edge of doc.edges) {
-    const evaluation = evaluateEdge(edge, byId.get(edge.fromNode), byId.get(edge.toNode), trust);
+    const evaluation = evaluateEdge(
+      edge,
+      byId.get(edge.fromNode),
+      byId.get(edge.toNode),
+      context,
+    );
     edgeEvalById.set(edge.id, evaluation);
     phaseByEdgeId.set(edge.id, evaluation.phase);
     detailByEdgeId.set(edge.id, evaluation.detail);

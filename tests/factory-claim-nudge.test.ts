@@ -1,7 +1,15 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { factoryClaimTick } from "../src/shared/factory-tick";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { deliveryTargetOf, isPendingDelivery } from "../src/shared/message-delivery";
+import { ActorRef } from "../src/shared/work-protocol";
+
+const worker = Schema.decodeUnknownSync(ActorRef)({
+  seatId: `seat_${"1".repeat(64)}`,
+  canvasName: "demo",
+  nodeId: "worker",
+});
 
 const doc: CanvasDoc = {
   nodes: [
@@ -52,8 +60,15 @@ const doc: CanvasDoc = {
 
 describe("factoryClaimTick agent nudge", () => {
   it("claims and appends a pending user message on the managed actor", () => {
-    const { doc: next, claimed } = factoryClaimTick(doc, "demo");
-    expect(claimed).toEqual([{ taskId: "t1", actor: "worker" }]);
+    const { doc: next, claimed } = factoryClaimTick(
+      doc,
+      "demo",
+      (ref) =>
+        ref.canvasName === worker.canvasName && ref.nodeId === worker.nodeId
+          ? worker
+          : undefined,
+    );
+    expect(claimed).toEqual([{ taskId: "t1", actor: worker }]);
     const actor = next.nodes.find((n) => n.id === "worker")!;
     const items = actor.ether?.messages?.items ?? [];
     expect(items.length).toBe(1);

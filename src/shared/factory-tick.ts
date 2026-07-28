@@ -1,9 +1,15 @@
 import { ulid } from "ulid";
 import type { Task, CanvasDoc, CanvasNode } from "./canvas";
+import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf, makeUserMessage, taskBrief } from "./task";
 import { workMessageAppend, workTaskClaim, type WorkIds } from "./work";
-import { isReservedClaimActor, workRoleOf, workerClaimId } from "./attention";
+import {
+  resolveCompiledActorRef,
+  workRoleOf,
+  type ActorRefResolver,
+} from "./attention";
 import { resolveSpec, roleOf } from "./physics/kinds";
+import type { ActorRef } from "./work-protocol";
 
 /**
  * Document-level claim simulation: role-matched free edged actors pull
@@ -24,8 +30,8 @@ const isActor = (node: CanvasNode): boolean =>
 const isTaskSink = (node: CanvasNode): boolean => node.ether?.entity?.kind === "task";
 
 /** Actors already holding a non-terminal claim on any task node. */
-const busyWorkerIds = (doc: CanvasDoc): ReadonlySet<string> => {
-  const busy = new Set<string>();
+const busyActorSeatIds = (doc: CanvasDoc): ReadonlySet<ActorSeatId> => {
+  const busy = new Set<ActorSeatId>();
   for (const node of doc.nodes) {
     if (!isTaskSink(node)) continue;
     for (const task of node.ether?.tasks?.items ?? []) {
@@ -48,22 +54,34 @@ const defaultIds = (): WorkIds => ({
  * One claim tick over the document.
  * For each tasks sink, for each submitted unclaimed item, find a free actor
  * edged to that sink (undirected) whose workRole matches the sink's workRole
- * (or either side unassigned). Claim with workerClaimId(actor).
+ * (or either side unassigned). Claim with its compiled ActorRef.
  * A paused seat (opts.seatPaused) neither drains as a sink nor claims as a
  * worker — the pause plane's law reaches the simulation here.
  */
 export const factoryClaimTick = (
   doc: CanvasDoc,
   canvasName: string,
+  resolveActorRef: ActorRefResolver,
   ids: WorkIds = defaultIds(),
   opts?: {
     readonly seatPaused?: (nodeId: string) => boolean;
     readonly actorEligible?: (actor: CanvasNode) => boolean;
+    /** Occupancy already observed outside this document. */
+    readonly busyActorSeatIds?: ReadonlySet<ActorSeatId>;
   },
-): { readonly doc: CanvasDoc; readonly claimed: ReadonlyArray<{ taskId: string; actor: string }> } => {
+): {
+  readonly doc: CanvasDoc;
+  readonly claimed: ReadonlyArray<{
+    readonly taskId: string;
+    readonly actor: ActorRef;
+  }>;
+} => {
   let next = doc;
-  const claimed: Array<{ taskId: string; actor: string }> = [];
-  const busy = new Set(busyWorkerIds(doc));
+  const claimed: Array<{ taskId: string; actor: ActorRef }> = [];
+  const busy = new Set<ActorSeatId>([
+    ...busyActorSeatIds(doc),
+    ...(opts?.busyActorSeatIds ?? []),
+  ]);
   const isPausedSeat = opts?.seatPaused ?? (() => false);
   const actorEligible = opts?.actorEligible ?? (() => true);
 
@@ -94,26 +112,41 @@ export const factoryClaimTick = (
       .map((id) => byId.get(id))
       .filter((n): n is CanvasNode => n !== undefined && isActor(n))
       .filter(actorEligible)
-      .filter((actor) => {
-        const id = workerClaimId(actor);
-        if (isPausedSeat(actor.id)) return false;
-        if (isReservedClaimActor(id) || busy.has(id)) return false;
-        const actorRole = workRoleOf(actor);
+      .flatMap((node) => {
+        const actor = resolveCompiledActorRef(
+          resolveActorRef,
+          canvasName,
+          node,
+        );
+        return actor === undefined ? [] : [{ node, actor }];
+      })
+      .filter(({ node, actor }) => {
+        if (isPausedSeat(node.id)) return false;
+        if (busy.has(actor.seatId)) return false;
+        const actorRole = workRoleOf(node);
         // Match when either side unassigned, or roles equal.
         if (!sinkRole || !actorRole) return true;
         return sinkRole === actorRole;
       })
-      .sort((a, b) => a.id.localeCompare(b.id));
+      .sort((a, b) => a.node.id.localeCompare(b.node.id));
 
     for (const task of open) {
-      const actor = freeActors.find((a) => !busy.has(workerClaimId(a)));
+      const actor = freeActors.find(
+        ({ actor: candidate }) => !busy.has(candidate.seatId),
+      );
       if (!actor) break;
-      const actorId = workerClaimId(actor);
       try {
-        const result = workTaskClaim(next, canvasName, node.id, task.id, actorId, ids);
+        const result = workTaskClaim(
+          next,
+          canvasName,
+          node.id,
+          task.id,
+          actor.actor,
+          ids,
+        );
         next = result.doc;
-        busy.add(actorId);
-        claimed.push({ taskId: task.id, actor: actorId });
+        busy.add(actor.actor.seatId);
+        claimed.push({ taskId: task.id, actor: actor.actor });
         // Nudge the managed seat: assignment lands on ether.messages so the
         // idle-gated drive transport can type it into the live TUI.
         // Task history alone is never auto-delivered (work plane law).
@@ -135,7 +168,7 @@ export const factoryClaimTick = (
           const nudged = workMessageAppend(
             next,
             canvasName,
-            actor.id,
+            actor.node.id,
             null,
             assignment,
           );
