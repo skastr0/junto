@@ -127,7 +127,6 @@ const runArm = (
         pair: () => Effect.dieMessage("unused station repository"),
         configureRemote: () => Effect.dieMessage("unused station repository"),
         installProjection: () => Effect.dieMessage("unused station repository"),
-        advancePeerAcks: () => Effect.dieMessage("unused station repository"),
         statusFacts: Effect.dieMessage("unused station repository"),
       }),
     ),
