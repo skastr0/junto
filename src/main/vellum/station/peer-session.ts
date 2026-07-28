@@ -148,6 +148,16 @@ export interface StationPeerSession {
   readonly request: <R extends StationApiRequest>(
     request: R,
   ) => Effect.Effect<StationApiResponseFor<R>, StationPeerRequestError>;
+  /**
+   * Run a commit-bound operation only while this session is logically open.
+   *
+   * Session closure and the guarded effect share one lifecycle gate. Whichever
+   * acquires it first establishes the durable ordering: either the effect
+   * completes before close is published, or it never starts.
+   */
+  readonly withOpen: <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E | StationPeerSessionClosedError, R>;
   readonly isOpen: Effect.Effect<boolean>;
   readonly awaitClosed: Effect.Effect<StationPeerSessionClosedError>;
   readonly close: Effect.Effect<void>;
@@ -303,53 +313,67 @@ export const makeStationPeerSession = (
     });
     const closed = yield* Deferred.make<StationPeerSessionClosedError>();
     const inboundPermits = yield* Effect.makeSemaphore(maxInboundRequests);
+    const lifecycle = yield* Effect.makeSemaphore(1);
 
     const closeWith = (
       error: StationPeerSessionClosedError,
     ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const closingFiberId = yield* Effect.fiberId;
-        const pending = yield* Ref.modify(state, (current): readonly [
-          Option.Option<SessionCloseTargets>,
-          SessionState,
-        ] => {
-          if (current.closed !== undefined) {
+      lifecycle.withPermits(1)(
+        Effect.gen(function* () {
+          const closingFiberId = yield* Effect.fiberId;
+          const pending = yield* Ref.modify(state, (current): readonly [
+            Option.Option<SessionCloseTargets>,
+            SessionState,
+          ] => {
+            if (current.closed !== undefined) {
+              return [
+                Option.none<SessionCloseTargets>(),
+                current,
+              ];
+            }
             return [
-              Option.none<SessionCloseTargets>(),
-              current,
+              Option.some({
+                pending: [...current.pending.values()],
+                inboundFibers: [...current.inboundFibers],
+              }),
+              {
+                closed: error,
+                pending:
+                  new Map<StationSessionRequestIdValue, PendingRequest>(),
+                inbound: new Set<StationSessionRequestIdValue>(),
+                inboundFibers:
+                  new Set<Fiber.RuntimeFiber<void, never>>(),
+              },
             ];
+          });
+          if (Option.isNone(pending)) return;
+          yield* Effect.forEach(
+            pending.value.pending,
+            ({ response }) =>
+              Deferred.fail(response, error).pipe(Effect.asVoid),
+            { discard: true },
+          );
+          yield* Fiber.interruptAll(
+            pending.value.inboundFibers.filter(
+              (fiber) =>
+                !Equal.equals(Fiber.id(fiber), closingFiberId),
+            ),
+          );
+          yield* options.transport.close;
+          yield* Deferred.succeed(closed, error).pipe(Effect.asVoid);
+        }),
+      ).pipe(Effect.uninterruptible);
+
+    const withOpen: StationPeerSession["withOpen"] = (effect) =>
+      lifecycle.withPermits(1)(
+        Effect.gen(function* () {
+          const current = yield* Ref.get(state);
+          if (current.closed !== undefined) {
+            return yield* current.closed;
           }
-          return [
-            Option.some({
-              pending: [...current.pending.values()],
-              inboundFibers: [...current.inboundFibers],
-            }),
-            {
-              closed: error,
-              pending:
-                new Map<StationSessionRequestIdValue, PendingRequest>(),
-              inbound: new Set<StationSessionRequestIdValue>(),
-              inboundFibers:
-                new Set<Fiber.RuntimeFiber<void, never>>(),
-            },
-          ];
-        });
-        if (Option.isNone(pending)) return;
-        yield* Effect.forEach(
-          pending.value.pending,
-          ({ response }) =>
-            Deferred.fail(response, error).pipe(Effect.asVoid),
-          { discard: true },
-        );
-        yield* Fiber.interruptAll(
-          pending.value.inboundFibers.filter(
-            (fiber) =>
-              !Equal.equals(Fiber.id(fiber), closingFiberId),
-          ),
-        );
-        yield* options.transport.close;
-        yield* Deferred.succeed(closed, error).pipe(Effect.asVoid);
-      }).pipe(Effect.uninterruptible);
+          return yield* effect;
+        }),
+      );
 
     const failProtocol = (
       error: StationPeerSessionProtocolError,
@@ -802,6 +826,7 @@ export const makeStationPeerSession = (
       localInstallationId: options.localInstallationId,
       peerInstallationId: options.peerInstallationId,
       request,
+      withOpen,
       isOpen: Deferred.isDone(closed).pipe(Effect.map((done) => !done)),
       awaitClosed: Deferred.await(closed),
       close: closeWith(

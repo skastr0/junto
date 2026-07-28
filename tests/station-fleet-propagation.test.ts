@@ -249,6 +249,7 @@ const makeHarness = (
           localInstallationId: COMMAND_CENTER,
           peerInstallationId: remote,
           request: () => Effect.die("fake propagation owns request behavior"),
+          withOpen: (effect) => effect,
           isOpen: Ref.get(open),
           awaitClosed: Deferred.await(closed),
           close: closeWith("local-close"),

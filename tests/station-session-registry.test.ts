@@ -35,13 +35,25 @@ const makeSession = (
 }> =>
   Effect.gen(function* () {
     const open = yield* Ref.make(true);
+    const lifecycle = yield* Effect.makeSemaphore(1);
     const session: StationPeerSession = {
       localInstallationId: COMMAND_CENTER,
       peerInstallationId,
       request: () => Effect.die("registry test does not issue requests"),
+      withOpen: (effect) =>
+        lifecycle.withPermits(1)(
+          Effect.gen(function* () {
+            if (!(yield* Ref.get(open))) {
+              return yield* Effect.die(
+                "registry test should reject a closed session before withOpen",
+              );
+            }
+            return yield* effect;
+          }),
+        ),
       isOpen: Ref.get(open),
       awaitClosed: Effect.never,
-      close: Ref.set(open, false),
+      close: lifecycle.withPermits(1)(Ref.set(open, false)),
     };
     return {
       session,

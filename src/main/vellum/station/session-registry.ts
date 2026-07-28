@@ -13,7 +13,10 @@ import {
   InstallationId,
   type InstallationId as InstallationIdValue,
 } from "@shared/installation-id";
-import type { StationPeerSession } from "./peer-session";
+import {
+  StationPeerSessionClosedError,
+  type StationPeerSession,
+} from "./peer-session";
 
 const StationLivePeerTypeId: unique symbol = Symbol(
   "@vellum/station/StationLivePeer",
@@ -245,15 +248,18 @@ export const StationLivePeerRegistryLive = Layer.effect(
               "Live Station witness is no longer current",
             );
           }
-          if (!(yield* peer.session.isOpen)) {
-            return yield* unavailable(
-              witness.hostId,
-              witness.installationId,
-              "session-closed",
-              "Remote Station session closed before the guarded operation",
-            );
-          }
-          return yield* effect;
+          return yield* peer.session.withOpen(effect).pipe(
+            Effect.mapError((error) =>
+              error instanceof StationPeerSessionClosedError
+                ? unavailable(
+                  witness.hostId,
+                  witness.installationId,
+                  "session-closed",
+                  "Remote Station session closed before the guarded operation",
+                )
+                : error
+            ),
+          );
         }),
       );
     };

@@ -147,6 +147,7 @@ const session = (
   localInstallationId: COMMAND_CENTER,
   peerInstallationId,
   request: handle,
+  withOpen: (effect) => effect,
   isOpen: Effect.succeed(true),
   awaitClosed: Effect.never,
   close: Effect.void,

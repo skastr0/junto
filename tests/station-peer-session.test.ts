@@ -636,6 +636,50 @@ describe("persistent Station peer session", () => {
     );
   });
 
+  it("linearizes guarded commits with logical session close", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const harness = yield* makeTransportHarness;
+          const session = yield* makeSession(harness.transport);
+          const guardedStarted = yield* Deferred.make<void>();
+          const releaseGuarded = yield* Deferred.make<void>();
+
+          const guarded = yield* session.withOpen(
+            Effect.gen(function* () {
+              yield* Deferred.succeed(guardedStarted, undefined);
+              yield* Deferred.await(releaseGuarded);
+              return "committed" as const;
+            }),
+          ).pipe(Effect.forkScoped);
+          yield* Deferred.await(guardedStarted);
+
+          const closing = yield* session.close.pipe(Effect.forkScoped);
+          yield* Effect.yieldNow();
+
+          expect(Option.isNone(yield* Fiber.poll(closing))).toBe(true);
+          expect(yield* session.isOpen).toBe(true);
+
+          yield* Deferred.succeed(releaseGuarded, undefined);
+          expect(yield* Fiber.join(guarded)).toBe("committed");
+          yield* Fiber.join(closing);
+
+          expect(yield* session.isOpen).toBe(false);
+          const afterClose = yield* session.withOpen(
+            Effect.succeed("must-not-run"),
+          ).pipe(Effect.either);
+          expect(Either.isLeft(afterClose)).toBe(true);
+          if (Either.isLeft(afterClose)) {
+            expect(afterClose.left).toMatchObject({
+              _tag: "StationPeerSessionClosedError",
+              reason: "local-close",
+            });
+          }
+        }),
+      ),
+    );
+  });
+
   it("allows a Remote to initiate only report requests", async () => {
     await Effect.runPromise(
       Effect.scoped(
