@@ -722,6 +722,7 @@ export const StationFleetPropagationLive = Layer.scoped(
       Effect.gen(function* () {
         if ((yield* Ref.get(lifecycle)) !== "running") return;
         const fleet = yield* targets.list;
+        if ((yield* Ref.get(lifecycle)) !== "running") return;
         const current = new Map(
           fleet.map((target) => [target.hostId, target] as const),
         );
@@ -732,6 +733,7 @@ export const StationFleetPropagationLive = Layer.scoped(
           }
         }
         for (const target of fleet) {
+          if ((yield* Ref.get(lifecycle)) !== "running") return;
           yield* ensureWorker(target);
         }
       }),
@@ -934,32 +936,34 @@ export const StationFleetPropagationLive = Layer.scoped(
         );
       });
 
-    const stop = Effect.gen(function* () {
-      const previous = yield* Ref.getAndSet(lifecycle, "stopped");
-      if (previous === "stopped") return;
-      const controls = [...workers.values()];
-      workers.clear();
-      yield* FiberMap.clear(fibers);
-      for (const control of controls) {
-        yield* Queue.shutdown(control.wake);
-        const failure = unavailable(
-          control.target.hostId,
-          control.target.stationInstallationId,
-          "stopped",
-          "Station fleet supervisor stopped",
-        );
-        const status = yield* setStatus(control.target, {
-          phase: "stopped",
-          sessionOpen: false,
-          attempt: 0,
-          lastFailure: failure,
-        });
-        yield* completeWaiters(
-          control,
-          failureResult(control.target, failure, status),
-        );
-      }
-    });
+    const stop = reconcileLock.withPermits(1)(
+      Effect.gen(function* () {
+        const previous = yield* Ref.getAndSet(lifecycle, "stopped");
+        if (previous === "stopped") return;
+        const controls = [...workers.values()];
+        workers.clear();
+        yield* FiberMap.clear(fibers);
+        for (const control of controls) {
+          yield* Queue.shutdown(control.wake);
+          const failure = unavailable(
+            control.target.hostId,
+            control.target.stationInstallationId,
+            "stopped",
+            "Station fleet supervisor stopped",
+          );
+          const status = yield* setStatus(control.target, {
+            phase: "stopped",
+            sessionOpen: false,
+            attempt: 0,
+            lastFailure: failure,
+          });
+          yield* completeWaiters(
+            control,
+            failureResult(control.target, failure, status),
+          );
+        }
+      }),
+    );
 
     yield* Effect.addFinalizer(() => stop);
 

@@ -141,6 +141,7 @@ type SessionRecord = {
 type HarnessOptions = {
   readonly failRouteFor?: ReadonlySet<HostIdValue>;
   readonly blockSecondRouteFor?: HostIdValue;
+  readonly blockFirstTargetList?: boolean;
   readonly responseHasMore?: boolean;
 };
 
@@ -174,11 +175,21 @@ const makeHarness = (
   const apiHandleCalls: Array<ApiHandleCall> = [];
   const secondRouteStarted = Effect.runSync(Deferred.make<void>());
   const releaseSecondRoute = Effect.runSync(Deferred.make<void>());
+  const targetListStarted = Effect.runSync(Deferred.make<void>());
+  const releaseTargetList = Effect.runSync(Deferred.make<void>());
   const canvasListeners = new Set<(name: string) => void>();
   const workListeners = new Set<(canvasName: string, nodeId: string) => void>();
+  let targetListCount = 0;
 
   const fleetTargets = StationFleetTargetRepository.of({
-    list: Effect.succeed(fleet),
+    list: Effect.gen(function* () {
+      targetListCount += 1;
+      if (options.blockFirstTargetList === true && targetListCount === 1) {
+        yield* Deferred.succeed(targetListStarted, undefined);
+        yield* Deferred.await(releaseTargetList);
+      }
+      return fleet;
+    }),
     bind: () => Effect.die("fleet test does not bind targets"),
     get: () => Effect.die("fleet test does not look up one target"),
     remove: () => Effect.die("fleet test does not remove targets"),
@@ -381,6 +392,10 @@ const makeHarness = (
       currentSession(remote).handler(request),
     secondRouteStarted: Deferred.await(secondRouteStarted),
     releaseSecondRoute: Deferred.succeed(releaseSecondRoute, undefined).pipe(
+      Effect.asVoid,
+    ),
+    targetListStarted: Deferred.await(targetListStarted),
+    releaseTargetList: Deferred.succeed(releaseTargetList, undefined).pipe(
       Effect.asVoid,
     ),
     emitCanvasChange: (): void => {
@@ -610,6 +625,52 @@ describe("StationFleetPropagation persistent supervisor", () => {
         phase: "stopped",
         sessionOpen: false,
       });
+    });
+  });
+
+  it("serializes stop behind an admitted reconciliation and leaves no worker alive", async () => {
+    const remote = target("stop-race-host", "stop-race-station");
+    const harness = makeHarness([remote], {
+      blockFirstTargetList: true,
+    });
+
+    await withRuntime(harness, async (runtime) => {
+      const service = await runtime.runPromise(StationFleetPropagation);
+      const registry = await runtime.runPromise(StationLivePeerRegistry);
+      const starting = runtime.runPromise(service.start());
+      await runtime.runPromise(harness.targetListStarted);
+
+      let stopCompleted = false;
+      const stopping = runtime.runPromise(service.stop).then(() => {
+        stopCompleted = true;
+      });
+      await Promise.resolve();
+      expect(stopCompleted).toBe(false);
+
+      await runtime.runPromise(harness.releaseTargetList);
+      await starting;
+      await stopping;
+
+      expect(
+        await runtime.runPromise(
+          registry.isLive(remote.hostId, remote.stationInstallationId),
+        ),
+      ).toBe(false);
+      expect(
+        await runtime.runPromise(service.status(remote.hostId)),
+      ).toMatchObject({
+        phase: "stopped",
+        sessionOpen: false,
+      });
+
+      const opensAfterStop = harness.openCount(
+        remote.stationInstallationId,
+      );
+      await runtime.runPromise(service.request(remote.hostId));
+      await runtime.runPromise(Effect.yieldNow());
+      expect(harness.openCount(remote.stationInstallationId)).toBe(
+        opensAfterStop,
+      );
     });
   });
 
