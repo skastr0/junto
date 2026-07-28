@@ -10,6 +10,7 @@ import {
   isFreshStateSchema,
   readRecordedStateSchemaIdentity,
   stampStateSchemaIdentity,
+  verifyStateSchema,
   verifyAndStampStateSchema,
   verifyRecordedStateSchemaIdentity,
   type VerifiedStateSchemaIdentity,
@@ -381,6 +382,25 @@ const verifyRecordedCurrentSchema = (
   return recorded;
 };
 
+const verifyRecordedCurrentSchemaReadOnly = (
+  database: DatabaseSync,
+  currentSchemaSql: string,
+): VerifiedStateSchemaIdentity => {
+  let recorded:
+    | ReturnType<typeof readRecordedStateSchemaIdentity>
+    | undefined;
+  let recordedFailure: unknown;
+  try {
+    recorded = readRecordedStateSchemaIdentity(database);
+  } catch (error) {
+    recordedFailure = error;
+  }
+  const expected = verifyStateSchema(database, currentSchemaSql);
+  if (recorded === undefined) throw recordedFailure;
+  requireIdentity("recorded current state schema", recorded, expected);
+  return recorded;
+};
+
 export const validateStateSchemaMigrationPlan = (
   plan: StateSchemaMigrationPlan,
 ): ReadonlyMap<number, StateSchemaMigration> => {
@@ -425,6 +445,67 @@ export const validateStateSchemaMigrationPlan = (
     }
   }
   return byVersion;
+};
+
+/**
+ * Prove whether opening an installed database will durably advance its
+ * schema cursor. This is deliberately read-only: StateEngine uses it to take
+ * and verify a coherent backup before `migrateStateSchema` begins BEGIN
+ * IMMEDIATE or writes an identity/version witness.
+ */
+export const stateSchemaAdvanceRequired = (
+  database: DatabaseSync,
+  plan: StateSchemaMigrationPlan = STATE_SCHEMA_MIGRATION_PLAN,
+): boolean => {
+  const migrations = validateStateSchemaMigrationPlan(plan);
+  const version = readUserVersion(database);
+  if (version > plan.currentVersion) {
+    throw new Error(
+      `state schema version ${version} is newer than supported version ${plan.currentVersion}`,
+    );
+  }
+  if (isFreshStateSchema(database)) {
+    if (version !== 0) {
+      throw new Error(
+        `fresh state database carries unexpected user_version ${version}`,
+      );
+    }
+    return false;
+  }
+  if (version === plan.currentVersion && version !== 0) return false;
+
+  if (version === 0 && plan.baselineVersion === plan.currentVersion) {
+    verifyRecordedCurrentSchemaReadOnly(database, plan.currentSchemaSql);
+    return true;
+  }
+
+  const recorded = verifyRecordedStateSchemaIdentity(database);
+  const effectiveVersion = version === 0 ? plan.baselineVersion : version;
+  if (version === 0) {
+    requireIdentity(
+      "unversioned state schema baseline",
+      recorded,
+      plan.baselineIdentity,
+    );
+  } else if (version < plan.baselineVersion) {
+    throw new Error(
+      `state schema version ${version} predates the supported baseline ${plan.baselineVersion}`,
+    );
+  }
+  const migration = migrations.get(effectiveVersion);
+  if (effectiveVersion < plan.currentVersion && migration === undefined) {
+    throw new Error(
+      `missing state schema migration ${effectiveVersion} -> ${effectiveVersion + 1}`,
+    );
+  }
+  if (migration !== undefined) {
+    requireIdentity(
+      `state schema version ${effectiveVersion}`,
+      recorded,
+      migration.fromIdentity,
+    );
+  }
+  return true;
 };
 
 /**

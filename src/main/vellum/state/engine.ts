@@ -1,13 +1,7 @@
-import { randomUUID } from "node:crypto";
 import {
   chmodSync,
-  closeSync,
-  constants,
-  fchmodSync,
-  fstatSync,
   lstatSync,
   mkdirSync,
-  openSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -29,7 +23,11 @@ import {
   type StateWriter,
 } from "./service";
 import { demoStateDatabasePath } from "../demo/runtime-isolation";
-import { migrateStateSchema } from "./migrations";
+import { createVerifiedStateBackup } from "./backup";
+import {
+  migrateStateSchema,
+  stateSchemaAdvanceRequired,
+} from "./migrations";
 
 export {
   StateEngine,
@@ -48,8 +46,6 @@ export {
 const STATE_DIRECTORY_MODE = 0o700;
 const STATE_FILE_MODE = 0o600;
 const STATE_BUSY_TIMEOUT_MS = 5_000;
-const STATE_BACKUP_DIRECTORY = "backups";
-const STATE_BACKUP_FILE_PREFIX = "vellum-backup-";
 export const STATE_BULK_CHUNK_ROWS = 64;
 
 const stateEngineError = (
@@ -105,53 +101,6 @@ const assertRegularOrMissing = (path: string): boolean => {
   }
 };
 
-const makeOwnerOnlyWithoutFollowing = (path: string): void => {
-  const descriptor = openSync(
-    path,
-    constants.O_RDONLY | constants.O_NOFOLLOW,
-  );
-  try {
-    const opened = fstatSync(descriptor);
-    if (!opened.isFile()) {
-      throw new Error(`state backup is not a regular file: ${path}`);
-    }
-    fchmodSync(descriptor, STATE_FILE_MODE);
-    const linked = lstatSync(path);
-    if (
-      !linked.isFile() ||
-      linked.isSymbolicLink() ||
-      linked.dev !== opened.dev ||
-      linked.ino !== opened.ino
-    ) {
-      throw new Error(`state backup path changed during creation: ${path}`);
-    }
-  } finally {
-    closeSync(descriptor);
-  }
-};
-
-const assertPrivateBackupDirectory = (stateDirectory: string): string => {
-  const path = join(stateDirectory, STATE_BACKUP_DIRECTORY);
-  try {
-    mkdirSync(path, { mode: STATE_DIRECTORY_MODE });
-  } catch (error) {
-    if (
-      typeof error !== "object" ||
-      error === null ||
-      !("code" in error) ||
-      error.code !== "EEXIST"
-    ) {
-      throw error;
-    }
-  }
-  const info = lstatSync(path);
-  if (!info.isDirectory() || info.isSymbolicLink()) {
-    throw new Error(`state backup path is not a real directory: ${path}`);
-  }
-  chmodSync(path, STATE_DIRECTORY_MODE);
-  return path;
-};
-
 const applyBindings = <A>(
   statement: StatementSync,
   bindings: StateBindings | undefined,
@@ -202,6 +151,9 @@ const openStateEngine = (
             PRAGMA busy_timeout = ${STATE_BUSY_TIMEOUT_MS};
             PRAGMA trusted_schema = OFF;
           `);
+          if (stateSchemaAdvanceRequired(database)) {
+            createVerifiedStateBackup(database, directory);
+          }
           const migrated = migrateStateSchema(database);
           // journal_mode persists in the database. Apply it only after schema
           // admission so an older binary rejects a newer database without
@@ -341,21 +293,7 @@ const openStateEngine = (
         Effect.try({
           try: () => {
             requireOpen();
-            const backupDirectory = assertPrivateBackupDirectory(directory);
-            const target = join(
-              backupDirectory,
-              `${STATE_BACKUP_FILE_PREFIX}${randomUUID()}.db`,
-            );
-            if (assertRegularOrMissing(target)) {
-              throw new Error(`backup destination already exists: ${target}`);
-            }
-            prepare("VACUUM INTO ?").run(target);
-            makeOwnerOnlyWithoutFollowing(target);
-            return {
-              path: target,
-              schemaSha256: schemaState.actualSchemaSha256,
-              schemaVersion: schemaState.schemaVersion,
-            };
+            return createVerifiedStateBackup(database, directory);
           },
           catch: (error) => stateEngineError("backup", error),
         }).pipe(Effect.withSpan("state.backup"));

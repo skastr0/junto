@@ -326,7 +326,7 @@ export const stampStateSchemaIdentity = (
  * schema, then stamp that proof. The expected connection is transient and
  * in-memory; it never reads or owns product state.
  */
-export const verifyAndStampStateSchema = (
+export const verifyStateSchema = (
   database: DatabaseSync,
   schemaSql: string,
 ): VerifiedStateSchemaIdentity => {
@@ -347,6 +347,14 @@ export const verifyAndStampStateSchema = (
     actualSchemaSha256,
     sourceSchemaSha256: stateSchemaSourceSha256(schemaSql),
   };
+  return identity;
+};
+
+export const verifyAndStampStateSchema = (
+  database: DatabaseSync,
+  schemaSql: string,
+): VerifiedStateSchemaIdentity => {
+  const identity = verifyStateSchema(database, schemaSql);
   stampStateSchemaIdentity(database, identity);
   return identity;
 };

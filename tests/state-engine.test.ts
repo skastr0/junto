@@ -334,6 +334,88 @@ describe("StateEngine", () => {
       userVersion: 1,
       row: { playing: 1, ever_played: 1 },
     });
+
+    const backups = await readdir(join(root, "backups"));
+    expect(backups).toHaveLength(1);
+    const backupPath = join(root, "backups", backups[0]!);
+    const backup = new DatabaseSync(backupPath, {
+      readOnly: true,
+      enableForeignKeyConstraints: true,
+    });
+    try {
+      expect(backup.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: 0,
+      });
+      expect(
+        backup
+          .prepare(
+            `
+              SELECT playing, ever_played
+              FROM factory_pause_canvases
+              WHERE canvas_name = ?
+            `,
+          )
+          .get("adopted"),
+      ).toEqual({ playing: 1, ever_played: 1 });
+      expect(backup.prepare("PRAGMA quick_check").get()).toEqual({
+        quick_check: "ok",
+      });
+      expect(backup.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      backup.close();
+    }
+  });
+
+  test("does not create a backup for fresh initialization or exact-current reopen", async () => {
+    const root = await makeTempDir("vellum-state-no-startup-backup-");
+    const path = join(root, "vellum.db");
+    const fresh = makeRuntime(path);
+    await fresh.runPromise(StateEngine);
+    await disposeRuntime(fresh);
+    await expect(readdir(join(root, "backups"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    const reopened = makeRuntime(path);
+    await reopened.runPromise(StateEngine);
+    await disposeRuntime(reopened);
+    await expect(readdir(join(root, "backups"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  test("aborts an installed schema advance before live mutation when backup verification cannot start", async () => {
+    const root = await makeTempDir("vellum-state-migration-backup-failure-");
+    const path = join(root, "vellum.db");
+    await seedCurrentStateSchema(path);
+    const source = new DatabaseSync(path);
+    try {
+      source.exec("PRAGMA user_version = 0");
+    } finally {
+      source.close();
+    }
+    const external = join(root, "external");
+    await mkdir(external, { mode: 0o755 });
+    await symlink(external, join(root, "backups"));
+
+    const runtime = makeRuntime(path);
+    try {
+      await expect(runtime.runPromise(StateEngine)).rejects.toThrow(
+        "state backup path is not a real directory",
+      );
+    } finally {
+      await disposeRuntime(runtime);
+    }
+
+    const after = new DatabaseSync(path, { readOnly: true });
+    try {
+      expect(after.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: 0,
+      });
+    } finally {
+      after.close();
+    }
+    expect(await readdir(external)).toEqual([]);
   });
 
   test("commits a complete transaction and rolls every write back on failure", async () => {
