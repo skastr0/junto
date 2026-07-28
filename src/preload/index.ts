@@ -31,9 +31,9 @@ import type { UsageState } from "@shared/usage";
 import type { LicenseStatus } from "@shared/license";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 import { isRendererPreloadCandidate } from "@shared/trusted-renderer-origin";
-import {
-  decodeStateRecoveryExportResult,
-  decodeStateRecoveryListResult,
+import type {
+  StateRecoveryExportResult,
+  StateRecoveryListResult,
 } from "@shared/state-recovery";
 
 // Every real handler answers in well under this; only a dead/wedged main
@@ -524,19 +524,15 @@ const vellumApi: VellumApi = {
   settingsReset: (section?: SettingsSectionKey) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsReset, IPC_TIMEOUT_MS, section),
   stateBackupsList: async () =>
-    decodeStateRecoveryListResult(
-      await invoke<unknown>(
-        IPC_CHANNELS.stateBackupsList,
-        IPC_TIMEOUT_MS,
-      ),
+    await invoke<StateRecoveryListResult>(
+      IPC_CHANNELS.stateBackupsList,
+      IPC_TIMEOUT_MS,
     ),
   stateBackupExport: async (id) =>
-    decodeStateRecoveryExportResult(
-      await invoke<unknown>(
-        IPC_CHANNELS.stateBackupExport,
-        IPC_TIMEOUT_MS,
-        id,
-      ),
+    await invoke<StateRecoveryExportResult>(
+      IPC_CHANNELS.stateBackupExport,
+      IPC_TIMEOUT_MS,
+      id,
     ),
   loginItemGet: () => invoke<LoginItemOpResult>(IPC_CHANNELS.loginItemGet, IPC_TIMEOUT_MS),
   loginItemSet: (openAtLogin: boolean) =>

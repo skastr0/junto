@@ -15,6 +15,12 @@ describe("state recovery renderer boundary", () => {
     expect(preload).toContain(
       "stateBackupExport: async (id) =>",
     );
+    expect(preload).not.toContain(
+      "decodeStateRecoveryExportResult",
+    );
+    expect(preload).not.toContain(
+      "decodeStateRecoveryListResult",
+    );
     expect(preload).not.toContain("stateBackupRestore");
     expect(ipc).not.toContain("stateBackupRestore");
   });
