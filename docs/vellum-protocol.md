@@ -496,11 +496,22 @@ but not distinct assignment states:
 2. a durable delivery record identifies the exact task/actor/revision prompt;
 3. the local runtime ensures that actor seat is running;
 4. it delivers the prompt at the managed actor's turn boundary;
-5. an accepted delivery receipt prevents duplicate prompt injection;
+5. after the managed transport accepts the prompt, Vellum commits an accepted
+   delivery receipt under the stable delivery ID;
 6. a failed delivery retries without creating another claim.
 
-After a process restart, delivery resumes from SQLite receipts. A process-local
-`Set` is not sufficient product durability.
+After a process restart, delivery resumes from SQLite receipts. A durable
+receipt suppresses every later retry after that acceptance is recorded; a
+process-local `Set` is not product durability.
+
+The transport send and SQLite receipt cannot be one atomic transaction. A
+crash after transport acceptance but before receipt commit may therefore
+redeliver the same stable delivery ID. Vellum must never write the receipt
+before transport acceptance, because that would turn the same crash into
+permanent prompt loss. Exact-once injection would require the managed actor
+transport itself to accept and durably deduplicate the delivery ID; until that
+contract exists, task prompt delivery is honestly at-least-once across that
+single crash window and idempotently suppressed after the receipt.
 
 ## Request semantics
 
