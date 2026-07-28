@@ -6,11 +6,20 @@ import {
   type CanvasDoc,
 } from "@shared/canvas";
 import { isCanonicalCanvasName } from "@shared/canvas-name";
+import type { InstallationId } from "@shared/installation-id";
 import { STATION_API_MAX_PROJECTION_CHARS } from "@shared/station-api";
+import {
+  ActorSeatCompilationError,
+  compileActorSeatRegistry,
+  decodeActorSeatRegistry,
+  validateActorSeatRegistry,
+  type ProjectedActorSeat,
+} from "./actor-seat-compiler";
 
 export const STATION_PORTFOLIO_PROTOCOL =
-  "vellum/station-portfolio/v1" as const;
+  "vellum/station-portfolio/v2" as const;
 export const STATION_PORTFOLIO_MAX_CANVASES = 256;
+export const STATION_PORTFOLIO_MAX_ACTOR_SEATS = 16_384;
 
 export class StationPortfolioError extends Schema.TaggedError<StationPortfolioError>()(
   "StationPortfolioError",
@@ -28,6 +37,12 @@ type StationPortfolioDocument = {
 type StationPortfolioEnvelope = {
   readonly protocol: typeof STATION_PORTFOLIO_PROTOCOL;
   readonly documents: ReadonlyArray<StationPortfolioDocument>;
+  readonly actorSeats: ReadonlyArray<ProjectedActorSeat>;
+};
+
+export type DecodedStationPortfolio = {
+  readonly documents: ReadonlyMap<string, CanvasDoc>;
+  readonly actorSeats: ReadonlyArray<ProjectedActorSeat>;
 };
 
 const fail = (operation: string, message: string): never => {
@@ -46,6 +61,23 @@ const hasExactKeys = (
   const actual = Object.keys(value);
   return actual.length === keys.length &&
     keys.every((key) => Object.hasOwn(value, key));
+};
+
+/** Code-unit order is stable across machine locale settings. */
+const compareText = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0;
+
+const actorSeatFailure = (
+  operation: "compile" | "decode",
+  error: unknown,
+): never => {
+  if (error instanceof ActorSeatCompilationError) {
+    return fail(
+      operation,
+      `projection actor registry is invalid: ${error.message}`,
+    );
+  }
+  throw error;
 };
 
 const decodeCanonicalCanvas = (
@@ -92,6 +124,7 @@ const decodeCanonicalCanvas = (
  */
 export const compileStationPortfolioBody = (
   documents: ReadonlyMap<string, CanvasDoc>,
+  installationByHostId: ReadonlyMap<string, InstallationId>,
 ): string => {
   if (documents.size > STATION_PORTFOLIO_MAX_CANVASES) {
     return fail(
@@ -101,7 +134,7 @@ export const compileStationPortfolioBody = (
   }
 
   const records = [...documents.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareText(left, right))
     .map(([name, document]) => {
       if (!isCanonicalCanvasName(name)) {
         return fail("compile", `invalid projection canvas name "${name}"`);
@@ -111,9 +144,25 @@ export const compileStationPortfolioBody = (
         body: serializeCanvas(document),
       } satisfies StationPortfolioDocument;
     });
+  let actorSeats: ReadonlyArray<ProjectedActorSeat>;
+  try {
+    actorSeats = compileActorSeatRegistry(
+      documents,
+      installationByHostId,
+    );
+  } catch (error) {
+    return actorSeatFailure("compile", error);
+  }
+  if (actorSeats.length > STATION_PORTFOLIO_MAX_ACTOR_SEATS) {
+    return fail(
+      "compile",
+      `projection exceeds ${STATION_PORTFOLIO_MAX_ACTOR_SEATS} actor seats`,
+    );
+  }
   const body = JSON.stringify({
     protocol: STATION_PORTFOLIO_PROTOCOL,
     documents: records,
+    actorSeats,
   } satisfies StationPortfolioEnvelope);
   if (body.length > STATION_API_MAX_PROJECTION_CHARS) {
     return fail(
@@ -130,7 +179,7 @@ export const compileStationPortfolioBody = (
 /** Decode and verify the exact complete portfolio stored by a Remote. */
 export const decodeStationPortfolioBody = (
   body: string,
-): ReadonlyMap<string, CanvasDoc> => {
+): DecodedStationPortfolio => {
   if (
     typeof body !== "string" ||
     body.length === 0 ||
@@ -147,10 +196,12 @@ export const decodeStationPortfolioBody = (
   }
   if (
     !isPlainRecord(parsed) ||
-    !hasExactKeys(parsed, ["protocol", "documents"]) ||
+    !hasExactKeys(parsed, ["protocol", "documents", "actorSeats"]) ||
     parsed.protocol !== STATION_PORTFOLIO_PROTOCOL ||
     !Array.isArray(parsed.documents) ||
-    parsed.documents.length > STATION_PORTFOLIO_MAX_CANVASES
+    parsed.documents.length > STATION_PORTFOLIO_MAX_CANVASES ||
+    !Array.isArray(parsed.actorSeats) ||
+    parsed.actorSeats.length > STATION_PORTFOLIO_MAX_ACTOR_SEATS
   ) {
     return fail("decode", "projection body violates the portfolio contract");
   }
@@ -169,7 +220,7 @@ export const decodeStationPortfolioBody = (
     }
     if (
       previousName !== undefined &&
-      raw.name.localeCompare(previousName) <= 0
+      compareText(raw.name, previousName) <= 0
     ) {
       return fail(
         "decode",
@@ -179,5 +230,15 @@ export const decodeStationPortfolioBody = (
     previousName = raw.name;
     documents.set(raw.name, decodeCanonicalCanvas(raw.name, raw.body));
   }
-  return documents;
+
+  let actorSeats: ReadonlyArray<ProjectedActorSeat>;
+  try {
+    actorSeats = validateActorSeatRegistry(
+      documents,
+      decodeActorSeatRegistry(parsed.actorSeats),
+    );
+  } catch (error) {
+    return actorSeatFailure("decode", error);
+  }
+  return { documents, actorSeats };
 };
