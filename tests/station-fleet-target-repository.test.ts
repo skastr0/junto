@@ -141,6 +141,72 @@ describe("StationFleetTargetRepository", () => {
     expect(await runtime.runPromise(fleet.list)).toHaveLength(1);
   });
 
+  it("publishes committed bind, retire, and reactivate changes only once", async () => {
+    const { runtime } = await makeRuntime();
+    const fleet = await repository(runtime);
+    const mini = identity("mini", "station-mini");
+    const studio = identity("studio", "station-studio");
+    const changed: string[] = [];
+    const unsubscribe = fleet.subscribeChanges((hostId) => {
+      changed.push(hostId);
+    });
+
+    await runtime.runPromise(fleet.bind(mini));
+    expect(changed).toEqual(["mini"]);
+
+    await runtime.runPromise(
+      fleet.bind(mini, "2026-07-28T15:00:00.000Z"),
+    );
+    expect(changed).toEqual(["mini"]);
+
+    expect(await runtime.runPromise(fleet.remove(studio.hostId))).toBe(false);
+    expect(changed).toEqual(["mini"]);
+
+    expect(await runtime.runPromise(fleet.remove(mini.hostId))).toBe(true);
+    expect(changed).toEqual(["mini", "mini"]);
+
+    expect(await runtime.runPromise(fleet.remove(mini.hostId))).toBe(false);
+    expect(changed).toEqual(["mini", "mini"]);
+
+    await runtime.runPromise(fleet.bind(mini));
+    expect(changed).toEqual(["mini", "mini", "mini"]);
+
+    unsubscribe();
+    await runtime.runPromise(fleet.bind(studio));
+    expect(changed).toEqual(["mini", "mini", "mini"]);
+  });
+
+  it("does not publish rejected bind attempts", async () => {
+    const { runtime } = await makeRuntime();
+    const fleet = await repository(runtime);
+    const mini = identity("mini", "station-mini");
+    const changed: string[] = [];
+    fleet.subscribeChanges((hostId) => {
+      changed.push(hostId);
+    });
+
+    await runtime.runPromise(fleet.bind(mini));
+    changed.length = 0;
+
+    await runtime.runPromise(
+      fleet.bind(identity("studio", "station-mini")).pipe(Effect.either),
+    );
+    await runtime.runPromise(
+      fleet.bind(identity("mini", "station-new-mini")).pipe(Effect.either),
+    );
+    await runtime.runPromise(
+      fleet.bind(identity("new", "station-new"), "").pipe(Effect.either),
+    );
+
+    expect(changed).toEqual([]);
+    expect(await runtime.runPromise(fleet.list)).toEqual([
+      {
+        ...mini,
+        boundAt: "2026-07-27T12:00:00.000Z",
+      },
+    ]);
+  });
+
   it("fails closed when one installation is presented as another host", async () => {
     const { runtime } = await makeRuntime();
     const fleet = await repository(runtime);

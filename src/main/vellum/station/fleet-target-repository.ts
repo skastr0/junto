@@ -108,6 +108,9 @@ export class StationFleetTargetRepository extends Context.Tag(
     readonly remove: (
       hostId: HostIdValue,
     ) => Effect.Effect<boolean, StationFleetTargetPersistenceError>;
+    readonly subscribeChanges: (
+      listener: (hostId: HostIdValue) => void,
+    ) => () => void;
   }
 >() {}
 
@@ -273,6 +276,22 @@ export const makeStationFleetTargetRepositoryLive = (
     Effect.gen(function* () {
       const engine = yield* StateEngine;
       const clock = options.now ?? nowIso;
+      const listeners = new Set<(hostId: HostIdValue) => void>();
+
+      const notify = (hostId: HostIdValue): void => {
+        for (const listener of listeners) {
+          try {
+            listener(hostId);
+          } catch (error) {
+            // The SQLite transaction is already committed. A subscriber
+            // cannot retroactively fail it and invite a duplicate retry.
+            console.error(
+              `[station-fleet-targets] change listener failed for ${JSON.stringify(hostId)}:`,
+              error,
+            );
+          }
+        }
+      };
 
       const bind = Effect.fn("StationFleetTargetRepository.bind")(
         function* (
@@ -320,7 +339,13 @@ export const makeStationFleetTargetRepositoryLive = (
                     [admittedIdentity.hostId],
                   );
                 }
-                return { _tag: "bound" as const, target: exact };
+                return {
+                  _tag: "bound" as const,
+                  target: exact,
+                  changed:
+                    establishedRow !== undefined &&
+                    establishedRow.retired_at !== null,
+                };
               }
               const conflict = collisions[0];
               if (conflict !== undefined) {
@@ -350,7 +375,11 @@ export const makeStationFleetTargetRepositoryLive = (
                   target.boundAt,
                 ],
               );
-              return { _tag: "bound" as const, target };
+              return {
+                _tag: "bound" as const,
+                target,
+                changed: true,
+              };
             })
             .pipe(
               Effect.mapError((error) => persistenceError("bind", error)),
@@ -373,6 +402,9 @@ export const makeStationFleetTargetRepositoryLive = (
                 `host ${JSON.stringify(admittedIdentity.hostId)} is permanently bound to Station installation ` +
                 `${JSON.stringify(decision.established.stationInstallationId)}; use a new host identity or a future explicit Station transfer ceremony`,
             });
+          }
+          if (decision.changed) {
+            yield* Effect.sync(() => notify(decision.target.hostId));
           }
           return decision.target;
         },
@@ -412,8 +444,8 @@ export const makeStationFleetTargetRepositoryLive = (
         );
 
       const remove = Effect.fn("StationFleetTargetRepository.remove")(
-        (hostId: HostIdValue) =>
-          engine
+        function* (hostId: HostIdValue) {
+          const removed = yield* engine
             .transaction("station-fleet-target.remove", (writer) => {
               const result = writer.run(
                 `UPDATE station_fleet_targets
@@ -432,14 +464,29 @@ export const makeStationFleetTargetRepositoryLive = (
                   cause: error,
                 })
               ),
-            ),
+            );
+          if (removed) {
+            yield* Effect.sync(() => notify(hostId));
+          }
+          return removed;
+        },
       );
+
+      const subscribeChanges = (
+        listener: (hostId: HostIdValue) => void,
+      ): (() => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      };
 
       return StationFleetTargetRepository.of({
         bind,
         get,
         list,
         remove,
+        subscribeChanges,
       });
     }),
   );
