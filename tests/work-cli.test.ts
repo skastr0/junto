@@ -53,6 +53,14 @@ describe("work CLI json input modes", () => {
       loadJsonInput(TasksClaimArgs, '{"target":"n7","task":"t1"}'),
     );
     expect(inline.target).toBe("n7");
+    await expect(
+      Effect.runPromise(
+        loadJsonInput(
+          TasksClaimArgs,
+          '{"target":"n7","task":"t1","actor":"agent"}',
+        ),
+      ),
+    ).rejects.toThrow(/actor|unexpected/i);
 
     const dir = mkdtempSync(join(tmpdir(), "vellum-cli-json-"));
     const file = join(dir, "claim.json");

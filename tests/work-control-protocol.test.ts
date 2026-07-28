@@ -89,7 +89,13 @@ describe("work-control wire schemas", () => {
       target: "n7",
       task: "t1",
     });
+    const clientIdentity = Schema.decodeUnknownEither(TasksClaimArgs)({
+      target: "n7",
+      task: "t1",
+      actor: "agent",
+    });
     expect(Either.isRight(good)).toBe(true);
+    expect(Either.isLeft(clientIdentity)).toBe(true);
   });
 
   it("enumerates every WorkOpName", () => {

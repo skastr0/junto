@@ -174,7 +174,8 @@ export type TasksListArgs = typeof TasksListArgs.Type;
 export const TasksClaimArgs = Schema.Struct({
   target: Schema.String,
   task: Schema.String,
-  actor: Schema.optionalWith(Schema.String, { exact: true }),
+}).annotations({
+  parseOptions: { onExcessProperty: "error" },
 });
 export type TasksClaimArgs = typeof TasksClaimArgs.Type;
 

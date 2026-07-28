@@ -516,7 +516,7 @@ const main = async () => {
 
     const claim = await runCli(
       processPlane,
-      ["tasks", "claim", JSON.stringify({ target: TASKS, task: "t1", actor: AGENT })],
+      ["tasks", "claim", JSON.stringify({ target: TASKS, task: "t1" })],
       env,
       outside,
     );
