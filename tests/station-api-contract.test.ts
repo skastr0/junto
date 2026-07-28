@@ -139,6 +139,17 @@ const claimFact = (
     operation: "task.claim",
     contentSha256: hashB,
     originAt: timestamp,
+    basis: {
+      kind: "command",
+      command: {
+        route: {
+          eventHome: previousHome,
+          entityHome: sender,
+        },
+        seq: "1",
+      },
+      commandSha256: hashA,
+    },
     predecessor: null,
     body: {
       operation: "task.claim",
@@ -238,6 +249,11 @@ const messageFact = (
     operation: "message.append",
     contentSha256: hashA,
     originAt: timestamp,
+    basis: {
+      kind: "authorial-intent",
+      generation: "1",
+      contentSha256: hashB,
+    },
     predecessor: null,
     body: {
       operation: "message.append",
