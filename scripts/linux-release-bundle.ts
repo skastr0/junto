@@ -1524,6 +1524,14 @@ const validateStationQualificationReceipt = (
     platform.distribution === manifest.target.distribution &&
     platform.version === manifest.target.distributionVersion &&
     platform.architecture === manifest.target.architecture;
+  const isSupportedMacCommandCenter = (
+    platform: StationQualificationNativePlatform,
+  ): boolean =>
+    platform.os === "darwin" &&
+    platform.distribution === "macos" &&
+    platform.version.length > 0 &&
+    (platform.architecture === "arm64" ||
+      platform.architecture === "x64");
   if (
     qualification.sourceCommit !== manifest.source.revision ||
     qualification.package.file !== manifest.package.file ||
@@ -1533,8 +1541,13 @@ const validateStationQualificationReceipt = (
       manifest.release.version ||
     qualification.installations.remote.appVersion !==
       manifest.release.version ||
-    !matchesReleaseTarget(
-      qualification.installations.commandCenter.nativePlatform,
+    (
+      !matchesReleaseTarget(
+        qualification.installations.commandCenter.nativePlatform,
+      ) &&
+      !isSupportedMacCommandCenter(
+        qualification.installations.commandCenter.nativePlatform,
+      )
     ) ||
     !matchesReleaseTarget(qualification.installations.remote.nativePlatform) ||
     Date.parse(completedAt) >

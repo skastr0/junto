@@ -119,9 +119,11 @@ const createFixture = async (options: {
   readonly stationQualificationSourceCommit?: string;
   readonly stationQualificationIncomplete?: boolean;
   readonly stationQualificationPending?: boolean;
-  readonly stationQualificationWrongPlatform?:
-    | "command-center"
-    | "remote";
+  readonly stationQualificationCommandCenterPlatform?:
+    | "linux"
+    | "macos"
+    | "unsupported";
+  readonly stationQualificationWrongRemotePlatform?: boolean;
   readonly omitStationQualification?: boolean;
 } = {}) => {
   const directory = await mkdtemp(
@@ -335,12 +337,32 @@ const createFixture = async (options: {
     commandCenterAcknowledgedByRemote:
       qualificationCursor("fixture-command-center", "fixture-command-center", "3"),
   };
-  const qualificationPlatform = (wrong: boolean) => ({
-    os: wrong ? "darwin" : "linux",
-    distribution: "ubuntu",
-    version: "24.04",
-    architecture: "x64",
-  });
+  const qualificationPlatform = (
+    kind: "linux" | "macos" | "unsupported",
+  ) => {
+    if (kind === "linux") {
+      return {
+        os: "linux",
+        distribution: "ubuntu",
+        version: "24.04",
+        architecture: "x64",
+      };
+    }
+    if (kind === "macos") {
+      return {
+        os: "darwin",
+        distribution: "macos",
+        version: "15.5",
+        architecture: "arm64",
+      };
+    }
+    return {
+      os: "windows",
+      distribution: "windows",
+      version: "11",
+      architecture: "x64",
+    };
+  };
   const qualificationPhases = {
     pair: { witness: qualificationWitness("1") },
     configure: { witness: qualificationWitness("2") },
@@ -424,14 +446,16 @@ const createFixture = async (options: {
           installationId: "fixture-command-center",
           appVersion: VERSION,
           nativePlatform: qualificationPlatform(
-            options.stationQualificationWrongPlatform === "command-center",
+            options.stationQualificationCommandCenterPlatform ?? "linux",
           ),
         },
         remote: {
           installationId: "fixture-remote",
           appVersion: VERSION,
           nativePlatform: qualificationPlatform(
-            options.stationQualificationWrongPlatform === "remote",
+            options.stationQualificationWrongRemotePlatform === true
+              ? "unsupported"
+              : "linux",
           ),
         },
       },
@@ -600,6 +624,16 @@ describe("signed Linux release bundle", () => {
         "utf8",
       ),
       packageSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+    });
+  });
+
+  it("accepts a supported macOS Command Center qualifying the Linux Remote", async () => {
+    const fixture = await createFixture({
+      stationQualificationCommandCenterPlatform: "macos",
+    });
+    await expect(verifyFixture(fixture.directory)).resolves.toMatchObject({
+      ok: true,
+      packageFile: PACKAGE,
     });
   });
 
@@ -863,11 +897,11 @@ describe("signed Linux release bundle", () => {
     ).rejects.toThrow(/passed two-installation Station qualification/u);
     await expect(
       createFixture({
-        stationQualificationWrongPlatform: "command-center",
+        stationQualificationCommandCenterPlatform: "unsupported",
       }),
     ).rejects.toThrow(/does not bind the signed release/u);
     await expect(
-      createFixture({ stationQualificationWrongPlatform: "remote" }),
+      createFixture({ stationQualificationWrongRemotePlatform: true }),
     ).rejects.toThrow(/does not bind the signed release/u);
     await expect(
       createFixture({

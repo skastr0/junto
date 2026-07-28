@@ -120,7 +120,7 @@ describe("Linux v1 operator documentation", () => {
     }
   });
 
-  it("does not turn live state files into a backup, restore, or rollback surface", async () => {
+  it("keeps verified backup export separate from restore and rollback", async () => {
     const docs = await readProductDocs();
     const commands = shellBlocks(docs).replace(/\\\r?\n\s*/gu, " ");
     const prose = docs.replace(/\s+/gu, " ");
@@ -140,7 +140,10 @@ describe("Linux v1 operator documentation", () => {
     );
     expect(docs).not.toContain("vellum-backups");
     expect(docs).toMatch(
-      /Linux\s+v1 does not yet expose an operator backup, restore, import, CLI, or IPC surface/u,
+      /Settings\s+→\s+Advanced lists verified retained backups and can export one/iu,
+    );
+    expect(docs).toMatch(
+      /There is no restore, import, replacement, or downgrade surface/iu,
     );
     expect(docs).toMatch(
       /Never restore, downgrade, or replace product state as\s+part of repair/u,
@@ -192,6 +195,8 @@ describe("Linux v1 operator documentation", () => {
       "`eventHome`",
       "`entityHome`",
       "`linux` / `ubuntu` / `24.04` / `x64`",
+      "`darwin` / `macos`",
+      "Only the Remote platform is bound to the deb",
     ]) {
       expect(qualification).toContain(required);
     }

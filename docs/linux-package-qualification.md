@@ -114,10 +114,13 @@ The operator-run fleet proof produces exactly
 source commit, the exact `deb` filename and SHA-256, the selected Station
 protocol, and the observed Command Center and Remote installation identities
 and app versions. Each installation records one closed `nativePlatform` fact
-with `os`, `distribution`, `version`, and `architecture`. For this Linux
-release, both facts must be exactly `linux` / `ubuntu` / `24.04` / `x64`.
-The package filename is a safe basename; path-bearing package claims fail
-decode.
+with `os`, `distribution`, `version`, and `architecture`. The Remote must be
+exactly `linux` / `ubuntu` / `24.04` / `x64`, because it is the installation
+bound to the exact `deb`. The Command Center may match that Linux target or be
+an explicitly recorded macOS peer: `darwin` / `macos`, a nonempty native
+version, and `arm64` or `x64`. Arbitrary third platforms do not qualify the
+release. The package filename is a safe basename; path-bearing package claims
+fail decode.
 
 The receipt has one strict structured `phases` object:
 
@@ -145,6 +148,11 @@ variant. The final release promotion gate separately hashes and binds the
 passed receipt in
 `release-promotion-receipt.json`; neither filename may be synthesized from
 package-smoke success.
+
+One passed receipt therefore qualifies one exact Linux Remote with either a
+Linux or macOS Command Center. Only the Remote platform is bound to the deb
+target; both peers remain bound to the source commit, app version, protocol,
+outer installation identities, and their recorded witnesses.
 
 ### A. Native x86_64 Ubuntu Command Center proof
 
