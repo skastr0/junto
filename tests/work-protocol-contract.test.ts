@@ -132,11 +132,44 @@ const appliedDisposition = {
   },
 };
 
+const artifactFact = {
+  protocol: WORK_PROTOCOL,
+  id: {
+    route: {
+      eventHome: remote,
+      entityHome: remote,
+    },
+    seq: "3",
+  },
+  recordType: "fact",
+  item: {
+    kind: "artifact",
+    itemId: "artifact-1",
+    sink: {
+      canvasName: "factory",
+      nodeId: "artifacts",
+    },
+  },
+  operation: "artifact.publish",
+  contentSha256: "e".repeat(64),
+  originAt: timestamp,
+  predecessor: null,
+  body: {
+    operation: "artifact.publish",
+    artifact: {
+      artifactId: "artifact-1",
+      parts: [{ kind: "text", text: "release receipt" }],
+    },
+    publishedBy: actor,
+  },
+};
+
 describe("Work protocol v2 contract", () => {
   it("decodes InstallationId-based routes, claim records, and dispositions", () => {
     expect(Either.isRight(decodeWorkRecord(claimCommand))).toBe(true);
     expect(Either.isRight(decodeWorkRecord(claimFact))).toBe(true);
     expect(Either.isRight(decodeWorkRecord(appliedDisposition))).toBe(true);
+    expect(Either.isRight(decodeWorkRecord(artifactFact))).toBe(true);
 
     const cursor = Schema.decodeUnknownEither(RouteCursor, {
       onExcessProperty: "error",
@@ -186,6 +219,18 @@ describe("Work protocol v2 contract", () => {
         decodeWorkRecord({
           ...claimCommand,
           operation: "task.transition",
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        decodeWorkRecord({
+          ...artifactFact,
+          body: {
+            operation: "artifact.publish",
+            artifact: artifactFact.body.artifact,
+          },
         }),
       ),
     ).toBe(true);

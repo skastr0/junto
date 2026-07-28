@@ -319,6 +319,7 @@ export type MessageAppendResult = typeof MessageAppendResult.Type;
 export const ArtifactPublishResult = Schema.Struct({
   operation: Schema.Literal("artifact.publish"),
   artifact: Artifact,
+  publishedBy: ActorRef,
 });
 export type ArtifactPublishResult = typeof ArtifactPublishResult.Type;
 
