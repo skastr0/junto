@@ -1,6 +1,7 @@
 import { Either, Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  Artifact,
   Task,
   WorkSnapshot,
   type WorkSnapshot as WorkSnapshotType,
@@ -48,7 +49,14 @@ const snapshotInput = {
         artifactId: "artifact-1",
         name: "release-notes",
         parts: [{ kind: "url" as const, url: "https://example.invalid/release" }],
-        taskId: "task-1",
+        task: {
+          kind: "task" as const,
+          itemId: "task-1",
+          sink: {
+            canvasName: "factory",
+            nodeId: "task-sink",
+          },
+        },
       },
     ],
   },
@@ -86,6 +94,56 @@ describe("WorkSnapshot", () => {
   it("keeps the canvas export as the same schema and derived type", () => {
     expect(CanvasWorkSnapshot).toBe(WorkSnapshot);
     expectTypeOf<CanvasWorkSnapshotType>().toEqualTypeOf<WorkSnapshotType>();
+  });
+});
+
+describe("Artifact task provenance", () => {
+  const base = {
+    artifactId: "artifact-1",
+    parts: [{ kind: "text" as const, text: "receipt" }],
+  };
+
+  it("accepts only an exact task reference", () => {
+    expect(
+      Either.isRight(
+        Schema.decodeUnknownEither(Artifact, {
+          onExcessProperty: "error",
+        })({
+          ...base,
+          task: {
+            kind: "task",
+            itemId: "task-1",
+            sink: { canvasName: "factory", nodeId: "tasks" },
+          },
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        Schema.decodeUnknownEither(Artifact, {
+          onExcessProperty: "error",
+        })({
+          ...base,
+          taskId: "task-1",
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        Schema.decodeUnknownEither(Artifact, {
+          onExcessProperty: "error",
+        })({
+          ...base,
+          task: {
+            kind: "request",
+            itemId: "task-1",
+            sink: { canvasName: "factory", nodeId: "tasks" },
+          },
+        }),
+      ),
+    ).toBe(true);
   });
 });
 

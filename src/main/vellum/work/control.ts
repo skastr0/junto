@@ -798,7 +798,18 @@ const dispatchOp = (
         artifactId: decoded.right.artifactId?.trim() || ulid(),
         parts,
         ...(decoded.right.name !== undefined ? { name: decoded.right.name } : {}),
-        ...(decoded.right.taskId !== undefined ? { taskId: decoded.right.taskId } : {}),
+        ...(decoded.right.task !== undefined
+          ? {
+              task: {
+                kind: "task",
+                itemId: decoded.right.task.id,
+                sink: {
+                  canvasName: caller.canvasName,
+                  nodeId: decoded.right.task.target,
+                },
+              },
+            }
+          : {}),
         ...(decoded.right.metadata !== undefined
           ? { metadata: decoded.right.metadata }
           : {}),

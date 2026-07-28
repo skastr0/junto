@@ -148,6 +148,7 @@ describe("artifact path materialization", () => {
       materializeArtifactParts({
         target: "art1",
         name: "report",
+        task: { target: "tasks", id: "task-1" },
         parts: [{ kind: "raw", path }],
       } satisfies Schema.Schema.Type<typeof ArtifactPublishCliArgs>),
     );
@@ -156,5 +157,25 @@ describe("artifact path materialization", () => {
       bytesBase64: Buffer.from([1, 2, 3, 4]).toString("base64"),
     });
     expect("path" in (wire.parts[0] as object)).toBe(false);
+    expect(wire.task).toEqual({ target: "tasks", id: "task-1" });
+  });
+
+  it("exposes only the exact task reference in artifact publish v2", () => {
+    expect(
+      allSchemas.find((contract) => contract.command_id === "artifact.publish")
+        ?.schema_id,
+    ).toBe("artifact.publish.input/v2");
+
+    expect(
+      Either.isLeft(
+        Schema.decodeUnknownEither(ArtifactPublishCliArgs, {
+          onExcessProperty: "error",
+        })({
+          target: "art1",
+          taskId: "task-1",
+          parts: [{ kind: "text", text: "legacy" }],
+        }),
+      ),
+    ).toBe(true);
   });
 });

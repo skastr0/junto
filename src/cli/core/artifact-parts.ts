@@ -11,7 +11,10 @@ export const materializeArtifactParts = (
     readonly target: string;
     readonly name?: string;
     readonly artifactId?: string;
-    readonly taskId?: string;
+    readonly task?: {
+      readonly target: string;
+      readonly id: string;
+    };
     readonly metadata?: Record<string, unknown>;
     readonly parts: ReadonlyArray<
       | { kind: "text"; text: string }
@@ -64,7 +67,7 @@ export const materializeArtifactParts = (
       target: input.target,
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.artifactId !== undefined ? { artifactId: input.artifactId } : {}),
-      ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+      ...(input.task !== undefined ? { task: input.task } : {}),
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       parts,
     };

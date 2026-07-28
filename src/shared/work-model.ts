@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
+import { TaskRef } from "./work-reference";
 
 /**
  * Durable work-domain contracts.
@@ -122,7 +123,7 @@ export const Artifact = Schema.Struct({
   artifactId: Schema.String,
   name: Schema.optionalWith(Schema.String, { exact: true }),
   parts: Schema.Array(Part),
-  taskId: Schema.optionalWith(Schema.String, { exact: true }),
+  task: Schema.optionalWith(TaskRef, { exact: true }),
   metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
 });
 export type Artifact = typeof Artifact.Type;

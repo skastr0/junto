@@ -6,6 +6,8 @@ import {
 } from "../src/shared/canvas";
 import { taskItem } from "./helpers/task-fixtures";
 
+const seatId = `seat_${"a".repeat(64)}`;
+
 describe("task projection schema", () => {
   it("decodes valid tasks/requests/artifacts/messages stores", () => {
     const raw = {
@@ -20,7 +22,14 @@ describe("task projection schema", () => {
           height: 50,
           ether: {
             entity: { kind: "task" },
-            tasks: { items: [taskItem("i1", "ship", "working")] },
+            tasks: {
+              items: [
+                {
+                  ...taskItem("i1", "ship", "working"),
+                  claimedBy: seatId,
+                },
+              ],
+            },
           },
         },
         {
@@ -33,7 +42,14 @@ describe("task projection schema", () => {
           height: 50,
           ether: {
             entity: { kind: "requests" },
-            requests: { items: [taskItem("q1", "approve?", "input-required")] },
+            requests: {
+              items: [
+                {
+                  ...taskItem("q1", "approve?", "input-required"),
+                  claimedBy: seatId,
+                },
+              ],
+            },
           },
         },
         {
@@ -52,7 +68,14 @@ describe("task projection schema", () => {
                   artifactId: "art-1",
                   name: "report",
                   parts: [{ kind: "text", text: "body" }],
-                  taskId: "i1",
+                  task: {
+                    kind: "task",
+                    itemId: "i1",
+                    sink: {
+                      canvasName: "canvas",
+                      nodeId: "t",
+                    },
+                  },
                 },
               ],
             },

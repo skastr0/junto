@@ -159,6 +159,11 @@ const artifactFact = {
     artifact: {
       artifactId: "artifact-1",
       parts: [{ kind: "text", text: "release receipt" }],
+      task: {
+        kind: "task",
+        itemId: "task-1",
+        sink,
+      },
     },
     publishedBy: actor,
   },
@@ -256,6 +261,76 @@ describe("Work protocol v2 contract", () => {
           body: {
             operation: "artifact.publish",
             artifact: artifactFact.body.artifact,
+          },
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        decodeWorkRecord({
+          ...artifactFact,
+          body: {
+            ...artifactFact.body,
+            artifact: {
+              artifactId: "artifact-1",
+              parts: [{ kind: "text", text: "legacy reference" }],
+              taskId: "task-1",
+            },
+          },
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        decodeWorkRecord({
+          ...artifactFact,
+          body: {
+            ...artifactFact.body,
+            artifact: {
+              ...artifactFact.body.artifact,
+              task: {
+                ...artifactFact.body.artifact.task,
+                kind: "request",
+              },
+            },
+          },
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        decodeWorkRecord({
+          ...artifactFact,
+          body: {
+            ...artifactFact.body,
+            artifact: {
+              ...artifactFact.body.artifact,
+              task: {
+                ...artifactFact.body.artifact.task,
+                sink: {
+                  ...artifactFact.body.artifact.task.sink,
+                  canvasName: "other-canvas",
+                },
+              },
+            },
+          },
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      Either.isLeft(
+        decodeWorkRecord({
+          ...artifactFact,
+          body: {
+            ...artifactFact.body,
+            publishedBy: {
+              ...artifactFact.body.publishedBy,
+              canvasName: "other-canvas",
+            },
           },
         }),
       ),

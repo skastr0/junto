@@ -130,8 +130,9 @@ export const requestEscalateSchema: CommandSchemaContract = {
 export const artifactPublishSchema: CommandSchemaContract = {
   command_id: "artifact.publish",
   command: "artifact publish",
-  schema_id: "artifact.publish.input/v1",
-  description: "Publish an artifact; raw parts may use path (CLI b64s at boundary).",
+  schema_id: "artifact.publish.input/v2",
+  description:
+    "Publish an artifact; raw parts may use path and optional task provenance names the exact task sink and id.",
   schema: ArtifactPublishCliArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -226,11 +227,12 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       target: "art1",
       name: "report",
       parts: [{ kind: "raw", path: "/abs/x.png" }],
+      task: { target: "tasks", id: "t1" },
     },
     args: [
       "artifact",
       "publish",
-      '{"target":"art1","name":"report","parts":[{"kind":"raw","path":"/abs/x.png"}]}',
+      '{"target":"art1","name":"report","parts":[{"kind":"raw","path":"/abs/x.png"}],"task":{"target":"tasks","id":"t1"}}',
     ],
   },
   {

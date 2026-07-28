@@ -262,12 +262,18 @@ export const ArtifactPartWire = Schema.Union(
   }),
 );
 
+export const ArtifactTaskArgs = Schema.Struct({
+  target: Schema.String,
+  id: Schema.String,
+});
+export type ArtifactTaskArgs = typeof ArtifactTaskArgs.Type;
+
 export const ArtifactPublishArgs = Schema.Struct({
   target: Schema.String,
   name: Schema.optionalWith(Schema.String, { exact: true }),
   artifactId: Schema.optionalWith(Schema.String, { exact: true }),
   parts: Schema.Array(ArtifactPartWire),
-  taskId: Schema.optionalWith(Schema.String, { exact: true }),
+  task: Schema.optionalWith(ArtifactTaskArgs, { exact: true }),
   metadata: Schema.optionalWith(
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
     { exact: true },
@@ -297,7 +303,7 @@ export const ArtifactPublishCliArgs = Schema.Struct({
   name: Schema.optionalWith(Schema.String, { exact: true }),
   artifactId: Schema.optionalWith(Schema.String, { exact: true }),
   parts: Schema.Array(ArtifactPartCli),
-  taskId: Schema.optionalWith(Schema.String, { exact: true }),
+  task: Schema.optionalWith(ArtifactTaskArgs, { exact: true }),
   metadata: Schema.optionalWith(
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
     { exact: true },

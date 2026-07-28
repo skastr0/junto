@@ -2,8 +2,30 @@ import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
 import { Artifact, Message, Task, TaskState } from "./work-model";
+import {
+  BoundedWorkId,
+  SinkRef,
+  WorkCanvasName,
+  WorkItemKind,
+  WorkItemRef,
+  WorkNodeId,
+  WorkNodeRef,
+  WORK_PROTOCOL_MAX_CANVAS_NAME_CHARS,
+  WORK_PROTOCOL_MAX_ID_CHARS,
+  WORK_PROTOCOL_MAX_NODE_ID_CHARS,
+} from "./work-reference";
 
 export { ActorSeatId };
+export {
+  SinkRef,
+  TaskRef,
+  WorkItemKind,
+  WorkItemRef,
+  WorkNodeRef,
+  WORK_PROTOCOL_MAX_CANVAS_NAME_CHARS,
+  WORK_PROTOCOL_MAX_ID_CHARS,
+  WORK_PROTOCOL_MAX_NODE_ID_CHARS,
+} from "./work-reference";
 
 /**
  * Canonical work-event contract.
@@ -16,26 +38,8 @@ export const WORK_PROTOCOL = "vellum/work/v2" as const;
 
 /** Intrinsic limits for one work record, independent of report batching. */
 export const WORK_PROTOCOL_MAX_RECORD_BYTES = 256 * 1024;
-export const WORK_PROTOCOL_MAX_ID_CHARS = 256;
-export const WORK_PROTOCOL_MAX_CANVAS_NAME_CHARS = 256;
-export const WORK_PROTOCOL_MAX_NODE_ID_CHARS = 256;
 export const WORK_PROTOCOL_MAX_DIAGNOSTIC_CHARS = 2_048;
 export const WORK_PROTOCOL_MAX_TIMESTAMP_CHARS = 64;
-
-const BoundedId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(WORK_PROTOCOL_MAX_ID_CHARS),
-);
-
-const CanvasName = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(WORK_PROTOCOL_MAX_CANVAS_NAME_CHARS),
-);
-
-const NodeId = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(WORK_PROTOCOL_MAX_NODE_ID_CHARS),
-);
 
 /**
  * Canonical positive decimal sequence.
@@ -91,37 +95,12 @@ export const RouteCursor = Schema.Struct({
 });
 export type RouteCursor = typeof RouteCursor.Type;
 
-export const SinkRef = Schema.Struct({
-  canvasName: CanvasName,
-  nodeId: NodeId,
-});
-export type SinkRef = typeof SinkRef.Type;
-
-export const WorkNodeRef = SinkRef;
-export type WorkNodeRef = typeof WorkNodeRef.Type;
-
 export const ActorRef = Schema.Struct({
   seatId: ActorSeatId,
-  canvasName: CanvasName,
-  nodeId: NodeId,
+  canvasName: WorkCanvasName,
+  nodeId: WorkNodeId,
 });
 export type ActorRef = typeof ActorRef.Type;
-
-export const WorkItemKind = Schema.Literal(
-  "task",
-  "request",
-  "message",
-  "artifact",
-  "delivery",
-);
-export type WorkItemKind = typeof WorkItemKind.Type;
-
-export const WorkItemRef = Schema.Struct({
-  kind: WorkItemKind,
-  itemId: BoundedId,
-  sink: SinkRef,
-});
-export type WorkItemRef = typeof WorkItemRef.Type;
 
 export const WorkOperation = Schema.Literal(
   "task.create",
@@ -137,7 +116,7 @@ export const WorkOperation = Schema.Literal(
 export type WorkOperation = typeof WorkOperation.Type;
 
 export const DeliveryReceipt = Schema.Struct({
-  deliveryId: BoundedId,
+  deliveryId: BoundedWorkId,
   deliveredItem: WorkItemRef,
   actor: ActorRef,
   acceptedAt: DisplayTimestamp,
@@ -158,14 +137,14 @@ export type TaskCreateAction = typeof TaskCreateAction.Type;
 
 export const TaskDescribeAction = Schema.Struct({
   operation: Schema.Literal("task.describe"),
-  taskId: BoundedId,
+  taskId: BoundedWorkId,
   message: Message,
 });
 export type TaskDescribeAction = typeof TaskDescribeAction.Type;
 
 export const TaskTransitionAction = Schema.Struct({
   operation: Schema.Literal("task.transition"),
-  taskId: BoundedId,
+  taskId: BoundedWorkId,
   state: TaskState,
   message: Schema.optionalWith(Message, { exact: true }),
 });
@@ -224,7 +203,7 @@ export type RequestCreateAction = typeof RequestCreateAction.Type;
 
 export const RequestResolveAction = Schema.Struct({
   operation: Schema.Literal("request.resolve"),
-  requestId: BoundedId,
+  requestId: BoundedWorkId,
   response: Schema.String,
   disposition: Schema.Literal("completed", "rejected"),
   message: Schema.optionalWith(Message, { exact: true }),
@@ -243,11 +222,11 @@ export const MessageAppendDestination = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("task"),
-    itemId: BoundedId,
+    itemId: BoundedWorkId,
   }),
   Schema.Struct({
     kind: Schema.Literal("request"),
-    itemId: BoundedId,
+    itemId: BoundedWorkId,
   }),
 );
 export type MessageAppendDestination =
@@ -443,6 +422,17 @@ export type WorkRecordCommon = typeof WorkRecordCommon.Type;
 const sameSink = (left: SinkRef, right: SinkRef): boolean =>
   left.canvasName === right.canvasName && left.nodeId === right.nodeId;
 
+const artifactMatchesRecord = (
+  item: WorkItemRef,
+  artifact: Artifact,
+  publishedBy: ActorRef,
+): boolean =>
+  item.kind === "artifact" &&
+  item.itemId === artifact.artifactId &&
+  publishedBy.canvasName === item.sink.canvasName &&
+  (artifact.task === undefined ||
+    artifact.task.sink.canvasName === item.sink.canvasName);
+
 const itemMatchesAction = (
   item: WorkItemRef,
   action: WorkAction,
@@ -468,9 +458,10 @@ const itemMatchesAction = (
         item.kind === "message" && item.itemId === action.message.messageId
       );
     case "artifact.publish":
-      return (
-        item.kind === "artifact" &&
-        item.itemId === action.artifact.artifactId
+      return artifactMatchesRecord(
+        item,
+        action.artifact,
+        action.publishedBy,
       );
     case "delivery.accepted":
       return (
@@ -498,9 +489,10 @@ const itemMatchesResult = (
         item.kind === "message" && item.itemId === result.message.messageId
       );
     case "artifact.publish":
-      return (
-        item.kind === "artifact" &&
-        item.itemId === result.artifact.artifactId
+      return artifactMatchesRecord(
+        item,
+        result.artifact,
+        result.publishedBy,
       );
     case "delivery.accepted":
       return (
