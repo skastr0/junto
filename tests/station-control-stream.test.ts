@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createServer as createNetServer, createConnection } from "node:net";
 import type { Server as NetServer, Socket } from "node:net";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -309,6 +309,28 @@ const emptyReportResponse = () =>
   });
 
 describe("persistent Station control stream", () => {
+  it("owns a private listener and withdraws it exactly on shutdown", async () => {
+    const fixture = await makeServer();
+    const directory = await stat(fixture.server.stationHome);
+    const socket = await stat(fixture.server.socketPath);
+
+    expect(directory.isDirectory()).toBe(true);
+    expect(directory.mode & 0o777).toBe(0o700);
+    expect(socket.isSocket()).toBe(true);
+    expect(socket.mode & 0o777).toBe(0o600);
+
+    await expect(fixture.server.close()).resolves.toEqual({
+      clean: true,
+      pendingDispatches: 0,
+      openSockets: 0,
+      listenerRetained: false,
+      socketPathRetained: false,
+    });
+    await expect(stat(fixture.server.socketPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("serves multiple strict NDJSON requests in order on one admitted session", async () => {
     let revalidations = 0;
     const fixture = await makeServer({
