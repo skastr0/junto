@@ -786,7 +786,7 @@ function HostsSection() {
     <div className="settings-section">
       <FieldRow
         label="Allow remote managed installs"
-        hint="Fleet kill-switch for Deploy Vellum Remote and remote factory plugin install. Off by default. Local plugin install is unaffected. Main re-gates every invoke."
+        hint="Fleet kill-switch for deploying Vellum to enrolled Remotes. Off by default; main re-gates every invoke."
       >
         <input
           type="checkbox"
@@ -806,7 +806,7 @@ function HostsSection() {
         use the host id (or optional hermes id). Expand <strong>Services</strong> on a host to
         list Tailscale Serve / SVC URLs and open them as canvas page nodes.
         {isCommandCenter
-          ? " On Command Center: Enroll fresh Remote stages station role on a pristine target (manual .deb install first). Managed package deploy remains release-gated; remote factory plugins need this kill-switch on."
+          ? " On Command Center: Enroll fresh Remote stages station role on a pristine target (manual .deb install first). Managed package deploy remains release-gated."
           : ""}
       </p>
 

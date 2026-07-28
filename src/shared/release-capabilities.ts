@@ -7,7 +7,6 @@
  * Effective UI/service gates = RELEASE ∧ operator ∧ station role.
  *
  * Managed package deploy stays release-frozen until trust/bundle qualification.
- * Factory plugin installation is enabled for this line.
  */
 /** Loose booleans so tests/product can flip flags without type-narrowing traps. */
 export type ReleaseCapabilities = {
@@ -15,8 +14,6 @@ export type ReleaseCapabilities = {
   readonly managedRemoteDeploy: boolean;
   readonly darwinRemoteDeploy: boolean;
   readonly commandCenterTransfer: boolean;
-  /** Harness plugin install via packager (local + enrolled Remote SSH apply). */
-  readonly pluginInstall: boolean;
 };
 
 export const RELEASE_CAPABILITIES: ReleaseCapabilities = Object.freeze({
@@ -24,7 +21,6 @@ export const RELEASE_CAPABILITIES: ReleaseCapabilities = Object.freeze({
   managedRemoteDeploy: false,
   darwinRemoteDeploy: false,
   commandCenterTransfer: false,
-  pluginInstall: true,
 });
 
 /** Human-readable denial for managed Remote package deployment. */
@@ -35,11 +31,8 @@ export const MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL =
 export const DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL =
   "Darwin Remote deployment is disabled in this release.";
 
-export const PLUGIN_INSTALL_DISABLED_DETAIL =
-  "Factory plugin install is disabled in this release.";
-
 export const REMOTE_INSTALLS_OPERATOR_DISABLED_DETAIL =
-  "Remote installs are turned off in Settings → Fleet. Enable “Allow remote managed installs” to use Deploy or Install factory plugins on remote hosts.";
+  "Remote installs are turned off in Settings → Fleet. Enable “Allow remote managed installs” to deploy Vellum to enrolled Remotes.";
 
 export const NOT_COMMAND_CENTER_DETAIL =
-  "Only the Command Center may configure Remotes, deploy packages, or install factory plugins.";
+  "Only the Command Center may configure Remotes or deploy packages.";

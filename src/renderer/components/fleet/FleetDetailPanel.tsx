@@ -8,7 +8,7 @@ import {
 } from "react";
 import { Command, WandSparkles, X } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
-import type { HostsInstallCapabilities } from "@shared/install-capabilities";
+import type { HostsDeployCapabilities } from "@shared/deploy-capabilities";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { setFleetAppearance } from "../../lib/fleet-appearance";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
@@ -92,7 +92,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   >("");
   const [actionLine, setActionLine] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [caps, setCaps] = useState<HostsInstallCapabilities | null>(null);
+  const [caps, setCaps] = useState<HostsDeployCapabilities | null>(null);
   const reach = reachabilityLine(probe);
   const probing = probe?.status === "probing";
   const resolvedModel = resolveFleetMachineModel(host);
@@ -103,12 +103,12 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
 
   const loadCaps = useCallback(async () => {
     const api = getVellumApi();
-    if (!api?.hostsInstallCapabilities) {
+    if (!api?.hostsDeployCapabilities) {
       setCaps(null);
       return;
     }
     try {
-      const result = await api.hostsInstallCapabilities();
+      const result = await api.hostsDeployCapabilities();
       setCaps(result.ok ? result : null);
     } catch {
       setCaps(null);

@@ -470,8 +470,8 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.hostsConfigureRemote, IPC_TIMEOUT_MS, id),
   hostsDeployRemote: (input) =>
     invoke(IPC_CHANNELS.hostsDeployRemote, 1_200_000, input),
-  hostsInstallCapabilities: () =>
-    invoke(IPC_CHANNELS.hostsInstallCapabilities, IPC_TIMEOUT_MS),
+  hostsDeployCapabilities: () =>
+    invoke(IPC_CHANNELS.hostsDeployCapabilities, IPC_TIMEOUT_MS),
   settingsGet: () => invoke<SettingsOpResult>(IPC_CHANNELS.settingsGet, IPC_TIMEOUT_MS),
   settingsPatch: (patch: SettingsPatch) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsPatch, IPC_TIMEOUT_MS, patch),

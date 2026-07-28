@@ -149,8 +149,8 @@ export const IPC_CHANNELS = {
   hostsConfigureRemote: "vellum:hosts-configure-remote",
   /** Command Center: install/update .app + start Remote station over SSH. */
   hostsDeployRemote: "vellum:hosts-deploy-remote",
-  /** Effective install capabilities (RELEASE ∩ operator ∩ role) for UI gates. */
-  hostsInstallCapabilities: "vellum:hosts-install-capabilities",
+  /** Effective Remote deploy capability (RELEASE ∩ operator ∩ role). */
+  hostsDeployCapabilities: "vellum:hosts-deploy-capabilities",
   // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
   // The opaque challenge is generation identity, never product authority.
   rendererSurfaceChallenge: "vellum:renderer-surface-challenge",
@@ -617,8 +617,8 @@ export interface VellumApi {
   readonly hostsDeployRemote: (
     input: HostsDeployRemoteInput,
   ) => Promise<HostsDeployRemoteResult>;
-  /** SoT for Deploy and Install plugin capability gates. */
-  readonly hostsInstallCapabilities: () => Promise<HostsInstallCapabilitiesResult>;
+  /** SoT for Remote deployment capability gates. */
+  readonly hostsDeployCapabilities: () => Promise<HostsDeployCapabilitiesResult>;
 }
 
 export interface HostsOpResult {
@@ -738,9 +738,9 @@ export type HostsDeployRemoteInput =
       };
     };
 
-/** Effective install gates — see shared/install-capabilities.ts. */
-export type HostsInstallCapabilitiesResult =
-  | import("./install-capabilities").HostsInstallCapabilities
+/** Effective Remote deploy gates — see shared/deploy-capabilities.ts. */
+export type HostsDeployCapabilitiesResult =
+  | import("./deploy-capabilities").HostsDeployCapabilities
   | {
       readonly ok: false;
       readonly code?: string;

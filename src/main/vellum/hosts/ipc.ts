@@ -40,7 +40,7 @@ import {
   MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
   RELEASE_CAPABILITIES,
 } from "@shared/release-capabilities";
-import { computeInstallCapabilities } from "@shared/install-capabilities";
+import { computeDeployCapabilities } from "@shared/deploy-capabilities";
 import { PrismService } from "../../services/prism";
 import { StationRepository } from "../station/repository";
 import type { InstallationId } from "@shared/station-api";
@@ -697,14 +697,14 @@ export const registerHostsIpc = (
 
   // Effective deploy capabilities (RELEASE ∩ operator kill-switch ∩ role).
   // Computed straight from settings: there is no install plane behind this.
-  ipcMain.handle(IPC_CHANNELS.hostsInstallCapabilities, () =>
+  ipcMain.handle(IPC_CHANNELS.hostsDeployCapabilities, () =>
     surfaceShutdownRefusal(
       operations.run(HOST_OPERATION_ADMISSIONS.configureRemote, () =>
         AppRuntime.runPromise(
           Effect.gen(function* () {
             const settingsSvc = yield* SettingsService;
             const doc = yield* settingsSvc.get;
-            return computeInstallCapabilities({
+            return computeDeployCapabilities({
               stationRole: doc.station.role,
               remoteManagedInstalls: doc.fleet.remoteManagedInstalls,
               release: RELEASE_CAPABILITIES,
@@ -739,7 +739,7 @@ export const registerHostsIpc = (
         // Effect flight retention. Operator/role inputs are forced permissive
         // so this gate can only ever deny for release-surface reasons — the
         // settings-backed operator/role gates still run inside the runtime.
-        const releaseGate = computeInstallCapabilities({
+        const releaseGate = computeDeployCapabilities({
           stationRole: "command-center",
           remoteManagedInstalls: true,
           release: RELEASE_CAPABILITIES,
@@ -787,7 +787,7 @@ export const registerHostsIpc = (
                   } satisfies HostsDeployRemoteResult;
                 }
 
-                const effective = computeInstallCapabilities({
+                const effective = computeDeployCapabilities({
                   stationRole: settingsResult.right.station.role,
                   remoteManagedInstalls:
                     settingsResult.right.fleet.remoteManagedInstalls,
