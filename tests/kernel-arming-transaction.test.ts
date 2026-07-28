@@ -23,8 +23,15 @@ import { SchedulerRepository } from "../src/main/vellum/scheduler/repository";
 import { StationFleetTargetRepository } from "../src/main/vellum/station/fleet-target-repository";
 import { StationRepository } from "../src/main/vellum/station/repository";
 import { StationLivePeerRegistry } from "../src/main/vellum/station/session-registry";
-import { PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
-import { __resetKernelMemoryForTest, getArmed } from "../src/main/vellum/kernel/cycle";
+import {
+  PausePlane,
+  PausePlaneAllPlaying,
+} from "../src/main/vellum/pause-plane";
+import {
+  __resetKernelMemoryForTest,
+  getArmed,
+  getPulseLog,
+} from "../src/main/vellum/kernel/cycle";
 import { WorkService } from "../src/main/vellum/work/service";
 import { WorkRepository } from "../src/main/vellum/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
@@ -92,10 +99,15 @@ type ArmingWrite = {
   readonly armed: boolean;
 };
 
+type KernelFixtureOptions = {
+  readonly setFails?: boolean;
+  readonly onPauseStart?: () => void;
+};
+
 // A repository whose write can be forced to fail, recording every successful
 // domain mutation so the test can assert what actually reached persistence.
 const makeKernelState = (
-  opts: { setFails?: boolean },
+  opts: KernelFixtureOptions,
   writes: ArmingWrite[],
 ) =>
   Layer.succeed(
@@ -119,12 +131,9 @@ const makeKernelState = (
     }),
   );
 
-const runArm = (
-  opts: { setFails?: boolean },
+const makeKernelRuntime = (
+  opts: KernelFixtureOptions,
   writes: ArmingWrite[],
-  canvasName: string,
-  regionId: string,
-  armed: boolean,
 ) => {
   const deps = Layer.mergeAll(
     fakeCanvases,
@@ -219,10 +228,39 @@ const runArm = (
       }),
     ),
   );
-  const layer = Layer.provide(KernelLive, Layer.mergeAll(deps, PausePlaneAllPlaying));
-  const runtime = ManagedRuntime.make(layer);
+  const pauseLayer =
+    opts.onPauseStart === undefined
+      ? PausePlaneAllPlaying
+      : Layer.succeed(PausePlane, {
+          start: Effect.sync(opts.onPauseStart),
+          stateFor: () => ({
+            playing: true,
+            everPlayed: true,
+            pausedNodes: [],
+            pausedRegions: [],
+          }),
+          setPlaying: () => Effect.void,
+          setScopePaused: () => Effect.void,
+          subscribe: () => () => {},
+        });
+  const layer = Layer.provide(KernelLive, Layer.mergeAll(deps, pauseLayer));
+  return ManagedRuntime.make(layer);
+};
+
+const runArm = (
+  opts: KernelFixtureOptions,
+  writes: ArmingWrite[],
+  canvasName: string,
+  regionId: string,
+  armed: boolean,
+) => {
+  const runtime = makeKernelRuntime(opts, writes);
   return runtime
-    .runPromise(Effect.flatMap(KernelService, (kernel) => kernel.armRegion(canvasName, regionId, armed)))
+    .runPromise(
+      Effect.flatMap(KernelService, (kernel) =>
+        kernel.armRegion(canvasName, regionId, armed),
+      ),
+    )
     .finally(() => runtime.dispose());
 };
 
@@ -276,5 +314,70 @@ describe("KernelService.armRegion — transactional persist-then-mutate", () => 
       { canvasName: "ether", regionId: "r1", armed: false },
     ]);
     expect(getArmed().get("ether::r1")).toBeFalsy();
+  });
+
+  it("a monotonic suspension refuses later arming mutations, including after repeated suspend calls", async () => {
+    const writes: ArmingWrite[] = [];
+    const runtime = makeKernelRuntime({}, writes);
+    const result = await runtime.runPromise(
+      Effect.flatMap(KernelService, (kernel) =>
+        Effect.sync(() => {
+          kernel.suspend();
+          kernel.suspend();
+        }).pipe(
+          Effect.zipRight(kernel.armRegion("ether", "r1", true)),
+        ),
+      ),
+    );
+    await runtime.dispose();
+
+    expect(result).toEqual({
+      ok: false,
+      error: "kernel suspended — no new arming changes are admitted",
+    });
+    expect(writes).toEqual([]);
+    expect(getArmed().has("ether::r1")).toBe(false);
+  });
+
+  it("a manual pulse invoked after suspension is a no-op", async () => {
+    const runtime = makeKernelRuntime({}, []);
+    await runtime.runPromise(
+      Effect.flatMap(KernelService, (kernel) =>
+        Effect.sync(() => kernel.suspend()).pipe(
+          Effect.zipRight(
+            kernel.pulseRegion("ether", "r1", {
+              summary: "must not be delivered",
+            }),
+          ),
+        ),
+      ),
+    );
+    await runtime.dispose();
+
+    expect(getPulseLog()).toEqual([]);
+  });
+
+  it("start invoked after suspension does not begin kernel hydration or scheduling", async () => {
+    let pauseStarts = 0;
+    const runtime = makeKernelRuntime(
+      {
+        onPauseStart: () => {
+          pauseStarts += 1;
+        },
+      },
+      [],
+    );
+    await runtime.runPromise(
+      Effect.flatMap(KernelService, (kernel) =>
+        Effect.sync(() => {
+          kernel.suspend();
+          kernel.start();
+        }),
+      ),
+    );
+    await Promise.resolve();
+    await runtime.dispose();
+
+    expect(pauseStarts).toBe(0);
   });
 });

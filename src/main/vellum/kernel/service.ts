@@ -102,6 +102,11 @@ export class KernelService extends Context.Tag("@vellum/KernelService")<
     // Begin hydration + the evaluation loop. Idempotent, matching
     // CanvasesService.start()/SnapshotsService.start().
     readonly start: () => void;
+    // Irreversibly stop admitting new kernel work. Existing terminal/agent
+    // processes are deliberately untouched; work admitted before the cut may
+    // settle, but no later cycle, claim, seat start, pulse, or arming mutation
+    // may begin.
+    readonly suspend: () => void;
     // Synchronous read of the current wire snapshot — used for getKernelState's
     // initial-hydrate answer.
     readonly getSnapshot: () => KernelSnapshot;
@@ -250,6 +255,7 @@ type ActiveStationScope =
 
 const refreshStationScope = async (
   stations: StationsShape,
+  commit: () => boolean = () => true,
 ): Promise<ActiveStationScope> => {
   try {
     const current = await Effect.runPromise(
@@ -263,7 +269,7 @@ const refreshStationScope = async (
         hostId: DEFAULT_STATION_HOST_ID,
         role: "",
       } satisfies ActiveStationScope;
-      setStationScope(scope);
+      if (commit()) setStationScope(scope);
       return scope;
     }
     const scope = {
@@ -271,7 +277,7 @@ const refreshStationScope = async (
       hostId: current.configuration.configuration.hostId,
       role: current.configuration.configuration.role,
     } satisfies ActiveStationScope;
-    setStationScope(scope);
+    if (commit()) setStationScope(scope);
     return scope;
   } catch {
     // Fail closed: unreadable settings never mint Command Center authority.
@@ -279,7 +285,7 @@ const refreshStationScope = async (
       hostId: DEFAULT_STATION_HOST_ID,
       role: "",
     } satisfies ActiveStationScope;
-    setStationScope(scope);
+    if (commit()) setStationScope(scope);
     return scope;
   }
 };
@@ -438,6 +444,38 @@ const makeKernelService = (
   const docs = new Map<string, CanvasDoc>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
 
+  // Suspension is monotonic. The generation closes async check/use gaps: every
+  // operation captures the current value at admission and checks it again at
+  // later mutation boundaries. There is intentionally no resume path — a
+  // newly licensed process starts a fresh KernelService.
+  let suspended = false;
+  let lifecycleGeneration = 0;
+  const activeGeneration = (): number => lifecycleGeneration;
+  const generationIsActive = (generation: number): boolean =>
+    !suspended && generation === lifecycleGeneration;
+  let lifecycleCleanups: Array<() => void> = [];
+  let safetyInterval: ReturnType<typeof setInterval> | undefined;
+  let pulseLogPollInterval: ReturnType<typeof setInterval> | undefined;
+
+  const clearLifecycleScheduling = (): void => {
+    if (safetyInterval !== undefined) {
+      clearInterval(safetyInterval);
+      safetyInterval = undefined;
+    }
+    if (pulseLogPollInterval !== undefined) {
+      clearInterval(pulseLogPollInterval);
+      pulseLogPollInterval = undefined;
+    }
+    for (const cleanup of lifecycleCleanups.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        // Suspension is fail-closed. One broken observer cleanup must not
+        // prevent the remaining listeners from being detached.
+      }
+    }
+  };
+
   // Pulse deliveries consult the pause plane per source seat; a canvas with
   // no tracked doc falls back to the canvas-level switch (fail closed).
   setPausedLookup((canvasName, sourceNodeId) => {
@@ -525,7 +563,9 @@ const makeKernelService = (
   // --- delivery: managed terminal seats, the one delivery path ----------------
   __setDeliveryDepsForTest({
     sendManagedTerminal: (bindingId, message) =>
-      managedPulseDeliver(bindingId, message),
+      suspended
+        ? Promise.resolve(false)
+        : managedPulseDeliver(bindingId, message),
   });
 
   __setTimerSchedulerForTest({
@@ -551,11 +591,14 @@ const makeKernelService = (
   const startManagedSeats = (
     scope: ActiveStationScope,
     registry: ActiveActorRegistry,
+    generation: number,
   ): void => {
     for (const [canvasName, doc] of docs) {
+      if (!generationIsActive(generation)) return;
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
       for (const node of doc.nodes) {
+        if (!generationIsActive(generation)) return;
         if (seatPaused(state, doc, node.id)) continue;
         const authority = runtimeAuthority(
           scope,
@@ -570,20 +613,34 @@ const makeKernelService = (
   };
 
   const runCycle = async (): Promise<void> => {
-    const scope = await refreshStationScope(stations);
+    const generation = activeGeneration();
+    if (!generationIsActive(generation)) return;
+    const scope = await refreshStationScope(
+      stations,
+      () => generationIsActive(generation),
+    );
+    if (!generationIsActive(generation)) return;
     const registry =
       scope.role === ""
         ? activeActorRegistry([])
         : activeActorRegistry(
             await Effect.runPromise(canvases.activeActorRefs()),
           );
+    if (!generationIsActive(generation)) return;
     setActorRefResolver(registry.resolve);
-    __setSnapshotsForTest(await Effect.runPromise(snapshots.current));
-    startManagedSeats(scope, registry);
+    const currentSnapshots = await Effect.runPromise(snapshots.current);
+    if (!generationIsActive(generation)) return;
+    __setSnapshotsForTest(currentSnapshots);
+    startManagedSeats(scope, registry, generation);
+    if (!generationIsActive(generation)) return;
     retryPendingPulseDeliveries();
+    if (!generationIsActive(generation)) return;
     await Promise.all([runEvaluationCycle(), checkTimers()]);
-    await runClaimTicks(scope, registry);
-    await deliverWorkingClaims(scope, registry);
+    if (!generationIsActive(generation)) return;
+    await runClaimTicks(scope, registry, generation);
+    if (!generationIsActive(generation)) return;
+    await deliverWorkingClaims(scope, registry, generation);
+    if (!generationIsActive(generation)) return;
     // Sweep stale watcher/timer runtime entries for nodes removed on a still-
     // existing canvas (whole-canvas deletes are handled by purgeCanvasMemory
     // on resync). Runs after evaluation so this cycle's fresh entries stand.
@@ -597,8 +654,9 @@ const makeKernelService = (
   const runClaimTicks = async (
     scope: ActiveStationScope,
     registry: ActiveActorRegistry,
+    generation: number,
   ): Promise<void> => {
-    if (scope.role === "") return;
+    if (scope.role === "" || !generationIsActive(generation)) return;
     const uniqueActors = new Map<
       ActorSeatId,
       { readonly canvasName: string; readonly node: CanvasNode; readonly actor: ActorRef }
@@ -614,6 +672,7 @@ const makeKernelService = (
     const selectableActorSeatIds = new Set<ActorSeatId>();
     await Promise.all(
       [...uniqueActors].map(async ([seatId, candidate]) => {
+        if (!generationIsActive(generation)) return;
         const selectable = await actorSeatSelectableNow(
           candidate.canvasName,
           candidate.node,
@@ -628,14 +687,18 @@ const makeKernelService = (
               Effect.runPromise(livePeers.isLive(hostId, installationId)),
           },
         );
-        if (selectable) selectableActorSeatIds.add(seatId);
+        if (selectable && generationIsActive(generation)) {
+          selectableActorSeatIds.add(seatId);
+        }
       }),
     );
+    if (!generationIsActive(generation)) return;
 
     const busyActorSeatIds = new Set<ActorSeatId>();
     const pendingCommands = await Effect.runPromise(
       workRepository.pendingCommands,
     );
+    if (!generationIsActive(generation)) return;
     for (const pending of pendingCommands) {
       if (
         pending.resolution === undefined &&
@@ -666,6 +729,7 @@ const makeKernelService = (
     }
 
     for (const [canvasName, doc] of docs) {
+      if (!generationIsActive(generation)) return;
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
       const selections = selectFactoryClaims(
@@ -688,6 +752,10 @@ const makeKernelService = (
         },
       );
       for (const selection of selections) {
+        // This is the durable claim mutation boundary. A claim already
+        // admitted here may settle after suspension; no later selection may
+        // enter WorkService.
+        if (!generationIsActive(generation)) return;
         const result = await Effect.runPromise(
           work.workTaskClaim(
             selection.sink.canvasName,
@@ -716,14 +784,18 @@ const makeKernelService = (
   const deliverWorkingClaims = async (
     scope: ActiveStationScope,
     registry: ActiveActorRegistry,
+    generation: number,
   ): Promise<void> => {
-    if (scope.role === "") return;
+    if (scope.role === "" || !generationIsActive(generation)) return;
     for (const [canvasName, doc] of docs) {
+      if (!generationIsActive(generation)) return;
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
       for (const sink of doc.nodes) {
+        if (!generationIsActive(generation)) return;
         if (!isClaimableTaskSink(sink)) continue;
         for (const task of sink.ether?.tasks?.items ?? []) {
+          if (!generationIsActive(generation)) return;
           if (task.state !== "working") continue;
           const actorSeatId = claimedByOf(task);
           if (actorSeatId === undefined) continue;
@@ -760,7 +832,12 @@ const makeKernelService = (
           ) {
             continue;
           }
+          if (!generationIsActive(generation)) return;
           ensureManagedSeatRunning(canvasName, doc, actor, authority);
+          // Final prompt-send admission. If suspension occurs while the
+          // transport is accepting this already-admitted prompt, its receipt
+          // is still allowed to settle below.
+          if (!generationIsActive(generation)) return;
           const accepted = await managedPulseDeliver(
             surface.bindingId,
             [
@@ -809,13 +886,23 @@ const makeKernelService = (
     }
   };
 
-  const scheduleCycle = makeCoalescedKernelCycleScheduler(runCycle);
+  const scheduleCoalescedCycle =
+    makeCoalescedKernelCycleScheduler(runCycle);
+  const scheduleCycle = (): void => {
+    if (!suspended) scheduleCoalescedCycle();
+  };
 
   // --- doc hydration + mid-cycle resync ---------------------------------------
 
-  const hydrateDoc = async (name: string): Promise<void> => {
+  const hydrateDoc = async (
+    name: string,
+    generation: number,
+  ): Promise<void> => {
+    if (!generationIsActive(generation)) return;
     const result = await Effect.runPromise(Effect.either(canvases.read(name)));
-    if (result._tag === "Right") docs.set(name, result.right.doc);
+    if (result._tag === "Right" && generationIsActive(generation)) {
+      docs.set(name, result.right.doc);
+    }
     // else: a broken/mid-write canvas is skipped this pass — one bad doc
     // never stalls hydration of the rest.
   };
@@ -825,13 +912,18 @@ const makeKernelService = (
   // unbounded Promise.all across all of them at once.
   const MAX_CONCURRENT_HYDRATIONS = 4;
 
-  const hydrateAllDocs = async (): Promise<void> => {
+  const hydrateAllDocs = async (generation: number): Promise<void> => {
+    if (!generationIsActive(generation)) return;
     const summaries = await Effect.runPromise(canvases.list);
+    if (!generationIsActive(generation)) return;
     for (let i = 0; i < summaries.length; i += MAX_CONCURRENT_HYDRATIONS) {
+      if (!generationIsActive(generation)) return;
       const batch = summaries.slice(i, i + MAX_CONCURRENT_HYDRATIONS);
-      await Promise.all(batch.map((summary) => hydrateDoc(summary.name)));
+      await Promise.all(
+        batch.map((summary) => hydrateDoc(summary.name, generation)),
+      );
     }
-    setDocs(docs);
+    if (generationIsActive(generation)) setDocs(docs);
   };
 
   // App-owned create/write/mutate -> reread into the map; delete -> drop +
@@ -839,7 +931,10 @@ const makeKernelService = (
   // name, not the kind of change, so list() is the source of truth for
   // "still there". Every authority commit notifies this path.
   const resyncCanvas = async (name: string): Promise<void> => {
+    const generation = activeGeneration();
+    if (!generationIsActive(generation)) return;
     const summaries = await Effect.runPromise(canvases.list);
+    if (!generationIsActive(generation)) return;
     if (!summaries.some((summary) => summary.name === name)) {
       docs.delete(name);
       purgeCanvasMemory(name);
@@ -848,7 +943,7 @@ const makeKernelService = (
     }
 
     const result = await Effect.runPromise(Effect.either(canvases.read(name)));
-    if (result._tag === "Right") {
+    if (result._tag === "Right" && generationIsActive(generation)) {
       docs.set(name, result.right.doc);
       void Effect.runPromise(refreshWithIdentityHints());
       scheduleCycle();
@@ -871,10 +966,12 @@ const makeKernelService = (
   // clothes. On load failure the fault is surfaced in every snapshot, armed
   // regions are explicitly NOT resumed, and writes are refused. The kernel
   // itself keeps running.
-  const hydrateArming = async (): Promise<void> => {
+  const hydrateArming = async (generation: number): Promise<void> => {
+    if (!generationIsActive(generation)) return;
     const result = await Effect.runPromise(
       Effect.either(kernelState.listArmedRegions),
     );
+    if (!generationIsActive(generation)) return;
     if (result._tag === "Left") {
       armingFault =
         `arming state unreadable (${result.left.message}) — armed regions were NOT resumed and arming ` +
@@ -883,6 +980,7 @@ const makeKernelService = (
       return;
     }
     for (const armed of result.right) {
+      if (!generationIsActive(generation)) return;
       setArmed(armedStoreKey(armed.canvasName, armed.regionId), true);
     }
   };
@@ -899,25 +997,42 @@ const makeKernelService = (
     })),
 
     start: () => {
-      if (started) return;
+      if (started || suspended) return;
       started = true;
+      const generation = activeGeneration();
       void (async () => {
         await Effect.runPromise(pause.start);
-        await hydrateArming();
-        await hydrateAllDocs();
+        if (!generationIsActive(generation)) return;
+        await hydrateArming(generation);
+        if (!generationIsActive(generation)) return;
+        await hydrateAllDocs(generation);
+        if (!generationIsActive(generation)) return;
         void Effect.runPromise(refreshWithIdentityHints());
 
-        canvases.subscribeChanges((name) => void resyncCanvas(name));
-        snapshots.subscribe(() => scheduleCycle());
-        subscribeKernelSeatWake(
-          (listener) => seatStateRuntime.subscribe(listener),
-          scheduleCycle,
-        );
+        lifecycleCleanups = [
+          canvases.subscribeChanges((name) => void resyncCanvas(name)),
+          snapshots.subscribe(() => scheduleCycle()),
+          subscribeKernelSeatWake(
+            (listener) => seatStateRuntime.subscribe(listener),
+            scheduleCycle,
+          ),
+        ];
+
+        // No await exists between the generation check and installing these
+        // handles, so suspend() cannot interleave and leave a late timer alive.
+        if (!generationIsActive(generation)) {
+          clearLifecycleScheduling();
+          return;
+        }
 
         // Repair/watchdog only. Ordinary document, snapshot, and seat
         // lifecycle progress schedules a cycle at the authoritative event.
-        setInterval(scheduleCycle, SAFETY_INTERVAL_MS);
-        setInterval(() => {
+        safetyInterval = setInterval(
+          scheduleCycle,
+          SAFETY_INTERVAL_MS,
+        );
+        pulseLogPollInterval = setInterval(() => {
+          if (suspended) return;
           const length = getPulseLog().length;
           if (length !== lastPulseLogLength) emitSnapshot();
         }, PULSE_LOG_POLL_MS);
@@ -926,10 +1041,24 @@ const makeKernelService = (
       })().catch((err) => console.error("[kernel] start() failed:", err));
     },
 
+    suspend: () => {
+      if (suspended) return;
+      suspended = true;
+      lifecycleGeneration += 1;
+      clearLifecycleScheduling();
+    },
+
     getSnapshot: () => composeSnapshot(),
 
     armRegion: (canvasName, regionId, armedValue) =>
       Effect.gen(function* () {
+        const generation = activeGeneration();
+        if (!generationIsActive(generation)) {
+          return {
+            ok: false,
+            error: "kernel suspended — no new arming changes are admitted",
+          } as const;
+        }
         // Fail fast under a boot-time arming fault: SQLite state could not be
         // read, so armed regions were NOT resumed and no write may proceed
         // (the corrupt rows must not be clobbered). The caller surfaces this.
@@ -947,22 +1076,32 @@ const makeKernelService = (
             error: `arming not saved (${stored.left.message}) — nothing changed; the region stays as it was`,
           } as const;
         }
+        // The durable mutation was admitted before the suspension cut. Let
+        // that in-flight operation settle into its matching hot-read state so
+        // memory cannot diverge from SQLite.
         setArmed(key, armedValue);
         emitSnapshot();
         return { ok: true } as const;
       }),
 
     pulseRegion: (canvasName, regionId, opts) =>
-      Effect.promise(() =>
-        deliverPulse({
-          canvasName,
-          sourceNodeId: regionId,
-          kind: "manual",
-          regionId,
-          summary: opts?.summary ?? "manual pulse",
-          forceDry: opts?.dry,
-        }),
-      ).pipe(Effect.tap(() => Effect.sync(emitSnapshot))),
+      Effect.gen(function* () {
+        const generation = activeGeneration();
+        if (!generationIsActive(generation)) return;
+        yield* Effect.promise(() =>
+          deliverPulse({
+            canvasName,
+            sourceNodeId: regionId,
+            kind: "manual",
+            regionId,
+            summary: opts?.summary ?? "manual pulse",
+            forceDry: opts?.dry,
+          }),
+        );
+        // Snapshot emission is observational; a pulse admitted before the cut
+        // may finish and report its terminal record afterward.
+        emitSnapshot();
+      }),
 
     subscribe: (listener) => {
       snapshotListeners.add(listener);
