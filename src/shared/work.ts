@@ -31,8 +31,9 @@ import {
 } from "./physics";
 import { HashSet } from "effect";
 
-// Pure document transforms for the work plane.
-// Kernel WorkService applies these under CanvasesService.mutate.
+// Pure topology validation plus work-item draft/projection transforms.
+// WorkService uses their results to invoke specific SQLite repository verbs;
+// these helpers never authorize or commit a canvas-document mutation.
 // No dual shapes: only Task / Message / Artifact.
 
 export type WorkErrorCode =
