@@ -10,15 +10,20 @@ import { join } from "node:path";
 import { Context, Effect, Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  BoxCli,
   BoxId,
+} from "../src/main/vellum/box";
+import {
+  BoxCli,
+  makeBoxCli,
+} from "../src/main/vellum/box/cli";
+import {
   BoxProcessError,
   BoxProcessRunner,
-  makeBoxCli,
   resolveBoxCliCandidates,
   type BoxProcessRequest,
   type BoxProcessResult,
-} from "../src/main/vellum/box";
+} from "../src/main/vellum/box/process";
+import { admitOwnedBox } from "../src/main/vellum/box/ownership";
 
 const boxId = Schema.decodeUnknownSync(BoxId)("bx_c79mgja6");
 const machine = {
@@ -32,6 +37,11 @@ const machine = {
     desktopUrl: "secret-bearing field must be ignored",
   },
 };
+const ownedBox = admitOwnedBox({
+  machine: machine.box,
+  hostId: "box-c79mgja6",
+  enrolledAt: "2026-07-27T00:00:02.000Z",
+});
 
 const status = {
   account: {
@@ -164,7 +174,7 @@ describe("Box CLI adapter", () => {
     });
 
     const stdout = await withCli(runner, "/bin/true", (cli) =>
-      cli.ssh(boxId, ["printf", "%s", "hello; touch /tmp/no"]),
+      cli.ssh(ownedBox, ["printf", "%s", "hello; touch /tmp/no"]),
     );
 
     expect(stdout).toBe("ok\n");
@@ -187,10 +197,10 @@ describe("Box CLI adapter", () => {
     const malformed = makeRunner(() => success("{"));
 
     await expect(
-      withCli(failed, "/bin/true", (cli) => cli.info(boxId)),
+      withCli(failed, "/bin/true", (cli) => cli.info(ownedBox)),
     ).rejects.toThrow(/not authenticated/u);
     await expect(
-      withCli(malformed, "/bin/true", (cli) => cli.info(boxId)),
+      withCli(malformed, "/bin/true", (cli) => cli.info(ownedBox)),
     ).rejects.toThrow(/invalid JSON/u);
   });
 });

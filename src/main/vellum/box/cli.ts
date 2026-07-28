@@ -7,7 +7,6 @@ import {
   BoxMachineEnvelope,
   type BoxCliAvailability,
   type BoxCliError,
-  type BoxId,
   type BoxMachine,
 } from "./domain";
 import {
@@ -15,6 +14,7 @@ import {
   BoxProcessRunner,
   resolveBoxCliCandidates,
 } from "./process";
+import { ownedBoxId, type OwnedBox } from "./ownership";
 
 const decodeStatus = Schema.decodeUnknown(BoxCliStatus, {
   onExcessProperty: "ignore",
@@ -90,14 +90,14 @@ export class BoxCli extends Context.Tag("@vellum/box/BoxCli")<
         readonly includeAccountSecrets?: boolean;
       },
     ) => Effect.Effect<BoxMachine, BoxCliError>;
-    readonly info: (id: BoxId) => Effect.Effect<BoxMachine, BoxCliError>;
-    readonly stop: (id: BoxId) => Effect.Effect<BoxMachine, BoxCliError>;
+    readonly info: (box: OwnedBox) => Effect.Effect<BoxMachine, BoxCliError>;
+    readonly stop: (box: OwnedBox) => Effect.Effect<BoxMachine, BoxCliError>;
     readonly resume: (
-      id: BoxId,
+      box: OwnedBox,
       options?: { readonly includeAccountSecrets?: boolean },
     ) => Effect.Effect<BoxMachine, BoxCliError>;
     readonly ssh: (
-      id: BoxId,
+      box: OwnedBox,
       command: ReadonlyArray<string>,
     ) => Effect.Effect<string, BoxCliError>;
   }
@@ -248,22 +248,23 @@ export const makeBoxCli = (
         ...(createOptions.autoStop === false ? ["--no-auto-stop"] : []),
         ...(createOptions.includeAccountSecrets === false ? ["--no-env"] : []),
       ]),
-    info: (id) => jsonMachine("info", ["info", id]),
-    stop: (id) => jsonMachine("stop", ["stop", id], 120_000),
-    resume: (id, resumeOptions = {}) =>
+    info: (box) => jsonMachine("info", ["info", ownedBoxId(box)]),
+    stop: (box) =>
+      jsonMachine("stop", ["stop", ownedBoxId(box)], 120_000),
+    resume: (box, resumeOptions = {}) =>
       jsonMachine(
         "resume",
         [
           "resume",
-          id,
+          ownedBoxId(box),
           ...(resumeOptions.includeAccountSecrets === false
             ? ["--no-env"]
             : []),
         ],
         120_000,
       ),
-    ssh: (id, command) =>
-      run("ssh", ["ssh", id, ...command], 120_000).pipe(
+    ssh: (box, command) =>
+      run("ssh", ["ssh", ownedBoxId(box), ...command], 120_000).pipe(
         Effect.map((result) => result.stdout),
       ),
   });

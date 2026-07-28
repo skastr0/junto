@@ -1,4 +1,5 @@
 import { BROWSER_PROFILES_STATE_SCHEMA_SQL } from "../browser/state-schema";
+import { BOX_STATE_SCHEMA_SQL } from "../box/state-schema";
 import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
 import { KERNEL_STATE_SCHEMA_SQL } from "../kernel/state-schema";
 import { FACTORY_PAUSE_STATE_SCHEMA_SQL } from "../pause/state-schema";
@@ -77,6 +78,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   CANVAS_STATE_SCHEMA_SQL,
   BROWSER_PROFILES_STATE_SCHEMA_SQL,
   HOSTS_STATE_SCHEMA_SQL,
+  BOX_STATE_SCHEMA_SQL,
   KERNEL_STATE_SCHEMA_SQL,
   FACTORY_PAUSE_STATE_SCHEMA_SQL,
   SETTINGS_STATE_SCHEMA_SQL,

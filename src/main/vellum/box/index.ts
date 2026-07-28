@@ -1,8 +1,5 @@
 export {
-  BoxCli,
   BoxCliLive,
-  makeBoxCli,
-  type BoxCliOptions,
 } from "./cli";
 export {
   BoxId,
@@ -15,10 +12,17 @@ export {
 } from "./domain";
 export {
   beginBoxProcessShutdown,
-  BoxProcessError,
-  BoxProcessRunner,
   BoxProcessRunnerLive,
-  resolveBoxCliCandidates,
-  type BoxProcessRequest,
-  type BoxProcessResult,
 } from "./process";
+export {
+  BoxFleetService,
+  BoxFleetServiceLive,
+  type BoxFleetError,
+  type CreateFleetBoxOptions,
+} from "./service";
+export {
+  BoxOwnershipRepositoryLive,
+  BoxResource,
+  type BoxOwnershipError,
+  type BoxResource as BoxResourceType,
+} from "./repository";
