@@ -233,6 +233,40 @@ describe("factoryClaimTick", () => {
     );
   });
 
+  it("skips a lower-id actor whose edge does not grant tasks.claim", () => {
+    const denied = actorRef("a-denied", "1");
+    const admitted = actorRef("z-admitted", "2");
+    const doc: CanvasDoc = {
+      nodes: [
+        tasksNode("t", [taskItem("i1", "ship", "submitted")]),
+        seat("a-denied", "actor"),
+        seat("z-admitted", "actor"),
+      ],
+      edges: [
+        {
+          id: "e-denied",
+          fromNode: "t",
+          toNode: "a-denied",
+          ether: { ports: ["tasks.list"] },
+        },
+        {
+          id: "e-admitted",
+          fromNode: "t",
+          toNode: "z-admitted",
+          ether: { ports: ["tasks.claim"] },
+        },
+      ],
+    };
+
+    const { claimed } = factoryClaimTick(
+      doc,
+      "c",
+      resolverFor([denied, admitted]),
+    );
+
+    expect(claimed).toEqual([{ taskId: "i1", actor: admitted }]);
+  });
+
   it("one executable seat gets no backlog through canvas aliases", () => {
     const withRole = (id: string) => ({
       ...seat(id, "actor"),

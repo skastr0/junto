@@ -1,4 +1,5 @@
 import { ulid } from "ulid";
+import { Either } from "effect";
 import type { Task, CanvasDoc, CanvasNode } from "./canvas";
 import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf, makeUserMessage, taskBrief } from "./task";
@@ -8,7 +9,13 @@ import {
   workRoleOf,
   type ActorRefResolver,
 } from "./attention";
-import { resolveSpec, roleOf } from "./physics/kinds";
+import {
+  admitPure,
+  asNodeId,
+  canvasDocToCapabilityView,
+  resolveSpec,
+  roleOf,
+} from "./physics";
 import type { ActorRef } from "./work-protocol";
 
 /**
@@ -84,20 +91,7 @@ export const factoryClaimTick = (
   ]);
   const isPausedSeat = opts?.seatPaused ?? (() => false);
   const actorEligible = opts?.actorEligible ?? (() => true);
-
-  const byId = new Map(next.nodes.map((n) => [n.id, n] as const));
-
-  // Undirected adjacency from edges.
-  const neighbors = new Map<string, Set<string>>();
-  const link = (a: string, b: string) => {
-    const sa = neighbors.get(a) ?? new Set<string>();
-    sa.add(b);
-    neighbors.set(a, sa);
-    const sb = neighbors.get(b) ?? new Set<string>();
-    sb.add(a);
-    neighbors.set(b, sb);
-  };
-  for (const edge of next.edges) link(edge.fromNode, edge.toNode);
+  const capabilityView = canvasDocToCapabilityView(doc);
 
   for (const node of next.nodes) {
     if (!isTaskSink(node)) continue;
@@ -107,11 +101,19 @@ export const factoryClaimTick = (
     const open = items.filter((t) => t.state === "submitted" && !claimedByOf(t));
     if (open.length === 0) continue;
 
-    const peerIds = [...(neighbors.get(node.id) ?? [])];
-    const freeActors = peerIds
-      .map((id) => byId.get(id))
-      .filter((n): n is CanvasNode => n !== undefined && isActor(n))
+    const freeActors = next.nodes
+      .filter(isActor)
       .filter(actorEligible)
+      .filter((actor) =>
+        Either.isRight(
+          admitPure(
+            capabilityView,
+            asNodeId(actor.id),
+            asNodeId(node.id),
+            "tasks.claim",
+          ),
+        )
+      )
       .flatMap((node) => {
         const actor = resolveCompiledActorRef(
           resolveActorRef,
@@ -176,8 +178,6 @@ export const factoryClaimTick = (
         } catch {
           // Actor may not admit messages (illegal_kind) — claim still stands.
         }
-        // Refresh byId for subsequent claims on same doc generation.
-        for (const n of next.nodes) byId.set(n.id, n);
       } catch {
         // claim_contention / illegal — skip
       }
