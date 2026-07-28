@@ -138,6 +138,128 @@ const assertForeignKeys = (database: DatabaseSync): void => {
   }
 };
 
+type ExpandColumn = {
+  readonly name: string;
+  readonly type: string;
+  readonly notNull: number;
+  readonly defaultValue: string | null;
+  readonly primaryKey: number;
+  readonly hidden: number;
+};
+
+type ExpandSchemaSnapshot = {
+  readonly tables: ReadonlyMap<string, ReadonlyMap<string, ExpandColumn>>;
+  readonly retainedObjects: ReadonlyMap<string, string | null>;
+};
+
+const expandSchemaSnapshot = (
+  database: DatabaseSync,
+): ExpandSchemaSnapshot => {
+  const objects = database
+    .prepare(
+      `
+        SELECT type, name, sql
+        FROM sqlite_schema
+        WHERE type IN ('table', 'index', 'view', 'trigger')
+          AND name NOT GLOB 'sqlite_*'
+        ORDER BY type COLLATE BINARY, name COLLATE BINARY
+      `,
+    )
+    .all() as unknown as ReadonlyArray<{
+      readonly type: SQLOutputValue;
+      readonly name: SQLOutputValue;
+      readonly sql: SQLOutputValue;
+    }>;
+  const tables = new Map<string, ReadonlyMap<string, ExpandColumn>>();
+  const retainedObjects = new Map<string, string | null>();
+  for (const object of objects) {
+    const type = String(object.type);
+    const name = String(object.name);
+    if (type !== "table") {
+      retainedObjects.set(
+        `${type}:${name}`,
+        object.sql === null ? null : String(object.sql),
+      );
+      continue;
+    }
+    const columns = database
+      .prepare(
+        `
+          SELECT
+            name,
+            type,
+            "notnull" AS not_null,
+            dflt_value AS default_value,
+            pk AS primary_key,
+            hidden
+          FROM pragma_table_xinfo(?)
+          ORDER BY cid
+        `,
+      )
+      .all(name) as unknown as ReadonlyArray<{
+        readonly name: SQLOutputValue;
+        readonly type: SQLOutputValue;
+        readonly not_null: SQLOutputValue;
+        readonly default_value: SQLOutputValue;
+        readonly primary_key: SQLOutputValue;
+        readonly hidden: SQLOutputValue;
+      }>;
+    tables.set(
+      name,
+      new Map(
+        columns.map((column) => [
+          String(column.name),
+          {
+            name: String(column.name),
+            type: String(column.type),
+            notNull: Number(column.not_null),
+            defaultValue:
+              column.default_value === null
+                ? null
+                : String(column.default_value),
+            primaryKey: Number(column.primary_key),
+            hidden: Number(column.hidden),
+          },
+        ]),
+      ),
+    );
+  }
+  return { tables, retainedObjects };
+};
+
+const assertExpandSchemaPreserved = (
+  before: ExpandSchemaSnapshot,
+  database: DatabaseSync,
+): void => {
+  const after = expandSchemaSnapshot(database);
+  for (const [tableName, beforeColumns] of before.tables) {
+    const afterColumns = after.tables.get(tableName);
+    if (afterColumns === undefined) {
+      throw new Error(
+        `state schema startup migration removed table ${tableName}`,
+      );
+    }
+    for (const [columnName, beforeColumn] of beforeColumns) {
+      const afterColumn = afterColumns.get(columnName);
+      if (
+        afterColumn === undefined ||
+        JSON.stringify(afterColumn) !== JSON.stringify(beforeColumn)
+      ) {
+        throw new Error(
+          `state schema startup migration changed durable column ${tableName}.${columnName}`,
+        );
+      }
+    }
+  }
+  for (const [key, sql] of before.retainedObjects) {
+    if (after.retainedObjects.get(key) !== sql) {
+      throw new Error(
+        `state schema startup migration changed durable ${key}`,
+      );
+    }
+  }
+};
+
 const destructiveMigrationActions = new Set<number>([
   constants.SQLITE_DELETE,
   constants.SQLITE_DROP_INDEX,
@@ -187,6 +309,7 @@ const runMigrationStep = (
   database: DatabaseSync,
   migration: StateSchemaMigration,
 ): void => {
+  const before = expandSchemaSnapshot(database);
   const connection: StateSchemaMigrationDatabase = {
     exec: (sql) => {
       assertExpandOnlyMigrationSql(sql);
@@ -197,10 +320,21 @@ const runMigrationStep = (
       return database.prepare(sql, options);
     },
   };
-  database.setAuthorizer((actionCode, arg1) =>
+  database.setAuthorizer((actionCode, arg1, arg2) =>
     actionCode === constants.SQLITE_TRANSACTION ||
       actionCode === constants.SQLITE_SAVEPOINT ||
       destructiveMigrationActions.has(actionCode) ||
+      (
+        actionCode === constants.SQLITE_INSERT &&
+        arg1 !== null &&
+        before.tables.has(arg1)
+      ) ||
+      (
+        actionCode === constants.SQLITE_UPDATE &&
+        arg1 !== null &&
+        arg2 !== null &&
+        before.tables.get(arg1)?.has(arg2) === true
+      ) ||
       (
         actionCode === constants.SQLITE_PRAGMA &&
         arg1 !== null &&
@@ -211,6 +345,7 @@ const runMigrationStep = (
   );
   try {
     migration.migrate(connection);
+    assertExpandSchemaPreserved(before, database);
   } finally {
     database.setAuthorizer(null);
   }

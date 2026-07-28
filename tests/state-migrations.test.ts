@@ -170,7 +170,9 @@ describe("State schema migrations", () => {
         migrationPlan((connection) => {
           connection.exec(`
             ALTER TABLE migration_items
-            ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated'
+            ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated';
+            UPDATE migration_items
+            SET note = 'copied:' || payload
           `);
         }),
       );
@@ -193,7 +195,7 @@ describe("State schema migrations", () => {
         {
           id: "preserved",
           payload: "before",
-          note: "migrated",
+          note: "copied:before",
         },
       ]);
     } finally {
@@ -273,8 +275,9 @@ describe("State schema migrations", () => {
             connection.exec(`
               ALTER TABLE migration_items
               ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated';
-              INSERT INTO migration_items(id, payload, note)
-              VALUES ('transient', 'during', 'migration');
+              UPDATE migration_items
+              SET note = 'transient'
+              WHERE id = 'preserved';
             `);
             throw new Error("synthetic migration failure");
           }),
@@ -316,6 +319,14 @@ describe("State schema migrations", () => {
 
   it.each([
     ["row deletion", "DELETE FROM migration_items"],
+    [
+      "existing row insertion",
+      "INSERT INTO migration_items(id, payload) VALUES ('second', 'new')",
+    ],
+    [
+      "existing column rewrite",
+      "UPDATE migration_items SET payload = 'lost'",
+    ],
     ["table removal", "DROP TABLE migration_items"],
     [
       "table rename",
@@ -359,11 +370,10 @@ describe("State schema migrations", () => {
         migrateStateSchema(
           database,
           migrationPlan((connection) => {
-            connection
-              .prepare(
-                "UPDATE migration_items SET payload = ? WHERE id = ?",
-              )
-              .run("changed", "preserved");
+            connection.exec(`
+              ALTER TABLE migration_items
+              ADD COLUMN unexpected TEXT
+            `);
           }),
         )
       ).toThrow("state schema identity mismatch");
