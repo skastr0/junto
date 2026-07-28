@@ -31,11 +31,15 @@ import {
   modeString,
   observeSpawnedRuntimeLease,
   parseDoctorReceipt,
+  parsePackagedStationStatus,
   parseProcessRows,
   processRoles,
   survivingProcessRows,
   terminateSpawnedRuntime,
 } from "../scripts/packaged-runtime-smoke";
+import { STATION_API_PROTOCOL } from "../src/shared/station-api";
+import { STATION_CONTROL_PROTOCOL } from "../src/shared/station-api-envelope";
+import { STATION_SESSION_PROTOCOL } from "../src/shared/station-session";
 import {
   createAppProcessPlane,
   type AppProcessLease,
@@ -215,6 +219,53 @@ describe("packaged runtime smoke receipts", () => {
     expect(() =>
       parseDoctorReceipt('{"ok":true,"data":{"status":"ok"},"extra":true}'),
     ).toThrow(/wrong doctor envelope/u);
+  });
+
+  it("accepts one correlated owner-local Station status response", () => {
+    const response = `${JSON.stringify({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "response",
+      requestId: "packaged-runtime-status",
+      envelope: {
+        protocol: STATION_CONTROL_PROTOCOL,
+        ok: true,
+        response: {
+          protocol: STATION_API_PROTOCOL,
+          op: "status",
+          installationId: "remote-01",
+          state: "unenrolled",
+          receivedThrough: [],
+          peerAcknowledgedThrough: [],
+          readiness: {
+            database: true,
+            workControl: true,
+            simulation: false,
+            session: true,
+          },
+          observedAt: "2026-07-28T12:00:00.000Z",
+        },
+      },
+    })}\n`;
+
+    expect(parsePackagedStationStatus(response)).toMatchObject({
+      protocol: STATION_API_PROTOCOL,
+      op: "status",
+      installationId: "remote-01",
+      state: "unenrolled",
+    });
+    expect(() =>
+      parsePackagedStationStatus(
+        response.replace(
+          '"packaged-runtime-status"',
+          '"another-request"',
+        ),
+      )
+    ).toThrow(/wrong status response/u);
+    expect(() =>
+      parsePackagedStationStatus(
+        response.replace('"ok":true', '"ok":false'),
+      )
+    ).toThrow();
   });
 
   it("normalizes owner-only modes and treats lsof exit 1 plus empty output as no listener", () => {

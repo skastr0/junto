@@ -20,7 +20,6 @@ import {
   stationControlDir,
   stationControlSocketPath,
 } from "../src/shared/station-ssh-control";
-import { STATION_API_PROTOCOL } from "../src/shared/station-api";
 import {
   createAppProcessPlane,
   type AppProcessLease,
@@ -36,6 +35,7 @@ import {
   processRoles,
   survivingProcessRows,
   terminateSpawnedRuntime,
+  verifyPackagedStationOwnerLocalHandoff,
   type ProcessRow,
 } from "./packaged-runtime-smoke";
 import { findSecretBearingOutput } from "./linux-ci-evidence";
@@ -445,31 +445,23 @@ export const smokeLinuxCiPackagedRuntime = async (
       }
     }
 
-    const stationStatus = runFixed(
+    const stationStatus = await verifyPackagedStationOwnerLocalHandoff(
+      processPlane,
       stationCli,
-      [],
-      environment,
-      `${JSON.stringify({
-        protocol: STATION_API_PROTOCOL,
-        op: "status",
-      })}\n`,
+      {
+        cwd: tempRoot,
+        env: environment,
+        timeoutMs: 15_000,
+      },
     );
-    if (stationStatus.status !== 1) {
-      throw new Error("packaged station CLI direct invocation was not denied");
-    }
-    const stationEnvelope = JSON.parse(stationStatus.stdout) as {
-      readonly ok?: unknown;
-      readonly error?: {
-        readonly code?: unknown;
-        readonly retryable?: unknown;
-      };
-    };
     if (
-      stationEnvelope.ok !== false ||
-      stationEnvelope.error?.code !== "authorization_denied" ||
-      stationEnvelope.error.retryable !== false
+      stationStatus.state !== "unenrolled" ||
+      !stationStatus.readiness.database ||
+      !stationStatus.readiness.session
     ) {
-      throw new Error("packaged station CLI did not enforce SSH authority");
+      throw new Error(
+        "packaged station CLI owner-local status was not ready",
+      );
     }
 
     const pids = runtimeRows.map((row) => String(row.pid));

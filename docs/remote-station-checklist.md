@@ -49,8 +49,10 @@ be shown as last acknowledged truth, but never as live health.
    - database, work control, and simulation are ready.
 6. Confirm SSH invoked only fixed `vellum-station`, and the helper relayed to
    the running app instead of opening or writing the database. Invoke the same
-   helper directly on the Remote and confirm `authorization_denied`: owner UID
-   and socket mode alone are not Station authority.
+   helper directly as the enrolled operator account and confirm a strict
+   correlated `status` response over the owner-local socket. This handoff does
+   not claim to preserve the original SSH peer; Remote main still validates
+   pairing, target, verb, transition, and work authority.
 
 Pairing another Command Center, configuring a different installation identity,
 or changing role through a settings surface must fail closed.

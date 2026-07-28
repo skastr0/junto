@@ -14,6 +14,7 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Either } from "effect";
 import {
   controlDir,
   controlSocketPath,
@@ -23,7 +24,14 @@ import {
   stationControlDir,
   stationControlSocketPath,
 } from "../src/shared/station-ssh-control";
-import { STATION_API_PROTOCOL } from "../src/shared/station-api";
+import {
+  STATION_API_PROTOCOL,
+  type StatusResponse,
+} from "../src/shared/station-api";
+import {
+  STATION_SESSION_PROTOCOL,
+  decodeStationSessionFrame,
+} from "../src/shared/station-session";
 import {
   createAppProcessPlane,
   type AppChildIo,
@@ -36,6 +44,7 @@ const SMOKE_TIMEOUT_MS = 45_000;
 const STARTUP_TIMEOUT_MS = 25_000;
 const SHUTDOWN_TIMEOUT_MS = 7_000;
 const CHILD_OUTPUT_LIMIT_BYTES = 64 * 1024;
+const PACKAGED_STATION_STATUS_REQUEST_ID = "packaged-runtime-status";
 const REQUIRED_PROCESS_ROLES = ["gpu-process", "main", "renderer", "utility"] as const;
 // Darwin's sockaddr_un.sun_path is 104 bytes including the trailing NUL.
 export const DARWIN_UNIX_SOCKET_PATH_MAX_BYTES = 103;
@@ -234,6 +243,165 @@ const runFixed = (
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
   };
+};
+
+export const parsePackagedStationStatus = (
+  output: string,
+  expectedRequestId: string = PACKAGED_STATION_STATUS_REQUEST_ID,
+): StatusResponse => {
+  const lines = output
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (lines.length !== 1) {
+    throw new Error(
+      "packaged vellum-station returned the wrong response count",
+    );
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(lines[0]);
+  } catch {
+    throw new Error("packaged vellum-station returned non-JSON output");
+  }
+  const decoded = decodeStationSessionFrame(raw);
+  if (Either.isLeft(decoded)) {
+    throw new Error(
+      "packaged vellum-station returned a malformed session frame",
+    );
+  }
+  const frame = decoded.right;
+  if (
+    frame.frame !== "response" ||
+    frame.requestId !== expectedRequestId ||
+    !frame.envelope.ok ||
+    frame.envelope.response.op !== "status"
+  ) {
+    throw new Error(
+      "packaged vellum-station returned the wrong status response",
+    );
+  }
+  return frame.envelope.response;
+};
+
+export const verifyPackagedStationOwnerLocalHandoff = async (
+  processPlane: AppProcessPlane,
+  stationCli: string,
+  options: {
+    readonly cwd: string;
+    readonly env: NodeJS.ProcessEnv;
+    readonly timeoutMs?: number;
+  },
+): Promise<StatusResponse> => {
+  const lease = processPlane.spawnChild({
+    source: "packaged-runtime-smoke",
+    purpose: "verify packaged Station owner-local handoff",
+    command: stationCli,
+    cwd: options.cwd,
+    env: options.env,
+    shell: false,
+    isolateProcessGroup: true,
+  });
+  const lifecycle = observeSpawnedRuntimeLease(lease);
+  let stdout = "";
+  let stderr = "";
+  let responseObserved = false;
+  let settleResponse!: () => void;
+  let rejectResponse!: (error: Error) => void;
+  const response = new Promise<void>((resolve, reject) => {
+    settleResponse = resolve;
+    rejectResponse = reject;
+  });
+  const observeBounded = (
+    current: string,
+    chunk: Buffer | string,
+  ): string => {
+    const next = `${current}${String(chunk)}`;
+    if (Buffer.byteLength(next, "utf8") > CHILD_OUTPUT_LIMIT_BYTES) {
+      rejectResponse(
+        new Error("packaged vellum-station exceeded its output bound"),
+      );
+    }
+    return next;
+  };
+  const onStdout = (chunk: Buffer | string): void => {
+    stdout = observeBounded(stdout, chunk);
+    if (!responseObserved && /\r?\n/u.test(stdout)) {
+      responseObserved = true;
+      settleResponse();
+    }
+  };
+  const onStderr = (chunk: Buffer | string): void => {
+    stderr = observeBounded(stderr, chunk);
+  };
+  lease.io.stdout.on("data", onStdout);
+  lease.io.stderr.on("data", onStderr);
+  const removeErrorListener = lease.io.onError((error) =>
+    rejectResponse(error)
+  );
+  const removeCloseListener = lease.io.onClose(() => {
+    if (!responseObserved) {
+      rejectResponse(
+        new Error("packaged vellum-station closed before its response"),
+      );
+    }
+  });
+  const timeout = setTimeout(
+    () =>
+      rejectResponse(
+        new Error("packaged vellum-station status response timed out"),
+      ),
+    options.timeoutMs ?? 15_000,
+  );
+  timeout.unref();
+
+  try {
+    lease.io.stdin.write(
+      `${JSON.stringify({
+        protocol: STATION_SESSION_PROTOCOL,
+        frame: "request",
+        requestId: PACKAGED_STATION_STATUS_REQUEST_ID,
+        request: {
+          protocol: STATION_API_PROTOCOL,
+          op: "status",
+        },
+      })}\n`,
+    );
+    await response;
+    const status = parsePackagedStationStatus(stdout);
+    lease.io.stdin.end();
+    const terminal = await lifecycle.waitForClose(
+      options.timeoutMs ?? 15_000,
+    );
+    if (
+      terminal.error !== undefined ||
+      terminal.code !== 0 ||
+      terminal.signal !== null ||
+      stderr.trim().length > 0
+    ) {
+      throw new Error(
+        "packaged vellum-station did not complete its owner-local handoff",
+      );
+    }
+    parsePackagedStationStatus(stdout);
+    return status;
+  } catch (error) {
+    lease.io.stdin.end();
+    await terminateSpawnedRuntime(
+      processPlane,
+      lifecycle,
+      lease,
+      options.timeoutMs ?? 15_000,
+    ).catch(() => undefined);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    lease.io.stdout.off("data", onStdout);
+    lease.io.stderr.off("data", onStderr);
+    removeErrorListener();
+    removeCloseListener();
+  }
 };
 
 const currentProcessRows = (): ReadonlyArray<ProcessRow> => {
@@ -776,33 +944,23 @@ export const smokePackagedRuntime = async (
       }
     }
 
-    const stationStatus = runFixed(stationCli, [], {
-      env: childEnvironment,
-      timeout: 15_000,
-      input: `${JSON.stringify({
-        protocol: STATION_API_PROTOCOL,
-        op: "status",
-      })}\n`,
-    });
-    // A direct same-account invocation is deliberately not Station authority.
-    // Only the fixed executable running beneath authenticated system sshd may
-    // cross the owner-local UDS. The full remote E2E proves the admitted path.
-    if (stationStatus.status !== 1) {
-      throw new Error("packaged vellum-station direct invocation was not denied");
-    }
-    const stationEnvelope = JSON.parse(stationStatus.stdout) as {
-      readonly ok?: unknown;
-      readonly error?: {
-        readonly code?: unknown;
-        readonly retryable?: unknown;
-      };
-    };
+    const stationStatus = await verifyPackagedStationOwnerLocalHandoff(
+      processPlane,
+      stationCli,
+      {
+        cwd: tempRoot,
+        env: childEnvironment,
+        timeoutMs: 15_000,
+      },
+    );
     if (
-      stationEnvelope.ok !== false ||
-      stationEnvelope.error?.code !== "authorization_denied" ||
-      stationEnvelope.error.retryable !== false
+      stationStatus.state !== "unenrolled" ||
+      !stationStatus.readiness.database ||
+      !stationStatus.readiness.session
     ) {
-      throw new Error("packaged vellum-station did not enforce SSH authority");
+      throw new Error(
+        "packaged vellum-station owner-local status was not ready",
+      );
     }
 
     let runtimeRows: ReadonlyArray<ProcessRow> = [];
