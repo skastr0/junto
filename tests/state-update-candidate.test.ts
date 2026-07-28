@@ -2,12 +2,13 @@ import { existsSync, lstatSync } from "node:fs";
 import {
   mkdtemp,
   mkdir,
+  readFile,
   readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -94,6 +95,9 @@ describe("state update candidate", () => {
     expect(candidate.source.backup.path).not.toBe(candidate.databasePath);
     expect(lstatSync(candidate.source.backup.path).mode & 0o777).toBe(0o600);
     expect(lstatSync(candidate.databasePath).mode & 0o777).toBe(0o600);
+    expect(await readdir(join(layout.stateDirectory, "backups"))).toEqual([
+      basename(candidate.source.backup.path),
+    ]);
 
     const clone = new DatabaseSync(candidate.databasePath);
     try {
@@ -129,6 +133,130 @@ describe("state update candidate", () => {
     await Effect.runPromise(releaseStateUpdateCandidate(candidate));
     expect(existsSync(candidate.directoryPath)).toBe(false);
     expect(existsSync(candidate.source.backup.path)).toBe(true);
+  });
+
+  it("reconciles only recognized interrupted update artifacts", async () => {
+    const layout = await makeRoot();
+    seedVersionOne(layout.databasePath);
+    candidateSource.path = layout.databasePath;
+
+    const first = await Effect.runPromise(prepareStateUpdateCandidate());
+    if (first.source._tag !== "installed") {
+      throw new Error("expected installed source");
+    }
+    const retainedBackup = first.source.backup.path;
+    const retainedBytes = await readFile(retainedBackup);
+    await Effect.runPromise(releaseStateUpdateCandidate(first));
+
+    const pendingBackup = join(
+      layout.stateDirectory,
+      "backups",
+      "vellum-backup-11111111-1111-4111-8111-111111111111.db.pending",
+    );
+    await writeFile(pendingBackup, "interrupted backup", { mode: 0o600 });
+    const versionOneLookalike = join(
+      layout.stateDirectory,
+      "backups",
+      "vellum-backup-11111111-1111-1111-8111-111111111111.db.pending",
+    );
+    const versionFiveLookalike = join(
+      layout.stateDirectory,
+      "backups",
+      "vellum-backup-55555555-5555-5555-8555-555555555555.db.pending",
+    );
+    await writeFile(versionOneLookalike, "not minted by Vellum", {
+      mode: 0o600,
+    });
+    await writeFile(versionFiveLookalike, "not minted by Vellum", {
+      mode: 0o600,
+    });
+
+    const candidatesRoot = join(
+      layout.stateDirectory,
+      "update-candidates",
+    );
+    const orphan = join(
+      candidatesRoot,
+      "22222222-2222-4222-8222-222222222222",
+    );
+    await mkdir(join(orphan, "backups"), { recursive: true });
+    await writeFile(join(orphan, "vellum.db"), "interrupted clone", {
+      mode: 0o600,
+    });
+    await writeFile(
+      join(
+        orphan,
+        "backups",
+        "vellum-backup-33333333-3333-4333-8333-333333333333.db.pending",
+      ),
+      "interrupted clone backup",
+      { mode: 0o600 },
+    );
+
+    const unrelated = join(candidatesRoot, "operator-note");
+    await mkdir(unrelated);
+    const witness = join(unrelated, "must-survive");
+    await writeFile(witness, "not a Vellum candidate");
+    const versionOneCandidate = join(
+      candidatesRoot,
+      "11111111-1111-1111-8111-111111111111",
+    );
+    const versionFiveCandidate = join(
+      candidatesRoot,
+      "55555555-5555-5555-8555-555555555555",
+    );
+    await mkdir(versionOneCandidate);
+    await mkdir(versionFiveCandidate);
+    const versionOneWitness = join(versionOneCandidate, "must-survive");
+    const versionFiveWitness = join(versionFiveCandidate, "must-survive");
+    await writeFile(versionOneWitness, "not a minted candidate");
+    await writeFile(versionFiveWitness, "not a minted candidate");
+
+    const second = await Effect.runPromise(prepareStateUpdateCandidate());
+
+    expect(existsSync(pendingBackup)).toBe(false);
+    expect(existsSync(orphan)).toBe(false);
+    expect(await readFile(retainedBackup)).toEqual(retainedBytes);
+    expect(await readFile(witness, "utf8")).toBe("not a Vellum candidate");
+    expect(await readFile(versionOneLookalike, "utf8")).toBe(
+      "not minted by Vellum",
+    );
+    expect(await readFile(versionFiveLookalike, "utf8")).toBe(
+      "not minted by Vellum",
+    );
+    expect(await readFile(versionOneWitness, "utf8")).toBe(
+      "not a minted candidate",
+    );
+    expect(await readFile(versionFiveWitness, "utf8")).toBe(
+      "not a minted candidate",
+    );
+
+    await Effect.runPromise(releaseStateUpdateCandidate(second));
+  });
+
+  it("preserves and rejects an unrecognized entry inside an orphan candidate", async () => {
+    const layout = await makeRoot();
+    candidateSource.path = layout.databasePath;
+    const orphan = join(
+      layout.stateDirectory,
+      "update-candidates",
+      "44444444-4444-4444-8444-444444444444",
+    );
+    await mkdir(orphan, { recursive: true });
+    const witness = join(orphan, "operator-data");
+    await writeFile(witness, "must survive");
+
+    const exit = await Effect.runPromise(
+      Effect.exit(prepareStateUpdateCandidate()),
+    );
+
+    expect(exit._tag).toBe("Failure");
+    if (exit._tag === "Failure") {
+      expect(String(exit.cause)).toContain(
+        "state update candidate contains an unexpected entry",
+      );
+    }
+    expect(await readFile(witness, "utf8")).toBe("must survive");
   });
 
   it("prepares a fresh disposable database without manufacturing a backup", async () => {

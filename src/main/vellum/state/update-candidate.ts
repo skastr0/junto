@@ -9,12 +9,17 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
-  rmSync,
+  readdirSync,
+  rmdirSync,
+  unlinkSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Schema } from "effect";
-import { createVerifiedStateBackup } from "./backup";
+import {
+  createVerifiedStateBackup,
+  reconcilePendingStateBackups,
+} from "./backup";
 import { stateDatabasePath } from "./engine";
 import type { StateBackupReceipt } from "./service";
 
@@ -22,6 +27,17 @@ const STATE_DIRECTORY_MODE = 0o700;
 const STATE_FILE_MODE = 0o600;
 const STATE_UPDATE_DIRECTORY = "update-candidates";
 const STATE_UPDATE_DATABASE = "vellum.db";
+const STATE_UPDATE_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const STATE_UPDATE_FILES = new Set([
+  STATE_UPDATE_DATABASE,
+  `${STATE_UPDATE_DATABASE}-journal`,
+  `${STATE_UPDATE_DATABASE}-shm`,
+  `${STATE_UPDATE_DATABASE}-wal`,
+]);
+const STATE_UPDATE_BACKUP_DIRECTORY = "backups";
+const STATE_UPDATE_BACKUP_FILE =
+  /^vellum-backup-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.db(?:\.pending)?$/u;
 
 const UpdateId = Schema.UUID.pipe(Schema.brand("StateUpdateId"));
 export type StateUpdateId = typeof UpdateId.Type;
@@ -50,7 +66,7 @@ export type PreparedStateUpdateCandidate = {
 };
 
 /**
- * Runtime authority for recursive candidate disposal.
+ * Runtime authority for exact candidate disposal.
  *
  * `PreparedStateUpdateCandidate` remains readable by repository preflight
  * code, but a structurally similar object can never authorize filesystem
@@ -58,11 +74,17 @@ export type PreparedStateUpdateCandidate = {
  */
 const releasableCandidates = new WeakMap<
   object,
-  {
-    readonly device: number | bigint;
-    readonly inode: number | bigint;
-  }
+  CandidateDirectoryIdentity
 >();
+
+type CandidateDirectoryIdentity = {
+  readonly device: number | bigint;
+  readonly inode: number | bigint;
+};
+
+type CandidateFileAuthority = CandidateDirectoryIdentity & {
+  readonly path: string;
+};
 
 const admitCandidateCleanup = (
   candidate: PreparedStateUpdateCandidate,
@@ -96,6 +118,141 @@ const assertRealDirectory = (path: string): void => {
     throw new Error(`state update path is not a real directory: ${path}`);
   }
   chmodSync(path, STATE_DIRECTORY_MODE);
+};
+
+const removeDisposableCandidateDirectory = (
+  path: string,
+  identity: CandidateDirectoryIdentity,
+): void => {
+  const root = lstatSync(path);
+  if (
+    !root.isDirectory() ||
+    root.isSymbolicLink() ||
+    root.dev !== identity.device ||
+    root.ino !== identity.inode
+  ) {
+    throw new Error(
+      "state update candidate cleanup root changed identity",
+    );
+  }
+
+  const entries = readdirSync(path);
+  const files: CandidateFileAuthority[] = [];
+  let backupDirectory:
+    | (CandidateDirectoryIdentity & { readonly path: string })
+    | undefined;
+  for (const entry of entries) {
+    if (entry === STATE_UPDATE_BACKUP_DIRECTORY) {
+      const backupPath = join(path, entry);
+      const directory = lstatSync(backupPath);
+      if (!directory.isDirectory() || directory.isSymbolicLink()) {
+        throw new Error(
+          "state update candidate backup path is not a real directory",
+        );
+      }
+      backupDirectory = {
+        path: backupPath,
+        device: directory.dev,
+        inode: directory.ino,
+      };
+      for (const backupEntry of readdirSync(backupPath)) {
+        if (!STATE_UPDATE_BACKUP_FILE.test(backupEntry)) {
+          throw new Error(
+            `state update candidate backup contains an unexpected entry: ${backupEntry}`,
+          );
+        }
+        const candidateBackupPath = join(backupPath, backupEntry);
+        const backup = lstatSync(candidateBackupPath);
+        if (!backup.isFile() || backup.isSymbolicLink()) {
+          throw new Error(
+            `state update candidate backup is not a regular file: ${backupEntry}`,
+          );
+        }
+        files.push({
+          path: candidateBackupPath,
+          device: backup.dev,
+          inode: backup.ino,
+        });
+      }
+      continue;
+    }
+    if (!STATE_UPDATE_FILES.has(entry)) {
+      throw new Error(
+        `state update candidate contains an unexpected entry: ${entry}`,
+      );
+    }
+    const candidateFile = join(path, entry);
+    const linked = lstatSync(candidateFile);
+    if (!linked.isFile() || linked.isSymbolicLink()) {
+      throw new Error(
+        `state update candidate entry is not a regular file: ${entry}`,
+      );
+    }
+    files.push({
+      path: candidateFile,
+      device: linked.dev,
+      inode: linked.ino,
+    });
+  }
+  for (const file of files) {
+    const linked = lstatSync(file.path);
+    if (
+      !linked.isFile() ||
+      linked.isSymbolicLink() ||
+      linked.dev !== file.device ||
+      linked.ino !== file.inode
+    ) {
+      throw new Error(
+        "state update candidate entry changed identity",
+      );
+    }
+    unlinkSync(file.path);
+  }
+  if (backupDirectory !== undefined) {
+    const directory = lstatSync(backupDirectory.path);
+    if (
+      !directory.isDirectory() ||
+      directory.isSymbolicLink() ||
+      directory.dev !== backupDirectory.device ||
+      directory.ino !== backupDirectory.inode
+    ) {
+      throw new Error(
+        "state update candidate backup path changed identity",
+      );
+    }
+    rmdirSync(backupDirectory.path);
+  }
+  const current = lstatSync(path);
+  if (
+    !current.isDirectory() ||
+    current.isSymbolicLink() ||
+    current.dev !== identity.device ||
+    current.ino !== identity.inode
+  ) {
+    throw new Error(
+      "state update candidate cleanup root changed identity",
+    );
+  }
+  rmdirSync(path);
+};
+
+const reconcileOrphanedStateUpdateCandidates = (
+  candidatesRoot: string,
+): void => {
+  for (const entry of readdirSync(candidatesRoot)) {
+    if (!STATE_UPDATE_ID.test(entry)) continue;
+    const directoryPath = join(candidatesRoot, entry);
+    const root = lstatSync(directoryPath);
+    if (!root.isDirectory() || root.isSymbolicLink()) {
+      throw new Error(
+        "state update candidate cleanup root is not a real directory",
+      );
+    }
+    removeDisposableCandidateDirectory(directoryPath, {
+      device: root.dev,
+      inode: root.ino,
+    });
+  }
 };
 
 const assertRegularOrMissing = (path: string): boolean => {
@@ -185,6 +342,8 @@ export const prepareStateUpdateCandidate = (): Effect.Effect<
         STATE_UPDATE_DIRECTORY,
       );
       assertRealDirectory(candidatesRoot);
+      reconcilePendingStateBackups(stateDirectory);
+      reconcileOrphanedStateUpdateCandidates(candidatesRoot);
 
       const id = Schema.decodeUnknownSync(UpdateId)(randomUUID());
       const directoryPath = join(candidatesRoot, id);
@@ -192,6 +351,11 @@ export const prepareStateUpdateCandidate = (): Effect.Effect<
         recursive: false,
         mode: STATE_DIRECTORY_MODE,
       });
+      const directory = lstatSync(directoryPath);
+      const directoryIdentity = {
+        device: directory.dev,
+        inode: directory.ino,
+      };
       const databasePath = join(directoryPath, STATE_UPDATE_DATABASE);
 
       try {
@@ -244,7 +408,10 @@ export const prepareStateUpdateCandidate = (): Effect.Effect<
         admitCandidateCleanup(candidate);
         return candidate;
       } catch (error) {
-        rmSync(directoryPath, { recursive: true, force: true });
+        removeDisposableCandidateDirectory(
+          directoryPath,
+          directoryIdentity,
+        );
         throw error;
       }
     },
@@ -285,10 +452,10 @@ export const releaseStateUpdateCandidate = (
           "state update candidate cleanup root changed identity",
         );
       }
-      rmSync(candidate.directoryPath, {
-        recursive: true,
-        force: true,
-      });
+      removeDisposableCandidateDirectory(
+        candidate.directoryPath,
+        authority,
+      );
       releasableCandidates.delete(candidate);
     },
     catch: (error) => candidateError("release", error),

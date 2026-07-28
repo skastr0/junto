@@ -5,9 +5,12 @@ import {
   constants,
   fchmodSync,
   fstatSync,
+  fsyncSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +21,9 @@ const STATE_DIRECTORY_MODE = 0o700;
 const STATE_FILE_MODE = 0o600;
 const STATE_BACKUP_DIRECTORY = "backups";
 const STATE_BACKUP_FILE_PREFIX = "vellum-backup-";
+const STATE_BACKUP_PENDING_SUFFIX = ".pending";
+const STATE_BACKUP_PENDING_FILE =
+  /^vellum-backup-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.db\.pending$/u;
 
 type BackupSchemaIdentity = {
   readonly actualSchemaSha256: string;
@@ -114,10 +120,72 @@ const unlinkExactBackup = (
   }
 };
 
+const unlinkKnownBackup = (
+  path: string,
+  identity: BackupFileIdentity,
+): void => {
+  const linked = lstatSync(path);
+  if (
+    !linked.isFile() ||
+    linked.isSymbolicLink() ||
+    linked.dev !== identity.device ||
+    linked.ino !== identity.inode
+  ) {
+    throw new Error(`state backup path changed before removal: ${path}`);
+  }
+  unlinkSync(path);
+};
+
+const fsyncKnownBackup = (
+  path: string,
+  identity: BackupFileIdentity,
+): void => {
+  const descriptor = openSync(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW,
+  );
+  try {
+    const opened = fstatSync(descriptor);
+    const linked = lstatSync(path);
+    if (
+      !opened.isFile() ||
+      !linked.isFile() ||
+      linked.isSymbolicLink() ||
+      opened.dev !== identity.device ||
+      opened.ino !== identity.inode ||
+      linked.dev !== identity.device ||
+      linked.ino !== identity.inode
+    ) {
+      throw new Error(`state backup path changed before sync: ${path}`);
+    }
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+};
+
+const fsyncDirectory = (path: string): void => {
+  const descriptor = openSync(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY,
+  );
+  try {
+    const opened = fstatSync(descriptor);
+    if (!opened.isDirectory()) {
+      throw new Error(`state backup path is not a real directory: ${path}`);
+    }
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+};
+
 const assertPrivateBackupDirectory = (stateDirectory: string): string => {
   const path = join(stateDirectory, STATE_BACKUP_DIRECTORY);
+  let created = false;
   try {
     mkdirSync(path, { mode: STATE_DIRECTORY_MODE });
+    created = true;
   } catch (error) {
     if (
       typeof error !== "object" ||
@@ -133,7 +201,57 @@ const assertPrivateBackupDirectory = (stateDirectory: string): string => {
     throw new Error(`state backup path is not a real directory: ${path}`);
   }
   chmodSync(path, STATE_DIRECTORY_MODE);
+  if (created) fsyncDirectory(stateDirectory);
   return path;
+};
+
+/**
+ * Remove only incomplete backup artifacts minted by this module. Final
+ * `vellum-backup-<uuid>.db` files are immutable retained evidence and are
+ * never considered cleanup candidates.
+ */
+export const reconcilePendingStateBackups = (
+  stateDirectory: string,
+): void => {
+  const backupDirectory = join(stateDirectory, STATE_BACKUP_DIRECTORY);
+  let entries: ReadonlyArray<string>;
+  try {
+    const directory = lstatSync(backupDirectory);
+    if (!directory.isDirectory() || directory.isSymbolicLink()) {
+      throw new Error(
+        `state backup path is not a real directory: ${backupDirectory}`,
+      );
+    }
+    entries = readdirSync(backupDirectory);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return;
+    }
+    throw error;
+  }
+
+  let removed = false;
+  for (const entry of entries) {
+    if (!STATE_BACKUP_PENDING_FILE.test(entry)) continue;
+    const path = join(backupDirectory, entry);
+    const linked = lstatSync(path);
+    if (!linked.isFile() || linked.isSymbolicLink()) {
+      throw new Error(
+        `pending state backup is not a regular file: ${path}`,
+      );
+    }
+    unlinkKnownBackup(path, {
+      device: linked.dev,
+      inode: linked.ino,
+    });
+    removed = true;
+  }
+  if (removed) fsyncDirectory(backupDirectory);
 };
 
 const quoteIdentifier = (identifier: string): string =>
@@ -215,34 +333,54 @@ export const createVerifiedStateBackup = (
   stateDirectory: string,
 ): StateBackupReceipt => {
   const source = readBackupWitness(database);
+  reconcilePendingStateBackups(stateDirectory);
   const backupDirectory = assertPrivateBackupDirectory(stateDirectory);
+  const backupId = randomUUID();
   const path = join(
     backupDirectory,
-    `${STATE_BACKUP_FILE_PREFIX}${randomUUID()}.db`,
+    `${STATE_BACKUP_FILE_PREFIX}${backupId}.db`,
   );
+  const pendingPath = `${path}${STATE_BACKUP_PENDING_SUFFIX}`;
   if (assertRegularOrMissing(path)) {
     throw new Error(`backup destination already exists: ${path}`);
   }
-  database.prepare("VACUUM INTO ?").run(path);
-  const created = lstatSync(path);
+  if (assertRegularOrMissing(pendingPath)) {
+    throw new Error(`backup destination already exists: ${pendingPath}`);
+  }
+  try {
+    database.prepare("VACUUM INTO ?").run(pendingPath);
+  } catch (error) {
+    if (assertRegularOrMissing(pendingPath)) {
+      const partial = lstatSync(pendingPath);
+      unlinkKnownBackup(pendingPath, {
+        device: partial.dev,
+        inode: partial.ino,
+      });
+      fsyncDirectory(backupDirectory);
+    }
+    throw error;
+  }
+  const created = lstatSync(pendingPath);
   if (!created.isFile() || created.isSymbolicLink()) {
-    throw new Error(`state backup is not a regular file: ${path}`);
+    throw new Error(`state backup is not a regular file: ${pendingPath}`);
   }
   const identity = {
     device: created.dev,
     inode: created.ino,
   };
   let backup: DatabaseSync | undefined;
-  let verified = false;
+  let published = false;
   try {
-    const secured = makeOwnerOnlyWithoutFollowing(path);
+    const secured = makeOwnerOnlyWithoutFollowing(pendingPath);
     if (
       secured.device !== identity.device ||
       secured.inode !== identity.inode
     ) {
-      throw new Error(`state backup path changed during creation: ${path}`);
+      throw new Error(
+        `state backup path changed during creation: ${pendingPath}`,
+      );
     }
-    backup = new DatabaseSync(path, {
+    backup = new DatabaseSync(pendingPath, {
       open: true,
       readOnly: true,
       allowExtension: false,
@@ -266,10 +404,29 @@ export const createVerifiedStateBackup = (
       );
     }
     assertBackupWitness(source, readBackupWitness(backup));
-    verified = true;
+    backup.close();
+    backup = undefined;
+
+    fsyncKnownBackup(pendingPath, identity);
+    if (assertRegularOrMissing(path)) {
+      throw new Error(`backup destination already exists: ${path}`);
+    }
+    linkSync(pendingPath, path);
+    const linked = lstatSync(path);
+    if (
+      !linked.isFile() ||
+      linked.isSymbolicLink() ||
+      linked.dev !== identity.device ||
+      linked.ino !== identity.inode
+    ) {
+      throw new Error(`state backup changed during publication: ${path}`);
+    }
+    unlinkKnownBackup(pendingPath, identity);
+    fsyncDirectory(backupDirectory);
+    published = true;
   } finally {
     backup?.close();
-    if (!verified) unlinkExactBackup(path, identity);
+    if (!published) unlinkExactBackup(pendingPath, identity);
   }
   return {
     path,
