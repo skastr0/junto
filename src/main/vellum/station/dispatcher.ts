@@ -13,18 +13,23 @@ import type {
 import {
   StationApiService,
   type StationApiError,
+  type StationApiPeerContext,
 } from "./api";
 import type { StationControlPeerAdmission } from "./peer-authority";
+import {
+  isStationPeerRoute,
+  type StationPeerRoute,
+} from "./peer-exchange";
 
 /**
  * Transport admission token. Opaque and non-serializable — minted only by a
  * transport adapter after it has proven the peer. OpenSSH unix-peer capture is
  * the sole producer today; HTTPS is intentionally out of scope.
  *
- * Branded via a module-private WeakSet so the token cannot be forged as JSON
- * or reconstructed across process boundaries.
+ * Branded and peer-bound via a module-private WeakMap so the token cannot be
+ * forged as JSON or reconstructed across process boundaries.
  */
-const admittedTransports = new WeakSet<object>();
+const admittedTransports = new WeakMap<object, StationApiPeerContext>();
 
 export type StationTransportAdmission = {
   readonly _tag: "StationTransportAdmission";
@@ -40,7 +45,30 @@ export const admitOpenSshPeer = (
   const admission: StationTransportAdmission = Object.freeze({
     _tag: "StationTransportAdmission" as const,
   });
-  admittedTransports.add(admission);
+  admittedTransports.set(admission, {
+    _tag: "command-center-route",
+  });
+  return admission;
+};
+
+/**
+ * Admit the Remote identity already bound into an enrolled, opaque
+ * Command Center peer route. This is the CC-side counterpart to the Remote
+ * helper admission above; callers cannot reconstruct a route from JSON.
+ */
+export const admitEnrolledStationPeer = (
+  route: StationPeerRoute,
+): StationTransportAdmission => {
+  if (!isStationPeerRoute(route)) {
+    throw new Error("cannot admit a forged Station peer route");
+  }
+  const admission: StationTransportAdmission = Object.freeze({
+    _tag: "StationTransportAdmission" as const,
+  });
+  admittedTransports.set(admission, {
+    _tag: "enrolled-remote",
+    installationId: route.peerInstallationId,
+  });
   return admission;
 };
 
@@ -71,6 +99,9 @@ export const stationControlErrorEnvelope = (
   switch (tag) {
     case "StationPersistenceError":
     case "WorkRepositoryError":
+    case "StationFleetTargetPersistenceError":
+    case "StationApiDependencyError":
+    case "CanvasError":
       code = "unavailable";
       message = "station state is temporarily unavailable";
       retryable = true;
@@ -92,6 +123,10 @@ export const stationControlErrorEnvelope = (
     case "StationMetadataError":
     case "StationApiInvariantError":
     case "StationPortfolioError":
+    case "StationFleetTargetConflictError":
+    case "StationFleetTargetHostBindingImmutableError":
+    case "StationFleetTargetMetadataError":
+    case "StationFleetTargetCorruptRecordError":
       code = "request_rejected";
       message = "station request was rejected";
       break;
@@ -113,9 +148,10 @@ export const dispatchStationApiRequest = (
   readiness: StationReadiness,
   run: RunStationApi,
 ): Promise<StationControlEnvelope> => {
-  // WeakSet membership is the non-serializable proof of mint. A reconstituted
+  // WeakMap membership is the non-serializable proof of mint. A reconstituted
   // `{ _tag: "StationTransportAdmission" }` object is denied.
-  if (!admittedTransports.has(admission)) {
+  const peer = admittedTransports.get(admission);
+  if (peer === undefined) {
     return Promise.resolve(
       stationControlErr(
         "authorization_denied",
@@ -127,7 +163,7 @@ export const dispatchStationApiRequest = (
 
   return run(
     Effect.flatMap(StationApiService, (service) =>
-      service.handle(request, readiness).pipe(Effect.either)
+      service.handle(request, readiness, peer).pipe(Effect.either)
     ),
   ).then(
     (outcome: Either.Either<StationApiResponse, unknown>) =>
