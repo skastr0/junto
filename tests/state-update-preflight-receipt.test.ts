@@ -149,6 +149,10 @@ describe("state update preflight receipt boundary", () => {
 
   it("rejects duplicate keys and every noncanonical encoding", () => {
     const canonical = JSON.stringify(installedReceipt());
+    const {
+      ready,
+      ...receiptWithoutReady
+    } = installedReceipt();
     const duplicateProtocol = canonical.replace(
       '{"protocol":"vellum-state-update-preflight/v1",',
       '{"protocol":"vellum-state-update-preflight/v1","protocol":"vellum-state-update-preflight/v1",',
@@ -163,8 +167,8 @@ describe("state update preflight receipt boundary", () => {
       ` ${canonical}`,
       `${canonical}\n`,
       JSON.stringify({
-        ready: true,
-        ...installedReceipt(),
+        ready,
+        ...receiptWithoutReady,
       }),
     ]) {
       expect(() =>
