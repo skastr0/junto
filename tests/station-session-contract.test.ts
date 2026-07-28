@@ -114,6 +114,49 @@ describe("Station session v2 frame contract", () => {
     );
   });
 
+  it("rejects a same-operation response for a different request identity", () => {
+    const pairRequest = StationSessionRequestFrame.make({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "request",
+      requestId,
+      request: {
+        protocol: STATION_API_PROTOCOL,
+        op: "pair",
+        commandCenterInstallationId,
+        stationInstallationId: installationId,
+        stationLabel: "Remote 01",
+        appVersion: "0.1.0",
+      },
+    });
+    const wrongStation = stationControlOk(
+      PairResponse.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "pair",
+        commandCenterInstallationId,
+        stationInstallationId: Schema.decodeUnknownSync(InstallationId)(
+          "remote-02",
+        ),
+        pairedAt: "2026-07-27T15:00:00.000Z",
+      }),
+    );
+    const response = StationSessionResponseFrame.make({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "response",
+      requestId,
+      envelope: wrongStation,
+    });
+
+    expect(
+      decideStationSessionCorrelation(pairRequest, response),
+    ).toEqual({
+      _tag: "response-identity-mismatch",
+      operation: "pair",
+    });
+    expect(() => stationSessionResponse(pairRequest, wrongStation)).toThrow(
+      "response-identity-mismatch",
+    );
+  });
+
   it("correlates a typed error by request ID without inventing an operation", () => {
     const response = stationSessionResponse(
       request,

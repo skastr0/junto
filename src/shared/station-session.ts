@@ -1,5 +1,9 @@
 import { Schema } from "effect";
-import { StationApiRequest } from "./station-api";
+import {
+  StationApiRequest,
+  type StationApiResponse,
+  reportResponseSwapsDirection,
+} from "./station-api";
 import { StationControlEnvelope } from "./station-api-envelope";
 
 /**
@@ -57,7 +61,37 @@ export type StationSessionCorrelationDecision =
       readonly _tag: "operation-mismatch";
       readonly requestOperation: StationApiRequest["op"];
       readonly responseOperation: StationApiRequest["op"];
+    }
+  | {
+      readonly _tag: "response-identity-mismatch";
+      readonly operation: StationApiRequest["op"];
     };
+
+const responseIdentityMatchesRequest = (
+  request: StationApiRequest,
+  response: StationApiResponse,
+): boolean => {
+  switch (request.op) {
+    case "pair":
+      return response.op === "pair" &&
+        response.commandCenterInstallationId ===
+          request.commandCenterInstallationId &&
+        response.stationInstallationId === request.stationInstallationId;
+    case "configure":
+      return response.op === "configure" &&
+        response.installationId === request.installationId;
+    case "project":
+      return response.op === "project" &&
+        response.stationInstallationId === request.stationInstallationId;
+    case "report":
+      return response.op === "report" &&
+        reportResponseSwapsDirection(request, response);
+    case "status":
+      // StatusRequest deliberately carries no target. The admitted peer
+      // session validates response.installationId against its enrolled peer.
+      return response.op === "status";
+  }
+};
 
 /**
  * Correlation is ephemeral session mechanics, never Work ordering.
@@ -83,6 +117,18 @@ export const decideStationSessionCorrelation = (
       responseOperation: response.envelope.response.op,
     };
   }
+  if (
+    response.envelope.ok &&
+    !responseIdentityMatchesRequest(
+      request.request,
+      response.envelope.response,
+    )
+  ) {
+    return {
+      _tag: "response-identity-mismatch",
+      operation: request.request.op,
+    };
+  }
   return { _tag: "correlated" };
 };
 
@@ -97,11 +143,12 @@ export const stationSessionResponse = (
     envelope,
   });
   const correlation = decideStationSessionCorrelation(request, response);
-  if (correlation._tag === "operation-mismatch") {
-    throw new TypeError(
-      `Station session response operation ${correlation.responseOperation} ` +
-        `does not match request operation ${correlation.requestOperation}`,
-    );
+  if (correlation._tag !== "correlated") {
+    const message = correlation._tag === "operation-mismatch"
+      ? `Station session response operation ${correlation.responseOperation} ` +
+        `does not match request operation ${correlation.requestOperation}`
+      : `Station session response does not correlate: ${correlation._tag}`;
+    throw new TypeError(message);
   }
   return response;
 };
