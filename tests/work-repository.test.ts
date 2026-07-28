@@ -1,19 +1,24 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Layer, ManagedRuntime } from "effect";
+import {
+  Context,
+  Effect,
+  Either,
+  Layer,
+  ManagedRuntime,
+  Schema,
+} from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { ActorSeatId } from "../src/shared/actor-seat";
 import {
-  workTaskClaim,
-  workTaskCreate,
-  workTaskDescribe,
-  workTaskTransition,
-  type WorkIds,
-} from "../src/shared/work";
+  InstallationId,
+  type InstallationId as InstallationIdValue,
+} from "../src/shared/installation-id";
 import {
-  COMMAND_CENTER_WORK_HOME,
+  workRecordContentSha256,
+  WorkAuthorityError,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -22,18 +27,62 @@ import {
   StateEngine,
 } from "../src/main/vellum/state/engine";
 
-const root = join(tmpdir(), `vellum-work-repository-${randomUUID()}`);
-const stateLive = makeStateEngineLive(join(root, "vellum.db"));
+const root = join(tmpdir(), `vellum-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
-  Layer.provideMerge(WorkRepositoryLive, stateLive),
+  Layer.provideMerge(
+    WorkRepositoryLive,
+    makeStateEngineLive(join(root, "vellum.db")),
+  ),
 );
 
 let repository: Context.Tag.Service<typeof WorkRepository>;
 let state: Context.Tag.Service<typeof StateEngine>;
 
+const observedAt = "2026-07-27T18:00:00.000Z";
+const cc = Schema.decodeUnknownSync(InstallationId)("cc-repository");
+const remote = Schema.decodeUnknownSync(InstallationId)("remote-repository");
+const actor = {
+  seatId: Schema.decodeUnknownSync(ActorSeatId)(
+    `seat_${"a".repeat(64)}`,
+  ),
+  canvasName: "factory",
+  nodeId: "builder",
+};
+
+const message = (
+  messageId: string,
+  role: "user" | "agent",
+  text: string,
+  taskId?: string,
+) => ({
+  messageId,
+  role,
+  parts: [{ kind: "text" as const, text }],
+  ...(taskId === undefined ? {} : { taskId }),
+  contextId: "factory",
+});
+
+const seedInstallations = (
+  installations: ReadonlyArray<InstallationIdValue>,
+) =>
+  state.transaction("test.seed-installations", (writer) => {
+    for (const installation of installations) {
+      writer.run(
+        `
+          INSERT INTO station_known_installations(
+            installation_id,
+            registered_at
+          ) VALUES (?, ?)
+        `,
+        [installation, observedAt],
+      );
+    }
+  });
+
 beforeAll(async () => {
   repository = await runtime.runPromise(WorkRepository);
   state = await runtime.runPromise(StateEngine);
+  await runtime.runPromise(seedInstallations([cc, remote]));
 });
 
 afterAll(async () => {
@@ -41,427 +90,293 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const ids = (): WorkIds => {
-  let task = 0;
-  let message = 0;
-  return {
-    id: () => `task-${++task}`,
-    messageId: () => `message-${++message}`,
-  };
-};
-
-const taskCanvas = (
-  nodeId = "tasks",
-  host = "station-a",
-): CanvasDoc => ({
-  nodes: [
-    {
-      id: nodeId,
-      type: "text",
-      text: "authorial task sink",
-      x: 0,
-      y: 0,
-      width: 200,
-      height: 100,
-      ether: {
-        entity: { kind: "task" },
-        host,
-      },
-    },
-  ],
-  edges: [],
-});
-
-describe("WorkRepository", () => {
-  it("allocates exact per-home sequences and reconstructs work independently of canvas", async () => {
-    const doc = taskCanvas("tasks-seq");
-    const workIds = ids();
+describe("WorkRepository v2 local authority", () => {
+  it("commits typed task facts on one full route with strict predecessors", async () => {
+    const sink = { canvasName: "factory", nodeId: "tasks-local" };
     const created = await runtime.runPromise(
-      repository.mutate({
-        canvasName: "sequence-canvas",
-        nodeId: "tasks-seq",
-        entityHome: "station-a",
-        eventHome: "cc-work",
-        operation: "task.create",
-        authoredDoc: doc,
-        transform: (projected) => {
-          const result = workTaskCreate(
-            projected,
-            "sequence-canvas",
-            "tasks-seq",
-            "ship sqlite",
-            undefined,
-            workIds,
-          );
-          return { doc: result.doc, value: result.task };
+      repository.createTask({
+        localInstallationId: cc,
+        sink,
+        task: {
+          id: "task-local",
+          state: "submitted",
+          history: [
+            message("brief-local", "user", "ship SQLite", "task-local"),
+          ],
         },
-        originAt: "2026-07-27T12:00:00.000Z",
-        receivedAt: "2026-07-27T12:00:01.000Z",
+        originAt: observedAt,
+        receivedAt: observedAt,
       }),
     );
-    expect(created.value.state).toBe("submitted");
-    expect(created.projectedDoc.nodes[0]?.ether?.tasks?.items).toHaveLength(1);
-    expect(doc.nodes[0]?.ether?.tasks).toBeUndefined();
-
-    await runtime.runPromise(
-      repository.mutate({
-        canvasName: "sequence-canvas",
-        nodeId: "tasks-seq",
-        entityHome: "station-a",
-        eventHome: "cc-work",
-        operation: "task.claim",
-        authoredDoc: doc,
-        transform: (projected) => {
-          const result = workTaskClaim(
-            projected,
-            "sequence-canvas",
-            "tasks-seq",
-            created.value.id,
-            "agent-a",
-            workIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
+    const claimed = await runtime.runPromise(
+      repository.claimLocalTask({
+        localInstallationId: cc,
+        sink,
+        taskId: created.value.id,
+        actor,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const completed = await runtime.runPromise(
+      repository.transitionTask({
+        localInstallationId: cc,
+        sink,
+        taskId: created.value.id,
+        state: "completed",
+        message: message(
+          "done-local",
+          "agent",
+          "done",
+          created.value.id,
+        ),
+        originAt: observedAt,
+        receivedAt: observedAt,
       }),
     );
 
-    const taskEventsBeforeCompletion = await runtime.runPromise(
-      repository.eventsAfter({
-        eventHome: "cc-work",
-        entityHome: "station-a",
-        afterSeq: "0",
-      }),
-    );
-    expect(taskEventsBeforeCompletion.map((event) => event.seq)).toEqual([
-      "1",
-      "2",
-    ]);
-    expect(taskEventsBeforeCompletion.map((event) => event.operation)).toEqual([
-      "task.create",
-      "task.claim",
-    ]);
-    expect(taskEventsBeforeCompletion[0]).toMatchObject({
-      originAt: "2026-07-27T12:00:00.000Z",
-      receivedAt: "2026-07-27T12:00:01.000Z",
+    expect(created.record.id.route).toEqual({
+      eventHome: cc,
+      entityHome: cc,
     });
-
-    const messageEvents = await runtime.runPromise(
-      repository.eventsAfter({
-        eventHome: "cc-work",
-        entityHome: COMMAND_CENTER_WORK_HOME,
-        afterSeq: "0",
-      }),
-    );
-    expect(messageEvents).toEqual([]);
-
-    const snapshot = await runtime.runPromise(
-      repository.readSnapshot("sequence-canvas", "tasks-seq"),
-    );
-    expect(snapshot.tasks.items[0]).toMatchObject({
-      id: created.value.id,
+    expect(created.record.id.seq).toBe("1");
+    expect(created.record.predecessor).toBeNull();
+    expect(claimed.record.id.seq).toBe("2");
+    expect(claimed.record.predecessor).toEqual(created.record.id);
+    expect(completed.record.id.seq).toBe("3");
+    expect(completed.record.predecessor).toEqual(claimed.record.id);
+    expect(claimed.value).toMatchObject({
       state: "working",
-      metadata: { claimedBy: "agent-a" },
+      claimedBy: actor.seatId,
     });
-    expect(snapshot.tasks.items[0]?.history).toHaveLength(2);
 
-    const claimedPayload = taskEventsBeforeCompletion[1]!.payloadJson;
-    await runtime.runPromise(
-      repository.mutate({
-        canvasName: "sequence-canvas",
-        nodeId: "tasks-seq",
-        entityHome: "station-a",
-        eventHome: "cc-work",
-        operation: "task.transition",
-        authoredDoc: doc,
-        transform: (projected) => {
-          const result = workTaskTransition(
-            projected,
-            "sequence-canvas",
-            "tasks-seq",
-            created.value.id,
-            "completed",
-            undefined,
-            workIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
+    const records = await runtime.runPromise(
+      repository.recordsAfter({
+        route: { eventHome: cc, entityHome: cc },
       }),
     );
-    const taskEventsAfterCompletion = await runtime.runPromise(
-      repository.eventsAfter({
-        eventHome: "cc-work",
-        entityHome: "station-a",
-        afterSeq: "0",
-      }),
-    );
-    expect(taskEventsAfterCompletion.map((event) => event.seq)).toEqual([
-      "1",
-      "2",
-      "3",
-    ]);
-    expect(taskEventsAfterCompletion[1]?.payloadJson).toBe(claimedPayload);
-    expect(
-      JSON.parse(taskEventsAfterCompletion[1]!.payloadJson).body.task.state,
-    ).toBe("working");
-    expect(
-      JSON.parse(taskEventsAfterCompletion[2]!.payloadJson).body.task.state,
-    ).toBe("completed");
-    expect(taskEventsAfterCompletion[1]?.contentSha256).not.toBe(
-      taskEventsAfterCompletion[2]?.contentSha256,
-    );
-    expect(taskEventsAfterCompletion[1]?.contentSha256).toBe(
-      createHash("sha256")
-        .update(taskEventsAfterCompletion[1]!.payloadJson, "utf8")
-        .digest("hex"),
-    );
-    expect(taskEventsAfterCompletion[1]?.entityId).toBe(
-      taskEventsAfterCompletion[2]?.entityId,
-    );
-  });
-
-  it("keeps superseded briefs and transitions append-only", async () => {
-    const doc = taskCanvas("tasks-history");
-    const workIds = ids();
-    const created = await runtime.runPromise(
-      repository.mutate({
-        canvasName: "history-canvas",
-        nodeId: "tasks-history",
-        entityHome: "station-a",
-        eventHome: "cc-work",
-        operation: "task.create",
-        authoredDoc: doc,
-        transform: (projected) => {
-          const result = workTaskCreate(
-            projected,
-            "history-canvas",
-            "tasks-history",
-            "first brief",
-            undefined,
-            workIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
-      }),
-    );
-    await runtime.runPromise(
-      repository.mutate({
-        canvasName: "history-canvas",
-        nodeId: "tasks-history",
-        entityHome: "station-a",
-        eventHome: "cc-work",
-        operation: "task.describe",
-        authoredDoc: doc,
-        transform: (projected) => {
-          const result = workTaskDescribe(
-            projected,
-            "history-canvas",
-            "tasks-history",
-            created.value.id,
-            "replacement brief",
-            workIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
-      }),
-    );
-
-    const counts = await runtime.runPromise(
-      state.read("test.work.history", (reader) => ({
-        messages: Number(
-          reader.get<{ count: number } & Record<string, string | number | bigint | Uint8Array | null>>(
-            `
-              SELECT COUNT(*) AS count
-              FROM work_task_messages
-              WHERE canvas_name = ? AND node_id = ? AND task_id = ?
-            `,
-            ["history-canvas", "tasks-history", created.value.id],
-          )?.count ?? 0,
-        ),
-        transitions: Number(
-          reader.get<{ count: number } & Record<string, string | number | bigint | Uint8Array | null>>(
-            `
-              SELECT COUNT(*) AS count
-              FROM work_task_transitions
-              WHERE canvas_name = ? AND node_id = ? AND task_id = ?
-            `,
-            ["history-canvas", "tasks-history", created.value.id],
-          )?.count ?? 0,
-        ),
-      })),
-    );
-    expect(counts).toEqual({ messages: 2, transitions: 1 });
+    expect(records.map((record) => record.id.seq)).toEqual(["1", "2", "3"]);
+    for (const record of records) {
+      const {
+        contentSha256: _contentSha256,
+        originAt: _originAt,
+        ...semantic
+      } = record;
+      expect(record.contentSha256).toBe(
+        workRecordContentSha256(semantic),
+      );
+    }
 
     const snapshot = await runtime.runPromise(
-      repository.readSnapshot("history-canvas", "tasks-history"),
+      repository.readSnapshot(sink.canvasName, sink.nodeId),
     );
-    expect(snapshot.tasks.items[0]?.history).toHaveLength(1);
-    expect(snapshot.tasks.items[0]?.history[0]?.parts[0]).toEqual({
-      kind: "text",
-      text: "replacement brief",
-    });
-  });
-
-  it("returns a full runtime projection across multiple work sinks", async () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        taskCanvas("tasks-left").nodes[0]!,
-        {
-          ...taskCanvas("tasks-right").nodes[0]!,
-          x: 260,
-        },
-      ],
-      edges: [],
-    };
-    const leftIds = ids();
-    const rightIds = ids();
-    await runtime.runPromise(
-      repository.mutate({
-        canvasName: "multi-sink-canvas",
-        nodeId: "tasks-left",
-        entityHome: "station-a",
-        eventHome: "cc-work",
-        operation: "task.create",
-        authoredDoc: doc,
-        transform: (projected) => {
-          const result = workTaskCreate(
-            projected,
-            "multi-sink-canvas",
-            "tasks-left",
-            "left task",
-            undefined,
-            leftIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
-      }),
-    );
-    const right = await runtime.runPromise(
-      repository.mutate({
-        canvasName: "multi-sink-canvas",
-        nodeId: "tasks-right",
-        entityHome: "station-a",
-        eventHome: "cc-work",
-        operation: "task.create",
-        authoredDoc: doc,
-        transform: (projected) => {
-          const result = workTaskCreate(
-            projected,
-            "multi-sink-canvas",
-            "tasks-right",
-            "right task",
-            undefined,
-            rightIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
-      }),
-    );
-
+    expect(snapshot.tasks.items).toEqual([completed.value]);
     expect(
-      right.projectedDoc.nodes.find((node) => node.id === "tasks-left")?.ether
-        ?.tasks?.items,
-    ).toHaveLength(1);
-    expect(
-      right.projectedDoc.nodes.find((node) => node.id === "tasks-right")?.ether
-        ?.tasks?.items,
-    ).toHaveLength(1);
-  });
-
-  it("refuses an implicit home change", async () => {
-    const doc = taskCanvas("tasks-home");
-    const workIds = ids();
-    const created = await runtime.runPromise(
-      repository.mutate({
-        canvasName: "home-canvas",
-        nodeId: "tasks-home",
-        entityHome: "station-a",
-        eventHome: "cc-work",
-        operation: "task.create",
-        authoredDoc: doc,
-        transform: (projected) => {
-          const result = workTaskCreate(
-            projected,
-            "home-canvas",
-            "tasks-home",
-            "stay home",
-            undefined,
-            workIds,
-          );
-          return { doc: result.doc, value: result.task };
-        },
-      }),
-    );
-
-    await expect(
-      runtime.runPromise(
-        repository.mutate({
-          canvasName: "home-canvas",
-          nodeId: "tasks-home",
-          entityHome: "station-b",
-          eventHome: "cc-work",
-          operation: "task.describe",
-          authoredDoc: doc,
-          transform: (projected) => {
-            const result = workTaskDescribe(
-              projected,
-              "home-canvas",
-              "tasks-home",
-              created.value.id,
-              "try to move",
-              workIds,
-            );
-            return { doc: result.doc, value: result.task };
-          },
-        }),
+      await runtime.runPromise(
+        repository.itemHome("task", sink.canvasName, sink.nodeId, "task-local"),
       ),
-    ).rejects.toThrow(/explicit re-home is required/u);
+    ).toBe(cc);
   });
 
-  it("keeps sequence cursors exact beyond Number.MAX_SAFE_INTEGER", async () => {
-    await runtime.runPromise(
-      state.transaction("test.work.seedHugeSequence", (writer) => {
-        writer.run(
-          `
-            INSERT INTO work_event_sequences(
-              event_home,
-              entity_home,
-              last_seq
-            ) VALUES (?, ?, ?)
-          `,
-          ["cc-huge", "station-huge", "9007199254740993"],
-        );
-      }),
-    );
-    const doc = taskCanvas("tasks-huge", "station-huge");
-    const workIds = ids();
-    await runtime.runPromise(
-      repository.mutate({
-        canvasName: "huge-canvas",
-        nodeId: "tasks-huge",
-        entityHome: "station-huge",
-        eventHome: "cc-huge",
-        operation: "task.create",
-        authoredDoc: doc,
-        transform: (projected) => {
-          const result = workTaskCreate(
-            projected,
-            "huge-canvas",
-            "tasks-huge",
-            "exact order",
-            undefined,
-            workIds,
-          );
-          return { doc: result.doc, value: result.task };
+  it("persists a remote claim attempt without assigning or starting the source task", async () => {
+    const sink = { canvasName: "factory", nodeId: "tasks-remote" };
+    const created = await runtime.runPromise(
+      repository.createTask({
+        localInstallationId: cc,
+        sink,
+        task: {
+          id: "task-remote",
+          state: "submitted",
+          history: [
+            message("brief-remote", "user", "run remotely", "task-remote"),
+          ],
         },
+        originAt: observedAt,
+        receivedAt: observedAt,
       }),
     );
-    const events = await runtime.runPromise(
-      repository.eventsAfter({
-        eventHome: "cc-huge",
-        entityHome: "station-huge",
-        afterSeq: "9007199254740993",
+    const command = await runtime.runPromise(
+      repository.reserveRemoteTaskClaim({
+        localInstallationId: cc,
+        targetInstallationId: remote,
+        sink,
+        taskId: created.value.id,
+        actor,
+        originAt: observedAt,
+        receivedAt: observedAt,
       }),
     );
-    expect(events.map((event) => event.seq)).toEqual(["9007199254740994"]);
+
+    expect(command).toMatchObject({
+      recordType: "command",
+      operation: "task.claim",
+      predecessor: null,
+      id: {
+        route: {
+          eventHome: cc,
+          entityHome: remote,
+        },
+        seq: "1",
+      },
+      body: {
+        sourceQueueHome: cc,
+        sourcePredecessor: created.record.id,
+        sourceTask: { state: "submitted" },
+        targetHome: remote,
+        actor,
+      },
+    });
+    const source = (
+      await runtime.runPromise(
+        repository.readSnapshot(sink.canvasName, sink.nodeId),
+      )
+    ).tasks.items[0]!;
+    expect(source.state).toBe("submitted");
+    expect(source.claimedBy).toBeUndefined();
+    const pending = await runtime.runPromise(repository.pendingCommands);
+    expect(
+      pending.find((entry) => entry.command.contentSha256 === command.contentSha256),
+    ).toMatchObject({ resolution: undefined });
+  });
+
+  it("reserves an ActorSeatId once across pending and active work", async () => {
+    const pendingSink = { canvasName: "factory", nodeId: "tasks-pending" };
+    await runtime.runPromise(
+      repository.createTask({
+        localInstallationId: cc,
+        sink: pendingSink,
+        task: {
+          id: "task-pending-actor",
+          state: "submitted",
+          history: [
+            message(
+              "brief-pending-actor",
+              "user",
+              "wait",
+              "task-pending-actor",
+            ),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const contention = await runtime.runPromise(
+      repository
+        .claimLocalTask({
+          localInstallationId: cc,
+          sink: pendingSink,
+          taskId: "task-pending-actor",
+          actor,
+          originAt: observedAt,
+          receivedAt: observedAt,
+        })
+        .pipe(Effect.either),
+    );
+    expect(Either.isLeft(contention)).toBe(true);
+    if (Either.isLeft(contention)) {
+      expect(contention.left).toBeInstanceOf(WorkAuthorityError);
+      expect(contention.left).toMatchObject({
+        reason: "claim-contention",
+      });
+    }
+  });
+
+  it("normalizes requests, inbox messages, artifacts, and delivery receipts", async () => {
+    const requestSink = { canvasName: "factory", nodeId: "requests" };
+    const inbox = { canvasName: "factory", nodeId: "inbox" };
+    const artifacts = { canvasName: "factory", nodeId: "artifacts" };
+    const request = await runtime.runPromise(
+      repository.createRequest({
+        localInstallationId: cc,
+        sink: requestSink,
+        raisedBy: actor,
+        request: {
+          id: "request-1",
+          state: "input-required",
+          claimedBy: actor.seatId,
+          history: [
+            message("request-brief", "agent", "Need input", "request-1"),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await runtime.runPromise(
+      repository.resolveRequest({
+        localInstallationId: cc,
+        sink: requestSink,
+        requestId: request.value.id,
+        response: "Approved",
+        disposition: "completed",
+        message: message("request-answer", "user", "Approved", "request-1"),
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await runtime.runPromise(
+      repository.appendMessage({
+        localInstallationId: cc,
+        sink: inbox,
+        message: message("mail-1", "agent", "hello"),
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const artifact = await runtime.runPromise(
+      repository.publishArtifact({
+        localInstallationId: cc,
+        sink: artifacts,
+        publishedBy: actor,
+        artifact: {
+          artifactId: "artifact-1",
+          name: "proof",
+          parts: [{ kind: "text", text: "receipt" }],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await runtime.runPromise(
+      repository.acceptDelivery({
+        localInstallationId: cc,
+        sink: artifacts,
+        receipt: {
+          deliveryId: "delivery-1",
+          deliveredItem: {
+            kind: "artifact",
+            itemId: artifact.value.artifactId,
+            sink: artifacts,
+          },
+          actor,
+          acceptedAt: observedAt,
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+
+    expect(
+      (
+        await runtime.runPromise(
+          repository.readSnapshot(requestSink.canvasName, requestSink.nodeId),
+        )
+      ).requests.items[0],
+    ).toMatchObject({ state: "completed", response: "Approved" });
+    expect(
+      (
+        await runtime.runPromise(
+          repository.readSnapshot(inbox.canvasName, inbox.nodeId),
+        )
+      ).messages.items,
+    ).toHaveLength(1);
+    expect(
+      (
+        await runtime.runPromise(
+          repository.readSnapshot(artifacts.canvasName, artifacts.nodeId),
+        )
+      ).artifacts.items,
+    ).toEqual([artifact.value]);
   });
 });

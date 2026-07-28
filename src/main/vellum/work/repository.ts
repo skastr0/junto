@@ -1,35 +1,55 @@
 import { createHash } from "node:crypto";
 import { Context, Effect, Either, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import {
-  InstallationId,
-  LogicalSequence,
-  STATION_API_MAX_EVENTS_PER_REPORT,
-  StationEvent,
-  StationEventAck,
-  StationSha256,
-  type InstallationId as InstallationIdValue,
-  type LogicalSequence as LogicalSequenceValue,
-  type StationEvent as StationEventValue,
-  type StationEventAck as StationEventAckValue,
-} from "@shared/station-api";
+import type { ActorSeatId } from "@shared/actor-seat";
+import type { InstallationId } from "@shared/installation-id";
 import {
   Artifact,
   Message,
   Task,
+  WorkSnapshot,
   type Artifact as ArtifactValue,
   type Message as MessageValue,
   type Task as TaskValue,
   type TaskState,
-  type WorkSnapshot,
+  type WorkSnapshot as WorkSnapshotValue,
 } from "@shared/work-model";
 import {
-  claimedByOf,
+  DisplayTimestamp,
+  LogicalSequence,
+  RouteCursor,
+  SinkRef,
+  WORK_PROTOCOL,
+  WorkAction,
+  WorkCommand,
+  WorkFact,
+  WorkRecord,
+  WorkSha256,
+  decodeWorkRecord,
+  type ActorRef,
+  type DeliveryReceipt,
+  type DisplayTimestamp as DisplayTimestampValue,
+  type LogicalSequence as LogicalSequenceValue,
+  type RouteCursor as RouteCursorValue,
+  type SinkRef as SinkRefValue,
+  type WorkAction as WorkActionValue,
+  type WorkCommand as WorkCommandValue,
+  type WorkDisposition as WorkDispositionValue,
+  type WorkFact as WorkFactValue,
+  type WorkItemRef,
+  type WorkOperation,
+  type WorkRecord as WorkRecordValue,
+  type WorkRecordId,
+  type WorkRejectionReason,
+  type WorkResult,
+  type WorkSha256 as WorkSha256Value,
+} from "@shared/work-protocol";
+import {
+  canTransitionTaskState,
   mirrorArtifactsText,
   mirrorRequestsText,
   mirrorTasksText,
 } from "@shared/task";
-import { WorkError } from "@shared/work";
 import {
   StateEngine,
   type StateReader,
@@ -37,20 +57,109 @@ import {
   type StateWriter,
 } from "../state/service";
 
+const DEFAULT_RECORD_LIMIT = 256;
+const MAX_RECORD_LIMIT = 1_024;
+
+const strictDecode = { onExcessProperty: "error" } as const;
+
+const now = (): DisplayTimestampValue =>
+  Schema.decodeUnknownSync(DisplayTimestamp)(new Date().toISOString());
+
+const timestamp = (
+  value: string | undefined,
+): DisplayTimestampValue =>
+  Schema.decodeUnknownSync(DisplayTimestamp)(value ?? now());
+
+const sequence = (value: string): LogicalSequenceValue =>
+  Schema.decodeUnknownSync(LogicalSequence)(value);
+
+const sha256 = (value: string): WorkSha256Value =>
+  Schema.decodeUnknownSync(WorkSha256)(
+    createHash("sha256").update(value, "utf8").digest("hex"),
+  );
+
+const normalizeJson = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(normalizeJson);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Readonly<Record<string, unknown>>)
+      .filter(([, nested]) => nested !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, normalizeJson(nested)]),
+  );
+};
+
+const canonicalJson = (value: unknown): string =>
+  JSON.stringify(normalizeJson(value));
+
 /**
- * Messages are fleet mail, not stationed execution state. This logical home
- * is intentionally outside the HostId alphabet so it can never be confused
- * with a machine placement.
+ * Hash only the semantic record. `originAt` is display metadata and
+ * `contentSha256` is the resulting digest, so neither participates.
  */
-export const COMMAND_CENTER_WORK_HOME = "vellum:command-center" as const;
+export const workRecordContentSha256 = (
+  record: WorkRecordSemantic,
+): WorkSha256Value => sha256(canonicalJson(record));
 
-type WorkLane = "task" | "request";
-type WorkEntityKind = WorkLane | "message" | "artifact" | "receipt";
+type WorkRecordSemantic =
+  | Omit<WorkCommandValue, "contentSha256" | "originAt">
+  | Omit<WorkFactValue, "contentSha256" | "originAt">
+  | Omit<WorkDispositionValue, "contentSha256" | "originAt">;
 
-export type WorkEventIdentity = {
-  readonly eventHome: string;
-  readonly entityHome: string;
-  readonly seq: string;
+const recordWithHash = (
+  semantic: WorkRecordSemantic,
+  originAt: DisplayTimestampValue,
+): WorkRecordValue => {
+  const candidate = {
+    ...semantic,
+    contentSha256: workRecordContentSha256(semantic),
+    originAt,
+  };
+  return Schema.decodeUnknownSync(WorkRecord, strictDecode)(candidate);
+};
+
+const sameRoute = (
+  left: WorkRecordId["route"],
+  right: WorkRecordId["route"],
+): boolean =>
+  left.eventHome === right.eventHome &&
+  left.entityHome === right.entityHome;
+
+const sameId = (
+  left: WorkRecordId | null,
+  right: WorkRecordId | null,
+): boolean =>
+  left === null
+    ? right === null
+    : right !== null &&
+      sameRoute(left.route, right.route) &&
+      left.seq === right.seq;
+
+const sameItem = (left: WorkItemRef, right: WorkItemRef): boolean =>
+  left.kind === right.kind &&
+  left.itemId === right.itemId &&
+  left.sink.canvasName === right.sink.canvasName &&
+  left.sink.nodeId === right.sink.nodeId;
+
+const item = (
+  kind: WorkItemRef["kind"],
+  itemId: string,
+  sink: SinkRefValue,
+): WorkItemRef => ({ kind, itemId, sink });
+
+const recordId = (
+  eventHome: InstallationId,
+  entityHome: InstallationId,
+  seq: string,
+): WorkRecordId => ({
+  route: { eventHome, entityHome },
+  seq: sequence(seq),
+});
+
+const boundedDiagnostic = (message: string): string => {
+  const normalized = message.trim() || "Command rejected";
+  return normalized.length <= 2_048
+    ? normalized
+    : `${normalized.slice(0, 2_045)}...`;
 };
 
 export class WorkRepositoryError extends Schema.TaggedError<WorkRepositoryError>()(
@@ -62,464 +171,1205 @@ export class WorkRepositoryError extends Schema.TaggedError<WorkRepositoryError>
   },
 ) {}
 
+export class WorkAuthorityError extends Schema.TaggedError<WorkAuthorityError>()(
+  "WorkAuthorityError",
+  {
+    reason: Schema.Literal(
+      "authority-mismatch",
+      "causal-conflict",
+      "claim-contention",
+      "identity-conflict",
+      "invalid-transition",
+      "missing-entity",
+      "target-mismatch",
+    ),
+    message: Schema.String,
+  },
+) {}
+
 export class WorkReplicationError extends Schema.TaggedError<WorkReplicationError>()(
   "WorkReplicationError",
   {
     reason: Schema.Literal(
-      "event-home-mismatch",
-      "entity-home-mismatch",
-      "unsupported-message",
-      "invalid-payload",
+      "direction-mismatch",
       "integrity",
       "identity-conflict",
       "causal-conflict",
       "cursor-regression",
       "sequence-gap",
-      "batch-limit",
     ),
-    eventHome: InstallationId,
-    sequence: LogicalSequence,
+    senderInstallationId: Schema.String,
+    sequence: Schema.optionalWith(LogicalSequence, { exact: true }),
     message: Schema.String,
   },
 ) {}
 
-export type WorkEvent = {
-  /** Installation-local source stream. Never inferred from entity placement. */
-  readonly eventHome: string;
-  /** Single execution home for the entity represented by this event. */
-  readonly homeStation: string;
-  readonly seq: string;
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly entityKind: WorkEntityKind;
-  readonly entityId: string;
-  readonly operation: string;
-  readonly originAt: string;
-  readonly receivedAt: string;
-  /** Immutable canonical event envelope used by station propagation/replay. */
-  readonly payloadJson: string;
-  readonly contentSha256: string;
-};
+type RepositoryFailure =
+  | WorkRepositoryError
+  | WorkAuthorityError;
 
-export type WorkMutationInput<A> = {
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly entityHome: string;
-  readonly eventHome: string;
-  /**
-   * Remote commands are durable outbox facts first. Their material state is
-   * promoted only by the owning Remote's ordered applied disposition.
-   */
-  readonly materialization?: "immediate" | "on-disposition";
-  readonly operation: string;
-  readonly authoredDoc: CanvasDoc;
-  readonly transform: (projectedDoc: CanvasDoc) => {
-    readonly doc: CanvasDoc;
-    readonly value: A;
-  };
+type ReplicationFailure =
+  | WorkRepositoryError
+  | WorkReplicationError;
+
+export type LocalWorkInput = {
+  readonly localInstallationId: InstallationId;
+  readonly sink: SinkRefValue;
   readonly originAt?: string;
   readonly receivedAt?: string;
 };
 
-export type AcceptReplicatedWorkInput = {
-  readonly localEventHome: InstallationIdValue;
-  readonly eventHome: InstallationIdValue;
-  readonly entityHome: string;
-  readonly events: ReadonlyArray<StationEventValue>;
-  readonly causalConflict: "fail" | "reject-command";
-  readonly receivedAt?: string;
+export type CreateTaskInput = LocalWorkInput & {
+  readonly task: TaskValue;
 };
 
-export type AcceptReplicatedWorkResult = {
-  readonly accepted: number;
-  readonly idempotent: number;
-  readonly rejected: number;
-  readonly acknowledgement: StationEventAckValue;
+export type DescribeTaskInput = LocalWorkInput & {
+  readonly taskId: string;
+  readonly message: MessageValue;
 };
 
-export type WorkRejection = {
-  readonly rejected: WorkEventIdentity;
-  readonly contentSha256: string;
-  readonly reason: "causal-conflict";
-  readonly message: string;
-  readonly reportedBy: string;
-  readonly receipt: WorkEventIdentity;
-  readonly receivedAt: string;
+export type TransitionTaskInput = LocalWorkInput & {
+  readonly taskId: string;
+  readonly state: TaskState;
+  readonly message?: MessageValue;
 };
 
-export type WorkPendingCommand = {
-  readonly command: WorkEventIdentity;
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly entityKind: "task" | "request" | "artifact";
-  readonly entityId: string;
-  readonly operation: string;
+export type ClaimLocalTaskInput = LocalWorkInput & {
+  readonly taskId: string;
+  readonly actor: ActorRef;
 };
 
-export type WorkCommandStatus = {
-  readonly counts: {
-    readonly pending: number;
-    readonly applied: number;
-    readonly rejected: number;
+export type CreateRequestInput = LocalWorkInput & {
+  readonly request: TaskValue;
+  readonly raisedBy: ActorRef;
+};
+
+export type ResolveRequestInput = LocalWorkInput & {
+  readonly requestId: string;
+  readonly response: string;
+  readonly disposition: "completed" | "rejected";
+  readonly message?: MessageValue;
+};
+
+export type AppendMessageInput = LocalWorkInput & {
+  readonly message: MessageValue;
+};
+
+export type PublishArtifactInput = LocalWorkInput & {
+  readonly artifact: ArtifactValue;
+  readonly publishedBy: ActorRef;
+};
+
+export type AcceptDeliveryInput = LocalWorkInput & {
+  readonly receipt: DeliveryReceipt;
+};
+
+export type ReserveRemoteTaskClaimInput = LocalWorkInput & {
+  readonly taskId: string;
+  readonly actor: ActorRef;
+  readonly targetInstallationId: InstallationId;
+};
+
+export type EnqueueRemoteCommandInput = LocalWorkInput & {
+  readonly targetInstallationId: InstallationId;
+  readonly item: WorkItemRef;
+  readonly action: Exclude<WorkActionValue, { readonly operation: "task.claim" }>;
+};
+
+export type LocalFactResult<A> = {
+  readonly value: A;
+  readonly record: WorkFactValue;
+  readonly snapshot: WorkSnapshotValue;
+};
+
+export type RecordsAfterInput = {
+  readonly route: {
+    readonly eventHome: InstallationId;
+    readonly entityHome: InstallationId;
   };
-  readonly pending: ReadonlyArray<WorkPendingCommand>;
-  readonly rejections: ReadonlyArray<WorkRejection>;
-  readonly truncated: {
-    readonly pending: boolean;
-    readonly rejections: boolean;
-  };
-};
-
-export type WorkEventsAfterInput = {
-  readonly eventHome: string;
-  readonly entityHome: string;
-  readonly afterSeq: string;
+  /** Absence is the only representation of sequence zero. */
+  readonly after?: LogicalSequenceValue;
   readonly limit?: number;
 };
 
-export const stationEventFromWorkEvent = (
-  event: WorkEvent,
-): StationEventValue =>
-  StationEvent.make({
-    identity: {
-      home: Schema.decodeUnknownSync(InstallationId)(event.eventHome),
-      sequence: Schema.decodeUnknownSync(LogicalSequence)(event.seq),
-    },
-    kind: "work.event",
-    body: event.payloadJson,
-    contentSha256: event.contentSha256 as StationEventValue["contentSha256"],
-    originAt: event.originAt,
-    receivedAt: event.receivedAt,
-  });
-
-export type WorkMutationResult<A> = {
-  readonly value: A;
-  readonly snapshot: WorkSnapshot;
-  readonly projectedDoc: CanvasDoc;
-  readonly disposition: "applied" | "queued";
+export type PendingCommand = {
+  readonly command: WorkCommandValue;
+  readonly resolution:
+    | {
+        readonly status: "applied" | "rejected";
+        readonly disposition: WorkRecordId;
+        readonly resolvedAt: DisplayTimestampValue;
+      }
+    | undefined;
 };
 
-/**
- * Runtime read projection. Durable rows are overlaid on the authorial document
- * for renderer/kernel consumers and are never written to canvas authority.
- */
-export const projectWorkSnapshots = (
-  doc: CanvasDoc,
-  snapshots: ReadonlyArray<WorkSnapshot>,
-): CanvasDoc => {
-  const byNode = new Map(snapshots.map((snapshot) => [snapshot.nodeId, snapshot]));
-  return {
-    ...doc,
-    nodes: doc.nodes.map((node) => {
-      const snapshot = byNode.get(node.id);
-      if (!snapshot) return node;
+export type WorkCommandAuthorization =
+  | { readonly _tag: "admitted" }
+  | {
+      readonly _tag: "rejected";
+      readonly reason: WorkRejectionReason;
+      readonly message: string;
+    };
 
-      const kind = node.ether?.entity?.kind;
-      const ether = { ...(node.ether ?? {}) };
-      delete ether.tasks;
-      delete ether.requests;
-      delete ether.messages;
-      delete ether.artifacts;
-
-      let text = node.type === "text" ? node.text : undefined;
-      if (kind === "task") {
-        ether.tasks = { items: [...snapshot.tasks.items] };
-        text = mirrorTasksText(snapshot.tasks.items);
-      } else if (kind === "requests") {
-        ether.requests = { items: [...snapshot.requests.items] };
-        text = mirrorRequestsText(snapshot.requests.items);
-      } else if (kind === "artifacts") {
-        ether.artifacts = { items: [...snapshot.artifacts.items] };
-        text = mirrorArtifactsText(snapshot.artifacts.items);
-      }
-
-      if (kind === "agent" || snapshot.messages.items.length > 0) {
-        ether.messages = { items: [...snapshot.messages.items] };
-      }
-
-      return {
-        ...node,
-        ...(node.type === "text" && text !== undefined ? { text } : {}),
-        ...(Object.keys(ether).length > 0 ? { ether } : {}),
-      } as CanvasNode;
-    }),
-  };
+export type AcceptRecordsInput = {
+  readonly localInstallationId: InstallationId;
+  /** Identity already authenticated by the Station transport. */
+  readonly senderInstallationId: InstallationId;
+  readonly records: ReadonlyArray<WorkRecordValue>;
+  readonly receivedAt?: string;
+  /**
+   * Pure capability/projection admission. It executes inside the SQLite
+   * transaction and therefore must never yield, open a nested repository
+   * transaction, or perform I/O.
+   */
+  readonly authorizeCommand: (
+    command: WorkCommandValue,
+  ) => WorkCommandAuthorization;
 };
 
-/**
- * Remove runtime work data before a document crosses the authorial persistence
- * boundary.
- *
- * Native sink text is reset only when a projected container was actually
- * present. That preserves an operator-authored label on a pristine sink while
- * preventing the last projected task list from becoming stale durable intent.
- */
-export const stripWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
-  ...doc,
-  nodes: doc.nodes.map((node) => {
-    const etherIn = node.ether;
-    if (
-      etherIn === undefined ||
-      (
-        etherIn.tasks === undefined &&
-        etherIn.requests === undefined &&
-        etherIn.messages === undefined &&
-        etherIn.artifacts === undefined
-      )
-    ) {
-      return node;
-    }
+export type AcceptRecordsResult = {
+  readonly accepted: number;
+  readonly idempotent: number;
+  readonly rejected: number;
+  readonly acknowledge: ReadonlyArray<RouteCursorValue>;
+  /** Newly committed facts/dispositions, plus prior outcomes on command replay. */
+  readonly emitted: ReadonlyArray<WorkRecordValue>;
+};
 
-    const {
-      tasks: _tasks,
-      requests: _requests,
-      messages: _messages,
-      artifacts: _artifacts,
-      ...ether
-    } = etherIn;
-    const kind = ether.entity?.kind;
-    const text =
-      node.type !== "text"
-        ? undefined
-        : kind === "task"
-          ? mirrorTasksText([])
-          : kind === "requests"
-            ? mirrorRequestsText([])
-            : kind === "artifacts"
-              ? mirrorArtifactsText([])
-              : node.text;
+type EventRow = StateRow & {
+  readonly event_home: string;
+  readonly entity_home: string;
+  readonly seq: string;
+  readonly protocol: string;
+  readonly record_type: "command" | "fact" | "disposition";
+  readonly item_kind: WorkItemRef["kind"];
+  readonly item_id: string;
+  readonly item_canvas_name: string;
+  readonly item_node_id: string;
+  readonly operation: WorkOperation;
+  readonly content_sha256: string;
+  readonly origin_at: string;
+  readonly received_at: string;
+};
 
-    if (Object.keys(ether).length === 0) {
-      const { ether: _removed, ...withoutEther } = node;
-      return {
-        ...withoutEther,
-        ...(node.type === "text" && text !== undefined ? { text } : {}),
-      } as CanvasNode;
-    }
-    return {
-      ...node,
-      ...(node.type === "text" && text !== undefined ? { text } : {}),
-      ether,
-    } as CanvasNode;
-  }),
-});
+type VariantRow = StateRow & {
+  readonly predecessor_event_home: string | null;
+  readonly predecessor_entity_home: string | null;
+  readonly predecessor_seq: string | null;
+  readonly body_json: string;
+};
 
-/** Recover the target lane after a pure runtime-projection transform. */
-const snapshotFromRuntimeProjection = (
-  doc: CanvasDoc,
-  canvasName: string,
-  nodeId: string,
-): WorkSnapshot => {
-  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-  if (!node) {
-    throw new WorkError("node_not_found", `node "${nodeId}" not found`);
-  }
-  return {
-    canvasName,
-    nodeId,
-    tasks: { items: [...(node.ether?.tasks?.items ?? [])] },
-    requests: { items: [...(node.ether?.requests?.items ?? [])] },
-    messages: { items: [...(node.ether?.messages?.items ?? [])] },
-    artifacts: { items: [...(node.ether?.artifacts?.items ?? [])] },
-  };
+type DispositionRow = StateRow & {
+  readonly status: "applied" | "rejected";
+  readonly command_event_home: string;
+  readonly command_entity_home: string;
+  readonly command_seq: string;
+  readonly command_sha256: string;
+  readonly fact_event_home: string | null;
+  readonly fact_entity_home: string | null;
+  readonly fact_seq: string | null;
+  readonly fact_sha256: string | null;
+  readonly rejection_reason: WorkRejectionReason | null;
+  readonly rejection_message: string | null;
 };
 
 type TaskRow = StateRow & {
-  readonly task_id: string;
-  readonly home_station: string;
-  readonly event_home: string;
-  readonly event_seq: string;
-  readonly state: string;
-  readonly brief_message_id: string;
+  readonly canvas_name: string;
+  readonly node_id: string;
+  readonly item_id: string;
+  readonly entity_home: string;
+  readonly actor_seat_id: string | null;
+  readonly fact_event_home: string;
+  readonly fact_entity_home: string;
+  readonly fact_seq: string;
+  readonly state: TaskState;
   readonly artifact_ids_json: string | null;
   readonly metadata_json: string | null;
   readonly reason: string | null;
   readonly response: string | null;
   readonly created_at: string;
-  readonly updated_at: string;
-  readonly origin_at: string;
-  readonly received_at: string;
 };
 
 type MessageRow = StateRow & {
   readonly message_id: string;
-  readonly task_id: string | null;
-  readonly message_kind: string;
-  readonly role: string;
+  readonly role: MessageValue["role"];
   readonly parts_json: string;
+  readonly task_id: string | null;
   readonly context_id: string | null;
   readonly reference_task_ids_json: string | null;
   readonly metadata_json: string | null;
-  readonly origin_at: string;
-  readonly received_at: string;
 };
 
 type ArtifactRow = StateRow & {
   readonly artifact_id: string;
-  readonly home_station: string;
-  readonly event_home: string;
-  readonly event_seq: string;
   readonly name: string | null;
   readonly parts_json: string;
   readonly task_id: string | null;
   readonly metadata_json: string | null;
-  readonly origin_at: string;
-  readonly received_at: string;
 };
 
-type WorkEventRow = StateRow & {
-  readonly event_home: string;
+type IdentityRow = StateRow & {
   readonly entity_home: string;
-  readonly seq: string;
-  readonly canvas_name: string;
-  readonly node_id: string;
-  readonly entity_kind: string;
-  readonly entity_id: string;
-  readonly operation: string;
-  readonly origin_at: string;
-  readonly received_at: string;
-  readonly payload_json: string;
-  readonly content_sha256: string;
+  readonly actor_seat_id: string | null;
+  readonly fact_event_home: string;
+  readonly fact_entity_home: string;
+  readonly fact_seq: string;
+  readonly state: TaskState;
 };
 
-type ReceivedCursorRow = StateRow & {
-  readonly home: string;
+type SequenceRow = StateRow & {
+  readonly last_seq: string;
+};
+
+type CursorRow = StateRow & {
   readonly through_sequence: string;
 };
 
-type WorkRejectionRow = StateRow & {
-  readonly rejected_event_home: string;
-  readonly rejected_entity_home: string;
-  readonly rejected_seq: string;
-  readonly rejected_content_sha256: string;
-  readonly reason: string;
-  readonly message: string;
-  readonly reported_by: string;
-  readonly receipt_event_home: string;
-  readonly receipt_event_seq: string;
-  readonly received_at: string;
-};
+const textNode = (node: CanvasNode): CanvasNode =>
+  node;
 
-type PendingCommandRow = StateRow & {
-  readonly event_home: string;
-  readonly entity_home: string;
-  readonly seq: string;
-  readonly status: "pending" | "applied" | "rejected";
-  readonly acknowledged_by: string | null;
-  readonly resolved_at: string | null;
-};
-
-type PendingCommandDetailRow = PendingCommandRow & {
-  readonly canvas_name: string;
-  readonly node_id: string;
-  readonly entity_kind: "task" | "request" | "artifact";
-  readonly entity_id: string;
-  readonly operation: string;
-};
-
-type CountRow = StateRow & {
-  readonly count: number;
-};
-
-const jsonOptional = (value: unknown | undefined): string | null =>
-  value === undefined ? null : JSON.stringify(value);
-
-const canonicalJsonValue = (value: unknown): unknown => {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new Error("work event payload cannot contain a non-finite number");
-    }
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) =>
-      entry === undefined ? null : canonicalJsonValue(entry),
-    );
-  }
-  if (typeof value === "object") {
-    const output: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      const entry = (value as Record<string, unknown>)[key];
-      if (entry !== undefined) output[key] = canonicalJsonValue(entry);
-    }
-    return output;
-  }
-  throw new Error(
-    `work event payload cannot encode ${typeof value}`,
+/**
+ * Runtime-only overlay retained for canvas readers. SQLite remains the sole
+ * durability; this function never converts projected work back into authorial
+ * canvas input.
+ */
+export const projectWorkSnapshots = (
+  doc: CanvasDoc,
+  snapshots: ReadonlyArray<WorkSnapshotValue>,
+): CanvasDoc => {
+  const byNode = new Map(
+    snapshots.map((snapshot) => [snapshot.nodeId, snapshot]),
   );
+  return {
+    ...doc,
+    nodes: doc.nodes.map((source) => {
+      const snapshot = byNode.get(source.id);
+      if (snapshot === undefined) return source;
+      const node = textNode(source);
+      const ether = { ...(node.ether ?? {}) };
+      delete ether.tasks;
+      delete ether.requests;
+      delete ether.messages;
+      delete ether.artifacts;
+      const kind = node.ether?.entity?.kind;
+      if (kind === "task") ether.tasks = snapshot.tasks;
+      if (kind === "requests") ether.requests = snapshot.requests;
+      if (kind === "artifacts") ether.artifacts = snapshot.artifacts;
+      if (snapshot.messages.items.length > 0) {
+        ether.messages = snapshot.messages;
+      }
+      return {
+        ...node,
+        ...(node.type === "text" && kind === "task"
+          ? { text: mirrorTasksText(snapshot.tasks.items) }
+          : {}),
+        ...(node.type === "text" && kind === "requests"
+          ? { text: mirrorRequestsText(snapshot.requests.items) }
+          : {}),
+        ...(node.type === "text" && kind === "artifacts"
+          ? { text: mirrorArtifactsText(snapshot.artifacts.items) }
+          : {}),
+        ether,
+      } as CanvasNode;
+    }),
+  };
 };
 
-const canonicalJson = (value: unknown): string =>
-  JSON.stringify(canonicalJsonValue(value));
+const parseJson = (value: string): unknown => JSON.parse(value);
 
-const taskTable = (lane: WorkLane): "work_tasks" | "work_requests" =>
-  lane === "task" ? "work_tasks" : "work_requests";
+const optionalJson = <A>(value: string | null): A | undefined =>
+  value === null ? undefined : (parseJson(value) as A);
 
-const messageFromRow = (row: MessageRow): MessageValue =>
-  Schema.decodeUnknownSync(Message)({
+const messageFromRow = (
+  row: MessageRow,
+  parentTaskId?: string,
+): MessageValue =>
+  Schema.decodeUnknownSync(Message, strictDecode)({
     messageId: row.message_id,
     role: row.role,
-    parts: JSON.parse(row.parts_json),
-    ...(row.task_id === null ? {} : { taskId: row.task_id }),
+    parts: parseJson(row.parts_json),
+    ...((row.task_id ?? parentTaskId) === null ||
+    (row.task_id ?? parentTaskId) === undefined
+      ? {}
+      : { taskId: row.task_id ?? parentTaskId }),
     ...(row.context_id === null ? {} : { contextId: row.context_id }),
     ...(row.reference_task_ids_json === null
       ? {}
-      : { referenceTaskIds: JSON.parse(row.reference_task_ids_json) }),
+      : { referenceTaskIds: parseJson(row.reference_task_ids_json) }),
     ...(row.metadata_json === null
       ? {}
-      : { metadata: JSON.parse(row.metadata_json) }),
+      : { metadata: parseJson(row.metadata_json) }),
   });
 
-const linkedMessageRows = (
+const loadThread = (
   reader: StateReader,
-  canvasName: string,
-  nodeId: string,
-  lane: WorkLane,
-  taskId: string,
-): ReadonlyArray<MessageRow> =>
-  reader.all<MessageRow>(
-    `
-      SELECT
-        message_id,
-        task_id,
-        message_kind,
-        role,
-        parts_json,
-        context_id,
-        reference_task_ids_json,
-        metadata_json,
-        origin_at,
-        received_at
-      FROM work_task_messages
-      WHERE canvas_name = ?
-        AND node_id = ?
-        AND parent_lane = ?
-        AND task_id = ?
-      ORDER BY position, message_id
-    `,
-    [canvasName, nodeId, lane, taskId],
-  );
+  sink: SinkRefValue,
+  lane: "task" | "request",
+  itemId: string,
+): ReadonlyArray<MessageValue> =>
+  reader
+    .all<MessageRow>(
+      `
+        SELECT
+          message_id,
+          role,
+          parts_json,
+          NULL AS task_id,
+          context_id,
+          reference_task_ids_json,
+          metadata_json
+        FROM work_task_messages
+        WHERE canvas_name = ?
+          AND node_id = ?
+          AND parent_lane = ?
+          AND item_id = ?
+        ORDER BY position
+      `,
+      [sink.canvasName, sink.nodeId, lane, itemId],
+    )
+    .map((row) => messageFromRow(row, itemId));
+
+const taskFromRow = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  lane: "task" | "request",
+  row: TaskRow,
+): TaskValue =>
+  Schema.decodeUnknownSync(Task, strictDecode)({
+    id: row.item_id,
+    state: row.state,
+    ...(row.actor_seat_id === null
+      ? {}
+      : { claimedBy: row.actor_seat_id }),
+    history: loadThread(reader, sink, lane, row.item_id),
+    ...(row.artifact_ids_json === null
+      ? {}
+      : { artifactIds: parseJson(row.artifact_ids_json) }),
+    ...(row.metadata_json === null
+      ? {}
+      : { metadata: parseJson(row.metadata_json) }),
+    ...(row.reason === null ? {} : { reason: row.reason }),
+    ...(row.response === null ? {} : { response: row.response }),
+  });
 
 const loadLaneTasks = (
   reader: StateReader,
-  canvasName: string,
-  nodeId: string,
-  lane: WorkLane,
+  sink: SinkRefValue,
+  lane: "task" | "request",
 ): ReadonlyArray<TaskValue> => {
-  const rows = reader.all<TaskRow>(
+  const table = lane === "task" ? "work_tasks" : "work_requests";
+  const id = lane === "task" ? "task_id" : "request_id";
+  return reader
+    .all<TaskRow>(
+      `
+        SELECT
+          canvas_name,
+          node_id,
+          ${id} AS item_id,
+          entity_home,
+          actor_seat_id,
+          fact_event_home,
+          fact_entity_home,
+          fact_seq,
+          state,
+          artifact_ids_json,
+          metadata_json,
+          reason,
+          response,
+          created_at
+        FROM ${table}
+        WHERE canvas_name = ? AND node_id = ?
+        ORDER BY created_at, ${id}
+      `,
+      [sink.canvasName, sink.nodeId],
+    )
+    .map((row) => taskFromRow(reader, sink, lane, row));
+};
+
+const loadInbox = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): ReadonlyArray<MessageValue> =>
+  reader
+    .all<MessageRow>(
+      `
+        SELECT
+          message_id,
+          role,
+          parts_json,
+          NULL AS task_id,
+          context_id,
+          reference_task_ids_json,
+          metadata_json
+        FROM work_messages
+        WHERE canvas_name = ? AND node_id = ?
+        ORDER BY position
+      `,
+      [sink.canvasName, sink.nodeId],
+    )
+    .map((row) => messageFromRow(row));
+
+const loadArtifacts = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): ReadonlyArray<ArtifactValue> =>
+  reader
+    .all<ArtifactRow>(
+      `
+        SELECT
+          artifact_id,
+          name,
+          parts_json,
+          task_id,
+          metadata_json
+        FROM work_artifacts
+        WHERE canvas_name = ? AND node_id = ?
+        ORDER BY artifact_id
+      `,
+      [sink.canvasName, sink.nodeId],
+    )
+    .map((row) =>
+      Schema.decodeUnknownSync(Artifact, strictDecode)({
+        artifactId: row.artifact_id,
+        ...(row.name === null ? {} : { name: row.name }),
+        parts: parseJson(row.parts_json),
+        ...(row.task_id === null ? {} : { taskId: row.task_id }),
+        ...(row.metadata_json === null
+          ? {}
+          : { metadata: parseJson(row.metadata_json) }),
+      }),
+    );
+
+const loadSnapshot = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): WorkSnapshotValue =>
+  Schema.decodeUnknownSync(WorkSnapshot, strictDecode)({
+    ...sink,
+    tasks: { items: loadLaneTasks(reader, sink, "task") },
+    requests: { items: loadLaneTasks(reader, sink, "request") },
+    messages: { items: loadInbox(reader, sink) },
+    artifacts: { items: loadArtifacts(reader, sink) },
+  });
+
+const snapshotsForCanvas = (
+  reader: StateReader,
+  canvasName: string,
+): ReadonlyArray<WorkSnapshotValue> => {
+  const nodes = reader.all<StateRow & { readonly node_id: string }>(
+    `
+      SELECT node_id FROM work_tasks WHERE canvas_name = ?
+      UNION
+      SELECT node_id FROM work_requests WHERE canvas_name = ?
+      UNION
+      SELECT node_id FROM work_messages WHERE canvas_name = ?
+      UNION
+      SELECT node_id FROM work_artifacts WHERE canvas_name = ?
+      ORDER BY node_id
+    `,
+    [canvasName, canvasName, canvasName, canvasName],
+  );
+  return nodes.map(({ node_id }) =>
+    loadSnapshot(reader, { canvasName, nodeId: node_id }),
+  );
+};
+
+const currentIdentity = (
+  row: IdentityRow,
+): WorkRecordId =>
+  recordId(
+    row.fact_event_home as InstallationId,
+    row.fact_entity_home as InstallationId,
+    row.fact_seq,
+  );
+
+const selectTaskIdentity = (
+  reader: StateReader,
+  lane: "task" | "request",
+  sink: SinkRefValue,
+  itemId: string,
+): IdentityRow | undefined => {
+  const table = lane === "task" ? "work_tasks" : "work_requests";
+  const id = lane === "task" ? "task_id" : "request_id";
+  return reader.get<IdentityRow>(
     `
       SELECT
-        task_id,
-        home_station,
+        entity_home,
+        actor_seat_id,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
+        state
+      FROM ${table}
+      WHERE canvas_name = ? AND node_id = ? AND ${id} = ?
+    `,
+    [sink.canvasName, sink.nodeId, itemId],
+  );
+};
+
+const loadTask = (
+  reader: StateReader,
+  lane: "task" | "request",
+  sink: SinkRefValue,
+  itemId: string,
+): { readonly row: IdentityRow; readonly task: TaskValue } | undefined => {
+  const row = selectTaskIdentity(reader, lane, sink, itemId);
+  if (row === undefined) return undefined;
+  const table = lane === "task" ? "work_tasks" : "work_requests";
+  const id = lane === "task" ? "task_id" : "request_id";
+  const detail = reader.get<TaskRow>(
+    `
+      SELECT
+        canvas_name,
+        node_id,
+        ${id} AS item_id,
+        entity_home,
+        actor_seat_id,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
+        state,
+        artifact_ids_json,
+        metadata_json,
+        reason,
+        response,
+        created_at
+      FROM ${table}
+      WHERE canvas_name = ? AND node_id = ? AND ${id} = ?
+    `,
+    [sink.canvasName, sink.nodeId, itemId],
+  );
+  if (detail === undefined) return undefined;
+  return { row, task: taskFromRow(reader, sink, lane, detail) };
+};
+
+const authorityError = (
+  reason: WorkAuthorityError["reason"],
+  message: string,
+): WorkAuthorityError => WorkAuthorityError.make({ reason, message });
+
+const replicationError = (
+  senderInstallationId: InstallationId,
+  reason: WorkReplicationError["reason"],
+  message: string,
+  seq?: LogicalSequenceValue,
+): WorkReplicationError =>
+  WorkReplicationError.make({
+    reason,
+    senderInstallationId,
+    ...(seq === undefined ? {} : { sequence: seq }),
+    message,
+  });
+
+const toRepositoryError = (
+  operation: string,
+  error: unknown,
+): WorkRepositoryError =>
+  error instanceof WorkRepositoryError
+    ? error
+    : WorkRepositoryError.make({
+        operation,
+        message: error instanceof Error ? error.message : String(error),
+        cause: error,
+      });
+
+const unwrapStateFailure = <E extends Error>(
+  operation: string,
+  error: unknown,
+  DomainError: new (...args: never[]) => E,
+): WorkRepositoryError | E => {
+  const cause =
+    typeof error === "object" &&
+    error !== null &&
+    "cause" in error
+      ? (error as { readonly cause: unknown }).cause
+      : undefined;
+  return cause instanceof DomainError
+    ? cause
+    : toRepositoryError(operation, error);
+};
+
+const allocateSequence = (
+  writer: StateWriter,
+  eventHome: InstallationId,
+  entityHome: InstallationId,
+): LogicalSequenceValue => {
+  const current = writer.get<SequenceRow>(
+    `
+      SELECT last_seq
+      FROM work_event_sequences
+      WHERE event_home = ? AND entity_home = ?
+    `,
+    [eventHome, entityHome],
+  )?.last_seq;
+  const next = (current === undefined ? 1n : BigInt(current) + 1n).toString();
+  writer.run(
+    `
+      INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
+      VALUES (?, ?, ?)
+      ON CONFLICT(event_home, entity_home) DO UPDATE SET
+        last_seq = excluded.last_seq
+    `,
+    [eventHome, entityHome, next],
+  );
+  return sequence(next);
+};
+
+const rememberIncomingSequence = (
+  writer: StateWriter,
+  identity: WorkRecordId,
+): void => {
+  const current = writer.get<SequenceRow>(
+    `
+      SELECT last_seq
+      FROM work_event_sequences
+      WHERE event_home = ? AND entity_home = ?
+    `,
+    [identity.route.eventHome, identity.route.entityHome],
+  )?.last_seq;
+  if (current !== undefined && BigInt(current) >= BigInt(identity.seq)) return;
+  writer.run(
+    `
+      INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
+      VALUES (?, ?, ?)
+      ON CONFLICT(event_home, entity_home) DO UPDATE SET
+        last_seq = excluded.last_seq
+    `,
+    [
+      identity.route.eventHome,
+      identity.route.entityHome,
+      identity.seq,
+    ],
+  );
+};
+
+const eventRow = (
+  reader: StateReader,
+  identity: WorkRecordId,
+): EventRow | undefined =>
+  reader.get<EventRow>(
+    `
+      SELECT
         event_home,
-        event_seq,
+        entity_home,
+        seq,
+        protocol,
+        record_type,
+        item_kind,
+        item_id,
+        item_canvas_name,
+        item_node_id,
+        operation,
+        content_sha256,
+        origin_at,
+        received_at
+      FROM work_events
+      WHERE event_home = ? AND entity_home = ? AND seq = ?
+    `,
+    [
+      identity.route.eventHome,
+      identity.route.entityHome,
+      identity.seq,
+    ],
+  );
+
+const predecessorFromRow = (
+  row: VariantRow,
+): WorkRecordId | null =>
+  row.predecessor_event_home === null ||
+  row.predecessor_entity_home === null ||
+  row.predecessor_seq === null
+    ? null
+    : recordId(
+        row.predecessor_event_home as InstallationId,
+        row.predecessor_entity_home as InstallationId,
+        row.predecessor_seq,
+      );
+
+const loadRecord = (
+  reader: StateReader,
+  identity: WorkRecordId,
+): WorkRecordValue | undefined => {
+  const common = eventRow(reader, identity);
+  if (common === undefined) return undefined;
+  const base = {
+    protocol: WORK_PROTOCOL,
+    id: identity,
+    item: {
+      kind: common.item_kind,
+      itemId: common.item_id,
+      sink: {
+        canvasName: common.item_canvas_name,
+        nodeId: common.item_node_id,
+      },
+    },
+    operation: common.operation,
+    contentSha256: common.content_sha256,
+    originAt: common.origin_at,
+  };
+  if (common.record_type === "command") {
+    const row = reader.get<VariantRow>(
+      `
+        SELECT
+          predecessor_event_home,
+          predecessor_entity_home,
+          predecessor_seq,
+          action_json AS body_json
+        FROM work_commands
+        WHERE event_home = ? AND entity_home = ? AND seq = ?
+      `,
+      [
+        identity.route.eventHome,
+        identity.route.entityHome,
+        identity.seq,
+      ],
+    );
+    if (row === undefined) {
+      throw new Error("work command variant row is missing");
+    }
+    return Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+      ...base,
+      recordType: "command",
+      predecessor: predecessorFromRow(row),
+      body: parseJson(row.body_json),
+    });
+  }
+  if (common.record_type === "fact") {
+    const row = reader.get<VariantRow>(
+      `
+        SELECT
+          predecessor_event_home,
+          predecessor_entity_home,
+          predecessor_seq,
+          result_json AS body_json
+        FROM work_facts
+        WHERE event_home = ? AND entity_home = ? AND seq = ?
+      `,
+      [
+        identity.route.eventHome,
+        identity.route.entityHome,
+        identity.seq,
+      ],
+    );
+    if (row === undefined) throw new Error("work fact variant row is missing");
+    return Schema.decodeUnknownSync(WorkFact, strictDecode)({
+      ...base,
+      recordType: "fact",
+      predecessor: predecessorFromRow(row),
+      body: parseJson(row.body_json),
+    });
+  }
+  const row = reader.get<DispositionRow>(
+    `
+      SELECT
+        status,
+        command_event_home,
+        command_entity_home,
+        command_seq,
+        command_sha256,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
+        fact_sha256,
+        rejection_reason,
+        rejection_message
+      FROM work_dispositions
+      WHERE event_home = ? AND entity_home = ? AND seq = ?
+    `,
+    [
+      identity.route.eventHome,
+      identity.route.entityHome,
+      identity.seq,
+    ],
+  );
+  if (row === undefined) {
+    throw new Error("work disposition variant row is missing");
+  }
+  const command = recordId(
+    row.command_event_home as InstallationId,
+    row.command_entity_home as InstallationId,
+    row.command_seq,
+  );
+  const body =
+    row.status === "applied"
+      ? {
+          status: "applied" as const,
+          command,
+          commandSha256: row.command_sha256,
+          fact: recordId(
+            row.fact_event_home as InstallationId,
+            row.fact_entity_home as InstallationId,
+            row.fact_seq!,
+          ),
+          factSha256: row.fact_sha256,
+        }
+      : {
+          status: "rejected" as const,
+          command,
+          commandSha256: row.command_sha256,
+          reason: row.rejection_reason,
+          message: row.rejection_message,
+        };
+  return Schema.decodeUnknownSync(WorkRecord, strictDecode)({
+    ...base,
+    recordType: "disposition",
+    body,
+  });
+};
+
+const insertRecord = (
+  writer: StateWriter,
+  record: WorkRecordValue,
+  receivedAt: DisplayTimestampValue,
+): void => {
+  writer.run(
+    `
+      INSERT INTO work_events(
+        event_home,
+        entity_home,
+        seq,
+        protocol,
+        record_type,
+        item_kind,
+        item_id,
+        item_canvas_name,
+        item_node_id,
+        operation,
+        content_sha256,
+        origin_at,
+        received_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      record.id.route.eventHome,
+      record.id.route.entityHome,
+      record.id.seq,
+      record.protocol,
+      record.recordType,
+      record.item.kind,
+      record.item.itemId,
+      record.item.sink.canvasName,
+      record.item.sink.nodeId,
+      record.operation,
+      record.contentSha256,
+      record.originAt,
+      receivedAt,
+    ],
+  );
+  if (record.recordType === "command") {
+    writer.run(
+      `
+        INSERT INTO work_commands(
+          event_home,
+          entity_home,
+          seq,
+          predecessor_event_home,
+          predecessor_entity_home,
+          predecessor_seq,
+          action_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        record.id.route.eventHome,
+        record.id.route.entityHome,
+        record.id.seq,
+        record.predecessor?.route.eventHome ?? null,
+        record.predecessor?.route.entityHome ?? null,
+        record.predecessor?.seq ?? null,
+        canonicalJson(record.body),
+      ],
+    );
+    return;
+  }
+  if (record.recordType === "fact") {
+    writer.run(
+      `
+        INSERT INTO work_facts(
+          event_home,
+          entity_home,
+          seq,
+          predecessor_event_home,
+          predecessor_entity_home,
+          predecessor_seq,
+          result_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        record.id.route.eventHome,
+        record.id.route.entityHome,
+        record.id.seq,
+        record.predecessor?.route.eventHome ?? null,
+        record.predecessor?.route.entityHome ?? null,
+        record.predecessor?.seq ?? null,
+        canonicalJson(record.body),
+      ],
+    );
+    return;
+  }
+  writer.run(
+    `
+      INSERT INTO work_dispositions(
+        event_home,
+        entity_home,
+        seq,
+        status,
+        command_event_home,
+        command_entity_home,
+        command_seq,
+        command_sha256,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
+        fact_sha256,
+        rejection_reason,
+        rejection_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      record.id.route.eventHome,
+      record.id.route.entityHome,
+      record.id.seq,
+      record.body.status,
+      record.body.command.route.eventHome,
+      record.body.command.route.entityHome,
+      record.body.command.seq,
+      record.body.commandSha256,
+      record.body.status === "applied"
+        ? record.body.fact.route.eventHome
+        : null,
+      record.body.status === "applied"
+        ? record.body.fact.route.entityHome
+        : null,
+      record.body.status === "applied" ? record.body.fact.seq : null,
+      record.body.status === "applied" ? record.body.factSha256 : null,
+      record.body.status === "rejected" ? record.body.reason : null,
+      record.body.status === "rejected" ? record.body.message : null,
+    ],
+  );
+};
+
+const insertPending = (
+  writer: StateWriter,
+  command: WorkCommandValue,
+  createdAt: DisplayTimestampValue,
+): void => {
+  writer.run(
+    `
+      INSERT INTO work_pending_commands(
+        event_home,
+        entity_home,
+        seq,
+        operation,
+        item_kind,
+        item_canvas_name,
+        item_node_id,
+        item_id,
+        claim_actor_seat_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      command.id.route.eventHome,
+      command.id.route.entityHome,
+      command.id.seq,
+      command.operation,
+      command.item.kind,
+      command.item.sink.canvasName,
+      command.item.sink.nodeId,
+      command.item.itemId,
+      command.body.operation === "task.claim"
+        ? command.body.actor.seatId
+        : null,
+      createdAt,
+    ],
+  );
+};
+
+const writeTaskMessages = (
+  writer: StateWriter,
+  lane: "task" | "request",
+  sink: SinkRefValue,
+  task: TaskValue,
+  fact: WorkFactValue,
+  receivedAt: DisplayTimestampValue,
+): void => {
+  writer.run(
+    `
+      DELETE FROM work_task_messages
+      WHERE canvas_name = ?
+        AND node_id = ?
+        AND parent_lane = ?
+        AND item_id = ?
+    `,
+    [sink.canvasName, sink.nodeId, lane, task.id],
+  );
+  task.history.forEach((message, position) => {
+    writer.run(
+      `
+        INSERT INTO work_task_messages(
+          canvas_name,
+          node_id,
+          parent_lane,
+          item_id,
+          message_id,
+          position,
+          message_kind,
+          entity_home,
+          fact_event_home,
+          fact_entity_home,
+          fact_seq,
+          role,
+          parts_json,
+          context_id,
+          reference_task_ids_json,
+          metadata_json,
+          origin_at,
+          received_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        sink.canvasName,
+        sink.nodeId,
+        lane,
+        task.id,
+        message.messageId,
+        position,
+        position === 0 ? "brief" : "history",
+        fact.id.route.entityHome,
+        fact.id.route.eventHome,
+        fact.id.route.entityHome,
+        fact.id.seq,
+        message.role,
+        canonicalJson(message.parts),
+        message.contextId ?? null,
+        message.referenceTaskIds === undefined
+          ? null
+          : canonicalJson(message.referenceTaskIds),
+        message.metadata === undefined
+          ? null
+          : canonicalJson(message.metadata),
+        fact.originAt,
+        receivedAt,
+      ],
+    );
+  });
+};
+
+const writeTransition = (
+  writer: StateWriter,
+  lane: "task" | "request",
+  sink: SinkRefValue,
+  task: TaskValue,
+  fromState: TaskState | null,
+  fact: WorkFactValue,
+  receivedAt: DisplayTimestampValue,
+): void => {
+  const ordinal = Number(
+    writer.get<StateRow & { readonly next_ordinal: number }>(
+      `
+        SELECT coalesce(max(ordinal) + 1, 0) AS next_ordinal
+        FROM work_task_transitions
+        WHERE canvas_name = ?
+          AND node_id = ?
+          AND item_id = ?
+          AND lane = ?
+      `,
+      [sink.canvasName, sink.nodeId, task.id, lane],
+    )?.next_ordinal ?? 0,
+  );
+  writer.run(
+    `
+      INSERT INTO work_task_transitions(
+        canvas_name,
+        node_id,
+        item_id,
+        ordinal,
+        lane,
+        entity_home,
+        actor_seat_id,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
+        operation,
+        from_state,
+        to_state,
+        origin_at,
+        received_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      sink.canvasName,
+      sink.nodeId,
+      task.id,
+      ordinal,
+      lane,
+      fact.id.route.entityHome,
+      task.claimedBy ?? null,
+      fact.id.route.eventHome,
+      fact.id.route.entityHome,
+      fact.id.seq,
+      fact.operation,
+      fromState,
+      task.state,
+      fact.originAt,
+      receivedAt,
+    ],
+  );
+};
+
+const writeTask = (
+  writer: StateWriter,
+  lane: "task" | "request",
+  sink: SinkRefValue,
+  task: TaskValue,
+  fact: WorkFactValue,
+  receivedAt: DisplayTimestampValue,
+): void => {
+  const previous = selectTaskIdentity(writer, lane, sink, task.id);
+  const table = lane === "task" ? "work_tasks" : "work_requests";
+  const id = lane === "task" ? "task_id" : "request_id";
+  const createdAt =
+    writer.get<StateRow & { readonly created_at: string }>(
+      `
+        SELECT created_at
+        FROM ${table}
+        WHERE canvas_name = ? AND node_id = ? AND ${id} = ?
+      `,
+      [sink.canvasName, sink.nodeId, task.id],
+    )?.created_at ?? fact.originAt;
+  const common = [
+    sink.canvasName,
+    sink.nodeId,
+    task.id,
+    fact.id.route.entityHome,
+    task.claimedBy ?? null,
+    fact.id.route.eventHome,
+    fact.id.route.entityHome,
+    fact.id.seq,
+    task.state,
+    task.history[0]?.messageId ?? task.id,
+    task.artifactIds === undefined
+      ? null
+      : canonicalJson(task.artifactIds),
+    task.metadata === undefined ? null : canonicalJson(task.metadata),
+    task.reason ?? null,
+    task.response ?? null,
+    createdAt,
+    fact.originAt,
+    fact.originAt,
+    receivedAt,
+  ];
+  writer.run(
+    `
+      INSERT INTO ${table}(
+        canvas_name,
+        node_id,
+        ${id},
+        entity_home,
+        actor_seat_id,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
         state,
         brief_message_id,
         artifact_ids_json,
@@ -530,807 +1380,54 @@ const loadLaneTasks = (
         updated_at,
         origin_at,
         received_at
-      FROM ${taskTable(lane)}
-      WHERE canvas_name = ? AND node_id = ?
-      ORDER BY created_at, task_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(canvas_name, node_id, ${id}) DO UPDATE SET
+        entity_home = excluded.entity_home,
+        actor_seat_id = excluded.actor_seat_id,
+        fact_event_home = excluded.fact_event_home,
+        fact_entity_home = excluded.fact_entity_home,
+        fact_seq = excluded.fact_seq,
+        state = excluded.state,
+        brief_message_id = excluded.brief_message_id,
+        artifact_ids_json = excluded.artifact_ids_json,
+        metadata_json = excluded.metadata_json,
+        reason = excluded.reason,
+        response = excluded.response,
+        updated_at = excluded.updated_at,
+        origin_at = excluded.origin_at,
+        received_at = excluded.received_at
     `,
-    [canvasName, nodeId],
+    common,
   );
-
-  return rows.map((row) => {
-    const messageRows = linkedMessageRows(
-      reader,
-      canvasName,
-      nodeId,
-      lane,
-      row.task_id,
-    );
-    const brief = messageRows.find(
-      (message) => message.message_id === row.brief_message_id,
-    );
-    if (!brief) {
-      throw new Error(
-        `${lane} "${row.task_id}" references missing brief message "${row.brief_message_id}"`,
-      );
-    }
-    const history = [
-      messageFromRow(brief),
-      ...messageRows
-        .filter(
-          (message) =>
-            message.message_kind !== "brief" &&
-            message.message_id !== row.brief_message_id,
-        )
-        .map(messageFromRow),
-    ];
-    return Schema.decodeUnknownSync(Task)({
-      id: row.task_id,
-      state: row.state,
-      history,
-      ...(row.artifact_ids_json === null
-        ? {}
-        : { artifactIds: JSON.parse(row.artifact_ids_json) }),
-      ...(row.metadata_json === null
-        ? {}
-        : { metadata: JSON.parse(row.metadata_json) }),
-      ...(row.reason === null ? {} : { reason: row.reason }),
-      ...(row.response === null ? {} : { response: row.response }),
-    });
-  });
+  writeTaskMessages(writer, lane, sink, task, fact, receivedAt);
+  writeTransition(
+    writer,
+    lane,
+    sink,
+    task,
+    previous?.state ?? null,
+    fact,
+    receivedAt,
+  );
 };
 
-const loadInboxMessages = (
-  reader: StateReader,
-  canvasName: string,
-  nodeId: string,
-): ReadonlyArray<MessageValue> =>
-  reader
-    .all<MessageRow>(
+const writeInboxMessage = (
+  writer: StateWriter,
+  sink: SinkRefValue,
+  message: MessageValue,
+  fact: WorkFactValue,
+  receivedAt: DisplayTimestampValue,
+): void => {
+  const position = Number(
+    writer.get<StateRow & { readonly next_position: number }>(
       `
-        SELECT
-          message_id,
-          NULL AS task_id,
-          'inbox' AS message_kind,
-          role,
-          parts_json,
-          context_id,
-          reference_task_ids_json,
-          metadata_json,
-          origin_at,
-          received_at
+        SELECT coalesce(max(position) + 1, 0) AS next_position
         FROM work_messages
-        WHERE canvas_name = ?
-          AND node_id = ?
-        ORDER BY position, message_id
-      `,
-      [canvasName, nodeId],
-    )
-    .map(messageFromRow);
-
-const loadArtifacts = (
-  reader: StateReader,
-  canvasName: string,
-  nodeId: string,
-): ReadonlyArray<ArtifactValue> =>
-  reader
-    .all<ArtifactRow>(
-      `
-        SELECT
-          artifact_id,
-          home_station,
-          event_home,
-          event_seq,
-          name,
-          parts_json,
-          task_id,
-          metadata_json,
-          origin_at,
-          received_at
-        FROM work_artifacts
         WHERE canvas_name = ? AND node_id = ?
-        ORDER BY artifact_id
       `,
-      [canvasName, nodeId],
-    )
-    .map((row) =>
-      Schema.decodeUnknownSync(Artifact)({
-        artifactId: row.artifact_id,
-        parts: JSON.parse(row.parts_json),
-        ...(row.name === null ? {} : { name: row.name }),
-        ...(row.task_id === null ? {} : { taskId: row.task_id }),
-        ...(row.metadata_json === null
-          ? {}
-          : { metadata: JSON.parse(row.metadata_json) }),
-      }),
-    );
-
-const loadSnapshot = (
-  reader: StateReader,
-  canvasName: string,
-  nodeId: string,
-): WorkSnapshot => ({
-  canvasName,
-  nodeId,
-  tasks: { items: [...loadLaneTasks(reader, canvasName, nodeId, "task")] },
-  requests: {
-    items: [...loadLaneTasks(reader, canvasName, nodeId, "request")],
-  },
-  messages: { items: [...loadInboxMessages(reader, canvasName, nodeId)] },
-  artifacts: { items: [...loadArtifacts(reader, canvasName, nodeId)] },
-});
-
-const loadSnapshotsForCanvas = (
-  reader: StateReader,
-  canvasName: string,
-): ReadonlyArray<WorkSnapshot> => {
-  const nodes = reader.all<StateRow & { readonly node_id: string }>(
-    `
-      SELECT node_id FROM work_tasks WHERE canvas_name = ?
-      UNION
-      SELECT node_id FROM work_requests WHERE canvas_name = ?
-      UNION
-      SELECT node_id FROM work_task_messages WHERE canvas_name = ?
-      UNION
-      SELECT node_id FROM work_messages WHERE canvas_name = ?
-      UNION
-      SELECT node_id FROM work_artifacts WHERE canvas_name = ?
-      ORDER BY node_id
-    `,
-    [canvasName, canvasName, canvasName, canvasName, canvasName],
+      [sink.canvasName, sink.nodeId],
+    )?.next_position ?? 0,
   );
-  return nodes.map((row) => loadSnapshot(reader, canvasName, row.node_id));
-};
-
-const canonicalSequence = (raw: string): string => {
-  if (!/^(?:0|[1-9][0-9]*)$/u.test(raw)) {
-    throw new Error(`invalid persisted work sequence "${raw}"`);
-  }
-  return raw;
-};
-
-const workRejectionFromRow = (
-  row: WorkRejectionRow,
-): WorkRejection => ({
-  rejected: {
-    eventHome: row.rejected_event_home,
-    entityHome: row.rejected_entity_home,
-    seq: canonicalSequence(row.rejected_seq),
-  },
-  contentSha256: row.rejected_content_sha256,
-  reason: "causal-conflict",
-  message: row.message,
-  reportedBy: row.reported_by,
-  receipt: {
-    eventHome: row.receipt_event_home,
-    entityHome: row.rejected_entity_home,
-    seq: canonicalSequence(row.receipt_event_seq),
-  },
-  receivedAt: row.received_at,
-});
-
-const nextSequence = (
-  writer: StateWriter,
-  eventHome: string,
-  entityHome: string,
-): string => {
-  writer.run(
-    `
-      INSERT OR IGNORE INTO work_event_sequences(
-        event_home,
-        entity_home,
-        last_seq
-      ) VALUES (?, ?, '0')
-    `,
-    [eventHome, entityHome],
-  );
-  const row = writer.get<StateRow & { readonly last_seq: string }>(
-    `
-      SELECT last_seq
-      FROM work_event_sequences
-      WHERE event_home = ? AND entity_home = ?
-    `,
-    [eventHome, entityHome],
-  );
-  if (!row) throw new Error(`failed to allocate event stream "${eventHome}"`);
-  const next = (BigInt(canonicalSequence(row.last_seq)) + 1n).toString();
-  const updated = writer.run(
-    `
-      UPDATE work_event_sequences
-      SET last_seq = ?
-      WHERE event_home = ? AND entity_home = ? AND last_seq = ?
-    `,
-    [next, eventHome, entityHome, row.last_seq],
-  );
-  if (Number(updated.changes) !== 1) {
-    throw new Error(`work sequence contention for stream "${eventHome}"`);
-  }
-  return next;
-};
-
-const recordEvent = (
-  writer: StateWriter,
-  input: {
-    readonly eventHome: string;
-    readonly entityHome: string;
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly entityKind: WorkEntityKind;
-    readonly entityId: string;
-    readonly operation: string;
-    readonly originAt: string;
-    readonly receivedAt: string;
-    readonly predecessor: WorkEventIdentity | null;
-    readonly payload: unknown;
-  },
-): WorkEventIdentity => {
-  const seq = nextSequence(writer, input.eventHome, input.entityHome);
-  // StationEvent content identity is semantic: receipt time, origin clock,
-  // home, and sequence are envelope metadata and never perturb this hash.
-  const payloadJson = canonicalJson({
-    schema: "vellum/work-event/v1",
-    entityHome: input.entityHome,
-    canvasName: input.canvasName,
-    nodeId: input.nodeId,
-    entityKind: input.entityKind,
-    entityId: input.entityId,
-    operation: input.operation,
-    predecessor: input.predecessor,
-    body: input.payload,
-  });
-  const contentSha256 = createHash("sha256")
-    .update(payloadJson, "utf8")
-    .digest("hex");
-  writer.run(
-    `
-      INSERT INTO work_events(
-        event_home,
-        seq,
-        entity_home,
-        canvas_name,
-        node_id,
-        entity_kind,
-        entity_id,
-        operation,
-        origin_at,
-        received_at,
-        payload_json,
-        content_sha256
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      input.eventHome,
-      seq,
-      input.entityHome,
-      input.canvasName,
-      input.nodeId,
-      input.entityKind,
-      input.entityId,
-      input.operation,
-      input.originAt,
-      input.receivedAt,
-      payloadJson,
-      contentSha256,
-    ],
-  );
-  return {
-    eventHome: input.eventHome,
-    entityHome: input.entityHome,
-    seq,
-  };
-};
-
-const taskScalar = (task: TaskValue): string =>
-  JSON.stringify({
-    state: task.state,
-    artifactIds: task.artifactIds,
-    metadata: task.metadata,
-    reason: task.reason,
-    response: task.response,
-  });
-
-const messageScalar = (message: MessageValue): string =>
-  JSON.stringify(message);
-
-const artifactScalar = (artifact: ArtifactValue): string =>
-  JSON.stringify(artifact);
-
-const byTaskId = (
-  items: ReadonlyArray<TaskValue>,
-): ReadonlyMap<string, TaskValue> => {
-  const map = new Map<string, TaskValue>();
-  for (const item of items) {
-    if (map.has(item.id)) {
-      throw new WorkError("invalid", `duplicate task id "${item.id}"`);
-    }
-    map.set(item.id, item);
-  }
-  return map;
-};
-
-const byMessageId = (
-  items: ReadonlyArray<MessageValue>,
-): ReadonlyMap<string, MessageValue> => {
-  const map = new Map<string, MessageValue>();
-  for (const item of items) {
-    if (map.has(item.messageId)) {
-      throw new WorkError(
-        "invalid",
-        `duplicate message id "${item.messageId}"`,
-      );
-    }
-    map.set(item.messageId, item);
-  }
-  return map;
-};
-
-const byArtifactId = (
-  items: ReadonlyArray<ArtifactValue>,
-): ReadonlyMap<string, ArtifactValue> => {
-  const map = new Map<string, ArtifactValue>();
-  for (const item of items) {
-    if (map.has(item.artifactId)) {
-      throw new WorkError(
-        "invalid",
-        `duplicate artifact id "${item.artifactId}"`,
-      );
-    }
-    map.set(item.artifactId, item);
-  }
-  return map;
-};
-
-type MessageInsert = {
-  readonly message: MessageValue;
-  readonly lane: WorkLane | null;
-  readonly taskId: string | null;
-  readonly position: number;
-  readonly kind: "brief" | "history" | "inbox";
-};
-
-type TaskChange = {
-  readonly lane: WorkLane;
-  readonly before: TaskValue | undefined;
-  readonly after: TaskValue;
-  readonly briefMessageId: string;
-};
-
-type WorkMutationPlan = {
-  readonly taskChanges: ReadonlyArray<TaskChange>;
-  readonly messageInserts: ReadonlyArray<MessageInsert>;
-  readonly artifactInserts: ReadonlyArray<ArtifactValue>;
-};
-
-const planTaskLane = (
-  lane: WorkLane,
-  beforeItems: ReadonlyArray<TaskValue>,
-  afterItems: ReadonlyArray<TaskValue>,
-): {
-  readonly taskChanges: ReadonlyArray<TaskChange>;
-  readonly messageInserts: ReadonlyArray<MessageInsert>;
-} => {
-  const before = byTaskId(beforeItems);
-  const after = byTaskId(afterItems);
-  for (const taskId of before.keys()) {
-    if (!after.has(taskId)) {
-      throw new WorkError(
-        "invalid",
-        `${lane} "${taskId}" cannot be deleted through a work mutation`,
-      );
-    }
-  }
-
-  const taskChanges: TaskChange[] = [];
-  const messageInserts: MessageInsert[] = [];
-  for (const task of after.values()) {
-    if (task.history.length === 0) {
-      throw new WorkError(
-        "invalid",
-        `${lane} "${task.id}" must retain a brief message`,
-      );
-    }
-    const prior = before.get(task.id);
-    const nextMessages = byMessageId(task.history);
-    const brief = task.history[0]!;
-
-    if (!prior) {
-      taskChanges.push({
-        lane,
-        before: undefined,
-        after: task,
-        briefMessageId: brief.messageId,
-      });
-      task.history.forEach((message, position) => {
-        messageInserts.push({
-          message,
-          lane,
-          taskId: task.id,
-          position,
-          kind: position === 0 ? "brief" : "history",
-        });
-      });
-      continue;
-    }
-
-    const priorMessages = byMessageId(prior.history);
-    const priorBriefId = prior.history[0]?.messageId;
-    for (const message of prior.history.slice(1)) {
-      if (!nextMessages.has(message.messageId)) {
-        throw new WorkError(
-          "invalid",
-          `${lane} "${task.id}" history message "${message.messageId}" cannot be deleted`,
-        );
-      }
-      const nextMessage = nextMessages.get(message.messageId)!;
-      if (messageScalar(message) !== messageScalar(nextMessage)) {
-        throw new WorkError(
-          "invalid",
-          `${lane} "${task.id}" history message "${message.messageId}" is immutable`,
-        );
-      }
-    }
-
-    let nextPosition = prior.history.length;
-    let addedHistory = false;
-    for (const message of task.history) {
-      if (priorMessages.has(message.messageId)) continue;
-      addedHistory = true;
-      messageInserts.push({
-        message,
-        lane,
-        taskId: task.id,
-        position: nextPosition,
-        kind:
-          message.messageId === brief.messageId &&
-          message.messageId !== priorBriefId
-            ? "brief"
-            : "history",
-      });
-      nextPosition += 1;
-    }
-
-    if (
-      taskScalar(prior) !== taskScalar(task) ||
-      priorBriefId !== brief.messageId ||
-      addedHistory
-    ) {
-      taskChanges.push({
-        lane,
-        before: prior,
-        after: task,
-        briefMessageId: brief.messageId,
-      });
-    }
-  }
-  return { taskChanges, messageInserts };
-};
-
-const planInbox = (
-  beforeItems: ReadonlyArray<MessageValue>,
-  afterItems: ReadonlyArray<MessageValue>,
-): ReadonlyArray<MessageInsert> => {
-  const before = byMessageId(beforeItems);
-  const after = byMessageId(afterItems);
-  for (const [messageId, message] of before) {
-    const next = after.get(messageId);
-    if (!next) {
-      throw new WorkError(
-        "invalid",
-        `inbox message "${messageId}" cannot be deleted`,
-      );
-    }
-    if (messageScalar(message) !== messageScalar(next)) {
-      throw new WorkError(
-        "invalid",
-        `inbox message "${messageId}" is immutable`,
-      );
-    }
-  }
-  const inserts: MessageInsert[] = [];
-  let position = beforeItems.length;
-  for (const message of afterItems) {
-    if (before.has(message.messageId)) continue;
-    inserts.push({
-      message,
-      lane: null,
-      taskId: null,
-      position,
-      kind: "inbox",
-    });
-    position += 1;
-  }
-  return inserts;
-};
-
-const planArtifacts = (
-  beforeItems: ReadonlyArray<ArtifactValue>,
-  afterItems: ReadonlyArray<ArtifactValue>,
-): ReadonlyArray<ArtifactValue> => {
-  const before = byArtifactId(beforeItems);
-  const after = byArtifactId(afterItems);
-  for (const [artifactId, artifact] of before) {
-    const next = after.get(artifactId);
-    if (!next) {
-      throw new WorkError(
-        "invalid",
-        `artifact "${artifactId}" cannot be deleted`,
-      );
-    }
-    if (artifactScalar(artifact) !== artifactScalar(next)) {
-      throw new WorkError(
-        "invalid",
-        `artifact "${artifactId}" is immutable`,
-      );
-    }
-  }
-  return afterItems.filter((artifact) => !before.has(artifact.artifactId));
-};
-
-const planMutation = (
-  before: WorkSnapshot,
-  after: WorkSnapshot,
-): WorkMutationPlan => {
-  const tasks = planTaskLane("task", before.tasks.items, after.tasks.items);
-  const requests = planTaskLane(
-    "request",
-    before.requests.items,
-    after.requests.items,
-  );
-  return {
-    taskChanges: [...tasks.taskChanges, ...requests.taskChanges],
-    messageInserts: [
-      ...tasks.messageInserts,
-      ...requests.messageInserts,
-      ...planInbox(before.messages.items, after.messages.items),
-    ],
-    artifactInserts: planArtifacts(
-      before.artifacts.items,
-      after.artifacts.items,
-    ),
-  };
-};
-
-const existingTaskHome = (
-  writer: StateReader,
-  lane: WorkLane,
-  canvasName: string,
-  nodeId: string,
-  taskId: string,
-): string | undefined =>
-  writer.get<StateRow & { readonly home_station: string }>(
-    `
-      SELECT home_station
-      FROM ${taskTable(lane)}
-      WHERE canvas_name = ? AND node_id = ? AND task_id = ?
-    `,
-    [canvasName, nodeId, taskId],
-  )?.home_station;
-
-const existingArtifactHome = (
-  writer: StateWriter,
-  canvasName: string,
-  nodeId: string,
-  artifactId: string,
-): string | undefined =>
-  writer.get<StateRow & { readonly home_station: string }>(
-    `
-      SELECT home_station
-      FROM work_artifacts
-      WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
-    `,
-    [canvasName, nodeId, artifactId],
-  )?.home_station;
-
-const assertImmutableHome = (
-  entity: string,
-  existing: string | undefined,
-  requested: string,
-): void => {
-  if (existing !== undefined && existing !== requested) {
-    throw new WorkError(
-      "invalid",
-      `${entity} is homed on "${existing}"; explicit re-home is required before "${requested}"`,
-    );
-  }
-};
-
-const isFirstTaskClaimTransfer = (
-  operation: string,
-  change: TaskChange,
-  existingHome: string | undefined,
-  requestedHome: string,
-): boolean =>
-  change.lane === "task" &&
-  operation === "task.claim" &&
-  existingHome !== undefined &&
-  existingHome !== requestedHome &&
-  change.before?.state === "submitted" &&
-  claimedByOf(change.before) === undefined &&
-  change.after.state === "working" &&
-  claimedByOf(change.after) !== undefined;
-
-const assertActorClaimAvailable = (
-  reader: StateReader,
-  input: {
-    readonly actor: string;
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly taskId: string;
-  },
-): void => {
-  const active = reader.get<StateRow>(
-    `
-      SELECT 1 AS occupied
-      FROM work_tasks
-      WHERE json_extract(metadata_json, '$.claimedBy') = ?
-        AND state IN ('working', 'input-required', 'auth-required')
-        AND NOT (
-          canvas_name = ?
-          AND node_id = ?
-          AND task_id = ?
-        )
-      LIMIT 1
-    `,
-    [input.actor, input.canvasName, input.nodeId, input.taskId],
-  );
-  if (active !== undefined) {
-    throw new WorkError(
-      "claim_contention",
-      `actor "${input.actor}" already owns a non-terminal task`,
-    );
-  }
-
-  const pending = reader.get<StateRow>(
-    `
-      SELECT 1 AS occupied
-      FROM work_pending_commands AS command
-      JOIN work_events AS event
-        ON event.event_home = command.event_home
-       AND event.entity_home = command.entity_home
-       AND event.seq = command.seq
-      WHERE command.status = 'pending'
-        AND event.operation = 'task.claim'
-        AND json_extract(
-          event.payload_json,
-          '$.body.task.metadata.claimedBy'
-        ) = ?
-        AND NOT (
-          event.canvas_name = ?
-          AND event.node_id = ?
-          AND event.entity_id = ?
-        )
-      LIMIT 1
-    `,
-    [input.actor, input.canvasName, input.nodeId, input.taskId],
-  );
-  if (pending !== undefined) {
-    throw new WorkError(
-      "claim_contention",
-      `actor "${input.actor}" already has a pending task claim`,
-    );
-  }
-};
-
-const currentTaskEvent = (
-  writer: StateWriter,
-  lane: WorkLane,
-  canvasName: string,
-  nodeId: string,
-  taskId: string,
-): WorkEventIdentity | null => {
-  const row = writer.get<
-    StateRow & {
-      readonly event_home: string;
-      readonly event_seq: string;
-      readonly home_station: string;
-    }
-  >(
-    `
-      SELECT event_home, event_seq, home_station
-      FROM ${taskTable(lane)}
-      WHERE canvas_name = ? AND node_id = ? AND task_id = ?
-    `,
-    [canvasName, nodeId, taskId],
-  );
-  return row === undefined
-    ? null
-    : {
-        eventHome: row.event_home,
-        entityHome: row.home_station,
-        seq: row.event_seq,
-      };
-};
-
-const insertTaskMessage = (
-  writer: StateWriter,
-  input: {
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly originAt: string;
-    readonly receivedAt: string;
-    readonly insert: MessageInsert;
-    readonly event: WorkEventIdentity;
-  },
-): void => {
-  const message = input.insert.message;
-  if (input.insert.lane === null || input.insert.taskId === null) {
-    throw new Error("task history materialization requires a parent task");
-  }
-  writer.run(
-    `
-      INSERT INTO work_task_messages(
-        canvas_name,
-        node_id,
-        parent_lane,
-        task_id,
-        message_id,
-        position,
-        message_kind,
-        entity_home,
-        event_home,
-        event_seq,
-        role,
-        parts_json,
-        context_id,
-        reference_task_ids_json,
-        metadata_json,
-        origin_at,
-        received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      input.canvasName,
-      input.nodeId,
-      input.insert.lane,
-      input.insert.taskId,
-      message.messageId,
-      input.insert.position,
-      input.insert.kind,
-      input.event.entityHome,
-      input.event.eventHome,
-      input.event.seq,
-      message.role,
-      JSON.stringify(message.parts),
-      message.contextId ?? null,
-      jsonOptional(message.referenceTaskIds),
-      jsonOptional(message.metadata),
-      input.originAt,
-      input.receivedAt,
-    ],
-  );
-};
-
-const insertInboxMessage = (
-  writer: StateWriter,
-  input: {
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly eventHome: string;
-    readonly operation: string;
-    readonly originAt: string;
-    readonly receivedAt: string;
-    readonly insert: MessageInsert;
-  },
-): void => {
-  if (input.insert.lane !== null || input.insert.taskId !== null) {
-    throw new Error("inbox materialization cannot contain task history");
-  }
-  const message = input.insert.message;
-  const event = recordEvent(writer, {
-    eventHome: input.eventHome,
-    entityHome: COMMAND_CENTER_WORK_HOME,
-    canvasName: input.canvasName,
-    nodeId: input.nodeId,
-    entityKind: "message",
-    entityId: message.messageId,
-    operation: input.operation,
-    originAt: input.originAt,
-    receivedAt: input.receivedAt,
-    predecessor: null,
-    payload: {
-      position: input.insert.position,
-      message,
-    },
-  });
   writer.run(
     `
       INSERT INTO work_messages(
@@ -1338,9 +1435,10 @@ const insertInboxMessage = (
         node_id,
         message_id,
         position,
-        home_station,
-        event_home,
-        event_seq,
+        entity_home,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
         role,
         parts_json,
         context_id,
@@ -1348,1291 +1446,1185 @@ const insertInboxMessage = (
         metadata_json,
         origin_at,
         received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
-      input.canvasName,
-      input.nodeId,
+      sink.canvasName,
+      sink.nodeId,
       message.messageId,
-      input.insert.position,
-      COMMAND_CENTER_WORK_HOME,
-      event.eventHome,
-      event.seq,
+      position,
+      fact.id.route.entityHome,
+      fact.id.route.eventHome,
+      fact.id.route.entityHome,
+      fact.id.seq,
       message.role,
-      JSON.stringify(message.parts),
+      canonicalJson(message.parts),
       message.contextId ?? null,
-      jsonOptional(message.referenceTaskIds),
-      jsonOptional(message.metadata),
-      input.originAt,
-      input.receivedAt,
+      message.referenceTaskIds === undefined
+        ? null
+        : canonicalJson(message.referenceTaskIds),
+      message.metadata === undefined
+        ? null
+        : canonicalJson(message.metadata),
+      fact.originAt,
+      receivedAt,
     ],
   );
 };
 
-const nextTransitionOrdinal = (
+const writeArtifact = (
   writer: StateWriter,
-  lane: WorkLane,
-  canvasName: string,
-  nodeId: string,
-  taskId: string,
-): number => {
-  const row = writer.get<StateRow & { readonly next_ordinal: number }>(
-    `
-      SELECT COALESCE(MAX(ordinal) + 1, 0) AS next_ordinal
-      FROM work_task_transitions
-      WHERE canvas_name = ? AND node_id = ? AND task_id = ? AND lane = ?
-    `,
-    [canvasName, nodeId, taskId, lane],
-  );
-  return Number(row?.next_ordinal ?? 0);
-};
-
-const materializeTaskChange = (
-  writer: StateWriter,
-  input: {
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly entityHome: string;
-    readonly operation: string;
-    readonly originAt: string;
-    readonly receivedAt: string;
-    readonly change: TaskChange;
-    readonly event: WorkEventIdentity;
-  },
+  sink: SinkRefValue,
+  artifact: ArtifactValue,
+  actorSeatId: ActorSeatId,
+  fact: WorkFactValue,
+  receivedAt: DisplayTimestampValue,
 ): void => {
-  const { change } = input;
-  const table = taskTable(change.lane);
-  const existingHome = existingTaskHome(
-    writer,
-    change.lane,
-    input.canvasName,
-    input.nodeId,
-    change.after.id,
-  );
-  const transfersOnClaim = isFirstTaskClaimTransfer(
-    input.operation,
-    change,
-    existingHome,
-    input.entityHome,
-  );
-  if (!transfersOnClaim) {
-    assertImmutableHome(
-      `${change.lane} "${change.after.id}"`,
-      existingHome,
-      input.entityHome,
-    );
-  }
-  if (!change.before) {
-    writer.run(
-      `
-        INSERT INTO ${table}(
-          canvas_name,
-          node_id,
-          task_id,
-          home_station,
-          event_home,
-          event_seq,
-          state,
-          brief_message_id,
-          artifact_ids_json,
-          metadata_json,
-          reason,
-          response,
-          created_at,
-          updated_at,
-          origin_at,
-          received_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        input.canvasName,
-        input.nodeId,
-        change.after.id,
-        input.entityHome,
-        input.event.eventHome,
-        input.event.seq,
-        change.after.state,
-        change.briefMessageId,
-        jsonOptional(change.after.artifactIds),
-        jsonOptional(change.after.metadata),
-        change.after.reason ?? null,
-        change.after.response ?? null,
-        input.receivedAt,
-        input.receivedAt,
-        input.originAt,
-        input.receivedAt,
-      ],
-    );
-  } else {
-    const updated = writer.run(
-      `
-        UPDATE ${table}
-        SET
-          home_station = ?,
-          event_home = ?,
-          event_seq = ?,
-          state = ?,
-          brief_message_id = ?,
-          artifact_ids_json = ?,
-          metadata_json = ?,
-          reason = ?,
-          response = ?,
-          updated_at = ?,
-          origin_at = ?,
-          received_at = ?
-        WHERE canvas_name = ?
-          AND node_id = ?
-          AND task_id = ?
-          AND home_station = ?
-      `,
-      [
-        input.entityHome,
-        input.event.eventHome,
-        input.event.seq,
-        change.after.state,
-        change.briefMessageId,
-        jsonOptional(change.after.artifactIds),
-        jsonOptional(change.after.metadata),
-        change.after.reason ?? null,
-        change.after.response ?? null,
-        input.receivedAt,
-        input.originAt,
-        input.receivedAt,
-        input.canvasName,
-        input.nodeId,
-        change.after.id,
-        existingHome!,
-      ],
-    );
-    if (Number(updated.changes) !== 1) {
-      throw new Error(
-        `${change.lane} "${change.after.id}" disappeared during mutation`,
-      );
-    }
-  }
-
-  if (!change.before || change.before.state !== change.after.state) {
-    writer.run(
-      `
-        INSERT INTO work_task_transitions(
-          canvas_name,
-          node_id,
-          task_id,
-          ordinal,
-          lane,
-          home_station,
-          event_home,
-          event_seq,
-          operation,
-          from_state,
-          to_state,
-          origin_at,
-          received_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        input.canvasName,
-        input.nodeId,
-        change.after.id,
-        nextTransitionOrdinal(
-          writer,
-          change.lane,
-          input.canvasName,
-          input.nodeId,
-          change.after.id,
-        ),
-        change.lane,
-        input.entityHome,
-        input.event.eventHome,
-        input.event.seq,
-        input.operation,
-        change.before?.state ?? null,
-        change.after.state,
-        input.originAt,
-        input.receivedAt,
-      ],
-    );
-  }
-};
-
-const insertPendingCommand = (
-  writer: StateWriter,
-  event: WorkEventIdentity,
-): void => {
-  writer.run(
-    `
-      INSERT INTO work_pending_commands(
-        event_home,
-        entity_home,
-        seq,
-        status,
-        acknowledged_by,
-        resolved_at
-      ) VALUES (?, ?, ?, 'pending', NULL, NULL)
-    `,
-    [event.eventHome, event.entityHome, event.seq],
-  );
-};
-
-const assertNoPendingCommandForEntity = (
-  reader: StateReader,
-  input: {
-    readonly eventHome: string;
-    readonly entityHome: string;
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly entityKind: "task" | "request" | "artifact";
-    readonly entityId: string;
-  },
-): void => {
-  const pending = reader.get<StateRow>(
-    `
-      SELECT 1 AS pending
-      FROM work_pending_commands AS command
-      JOIN work_events AS event
-        ON event.event_home = command.event_home
-       AND event.entity_home = command.entity_home
-       AND event.seq = command.seq
-      WHERE command.event_home = ?
-        AND command.entity_home = ?
-        AND command.status = 'pending'
-        AND event.canvas_name = ?
-        AND event.node_id = ?
-        AND event.entity_kind = ?
-        AND event.entity_id = ?
-      LIMIT 1
-    `,
-    [
-      input.eventHome,
-      input.entityHome,
-      input.canvasName,
-      input.nodeId,
-      input.entityKind,
-      input.entityId,
-    ],
-  );
-  if (pending !== undefined) {
-    throw new WorkError(
-      "invalid",
-      `${input.entityKind} "${input.entityId}" already has a pending Remote command`,
-    );
-  }
-};
-
-const writeTaskChange = (
-  writer: StateWriter,
-  input: {
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly entityHome: string;
-    readonly eventHome: string;
-    readonly operation: string;
-    readonly originAt: string;
-    readonly receivedAt: string;
-    readonly materialization: "immediate" | "on-disposition";
-    readonly change: TaskChange;
-  },
-): WorkEventIdentity => {
-  const actor =
-    input.operation === "task.claim"
-      ? claimedByOf(input.change.after)
-      : undefined;
-  if (actor !== undefined) {
-    assertActorClaimAvailable(writer, {
-      actor,
-      canvasName: input.canvasName,
-      nodeId: input.nodeId,
-      taskId: input.change.after.id,
-    });
-  }
-  if (input.materialization === "on-disposition") {
-    assertNoPendingCommandForEntity(writer, {
-      ...input,
-      entityKind: input.change.lane,
-      entityId: input.change.after.id,
-    });
-  }
-  const event = recordEvent(writer, {
-    eventHome: input.eventHome,
-    entityHome: input.entityHome,
-    canvasName: input.canvasName,
-    nodeId: input.nodeId,
-    entityKind: input.change.lane,
-    entityId: input.change.after.id,
-    operation: input.operation,
-    originAt: input.originAt,
-    receivedAt: input.receivedAt,
-    predecessor: currentTaskEvent(
-      writer,
-      input.change.lane,
-      input.canvasName,
-      input.nodeId,
-      input.change.after.id,
-    ),
-    payload: {
-      lane: input.change.lane,
-      task: input.change.after,
-    },
-  });
-  if (input.materialization === "immediate") {
-    materializeTaskChange(writer, { ...input, event });
-  } else {
-    insertPendingCommand(writer, event);
-  }
-  return event;
-};
-
-const materializeArtifact = (
-  writer: StateWriter,
-  input: {
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly entityHome: string;
-    readonly originAt: string;
-    readonly receivedAt: string;
-    readonly artifact: ArtifactValue;
-    readonly event: WorkEventIdentity;
-  },
-): void => {
-  assertImmutableHome(
-    `artifact "${input.artifact.artifactId}"`,
-    existingArtifactHome(
-      writer,
-      input.canvasName,
-      input.nodeId,
-      input.artifact.artifactId,
-    ),
-    input.entityHome,
-  );
   writer.run(
     `
       INSERT INTO work_artifacts(
         canvas_name,
         node_id,
         artifact_id,
-        home_station,
-        event_home,
-        event_seq,
+        entity_home,
+        actor_seat_id,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
         name,
         parts_json,
         task_id,
         metadata_json,
         origin_at,
         received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
-      input.canvasName,
-      input.nodeId,
-      input.artifact.artifactId,
-      input.entityHome,
-      input.event.eventHome,
-      input.event.seq,
-      input.artifact.name ?? null,
-      JSON.stringify(input.artifact.parts),
-      input.artifact.taskId ?? null,
-      jsonOptional(input.artifact.metadata),
-      input.originAt,
-      input.receivedAt,
+      sink.canvasName,
+      sink.nodeId,
+      artifact.artifactId,
+      fact.id.route.entityHome,
+      actorSeatId,
+      fact.id.route.eventHome,
+      fact.id.route.entityHome,
+      fact.id.seq,
+      artifact.name ?? null,
+      canonicalJson(artifact.parts),
+      artifact.taskId ?? null,
+      artifact.metadata === undefined
+        ? null
+        : canonicalJson(artifact.metadata),
+      fact.originAt,
+      receivedAt,
     ],
   );
 };
 
-const insertArtifact = (
+const writeDelivery = (
   writer: StateWriter,
-  input: {
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly entityHome: string;
-    readonly eventHome: string;
-    readonly operation: string;
-    readonly originAt: string;
-    readonly receivedAt: string;
-    readonly materialization: "immediate" | "on-disposition";
-    readonly artifact: ArtifactValue;
-  },
+  receipt: DeliveryReceipt,
+  fact: WorkFactValue,
+  receivedAt: DisplayTimestampValue,
 ): void => {
-  if (input.materialization === "on-disposition") {
-    assertNoPendingCommandForEntity(writer, {
-      ...input,
-      entityKind: "artifact",
-      entityId: input.artifact.artifactId,
-    });
-  }
-  const event = recordEvent(writer, {
-    eventHome: input.eventHome,
-    entityHome: input.entityHome,
-    canvasName: input.canvasName,
-    nodeId: input.nodeId,
-    entityKind: "artifact",
-    entityId: input.artifact.artifactId,
-    operation: input.operation,
-    originAt: input.originAt,
-    receivedAt: input.receivedAt,
-    predecessor: null,
-    payload: { artifact: input.artifact },
-  });
-  if (input.materialization === "immediate") {
-    materializeArtifact(writer, { ...input, event });
-  } else {
-    insertPendingCommand(writer, event);
+  writer.run(
+    `
+      INSERT INTO work_delivery_receipts(
+        delivery_id,
+        delivered_item_kind,
+        delivered_item_id,
+        delivered_canvas_name,
+        delivered_node_id,
+        actor_seat_id,
+        actor_canvas_name,
+        actor_node_id,
+        entity_home,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
+        accepted_at,
+        received_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      receipt.deliveryId,
+      receipt.deliveredItem.kind,
+      receipt.deliveredItem.itemId,
+      receipt.deliveredItem.sink.canvasName,
+      receipt.deliveredItem.sink.nodeId,
+      receipt.actor.seatId,
+      receipt.actor.canvasName,
+      receipt.actor.nodeId,
+      fact.id.route.entityHome,
+      fact.id.route.eventHome,
+      fact.id.route.entityHome,
+      fact.id.seq,
+      receipt.acceptedAt,
+      receivedAt,
+    ],
+  );
+};
+
+const materializeFact = (
+  writer: StateWriter,
+  fact: WorkFactValue,
+  receivedAt: DisplayTimestampValue,
+): void => {
+  switch (fact.body.operation) {
+    case "task.create":
+    case "task.describe":
+    case "task.transition":
+    case "task.claim":
+      writeTask(
+        writer,
+        "task",
+        fact.item.sink,
+        fact.body.task,
+        fact,
+        receivedAt,
+      );
+      return;
+    case "request.create":
+    case "request.resolve":
+      writeTask(
+        writer,
+        "request",
+        fact.item.sink,
+        fact.body.request,
+        fact,
+        receivedAt,
+      );
+      return;
+    case "message.append":
+      writeInboxMessage(
+        writer,
+        fact.item.sink,
+        fact.body.message,
+        fact,
+        receivedAt,
+      );
+      return;
+    case "artifact.publish":
+      writeArtifact(
+        writer,
+        fact.item.sink,
+        fact.body.artifact,
+        fact.body.publishedBy.seatId,
+        fact,
+        receivedAt,
+      );
+      return;
+    case "delivery.accepted":
+      writeDelivery(writer, fact.body.receipt, fact, receivedAt);
+      return;
   }
 };
 
-const applyMutationPlan = (
+const activeTaskForActor = (
+  reader: StateReader,
+  actorSeatId: ActorSeatId,
+): string | undefined =>
+  reader.get<StateRow & { readonly task_id: string }>(
+    `
+      SELECT task_id
+      FROM work_tasks
+      WHERE actor_seat_id = ?
+        AND state IN ('working', 'input-required', 'auth-required')
+      LIMIT 1
+    `,
+    [actorSeatId],
+  )?.task_id;
+
+const pendingClaimForActor = (
+  reader: StateReader,
+  actorSeatId: ActorSeatId,
+): string | undefined =>
+  reader.get<StateRow & { readonly item_id: string }>(
+    `
+      SELECT item_id
+      FROM work_pending_commands
+      WHERE operation = 'task.claim'
+        AND claim_actor_seat_id = ?
+        AND resolution_event_home IS NULL
+      LIMIT 1
+    `,
+    [actorSeatId],
+  )?.item_id;
+
+const assertActorAvailable = (
+  reader: StateReader,
+  actorSeatId: ActorSeatId,
+  exceptTaskId?: string,
+): void => {
+  const active = activeTaskForActor(reader, actorSeatId);
+  if (active !== undefined && active !== exceptTaskId) {
+    throw authorityError(
+      "claim-contention",
+      `actor seat "${actorSeatId}" already owns active task "${active}"`,
+    );
+  }
+  const pending = pendingClaimForActor(reader, actorSeatId);
+  if (pending !== undefined && pending !== exceptTaskId) {
+    throw authorityError(
+      "claim-contention",
+      `actor seat "${actorSeatId}" already has pending claim "${pending}"`,
+    );
+  }
+};
+
+const assertCurrentPredecessor = (
+  current: IdentityRow | undefined,
+  predecessor: WorkRecordId | null,
+  itemLabel: string,
+): void => {
+  if (current === undefined) {
+    throw authorityError("missing-entity", `${itemLabel} does not exist`);
+  }
+  if (!sameId(currentIdentity(current), predecessor)) {
+    throw authorityError(
+      "causal-conflict",
+      `${itemLabel} predecessor does not match its current fact`,
+    );
+  }
+};
+
+const makeFact = (
+  writer: StateWriter,
+  localInstallationId: InstallationId,
+  itemRef: WorkItemRef,
+  operation: WorkOperation,
+  predecessor: WorkRecordId | null,
+  body: WorkResult,
+  originAt: DisplayTimestampValue,
+): WorkFactValue => {
+  const seq = allocateSequence(
+    writer,
+    localInstallationId,
+    localInstallationId,
+  );
+  return recordWithHash(
+    {
+      protocol: WORK_PROTOCOL,
+      id: {
+        route: {
+          eventHome: localInstallationId,
+          entityHome: localInstallationId,
+        },
+        seq,
+      },
+      recordType: "fact",
+      item: itemRef,
+      operation,
+      predecessor,
+      body,
+    },
+    originAt,
+  ) as WorkFactValue;
+};
+
+const makeCommand = (
+  writer: StateWriter,
+  localInstallationId: InstallationId,
+  targetInstallationId: InstallationId,
+  itemRef: WorkItemRef,
+  predecessor: WorkRecordId | null,
+  action: WorkActionValue,
+  originAt: DisplayTimestampValue,
+): WorkCommandValue => {
+  const seq = allocateSequence(
+    writer,
+    localInstallationId,
+    targetInstallationId,
+  );
+  return recordWithHash(
+    {
+      protocol: WORK_PROTOCOL,
+      id: {
+        route: {
+          eventHome: localInstallationId,
+          entityHome: targetInstallationId,
+        },
+        seq,
+      },
+      recordType: "command",
+      item: itemRef,
+      operation: action.operation,
+      predecessor,
+      body: action,
+    },
+    originAt,
+  ) as WorkCommandValue;
+};
+
+const makeDisposition = (
+  writer: StateWriter,
+  localInstallationId: InstallationId,
+  command: WorkCommandValue,
+  outcome:
+    | { readonly _tag: "applied"; readonly fact: WorkFactValue }
+    | {
+        readonly _tag: "rejected";
+        readonly reason: WorkRejectionReason;
+        readonly message: string;
+      },
+  originAt: DisplayTimestampValue,
+): WorkDispositionValue => {
+  const seq = allocateSequence(
+    writer,
+    localInstallationId,
+    localInstallationId,
+  );
+  const body =
+    outcome._tag === "applied"
+      ? {
+          status: "applied" as const,
+          command: command.id,
+          commandSha256: command.contentSha256,
+          fact: outcome.fact.id,
+          factSha256: outcome.fact.contentSha256,
+        }
+      : {
+          status: "rejected" as const,
+          command: command.id,
+          commandSha256: command.contentSha256,
+          reason: outcome.reason,
+          message: boundedDiagnostic(outcome.message),
+        };
+  return recordWithHash(
+    {
+      protocol: WORK_PROTOCOL,
+      id: {
+        route: {
+          eventHome: localInstallationId,
+          entityHome: localInstallationId,
+        },
+        seq,
+      },
+      recordType: "disposition",
+      item: command.item,
+      operation: command.operation,
+      body,
+    },
+    originAt,
+  ) as WorkDispositionValue;
+};
+
+const commitLocalFact = <A>(
   writer: StateWriter,
   input: {
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly entityHome: string;
-    readonly eventHome: string;
-    readonly operation: string;
-    readonly originAt: string;
-    readonly receivedAt: string;
-    readonly materialization: "immediate" | "on-disposition";
-    readonly plan: WorkMutationPlan;
+    readonly localInstallationId: InstallationId;
+    readonly sink: SinkRefValue;
+    readonly item: WorkItemRef;
+    readonly operation: WorkOperation;
+    readonly predecessor: WorkRecordId | null;
+    readonly body: WorkResult;
+    readonly value: A;
+    readonly originAt: DisplayTimestampValue;
+    readonly receivedAt: DisplayTimestampValue;
   },
-): void => {
-  const taskEvents = new Map<string, WorkEventIdentity>();
-  for (const change of input.plan.taskChanges) {
-    const event = writeTaskChange(writer, { ...input, change });
-    taskEvents.set(`${change.lane}\u0000${change.after.id}`, event);
+): LocalFactResult<A> => {
+  const fact = makeFact(
+    writer,
+    input.localInstallationId,
+    input.item,
+    input.operation,
+    input.predecessor,
+    input.body,
+    input.originAt,
+  );
+  insertRecord(writer, fact, input.receivedAt);
+  materializeFact(writer, fact, input.receivedAt);
+  return {
+    value: input.value,
+    record: fact,
+    snapshot: loadSnapshot(writer, input.sink),
+  };
+};
+
+const predecessorForAction = (
+  writer: StateWriter,
+  commandItem: WorkItemRef,
+  action: Exclude<WorkActionValue, { readonly operation: "task.claim" }>,
+): WorkRecordId | null => {
+  switch (action.operation) {
+    case "task.create":
+    case "request.create":
+    case "message.append":
+    case "artifact.publish":
+    case "delivery.accepted":
+      return null;
+    case "task.describe":
+    case "task.transition": {
+      const current = selectTaskIdentity(
+        writer,
+        "task",
+        commandItem.sink,
+        commandItem.itemId,
+      );
+      if (current === undefined) {
+        throw authorityError(
+          "missing-entity",
+          `task "${commandItem.itemId}" does not exist`,
+        );
+      }
+      return currentIdentity(current);
+    }
+    case "request.resolve": {
+      const current = selectTaskIdentity(
+        writer,
+        "request",
+        commandItem.sink,
+        commandItem.itemId,
+      );
+      if (current === undefined) {
+        throw authorityError(
+          "missing-entity",
+          `request "${commandItem.itemId}" does not exist`,
+        );
+      }
+      return currentIdentity(current);
+    }
   }
-  for (const insert of input.plan.messageInserts) {
-    if (input.materialization === "on-disposition") {
-      if (insert.lane === null || insert.taskId === null) {
-        throw new WorkError(
-          "invalid",
-          "Command-Center inbox messages cannot be deferred to a Remote",
+};
+
+const resultForCommand = (
+  writer: StateWriter,
+  command: WorkCommandValue,
+): {
+  readonly body: WorkResult;
+} => {
+  const action = command.body;
+  switch (action.operation) {
+    case "task.create": {
+      if (
+        selectTaskIdentity(
+          writer,
+          "task",
+          command.item.sink,
+          command.item.itemId,
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `task "${command.item.itemId}" already exists`,
+        );
+      }
+      return {
+        body: { operation: "task.create", task: action.task },
+      };
+    }
+    case "task.describe": {
+      const current = loadTask(
+        writer,
+        "task",
+        command.item.sink,
+        action.taskId,
+      );
+      assertCurrentPredecessor(
+        current?.row,
+        command.predecessor,
+        `task "${action.taskId}"`,
+      );
+      if (
+        current!.task.state === "completed" ||
+        current!.task.state === "canceled" ||
+        current!.task.state === "failed" ||
+        current!.task.state === "rejected"
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          `cannot describe terminal task "${action.taskId}"`,
+        );
+      }
+      return {
+        body: {
+          operation: "task.describe",
+          task: {
+            ...current!.task,
+            history: [
+              action.message,
+              ...current!.task.history.slice(1),
+            ],
+          },
+        },
+      };
+    }
+    case "task.transition": {
+      const current = loadTask(
+        writer,
+        "task",
+        command.item.sink,
+        action.taskId,
+      );
+      assertCurrentPredecessor(
+        current?.row,
+        command.predecessor,
+        `task "${action.taskId}"`,
+      );
+      if (!canTransitionTaskState(current!.task.state, action.state)) {
+        throw authorityError(
+          "invalid-transition",
+          `cannot transition task "${action.taskId}" from ${current!.task.state} to ${action.state}`,
+        );
+      }
+      return {
+        body: {
+          operation: "task.transition",
+          task: {
+            ...current!.task,
+            state: action.state,
+            history:
+              action.message === undefined
+                ? current!.task.history
+                : [...current!.task.history, action.message],
+          },
+        },
+      };
+    }
+    case "task.claim": {
+      if (
+        command.id.route.entityHome !== action.targetHome ||
+        action.targetHome === action.sourceQueueHome ||
+        action.sourceQueueHome !== command.id.route.eventHome
+      ) {
+        throw authorityError(
+          "target-mismatch",
+          "task claim command homes are incoherent",
         );
       }
       if (
-        !taskEvents.has(`${insert.lane}\u0000${insert.taskId}`)
+        selectTaskIdentity(
+          writer,
+          "task",
+          action.sink,
+          action.sourceTask.id,
+        ) !== undefined
       ) {
-        throw new Error(
-          `${insert.lane} "${insert.taskId}" history changed without a task command`,
+        throw authorityError(
+          "identity-conflict",
+          `task "${action.sourceTask.id}" already exists at target`,
         );
       }
-      continue;
-    }
-    if (insert.lane === null || insert.taskId === null) {
-      insertInboxMessage(writer, { ...input, insert });
-      continue;
-    }
-    const event = taskEvents.get(`${insert.lane}\u0000${insert.taskId}`);
-    if (event === undefined) {
-      throw new Error(
-        `${insert.lane} "${insert.taskId}" history changed without a task event`,
-      );
-    }
-    insertTaskMessage(writer, { ...input, insert, event });
-  }
-  for (const artifact of input.plan.artifactInserts) {
-    insertArtifact(writer, { ...input, artifact });
-  }
-};
-
-type MutationOutcome<A> =
-  | {
-      readonly _tag: "Success";
-      readonly value: A;
-      readonly snapshot: WorkSnapshot;
-      readonly projectedDoc: CanvasDoc;
-    }
-  | { readonly _tag: "DomainFailure"; readonly error: WorkError };
-
-const toRepositoryError = (
-  operation: string,
-  cause: unknown,
-): WorkRepositoryError =>
-  cause instanceof WorkRepositoryError
-    ? cause
-    : WorkRepositoryError.make({
-        operation,
-        message: cause instanceof Error ? cause.message : String(cause),
-        cause,
+      assertActorAvailable(writer, action.actor.seatId);
+      const adopted: TaskValue = Schema.decodeUnknownSync(Task, strictDecode)({
+        ...action.sourceTask,
+        state: "working",
+        claimedBy: action.actor.seatId,
       });
-
-const normalizeTimestamp = (value: string | undefined): string =>
-  value ?? new Date().toISOString();
-
-const WorkEventIdentitySchema = Schema.Struct({
-  eventHome: InstallationId,
-  entityHome: Schema.String.pipe(Schema.minLength(1)),
-  seq: LogicalSequence,
-});
-
-const WorkEventPayloadEnvelope = Schema.Struct({
-  schema: Schema.Literal("vellum/work-event/v1"),
-  entityHome: Schema.String.pipe(Schema.minLength(1)),
-  canvasName: Schema.String.pipe(Schema.minLength(1)),
-  nodeId: Schema.String.pipe(Schema.minLength(1)),
-  entityKind: Schema.Literal(
-    "task",
-    "request",
-    "message",
-    "artifact",
-    "receipt",
-  ),
-  entityId: Schema.String.pipe(Schema.minLength(1)),
-  operation: Schema.String.pipe(Schema.minLength(1)),
-  predecessor: Schema.NullOr(WorkEventIdentitySchema),
-  body: Schema.Unknown,
-});
-type WorkEventPayloadEnvelopeValue =
-  typeof WorkEventPayloadEnvelope.Type;
-
-type DecodedReplicatedWorkEvent = WorkEvent & {
-  readonly source: StationEventValue;
-  readonly envelope: WorkEventPayloadEnvelopeValue;
-  readonly task?: TaskValue;
-  readonly artifact?: ArtifactValue;
-  readonly disposition?: WorkCommandDispositionValue;
-};
-
-const TaskEventBody = Schema.Struct({
-  lane: Schema.Literal("task", "request"),
-  task: Task,
-});
-
-const ArtifactEventBody = Schema.Struct({
-  artifact: Artifact,
-});
-
-const AppliedCommandDisposition = Schema.Struct({
-  command: WorkEventIdentitySchema,
-  contentSha256: StationSha256,
-  disposition: Schema.Literal("applied"),
-  reportedBy: InstallationId,
-});
-
-const RejectedCommandDisposition = Schema.Struct({
-  command: WorkEventIdentitySchema,
-  contentSha256: StationSha256,
-  disposition: Schema.Literal("rejected"),
-  reason: Schema.Literal("causal-conflict"),
-  message: Schema.String.pipe(Schema.minLength(1)),
-  reportedBy: InstallationId,
-});
-const WorkCommandDisposition = Schema.Union(
-  AppliedCommandDisposition,
-  RejectedCommandDisposition,
-);
-type WorkCommandDispositionValue = typeof WorkCommandDisposition.Type;
-
-const DispositionEventBody = Schema.Struct({
-  disposition: WorkCommandDisposition,
-});
-
-const decodeLogicalSequence = Schema.decodeUnknownSync(LogicalSequence);
-
-const replicationError = (
-  eventHome: InstallationIdValue,
-  sequence: LogicalSequenceValue,
-  reason: WorkReplicationError["reason"],
-  message: string,
-): WorkReplicationError =>
-  WorkReplicationError.make({
-    reason,
-    eventHome,
-    sequence,
-    message,
-  });
-
-const decodeReplicatedWorkEvent = (
-  source: StationEventValue,
-  expectedEventHome: InstallationIdValue,
-  expectedEntityHome: string,
-):
-  | { readonly _tag: "Success"; readonly event: DecodedReplicatedWorkEvent }
-  | { readonly _tag: "Failure"; readonly error: WorkReplicationError } => {
-  const fail = (
-    reason: WorkReplicationError["reason"],
-    message: string,
-  ) => ({
-    _tag: "Failure" as const,
-    error: replicationError(
-      source.identity.home,
-      source.identity.sequence,
-      reason,
-      message,
-    ),
-  });
-
-  if (source.identity.home !== expectedEventHome) {
-    return fail(
-      "event-home-mismatch",
-      `expected source stream "${expectedEventHome}", received "${source.identity.home}"`,
-    );
-  }
-  if (source.kind !== "work.event") {
-    return fail(
-      "invalid-payload",
-      `station event kind "${source.kind}" is not canonical work`,
-    );
-  }
-  const actualHash = createHash("sha256")
-    .update(source.body, "utf8")
-    .digest("hex");
-  if (actualHash !== source.contentSha256) {
-    return fail(
-      "integrity",
-      "station event hash does not match its canonical work payload",
-    );
-  }
-
-  let unknown: unknown;
-  try {
-    unknown = JSON.parse(source.body);
-  } catch {
-    return fail("invalid-payload", "work event body is not JSON");
-  }
-  try {
-    if (canonicalJson(unknown) !== source.body) {
-      return fail(
-        "invalid-payload",
-        "work event body is not canonical JSON",
-      );
-    }
-  } catch (error) {
-    return fail(
-      "invalid-payload",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
-  const decoded = Schema.decodeUnknownEither(WorkEventPayloadEnvelope, {
-    onExcessProperty: "error",
-  })(unknown);
-  if (Either.isLeft(decoded)) {
-    return fail("invalid-payload", "work event envelope is malformed");
-  }
-  const envelope = decoded.right;
-  if (envelope.entityHome !== expectedEntityHome) {
-    return fail(
-      "entity-home-mismatch",
-      `expected entity home "${expectedEntityHome}", received "${envelope.entityHome}"`,
-    );
-  }
-  if (envelope.entityKind === "message") {
-    return fail(
-      "unsupported-message",
-      "mailbox messages are Command-Center-homed and never stationed",
-    );
-  }
-
-  const base = {
-    eventHome: source.identity.home,
-    homeStation: envelope.entityHome,
-    seq: source.identity.sequence,
-    canvasName: envelope.canvasName,
-    nodeId: envelope.nodeId,
-    entityKind: envelope.entityKind,
-    entityId: envelope.entityId,
-    operation: envelope.operation,
-    originAt: source.originAt,
-    receivedAt: source.receivedAt ?? source.originAt,
-    payloadJson: source.body,
-    contentSha256: source.contentSha256,
-    source,
-    envelope,
-  } satisfies Omit<
-    DecodedReplicatedWorkEvent,
-    "task" | "artifact" | "disposition"
-  >;
-
-  if (
-    envelope.entityKind === "task" ||
-    envelope.entityKind === "request"
-  ) {
-    const body = Schema.decodeUnknownEither(TaskEventBody, {
-      onExcessProperty: "error",
-    })(envelope.body);
-    if (
-      Either.isLeft(body) ||
-      body.right.lane !== envelope.entityKind ||
-      body.right.task.id !== envelope.entityId
-    ) {
-      return fail(
-        "invalid-payload",
-        "task event body does not match its envelope identity",
-      );
-    }
-    return {
-      _tag: "Success",
-      event: { ...base, task: body.right.task },
-    };
-  }
-
-  if (envelope.entityKind === "receipt") {
-    const body = Schema.decodeUnknownEither(DispositionEventBody, {
-      onExcessProperty: "error",
-    })(envelope.body);
-    if (
-      Either.isLeft(body) ||
-      body.right.disposition.reportedBy !== source.identity.home ||
-      body.right.disposition.command.entityHome !== expectedEntityHome
-    ) {
-      return fail(
-        "invalid-payload",
-        "command disposition does not match its source route",
-      );
-    }
-    return {
-      _tag: "Success",
-      event: { ...base, disposition: body.right.disposition },
-    };
-  }
-
-  const body = Schema.decodeUnknownEither(ArtifactEventBody, {
-    onExcessProperty: "error",
-  })(envelope.body);
-  if (
-    Either.isLeft(body) ||
-    body.right.artifact.artifactId !== envelope.entityId
-  ) {
-    return fail(
-      "invalid-payload",
-      "artifact event body does not match its envelope identity",
-    );
-  }
-  return {
-    _tag: "Success",
-    event: { ...base, artifact: body.right.artifact },
-  };
-};
-
-const workEventFromRow = (row: WorkEventRow): WorkEvent => ({
-  eventHome: row.event_home,
-  homeStation: row.entity_home,
-  seq: row.seq,
-  canvasName: row.canvas_name,
-  nodeId: row.node_id,
-  entityKind: row.entity_kind as WorkEntityKind,
-  entityId: row.entity_id,
-  operation: row.operation,
-  originAt: row.origin_at,
-  receivedAt: row.received_at,
-  payloadJson: row.payload_json,
-  contentSha256: row.content_sha256,
-});
-
-const selectWorkEvent = (
-  reader: StateReader,
-  eventHome: string,
-  entityHome: string,
-  seq: string,
-): WorkEventRow | undefined =>
-  reader.get<WorkEventRow>(
-    `
-      SELECT
-        event_home,
-        entity_home,
-        seq,
-        canvas_name,
-        node_id,
-        entity_kind,
-        entity_id,
-        operation,
-        origin_at,
-        received_at,
-        payload_json,
-        content_sha256
-      FROM work_events
-      WHERE event_home = ? AND entity_home = ? AND seq = ?
-    `,
-    [eventHome, entityHome, seq],
-  );
-
-const sameEventIdentity = (
-  left: WorkEventIdentity | null,
-  right: WorkEventIdentity | null,
-): boolean =>
-  left === null || right === null
-    ? left === right
-    : left.eventHome === right.eventHome &&
-      left.entityHome === right.entityHome &&
-      left.seq === right.seq;
-
-const rememberReplicatedEvent = (
-  writer: StateWriter,
-  event: DecodedReplicatedWorkEvent,
-  receivedAt: string,
-): void => {
-  const sequence = writer.get<StateRow & { readonly last_seq: string }>(
-    `
-      SELECT last_seq
-      FROM work_event_sequences
-      WHERE event_home = ? AND entity_home = ?
-    `,
-    [event.eventHome, event.homeStation],
-  )?.last_seq;
-  if (
-    sequence === undefined ||
-    BigInt(sequence) < BigInt(event.seq)
-  ) {
-    writer.run(
-      `
-        INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
-        VALUES (?, ?, ?)
-        ON CONFLICT(event_home, entity_home) DO UPDATE SET
-          last_seq = excluded.last_seq
-      `,
-      [event.eventHome, event.homeStation, event.seq],
-    );
-  }
-  writer.run(
-    `
-      INSERT INTO work_events(
-        event_home,
-        seq,
-        entity_home,
-        canvas_name,
-        node_id,
-        entity_kind,
-        entity_id,
-        operation,
-        origin_at,
-        received_at,
-        payload_json,
-        content_sha256
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      event.eventHome,
-      event.seq,
-      event.homeStation,
-      event.canvasName,
-      event.nodeId,
-      event.entityKind,
-      event.entityId,
-      event.operation,
-      event.originAt,
-      receivedAt,
-      event.payloadJson,
-      event.contentSha256,
-    ],
-  );
-};
-
-const selectLocalRejection = (
-  reader: StateReader,
-  event: DecodedReplicatedWorkEvent,
-  reportedBy: InstallationIdValue,
-): WorkRejectionRow | undefined =>
-  reader.get<WorkRejectionRow>(
-    `
-      SELECT
-        rejected_content_sha256,
-        reason,
-        message,
-        receipt_event_home,
-        receipt_event_seq
-      FROM work_rejections
-      WHERE rejected_event_home = ?
-        AND rejected_entity_home = ?
-        AND rejected_seq = ?
-        AND reported_by = ?
-    `,
-    [event.eventHome, event.homeStation, event.seq, reportedBy],
-  );
-
-const insertRejection = (
-  writer: StateWriter,
-  input: {
-    readonly rejected: WorkEventIdentity;
-    readonly rejectedContentSha256: string;
-    readonly rejectedPayloadJson: string | null;
-    readonly reason: "causal-conflict";
-    readonly message: string;
-    readonly reportedBy: InstallationIdValue;
-    readonly receipt: WorkEventIdentity;
-    readonly receivedAt: string;
-  },
-): void => {
-  writer.run(
-    `
-      INSERT INTO work_rejections(
-        rejected_event_home,
-        rejected_entity_home,
-        rejected_seq,
-        rejected_content_sha256,
-        rejected_payload_json,
-        reason,
-        message,
-        reported_by,
-        receipt_event_home,
-        receipt_event_seq,
-        received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(
-        rejected_event_home,
-        rejected_entity_home,
-        rejected_seq,
-        reported_by
-      ) DO NOTHING
-    `,
-    [
-      input.rejected.eventHome,
-      input.rejected.entityHome,
-      input.rejected.seq,
-      input.rejectedContentSha256,
-      input.rejectedPayloadJson,
-      input.reason,
-      input.message,
-      input.reportedBy,
-      input.receipt.eventHome,
-      input.receipt.seq,
-      input.receivedAt,
-    ],
-  );
-};
-
-const recordCommandDisposition = (
-  writer: StateWriter,
-  input: {
-    readonly event: DecodedReplicatedWorkEvent;
-    readonly localEventHome: InstallationIdValue;
-    readonly disposition:
-      | { readonly _tag: "Applied" }
-      | {
-        readonly _tag: "Rejected";
-        readonly conflict: WorkReplicationError;
+      return {
+        body: {
+          operation: "task.claim",
+          task: adopted,
+          claimedBy: action.actor,
+          previousHome: action.sourceQueueHome,
+        },
       };
-    readonly receivedAt: string;
-  },
-): void => {
-  const command = {
-    eventHome: input.event.eventHome,
-    entityHome: input.event.homeStation,
-    seq: input.event.seq,
-  };
-  const receipt = recordEvent(writer, {
-    eventHome: input.localEventHome,
-    entityHome: input.event.homeStation,
-    canvasName: input.event.canvasName,
-    nodeId: input.event.nodeId,
-    entityKind: "receipt",
-    entityId:
-      `disposition:${input.event.eventHome}:${input.event.seq}`,
-    operation:
-      input.disposition._tag === "Applied"
-        ? "work.command-applied"
-        : "work.command-rejected",
-    originAt: input.receivedAt,
-    receivedAt: input.receivedAt,
-    predecessor: null,
-    payload: {
-      disposition: {
-        command,
-        contentSha256: input.event.contentSha256,
-        disposition:
-          input.disposition._tag === "Applied" ? "applied" : "rejected",
-        reportedBy: input.localEventHome,
-        ...(input.disposition._tag === "Rejected"
-          ? {
-            reason: "causal-conflict" as const,
-            message: input.disposition.conflict.message,
-          }
-          : {}),
-      },
-    },
-  });
-  if (input.disposition._tag === "Rejected") {
-    insertRejection(writer, {
-      rejected: command,
-      rejectedContentSha256: input.event.contentSha256,
-      rejectedPayloadJson: input.event.payloadJson,
-      reason: "causal-conflict",
-      message: input.disposition.conflict.message,
-      reportedBy: input.localEventHome,
-      receipt,
-      receivedAt: input.receivedAt,
-    });
+    }
+    case "request.create": {
+      if (
+        selectTaskIdentity(
+          writer,
+          "request",
+          command.item.sink,
+          command.item.itemId,
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `request "${command.item.itemId}" already exists`,
+        );
+      }
+      return {
+        body: {
+          operation: "request.create",
+          request: action.request,
+        },
+      };
+    }
+    case "request.resolve": {
+      const current = loadTask(
+        writer,
+        "request",
+        command.item.sink,
+        action.requestId,
+      );
+      assertCurrentPredecessor(
+        current?.row,
+        command.predecessor,
+        `request "${action.requestId}"`,
+      );
+      if (
+        !canTransitionTaskState(
+          current!.task.state,
+          action.disposition,
+        )
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          `cannot resolve request "${action.requestId}" from ${current!.task.state}`,
+        );
+      }
+      return {
+        body: {
+          operation: "request.resolve",
+          request: {
+            ...current!.task,
+            state: action.disposition,
+            response: action.response,
+            history:
+              action.message === undefined
+                ? current!.task.history
+                : [...current!.task.history, action.message],
+          },
+        },
+      };
+    }
+    case "message.append": {
+      const exists = writer.get<StateRow>(
+        `
+          SELECT 1
+          FROM work_messages
+          WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+        `,
+        [
+          command.item.sink.canvasName,
+          command.item.sink.nodeId,
+          action.message.messageId,
+        ],
+      );
+      if (exists !== undefined) {
+        throw authorityError(
+          "identity-conflict",
+          `message "${action.message.messageId}" already exists`,
+        );
+      }
+      return {
+        body: {
+          operation: "message.append",
+          message: action.message,
+        },
+      };
+    }
+    case "artifact.publish": {
+      const exists = writer.get<StateRow>(
+        `
+          SELECT 1
+          FROM work_artifacts
+          WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+        `,
+        [
+          command.item.sink.canvasName,
+          command.item.sink.nodeId,
+          action.artifact.artifactId,
+        ],
+      );
+      if (exists !== undefined) {
+        throw authorityError(
+          "identity-conflict",
+          `artifact "${action.artifact.artifactId}" already exists`,
+        );
+      }
+      return {
+        body: {
+          operation: "artifact.publish",
+          artifact: action.artifact,
+          publishedBy: action.publishedBy,
+        },
+      };
+    }
+    case "delivery.accepted": {
+      const receipt = action.receipt;
+      const exists = writer.get<StateRow>(
+        `
+          SELECT 1
+          FROM work_delivery_receipts
+          WHERE delivered_canvas_name = ?
+            AND delivered_node_id = ?
+            AND delivery_id = ?
+        `,
+        [
+          receipt.deliveredItem.sink.canvasName,
+          receipt.deliveredItem.sink.nodeId,
+          receipt.deliveryId,
+        ],
+      );
+      if (exists !== undefined) {
+        throw authorityError(
+          "identity-conflict",
+          `delivery "${receipt.deliveryId}" already exists`,
+        );
+      }
+      return {
+        body: {
+          operation: "delivery.accepted",
+          receipt,
+        },
+      };
+    }
   }
 };
 
-const pendingCommand = (
+const priorCommandOutcome = (
   reader: StateReader,
-  identity: WorkEventIdentity,
-): PendingCommandRow | undefined =>
-  reader.get<PendingCommandRow>(
+  command: WorkCommandValue,
+): ReadonlyArray<WorkRecordValue> => {
+  const row = reader.get<
+    StateRow & {
+      readonly event_home: string;
+      readonly entity_home: string;
+      readonly seq: string;
+      readonly status: "applied" | "rejected";
+      readonly fact_event_home: string | null;
+      readonly fact_entity_home: string | null;
+      readonly fact_seq: string | null;
+    }
+  >(
     `
       SELECT
         event_home,
         entity_home,
         seq,
         status,
-        acknowledged_by,
-        resolved_at
+        fact_event_home,
+        fact_entity_home,
+        fact_seq
+      FROM work_dispositions
+      WHERE command_event_home = ?
+        AND command_entity_home = ?
+        AND command_seq = ?
+      ORDER BY length(seq), seq
+      LIMIT 1
+    `,
+    [
+      command.id.route.eventHome,
+      command.id.route.entityHome,
+      command.id.seq,
+    ],
+  );
+  if (row === undefined) return [];
+  const disposition = loadRecord(
+    reader,
+    recordId(
+      row.event_home as InstallationId,
+      row.entity_home as InstallationId,
+      row.seq,
+    ),
+  );
+  if (disposition === undefined) {
+    throw new Error("remembered command disposition is missing");
+  }
+  if (
+    row.status === "rejected" ||
+    row.fact_event_home === null ||
+    row.fact_entity_home === null ||
+    row.fact_seq === null
+  ) {
+    return [disposition];
+  }
+  const fact = loadRecord(
+    reader,
+    recordId(
+      row.fact_event_home as InstallationId,
+      row.fact_entity_home as InstallationId,
+      row.fact_seq,
+    ),
+  );
+  if (fact === undefined) throw new Error("applied command fact is missing");
+  return [fact, disposition];
+};
+
+const resolvePending = (
+  writer: StateWriter,
+  disposition: WorkDispositionValue,
+  receivedAt: DisplayTimestampValue,
+): void => {
+  const pending = writer.get<
+    StateRow & {
+      readonly resolution_status: string | null;
+      readonly resolution_event_home: string | null;
+      readonly resolution_entity_home: string | null;
+      readonly resolution_seq: string | null;
+    }
+  >(
+    `
+      SELECT
+        resolution_status,
+        resolution_event_home,
+        resolution_entity_home,
+        resolution_seq
       FROM work_pending_commands
       WHERE event_home = ? AND entity_home = ? AND seq = ?
     `,
-    [identity.eventHome, identity.entityHome, identity.seq],
-  );
-
-const resolvePendingCommand = (
-  writer: StateWriter,
-  input: {
-    readonly command: WorkEventIdentity;
-    readonly status: "applied" | "rejected";
-    readonly acknowledgedBy: InstallationIdValue;
-    readonly resolvedAt: string;
-  },
-): void => {
-  const updated = writer.run(
-    `
-      UPDATE work_pending_commands
-      SET status = ?, acknowledged_by = ?, resolved_at = ?
-      WHERE event_home = ?
-        AND entity_home = ?
-        AND seq = ?
-        AND status = 'pending'
-    `,
     [
-      input.status,
-      input.acknowledgedBy,
-      input.resolvedAt,
-      input.command.eventHome,
-      input.command.entityHome,
-      input.command.seq,
+      disposition.body.command.route.eventHome,
+      disposition.body.command.route.entityHome,
+      disposition.body.command.seq,
     ],
   );
-  if (Number(updated.changes) !== 1) {
-    throw new Error(
-      `pending command ${input.command.eventHome}/${input.command.entityHome}/${input.command.seq} could not be resolved`,
+  if (pending === undefined) {
+    throw authorityError(
+      "causal-conflict",
+      "disposition references no local pending command",
+    );
+  }
+  if (pending.resolution_event_home !== null) {
+    if (
+      pending.resolution_status !== disposition.body.status ||
+      pending.resolution_event_home !== disposition.id.route.eventHome ||
+      pending.resolution_entity_home !== disposition.id.route.entityHome ||
+      pending.resolution_seq !== disposition.id.seq
+    ) {
+      throw authorityError(
+        "identity-conflict",
+        "pending command already has a different disposition",
+      );
+    }
+    return;
+  }
+  writer.run(
+    `
+      UPDATE work_pending_commands
+      SET
+        resolution_status = ?,
+        resolution_event_home = ?,
+        resolution_entity_home = ?,
+        resolution_seq = ?,
+        resolved_at = ?
+      WHERE event_home = ? AND entity_home = ? AND seq = ?
+    `,
+    [
+      disposition.body.status,
+      disposition.id.route.eventHome,
+      disposition.id.route.entityHome,
+      disposition.id.seq,
+      receivedAt,
+      disposition.body.command.route.eventHome,
+      disposition.body.command.route.entityHome,
+      disposition.body.command.seq,
+    ],
+  );
+};
+
+const validateIncomingHash = (
+  sender: InstallationId,
+  record: WorkRecordValue,
+): void => {
+  const { contentSha256: _hash, originAt: _origin, ...semantic } = record;
+  const expected = workRecordContentSha256(
+    semantic as WorkRecordSemantic,
+  );
+  if (record.contentSha256 !== expected) {
+    throw replicationError(
+      sender,
+      "integrity",
+      "work record semantic content hash does not match",
+      record.id.seq,
     );
   }
 };
 
-const materializeReplicatedWorkEvent = (
-  writer: StateWriter,
-  event: DecodedReplicatedWorkEvent,
-  receivedAt: string,
-  remember = true,
+const validateIncomingDirection = (
+  local: InstallationId,
+  sender: InstallationId,
+  record: WorkRecordValue,
 ): void => {
-  if (event.entityKind === "receipt") {
-    if (!remember) {
-      throw new Error("a disposition event cannot be a pending command");
-    }
-    rememberReplicatedEvent(writer, event, receivedAt);
-    const disposition = event.disposition!;
-    const pending = pendingCommand(writer, disposition.command);
-    const commandRow = selectWorkEvent(
-      writer,
-      disposition.command.eventHome,
-      disposition.command.entityHome,
-      disposition.command.seq,
-    );
-    if (
-      pending === undefined ||
-      pending.status !== "pending" ||
-      commandRow === undefined ||
-      commandRow.content_sha256 !== disposition.contentSha256
-    ) {
-      throw replicationError(
-        event.source.identity.home,
-        event.source.identity.sequence,
-        "identity-conflict",
-        "command disposition does not match one pending local command",
-      );
-    }
-
-    if (disposition.disposition === "applied") {
-      const decoded = decodeReplicatedWorkEvent(
-        stationEventFromWorkEvent(workEventFromRow(commandRow)),
-        disposition.command.eventHome,
-        disposition.command.entityHome,
-      );
-      if (decoded._tag === "Failure") throw decoded.error;
-      materializeReplicatedWorkEvent(
-        writer,
-        decoded.event,
-        receivedAt,
-        false,
-      );
-      resolvePendingCommand(writer, {
-        command: disposition.command,
-        status: "applied",
-        acknowledgedBy: disposition.reportedBy,
-        resolvedAt: receivedAt,
-      });
-      return;
-    }
-
-    insertRejection(writer, {
-      rejected: disposition.command,
-      rejectedContentSha256: disposition.contentSha256,
-      rejectedPayloadJson: commandRow.payload_json,
-      reason: disposition.reason,
-      message: disposition.message,
-      reportedBy: disposition.reportedBy,
-      receipt: {
-        eventHome: event.eventHome,
-        entityHome: event.homeStation,
-        seq: event.seq,
-      },
-      receivedAt,
-    });
-    resolvePendingCommand(writer, {
-      command: disposition.command,
-      status: "rejected",
-      acknowledgedBy: disposition.reportedBy,
-      resolvedAt: receivedAt,
-    });
-    return;
-  }
-  if (event.entityKind === "artifact") {
-    const existingHome = existingArtifactHome(
-      writer,
-      event.canvasName,
-      event.nodeId,
-      event.entityId,
-    );
-    if (existingHome !== undefined) {
-      throw replicationError(
-        event.source.identity.home,
-        event.source.identity.sequence,
-        "causal-conflict",
-        `artifact "${event.entityId}" already exists`,
-      );
-    }
-    if (remember) rememberReplicatedEvent(writer, event, receivedAt);
-    materializeArtifact(writer, {
-      canvasName: event.canvasName,
-      nodeId: event.nodeId,
-      entityHome: event.homeStation,
-      originAt: event.originAt,
-      receivedAt,
-      artifact: event.artifact!,
-      event: {
-        eventHome: event.eventHome,
-        entityHome: event.homeStation,
-        seq: event.seq,
-      },
-    });
-    return;
-  }
-
-  if (event.entityKind === "message") {
+  if (record.id.route.eventHome !== sender) {
     throw replicationError(
-      event.source.identity.home,
-      event.source.identity.sequence,
-      "unsupported-message",
-      "mailbox messages are Command-Center-homed and never stationed",
+      sender,
+      "direction-mismatch",
+      "record eventHome does not match the admitted sender",
+      record.id.seq,
     );
   }
-  const lane = event.entityKind;
-  const current = loadLaneTasks(
-    writer,
-    event.canvasName,
-    event.nodeId,
-    lane,
-  ).find((task) => task.id === event.entityId);
-  const currentIdentity = currentTaskEvent(
-    writer,
-    lane,
-    event.canvasName,
-    event.nodeId,
-    event.entityId,
+  const expectedEntityHome =
+    record.recordType === "command" ? local : sender;
+  if (record.id.route.entityHome !== expectedEntityHome) {
+    throw replicationError(
+      sender,
+      "direction-mismatch",
+      `record entityHome must be "${expectedEntityHome}"`,
+      record.id.seq,
+    );
+  }
+};
+
+const findPendingClaim = (
+  reader: StateReader,
+  sender: InstallationId,
+  fact: WorkFactValue,
+): WorkCommandValue | undefined => {
+  const row = reader.get<
+    StateRow & {
+      readonly event_home: string;
+      readonly entity_home: string;
+      readonly seq: string;
+    }
+  >(
+    `
+      SELECT event_home, entity_home, seq
+      FROM work_pending_commands
+      WHERE entity_home = ?
+        AND operation = 'task.claim'
+        AND item_canvas_name = ?
+        AND item_node_id = ?
+        AND item_id = ?
+        AND resolution_event_home IS NULL
+      LIMIT 1
+    `,
+    [
+      sender,
+      fact.item.sink.canvasName,
+      fact.item.sink.nodeId,
+      fact.item.itemId,
+    ],
   );
-  const incomingFirstClaim =
-    lane === "task" &&
-    event.operation === "task.claim" &&
-    current === undefined &&
-    currentIdentity === null &&
-    event.envelope.predecessor !== null &&
-    event.envelope.predecessor.entityHome !== event.homeStation &&
-    event.task?.state === "working" &&
-    claimedByOf(event.task) !== undefined;
-  if (
-    !incomingFirstClaim &&
-    !sameEventIdentity(currentIdentity, event.envelope.predecessor)
-  ) {
-    throw replicationError(
-      event.source.identity.home,
-      event.source.identity.sequence,
-      "causal-conflict",
-      `${lane} "${event.entityId}" changed after this event's predecessor`,
-    );
-  }
+  if (row === undefined) return undefined;
+  const record = loadRecord(
+    reader,
+    recordId(
+      row.event_home as InstallationId,
+      row.entity_home as InstallationId,
+      row.seq,
+    ),
+  );
+  return record?.recordType === "command" ? record : undefined;
+};
 
-  let planned: ReturnType<typeof planTaskLane>;
-  try {
-    planned = planTaskLane(
-      lane,
-      current === undefined ? [] : [current],
-      [event.task!],
-    );
-  } catch (error) {
-    throw replicationError(
-      event.source.identity.home,
-      event.source.identity.sequence,
-      "invalid-payload",
-      error instanceof Error ? error.message : String(error),
-    );
+const validateIncomingFact = (
+  writer: StateWriter,
+  local: InstallationId,
+  sender: InstallationId,
+  fact: WorkFactValue,
+): ActorSeatId | undefined => {
+  switch (fact.body.operation) {
+    case "task.create": {
+      if (
+        selectTaskIdentity(
+          writer,
+          "task",
+          fact.item.sink,
+          fact.item.itemId,
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `task "${fact.item.itemId}" already exists`,
+        );
+      }
+      return undefined;
+    }
+    case "task.claim": {
+      const crossesHome = fact.body.previousHome !== sender;
+      if (crossesHome) {
+        if (fact.body.previousHome !== local || fact.predecessor !== null) {
+          throw authorityError(
+            "authority-mismatch",
+            "first task adoption does not originate from this installation",
+          );
+        }
+        const command = findPendingClaim(writer, sender, fact);
+        if (
+          command === undefined ||
+          command.body.operation !== "task.claim"
+        ) {
+          throw authorityError(
+            "causal-conflict",
+            "first task adoption has no matching pending claim",
+          );
+        }
+        const action = command.body;
+        const current = loadTask(
+          writer,
+          "task",
+          fact.item.sink,
+          fact.item.itemId,
+        );
+        if (
+          current === undefined ||
+          current.row.entity_home !== local ||
+          current.task.state !== "submitted" ||
+          current.task.claimedBy !== undefined ||
+          !sameId(currentIdentity(current.row), action.sourcePredecessor) ||
+          canonicalJson(current.task) !== canonicalJson(action.sourceTask) ||
+          action.actor.seatId !== fact.body.claimedBy.seatId ||
+          action.actor.seatId !== fact.body.task.claimedBy ||
+          action.targetHome !== sender
+        ) {
+          throw authorityError(
+            "causal-conflict",
+            "first task adoption does not match its reserved source snapshot",
+          );
+        }
+        return undefined;
+      }
+      const current = selectTaskIdentity(
+        writer,
+        "task",
+        fact.item.sink,
+        fact.item.itemId,
+      );
+      assertCurrentPredecessor(
+        current,
+        fact.predecessor,
+        `task "${fact.item.itemId}"`,
+      );
+      if (current!.entity_home !== sender) {
+        throw authorityError(
+          "authority-mismatch",
+          "task fact sender does not own the material task",
+        );
+      }
+      return undefined;
+    }
+    case "task.describe":
+    case "task.transition": {
+      const current = selectTaskIdentity(
+        writer,
+        "task",
+        fact.item.sink,
+        fact.item.itemId,
+      );
+      assertCurrentPredecessor(
+        current,
+        fact.predecessor,
+        `task "${fact.item.itemId}"`,
+      );
+      if (current!.entity_home !== sender) {
+        throw authorityError(
+          "authority-mismatch",
+          "task fact sender does not own the material task",
+        );
+      }
+      return undefined;
+    }
+    case "request.create": {
+      if (
+        selectTaskIdentity(
+          writer,
+          "request",
+          fact.item.sink,
+          fact.item.itemId,
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `request "${fact.item.itemId}" already exists`,
+        );
+      }
+      return undefined;
+    }
+    case "request.resolve": {
+      const current = selectTaskIdentity(
+        writer,
+        "request",
+        fact.item.sink,
+        fact.item.itemId,
+      );
+      assertCurrentPredecessor(
+        current,
+        fact.predecessor,
+        `request "${fact.item.itemId}"`,
+      );
+      if (current!.entity_home !== sender) {
+        throw authorityError(
+          "authority-mismatch",
+          "request fact sender does not own the material request",
+        );
+      }
+      return undefined;
+    }
+    case "message.append":
+      return undefined;
+    case "artifact.publish":
+      return fact.body.publishedBy.seatId;
+    case "delivery.accepted":
+      return undefined;
   }
-  const change = planned.taskChanges[0];
+};
+
+const validateDisposition = (
+  writer: StateWriter,
+  disposition: WorkDispositionValue,
+): void => {
+  const command = loadRecord(writer, disposition.body.command);
   if (
-    change === undefined ||
-    change.after.id !== event.entityId ||
-    planned.taskChanges.length !== 1
+    command === undefined ||
+    command.recordType !== "command" ||
+    command.contentSha256 !== disposition.body.commandSha256 ||
+    command.operation !== disposition.operation ||
+    !sameItem(command.item, disposition.item)
   ) {
-    throw replicationError(
-      event.source.identity.home,
-      event.source.identity.sequence,
-      "invalid-payload",
-      "task event does not produce one material state change",
+    throw authorityError(
+      "causal-conflict",
+      "disposition command reference is not coherent",
     );
   }
-  const actor =
-    event.operation === "task.claim"
-      ? claimedByOf(change.after)
-      : undefined;
-  if (actor !== undefined) {
-    try {
-      assertActorClaimAvailable(writer, {
-        actor,
-        canvasName: event.canvasName,
-        nodeId: event.nodeId,
-        taskId: event.entityId,
-      });
-    } catch (error) {
-      throw replicationError(
-        event.source.identity.home,
-        event.source.identity.sequence,
+  if (disposition.body.status === "applied") {
+    const fact = loadRecord(writer, disposition.body.fact);
+    if (
+      fact === undefined ||
+      fact.recordType !== "fact" ||
+      fact.contentSha256 !== disposition.body.factSha256 ||
+      fact.operation !== disposition.operation ||
+      !sameItem(fact.item, disposition.item)
+    ) {
+      throw authorityError(
         "causal-conflict",
-        error instanceof Error ? error.message : String(error),
+        "applied disposition fact reference is not coherent",
       );
     }
   }
+};
 
-  if (remember) rememberReplicatedEvent(writer, event, receivedAt);
-  const identity = {
-    eventHome: event.eventHome,
-    entityHome: event.homeStation,
-    seq: event.seq,
-  };
-  materializeTaskChange(writer, {
-    canvasName: event.canvasName,
-    nodeId: event.nodeId,
-    entityHome: event.homeStation,
-    operation: event.operation,
-    originAt: event.originAt,
-    receivedAt,
-    change,
-    event: identity,
-  });
-  for (const insert of planned.messageInserts) {
-    insertTaskMessage(writer, {
-      canvasName: event.canvasName,
-      nodeId: event.nodeId,
-      originAt: event.originAt,
-      receivedAt,
-      insert,
-      event: identity,
-    });
-  }
+const rejectCommand = (
+  writer: StateWriter,
+  local: InstallationId,
+  command: WorkCommandValue,
+  reason: WorkRejectionReason,
+  message: string,
+  observedAt: DisplayTimestampValue,
+): WorkDispositionValue => {
+  const disposition = makeDisposition(
+    writer,
+    local,
+    command,
+    { _tag: "rejected", reason, message },
+    observedAt,
+  );
+  insertRecord(writer, disposition, observedAt);
+  return disposition;
+};
+
+const applyCommand = (
+  writer: StateWriter,
+  local: InstallationId,
+  command: WorkCommandValue,
+  observedAt: DisplayTimestampValue,
+): ReadonlyArray<WorkRecordValue> => {
+  const result = resultForCommand(writer, command);
+  const predecessor =
+    command.body.operation === "task.claim"
+      ? null
+      : command.predecessor;
+  const fact = makeFact(
+    writer,
+    local,
+    command.item,
+    command.operation,
+    predecessor,
+    result.body,
+    observedAt,
+  );
+  insertRecord(writer, fact, observedAt);
+  materializeFact(writer, fact, observedAt);
+  const disposition = makeDisposition(
+    writer,
+    local,
+    command,
+    { _tag: "applied", fact },
+    observedAt,
+  );
+  insertRecord(writer, disposition, observedAt);
+  return [fact, disposition];
 };
 
 export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
@@ -2641,41 +2633,59 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
     readonly readSnapshot: (
       canvasName: string,
       nodeId: string,
-    ) => Effect.Effect<WorkSnapshot, WorkRepositoryError>;
+    ) => Effect.Effect<WorkSnapshotValue, WorkRepositoryError>;
+    readonly snapshotsForCanvas: (
+      canvasName: string,
+    ) => Effect.Effect<ReadonlyArray<WorkSnapshotValue>, WorkRepositoryError>;
     readonly itemHome: (
       lane: "task" | "request",
       canvasName: string,
       nodeId: string,
-      taskId: string,
-    ) => Effect.Effect<string | undefined, WorkRepositoryError>;
-    readonly snapshotsForCanvas: (
-      canvasName: string,
-    ) => Effect.Effect<ReadonlyArray<WorkSnapshot>, WorkRepositoryError>;
-    readonly mutate: <A>(
-      input: WorkMutationInput<A>,
-    ) => Effect.Effect<
-      WorkMutationResult<A>,
-      WorkRepositoryError | WorkError
-    >;
-    readonly eventsAfter: (
-      input: WorkEventsAfterInput,
-    ) => Effect.Effect<ReadonlyArray<WorkEvent>, WorkRepositoryError>;
-    readonly acceptReplicated: (
-      input: AcceptReplicatedWorkInput,
-    ) => Effect.Effect<
-      AcceptReplicatedWorkResult,
-      WorkRepositoryError | WorkReplicationError
-    >;
-    readonly rejectionsForRoute: (
-      entityHome: string,
-    ) => Effect.Effect<
-      ReadonlyArray<WorkRejection>,
+      itemId: string,
+    ) => Effect.Effect<InstallationId | undefined, WorkRepositoryError>;
+    readonly createTask: (
+      input: CreateTaskInput,
+    ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
+    readonly describeTask: (
+      input: DescribeTaskInput,
+    ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
+    readonly transitionTask: (
+      input: TransitionTaskInput,
+    ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
+    readonly claimLocalTask: (
+      input: ClaimLocalTaskInput,
+    ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
+    readonly createRequest: (
+      input: CreateRequestInput,
+    ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
+    readonly resolveRequest: (
+      input: ResolveRequestInput,
+    ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
+    readonly appendMessage: (
+      input: AppendMessageInput,
+    ) => Effect.Effect<LocalFactResult<MessageValue>, RepositoryFailure>;
+    readonly publishArtifact: (
+      input: PublishArtifactInput,
+    ) => Effect.Effect<LocalFactResult<ArtifactValue>, RepositoryFailure>;
+    readonly acceptDelivery: (
+      input: AcceptDeliveryInput,
+    ) => Effect.Effect<LocalFactResult<DeliveryReceipt>, RepositoryFailure>;
+    readonly reserveRemoteTaskClaim: (
+      input: ReserveRemoteTaskClaimInput,
+    ) => Effect.Effect<WorkCommandValue, RepositoryFailure>;
+    readonly enqueueRemoteCommand: (
+      input: EnqueueRemoteCommandInput,
+    ) => Effect.Effect<WorkCommandValue, RepositoryFailure>;
+    readonly recordsAfter: (
+      input: RecordsAfterInput,
+    ) => Effect.Effect<ReadonlyArray<WorkRecordValue>, WorkRepositoryError>;
+    readonly pendingCommands: Effect.Effect<
+      ReadonlyArray<PendingCommand>,
       WorkRepositoryError
     >;
-    readonly commandStatus: Effect.Effect<
-      WorkCommandStatus,
-      WorkRepositoryError
-    >;
+    readonly acceptRecords: (
+      input: AcceptRecordsInput,
+    ) => Effect.Effect<AcceptRecordsResult, ReplicationFailure>;
     readonly subscribeChanges: (
       listener: (canvasName: string, nodeId: string) => void,
     ) => () => void;
@@ -2690,15 +2700,13 @@ export const WorkRepositoryLive = Layer.effect(
       (canvasName: string, nodeId: string) => void
     >();
 
-    const notifyChanges = (canvasName: string, nodeId: string): void => {
+    const notify = (sink: SinkRefValue): void => {
       for (const listener of listeners) {
         try {
-          listener(canvasName, nodeId);
+          listener(sink.canvasName, sink.nodeId);
         } catch (error) {
-          // The transaction is already committed. A projection subscriber
-          // cannot retroactively fail the durable work mutation.
           console.error(
-            `[work] change listener failed for ${canvasName}/${nodeId}:`,
+            `[work] change listener failed for ${sink.canvasName}/${sink.nodeId}:`,
             error,
           );
         }
@@ -2708,10 +2716,10 @@ export const WorkRepositoryLive = Layer.effect(
     const readSnapshot = (
       canvasName: string,
       nodeId: string,
-    ): Effect.Effect<WorkSnapshot, WorkRepositoryError> =>
+    ): Effect.Effect<WorkSnapshotValue, WorkRepositoryError> =>
       state
         .read("work.readSnapshot", (reader) =>
-          loadSnapshot(reader, canvasName, nodeId),
+          loadSnapshot(reader, { canvasName, nodeId }),
         )
         .pipe(
           Effect.mapError((error) =>
@@ -2719,12 +2727,12 @@ export const WorkRepositoryLive = Layer.effect(
           ),
         );
 
-    const snapshotsForCanvas = (
+    const readSnapshotsForCanvas = (
       canvasName: string,
-    ): Effect.Effect<ReadonlyArray<WorkSnapshot>, WorkRepositoryError> =>
+    ): Effect.Effect<ReadonlyArray<WorkSnapshotValue>, WorkRepositoryError> =>
       state
         .read("work.snapshotsForCanvas", (reader) =>
-          loadSnapshotsForCanvas(reader, canvasName),
+          snapshotsForCanvas(reader, canvasName),
         )
         .pipe(
           Effect.mapError((error) =>
@@ -2736,132 +2744,619 @@ export const WorkRepositoryLive = Layer.effect(
       lane: "task" | "request",
       canvasName: string,
       nodeId: string,
-      taskId: string,
-    ): Effect.Effect<string | undefined, WorkRepositoryError> =>
+      itemId: string,
+    ): Effect.Effect<InstallationId | undefined, WorkRepositoryError> =>
       state
         .read("work.itemHome", (reader) =>
-          existingTaskHome(reader, lane, canvasName, nodeId, taskId)
+          selectTaskIdentity(
+            reader,
+            lane,
+            { canvasName, nodeId },
+            itemId,
+          )?.entity_home as InstallationId | undefined,
         )
         .pipe(
           Effect.mapError((error) =>
-            toRepositoryError("work.itemHome", error)
+            toRepositoryError("work.itemHome", error),
           ),
         );
 
-    const mutate = <A>(
-      input: WorkMutationInput<A>,
-    ): Effect.Effect<
-      WorkMutationResult<A>,
-      WorkRepositoryError | WorkError
-    > => {
-      const originAt = normalizeTimestamp(input.originAt);
-      const receivedAt = normalizeTimestamp(input.receivedAt);
-      return state
-        .transaction(`work.${input.operation}`, (writer): MutationOutcome<A> => {
-          const before = loadSnapshot(
+    const transaction = <A>(
+      operation: string,
+      sink: SinkRefValue,
+      body: (writer: StateWriter) => A,
+    ): Effect.Effect<A, RepositoryFailure> =>
+      state.transaction(operation, body).pipe(
+        Effect.mapError((error) =>
+          unwrapStateFailure(
+            operation,
+            error,
+            WorkAuthorityError as unknown as new (...args: never[]) => WorkAuthorityError,
+          ),
+        ),
+        Effect.tap(() => Effect.sync(() => notify(sink))),
+      );
+
+    const createTask = (
+      input: CreateTaskInput,
+    ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const task = Schema.decodeUnknownSync(Task, strictDecode)(input.task);
+      return transaction("work.task.create", input.sink, (writer) => {
+        if (
+          selectTaskIdentity(
             writer,
-            input.canvasName,
-            input.nodeId,
+            "task",
+            input.sink,
+            task.id,
+          ) !== undefined
+        ) {
+          throw authorityError(
+            "identity-conflict",
+            `task "${task.id}" already exists`,
           );
-          const projected = projectWorkSnapshots(input.authoredDoc, [before]);
-          try {
-            const transformed = input.transform(projected);
-            const after = snapshotFromRuntimeProjection(
-              transformed.doc,
-              input.canvasName,
-              input.nodeId,
-            );
-            const plan = planMutation(before, after);
-            applyMutationPlan(writer, {
-              canvasName: input.canvasName,
-              nodeId: input.nodeId,
-              entityHome: input.entityHome,
-              eventHome: input.eventHome,
-              materialization: input.materialization ?? "immediate",
-              operation: input.operation,
-              originAt,
-              receivedAt,
-              plan,
-            });
-            const committedSnapshot = loadSnapshot(
-              writer,
-              input.canvasName,
-              input.nodeId,
-            );
-            const canvasSnapshots = loadSnapshotsForCanvas(
-              writer,
-              input.canvasName,
-            );
-            return {
-              _tag: "Success",
-              value: transformed.value,
-              snapshot: committedSnapshot,
-              projectedDoc: projectWorkSnapshots(
-                input.authoredDoc,
-                canvasSnapshots,
-              ),
-            };
-          } catch (error) {
-            if (error instanceof WorkError) {
-              return { _tag: "DomainFailure", error };
-            }
-            throw error;
-          }
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            toRepositoryError(`work.${input.operation}`, error),
-          ),
-          Effect.flatMap((outcome) =>
-            outcome._tag === "Success"
-              ? Effect.succeed({
-                  value: outcome.value,
-                  snapshot: outcome.snapshot,
-                  projectedDoc: outcome.projectedDoc,
-                  disposition:
-                    input.materialization === "on-disposition"
-                      ? "queued" as const
-                      : "applied" as const,
-                })
-              : Effect.fail(outcome.error),
-          ),
-          Effect.tap(() =>
-            Effect.sync(() =>
-              notifyChanges(input.canvasName, input.nodeId)
-            )
-          ),
-        );
+        }
+        return commitLocalFact(writer, {
+          localInstallationId: input.localInstallationId,
+          sink: input.sink,
+          item: item("task", task.id, input.sink),
+          operation: "task.create",
+          predecessor: null,
+          body: { operation: "task.create", task },
+          value: task,
+          originAt,
+          receivedAt,
+        });
+      });
     };
 
-    const eventsAfter = (
-      input: WorkEventsAfterInput,
-    ): Effect.Effect<ReadonlyArray<WorkEvent>, WorkRepositoryError> =>
+    const describeTask = (
+      input: DescribeTaskInput,
+    ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const message = Schema.decodeUnknownSync(
+        Message,
+        strictDecode,
+      )(input.message);
+      return transaction("work.task.describe", input.sink, (writer) => {
+        const current = loadTask(
+          writer,
+          "task",
+          input.sink,
+          input.taskId,
+        );
+        if (current === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `task "${input.taskId}" does not exist`,
+          );
+        }
+        if (current.row.entity_home !== input.localInstallationId) {
+          throw authorityError(
+            "authority-mismatch",
+            "local installation does not own this task",
+          );
+        }
+        if (
+          current.task.state === "completed" ||
+          current.task.state === "canceled" ||
+          current.task.state === "failed" ||
+          current.task.state === "rejected"
+        ) {
+          throw authorityError(
+            "invalid-transition",
+            `cannot describe terminal task "${input.taskId}"`,
+          );
+        }
+        const task: TaskValue = {
+          ...current.task,
+          history: [message, ...current.task.history.slice(1)],
+        };
+        return commitLocalFact(writer, {
+          localInstallationId: input.localInstallationId,
+          sink: input.sink,
+          item: item("task", task.id, input.sink),
+          operation: "task.describe",
+          predecessor: currentIdentity(current.row),
+          body: { operation: "task.describe", task },
+          value: task,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const transitionTask = (
+      input: TransitionTaskInput,
+    ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const message =
+        input.message === undefined
+          ? undefined
+          : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
+      return transaction("work.task.transition", input.sink, (writer) => {
+        const current = loadTask(
+          writer,
+          "task",
+          input.sink,
+          input.taskId,
+        );
+        if (current === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `task "${input.taskId}" does not exist`,
+          );
+        }
+        if (current.row.entity_home !== input.localInstallationId) {
+          throw authorityError(
+            "authority-mismatch",
+            "local installation does not own this task",
+          );
+        }
+        if (!canTransitionTaskState(current.task.state, input.state)) {
+          throw authorityError(
+            "invalid-transition",
+            `cannot transition task "${input.taskId}" from ${current.task.state} to ${input.state}`,
+          );
+        }
+        const task = Schema.decodeUnknownSync(Task, strictDecode)({
+          ...current.task,
+          state: input.state,
+          history:
+            message === undefined
+              ? current.task.history
+              : [...current.task.history, message],
+        });
+        return commitLocalFact(writer, {
+          localInstallationId: input.localInstallationId,
+          sink: input.sink,
+          item: item("task", task.id, input.sink),
+          operation: "task.transition",
+          predecessor: currentIdentity(current.row),
+          body: { operation: "task.transition", task },
+          value: task,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const claimLocalTask = (
+      input: ClaimLocalTaskInput,
+    ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      return transaction("work.task.claim-local", input.sink, (writer) => {
+        const current = loadTask(
+          writer,
+          "task",
+          input.sink,
+          input.taskId,
+        );
+        if (current === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `task "${input.taskId}" does not exist`,
+          );
+        }
+        if (current.row.entity_home !== input.localInstallationId) {
+          throw authorityError(
+            "authority-mismatch",
+            "local installation does not own this task queue",
+          );
+        }
+        if (
+          current.task.state !== "submitted" ||
+          current.task.claimedBy !== undefined
+        ) {
+          throw authorityError(
+            "claim-contention",
+            `task "${input.taskId}" is not available to start`,
+          );
+        }
+        assertActorAvailable(writer, input.actor.seatId);
+        const task = Schema.decodeUnknownSync(Task, strictDecode)({
+          ...current.task,
+          state: "working",
+          claimedBy: input.actor.seatId,
+        });
+        return commitLocalFact(writer, {
+          localInstallationId: input.localInstallationId,
+          sink: input.sink,
+          item: item("task", task.id, input.sink),
+          operation: "task.claim",
+          predecessor: currentIdentity(current.row),
+          body: {
+            operation: "task.claim",
+            task,
+            claimedBy: input.actor,
+            previousHome: input.localInstallationId,
+          },
+          value: task,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const createRequest = (
+      input: CreateRequestInput,
+    ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const request = Schema.decodeUnknownSync(Task, strictDecode)(
+        input.request,
+      );
+      return transaction("work.request.create", input.sink, (writer) => {
+        if (
+          selectTaskIdentity(
+            writer,
+            "request",
+            input.sink,
+            request.id,
+          ) !== undefined
+        ) {
+          throw authorityError(
+            "identity-conflict",
+            `request "${request.id}" already exists`,
+          );
+        }
+        return commitLocalFact(writer, {
+          localInstallationId: input.localInstallationId,
+          sink: input.sink,
+          item: item("request", request.id, input.sink),
+          operation: "request.create",
+          predecessor: null,
+          body: { operation: "request.create", request },
+          value: request,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const resolveRequest = (
+      input: ResolveRequestInput,
+    ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const message =
+        input.message === undefined
+          ? undefined
+          : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
+      return transaction("work.request.resolve", input.sink, (writer) => {
+        const current = loadTask(
+          writer,
+          "request",
+          input.sink,
+          input.requestId,
+        );
+        if (current === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `request "${input.requestId}" does not exist`,
+          );
+        }
+        if (current.row.entity_home !== input.localInstallationId) {
+          throw authorityError(
+            "authority-mismatch",
+            "local installation does not own this request",
+          );
+        }
+        if (
+          !canTransitionTaskState(
+            current.task.state,
+            input.disposition,
+          )
+        ) {
+          throw authorityError(
+            "invalid-transition",
+            `cannot resolve request "${input.requestId}" from ${current.task.state}`,
+          );
+        }
+        const request = Schema.decodeUnknownSync(Task, strictDecode)({
+          ...current.task,
+          state: input.disposition,
+          response: input.response,
+          history:
+            message === undefined
+              ? current.task.history
+              : [...current.task.history, message],
+        });
+        return commitLocalFact(writer, {
+          localInstallationId: input.localInstallationId,
+          sink: input.sink,
+          item: item("request", request.id, input.sink),
+          operation: "request.resolve",
+          predecessor: currentIdentity(current.row),
+          body: { operation: "request.resolve", request },
+          value: request,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const appendMessage = (
+      input: AppendMessageInput,
+    ): Effect.Effect<LocalFactResult<MessageValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const message = Schema.decodeUnknownSync(
+        Message,
+        strictDecode,
+      )(input.message);
+      return transaction("work.message.append", input.sink, (writer) => {
+        if (
+          writer.get<StateRow>(
+            `
+              SELECT 1 FROM work_messages
+              WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+            `,
+            [input.sink.canvasName, input.sink.nodeId, message.messageId],
+          ) !== undefined
+        ) {
+          throw authorityError(
+            "identity-conflict",
+            `message "${message.messageId}" already exists`,
+          );
+        }
+        return commitLocalFact(writer, {
+          localInstallationId: input.localInstallationId,
+          sink: input.sink,
+          item: item("message", message.messageId, input.sink),
+          operation: "message.append",
+          predecessor: null,
+          body: { operation: "message.append", message },
+          value: message,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const publishArtifact = (
+      input: PublishArtifactInput,
+    ): Effect.Effect<LocalFactResult<ArtifactValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const artifact = Schema.decodeUnknownSync(
+        Artifact,
+        strictDecode,
+      )(input.artifact);
+      return transaction("work.artifact.publish", input.sink, (writer) => {
+        if (
+          writer.get<StateRow>(
+            `
+              SELECT 1 FROM work_artifacts
+              WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+            `,
+            [
+              input.sink.canvasName,
+              input.sink.nodeId,
+              artifact.artifactId,
+            ],
+          ) !== undefined
+        ) {
+          throw authorityError(
+            "identity-conflict",
+            `artifact "${artifact.artifactId}" already exists`,
+          );
+        }
+        return commitLocalFact(writer, {
+          localInstallationId: input.localInstallationId,
+          sink: input.sink,
+          item: item("artifact", artifact.artifactId, input.sink),
+          operation: "artifact.publish",
+          predecessor: null,
+          body: {
+            operation: "artifact.publish",
+            artifact,
+            publishedBy: input.publishedBy,
+          },
+          value: artifact,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const acceptDelivery = (
+      input: AcceptDeliveryInput,
+    ): Effect.Effect<LocalFactResult<DeliveryReceipt>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      return transaction("work.delivery.accepted", input.sink, (writer) => {
+        const receipt = input.receipt;
+        if (
+          writer.get<StateRow>(
+            `
+              SELECT 1
+              FROM work_delivery_receipts
+              WHERE delivered_canvas_name = ?
+                AND delivered_node_id = ?
+                AND delivery_id = ?
+            `,
+            [
+              receipt.deliveredItem.sink.canvasName,
+              receipt.deliveredItem.sink.nodeId,
+              receipt.deliveryId,
+            ],
+          ) !== undefined
+        ) {
+          throw authorityError(
+            "identity-conflict",
+            `delivery "${receipt.deliveryId}" already exists`,
+          );
+        }
+        return commitLocalFact(writer, {
+          localInstallationId: input.localInstallationId,
+          sink: input.sink,
+          item: item("delivery", receipt.deliveryId, input.sink),
+          operation: "delivery.accepted",
+          predecessor: null,
+          body: { operation: "delivery.accepted", receipt },
+          value: receipt,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const reserveRemoteTaskClaim = (
+      input: ReserveRemoteTaskClaimInput,
+    ): Effect.Effect<WorkCommandValue, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      return transaction(
+        "work.task.reserve-remote-claim",
+        input.sink,
+        (writer) => {
+          if (
+            input.targetInstallationId === input.localInstallationId
+          ) {
+            throw authorityError(
+              "target-mismatch",
+              "remote task claim target must differ from the local installation",
+            );
+          }
+          const current = loadTask(
+            writer,
+            "task",
+            input.sink,
+            input.taskId,
+          );
+          if (current === undefined) {
+            throw authorityError(
+              "missing-entity",
+              `task "${input.taskId}" does not exist`,
+            );
+          }
+          if (
+            current.row.entity_home !== input.localInstallationId ||
+            current.task.state !== "submitted" ||
+            current.task.claimedBy !== undefined
+          ) {
+            throw authorityError(
+              "authority-mismatch",
+              "only a locally owned submitted task may be claimed remotely",
+            );
+          }
+          assertActorAvailable(writer, input.actor.seatId);
+          const action = Schema.decodeUnknownSync(
+            WorkAction,
+            strictDecode,
+          )({
+            operation: "task.claim",
+            sourceQueueHome: input.localInstallationId,
+            sourcePredecessor: currentIdentity(current.row),
+            sourceTask: current.task,
+            sink: input.sink,
+            actor: input.actor,
+            targetHome: input.targetInstallationId,
+          });
+          const command = makeCommand(
+            writer,
+            input.localInstallationId,
+            input.targetInstallationId,
+            item("task", input.taskId, input.sink),
+            null,
+            action,
+            originAt,
+          );
+          insertRecord(writer, command, receivedAt);
+          insertPending(writer, command, receivedAt);
+          return command;
+        },
+      );
+    };
+
+    const enqueueRemoteCommand = (
+      input: EnqueueRemoteCommandInput,
+    ): Effect.Effect<WorkCommandValue, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      return transaction(
+        `work.${input.action.operation}.enqueue`,
+        input.sink,
+        (writer) => {
+          if (
+            input.targetInstallationId === input.localInstallationId
+          ) {
+            throw authorityError(
+              "target-mismatch",
+              "remote command target must differ from the local installation",
+            );
+          }
+          if (
+            input.item.sink.canvasName !== input.sink.canvasName ||
+            input.item.sink.nodeId !== input.sink.nodeId
+          ) {
+            throw authorityError(
+              "target-mismatch",
+              "command item sink differs from the repository route",
+            );
+          }
+          const action = Schema.decodeUnknownSync(
+            WorkAction,
+            strictDecode,
+          )(input.action);
+          if (action.operation === "task.claim") {
+            throw authorityError(
+              "target-mismatch",
+              "task.claim must use reserveRemoteTaskClaim",
+            );
+          }
+          const predecessor = predecessorForAction(
+            writer,
+            input.item,
+            action,
+          );
+          if (
+            predecessor !== null &&
+            predecessor.route.entityHome !== input.targetInstallationId
+          ) {
+            throw authorityError(
+              "authority-mismatch",
+              "remote command target does not own the current item fact",
+            );
+          }
+          const command = makeCommand(
+            writer,
+            input.localInstallationId,
+            input.targetInstallationId,
+            input.item,
+            predecessor,
+            action,
+            originAt,
+          );
+          insertRecord(writer, command, receivedAt);
+          insertPending(writer, command, receivedAt);
+          return command;
+        },
+      );
+    };
+
+    const recordsAfter = (
+      input: RecordsAfterInput,
+    ): Effect.Effect<ReadonlyArray<WorkRecordValue>, WorkRepositoryError> =>
       state
-        .read("work.eventsAfter", (reader) => {
-          const cursor = canonicalSequence(input.afterSeq);
-          const boundedLimit = Math.max(
+        .read("work.recordsAfter", (reader) => {
+          const after = input.after ?? "0";
+          const limit = Math.max(
             1,
             Math.min(
-              STATION_API_MAX_EVENTS_PER_REPORT,
-              Math.floor(input.limit ?? STATION_API_MAX_EVENTS_PER_REPORT),
+              MAX_RECORD_LIMIT,
+              Math.floor(input.limit ?? DEFAULT_RECORD_LIMIT),
             ),
           );
           return reader
-            .all<WorkEventRow>(
+            .all<StateRow & { readonly seq: string }>(
               `
-                SELECT
-                  event_home,
-                  entity_home,
-                  seq,
-                  canvas_name,
-                  node_id,
-                  entity_kind,
-                  entity_id,
-                  operation,
-                  origin_at,
-                  received_at,
-                  payload_json,
-                  content_sha256
+                SELECT seq
                 FROM work_events
                 WHERE event_home = ?
                   AND entity_home = ?
@@ -2873,434 +3368,347 @@ export const WorkRepositoryLive = Layer.effect(
                 LIMIT ?
               `,
               [
-                input.eventHome,
-                input.entityHome,
-                cursor,
-                cursor,
-                cursor,
-                boundedLimit,
+                input.route.eventHome,
+                input.route.entityHome,
+                after,
+                after,
+                after,
+                limit,
               ],
             )
-            .map(workEventFromRow);
+            .map(({ seq }) => {
+              const loaded = loadRecord(
+                reader,
+                recordId(
+                  input.route.eventHome,
+                  input.route.entityHome,
+                  seq,
+                ),
+              );
+              if (loaded === undefined) {
+                throw new Error("work record disappeared during read");
+              }
+              return loaded;
+            });
         })
         .pipe(
           Effect.mapError((error) =>
-            toRepositoryError("work.eventsAfter", error),
+            toRepositoryError("work.recordsAfter", error),
           ),
         );
 
-    const rejectionsForRoute = (
-      entityHome: string,
-    ): Effect.Effect<ReadonlyArray<WorkRejection>, WorkRepositoryError> =>
-      state
-        .read("work.rejectionsForRoute", (reader) =>
-          reader
-            .all<WorkRejectionRow>(
-              `
-                SELECT
-                  rejected_event_home,
-                  rejected_entity_home,
-                  rejected_seq,
-                  rejected_content_sha256,
-                  reason,
-                  message,
-                  reported_by,
-                  receipt_event_home,
-                  receipt_event_seq,
-                  received_at
-                FROM work_rejections
-                WHERE rejected_entity_home = ?
-                ORDER BY
-                  received_at,
-                  reported_by,
-                  length(rejected_seq),
-                  rejected_seq
-              `,
-              [entityHome],
-            )
-            .map(workRejectionFromRow),
-        )
-        .pipe(
-          Effect.mapError((error) =>
-            toRepositoryError("work.rejectionsForRoute", error),
-          ),
-        );
-
-    const commandStatus: Effect.Effect<
-      WorkCommandStatus,
-      WorkRepositoryError
-    > = state
-      .read("work.commandStatus", (reader) => {
-        const detailLimit = 100;
-        const pendingCount = Number(
-          reader.get<CountRow>(
-            `
-              SELECT count(*) AS count
-              FROM work_pending_commands
-              WHERE status = 'pending'
-            `,
-          )?.count ?? 0,
-        );
-        const appliedCount = Number(
-          reader.get<CountRow>(
-            `
-              SELECT count(*) AS count
-              FROM work_pending_commands
-              WHERE status = 'applied'
-            `,
-          )?.count ?? 0,
-        );
-        const rejectionCount = Number(
-          reader.get<CountRow>(
-            `
-              SELECT count(*) AS count
-              FROM work_rejections AS rejection
-              JOIN work_pending_commands AS command
-                ON command.event_home = rejection.rejected_event_home
-               AND command.entity_home = rejection.rejected_entity_home
-               AND command.seq = rejection.rejected_seq
-               AND command.status = 'rejected'
-            `,
-          )?.count ?? 0,
-        );
-        const pending = reader
-          .all<PendingCommandDetailRow>(
+    const pendingCommands = state
+      .read("work.pendingCommands", (reader) =>
+        reader
+          .all<
+            StateRow & {
+              readonly event_home: string;
+              readonly entity_home: string;
+              readonly seq: string;
+              readonly resolution_status: "applied" | "rejected" | null;
+              readonly resolution_event_home: string | null;
+              readonly resolution_entity_home: string | null;
+              readonly resolution_seq: string | null;
+              readonly resolved_at: string | null;
+            }
+          >(
             `
               SELECT
-                command.event_home,
-                command.entity_home,
-                command.seq,
-                command.status,
-                command.acknowledged_by,
-                command.resolved_at,
-                event.canvas_name,
-                event.node_id,
-                event.entity_kind,
-                event.entity_id,
-                event.operation
-              FROM work_pending_commands AS command
-              JOIN work_events AS event
-                ON event.event_home = command.event_home
-               AND event.entity_home = command.entity_home
-               AND event.seq = command.seq
-              WHERE command.status = 'pending'
+                event_home,
+                entity_home,
+                seq,
+                resolution_status,
+                resolution_event_home,
+                resolution_entity_home,
+                resolution_seq,
+                resolved_at
+              FROM work_pending_commands
               ORDER BY
-                command.entity_home,
-                length(command.seq),
-                command.seq
-              LIMIT ?
+                event_home,
+                entity_home,
+                length(seq),
+                seq
             `,
-            [detailLimit],
           )
-          .map((row): WorkPendingCommand => ({
-            command: {
-              eventHome: row.event_home,
-              entityHome: row.entity_home,
-              seq: canonicalSequence(row.seq),
-            },
-            canvasName: row.canvas_name,
-            nodeId: row.node_id,
-            entityKind: row.entity_kind,
-            entityId: row.entity_id,
-            operation: row.operation,
-          }));
-        const rejections = reader
-          .all<WorkRejectionRow>(
-            `
-              SELECT
-                rejected_event_home,
-                rejected_entity_home,
-                rejected_seq,
-                rejected_content_sha256,
-                reason,
-                message,
-                reported_by,
-                receipt_event_home,
-                receipt_event_seq,
-                received_at
-              FROM work_rejections AS rejection
-              JOIN work_pending_commands AS command
-                ON command.event_home = rejection.rejected_event_home
-               AND command.entity_home = rejection.rejected_entity_home
-               AND command.seq = rejection.rejected_seq
-               AND command.status = 'rejected'
-              ORDER BY
-                rejection.received_at DESC,
-                rejection.reported_by,
-                length(rejection.rejected_seq),
-                rejection.rejected_seq
-              LIMIT ?
-            `,
-            [detailLimit],
-          )
-          .map(workRejectionFromRow);
-        return {
-          counts: {
-            pending: pendingCount,
-            applied: appliedCount,
-            rejected: rejectionCount,
-          },
-          pending,
-          rejections,
-          truncated: {
-            pending: pendingCount > pending.length,
-            rejections: rejectionCount > rejections.length,
-          },
-        };
-      })
+          .map((row): PendingCommand => {
+            const command = loadRecord(
+              reader,
+              recordId(
+                row.event_home as InstallationId,
+                row.entity_home as InstallationId,
+                row.seq,
+              ),
+            );
+            if (command?.recordType !== "command") {
+              throw new Error("pending command has no command record");
+            }
+            return {
+              command,
+              resolution:
+                row.resolution_status === null ||
+                row.resolution_event_home === null ||
+                row.resolution_entity_home === null ||
+                row.resolution_seq === null ||
+                row.resolved_at === null
+                  ? undefined
+                  : {
+                      status: row.resolution_status,
+                      disposition: recordId(
+                        row.resolution_event_home as InstallationId,
+                        row.resolution_entity_home as InstallationId,
+                        row.resolution_seq,
+                      ),
+                      resolvedAt: timestamp(row.resolved_at),
+                    },
+            };
+          }),
+      )
       .pipe(
         Effect.mapError((error) =>
-          toRepositoryError("work.commandStatus", error),
+          toRepositoryError("work.pendingCommands", error),
         ),
       );
 
-    const acceptReplicated = Effect.fn(
-      "WorkRepository.acceptReplicated",
-    )(function* (input: AcceptReplicatedWorkInput) {
-      if (input.localEventHome === input.eventHome) {
-        return yield* replicationError(
-          input.eventHome,
-          decodeLogicalSequence("0"),
-          "event-home-mismatch",
-          "an installation cannot accept its own source stream",
-        );
-      }
-      if (input.events.length > STATION_API_MAX_EVENTS_PER_REPORT) {
-        return yield* replicationError(
-          input.eventHome,
-          decodeLogicalSequence("0"),
-          "batch-limit",
-          `work event batch exceeds ${STATION_API_MAX_EVENTS_PER_REPORT}`,
-        );
-      }
-
-      const bySequence = new Map<string, DecodedReplicatedWorkEvent>();
-      for (const source of input.events) {
-        const decoded = decodeReplicatedWorkEvent(
-          source,
-          input.eventHome,
-          input.entityHome,
-        );
-        if (decoded._tag === "Failure") {
-          return yield* decoded.error;
-        }
-        const admitted = bySequence.get(decoded.event.seq);
-        if (
-          admitted !== undefined &&
-          (
-            admitted.contentSha256 !== decoded.event.contentSha256 ||
-            admitted.payloadJson !== decoded.event.payloadJson
-          )
-        ) {
-          return yield* replicationError(
-            input.eventHome,
-            source.identity.sequence,
-            "identity-conflict",
-            "one source sequence names different work content",
+    const acceptRecords = (
+      input: AcceptRecordsInput,
+    ): Effect.Effect<AcceptRecordsResult, ReplicationFailure> => {
+      const observedAt = timestamp(input.receivedAt);
+      const decoded: WorkRecordValue[] = [];
+      for (const candidate of input.records) {
+        const result = decodeWorkRecord(candidate);
+        if (Either.isLeft(result)) {
+          return Effect.fail(
+            replicationError(
+              input.senderInstallationId,
+              "integrity",
+              "report contains a malformed Work record",
+            ),
           );
         }
-        if (admitted === undefined) {
-          bySequence.set(decoded.event.seq, decoded.event);
-        }
+        validateIncomingDirection(
+          input.localInstallationId,
+          input.senderInstallationId,
+          result.right,
+        );
+        validateIncomingHash(input.senderInstallationId, result.right);
+        decoded.push(result.right);
       }
-      const decoded = [...bySequence.values()].sort((left, right) =>
-        BigInt(left.seq) < BigInt(right.seq) ? -1 : 1
-      );
-      const receivedAt = normalizeTimestamp(input.receivedAt);
 
-      const result = yield* state
-        .transaction("work.accept-replicated", (writer) => {
-          const cursor = writer.get<ReceivedCursorRow>(
-            `
-              SELECT home, through_sequence
-              FROM station_received_cursors
-              WHERE home = ?
-            `,
-            [input.eventHome],
-          )?.through_sequence ?? "0";
-          let through = cursor;
+      return state
+        .transaction("work.acceptRecords", (writer) => {
+          const routes = new Map<string, WorkRecordValue[]>();
+          for (const record of decoded) {
+            const key = `${record.id.route.eventHome}\u0000${record.id.route.entityHome}`;
+            const list = routes.get(key) ?? [];
+            list.push(record);
+            routes.set(key, list);
+          }
           let accepted = 0;
           let idempotent = 0;
           let rejected = 0;
+          const emitted: WorkRecordValue[] = [];
+          const acknowledge: RouteCursorValue[] = [];
           const changed = new Set<string>();
 
-          for (const event of decoded) {
-            const quarantined = selectLocalRejection(
-              writer,
-              event,
-              input.localEventHome,
+          for (const records of routes.values()) {
+            records.sort((left, right) =>
+              BigInt(left.id.seq) < BigInt(right.id.seq) ? -1 : 1,
             );
-            if (quarantined !== undefined) {
-              if (
-                quarantined.rejected_content_sha256 !==
-                  event.contentSha256
-              ) {
-                throw replicationError(
-                  input.eventHome,
-                  event.source.identity.sequence,
-                  "identity-conflict",
-                  "rejected source sequence was retried with different work",
-                );
-              }
-              idempotent += 1;
-              if (BigInt(event.seq) > BigInt(through)) {
-                const expected = (BigInt(through) + 1n).toString();
-                if (event.seq !== expected) {
+            const route = records[0]!.id.route;
+            const cursor = writer.get<CursorRow>(
+              `
+                SELECT through_sequence
+                FROM station_received_cursors
+                WHERE event_home = ? AND entity_home = ?
+              `,
+              [route.eventHome, route.entityHome],
+            )?.through_sequence;
+            let through = cursor === undefined ? 0n : BigInt(cursor);
+
+            for (const record of records) {
+              const seqValue = BigInt(record.id.seq);
+              const existing = eventRow(writer, record.id);
+              if (seqValue <= through) {
+                if (
+                  existing === undefined ||
+                  existing.content_sha256 !== record.contentSha256
+                ) {
                   throw replicationError(
-                    input.eventHome,
-                    event.source.identity.sequence,
-                    "sequence-gap",
-                    `expected route sequence ${expected}, received ${event.seq}`,
+                    input.senderInstallationId,
+                    "cursor-regression",
+                    "record at or below the receive cursor is not an exact replay",
+                    record.id.seq,
                   );
                 }
-                through = event.seq;
-              }
-              continue;
-            }
-            const existing = selectWorkEvent(
-              writer,
-              event.eventHome,
-              event.homeStation,
-              event.seq,
-            );
-            if (existing !== undefined) {
-              if (
-                existing.entity_home !== input.entityHome ||
-                existing.payload_json !== event.payloadJson ||
-                existing.content_sha256 !== event.contentSha256
-              ) {
-                throw replicationError(
-                  input.eventHome,
-                  event.source.identity.sequence,
-                  "identity-conflict",
-                  "source sequence is already bound to different work",
-                );
-              }
-              idempotent += 1;
-              if (BigInt(event.seq) > BigInt(through)) {
-                const expected = (BigInt(through) + 1n).toString();
-                if (event.seq !== expected) {
-                  throw replicationError(
-                    input.eventHome,
-                    event.source.identity.sequence,
-                    "sequence-gap",
-                    `expected route sequence ${expected}, received ${event.seq}`,
-                  );
+                idempotent += 1;
+                if (record.recordType === "command") {
+                  emitted.push(...priorCommandOutcome(writer, record));
                 }
-                through = event.seq;
+                continue;
               }
-            } else {
-              if (BigInt(event.seq) <= BigInt(cursor)) {
+              const expected = through + 1n;
+              if (seqValue !== expected) {
                 throw replicationError(
-                  input.eventHome,
-                  event.source.identity.sequence,
-                  "cursor-regression",
-                  "new work event falls behind the durable receive cursor",
-                );
-              }
-              const expected = (BigInt(through) + 1n).toString();
-              if (event.seq !== expected) {
-                throw replicationError(
-                  input.eventHome,
-                  event.source.identity.sequence,
+                  input.senderInstallationId,
                   "sequence-gap",
-                  `expected route sequence ${expected}, received ${event.seq}`,
+                  `expected route sequence ${expected}, received ${record.id.seq}`,
+                  record.id.seq,
                 );
               }
-              try {
-                materializeReplicatedWorkEvent(writer, event, receivedAt);
-                if (
-                  input.causalConflict === "reject-command" &&
-                  event.entityKind !== "receipt"
-                ) {
-                  recordCommandDisposition(writer, {
-                    event,
-                    localEventHome: input.localEventHome,
-                    disposition: { _tag: "Applied" },
-                    receivedAt,
-                  });
-                }
-                accepted += 1;
-                changed.add(`${event.canvasName}\u0000${event.nodeId}`);
-              } catch (error) {
-                if (
-                  error instanceof WorkReplicationError &&
-                  error.reason === "causal-conflict" &&
-                  input.causalConflict === "reject-command"
-                ) {
-                  recordCommandDisposition(writer, {
-                    event,
-                    localEventHome: input.localEventHome,
-                    disposition: {
-                      _tag: "Rejected",
-                      conflict: error,
-                    },
-                    receivedAt,
-                  });
+              if (existing !== undefined) {
+                throw replicationError(
+                  input.senderInstallationId,
+                  "identity-conflict",
+                  "record identity already names different content",
+                  record.id.seq,
+                );
+              }
+
+              rememberIncomingSequence(writer, record.id);
+              insertRecord(writer, record, observedAt);
+
+              if (record.recordType === "command") {
+                const admission = input.authorizeCommand(record);
+                if (admission._tag === "rejected") {
+                  const disposition = rejectCommand(
+                    writer,
+                    input.localInstallationId,
+                    record,
+                    admission.reason,
+                    admission.message,
+                    observedAt,
+                  );
+                  emitted.push(disposition);
                   rejected += 1;
                 } else {
-                  throw error;
+                  try {
+                    const outcome = applyCommand(
+                      writer,
+                      input.localInstallationId,
+                      record,
+                      observedAt,
+                    );
+                    emitted.push(...outcome);
+                    accepted += 1;
+                    changed.add(
+                      `${record.item.sink.canvasName}\u0000${record.item.sink.nodeId}`,
+                    );
+                  } catch (error) {
+                    if (!(error instanceof WorkAuthorityError)) throw error;
+                    const disposition = rejectCommand(
+                      writer,
+                      input.localInstallationId,
+                      record,
+                      error.reason,
+                      error.message,
+                      observedAt,
+                    );
+                    emitted.push(disposition);
+                    rejected += 1;
+                  }
                 }
+              } else if (record.recordType === "fact") {
+                validateIncomingFact(
+                  writer,
+                  input.localInstallationId,
+                  input.senderInstallationId,
+                  record,
+                );
+                materializeFact(writer, record, observedAt);
+                accepted += 1;
+                changed.add(
+                  `${record.item.sink.canvasName}\u0000${record.item.sink.nodeId}`,
+                );
+              } else {
+                validateDisposition(writer, record);
+                resolvePending(writer, record, observedAt);
+                accepted += 1;
               }
-              through = event.seq;
+              through = seqValue;
+            }
+
+            if (through > 0n) {
+              const cursorValue = Schema.decodeUnknownSync(
+                RouteCursor,
+                strictDecode,
+              )({
+                eventHome: route.eventHome,
+                entityHome: route.entityHome,
+                through: through.toString(),
+              });
+              writer.run(
+                `
+                  INSERT INTO station_received_cursors(
+                    event_home,
+                    entity_home,
+                    through_sequence,
+                    updated_at
+                  ) VALUES (?, ?, ?, ?)
+                  ON CONFLICT(event_home, entity_home) DO UPDATE SET
+                    through_sequence = excluded.through_sequence,
+                    updated_at = excluded.updated_at
+                `,
+                [
+                  cursorValue.eventHome,
+                  cursorValue.entityHome,
+                  cursorValue.through,
+                  observedAt,
+                ],
+              );
+              acknowledge.push(cursorValue);
             }
           }
 
-          if (decoded.length > 0) {
-            writer.run(
-              `
-                INSERT INTO station_received_cursors(
-                  home,
-                  through_sequence,
-                  updated_at
-                ) VALUES (?, ?, ?)
-                ON CONFLICT(home) DO UPDATE SET
-                  through_sequence = excluded.through_sequence,
-                  updated_at = excluded.updated_at
-              `,
-              [input.eventHome, through, receivedAt],
-            );
-          }
           return {
             accepted,
             idempotent,
             rejected,
-            through,
+            acknowledge,
+            emitted,
             changed: [...changed],
           };
         })
         .pipe(
           Effect.mapError((error) =>
-            error.cause instanceof WorkReplicationError
-              ? error.cause
-              : toRepositoryError("work.acceptReplicated", error)
+            unwrapStateFailure(
+              "work.acceptRecords",
+              error,
+              WorkReplicationError as unknown as new (...args: never[]) => WorkReplicationError,
+            ),
           ),
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              for (const key of result.changed) {
+                const separator = key.indexOf("\u0000");
+                notify({
+                  canvasName: key.slice(0, separator),
+                  nodeId: key.slice(separator + 1),
+                });
+              }
+            }),
+          ),
+          Effect.map(({ changed: _changed, ...result }) => result),
         );
-
-      for (const key of result.changed) {
-        const split = key.indexOf("\u0000");
-        notifyChanges(key.slice(0, split), key.slice(split + 1));
-      }
-      return {
-        accepted: result.accepted,
-        idempotent: result.idempotent,
-        rejected: result.rejected,
-        acknowledgement: StationEventAck.make({
-          home: input.eventHome,
-          through: decodeLogicalSequence(result.through),
-        }),
-      };
-    });
+    };
 
     return WorkRepository.of({
       readSnapshot,
+      snapshotsForCanvas: readSnapshotsForCanvas,
       itemHome,
-      snapshotsForCanvas,
-      mutate,
-      eventsAfter,
-      acceptReplicated,
-      rejectionsForRoute,
-      commandStatus,
+      createTask,
+      describeTask,
+      transitionTask,
+      claimLocalTask,
+      createRequest,
+      resolveRequest,
+      appendMessage,
+      publishArtifact,
+      acceptDelivery,
+      reserveRemoteTaskClaim,
+      enqueueRemoteCommand,
+      recordsAfter,
+      pendingCommands,
+      acceptRecords,
       subscribeChanges: (listener) => {
         listeners.add(listener);
         return () => {
