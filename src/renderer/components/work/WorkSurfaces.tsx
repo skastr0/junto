@@ -1,39 +1,13 @@
-import { useState } from "react";
-import { ulid } from "ulid";
 import type {
   CanvasNode,
-  Message,
   Part,
   TaskState,
 } from "@shared/canvas";
 import { isTerminalTaskState, taskBrief } from "@shared/task";
 import { sinkGlance, workRoleOf } from "@shared/attention";
-import type { WorkOpResult } from "@shared/ipc";
-import { applyWorkCanvasWrite } from "../../lib/mutations";
-import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
-import { getVellumApi } from "../../lib/vellum-api";
-import { state$ } from "../../lib/state";
 import { DIM, HUE, INK } from "../../lib/theme";
 import { TaskBoard } from "./TaskBoard";
 import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
-
-/** Baseline renderer revision + merge freeform after every successful work op. */
-const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
-  if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
-  return result;
-};
-
-/**
- * Keep renderer-originated WorkService writes inside the same admission and
- * drain boundary as direct canvas create/delete operations. A call admitted
- * before signal quiescence may finish its commit, but its returning renderer
- * projection is rejected by applyWorkCanvasWrite after the latch closes.
- */
-const runWorkCanvasMutation = <T,>(
-  canvas: string,
-  operation: () => Promise<WorkOpResult<T>>,
-): Promise<WorkOpResult<T> | undefined> =>
-  runCanvasAuthoringOperation(async () => acceptWorkResult(canvas, await operation()));
 
 const stateHue = (state: TaskState): string => {
   switch (state) {
@@ -53,8 +27,6 @@ const stateHue = (state: TaskState): string => {
       return HUE.gold;
   }
 };
-
-const canvasName = (): string => state$.canvasName.peek() || "";
 
 // --- Cards -----------------------------------------------------------------
 
@@ -187,31 +159,6 @@ export function ArtifactsDetail({
 
 export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
   const items = node.ether?.messages?.items ?? [];
-  const [text, setText] = useState("");
-  const [error, setError] = useState("");
-  const api = getVellumApi();
-  const name = canvasName();
-
-  const send = async () => {
-    if (!api || !text.trim()) return;
-    setError("");
-    const message: Message = {
-      messageId: ulid(),
-      role: "user",
-      parts: [{ kind: "text", text: text.trim() }],
-    };
-    try {
-      const result = await runWorkCanvasMutation(
-        name,
-        () => api.workMessageAppend(name, node.id, null, message),
-      );
-      if (result === undefined) return;
-      if (!result.ok) setError(result.message);
-      else setText("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
 
   return (
     <div className="inspector-section">
@@ -252,26 +199,6 @@ export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
           })
         )}
       </div>
-      <div className="mt-2 flex gap-1.5 opacity-80">
-        <input
-          className="flex-1 text-[11px]"
-          aria-label="Append user message"
-          placeholder="note (user)…"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void send();
-          }}
-        />
-        <button type="button" className="text-[10px]" onClick={() => void send()}>
-          append
-        </button>
-      </div>
-      {error ? (
-        <div className="mt-1 text-[10px]" style={{ color: HUE.crimson }}>
-          {error}
-        </div>
-      ) : null}
     </div>
   );
 }

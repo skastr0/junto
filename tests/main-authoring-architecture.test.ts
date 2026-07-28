@@ -54,9 +54,6 @@ describe("main authoring architecture", () => {
       "ipc.canvas.delete",
       "ipc.canvas.portfolio",
       "ipc.canvas.write",
-      "ipc.work.artifact-publish",
-      "ipc.work.message-append",
-      "ipc.work.request-create",
       "ipc.work.request-resolve",
       "ipc.work.task-claim",
       "ipc.work.task-create",
@@ -92,18 +89,23 @@ describe("main authoring architecture", () => {
     expect(control).toContain('workErr(\n              "RuntimeDown"');
   });
 
-  it("keeps actor authority compiled in main and absent from identityless IPC calls", () => {
+  it("keeps actor authority on the process-bound control plane", () => {
     const ipc = source("src/main/vellum/ipc.ts");
+    const preload = source("src/preload/index.ts");
+    const contract = source("src/shared/ipc.ts");
     const control = source("src/main/vellum/work/control.ts");
 
     expect(ipc).toContain("resolveProjectedIpcActorRef");
     expect(ipc).toContain("read.right.actorRefs");
-    expect(ipc).not.toContain("work.workMessageAppend(");
-    expect(ipc).not.toContain("work.workRequestCreate(");
-    expect(ipc).not.toContain("work.workArtifactPublish(");
-    expect(ipc).toContain('actorIdentityRequired("message append")');
-    expect(ipc).toContain('actorIdentityRequired("request create")');
-    expect(ipc).toContain('actorIdentityRequired("artifact publish")');
+    for (const actorOperation of [
+      "workMessageAppend",
+      "workRequestCreate",
+      "workArtifactPublish",
+    ]) {
+      expect(ipc).not.toContain(actorOperation);
+      expect(preload).not.toContain(actorOperation);
+      expect(contract).not.toContain(actorOperation);
+    }
     expect(control).toContain(
       "resolveProcessBoundActorRef(read.actorRefs, caller)",
     );

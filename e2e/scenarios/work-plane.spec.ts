@@ -9,7 +9,7 @@
  * $HOME/.vellum/state/vellum.db remains hermetic without a database override.
  * Run: `bun run test:e2e` (builds) or `bun run test:e2e:fast` (uses out/).
  */
-import type { Task, Artifact, Message } from "../../src/shared/canvas";
+import type { Task } from "../../src/shared/canvas";
 import type { WorkOpResult } from "../../src/shared/ipc";
 import {
   agentTextNode,
@@ -97,14 +97,6 @@ type WorkApi = {
     state: Task["state"],
     note?: string,
   ) => Promise<WorkOpResult<Task>>;
-  workRequestCreate: (
-    canvas: string,
-    nodeId: string,
-    brief: string,
-    metadata?: Record<string, unknown>,
-    raisedBy?: string,
-    reason?: string,
-  ) => Promise<WorkOpResult<Task>>;
   workRequestResolve: (
     canvas: string,
     nodeId: string,
@@ -112,17 +104,6 @@ type WorkApi = {
     responseText: string,
     disposition: "completed" | "rejected",
   ) => Promise<WorkOpResult<Task>>;
-  workArtifactPublish: (
-    canvas: string,
-    nodeId: string,
-    artifact: Artifact,
-  ) => Promise<WorkOpResult<Artifact>>;
-  workMessageAppend: (
-    canvas: string,
-    nodeId: string,
-    taskId: string | null,
-    message: Message,
-  ) => Promise<WorkOpResult<Message>>;
 };
 
 const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => {
@@ -144,34 +125,30 @@ const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => 
         ([c, n, t, s, noteText]) => window.vellum!.workTaskTransition(c, n, t, s, noteText),
         [canvas, nodeId, taskId, state, note] as const,
       ),
-    workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy, reason) =>
-      page.evaluate(
-        ([c, n, b, m, r, why]) => window.vellum!.workRequestCreate(c, n, b, m, r, why),
-        [canvas, nodeId, brief, metadata, raisedBy, reason] as const,
-      ),
     workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
       page.evaluate(
         ([c, n, t, r, d]) => window.vellum!.workRequestResolve(c, n, t, r, d),
         [canvas, nodeId, taskId, responseText, disposition] as const,
       ),
-    workArtifactPublish: (canvas, nodeId, artifact) =>
-      page.evaluate(
-        ([c, n, art]) => window.vellum!.workArtifactPublish(c, n, art as Artifact),
-        [canvas, nodeId, artifact] as const,
-      ),
-    workMessageAppend: (canvas, nodeId, taskId, message) =>
-      page.evaluate(
-        ([c, n, t, m]) => window.vellum!.workMessageAppend(c, n, t, m as Message),
-        [canvas, nodeId, taskId, message] as const,
-      ),
   };
 };
 
-test("work plane: task claim/transition, request blocks then clears, artifact on disk", async ({
+test("work plane: renderer exposes operator task lifecycle only", async ({
   vellum,
 }) => {
   const { page } = vellum;
   const api = await work(page);
+
+  const actorOperations = await page.evaluate(() => ({
+    messageAppend: typeof (window.vellum as Record<string, unknown> | undefined)?.workMessageAppend,
+    requestCreate: typeof (window.vellum as Record<string, unknown> | undefined)?.workRequestCreate,
+    artifactPublish: typeof (window.vellum as Record<string, unknown> | undefined)?.workArtifactPublish,
+  }));
+  expect(actorOperations).toEqual({
+    messageAppend: "undefined",
+    requestCreate: "undefined",
+    artifactPublish: "undefined",
+  });
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const CANVAS = await installWorkBoard(page);
@@ -226,73 +203,6 @@ test("work plane: task claim/transition, request blocks then clears, artifact on
     expect(item?.metadata?.claimedBy).toBe("e2e-worker");
   }).toPass({ timeout: 10_000 });
 
-  // --- requests block → resolve clear ---
-  // data-blocked lives on the inner .vellum-node shell, not the RF wrapper.
-  const targetShell = page.locator('.react-flow__node[data-id="target"] .vellum-node');
-  await expect(targetShell).toBeVisible();
-  await expect(targetShell).not.toHaveAttribute("data-blocked", "true");
-
-  // Raised by the target seat — the raiser is the claimant, so the block
-  // lands on "target" alone. The why travels first-class.
-  const req = await api.workRequestCreate(
-    CANVAS,
-    "req",
-    "need review",
-    undefined,
-    "target",
-    "merge is gated on review",
-  );
-  expect(req.ok).toBe(true);
-  if (!req.ok) return;
-  expect(req.data.state).toBe("input-required");
-  expect(req.data.metadata?.claimedBy).toBe("target");
-  expect(req.data.reason).toBe("merge is gated on review");
-
-  await expect(async () => {
-    const live = await page.evaluate(async (name) => window.vellum!.readCanvas(name), CANVAS);
-    const items = live.doc.nodes.find((n) => n.id === "req")?.ether?.requests?.items ?? [];
-    expect(items.some((t) => t.id === req.data.id && t.state === "input-required")).toBe(true);
-  }).toPass({ timeout: 10_000 });
-
-  await expect(async () => {
-    await expect(targetShell).toHaveAttribute("data-blocked", "true");
-  }).toPass({ timeout: 15_000 });
-
-  const resolved = await api.workRequestResolve(
-    CANVAS,
-    "req",
-    req.data.id,
-    "lgtm",
-    "completed",
-  );
-  expect(resolved.ok).toBe(true);
-  if (!resolved.ok) return;
-  expect(resolved.data.state).toBe("completed");
-  expect(resolved.data.response).toBe("lgtm");
-
-  await expect(async () => {
-    await expect(targetShell).not.toHaveAttribute("data-blocked", "true");
-  }).toPass({ timeout: 15_000 });
-
-  // --- artifacts ---
-  const art = await api.workArtifactPublish(CANVAS, "art", {
-    artifactId: "art-e2e-1",
-    name: "report.txt",
-    parts: [{ kind: "text", text: "e2e body" }],
-    taskId: created.data.id,
-  });
-  expect(art.ok).toBe(true);
-
-  await expect(page.locator(".react-flow__node", { hasText: "report.txt" })).toBeVisible({
-    timeout: 10_000,
-  });
-  await expect(async () => {
-    const live = await page.evaluate(async (name) => window.vellum!.readCanvas(name), CANVAS);
-    const items = live.doc.nodes.find((n) => n.id === "art")?.ether?.artifacts?.items ?? [];
-    expect(items.some((a) => a.artifactId === "art-e2e-1" && a.taskId === created.data.id)).toBe(
-      true,
-    );
-  }).toPass({ timeout: 10_000 });
 });
 
 test("work plane: bad ids reject without mutating the live doc", async ({ vellum }) => {

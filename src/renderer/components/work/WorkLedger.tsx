@@ -9,7 +9,6 @@ import {
   Link as LinkIcon,
   MessageSquareWarning,
   PanelRightClose,
-  Plus,
   Search,
   X,
 } from "lucide-react";
@@ -157,76 +156,6 @@ function PartView({
   );
 }
 
-function RequestCreateDialog({
-  pending,
-  onClose,
-  onCreate,
-}: {
-  readonly pending: boolean;
-  readonly onClose: () => void;
-  readonly onCreate: (title: string, details: string) => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [details, setDetails] = useState("");
-
-  return (
-    <FocusSurface
-      measure="form"
-      height="fit"
-      layer="work"
-      label="Create input request"
-      onClose={onClose}
-      closeOnBackdrop={!pending}
-      closeOnEscape={!pending}
-      panelClassName="work-ledger-create"
-    >
-      <OverlayHeader
-        eyebrow="input request"
-        title="Ask the operator"
-        status="Be specific about the decision or information needed."
-        actions={
-          <IconButton aria-label="Close input request creator" title="Close" onClick={onClose}>
-            <X size={14} />
-          </IconButton>
-        }
-      />
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (title.trim()) onCreate(title.trim(), details.trim());
-        }}
-      >
-        <label>
-          <span>Request</span>
-          <Input
-            autoFocus
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="What do you need from the operator?"
-          />
-        </label>
-        <label>
-          <span>Context</span>
-          <Textarea
-            value={details}
-            onChange={(event) => setDetails(event.target.value)}
-            placeholder="Explain why this is needed, what has already been tried, and what happens after the answer…"
-            rows={8}
-          />
-        </label>
-        <footer>
-          <Button variant="subtle" onClick={onClose} disabled={pending}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary" disabled={pending || !title.trim()}>
-            {pending ? "Creating…" : "Create request"}
-          </Button>
-        </footer>
-      </form>
-    </FocusSurface>
-  );
-}
-
 function RequestDetail({
   request,
   pending,
@@ -335,8 +264,6 @@ export function RequestInbox({
   const items = node.ether?.requests?.items ?? [];
   const pendingItems = items.filter((request) => request.state === "input-required");
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [creatingPending, setCreatingPending] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(pendingItems[0]?.id ?? null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -349,32 +276,6 @@ export function RequestInbox({
       )
     : items;
   const selected = selectedId ? items.find((request) => request.id === selectedId) : undefined;
-
-  const create = async (title: string, details: string) => {
-    if (!api) return;
-    setCreatingPending(true);
-    setError("");
-    try {
-      const metadata: WorkMetadata = {
-        title,
-        ...(details ? { details } : {}),
-      };
-      const result = await runWorkCanvasMutation(name, () =>
-        api.workRequestCreate(name, node.id, title, metadata),
-      );
-      if (result === undefined) return;
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      setSelectedId(result.data.id);
-      setCreating(false);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setCreatingPending(false);
-    }
-  };
 
   const resolve = async (
     request: Task,
@@ -421,25 +322,12 @@ export function RequestInbox({
                 placeholder="Search requests"
               />
             </div>
-            <Button variant="primary" onClick={() => setCreating(true)}>
-              <Plus size={12} />
-              New request
-            </Button>
             <IconButton aria-label="Close input requests" title="Close" onClick={onClose}>
               <X size={14} />
             </IconButton>
           </>
         }
       />
-      {creating ? (
-        <RequestCreateDialog
-          pending={creatingPending}
-          onClose={() => {
-            if (!creatingPending) setCreating(false);
-          }}
-          onCreate={(title, details) => void create(title, details)}
-        />
-      ) : null}
       {error ? (
         <div className="work-ledger-error" role="alert">
           <MessageSquareWarning size={14} />
@@ -557,7 +445,7 @@ function ArtifactDetail({
       </header>
       <div className="work-ledger-detail__meta">
         <span>#{artifact.artifactId}</span>
-        {artifact.taskId ? <span>Task #{artifact.taskId}</span> : null}
+        {artifact.task ? <span>Task #{artifact.task.itemId}</span> : null}
       </div>
       <div className="work-ledger-detail__scroll">
         <section>
@@ -601,7 +489,7 @@ export function ArtifactLibrary({
     () =>
       normalized
         ? items.filter((artifact) =>
-            `${artifact.name ?? ""} ${artifact.artifactId} ${artifact.taskId ?? ""}`
+            `${artifact.name ?? ""} ${artifact.artifactId} ${artifact.task?.itemId ?? ""}`
               .toLowerCase()
               .includes(normalized),
           )
@@ -669,7 +557,7 @@ export function ArtifactLibrary({
                     <span>
                       <strong>{name}</strong>
                       <small>
-                        {artifact.taskId ? `Task #${artifact.taskId}` : "Unbound output"} ·{" "}
+                        {artifact.task ? `Task #${artifact.task.itemId}` : "Unbound output"} ·{" "}
                         {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
                       </small>
                     </span>

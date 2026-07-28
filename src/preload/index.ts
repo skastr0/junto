@@ -433,10 +433,6 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.workTaskTransition, IPC_TIMEOUT_MS, canvas, nodeId, taskId, state, note),
   workTaskClaim: (canvas, nodeId, taskId, actor) =>
     invoke(IPC_CHANNELS.workTaskClaim, IPC_TIMEOUT_MS, canvas, nodeId, taskId, actor),
-  workMessageAppend: (canvas, nodeId, taskId, message) =>
-    invoke(IPC_CHANNELS.workMessageAppend, IPC_TIMEOUT_MS, canvas, nodeId, taskId, message),
-  workRequestCreate: (canvas, nodeId, brief, metadata, raisedBy, reason) =>
-    invoke(IPC_CHANNELS.workRequestCreate, IPC_TIMEOUT_MS, canvas, nodeId, brief, metadata, raisedBy, reason),
   workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
     invoke(
       IPC_CHANNELS.workRequestResolve,
@@ -447,8 +443,6 @@ const vellumApi: VellumApi = {
       responseText,
       disposition,
     ),
-  workArtifactPublish: (canvas, nodeId, artifact) =>
-    invoke(IPC_CHANNELS.workArtifactPublish, IPC_TIMEOUT_MS, canvas, nodeId, artifact),
   onNodeRefOpened,
   onCanvasFlushRequested,
   onCanvasQuiesceAndFlushRequested,

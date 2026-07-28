@@ -13,9 +13,7 @@ import type { DirectoryEntry, DoctorReport, FolderSnapshot, ServiceCheck } from 
 import type {
   WorkMetadata,
   Task,
-  Artifact,
   CanvasDoc,
-  Message,
   TaskState,
 } from "./canvas";
 import type {
@@ -82,10 +80,7 @@ export const IPC_CHANNELS = {
   workTaskDescribe: "vellum:work-task-describe",
   workTaskTransition: "vellum:work-task-transition",
   workTaskClaim: "vellum:work-task-claim",
-  workMessageAppend: "vellum:work-message-append",
-  workRequestCreate: "vellum:work-request-create",
   workRequestResolve: "vellum:work-request-resolve",
-  workArtifactPublish: "vellum:work-artifact-publish",
   // herdr work surface
   herdrHosts: "vellum:herdr-hosts",
   herdrEnsureServer: "vellum:herdr-ensure-server",
@@ -568,20 +563,6 @@ export interface VellumApi {
     taskId: string,
     actor: string,
   ) => Promise<WorkOpResult<Task>>;
-  readonly workMessageAppend: (
-    canvas: string,
-    nodeId: string,
-    taskId: string | null,
-    message: Message,
-  ) => Promise<WorkOpResult<Message>>;
-  readonly workRequestCreate: (
-    canvas: string,
-    nodeId: string,
-    brief: string,
-    metadata?: WorkMetadata,
-    raisedBy?: string,
-    reason?: string,
-  ) => Promise<WorkOpResult<Task>>;
   readonly workRequestResolve: (
     canvas: string,
     nodeId: string,
@@ -589,11 +570,6 @@ export interface VellumApi {
     responseText: string,
     disposition: "completed" | "rejected",
   ) => Promise<WorkOpResult<Task>>;
-  readonly workArtifactPublish: (
-    canvas: string,
-    nodeId: string,
-    artifact: Artifact,
-  ) => Promise<WorkOpResult<Artifact>>;
   readonly onNodeRefOpened: (
     listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
   ) => () => void;

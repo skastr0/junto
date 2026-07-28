@@ -50,7 +50,7 @@ import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
 import type { ControlLease } from "./term/local-host";
 import { isTrustedMainWebContents, trustedRendererIpc } from "./trusted-main-webcontents";
-import type { WorkMetadata, Artifact, Message, TaskState } from "@shared/canvas";
+import type { WorkMetadata, TaskState } from "@shared/canvas";
 import type { ActorRef } from "@shared/work-protocol";
 import {
   MainAuthoringRefused,
@@ -212,16 +212,6 @@ const resolveRendererActor = (
       }
       : { ok: true, actor };
   });
-
-const actorIdentityRequired = (
-  operation: "message append" | "request create" | "artifact publish",
-): WorkOpResult<never> => ({
-  ok: false,
-  code: "invalid",
-  message:
-    `renderer ${operation} has no process-bound actor identity; ` +
-    "use the process-bound work control surface",
-});
 
 /**
  * Doctrine: only Command Center authors the canvas. Remote and unconfigured
@@ -545,44 +535,6 @@ export const registerVellumIpc = (): void => {
       ),
   );
   privilegedIpc.handle(
-    IPC_CHANNELS.workMessageAppend,
-    (_event, canvas: string, nodeId: string, taskId: string | null, message: Message) =>
-      runRendererWorkAuthoring(
-        "ipc.work.message-append",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
-            void canvas;
-            void nodeId;
-            void taskId;
-            void message;
-            return actorIdentityRequired("message append");
-          }),
-        ),
-      ),
-  );
-  privilegedIpc.handle(
-    IPC_CHANNELS.workRequestCreate,
-    (_event, canvas: string, nodeId: string, brief: string, metadata?: WorkMetadata, raisedBy?: string, reason?: string) =>
-      runRendererWorkAuthoring(
-        "ipc.work.request-create",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
-            void canvas;
-            void nodeId;
-            void brief;
-            void metadata;
-            void raisedBy;
-            void reason;
-            return actorIdentityRequired("request create");
-          }),
-        ),
-      ),
-  );
-  privilegedIpc.handle(
     IPC_CHANNELS.workRequestResolve,
     (
       _event,
@@ -606,23 +558,6 @@ export const registerVellumIpc = (): void => {
               responseText,
               disposition,
             );
-          }),
-        ),
-      ),
-  );
-  privilegedIpc.handle(
-    IPC_CHANNELS.workArtifactPublish,
-    (_event, canvas: string, nodeId: string, artifact: Artifact) =>
-      runRendererWorkAuthoring(
-        "ipc.work.artifact-publish",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
-            void canvas;
-            void nodeId;
-            void artifact;
-            return actorIdentityRequired("artifact publish");
           }),
         ),
       ),

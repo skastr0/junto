@@ -1,5 +1,4 @@
 import { useId, useMemo, useRef, useState } from "react";
-import { ulid } from "ulid";
 import {
   Activity,
   CheckCircle2,
@@ -12,11 +11,7 @@ import {
   MoreHorizontal,
   PanelRightClose,
   Plus,
-  Reply,
   Search,
-  Send,
-  ShieldCheck,
-  ShieldX,
   UserRound,
   X,
 } from "lucide-react";
@@ -28,7 +23,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
-import type { CanvasNode, Message, Part, TaskState, WorkMetadata } from "@shared/canvas";
+import type { CanvasNode, Part, TaskState, WorkMetadata } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import { sinkGlance, workRoleOf, workRolesInDoc } from "@shared/attention";
 import { canTransitionTaskState, claimedByOf, taskBrief } from "@shared/task";
@@ -704,25 +699,15 @@ function TaskDetailPanel({
   pending,
   onClose,
   onSaveTitle,
-  onAppendNote,
-  onRespond,
   onMove,
 }: {
   readonly task: WorkTask;
   readonly pending: boolean;
   readonly onClose: () => void;
   readonly onSaveTitle: (task: WorkTask, title: string) => void;
-  readonly onAppendNote: (task: WorkTask, note: string) => void;
-  readonly onRespond: (
-    task: WorkTask,
-    response: string,
-    nextState: TaskState,
-  ) => Promise<boolean>;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
 }) {
   const [title, setTitle] = useState(() => taskTitle(task));
-  const [note, setNote] = useState("");
-  const [response, setResponse] = useState("");
   const role = taskRole(task);
   const claim = claimedByOf(task);
   const details = taskDetails(task);
@@ -805,76 +790,6 @@ function TaskDetailPanel({
               </p>
             </div>
 
-            <label className="task-detail-panel__response-field">
-              <span>{authorizationRequired ? "Decision note" : "Your response"}</span>
-              <Textarea
-                value={response}
-                onChange={(event) => setResponse(event.target.value)}
-                placeholder={
-                  authorizationRequired
-                    ? "Record constraints, scope, or the reason for this decision…"
-                    : "Give the worker the context, decision, or answer needed to continue…"
-                }
-                rows={5}
-              />
-              <small>
-                {authorizationRequired
-                  ? "Your decision is recorded in the task activity before its state changes."
-                  : "This response becomes durable task context and returns the work to motion."}
-              </small>
-            </label>
-
-            <div className="task-detail-panel__response-actions">
-              {authorizationRequired ? (
-                <>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    disabled={pending}
-                    onClick={async () => {
-                      const saved = await onRespond(
-                        task,
-                        response.trim() || "Authorization denied by operator.",
-                        "rejected",
-                      );
-                      if (saved) setResponse("");
-                    }}
-                  >
-                    <ShieldX size={13} />
-                    Deny request
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={pending}
-                    onClick={async () => {
-                      const saved = await onRespond(
-                        task,
-                        response.trim() || "Authorization granted by operator.",
-                        "working",
-                      );
-                      if (saved) setResponse("");
-                    }}
-                  >
-                    <ShieldCheck size={13} />
-                    Authorize &amp; resume
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={pending || !response.trim()}
-                  onClick={async () => {
-                    const saved = await onRespond(task, response.trim(), "working");
-                    if (saved) setResponse("");
-                  }}
-                >
-                  <Reply size={13} />
-                  Send input &amp; resume
-                </Button>
-              )}
-            </div>
           </section>
         ) : null}
 
@@ -935,28 +850,6 @@ function TaskDetailPanel({
               <li className="task-detail-panel__empty">No activity yet.</li>
             )}
           </ol>
-        </section>
-
-        <section className="task-detail-panel__section">
-          <h3>Add a note</h3>
-          <Textarea
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Add context for the worker…"
-            rows={4}
-          />
-          <Button
-            size="sm"
-            variant="subtle"
-            disabled={pending || !note.trim()}
-            onClick={() => {
-              onAppendNote(task, note.trim());
-              setNote("");
-            }}
-          >
-            <Send size={12} />
-            Add note
-          </Button>
         </section>
 
         <section className="task-detail-panel__section task-detail-panel__status">
@@ -1117,86 +1010,6 @@ export function TaskBoard({
       setAnnouncement(`Renamed task to ${nextBrief.trim()}.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setPendingTaskId(null);
-    }
-  };
-
-  const appendTaskNote = async (task: WorkTask, text: string) => {
-    if (!api || !text.trim()) return;
-    setError("");
-    setPendingTaskId(task.id);
-    const message: Message = {
-      messageId: ulid(),
-      role: "user",
-      parts: [{ kind: "text", text: text.trim() }],
-      taskId: task.id,
-    };
-    try {
-      const result = await runWorkCanvasMutation(name, () =>
-        api.workMessageAppend(name, node.id, task.id, message),
-      );
-      if (result === undefined) return;
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      setAnnouncement(`Added a note to ${taskTitle(task)}.`);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setPendingTaskId(null);
-    }
-  };
-
-  const respondToTask = async (
-    task: WorkTask,
-    text: string,
-    nextState: TaskState,
-  ): Promise<boolean> => {
-    if (!api || !text.trim() || task.state === nextState) return false;
-    setError("");
-    setPendingTaskId(task.id);
-    const message: Message = {
-      messageId: ulid(),
-      role: "user",
-      parts: [{ kind: "text", text: text.trim() }],
-      taskId: task.id,
-    };
-    try {
-      const appendResult = await runWorkCanvasMutation(name, () =>
-        api.workMessageAppend(name, node.id, task.id, message),
-      );
-      if (appendResult === undefined) return false;
-      if (!appendResult.ok) {
-        setError(appendResult.message);
-        setAnnouncement(`Could not record your response. ${appendResult.message}`);
-        return false;
-      }
-
-      const transitionResult = await runWorkCanvasMutation(name, () =>
-        api.workTaskTransition(name, node.id, task.id, nextState),
-      );
-      if (transitionResult === undefined) return false;
-      if (!transitionResult.ok) {
-        setError(transitionResult.message);
-        setAnnouncement(
-          `Your response was saved, but the task could not move to ${stateLabel(nextState)}. ${transitionResult.message}`,
-        );
-        return false;
-      }
-
-      setAnnouncement(
-        nextState === "working"
-          ? `Responded to ${taskTitle(task)} and returned it to Working.`
-          : `Recorded the decision and moved ${taskTitle(task)} to ${stateLabel(nextState)}.`,
-      );
-      return true;
-    } catch (cause) {
-      const messageText = cause instanceof Error ? cause.message : String(cause);
-      setError(messageText);
-      setAnnouncement(`Could not respond to ${taskTitle(task)}. ${messageText}`);
-      return false;
     } finally {
       setPendingTaskId(null);
     }
@@ -1389,8 +1202,6 @@ export function TaskBoard({
               pending={pendingTaskId === selectedTask.id}
               onClose={() => setSelectedTaskId(null)}
               onSaveTitle={(task, title) => void saveTaskTitle(task, title)}
-              onAppendNote={(task, note) => void appendTaskNote(task, note)}
-              onRespond={respondToTask}
               onMove={(task, state) => void transitionTask(task, state)}
             />
           ) : null}
