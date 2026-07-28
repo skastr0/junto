@@ -64,9 +64,13 @@ The canonical implementation has:
 11. no file-store, polling-protocol, remote-browser, or compatibility path
     surviving beside that end state.
 
-This is a direct cutover. Vellum has no users or production state requiring
-runtime schema migration or protocol version coexistence. An obsolete database
-fails exact-schema startup and is replaced deliberately during development.
+The file-store-to-SQLite change was a direct cutover. SQLite version 1 is now
+the durable baseline: later releases migrate an installed `vellum.db`
+forward in place through a contiguous transactionally applied chain. This
+does not create protocol coexistence, legacy file import, dual reads/writes,
+or downgrade support. Unknown, drifted, and newer database versions fail
+closed without mutation; a recognized older version is upgraded and retained,
+not deleted.
 
 ## Terminology
 

@@ -62,6 +62,7 @@ export type StateEngineInfo = {
   readonly synchronous: number;
   readonly foreignKeys: boolean;
   readonly schemaSha256: string;
+  readonly schemaVersion: number;
 };
 
 /**
@@ -72,6 +73,7 @@ export type StateEngineInfo = {
 export type StateBackupReceipt = {
   readonly path: string;
   readonly schemaSha256: string;
+  readonly schemaVersion: number;
 };
 
 export class StateEngine extends Context.Tag("@vellum/StateEngine")<

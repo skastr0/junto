@@ -24,6 +24,7 @@ import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
 } from "../src/main/vellum/state/schema";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum/state/migrations";
 import { USAGE_STATE_SCHEMA_SQL } from "../src/main/vellum/usage/state-schema";
 const makeTempDir = (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix)).then((root) => {
@@ -59,6 +60,12 @@ const seedCurrentStateSchema = async (path: string): Promise<void> => {
 const readAuthorityWitness = (path: string) => {
   const database = new DatabaseSync(path, { readOnly: true });
   try {
+    const journalMode = database
+      .prepare("PRAGMA journal_mode")
+      .get();
+    const userVersion = database
+      .prepare("PRAGMA user_version")
+      .get();
     const schema = database
       .prepare(
         `
@@ -95,7 +102,7 @@ const readAuthorityWitness = (path: string) => {
         )
         .all()
       : [];
-    return { schema, identity };
+    return { journalMode, userVersion, schema, identity };
   } finally {
     database.close();
   }
@@ -139,35 +146,42 @@ describe("StateEngine", () => {
     expect(info.synchronous).toBe(1);
     expect(info.foreignKeys).toBe(true);
     expect(info.schemaSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(info.schemaVersion).toBe(1);
     expect((await lstat(join(root, "state"))).mode & 0o777).toBe(0o700);
     expect((await lstat(path)).mode & 0o777).toBe(0o600);
 
     const schemaIdentity = await runtime.runPromise(
       Effect.flatMap(StateEngine, (engine) =>
-        engine.read("test.schema", (reader) =>
-          reader.get<{
+        engine.read("test.schema", (reader) => ({
+          identity: reader.get<{
             singleton: number;
             actual_schema_sha256: string;
             source_schema_sha256: string;
           }>(
             `
-              SELECT
-                singleton,
-                actual_schema_sha256,
-                source_schema_sha256
-              FROM state_schema_identity
-              WHERE singleton = 1
-            `,
-          )
-        )
+                SELECT
+                  singleton,
+                  actual_schema_sha256,
+                  source_schema_sha256
+                FROM state_schema_identity
+                WHERE singleton = 1
+              `,
+          ),
+          userVersion: reader.get<{ user_version: number }>(
+            "PRAGMA user_version",
+          )?.user_version,
+        }))
       ),
     );
     expect(schemaIdentity).toEqual({
-      singleton: 1,
-      actual_schema_sha256: info.schemaSha256,
-      source_schema_sha256: createHash("sha256")
-        .update(STATE_SCHEMA_SQL)
-        .digest("hex"),
+      identity: {
+        singleton: 1,
+        actual_schema_sha256: info.schemaSha256,
+        source_schema_sha256: createHash("sha256")
+          .update(STATE_SCHEMA_SQL)
+          .digest("hex"),
+      },
+      userVersion: 1,
     });
   });
 
@@ -262,6 +276,63 @@ describe("StateEngine", () => {
       witness: { playing: 1, ever_played: 1 },
       identityRows: 1,
       integrity: "ok",
+    });
+  });
+
+  test("adopts the exact unversioned baseline in place without losing state", async () => {
+    const root = await makeTempDir("vellum-state-adopt-v1-");
+    const path = join(root, "vellum.db");
+    await seedCurrentStateSchema(path);
+
+    const unversioned = new DatabaseSync(path);
+    try {
+      unversioned.exec("PRAGMA user_version = 0");
+      unversioned
+        .prepare(
+          `
+            INSERT INTO factory_pause_canvases(
+              canvas_name,
+              playing,
+              ever_played,
+              updated_at
+            ) VALUES (?, ?, ?, ?)
+          `,
+        )
+        .run(
+          "adopted",
+          1,
+          1,
+          "2026-07-28T00:00:00.000Z",
+        );
+    } finally {
+      unversioned.close();
+    }
+
+    const runtime = makeRuntime(path);
+    const engine = await runtime.runPromise(StateEngine);
+    expect(engine.info.schemaVersion).toBe(1);
+    expect(
+      await runtime.runPromise(
+        engine.read("test.adopt-v1", (reader) => ({
+          userVersion: reader.get<{ user_version: number }>(
+            "PRAGMA user_version",
+          )?.user_version,
+          row: reader.get<{
+            playing: number;
+            ever_played: number;
+          }>(
+            `
+              SELECT playing, ever_played
+              FROM factory_pause_canvases
+              WHERE canvas_name = ?
+            `,
+            ["adopted"],
+          ),
+        })),
+      ),
+    ).toEqual({
+      userVersion: 1,
+      row: { playing: 1, ever_played: 1 },
     });
   });
 
@@ -431,6 +502,7 @@ describe("StateEngine", () => {
     const firstReceipt = await runtime.runPromise(engine.backup());
     const backupPath = firstReceipt.path;
     expect(firstReceipt.schemaSha256).toBe(engine.info.schemaSha256);
+    expect(firstReceipt.schemaVersion).toBe(engine.info.schemaVersion);
     expect(dirname(backupPath)).toBe(join(root, "live", "backups"));
     expect(basename(backupPath)).toMatch(
       /^vellum-backup-[a-f0-9-]{36}\.db$/u,
@@ -466,6 +538,9 @@ describe("StateEngine", () => {
       });
       expect(backup.prepare("PRAGMA foreign_keys").get()).toEqual({
         foreign_keys: 1,
+      });
+      expect(backup.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: 1,
       });
       expect(backup.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     } finally {
@@ -546,6 +621,27 @@ describe("StateEngine", () => {
     } finally {
       after.close();
     }
+  });
+
+  test("rejects a newer database without persisting WAL or other mutations", async () => {
+    const root = await makeTempDir("vellum-state-newer-version-");
+    const path = join(root, "vellum.db");
+    await seedCurrentStateSchema(path);
+
+    const newer = new DatabaseSync(path);
+    try {
+      newer.exec(`
+        PRAGMA journal_mode = DELETE;
+        PRAGMA user_version = ${CURRENT_STATE_SCHEMA_VERSION + 1};
+      `);
+    } finally {
+      newer.close();
+    }
+
+    await expectSchemaRejectionWithoutMutation(
+      path,
+      /newer than supported version/,
+    );
   });
 
   test("rejects a current database missing a table without repairing it", async () => {

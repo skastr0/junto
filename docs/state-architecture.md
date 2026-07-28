@@ -40,6 +40,37 @@ are prepared once per connection. Atomic domain changes use one
 `BEGIN IMMEDIATE` transaction. Bulk writes use small transactions with an
 event-loop yield between chunks.
 
+## Schema evolution
+
+`PRAGMA user_version` is the one forward-only schema cursor.
+`state_schema_identity` is the independent exact-schema witness. They serve
+different jobs and must not be collapsed:
+
+- the integer version selects one known `N → N+1` migration;
+- the identity proves that the live tables, constraints, indexes, and triggers
+  are exactly the shape that migration expects.
+
+Version 1 freezes the completed SQLite/work-protocol consolidation. A fresh
+database executes the current composed DDL and is stamped at the current
+version. A non-empty unversioned database is adopted only if its live and
+recorded identities equal the frozen version-1 witness. Every later schema
+change increments `CURRENT_STATE_SCHEMA_VERSION`, retains every prior witness,
+and appends exactly one synchronous migration step.
+
+Startup migration is one `BEGIN IMMEDIATE` transaction. Each step may change
+DDL and transform rows, but it cannot yield or open another connection. The
+complete chain must end in the exact fresh-compiled current schema with no
+foreign-key violations. Only then do the final identity and `user_version`
+commit. Any error rolls back the entire chain. Newer versions, gaps, branches,
+unknown version-zero shapes, identity drift, and final-schema mismatch fail
+without mutation.
+
+This is schema evolution of the sole current store, not compatibility mode.
+There is no downgrade, old-schema runtime reader, dual write, file-store
+importer, or “delete `vellum.db` and retry” product instruction. Every real
+migration requires an old-version fixture and a repository-level proof that
+meaningful existing rows survive.
+
 ## One schema, different residency
 
 Command Center and Remote run the same app and bootstrap the same current
@@ -298,4 +329,7 @@ A storage change is releasable only when:
    disposition;
 8. headless and SSH helpers are proven to reach the app rather than the file;
 9. `VACUUM INTO` produces a coherent owner-only backup;
-10. repository search finds no retired product-state path.
+10. an older recognized SQLite version migrates in place with representative
+    state preserved, while failure rolls back schema, data, identity, and
+    version;
+11. repository search finds no retired product-state path.

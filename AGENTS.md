@@ -30,6 +30,14 @@ to correctness.
 JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
 not durability or input watched by the app.
 
+**SQLite evolution law:** version 1 is the frozen durable baseline.
+`PRAGMA user_version` selects a contiguous forward-only migration chain, and
+`state_schema_identity` proves the exact shape expected at each step. Every
+schema edit must increment the current version, append an atomic `N → N+1`
+migration, and prove old rows survive. Never ask an installed system to delete
+`vellum.db`; never add a downgrade, old-schema runtime reader, dual write, or
+file-store compatibility path.
+
 ## The agent surface (headless — no GUI needed)
 
 **Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum tools.

@@ -300,13 +300,23 @@ explicit cutover: a submitted queue-home task becomes `working`, gains one
 claimant, and transfers authority to that actor's authority installation in
 the same accepted claim operation.
 
-Startup accepts only a fresh database or exactly the current composed schema.
-Inside one transaction, Vellum executes the current DDL and compares the
-normalized actual `sqlite_schema` (tables, constraints, indexes, and triggers)
-with a fresh in-memory compile of that same DDL. Only an exact match is stamped
-and committed. Every non-current shape fails closed; startup contains no
-obsolete-schema recognition, repair, compatibility reader, or fallback. The
-transient in-memory compiler contains no product data and is not an authority
+SQLite schema evolution is forward-only and in place. `PRAGMA user_version`
+is the migration cursor; `state_schema_identity` remains the exact normalized
+schema witness. Fresh databases compile the current schema directly. Existing
+databases run one contiguous, release-authored migration chain inside a single
+`BEGIN IMMEDIATE`, followed by exact `sqlite_schema` verification and
+`foreign_key_check`. Schema changes, data transforms, the identity stamp, and
+the version advance commit together or all roll back. A database from a newer
+release, an unknown version, a missing migration, or a drifted version witness
+fails closed without mutation.
+
+Version 1 is the frozen post-consolidation baseline. An unversioned non-empty
+database is adopted only when both its live schema and recorded identity match
+that exact baseline. This is not a general legacy importer: there is no
+file-store reader, dual schema, downgrade, repair path, or instruction to
+delete `vellum.db`. Every schema change after version 1 must append an
+`N → N+1` migration and prove representative data preservation. The transient
+in-memory schema compiler contains no product data and is not an authority
 connection.
 
 Canvas confidentiality follows the operator's operating-system account, disk,

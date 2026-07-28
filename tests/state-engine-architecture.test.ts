@@ -6,6 +6,7 @@ const root = process.cwd();
 const allowed = new Set([
   "scripts/electron-sqlite-smoke.mjs",
   "src/main/vellum/state/engine.ts",
+  "src/main/vellum/state/migrations.ts",
   "src/main/vellum/state/schema-identity.ts",
 ]);
 

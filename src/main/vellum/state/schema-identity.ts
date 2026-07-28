@@ -20,8 +20,16 @@ export type VerifiedStateSchemaIdentity = {
   readonly sourceSchemaSha256: string;
 };
 
+export type RecordedStateSchemaIdentity =
+  VerifiedStateSchemaIdentity & {
+    readonly verifiedAt: string;
+  };
+
 const sha256 = (value: string): string =>
   createHash("sha256").update(value).digest("hex");
+
+export const stateSchemaSourceSha256 = (schemaSql: string): string =>
+  sha256(schemaSql);
 
 /**
  * Tokenize stored DDL so formatting and keyword case are not schema identity.
@@ -144,6 +152,10 @@ const schemaFingerprint = (
   objects: ReadonlyArray<SchemaObject>,
 ): string => sha256(JSON.stringify(objects));
 
+export const actualStateSchemaSha256 = (
+  database: DatabaseSync,
+): string => schemaFingerprint(schemaObjects(database));
+
 /**
  * A database is fresh only when the authority schema has no application-owned
  * objects. SQLite's own implementation objects are deliberately ignored: they
@@ -212,6 +224,103 @@ const compileExpectedSchema = (
   }
 };
 
+export const expectedStateSchemaIdentity = (
+  schemaSql: string,
+): VerifiedStateSchemaIdentity => ({
+  actualSchemaSha256: schemaFingerprint(
+    compileExpectedSchema(schemaSql),
+  ),
+  sourceSchemaSha256: stateSchemaSourceSha256(schemaSql),
+});
+
+export const readRecordedStateSchemaIdentity = (
+  database: DatabaseSync,
+): RecordedStateSchemaIdentity => {
+  const identityTable = database
+    .prepare(
+      `
+        SELECT 1
+        FROM sqlite_schema
+        WHERE type = 'table'
+          AND name = 'state_schema_identity'
+      `,
+    )
+    .get();
+  if (identityTable === undefined) {
+    throw new Error("state schema identity table is missing");
+  }
+  const row = database
+    .prepare(
+      `
+        SELECT
+          actual_schema_sha256,
+          source_schema_sha256,
+          verified_at
+        FROM state_schema_identity
+        WHERE singleton = 1
+      `,
+    )
+    .get() as
+      | {
+          readonly actual_schema_sha256: SQLOutputValue;
+          readonly source_schema_sha256: SQLOutputValue;
+          readonly verified_at: SQLOutputValue;
+        }
+      | undefined;
+  if (row === undefined) {
+    throw new Error("state schema identity witness is missing");
+  }
+  return {
+    actualSchemaSha256: String(row.actual_schema_sha256),
+    sourceSchemaSha256: String(row.source_schema_sha256),
+    verifiedAt: String(row.verified_at),
+  };
+};
+
+/**
+ * Before a migration writes anything, prove that the live schema is exactly
+ * the schema that the prior Vellum release stamped. Version-specific
+ * migration witnesses are checked by the migration runner after this.
+ */
+export const verifyRecordedStateSchemaIdentity = (
+  database: DatabaseSync,
+): RecordedStateSchemaIdentity => {
+  const recorded = readRecordedStateSchemaIdentity(database);
+  const actualSchemaSha256 = actualStateSchemaSha256(database);
+  if (recorded.actualSchemaSha256 !== actualSchemaSha256) {
+    throw new Error(
+      "state schema changed after its recorded identity was stamped",
+    );
+  }
+  return recorded;
+};
+
+export const stampStateSchemaIdentity = (
+  database: DatabaseSync,
+  identity: VerifiedStateSchemaIdentity,
+): void => {
+  database
+    .prepare(
+      `
+        INSERT INTO state_schema_identity(
+          singleton,
+          actual_schema_sha256,
+          source_schema_sha256,
+          verified_at
+        ) VALUES (1, ?, ?, ?)
+        ON CONFLICT(singleton) DO UPDATE SET
+          actual_schema_sha256 = excluded.actual_schema_sha256,
+          source_schema_sha256 = excluded.source_schema_sha256,
+          verified_at = excluded.verified_at
+      `,
+    )
+    .run(
+      identity.actualSchemaSha256,
+      identity.sourceSchemaSha256,
+      new Date().toISOString(),
+    );
+};
+
 /**
  * Prove that the live transaction contains exactly the current composed
  * schema, then stamp that proof. The expected connection is transient and
@@ -234,27 +343,10 @@ export const verifyAndStampStateSchema = (
     );
   }
 
-  const sourceSchemaSha256 = sha256(schemaSql);
-  database
-    .prepare(
-      `
-        INSERT INTO state_schema_identity(
-          singleton,
-          actual_schema_sha256,
-          source_schema_sha256,
-          verified_at
-        ) VALUES (1, ?, ?, ?)
-        ON CONFLICT(singleton) DO UPDATE SET
-          actual_schema_sha256 = excluded.actual_schema_sha256,
-          source_schema_sha256 = excluded.source_schema_sha256,
-          verified_at = excluded.verified_at
-      `,
-    )
-    .run(
-      actualSchemaSha256,
-      sourceSchemaSha256,
-      new Date().toISOString(),
-    );
-
-  return { actualSchemaSha256, sourceSchemaSha256 };
+  const identity = {
+    actualSchemaSha256,
+    sourceSchemaSha256: stateSchemaSourceSha256(schemaSql),
+  };
+  stampStateSchemaIdentity(database, identity);
+  return identity;
 };

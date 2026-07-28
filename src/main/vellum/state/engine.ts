@@ -18,7 +18,6 @@ import {
   type StatementSync,
 } from "node:sqlite";
 import { Context, Effect, Layer } from "effect";
-import { STATE_SCHEMA_SQL } from "./schema";
 import {
   StateEngine,
   StateEngineError,
@@ -30,10 +29,7 @@ import {
   type StateWriter,
 } from "./service";
 import { demoStateDatabasePath } from "../demo/runtime-isolation";
-import {
-  isFreshStateSchema,
-  verifyAndStampStateSchema,
-} from "./schema-identity";
+import { migrateStateSchema } from "./migrations";
 
 export {
   StateEngine,
@@ -198,41 +194,23 @@ const openStateEngine = (
       const statements = new Map<string, StatementSync>();
       let transactionOpen = false;
 
-      const schemaIdentity = (() => {
+      const schemaState = (() => {
         try {
           chmodSync(path, STATE_FILE_MODE);
           database.exec(`
-            PRAGMA journal_mode = WAL;
-            PRAGMA synchronous = NORMAL;
             PRAGMA foreign_keys = ON;
             PRAGMA busy_timeout = ${STATE_BUSY_TIMEOUT_MS};
             PRAGMA trusted_schema = OFF;
           `);
-          database.exec("BEGIN IMMEDIATE");
-          try {
-            // There is deliberately no migration or repair lane. Inspect
-            // before any authority DDL: an empty database is initialized once;
-            // every non-empty database must already be the exact current
-            // schema and is verified below without CREATE IF NOT EXISTS first
-            // repairing evidence of drift.
-            if (isFreshStateSchema(database)) {
-              database.exec(STATE_SCHEMA_SQL);
-            }
-            const identity = verifyAndStampStateSchema(
-              database,
-              STATE_SCHEMA_SQL,
-            );
-            database.exec("COMMIT");
-            return identity;
-          } catch (error) {
-            try {
-              database.exec("ROLLBACK");
-            } catch {
-              // Preserve the schema failure. A failed rollback makes opening
-              // fail closed and the connection is closed below.
-            }
-            throw error;
-          }
+          const migrated = migrateStateSchema(database);
+          // journal_mode persists in the database. Apply it only after schema
+          // admission so an older binary rejects a newer database without
+          // changing it.
+          database.exec(`
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+          `);
+          return migrated;
         } catch (error) {
           database.close();
           throw error;
@@ -375,7 +353,8 @@ const openStateEngine = (
             makeOwnerOnlyWithoutFollowing(target);
             return {
               path: target,
-              schemaSha256: schemaIdentity.actualSchemaSha256,
+              schemaSha256: schemaState.actualSchemaSha256,
+              schemaVersion: schemaState.schemaVersion,
             };
           },
           catch: (error) => stateEngineError("backup", error),
@@ -399,7 +378,8 @@ const openStateEngine = (
         journalMode: String(journalMode ?? ""),
         synchronous: Number(synchronous ?? -1),
         foreignKeys: Number(foreignKeys ?? 0) === 1,
-        schemaSha256: schemaIdentity.actualSchemaSha256,
+        schemaSha256: schemaState.actualSchemaSha256,
+        schemaVersion: schemaState.schemaVersion,
       };
 
       return {

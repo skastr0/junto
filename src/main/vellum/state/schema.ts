@@ -11,9 +11,9 @@ import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
 
 /**
- * Exact proof of the current composed schema. This is not a generic metadata
- * bag: the singleton has one fixed meaning and is rewritten only after the
- * engine verifies the actual sqlite_schema against a fresh current compile.
+ * Exact proof of whichever recognized schema version is currently committed.
+ * This is not a generic metadata bag: migrations verify the prior witness
+ * before writing and stamp the current witness only after the full chain.
  */
 export const STATE_SCHEMA_IDENTITY_SQL = `
   CREATE TABLE IF NOT EXISTS state_schema_identity (
@@ -89,5 +89,9 @@ export const STATE_SCHEMA_FRAGMENTS = [
   WORK_STATE_SCHEMA_SQL,
 ] as const;
 
-/** One engine bootstrap execution; fragments merely make ownership legible. */
+/**
+ * Fresh-install and final-verification target for the current version.
+ * Historical DDL belongs in forward migrations, never in compatibility
+ * branches inside these fragments.
+ */
 export const STATE_SCHEMA_SQL = STATE_SCHEMA_FRAGMENTS.join("\n");
