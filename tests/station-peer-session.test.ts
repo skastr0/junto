@@ -1,5 +1,6 @@
 import {
   Cause,
+  Deferred,
   Effect,
   Either,
   Exit,
@@ -9,6 +10,8 @@ import {
   Ref,
   Schema,
   Stream,
+  TestClock,
+  TestContext,
 } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -479,6 +482,118 @@ describe("persistent Station peer session", () => {
           });
           expect(yield* session.awaitClosed).toMatchObject({
             reason: "transport-ended",
+          });
+        }),
+      ),
+    );
+  });
+
+  it("closes the whole session when one request reaches its deadline", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const harness = yield* makeTransportHarness;
+          const session = yield* makeSession(harness.transport, {
+            requestTimeoutMs: 1_000,
+          });
+          const first = yield* session.request(statusRequest).pipe(
+            Effect.exit,
+            Effect.forkScoped,
+          );
+          yield* harness.takeSent;
+
+          yield* TestClock.adjust(500);
+
+          const second = yield* session.request(statusRequest).pipe(
+            Effect.exit,
+            Effect.forkScoped,
+          );
+          yield* harness.takeSent;
+
+          yield* TestClock.adjust(500);
+
+          const firstFailure = failureFrom(yield* Fiber.join(first));
+          const secondFailure = failureFrom(yield* Fiber.join(second));
+          expect(firstFailure).toMatchObject({
+            _tag: "StationPeerSessionClosedError",
+            reason: "request-timeout",
+          });
+          expect(secondFailure).toMatchObject({
+            _tag: "StationPeerSessionClosedError",
+            reason: "request-timeout",
+          });
+          expect(yield* session.awaitClosed).toMatchObject({
+            reason: "request-timeout",
+          });
+          expect(yield* session.isOpen).toBe(false);
+          expect(yield* harness.closeCount).toBe(1);
+        }),
+      ).pipe(Effect.provide(TestContext.TestContext)),
+    );
+  });
+
+  it("interrupts and joins an in-flight inbound handler before close returns", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const harness = yield* makeTransportHarness;
+          const handlerStarted = yield* Deferred.make<void>();
+          const handlerBlock = yield* Deferred.make<void>();
+          const finalizerStarted = yield* Deferred.make<void>();
+          const releaseFinalizer = yield* Deferred.make<void>();
+          const finalized = yield* Deferred.make<void>();
+          const continuationCount = yield* Ref.make(0);
+          const session = yield* makeSession(harness.transport, {
+            handleRequest: (_request) =>
+              Effect.gen(function* () {
+                yield* Deferred.succeed(
+                  handlerStarted,
+                  undefined,
+                ).pipe(Effect.asVoid);
+                yield* Deferred.await(handlerBlock);
+                yield* Ref.update(
+                  continuationCount,
+                  (count) => count + 1,
+                );
+                return stationControlOk(commandCenterReport);
+              }).pipe(
+                Effect.ensuring(
+                  Deferred.succeed(finalizerStarted, undefined).pipe(
+                    Effect.asVoid,
+                    Effect.zipRight(Deferred.await(releaseFinalizer)),
+                    Effect.zipRight(
+                      Deferred.succeed(finalized, undefined).pipe(
+                        Effect.asVoid,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          });
+          const inbound = StationSessionRequestFrame.make({
+            protocol: STATION_SESSION_PROTOCOL,
+            frame: "request",
+            requestId: requestId("close-inbound-handler"),
+            request: remoteReport,
+          });
+
+          yield* harness.offer(inbound);
+          yield* Deferred.await(handlerStarted);
+
+          const closing = yield* session.close.pipe(Effect.forkScoped);
+          yield* Deferred.await(finalizerStarted);
+          expect(Option.isNone(yield* Fiber.poll(closing))).toBe(true);
+          expect(yield* continuationCount).toBe(0);
+
+          yield* Deferred.succeed(releaseFinalizer, undefined);
+          yield* Fiber.join(closing);
+
+          yield* Deferred.await(finalized);
+          expect(yield* continuationCount).toBe(0);
+          expect(yield* harness.sentSize).toBe(0);
+          expect(yield* session.isOpen).toBe(false);
+          expect(yield* session.awaitClosed).toMatchObject({
+            reason: "local-close",
           });
         }),
       ),
