@@ -58,6 +58,13 @@ import {
   startStationControlServer,
   type StationControlServer,
 } from "./vellum/station/control-server";
+import {
+  startStationRemoteReportPump,
+  type StationRemoteReportPump,
+} from "./vellum/station/remote-report-pump";
+import { StationApiService } from "./vellum/station/api";
+import { StationRepository } from "./vellum/station/repository";
+import { WorkRepository } from "./vellum/work/repository";
 import { makeSshStationControlPeerAuthority } from "./vellum/station/peer-authority";
 import {
   startCanvasControlServer,
@@ -271,6 +278,7 @@ let browserControl: BrowserControlServer | undefined;
 let uninstallBrowserReadinessProbe: (() => void) | undefined;
 let workControl: WorkControlServer | undefined;
 let stationControl: StationControlServer | undefined;
+let stationRemoteReportPump: StationRemoteReportPump | undefined;
 let canvasControl: CanvasControlServer | undefined;
 type HerdrPlaneService = Context.Tag.Service<typeof HerdrPlane>;
 type HermesPlaneService = Context.Tag.Service<typeof HermesPlane>;
@@ -283,6 +291,7 @@ let workControlShutdown: Promise<Awaited<ReturnType<WorkControlServer["drainOnQu
 let stationControlShutdown:
   | Promise<Awaited<ReturnType<StationControlServer["close"]>>>
   | undefined;
+let stationRemoteReportPumpShutdown: Promise<void> | undefined;
 let canvasControlShutdown:
   | Promise<Awaited<ReturnType<CanvasControlServer["close"]>>>
   | undefined;
@@ -1181,7 +1190,21 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           simulation: true,
         }),
       });
-      if (shutdownAdmissionClosed) stationControl.beginShutdown();
+      const [stationApi, stations, work] = await Promise.all([
+        AppRuntime.runPromise(StationApiService),
+        AppRuntime.runPromise(StationRepository),
+        AppRuntime.runPromise(WorkRepository),
+      ]);
+      stationRemoteReportPump = startStationRemoteReportPump({
+        api: stationApi,
+        stations,
+        work,
+        control: stationControl,
+      });
+      if (shutdownAdmissionClosed) {
+        stationRemoteReportPumpShutdown ??= stationRemoteReportPump.close();
+        stationControl.beginShutdown();
+      }
     } catch (error) {
       console.error("[station-control] failed to start:", error);
       exitAfterDetach(1, "station-control-startup-failure");
@@ -1402,6 +1425,7 @@ const beginShutdownAdmission = (reason: string): void => {
   adapterShutdown ??= terminateAdapterChildrenOnQuit();
 
   workControl?.beginShutdown();
+  stationRemoteReportPumpShutdown ??= stationRemoteReportPump?.close();
   stationControl?.beginShutdown();
   hostOperationsShutdown.beginShutdown();
   termPlane.beginShutdown(reason);
@@ -1529,6 +1553,17 @@ const requireCleanStationControlShutdown = async (): Promise<void> => {
   stationControl = undefined;
 };
 
+const requireCleanStationRemoteReportPumpShutdown = async (): Promise<void> => {
+  if (
+    stationRemoteReportPump === undefined &&
+    stationRemoteReportPumpShutdown === undefined
+  ) {
+    return;
+  }
+  await (stationRemoteReportPumpShutdown ??= stationRemoteReportPump?.close());
+  stationRemoteReportPump = undefined;
+};
+
 const requireCleanCanvasControlShutdown = async (): Promise<void> => {
   if (canvasControl === undefined && canvasControlShutdown === undefined) {
     return;
@@ -1637,6 +1672,7 @@ const requireCleanAppProcessShutdown = async (): Promise<void> => {
 const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   await requireCleanTermPlaneShutdown(reason);
   await requireCleanCanvasControlShutdown();
+  await requireCleanStationRemoteReportPumpShutdown();
   await requireCleanStationControlShutdown();
   await requireCleanWorkControlShutdown();
   await requireCleanHostOperationsShutdown();
