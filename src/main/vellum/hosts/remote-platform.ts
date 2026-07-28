@@ -161,7 +161,7 @@ export const resolveRemoteDeploymentTarget = (
       return {
         ok: false,
         result: remoteDeploymentFailure(
-          `${host.label}: SSH warm failed — check SSH config / Tailscale / keys`,
+          `${host.label}: SSH connection failed — check SSH config, VPN, and keys`,
           { code: "io", stages },
         ),
       };

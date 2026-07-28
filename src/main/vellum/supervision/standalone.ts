@@ -8,15 +8,15 @@ import {
 
 const unsupported = stationSupervisorFailure(
   "unsupported",
-  "This platform has no Vellum station-supervisor provider.",
+  "Supervised startup isn't available on this platform.",
 );
 
 const metadata: StationSupervisorMetadata = Object.freeze({
   provider: "standalone",
   displayName: "Standalone",
   recovery: Object.freeze({
-    title: "Station supervision is unavailable",
-    detail: "Run Vellum as a standalone desktop process on this platform.",
+    title: "Supervised startup is unavailable",
+    detail: "Run Vellum Command as a regular desktop app on this platform.",
   }),
 });
 
