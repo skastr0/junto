@@ -51,6 +51,7 @@ const reader = (
         : Effect.succeed({
           name,
           doc,
+          actorRefs: [],
           revision: `${name}-r1`,
         });
     },

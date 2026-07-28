@@ -29,6 +29,7 @@ const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "
 const emptyDoc = (name: string) => ({
   name,
   doc: { nodes: [], edges: [] },
+  actorRefs: [],
   revision: `${name}-r1`,
 });
 
@@ -50,6 +51,7 @@ const fakeCanvases = Layer.succeed(
     liveAuthorityGeneration: () => Effect.succeed("0"),
     authoritySnapshot: () =>
       Effect.succeed({ generation: "0", documents: new Map() }),
+    activeActorRefs: () => Effect.succeed([]),
   }),
 );
 

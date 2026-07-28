@@ -108,7 +108,12 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       read: (name: string) => {
         const doc = docs.get(name);
         return doc !== undefined
-          ? Effect.succeed({ name, doc, revision: `${name}-r1` })
+          ? Effect.succeed({
+              name,
+              doc,
+              actorRefs: [],
+              revision: `${name}-r1`,
+            })
           : Effect.fail(new CanvasError({ message: `canvas "${name}" does not exist` }));
       },
       write: () => Effect.succeed({ revision: "written-r1" }),
@@ -116,6 +121,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       create: (name: string) => Effect.succeed({
         name,
         doc: { nodes: [], edges: [] },
+        actorRefs: [],
         revision: `${name}-r1`,
       }),
       remove: (name: string) => Effect.succeed({ name }),
@@ -127,6 +133,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       liveAuthorityGeneration: () => Effect.succeed("0"),
       authoritySnapshot: () =>
         Effect.succeed({ generation: "0", documents: new Map(docs) }),
+      activeActorRefs: () => Effect.succeed([]),
     }),
   );
 

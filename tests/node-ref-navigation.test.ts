@@ -20,6 +20,7 @@ const textNode = (id: string) => ({
 const canvas = (name: string, nodeIds: ReadonlyArray<string>): CanvasReadResult => ({
   name,
   doc: { nodes: nodeIds.map(textNode), edges: [] },
+  actorRefs: [],
   revision: `${name}-revision`,
 });
 

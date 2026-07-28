@@ -83,6 +83,7 @@ const makeRuntime = (input: {
             name,
             revision: "a".repeat(64),
             doc: current,
+            actorRefs: [],
           });
     },
     write: () => Effect.fail(new CanvasError({ message: "not used" })),
@@ -110,6 +111,7 @@ const makeRuntime = (input: {
         generation: "1",
         documents: new Map(documents),
       })),
+    activeActorRefs: () => Effect.succeed([]),
   });
   const snapshots = SnapshotsService.of({
     doctor: Effect.succeed({

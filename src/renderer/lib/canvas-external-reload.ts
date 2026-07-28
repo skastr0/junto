@@ -1,10 +1,8 @@
 import type { CanvasDoc } from "@shared/canvas";
+import type { CanvasReadResult } from "@shared/ipc";
 
-export interface ExternalCanvasRead {
-  readonly name: string;
-  readonly doc: CanvasDoc;
-  readonly revision: string;
-}
+/** External reloads retain the complete main-owned canvas projection. */
+export type ExternalCanvasRead = CanvasReadResult;
 
 export interface CanvasExternalReloadDeps {
   readonly flushLocalEdits: () => Promise<void>;

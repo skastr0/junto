@@ -65,12 +65,22 @@ describe("canvas external reload ordering", () => {
     const newer = coordinator.changed("alpha");
     await waitFor(() => reads.length === 2);
 
-    reads[1]!.resolve({ name: "alpha", doc: doc("newer"), revision: "r2" });
+    reads[1]!.resolve({
+      name: "alpha",
+      doc: doc("newer"),
+      actorRefs: [],
+      revision: "r2",
+    });
     await newer;
     expect(current).toEqual(doc("newer"));
     expect(revision).toBe("r2");
 
-    reads[0]!.resolve({ name: "alpha", doc: doc("older"), revision: "r1" });
+    reads[0]!.resolve({
+      name: "alpha",
+      doc: doc("older"),
+      actorRefs: [],
+      revision: "r1",
+    });
     await older;
     expect(current).toEqual(doc("newer"));
     expect(revision).toBe("r2");
@@ -108,7 +118,12 @@ describe("canvas external reload ordering", () => {
     await Promise.resolve();
     epoch += 1;
     current = doc("local-edit");
-    read.resolve({ name: "alpha", doc: doc("external"), revision: "external-r1" });
+    read.resolve({
+      name: "alpha",
+      doc: doc("external"),
+      actorRefs: [],
+      revision: "external-r1",
+    });
     await pending;
 
     expect(apply).not.toHaveBeenCalled();
