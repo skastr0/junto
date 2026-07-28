@@ -11,7 +11,7 @@ import {
 } from "@shared/remote-hosts";
 import { runCli, type CliResult } from "../adapters/exec";
 import {
-  parseSshEndpoint,
+  parseHostSshRoute,
   type SshError,
 } from "../ssh/domain";
 import { OPENSSH_CLIENT_EXECUTABLE } from "../ssh/live";
@@ -128,10 +128,10 @@ const localBinary = async (
 
 const remoteBinary = (
   ssh: Ssh,
-  endpoint: string,
+  host: RemoteHost,
   binary: "herdr" | "hermes",
 ): Effect.Effect<{ ok: boolean; detail: string }> =>
-  parseSshEndpoint(endpoint).pipe(
+  parseHostSshRoute(host).pipe(
     Effect.flatMap((parsed) =>
       remoteProductVersion(binary).pipe(
         Effect.flatMap((command) =>
@@ -245,12 +245,12 @@ const probeSshHost = (
       parts.push("browser capability declared");
     }
     if (hostHasCapability(host, "herdr")) {
-      const herdr = yield* remoteBinary(ssh, host.sshEndpoint, "herdr");
+      const herdr = yield* remoteBinary(ssh, host, "herdr");
       parts.push(herdr.detail);
       if (!herdr.ok) raise("warning", herdr.detail);
     }
     if (hostHasCapability(host, "hermes")) {
-      const hermes = yield* remoteBinary(ssh, host.sshEndpoint, "hermes");
+      const hermes = yield* remoteBinary(ssh, host, "hermes");
       parts.push(hermes.detail);
       if (!hermes.ok) raise("warning", hermes.detail);
     }

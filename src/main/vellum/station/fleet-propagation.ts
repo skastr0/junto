@@ -27,7 +27,7 @@ import {
   CanvasesService,
 } from "../canvases";
 import {
-  parseSshEndpoint,
+  parseHostSshRoute,
 } from "../ssh/domain";
 import {
   resolveRemotePackagedPlatform,
@@ -36,7 +36,7 @@ import {
   SshTransport,
 } from "../ssh/service";
 import {
-  sshEndpointForHostId,
+  findHostById,
   subscribeHostsSnapshot,
 } from "../hosts/snapshot";
 import {
@@ -196,15 +196,15 @@ export const OpenSshStationPeerRouteResolverLive = Layer.effect(
     StationPeerRouteResolver.of({
       resolve: (target) =>
         Effect.gen(function* () {
-          const raw = sshEndpointForHostId(target.hostId);
-          if (raw === undefined) {
+          const host = findHostById(target.hostId);
+          if (host?.kind !== "remote" || host.sshEndpoint === undefined) {
             return yield* routeResolutionError(
               target,
               "missing-route",
               "Station host has no enrolled SSH route",
             );
           }
-          const endpoint = yield* parseSshEndpoint(raw).pipe(
+          const endpoint = yield* parseHostSshRoute(host).pipe(
             Effect.mapError(() =>
               routeResolutionError(
                 target,

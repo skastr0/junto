@@ -108,11 +108,15 @@ describe("remote hosts registry", () => {
       label: "Studio",
       kind: "remote",
       sshEndpoint: "studio",
+      sshIdentityFile: "/Users/operator/.ssh/studio_ed25519",
+      sshHostKeyPolicy: "accept-new",
       capabilities: ["hermes", "herdr"],
       appearance: { color: "amber", glyph: "S" },
     });
     expect(written.find((host) => host.id === "studio")).toMatchObject({
       capabilities: ["herdr", "hermes"],
+      sshIdentityFile: "/Users/operator/.ssh/studio_ed25519",
+      sshHostKeyPolicy: "accept-new",
       appearance: { color: "amber", glyph: "S" },
     });
 

@@ -574,7 +574,7 @@ const runPreflight = (
     const command = yield* compileLinuxRemotePreflight();
     const stdin = yield* makeRemoteStdin(preflightInput(candidate));
     const result = yield* input.ssh.run(
-      oneShotWithStdin(input.target.endpoint, command, stdin, {
+      oneShotWithStdin(input.target.sshTarget, command, stdin, {
         budget: "standard",
       }),
     );
@@ -1166,7 +1166,7 @@ const runReleaseSession = (
   Effect.gen(function* () {
     const command = yield* compileLinuxReleaseBridge();
     return yield* input.ssh.transact(
-      deploymentStream(input.target.endpoint, command),
+      deploymentStream(input.target.sshTarget, command),
       (lease) =>
         Effect.scoped(Effect.gen(function* () {
           const output = yield* protocolOutput(lease);

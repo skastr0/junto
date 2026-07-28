@@ -16,6 +16,7 @@ import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import {
   parseRemoteUnixSocketPath,
   parseSshEndpoint,
+  parseSshRoute,
   SshTransport,
 } from "../src/main/vellum/ssh";
 import { makeRemoteCommand } from "../src/main/vellum/ssh/domain";
@@ -204,6 +205,39 @@ describe("SSH policy surface", () => {
     expect(args).toContain("ControlMaster=no");
     expect(args).toContain("ControlPath=none");
     expect(args).not.toContain("ControlMaster=auto");
+  });
+
+  it("compiles an admitted identity route without exposing provider semantics", async () => {
+    const target = await Effect.runPromise(
+      parseSshRoute({
+        endpoint: "user@203.0.113.8",
+        identityFile: "/Users/operator/.ssh/provider_ed25519",
+        hostKeyPolicy: "accept-new",
+      }),
+    );
+    const remote = await Effect.runPromise(
+      makeRemoteCommand("/usr/bin/true"),
+    );
+    const compiler = createSshProgramCompiler({
+      controlDir: "/tmp/vellum-ssh-policy-test",
+      envExecutable: "/usr/bin/env",
+      sshExecutable: "/usr/bin/ssh",
+      environment: {
+        HOME: "/Users/operator",
+        PATH: "/usr/bin:/bin",
+      },
+    });
+
+    const compiled = compiler.oneShot(oneShot(target, remote));
+    const args = sshArgs(standard(compiled.command));
+
+    expect(compiled.endpoint).toBe("user@203.0.113.8");
+    expect(args).toContain(
+      "IdentityFile=/Users/operator/.ssh/provider_ed25519",
+    );
+    expect(args).toContain("IdentitiesOnly=yes");
+    expect(args).toContain("StrictHostKeyChecking=accept-new");
+    expect(args.at(-2)).toBe("user@203.0.113.8");
   });
 
   it("keeps deployment streams dedicated for one bounded privileged transcript", async () => {

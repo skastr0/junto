@@ -42,6 +42,26 @@ export const HostSshEndpoint = Schema.String.pipe(
 );
 export type HostSshEndpoint = typeof HostSshEndpoint.Type;
 
+/** Optional OpenSSH identity locator. The private key remains owned by OpenSSH. */
+export const HostSshIdentityFile = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(1024),
+  Schema.filter(
+    (value) =>
+      value.startsWith("/") &&
+      !value.includes("\u0000") &&
+      !value.includes("\n") &&
+      !value.includes("\r"),
+    {
+      message: () => "SSH identity file must be a bounded absolute path",
+    },
+  ),
+);
+export type HostSshIdentityFile = typeof HostSshIdentityFile.Type;
+
+export const HostSshHostKeyPolicy = Schema.Literal("system", "accept-new");
+export type HostSshHostKeyPolicy = typeof HostSshHostKeyPolicy.Type;
+
 /**
  * Optional alternate id used in hermes agent keys (`<hermesId>:<profile>`).
  * When omitted, agent keys use `id` as written (no silent rewrite).
@@ -59,6 +79,10 @@ export const RemoteHost = Schema.Struct({
   kind: HostKind,
   /** Optional SSH route. Local rows omit it; remotes may omit until enrolled with a route. */
   sshEndpoint: Schema.optionalWith(HostSshEndpoint, { exact: true }),
+  /** Optional OpenSSH-owned identity selector for this exact route. */
+  sshIdentityFile: Schema.optionalWith(HostSshIdentityFile, { exact: true }),
+  /** Explicit first-contact policy; changed known keys still fail closed. */
+  sshHostKeyPolicy: Schema.optionalWith(HostSshHostKeyPolicy, { exact: true }),
   capabilities: Schema.Array(HostCapability).pipe(
     Schema.minItems(1),
     Schema.maxItems(4),

@@ -12,9 +12,11 @@
 import type { Context } from "effect";
 import { Effect, Schema } from "effect";
 import {
+  inspectSshTarget,
   makeRemoteCommand,
   type RemoteCommand,
   type SshEndpoint,
+  type SshTarget,
   type SshError,
   SshInputError,
 } from "./domain";
@@ -154,15 +156,16 @@ export const remoteUname = (): Effect.Effect<RemoteCommand, SshInputError> =>
  */
 export const resolveRemotePackagedPlatform = (
   ssh: Ssh,
-  endpoint: SshEndpoint,
+  target: SshTarget,
 ): Effect.Effect<
   RemotePackagedPlatform,
   SshError | RemotePlatformProbeError
 > =>
   Effect.gen(function* () {
+    const endpoint = inspectSshTarget(target).endpoint;
     const command = yield* remoteUname();
     const observed = yield* ssh.run(
-      oneShot(endpoint, command, { budget: "short" }),
+      oneShot(target, command, { budget: "short" }),
     );
     return yield* decodeRemotePackagedPlatform(endpoint, observed.stdout);
   }).pipe(Effect.withSpan("ssh.remote-packaged-platform"));

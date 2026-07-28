@@ -15,8 +15,9 @@ import {
   Sink,
   Stream,
 } from "effect";
-import type { SshEndpoint, SshError } from "./domain";
+import type { SshEndpoint, SshError, SshTarget } from "./domain";
 import {
+  inspectSshTarget,
   SshExitError,
   SshForwardError,
   SshIoError,
@@ -140,7 +141,7 @@ export class SshTransport extends Context.Tag("@vellum/SshTransport")<
         confirm: ConfirmSshReady,
       ) => Effect.Effect<SshReady<A>, E, R>,
     ) => Effect.Effect<A, SshError | E, R>;
-    readonly warm: (endpoint: SshEndpoint) => Effect.Effect<void, SshError>;
+    readonly warm: (target: SshTarget) => Effect.Effect<void, SshError>;
     /**
      * Explicit, best-effort `-O exit` against the endpoint's SHARED
      * ControlMaster. Reserved for the host-removal/edit operator action —
@@ -1052,7 +1053,8 @@ export const SshTransportLayer = Layer.scoped(
         ),
       );
 
-    const warm = (endpoint: SshEndpoint): Effect.Effect<void, SshError> => {
+    const warm = (target: SshTarget): Effect.Effect<void, SshError> => {
+      const endpoint = inspectSshTarget(target).endpoint;
       let lock = warmLocks.get(String(endpoint));
       if (!lock) {
         lock = Effect.unsafeMakeSemaphore(1);
@@ -1066,7 +1068,7 @@ export const SshTransportLayer = Layer.scoped(
               runChecked(
                 endpoint,
                 "master-warm",
-                compiler.masterWarm(endpoint),
+                compiler.masterWarm(target),
                 8_000,
               ),
             ),

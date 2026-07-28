@@ -5,7 +5,7 @@ import type {
   HostsDeployRemoteRecoveryAction,
 } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
-import type { SshEndpoint } from "../ssh";
+import type { SshEndpoint, SshTarget } from "../ssh";
 import type { SshTransport } from "../ssh";
 import type { LinuxAdministratorCredential } from "./linux-administrator-credential";
 
@@ -75,6 +75,7 @@ export type DeployableRemoteHost = RemoteHost & {
 export type RemoteDeploymentTarget = {
   readonly host: DeployableRemoteHost;
   readonly endpoint: SshEndpoint;
+  readonly sshTarget: SshTarget;
   readonly platform: RemotePlatformDescriptor;
   /** Buffered so providers can preserve their established progress ordering. */
   readonly progress: RemoteDeploymentProgress;

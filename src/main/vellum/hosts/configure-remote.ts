@@ -15,7 +15,7 @@ import {
 } from "@shared/remote-station-config";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { hermesKeyFor, RemoteHostsError } from "@shared/remote-hosts";
-import { parseSshEndpoint } from "../ssh/domain";
+import { parseHostSshRoute } from "../ssh/domain";
 import { resolveRemotePackagedPlatform } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
 import { bootstrapOpenSshStationStatus } from "../station/openssh-bootstrap";
@@ -190,7 +190,7 @@ export const configureRemoteHost = (
       );
     }
 
-    const endpoint = yield* parseSshEndpoint(host.sshEndpoint).pipe(
+    const endpoint = yield* parseHostSshRoute(host).pipe(
       Effect.mapError(
         (error) =>
           new RemoteHostsError(

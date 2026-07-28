@@ -20,6 +20,19 @@ export const HOSTS_STATE_SCHEMA_SQL = `
     kind TEXT NOT NULL
       CHECK (kind IN ('local', 'remote')),
     ssh_endpoint TEXT UNIQUE,
+    ssh_identity_file TEXT
+      CHECK (
+        ssh_identity_file IS NULL
+        OR (
+          length(ssh_identity_file) BETWEEN 1 AND 1024
+          AND substr(ssh_identity_file, 1, 1) = '/'
+        )
+      ),
+    ssh_host_key_policy TEXT
+      CHECK (
+        ssh_host_key_policy IS NULL
+        OR ssh_host_key_policy IN ('system', 'accept-new')
+      ),
     capability_mask INTEGER,
     hermes_id TEXT
       CHECK (
@@ -40,6 +53,8 @@ export const HOSTS_STATE_SCHEMA_SQL = `
         kind = 'local'
         AND id = 'local'
         AND ssh_endpoint IS NULL
+        AND ssh_identity_file IS NULL
+        AND ssh_host_key_policy IS NULL
         AND capability_mask IS NULL
         AND sort_order = 0
       )
@@ -50,6 +65,13 @@ export const HOSTS_STATE_SCHEMA_SQL = `
         AND (
           ssh_endpoint IS NULL
           OR length(ssh_endpoint) BETWEEN 1 AND 255
+        )
+        AND (
+          ssh_endpoint IS NOT NULL
+          OR (
+            ssh_identity_file IS NULL
+            AND ssh_host_key_policy IS NULL
+          )
         )
         AND capability_mask BETWEEN 1 AND 15
         AND sort_order > 0

@@ -22,8 +22,8 @@ import {
 } from "@shared/station-session";
 import { STATION_CONTROL_MAX_FRAME_BYTES } from "@shared/station-ssh-control";
 import {
-  type SshEndpoint,
   type SshError,
+  type SshTarget,
 } from "../ssh/domain";
 import { sharedStream } from "../ssh/program";
 import {
@@ -57,7 +57,7 @@ export const STATION_OPENSSH_MAX_QUEUED_BYTES =
 export const STATION_OPENSSH_WRITE_CHUNK_BYTES = 1024 * 1024;
 
 interface OpenSshRouteDetails {
-  readonly endpoint: SshEndpoint;
+  readonly target: SshTarget;
   readonly platform: RemotePackagedPlatform;
 }
 
@@ -69,12 +69,12 @@ const openSshRoutes = new WeakMap<StationPeerRoute, OpenSshRouteDetails>();
  */
 export const admitEnrolledOpenSshStationPeer = (input: {
   readonly peerInstallationId: InstallationIdValue;
-  readonly endpoint: SshEndpoint;
+  readonly endpoint: SshTarget;
   readonly platform: RemotePackagedPlatform;
 }): StationPeerRoute => {
   const route = mintStationPeerRoute(input.peerInstallationId);
   openSshRoutes.set(route, {
-    endpoint: input.endpoint,
+    target: input.endpoint,
     platform: input.platform,
   });
   return route;
@@ -596,7 +596,7 @@ export const makeOpenSshStationPeerExchange = (
         }
         const command = yield* remoteVellumStation(details.platform);
         return yield* ssh.connect(
-          sharedStream(details.endpoint, command, "agent"),
+          sharedStream(details.target, command, "agent"),
           (lease, confirm) =>
             Effect.gen(function* () {
               const transport =

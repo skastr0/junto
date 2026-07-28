@@ -196,6 +196,7 @@ const providerInput = (
       { readonly kind: "remote" }
     >,
     endpoint,
+    sshTarget: endpoint,
     platform: { platform: "linux", kernelName: "Linux" },
     progress: [],
   },

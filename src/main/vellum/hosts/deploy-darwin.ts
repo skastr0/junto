@@ -20,7 +20,7 @@ import {
   RELEASE_CAPABILITIES,
 } from "@shared/release-capabilities";
 import { TERM_REMOTE_SOCK_REL } from "@shared/term-control";
-import type { SshEndpoint } from "../ssh/domain";
+import type { SshTarget } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, sharedStream } from "../ssh/program";
 import {
   DARWIN_PACKAGED_BROWSER_EXECUTABLE,
@@ -1555,7 +1555,7 @@ export const buildRemoteDeployScriptForTest = (
 
 const streamAppToRemote = (
   ssh: Ssh,
-  endpoint: SshEndpoint,
+  endpoint: SshTarget,
   input: {
     readonly localApp: LocalBundleProvenanceReceipt;
     readonly remoteHome: string;
@@ -1708,7 +1708,7 @@ const deployDarwinRemote = (
     for (const stage of target.progress) push(stages, stage);
 
     const homeResult = yield* ssh
-      .run(homeDirectoryLookup(target.endpoint))
+      .run(homeDirectoryLookup(target.sshTarget))
       .pipe(Effect.either);
     if (homeResult._tag === "Left") {
       return {
@@ -1731,7 +1731,7 @@ const deployDarwinRemote = (
     }
     push(stages, `remote home ${home}`);
 
-    const streamed = yield* streamAppToRemote(ssh, target.endpoint, {
+    const streamed = yield* streamAppToRemote(ssh, target.sshTarget, {
       localApp,
       remoteHome: home,
     }).pipe(Effect.either);
@@ -1765,7 +1765,7 @@ const deployDarwinRemote = (
     const tokenCmd = yield* remoteTestFileExists(tokenPath).pipe(Effect.either);
     if (tokenCmd._tag === "Right") {
       const tokenProbe = yield* ssh
-        .run(oneShot(target.endpoint, tokenCmd.right, { budget: "short" }))
+        .run(oneShot(target.sshTarget, tokenCmd.right, { budget: "short" }))
         .pipe(Effect.either);
       if (tokenProbe._tag === "Right")
         push(stages, "term control token present");

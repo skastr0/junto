@@ -45,6 +45,8 @@ type HostRow = {
   readonly label: string;
   readonly kind: string;
   readonly ssh_endpoint: string | null;
+  readonly ssh_identity_file: string | null;
+  readonly ssh_host_key_policy: "system" | "accept-new" | null;
   readonly capability_mask: number | null;
   readonly hermes_id: string | null;
   readonly appearance_color: string | null;
@@ -117,6 +119,12 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
           `local host ${host.id} must not set sshEndpoint`,
         );
       }
+      if (host.sshIdentityFile || host.sshHostKeyPolicy) {
+        throw new RemoteHostsError(
+          "validation",
+          `local host ${host.id} must not set SSH route policy`,
+        );
+      }
     } else {
       if (host.id === LOCAL_HOST_ID) {
         throw new RemoteHostsError(
@@ -144,6 +152,11 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
           );
         }
         endpoints.add(host.sshEndpoint);
+      } else if (host.sshIdentityFile || host.sshHostKeyPolicy) {
+        throw new RemoteHostsError(
+          "validation",
+          `remote host ${host.id} cannot set SSH route policy without an endpoint`,
+        );
       }
     }
 
@@ -220,6 +233,12 @@ const rowToHost = (row: HostRow): RemoteHost => {
     label: row.label,
     kind: "remote",
     ...(row.ssh_endpoint === null ? {} : { sshEndpoint: row.ssh_endpoint }),
+    ...(row.ssh_identity_file === null
+      ? {}
+      : { sshIdentityFile: row.ssh_identity_file }),
+    ...(row.ssh_host_key_policy === null
+      ? {}
+      : { sshHostKeyPolicy: row.ssh_host_key_policy }),
     capabilities: [...capabilitiesFromMask(row.capability_mask)],
     ...(row.hermes_id === null ? {} : { hermesId: row.hermes_id }),
     ...(row.appearance_color === null && row.appearance_glyph === null
@@ -245,6 +264,8 @@ const readStoredDocument = (reader: StateReader): RemoteHostsDocument => {
         label,
         kind,
         ssh_endpoint,
+        ssh_identity_file,
+        ssh_host_key_policy,
         capability_mask,
         hermes_id,
         appearance_color,
@@ -274,6 +295,8 @@ const writeHost = (
         label,
         kind,
         ssh_endpoint,
+        ssh_identity_file,
+        ssh_host_key_policy,
         capability_mask,
         hermes_id,
         effective_hermes_id,
@@ -281,11 +304,13 @@ const writeHost = (
         appearance_glyph,
         sort_order
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         label = excluded.label,
         kind = excluded.kind,
         ssh_endpoint = excluded.ssh_endpoint,
+        ssh_identity_file = excluded.ssh_identity_file,
+        ssh_host_key_policy = excluded.ssh_host_key_policy,
         capability_mask = excluded.capability_mask,
         hermes_id = excluded.hermes_id,
         effective_hermes_id = excluded.effective_hermes_id,
@@ -298,6 +323,8 @@ const writeHost = (
       host.label,
       host.kind,
       host.kind === "remote" ? (host.sshEndpoint ?? null) : null,
+      host.kind === "remote" ? (host.sshIdentityFile ?? null) : null,
+      host.kind === "remote" ? (host.sshHostKeyPolicy ?? null) : null,
       mask,
       host.hermesId ?? null,
       effectiveHermesId,

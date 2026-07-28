@@ -5,8 +5,13 @@ import type {
   RemoteStdin,
   RemoteUnixSocketPath,
   SshEndpoint,
+  SshTarget,
 } from "./domain";
-import { inspectRemoteCommand, inspectRemoteStdin } from "./domain";
+import {
+  inspectRemoteCommand,
+  inspectRemoteStdin,
+  inspectSshTarget,
+} from "./domain";
 
 export type OneShotBudget =
   | "short"
@@ -57,7 +62,7 @@ type RemoteInvocation =
 
 interface OneShotPayload {
   readonly _tag: "OneShot";
-  readonly endpoint: SshEndpoint;
+  readonly target: SshTarget;
   readonly invocation: RemoteInvocation;
   readonly timeoutMs: number;
   readonly input?: RemoteStdin;
@@ -65,7 +70,7 @@ interface OneShotPayload {
 
 interface StreamPayload {
   readonly _tag: "Stream";
-  readonly endpoint: SshEndpoint;
+  readonly target: SshTarget;
   readonly command: RemoteCommand;
   readonly connection: "shared" | "dedicated";
   readonly readinessTimeoutMs: number;
@@ -73,14 +78,14 @@ interface StreamPayload {
 
 interface ForwardPayload {
   readonly _tag: "Forward";
-  readonly endpoint: SshEndpoint;
+  readonly target: SshTarget;
   readonly remoteSocket: RemoteUnixSocketPath;
   readonly readinessTimeoutMs: number;
 }
 
 interface DaemonPayload {
   readonly _tag: "DaemonHandoff";
-  readonly endpoint: SshEndpoint;
+  readonly target: SshTarget;
   readonly command: RemoteCommand;
   readonly readinessTimeoutMs: number;
 }
@@ -97,26 +102,26 @@ const opaque = <A extends object>(tag: string, payload: ProgramPayload): A => {
 };
 
 export const oneShot = (
-  endpoint: SshEndpoint,
+  target: SshTarget,
   command: RemoteCommand,
   options?: { readonly budget?: OneShotBudget },
 ): OneShotProgram =>
   opaque<OneShotProgram>("oneShot", {
     _tag: "OneShot",
-    endpoint,
+    target,
     invocation: { _tag: "Argv", command },
     timeoutMs: ONE_SHOT_TIMEOUT_MS[options?.budget ?? "standard"],
   });
 
 export const oneShotWithStdin = (
-  endpoint: SshEndpoint,
+  target: SshTarget,
   command: RemoteCommand,
   input: RemoteStdin,
   options?: { readonly budget?: OneShotBudget },
 ): OneShotProgram =>
   opaque<OneShotProgram>("oneShot", {
     _tag: "OneShot",
-    endpoint,
+    target,
     invocation: { _tag: "Argv", command },
     timeoutMs: ONE_SHOT_TIMEOUT_MS[options?.budget ?? "standard"],
     input,
@@ -124,35 +129,35 @@ export const oneShotWithStdin = (
 
 // This is the only public operation that expands a remote shell variable.
 // The shell text remains closed inside the policy compiler.
-export const homeDirectoryLookup = (endpoint: SshEndpoint): OneShotProgram =>
+export const homeDirectoryLookup = (target: SshTarget): OneShotProgram =>
   opaque<OneShotProgram>("oneShot", {
     _tag: "OneShot",
-    endpoint,
+    target,
     invocation: { _tag: "HomeDirectoryLookup" },
     timeoutMs: ONE_SHOT_TIMEOUT_MS.short,
   });
 
 export const sharedStream = (
-  endpoint: SshEndpoint,
+  target: SshTarget,
   command: RemoteCommand,
   readiness: ReadinessBudget = "fast",
 ): ScopedStreamProgram =>
   opaque<ScopedStreamProgram>("stream", {
     _tag: "Stream",
-    endpoint,
+    target,
     command,
     connection: "shared",
     readinessTimeoutMs: READINESS_TIMEOUT_MS[readiness],
   });
 
 export const dedicatedStream = (
-  endpoint: SshEndpoint,
+  target: SshTarget,
   command: RemoteCommand,
   readiness: ReadinessBudget = "agent",
 ): ScopedStreamProgram =>
   opaque<ScopedStreamProgram>("stream", {
     _tag: "Stream",
-    endpoint,
+    target,
     command,
     connection: "dedicated",
     readinessTimeoutMs: READINESS_TIMEOUT_MS[readiness],
@@ -165,35 +170,35 @@ export const dedicatedStream = (
  * connection boundary of a dedicated stream.
  */
 export const deploymentStream = (
-  endpoint: SshEndpoint,
+  target: SshTarget,
   command: RemoteCommand,
 ): ScopedStreamProgram =>
   opaque<ScopedStreamProgram>("stream", {
     _tag: "Stream",
-    endpoint,
+    target,
     command,
     connection: "dedicated",
     readinessTimeoutMs: DEPLOYMENT_STREAM_TIMEOUT_MS,
   });
 
 export const unixForward = (
-  endpoint: SshEndpoint,
+  target: SshTarget,
   remoteSocket: RemoteUnixSocketPath,
 ): ForwardProgram =>
   opaque<ForwardProgram>("forward", {
     _tag: "Forward",
-    endpoint,
+    target,
     remoteSocket,
     readinessTimeoutMs: READINESS_TIMEOUT_MS.fast,
   });
 
 export const daemonHandoff = (
-  endpoint: SshEndpoint,
+  target: SshTarget,
   command: RemoteCommand,
 ): DaemonHandoffProgram =>
   opaque<DaemonHandoffProgram>("daemonHandoff", {
     _tag: "DaemonHandoff",
-    endpoint,
+    target,
     command,
     readinessTimeoutMs: READINESS_TIMEOUT_MS.fast,
   });
@@ -332,18 +337,46 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
     "-o", "ControlPath=none",
   ] as const;
 
+  const targetArgs = (
+    target: SshTarget,
+  ): {
+    readonly endpoint: SshEndpoint;
+    readonly options: ReadonlyArray<string>;
+  } => {
+    const route = inspectSshTarget(target);
+    return {
+      endpoint: route.endpoint,
+      options: [
+        ...(route.identityFile === undefined
+          ? []
+          : [
+              "-o",
+              `IdentityFile=${route.identityFile}`,
+              "-o",
+              "IdentitiesOnly=yes",
+            ]),
+        ...(route.hostKeyPolicy === "accept-new"
+          ? ["-o", "StrictHostKeyChecking=accept-new"]
+          : []),
+      ],
+    };
+  };
+
   const normal = (
-    endpoint: SshEndpoint,
+    target: SshTarget,
     invocation: RemoteInvocation,
     connection: "shared" | "dedicated",
-  ): Command.Command =>
-    ssh([
+  ): Command.Command => {
+    const route = targetArgs(target);
+    return ssh([
       ...BASE_OPTIONS,
+      ...route.options,
       "-o", "ClearAllForwardings=yes",
       ...(connection === "shared" ? sharedOptions : dedicatedOptions),
-      endpoint,
+      route.endpoint,
       invocationText(invocation),
     ]);
+  };
 
   const control = (controlSocket: string, ...args: ReadonlyArray<string>): Command.Command =>
     ssh([
@@ -359,22 +392,24 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
   return Object.freeze({
     oneShot(program: OneShotProgram): CompiledOneShot {
       const payload = decode(program, "OneShot");
+      const route = inspectSshTarget(payload.target);
       return {
-        endpoint: payload.endpoint,
+        endpoint: route.endpoint,
         timeoutMs: payload.timeoutMs,
-        command: normal(payload.endpoint, payload.invocation, "shared"),
+        command: normal(payload.target, payload.invocation, "shared"),
         ...(payload.input === undefined ? {} : { input: inspectRemoteStdin(payload.input) }),
       };
     },
 
     stream(program: ScopedStreamProgram): CompiledStream {
       const payload = decode(program, "Stream");
+      const route = inspectSshTarget(payload.target);
       return {
-        endpoint: payload.endpoint,
+        endpoint: route.endpoint,
         readinessTimeoutMs: payload.readinessTimeoutMs,
         connection: payload.connection,
         command: normal(
-          payload.endpoint,
+          payload.target,
           { _tag: "Argv", command: payload.command },
           payload.connection,
         ),
@@ -383,11 +418,12 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
 
     daemonHandoff(program: DaemonHandoffProgram): CompiledDaemonHandoff {
       const payload = decode(program, "DaemonHandoff");
+      const route = inspectSshTarget(payload.target);
       return {
-        endpoint: payload.endpoint,
+        endpoint: route.endpoint,
         readinessTimeoutMs: payload.readinessTimeoutMs,
         command: normal(
-          payload.endpoint,
+          payload.target,
           { _tag: "DaemonHandoff", command: payload.command },
           "shared",
         ),
@@ -396,17 +432,19 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
 
     forward(program: ForwardProgram, nonce: string): CompiledForward {
       const payload = decode(program, "Forward");
+      const route = targetArgs(payload.target);
       if (!NONCE_PATTERN.test(nonce)) throw new TypeError("SSH forward nonce is invalid");
       const localSocket = assertOwnedSocket(join(policy.controlDir, `f-${nonce}`));
       const controlSocket = assertOwnedSocket(join(policy.controlDir, `m-${nonce}`));
       const forwardSpec = `${localSocket}:${payload.remoteSocket}`;
       return {
-        endpoint: payload.endpoint,
+        endpoint: route.endpoint,
         readinessTimeoutMs: payload.readinessTimeoutMs,
         localSocket,
         controlSocket,
         master: ssh([
           ...BASE_OPTIONS,
+          ...route.options,
           "-M",
           "-S", controlSocket,
           "-o", "ControlPersist=no",
@@ -414,15 +452,15 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
           "-o", "StreamLocalBindUnlink=yes",
           "-o", "StreamLocalBindMask=0177",
           "-N",
-          payload.endpoint,
+          route.endpoint,
         ]),
         check: control(controlSocket, "-O", "check"),
         request: control(controlSocket, "-O", "forward", "-L", forwardSpec),
       };
     },
 
-    masterWarm(endpoint: SshEndpoint): Command.Command {
-      return normal(endpoint, { _tag: "MasterWarm" }, "shared");
+    masterWarm(target: SshTarget): Command.Command {
+      return normal(target, { _tag: "MasterWarm" }, "shared");
     },
 
     masterExit(endpoint: SshEndpoint): Command.Command {

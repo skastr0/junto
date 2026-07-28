@@ -109,11 +109,24 @@ const captureServerRoute = (hostId: string): HerdrServerRoute | undefined => {
     hostId,
     kind: host.kind,
     endpoint: host.kind === "remote" ? host.sshEndpoint ?? null : null,
+    ...(host.kind === "remote" && host.sshIdentityFile
+      ? { identityFile: host.sshIdentityFile }
+      : {}),
+    ...(host.kind === "remote" && host.sshHostKeyPolicy
+      ? { hostKeyPolicy: host.sshHostKeyPolicy }
+      : {}),
   });
 };
 
 const serverRouteKey = (route: HerdrServerRoute, session: string | null): string =>
-  JSON.stringify([route.hostId, route.kind, route.endpoint, session]);
+  JSON.stringify([
+    route.hostId,
+    route.kind,
+    route.endpoint,
+    route.identityFile,
+    route.hostKeyPolicy,
+    session,
+  ]);
 
 const runEnvelope = async (
   runner: HerdrRunner,

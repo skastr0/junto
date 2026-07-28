@@ -5,11 +5,12 @@ import { runCli } from "../adapters/exec";
 import { findHostById, hostsWithCapability } from "../hosts/snapshot";
 import {
   makeRemoteStdin,
+  parseHostSshRoute,
   parseRemoteUnixSocketPath,
-  parseSshEndpoint,
+  parseSshRoute,
   SshInputError,
-  type SshEndpoint,
   type SshError,
+  type SshTarget,
 } from "../ssh/domain";
 import {
   daemonHandoff,
@@ -58,12 +59,16 @@ const sshFailure = (error: SshError | SshInputError): string => {
 const resolveRemoteEndpoint = (
   hostId: HerdrHostId,
   route?: HerdrServerRoute,
-): Effect.Effect<SshEndpoint, SshInputError> => {
+): Effect.Effect<SshTarget, SshInputError> => {
   if (route) {
     if (route.hostId !== hostId || route.kind !== "remote" || !route.endpoint) {
       return Effect.fail(new SshInputError({ message: `invalid captured herdr route for ${hostId}` }));
     }
-    return parseSshEndpoint(route.endpoint);
+    return parseSshRoute({
+      endpoint: route.endpoint,
+      ...(route.identityFile ? { identityFile: route.identityFile } : {}),
+      ...(route.hostKeyPolicy ? { hostKeyPolicy: route.hostKeyPolicy } : {}),
+    });
   }
   const host = findHostById(hostId);
   if (!host || host.kind !== "remote" || !host.sshEndpoint) {
@@ -73,7 +78,7 @@ const resolveRemoteEndpoint = (
       }),
     );
   }
-  return parseSshEndpoint(host.sshEndpoint);
+  return parseHostSshRoute(host);
 };
 
 export interface HerdrStreamSpec {
@@ -123,7 +128,7 @@ export const HerdrTransportLive = Layer.effect(
     const ssh = yield* SshTransport;
 
     const runRemote = (
-      endpoint: SshEndpoint,
+      endpoint: SshTarget,
       args: ReadonlyArray<string>,
       session: string | null | undefined,
       timeoutMs: number,

@@ -13,7 +13,7 @@ import {
   type StationSessionFrame,
 } from "@shared/station-session";
 import { STATION_CONTROL_REQUEST_TIMEOUT_MS } from "@shared/station-ssh-control";
-import type { SshEndpoint, SshError } from "../ssh/domain";
+import type { SshError, SshTarget } from "../ssh/domain";
 import { sharedStream } from "../ssh/program";
 import {
   remoteVellumStation,
@@ -144,7 +144,7 @@ const statusFromFrame = (
  */
 export const bootstrapOpenSshStationStatus = (
   ssh: Ssh,
-  endpoint: SshEndpoint,
+  endpoint: SshTarget,
   platform: RemotePackagedPlatform,
   options: OpenSshStationBootstrapOptions = {},
 ): Effect.Effect<

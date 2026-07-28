@@ -45,7 +45,7 @@ import { parseCliEnvelope, parseProcessInfo } from "./parse";
 import { findHostById } from "../hosts/snapshot";
 import { HostServeCatalog } from "../hosts/serve-catalog";
 import { tailscalePeerCache } from "../hosts/tailscale-peers";
-import { parseSshEndpoint } from "../ssh/domain";
+import { parseHostSshRoute, parseSshEndpoint } from "../ssh/domain";
 import { oneShot } from "../ssh/program";
 import { remoteHostProbe } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
@@ -989,7 +989,7 @@ export const HerdrPlaneLive = Layer.scoped(
       try {
         const result = await runOwned(
           Effect.gen(function* () {
-            const endpoint = yield* parseSshEndpoint(host.sshEndpoint!);
+            const endpoint = yield* parseHostSshRoute(host);
             const command = yield* remoteHostProbe(argv);
             return yield* ssh.run(oneShot(endpoint, command, { budget: "status" }));
           }).pipe(

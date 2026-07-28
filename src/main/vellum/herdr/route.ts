@@ -4,4 +4,6 @@ export interface HerdrServerRoute {
   readonly kind: "local" | "remote";
   /** Remote SSH endpoint; null for the local daemon. */
   readonly endpoint: string | null;
+  readonly identityFile?: string;
+  readonly hostKeyPolicy?: "system" | "accept-new";
 }

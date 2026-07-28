@@ -4,14 +4,13 @@ import type { CliResult } from "../adapters/exec";
 import { runCli } from "../adapters/exec";
 import {
   findHostByHermesId,
-  sshEndpointForHermesId,
 } from "../hosts/snapshot";
 import {
-  parseSshEndpoint,
+  parseHostSshRoute,
   SshInputError,
   type RemoteCommand,
-  type SshEndpoint,
   type SshError,
+  type SshTarget,
 } from "../ssh/domain";
 import {
   compileHermesAvatar,
@@ -58,20 +57,16 @@ export const resolveHermesRemoteHost = (host: HermesHostId): RemoteHost | undefi
 
 const resolveHermesEndpoint = (
   hermesId: HermesHostId,
-): Effect.Effect<SshEndpoint, SshInputError> => {
-  const endpoint = sshEndpointForHermesId(hermesId);
-  if (!endpoint) {
-    const byId = resolveHermesRemoteHost(hermesId);
-    if (!byId?.sshEndpoint) {
-      return Effect.fail(
-        new SshInputError({
-          message: `hermes host ${hermesId} is not a configured remote endpoint`,
-        }),
-      );
-    }
-    return parseSshEndpoint(byId.sshEndpoint);
+): Effect.Effect<SshTarget, SshInputError> => {
+  const host = resolveHermesRemoteHost(hermesId);
+  if (!host?.sshEndpoint) {
+    return Effect.fail(
+      new SshInputError({
+        message: `hermes host ${hermesId} is not a configured remote endpoint`,
+      }),
+    );
   }
-  return parseSshEndpoint(endpoint);
+  return parseHostSshRoute(host);
 };
 
 export class HermesTransport extends Context.Tag("@vellum/HermesTransport")<
@@ -116,7 +111,7 @@ export const HermesTransportLive = Layer.effect(
 
     /** Pure argv remote hermes CLI — no shell. */
     const remoteArgv = (
-      endpoint: SshEndpoint,
+      endpoint: SshTarget,
       args: ReadonlyArray<string>,
       budget: OneShotBudget,
     ): Effect.Effect<CliResult> =>
@@ -147,7 +142,7 @@ export const HermesTransportLive = Layer.effect(
           error: `unknown hermes host: ${host}`,
         });
       }
-      return parseSshEndpoint(resolved.sshEndpoint).pipe(
+      return parseHostSshRoute(resolved).pipe(
         Effect.flatMap((endpoint) => remoteArgv(endpoint, args, budget)),
         Effect.catchAll((error) =>
           Effect.succeed({

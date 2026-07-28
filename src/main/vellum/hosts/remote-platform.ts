@@ -1,7 +1,7 @@
 import type { Context } from "effect";
 import { Effect } from "effect";
 import type { RemoteHost } from "@shared/remote-hosts";
-import { parseSshEndpoint } from "../ssh/domain";
+import { inspectSshTarget, parseHostSshRoute } from "../ssh/domain";
 import { oneShot } from "../ssh/program";
 import { remoteUname } from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
@@ -142,12 +142,12 @@ export const resolveRemoteDeploymentTarget = (
     }
     const remoteHost = host as DeployableRemoteHost;
 
-    const endpoint = yield* parseSshEndpoint(host.sshEndpoint).pipe(Effect.either);
-    if (endpoint._tag === "Left") {
+    const sshTarget = yield* parseHostSshRoute(host).pipe(Effect.either);
+    if (sshTarget._tag === "Left") {
       return {
         ok: false,
         result: remoteDeploymentFailure(
-          `Invalid endpoint: ${endpoint.left.message}`,
+          `Invalid endpoint: ${sshTarget.left.message}`,
           {
             code: "validation",
           },
@@ -156,7 +156,7 @@ export const resolveRemoteDeploymentTarget = (
     }
     const stages: string[] = ["endpoint ok"];
 
-    const warm = yield* ssh.warm(endpoint.right).pipe(Effect.either);
+    const warm = yield* ssh.warm(sshTarget.right).pipe(Effect.either);
     if (warm._tag === "Left") {
       return {
         ok: false,
@@ -181,7 +181,7 @@ export const resolveRemoteDeploymentTarget = (
       };
     }
     const uname = yield* ssh
-      .run(oneShot(endpoint.right, unameCommand.right, { budget: "short" }))
+      .run(oneShot(sshTarget.right, unameCommand.right, { budget: "short" }))
       .pipe(Effect.either);
     if (uname._tag === "Left") {
       return {
@@ -218,7 +218,8 @@ export const resolveRemoteDeploymentTarget = (
       ok: true,
       target: Object.freeze({
         host: remoteHost,
-        endpoint: endpoint.right,
+        endpoint: inspectSshTarget(sshTarget.right).endpoint,
+        sshTarget: sshTarget.right,
         platform: evidence.platform,
         progress: Object.freeze([...stages]),
       }),

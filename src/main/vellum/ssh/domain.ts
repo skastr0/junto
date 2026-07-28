@@ -14,6 +14,42 @@ export const SshEndpoint = Schema.String.pipe(
 );
 export type SshEndpoint = typeof SshEndpoint.Type;
 
+export const SshIdentityFile = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(1024),
+  Schema.filter(
+    (value) =>
+      value.startsWith("/") &&
+      !value.includes("\u0000") &&
+      !value.includes("\n") &&
+      !value.includes("\r"),
+    {
+      message: () => "SSH identity file must be a bounded absolute path",
+    },
+  ),
+  Schema.brand("SshIdentityFile"),
+);
+export type SshIdentityFile = typeof SshIdentityFile.Type;
+
+export const SshHostKeyPolicy = Schema.Literal("system", "accept-new");
+export type SshHostKeyPolicy = typeof SshHostKeyPolicy.Type;
+
+const SshRouteTypeId: unique symbol = Symbol("@vellum/ssh/SshRoute");
+
+export interface SshRoute {
+  readonly [SshRouteTypeId]: typeof SshRouteTypeId;
+}
+
+export type SshTarget = SshEndpoint | SshRoute;
+
+interface SshRouteDetails {
+  readonly endpoint: SshEndpoint;
+  readonly identityFile?: SshIdentityFile;
+  readonly hostKeyPolicy: SshHostKeyPolicy;
+}
+
+const sshRoutes = new WeakMap<SshRoute, SshRouteDetails>();
+
 export class SshInputError extends Schema.TaggedError<SshInputError>()("SshInputError", {
   message: Schema.String,
 }) {}
@@ -83,6 +119,76 @@ export const parseSshEndpoint = (input: unknown): Effect.Effect<SshEndpoint, Ssh
       }),
     ),
   );
+
+export const parseSshRoute = (input: {
+  readonly endpoint: unknown;
+  readonly identityFile?: unknown;
+  readonly hostKeyPolicy?: unknown;
+}): Effect.Effect<SshRoute, SshInputError> =>
+  Effect.gen(function* () {
+    const endpoint = yield* parseSshEndpoint(input.endpoint);
+    const identityFile =
+      input.identityFile === undefined
+        ? undefined
+        : yield* Schema.decodeUnknown(SshIdentityFile)(input.identityFile).pipe(
+            Effect.mapError(
+              () =>
+                new SshInputError({
+                  message:
+                    "SSH identity file must be a bounded absolute path",
+                }),
+            ),
+          );
+    const hostKeyPolicy =
+      input.hostKeyPolicy === undefined
+        ? "system"
+        : yield* Schema.decodeUnknown(SshHostKeyPolicy)(
+            input.hostKeyPolicy,
+          ).pipe(
+            Effect.mapError(
+              () =>
+                new SshInputError({
+                  message: "SSH host-key policy is invalid",
+                }),
+            ),
+          );
+    const route = Object.freeze({
+      [SshRouteTypeId]: SshRouteTypeId,
+    }) as SshRoute;
+    sshRoutes.set(route, {
+      endpoint,
+      ...(identityFile === undefined ? {} : { identityFile }),
+      hostKeyPolicy,
+    });
+    return route;
+  });
+
+export const parseHostSshRoute = (host: {
+  readonly sshEndpoint?: unknown;
+  readonly sshIdentityFile?: unknown;
+  readonly sshHostKeyPolicy?: unknown;
+}): Effect.Effect<SshRoute, SshInputError> =>
+  parseSshRoute({
+    endpoint: host.sshEndpoint,
+    ...(host.sshIdentityFile === undefined
+      ? {}
+      : { identityFile: host.sshIdentityFile }),
+    ...(host.sshHostKeyPolicy === undefined
+      ? {}
+      : { hostKeyPolicy: host.sshHostKeyPolicy }),
+  });
+
+/** @internal SSH policy compiler and transport accounting only. */
+export const inspectSshTarget = (target: SshTarget): SshRouteDetails => {
+  if (typeof target === "string") {
+    return { endpoint: target, hostKeyPolicy: "system" };
+  }
+  const details = sshRoutes.get(target);
+  if (!details) {
+    throw new TypeError("SshRoute was not minted by the SSH domain");
+  }
+  return details;
+};
 
 const RemoteCommandTypeId: unique symbol = Symbol("@vellum/ssh/RemoteCommand");
 

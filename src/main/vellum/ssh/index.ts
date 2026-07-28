@@ -1,7 +1,11 @@
 export {
   SshEndpoint,
+  SshHostKeyPolicy,
+  SshIdentityFile,
   RemoteUnixSocketPath,
+  parseHostSshRoute,
   parseSshEndpoint,
+  parseSshRoute,
   parseRemoteUnixSocketPath,
   SshExitError,
   SshForwardError,
@@ -12,6 +16,8 @@ export {
   SshSpawnError,
   SshTimeoutError,
   type SshError,
+  type SshRoute,
+  type SshTarget,
 } from "./domain";
 export {
   type DaemonHandoffProgram,

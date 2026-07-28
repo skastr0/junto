@@ -27,7 +27,7 @@ import {
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import {
   parseRemoteUnixSocketPath,
-  parseSshEndpoint,
+  parseHostSshRoute,
 } from "../ssh/domain";
 import { homeDirectoryLookup, oneShot, unixForward } from "../ssh/program";
 import { remoteCat } from "../ssh/read-commands";
@@ -1026,7 +1026,13 @@ export class TerminalRouter extends EventEmitter {
       const pair = await runLayered(
         Effect.gen(function* () {
           const ssh = yield* SshTransport;
-          const sshEndpoint = yield* parseSshEndpoint(endpoint);
+          const host = findHostById(hostId);
+          if (!host || host.kind !== "remote" || host.sshEndpoint !== endpoint) {
+            return yield* Effect.fail(
+              new Error(`host ${hostId} SSH route changed before dial`),
+            );
+          }
+          const sshEndpoint = yield* parseHostSshRoute(host);
           const homeResult = yield* ssh.run(homeDirectoryLookup(sshEndpoint));
           const home = homeResult.stdout.trim() || ".";
           const remoteSock = yield* parseRemoteUnixSocketPath(
