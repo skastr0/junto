@@ -1,0 +1,408 @@
+{
+  "preface": {
+    "offer": {
+      "protocol": "vellum/station-protocol-preface/v1",
+      "frame": "offer",
+      "appVersion": "0.1.0",
+      "stateSchemaVersion": 1,
+      "support": {
+        "preferred": 2,
+        "compatibleFrom": 2,
+        "warnBelow": 2
+      }
+    },
+    "accept": {
+      "protocol": "vellum/station-protocol-preface/v1",
+      "frame": "accept",
+      "appVersion": "0.1.1",
+      "stateSchemaVersion": 2,
+      "support": {
+        "preferred": 2,
+        "compatibleFrom": 2,
+        "warnBelow": 2
+      },
+      "selected": 2
+    }
+  },
+  "projectionBody": "{\"protocol\":\"vellum/station-portfolio/v2\",\"documents\":[],\"actorSeats\":[]}",
+  "session": {
+    "requests": [
+      {
+        "protocol": "vellum/station-session/v2",
+        "frame": "request",
+        "requestId": "pair-001",
+        "request": {
+          "protocol": "vellum/station-api/v2",
+          "op": "pair",
+          "commandCenterInstallationId": "cc-installation-v2",
+          "stationInstallationId": "remote-installation-v2",
+          "stationLabel": "Remote V2",
+          "appVersion": "0.1.0"
+        }
+      },
+      {
+        "protocol": "vellum/station-session/v2",
+        "frame": "request",
+        "requestId": "configure-001",
+        "request": {
+          "protocol": "vellum/station-api/v2",
+          "op": "configure",
+          "installationId": "remote-installation-v2",
+          "configuration": {
+            "role": "remote",
+            "hostId": "remote-v2",
+            "agentHostId": "remote-v2",
+            "commandCenterInstallationId": "cc-installation-v2",
+            "supervisedPreferred": true
+          },
+          "host": {
+            "id": "remote-v2",
+            "label": "Remote V2",
+            "kind": "remote",
+            "sshEndpoint": "vellum-remote-v2",
+            "capabilities": [
+              "terminal",
+              "browser"
+            ]
+          }
+        }
+      },
+      {
+        "protocol": "vellum/station-session/v2",
+        "frame": "request",
+        "requestId": "project-001",
+        "request": {
+          "protocol": "vellum/station-api/v2",
+          "op": "project",
+          "stationInstallationId": "remote-installation-v2",
+          "projection": {
+            "scope": "full",
+            "generation": "12",
+            "sourceCanvasGeneration": "34",
+            "sourceIntentSha256": "7317fbdcbab6d03aac840aaf7b535ff4ff97942eb6aabcbf42fdd447140c539a",
+            "body": "{\"protocol\":\"vellum/station-portfolio/v2\",\"documents\":[],\"actorSeats\":[]}",
+            "contentSha256": "12b1109c9d7d83401a2470ee5cd0c8ef90fb6e8dc5ebb8df23c7b900f43cad25",
+            "createdAt": "2026-07-28T12:00:00.000Z"
+          }
+        }
+      },
+      {
+        "protocol": "vellum/station-session/v2",
+        "frame": "request",
+        "requestId": "report-001",
+        "request": {
+          "protocol": "vellum/station-api/v2",
+          "op": "report",
+          "senderInstallationId": "cc-installation-v2",
+          "targetInstallationId": "remote-installation-v2",
+          "batch": {
+            "records": [
+              {
+                "protocol": "vellum/work/v2",
+                "id": {
+                  "route": {
+                    "eventHome": "cc-installation-v2",
+                    "entityHome": "remote-installation-v2"
+                  },
+                  "seq": "1"
+                },
+                "recordType": "command",
+                "item": {
+                  "kind": "task",
+                  "itemId": "task-v2-001",
+                  "sink": {
+                    "canvasName": "factory",
+                    "nodeId": "tasks"
+                  }
+                },
+                "operation": "task.claim",
+                "contentSha256": "dd99312129d80563cf3156a207ef7016896a46852acf9fdb0526b008b839f474",
+                "originAt": "2026-07-28T12:00:01.000Z",
+                "predecessor": null,
+                "body": {
+                  "operation": "task.claim",
+                  "sourceQueueHome": "cc-installation-v2",
+                  "sourcePredecessor": {
+                    "route": {
+                      "eventHome": "cc-installation-v2",
+                      "entityHome": "cc-installation-v2"
+                    },
+                    "seq": "7"
+                  },
+                  "sourceTask": {
+                    "id": "task-v2-001",
+                    "state": "submitted",
+                    "history": []
+                  },
+                  "sink": {
+                    "canvasName": "factory",
+                    "nodeId": "tasks"
+                  },
+                  "actor": {
+                    "seatId": "seat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "canvasName": "factory",
+                    "nodeId": "builder"
+                  },
+                  "targetHome": "remote-installation-v2"
+                }
+              }
+            ],
+            "acknowledge": [
+              {
+                "eventHome": "remote-installation-v2",
+                "entityHome": "remote-installation-v2",
+                "through": "2"
+              }
+            ],
+            "hasMore": false
+          }
+        }
+      },
+      {
+        "protocol": "vellum/station-session/v2",
+        "frame": "request",
+        "requestId": "status-001",
+        "request": {
+          "protocol": "vellum/station-api/v2",
+          "op": "status"
+        }
+      }
+    ],
+    "responses": [
+      {
+        "protocol": "vellum/station-session/v2",
+        "frame": "response",
+        "requestId": "pair-001",
+        "envelope": {
+          "protocol": "vellum/station-control/v2",
+          "ok": true,
+          "response": {
+            "protocol": "vellum/station-api/v2",
+            "op": "pair",
+            "commandCenterInstallationId": "cc-installation-v2",
+            "stationInstallationId": "remote-installation-v2",
+            "pairedAt": "2026-07-28T12:00:00.000Z"
+          }
+        }
+      },
+      {
+        "protocol": "vellum/station-session/v2",
+        "frame": "response",
+        "requestId": "configure-001",
+        "envelope": {
+          "protocol": "vellum/station-control/v2",
+          "ok": true,
+          "response": {
+            "protocol": "vellum/station-api/v2",
+            "op": "configure",
+            "installationId": "remote-installation-v2",
+            "configuration": {
+              "role": "remote",
+              "hostId": "remote-v2",
+              "agentHostId": "remote-v2",
+              "commandCenterInstallationId": "cc-installation-v2",
+              "supervisedPreferred": true
+            },
+            "host": {
+              "id": "remote-v2",
+              "label": "Remote V2",
+              "kind": "remote",
+              "sshEndpoint": "vellum-remote-v2",
+              "capabilities": [
+                "terminal",
+                "browser"
+              ]
+            },
+            "configuredAt": "2026-07-28T12:00:00.000Z"
+          }
+        }
+      },
+      {
+        "protocol": "vellum/station-session/v2",
+        "frame": "response",
+        "requestId": "project-001",
+        "envelope": {
+          "protocol": "vellum/station-control/v2",
+          "ok": true,
+          "response": {
+            "protocol": "vellum/station-api/v2",
+            "op": "project",
+            "stationInstallationId": "remote-installation-v2",
+            "decision": "install",
+            "active": {
+              "generation": "12",
+              "contentSha256": "12b1109c9d7d83401a2470ee5cd0c8ef90fb6e8dc5ebb8df23c7b900f43cad25",
+              "receivedAt": "2026-07-28T12:00:00.500Z"
+            }
+          }
+        }
+      },
+      {
+        "protocol": "vellum/station-session/v2",
+        "frame": "response",
+        "requestId": "report-001",
+        "envelope": {
+          "protocol": "vellum/station-control/v2",
+          "ok": true,
+          "response": {
+            "protocol": "vellum/station-api/v2",
+            "op": "report",
+            "senderInstallationId": "remote-installation-v2",
+            "targetInstallationId": "cc-installation-v2",
+            "batch": {
+              "records": [
+                {
+                  "protocol": "vellum/work/v2",
+                  "id": {
+                    "route": {
+                      "eventHome": "remote-installation-v2",
+                      "entityHome": "remote-installation-v2"
+                    },
+                    "seq": "1"
+                  },
+                  "recordType": "fact",
+                  "item": {
+                    "kind": "task",
+                    "itemId": "task-v2-001",
+                    "sink": {
+                      "canvasName": "factory",
+                      "nodeId": "tasks"
+                    }
+                  },
+                  "operation": "task.claim",
+                  "contentSha256": "adf66e649dceb8e2bfc60edb4e9f638436a9f226e09d4bac779f30ad0b66dbec",
+                  "originAt": "2026-07-28T12:00:02.000Z",
+                  "basis": {
+                    "kind": "command",
+                    "command": {
+                      "route": {
+                        "eventHome": "cc-installation-v2",
+                        "entityHome": "remote-installation-v2"
+                      },
+                      "seq": "1"
+                    },
+                    "commandSha256": "dd99312129d80563cf3156a207ef7016896a46852acf9fdb0526b008b839f474"
+                  },
+                  "predecessor": null,
+                  "body": {
+                    "operation": "task.claim",
+                    "task": {
+                      "id": "task-v2-001",
+                      "state": "working",
+                      "claimedBy": "seat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "history": []
+                    },
+                    "claimedBy": {
+                      "seatId": "seat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "canvasName": "factory",
+                      "nodeId": "builder"
+                    },
+                    "previousHome": "cc-installation-v2"
+                  }
+                },
+                {
+                  "protocol": "vellum/work/v2",
+                  "id": {
+                    "route": {
+                      "eventHome": "remote-installation-v2",
+                      "entityHome": "remote-installation-v2"
+                    },
+                    "seq": "2"
+                  },
+                  "recordType": "disposition",
+                  "item": {
+                    "kind": "task",
+                    "itemId": "task-v2-001",
+                    "sink": {
+                      "canvasName": "factory",
+                      "nodeId": "tasks"
+                    }
+                  },
+                  "operation": "task.claim",
+                  "contentSha256": "e71fe0f99a13e93564e8172ac8c31f5f815218f519bd3063ed383e57b8c9cd26",
+                  "originAt": "2026-07-28T12:00:03.000Z",
+                  "body": {
+                    "status": "applied",
+                    "command": {
+                      "route": {
+                        "eventHome": "cc-installation-v2",
+                        "entityHome": "remote-installation-v2"
+                      },
+                      "seq": "1"
+                    },
+                    "commandSha256": "dd99312129d80563cf3156a207ef7016896a46852acf9fdb0526b008b839f474",
+                    "fact": {
+                      "route": {
+                        "eventHome": "remote-installation-v2",
+                        "entityHome": "remote-installation-v2"
+                      },
+                      "seq": "1"
+                    },
+                    "factSha256": "adf66e649dceb8e2bfc60edb4e9f638436a9f226e09d4bac779f30ad0b66dbec"
+                  }
+                }
+              ],
+              "acknowledge": [
+                {
+                  "eventHome": "cc-installation-v2",
+                  "entityHome": "remote-installation-v2",
+                  "through": "1"
+                }
+              ],
+              "hasMore": false
+            }
+          }
+        }
+      },
+      {
+        "protocol": "vellum/station-session/v2",
+        "frame": "response",
+        "requestId": "status-001",
+        "envelope": {
+          "protocol": "vellum/station-control/v2",
+          "ok": true,
+          "response": {
+            "protocol": "vellum/station-api/v2",
+            "op": "status",
+            "installationId": "remote-installation-v2",
+            "state": "ready",
+            "configuration": {
+              "role": "remote",
+              "hostId": "remote-v2",
+              "agentHostId": "remote-v2",
+              "commandCenterInstallationId": "cc-installation-v2",
+              "supervisedPreferred": true
+            },
+            "configuredAt": "2026-07-28T12:00:00.000Z",
+            "projection": {
+              "generation": "12",
+              "contentSha256": "12b1109c9d7d83401a2470ee5cd0c8ef90fb6e8dc5ebb8df23c7b900f43cad25",
+              "receivedAt": "2026-07-28T12:00:00.500Z"
+            },
+            "receivedThrough": [
+              {
+                "eventHome": "cc-installation-v2",
+                "entityHome": "remote-installation-v2",
+                "through": "1"
+              }
+            ],
+            "peerAcknowledgedThrough": [
+              {
+                "eventHome": "remote-installation-v2",
+                "entityHome": "remote-installation-v2",
+                "through": "2"
+              }
+            ],
+            "readiness": {
+              "database": true,
+              "workControl": true,
+              "simulation": true,
+              "session": true
+            },
+            "observedAt": "2026-07-28T12:00:04.000Z"
+          }
+        }
+      }
+    ]
+  }
+}
