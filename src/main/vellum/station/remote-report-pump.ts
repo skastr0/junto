@@ -76,10 +76,12 @@ const boundedRoundLimit = (requested: number | undefined): number =>
 const boundedRetryDelay = (
   requested: number | undefined,
   fallback: number,
+  maximum: number,
 ): number =>
   requested !== undefined &&
     Number.isSafeInteger(requested) &&
-    requested >= 0
+    requested > 0 &&
+    requested <= maximum
     ? requested
     : fallback;
 
@@ -89,11 +91,13 @@ const retryPolicy = (
   const initialDelayMs = boundedRetryDelay(
     requested?.initialDelayMs,
     STATION_REMOTE_REPORT_RETRY_POLICY.initialDelayMs,
+    STATION_REMOTE_REPORT_RETRY_POLICY.initialDelayMs,
   );
   const maxDelayMs = Math.max(
     initialDelayMs,
     boundedRetryDelay(
       requested?.maxDelayMs,
+      STATION_REMOTE_REPORT_RETRY_POLICY.maxDelayMs,
       STATION_REMOTE_REPORT_RETRY_POLICY.maxDelayMs,
     ),
   );

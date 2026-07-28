@@ -260,7 +260,7 @@ describe("Remote Station report pump", () => {
           "station report correlation capacity is exhausted",
         ),
       ],
-      retryDelayMs: 60_000,
+      retryDelayMs: 5_000,
     });
     const pump = startStationRemoteReportPump(state.input);
 
