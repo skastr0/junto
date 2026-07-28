@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { Effect } from "effect";
 import { digestCanvas } from "../src/shared/digest";
+import { executionGraphContextFromActorRefs } from "../src/shared/graph";
 import { readCanvasThroughControl } from "../src/main/vellum/canvas-control/client";
 import { writeCanvasProjectionSidecar } from "../src/main/vellum/canvas-control/sidecars";
 
@@ -26,9 +27,12 @@ const main = async () => {
   if (result._tag === "Left") {
     throw new DigestExit(errorMessage(result.left));
   }
-  const { doc, name, snapshots } = result.right;
+  const { actorRefs, doc, name, snapshots } = result.right;
+  const context = executionGraphContextFromActorRefs(name, actorRefs);
 
-  const digest = digestCanvas(name, doc, snapshots);
+  const digest = digestCanvas(name, doc, snapshots, {
+    resolveActorRef: context.resolveActorRef,
+  });
   process.stdout.write(digest);
 
   await writeCanvasProjectionSidecar(name, "digest.txt", digest);

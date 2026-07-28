@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { Effect } from "effect";
+import { executionGraphContextFromActorRefs } from "../src/shared/graph";
 import { renderCanvasSvg } from "../src/shared/svg";
 import { readCanvasThroughControl } from "../src/main/vellum/canvas-control/client";
 import { writeCanvasProjectionSidecar } from "../src/main/vellum/canvas-control/sidecars";
@@ -28,8 +29,11 @@ const main = async () => {
     return;
   }
 
-  const { doc, name } = read.right;
-  const svg = renderCanvasSvg(doc);
+  const { actorRefs, doc, name } = read.right;
+  const svg = renderCanvasSvg(
+    doc,
+    executionGraphContextFromActorRefs(name, actorRefs),
+  );
   const out = await writeCanvasProjectionSidecar(name, "svg", svg);
   console.error(`render: ${doc.nodes.length} nodes, ${doc.edges.length} edges → ${out}`);
 };

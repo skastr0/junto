@@ -11,8 +11,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
+import type { ActorRef } from "../src/shared/work-protocol";
 import {
   CanvasError,
   CanvasesService,
@@ -23,6 +24,7 @@ import {
 } from "../src/main/vellum/canvas-control/client";
 import {
   CANVAS_CONTROL_PROTOCOL_VERSION,
+  CanvasControlReadData,
   decodeCanvasControlResponse,
   encodeCanvasControlFrame,
 } from "../src/main/vellum/canvas-control/protocol";
@@ -32,6 +34,7 @@ import {
   type CanvasControlServerRuntime,
 } from "../src/main/vellum/canvas-control/server";
 import { SnapshotsService } from "../src/main/vellum/snapshots";
+import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 
 const roots: string[] = [];
 const servers: CanvasControlServer[] = [];
@@ -54,6 +57,7 @@ const doc = (text = "hello"): CanvasDoc => ({
 
 const makeRuntime = (input: {
   readonly documents?: Map<string, CanvasDoc>;
+  readonly actorRefs?: ReadonlyMap<string, ReadonlyArray<ActorRef>>;
 }) => {
   const documents = input.documents ?? new Map([["portfolio", doc()]]);
   const modifiedAt = "2026-07-27T12:00:00.000Z";
@@ -83,7 +87,7 @@ const makeRuntime = (input: {
             name,
             revision: "a".repeat(64),
             doc: current,
-            actorRefs: [],
+            actorRefs: input.actorRefs?.get(name) ?? [],
           });
     },
     write: () => Effect.fail(new CanvasError({ message: "not used" })),
@@ -144,6 +148,7 @@ const makeRuntime = (input: {
 
 const start = async (input: {
   readonly documents?: Map<string, CanvasDoc>;
+  readonly actorRefs?: ReadonlyMap<string, ReadonlyArray<ActorRef>>;
   readonly runtime?: CanvasControlServerRuntime;
   readonly beforeRun?: () => void | Promise<void>;
 }) => {
@@ -152,6 +157,7 @@ const start = async (input: {
   const controlHome = join(root, "canvas");
   const runtime = makeRuntime({
     ...(input.documents === undefined ? {} : { documents: input.documents }),
+    ...(input.actorRefs === undefined ? {} : { actorRefs: input.actorRefs }),
   });
   runtimes.push(runtime as ManagedRuntime.ManagedRuntime<unknown, never>);
   const server = await startCanvasControlServer(
@@ -200,7 +206,10 @@ afterEach(async () => {
 
 describe("canvas control", () => {
   it("serves list and compiled read data through an owner-only socket without a token store", async () => {
-    const { controlHome, server } = await start({});
+    const projectedActor = actorRefFixture("note", "portfolio");
+    const { controlHome, server } = await start({
+      actorRefs: new Map([["portfolio", [projectedActor]]]),
+    });
     const [listed, read] = await Promise.all([
       Effect.runPromise(listCanvasesThroughControl({ controlHome })),
       Effect.runPromise(readCanvasThroughControl("portfolio", { controlHome })),
@@ -215,11 +224,41 @@ describe("canvas control", () => {
       },
     ]);
     expect(read.doc.nodes[0]?.id).toBe("note");
+    expect(read.actorRefs).toEqual([projectedActor]);
     expect(read.snapshots.bundles[0]?.source).toBe("hermes");
     expect((await stat(controlHome)).mode & 0o777).toBe(0o700);
     expect((await stat(server.socketPath)).mode & 0o777).toBe(0o600);
     expect((await readdir(controlHome)).some((name) => /token|\.json$/u.test(name))).toBe(false);
     expect(server.ready()).toBe(true);
+  });
+
+  it("strictly requires actorRefs in read projection data", () => {
+    const base = {
+      name: "portfolio",
+      revision: "a".repeat(64),
+      doc: doc(),
+      snapshots: { bundles: [] },
+    };
+    const decode = Schema.decodeUnknownEither(CanvasControlReadData, {
+      onExcessProperty: "error",
+    });
+
+    expect(decode(base)._tag).toBe("Left");
+    expect(decode({ ...base, actorRefs: [], surprise: true })._tag).toBe(
+      "Left",
+    );
+    expect(
+      decode({
+        ...base,
+        actorRefs: [
+          {
+            seatId: "note",
+            canvasName: "portfolio",
+            nodeId: "note",
+          },
+        ],
+      })._tag,
+    ).toBe("Left");
   });
 
   it("has no headless authorial mutation operation", async () => {

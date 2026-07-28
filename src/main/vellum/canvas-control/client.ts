@@ -256,7 +256,7 @@ const decodeData = <A, I>(
   schema: Schema.Schema<A, I>,
   value: unknown,
 ): Effect.Effect<A, CanvasControlClientError> =>
-  Schema.decodeUnknown(schema)(value).pipe(
+  Schema.decodeUnknown(schema)(value, { onExcessProperty: "error" }).pipe(
     Effect.mapError(() =>
       malformedResponse("server returned malformed canvas operation data"),
     ),

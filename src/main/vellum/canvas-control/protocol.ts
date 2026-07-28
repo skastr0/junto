@@ -5,6 +5,7 @@ import {
   CANVAS_NAME_MAX_LENGTH,
 } from "@shared/canvas-name";
 import { SnapshotState } from "@shared/entities";
+import { ActorRef } from "@shared/work-protocol";
 
 /**
  * Main-owned headless canvas protocol.
@@ -125,6 +126,7 @@ export const CanvasControlReadData = Schema.Struct({
   name: Schema.String,
   revision: Schema.String,
   doc: CanvasDoc,
+  actorRefs: Schema.Array(ActorRef),
   snapshots: SnapshotState,
 });
 export type CanvasControlReadData = typeof CanvasControlReadData.Type;

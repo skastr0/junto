@@ -187,6 +187,7 @@ const readEffect = (name: string) =>
       name: result.read.name,
       revision: result.read.revision,
       doc: result.read.doc,
+      actorRefs: result.read.actorRefs,
       snapshots: result.snapshots,
     };
   });
