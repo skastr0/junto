@@ -4,6 +4,7 @@ import { PAUSED_CANVAS, regionsContaining, seatPaused } from "../src/shared/paus
 import { factoryClaimTick } from "../src/shared/factory-tick";
 import { taskItem } from "./helpers/task-fixtures";
 import { seat } from "./helpers/physics-seats";
+import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 
 const doc: CanvasDoc = {
   nodes: [
@@ -54,17 +55,37 @@ describe("claim tick under pause", () => {
   });
 
   it("a paused worker never claims; a paused sink never drains", () => {
-    const free = factoryClaimTick(board(), "c");
-    expect(free.claimed).toEqual([{ taskId: "i1", actor: "w1" }]);
+    const worker = actorRefFixture("w1");
+    const resolveActorRef = (ref: {
+      readonly canvasName: string;
+      readonly nodeId: string;
+    }) =>
+      ref.canvasName === worker.canvasName && ref.nodeId === worker.nodeId
+        ? worker
+        : undefined;
+    const free = factoryClaimTick(board(), "c", resolveActorRef);
+    expect(free.claimed).toEqual([{ taskId: "i1", actor: worker }]);
 
-    const pausedWorker = factoryClaimTick(board(), "c", undefined, {
-      seatPaused: (id) => id === "w1",
-    });
+    const pausedWorker = factoryClaimTick(
+      board(),
+      "c",
+      resolveActorRef,
+      undefined,
+      {
+        seatPaused: (id) => id === "w1",
+      },
+    );
     expect(pausedWorker.claimed).toEqual([]);
 
-    const pausedSink = factoryClaimTick(board(), "c", undefined, {
-      seatPaused: (id) => id === "t",
-    });
+    const pausedSink = factoryClaimTick(
+      board(),
+      "c",
+      resolveActorRef,
+      undefined,
+      {
+        seatPaused: (id) => id === "t",
+      },
+    );
     expect(pausedSink.claimed).toEqual([]);
   });
 });
