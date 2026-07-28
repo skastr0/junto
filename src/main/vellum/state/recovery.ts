@@ -4,6 +4,7 @@ import {
   constants,
   fchmodSync,
   fstatSync,
+  fsyncSync,
   lstatSync,
   openSync,
   readSync,
@@ -14,44 +15,27 @@ import {
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { Effect, Schema } from "effect";
+import {
+  decodeStateBackupExportReceipt,
+  decodeStateBackupId,
+  decodeStateBackupInventoryEntry,
+  StateBackupId,
+  type StateBackupExportReceipt,
+  type StateBackupInventoryEntry,
+} from "@shared/state-recovery";
 import { stateDatabasePath } from "./engine";
+
+export {
+  StateBackupId,
+  StateBackupInventoryEntry,
+  StateBackupExportReceipt,
+} from "@shared/state-recovery";
 
 const STATE_BACKUP_DIRECTORY = "backups";
 const STATE_BACKUP_FILE_PATTERN =
   /^vellum-backup-([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.db$/;
 const STATE_FILE_MODE = 0o600;
 const COPY_BUFFER_BYTES = 1024 * 1024;
-
-export const StateBackupId = Schema.UUID.pipe(
-  Schema.brand("StateBackupId"),
-);
-export type StateBackupId = typeof StateBackupId.Type;
-
-export const StateBackupInventoryEntry = Schema.Struct({
-  id: StateBackupId,
-  file: Schema.String.pipe(
-    Schema.pattern(/^vellum-backup-[0-9a-f-]{36}\.db$/),
-  ),
-  bytes: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
-  modifiedAtEpochMs: Schema.Number.pipe(
-    Schema.int(),
-    Schema.nonNegative(),
-  ),
-  schemaVersion: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
-  schemaSha256: Schema.String.pipe(
-    Schema.pattern(/^[0-9a-f]{64}$/),
-  ),
-});
-export type StateBackupInventoryEntry =
-  typeof StateBackupInventoryEntry.Type;
-
-export const StateBackupExportReceipt = Schema.Struct({
-  backup: StateBackupInventoryEntry,
-  destination: Schema.String,
-  sha256: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/)),
-});
-export type StateBackupExportReceipt =
-  typeof StateBackupExportReceipt.Type;
 
 export class StateRecoveryError extends Schema.TaggedError<StateRecoveryError>()(
   "StateRecoveryError",
@@ -70,6 +54,11 @@ type OpenedBackup = {
   };
 };
 
+type FileIdentity = {
+  readonly dev: number | bigint;
+  readonly ino: number | bigint;
+};
+
 const recoveryError = (
   operation: string,
   cause: unknown,
@@ -83,16 +72,30 @@ const recoveryError = (
 const backupDirectoryFor = (databasePath: string): string =>
   join(dirname(resolve(databasePath)), STATE_BACKUP_DIRECTORY);
 
+const currentUserId = (): number | undefined =>
+  typeof process.getuid === "function" ? process.getuid() : undefined;
+
+const assertCurrentUserOwns = (
+  uid: number,
+  subject: string,
+): void => {
+  const expected = currentUserId();
+  if (expected !== undefined && uid !== expected) {
+    throw new Error(`${subject} is not owned by the current user`);
+  }
+};
+
 const idFromFile = (file: string): StateBackupId => {
   const match = STATE_BACKUP_FILE_PATTERN.exec(file);
   if (match === null) {
     throw new Error(`unexpected state backup entry: ${file}`);
   }
-  return Schema.decodeUnknownSync(StateBackupId)(match[1]);
+  return decodeStateBackupId(match[1]);
 };
 
 const openOwnedBackup = (path: string): OpenedBackup => {
   const linked = lstatSync(path);
+  assertCurrentUserOwns(linked.uid, "state backup");
   if (
     !linked.isFile() ||
     linked.isSymbolicLink() ||
@@ -108,6 +111,7 @@ const openOwnedBackup = (path: string): OpenedBackup => {
   );
   try {
     const opened = fstatSync(descriptor);
+    assertCurrentUserOwns(opened.uid, "opened state backup");
     if (
       !opened.isFile() ||
       opened.dev !== linked.dev ||
@@ -181,7 +185,7 @@ const inspectBackup = (
         `state backup has no schema identity witness: ${file}`,
       );
     }
-    return Schema.decodeUnknownSync(StateBackupInventoryEntry)({
+    return decodeStateBackupInventoryEntry({
       id: idFromFile(file),
       file,
       bytes: Number(opened.metadata.size),
@@ -231,6 +235,10 @@ export const listStateBackups = (
           "state backup directory is not an owner-only real directory",
         );
       }
+      assertCurrentUserOwns(
+        directoryInfo.uid,
+        "state backup directory",
+      );
       return readdirSync(directory)
         .sort()
         .map((file) => inspectBackup(join(directory, file), file));
@@ -241,12 +249,10 @@ export const listStateBackups = (
 const copyBackupToNewDestination = (
   source: string,
   destination: string,
-): string => {
+): { readonly sha256: string; readonly identity: FileIdentity } => {
   const sourceFile = openOwnedBackup(source);
   let destinationDescriptor: number | undefined;
-  let destinationIdentity:
-    | { readonly dev: number | bigint; readonly ino: number | bigint }
-    | undefined;
+  let destinationIdentity: FileIdentity | undefined;
   let complete = false;
   try {
     destinationDescriptor = openSync(
@@ -261,6 +267,7 @@ const copyBackupToNewDestination = (
     if (!created.isFile()) {
       throw new Error("state export destination is not a regular file");
     }
+    assertCurrentUserOwns(created.uid, "state export destination");
     destinationIdentity = { dev: created.dev, ino: created.ino };
     fchmodSync(destinationDescriptor, STATE_FILE_MODE);
 
@@ -296,28 +303,39 @@ const copyBackupToNewDestination = (
     if (fstatSync(destinationDescriptor).size !== sourceFile.metadata.size) {
       throw new Error("state export size does not match its backup");
     }
+    fsyncSync(destinationDescriptor);
     complete = true;
-    return hash.digest("hex");
+    return {
+      sha256: hash.digest("hex"),
+      identity: destinationIdentity,
+    };
   } finally {
     closeSync(sourceFile.descriptor);
     if (destinationDescriptor !== undefined) {
       closeSync(destinationDescriptor);
     }
     if (!complete && destinationIdentity !== undefined) {
-      try {
-        const linked = lstatSync(destination);
-        if (
-          linked.isFile() &&
-          !linked.isSymbolicLink() &&
-          linked.dev === destinationIdentity.dev &&
-          linked.ino === destinationIdentity.ino
-        ) {
-          unlinkSync(destination);
-        }
-      } catch {
-        // Preserve the copy failure. A foreign replacement is never removed.
-      }
+      unlinkExactFile(destination, destinationIdentity);
     }
+  }
+};
+
+const unlinkExactFile = (
+  path: string,
+  expected: FileIdentity,
+): void => {
+  try {
+    const linked = lstatSync(path);
+    if (
+      linked.isFile() &&
+      !linked.isSymbolicLink() &&
+      linked.dev === expected.dev &&
+      linked.ino === expected.ino
+    ) {
+      unlinkSync(path);
+    }
+  } catch {
+    // Preserve the original failure. A foreign replacement is never removed.
   }
 };
 
@@ -349,6 +367,10 @@ export const exportStateBackup = (
           "state backup export parent is not a real directory",
         );
       }
+      assertCurrentUserOwns(
+        parent.uid,
+        "state backup export parent",
+      );
       const entries = Effect.runSync(
         listStateBackups(configuredPath),
       );
@@ -360,22 +382,27 @@ export const exportStateBackup = (
         backupDirectoryFor(configuredPath),
         basename(backup.file),
       );
-      const sha256 = copyBackupToNewDestination(source, destination);
-      const exported = inspectBackup(destination, backup.file);
-      if (
-        exported.bytes !== backup.bytes ||
-        exported.schemaVersion !== backup.schemaVersion ||
-        exported.schemaSha256 !== backup.schemaSha256
-      ) {
-        throw new Error(
-          "exported state backup does not match its source witness",
-        );
+      const copied = copyBackupToNewDestination(source, destination);
+      try {
+        const exported = inspectBackup(destination, backup.file);
+        if (
+          exported.bytes !== backup.bytes ||
+          exported.schemaVersion !== backup.schemaVersion ||
+          exported.schemaSha256 !== backup.schemaSha256
+        ) {
+          throw new Error(
+            "exported state backup does not match its source witness",
+          );
+        }
+        return decodeStateBackupExportReceipt({
+          backup,
+          destination,
+          sha256: copied.sha256,
+        });
+      } catch (error) {
+        unlinkExactFile(destination, copied.identity);
+        throw error;
       }
-      return Schema.decodeUnknownSync(StateBackupExportReceipt)({
-        backup,
-        destination,
-        sha256,
-      });
     },
     catch: (error) => recoveryError("export-backup", error),
   }).pipe(Effect.withSpan("state.recovery.export-backup"));

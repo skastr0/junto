@@ -1,5 +1,15 @@
-import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import {
+  existsSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -76,6 +86,7 @@ describe("state recovery", () => {
         .digest("hex"),
     );
     expect(existsSync(destination)).toBe(true);
+    expect(statSync(destination).mode & 0o777).toBe(0o600);
 
     await expect(
       Effect.runPromise(
@@ -103,6 +114,37 @@ describe("state recovery", () => {
     await expect(
       Effect.runPromise(listStateBackups(layout.database)),
     ).rejects.toThrow(/owner-only regular file/u);
+  });
+
+  it("rejects a backup whose owner-only mode was widened", async () => {
+    const layout = await makeLayout();
+    const created = await createBackup(layout.database);
+    await chmod(created.path, 0o644);
+
+    await expect(
+      Effect.runPromise(listStateBackups(layout.database)),
+    ).rejects.toThrow(/owner-only regular file/u);
+  });
+
+  it("rejects a relative export destination", async () => {
+    const layout = await makeLayout();
+    await createBackup(layout.database);
+    const [backup] = await Effect.runPromise(
+      listStateBackups(layout.database),
+    );
+
+    await expect(
+      Effect.runPromise(
+        exportStateBackup(
+          backup!.id,
+          "relative-vellum-export.db",
+          layout.database,
+        ),
+      ),
+    ).rejects.toThrow(/absolute path/u);
+    expect(
+      existsSync(join(process.cwd(), "relative-vellum-export.db")),
+    ).toBe(false);
   });
 
   it("does not create an inventory directory when no backup exists", async () => {
