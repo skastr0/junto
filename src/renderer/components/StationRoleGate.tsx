@@ -46,7 +46,7 @@ export function StationRoleGate() {
         supervisedPreferred: false,
       });
       if (!ok) {
-        setError(state$.settingsError.peek() || "could not save station role");
+        setError(state$.settingsError.peek() || "Could not save this machine's role");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -65,8 +65,7 @@ export function StationRoleGate() {
         setScan({
           status: "done",
           commandCenterFound: false,
-          detail:
-            "No Command Center found. Discovery is unavailable on this build — set this machine up as Command Center, or leave it unset until one claims it.",
+          detail: "No Command Center found. Scanning isn't available in this build.",
         });
         return;
       }
@@ -75,9 +74,7 @@ export function StationRoleGate() {
         setScan({
           status: "done",
           commandCenterFound: false,
-          detail:
-            result.message ??
-            "No Command Center found. Could not read the Tailscale mesh — set this machine up as Command Center, or leave it unset until one claims it.",
+          detail: "No Command Center found. The scan could not complete.",
         });
         return;
       }
@@ -87,7 +84,7 @@ export function StationRoleGate() {
         status: "done",
         commandCenterFound: false,
         detail:
-          "No Command Center found. Set this machine up as Command Center, or leave it unset until an existing Command Center claims it from fleet controls.",
+          "No Command Center found. Set this machine up as the Command Center, or leave it open — it can be enrolled from another machine at any time.",
       });
     } catch (err) {
       setScan({
@@ -109,7 +106,7 @@ export function StationRoleGate() {
       className="station-role-gate"
       role="dialog"
       aria-modal="true"
-      aria-label="Establish this installation"
+      aria-label="Set up this machine"
       style={{
         position: "fixed",
         inset: 0,
@@ -131,7 +128,7 @@ export function StationRoleGate() {
         }}
       >
         <Eyebrow tone="amber" className="text-[11px] mb-2">
-          VELLUM COMMAND · STATION
+          VELLUM COMMAND
         </Eyebrow>
         <h1
           style={{
@@ -141,7 +138,7 @@ export function StationRoleGate() {
             fontWeight: 600,
           }}
         >
-          Establish this installation
+          Set up this machine
         </h1>
         <p
           style={{
@@ -151,10 +148,8 @@ export function StationRoleGate() {
             margin: "0 0 20px",
           }}
         >
-          Role is explicit and never inferred. This machine can become the
-          Command Center (you author the canvas and claim fleet machines), or
-          stay unset until an existing Command Center claims it as a Remote over
-          the Station API.
+          This machine can run the Command Center, or be enrolled as a Remote
+          by one you already run.
         </p>
 
         <div style={{ display: "grid", gap: 14 }}>
@@ -167,21 +162,20 @@ export function StationRoleGate() {
           >
             <strong style={{ color: INK }}>Set up as Command Center</strong>
             <span style={{ color: DIM, fontSize: 12, lineHeight: 1.45 }}>
-              Human authors the canvas here. Manages the fleet, enrolls Remotes,
-              and runs local agents and browser. Default for a single machine or
-              the factory head.
+              The canvas lives here, agents run here, and Remotes are enrolled
+              from here. The right choice for your main machine — or your only
+              one.
             </span>
           </button>
 
           <div style={secondaryPanelStyle}>
             <div style={{ display: "grid", gap: 4 }}>
               <strong style={{ color: INK, fontSize: 13 }}>
-                Or wait to be claimed as a Remote
+                Or wait to be enrolled as a Remote
               </strong>
               <span style={{ color: DIM, fontSize: 12, lineHeight: 1.45 }}>
-                You cannot enroll this machine yourself. Leave it unset; a
-                Command Center enrolls it from fleet controls. No network scan
-                runs until you ask — so SSH prompts never fire on first open.
+                Remotes are enrolled from the Command Center — open Command
+                Fleet there and pick this machine. Nothing to do on this side.
               </span>
             </div>
 
@@ -206,15 +200,12 @@ export function StationRoleGate() {
                     ? "Scan again"
                     : "Look for a Command Center"}
               </Button>
-              <span style={{ color: FAINT, fontSize: 11, lineHeight: 1.4 }}>
-                Opt-in · no SSH
-              </span>
             </div>
 
             {scan.status === "idle" ? (
               <p style={{ color: FAINT, fontSize: 12, margin: 0, lineHeight: 1.45 }}>
-                Optional. Checks for an identifiable Command Center without
-                probing hosts over SSH.
+                Optional — checks whether a Command Center is reachable from
+                here.
               </p>
             ) : null}
 
@@ -245,9 +236,8 @@ export function StationRoleGate() {
                 </Eyebrow>
                 <strong style={{ color: INK, fontSize: 13 }}>{scan.detail}</strong>
                 <span style={{ color: DIM, fontSize: 12, lineHeight: 1.45 }}>
-                  Leave this installation unset. Enroll it as a Remote from that
-                  Command Center&apos;s fleet controls — this machine never
-                  self-assigns Remote.
+                  Open Command Fleet on that machine and enroll this one as a
+                  Remote — nothing to do on this side.
                 </span>
               </div>
             ) : null}
