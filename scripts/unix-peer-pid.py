@@ -21,6 +21,7 @@ import json
 import os
 import platform
 import socket
+import stat
 import struct
 import subprocess
 import sys
@@ -83,14 +84,58 @@ def _linux_stat(pid: int) -> tuple[int, int, str]:
     return ppid, os.stat(proc).st_uid, start_ticks
 
 
+def _linux_comm(pid: int) -> str:
+    with open(f"/proc/{pid}/comm", "r", encoding="utf-8") as handle:
+        return handle.read().strip()
+
+
+def _linux_nondumpable_sshd_identity(
+    pid: int,
+    identity: tuple[int, int, str],
+) -> tuple[str, os.stat_result]:
+    """Identify OpenSSH's non-dumpable account child without ambient trust.
+
+    Linux commonly denies ``/proc/<pid>/exe`` for the account-owned sshd
+    session process because OpenSSH deliberately marks it non-dumpable. The
+    direct privileged monitor remains root-owned. A same-account process can
+    forge its own comm, but cannot forge a root-owned direct parent, so require
+    both halves before projecting the sealed system sshd executable identity.
+    """
+
+    if _linux_comm(pid) != "sshd" or identity[0] <= 1:
+        raise PermissionError(f"non-dumpable process {pid} is not sshd")
+    parent_identity = _linux_stat(identity[0])
+    if parent_identity[1] != 0 or _linux_comm(identity[0]) != "sshd":
+        raise PermissionError(
+            f"non-dumpable sshd {pid} has no root-owned sshd parent"
+        )
+
+    executable = os.path.realpath("/usr/sbin/sshd")
+    executable_stat = os.stat(executable)
+    if (
+        not stat.S_ISREG(executable_stat.st_mode)
+        or executable_stat.st_uid != 0
+        or executable_stat.st_mode & 0o022
+        or not executable_stat.st_mode & stat.S_IXUSR
+    ):
+        raise PermissionError("system sshd executable is not sealed")
+    return executable, executable_stat
+
+
 def _linux_process(pid: int) -> ProcessHop:
     before = _linux_stat(pid)
     proc_executable = f"/proc/{pid}/exe"
-    executable_link = os.readlink(proc_executable)
-    if executable_link.endswith(" (deleted)"):
-        raise OSError(f"deleted executable for pid {pid}")
-    executable = os.path.realpath(executable_link)
-    executable_stat = os.stat(proc_executable)
+    try:
+        executable_link = os.readlink(proc_executable)
+        if executable_link.endswith(" (deleted)"):
+            raise OSError(f"deleted executable for pid {pid}")
+        executable = os.path.realpath(executable_link)
+        executable_stat = os.stat(proc_executable)
+    except PermissionError:
+        executable, executable_stat = _linux_nondumpable_sshd_identity(
+            pid,
+            before,
+        )
     after = _linux_stat(pid)
     if before != after:
         raise OSError(f"process identity raced for pid {pid}")
