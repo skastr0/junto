@@ -645,7 +645,7 @@ const makeAddActions = (
   addAgent: (choices) => {
     const size = { width: 260, height: 110 };
     const position = positionFor(size);
-    const host = state$.settings.station.hostId.peek() || "local";
+    const host = choices.host;
     // Create-time cwd stamp from containing region paths (host-keyed).
     // Escape hatch: place outside the region, or edit launch.cwd after create.
     const cwd = resolveRegionCwd(
@@ -656,13 +656,17 @@ const makeAddActions = (
     );
     const node = makeManagedAgentNode(position.x, position.y, {
       ...choices,
-      host,
       ...(cwd ? { cwd } : {}),
     });
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
-    void openTerminal(node);
+    // A foreign actor starts on its own installation after projection. The
+    // Command Center authoring action must not create that process through its
+    // local terminal path.
+    if (host === (state$.settings.station.hostId.peek() || "local")) {
+      void openTerminal(node);
+    }
   },
   addWatcher: () => {
     const position = positionFor({ width: 240, height: 96 });
@@ -789,16 +793,24 @@ const PALETTE_GROUP_BY_ROLE: Record<FactoryRoleName, PaletteGroup> = {
 const paletteGroupFor = (kind: string | undefined, isGroupNode: boolean): PaletteGroup =>
   PALETTE_GROUP_BY_ROLE[roleOf(resolveSpec({ isGroup: isGroupNode, kind }))];
 
-type MenuEntry = {
+type MenuEntryBase = {
   readonly key: string;
   readonly label: string;
   readonly sub: string;
   readonly icon: React.ReactNode;
   readonly ariaLabel: string;
   readonly group: PaletteGroup;
-  readonly onSelect: () => void;
-  readonly harness?: HarnessId;
 };
+
+type MenuEntry =
+  | (MenuEntryBase & {
+      readonly harness: HarnessId;
+      readonly onSelect?: never;
+    })
+  | (MenuEntryBase & {
+      readonly harness?: never;
+      readonly onSelect: () => void;
+    });
 
 // Auto-focused filter + arrow/Enter selection. Typing narrows by label+sub;
 // Enter commits the highlighted row. Managed agents are direct rows whose
@@ -851,9 +863,8 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
       label: template.displayName,
       sub: "",
       icon: <HarnessMark agent={template.harness} size={20} />,
-      ariaLabel: `Add ${template.displayName} agent`,
+      ariaLabel: `Choose ${template.displayName} agent host and model`,
       group: paletteGroupFor("agent", false),
-      onSelect: () => actions.addAgent({ harness: template.harness }),
       harness: template.harness,
     })),
     { key: "terminal", label: "terminal", sub: "native shell · geography", icon: <Terminal size={14} />, ariaLabel: "Add native terminal work surface", group: paletteGroupFor("terminal", false), onSelect: () => actions.addTerminal() },
@@ -876,6 +887,24 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
     : entries;
   const activeIndex = Math.min(highlighted, Math.max(filtered.length - 1, 0));
 
+  const activateEntry = (
+    entry: MenuEntry,
+    suppliedAnchor?: HTMLButtonElement,
+  ): void => {
+    if (entry.harness) {
+      const anchor =
+        suppliedAnchor ??
+        document.querySelector<HTMLButtonElement>(
+          `[data-palette-entry="${entry.key}"]`,
+        );
+      if (!anchor) return;
+      anchor.focus();
+      openCascade(entry.harness, anchor);
+      return;
+    }
+    entry.onSelect();
+  };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -885,7 +914,8 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
       setHighlighted((value) => Math.max(value - 1, 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
-      filtered[activeIndex]?.onSelect();
+      const entry = filtered[activeIndex];
+      if (entry) activateEntry(entry);
     }
   };
 
@@ -913,6 +943,7 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
                 <Fragment key={entry.key}>
                   {showHeader ? <div className="node-palette__group-label">{entry.group}</div> : null}
                   <button
+                    data-palette-entry={entry.key}
                     aria-label={entry.ariaLabel}
                     aria-haspopup={entry.harness ? "menu" : undefined}
                     aria-expanded={
@@ -947,7 +978,9 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
                           ?.focus();
                       });
                     }}
-                    onClick={entry.onSelect}
+                    onClick={(event) =>
+                      activateEntry(entry, event.currentTarget)
+                    }
                   >
                     <span className="node-palette__icon" aria-hidden>{entry.icon}</span>
                     <span><strong>{entry.label}</strong>{entry.sub ? <small>{entry.sub}</small> : null}</span>
@@ -961,6 +994,12 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
         key={agentCascade.harness}
         harness={agentCascade.harness}
         anchor={agentCascade.anchor}
+        initialHostId={state$.settings.station.hostId.peek() || "local"}
+        initialAgentHostId={
+          state$.settings.station.agentHostId.peek() ||
+          state$.settings.station.hostId.peek() ||
+          "local"
+        }
         onSpawn={actions.addAgent}
         onPointerEnter={keepCascadeOpen}
         onPointerLeave={closeCascadeSoon}

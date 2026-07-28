@@ -6,16 +6,71 @@ import {
   type HarnessId,
 } from "@shared/managed-terminal-templates";
 import type {
+  HostsOpResult,
   ManagedTerminalModelOption,
   ManagedTerminalProfileOption,
 } from "@shared/ipc";
+import {
+  LOCAL_HOST_ID,
+  TERMINAL_HOST_CAPABILITY,
+} from "@shared/remote-hosts";
 import { getVellumApi } from "../../lib/vellum-api";
 
-export type AgentSpawnChoices = {
+type AgentConfigurationChoices = {
   readonly harness: HarnessId;
   readonly profile?: string;
   readonly model?: string;
   readonly effort?: string;
+};
+
+export type AgentSpawnChoices = AgentConfigurationChoices & {
+  /** Enrolled placement HostId. */
+  readonly host: string;
+  /** Hermes routing prefix for entity.name. */
+  readonly agentHost: string;
+};
+
+export type AgentHostChoice = {
+  readonly id: string;
+  readonly agentHost: string;
+  readonly label: string;
+};
+
+type EnrolledHost = NonNullable<HostsOpResult["hosts"]>[number];
+
+/** Exact enrolled choices for creating one actor seat. */
+export const actorHostChoicesFromEnrollment = (
+  hosts: ReadonlyArray<EnrolledHost>,
+  configured: AgentHostChoice,
+): ReadonlyArray<AgentHostChoice> => {
+  const seen = new Set<string>();
+  const enrolled = hosts
+    .filter((host) => {
+      if (
+        seen.has(host.id) ||
+        !host.capabilities.includes(TERMINAL_HOST_CAPABILITY)
+      ) {
+        return false;
+      }
+      seen.add(host.id);
+      return true;
+    })
+    .map((host) => ({
+      id: host.id,
+      agentHost: host.hermesId ?? host.id,
+      label:
+        host.kind === "remote"
+          ? `${host.label || host.id} (remote)`
+          : host.label || host.id,
+    }))
+    .sort((left, right) => {
+      if (left.id === LOCAL_HOST_ID) return -1;
+      if (right.id === LOCAL_HOST_ID) return 1;
+      return left.label.localeCompare(right.label);
+    });
+  return enrolled.some((host) => host.id === configured.id)
+    ? enrolled
+    : [configured, ...enrolled];
 };
 
 type CascadePosition =
@@ -95,12 +150,16 @@ function CascadeItem({
 export function AgentCascadeMenu({
   harness,
   anchor,
+  initialHostId,
+  initialAgentHostId,
   onSpawn,
   onPointerEnter,
   onPointerLeave,
 }: {
   readonly harness: HarnessId;
   readonly anchor: HTMLElement;
+  readonly initialHostId: string;
+  readonly initialAgentHostId: string;
   readonly onSpawn: (choices: AgentSpawnChoices) => void;
   readonly onPointerEnter: () => void;
   readonly onPointerLeave: () => void;
@@ -112,7 +171,46 @@ export function AgentCascadeMenu({
   const [enumeratedEfforts, setEnumeratedEfforts] = useState<readonly string[]>([]);
   const [activeProfile, setActiveProfile] = useState<ManagedTerminalProfileOption | null>(null);
   const [activeModel, setActiveModel] = useState<ManagedTerminalModelOption | null>(null);
+  const [hostChoices, setHostChoices] = useState<readonly AgentHostChoice[]>([
+    {
+      id: initialHostId,
+      agentHost: initialAgentHostId,
+      label: initialHostId,
+    },
+  ]);
+  const [activeHost, setActiveHost] = useState<AgentHostChoice>({
+    id: initialHostId,
+    agentHost: initialAgentHostId,
+    label: initialHostId,
+  });
   const [position, setPosition] = useState<CascadePosition>(() => positionFor(anchor, 1));
+
+  useEffect(() => {
+    let live = true;
+    const api = getVellumApi();
+    void api
+      ?.hostsList?.()
+      .then((result) => {
+        if (!live || !result.ok || !result.hosts) return;
+        const configured = {
+          id: initialHostId,
+          agentHost: initialAgentHostId,
+          label: `${initialHostId} (unavailable)`,
+        };
+        const choices = actorHostChoicesFromEnrollment(
+          result.hosts,
+          configured,
+        );
+        setHostChoices(choices);
+        setActiveHost(
+          choices.find((host) => host.id === initialHostId) ?? configured,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [initialAgentHostId, initialHostId]);
 
   useEffect(() => {
     let live = true;
@@ -155,7 +253,10 @@ export function AgentCascadeMenu({
   const showModelColumn =
     harness !== "hermes" || (activeProfile !== null && (models === null || models.length > 0));
   const showEffortColumn = activeModel !== null && efforts.length > 0;
-  const columnCount = 1 + Number(showModelColumn && harness === "hermes") + Number(showEffortColumn);
+  const columnCount =
+    2 +
+    Number(showModelColumn && harness === "hermes") +
+    Number(showEffortColumn);
 
   useLayoutEffect(() => {
     const update = () => setPosition(positionFor(anchor, columnCount));
@@ -171,6 +272,13 @@ export function AgentCascadeMenu({
   const profileChoices = profiles ?? [];
   const modelChoices = models ?? [];
   const firstColumnIsLoading = harness === "hermes" ? profiles === null : models === null;
+  const spawn = (choices: AgentConfigurationChoices): void => {
+    onSpawn({
+      ...choices,
+      host: activeHost.id,
+      agentHost: activeHost.agentHost,
+    });
+  };
 
   return createPortal(
     <div
@@ -179,6 +287,18 @@ export function AgentCascadeMenu({
       onMouseEnter={onPointerEnter}
       onMouseLeave={onPointerLeave}
     >
+      <MenuColumn label="Actor host">
+        {hostChoices.map((host) => (
+          <CascadeItem
+            key={host.id}
+            label={host.label}
+            expanded={activeHost.id === host.id}
+            onEnter={() => setActiveHost(host)}
+            onSelect={() => setActiveHost(host)}
+          />
+        ))}
+      </MenuColumn>
+
       <MenuColumn label={harness === "hermes" ? "Hermes profiles" : `${templateFor(harness).displayName} models`}>
         {firstColumnIsLoading ? (
           <LoadingRows />
@@ -193,7 +313,7 @@ export function AgentCascadeMenu({
                 setActiveModel(null);
               }}
               onSelect={() =>
-                onSpawn({
+                spawn({
                   harness,
                   profile: profile.name,
                   ...(profile.model ? { model: profile.model } : {}),
@@ -213,7 +333,7 @@ export function AgentCascadeMenu({
                 label={model.label}
                 expanded={hasEfforts ? activeModel?.id === model.id : undefined}
                 onEnter={() => setActiveModel(model)}
-                onSelect={() => onSpawn({ harness, model: model.id })}
+                onSelect={() => spawn({ harness, model: model.id })}
               />
             );
           })
@@ -237,7 +357,7 @@ export function AgentCascadeMenu({
                   expanded={hasEfforts ? activeModel?.id === model.id : undefined}
                   onEnter={() => setActiveModel(model)}
                   onSelect={() =>
-                    onSpawn({
+                    spawn({
                       harness,
                       ...(activeProfile ? { profile: activeProfile.name } : {}),
                       model: model.id,
@@ -257,7 +377,7 @@ export function AgentCascadeMenu({
               key={effort}
               label={effort}
               onSelect={() =>
-                onSpawn({
+                spawn({
                   harness,
                   ...(activeProfile ? { profile: activeProfile.name } : {}),
                   model: activeModel.id,
