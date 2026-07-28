@@ -100,18 +100,18 @@ describe("authoritative Linux release workflow", () => {
     expect(workflow).not.toContain("name: vellum-linux-");
   });
 
-  it("keeps macOS independent and makes promotion depend on both platforms", () => {
+  it("keeps macOS independent and gates the CI candidate on both smoke jobs", () => {
     expect(workflow).toContain("macos-verification:");
     expect(workflow).toContain("runs-on: macos-14");
-    expect(workflow).toContain("linux-package-qualification:");
-    expect(workflow).toContain("release-promotion-gate:");
+    expect(workflow).toContain("linux-package-smoke:");
+    expect(workflow).toContain("ci-candidate-gate:");
     expect(workflow).toContain("- macos-verification");
-    expect(workflow).toContain("- linux-package-qualification");
+    expect(workflow).toContain("- linux-package-smoke");
     expect(workflow).toContain(
       "needs.macos-verification.result == 'success'",
     );
     expect(workflow).toContain(
-      "needs.linux-package-qualification.result == 'success'",
+      "needs.linux-package-smoke.result == 'success'",
     );
     expect(workflow).toContain("github.event_name != 'pull_request'");
     expect(workflow).not.toMatch(
@@ -119,16 +119,11 @@ describe("authoritative Linux release workflow", () => {
     );
   });
 
-  it("never gives CI signing or publication authority", () => {
+  it("never gives CI signing, qualification, or publication authority", () => {
     expect(workflow).toContain("permissions:\n  contents: read");
-    expect(workflow).toContain("releaseAuthorization: \"not-granted\"");
-    expect(workflow).toContain("publishable: false");
     expect(workflow).toContain(
-      "name: vellum-unsigned-release-candidate-${{ github.sha }}",
+      "name: vellum-unqualified-release-candidate-${{ github.sha }}",
     );
-    expect(workflow).toContain("release-promotion-receipt.json");
-    expect(workflow).toContain("CI_EVIDENCE_SHA256");
-    expect(workflow).toContain("RELEASE_PACKAGE_SHA256");
     expect(workflow).toContain(
       'cmp --silent -- "$ci_manifest" "$verified_ci_manifest"',
     );
@@ -138,6 +133,18 @@ describe("authoritative Linux release workflow", () => {
     );
     expect(workflow).toContain(
       'test ! -e "$candidate/release-manifest.sig"',
+    );
+    expect(workflow).toContain(
+      'test ! -e "$candidate/station-qualification-receipt.json"',
+    );
+    expect(workflow).toContain(
+      'test ! -e "$candidate/release-promotion-receipt.json"',
+    );
+    expect(workflow).not.toContain(
+      'ubuntu2404X64Package: "passed"',
+    );
+    expect(workflow).not.toContain(
+      "vellum/release-promotion-gate/",
     );
     expect(workflow).not.toContain("linux-release-tool.ts sign");
     expect(workflow).not.toMatch(

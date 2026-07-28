@@ -18,6 +18,8 @@ import {
   LINUX_RELEASE_KEYRING,
   LINUX_RELEASE_MANIFEST,
   LINUX_RELEASE_SIGNATURE,
+  LINUX_STATION_QUALIFICATION_CHECKS,
+  LINUX_STATION_QUALIFICATION_RECEIPT,
   createLinuxReleaseManifest,
   decodeLinuxReleaseKeyring,
   decodeLinuxReleaseManifest,
@@ -110,6 +112,11 @@ const createFixture = async (options: {
   readonly sbomLicense?: string;
   readonly ciEvidencePackageSha256?: string;
   readonly promotionPackageSha256?: string;
+  readonly promotionStationQualificationSha256?: string;
+  readonly stationQualificationPackageSha256?: string;
+  readonly stationQualificationSourceCommit?: string;
+  readonly stationQualificationChecks?: ReadonlyArray<string>;
+  readonly omitStationQualification?: boolean;
 } = {}) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "vellum-linux-release-bundle-"),
@@ -303,10 +310,48 @@ const createFixture = async (options: {
     ciEvidenceManifest,
     { encoding: "utf8", mode: 0o644 },
   );
+  const stationQualificationReceipt = canonical({
+    schema: "vellum/station-two-installation-qualification/v1",
+    ok: true,
+    sourceCommit: options.stationQualificationSourceCommit ?? REVISION,
+    package: {
+      file: PACKAGE,
+      sha256:
+        options.stationQualificationPackageSha256 ??
+          sha256(payloads[PACKAGE]),
+    },
+    stationProtocol: 2,
+    installations: {
+      commandCenter: {
+        installationId: "fixture-command-center",
+        appVersion: VERSION,
+      },
+      remote: {
+        installationId: "fixture-remote",
+        appVersion: VERSION,
+        platform: "linux",
+        distribution: "ubuntu",
+        distributionVersion: "24.04",
+        architecture: "x64",
+      },
+    },
+    checks: (
+      options.stationQualificationChecks ??
+        LINUX_STATION_QUALIFICATION_CHECKS
+    ).map((name) => ({ name, status: "passed" })),
+    completedAt: "2026-07-23T11:50:00.000Z",
+  });
+  if (options.omitStationQualification !== true) {
+    await writeFile(
+      path.join(directory, LINUX_STATION_QUALIFICATION_RECEIPT),
+      stationQualificationReceipt,
+      { encoding: "utf8", mode: 0o644 },
+    );
+  }
   await writeFile(
     path.join(directory, "release-promotion-receipt.json"),
     canonical({
-      schema: "vellum/release-promotion-gate/v1",
+      schema: "vellum/release-promotion-gate/v2",
       ok: true,
       publishable: false,
       releaseAuthorization: "not-granted",
@@ -318,6 +363,12 @@ const createFixture = async (options: {
       ciEvidence: {
         file: "ci-evidence-manifest.json",
         sha256: sha256(ciEvidenceManifest),
+      },
+      stationQualification: {
+        file: LINUX_STATION_QUALIFICATION_RECEIPT,
+        sha256:
+          options.promotionStationQualificationSha256 ??
+            sha256(stationQualificationReceipt),
       },
       package: {
         file: PACKAGE,
@@ -395,7 +446,7 @@ describe("signed Linux release bundle", () => {
         "utf8",
       ),
     ));
-    expect(manifest.schema).toBe("vellum/linux-release-manifest/v4");
+    expect(manifest.schema).toBe("vellum/linux-release-manifest/v5");
     expect(manifest.stationProtocol).toEqual({
       preferred: 2,
       compatibleFrom: 2,
@@ -420,7 +471,7 @@ describe("signed Linux release bundle", () => {
       keyringRevision: 7,
       signedAt: "2026-07-23T11:58:00.000Z",
       expiresAt: EXPIRES_AT,
-      filesVerified: 16,
+      filesVerified: 17,
       bundleFiles: expect.arrayContaining([
         expect.objectContaining({
           file: PACKAGE,
@@ -685,6 +736,33 @@ describe("signed Linux release bundle", () => {
     ).rejects.toThrow(/does not bind/u);
     await expect(
       createFixture({ promotionPackageSha256: "0".repeat(64) }),
+    ).rejects.toThrow(/promotion receipt/u);
+  });
+
+  it("requires real two-installation evidence bound to source and package", async () => {
+    await expect(
+      createFixture({ omitStationQualification: true }),
+    ).rejects.toThrow(/missing or extra files/u);
+    await expect(
+      createFixture({
+        stationQualificationSourceCommit: "b".repeat(40),
+      }),
+    ).rejects.toThrow(/two-installation Station qualification/u);
+    await expect(
+      createFixture({
+        stationQualificationPackageSha256: "0".repeat(64),
+      }),
+    ).rejects.toThrow(/two-installation Station qualification/u);
+    await expect(
+      createFixture({
+        stationQualificationChecks:
+          LINUX_STATION_QUALIFICATION_CHECKS.slice(1),
+      }),
+    ).rejects.toThrow(/two-installation Station qualification/u);
+    await expect(
+      createFixture({
+        promotionStationQualificationSha256: "0".repeat(64),
+      }),
     ).rejects.toThrow(/promotion receipt/u);
   });
 

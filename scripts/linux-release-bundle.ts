@@ -22,14 +22,29 @@ import {
   negotiateStationProtocol,
   type StationProtocolSupport,
 } from "../src/shared/station-protocol";
+import { InstallationId as InstallationIdSchema } from "../src/shared/installation-id";
 import { isRecognizedSpdxExpression } from "./spdx-license";
 
 export const LINUX_RELEASE_MANIFEST = "release-manifest.json";
 export const LINUX_RELEASE_SIGNATURE = "release-manifest.sig";
 export const LINUX_RELEASE_CHECKSUMS = "SHA256SUMS";
 export const LINUX_RELEASE_KEYRING = "release-keyring.json";
+export const LINUX_STATION_QUALIFICATION_RECEIPT =
+  "station-qualification-receipt.json";
 export const LINUX_RELEASE_MAX_VALIDITY_MS = 31 * 24 * 60 * 60 * 1_000;
 export const LINUX_RELEASE_CLOCK_SKEW_MS = 5 * 60 * 1_000;
+
+export const LINUX_STATION_QUALIFICATION_CHECKS = Object.freeze([
+  "pair",
+  "configure",
+  "project",
+  "status",
+  "report",
+  "project-response-loss-retry",
+  "remote-offline-work",
+  "report-response-loss-retry",
+  "protocol-no-overlap-rejection",
+] as const);
 
 export const LINUX_RELEASE_TARGET = Object.freeze({
   os: "linux",
@@ -62,6 +77,7 @@ export type LinuxReleaseFileKind =
   | "package-audit"
   | "runtime-receipt"
   | "ci-evidence-manifest"
+  | "station-qualification-receipt"
   | "promotion-receipt"
   | "release-keyring"
   | "dependency-license-inventory"
@@ -80,7 +96,7 @@ export interface LinuxReleaseFile {
 }
 
 export interface LinuxReleaseManifest {
-  readonly schema: "vellum/linux-release-manifest/v4";
+  readonly schema: "vellum/linux-release-manifest/v5";
   readonly release: {
     readonly product: "Vellum Command";
     readonly version: string;
@@ -205,6 +221,7 @@ const FILE_KINDS = new Set<LinuxReleaseFileKind>([
   "package-audit",
   "runtime-receipt",
   "ci-evidence-manifest",
+  "station-qualification-receipt",
   "promotion-receipt",
   "release-keyring",
   "dependency-license-inventory",
@@ -223,6 +240,10 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["runtime-receipt", "packaged-pty-smoke.json"],
   ["runtime-receipt", "packaged-runtime-smoke.json"],
   ["ci-evidence-manifest", "ci-evidence-manifest.json"],
+  [
+    "station-qualification-receipt",
+    LINUX_STATION_QUALIFICATION_RECEIPT,
+  ],
   ["promotion-receipt", "release-promotion-receipt.json"],
   ["release-keyring", LINUX_RELEASE_KEYRING],
   ["dependency-license-inventory", "dependency-license-inventory.json"],
@@ -310,6 +331,16 @@ const requireSourceRevision = (value: unknown): string => {
     throw new Error("source revision must be a full lowercase Git SHA");
   }
   return revision;
+};
+
+const requireInstallationId = (value: unknown, label: string): string => {
+  const decoded = Schema.decodeUnknownEither(InstallationIdSchema, {
+    onExcessProperty: "error",
+  })(value);
+  if (Either.isLeft(decoded)) {
+    throw new Error(`invalid ${label}`);
+  }
+  return decoded.right;
 };
 
 const requireKeyId = (value: unknown): string => {
@@ -742,7 +773,7 @@ export const decodeLinuxReleaseManifest = (
     ],
     "Linux release manifest",
   );
-  if (manifest.schema !== "vellum/linux-release-manifest/v4") {
+  if (manifest.schema !== "vellum/linux-release-manifest/v5") {
     throw new Error("unsupported Linux release manifest");
   }
 
@@ -860,7 +891,7 @@ export const decodeLinuxReleaseManifest = (
   }
 
   return {
-    schema: "vellum/linux-release-manifest/v4",
+    schema: "vellum/linux-release-manifest/v5",
     release: {
       product: "Vellum Command",
       version,
@@ -1491,6 +1522,126 @@ const validateCiEvidenceManifest = (
   }
 };
 
+const validateStationQualificationReceipt = (
+  receipt: Record<string, unknown>,
+  manifest: LinuxReleaseManifest,
+): void => {
+  exactKeys(
+    receipt,
+    [
+      "schema",
+      "ok",
+      "sourceCommit",
+      "package",
+      "stationProtocol",
+      "installations",
+      "checks",
+      "completedAt",
+    ],
+    "two-installation Station qualification receipt",
+  );
+  const packageReceipt = record(
+    receipt.package,
+    "Station qualification package",
+  );
+  exactKeys(
+    packageReceipt,
+    ["file", "sha256"],
+    "Station qualification package",
+  );
+  const installations = record(
+    receipt.installations,
+    "Station qualification installations",
+  );
+  exactKeys(
+    installations,
+    ["commandCenter", "remote"],
+    "Station qualification installations",
+  );
+  const commandCenter = record(
+    installations.commandCenter,
+    "qualified Command Center",
+  );
+  exactKeys(
+    commandCenter,
+    ["installationId", "appVersion"],
+    "qualified Command Center",
+  );
+  const remote = record(installations.remote, "qualified Remote");
+  exactKeys(
+    remote,
+    [
+      "installationId",
+      "appVersion",
+      "platform",
+      "distribution",
+      "distributionVersion",
+      "architecture",
+    ],
+    "qualified Remote",
+  );
+  const commandCenterInstallationId = requireInstallationId(
+    commandCenter.installationId,
+    "qualified Command Center installation ID",
+  );
+  const remoteInstallationId = requireInstallationId(
+    remote.installationId,
+    "qualified Remote installation ID",
+  );
+  if (!Array.isArray(receipt.checks)) {
+    throw new Error("Station qualification checks are malformed");
+  }
+  const checks = receipt.checks.map((value, index) => {
+    const check = record(value, `Station qualification check ${index}`);
+    exactKeys(
+      check,
+      ["name", "status"],
+      `Station qualification check ${index}`,
+    );
+    if (check.status !== "passed") {
+      throw new Error("Station qualification contains a failed check");
+    }
+    return requiredString(
+      check.name,
+      `Station qualification check ${index} name`,
+      96,
+    );
+  });
+  const completedAt = requireIsoTimestamp(
+    receipt.completedAt,
+    "Station qualification completion time",
+  );
+  if (
+    receipt.schema !==
+      "vellum/station-two-installation-qualification/v1" ||
+    receipt.ok !== true ||
+    receipt.sourceCommit !== manifest.source.revision ||
+    packageReceipt.file !== manifest.package.file ||
+    packageReceipt.sha256 !== manifest.package.sha256 ||
+    requireInteger(
+      receipt.stationProtocol,
+      "qualified Station protocol",
+      1,
+      Number.MAX_SAFE_INTEGER,
+    ) !== manifest.stationProtocol.preferred ||
+    commandCenterInstallationId === remoteInstallationId ||
+    commandCenter.appVersion !== manifest.release.version ||
+    remote.appVersion !== manifest.release.version ||
+    remote.platform !== "linux" ||
+    remote.distribution !== "ubuntu" ||
+    remote.distributionVersion !== "24.04" ||
+    remote.architecture !== "x64" ||
+    JSON.stringify(checks) !==
+      JSON.stringify(LINUX_STATION_QUALIFICATION_CHECKS) ||
+    Date.parse(completedAt) >
+      Date.parse(manifest.release.createdAt) + LINUX_RELEASE_CLOCK_SKEW_MS
+  ) {
+    throw new Error(
+      "two-installation Station qualification does not bind the signed release",
+    );
+  }
+};
+
 const validatePromotionReceipt = (
   receipt: Record<string, unknown>,
   manifest: LinuxReleaseManifest,
@@ -1505,6 +1656,7 @@ const validatePromotionReceipt = (
       "sourceCommit",
       "qualifications",
       "ciEvidence",
+      "stationQualification",
       "package",
       "workflowRun",
     ],
@@ -1521,6 +1673,15 @@ const validatePromotionReceipt = (
   );
   const ciEvidence = record(receipt.ciEvidence, "promotion CI evidence");
   exactKeys(ciEvidence, ["file", "sha256"], "promotion CI evidence");
+  const stationQualification = record(
+    receipt.stationQualification,
+    "promotion Station qualification",
+  );
+  exactKeys(
+    stationQualification,
+    ["file", "sha256"],
+    "promotion Station qualification",
+  );
   const packageReceipt = record(receipt.package, "promotion package");
   exactKeys(
     packageReceipt,
@@ -1534,8 +1695,12 @@ const validatePromotionReceipt = (
     "promotion workflow run",
   );
   const ciManifest = signedFile(manifest, "ci-evidence-manifest.json");
+  const stationReceipt = signedFile(
+    manifest,
+    LINUX_STATION_QUALIFICATION_RECEIPT,
+  );
   if (
-    receipt.schema !== "vellum/release-promotion-gate/v1" ||
+    receipt.schema !== "vellum/release-promotion-gate/v2" ||
     receipt.ok !== true ||
     receipt.publishable !== false ||
     receipt.releaseAuthorization !== "not-granted" ||
@@ -1544,6 +1709,8 @@ const validatePromotionReceipt = (
     qualifications.ubuntu2404X64Package !== "passed" ||
     ciEvidence.file !== ciManifest.file ||
     ciEvidence.sha256 !== ciManifest.sha256 ||
+    stationQualification.file !== stationReceipt.file ||
+    stationQualification.sha256 !== stationReceipt.sha256 ||
     packageReceipt.file !== manifest.package.file ||
     packageReceipt.bytes !== manifest.package.bytes ||
     packageReceipt.sha256 !== manifest.package.sha256 ||
@@ -1574,6 +1741,10 @@ const validateEvidenceReceipt = (
   const receipt = parseEvidenceJson(input, file);
   if (file === "ci-evidence-manifest.json") {
     validateCiEvidenceManifest(receipt, manifest);
+    return;
+  }
+  if (file === LINUX_STATION_QUALIFICATION_RECEIPT) {
+    validateStationQualificationReceipt(receipt, manifest);
     return;
   }
   if (file === "release-promotion-receipt.json") {
@@ -1740,6 +1911,7 @@ const validatePayloads = async (
         entry.kind === "package-audit" ||
         entry.kind === "runtime-receipt" ||
         entry.kind === "ci-evidence-manifest" ||
+        entry.kind === "station-qualification-receipt" ||
         entry.kind === "promotion-receipt" ||
         entry.kind === "dependency-license-inventory" ||
         entry.kind === "sbom"
@@ -2104,7 +2276,7 @@ export const createLinuxReleaseManifest = async (input: {
     throw new Error("Linux release bundle is missing its deb");
   }
   const manifest: LinuxReleaseManifest = {
-    schema: "vellum/linux-release-manifest/v4",
+    schema: "vellum/linux-release-manifest/v5",
     release: {
       product: "Vellum Command",
       version,
