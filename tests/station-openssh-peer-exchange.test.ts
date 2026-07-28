@@ -10,6 +10,8 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   InstallationId,
+  ReportRequest,
+  ReportResponse,
   STATION_API_PROTOCOL,
   StatusRequest,
   StatusResponse,
@@ -462,6 +464,7 @@ describe("OpenSSH Station peer exchange", () => {
   const endedLease = (
     code: number,
     written: unknown[],
+    stdoutBytes?: Uint8Array,
   ): SshLease => ({
     write: (bytes) =>
       Effect.sync(() => {
@@ -469,7 +472,10 @@ describe("OpenSSH Station peer exchange", () => {
       }),
     writeSensitive: () => Effect.void,
     closeInput: Effect.void,
-    stdout: Stream.empty,
+    stdout:
+      stdoutBytes === undefined
+        ? Stream.empty
+        : Stream.make(stdoutBytes),
     stderr: Stream.empty,
     exitCode: Effect.succeed(code),
     close: Effect.void,
@@ -482,27 +488,29 @@ describe("OpenSSH Station peer exchange", () => {
     readonly connectCalls: () => number;
   } => {
     let connectCalls = 0;
+    const connect = (
+      _program: unknown,
+      awaitReady: (
+        lease: SshLease,
+        confirm: ConfirmSshReady,
+      ) => Effect.Effect<unknown, unknown, unknown>,
+    ) =>
+      Effect.gen(function* () {
+        const lease = leases[connectCalls];
+        connectCalls += 1;
+        if (lease === undefined) {
+          throw new TypeError("Unexpected extra SSH connection");
+        }
+        const ready = yield* awaitReady(
+          lease,
+          ((value: unknown) => ({ value })) as ConfirmSshReady,
+        );
+        return (ready as { readonly value: unknown }).value;
+      });
     const ssh = {
       run: () => Effect.succeed({ stdout: "Linux\n", stderr: "" }),
-      connect: (
-        _program: unknown,
-        awaitReady: (
-          lease: SshLease,
-          confirm: ConfirmSshReady,
-        ) => Effect.Effect<unknown, unknown, unknown>,
-      ) =>
-        Effect.gen(function* () {
-          const lease = leases[connectCalls];
-          connectCalls += 1;
-          if (lease === undefined) {
-            throw new TypeError("Unexpected extra SSH connection");
-          }
-          const ready = yield* awaitReady(
-            lease,
-            ((value: unknown) => ({ value })) as ConfirmSshReady,
-          );
-          return (ready as { readonly value: unknown }).value;
-        }),
+      connect,
+      connectWithExitObservation: connect,
       transfer: () => Effect.die("Station exchange must not use transfer"),
       transact: () => Effect.die("Station exchange must not use transact"),
     } as unknown as typeof SshTransport.Service;
@@ -616,6 +624,208 @@ describe("OpenSSH Station peer exchange", () => {
     expect((scripted.written[1] as StationSessionFrame).frame).toBe("request");
   });
 
+  it("holds an early Remote report until same-session status verifies route identity", async () => {
+    const statusObserved = await Effect.runPromise(Deferred.make<void>());
+    const releaseStatus = await Effect.runPromise(Deferred.make<void>());
+    const reportHandled = await Effect.runPromise(Deferred.make<void>());
+    const report = ReportRequest.make({
+      protocol: STATION_API_PROTOCOL,
+      op: "report",
+      senderInstallationId: REMOTE,
+      targetInstallationId: COMMAND_CENTER,
+      batch: {
+        records: [],
+        acknowledge: [],
+        hasMore: false,
+      },
+    });
+    const reportFrame = StationSessionRequestFrame.make({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "request",
+      requestId: decodeRequestId("early-report-01"),
+      request: report,
+    });
+    let reportCalls = 0;
+    const scripted = await liveLease((frame, stdout) => {
+      const record = frame as Record<string, unknown>;
+      if (record.frame === "offer") {
+        const accept = StationProtocolAccept.make({
+          protocol: STATION_PROTOCOL_PREFACE,
+          frame: "accept",
+          ...peerDiagnostics,
+          selected: 2,
+        });
+        return Effect.forEach(
+          [accept, reportFrame],
+          (outbound) =>
+            Queue.offer(
+              stdout,
+              encoder.encode(`${JSON.stringify(outbound)}\n`),
+            ),
+          { discard: true },
+        );
+      }
+      const request = frame as StationSessionFrame;
+      if (
+        request.frame === "request" &&
+        request.request.op === "status"
+      ) {
+        return Deferred.succeed(statusObserved, undefined).pipe(
+          Effect.zipRight(Deferred.await(releaseStatus)),
+          Effect.zipRight(respondToStatus(frame, stdout)),
+          Effect.asVoid,
+        );
+      }
+      return Effect.void;
+    });
+    const harness = await makeExchange([scripted.lease]);
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const opening = yield* Effect.fork(
+            harness.exchange.open(harness.route, () =>
+              Effect.sync(() => {
+                reportCalls += 1;
+              }).pipe(
+                Effect.zipRight(
+                  Deferred.succeed(reportHandled, undefined),
+                ),
+                Effect.as(
+                  stationControlOk(
+                    ReportResponse.make({
+                      protocol: STATION_API_PROTOCOL,
+                      op: "report",
+                      senderInstallationId: COMMAND_CENTER,
+                      targetInstallationId: REMOTE,
+                      batch: {
+                        records: [],
+                        acknowledge: [],
+                        hasMore: false,
+                      },
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          );
+          yield* Deferred.await(statusObserved).pipe(
+            Effect.timeoutFail({
+              duration: 1_000,
+              onTimeout: () =>
+                new Error("identity status request was not sent"),
+            }),
+          );
+          yield* Effect.yieldNow();
+          expect(reportCalls).toBe(0);
+
+          yield* Deferred.succeed(releaseStatus, undefined);
+          yield* Fiber.join(opening).pipe(
+            Effect.timeoutFail({
+              duration: 1_000,
+              onTimeout: () =>
+                new Error("identity status verification did not finish"),
+            }),
+          );
+          yield* Deferred.await(reportHandled).pipe(
+            Effect.timeoutFail({
+              duration: 1_000,
+              onTimeout: () =>
+                new Error("early report did not resume after verification"),
+            }),
+          );
+          expect(reportCalls).toBe(1);
+        }),
+      ),
+    );
+  });
+
+  it("fails the session without admitting reports when status names another installation", async () => {
+    const wrongRemote = decodeInstallationId("different-remote");
+    const wrongStatus = StatusResponse.make({
+      ...statusResponse,
+      installationId: wrongRemote,
+    });
+    const report = ReportRequest.make({
+      protocol: STATION_API_PROTOCOL,
+      op: "report",
+      senderInstallationId: REMOTE,
+      targetInstallationId: COMMAND_CENTER,
+      batch: {
+        records: [],
+        acknowledge: [],
+        hasMore: false,
+      },
+    });
+    const reportFrame = StationSessionRequestFrame.make({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "request",
+      requestId: decodeRequestId("wrong-identity-report"),
+      request: report,
+    });
+    let reportCalls = 0;
+    const scripted = await liveLease((frame, stdout) => {
+      const record = frame as Record<string, unknown>;
+      if (record.frame === "offer") {
+        const accept = StationProtocolAccept.make({
+          protocol: STATION_PROTOCOL_PREFACE,
+          frame: "accept",
+          ...peerDiagnostics,
+          selected: 2,
+        });
+        return Effect.forEach(
+          [accept, reportFrame],
+          (outbound) =>
+            Queue.offer(
+              stdout,
+              encoder.encode(`${JSON.stringify(outbound)}\n`),
+            ),
+          { discard: true },
+        );
+      }
+      const request = frame as StationSessionFrame;
+      if (
+        request.frame === "request" &&
+        request.request.op === "status"
+      ) {
+        return Queue.offer(
+          stdout,
+          encoder.encode(
+            `${JSON.stringify(
+              StationSessionResponseFrame.make({
+                protocol: STATION_SESSION_PROTOCOL,
+                frame: "response",
+                requestId: request.requestId,
+                envelope: stationControlOk(wrongStatus),
+              }),
+            )}\n`,
+          ),
+        ).pipe(Effect.asVoid);
+      }
+      return Effect.void;
+    });
+    const harness = await makeExchange([scripted.lease]);
+
+    const result = await Effect.runPromise(
+      Effect.scoped(
+        harness.exchange.open(harness.route, () =>
+          Effect.sync(() => {
+            reportCalls += 1;
+            return stationControlErr(
+              "authorization_denied",
+              "unexpected report",
+              false,
+            );
+          }),
+        ),
+      ).pipe(Effect.either),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    expect(reportCalls).toBe(0);
+    expect(harness.connectCalls()).toBe(1);
+  });
+
   it("reconnects once as exact legacy v2 only after sealed code-64 rejection", async () => {
     const firstWritten: unknown[] = [];
     const legacy = await liveLease(respondToStatus);
@@ -666,6 +876,23 @@ describe("OpenSSH Station peer exchange", () => {
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isLeft(result)) {
       expect(result.left.reason).toBe("connect-failed");
+    }
+    expect(harness.connectCalls()).toBe(1);
+  });
+
+  it("does not fall back when code 64 races with any peer stdout byte", async () => {
+    const written: unknown[] = [];
+    const harness = await makeExchange([
+      endedLease(64, written, encoder.encode("{")),
+    ]);
+
+    const result = await Effect.runPromise(
+      openFailure(harness.exchange, harness.route),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.reason).toBe("protocol-negotiation");
     }
     expect(harness.connectCalls()).toBe(1);
   });

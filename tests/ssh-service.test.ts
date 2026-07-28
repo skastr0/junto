@@ -696,6 +696,62 @@ describe("SshTransport", () => {
       expect(closedInCallback.left).toBeInstanceOf(SshIoError);
   });
 
+  it("lets Station readiness drain stdout before classifying an already-finished exit", async () => {
+    const layer = await testLayer(
+      (command) =>
+        remoteText(command).includes("station-negotiation")
+          ? {
+              code: 64,
+              stdout: encoder.encode("peer-bytes-before-exit\n"),
+            }
+          : {},
+      [],
+      [],
+    );
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const endpoint = yield* parseSshEndpoint("linux-station");
+            const remote = yield* makeRemoteCommand(
+              "station-negotiation",
+            );
+            return yield* (
+              yield* SshTransport
+            ).connectWithExitObservation(
+              dedicatedStream(endpoint, remote),
+              (lease) =>
+                Effect.gen(function* () {
+                  const stdout = yield* Stream.runFold(
+                    lease.stdout,
+                    "",
+                    (body, chunk) =>
+                      body + Buffer.from(chunk).toString("utf8"),
+                  );
+                  const code = yield* lease.exitCode;
+                  return yield* Effect.fail({
+                    _tag: "ObservedStationExit" as const,
+                    code,
+                    stdout,
+                  });
+                }),
+            );
+          }),
+        ).pipe(Effect.provide(layer)),
+      ),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toEqual({
+        _tag: "ObservedStationExit",
+        code: 64,
+        stdout: "peer-bytes-before-exit\n",
+      });
+    }
+  });
+
   it("keeps daemon handoff inside admission until domain readiness", async () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];

@@ -124,6 +124,21 @@ export class SshTransport extends Context.Tag("@vellum/SshTransport")<
       ) => Effect.Effect<SshReady<A>, E, R>,
     ) => Effect.Effect<A, SshError | E, R | Scope.Scope>;
     /**
+     * Station compatibility-only readiness path.
+     *
+     * Unlike `connect`, the transport does not race child exit against the
+     * callback. The callback owns exit observation so it can drain stdout to
+     * EOF before classifying a zero-byte legacy witness. A confirmed live
+     * connection is still checked exactly like `connect`.
+     */
+    readonly connectWithExitObservation: <A, E, R>(
+      program: ScopedStreamProgram,
+      awaitReady: (
+        lease: SshLease,
+        confirm: ConfirmSshReady,
+      ) => Effect.Effect<SshReady<A>, E, R>,
+    ) => Effect.Effect<A, SshError | E, R | Scope.Scope>;
+    /**
      * Runs one finite duplex protocol over one scoped SSH child and requires a
      * clean remote exit. The callback owns stdin sequencing and must close it
      * when its protocol has no more frames to send.
@@ -620,10 +635,14 @@ export const SshTransportLayer = Layer.scoped(
         ),
       );
 
-    const connect: Context.Tag.Service<typeof SshTransport>["connect"] = (
-      program,
-      awaitReady,
-    ) =>
+    const connectWithPolicy = <A, E, R>(
+      callbackOwnsExit: boolean,
+      program: ScopedStreamProgram,
+      awaitReady: (
+        lease: SshLease,
+        confirm: ConfirmSshReady,
+      ) => Effect.Effect<SshReady<A>, E, R>,
+    ): Effect.Effect<A, SshError | E, R | Scope.Scope> =>
       Effect.try({
         try: () => compiler.stream(program),
         catch: () =>
@@ -656,10 +675,13 @@ export const SshTransportLayer = Layer.scoped(
                       ),
                     ),
                   );
-                return Effect.raceFirst(
-                  awaitReady(lease, confirm),
-                  exited,
-                ).pipe(
+                const readiness = callbackOwnsExit
+                  ? awaitReady(lease, confirm)
+                  : Effect.raceFirst(
+                      awaitReady(lease, confirm),
+                      exited,
+                    );
+                return readiness.pipe(
                   Effect.timeoutFail({
                     duration: compiled.readinessTimeoutMs,
                     onTimeout: () =>
@@ -692,6 +714,18 @@ export const SshTransportLayer = Layer.scoped(
           );
         }),
       );
+
+    const connect: Context.Tag.Service<typeof SshTransport>["connect"] = (
+      program,
+      awaitReady,
+    ) => connectWithPolicy(false, program, awaitReady);
+
+    const connectWithExitObservation: Context.Tag.Service<
+      typeof SshTransport
+    >["connectWithExitObservation"] = (
+      program,
+      awaitReady,
+    ) => connectWithPolicy(true, program, awaitReady);
 
     const transfer: Context.Tag.Service<typeof SshTransport>["transfer"] = (
       program,
@@ -1096,6 +1130,7 @@ export const SshTransportLayer = Layer.scoped(
       run,
       transfer,
       connect,
+      connectWithExitObservation,
       transact,
       forward,
       handoff,

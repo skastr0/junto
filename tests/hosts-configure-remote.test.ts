@@ -119,136 +119,146 @@ const makeSsh = (
   const requests: StationSessionRequestFrame[] = [];
   let connection = 0;
 
+  const connect = (
+    _program: unknown,
+    awaitReady: (
+      lease: SshLease,
+      confirm: ConfirmSshReady,
+    ) => Effect.Effect<unknown, unknown, unknown>,
+  ) =>
+    Effect.gen(function* () {
+      const index = connection;
+      connection += 1;
+      const bootstrap = index === 0;
+      events.push(bootstrap ? "bootstrap-open" : "peer-open");
+
+      const bootstrapOutput = yield* Deferred.make<Uint8Array>();
+      const peerOutput = yield* Queue.unbounded<Uint8Array>();
+      let closed = false;
+      const close = Effect.suspend(() => {
+        if (closed) return Effect.void;
+        closed = true;
+        events.push(bootstrap ? "bootstrap-close" : "peer-close");
+        return bootstrap
+          ? Effect.void
+          : Queue.shutdown(peerOutput);
+      });
+      const lease: SshLease = {
+        write: (bytes) =>
+          Effect.gen(function* () {
+            const raw = JSON.parse(
+              decoder.decode(bytes).trim(),
+            ) as Record<string, unknown>;
+            if (!bootstrap && raw.frame === "offer") {
+              events.push("protocol-offer");
+              yield* Queue.offer(
+                peerOutput,
+                encoder.encode(
+                  `${JSON.stringify(
+                    StationProtocolAccept.make({
+                      protocol: STATION_PROTOCOL_PREFACE,
+                      frame: "accept",
+                      appVersion: "0.1.0",
+                      stateSchemaVersion: 1,
+                      support: CURRENT_STATION_PROTOCOL_SUPPORT,
+                      selected: 2,
+                    }),
+                  )}\n`,
+                ),
+              );
+              return;
+            }
+            const request = parseRequest(bytes);
+            requests.push(request);
+            if (bootstrap) {
+              events.push(`bootstrap-${request.request.op}`);
+              yield* Deferred.succeed(
+                bootstrapOutput,
+                encodedResponse(request, statusResponse),
+              );
+              return;
+            }
+            events.push(request.request.op);
+            if (request.request.op === "status") {
+              yield* Queue.offer(
+                peerOutput,
+                encodedResponse(request, statusResponse),
+              );
+              return;
+            }
+            if (request.request.op === "pair") {
+              yield* Queue.offer(
+                peerOutput,
+                encodedResponse(
+                  request,
+                  PairResponse.make({
+                    protocol: STATION_API_PROTOCOL,
+                    op: "pair",
+                    commandCenterInstallationId:
+                      request.request.commandCenterInstallationId,
+                    stationInstallationId:
+                      request.request.stationInstallationId,
+                    pairedAt: "2026-07-27T12:00:01.000Z",
+                  }),
+                ),
+              );
+              return;
+            }
+            if (request.request.op === "configure") {
+              yield* Queue.offer(
+                peerOutput,
+                encodedResponse(
+                  request,
+                  ConfigureResponse.make({
+                    protocol: STATION_API_PROTOCOL,
+                    op: "configure",
+                    installationId: request.request.installationId,
+                    configuration: {
+                      ...request.request.configuration,
+                      hostId:
+                        (input.responseHostId ??
+                          request.request.configuration.hostId) as
+                          typeof request.request.configuration.hostId,
+                    },
+                    host: request.request.host,
+                    configuredAt: "2026-07-27T12:00:02.000Z",
+                  }),
+                ),
+              );
+              return;
+            }
+            return yield* Effect.dieMessage(
+              `unexpected enrollment operation: ${request.request.op}`,
+            );
+          }),
+        writeSensitive: () => Effect.dieMessage("unexpected sensitive write"),
+        closeInput: bootstrap
+          ? Effect.sync(() => {
+              events.push("bootstrap-input-close");
+            })
+          : Effect.dieMessage("peer input must stay open"),
+        stdout: bootstrap
+          ? Stream.fromEffect(Deferred.await(bootstrapOutput))
+          : Stream.fromQueue(peerOutput),
+        stderr: Stream.empty,
+        exitCode: bootstrap ? Effect.succeed(0) : Effect.never,
+        close,
+      };
+      const ready = yield* awaitReady(
+        lease,
+        ((value: unknown) => ({ value })) as ConfirmSshReady,
+      );
+      return (ready as { readonly value: unknown }).value;
+    });
+
   const ssh = {
     run: () =>
       Effect.sync(() => {
         events.push("platform");
         return { stdout: "Linux\n", stderr: "" };
       }),
-    connect: (
-      _program: unknown,
-      awaitReady: (
-        lease: SshLease,
-        confirm: ConfirmSshReady,
-      ) => Effect.Effect<unknown, unknown, unknown>,
-    ) =>
-      Effect.gen(function* () {
-        const index = connection;
-        connection += 1;
-        const bootstrap = index === 0;
-        events.push(bootstrap ? "bootstrap-open" : "peer-open");
-
-        const bootstrapOutput = yield* Deferred.make<Uint8Array>();
-        const peerOutput = yield* Queue.unbounded<Uint8Array>();
-        let closed = false;
-        const close = Effect.suspend(() => {
-          if (closed) return Effect.void;
-          closed = true;
-          events.push(bootstrap ? "bootstrap-close" : "peer-close");
-          return bootstrap
-            ? Effect.void
-            : Queue.shutdown(peerOutput);
-        });
-        const lease: SshLease = {
-          write: (bytes) =>
-            Effect.gen(function* () {
-              const raw = JSON.parse(
-                decoder.decode(bytes).trim(),
-              ) as Record<string, unknown>;
-              if (!bootstrap && raw.frame === "offer") {
-                events.push("protocol-offer");
-                yield* Queue.offer(
-                  peerOutput,
-                  encoder.encode(
-                    `${JSON.stringify(
-                      StationProtocolAccept.make({
-                        protocol: STATION_PROTOCOL_PREFACE,
-                        frame: "accept",
-                        appVersion: "0.1.0",
-                        stateSchemaVersion: 1,
-                        support: CURRENT_STATION_PROTOCOL_SUPPORT,
-                        selected: 2,
-                      }),
-                    )}\n`,
-                  ),
-                );
-                return;
-              }
-              const request = parseRequest(bytes);
-              requests.push(request);
-              if (bootstrap) {
-                events.push(`bootstrap-${request.request.op}`);
-                yield* Deferred.succeed(
-                  bootstrapOutput,
-                  encodedResponse(request, statusResponse),
-                );
-                return;
-              }
-              events.push(request.request.op);
-              if (request.request.op === "pair") {
-                yield* Queue.offer(
-                  peerOutput,
-                  encodedResponse(
-                    request,
-                    PairResponse.make({
-                      protocol: STATION_API_PROTOCOL,
-                      op: "pair",
-                      commandCenterInstallationId:
-                        request.request.commandCenterInstallationId,
-                      stationInstallationId:
-                        request.request.stationInstallationId,
-                      pairedAt: "2026-07-27T12:00:01.000Z",
-                    }),
-                  ),
-                );
-                return;
-              }
-              if (request.request.op === "configure") {
-                yield* Queue.offer(
-                  peerOutput,
-                  encodedResponse(
-                    request,
-                    ConfigureResponse.make({
-                      protocol: STATION_API_PROTOCOL,
-                      op: "configure",
-                      installationId: request.request.installationId,
-                      configuration: {
-                        ...request.request.configuration,
-                        hostId:
-                          (input.responseHostId ??
-                            request.request.configuration.hostId) as
-                            typeof request.request.configuration.hostId,
-                      },
-                      host: request.request.host,
-                      configuredAt: "2026-07-27T12:00:02.000Z",
-                    }),
-                  ),
-                );
-                return;
-              }
-              return yield* Effect.dieMessage(
-                `unexpected enrollment operation: ${request.request.op}`,
-              );
-            }),
-          writeSensitive: () => Effect.dieMessage("unexpected sensitive write"),
-          closeInput: bootstrap
-            ? Effect.sync(() => {
-                events.push("bootstrap-input-close");
-              })
-            : Effect.dieMessage("peer input must stay open"),
-          stdout: bootstrap
-            ? Stream.fromEffect(Deferred.await(bootstrapOutput))
-            : Stream.fromQueue(peerOutput),
-          stderr: Stream.empty,
-          exitCode: bootstrap ? Effect.succeed(0) : Effect.never,
-          close,
-        };
-        const ready = yield* awaitReady(
-          lease,
-          ((value: unknown) => ({ value })) as ConfirmSshReady,
-        );
-        return (ready as { readonly value: unknown }).value;
-      }),
+    connect,
+    connectWithExitObservation: connect,
     transfer: () => Effect.dieMessage("Station enrollment must not transfer"),
     transact: () => Effect.dieMessage("Station enrollment must not transact"),
   } as unknown as typeof SshTransport.Service;
@@ -284,14 +294,15 @@ describe("configureRemoteHost", () => {
       "bootstrap-close",
       "peer-open",
       "protocol-offer",
+      "status",
       "pair",
       "configure",
       "peer-close",
     ]);
     expect(
       fixture.requests.map((request) => request.request.op),
-    ).toEqual(["status", "pair", "configure"]);
-    const pair = fixture.requests[1]?.request;
+    ).toEqual(["status", "status", "pair", "configure"]);
+    const pair = fixture.requests[2]?.request;
     expect(pair).toMatchObject({
       protocol: STATION_API_PROTOCOL,
       op: "pair",
@@ -300,7 +311,7 @@ describe("configureRemoteHost", () => {
       stationLabel: "Studio",
       appVersion: "0.1.0",
     });
-    const configure = fixture.requests[2]?.request;
+    const configure = fixture.requests[3]?.request;
     expect(configure).toMatchObject({
       protocol: STATION_API_PROTOCOL,
       op: "configure",

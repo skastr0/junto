@@ -10,9 +10,12 @@ import {
   Ref,
   Schema,
   Scope,
+  Sink,
   Stream,
 } from "effect";
 import {
+  STATION_API_PROTOCOL,
+  StatusRequest,
   type InstallationId as InstallationIdValue,
   type StationApiRequest,
 } from "@shared/station-api";
@@ -698,8 +701,12 @@ const prefacePeerDiagnostics = (
 
 const asSessionTransport = (
   connection: OpenSshFrameTransport<StationConnectionFrame>,
+  incoming: Stream.Stream<
+    StationConnectionFrame,
+    StationSessionTransportError
+  > = connection.incoming,
 ): StationSessionFrameTransport => ({
-  incoming: connection.incoming.pipe(
+  incoming: incoming.pipe(
     Stream.mapEffect((frame) => {
       const decoded = decodeStationSessionFrame(frame);
       return Either.isRight(decoded)
@@ -744,29 +751,46 @@ const openError = (
   );
 };
 
-const makeCommandCenterSession = (
+const makeVerifiedCommandCenterSession = (
   commandCenterInstallationId: InstallationIdValue,
   peerInstallationId: InstallationIdValue,
   protocol: StationPeerProtocolBinding,
   transport: StationSessionFrameTransport,
   onRemoteReport: StationRemoteReportHandler,
 ) =>
-  makeStationPeerSession({
-    localRole: "command-center",
-    localInstallationId: commandCenterInstallationId,
-    peerInstallationId,
-    protocol,
-    transport,
-    handleRequest: (request: StationApiRequest) =>
-      request.op === "report"
-        ? onRemoteReport(request)
-        : Effect.succeed(
-            stationControlErr(
-              "authorization_denied",
-              "A Remote may initiate only report",
-              false,
+  Effect.gen(function* () {
+    const verified = yield* Deferred.make<void>();
+    const session = yield* makeStationPeerSession({
+      localRole: "command-center",
+      localInstallationId: commandCenterInstallationId,
+      peerInstallationId,
+      protocol,
+      transport,
+      handleRequest: (request: StationApiRequest) =>
+        request.op === "report"
+          ? Deferred.await(verified).pipe(
+              Effect.zipRight(onRemoteReport(request)),
+            )
+          : Effect.succeed(
+              stationControlErr(
+                "authorization_denied",
+                "A Remote may initiate only report",
+                false,
+              ),
             ),
-          ),
+    });
+
+    // Identity is a same-session fact, not a property inferred from the SSH
+    // route. Session correlation strictly requires this response's
+    // installationId to equal peerInstallationId and closes on mismatch.
+    yield* session.request(
+      StatusRequest.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "status",
+      }),
+    );
+    yield* Deferred.succeed(verified, undefined);
+    return session;
   });
 
 export const makeOpenSshStationPeerExchange = (
@@ -803,24 +827,24 @@ export const makeOpenSshStationPeerExchange = (
         });
         const negotiationCommand =
           yield* remoteVellumStationNegotiation(details.platform);
-        let peerBytesObserved = 0;
-
         const negotiatedAttempt = yield* ssh
-          .connect(
+          .connectWithExitObservation(
             sharedStream(details.target, negotiationCommand, "agent"),
             (lease, confirm) =>
               Effect.gen(function* () {
                 const connection = yield* makeOpenSshFrameTransport(
                   lease,
                   stationConnectionFrameCodec,
-                  {},
-                  (bytes) => {
-                    peerBytesObserved += bytes;
-                  },
                 );
                 yield* connection.send(offer);
 
-                const first = yield* Stream.runHead(connection.incoming);
+                // `connectWithExitObservation` lets this consumer own the
+                // process-exit race. None is observable only after stdout EOF
+                // and decoder drain, so code 64 is a true zero-byte witness.
+                const [first, remaining] = yield* Stream.peel(
+                  connection.incoming,
+                  Sink.head(),
+                );
                 if (Option.isNone(first)) {
                   const code = yield* lease.exitCode;
                   return yield* new SshExitError({
@@ -878,11 +902,11 @@ export const makeOpenSshStationPeerExchange = (
                   local: localProtocol,
                   peer: peerProtocol,
                 });
-                const session = yield* makeCommandCenterSession(
+                const session = yield* makeVerifiedCommandCenterSession(
                   commandCenterInstallationId,
                   route.peerInstallationId,
                   protocol,
-                  asSessionTransport(connection),
+                  asSessionTransport(connection, remaining),
                   onRemoteReport,
                 );
                 return confirm(session);
@@ -893,15 +917,11 @@ export const makeOpenSshStationPeerExchange = (
           return negotiatedAttempt.right;
         }
 
-        // Let the stdout consumer publish any bytes already delivered before
-        // accepting the zero-byte legacy witness.
-        yield* Effect.yieldNow();
         const negotiationFailure = negotiatedAttempt.left;
         const legacyWitness =
           negotiationFailure instanceof SshExitError &&
           negotiationFailure.operation === "stream" &&
-          negotiationFailure.code === 64 &&
-          peerBytesObserved === 0;
+          negotiationFailure.code === 64;
         if (!legacyWitness) {
           return yield* openError(
             route.peerInstallationId,
@@ -918,7 +938,7 @@ export const makeOpenSshStationPeerExchange = (
             Effect.gen(function* () {
               const transport =
                 yield* makeOpenSshStationFrameTransport(lease);
-              const session = yield* makeCommandCenterSession(
+              const session = yield* makeVerifiedCommandCenterSession(
                 commandCenterInstallationId,
                 route.peerInstallationId,
                 legacyProtocol,
