@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setNodeColor, setNodeView, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setNodeColor, setNodeHost, setNodeView, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -880,6 +880,59 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().nodes[0].color).toBe("5");
     setNodeColor("source");
     expect(state$.doc.peek().nodes[0].color).toBeUndefined();
+  });
+
+  it("changes only a tasks sink queue home", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        {
+          id: "tasks",
+          type: "text",
+          text: "tasks",
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 120,
+          ether: {
+            entity: { kind: "task" },
+            host: "local",
+            tasks: { items: [] },
+          },
+        },
+        {
+          id: "actor",
+          type: "text",
+          text: "agent",
+          x: 300,
+          y: 0,
+          width: 260,
+          height: 110,
+          ether: {
+            entity: { kind: "agent", name: "local:codex" },
+            host: "local",
+            terminal: {
+              bindingId: "binding-1",
+              harness: "codex",
+              launch: { kind: "harness", argv: ["codex"] },
+            },
+          },
+        },
+      ],
+      edges: [],
+    });
+
+    setNodeHost("tasks", "remote-a");
+    setNodeHost("actor", "remote-a");
+
+    expect(state$.doc.peek().nodes[0]?.ether?.host).toBe("remote-a");
+    expect(state$.doc.peek().nodes[1]?.ether).toMatchObject({
+      entity: { name: "local:codex" },
+      host: "local",
+    });
+
+    setNodeHost("tasks", "-invalid");
+    expect(state$.doc.peek().nodes[0]?.ether?.host).toBe("remote-a");
   });
 
   it("edits and clears native edge labels", () => {

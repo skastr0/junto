@@ -852,6 +852,41 @@ export const setPageBinding = (
   });
 };
 
+/**
+ * Change the queue home used for newly submitted tasks.
+ *
+ * Existing work rows keep their single authority home. Actor nodes are
+ * deliberately excluded: moving one changes its InstallationId-derived
+ * ActorSeatId, so relocation must be expressed as a newly authored seat after
+ * the old seat's work has been resolved.
+ */
+export const setNodeHost = (id: string, input: string): void => {
+  const host = input.trim();
+  if (!isValidStationHostId(host)) return;
+  const doc = state$.doc.peek();
+  const target = doc.nodes.find((node) => node.id === id);
+  if (
+    target?.ether?.entity?.kind !== "task" ||
+    target.ether.host === host
+  ) {
+    return;
+  }
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((node) =>
+      node.id === id && node.ether?.entity?.kind === "task"
+        ? {
+            ...node,
+            ether: {
+              ...node.ether,
+              host,
+            },
+          }
+        : node,
+    ),
+  });
+};
+
 // Promote a plain link node in place into a bound browser page work surface —
 // stamps entity.kind "page" + ether.browser onto the EXISTING node.id (never
 // spawns a new node; the JSON Canvas `link` type never changes). Product
