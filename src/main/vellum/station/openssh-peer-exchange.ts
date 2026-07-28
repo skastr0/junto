@@ -1,6 +1,5 @@
 import {
   Cause,
-  Chunk,
   Context,
   Deferred,
   Effect,
@@ -269,6 +268,11 @@ interface OutboundFrame {
   readonly releaseBytes: Effect.Effect<void>;
 }
 
+interface OpenSshTransportState {
+  readonly closed: boolean;
+  readonly outstanding: ReadonlySet<OutboundFrame>;
+}
+
 type InboundFrame =
   | {
       readonly _tag: "Frame";
@@ -306,7 +310,10 @@ export const makeOpenSshStationFrameTransport = (
     const outbound = yield* Queue.bounded<OutboundFrame>(maxQueuedFrames);
     const inbound = yield* Queue.bounded<InboundFrame>(maxInboundFrames);
     const queuedBytes = yield* Effect.makeSemaphore(maxQueuedBytes);
-    const closed = yield* Ref.make(false);
+    const state = yield* Ref.make<OpenSshTransportState>({
+      closed: false,
+      outstanding: new Set(),
+    });
     const closedSignal = yield* Deferred.make<void>();
     const decoder = makeOpenSshStationFrameDecoder(maxFrameBytes);
     const closedError = transportError(
@@ -340,15 +347,38 @@ export const makeOpenSshStationFrameTransport = (
         { discard: true },
       );
 
+    const removeOutstanding = (
+      frame: OutboundFrame,
+    ): Effect.Effect<void> =>
+      Ref.update(state, (current) => {
+        if (!current.outstanding.has(frame)) return current;
+        const outstanding = new Set(current.outstanding);
+        outstanding.delete(frame);
+        return { ...current, outstanding };
+      });
+
     const close = Effect.fn("OpenSshStationFrameTransport.close")(() =>
       Effect.gen(function* () {
-        const wasClosed = yield* Ref.getAndSet(closed, true);
-        if (wasClosed) return;
+        const abandoned = yield* Ref.modify(state, (current) => {
+          if (current.closed) {
+            return [
+              Option.none<ReadonlyArray<OutboundFrame>>(),
+              current,
+            ] as const;
+          }
+          return [
+            Option.some([...current.outstanding]),
+            {
+              closed: true,
+              outstanding: new Set<OutboundFrame>(),
+            },
+          ] as const;
+        });
+        if (Option.isNone(abandoned)) return;
         yield* Deferred.succeed(closedSignal, undefined);
-        const abandoned = yield* Queue.takeAll(outbound);
         yield* Queue.shutdown(outbound);
         yield* Queue.shutdown(inbound);
-        yield* completeAbandoned(Chunk.toReadonlyArray(abandoned));
+        yield* completeAbandoned(abandoned.value);
         yield* lease.close;
       }).pipe(Effect.uninterruptible),
     );
@@ -385,6 +415,7 @@ export const makeOpenSshStationFrameTransport = (
           onSuccess: () =>
             Deferred.succeed(frame.written, undefined).pipe(Effect.asVoid),
         }),
+        Effect.ensuring(removeOutstanding(frame)),
         Effect.ensuring(frame.releaseBytes),
       );
 
@@ -442,7 +473,7 @@ export const makeOpenSshStationFrameTransport = (
       frame: StationSessionFrame,
     ): Effect.Effect<void, StationSessionTransportError> =>
       Effect.gen(function* () {
-        if (yield* Ref.get(closed)) {
+        if ((yield* Ref.get(state)).closed) {
           return yield* closedError;
         }
         const bytes = yield* encodeOpenSshStationFrame(
@@ -460,6 +491,11 @@ export const makeOpenSshStationFrameTransport = (
           StationSessionTransportError
         >();
         const releaseBytes = releaseOnce(bytes.byteLength);
+        const outboundFrame: OutboundFrame = {
+          bytes,
+          written,
+          releaseBytes,
+        };
         yield* Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
             yield* restore(
@@ -468,30 +504,47 @@ export const makeOpenSshStationFrameTransport = (
                 unavailable,
               ),
             );
+            const registered = yield* Ref.modify(
+              state,
+              (current) => {
+                if (current.closed) return [false, current] as const;
+                const outstanding = new Set(current.outstanding);
+                outstanding.add(outboundFrame);
+                return [
+                  true,
+                  { ...current, outstanding },
+                ] as const;
+              },
+            );
+            if (!registered) {
+              yield* releaseBytes;
+              return yield* closedError;
+            }
             const accepted = yield* restore(
               Effect.raceFirst(
-                Queue.offer(outbound, {
-                  bytes,
-                  written,
-                  releaseBytes,
-                }),
+                Queue.offer(outbound, outboundFrame),
                 unavailable,
               ),
             ).pipe(
               Effect.catchAllCause((cause) =>
                 Cause.isInterruptedOnly(cause)
-                  ? Ref.get(closed).pipe(
-                      Effect.flatMap((isClosed) =>
-                        isClosed
+                  ? Ref.get(state).pipe(
+                      Effect.flatMap((current) =>
+                        current.closed
                           ? Effect.fail(closedError)
                           : Effect.failCause(cause)
                       ),
                     )
                   : Effect.failCause(cause)
               ),
-              Effect.onError(() => releaseBytes),
+              Effect.onError(() =>
+                removeOutstanding(outboundFrame).pipe(
+                  Effect.zipRight(releaseBytes),
+                )
+              ),
             );
             if (!accepted) {
+              yield* removeOutstanding(outboundFrame);
               yield* releaseBytes;
               return yield* closedError;
             }

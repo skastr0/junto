@@ -4,7 +4,9 @@ import {
   Deferred,
   Effect,
   Either,
+  Equal,
   Exit,
+  Fiber,
   Option,
   Ref,
   Schema,
@@ -34,6 +36,7 @@ import {
 
 export const STATION_PEER_MAX_PENDING_REQUESTS = 64;
 export const STATION_PEER_MAX_INBOUND_REQUESTS = 16;
+export const STATION_PEER_REQUEST_TIMEOUT_MS = 30_000;
 
 export class StationSessionTransportError extends Schema.TaggedError<StationSessionTransportError>()(
   "StationSessionTransportError",
@@ -61,6 +64,7 @@ export class StationPeerSessionClosedError extends Schema.TaggedError<StationPee
       "transport-failed",
       "protocol-failed",
       "request-interrupted",
+      "request-timeout",
     ),
     message: Schema.String,
   },
@@ -160,6 +164,7 @@ export interface StationPeerSessionOptions {
   readonly nextRequestId?: Effect.Effect<StationSessionRequestIdValue>;
   readonly maxPendingRequests?: number;
   readonly maxInboundRequests?: number;
+  readonly requestTimeoutMs?: number;
 }
 
 interface PendingRequest {
@@ -174,6 +179,12 @@ interface SessionState {
   readonly closed: StationPeerSessionClosedError | undefined;
   readonly pending: ReadonlyMap<StationSessionRequestIdValue, PendingRequest>;
   readonly inbound: ReadonlySet<StationSessionRequestIdValue>;
+  readonly inboundFibers: ReadonlySet<Fiber.RuntimeFiber<void, never>>;
+}
+
+interface SessionCloseTargets {
+  readonly pending: ReadonlyArray<PendingRequest>;
+  readonly inboundFibers: ReadonlyArray<Fiber.RuntimeFiber<void, never>>;
 }
 
 type RegisterPendingDecision =
@@ -183,6 +194,11 @@ type RegisterPendingDecision =
       readonly error: StationPeerSessionClosedError;
     }
   | { readonly _tag: "capacity" }
+  | { readonly _tag: "duplicate" };
+
+type AdmitInboundDecision =
+  | { readonly _tag: "admitted" }
+  | { readonly _tag: "closed" }
   | { readonly _tag: "duplicate" };
 
 const routeMatches = (
@@ -277,10 +293,13 @@ export const makeStationPeerSession = (
       options.maxPendingRequests ?? STATION_PEER_MAX_PENDING_REQUESTS;
     const maxInboundRequests =
       options.maxInboundRequests ?? STATION_PEER_MAX_INBOUND_REQUESTS;
+    const requestTimeoutMs =
+      options.requestTimeoutMs ?? STATION_PEER_REQUEST_TIMEOUT_MS;
     const state = yield* Ref.make<SessionState>({
       closed: undefined,
       pending: new Map(),
       inbound: new Set(),
+      inboundFibers: new Set(),
     });
     const closed = yield* Deferred.make<StationPeerSessionClosedError>();
     const inboundPermits = yield* Effect.makeSemaphore(maxInboundRequests);
@@ -289,32 +308,44 @@ export const makeStationPeerSession = (
       error: StationPeerSessionClosedError,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        const closingFiberId = yield* Effect.fiberId;
         const pending = yield* Ref.modify(state, (current): readonly [
-          Option.Option<ReadonlyArray<PendingRequest>>,
+          Option.Option<SessionCloseTargets>,
           SessionState,
         ] => {
           if (current.closed !== undefined) {
             return [
-              Option.none<ReadonlyArray<PendingRequest>>(),
+              Option.none<SessionCloseTargets>(),
               current,
             ];
           }
           return [
-            Option.some([...current.pending.values()]),
+            Option.some({
+              pending: [...current.pending.values()],
+              inboundFibers: [...current.inboundFibers],
+            }),
             {
               closed: error,
               pending:
                 new Map<StationSessionRequestIdValue, PendingRequest>(),
               inbound: new Set<StationSessionRequestIdValue>(),
+              inboundFibers:
+                new Set<Fiber.RuntimeFiber<void, never>>(),
             },
           ];
         });
         if (Option.isNone(pending)) return;
         yield* Effect.forEach(
-          pending.value,
+          pending.value.pending,
           ({ response }) =>
             Deferred.fail(response, error).pipe(Effect.asVoid),
           { discard: true },
+        );
+        yield* Fiber.interruptAll(
+          pending.value.inboundFibers.filter(
+            (fiber) =>
+              !Equal.equals(Fiber.id(fiber), closingFiberId),
+          ),
         );
         yield* options.transport.close;
         yield* Deferred.succeed(closed, error).pipe(Effect.asVoid);
@@ -430,6 +461,16 @@ export const makeStationPeerSession = (
         return { ...current, inbound: next };
       });
 
+    const unregisterInboundFiber = (
+      fiber: Fiber.RuntimeFiber<void, never>,
+    ): Effect.Effect<void> =>
+      Ref.update(state, (current) => {
+        if (!current.inboundFibers.has(fiber)) return current;
+        const next = new Set(current.inboundFibers);
+        next.delete(fiber);
+        return { ...current, inboundFibers: next };
+      });
+
     const processInboundRequest = (
       frame: StationSessionRequestFrame,
     ): Effect.Effect<void> =>
@@ -488,10 +529,7 @@ export const makeStationPeerSession = (
             ),
           );
         }
-      }).pipe(
-        Effect.ensuring(unregisterInbound(frame.requestId)),
-        Effect.ensuring(inboundPermits.release(1).pipe(Effect.asVoid)),
-      );
+      });
 
     const launchInboundRequest = (
       frame: StationSessionRequestFrame,
@@ -537,18 +575,30 @@ export const makeStationPeerSession = (
             ),
           );
         }
-        const admitted = yield* Ref.modify(state, (current) => {
-          if (
-            current.closed !== undefined ||
-            current.inbound.has(frame.requestId)
-          ) {
-            return [false, current] as const;
+        yield* inboundPermits.take(1);
+        const admitted = yield* Ref.modify(state, (current): readonly [
+          AdmitInboundDecision,
+          SessionState,
+        ] => {
+          if (current.closed !== undefined) {
+            return [{ _tag: "closed" }, current];
+          }
+          if (current.inbound.has(frame.requestId)) {
+            return [{ _tag: "duplicate" }, current];
           }
           const next = new Set(current.inbound);
           next.add(frame.requestId);
-          return [true, { ...current, inbound: next }] as const;
+          return [
+            { _tag: "admitted" },
+            { ...current, inbound: next },
+          ];
         });
-        if (!admitted) {
+        if (admitted._tag === "closed") {
+          yield* inboundPermits.release(1);
+          return;
+        }
+        if (admitted._tag === "duplicate") {
+          yield* inboundPermits.release(1);
           return yield* failProtocol(
             protocolFailure(
               options.peerInstallationId,
@@ -557,8 +607,37 @@ export const makeStationPeerSession = (
             ),
           );
         }
-        yield* inboundPermits.take(1);
-        yield* Effect.forkScoped(processInboundRequest(frame));
+        const start = yield* Deferred.make<void>();
+        const fiber = yield* Effect.forkScoped(
+          Deferred.await(start).pipe(
+            Effect.zipRight(processInboundRequest(frame)),
+            Effect.ensuring(unregisterInbound(frame.requestId)),
+            Effect.ensuring(
+              inboundPermits.release(1).pipe(Effect.asVoid),
+            ),
+          ),
+        );
+        const registered = yield* Ref.modify(state, (current) => {
+          if (current.closed !== undefined) {
+            return [false, current] as const;
+          }
+          const next = new Set(current.inboundFibers);
+          next.add(fiber);
+          return [
+            true,
+            { ...current, inboundFibers: next },
+          ] as const;
+        });
+        if (!registered) {
+          yield* Fiber.interrupt(fiber);
+          return;
+        }
+        yield* Effect.forkScoped(
+          Fiber.await(fiber).pipe(
+            Effect.zipRight(unregisterInboundFiber(fiber)),
+          ),
+        );
+        yield* Deferred.succeed(start, undefined);
       });
 
     const reader = Stream.runForEach(
@@ -666,6 +745,11 @@ export const makeStationPeerSession = (
             break;
         }
 
+        const timeout = sessionClosed(
+          options.peerInstallationId,
+          "request-timeout",
+          `Station request exceeded its ${requestTimeoutMs}ms deadline`,
+        );
         const envelope = yield* Effect.gen(function* () {
           const sent = yield* options.transport
             .send(frame)
@@ -681,6 +765,16 @@ export const makeStationPeerSession = (
           }
           return yield* Deferred.await(response);
         }).pipe(
+          Effect.timeoutFail({
+            duration: requestTimeoutMs,
+            onTimeout: () => timeout,
+          }),
+          Effect.tapError((error) =>
+            error instanceof StationPeerSessionClosedError &&
+              error.reason === "request-timeout"
+              ? closeWith(error)
+              : Effect.void
+          ),
           Effect.onInterrupt(() =>
             closeWith(
               sessionClosed(

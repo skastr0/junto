@@ -341,6 +341,71 @@ describe("OpenSSH Station frame transport", () => {
       ),
     );
   });
+
+  it("settles active, queued, and offer-blocked sends when close races enqueue", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const firstWriteStarted = yield* Deferred.make<void>();
+          const releaseFirstWrite = yield* Deferred.make<void>();
+          const lease = dormantLease(
+            () =>
+              Deferred.succeed(firstWriteStarted, undefined).pipe(
+                Effect.zipRight(Deferred.await(releaseFirstWrite)),
+                Effect.asVoid,
+              ),
+            Deferred.succeed(releaseFirstWrite, undefined).pipe(
+              Effect.asVoid,
+            ),
+          );
+          const transport = yield* makeOpenSshStationFrameTransport(lease, {
+            maxFrameBytes: 4_096,
+            maxQueuedBytes: 12_288,
+            maxQueuedFrames: 1,
+          });
+
+          const first = yield* Effect.fork(
+            Effect.either(
+              transport.send(requestFrame("close-race-01")),
+            ),
+          );
+          yield* Deferred.await(firstWriteStarted);
+          const second = yield* Effect.fork(
+            Effect.either(
+              transport.send(requestFrame("close-race-02")),
+            ),
+          );
+          yield* Effect.yieldNow();
+          const third = yield* Effect.fork(
+            Effect.either(
+              transport.send(requestFrame("close-race-03")),
+            ),
+          );
+          yield* Effect.yieldNow();
+
+          yield* transport.close;
+
+          for (const result of [
+            yield* Fiber.join(first),
+            yield* Fiber.join(second),
+            yield* Fiber.join(third),
+          ]) {
+            expect(Either.isLeft(result)).toBe(true);
+            if (Either.isLeft(result)) {
+              expect(result.left.reason).toBe("closed");
+            }
+          }
+          const afterClose = yield* Effect.either(
+            transport.send(requestFrame("close-race-04")),
+          );
+          expect(Either.isLeft(afterClose)).toBe(true);
+          if (Either.isLeft(afterClose)) {
+            expect(afterClose.left.reason).toBe("closed");
+          }
+        }),
+      ),
+    );
+  });
 });
 
 describe("OpenSSH Station peer exchange", () => {
