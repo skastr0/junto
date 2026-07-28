@@ -734,13 +734,17 @@ Station client, and the observed identifier does not become a credential;
 OpenSSH remains the authentication boundary for that route.
 
 Authenticated transport does not grant role-promotion authority. The Station
-wire's `configure` request contains only `RemoteConfiguration`; Command Center
-configuration is a distinct local-main operation. Strict decoding rejects
-unknown or retired credential fields rather than pruning them. Pairing refuses
-an existing Command Center configuration, and local Command Center selection
-refuses an existing pairing, transactionally. On Remote configuration the same
-transaction removes all authorial canvas generations, so a Remote cannot retain
-a dormant Command Center document plane behind its projection.
+wire's `configure` request contains `RemoteConfiguration` plus one route-free
+Remote installation registration; Command Center configuration is a distinct
+local-main operation. The registration contains only installation-facing
+identity and capabilities. SSH endpoint, identity-file path, host-key policy,
+and Command Center presentation state remain Command Center-local. Strict
+decoding rejects those fields, and any unknown or retired credential field,
+rather than pruning them. Pairing refuses an existing Command Center
+configuration, and local Command Center selection refuses an existing pairing,
+transactionally. On Remote configuration the same transaction removes all
+authorial canvas generations, so a Remote cannot retain a dormant Command
+Center document plane behind its projection.
 
 Projection transfer is complete and replace-only. Work and receipt propagation
 uses route-local `(event_home, entity_home, seq)` identities and cumulative

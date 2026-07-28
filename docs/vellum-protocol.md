@@ -1944,58 +1944,50 @@ The canonical protocol blocks release while any live path preserves:
 - inferred message residency without an explicit mailbox/task/request
   destination.
 
-## Implementation status and remaining cuts
+## Implementation status
 
-The foundation already landed:
+Station protocol 2 is the sole live Station contract in source. Its
+implementation cut is closed:
 
-- canonical SQLite state with contiguous forward migrations, frozen v1
-  fixtures, sealed candidate-clone preflight, retained verified backups, and
-  no legacy file-store path;
-- strict Station protocol 2 domain codecs and golden corpus;
-- canonical installation/event/entity identity and single-home Work records;
-- claim-is-start and one-active-task-per-seat constraints;
-- transport-neutral `StationPeerExchange`;
-- one persistent bounded Command Center-opened OpenSSH session with duplex
-  `report`, reconnect, and no permanent polling path;
-- local-only browser control and deletion of remote-browser protocol/PKI.
+- the wire has exactly `pair | configure | project | report | status`;
+- every request, response, Work record, handshake, frame, cursor, and
+  disposition is strictly decoded with bounded Effect schemas;
+- negotiation selects the highest common exact Station protocol from declared
+  support and fails before mutation when there is no overlap;
+- Work uses canonical installation/event/entity identity, logical sequences,
+  exact causal predecessors, immutable content identities, and one durable
+  home per row;
+- a task claim is the start of work, is synchronously authorized by its current
+  home, and is limited to one active task per actor seat;
+- a Remote can continue an adopted working task from its local SQLite database
+  while Command Center is unavailable, including after a full Remote runtime
+  restart;
+- projection installation is replace-only for authorial intent and cannot
+  erase or rewrite Work rows, delivery receipts, or synchronization cursors;
+- `StationPeerExchange` is transport-neutral, while the shipped OpenSSH
+  adapter keeps one bounded Command Center-opened duplex session with
+  reconnect and cursor-based replay;
+- Remote-originated traffic is limited to `report`; Remotes receive no peer
+  route and never open fleet connections;
+- `configure` carries only the Remote installation registration. SSH endpoint,
+  identity-file path, host-key policy, and Command Center presentation state
+  remain Command Center-local and are rejected as excess Station fields;
+- browser control is host-local and no browser operation or browser trust
+  system exists on the Station wire;
+- there is no Station v1 runtime, permanent one-shot polling path, alternate
+  JSON/file store, Work-in-canvas durability path, or compatibility dual write.
 
-Remaining work is qualification and lifecycle closure, not a parallel
-architecture:
+This closes the protocol implementation, not all product qualification.
+Before declaring a packaged fleet release operationally qualified, run and
+retain the signed macOS Command Center ↔ signed Linux Remote matrix, including
+candidate/previous-version interoperability and real reconnect interruption.
+That matrix validates packaging and deployed OpenSSH behavior; it does not
+authorize a second protocol or storage path.
 
-### Cut 1 — finish lifecycle coherence
-
-- make seat running/idle/exited/replaced/retired authoritative lifecycle
-  events;
-- wake pending delivery from seat readiness instead of relying on a watchdog;
-- give Work projection its own monotonic renderer invalidation fact;
-- surface retired-seat active claims as stalled/orphaned without requeue;
-- retain immutable artifact and task attribution across seat retirement.
-
-### Cut 2 — qualify local simulation and convergence
-
-- prove working-claim recovery from SQLite with Command Center shut down;
-- prove only local actors/schedulers/pages start;
-- prove reconnect/replay/gap/conflict behavior;
-- prove independent multi-Remote backpressure;
-- prove projection replacement does not erase local work;
-- prove stale/unreachable UI and Doctor facts.
-
-### Cut 3 — qualify packages and installed skew
-
-- run the signed macOS Command Center to signed Ubuntu Remote matrix;
-- retain the exact bounded qualification evidence named by the release
-  manifest;
-- qualify candidate/previous packages in both directions before the second
-  installed release;
-- close every supported package-manager update route around the same sealed
-  state-preflight fence.
-
-### Cut 4 — preserve the HTTPS seam
-
-- keep route/auth/framing adapter-owned;
-- document the mTLS bootstrap decision before implementing it;
-- reject SSH-shaped domain fields;
-- do not ship placeholder credential tables or a dormant HTTPS listener.
+HTTPS remains a future transport adapter over the same five verbs and Station
+protocol version. Its design must keep route, authentication, and framing out
+of the domain contract; it must not add placeholder credentials, a dormant
+listener, or SSH-shaped fields to Station messages.
 
 ## Proof matrix
 
