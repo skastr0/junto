@@ -9,6 +9,7 @@ import {
   protocol,
   session,
   shell,
+  systemPreferences,
   type IpcMainEvent,
 } from "electron";
 import { Context, Effect } from "effect";
@@ -301,6 +302,7 @@ type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
 let kernelService: KernelServiceShape | undefined;
 let licenseCoordinator: LicenseCoordinator | undefined;
 let unregisterLicenseIpc: (() => void) | undefined;
+let licenseClockChangeSubscription: number | undefined;
 let rendererWindowAdmissionReady = false;
 let productRuntimeStarted = false;
 let productRuntimeSuspended = false;
@@ -1386,16 +1388,39 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       console.error("[term] control socket failed to start:", error);
     }
     powerMonitor.on("resume", () => {
-      if (productRuntimeSuspended) return;
-      void AppRuntime.runPromise(Effect.flatMap(HerdrPlane, (plane) => plane.warm)).catch(() => {
-        console.error("[herdr] resume warm failed");
+      void (async () => {
+        await coordinator.wakeMonitoring();
+        if (productRuntimeSuspended) return;
+        void AppRuntime.runPromise(
+          Effect.flatMap(HerdrPlane, (plane) => plane.warm),
+        ).catch(() => {
+          console.error("[herdr] resume warm failed");
+        });
+        try {
+          browserComposition?.registry.reapAfterResume();
+        } catch {
+          console.error("[browser-automation] resume reap failed");
+        }
+      })().catch(() => {
+        console.error("[license] resume recheck failed");
       });
-      try {
-        browserComposition?.registry.reapAfterResume();
-      } catch {
-        console.error("[browser-automation] resume reap failed");
-      }
     });
+    powerMonitor.on("unlock-screen", () => {
+      void coordinator.wakeMonitoring().catch(() => {
+        console.error("[license] unlock recheck failed");
+      });
+    });
+    if (process.platform === "darwin") {
+      licenseClockChangeSubscription ??=
+        systemPreferences.subscribeLocalNotification(
+          "NSSystemClockDidChangeNotification",
+          () => {
+            void coordinator.wakeMonitoring().catch(() => {
+              console.error("[license] clock-change recheck failed");
+            });
+          },
+        );
+    }
 
     // Browser authority stays private until cold profile recovery completes.
     // The activation callback is the only place browser IPC, agent IPC, or
@@ -1583,6 +1608,12 @@ const beginShutdownAdmission = (reason: string): void => {
   if (shutdownAdmissionClosed) return;
   shutdownAdmissionClosed = true;
   licenseCoordinator?.stopMonitoring();
+  if (licenseClockChangeSubscription !== undefined) {
+    systemPreferences.unsubscribeLocalNotification(
+      licenseClockChangeSubscription,
+    );
+    licenseClockChangeSubscription = undefined;
+  }
   nodeRefOwnerReady = false;
   pendingNodeRefUri = undefined;
   activeNodeRefDelivery = undefined;
