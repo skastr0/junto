@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { Effect, Layer, Schema } from "effect";
+import { InstallationId } from "@shared/installation-id";
 import { CanvasesLive, CanvasesService } from "../canvases";
 import {
   KernelStateRepository,
@@ -47,7 +48,7 @@ export const StateUpdatePreflightReceipt = Schema.Struct({
     ),
     { exact: true },
   ),
-  installationId: Schema.String,
+  installationId: InstallationId,
   role: Schema.Literal("unenrolled", "command-center", "remote"),
   canvasCount: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
   actorSeatCount: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
