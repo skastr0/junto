@@ -571,20 +571,13 @@ export const registerVellumIpc = (): void => {
           Effect.gen(function* () {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
-            if (raisedBy === undefined) {
-              return actorIdentityRequired("request create");
-            }
-            const resolved = yield* resolveRendererActor(canvas, raisedBy);
-            if (!resolved.ok) return resolved.result;
-            const work = yield* WorkService;
-            return yield* work.workRequestCreate(
-              canvas,
-              nodeId,
-              brief,
-              metadata,
-              resolved.actor,
-              reason,
-            );
+            void canvas;
+            void nodeId;
+            void brief;
+            void metadata;
+            void raisedBy;
+            void reason;
+            return actorIdentityRequired("request create");
           }),
         ),
       ),

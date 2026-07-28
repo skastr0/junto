@@ -99,7 +99,11 @@ describe("main authoring architecture", () => {
     expect(ipc).toContain("resolveProjectedIpcActorRef");
     expect(ipc).toContain("read.right.actorRefs");
     expect(ipc).not.toContain("work.workMessageAppend(");
+    expect(ipc).not.toContain("work.workRequestCreate(");
     expect(ipc).not.toContain("work.workArtifactPublish(");
+    expect(ipc).toContain('actorIdentityRequired("message append")');
+    expect(ipc).toContain('actorIdentityRequired("request create")');
+    expect(ipc).toContain('actorIdentityRequired("artifact publish")');
     expect(control).toContain(
       "resolveProcessBoundActorRef(read.actorRefs, caller)",
     );
