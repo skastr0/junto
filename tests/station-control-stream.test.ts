@@ -43,6 +43,7 @@ import {
 import {
   StationControlReportError,
   startStationControlServer,
+  stationControlReadiness,
   type StationControlServer,
 } from "../src/main/vellum/station/control-server";
 import {
@@ -347,6 +348,7 @@ describe("persistent Station control stream", () => {
     expect(fixture.handled()).toBe(2);
     expect(fixture.observedReadiness()).toMatchObject({ session: true });
     expect(fixture.server.sessionReady()).toBe(true);
+    expect(stationControlReadiness.sessionReady()).toBe(true);
     expect(revalidations).toBeGreaterThanOrEqual(8);
     expect(socket.destroyed).toBe(false);
   });

@@ -151,6 +151,7 @@ const decodeReportRequest = Schema.decodeUnknownEither(
 );
 
 const liveStationControlListeners = new Map<symbol, () => boolean>();
+const liveStationControlSessions = new Map<symbol, () => boolean>();
 
 export const stationControlReadiness = Object.freeze({
   ready: (): boolean => {
@@ -159,6 +160,16 @@ export const stationControlReadiness = Object.freeze({
         if (observe()) return true;
       } catch {
         // A raced teardown is not ready.
+      }
+    }
+    return false;
+  },
+  sessionReady: (): boolean => {
+    for (const observe of liveStationControlSessions.values()) {
+      try {
+        if (observe()) return true;
+      } catch {
+        // A raced session teardown is not ready.
       }
     }
     return false;
@@ -855,8 +866,10 @@ export const startStationControlServer = async (
     controlListenerLeaseHeld(listenerLease) &&
     ownsSocketPath();
   liveStationControlListeners.set(readinessAuthority, ready);
+  liveStationControlSessions.set(readinessAuthority, sessionReady);
   server.once("close", () => {
     liveStationControlListeners.delete(readinessAuthority);
+    liveStationControlSessions.delete(readinessAuthority);
   });
 
   const report = (
@@ -935,6 +948,7 @@ export const startStationControlServer = async (
 
   const beginShutdown = (): void => {
     liveStationControlListeners.delete(readinessAuthority);
+    liveStationControlSessions.delete(readinessAuthority);
     if (shuttingDown) return;
     shuttingDown = true;
 
