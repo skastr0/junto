@@ -44,6 +44,7 @@ import {
 } from "./term/first-typed";
 import {
   makeManagedPulseDeliver,
+  scheduleManagedPulseReady,
   setManagedPulseDeliver,
 } from "./term/managed-pulse-bridge";
 import { terminalObserverPlane } from "./term/observer";
@@ -636,6 +637,24 @@ export const registerVellumIpc = (): void => {
       // Takeover is intentional — the factory owns control; UI attaches as observe.
       const driveLeases = new Map<string, ControlLease>();
       let productAutomationSuspended = false;
+      const managedPulseReadyCancels = new Map<
+        string,
+        { readonly epoch: string; readonly cancel: () => void }
+      >();
+      const cancelManagedPulseReady = (
+        bindingId: string,
+        epoch?: string,
+      ): void => {
+        const pending = managedPulseReadyCancels.get(bindingId);
+        if (
+          pending === undefined ||
+          (epoch !== undefined && pending.epoch !== epoch)
+        ) {
+          return;
+        }
+        pending.cancel();
+        managedPulseReadyCancels.delete(bindingId);
+      };
       const ensureDriveLease = (bindingId: string): ControlLease | undefined => {
         if (productAutomationSuspended) return undefined;
         const existing = driveLeases.get(bindingId);
@@ -692,6 +711,10 @@ export const registerVellumIpc = (): void => {
           managedDrive.suspend();
           messageDelivery.suspend();
           setManagedPulseDeliver(undefined);
+          for (const pending of managedPulseReadyCancels.values()) {
+            pending.cancel();
+          }
+          managedPulseReadyCancels.clear();
           for (const lease of driveLeases.values()) {
             termPlane.host.release(lease);
           }
@@ -731,14 +754,38 @@ export const registerVellumIpc = (): void => {
       termPlane.host.on("event", (payload: {
         type?: string;
         bindingId?: string;
+        epoch?: string;
         status?: string;
       }) => {
-        if (payload.type !== "session" || payload.status !== "running") return;
+        if (payload.type !== "session") return;
         const bindingId = payload.bindingId;
-        if (!bindingId) return;
+        const epoch = payload.epoch;
+        if (!bindingId || !epoch) return;
+        if (payload.status === "exited") {
+          cancelManagedPulseReady(bindingId, epoch);
+          return;
+        }
+        if (payload.status !== "running") return;
+        cancelManagedPulseReady(bindingId);
         const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;
         if (harness === "grok") {
           managedDrive.markSpawned(bindingId, GROK_MIN_POST_SPAWN_MS);
+          const cancel = scheduleManagedPulseReady(
+            { bindingId, epoch },
+            GROK_MIN_POST_SPAWN_MS,
+            () => {
+              const pending = managedPulseReadyCancels.get(bindingId);
+              if (pending?.epoch !== epoch) return false;
+              managedPulseReadyCancels.delete(bindingId);
+              const live = termPlane.host.get(bindingId);
+              return (
+                !productAutomationSuspended &&
+                live?.epoch === epoch &&
+                live.status === "running"
+              );
+            },
+          );
+          managedPulseReadyCancels.set(bindingId, { epoch, cancel });
         }
       });
       seatStateRuntime.subscribe((event) => {

@@ -9,7 +9,11 @@ import {
   canSendIdleInterrupt,
   encodeBracketedPaste,
 } from "../src/main/vellum/term/drive";
-import { makeManagedPulseDeliver } from "../src/main/vellum/term/managed-pulse-bridge";
+import {
+  makeManagedPulseDeliver,
+  scheduleManagedPulseReady,
+  subscribeManagedPulseReady,
+} from "../src/main/vellum/term/managed-pulse-bridge";
 
 describe("typing recipe", () => {
   it("encodes bracketed paste as one envelope", () => {
@@ -64,6 +68,7 @@ describe("ManagedTerminalDrive", () => {
     writes.length = 0;
     idle = true;
     clock = 10_000;
+    vi.useRealTimers();
   });
 
   it("writePrompt issues paste then separate CR", async () => {
@@ -153,6 +158,56 @@ describe("ManagedTerminalDrive", () => {
         options: { ready: true, queueIfBusy: false },
       },
     ]);
+  });
+
+  it("publishes one payload-free readiness wake at an explicit guard boundary", async () => {
+    vi.useFakeTimers();
+    const events: Array<{ bindingId: string; epoch: string }> = [];
+    const unsubscribe = subscribeManagedPulseReady((event) => {
+      events.push(event);
+    });
+
+    scheduleManagedPulseReady(
+      { bindingId: "grok-seat", epoch: "generation-1" },
+      1_500,
+      () => true,
+    );
+
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(events).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(events).toEqual([
+      { bindingId: "grok-seat", epoch: "generation-1" },
+    ]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(events).toHaveLength(1);
+
+    unsubscribe();
+  });
+
+  it("cancels or rejects stale readiness guards without publishing", async () => {
+    vi.useFakeTimers();
+    const events: Array<{ bindingId: string; epoch: string }> = [];
+    const unsubscribe = subscribeManagedPulseReady((event) => {
+      events.push(event);
+    });
+
+    const cancel = scheduleManagedPulseReady(
+      { bindingId: "grok-seat", epoch: "generation-1" },
+      1_500,
+      () => true,
+    );
+    cancel();
+    scheduleManagedPulseReady(
+      { bindingId: "grok-seat", epoch: "generation-2" },
+      1_500,
+      () => false,
+    );
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(events).toEqual([]);
+
+    unsubscribe();
   });
 
   it("clipboard-unsafe aborts without clearing clipboard or writing", async () => {

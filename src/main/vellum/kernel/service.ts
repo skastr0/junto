@@ -63,7 +63,10 @@ import {
   type ManagedSeatRuntimeAuthority,
 } from "../term/ensure-managed-seat";
 import { seatStateRuntime } from "../term/agent-state";
-import { managedPulseDeliver } from "../term/managed-pulse-bridge";
+import {
+  managedPulseDeliver,
+  subscribeManagedPulseReady,
+} from "../term/managed-pulse-bridge";
 import { WorkRepository } from "../work/repository";
 import {
   checkTimers,
@@ -1016,6 +1019,10 @@ const makeKernelService = (
             (listener) => seatStateRuntime.subscribe(listener),
             scheduleCycle,
           ),
+          // A transport-specific startup guard (currently Grok's verified
+          // post-spawn window) publishes readiness without retaining a prompt.
+          // The fresh cycle re-checks durable Work, intent, edges, and locality.
+          subscribeManagedPulseReady(() => scheduleCycle()),
         ];
 
         // No await exists between the generation check and installing these
