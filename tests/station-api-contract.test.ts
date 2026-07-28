@@ -1,362 +1,665 @@
 import { Either, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import * as StationApi from "../src/shared/station-api";
 import {
   ConfigureRequest,
   InstallationId,
   LogicalSequence,
   PairRequest,
   ProjectRequest,
+  ReportBatch,
   ReportRequest,
-  STATION_API_MAX_EVENTS_PER_REPORT,
+  ReportResponse,
+  RouteCursor,
+  STATION_API_MAX_ACKS_PER_REPORT,
+  STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT,
+  STATION_API_MAX_RECORDS_PER_REPORT,
+  STATION_API_MAX_REPORT_BATCH_BYTES,
   STATION_API_PROTOCOL,
-  StationEvent,
-  StationEventAck,
-  StationEventIdentity,
   StationProjectionBody,
   StationProjectionReference,
+  StatusRequest,
   StatusResponse,
-  coalesceStationEvents,
+  WorkRecord,
+  coalesceWorkRecords,
   compareLogicalSequence,
-  contiguousReceivedThrough,
-  decideAckAdvance,
+  contiguousRouteCursor,
   decideProjectionInstall,
-  type StationSha256,
+  decideReportBatchAdmission,
+  decideReportDirection,
+  decideRouteCursorAdvance,
+  reportBatchEncodedByteLength,
+  reportResponseSwapsDirection,
 } from "../src/shared/station-api";
 import { decodeStationControlRequest } from "../src/shared/station-api-envelope";
+import {
+  WORK_PROTOCOL,
+  type WorkRecord as WorkRecordValue,
+} from "../src/shared/work-protocol";
 
-const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
-const decodeSequence = Schema.decodeUnknownSync(LogicalSequence);
-const decodeHash = Schema.decodeUnknownSync(
-  Schema.String.pipe(
-    Schema.pattern(/^[a-f0-9]{64}$/),
-    Schema.brand("StationSha256"),
-  ),
+const decodeStrict =
+  <A, I>(schema: Schema.Schema<A, I>) =>
+  (value: unknown) =>
+    Schema.decodeUnknownEither(schema, { onExcessProperty: "error" })(value);
+
+const cc = Schema.decodeUnknownSync(InstallationId)("cc-installation");
+const remote = Schema.decodeUnknownSync(InstallationId)(
+  "remote-installation",
 );
-const decodeEventIdentity = Schema.decodeUnknownSync(StationEventIdentity);
-const decodeAck = Schema.decodeUnknownSync(StationEventAck);
-const decodeEvent = Schema.decodeUnknownSync(StationEvent);
+const other = Schema.decodeUnknownSync(InstallationId)("other-installation");
+const timestamp = "2026-07-27T18:00:00.000Z";
+const hashA = "a".repeat(64);
+const hashB = "b".repeat(64);
+const hashC = "c".repeat(64);
+const seatId = `seat_${"d".repeat(64)}`;
 
-const cc = decodeInstallationId("cc-01");
-const remote = decodeInstallationId("remote-01");
-const hash = (digit: string): StationSha256 => decodeHash(digit.repeat(64));
+const sink = {
+  canvasName: "factory",
+  nodeId: "tasks",
+};
 
-const event = (input: {
-  readonly home?: string;
-  readonly sequence: string;
-  readonly content?: string;
-  readonly timestamp?: string;
-}) =>
-  decodeEvent({
-    identity: {
-      home: input.home ?? remote,
-      sequence: input.sequence,
+const actor = {
+  seatId,
+  canvasName: "factory",
+  nodeId: "builder",
+};
+
+const sourceTask = {
+  id: "task-1",
+  state: "submitted",
+  history: [],
+};
+
+const decodeWorkRecord = Schema.decodeUnknownSync(WorkRecord, {
+  onExcessProperty: "error",
+});
+
+const claimCommand = (
+  seq = "1",
+  sender = cc,
+  target = remote,
+): WorkRecordValue =>
+  decodeWorkRecord({
+    protocol: WORK_PROTOCOL,
+    id: {
+      route: {
+        eventHome: sender,
+        entityHome: target,
+      },
+      seq,
     },
-    kind: "work.transition",
-    body: JSON.stringify({ content: input.content ?? "done" }),
-    contentSha256: hash(input.content === "different" ? "b" : "a"),
-    originAt: input.timestamp ?? "2026-07-27T15:00:00.000Z",
+    recordType: "command",
+    item: {
+      kind: "task",
+      itemId: sourceTask.id,
+      sink,
+    },
+    operation: "task.claim",
+    contentSha256: hashA,
+    originAt: timestamp,
+    predecessor: null,
+    body: {
+      operation: "task.claim",
+      sourceQueueHome: sender,
+      sourcePredecessor: {
+        route: {
+          eventHome: sender,
+          entityHome: sender,
+        },
+        seq: "9",
+      },
+      sourceTask,
+      sink,
+      actor,
+      targetHome: target,
+    },
   });
 
-describe("Station API wire schemas", () => {
-  it("decodes one bounded, credential-free contract for every verb", () => {
-    const pair = Schema.decodeUnknownSync(PairRequest)({
-      protocol: STATION_API_PROTOCOL,
-      op: "pair",
-      commandCenterInstallationId: cc,
-      stationInstallationId: remote,
-      stationLabel: "Studio Mini",
-      appVersion: "0.1.0",
-    });
-    expect(pair.op).toBe("pair");
-
-    const configure = Schema.decodeUnknownSync(ConfigureRequest)({
-      protocol: STATION_API_PROTOCOL,
-      op: "configure",
-      installationId: remote,
-      configuration: {
-        role: "remote",
-        hostId: "studio",
-        agentHostId: "studio",
-        commandCenterInstallationId: cc,
-        supervisedPreferred: true,
+const claimFact = (
+  seq = "1",
+  sender = remote,
+  previousHome = cc,
+): WorkRecordValue =>
+  decodeWorkRecord({
+    protocol: WORK_PROTOCOL,
+    id: {
+      route: {
+        eventHome: sender,
+        entityHome: sender,
       },
-      host: {
-        id: "studio",
-        label: "Studio Mini",
-        kind: "remote",
-        capabilities: ["terminal", "browser", "hermes"],
+      seq,
+    },
+    recordType: "fact",
+    item: {
+      kind: "task",
+      itemId: sourceTask.id,
+      sink,
+    },
+    operation: "task.claim",
+    contentSha256: hashB,
+    originAt: timestamp,
+    predecessor: null,
+    body: {
+      operation: "task.claim",
+      task: {
+        ...sourceTask,
+        state: "working",
+        claimedBy: seatId,
       },
-    });
-    expect(configure.configuration.role).toBe("remote");
-    expect(configure.host).toMatchObject({
-      id: "studio",
-      kind: "remote",
-      capabilities: ["terminal", "browser", "hermes"],
-    });
-
-    const project = Schema.decodeUnknownSync(ProjectRequest)({
-      protocol: STATION_API_PROTOCOL,
-      op: "project",
-      stationInstallationId: remote,
-      projection: {
-        scope: "full",
-        generation: "9007199254740993",
-        body: JSON.stringify({ canvases: [] }),
-        contentSha256: hash("a"),
-        createdAt: "2026-07-27T15:00:00.000Z",
-      },
-    });
-    expect(project.projection.generation).toBe("9007199254740993");
-
-    const report = Schema.decodeUnknownSync(ReportRequest)({
-      protocol: STATION_API_PROTOCOL,
-      op: "report",
-      stationInstallationId: remote,
-      outbound: [event({ home: cc, sequence: "1" })],
-      acknowledgeInbound: [{ home: remote, through: "9" }],
-    });
-    expect(report.outbound).toHaveLength(1);
-
-    const status = Schema.decodeUnknownSync(StatusResponse)({
-      protocol: STATION_API_PROTOCOL,
-      op: "status",
-      installationId: remote,
-      state: "ready",
-      configuration: configure.configuration,
-      configuredAt: "2026-07-27T14:00:00.000Z",
-      projection: {
-        generation: project.projection.generation,
-        contentSha256: project.projection.contentSha256,
-        receivedAt: "2026-07-27T15:00:01.000Z",
-      },
-      receivedThrough: [{ home: cc, through: "1" }],
-      readiness: {
-        database: true,
-        workControl: true,
-        simulation: true,
-      },
-      observedAt: "2026-07-27T15:00:02.000Z",
-    });
-    expect(status.readiness.simulation).toBe(true);
+      claimedBy: actor,
+      previousHome,
+    },
   });
 
-  it("rejects unsafe numeric sequences, non-canonical decimals, and oversized batches", () => {
-    expect(() => decodeSequence(9_007_199_254_740_993)).toThrow();
-    expect(() => decodeSequence("01")).toThrow();
-    expect(() => decodeSequence("-1")).toThrow();
-    expect(() => decodeSequence("1".repeat(33))).toThrow();
+const appliedDisposition = (
+  seq = "2",
+  sender = remote,
+  command = claimCommand(),
+  fact = claimFact(),
+): WorkRecordValue =>
+  decodeWorkRecord({
+    protocol: WORK_PROTOCOL,
+    id: {
+      route: {
+        eventHome: sender,
+        entityHome: sender,
+      },
+      seq,
+    },
+    recordType: "disposition",
+    item: command.item,
+    operation: "task.claim",
+    contentSha256: hashC,
+    originAt: timestamp,
+    body: {
+      status: "applied",
+      command: command.id,
+      commandSha256: command.contentSha256,
+      fact: fact.id,
+      factSha256: fact.contentSha256,
+    },
+  });
 
-    expect(() =>
-      Schema.decodeUnknownSync(ReportRequest)({
+const messageFact = (
+  seq: string,
+  sender = cc,
+  text = "done",
+): WorkRecordValue =>
+  decodeWorkRecord({
+    protocol: WORK_PROTOCOL,
+    id: {
+      route: {
+        eventHome: sender,
+        entityHome: sender,
+      },
+      seq,
+    },
+    recordType: "fact",
+    item: {
+      kind: "message",
+      itemId: `message-${seq}`,
+      sink,
+    },
+    operation: "message.append",
+    contentSha256: hashA,
+    originAt: timestamp,
+    predecessor: null,
+    body: {
+      operation: "message.append",
+      message: {
+        messageId: `message-${seq}`,
+        role: "agent",
+        parts: [{ kind: "text", text }],
+      },
+    },
+  });
+
+const cursor = (
+  eventHome: typeof cc,
+  entityHome: typeof cc,
+  through: string,
+) =>
+  Schema.decodeUnknownSync(RouteCursor, { onExcessProperty: "error" })({
+    eventHome,
+    entityHome,
+    through,
+  });
+
+const requestBatch = {
+  records: [claimCommand()],
+  acknowledge: [cursor(remote, remote, "2")],
+  hasMore: false,
+};
+
+const responseBatch = {
+  records: [claimFact(), appliedDisposition()],
+  acknowledge: [cursor(cc, remote, "1")],
+  hasMore: false,
+};
+
+describe("Station API v2 contract", () => {
+  it("decodes the exact five verbs and symmetric report direction", () => {
+    const requests = [
+      {
         protocol: STATION_API_PROTOCOL,
-        op: "report",
+        op: "pair",
+        commandCenterInstallationId: cc,
         stationInstallationId: remote,
-        outbound: Array.from(
-          { length: STATION_API_MAX_EVENTS_PER_REPORT + 1 },
-          (_, index) => event({ home: cc, sequence: String(index + 1) }),
-        ),
-        acknowledgeInbound: [],
-      }),
-    ).toThrow();
-  });
-
-  it("keeps Remote-only configuration facts mandatory", () => {
-    expect(() =>
-      Schema.decodeUnknownSync(ConfigureRequest)({
+        stationLabel: "Remote one",
+        appVersion: "0.2.0",
+      },
+      {
         protocol: STATION_API_PROTOCOL,
         op: "configure",
         installationId: remote,
         configuration: {
           role: "remote",
-          hostId: "studio",
+          hostId: "remote-1",
+          agentHostId: "remote-1",
+          commandCenterInstallationId: cc,
           supervisedPreferred: true,
         },
-      }),
-    ).toThrow();
-  });
-
-  it("requires one concrete Remote registration with unique capabilities", () => {
-    const configuration = {
-      role: "remote" as const,
-      hostId: "studio",
-      agentHostId: "studio",
-      commandCenterInstallationId: cc,
-      supervisedPreferred: true,
-    };
-    expect(() =>
-      Schema.decodeUnknownSync(ConfigureRequest)({
-        protocol: STATION_API_PROTOCOL,
-        op: "configure",
-        installationId: remote,
-        configuration,
         host: {
-          id: "studio",
-          label: "Studio",
-          kind: "local",
-          capabilities: ["browser"],
-        },
-      }),
-    ).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(ConfigureRequest)({
-        protocol: STATION_API_PROTOCOL,
-        op: "configure",
-        installationId: remote,
-        configuration,
-        host: {
-          id: "studio",
-          label: "Studio",
+          id: "remote-1",
+          label: "Remote one",
           kind: "remote",
-          sshEndpoint: "studio",
-          capabilities: ["browser", "browser"],
+          sshEndpoint: "vellum-remote",
+          capabilities: ["terminal", "browser"],
         },
+      },
+      {
+        protocol: STATION_API_PROTOCOL,
+        op: "project",
+        stationInstallationId: remote,
+        projection: {
+          scope: "full",
+          generation: "1",
+          body: '{"nodes":[],"edges":[]}',
+          contentSha256: hashA,
+          createdAt: timestamp,
+        },
+      },
+      {
+        protocol: STATION_API_PROTOCOL,
+        op: "report",
+        senderInstallationId: cc,
+        targetInstallationId: remote,
+        batch: requestBatch,
+      },
+      {
+        protocol: STATION_API_PROTOCOL,
+        op: "status",
+      },
+    ];
+
+    expect(
+      requests
+        .map((candidate) => decodeStationControlRequest(candidate))
+        .every(Either.isRight),
+    ).toBe(true);
+    expect(Schema.decodeUnknownSync(PairRequest)(requests[0])).toBeDefined();
+    expect(
+      Schema.decodeUnknownSync(ConfigureRequest)(requests[1]),
+    ).toBeDefined();
+    expect(Schema.decodeUnknownSync(ProjectRequest)(requests[2])).toBeDefined();
+    const report = Schema.decodeUnknownSync(ReportRequest)(requests[3]);
+    expect(Schema.decodeUnknownSync(StatusRequest)(requests[4])).toBeDefined();
+
+    const response = Schema.decodeUnknownSync(ReportResponse)({
+      protocol: STATION_API_PROTOCOL,
+      op: "report",
+      senderInstallationId: remote,
+      targetInstallationId: cc,
+      batch: responseBatch,
+    });
+    expect(reportResponseSwapsDirection(report, response)).toBe(true);
+
+    expect(
+      Schema.decodeUnknownSync(StatusResponse)({
+        protocol: STATION_API_PROTOCOL,
+        op: "status",
+        installationId: remote,
+        state: "ready",
+        receivedThrough: [cursor(cc, remote, "1")],
+        peerAcknowledgedThrough: [cursor(remote, remote, "2")],
+        readiness: {
+          database: true,
+          workControl: true,
+          simulation: true,
+          session: true,
+        },
+        observedAt: timestamp,
       }),
-    ).toThrow();
+    ).toBeDefined();
   });
 
-  it("makes Command Center promotion and excess credentials unrepresentable on the wire", () => {
-    const commandCenter = decodeStationControlRequest({
+  it("rejects v1 reports, opaque events, credentials, and sixth verbs", () => {
+    expect(
+      Either.isLeft(
+        decodeStationControlRequest({
+          protocol: "vellum/station-api/v1",
+          op: "pair",
+          commandCenterInstallationId: cc,
+          stationInstallationId: remote,
+          stationLabel: "Remote one",
+          appVersion: "0.1.0",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeStationControlRequest({
+          protocol: STATION_API_PROTOCOL,
+          op: "report",
+          stationInstallationId: remote,
+          outbound: [
+            {
+              identity: {
+                originInstallationId: remote,
+                sequence: "1",
+              },
+              kind: "task",
+              payload: {},
+            },
+          ],
+          acknowledgeInbound: [],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeStationControlRequest({
+          protocol: STATION_API_PROTOCOL,
+          op: "status",
+          routeToken: "credentials-never-enter-the-domain",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeStationControlRequest({
+          protocol: STATION_API_PROTOCOL,
+          op: "browser",
+        }),
+      ),
+    ).toBe(true);
+
+    expect("StationEvent" in StationApi).toBe(false);
+    expect("StationEventIdentity" in StationApi).toBe(false);
+    expect("StationEventAck" in StationApi).toBe(false);
+  });
+
+  it("bounds report records, acknowledgements, claims, and encoded bytes", () => {
+    const records = Array.from(
+      { length: STATION_API_MAX_RECORDS_PER_REPORT + 1 },
+      (_, index) => messageFact(String(index + 1)),
+    );
+    expect(
+      Either.isLeft(
+        decodeStrict(ReportBatch)({
+          records,
+          acknowledge: [],
+          hasMore: true,
+        }),
+      ),
+    ).toBe(true);
+
+    const acknowledge = Array.from(
+      { length: STATION_API_MAX_ACKS_PER_REPORT + 1 },
+      (_, index) => cursor(remote, remote, String(index + 1)),
+    );
+    expect(
+      Either.isLeft(
+        decodeStrict(ReportBatch)({
+          records: [],
+          acknowledge,
+          hasMore: false,
+        }),
+      ),
+    ).toBe(true);
+
+    const claims = Array.from(
+      {
+        length: STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT + 1,
+      },
+      (_, index) => claimCommand(String(index + 1)),
+    );
+    expect(
+      decideReportBatchAdmission({
+        records: claims,
+        acknowledge: [],
+        hasMore: true,
+      }),
+    ).toMatchObject({
+      _tag: "first-delivery-claim-limit",
+      actual: STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT + 1,
+    });
+    expect(
+      Either.isLeft(
+        decodeStrict(ReportBatch)({
+          records: claims,
+          acknowledge: [],
+          hasMore: true,
+        }),
+      ),
+    ).toBe(true);
+
+    const largeRecords = Array.from({ length: 35 }, (_, index) =>
+      messageFact(String(index + 1), cc, "x".repeat(240 * 1024)),
+    );
+    const largeBatch = {
+      records: largeRecords,
+      acknowledge: [],
+      hasMore: true,
+    };
+    expect(reportBatchEncodedByteLength(largeBatch)).toBeGreaterThan(
+      STATION_API_MAX_REPORT_BATCH_BYTES,
+    );
+    expect(decideReportBatchAdmission(largeBatch)._tag).toBe(
+      "encoded-byte-limit",
+    );
+    expect(Either.isLeft(decodeStrict(ReportBatch)(largeBatch))).toBe(true);
+  });
+
+  it("admits only records and acknowledgements with the exact direction", () => {
+    expect(
+      decideReportDirection({
+        senderInstallationId: cc,
+        targetInstallationId: remote,
+        batch: requestBatch,
+      }),
+    ).toEqual({ _tag: "valid" });
+
+    expect(
+      decideReportDirection({
+        senderInstallationId: cc,
+        targetInstallationId: cc,
+        batch: { records: [], acknowledge: [], hasMore: false },
+      })._tag,
+    ).toBe("same-installation");
+
+    expect(
+      decideReportDirection({
+        senderInstallationId: remote,
+        targetInstallationId: cc,
+        batch: requestBatch,
+      })._tag,
+    ).toBe("record-event-home-mismatch");
+
+    expect(
+      decideReportDirection({
+        senderInstallationId: cc,
+        targetInstallationId: other,
+        batch: requestBatch,
+      })._tag,
+    ).toBe("record-entity-home-mismatch");
+
+    expect(
+      decideReportDirection({
+        senderInstallationId: cc,
+        targetInstallationId: remote,
+        batch: {
+          records: [claimCommand()],
+          acknowledge: [cursor(other, other, "1")],
+          hasMore: false,
+        },
+      })._tag,
+    ).toBe("acknowledgement-event-home-mismatch");
+
+    expect(
+      reportResponseSwapsDirection(
+        {
+          senderInstallationId: cc,
+          targetInstallationId: remote,
+        },
+        {
+          senderInstallationId: remote,
+          targetInstallationId: other,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("uses absent cursor as zero and advances only full contiguous routes", () => {
+    expect(
+      Either.isLeft(
+        decodeStrict(RouteCursor)({
+          eventHome: cc,
+          entityHome: remote,
+          through: "0",
+        }),
+      ),
+    ).toBe(true);
+
+    const one = claimCommand("1");
+    const two = claimCommand("2");
+    const three = claimCommand("3");
+    const four = claimCommand("4");
+    const foreign = claimCommand("1", cc, other);
+    const throughTwo = contiguousRouteCursor(
+      one.id.route,
+      undefined,
+      [two.id, foreign.id, one.id, four.id],
+    );
+    expect(throughTwo?.through).toBe("2");
+    const throughFour = contiguousRouteCursor(
+      one.id.route,
+      throughTwo,
+      [four.id, three.id],
+    );
+    expect(throughFour?.through).toBe("4");
+    expect(
+      contiguousRouteCursor(one.id.route, undefined, [two.id]),
+    ).toBeUndefined();
+
+    const current = cursor(cc, remote, "2");
+    expect(decideRouteCursorAdvance(undefined, current)._tag).toBe("advanced");
+    expect(
+      decideRouteCursorAdvance(current, cursor(cc, remote, "2"))._tag,
+    ).toBe("idempotent");
+    expect(
+      decideRouteCursorAdvance(current, cursor(cc, remote, "1"))._tag,
+    ).toBe("regression");
+    expect(
+      decideRouteCursorAdvance(current, cursor(cc, other, "3"))._tag,
+    ).toBe("route-mismatch");
+  });
+
+  it("coalesces exact retries and rejects identity reuse with new content", () => {
+    const admitted = claimCommand();
+    expect(coalesceWorkRecords([admitted, admitted])).toEqual({
+      _tag: "accepted",
+      records: [admitted],
+    });
+
+    const conflict = decodeWorkRecord({
+      ...admitted,
+      contentSha256: hashC,
+    });
+    expect(coalesceWorkRecords([admitted, conflict])).toMatchObject({
+      _tag: "identity-conflict",
+      identity: admitted.id,
+      admittedContentSha256: hashA,
+      rejectedContentSha256: hashC,
+    });
+  });
+
+  it("keeps configuration remote-only and host registrations exact", () => {
+    const configure = {
       protocol: STATION_API_PROTOCOL,
       op: "configure",
       installationId: remote,
       configuration: {
-        role: "command-center",
-        hostId: "command",
+        role: "remote",
+        hostId: "remote-1",
+        agentHostId: "remote-1",
+        commandCenterInstallationId: cc,
         supervisedPreferred: true,
       },
-    });
-    expect(Either.isLeft(commandCenter)).toBe(true);
-
-    const excessCredential = decodeStationControlRequest({
-      protocol: STATION_API_PROTOCOL,
-      op: "pair",
-      commandCenterInstallationId: cc,
-      stationInstallationId: remote,
-      stationLabel: "Studio Mini",
-      appVersion: "0.1.0",
-      legacyToken: "must-not-enter-the-domain",
-    });
-    expect(Either.isLeft(excessCredential)).toBe(true);
-  });
-});
-
-describe("Station API monotonic decisions", () => {
-  const projection = (
-    generation: string,
-    contentSha256: StationSha256 = hash("a"),
-  ) =>
-    Schema.decodeUnknownSync(StationProjectionBody)({
-      scope: "full",
-      generation,
-      body: "{}",
-      contentSha256,
-      createdAt: "2026-07-27T15:00:00.000Z",
-    });
-
-  const current = (
-    generation: string,
-    contentSha256: StationSha256 = hash("a"),
-  ) =>
-    Schema.decodeUnknownSync(StationProjectionReference)({
-      generation,
-      contentSha256,
-      receivedAt: "2026-07-27T15:00:01.000Z",
-    });
-
-  it("orders logical numbers with BigInt rather than unsafe Number coercion", () => {
+      host: {
+        id: "remote-1",
+        label: "Remote one",
+        kind: "remote",
+        capabilities: ["terminal", "browser"],
+      },
+    };
+    expect(Either.isRight(decodeStrict(ConfigureRequest)(configure))).toBe(
+      true,
+    );
     expect(
-      compareLogicalSequence(
-        decodeSequence("9007199254740993"),
-        decodeSequence("9007199254740992"),
+      Either.isLeft(
+        decodeStrict(ConfigureRequest)({
+          ...configure,
+          configuration: {
+            role: "command-center",
+            hostId: "local",
+            supervisedPreferred: true,
+          },
+        }),
       ),
-    ).toBe(1);
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeStrict(ConfigureRequest)({
+          ...configure,
+          host: {
+            ...configure.host,
+            capabilities: ["terminal", "terminal"],
+          },
+        }),
+      ),
+    ).toBe(true);
   });
 
-  it("installs only higher projections and separates replay, stale, and conflict", () => {
-    expect(decideProjectionInstall(undefined, projection("1"))).toBe("install");
-    expect(decideProjectionInstall(current("9"), projection("10"))).toBe(
-      "install",
-    );
-    expect(decideProjectionInstall(current("10"), projection("9"))).toBe(
-      "stale",
-    );
-    expect(decideProjectionInstall(current("10"), projection("10"))).toBe(
-      "idempotent",
-    );
-    expect(
-      decideProjectionInstall(current("10"), projection("10", hash("b"))),
-    ).toBe("conflict");
-  });
-
-  it("never regresses or substitutes a cumulative ACK", () => {
-    const admitted = decodeAck({ home: remote, through: "10" });
-
-    expect(
-      decideAckAdvance(admitted, decodeAck({ home: remote, through: "11" })),
-    ).toEqual({
-      _tag: "advanced",
-      cursor: decodeAck({ home: remote, through: "11" }),
+  it("orders projections logically and rejects equal-generation conflicts", () => {
+    const generationOne = Schema.decodeUnknownSync(LogicalSequence)("1");
+    const generationTwo = Schema.decodeUnknownSync(LogicalSequence)("2");
+    const current = Schema.decodeUnknownSync(StationProjectionReference)({
+      generation: generationOne,
+      contentSha256: hashA,
+      receivedAt: timestamp,
     });
-    expect(
-      decideAckAdvance(admitted, decodeAck({ home: remote, through: "10" })),
-    ).toEqual({ _tag: "idempotent", cursor: admitted });
-    expect(
-      decideAckAdvance(admitted, decodeAck({ home: remote, through: "9" })),
-    ).toEqual({
-      _tag: "regression",
-      cursor: admitted,
-      rejected: decodeAck({ home: remote, through: "9" }),
+    const same = Schema.decodeUnknownSync(StationProjectionBody)({
+      scope: "full",
+      generation: generationOne,
+      body: "{}",
+      contentSha256: hashA,
+      createdAt: timestamp,
     });
-    expect(
-      decideAckAdvance(admitted, decodeAck({ home: cc, through: "11" })),
-    ).toEqual({
-      _tag: "home-mismatch",
-      cursor: admitted,
-      rejected: decodeAck({ home: cc, through: "11" }),
+    const conflict = Schema.decodeUnknownSync(StationProjectionBody)({
+      ...same,
+      contentSha256: hashB,
     });
-  });
-
-  it("advances through contiguous identities only, ignoring duplicates and timestamps", () => {
-    const cursor = decodeAck({ home: remote, through: "3" });
-    const first = contiguousReceivedThrough(cursor, [
-      event({ sequence: "5", timestamp: "2026-07-27T10:00:00.000Z" }).identity,
-      event({ sequence: "4", timestamp: "2026-07-27T18:00:00.000Z" }).identity,
-      event({ sequence: "4", timestamp: "2026-07-27T09:00:00.000Z" }).identity,
-      event({ sequence: "7" }).identity,
-      decodeEventIdentity({ home: cc, sequence: "4" }),
-    ]);
-    expect(first).toEqual(decodeAck({ home: remote, through: "5" }));
-
-    const second = contiguousReceivedThrough(first, [
-      event({ sequence: "7" }).identity,
-      event({ sequence: "6" }).identity,
-    ]);
-    expect(second).toEqual(decodeAck({ home: remote, through: "7" }));
-  });
-
-  it("coalesces identical event retries and fails closed on identity reuse", () => {
-    const first = event({ sequence: "1" });
-    const retry = event({
-      sequence: "1",
-      timestamp: "2026-07-27T20:00:00.000Z",
-    });
-    const second = event({ sequence: "2" });
-
-    expect(coalesceStationEvents([first, retry, second])).toEqual({
-      _tag: "accepted",
-      events: [first, second],
+    const next = Schema.decodeUnknownSync(StationProjectionBody)({
+      ...same,
+      generation: generationTwo,
+      contentSha256: hashB,
     });
 
-    expect(
-      coalesceStationEvents([
-        first,
-        event({ sequence: "1", content: "different" }),
-      ]),
-    ).toEqual({
-      _tag: "identity-conflict",
-      identity: first.identity,
-      admittedContentSha256: hash("a"),
-      rejectedContentSha256: hash("b"),
-    });
+    expect(compareLogicalSequence(generationOne, generationTwo)).toBe(-1);
+    expect(decideProjectionInstall(undefined, same)).toBe("install");
+    expect(decideProjectionInstall(current, same)).toBe("idempotent");
+    expect(decideProjectionInstall(current, conflict)).toBe("conflict");
+    expect(decideProjectionInstall(current, next)).toBe("install");
   });
 });

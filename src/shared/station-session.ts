@@ -1,10 +1,6 @@
 import { Schema } from "effect";
-import {
-  StationApiRequest,
-} from "./station-api";
-import {
-  StationControlEnvelope,
-} from "./station-api-envelope";
+import { StationApiRequest } from "./station-api";
+import { StationControlEnvelope } from "./station-api-envelope";
 
 /**
  * Correlated, transport-neutral framing for one persistent Station session.
@@ -54,13 +50,58 @@ export const decodeStationSessionFrame =
     onExcessProperty: "error",
   });
 
+export type StationSessionCorrelationDecision =
+  | { readonly _tag: "correlated" }
+  | { readonly _tag: "request-id-mismatch" }
+  | {
+      readonly _tag: "operation-mismatch";
+      readonly requestOperation: StationApiRequest["op"];
+      readonly responseOperation: StationApiRequest["op"];
+    };
+
+/**
+ * Correlation is ephemeral session mechanics, never Work ordering.
+ *
+ * Error envelopes correlate by request ID alone because they deliberately do
+ * not repeat the rejected operation. Successful responses must also preserve
+ * the exact five-verb operation.
+ */
+export const decideStationSessionCorrelation = (
+  request: StationSessionRequestFrame,
+  response: StationSessionResponseFrame,
+): StationSessionCorrelationDecision => {
+  if (request.requestId !== response.requestId) {
+    return { _tag: "request-id-mismatch" };
+  }
+  if (
+    response.envelope.ok &&
+    request.request.op !== response.envelope.response.op
+  ) {
+    return {
+      _tag: "operation-mismatch",
+      requestOperation: request.request.op,
+      responseOperation: response.envelope.response.op,
+    };
+  }
+  return { _tag: "correlated" };
+};
+
 export const stationSessionResponse = (
-  request: Pick<StationSessionRequestFrame, "requestId">,
+  request: StationSessionRequestFrame,
   envelope: StationControlEnvelope,
-): StationSessionResponseFrame =>
-  StationSessionResponseFrame.make({
+): StationSessionResponseFrame => {
+  const response = StationSessionResponseFrame.make({
     protocol: STATION_SESSION_PROTOCOL,
     frame: "response",
     requestId: request.requestId,
     envelope,
   });
+  const correlation = decideStationSessionCorrelation(request, response);
+  if (correlation._tag === "operation-mismatch") {
+    throw new TypeError(
+      `Station session response operation ${correlation.responseOperation} ` +
+        `does not match request operation ${correlation.requestOperation}`,
+    );
+  }
+  return response;
+};

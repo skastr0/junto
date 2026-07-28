@@ -2,17 +2,22 @@ import { Either, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   InstallationId,
+  PairResponse,
   STATION_API_PROTOCOL,
   StatusRequest,
   StatusResponse,
 } from "../src/shared/station-api";
 import {
+  STATION_CONTROL_PROTOCOL,
+  stationControlErr,
   stationControlOk,
 } from "../src/shared/station-api-envelope";
 import {
   STATION_SESSION_PROTOCOL,
   StationSessionRequestFrame,
   StationSessionRequestId,
+  StationSessionResponseFrame,
+  decideStationSessionCorrelation,
   decodeStationSessionFrame,
   stationSessionResponse,
 } from "../src/shared/station-session";
@@ -20,47 +25,161 @@ import {
 const requestId = Schema.decodeUnknownSync(StationSessionRequestId)(
   "status-01",
 );
+const otherRequestId = Schema.decodeUnknownSync(StationSessionRequestId)(
+  "status-02",
+);
 const installationId = Schema.decodeUnknownSync(InstallationId)(
   "remote-01",
 );
+const commandCenterInstallationId = Schema.decodeUnknownSync(InstallationId)(
+  "cc-01",
+);
 
-describe("Station session frame contract", () => {
+const request = StationSessionRequestFrame.make({
+  protocol: STATION_SESSION_PROTOCOL,
+  frame: "request",
+  requestId,
+  request: StatusRequest.make({
+    protocol: STATION_API_PROTOCOL,
+    op: "status",
+  }),
+});
+
+const statusEnvelope = stationControlOk(
+  StatusResponse.make({
+    protocol: STATION_API_PROTOCOL,
+    op: "status",
+    installationId,
+    state: "unenrolled",
+    receivedThrough: [],
+    peerAcknowledgedThrough: [],
+    readiness: {
+      database: true,
+      workControl: true,
+      simulation: false,
+      session: true,
+    },
+    observedAt: "2026-07-27T15:00:00.000Z",
+  }),
+);
+
+describe("Station session v2 frame contract", () => {
   it("correlates one exact Station request and response", () => {
-    const request = StationSessionRequestFrame.make({
-      protocol: STATION_SESSION_PROTOCOL,
-      frame: "request",
-      requestId,
-      request: StatusRequest.make({
-        protocol: STATION_API_PROTOCOL,
-        op: "status",
-      }),
-    });
-    const response = stationSessionResponse(
-      request,
-      stationControlOk(
-        StatusResponse.make({
-          protocol: STATION_API_PROTOCOL,
-          op: "status",
-          installationId,
-          state: "unenrolled",
-          receivedThrough: [],
-          readiness: {
-            database: true,
-            workControl: true,
-            simulation: false,
-          },
-          observedAt: "2026-07-27T15:00:00.000Z",
-        }),
-      ),
-    );
+    const response = stationSessionResponse(request, statusEnvelope);
 
     expect(response.requestId).toBe(request.requestId);
     expect(response.frame).toBe("response");
+    expect(decideStationSessionCorrelation(request, response)).toEqual({
+      _tag: "correlated",
+    });
     expect(Either.isRight(decodeStationSessionFrame(request))).toBe(true);
     expect(Either.isRight(decodeStationSessionFrame(response))).toBe(true);
   });
 
-  it("rejects uncorrelated shapes, unknown frames, and excess fields", () => {
+  it("rejects request-id and successful-operation mismatches", () => {
+    const wrongRequestId = StationSessionResponseFrame.make({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "response",
+      requestId: otherRequestId,
+      envelope: statusEnvelope,
+    });
+    expect(
+      decideStationSessionCorrelation(request, wrongRequestId),
+    ).toEqual({ _tag: "request-id-mismatch" });
+
+    const pairEnvelope = stationControlOk(
+      PairResponse.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "pair",
+        commandCenterInstallationId,
+        stationInstallationId: installationId,
+        pairedAt: "2026-07-27T15:00:00.000Z",
+      }),
+    );
+    const wrongOperation = StationSessionResponseFrame.make({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "response",
+      requestId,
+      envelope: pairEnvelope,
+    });
+    expect(
+      decideStationSessionCorrelation(request, wrongOperation),
+    ).toEqual({
+      _tag: "operation-mismatch",
+      requestOperation: "status",
+      responseOperation: "pair",
+    });
+    expect(() => stationSessionResponse(request, pairEnvelope)).toThrow(
+      "does not match request operation",
+    );
+  });
+
+  it("correlates a typed error by request ID without inventing an operation", () => {
+    const response = stationSessionResponse(
+      request,
+      stationControlErr("runtime_down", "simulation unavailable", true),
+    );
+    expect(decideStationSessionCorrelation(request, response)).toEqual({
+      _tag: "correlated",
+    });
+    expect(Either.isRight(decodeStationSessionFrame(response))).toBe(true);
+  });
+
+  it("rejects v1 layers, unknown frames, and excess fields", () => {
+    expect(
+      Either.isLeft(
+        decodeStationSessionFrame({
+          protocol: "vellum/station-session/v1",
+          frame: "request",
+          requestId,
+          request: {
+            protocol: STATION_API_PROTOCOL,
+            op: "status",
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeStationSessionFrame({
+          protocol: STATION_SESSION_PROTOCOL,
+          frame: "request",
+          requestId,
+          request: {
+            protocol: "vellum/station-api/v1",
+            op: "status",
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeStationSessionFrame({
+          protocol: STATION_SESSION_PROTOCOL,
+          frame: "response",
+          requestId,
+          envelope: {
+            protocol: "vellum/station-control/v1",
+            ok: true,
+            response: {
+              protocol: STATION_API_PROTOCOL,
+              op: "status",
+              installationId,
+              state: "unenrolled",
+              receivedThrough: [],
+              peerAcknowledgedThrough: [],
+              readiness: {
+                database: true,
+                workControl: true,
+                simulation: false,
+                session: true,
+              },
+              observedAt: "2026-07-27T15:00:00.000Z",
+            },
+          },
+        }),
+      ),
+    ).toBe(true);
     expect(
       Either.isLeft(
         decodeStationSessionFrame({
@@ -84,6 +203,9 @@ describe("Station session frame contract", () => {
         }),
       ),
     ).toBe(true);
+
+    expect(STATION_SESSION_PROTOCOL).toBe("vellum/station-session/v2");
+    expect(STATION_CONTROL_PROTOCOL).toBe("vellum/station-control/v2");
   });
 
   it("bounds and brands request IDs", () => {

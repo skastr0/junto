@@ -1,27 +1,37 @@
 import { Schema } from "effect";
-import {
-  RemoteHost,
-} from "./remote-hosts";
+import { RemoteHost } from "./remote-hosts";
 import { STATION_ROLES } from "./station";
-import { InstallationId } from "./installation-id";
+import {
+  InstallationId,
+  type InstallationId as InstallationIdValue,
+} from "./installation-id";
+import {
+  RouteCursor,
+  WorkRecord,
+  type RouteCursor as RouteCursorValue,
+  type WorkRecord as WorkRecordValue,
+  type WorkRecordId as WorkRecordIdValue,
+  type WorkRoute as WorkRouteValue,
+} from "./work-protocol";
 
 export { InstallationId } from "./installation-id";
+export { RouteCursor, WorkRecord } from "./work-protocol";
 
 /**
- * Station API v1.
+ * The complete Station API seam between one Command Center and one Remote.
  *
- * This is the shared seam between a Command Center and a Remote installation.
- * It deliberately contains no bearer tokens, route tokens, filesystem paths,
- * or other credentials. The transport authenticates the peer before decoding
- * one of these messages; identifiers in this contract are routing facts, not
- * authority.
+ * Transport authenticates and admits the peer before this contract is
+ * decoded. Installation identifiers are exact routing facts, never bearer
+ * credentials. Work identity is carried completely by each WorkRecord; no
+ * transport adapter may infer or smuggle half of a route.
  */
-export const STATION_API_PROTOCOL = "vellum/station-api/v1" as const;
+export const STATION_API_PROTOCOL = "vellum/station-api/v2" as const;
 
 export const STATION_API_MAX_PROJECTION_CHARS = 64 * 1024 * 1024;
-export const STATION_API_MAX_EVENT_CHARS = 256 * 1024;
-export const STATION_API_MAX_EVENTS_PER_REPORT = 256;
+export const STATION_API_MAX_RECORDS_PER_REPORT = 256;
 export const STATION_API_MAX_ACKS_PER_REPORT = 256;
+export const STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT = 64;
+export const STATION_API_MAX_REPORT_BATCH_BYTES = 8 * 1024 * 1024;
 export const STATION_API_MAX_STATUS_CURSORS = 256;
 
 /** User-selected station role. It is never inferred by this protocol. */
@@ -38,10 +48,10 @@ export const StationHostId = Schema.String.pipe(
 export type StationHostId = typeof StationHostId.Type;
 
 /**
- * Canonical non-negative decimal logical number.
+ * Canonical non-negative projection counter.
  *
- * It remains a string on the wire and in the domain. Ordering converts to
- * BigInt; Number and wall-clock timestamps never participate.
+ * Work record and cursor sequences use the positive-only LogicalSequence from
+ * work-protocol. A missing RouteCursor represents zero received records.
  */
 export const LogicalSequence = Schema.String.pipe(
   Schema.pattern(/^(0|[1-9][0-9]*)$/),
@@ -114,11 +124,8 @@ export type RemoteConfiguration = typeof RemoteConfiguration.Type;
 /**
  * Exact Command Center enrollment projected onto one Remote installation.
  *
- * This is a configure-time authority fact, separate from Station topology:
- * the Remote may advertise only capabilities selected in the Command Center
- * registry. Requiring kind=remote prevents the code-default local host from
- * being repurposed as a configured station. SSH route (endpoint) is not part
- * of this projection — transport locators live on the host registry.
+ * SSH routes are deliberately absent: route locators remain Command
+ * Center-owned fleet state and are not projected authority.
  */
 export const RemoteHostRegistration = Schema.Struct({
   ...RemoteHost.fields,
@@ -132,11 +139,6 @@ export const RemoteHostRegistration = Schema.Struct({
 );
 export type RemoteHostRegistration = typeof RemoteHostRegistration.Type;
 
-/**
- * Role-specific topology. A Remote cannot be configured without its Command
- * Center installation identity; a Command Center cannot accidentally retain
- * Remote-only fields in its decoded configuration.
- */
 export const StationConfiguration = Schema.Union(
   CommandCenterConfiguration,
   RemoteConfiguration,
@@ -147,9 +149,7 @@ export const ConfigureRequest = Schema.Struct({
   protocol: Schema.Literal(STATION_API_PROTOCOL),
   op: Schema.Literal("configure"),
   installationId: InstallationId,
-  // The fleet wire can only establish a Remote. Command Center authority is
-  // selected locally in the Electron main process and is not representable in
-  // an SSH Station request.
+  // Command Center authority is selected only on the local installation.
   configuration: RemoteConfiguration,
   host: RemoteHostRegistration,
 });
@@ -160,13 +160,12 @@ export const ConfigureResponse = Schema.Struct({
   op: Schema.Literal("configure"),
   installationId: InstallationId,
   configuration: RemoteConfiguration,
-  /** Exact normalized row durably admitted by the Remote. */
   host: RemoteHostRegistration,
   configuredAt: DisplayTimestamp,
 });
 export type ConfigureResponse = typeof ConfigureResponse.Type;
 
-/** Complete projection body. Each accepted generation replaces the prior one. */
+/** Complete replace-only authorial projection. */
 export const StationProjectionBody = Schema.Struct({
   scope: Schema.Literal("full"),
   generation: LogicalSequence,
@@ -208,84 +207,287 @@ export const ProjectResponse = Schema.Struct({
 });
 export type ProjectResponse = typeof ProjectResponse.Type;
 
+export interface ReportBatchCandidate {
+  readonly records: ReadonlyArray<WorkRecordValue>;
+  readonly acknowledge: ReadonlyArray<RouteCursorValue>;
+  readonly hasMore: boolean;
+}
+
+export type ReportBatchAdmissionDecision =
+  | {
+      readonly _tag: "admitted";
+      readonly encodedBytes: number;
+      readonly firstDeliveryClaims: number;
+    }
+  | {
+      readonly _tag: "record-limit";
+      readonly actual: number;
+      readonly limit: number;
+    }
+  | {
+      readonly _tag: "acknowledgement-limit";
+      readonly actual: number;
+      readonly limit: number;
+    }
+  | {
+      readonly _tag: "first-delivery-claim-limit";
+      readonly actual: number;
+      readonly limit: number;
+    }
+  | {
+      readonly _tag: "not-json";
+    }
+  | {
+      readonly _tag: "encoded-byte-limit";
+      readonly actual: number;
+      readonly limit: number;
+    };
+
 /**
- * Identity in one authenticated Station route.
+ * Pure encoded-size witness shared by schema admission and page builders.
  *
- * `home` is the source installation and `sequence` is monotonic for the
- * source→target route. The report target supplies the other half of that
- * identity, so two Remotes may each originate sequence 1 without collision.
+ * Counting the exact JSON bytes prevents transport adapters from quietly
+ * inventing different limits. It never mutates or normalizes the candidate.
  */
-export const StationEventIdentity = Schema.Struct({
-  home: InstallationId,
-  sequence: LogicalSequence,
-});
-export type StationEventIdentity = typeof StationEventIdentity.Type;
+export const reportBatchEncodedByteLength = (
+  candidate: unknown,
+): number | undefined => {
+  try {
+    const encoded = JSON.stringify(candidate);
+    return encoded === undefined
+      ? undefined
+      : new TextEncoder().encode(encoded).byteLength;
+  } catch {
+    return undefined;
+  }
+};
+
+export const isFirstDeliveryTaskClaim = (
+  record: WorkRecordValue,
+): boolean =>
+  record.recordType === "command" &&
+  record.operation === "task.claim" &&
+  record.predecessor === null;
 
 /**
- * A cumulative transport acknowledgement: every event for `home` through
- * `sequence` has been handled contiguously. A Remote command is handled only
- * after an ordered durable applied/rejected disposition exists. Gaps may never
- * be skipped; ACK timing never decides material authority.
- */
-export const StationEventAck = Schema.Struct({
-  home: InstallationId,
-  through: LogicalSequence,
-});
-export type StationEventAck = typeof StationEventAck.Type;
-
-export const StationEvent = Schema.Struct({
-  identity: StationEventIdentity,
-  kind: Schema.String.pipe(
-    Schema.minLength(1),
-    Schema.maxLength(64),
-    Schema.pattern(/^[A-Za-z][A-Za-z0-9._:-]*$/),
-  ),
-  body: Schema.String.pipe(Schema.maxLength(STATION_API_MAX_EVENT_CHARS)),
-  /** Hash of the event's canonical semantic content, excluding timestamps. */
-  contentSha256: StationSha256,
-  originAt: DisplayTimestamp,
-  receivedAt: Schema.optionalWith(DisplayTimestamp, { exact: true }),
-});
-export type StationEvent = typeof StationEvent.Type;
-
-/**
- * Command Center → Station half of the duplex report exchange.
+ * One canonical report-batch admission decision.
  *
- * `outbound` carries CC-originated events for this Station beyond its ACK.
- * `acknowledgeInbound` cumulatively ACKs Station-homed events accepted by CC.
+ * Replayed task.claim commands are indistinguishable from first delivery at
+ * this pure wire boundary, so the conservative bound applies to every
+ * task.claim command in a batch. The repository later distinguishes exact
+ * replay through durable identity and content.
  */
-export const ReportRequest = Schema.Struct({
-  protocol: Schema.Literal(STATION_API_PROTOCOL),
-  op: Schema.Literal("report"),
-  stationInstallationId: InstallationId,
-  outbound: Schema.Array(StationEvent).pipe(
-    Schema.maxItems(STATION_API_MAX_EVENTS_PER_REPORT),
+export const decideReportBatchAdmission = (
+  candidate: ReportBatchCandidate,
+): ReportBatchAdmissionDecision => {
+  if (candidate.records.length > STATION_API_MAX_RECORDS_PER_REPORT) {
+    return {
+      _tag: "record-limit",
+      actual: candidate.records.length,
+      limit: STATION_API_MAX_RECORDS_PER_REPORT,
+    };
+  }
+  if (candidate.acknowledge.length > STATION_API_MAX_ACKS_PER_REPORT) {
+    return {
+      _tag: "acknowledgement-limit",
+      actual: candidate.acknowledge.length,
+      limit: STATION_API_MAX_ACKS_PER_REPORT,
+    };
+  }
+  const firstDeliveryClaims = candidate.records.reduce(
+    (count, record) => count + (isFirstDeliveryTaskClaim(record) ? 1 : 0),
+    0,
+  );
+  if (
+    firstDeliveryClaims >
+      STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT
+  ) {
+    return {
+      _tag: "first-delivery-claim-limit",
+      actual: firstDeliveryClaims,
+      limit: STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT,
+    };
+  }
+  const encodedBytes = reportBatchEncodedByteLength(candidate);
+  if (encodedBytes === undefined) return { _tag: "not-json" };
+  if (encodedBytes > STATION_API_MAX_REPORT_BATCH_BYTES) {
+    return {
+      _tag: "encoded-byte-limit",
+      actual: encodedBytes,
+      limit: STATION_API_MAX_REPORT_BATCH_BYTES,
+    };
+  }
+  return { _tag: "admitted", encodedBytes, firstDeliveryClaims };
+};
+
+const reportBatchAdmissionMessage = (
+  decision: Exclude<ReportBatchAdmissionDecision, { readonly _tag: "admitted" }>,
+): string => {
+  switch (decision._tag) {
+    case "record-limit":
+      return `Report batch has ${decision.actual} records; maximum is ${decision.limit}`;
+    case "acknowledgement-limit":
+      return `Report batch has ${decision.actual} acknowledgements; maximum is ${decision.limit}`;
+    case "first-delivery-claim-limit":
+      return `Report batch has ${decision.actual} task.claim commands; maximum is ${decision.limit}`;
+    case "not-json":
+      return "Report batch must be JSON-serializable";
+    case "encoded-byte-limit":
+      return `Report batch is ${decision.actual} encoded bytes; maximum is ${decision.limit}`;
+  }
+};
+
+const ReportBatchShape = Schema.Struct({
+  records: Schema.Array(WorkRecord).pipe(
+    Schema.maxItems(STATION_API_MAX_RECORDS_PER_REPORT),
   ),
-  acknowledgeInbound: Schema.Array(StationEventAck).pipe(
+  acknowledge: Schema.Array(RouteCursor).pipe(
     Schema.maxItems(STATION_API_MAX_ACKS_PER_REPORT),
   ),
+  hasMore: Schema.Boolean,
 });
+
+export const ReportBatch = ReportBatchShape.pipe(
+  Schema.filter((candidate) => {
+    const decision = decideReportBatchAdmission(candidate);
+    return decision._tag === "admitted"
+      ? true
+      : reportBatchAdmissionMessage(decision);
+  }),
+);
+export type ReportBatch = typeof ReportBatch.Type;
+
+export interface ReportDirectionCandidate {
+  readonly senderInstallationId: InstallationIdValue;
+  readonly targetInstallationId: InstallationIdValue;
+  readonly batch: ReportBatchCandidate;
+}
+
+export type ReportDirectionDecision =
+  | { readonly _tag: "valid" }
+  | { readonly _tag: "same-installation" }
+  | {
+      readonly _tag: "record-event-home-mismatch";
+      readonly record: WorkRecordIdValue;
+    }
+  | {
+      readonly _tag: "record-entity-home-mismatch";
+      readonly record: WorkRecordIdValue;
+      readonly expectedEntityHome: InstallationIdValue;
+    }
+  | {
+      readonly _tag: "acknowledgement-event-home-mismatch";
+      readonly cursor: RouteCursorValue;
+    };
+
+/**
+ * Validate direction without consulting an SSH route or array position.
+ *
+ * Commands address the target authority. Facts and dispositions are emitted
+ * by their entity authority and therefore remain sender-homed. Every ACK
+ * describes records originally emitted by the target.
+ */
+export const decideReportDirection = (
+  candidate: ReportDirectionCandidate,
+): ReportDirectionDecision => {
+  const {
+    senderInstallationId: sender,
+    targetInstallationId: target,
+    batch,
+  } = candidate;
+  if (sender === target) return { _tag: "same-installation" };
+
+  for (const record of batch.records) {
+    if (record.id.route.eventHome !== sender) {
+      return {
+        _tag: "record-event-home-mismatch",
+        record: record.id,
+      };
+    }
+    const expectedEntityHome =
+      record.recordType === "command" ? target : sender;
+    if (record.id.route.entityHome !== expectedEntityHome) {
+      return {
+        _tag: "record-entity-home-mismatch",
+        record: record.id,
+        expectedEntityHome,
+      };
+    }
+  }
+  for (const cursor of batch.acknowledge) {
+    if (cursor.eventHome !== target) {
+      return {
+        _tag: "acknowledgement-event-home-mismatch",
+        cursor,
+      };
+    }
+  }
+  return { _tag: "valid" };
+};
+
+const reportDirectionMessage = (
+  decision: Exclude<ReportDirectionDecision, { readonly _tag: "valid" }>,
+): string => {
+  switch (decision._tag) {
+    case "same-installation":
+      return "Report sender and target installations must differ";
+    case "record-event-home-mismatch":
+      return "Every report record eventHome must equal senderInstallationId";
+    case "record-entity-home-mismatch":
+      return `Report record entityHome must equal ${decision.expectedEntityHome}`;
+    case "acknowledgement-event-home-mismatch":
+      return "Every report acknowledgement eventHome must equal targetInstallationId";
+  }
+};
+
+const reportDirectionFilter = (
+  candidate: ReportDirectionCandidate,
+): boolean | string => {
+  const decision = decideReportDirection(candidate);
+  return decision._tag === "valid"
+    ? true
+    : reportDirectionMessage(decision);
+};
+
+const ReportRequestShape = Schema.Struct({
+  protocol: Schema.Literal(STATION_API_PROTOCOL),
+  op: Schema.Literal("report"),
+  senderInstallationId: InstallationId,
+  targetInstallationId: InstallationId,
+  batch: ReportBatch,
+});
+
+export const ReportRequest = ReportRequestShape.pipe(
+  Schema.filter(reportDirectionFilter),
+);
 export type ReportRequest = typeof ReportRequest.Type;
 
-/**
- * Station → Command Center half of the duplex report exchange.
- *
- * `inbound` carries Station-originated events beyond CC's last ACK.
- * `acknowledgeOutbound` cumulatively ACKs CC-originated events accepted by
- * this Station.
- */
-export const ReportResponse = Schema.Struct({
+const ReportResponseShape = Schema.Struct({
   protocol: Schema.Literal(STATION_API_PROTOCOL),
   op: Schema.Literal("report"),
-  stationInstallationId: InstallationId,
-  inbound: Schema.Array(StationEvent).pipe(
-    Schema.maxItems(STATION_API_MAX_EVENTS_PER_REPORT),
-  ),
-  acknowledgeOutbound: Schema.Array(StationEventAck).pipe(
-    Schema.maxItems(STATION_API_MAX_ACKS_PER_REPORT),
-  ),
+  senderInstallationId: InstallationId,
+  targetInstallationId: InstallationId,
+  batch: ReportBatch,
 });
+
+export const ReportResponse = ReportResponseShape.pipe(
+  Schema.filter(reportDirectionFilter),
+);
 export type ReportResponse = typeof ReportResponse.Type;
+
+/** A correlated response must swap the request direction exactly. */
+export const reportResponseSwapsDirection = (
+  request: Pick<
+    ReportRequest,
+    "senderInstallationId" | "targetInstallationId"
+  >,
+  response: Pick<
+    ReportResponse,
+    "senderInstallationId" | "targetInstallationId"
+  >,
+): boolean =>
+  response.senderInstallationId === request.targetInstallationId &&
+  response.targetInstallationId === request.senderInstallationId;
 
 export const StatusRequest = Schema.Struct({
   protocol: Schema.Literal(STATION_API_PROTOCOL),
@@ -306,6 +508,7 @@ export const StationReadiness = Schema.Struct({
   database: Schema.Boolean,
   workControl: Schema.Boolean,
   simulation: Schema.Boolean,
+  session: Schema.Boolean,
 });
 export type StationReadiness = typeof StationReadiness.Type;
 
@@ -317,7 +520,17 @@ export const StatusResponse = Schema.Struct({
   configuration: Schema.optionalWith(StationConfiguration, { exact: true }),
   configuredAt: Schema.optionalWith(DisplayTimestamp, { exact: true }),
   projection: Schema.optionalWith(StationProjectionReference, { exact: true }),
-  receivedThrough: Schema.Array(StationEventAck).pipe(
+  receivedThrough: Schema.Array(RouteCursor).pipe(
+    Schema.maxItems(STATION_API_MAX_STATUS_CURSORS),
+  ),
+  /**
+   * What the admitted peer has cumulatively acknowledged from this
+   * installation. A Station status response is a self-report to exactly one
+   * admitted peer, so that peer is the response counterpart and is not
+   * repeated here. A repository or aggregate fleet view must still key these
+   * cursors by peer installation identity.
+   */
+  peerAcknowledgedThrough: Schema.Array(RouteCursor).pipe(
     Schema.maxItems(STATION_API_MAX_STATUS_CURSORS),
   ),
   readiness: StationReadiness,
@@ -343,7 +556,7 @@ export const StationApiResponse = Schema.Union(
 );
 export type StationApiResponse = typeof StationApiResponse.Type;
 
-/** BigInt comparison for decimal logical numbers. */
+/** BigInt comparison for decimal projection counters. */
 export const compareLogicalSequence = (
   left: LogicalSequence,
   right: LogicalSequence,
@@ -373,114 +586,127 @@ export const decideProjectionInstall = (
     : "conflict";
 };
 
-export type AckAdvanceDecision =
+const sameWorkRoute = (
+  left: Pick<WorkRouteValue, "eventHome" | "entityHome">,
+  right: Pick<WorkRouteValue, "eventHome" | "entityHome">,
+): boolean =>
+  left.eventHome === right.eventHome &&
+  left.entityHome === right.entityHome;
+
+export type RouteCursorAdvanceDecision =
   | {
       readonly _tag: "advanced";
-      readonly cursor: StationEventAck;
+      readonly cursor: RouteCursorValue;
     }
   | {
       readonly _tag: "idempotent";
-      readonly cursor: StationEventAck;
+      readonly cursor: RouteCursorValue;
     }
   | {
       readonly _tag: "regression";
-      readonly cursor: StationEventAck;
-      readonly rejected: StationEventAck;
+      readonly cursor: RouteCursorValue;
+      readonly rejected: RouteCursorValue;
     }
   | {
-      readonly _tag: "home-mismatch";
-      readonly cursor: StationEventAck;
-      readonly rejected: StationEventAck;
+      readonly _tag: "route-mismatch";
+      readonly cursor: RouteCursorValue;
+      readonly rejected: RouteCursorValue;
     };
 
-/**
- * Decide a cumulative ACK update without mutating the current cursor.
- * Regressions and cross-home substitutions retain the admitted cursor.
- */
-export const decideAckAdvance = (
-  current: StationEventAck | undefined,
-  proposed: StationEventAck,
-): AckAdvanceDecision => {
+/** Decide a cumulative full-route ACK update without mutating current state. */
+export const decideRouteCursorAdvance = (
+  current: RouteCursorValue | undefined,
+  proposed: RouteCursorValue,
+): RouteCursorAdvanceDecision => {
   if (current === undefined) {
     return { _tag: "advanced", cursor: proposed };
   }
-  if (current.home !== proposed.home) {
-    return { _tag: "home-mismatch", cursor: current, rejected: proposed };
+  if (!sameWorkRoute(current, proposed)) {
+    return { _tag: "route-mismatch", cursor: current, rejected: proposed };
   }
 
-  const order = compareLogicalSequence(proposed.through, current.through);
-  if (order > 0) return { _tag: "advanced", cursor: proposed };
-  if (order === 0) return { _tag: "idempotent", cursor: current };
+  const proposedSequence = BigInt(proposed.through);
+  const currentSequence = BigInt(current.through);
+  if (proposedSequence > currentSequence) {
+    return { _tag: "advanced", cursor: proposed };
+  }
+  if (proposedSequence === currentSequence) {
+    return { _tag: "idempotent", cursor: current };
+  }
   return { _tag: "regression", cursor: current, rejected: proposed };
 };
 
 /**
- * Advance one home's cursor only across a contiguous run. Duplicate and stale
- * identities are harmless; identities for other homes are irrelevant.
+ * Advance one exact route through a contiguous run.
+ *
+ * Cursor absence is the only representation of zero. If sequence one is not
+ * present, this returns the original absent cursor.
  */
-export const contiguousReceivedThrough = (
-  current: StationEventAck,
-  received: ReadonlyArray<StationEventIdentity>,
-): StationEventAck => {
-  const sequences = new Map<string, LogicalSequence>();
+export const contiguousRouteCursor = (
+  route: WorkRouteValue,
+  current: RouteCursorValue | undefined,
+  received: ReadonlyArray<WorkRecordIdValue>,
+): RouteCursorValue | undefined => {
+  if (current !== undefined && !sameWorkRoute(current, route)) return current;
+
+  const sequences = new Map<string, WorkRecordIdValue["seq"]>();
   for (const identity of received) {
-    if (identity.home !== current.home) continue;
-    sequences.set(identity.sequence, identity.sequence);
+    if (!sameWorkRoute(identity.route, route)) continue;
+    sequences.set(identity.seq, identity.seq);
   }
 
-  let next = BigInt(current.through) + 1n;
-  let through = current.through;
+  let next = current === undefined ? 1n : BigInt(current.through) + 1n;
+  let through = current?.through;
   while (true) {
     const admitted = sequences.get(next.toString());
     if (admitted === undefined) break;
     through = admitted;
     next += 1n;
   }
-  return through === current.through
+  return through === undefined
     ? current
-    : { home: current.home, through };
+    : {
+        eventHome: route.eventHome,
+        entityHome: route.entityHome,
+        through,
+      };
 };
 
-export type CoalesceStationEventsDecision =
+export type CoalesceWorkRecordsDecision =
   | {
       readonly _tag: "accepted";
-      readonly events: ReadonlyArray<StationEvent>;
+      readonly records: ReadonlyArray<WorkRecordValue>;
     }
   | {
       readonly _tag: "identity-conflict";
-      readonly identity: StationEventIdentity;
-      readonly admittedContentSha256: StationSha256;
-      readonly rejectedContentSha256: StationSha256;
+      readonly identity: WorkRecordIdValue;
+      readonly admittedContentSha256: WorkRecordValue["contentSha256"];
+      readonly rejectedContentSha256: WorkRecordValue["contentSha256"];
     };
 
-const stationEventIdentityKey = (identity: StationEventIdentity): string =>
-  `${identity.home}\u0000${identity.sequence}`;
+const workRecordIdentityKey = (identity: WorkRecordIdValue): string =>
+  `${identity.route.eventHome}\u0000${identity.route.entityHome}\u0000${identity.seq}`;
 
-/**
- * Collapse idempotent report retries by `(home, sequence)`.
- *
- * Reusing an identity for different semantic content is an explicit conflict,
- * not last-write-wins ordering.
- */
-export const coalesceStationEvents = (
-  events: ReadonlyArray<StationEvent>,
-): CoalesceStationEventsDecision => {
-  const byIdentity = new Map<string, StationEvent>();
-  for (const event of events) {
-    const key = stationEventIdentityKey(event.identity);
+/** Collapse exact WorkRecord retries and reject route-identity content reuse. */
+export const coalesceWorkRecords = (
+  records: ReadonlyArray<WorkRecordValue>,
+): CoalesceWorkRecordsDecision => {
+  const byIdentity = new Map<string, WorkRecordValue>();
+  for (const record of records) {
+    const key = workRecordIdentityKey(record.id);
     const admitted = byIdentity.get(key);
     if (admitted === undefined) {
-      byIdentity.set(key, event);
+      byIdentity.set(key, record);
       continue;
     }
-    if (admitted.contentSha256 !== event.contentSha256) {
+    if (admitted.contentSha256 !== record.contentSha256) {
       return {
         _tag: "identity-conflict",
-        identity: event.identity,
+        identity: record.id,
         admittedContentSha256: admitted.contentSha256,
-        rejectedContentSha256: event.contentSha256,
+        rejectedContentSha256: record.contentSha256,
       };
     }
   }
-  return { _tag: "accepted", events: [...byIdentity.values()] };
+  return { _tag: "accepted", records: [...byIdentity.values()] };
 };
