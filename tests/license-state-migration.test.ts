@@ -10,9 +10,11 @@ import {
 } from "../src/main/vellum/state/engine";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
+  STATE_SCHEMA_V2_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_V1_SQL,
+  STATE_SCHEMA_V2_SQL,
 } from "../src/main/vellum/state/schema";
 import {
   verifyAndStampStateSchema,
@@ -102,12 +104,20 @@ describe("license state schema migration", () => {
               WHERE generation = '1'
             `,
           ),
-          licenseTable: reader.get(
+          legacyLicenseTable: reader.get(
             `
               SELECT name
               FROM sqlite_schema
               WHERE type = 'table'
                 AND name = 'license_activation'
+            `,
+          ),
+          boundLicenseTable: reader.get(
+            `
+              SELECT name
+              FROM sqlite_schema
+              WHERE type = 'table'
+                AND name = 'license_entitlement'
             `,
           ),
         })),
@@ -117,7 +127,8 @@ describe("license state schema migration", () => {
         name: "preserved",
         body: '{"nodes":[],"edges":[]}',
       },
-      licenseTable: { name: "license_activation" },
+      legacyLicenseTable: { name: "license_activation" },
+      boundLicenseTable: { name: "license_entitlement" },
     });
 
     const backups = await readdir(join(stateDirectory, "backups"));
@@ -155,5 +166,120 @@ describe("license state schema migration", () => {
     } finally {
       backup.close();
     }
+  });
+
+  it("preserves a V2 unbound activation but never adopts it as current entitlement", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-license-v2-migration-"));
+    roots.push(root);
+    const stateDirectory = join(root, "state");
+    const path = join(stateDirectory, "vellum.db");
+    await mkdir(stateDirectory);
+    const legacyBody = JSON.stringify({
+      provider: "dodo",
+      kind: "subscription",
+      environment: "live",
+      licenseKey: "legacy-unbound-secret",
+      instanceId: "lki_legacy",
+      activatedAt: "2026-07-27T12:00:00.000Z",
+      lastValidationAttemptAt: "2026-07-27T12:00:00.000Z",
+      lastValidatedAt: "2026-07-27T12:00:00.000Z",
+      validationResult: "valid",
+    });
+    const versionTwo = new DatabaseSync(path);
+    try {
+      versionTwo.exec(STATE_SCHEMA_V2_SQL);
+      versionTwo
+        .prepare(
+          `
+            INSERT INTO license_activation(
+              singleton,
+              record_version,
+              activated_license_json,
+              updated_at
+            ) VALUES (1, 1, ?, ?)
+          `,
+        )
+        .run(legacyBody, "2026-07-28T12:00:00.000Z");
+      verifyAndStampStateSchema(versionTwo, STATE_SCHEMA_V2_SQL);
+      versionTwo.exec("PRAGMA user_version = 2");
+    } finally {
+      versionTwo.close();
+    }
+
+    const runtime = ManagedRuntime.make(makeStateEngineLive(path));
+    runtimes.push(runtime);
+    const state = await runtime.runPromise(StateEngine);
+
+    expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
+    expect(
+      await runtime.runPromise(
+        state.read("test.license-v2-migration", (reader) => ({
+          legacy: reader.get(
+            `
+              SELECT record_version, activated_license_json
+              FROM license_activation
+              WHERE singleton = 1
+            `,
+          ),
+          currentCount: reader.get(
+            `
+              SELECT count(*) AS count
+              FROM license_entitlement
+            `,
+          ),
+        })),
+      ),
+    ).toEqual({
+      legacy: {
+        record_version: 1,
+        activated_license_json: legacyBody,
+      },
+      currentCount: { count: 0 },
+    });
+
+    const backups = await readdir(join(stateDirectory, "backups"));
+    expect(backups).toHaveLength(1);
+    const backup = new DatabaseSync(
+      join(stateDirectory, "backups", backups[0]!),
+      { readOnly: true },
+    );
+    try {
+      expect(backup.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: 2,
+      });
+      expect(
+        backup
+          .prepare(
+            `
+              SELECT record_version, activated_license_json
+              FROM license_activation
+              WHERE singleton = 1
+            `,
+          )
+          .get(),
+      ).toEqual({
+        record_version: 1,
+        activated_license_json: legacyBody,
+      });
+      expect(
+        backup
+          .prepare(
+            `
+              SELECT name
+              FROM sqlite_schema
+              WHERE type = 'table'
+                AND name = 'license_entitlement'
+            `,
+          )
+          .get(),
+      ).toBeUndefined();
+    } finally {
+      backup.close();
+    }
+
+    expect(STATE_SCHEMA_V2_IDENTITY).toMatchObject({
+      actualSchemaSha256:
+        "c7050c73efcea27e7ccb6e7c687f213cae8d2c32e8903d1ab7c7f1e8aeb953c3",
+    });
   });
 });

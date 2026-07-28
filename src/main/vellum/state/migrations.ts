@@ -15,7 +15,10 @@ import {
   verifyRecordedStateSchemaIdentity,
   type VerifiedStateSchemaIdentity,
 } from "./schema-identity";
-import { LICENSE_STATE_SCHEMA_SQL } from "../license/state-schema";
+import {
+  LICENSE_STATE_V1_SCHEMA_SQL,
+  LICENSE_STATE_V2_SCHEMA_SQL,
+} from "../license/state-schema";
 
 export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
@@ -66,7 +69,14 @@ export const STATE_SCHEMA_V1_IDENTITY = {
     "eced07754950232548eae3015fb9deeb0f2d5829d6f588ef6a45d0763356153d",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 2;
+export const STATE_SCHEMA_V2_IDENTITY = {
+  actualSchemaSha256:
+    "c7050c73efcea27e7ccb6e7c687f213cae8d2c32e8903d1ab7c7f1e8aeb953c3",
+  sourceSchemaSha256:
+    "85dfa3a5cd4d6623ab197c18e40c0c7ca1d15c63ac049410f00da53b5fbf1658",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 3;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -77,7 +87,17 @@ export const STATE_SCHEMA_MIGRATIONS =
       safety: STATE_SCHEMA_MIGRATION_SAFETY,
       fromIdentity: STATE_SCHEMA_V1_IDENTITY,
       migrate: (database) => {
-        database.exec(LICENSE_STATE_SCHEMA_SQL);
+        database.exec(LICENSE_STATE_V1_SCHEMA_SQL);
+      },
+    },
+    {
+      fromVersion: 2,
+      toVersion: 3,
+      name: "bind-license-entitlement-to-dodo-product",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V2_IDENTITY,
+      migrate: (database) => {
+        database.exec(LICENSE_STATE_V2_SCHEMA_SQL);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;

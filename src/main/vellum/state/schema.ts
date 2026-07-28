@@ -2,7 +2,10 @@ import { BROWSER_PROFILES_STATE_SCHEMA_SQL } from "../browser/state-schema";
 import { BOX_STATE_SCHEMA_SQL } from "../box/state-schema";
 import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
 import { KERNEL_STATE_SCHEMA_SQL } from "../kernel/state-schema";
-import { LICENSE_STATE_SCHEMA_SQL } from "../license/state-schema";
+import {
+  LICENSE_STATE_V1_SCHEMA_SQL,
+  LICENSE_STATE_V2_SCHEMA_SQL,
+} from "../license/state-schema";
 import { FACTORY_PAUSE_STATE_SCHEMA_SQL } from "../pause/state-schema";
 import { SETTINGS_STATE_SCHEMA_SQL } from "../settings/state-schema";
 import { SCHEDULER_STATE_SCHEMA_SQL } from "../scheduler/state-schema";
@@ -97,9 +100,17 @@ export const STATE_SCHEMA_V1_FRAGMENTS = [
 
 export const STATE_SCHEMA_V1_SQL = STATE_SCHEMA_V1_FRAGMENTS.join("\n");
 
-export const STATE_SCHEMA_FRAGMENTS = [
+export const STATE_SCHEMA_V2_FRAGMENTS = [
   ...STATE_SCHEMA_V1_FRAGMENTS,
-  LICENSE_STATE_SCHEMA_SQL,
+  LICENSE_STATE_V1_SCHEMA_SQL,
+] as const;
+
+export const STATE_SCHEMA_V2_SQL =
+  STATE_SCHEMA_V2_FRAGMENTS.join("\n");
+
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V2_FRAGMENTS,
+  LICENSE_STATE_V2_SCHEMA_SQL,
 ] as const;
 
 /**
