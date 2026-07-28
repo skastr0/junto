@@ -10,13 +10,15 @@ import {
 } from "../src/main/vellum/station/fleet-target-repository";
 import {
   makeStateEngineLive,
+  StateEngine,
   type StateEngineError,
+  type StateRow,
 } from "../src/main/vellum/state/engine";
 import { HostId } from "../src/shared/remote-hosts";
-import { InstallationId } from "../src/shared/station-api";
+import { InstallationId } from "../src/shared/installation-id";
 
 type FleetRuntime = ManagedRuntime.ManagedRuntime<
-  StationFleetTargetRepository,
+  StationFleetTargetRepository | StateEngine,
   StateEngineError
 >;
 
@@ -34,10 +36,14 @@ const makeRuntime = async (
     : undefined;
   if (root !== undefined) roots.push(root);
   const databasePath = path ?? join(root!, "state", "vellum.db");
+  const stateLive = makeStateEngineLive(databasePath);
   const runtime = ManagedRuntime.make(
-    makeStationFleetTargetRepositoryLive({
-      now: () => "2026-07-27T12:00:00.000Z",
-    }).pipe(Layer.provide(makeStateEngineLive(databasePath))),
+    Layer.provideMerge(
+      makeStationFleetTargetRepositoryLive({
+        now: () => "2026-07-27T12:00:00.000Z",
+      }),
+      stateLive,
+    ),
   );
   runtimes.push(runtime);
   return { path: databasePath, runtime };
@@ -91,6 +97,20 @@ describe("StationFleetTargetRepository", () => {
     expect(
       (await runtime.runPromise(fleet.list)).map((target) => target.hostId),
     ).toEqual(["mini", "studio"]);
+    const state = await runtime.runPromise(StateEngine);
+    expect(
+      await runtime.runPromise(
+        state.read("test.fleet-known-installations", (reader) =>
+          reader
+            .all<StateRow & { readonly installation_id: string }>(
+              `SELECT installation_id
+                 FROM station_known_installations
+                ORDER BY installation_id`,
+            )
+            .map((row) => row.installation_id)
+        ),
+      ),
+    ).toEqual(["station-mini", "station-studio"]);
 
     await disposeRuntime(runtime);
     const reopened = await makeRuntime(path);
@@ -237,6 +257,28 @@ describe("StationFleetTargetRepository", () => {
         _tag: "StationFleetTargetMetadataError",
         operation: "bind",
         field: "boundAt",
+      },
+    });
+    expect(await runtime.runPromise(fleet.list)).toEqual([]);
+  });
+
+  it("keeps SSH reachability out of fleet target identity", async () => {
+    const { runtime } = await makeRuntime();
+    const fleet = await repository(runtime);
+    const forged = {
+      ...identity("mini", "station-mini"),
+      sshEndpoint: "operator@mini.example",
+    } as unknown as StationFleetTargetIdentity;
+
+    expect(
+      await runtime.runPromise(
+        fleet.bind(forged).pipe(Effect.either),
+      ),
+    ).toMatchObject({
+      _tag: "Left",
+      left: {
+        _tag: "StationFleetTargetMetadataError",
+        field: "identity",
       },
     });
     expect(await runtime.runPromise(fleet.list)).toEqual([]);

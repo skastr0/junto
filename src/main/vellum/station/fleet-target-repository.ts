@@ -3,15 +3,17 @@ import {
   HostId,
   type HostId as HostIdValue,
 } from "@shared/remote-hosts";
+import { DisplayTimestamp } from "@shared/station-api";
 import {
-  DisplayTimestamp,
   InstallationId,
-} from "@shared/station-api";
+  type InstallationId as InstallationIdValue,
+} from "@shared/installation-id";
 import {
   StateEngine,
   type StateEngineError,
   type StateReader,
   type StateRow,
+  type StateWriter,
 } from "../state/service";
 
 /** Fleet identity is host + station installation only. SSH routes live on the host registry. */
@@ -119,6 +121,7 @@ type FleetTargetRow = StateRow & {
 const decodeTarget = Schema.decodeUnknownSync(StationFleetTarget);
 const decodeIdentityEither = Schema.decodeUnknownEither(
   StationFleetTargetIdentity,
+  { onExcessProperty: "error" },
 );
 const decodeTimestampEither = Schema.decodeUnknownEither(DisplayTimestamp);
 
@@ -156,6 +159,21 @@ const selectByHostId = (
        AND retired_at IS NULL`,
     [hostId],
   );
+
+const registerKnownInstallation = (
+  writer: StateWriter,
+  installationId: InstallationIdValue,
+  registeredAt: string,
+): void => {
+  writer.run(
+    `INSERT INTO station_known_installations(
+       installation_id,
+       registered_at
+     ) VALUES (?, ?)
+     ON CONFLICT(installation_id) DO NOTHING`,
+    [installationId, registeredAt],
+  );
+};
 
 const selectBindingByHostId = (
   reader: StateReader,
@@ -315,6 +333,11 @@ export const makeStationFleetTargetRepositoryLive = (
                 ...admittedIdentity,
                 boundAt: admittedBoundAt,
               };
+              registerKnownInstallation(
+                writer,
+                target.stationInstallationId,
+                target.boundAt,
+              );
               writer.run(
                 `INSERT INTO station_fleet_targets(
                    host_id,
