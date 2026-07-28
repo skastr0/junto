@@ -796,7 +796,7 @@ test("capture the fleet manager overlay", async () => {
       await ghost.click();
       const detail = page.locator(".fleet-detail");
       await expect(detail).toBeVisible({ timeout: 5_000 });
-      await expect(detail.getByRole("button", { name: "Claim as station" })).toBeVisible();
+      await expect(detail.getByRole("button", { name: "Enroll this machine" })).toBeVisible();
       await shot(page, "27-fleet-ghost-detail");
     }
   } finally {

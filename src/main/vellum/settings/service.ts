@@ -342,7 +342,7 @@ export const makeSettingsService = (
       if (decoded.right.station !== undefined) {
         return yield* new SettingsError({
           message:
-            "station topology is protected — use settingsSetStationTopology to establish or update the local Command Center",
+            "the machine role is protected — use settingsSetStationTopology to establish or update the local Command Center",
           code: "validation",
         });
       }
@@ -513,7 +513,7 @@ export const makeSettingsService = (
       if (section === "station") {
         return yield* new SettingsError({
           message:
-            "station topology cannot be reset from Settings — role migration requires an explicit Command Center transfer ceremony",
+            "This machine's role can't be changed from Settings.",
           code: "validation",
         });
       }

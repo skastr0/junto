@@ -18,7 +18,7 @@ describe("standalone station supervisor", () => {
       accepted: false,
       failure: {
         kind: "unsupported",
-        diagnostic: "This platform has no Vellum station-supervisor provider.",
+        diagnostic: "Supervised startup isn't available on this platform.",
       },
     });
   });

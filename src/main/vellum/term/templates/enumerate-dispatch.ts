@@ -16,6 +16,7 @@ import {
   effortsFor,
   readClaudeModels,
   readGrokModels,
+  readHermesModels,
 } from "./enumerate-models";
 
 const execFileAsync = promisify(execFile);
@@ -81,7 +82,17 @@ export const enumerateManagedModels = async (
         efforts: effortsFor("grok") as string[],
       };
     }
-    // hermes — models come from profile rows; picker uses profiles IPC.
+    // hermes — profiles from `hermes profile list`; models from provider cache.
+    // Cascade: profile → model (−m); no effort flag in v1.
+    if (harness === "hermes") {
+      const result = readHermesModels();
+      return {
+        models: result.models,
+        source: result.source,
+        error: result.error,
+        efforts: templateEfforts as string[],
+      };
+    }
     return {
       models: [],
       source: "empty",

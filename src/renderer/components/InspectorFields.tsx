@@ -291,7 +291,7 @@ export function NodePlacementSection({ node }: { readonly node: CanvasNode }) {
   const assign = placement.assignment ?? "—";
   const tone = placementTone(placement.runtime._tag);
   const title = [
-    placement.runtime._tag === "Station" ? "station" : "command center",
+    placement.runtime._tag === "Station" ? "remote machine" : "command center",
     placement.assignment ? `host ${placement.assignment}` : "unassigned",
   ].join(" · ");
 

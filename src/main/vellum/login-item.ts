@@ -31,7 +31,7 @@ const unsupportedStartupProvider = (platform: NodeJS.Platform): StartupProvider 
 
 const unsupportedStartupMessage = (provider: StartupProvider): string =>
   provider === "systemd-supervision"
-    ? "Apple Login Items are unavailable on Linux; use systemd user supervision for Remote stations."
+    ? "Apple Login Items are unavailable on Linux; Remotes run under systemd user supervision."
     : "Apple Login Items are only available on macOS.";
 
 export const readLoginItemState = (electronApp: LoginItemApp): LoginItemState => {

@@ -89,7 +89,7 @@ export const makeNodeRefNavigationCoordinator = (
     const request = dependencies.clock.begin();
     const event = decodeEvent(untrustedEvent);
     if (event === undefined) {
-      throw report(new NodeRefNavigationError("event", "Vellum node reference is invalid."));
+      throw report(new NodeRefNavigationError("event", "This node reference is invalid."));
     }
 
     let result: CanvasReadResult;

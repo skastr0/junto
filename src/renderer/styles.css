@@ -539,9 +539,11 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
 .workbench-resize-handle--left:active {
   background: rgba(232, 163, 61, 0.25);
 }
-/* xterm absolute-fill so it never drives host content height (island loop). */
+/* xterm absolute-fill so it never drives host content height (island loop).
+   No DOM overflow — same contract as native-terminal-surface. */
 .herdr-xterm {
   outline: none;
+  overflow: hidden;
 }
 .herdr-xterm .xterm {
   position: absolute !important;
@@ -550,14 +552,22 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   height: 100% !important;
   padding: 6px 8px;
   box-sizing: border-box;
+  overflow: hidden !important;
 }
 .herdr-xterm .xterm-viewport {
   width: 100% !important;
   height: 100% !important;
-  overflow-y: hidden !important;
+  overflow: hidden !important;
+  scrollbar-width: none;
+}
+.herdr-xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .herdr-xterm .xterm-screen {
   width: 100% !important;
+  overflow: hidden !important;
 }
 
 /* Generic desktop chrome. macOS adds hiddenInset geometry below. */
@@ -965,23 +975,15 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   .inspector-panel { top: auto; right: 10px; bottom: 130px; left: 10px; width: auto; max-height: 42vh; }
 }
 .field-empty { width: 290px; text-align: center; }
-.field-empty__reticle { position: relative; display: block; width: 68px; height: 68px; margin: 0 auto 18px; border: 1px solid rgba(232,163,61,.34); border-radius: 50%; background: transparent; box-shadow: 0 0 35px rgba(232,163,61,.06); padding: 0; color: inherit; }
-.field-empty__reticle::before, .field-empty__reticle::after { content: ""; position: absolute; background: rgba(232,163,61,.32); pointer-events: none; }
+.field-empty__reticle { position: relative; width: 68px; height: 68px; margin: 0 auto 18px; border: 1px solid rgba(232,163,61,.34); border-radius: 50%; box-shadow: 0 0 35px rgba(232,163,61,.06); }
+.field-empty__reticle::before, .field-empty__reticle::after { content: ""; position: absolute; background: rgba(232,163,61,.32); }
 .field-empty__reticle::before { left: 50%; top: 8px; bottom: 8px; width: 1px; }
 .field-empty__reticle::after { top: 50%; left: 8px; right: 8px; height: 1px; }
-.field-empty__reticle span { position: absolute; width: 5px; height: 5px; border: 1px solid var(--color-amber); pointer-events: none; }
+.field-empty__reticle span { position: absolute; width: 5px; height: 5px; border: 1px solid var(--color-amber); }
 .field-empty__reticle span:nth-child(1) { left: -3px; top: -3px; border-right: 0; border-bottom: 0; }
 .field-empty__reticle span:nth-child(2) { right: -3px; top: -3px; border-left: 0; border-bottom: 0; }
 .field-empty__reticle span:nth-child(3) { right: -3px; bottom: -3px; border-left: 0; border-top: 0; }
 .field-empty__reticle span:nth-child(4) { left: -3px; bottom: -3px; border-right: 0; border-top: 0; }
-.field-empty__reticle--action { cursor: pointer; transition: border-color .18s ease, background .18s ease, box-shadow .18s ease, transform .16s ease; }
-.field-empty__reticle--action:hover, .field-empty__reticle--action:focus-visible {
-  border-color: rgba(232,163,61,.72);
-  background: rgba(232,163,61,.08);
-  box-shadow: 0 0 42px rgba(232,163,61,.14);
-  outline: none;
-}
-.field-empty__reticle--action:active { transform: scale(.97); }
 .field-empty__eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--color-amber); font-size: 8px; letter-spacing: .18em; text-transform: uppercase; }
 .field-empty__title { margin-top: 9px; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 26px; letter-spacing: .16em; text-transform: uppercase; }
 .field-empty__copy { margin-top: 10px; color: var(--color-faint); font-size: 10px; letter-spacing: .06em; line-height: 1.7; }
@@ -2276,7 +2278,11 @@ ol.note-md__list > .note-md__li::before {
   overflow: hidden;
   outline: none;
 }
-/* Absolute fill so .xterm never drives host content height. */
+/* Absolute fill so .xterm never drives host content height.
+   No DOM overflow anywhere in this tree — a web scrollbar here steals wheel
+   from full-screen TUIs (Claude Code, etc.) and double-scrolls with the app.
+   Match herdr: overflow hidden; PTY/TUI owns scroll; buffer scrollback still
+   works via keyboard / xterm.scrollLines. */
 .native-terminal-surface__xterm .xterm {
   position: absolute !important;
   inset: 0;
@@ -2284,22 +2290,29 @@ ol.note-md__list > .note-md__li::before {
   height: 100% !important;
   padding: 6px 8px;
   box-sizing: border-box;
+  overflow: hidden !important;
 }
-/* Match xterm default scroll (scroll, not auto) so the SmoothScrollableElement
-   scrollbar + wheel stay wired after pin remount / dock reflow. height:100%
-   fills the absolute host; do not set overflow hidden — that kills scrollback. */
 .native-terminal-surface__xterm .xterm-viewport {
   width: 100% !important;
   height: 100% !important;
-  overflow-y: scroll !important;
+  overflow: hidden !important;
+  /* belt: xterm.css defaults overflow-y:scroll and paints a track */
+  scrollbar-width: none;
+}
+.native-terminal-surface__xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .native-terminal-surface__xterm .xterm-screen {
   width: 100% !important;
+  overflow: hidden !important;
 }
 /* xterm 6 scrollable wrapper must fill the viewport for wheel hit-testing. */
 .native-terminal-surface__xterm .xterm-scrollable-element {
   width: 100% !important;
   height: 100% !important;
+  overflow: hidden !important;
 }
 
 /* =============================================================================
@@ -2428,6 +2441,173 @@ ol.note-md__list > .note-md__li::before {
 .fleet-map__dither button:focus-visible {
   outline: 1px solid var(--color-cyan);
   outline-offset: 1px;
+}
+
+.fleet-box-panel {
+  width: min(760px, calc(100vw - 48px));
+  max-height: min(760px, calc(100vh - 64px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-stroke);
+  border-radius: 10px;
+  background: var(--color-raise);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.52);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+}
+.fleet-box-panel__header,
+.fleet-box-panel__provider,
+.fleet-box-panel__toolbar,
+.fleet-box-card,
+.fleet-box-panel__footer {
+  display: flex;
+  align-items: center;
+}
+.fleet-box-panel__header {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+.fleet-box-panel__eyebrow {
+  margin-bottom: 5px;
+  color: var(--color-amber);
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.fleet-box-panel__header h2 {
+  margin: 0;
+  font: 600 24px/1.1 var(--font-display);
+}
+.fleet-box-panel__header p {
+  max-width: 570px;
+  margin: 8px 0 0;
+  color: var(--color-dim);
+  font-size: 10px;
+  line-height: 1.55;
+}
+.fleet-box-panel__provider {
+  gap: 10px;
+  padding: 13px 24px;
+  background: var(--color-inset);
+  border-bottom: 1px solid var(--color-stroke);
+}
+.fleet-box-panel__provider > div:nth-child(2) {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+.fleet-box-panel__provider strong,
+.fleet-box-panel__toolbar strong,
+.fleet-box-card strong {
+  color: var(--color-ink-2);
+  font-size: 10px;
+  font-weight: 600;
+}
+.fleet-box-panel__provider span,
+.fleet-box-panel__toolbar span,
+.fleet-box-card span {
+  overflow: hidden;
+  color: var(--color-faint);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fleet-box-panel__provider-actions,
+.fleet-box-card__actions {
+  display: flex;
+  gap: 6px;
+}
+.fleet-box-panel__notice {
+  margin: 14px 24px 0;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-amber) 35%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-amber) 7%, transparent);
+  color: var(--color-dim);
+  font-size: 9px;
+  line-height: 1.5;
+}
+.fleet-box-panel__notice code {
+  color: var(--color-amber);
+}
+.fleet-box-panel__toolbar {
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 24px 10px;
+}
+.fleet-box-panel__toolbar > div,
+.fleet-box-card__identity > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.fleet-box-panel__list {
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 0 24px 18px;
+}
+.fleet-box-panel__empty {
+  display: grid;
+  min-height: 116px;
+  place-items: center;
+  border: 1px dashed var(--color-stroke);
+  border-radius: 7px;
+  color: var(--color-faint);
+  font-size: 9px;
+  line-height: 1.5;
+  text-align: center;
+}
+.fleet-box-card {
+  gap: 14px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-stroke);
+  background: var(--color-well);
+}
+.fleet-box-card + .fleet-box-card {
+  border-top: 0;
+}
+.fleet-box-card:first-child {
+  border-radius: 7px 7px 0 0;
+}
+.fleet-box-card:last-child {
+  border-radius: 0 0 7px 7px;
+}
+.fleet-box-card:only-child {
+  border-radius: 7px;
+}
+.fleet-box-card__identity {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+}
+.fleet-box-panel__footer {
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 24px;
+  border-top: 1px solid var(--color-stroke);
+  color: var(--color-faint);
+  font-size: 7px;
+  line-height: 1.45;
+}
+.fleet-box-panel__footer span:last-child {
+  text-align: right;
+}
+.fleet-box-panel__message {
+  margin: 0;
+  padding: 9px 24px;
+  border-top: 1px solid var(--color-stroke);
+  color: var(--color-amber);
+  font-size: 9px;
 }
 
 /* React Flow handles double as edge anchors — pinned to node centers so link

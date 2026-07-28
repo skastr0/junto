@@ -24,8 +24,8 @@ const slugifyHostId = (label: string): string => {
 };
 
 /**
- * Add / claim-a-host form. Shared by the "Add host" header action (blank) and
- * discovery "Claim as station" (pre-filled from a Tailscale peer).
+ * Add / enroll-a-host form. Shared by the "Add host" header action (blank) and
+ * discovery "Enroll this machine" (pre-filled from a discovered peer).
  */
 export function FleetHostForm({
   initialLabel = "",
@@ -101,7 +101,7 @@ export function FleetHostForm({
           if (event.key === "Escape") onClose();
         }}
       >
-        <div className="fleet-form__title">{initialLabel ? "Claim as station" : "Add remote host"}</div>
+        <div className="fleet-form__title">{initialLabel ? "Enroll this machine" : "Add remote host"}</div>
         <FieldLabel>
           label
           <Input

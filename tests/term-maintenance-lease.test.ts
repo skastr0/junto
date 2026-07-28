@@ -317,7 +317,7 @@ describe("terminal maintenance lease", () => {
     expect(acquisition.acquired).toBe(true);
     if (!acquisition.acquired) return;
     await expect(acquisition.lease.acknowledgeFence()).rejects.toThrow(
-      /not exact for this station/i,
+      /not exact for this machine/i,
     );
   });
 

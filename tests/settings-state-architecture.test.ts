@@ -89,9 +89,13 @@ describe("settings state architecture", () => {
     expect(gate).not.toContain("Continue as Remote");
     expect(gate).not.toContain("hostsConfigureRemote");
     expect(gate).not.toMatch(/hostsTest\s*\(/);
+    expect(gate).not.toContain("Claim this host from Command Center on");
+    expect(gate).not.toContain("MESH MACHINES VISIBLE");
     expect(gate).toContain("Station API");
     expect(gate).toContain("hostsDiscoverPeers");
-    expect(gate).toContain("Look for machines on Tailscale");
+    expect(gate).toContain("Look for a Command Center");
+    expect(gate).toContain("No Command Center found");
+    expect(gate).toContain("commandCenterFound: false");
     expect(gate).toContain("self-assigns Remote");
     expect(gate).toContain("You cannot enroll this machine yourself");
     expect(panel).not.toContain("Pull from Command Center");

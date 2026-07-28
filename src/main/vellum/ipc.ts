@@ -224,7 +224,7 @@ const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
     return yield* Effect.fail(
       new Error(
         current.station.role === "remote"
-          ? "Remote station cannot mutate authorial canvases. Author on the Command Center."
+          ? "A Remote can't edit the canvas — author on the Command Center."
           : "Station role is unset; authorial canvas mutation is refused until protected topology establishes this installation as Command Center.",
       ),
     );

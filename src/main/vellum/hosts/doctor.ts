@@ -66,7 +66,7 @@ const classifySshFailure = (message: string): string => {
       message,
     )
   ) {
-    return "Timeout — host unreachable (VPN/Tailscale down, wrong endpoint, or firewall).";
+    return "Timeout — host unreachable (VPN down, wrong endpoint, or firewall).";
   }
   if (/Host key verification failed/i.test(message)) {
     return "Host key rejected — verify fingerprint then `ssh-keygen -R <host>` if the machine was rebuilt.";

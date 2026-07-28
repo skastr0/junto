@@ -93,7 +93,7 @@ const decodeRemotePackagedPlatform = (
       endpoint,
       reason: canonicalUnsupported ? "unsupported" : "malformed",
       message: canonicalUnsupported
-        ? "remote platform does not have a Vellum packaged executable"
+        ? "remote platform does not have the Vellum Remote package installed"
         : "remote platform probe did not return one canonical uname record",
     }),
   );

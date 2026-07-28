@@ -14,8 +14,8 @@ export interface OwnedProcess { readonly [OwnedProcessTypeId]: typeof OwnedProce
 
 export const KillablePid = Schema.Int.pipe(
   Schema.greaterThan(1),
-  Schema.filter((pid) => pid !== globalThis.process.pid, { message: () => "pid must not be Vellum" }),
-  Schema.filter((pid) => pid !== globalThis.process.ppid, { message: () => "pid must not be Vellum parent" }),
+  Schema.filter((pid) => pid !== globalThis.process.pid, { message: () => "pid must not be the Vellum Command process" }),
+  Schema.filter((pid) => pid !== globalThis.process.ppid, { message: () => "pid must not be Vellum Command's parent process" }),
   Schema.brand("KillablePid"),
 );
 export type KillablePid = typeof KillablePid.Type;

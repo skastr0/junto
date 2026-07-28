@@ -259,7 +259,7 @@ describe("StationFleetTargetRepository", () => {
         rejectedStationInstallationId:
           replacement.stationInstallationId,
         message: expect.stringContaining(
-          "use a new host identity or a future explicit Station transfer ceremony",
+          "use a new host identity",
         ),
       },
     });
@@ -298,7 +298,7 @@ describe("StationFleetTargetRepository", () => {
         rejectedStationInstallationId:
           replacement.stationInstallationId,
         message: expect.stringContaining(
-          "use a new host identity or a future explicit Station transfer ceremony",
+          "use a new host identity",
         ),
       },
     });

@@ -227,7 +227,7 @@ const call = (
       settle(
         Effect.fail(
           unavailable
-            ? runtimeDown("Vellum canvas control is unavailable — open Vellum and try again")
+            ? runtimeDown("Canvas control is unavailable — open Vellum Command and try again")
             : new CanvasControlClientError({
                 code: "ProtocolError",
                 message: error.message,

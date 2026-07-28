@@ -270,7 +270,16 @@ export function AgentCascadeMenu({
   }, [anchor, columnCount]);
 
   const profileChoices = profiles ?? [];
-  const modelChoices = models ?? [];
+  // Hermes: pin the profile's configured model to the top of the second column
+  // so hover→pick stays one glance away from "use profile default".
+  const modelChoices = useMemo(() => {
+    const base = models ?? [];
+    if (harness !== "hermes" || !activeProfile?.model) return base;
+    const pin = activeProfile.model;
+    const rest = base.filter((m) => m.id !== pin);
+    const pinned = base.find((m) => m.id === pin) ?? { id: pin, label: pin };
+    return [pinned, ...rest];
+  }, [models, harness, activeProfile]);
   const firstColumnIsLoading = harness === "hermes" ? profiles === null : models === null;
   const spawn = (choices: AgentConfigurationChoices): void => {
     onSpawn({
@@ -303,24 +312,31 @@ export function AgentCascadeMenu({
         {firstColumnIsLoading ? (
           <LoadingRows />
         ) : harness === "hermes" ? (
-          profileChoices.map((profile) => (
-            <CascadeItem
-              key={profile.name}
-              label={profile.name}
-              expanded={activeProfile?.name === profile.name}
-              onEnter={() => {
-                setActiveProfile(profile);
-                setActiveModel(null);
-              }}
-              onSelect={() =>
-                spawn({
-                  harness,
-                  profile: profile.name,
-                  ...(profile.model ? { model: profile.model } : {}),
-                })
-              }
-            />
-          ))
+          profileChoices.map((profile) => {
+            // Chevron only when a model column can open (loading or non-empty).
+            const canExpandModels =
+              models === null || modelChoices.length > 0;
+            return (
+              <CascadeItem
+                key={profile.name}
+                label={profile.name}
+                expanded={
+                  canExpandModels ? activeProfile?.name === profile.name : undefined
+                }
+                onEnter={() => {
+                  setActiveProfile(profile);
+                  setActiveModel(null);
+                }}
+                onSelect={() =>
+                  spawn({
+                    harness,
+                    profile: profile.name,
+                    ...(profile.model ? { model: profile.model } : {}),
+                  })
+                }
+              />
+            );
+          })
         ) : (
           modelChoices.map((model) => {
             const hasEfforts =

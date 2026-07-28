@@ -340,13 +340,16 @@ export const cleanupVellumHarness = async (
 // appears. Every scenario needs the canvas interactable, so the harness
 // clears it once per launch rather than every spec repeating the same dance.
 const dismissStationRoleGate = async (page: Page): Promise<void> => {
-  const gate = page.getByRole("dialog", { name: "Establish this installation" });
+  const gate = page.getByRole("dialog", { name: "Set up this machine" });
   try {
     await gate.waitFor({ state: "visible", timeout: 20_000 });
   } catch {
     return; // no gate this run — fine.
   }
-  await page.getByRole("button", { name: /Command Center/ }).first().click();
+  await page
+    .getByRole("button", { name: /Set up as Command Center/ })
+    .first()
+    .click();
   await gate.waitFor({ state: "hidden", timeout: 20_000 });
 };
 

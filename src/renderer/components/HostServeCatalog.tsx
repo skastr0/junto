@@ -142,7 +142,7 @@ export function HostServeCatalog({
       {expanded ? (
         <div className="settings-host-services__body">
           {loading && !fetched ? (
-            <p className="settings-note">Loading Tailscale Serve…</p>
+            <p className="settings-note">Loading services…</p>
           ) : null}
           {loading && fetched ? (
             <p className="settings-note">Refreshing…</p>

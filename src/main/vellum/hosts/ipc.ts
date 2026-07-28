@@ -3,6 +3,9 @@ import { Context, Effect } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type {
   DiscoveredPeer,
+  BoxAvailabilityResult,
+  BoxFleetResource,
+  BoxFleetResult,
   HostsConfigureRemoteResult,
   HostsDeployRemoteAuthorizationRequest,
   HostsDeployRemoteInput,
@@ -45,6 +48,10 @@ import { PrismService } from "../../services/prism";
 import { StationRepository } from "../station/repository";
 import type { InstallationId } from "@shared/station-api";
 import { StationFleetTargetRepository } from "../station/fleet-target-repository";
+import {
+  BoxFleetService,
+  type BoxResourceType,
+} from "../box";
 
 const resolveCommandCenterConfigureOptions = (
   supervisedPreferred = true,
@@ -407,6 +414,37 @@ const DISCOVER_PEERS_EMPTY: HostsDiscoverPeersResult = {
   peers: [],
 };
 
+const projectBoxResource = (resource: BoxResourceType): BoxFleetResource => ({
+  boxId: resource.machine.id,
+  hostId: resource.hostId,
+  name: resource.machine.name,
+  ip: resource.machine.ip,
+  state: resource.machine.state,
+  createdAt: resource.machine.createdAt,
+  updatedAt: resource.machine.updatedAt,
+  enrolledAt: resource.enrolledAt,
+});
+
+const boxFailure = (error: unknown): BoxFleetResult => ({
+  ok: false,
+  code:
+    typeof error === "object" &&
+    error !== null &&
+    "_tag" in error &&
+    typeof error._tag === "string"
+      ? error._tag
+      : "box_error",
+  message:
+    typeof error === "object" &&
+    error !== null &&
+    "detail" in error &&
+    typeof error.detail === "string"
+      ? error.detail
+      : error instanceof Error
+        ? error.message
+        : String(error),
+});
+
 export const registerHostsIpc = (
   ipcMain: IpcMain,
   operations: HostOperationGate = hostOperationGate,
@@ -423,6 +461,155 @@ export const registerHostsIpc = (
         ),
       ),
       (error) => ({ ok: false, code: error.code, message: error.message }),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.boxAvailability, () =>
+    surfaceShutdownRefusal(
+      operations.run<BoxAvailabilityResult>(
+        HOST_OPERATION_ADMISSIONS.boxAvailability,
+        () =>
+          AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const boxes = yield* BoxFleetService;
+              const status = yield* boxes.availability;
+              return ({
+                ok: true,
+                ...status,
+              }) as BoxAvailabilityResult;
+            }),
+          ),
+      ),
+      (error) =>
+        ({
+          ok: false,
+          available: false,
+          authenticated: false,
+          healthy: false,
+          detail: error.message,
+          message: error.message,
+        }) satisfies BoxAvailabilityResult,
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.boxListOwned, () =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.boxListOwned, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const boxes = yield* BoxFleetService;
+            const result = yield* Effect.either(boxes.list);
+            return result._tag === "Right"
+              ? {
+                  ok: true,
+                  boxes: result.right.map(projectBoxResource),
+                } satisfies BoxFleetResult
+              : boxFailure(result.left);
+          }),
+        ),
+      ),
+      (error) => boxFailure(error),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.boxCreate, () =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.boxCreate, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const boxes = yield* BoxFleetService;
+            const result = yield* Effect.either(boxes.create());
+            return result._tag === "Right"
+              ? {
+                  ok: true,
+                  box: projectBoxResource(result.right),
+                } satisfies BoxFleetResult
+              : boxFailure(result.left);
+          }),
+        ),
+      ),
+      (error) => boxFailure(error),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.boxRefresh, (_event, boxId: unknown) =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.boxRefresh, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            if (typeof boxId !== "string" || boxId.length === 0) {
+              return {
+                ok: false,
+                code: "validation",
+                message: "Box id required",
+              } satisfies BoxFleetResult;
+            }
+            const boxes = yield* BoxFleetService;
+            const result = yield* Effect.either(boxes.refresh(boxId));
+            return result._tag === "Right"
+              ? {
+                  ok: true,
+                  box: projectBoxResource(result.right),
+                } satisfies BoxFleetResult
+              : boxFailure(result.left);
+          }),
+        ),
+      ),
+      (error) => boxFailure(error),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.boxStop, (_event, boxId: unknown) =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.boxStop, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            if (typeof boxId !== "string" || boxId.length === 0) {
+              return {
+                ok: false,
+                code: "validation",
+                message: "Box id required",
+              } satisfies BoxFleetResult;
+            }
+            const boxes = yield* BoxFleetService;
+            const result = yield* Effect.either(boxes.stop(boxId));
+            return result._tag === "Right"
+              ? {
+                  ok: true,
+                  box: projectBoxResource(result.right),
+                } satisfies BoxFleetResult
+              : boxFailure(result.left);
+          }),
+        ),
+      ),
+      (error) => boxFailure(error),
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.boxResume, (_event, boxId: unknown) =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.boxResume, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            if (typeof boxId !== "string" || boxId.length === 0) {
+              return {
+                ok: false,
+                code: "validation",
+                message: "Box id required",
+              } satisfies BoxFleetResult;
+            }
+            const boxes = yield* BoxFleetService;
+            const result = yield* Effect.either(boxes.resume(boxId));
+            return result._tag === "Right"
+              ? {
+                  ok: true,
+                  box: projectBoxResource(result.right),
+                } satisfies BoxFleetResult
+              : boxFailure(result.left);
+          }),
+        ),
+      ),
+      (error) => boxFailure(error),
     ),
   );
 

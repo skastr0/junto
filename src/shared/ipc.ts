@@ -151,6 +151,13 @@ export const IPC_CHANNELS = {
   hostsDeployRemote: "vellum:hosts-deploy-remote",
   /** Effective Remote deploy capability (RELEASE ∩ operator ∩ role). */
   hostsDeployCapabilities: "vellum:hosts-deploy-capabilities",
+  // Optional, user-owned Box CLI provider. Vellum never imports account inventory.
+  boxAvailability: "vellum:box-availability",
+  boxListOwned: "vellum:box-list-owned",
+  boxCreate: "vellum:box-create",
+  boxRefresh: "vellum:box-refresh",
+  boxStop: "vellum:box-stop",
+  boxResume: "vellum:box-resume",
   // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
   // The opaque challenge is generation identity, never product authority.
   rendererSurfaceChallenge: "vellum:renderer-surface-challenge",
@@ -625,6 +632,12 @@ export interface VellumApi {
   ) => Promise<HostsDeployRemoteResult>;
   /** SoT for Remote deployment capability gates. */
   readonly hostsDeployCapabilities: () => Promise<HostsDeployCapabilitiesResult>;
+  readonly boxAvailability: () => Promise<BoxAvailabilityResult>;
+  readonly boxListOwned: () => Promise<BoxFleetResult>;
+  readonly boxCreate: () => Promise<BoxFleetResult>;
+  readonly boxRefresh: (boxId: string) => Promise<BoxFleetResult>;
+  readonly boxStop: (boxId: string) => Promise<BoxFleetResult>;
+  readonly boxResume: (boxId: string) => Promise<BoxFleetResult>;
 }
 
 export interface HostsOpResult {
@@ -641,6 +654,37 @@ export interface HostsOpResult {
       readonly glyph?: string;
     };
   }>;
+  readonly code?: string;
+  readonly message?: string;
+}
+
+export interface BoxAvailabilityResult {
+  readonly ok: boolean;
+  readonly available: boolean;
+  readonly authenticated: boolean;
+  readonly healthy: boolean;
+  readonly executable?: string;
+  readonly version?: string;
+  readonly account?: string;
+  readonly detail: string;
+  readonly message?: string;
+}
+
+export interface BoxFleetResource {
+  readonly boxId: string;
+  readonly hostId: string;
+  readonly name: string;
+  readonly ip: string | null;
+  readonly state: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly enrolledAt: string;
+}
+
+export interface BoxFleetResult {
+  readonly ok: boolean;
+  readonly boxes?: ReadonlyArray<BoxFleetResource>;
+  readonly box?: BoxFleetResource;
   readonly code?: string;
   readonly message?: string;
 }

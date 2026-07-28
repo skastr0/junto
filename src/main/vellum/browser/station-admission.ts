@@ -110,24 +110,24 @@ export const prepareBrowserStationAdmissionAuthority = async (
   });
 
   const admit = async (): Promise<BrowserStationAdmissionResult> => {
-    if (closed) return denial("station browser admission is closed");
+    if (closed) return denial("browser admission is closed");
     const startedAtRevision = revision;
     let snapshot: BrowserStationAdmissionSnapshot;
     try {
       snapshot = await deps.readStation();
     } catch {
-      return denial("station repository is unavailable");
+      return denial("this machine's configuration is unavailable");
     }
     const { facts, projection } = snapshot;
     const configuration = facts.configuration;
     if (configuration === undefined) {
-      return denial("station is not configured");
+      return denial("this machine is not configured");
     }
 
     if (configuration.role === "command-center") {
       return revision === startedAtRevision
         ? { ok: true }
-        : denial("station admission facts changed during browser admission");
+        : denial("machine state changed during browser admission");
     }
 
     const host = deps.findHost(configuration.hostId);
@@ -137,20 +137,20 @@ export const prepareBrowserStationAdmissionAuthority = async (
       host.kind !== "remote" ||
       !hostHasCapability(host, "browser")
     ) {
-      return denial("Remote station browser capability is not current");
+      return denial("Remote browser capability is not current");
     }
     if (
       facts.pairing === undefined ||
       facts.pairing.commandCenterInstallationId !==
         configuration.commandCenterInstallationId
     ) {
-      return denial("Remote station pairing does not match its configuration");
+      return denial("Remote pairing does not match its configuration");
     }
     if (!completeProjectionMatches(facts, projection)) {
-      return denial("Remote station projection is absent or inconsistent");
+      return denial("Remote projection is absent or inconsistent");
     }
     if (revision !== startedAtRevision) {
-      return denial("station admission facts changed during browser admission");
+      return denial("machine state changed during browser admission");
     }
     return { ok: true, maxTtlMs: BROWSER_STATION_ADMISSION_TTL_MS };
   };

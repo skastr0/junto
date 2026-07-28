@@ -503,7 +503,7 @@ export const startTermControlServer = async (
               v: 1,
               id,
               ok: false,
-              error: "root release fence is not exact for this station",
+              error: "root release fence is not exact for this machine",
             };
           }
           const data = {

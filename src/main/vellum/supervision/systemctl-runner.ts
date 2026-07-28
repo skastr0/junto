@@ -274,7 +274,7 @@ export const createSystemctlRunner = (
         ok: false,
         failure: failure(
           "invalid-target",
-          "missing Vellum systemd user-unit target authority",
+          "missing Vellum Command systemd user-unit target authority",
         ),
       });
     }

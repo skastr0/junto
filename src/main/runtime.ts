@@ -37,6 +37,12 @@ import { UsageLive } from "./vellum/usage/live";
 import { UsageService } from "./vellum/usage/usage-service";
 import { HostsService, HostsServiceLive } from "./vellum/hosts";
 import { SshTransportLive } from "./vellum/ssh";
+import {
+  BoxCliLive,
+  BoxFleetServiceLive,
+  BoxOwnershipRepositoryLive,
+  BoxProcessRunnerLive,
+} from "./vellum/box";
 import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
 import {
   StationStatusLive,
@@ -86,6 +92,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     StationStatusLive,
     StationRepositoryLive,
     StationFleetTargetRepositoryLive,
+    BoxOwnershipRepositoryLive,
   ),
   StateEngineLive,
 );
@@ -142,6 +149,16 @@ const HostsWithSshLive = Layer.provideMerge(
   ),
 );
 
+const BoxCliWithProcessLive = Layer.provideMerge(
+  BoxCliLive,
+  BoxProcessRunnerLive,
+);
+
+const BoxFleetLive = Layer.provideMerge(
+  BoxFleetServiceLive,
+  Layer.mergeAll(BoxCliWithProcessLive, StateRepositoriesLive),
+);
+
 // HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.
 // Making that complete input feed the host-aware transports is the boot-order
 // barrier: no Herdr/Hermes plane can construct before synchronous routing has
@@ -183,6 +200,7 @@ const BaseLayer = Layer.mergeAll(
   SnapshotsWithProductsLive,
   HostsWithSshLive,
   StationFleetServicesLive,
+  BoxFleetLive,
 );
 
 // Pause plane sits between the base services and the acting planes so the

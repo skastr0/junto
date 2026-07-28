@@ -66,7 +66,7 @@ export type DiscoveryBandFlowNode = Node<DiscoveryBandNodeData, "discoveryBand">
 export function DiscoveryBandNode({ data }: NodeProps<DiscoveryBandFlowNode>) {
   return (
     <div className="fleet-discovery-band" aria-hidden="true">
-      <span>mesh discovery</span>
+      <span>discovered</span>
       <small>{data.count} visible · not enrolled</small>
     </div>
   );
@@ -110,7 +110,7 @@ export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlo
           <div className="fleet-cc__label font-display">Command Center</div>
           <div className="fleet-node__meta">{data.hostId || "local"}</div>
           <div className="fleet-node__signal fleet-node__signal--authority">
-            authorial core
+            this machine
           </div>
         </div>
       </div>
@@ -269,7 +269,7 @@ export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowN
           <span className="fleet-machine__reticle" aria-hidden="true" />
           <span
             className={peer.online ? "fleet-pip fleet-pip--reachable" : "fleet-pip fleet-pip--unknown"}
-            title={peer.online ? "online on the tailnet" : "offline"}
+            title={peer.online ? "online" : "offline"}
           />
         </div>
         <div className="fleet-node__copy fleet-machine__copy">

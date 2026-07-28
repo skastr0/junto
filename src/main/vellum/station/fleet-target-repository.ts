@@ -399,8 +399,8 @@ export const makeStationFleetTargetRepositoryLive = (
               rejectedStationInstallationId:
                 admittedIdentity.stationInstallationId,
               message:
-                `host ${JSON.stringify(admittedIdentity.hostId)} is permanently bound to Station installation ` +
-                `${JSON.stringify(decision.established.stationInstallationId)}; use a new host identity or a future explicit Station transfer ceremony`,
+                `host ${JSON.stringify(admittedIdentity.hostId)} is permanently bound to installation ` +
+                `${JSON.stringify(decision.established.stationInstallationId)}; use a new host identity`,
             });
           }
           if (decision.changed) {

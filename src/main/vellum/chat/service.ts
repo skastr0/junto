@@ -222,7 +222,7 @@ export class ChatService {
       void this.closeCurrent(agentKey);
       this.emit(agentKey, "status", {
         status: "closed",
-        text: "chat closed because station identity changed",
+        text: "chat closed because this machine's identity changed",
       });
       closed.push(agentKey);
     }

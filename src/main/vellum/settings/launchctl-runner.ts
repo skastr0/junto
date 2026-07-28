@@ -252,7 +252,7 @@ export const createLaunchctlRunner = (
         ok: false,
         failure: failure(
           "invalid-target",
-          "missing Vellum launch-agent target authority",
+          "missing Vellum Command launch-agent target authority",
         ),
       });
     }

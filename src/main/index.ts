@@ -24,6 +24,7 @@ import {
   terminateAdapterChildrenOnQuit,
 } from "./vellum/adapters/exec";
 import { appProcessPlane } from "./vellum/app-process-plane";
+import { beginBoxProcessShutdown } from "./vellum/box";
 import { AppRuntime } from "./runtime";
 import { releaseDemoRuntimeIsolation } from "./vellum/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
@@ -905,7 +906,7 @@ const createRendererFailureWindow = (): BrowserWindow => {
     height: 360,
     minWidth: 520,
     minHeight: 300,
-    title: "Vellum recovery",
+    title: "Vellum Command recovery",
     backgroundColor: "#0c0b0a",
     ...e2eMainWindowOptions(e2ePresentation),
     webPreferences: {
@@ -1419,6 +1420,7 @@ const beginShutdownAdmission = (reason: string): void => {
   browserShutdown ??= browserComposition?.drainOnQuit(reason);
   hermesShutdown ??= hermesPlaneService?.shutdown.drainOnQuit();
   adapterShutdown ??= terminateAdapterChildrenOnQuit();
+  beginBoxProcessShutdown();
 
   workControl?.beginShutdown();
   stationRemoteReportPumpShutdown ??= stationRemoteReportPump?.close();

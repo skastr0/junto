@@ -37,10 +37,10 @@ import "./settings-panel.css";
 type PanelSection = SettingsSectionKey | "hosts";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
-  { key: "station", label: "Station", blurb: "Command Center or Remote role" },
+  { key: "station", label: "Machine", blurb: "Command Center or Remote role" },
   { key: "appearance", label: "Appearance", blurb: "theme, density, motion" },
   { key: "canvas", label: "Canvas", blurb: "defaults for the portfolio field" },
-  { key: "hosts", label: "Hosts", blurb: "fleet + Tailscale services" },
+  { key: "hosts", label: "Hosts", blurb: "fleet + network services" },
   { key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" },
   { key: "kernel", label: "Kernel", blurb: "pulse retention and debug" },
   { key: "browser", label: "Browser", blurb: "surface and warm-session limits" },
@@ -464,15 +464,15 @@ function AdvancedSection() {
         />
       </FieldRow>
       {usesAppleLoginItems ? (
-        <FieldRow label="Start Vellum at login" hint="macOS Login Items — opt-in only; never enrolled silently">
-          <input type="checkbox" checked={openAtLogin} disabled={loginItemLoading || loginItemBusy} aria-label="Start Vellum at login" onChange={(event) => void onToggleLoginItem(event.target.checked)} />
+        <FieldRow label="Start Vellum Command at login" hint="macOS Login Items">
+          <input type="checkbox" checked={openAtLogin} disabled={loginItemLoading || loginItemBusy} aria-label="Start Vellum Command at login" onChange={(event) => void onToggleLoginItem(event.target.checked)} />
         </FieldRow>
       ) : startupProvider === "systemd-supervision" ? (
-        <FieldRow label="Station supervision" hint="Linux Remote stations use the systemd user-service flow; Command Center remains a desktop app.">
+        <FieldRow label="Startup" hint="Remotes on Linux run as a systemd user service.">
           <span className="settings-field__value" aria-label="Systemd user supervision">systemd user</span>
         </FieldRow>
       ) : (
-        <FieldRow label="Station supervision" hint="No startup provider is available on this platform.">
+        <FieldRow label="Startup" hint="Not available on this platform.">
           <span className="settings-field__value">unavailable</span>
         </FieldRow>
       )}
@@ -702,7 +702,7 @@ function HostsSection() {
       setAuthorizationRequest(result.authorizationRequest);
       setAuthorizationPassword("");
       setAuthorizationError(undefined);
-      setTestDetail((prev) => ({ ...prev, [id]: "Fresh administrator authorization required." }));
+      setTestDetail((prev) => ({ ...prev, [id]: "Administrator authorization required." }));
       return;
     }
     const stages = result.stages?.length ? `\n${result.stages.map((stage) => `· ${stage}`).join("\n")}` : "";
@@ -730,7 +730,7 @@ function HostsSection() {
     setBusy(true);
     setTestDetail((prev) => ({
       ...prev,
-      [id]: "deploying Vellum Remote and waiting for station readiness…",
+      [id]: "deploying Vellum Remote and waiting for it to come online…",
     }));
     try {
       const result: HostsDeployRemoteResult = await api.hostsDeployRemote({ id });
@@ -800,11 +800,10 @@ function HostsSection() {
         />
       </FieldRow>
       <p className="settings-note">
-        Remote hosts are user-authored — nothing is hard-coded for a particular machine.
         Use an SSH config <code>Host</code> alias, <code>user@hostname</code>, or an IPv6
         literal. Configure custom ports in <code>~/.ssh/config</code>. Agent keys for Hermes
         use the host id (or optional hermes id). Expand <strong>Services</strong> on a host to
-        list Tailscale Serve / SVC URLs and open them as canvas page nodes.
+        list its served URLs and open them as canvas pages.
         {isCommandCenter
           ? " On Command Center: Enroll fresh Remote stages station role on a pristine target (manual .deb install first). Managed package deploy remains release-gated."
           : ""}
@@ -841,7 +840,7 @@ function HostsSection() {
                         type="button"
                         className="settings-panel__ghost"
                         disabled={busy}
-                        title="Enroll a pristine host as Remote after the signed .deb is installed manually — never overwrites an existing topology"
+                        title="Set up a machine as a Remote once the package is installed — never overwrites an existing role"
                         onClick={() => void configureAsRemote(host.id)}
                       >
                         Enroll fresh Remote
@@ -1141,18 +1140,18 @@ function StationSection() {
       ? "Command Center"
       : role === "remote"
         ? "Remote"
-        : "Not set (complete onboarding)";
+        : "Not set yet";
   return (
     <div className="settings-section">
       <FieldRow
         label="Role"
-        hint="User-selected only. Changing role is deliberate — never auto-detected."
+        hint="Chosen during setup"
       >
         <span style={{ color: INK, fontSize: 13 }}>{roleLabel}</span>
       </FieldRow>
       <FieldRow
-        label="This station host id"
-        hint="Canonical execution identity for this installation"
+        label="This machine's host id"
+        hint="How this machine is identified across the fleet"
       >
         <span style={{ color: INK, fontSize: 13 }}>{station.hostId}</span>
       </FieldRow>
@@ -1189,35 +1188,31 @@ function StationSection() {
           hint="Remote identity cannot be changed locally"
         >
           <span className="settings-note" style={{ color: DIM }}>
-            Managed by the paired Command Center through the Station API
+            Managed by the paired Command Center
           </span>
         </FieldRow>
       ) : null}
       {station.role === "" ? (
         <FieldRow
           label="Configuration"
-          hint="No station_configuration row exists yet"
+          hint="This machine has no role yet"
         >
           <span className="settings-note" style={{ color: DIM }}>
-            Start a Command Center here, or enroll from an existing Command Center
+            Set this machine up as a Command Center, or enroll it from an existing one
           </span>
         </FieldRow>
       ) : (
         <FieldRow
-          label="Role migration"
-          hint="Established roles cannot be cleared or flipped from Settings"
+          label="Changing role"
+          hint="Roles can't be changed from Settings"
         >
           <span className="settings-note" style={{ color: DIM }}>
             {station.role === "remote"
-              ? "Remote topology changes are applied by its paired Command Center."
-              : "Command Center demotion requires an explicit transfer ceremony."}
+              ? "This machine's role is managed by its paired Command Center."
+              : "Handing the Command Center role to another machine is a separate, explicit operation."}
           </span>
         </FieldRow>
       )}
-      <p className="settings-note" style={{ color: DIM }}>
-        Canvas authoring is human-only on the Command Center. Agents never write the canvas.
-        A Remote is a capability host for its configured machine only.
-      </p>
     </div>
   );
 }
@@ -1280,7 +1275,7 @@ export function SettingsPanel() {
           <div className="settings-panel__title">
             <Settings2 size={16} style={{ color: HUE.amber }} />
             <div>
-              <div className="settings-panel__eyebrow">station / prefs</div>
+              <div className="settings-panel__eyebrow">vellum command</div>
               <strong style={{ color: INK }}>Settings</strong>
             </div>
           </div>
