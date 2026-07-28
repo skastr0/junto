@@ -187,6 +187,7 @@ describe("Linux v1 operator documentation", () => {
 
   it("documents the exact structured two-installation qualification", async () => {
     const qualification = await readDoc("linux-package-qualification.md");
+    const normalized = qualification.replace(/\s+/gu, " ");
     for (const required of [
       "`nativePlatform`",
       "`commandCenterOfflineClaimedTask`",
@@ -197,8 +198,11 @@ describe("Linux v1 operator documentation", () => {
       "`linux` / `ubuntu` / `24.04` / `x64`",
       "`darwin` / `macos`",
       "Only the Remote platform is bound to the deb",
+      "`station-qualification-evidence.txt`",
+      "human/operator attestation",
+      "`station-qualification-evidence` entry in the signed release manifest",
     ]) {
-      expect(qualification).toContain(required);
+      expect(normalized).toContain(required);
     }
     expect(qualification).not.toContain("ordered `checks`");
   });

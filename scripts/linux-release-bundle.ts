@@ -24,8 +24,10 @@ import {
 } from "../src/shared/station-protocol";
 import {
   decodeStationQualification,
+  STATION_QUALIFICATION_EVIDENCE_FILE,
   STATION_QUALIFICATION_RECEIPT_FILE,
   type StationQualificationNativePlatform,
+  type StationQualificationWitness,
 } from "../src/shared/station-qualification";
 import { isRecognizedSpdxExpression } from "./spdx-license";
 
@@ -67,6 +69,7 @@ export type LinuxReleaseFileKind =
   | "package-audit"
   | "runtime-receipt"
   | "ci-evidence-manifest"
+  | "station-qualification-evidence"
   | "station-qualification-receipt"
   | "promotion-receipt"
   | "release-keyring"
@@ -211,6 +214,7 @@ const FILE_KINDS = new Set<LinuxReleaseFileKind>([
   "package-audit",
   "runtime-receipt",
   "ci-evidence-manifest",
+  "station-qualification-evidence",
   "station-qualification-receipt",
   "promotion-receipt",
   "release-keyring",
@@ -230,6 +234,10 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["runtime-receipt", "packaged-pty-smoke.json"],
   ["runtime-receipt", "packaged-runtime-smoke.json"],
   ["ci-evidence-manifest", "ci-evidence-manifest.json"],
+  [
+    "station-qualification-evidence",
+    STATION_QUALIFICATION_EVIDENCE_FILE,
+  ],
   [
     "station-qualification-receipt",
     STATION_QUALIFICATION_RECEIPT_FILE,
@@ -1513,6 +1521,34 @@ const validateStationQualificationReceipt = (
     );
   }
   const qualification = decoded.right;
+  const witnesses: ReadonlyArray<StationQualificationWitness> = [
+    qualification.phases.pair.witness,
+    qualification.phases.configure.witness,
+    qualification.phases.project.witness,
+    qualification.phases.report.witness,
+    qualification.phases.status.witness,
+    qualification.phases.commandCenterOfflineClaimedTask.witness,
+    qualification.phases.projectResponseRetry.interruptionWitness,
+    qualification.phases.projectResponseRetry.retryWitness,
+    qualification.phases.reportResponseRetry.interruptionWitness,
+    qualification.phases.reportResponseRetry.retryWitness,
+    qualification.phases.doctor.commandCenter.witness,
+    qualification.phases.doctor.remote.witness,
+    qualification.phases.syntheticNoOverlap.witness,
+  ];
+  for (const witness of witnesses) {
+    const evidence = manifest.files.find(
+      (entry) => entry.file === witness.file,
+    );
+    if (
+      evidence?.kind !== "station-qualification-evidence" ||
+      evidence.sha256 !== witness.evidenceSha256
+    ) {
+      throw new Error(
+        "Station qualification witness does not bind signed operator evidence",
+      );
+    }
+  }
   const completedAt = requireIsoTimestamp(
     qualification.completedAt,
     "Station qualification completion time",

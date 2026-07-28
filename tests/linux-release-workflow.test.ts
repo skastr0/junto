@@ -135,6 +135,9 @@ describe("authoritative Linux release workflow", () => {
       'test ! -e "$candidate/release-manifest.sig"',
     );
     expect(workflow).toContain(
+      'test ! -e "$candidate/station-qualification-evidence.txt"',
+    );
+    expect(workflow).toContain(
       'test ! -e "$candidate/station-qualification-receipt.json"',
     );
     expect(workflow).toContain(

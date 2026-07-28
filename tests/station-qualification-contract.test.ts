@@ -1,6 +1,7 @@
 import { Either, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  STATION_QUALIFICATION_EVIDENCE_FILE,
   STATION_QUALIFICATION_SCHEMA,
   StationQualificationPackageFile,
   StationQualificationSha256,
@@ -11,6 +12,7 @@ import {
 
 const hash = (character: string) => character.repeat(64);
 const witness = (character: string) => ({
+  file: String(STATION_QUALIFICATION_EVIDENCE_FILE),
   evidenceSha256: hash(character),
   observedAt: "2026-07-28T12:00:00.000Z",
 });
@@ -192,7 +194,7 @@ describe("two-installation Station qualification contract", () => {
     expect(Either.isLeft(decodeStationQualification({ ...qualified(), extra: true }))).toBe(true);
   });
 
-  it("has one first-shipped v1 discriminator and safe package basenames", () => {
+  it("has one first-shipped v1 discriminator and safe evidence basenames", () => {
     expect(STATION_QUALIFICATION_SCHEMA).toBe(
       "vellum/station-two-installation-qualification/v1",
     );
@@ -217,6 +219,20 @@ describe("two-installation Station qualification contract", () => {
     ) {
       const receipt = qualified();
       receipt.package.file = file;
+      expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
+    }
+
+    for (
+      const file of [
+        ".",
+        "..",
+        "../station-evidence.txt",
+        "nested/station-evidence.txt",
+        "bad\0.txt",
+      ]
+    ) {
+      const receipt = qualified();
+      receipt.phases.pair.witness.file = file;
       expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
     }
   });

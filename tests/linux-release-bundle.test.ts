@@ -29,6 +29,7 @@ import {
   type LinuxReleaseKeyring,
 } from "../scripts/linux-release-bundle";
 import {
+  STATION_QUALIFICATION_EVIDENCE_FILE,
   STATION_QUALIFICATION_RECEIPT_FILE,
   STATION_QUALIFICATION_SCHEMA,
 } from "../src/shared/station-qualification";
@@ -124,6 +125,8 @@ const createFixture = async (options: {
     | "macos"
     | "unsupported";
   readonly stationQualificationWrongRemotePlatform?: boolean;
+  readonly stationQualificationWitnessFile?: string;
+  readonly stationQualificationWitnessMismatchIndex?: number;
   readonly omitStationQualification?: boolean;
 } = {}) => {
   const directory = await mkdtemp(
@@ -205,6 +208,8 @@ const createFixture = async (options: {
       cleanShutdown: true,
       tempRootRemoved: true,
     }),
+    [STATION_QUALIFICATION_EVIDENCE_FILE]:
+      "Human/operator attestation for one real two-installation Station qualification.\n",
     "dependency-license-inventory.json": canonical({
       schema: "vellum/dependency-license-inventory/v1",
       sourceRevision: REVISION,
@@ -318,10 +323,18 @@ const createFixture = async (options: {
     ciEvidenceManifest,
     { encoding: "utf8", mode: 0o644 },
   );
-  const qualificationWitness = (character: string) => ({
-    evidenceSha256: character.repeat(64),
-    observedAt: "2026-07-23T11:45:00.000Z",
-  });
+  const qualificationWitness = () => {
+    const file =
+      options.stationQualificationWitnessFile ??
+        STATION_QUALIFICATION_EVIDENCE_FILE;
+    return {
+      file,
+      evidenceSha256: sha256(
+        payloads[file] ?? payloads[STATION_QUALIFICATION_EVIDENCE_FILE],
+      ),
+      observedAt: "2026-07-23T11:45:00.000Z",
+    };
+  };
   const qualificationCursor = (
     eventHome: string,
     entityHome: string,
@@ -364,42 +377,42 @@ const createFixture = async (options: {
     };
   };
   const qualificationPhases = {
-    pair: { witness: qualificationWitness("1") },
-    configure: { witness: qualificationWitness("2") },
-    project: { witness: qualificationWitness("3") },
+    pair: { witness: qualificationWitness() },
+    configure: { witness: qualificationWitness() },
+    project: { witness: qualificationWitness() },
     report: {
-      witness: qualificationWitness("4"),
+      witness: qualificationWitness(),
       convergence: qualificationConvergence,
     },
-    status: { witness: qualificationWitness("5") },
+    status: { witness: qualificationWitness() },
     commandCenterOfflineClaimedTask: {
-      witness: qualificationWitness("6"),
+      witness: qualificationWitness(),
       taskId: "fixture-task",
       advancedState: "completed",
     },
     projectResponseRetry: {
-      interruptionWitness: qualificationWitness("7"),
-      retryWitness: qualificationWitness("8"),
+      interruptionWitness: qualificationWitness(),
+      retryWitness: qualificationWitness(),
       outcome: "idempotent",
     },
     reportResponseRetry: {
-      interruptionWitness: qualificationWitness("9"),
-      retryWitness: qualificationWitness("a"),
+      interruptionWitness: qualificationWitness(),
+      retryWitness: qualificationWitness(),
       convergence: qualificationConvergence,
     },
     doctor: {
       commandCenter: {
         status: "ok",
-        witness: qualificationWitness("b"),
+        witness: qualificationWitness(),
       },
       remote: {
         status: "ok",
-        witness: qualificationWitness("c"),
+        witness: qualificationWitness(),
       },
     },
     syntheticNoOverlap: {
       synthetic: true,
-      witness: qualificationWitness("d"),
+      witness: qualificationWitness(),
       commandCenterSupport: {
         preferred: 4,
         compatibleFrom: 3,
@@ -413,6 +426,30 @@ const createFixture = async (options: {
       outcome: "update-required",
     },
   };
+  const qualificationWitnesses = [
+    qualificationPhases.pair.witness,
+    qualificationPhases.configure.witness,
+    qualificationPhases.project.witness,
+    qualificationPhases.report.witness,
+    qualificationPhases.status.witness,
+    qualificationPhases.commandCenterOfflineClaimedTask.witness,
+    qualificationPhases.projectResponseRetry.interruptionWitness,
+    qualificationPhases.projectResponseRetry.retryWitness,
+    qualificationPhases.reportResponseRetry.interruptionWitness,
+    qualificationPhases.reportResponseRetry.retryWitness,
+    qualificationPhases.doctor.commandCenter.witness,
+    qualificationPhases.doctor.remote.witness,
+    qualificationPhases.syntheticNoOverlap.witness,
+  ];
+  if (options.stationQualificationWitnessMismatchIndex !== undefined) {
+    const witness = qualificationWitnesses[
+      options.stationQualificationWitnessMismatchIndex
+    ];
+    if (witness === undefined) {
+      throw new Error("invalid Station qualification witness fixture index");
+    }
+    witness.evidenceSha256 = "f".repeat(64);
+  }
   const { report: _report, ...incompleteQualificationPhases } =
     qualificationPhases;
   const stationQualification = options.stationQualificationPending === true
@@ -595,7 +632,7 @@ describe("signed Linux release bundle", () => {
       keyringRevision: 7,
       signedAt: "2026-07-23T11:58:00.000Z",
       expiresAt: EXPIRES_AT,
-      filesVerified: 17,
+      filesVerified: 18,
       bundleFiles: expect.arrayContaining([
         expect.objectContaining({
           file: PACKAGE,
@@ -908,6 +945,21 @@ describe("signed Linux release bundle", () => {
         promotionStationQualificationSha256: "0".repeat(64),
       }),
     ).rejects.toThrow(/promotion receipt/u);
+  });
+
+  it("binds every nested Station witness to signed operator evidence", async () => {
+    for (let index = 0; index < 13; index += 1) {
+      await expect(
+        createFixture({
+          stationQualificationWitnessMismatchIndex: index,
+        }),
+      ).rejects.toThrow(/bind signed operator evidence/u);
+    }
+    await expect(
+      createFixture({
+        stationQualificationWitnessFile: "test-receipt.json",
+      }),
+    ).rejects.toThrow(/bind signed operator evidence/u);
   });
 
   it("never emits private key material into signed metadata", async () => {

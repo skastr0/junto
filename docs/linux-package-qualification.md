@@ -108,24 +108,28 @@ smoke without a real install do **not** close Phase 2.
 
 ### Required two-installation receipt
 
-The operator-run fleet proof produces exactly
+The operator-run fleet proof produces bounded, redacted human/operator
+attestation in `station-qualification-evidence.txt` and
 `station-qualification-receipt.json` with schema
-`vellum/station-two-installation-qualification/v1`. It binds the proof to one
-source commit, the exact `deb` filename and SHA-256, the selected Station
-protocol, and the observed Command Center and Remote installation identities
-and app versions. Each installation records one closed `nativePlatform` fact
-with `os`, `distribution`, `version`, and `architecture`. The Remote must be
-exactly `linux` / `ubuntu` / `24.04` / `x64`, because it is the installation
-bound to the exact `deb`. The Command Center may match that Linux target or be
-an explicitly recorded macOS peer: `darwin` / `macos`, a nonempty native
-version, and `arm64` or `x64`. Arbitrary third platforms do not qualify the
-release. The package filename is a safe basename; path-bearing package claims
-fail decode.
+`vellum/station-two-installation-qualification/v1`. This is retained evidence
+from a real two-installation run, not a self-proving automation receipt. The
+receipt binds the proof to one source commit, the exact `deb` filename and
+SHA-256, the selected Station protocol, and the observed Command Center and
+Remote installation identities and app versions. Each installation records
+one closed `nativePlatform` fact with `os`, `distribution`, `version`, and
+`architecture`. The Remote must be exactly `linux` / `ubuntu` / `24.04` /
+`x64`, because it is the installation bound to the exact `deb`. The Command
+Center may match that Linux target or be an explicitly recorded macOS peer:
+`darwin` / `macos`, a nonempty native version, and `arm64` or `x64`. Arbitrary
+third platforms do not qualify the release. Package and witness filenames are
+safe basenames; path-bearing claims fail decode.
 
 The receipt has one strict structured `phases` object:
 
-- `pair`, `configure`, `project`, and `status` each carry a hashed,
-  timestamped witness;
+- every witness carries an evidence-file basename, that file's SHA-256, and an
+  observation timestamp. Multiple phases may cite the same bounded, redacted
+  operator evidence file;
+- `pair`, `configure`, `project`, and `status` each carry one such witness;
 - `report` carries its witness plus matching positive full-route cursors in
   both directions. Remote-originated cursors name the exact Remote as
   `eventHome`; Command-Center-originated cursors name the exact Command Center.
@@ -142,10 +146,13 @@ The receipt has one strict structured `phases` object:
   non-overlapping protocol ranges produce `update-required`.
 
 `ok: true` is valid only when every structured phase decodes against those
-exact installations and package bytes. An `ok: false` receipt means only
+exact installations and package bytes. During release assembly, every nested
+witness filename and SHA-256 must match an exact
+`station-qualification-evidence` entry in the signed release manifest. An
+arbitrary hex digest cannot qualify a phase. An `ok: false` receipt means only
 `operator-run-required` and is never release evidence. CI creates neither
-variant. The final release promotion gate separately hashes and binds the
-passed receipt in
+operator evidence nor either receipt variant. The final release promotion gate
+separately hashes and binds the passed receipt in
 `release-promotion-receipt.json`; neither filename may be synthesized from
 package-smoke success.
 

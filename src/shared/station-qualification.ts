@@ -18,6 +18,8 @@ export const STATION_QUALIFICATION_SCHEMA =
   "vellum/station-two-installation-qualification/v1" as const;
 export const STATION_QUALIFICATION_RECEIPT_FILE =
   "station-qualification-receipt.json" as const;
+export const STATION_QUALIFICATION_EVIDENCE_FILE =
+  "station-qualification-evidence.txt" as const;
 
 export const StationQualificationSourceCommit = Schema.String.pipe(
   Schema.pattern(/^[a-f0-9]{40}$/),
@@ -41,6 +43,15 @@ export const StationQualificationPackageFile = Schema.String.pipe(
 export type StationQualificationPackageFile =
   typeof StationQualificationPackageFile.Type;
 
+export const StationQualificationEvidenceFile = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(180),
+  Schema.pattern(/^(?!\.{1,2}$)[^/\\\u0000-\u001f\u007f]+$/),
+  Schema.brand("StationQualificationEvidenceFile"),
+);
+export type StationQualificationEvidenceFile =
+  typeof StationQualificationEvidenceFile.Type;
+
 const PackageBinding = Schema.Struct({
   file: StationQualificationPackageFile,
   sha256: StationQualificationSha256,
@@ -48,6 +59,7 @@ const PackageBinding = Schema.Struct({
 export type StationQualificationPackage = typeof PackageBinding.Type;
 
 const Witness = Schema.Struct({
+  file: StationQualificationEvidenceFile,
   evidenceSha256: StationQualificationSha256,
   observedAt: DisplayTimestamp,
 });
