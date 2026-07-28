@@ -65,6 +65,27 @@ describe("node host assignment", () => {
     );
   });
 
+  it("separates an actor's placement HostId from its Hermes routing key", () => {
+    const agent = makeManagedAgentNode(0, 0, {
+      harness: "hermes",
+      host: "box-1",
+      agentHost: "hermes-box",
+      profile: "operator",
+    });
+
+    expect(agent.ether?.host).toBe("box-1");
+    expect(agent.ether?.entity?.name).toBe("hermes-box:operator");
+  });
+
+  it("refuses to create an actor without a canonical placement host", () => {
+    expect(() =>
+      makeManagedAgentNode(0, 0, {
+        harness: "codex",
+        host: "",
+      }),
+    ).toThrow("invalid station host id");
+  });
+
   it("legacy nodes without ether.host resolve to local", () => {
     const node = {
       id: "n1",

@@ -44,7 +44,7 @@ describe("session id parsing + authorial pin", () => {
 
   it("makeManagedAgentNode pins UUID sessionId for claude/grok", () => {
     for (const harness of ["claude", "grok"] as const) {
-      const n = makeManagedAgentNode(0, 0, { harness });
+      const n = makeManagedAgentNode(0, 0, { harness, host: "local" });
       const sid = n.ether?.terminal?.sessionId;
       expect(sid).toMatch(UUID_RE);
       expect(n.ether?.terminal?.harness).toBe(harness);
@@ -59,6 +59,7 @@ describe("session id parsing + authorial pin", () => {
     for (const harness of ["codex", "hermes"] as const) {
       const n = makeManagedAgentNode(0, 0, {
         harness,
+        host: "local",
         ...(harness === "hermes" ? { profile: "default" } : {}),
       });
       expect(n.ether?.terminal?.sessionId).toBeUndefined();
@@ -68,7 +69,10 @@ describe("session id parsing + authorial pin", () => {
   });
 
   it("spawn replan resumes stored sessionId", () => {
-    const node = makeManagedAgentNode(0, 0, { harness: "claude" });
+    const node = makeManagedAgentNode(0, 0, {
+      harness: "claude",
+      host: "local",
+    });
     const sid = node.ether!.terminal!.sessionId!;
     expect(sid).toMatch(UUID_RE);
     const doc: CanvasDoc = { nodes: [node], edges: [] };

@@ -75,7 +75,10 @@ export const makeManagedAgentNode = (
   y: number,
   options: {
     readonly harness: HarnessId;
-    readonly host?: string;
+    /** Enrolled HostId used for placement and Station projection. */
+    readonly host: string;
+    /** Hermes routing prefix when the enrolled host declares a distinct key. */
+    readonly agentHost?: string;
     readonly profile?: string;
     readonly model?: string;
     readonly effort?: string;
@@ -83,7 +86,8 @@ export const makeManagedAgentNode = (
     readonly label?: string;
   },
 ): TextNode => {
-  const host = options.host?.trim() || "local";
+  const host = requireHostId(options.host);
+  const agentHost = requireHostId(options.agentHost ?? host);
   const template = templateFor(options.harness);
   // Document launch: argv only — main injects scrubbed seat env at spawn.
   const full = resolveManagedLaunch(
@@ -104,8 +108,8 @@ export const makeManagedAgentNode = (
   };
   const agentKey =
     options.harness === "hermes" && options.profile
-      ? `${host}:${options.profile}`
-      : `${host}:${options.harness}`;
+      ? `${agentHost}:${options.profile}`
+      : `${agentHost}:${options.harness}`;
   const parts = [
     template.displayName,
     options.profile,
