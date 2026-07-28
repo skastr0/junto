@@ -27,6 +27,15 @@ import {
   type StationSessionFrame,
 } from "../src/shared/station-session";
 import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_PREFACE,
+  StationAppVersion,
+  StationProtocolAccept,
+  StationProtocolReject,
+  StationStateSchemaVersion,
+  type StationProtocolOffer,
+} from "../src/shared/station-protocol";
+import {
   SshEndpoint,
   SshIoError,
 } from "../src/main/vellum/ssh/domain";
@@ -409,52 +418,72 @@ describe("OpenSSH Station frame transport", () => {
 });
 
 describe("OpenSSH Station peer exchange", () => {
-  it("opens one scoped SSH session without one-shot fallback and correlates status", async () => {
-    const stdout = await Effect.runPromise(Queue.unbounded<Uint8Array>());
-    let runCalls = 0;
-    let connectCalls = 0;
-    let transferCalls = 0;
-    let transactCalls = 0;
-    let leaseCloses = 0;
-    const writtenFrames: StationSessionFrame[] = [];
+  const localDiagnostics = {
+    appVersion: Schema.decodeUnknownSync(StationAppVersion)("cc-test"),
+    stateSchemaVersion: Schema.decodeUnknownSync(StationStateSchemaVersion)(1),
+    support: CURRENT_STATION_PROTOCOL_SUPPORT,
+  };
+  const peerDiagnostics = {
+    appVersion: Schema.decodeUnknownSync(StationAppVersion)("remote-test"),
+    stateSchemaVersion: Schema.decodeUnknownSync(StationStateSchemaVersion)(1),
+    support: CURRENT_STATION_PROTOCOL_SUPPORT,
+  };
 
+  type WriteFrame = (
+    frame: unknown,
+    stdout: Queue.Queue<Uint8Array>,
+  ) => Effect.Effect<void>;
+
+  const liveLease = async (
+    onWrite: WriteFrame,
+  ): Promise<{
+    readonly lease: SshLease;
+    readonly written: unknown[];
+  }> => {
+    const stdout = await Effect.runPromise(Queue.unbounded<Uint8Array>());
+    const written: unknown[] = [];
     const lease: SshLease = {
       write: (bytes) =>
         Effect.gen(function* () {
-          const frame = JSON.parse(decoder.decode(bytes).trim()) as
-            StationSessionFrame;
-          writtenFrames.push(frame);
-          if (frame.frame !== "request") return;
-          const response = StationSessionResponseFrame.make({
-            protocol: STATION_SESSION_PROTOCOL,
-            frame: "response",
-            requestId: frame.requestId,
-            envelope: stationControlOk(statusResponse),
-          });
-          yield* Queue.offer(
-            stdout,
-            encoder.encode(`${JSON.stringify(response)}\n`),
-          );
+          const frame = JSON.parse(decoder.decode(bytes).trim()) as unknown;
+          written.push(frame);
+          yield* onWrite(frame, stdout);
         }),
       writeSensitive: () => Effect.void,
       closeInput: Effect.void,
       stdout: Stream.fromQueue(stdout),
       stderr: Stream.empty,
       exitCode: Effect.never,
-      close: Effect.sync(() => {
-        leaseCloses += 1;
-      }).pipe(
-        Effect.zipRight(Queue.shutdown(stdout)),
-        Effect.asVoid,
-      ),
+      close: Queue.shutdown(stdout),
     };
+    return { lease, written };
+  };
 
+  const endedLease = (
+    code: number,
+    written: unknown[],
+  ): SshLease => ({
+    write: (bytes) =>
+      Effect.sync(() => {
+        written.push(JSON.parse(decoder.decode(bytes).trim()) as unknown);
+      }),
+    writeSensitive: () => Effect.void,
+    closeInput: Effect.void,
+    stdout: Stream.empty,
+    stderr: Stream.empty,
+    exitCode: Effect.succeed(code),
+    close: Effect.void,
+  });
+
+  const scriptedSsh = (
+    leases: ReadonlyArray<SshLease>,
+  ): {
+    readonly ssh: typeof SshTransport.Service;
+    readonly connectCalls: () => number;
+  } => {
+    let connectCalls = 0;
     const ssh = {
-      run: () =>
-        Effect.sync(() => {
-          runCalls += 1;
-          return { stdout: "Linux\n", stderr: "" };
-        }),
+      run: () => Effect.succeed({ stdout: "Linux\n", stderr: "" }),
       connect: (
         _program: unknown,
         awaitReady: (
@@ -463,44 +492,104 @@ describe("OpenSSH Station peer exchange", () => {
         ) => Effect.Effect<unknown, unknown, unknown>,
       ) =>
         Effect.gen(function* () {
+          const lease = leases[connectCalls];
           connectCalls += 1;
+          if (lease === undefined) {
+            throw new TypeError("Unexpected extra SSH connection");
+          }
           const ready = yield* awaitReady(
             lease,
             ((value: unknown) => ({ value })) as ConfirmSshReady,
           );
           return (ready as { readonly value: unknown }).value;
         }),
-      transfer: () =>
-        Effect.sync(() => {
-          transferCalls += 1;
-          throw new Error("Station exchange must not use transfer");
-        }),
-      transact: () =>
-        Effect.sync(() => {
-          transactCalls += 1;
-          throw new Error("Station exchange must not use transact");
-        }),
+      transfer: () => Effect.die("Station exchange must not use transfer"),
+      transact: () => Effect.die("Station exchange must not use transact"),
     } as unknown as typeof SshTransport.Service;
+    return { ssh, connectCalls: () => connectCalls };
+  };
 
+  const makeExchange = async (leases: ReadonlyArray<SshLease>) => {
+    const harness = scriptedSsh(leases);
     const platform = await Effect.runPromise(
-      resolveRemotePackagedPlatform(ssh, ENDPOINT),
+      resolveRemotePackagedPlatform(harness.ssh, ENDPOINT),
     );
-    runCalls = 0;
     const route = admitEnrolledOpenSshStationPeer({
       peerInstallationId: REMOTE,
       endpoint: ENDPOINT,
       platform,
     });
-    const exchange = makeOpenSshStationPeerExchange(
-      ssh,
-      COMMAND_CENTER,
-    );
+    return {
+      ...harness,
+      route,
+      exchange: makeOpenSshStationPeerExchange(
+        harness.ssh,
+        COMMAND_CENTER,
+        localDiagnostics,
+      ),
+    };
+  };
 
-    const response = await Effect.runPromise(
+  const respondToStatus = (
+    frame: unknown,
+    stdout: Queue.Queue<Uint8Array>,
+  ): Effect.Effect<void> => {
+    const request = frame as StationSessionFrame;
+    if (request.frame !== "request") return Effect.void;
+    const response = StationSessionResponseFrame.make({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "response",
+      requestId: request.requestId,
+      envelope: stationControlOk(statusResponse),
+    });
+    return Queue.offer(
+      stdout,
+      encoder.encode(`${JSON.stringify(response)}\n`),
+    ).pipe(Effect.asVoid);
+  };
+
+  const openFailure = (
+    exchange: ReturnType<typeof makeOpenSshStationPeerExchange>,
+    route: ReturnType<typeof admitEnrolledOpenSshStationPeer>,
+  ) =>
+    Effect.scoped(
+      exchange.open(
+        route,
+        () =>
+          Effect.succeed(
+            stationControlErr(
+              "authorization_denied",
+              "unexpected report",
+              false,
+            ),
+          ),
+      ),
+    ).pipe(Effect.either);
+
+  it("negotiates v2 on the persistent connection before domain traffic", async () => {
+    const scripted = await liveLease((frame, stdout) => {
+      const record = frame as Record<string, unknown>;
+      if (record.frame === "offer") {
+        const response = StationProtocolAccept.make({
+          protocol: STATION_PROTOCOL_PREFACE,
+          frame: "accept",
+          ...peerDiagnostics,
+          selected: 2,
+        });
+        return Queue.offer(
+          stdout,
+          encoder.encode(`${JSON.stringify(response)}\n`),
+        ).pipe(Effect.asVoid);
+      }
+      return respondToStatus(frame, stdout);
+    });
+    const harness = await makeExchange([scripted.lease]);
+
+    const result = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const session = yield* exchange.open(
-            route,
+          const session = yield* harness.exchange.open(
+            harness.route,
             () =>
               Effect.succeed(
                 stationControlErr(
@@ -510,22 +599,166 @@ describe("OpenSSH Station peer exchange", () => {
                 ),
               ),
           );
-          expect(connectCalls).toBe(1);
-          expect(runCalls).toBe(0);
-          expect(transferCalls).toBe(0);
-          expect(transactCalls).toBe(0);
+          expect(session.protocol).toMatchObject({
+            _tag: "negotiated",
+            negotiatedProtocol: 2,
+            compatibility: "compatible",
+            peer: peerDiagnostics,
+          });
           return yield* session.request(statusRequest);
         }),
       ),
     );
 
-    expect(response).toEqual(statusResponse);
-    expect(writtenFrames).toHaveLength(1);
-    expect(writtenFrames[0]?.frame).toBe("request");
-    expect(connectCalls).toBe(1);
-    expect(runCalls).toBe(0);
-    expect(transferCalls).toBe(0);
-    expect(transactCalls).toBe(0);
-    expect(leaseCloses).toBe(1);
+    expect(result).toEqual(statusResponse);
+    expect(harness.connectCalls()).toBe(1);
+    expect((scripted.written[0] as StationProtocolOffer).frame).toBe("offer");
+    expect((scripted.written[1] as StationSessionFrame).frame).toBe("request");
+  });
+
+  it("reconnects once as exact legacy v2 only after sealed code-64 rejection", async () => {
+    const firstWritten: unknown[] = [];
+    const legacy = await liveLease(respondToStatus);
+    const harness = await makeExchange([
+      endedLease(64, firstWritten),
+      legacy.lease,
+    ]);
+
+    const result = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const session = yield* harness.exchange.open(
+            harness.route,
+            () =>
+              Effect.succeed(
+                stationControlErr(
+                  "authorization_denied",
+                  "unexpected report",
+                  false,
+                ),
+              ),
+          );
+          expect(session.protocol).toMatchObject({
+            _tag: "legacy-v2",
+            negotiatedProtocol: 2,
+            compatibility: "legacy-v2",
+            peer: undefined,
+          });
+          return yield* session.request(statusRequest);
+        }),
+      ),
+    );
+
+    expect(result).toEqual(statusResponse);
+    expect(harness.connectCalls()).toBe(2);
+    expect((firstWritten[0] as StationProtocolOffer).frame).toBe("offer");
+    expect((legacy.written[0] as StationSessionFrame).frame).toBe("request");
+  });
+
+  it("does not fall back after another helper exit code", async () => {
+    const written: unknown[] = [];
+    const harness = await makeExchange([endedLease(1, written)]);
+
+    const result = await Effect.runPromise(
+      openFailure(harness.exchange, harness.route),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.reason).toBe("connect-failed");
+    }
+    expect(harness.connectCalls()).toBe(1);
+  });
+
+  it("does not fall back after any malformed peer bytes", async () => {
+    const scripted = await liveLease((_frame, stdout) =>
+      Queue.offer(stdout, encoder.encode("{malformed}\n")).pipe(
+        Effect.asVoid,
+      )
+    );
+    const harness = await makeExchange([scripted.lease]);
+
+    const result = await Effect.runPromise(
+      openFailure(harness.exchange, harness.route),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.reason).toBe("protocol-negotiation");
+    }
+    expect(harness.connectCalls()).toBe(1);
+  });
+
+  it("reports no-overlap as update-required evidence without fallback", async () => {
+    const scripted = await liveLease((_frame, stdout) => {
+      const reject = StationProtocolReject.make({
+        protocol: STATION_PROTOCOL_PREFACE,
+        frame: "reject",
+        appVersion: peerDiagnostics.appVersion,
+        stateSchemaVersion: peerDiagnostics.stateSchemaVersion,
+        support: {
+          preferred: 3,
+          compatibleFrom: 3,
+          warnBelow: 3,
+        },
+        reason: "no-common-version",
+        retryable: false,
+      });
+      return Queue.offer(
+        stdout,
+        encoder.encode(`${JSON.stringify(reject)}\n`),
+      ).pipe(Effect.asVoid);
+    });
+    const harness = await makeExchange([scripted.lease]);
+
+    const result = await Effect.runPromise(
+      openFailure(harness.exchange, harness.route),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        reason: "protocol-incompatible",
+        localProtocol: localDiagnostics,
+        peerProtocol: {
+          appVersion: peerDiagnostics.appVersion,
+          support: { compatibleFrom: 3, preferred: 3 },
+        },
+      });
+    }
+    expect(harness.connectCalls()).toBe(1);
+  });
+
+  it("rejects an inconsistent accept without fallback", async () => {
+    const scripted = await liveLease((_frame, stdout) => {
+      const accept = StationProtocolAccept.make({
+        protocol: STATION_PROTOCOL_PREFACE,
+        frame: "accept",
+        appVersion: peerDiagnostics.appVersion,
+        stateSchemaVersion: peerDiagnostics.stateSchemaVersion,
+        support: {
+          preferred: 3,
+          compatibleFrom: 2,
+          warnBelow: 2,
+        },
+        selected: 3,
+      });
+      return Queue.offer(
+        stdout,
+        encoder.encode(`${JSON.stringify(accept)}\n`),
+      ).pipe(Effect.asVoid);
+    });
+    const harness = await makeExchange([scripted.lease]);
+
+    const result = await Effect.runPromise(
+      openFailure(harness.exchange, harness.route),
+    );
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.reason).toBe("protocol-negotiation");
+      expect(result.left.peerProtocol?.support.preferred).toBe(3);
+    }
+    expect(harness.connectCalls()).toBe(1);
   });
 });

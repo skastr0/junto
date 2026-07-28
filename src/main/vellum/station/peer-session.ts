@@ -33,6 +33,14 @@ import {
   type StationSessionFrame,
   type StationSessionRequestId as StationSessionRequestIdValue,
 } from "@shared/station-session";
+import {
+  STATION_PROTOCOL_BASELINE,
+  selectStationProtocolCodec,
+  type StationAppVersion,
+  type StationProtocolSupport,
+  type StationProtocolVersion,
+  type StationStateSchemaVersion,
+} from "@shared/station-protocol";
 
 export const STATION_PEER_MAX_PENDING_REQUESTS = 64;
 export const STATION_PEER_MAX_INBOUND_REQUESTS = 16;
@@ -142,9 +150,94 @@ export interface StationSessionFrameTransport {
   readonly close: Effect.Effect<void>;
 }
 
+export interface StationPeerProtocolDiagnostics {
+  readonly appVersion: StationAppVersion;
+  readonly stateSchemaVersion: StationStateSchemaVersion;
+  readonly support: StationProtocolSupport;
+}
+
+export type StationPeerProtocolBinding =
+  | {
+      readonly _tag: "negotiated";
+      readonly negotiatedProtocol: typeof STATION_PROTOCOL_BASELINE;
+      readonly compatibility: "compatible" | "deprecated";
+      readonly local: StationPeerProtocolDiagnostics;
+      readonly peer: StationPeerProtocolDiagnostics;
+    }
+  | {
+      readonly _tag: "legacy-v2";
+      readonly negotiatedProtocol: typeof STATION_PROTOCOL_BASELINE;
+      readonly compatibility: "legacy-v2";
+      readonly local: StationPeerProtocolDiagnostics;
+      readonly peer: undefined;
+    };
+
+const freezeProtocolDiagnostics = (
+  diagnostics: StationPeerProtocolDiagnostics,
+): StationPeerProtocolDiagnostics =>
+  Object.freeze({
+    appVersion: diagnostics.appVersion,
+    stateSchemaVersion: diagnostics.stateSchemaVersion,
+    support: Object.freeze({ ...diagnostics.support }),
+  });
+
+/**
+ * Bind a successful preface decision to the one exact session codec it
+ * selected. Protocol 2 is currently the only compiled codec.
+ */
+export const bindNegotiatedStationProtocol = (input: {
+  readonly negotiatedProtocol: StationProtocolVersion;
+  readonly local: StationPeerProtocolDiagnostics;
+  readonly peer: StationPeerProtocolDiagnostics;
+}): StationPeerProtocolBinding => {
+  const selected = selectStationProtocolCodec(input.negotiatedProtocol);
+  if (Either.isLeft(selected)) {
+    throw new TypeError(
+      `Station protocol ${input.negotiatedProtocol} has no compiled codec`,
+    );
+  }
+  const compatibility =
+    selected.right < input.local.support.warnBelow ||
+      selected.right < input.peer.support.warnBelow
+      ? "deprecated"
+      : "compatible";
+  return Object.freeze({
+    _tag: "negotiated",
+    negotiatedProtocol: selected.right,
+    compatibility,
+    local: freezeProtocolDiagnostics(input.local),
+    peer: freezeProtocolDiagnostics(input.peer),
+  });
+};
+
+/**
+ * Bind the bounded legacy exception after the fixed helper proves it has no
+ * compatibility preface. This constructor fails once v2 leaves local support.
+ */
+export const bindLegacyStationProtocolV2 = (
+  local: StationPeerProtocolDiagnostics,
+): StationPeerProtocolBinding => {
+  if (
+    local.support.compatibleFrom > STATION_PROTOCOL_BASELINE ||
+    local.support.preferred < STATION_PROTOCOL_BASELINE
+  ) {
+    throw new TypeError(
+      "Legacy Station protocol v2 is outside local support",
+    );
+  }
+  return Object.freeze({
+    _tag: "legacy-v2",
+    negotiatedProtocol: STATION_PROTOCOL_BASELINE,
+    compatibility: "legacy-v2",
+    local: freezeProtocolDiagnostics(local),
+    peer: undefined,
+  });
+};
+
 export interface StationPeerSession {
   readonly localInstallationId: InstallationIdValue;
   readonly peerInstallationId: InstallationIdValue;
+  readonly protocol: StationPeerProtocolBinding;
   readonly request: <R extends StationApiRequest>(
     request: R,
   ) => Effect.Effect<StationApiResponseFor<R>, StationPeerRequestError>;
@@ -167,6 +260,7 @@ export interface StationPeerSessionOptions {
   readonly localRole: "command-center" | "remote";
   readonly localInstallationId: InstallationIdValue;
   readonly peerInstallationId: InstallationIdValue;
+  readonly protocol: StationPeerProtocolBinding;
   readonly transport: StationSessionFrameTransport;
   readonly handleRequest: (
     request: StationApiRequest,
@@ -299,6 +393,14 @@ export const makeStationPeerSession = (
   options: StationPeerSessionOptions,
 ): Effect.Effect<StationPeerSession, never, Scope.Scope> =>
   Effect.gen(function* () {
+    const protocol =
+      options.protocol._tag === "negotiated"
+        ? bindNegotiatedStationProtocol({
+            negotiatedProtocol: options.protocol.negotiatedProtocol,
+            local: options.protocol.local,
+            peer: options.protocol.peer,
+          })
+        : bindLegacyStationProtocolV2(options.protocol.local);
     const maxPendingRequests =
       options.maxPendingRequests ?? STATION_PEER_MAX_PENDING_REQUESTS;
     const maxInboundRequests =
@@ -825,6 +927,7 @@ export const makeStationPeerSession = (
     return {
       localInstallationId: options.localInstallationId,
       peerInstallationId: options.peerInstallationId,
+      protocol,
       request,
       withOpen,
       isOpen: Deferred.isDone(closed).pipe(Effect.map((done) => !done)),

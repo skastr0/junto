@@ -8,6 +8,7 @@ import {
   DARWIN_PACKAGED_STATION_EXECUTABLE,
   LINUX_PACKAGED_STATION_EXECUTABLE,
   RemotePlatformProbeError,
+  STATION_PROTOCOL_NEGOTIATION_ARG,
   remoteCat,
   remoteHermesCli,
   remoteHerdrCli,
@@ -16,6 +17,7 @@ import {
   remoteTestFileExists,
   remoteUname,
   remoteVellumStation,
+  remoteVellumStationNegotiation,
   resolveRemotePackagedPlatform,
 } from "../src/main/vellum/ssh/read-commands";
 import type { SshTransport } from "../src/main/vellum/ssh/service";
@@ -134,6 +136,18 @@ describe("ssh read-commands product constructors", () => {
     expect(inspectRemoteCommand(run(remoteVellumStation(linux)))).toEqual({
       executable: LINUX_PACKAGED_STATION_EXECUTABLE,
       args: [],
+    });
+    expect(
+      inspectRemoteCommand(run(remoteVellumStationNegotiation(darwin))),
+    ).toEqual({
+      executable: DARWIN_PACKAGED_STATION_EXECUTABLE,
+      args: [STATION_PROTOCOL_NEGOTIATION_ARG],
+    });
+    expect(
+      inspectRemoteCommand(run(remoteVellumStationNegotiation(linux))),
+    ).toEqual({
+      executable: LINUX_PACKAGED_STATION_EXECUTABLE,
+      args: [STATION_PROTOCOL_NEGOTIATION_ARG],
     });
   });
 

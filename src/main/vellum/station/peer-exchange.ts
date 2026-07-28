@@ -5,6 +5,11 @@ import {
   type ReportRequest,
 } from "@shared/station-api";
 import type { StationControlEnvelope } from "@shared/station-api-envelope";
+import {
+  StationAppVersion,
+  StationProtocolSupport,
+  StationStateSchemaVersion,
+} from "@shared/station-protocol";
 import type { StationPeerSession } from "./peer-session";
 
 const StationPeerRouteTypeId: unique symbol = Symbol(
@@ -50,8 +55,24 @@ export class StationPeerExchangeError extends Schema.TaggedError<StationPeerExch
       "unsupported-route",
       "adapter-setup",
       "connect-failed",
+      "protocol-incompatible",
+      "protocol-negotiation",
     ),
     message: Schema.String,
+    localProtocol: Schema.optional(
+      Schema.Struct({
+        appVersion: StationAppVersion,
+        stateSchemaVersion: StationStateSchemaVersion,
+        support: StationProtocolSupport,
+      }),
+    ),
+    peerProtocol: Schema.optional(
+      Schema.Struct({
+        appVersion: StationAppVersion,
+        stateSchemaVersion: StationStateSchemaVersion,
+        support: StationProtocolSupport,
+      }),
+    ),
   },
 ) {}
 

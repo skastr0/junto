@@ -11,6 +11,7 @@
 
 import type { Context } from "effect";
 import { Effect, Schema } from "effect";
+import { STATION_PROTOCOL_NEGOTIATION_ARG } from "@shared/station-protocol";
 import {
   inspectSshTarget,
   makeRemoteCommand,
@@ -34,6 +35,7 @@ export const LINUX_PACKAGED_STATION_EXECUTABLE =
   "/opt/Vellum Command/resources/bin/vellum-station";
 export const LINUX_PACKAGED_BROWSER_EXECUTABLE =
   "/opt/Vellum Command/resources/bin/vellum-browser";
+export { STATION_PROTOCOL_NEGOTIATION_ARG };
 
 const RemotePackagedPlatformTypeId: unique symbol = Symbol(
   "@vellum/ssh/RemotePackagedPlatform",
@@ -296,8 +298,9 @@ export const remoteHostProbe = (
  * stdin and one typed response on stdout. Only the immutable packaged resource
  * selected by current host evidence can receive that request.
  */
-export const remoteVellumStation = (
+const remoteVellumStationCommand = (
   platform: RemotePackagedPlatform,
+  args: ReadonlyArray<string>,
 ): Effect.Effect<
   RemoteCommand,
   SshInputError
@@ -314,6 +317,25 @@ export const remoteVellumStation = (
     observed === "darwin"
       ? DARWIN_PACKAGED_STATION_EXECUTABLE
       : LINUX_PACKAGED_STATION_EXECUTABLE,
-    [],
+    args,
   );
 };
+
+/** Exact pre-negotiation-v2 helper invocation. */
+export const remoteVellumStation = (
+  platform: RemotePackagedPlatform,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  remoteVellumStationCommand(platform, []);
+
+/**
+ * Fixed compatibility-preface helper invocation.
+ *
+ * This is intentionally a separate closed constructor. No caller can turn
+ * the Station helper into a generic remote argv surface.
+ */
+export const remoteVellumStationNegotiation = (
+  platform: RemotePackagedPlatform,
+): Effect.Effect<RemoteCommand, SshInputError> =>
+  remoteVellumStationCommand(platform, [
+    STATION_PROTOCOL_NEGOTIATION_ARG,
+  ]);

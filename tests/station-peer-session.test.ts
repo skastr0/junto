@@ -39,6 +39,12 @@ import {
   type StationSessionRequestFrame as StationSessionRequestFrameValue,
 } from "../src/shared/station-session";
 import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  StationAppVersion,
+  StationStateSchemaVersion,
+} from "../src/shared/station-protocol";
+import {
+  bindNegotiatedStationProtocol,
   makeStationPeerSession,
   type StationPeerSessionOptions,
   type StationSessionFrameTransport,
@@ -52,6 +58,16 @@ const requestId = (value: string) =>
 const commandCenterInstallationId = installationId("cc-session-test");
 const remoteInstallationId = installationId("remote-session-test");
 const otherInstallationId = installationId("other-session-test");
+const protocolDiagnostics = {
+  appVersion: Schema.decodeUnknownSync(StationAppVersion)("test"),
+  stateSchemaVersion: Schema.decodeUnknownSync(StationStateSchemaVersion)(1),
+  support: CURRENT_STATION_PROTOCOL_SUPPORT,
+};
+const protocolBinding = bindNegotiatedStationProtocol({
+  negotiatedProtocol: 2,
+  local: protocolDiagnostics,
+  peer: protocolDiagnostics,
+});
 
 const statusRequest = StatusRequest.make({
   protocol: STATION_API_PROTOCOL,
@@ -175,6 +191,7 @@ const makeSession = (
       handleRequest: defaultHandler,
       nextRequestId,
       ...overrides,
+      protocol: overrides.protocol ?? protocolBinding,
     });
   });
 
@@ -213,6 +230,26 @@ const failureFrom = <A, E>(exit: Exit.Exit<A, E>): E => {
 };
 
 describe("persistent Station peer session", () => {
+  it("retains one immutable protocol binding for its whole lifetime", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const harness = yield* makeTransportHarness;
+          const session = yield* makeSession(harness.transport);
+
+          expect(session.protocol).toMatchObject({
+            _tag: "negotiated",
+            negotiatedProtocol: 2,
+            compatibility: "compatible",
+          });
+          expect(Object.isFrozen(session.protocol)).toBe(true);
+          expect(Object.isFrozen(session.protocol.local)).toBe(true);
+          expect(Object.isFrozen(session.protocol.local.support)).toBe(true);
+        }),
+      ),
+    );
+  });
+
   it("correlates concurrent requests when replies arrive out of order", async () => {
     await Effect.runPromise(
       Effect.scoped(

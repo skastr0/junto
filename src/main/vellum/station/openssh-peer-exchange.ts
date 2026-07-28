@@ -8,6 +8,7 @@ import {
   Option,
   Queue,
   Ref,
+  Schema,
   Scope,
   Stream,
 } from "effect";
@@ -17,11 +18,26 @@ import {
 } from "@shared/station-api";
 import { stationControlErr } from "@shared/station-api-envelope";
 import {
+  StationSessionFrame,
   decodeStationSessionFrame,
-  type StationSessionFrame,
 } from "@shared/station-session";
+import {
+  CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_PREFACE,
+  StationAppVersion,
+  StationProtocolOffer,
+  StationProtocolPreface,
+  StationStateSchemaVersion,
+  decideStationProtocolPreface,
+  decodeStationProtocolPreface,
+  selectStationProtocolCodec,
+  type StationProtocolAccept,
+  type StationProtocolReject,
+} from "@shared/station-protocol";
 import { STATION_CONTROL_MAX_FRAME_BYTES } from "@shared/station-ssh-control";
 import {
+  SshExitError,
+  inspectSshTarget,
   type SshError,
   type SshTarget,
 } from "../ssh/domain";
@@ -32,6 +48,7 @@ import {
 } from "../ssh/service";
 import {
   remoteVellumStation,
+  remoteVellumStationNegotiation,
   type RemotePackagedPlatform,
 } from "../ssh/read-commands";
 import {
@@ -44,7 +61,11 @@ import {
 } from "./peer-exchange";
 import {
   StationSessionTransportError,
+  bindLegacyStationProtocolV2,
+  bindNegotiatedStationProtocol,
   makeStationPeerSession,
+  type StationPeerProtocolBinding,
+  type StationPeerProtocolDiagnostics,
   type StationSessionFrameTransport,
 } from "./peer-session";
 
@@ -102,9 +123,38 @@ const writeFailure = (error: unknown): StationSessionTransportError =>
         "OpenSSH Station session output failed",
       );
 
-const decodeFrameLine = (
+const StationConnectionFrameSchema = Schema.Union(
+  StationProtocolPreface,
+  StationSessionFrame,
+);
+type StationConnectionFrame = typeof StationConnectionFrameSchema.Type;
+
+const decodeStationConnectionFrame = Schema.decodeUnknownEither(
+  StationConnectionFrameSchema,
+  { onExcessProperty: "error" },
+);
+
+interface OpenSshFrameCodec<Frame> {
+  readonly contractName: string;
+  readonly decode: (
+    input: unknown,
+  ) => Either.Either<Frame, unknown>;
+}
+
+const stationSessionFrameCodec: OpenSshFrameCodec<StationSessionFrame> = {
+  contractName: "session",
+  decode: decodeStationSessionFrame,
+};
+
+const stationConnectionFrameCodec: OpenSshFrameCodec<StationConnectionFrame> = {
+  contractName: "connection",
+  decode: decodeStationConnectionFrame,
+};
+
+const decodeFrameLine = <Frame>(
   bytes: Uint8Array,
-): Effect.Effect<StationSessionFrame, StationSessionTransportError> =>
+  codec: OpenSshFrameCodec<Frame>,
+): Effect.Effect<Frame, StationSessionTransportError> =>
   Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     catch: () =>
@@ -124,38 +174,42 @@ const decodeFrameLine = (
       }),
     ),
     Effect.flatMap((raw) => {
-      const decoded = decodeStationSessionFrame(raw);
+      const decoded = codec.decode(raw);
       return Either.isRight(decoded)
         ? Effect.succeed(decoded.right)
         : Effect.fail(
             transportError(
               "malformed-frame",
-              "OpenSSH Station frame violates the session contract",
+              `OpenSSH Station frame violates the ${codec.contractName} contract`,
             ),
           );
     }),
   );
 
-export interface OpenSshStationFrameDecoder {
+interface OpenSshFrameDecoder<Frame> {
   readonly push: (
     chunk: Uint8Array,
   ) => Effect.Effect<
-    ReadonlyArray<StationSessionFrame>,
+    ReadonlyArray<Frame>,
     StationSessionTransportError
   >;
   readonly end: Effect.Effect<
-    ReadonlyArray<StationSessionFrame>,
+    ReadonlyArray<Frame>,
     StationSessionTransportError
   >;
 }
+
+export interface OpenSshStationFrameDecoder
+  extends OpenSshFrameDecoder<StationSessionFrame> {}
 
 /**
  * Incremental strict NDJSON decoder. It retains at most one bounded partial
  * line and emits complete frames before reading more transport bytes.
  */
-export const makeOpenSshStationFrameDecoder = (
-  maxFrameBytes = STATION_OPENSSH_MAX_FRAME_BYTES,
-): OpenSshStationFrameDecoder => {
+const makeOpenSshFrameDecoder = <Frame>(
+  codec: OpenSshFrameCodec<Frame>,
+  maxFrameBytes: number,
+): OpenSshFrameDecoder<Frame> => {
   let pending: Uint8Array[] = [];
   let pendingBytes = 0;
 
@@ -168,7 +222,7 @@ export const makeOpenSshStationFrameDecoder = (
   const push = (
     chunk: Uint8Array,
   ): Effect.Effect<
-    ReadonlyArray<StationSessionFrame>,
+    ReadonlyArray<Frame>,
     StationSessionTransportError
   > =>
     Effect.suspend(() => {
@@ -208,7 +262,7 @@ export const makeOpenSshStationFrameDecoder = (
         }
         pending.push(Uint8Array.from(remainder));
       }
-      return Effect.forEach(lines, decodeFrameLine);
+      return Effect.forEach(lines, (line) => decodeFrameLine(line, codec));
     });
 
   return {
@@ -226,17 +280,22 @@ export const makeOpenSshStationFrameDecoder = (
   };
 };
 
-/** Strict encoder whose byte bound includes the mandatory trailing LF. */
-export const encodeOpenSshStationFrame = (
-  frame: StationSessionFrame,
+export const makeOpenSshStationFrameDecoder = (
   maxFrameBytes = STATION_OPENSSH_MAX_FRAME_BYTES,
+): OpenSshStationFrameDecoder =>
+  makeOpenSshFrameDecoder(stationSessionFrameCodec, maxFrameBytes);
+
+const encodeOpenSshFrame = <Frame>(
+  frame: Frame,
+  codec: OpenSshFrameCodec<Frame>,
+  maxFrameBytes: number,
 ): Effect.Effect<Uint8Array, StationSessionTransportError> => {
-  const decoded = decodeStationSessionFrame(frame);
+  const decoded = codec.decode(frame);
   if (Either.isLeft(decoded)) {
     return Effect.fail(
       transportError(
         "malformed-frame",
-        "Outbound OpenSSH Station frame violates the session contract",
+        `Outbound OpenSSH Station frame violates the ${codec.contractName} contract`,
       ),
     );
   }
@@ -262,6 +321,13 @@ export const encodeOpenSshStationFrame = (
   );
 };
 
+/** Strict encoder whose byte bound includes the mandatory trailing LF. */
+export const encodeOpenSshStationFrame = (
+  frame: StationSessionFrame,
+  maxFrameBytes = STATION_OPENSSH_MAX_FRAME_BYTES,
+): Effect.Effect<Uint8Array, StationSessionTransportError> =>
+  encodeOpenSshFrame(frame, stationSessionFrameCodec, maxFrameBytes);
+
 interface OutboundFrame {
   readonly bytes: Uint8Array;
   readonly written: Deferred.Deferred<void, StationSessionTransportError>;
@@ -273,10 +339,10 @@ interface OpenSshTransportState {
   readonly outstanding: ReadonlySet<OutboundFrame>;
 }
 
-type InboundFrame =
+type InboundFrame<Frame> =
   | {
       readonly _tag: "Frame";
-      readonly frame: StationSessionFrame;
+      readonly frame: Frame;
     }
   | {
       readonly _tag: "Failure";
@@ -291,13 +357,26 @@ export interface OpenSshStationFrameTransportOptions {
   readonly maxInboundFrames?: number;
 }
 
+interface OpenSshFrameTransport<Frame> {
+  readonly incoming: Stream.Stream<
+    Frame,
+    StationSessionTransportError
+  >;
+  readonly send: (
+    frame: Frame,
+  ) => Effect.Effect<void, StationSessionTransportError>;
+  readonly close: Effect.Effect<void>;
+}
+
 /**
  * Adapt one scoped SSH lease into bounded, serialized Station session frames.
  */
-export const makeOpenSshStationFrameTransport = (
+const makeOpenSshFrameTransport = <Frame>(
   lease: SshLease,
+  codec: OpenSshFrameCodec<Frame>,
   options: OpenSshStationFrameTransportOptions = {},
-): Effect.Effect<StationSessionFrameTransport, never, Scope.Scope> =>
+  observeInboundBytes: (bytes: number) => void = () => undefined,
+): Effect.Effect<OpenSshFrameTransport<Frame>, never, Scope.Scope> =>
   Effect.gen(function* () {
     const maxFrameBytes =
       options.maxFrameBytes ?? STATION_OPENSSH_MAX_FRAME_BYTES;
@@ -308,14 +387,16 @@ export const makeOpenSshStationFrameTransport = (
     const maxInboundFrames =
       options.maxInboundFrames ?? STATION_OPENSSH_MAX_INBOUND_FRAMES;
     const outbound = yield* Queue.bounded<OutboundFrame>(maxQueuedFrames);
-    const inbound = yield* Queue.bounded<InboundFrame>(maxInboundFrames);
+    const inbound = yield* Queue.bounded<InboundFrame<Frame>>(
+      maxInboundFrames,
+    );
     const queuedBytes = yield* Effect.makeSemaphore(maxQueuedBytes);
     const state = yield* Ref.make<OpenSshTransportState>({
       closed: false,
       outstanding: new Set(),
     });
     const closedSignal = yield* Deferred.make<void>();
-    const decoder = makeOpenSshStationFrameDecoder(maxFrameBytes);
+    const decoder = makeOpenSshFrameDecoder(codec, maxFrameBytes);
     const closedError = transportError(
       "closed",
       "OpenSSH Station session is closed",
@@ -423,11 +504,14 @@ export const makeOpenSshStationFrameTransport = (
       Queue.take(outbound).pipe(Effect.flatMap(writeOne)),
     );
 
-    const offerInbound = (message: InboundFrame): Effect.Effect<void> =>
+    const offerInbound = (
+      message: InboundFrame<Frame>,
+    ): Effect.Effect<void> =>
       Queue.offer(inbound, message).pipe(Effect.asVoid, Effect.ignore);
 
-    const decodeInput = Stream.runForEach(lease.stdout, (chunk) =>
-      decoder.push(chunk).pipe(
+    const decodeInput = Stream.runForEach(lease.stdout, (chunk) => {
+      observeInboundBytes(chunk.byteLength);
+      return decoder.push(chunk).pipe(
         Effect.flatMap((frames) =>
           Effect.forEach(
             frames,
@@ -435,8 +519,8 @@ export const makeOpenSshStationFrameTransport = (
             { discard: true },
           ),
         ),
-      ),
-    ).pipe(
+      );
+    }).pipe(
       Effect.matchEffect({
         onFailure: (error) =>
           offerInbound({
@@ -463,21 +547,22 @@ export const makeOpenSshStationFrameTransport = (
           case "Failure":
             return Effect.fail(message.error);
           case "End":
-            return Effect.succeed(Option.none<StationSessionFrame>());
+            return Effect.succeed(Option.none<Frame>());
         }
       }),
       Stream.filterMap((frame) => frame),
     );
 
     const send = (
-      frame: StationSessionFrame,
+      frame: Frame,
     ): Effect.Effect<void, StationSessionTransportError> =>
       Effect.gen(function* () {
         if ((yield* Ref.get(state)).closed) {
           return yield* closedError;
         }
-        const bytes = yield* encodeOpenSshStationFrame(
+        const bytes = yield* encodeOpenSshFrame(
           frame,
+          codec,
           maxFrameBytes,
         );
         if (bytes.byteLength > maxQueuedBytes) {
@@ -565,21 +650,137 @@ export const makeOpenSshStationFrameTransport = (
     };
   });
 
+export const makeOpenSshStationFrameTransport = (
+  lease: SshLease,
+  options: OpenSshStationFrameTransportOptions = {},
+): Effect.Effect<StationSessionFrameTransport, never, Scope.Scope> =>
+  makeOpenSshFrameTransport(
+    lease,
+    stationSessionFrameCodec,
+    options,
+  );
+
 const exchangeError = (
   peerInstallationId: InstallationIdValue,
   reason: StationPeerExchangeError["reason"],
   message: string,
+  diagnostics: {
+    readonly localProtocol?: StationPeerProtocolDiagnostics;
+    readonly peerProtocol?: StationPeerProtocolDiagnostics;
+  } = {},
 ): StationPeerExchangeError =>
   StationPeerExchangeError.make({
     peerInstallationId,
     reason,
     message,
+    ...diagnostics,
+  });
+
+export interface OpenSshStationPeerExchangeDiagnostics
+  extends StationPeerProtocolDiagnostics {}
+
+const DEFAULT_OPENSSH_STATION_DIAGNOSTICS:
+  OpenSshStationPeerExchangeDiagnostics = Object.freeze({
+    appVersion: Schema.decodeUnknownSync(StationAppVersion)("development"),
+    stateSchemaVersion: Schema.decodeUnknownSync(
+      StationStateSchemaVersion,
+    )(1),
+    support: CURRENT_STATION_PROTOCOL_SUPPORT,
+  });
+
+const prefacePeerDiagnostics = (
+  response: StationProtocolAccept | StationProtocolReject,
+): StationPeerProtocolDiagnostics => ({
+  appVersion: response.appVersion,
+  stateSchemaVersion: response.stateSchemaVersion,
+  support: response.support,
+});
+
+const asSessionTransport = (
+  connection: OpenSshFrameTransport<StationConnectionFrame>,
+): StationSessionFrameTransport => ({
+  incoming: connection.incoming.pipe(
+    Stream.mapEffect((frame) => {
+      const decoded = decodeStationSessionFrame(frame);
+      return Either.isRight(decoded)
+        ? Effect.succeed(decoded.right)
+        : Effect.fail(
+            transportError(
+              "malformed-frame",
+              "OpenSSH Station connection changed protocol after binding",
+            ),
+          );
+    }),
+  ),
+  send: (frame) => connection.send(frame),
+  close: connection.close,
+});
+
+const openError = (
+  peerInstallationId: InstallationIdValue,
+  error: unknown,
+  localProtocol: StationPeerProtocolDiagnostics,
+): StationPeerExchangeError => {
+  if (error instanceof StationPeerExchangeError) return error;
+  if (
+    error instanceof StationSessionTransportError &&
+    (
+      error.reason === "malformed-frame" ||
+      error.reason === "frame-too-large"
+    )
+  ) {
+    return exchangeError(
+      peerInstallationId,
+      "protocol-negotiation",
+      error.message,
+      { localProtocol },
+    );
+  }
+  return exchangeError(
+    peerInstallationId,
+    "connect-failed",
+    "OpenSSH Station peer session could not be opened",
+    { localProtocol },
+  );
+};
+
+const makeCommandCenterSession = (
+  commandCenterInstallationId: InstallationIdValue,
+  peerInstallationId: InstallationIdValue,
+  protocol: StationPeerProtocolBinding,
+  transport: StationSessionFrameTransport,
+  onRemoteReport: StationRemoteReportHandler,
+) =>
+  makeStationPeerSession({
+    localRole: "command-center",
+    localInstallationId: commandCenterInstallationId,
+    peerInstallationId,
+    protocol,
+    transport,
+    handleRequest: (request: StationApiRequest) =>
+      request.op === "report"
+        ? onRemoteReport(request)
+        : Effect.succeed(
+            stationControlErr(
+              "authorization_denied",
+              "A Remote may initiate only report",
+              false,
+            ),
+          ),
   });
 
 export const makeOpenSshStationPeerExchange = (
   ssh: Context.Tag.Service<typeof SshTransport>,
   commandCenterInstallationId: InstallationIdValue,
+  diagnostics: OpenSshStationPeerExchangeDiagnostics =
+    DEFAULT_OPENSSH_STATION_DIAGNOSTICS,
 ): Context.Tag.Service<typeof StationPeerExchange> => {
+  const localProtocol: StationPeerProtocolDiagnostics = {
+    appVersion: diagnostics.appVersion,
+    stateSchemaVersion: diagnostics.stateSchemaVersion,
+    support: diagnostics.support,
+  };
+
   const open = Effect.fn("OpenSshStationPeerExchange.open")(
     (
       route: StationPeerRoute,
@@ -594,41 +795,142 @@ export const makeOpenSshStationPeerExchange = (
             "Station peer route was not admitted by the OpenSSH adapter",
           );
         }
-        const command = yield* remoteVellumStation(details.platform);
+
+        const offer = StationProtocolOffer.make({
+          protocol: STATION_PROTOCOL_PREFACE,
+          frame: "offer",
+          ...localProtocol,
+        });
+        const negotiationCommand =
+          yield* remoteVellumStationNegotiation(details.platform);
+        let peerBytesObserved = 0;
+
+        const negotiatedAttempt = yield* ssh
+          .connect(
+            sharedStream(details.target, negotiationCommand, "agent"),
+            (lease, confirm) =>
+              Effect.gen(function* () {
+                const connection = yield* makeOpenSshFrameTransport(
+                  lease,
+                  stationConnectionFrameCodec,
+                  {},
+                  (bytes) => {
+                    peerBytesObserved += bytes;
+                  },
+                );
+                yield* connection.send(offer);
+
+                const first = yield* Stream.runHead(connection.incoming);
+                if (Option.isNone(first)) {
+                  const code = yield* lease.exitCode;
+                  return yield* new SshExitError({
+                    endpoint: inspectSshTarget(details.target).endpoint,
+                    operation: "stream",
+                    code,
+                  });
+                }
+
+                const decoded = decodeStationProtocolPreface(first.value);
+                if (
+                  Either.isLeft(decoded) ||
+                  decoded.right.frame === "offer"
+                ) {
+                  return yield* exchangeError(
+                    route.peerInstallationId,
+                    "protocol-negotiation",
+                    "Remote did not return one strict compatibility response",
+                    { localProtocol },
+                  );
+                }
+                const response = decoded.right;
+                const peerProtocol = prefacePeerDiagnostics(response);
+                const decision = decideStationProtocolPreface(offer, response);
+                switch (decision._tag) {
+                  case "no-common":
+                    return yield* exchangeError(
+                      route.peerInstallationId,
+                      "protocol-incompatible",
+                      "Command Center and Remote have no common Station protocol",
+                      { localProtocol, peerProtocol },
+                    );
+                  case "invalid-accept":
+                  case "invalid-reject":
+                    return yield* exchangeError(
+                      route.peerInstallationId,
+                      "protocol-negotiation",
+                      "Remote returned an inconsistent compatibility decision",
+                      { localProtocol, peerProtocol },
+                    );
+                  case "accepted":
+                    break;
+                }
+                const codec = selectStationProtocolCodec(decision.selected);
+                if (Either.isLeft(codec)) {
+                  return yield* exchangeError(
+                    route.peerInstallationId,
+                    "protocol-negotiation",
+                    `Station protocol ${decision.selected} has no compiled codec`,
+                    { localProtocol, peerProtocol },
+                  );
+                }
+                const protocol = bindNegotiatedStationProtocol({
+                  negotiatedProtocol: codec.right,
+                  local: localProtocol,
+                  peer: peerProtocol,
+                });
+                const session = yield* makeCommandCenterSession(
+                  commandCenterInstallationId,
+                  route.peerInstallationId,
+                  protocol,
+                  asSessionTransport(connection),
+                  onRemoteReport,
+                );
+                return confirm(session);
+              }),
+          )
+          .pipe(Effect.either);
+        if (Either.isRight(negotiatedAttempt)) {
+          return negotiatedAttempt.right;
+        }
+
+        // Let the stdout consumer publish any bytes already delivered before
+        // accepting the zero-byte legacy witness.
+        yield* Effect.yieldNow();
+        const negotiationFailure = negotiatedAttempt.left;
+        const legacyWitness =
+          negotiationFailure instanceof SshExitError &&
+          negotiationFailure.operation === "stream" &&
+          negotiationFailure.code === 64 &&
+          peerBytesObserved === 0;
+        if (!legacyWitness) {
+          return yield* openError(
+            route.peerInstallationId,
+            negotiationFailure,
+            localProtocol,
+          );
+        }
+
+        const legacyCommand = yield* remoteVellumStation(details.platform);
+        const legacyProtocol = bindLegacyStationProtocolV2(localProtocol);
         return yield* ssh.connect(
-          sharedStream(details.target, command, "agent"),
+          sharedStream(details.target, legacyCommand, "agent"),
           (lease, confirm) =>
             Effect.gen(function* () {
               const transport =
                 yield* makeOpenSshStationFrameTransport(lease);
-              const session = yield* makeStationPeerSession({
-                localRole: "command-center",
-                localInstallationId: commandCenterInstallationId,
-                peerInstallationId: route.peerInstallationId,
+              const session = yield* makeCommandCenterSession(
+                commandCenterInstallationId,
+                route.peerInstallationId,
+                legacyProtocol,
                 transport,
-                handleRequest: (request: StationApiRequest) =>
-                  request.op === "report"
-                    ? onRemoteReport(request)
-                    : Effect.succeed(
-                        stationControlErr(
-                          "authorization_denied",
-                          "A Remote may initiate only report",
-                          false,
-                        ),
-                      ),
-              });
+                onRemoteReport,
+              );
               return confirm(session);
             }),
         );
       }).pipe(
         Effect.mapError((error) =>
-          error instanceof StationPeerExchangeError
-            ? error
-            : exchangeError(
-                route.peerInstallationId,
-                "connect-failed",
-                "OpenSSH Station peer session could not be opened",
-              ),
+          openError(route.peerInstallationId, error, localProtocol),
         ),
       ),
   );
@@ -637,6 +939,8 @@ export const makeOpenSshStationPeerExchange = (
 
 export const OpenSshStationPeerExchangeLive = (
   commandCenterInstallationId: InstallationIdValue,
+  diagnostics: OpenSshStationPeerExchangeDiagnostics =
+    DEFAULT_OPENSSH_STATION_DIAGNOSTICS,
 ) =>
   Layer.effect(
     StationPeerExchange,
@@ -644,6 +948,7 @@ export const OpenSshStationPeerExchangeLive = (
       makeOpenSshStationPeerExchange(
         ssh,
         commandCenterInstallationId,
+        diagnostics,
       ),
     ),
   );
