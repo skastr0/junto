@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
-import { blockedClosure, blockedEdgeIds, groupMembers } from "../src/shared/graph";
-import { taskItem, claimed } from "./helpers/task-fixtures";
+import {
+  actorRefResolverFromProjection,
+  blockedClosure,
+  blockedEdgeIds,
+  groupMembers,
+} from "../src/shared/graph";
+import {
+  actorRefFixture,
+  claimedByNode,
+  executionContextForDoc,
+} from "./helpers/actor-ref-fixtures";
+import { taskItem } from "./helpers/task-fixtures";
 import { seat } from "./helpers/physics-seats";
 
 const tasks = (id: string, needsInput: boolean, heldBy?: string) => ({
@@ -18,7 +28,7 @@ const tasks = (id: string, needsInput: boolean, heldBy?: string) => ({
     tasks: {
       items: [
         needsInput && heldBy !== undefined
-          ? claimed(taskItem("i1", "item", "input-required"), heldBy)
+          ? claimedByNode(taskItem("i1", "item", "input-required"), heldBy)
           : taskItem("i1", "item", needsInput ? "input-required" : "completed"),
       ],
     },
@@ -38,8 +48,9 @@ describe("graph derivations", () => {
         { id: "e-bc", fromNode: "a1", toNode: "a2", ether: { criteria: { mode: "tasks" } } },
       ],
     };
-    expect(blockedClosure(doc)).toEqual(new Set(["a1"]));
-    expect(blockedEdgeIds(doc)).toEqual(new Set(["e-ab"]));
+    const context = executionContextForDoc(doc);
+    expect(blockedClosure(doc, context)).toEqual(new Set(["a1"]));
+    expect(blockedEdgeIds(doc, context)).toEqual(new Set(["e-ab"]));
   });
 
   it("soft relates never participates in blocked closure", () => {
@@ -54,8 +65,9 @@ describe("graph derivations", () => {
         { id: "e-bc", fromNode: "b", toNode: "c" },
       ],
     };
-    expect(blockedClosure(doc)).toEqual(new Set(["b"]));
-    expect(blockedEdgeIds(doc).has("e-bc")).toBe(false);
+    const context = executionContextForDoc(doc);
+    expect(blockedClosure(doc, context)).toEqual(new Set(["b"]));
+    expect(blockedEdgeIds(doc, context).has("e-bc")).toBe(false);
   });
 
   it("groupMembers includes a node whose center is inside the group and excludes one outside", () => {
@@ -77,6 +89,46 @@ describe("graph derivations", () => {
         { id: "e1", fromNode: "t1", toNode: "a1", ether: { criteria: { mode: "tasks" } } },
       ],
     };
-    expect(deriveExecutionGraph(doc).blocked).toEqual(blockedClosure(doc));
+    const context = executionContextForDoc(doc);
+    expect(deriveExecutionGraph(doc, context).blocked).toEqual(
+      blockedClosure(doc, context),
+    );
+  });
+
+  it("projection resolver fails closed for duplicate canvas-local actor refs", () => {
+    const first = actorRefFixture("a1");
+    const duplicate = {
+      ...actorRefFixture("other"),
+      canvasName: first.canvasName,
+      nodeId: first.nodeId,
+    };
+    const resolve = actorRefResolverFromProjection([first, duplicate]);
+
+    expect(
+      resolve({ canvasName: first.canvasName, nodeId: first.nodeId }),
+    ).toBeUndefined();
+  });
+
+  it("missing compiled actor identity never falls back to the node id", () => {
+    const doc: CanvasDoc = {
+      nodes: [tasks("t1", true, "a1"), seat("a1", "actor")],
+      edges: [
+        {
+          id: "e1",
+          fromNode: "t1",
+          toNode: "a1",
+          ether: { criteria: { mode: "tasks" } },
+        },
+      ],
+    };
+    const context = {
+      ...executionContextForDoc(doc),
+      resolveActorRef: actorRefResolverFromProjection([]),
+    };
+
+    expect(blockedClosure(doc, context)).toEqual(new Set());
+    expect(deriveExecutionGraph(doc, context).detailByEdgeId.get("e1")).toContain(
+      "actor identity unresolved",
+    );
   });
 });

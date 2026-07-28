@@ -1,5 +1,6 @@
 import { Match } from "effect";
 import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
+import type { ActorRefResolver } from "./attention";
 import { buildConnectionIndex, resolveConnections, type Connection } from "./connections";
 import type { EntitySource, SnapshotState } from "./entities";
 import {
@@ -17,8 +18,8 @@ import { resolveSpec, roleOf, type FactoryRole } from "./physics";
 import { deriveRegionRollups } from "./region-rollup";
 
 // Deterministic text projection of a canvas + snapshots for agent consumption.
-// Contract: same doc + same snapshots (+ same trust views) -> byte-identical
-// output. No timestamps, no randomness. Sections: regions (with members),
+// Contract: same doc + same actor projection + same snapshots/live views ->
+// byte-identical output. No timestamps, no randomness. Sections: regions (with members),
 // region rollups (severity), factory physics (role counts + soft/criteria
 // edges), design (topology + empty seats — I13), completion (stamped /
 // cleared proof — never empty seats), entities (with stats), edges (live
@@ -98,8 +99,10 @@ const seedEligible = (node: CanvasNode): boolean =>
 const isSeed = (node: CanvasNode, connections: ReadonlyArray<Connection>): boolean =>
   node.ether?.entity !== undefined && seedEligible(node) && connections.length === 0;
 
-/** Optional live inputs for trust plane + seat occupancy (never document truth). */
+/** Required actor authority plus optional trust/occupancy views. */
 export type DigestLiveViews = LiveTrustViews & {
+  /** Exact resolver compiled from the CanvasReadResult actorRefs projection. */
+  readonly resolveActorRef: ActorRefResolver;
   /** nodeId → occupancy spectrum. Absent/empty seats surface under design only (I13). */
   readonly occupancy?: ReadonlyMap<string, OccupancySpectrumName>;
 };
@@ -108,7 +111,7 @@ export const digestCanvas = (
   name: string,
   doc: CanvasDoc,
   snapshots: SnapshotState,
-  live?: DigestLiveViews,
+  live: DigestLiveViews,
 ): string => {
   const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
   const connectionIndex = buildConnectionIndex(snapshots);
@@ -118,10 +121,14 @@ export const digestCanvas = (
   };
 
   const trust: LiveTrustViews = {
-    ...(live?.stamps ? { stamps: live.stamps } : {}),
-    ...(live?.approvals ? { approvals: live.approvals } : {}),
+    ...(live.stamps ? { stamps: live.stamps } : {}),
+    ...(live.approvals ? { approvals: live.approvals } : {}),
   };
-  const graph = deriveExecutionGraph(doc, trust);
+  const graph = deriveExecutionGraph(doc, {
+    canvasName: name,
+    resolveActorRef: live.resolveActorRef,
+    ...trust,
+  });
 
   const lines: string[] = [
     `canvas :: ${name}`,
@@ -148,7 +155,13 @@ export const digestCanvas = (
   // stays a pure function of doc + snapshots.
   if (groups.length > 0) {
     const rollupLines = ["region rollups"];
-    for (const rollup of deriveRegionRollups({ doc, snapshots })) {
+    for (const rollup of deriveRegionRollups({
+      doc,
+      snapshots,
+      canvasName: name,
+      resolveActorRef: live.resolveActorRef,
+      ...trust,
+    })) {
       const buckets = [
         rollup.counts.blocked > 0 ? `${rollup.counts.blocked} blocked` : "",
         rollup.counts.attention > 0 ? `${rollup.counts.attention} attention` : "",
@@ -217,7 +230,7 @@ export const digestCanvas = (
         }),
       );
       if (role !== "actor") continue;
-      const occ = live?.occupancy?.get(node.id) ?? "empty";
+      const occ = live.occupancy?.get(node.id) ?? "empty";
       seatLines.push(`${titleOf(node)} :: ${occ}`);
       if (occ === "empty" || occ === "gone") {
         emptyLines.push(`${titleOf(node)} :: ${occ}`);
@@ -251,7 +264,7 @@ export const digestCanvas = (
   // completion — stamped proofs and cleared phase only. Never lists empty seats (I13).
   {
     const completionLines = ["completion"];
-    const cleared = clearingStampsForDoc(doc, live?.stamps);
+    const cleared = clearingStampsForDoc(doc, live.stamps);
     if (cleared.length > 0) {
       completionLines.push("stamps");
       for (const { edgeId, stamp } of cleared) {
@@ -266,7 +279,7 @@ export const digestCanvas = (
       }
     }
     // Human approvals that clear approval edges.
-    if (live?.approvals && live.approvals.size > 0) {
+    if (live.approvals && live.approvals.size > 0) {
       const approvalClears: string[] = [];
       for (const edge of doc.edges) {
         const criteria = edge.ether?.criteria;

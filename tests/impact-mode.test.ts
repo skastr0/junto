@@ -3,12 +3,38 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import type { ExecutionSnapshot } from "../src/shared/ipc";
 import {
   edgeImpactClass,
-  executionGraphForImpact,
+  executionGraphForImpact as executionGraphForImpactWithContext,
   nodeImpactClass,
-  selectionImpact,
+  selectionImpact as selectionImpactWithContext,
 } from "../src/renderer/lib/impact-mode";
-import { claimed, taskItem } from "./helpers/task-fixtures";
+import {
+  claimedByNode as claimed,
+  executionContextForDoc,
+} from "./helpers/actor-ref-fixtures";
+import { taskItem } from "./helpers/task-fixtures";
 import { seat } from "./helpers/physics-seats";
+
+const executionGraphForImpact = (
+  doc: CanvasDoc,
+  execution: ExecutionSnapshot | null | undefined,
+) =>
+  executionGraphForImpactWithContext(
+    doc,
+    execution,
+    executionContextForDoc(doc),
+  );
+
+const selectionImpact = (
+  doc: CanvasDoc,
+  rootNodeId: string,
+  execution: ExecutionSnapshot | null | undefined,
+) =>
+  selectionImpactWithContext(
+    doc,
+    rootNodeId,
+    execution,
+    executionContextForDoc(doc),
+  );
 
 const text = (
   id: string,

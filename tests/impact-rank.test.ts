@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { deriveExecutionGraph } from "../src/shared/execution-graph";
+import { deriveExecutionGraph as deriveExecutionGraphWithContext } from "../src/shared/execution-graph";
 import {
   formatRankedStoppageLine,
   formatWaitingOnLines,
@@ -8,8 +8,16 @@ import {
   rankStoppageSeeds,
   waitingOnPath,
 } from "../src/shared/impact";
-import { claimed, taskItem } from "./helpers/task-fixtures";
+import {
+  actorRefFixture,
+  claimedByNode as claimed,
+  executionContextForDoc,
+} from "./helpers/actor-ref-fixtures";
+import { taskItem } from "./helpers/task-fixtures";
 import { seat } from "./helpers/physics-seats";
+
+const deriveExecutionGraph = (doc: CanvasDoc) =>
+  deriveExecutionGraphWithContext(doc, executionContextForDoc(doc));
 
 const text = (
   id: string,
@@ -144,7 +152,7 @@ describe("rankStoppageSeeds — blast-radius ranking", () => {
               taskItem("i2", "someone should look", "input-required"),
               {
                 ...taskItem("i3", "stuck on key approval", "auth-required"),
-                metadata: { claimedBy: "w1" },
+                claimedBy: actorRefFixture("w1").seatId,
               },
             ],
           },

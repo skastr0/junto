@@ -1,7 +1,10 @@
 import { MarkerType } from "@xyflow/react";
 import type { Edge, Node } from "@xyflow/react";
 import type { CanvasDoc, CanvasEdge, CanvasNode, EdgePhase } from "@shared/canvas";
-import { deriveExecutionGraph } from "@shared/execution-graph";
+import {
+  deriveExecutionGraph,
+  type ExecutionGraphContext,
+} from "@shared/execution-graph";
 import type { ExecutionSnapshot } from "@shared/ipc";
 import { nodeTitle, searchText } from "./presentation";
 
@@ -25,8 +28,8 @@ export type FlowEdge = Edge<EdgeData>;
 export { searchText } from "./presentation";
 
 // Live overlay from the kernel cycle (derived phases + blocked closure).
-// When absent, toFlow falls back to pure deriveExecutionGraph(doc) which
-// resolves tasks criteria from the document and soft-relates otherwise.
+// When absent, toFlow falls back to pure deriveExecutionGraph(doc, context),
+// resolving task ownership only through compiled actor refs.
 export type ExecutionOverlay = Pick<
   ExecutionSnapshot,
   "phaseByEdgeId" | "detailByEdgeId" | "blocked" | "blockedEdgeIds"
@@ -56,6 +59,7 @@ export const createFlowIdentityCache = (): FlowIdentityCache => ({
 // unchanged so React re-renders only the nodes that actually changed.
 export const toFlow = (
   doc: CanvasDoc,
+  context: ExecutionGraphContext,
   execution?: ExecutionOverlay | null,
   cache?: FlowIdentityCache,
 ): { nodes: FlowNode[]; edges: FlowEdge[] } => {
@@ -64,7 +68,7 @@ export const toFlow = (
   // kernel tick that already supplies phase/blocked.
   let fallback: ReturnType<typeof deriveExecutionGraph> | null = null;
   const getFallback = () => {
-    if (!fallback) fallback = deriveExecutionGraph(doc);
+    if (!fallback) fallback = deriveExecutionGraph(doc, context);
     return fallback;
   };
 

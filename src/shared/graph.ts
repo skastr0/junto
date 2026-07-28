@@ -1,16 +1,73 @@
 import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
-import { deriveExecutionGraph } from "./execution-graph";
+import type { ActorRefResolver } from "./attention";
+import {
+  deriveExecutionGraph,
+  type ExecutionGraphContext,
+  type LiveTrustViews,
+} from "./execution-graph";
+import type { ActorRef } from "./work-protocol";
 
 // Derived state. Never persisted — recomputed from the document so the
 // authored canvas document cannot go incoherent.
 //
 // blockedClosure / blockedEdgeIds are thin wrappers over deriveExecutionGraph.
 
-export const blockedClosure = (doc: CanvasDoc): ReadonlySet<string> =>
-  deriveExecutionGraph(doc).blocked;
+/**
+ * Build the strict canvas-scoped resolver used by pure graph projections.
+ *
+ * CanvasReadResult.actorRefs and renderer state$.actorRefs are the only valid
+ * inputs. A missing reference or duplicate canvas/node entry resolves to
+ * undefined; canvas node IDs never substitute for compiled seat identity.
+ */
+export const actorRefResolverFromProjection = (
+  actorRefs: ReadonlyArray<ActorRef>,
+): ActorRefResolver => {
+  const refsByCanvas = new Map<string, Map<string, ActorRef>>();
+  const ambiguous = new Map<string, Set<string>>();
 
-export const blockedEdgeIds = (doc: CanvasDoc): ReadonlySet<string> =>
-  deriveExecutionGraph(doc).blockedEdgeIds;
+  for (const actor of actorRefs) {
+    const ambiguousNodeIds =
+      ambiguous.get(actor.canvasName) ?? new Set<string>();
+    if (ambiguousNodeIds.has(actor.nodeId)) continue;
+
+    const refsByNodeId =
+      refsByCanvas.get(actor.canvasName) ?? new Map<string, ActorRef>();
+    if (refsByNodeId.has(actor.nodeId)) {
+      refsByNodeId.delete(actor.nodeId);
+      ambiguousNodeIds.add(actor.nodeId);
+      ambiguous.set(actor.canvasName, ambiguousNodeIds);
+    } else {
+      refsByNodeId.set(actor.nodeId, actor);
+    }
+    refsByCanvas.set(actor.canvasName, refsByNodeId);
+  }
+
+  return ({ canvasName, nodeId }) => {
+    if (ambiguous.get(canvasName)?.has(nodeId)) return undefined;
+    return refsByCanvas.get(canvasName)?.get(nodeId);
+  };
+};
+
+/** Adapt one authoritative actor-ref projection into graph derivation input. */
+export const executionGraphContextFromActorRefs = (
+  canvasName: string,
+  actorRefs: ReadonlyArray<ActorRef>,
+  trust: LiveTrustViews = {},
+): ExecutionGraphContext => ({
+  canvasName,
+  resolveActorRef: actorRefResolverFromProjection(actorRefs),
+  ...trust,
+});
+
+export const blockedClosure = (
+  doc: CanvasDoc,
+  context: ExecutionGraphContext,
+): ReadonlySet<string> => deriveExecutionGraph(doc, context).blocked;
+
+export const blockedEdgeIds = (
+  doc: CanvasDoc,
+  context: ExecutionGraphContext,
+): ReadonlySet<string> => deriveExecutionGraph(doc, context).blockedEdgeIds;
 
 export const isGroup = (node: CanvasNode): node is GroupNode => node.type === "group";
 

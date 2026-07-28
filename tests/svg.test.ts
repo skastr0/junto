@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { renderCanvasSvg } from "../src/shared/svg";
+import { renderCanvasSvg as renderCanvasSvgWithContext } from "../src/shared/svg";
+import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
+
+const renderCanvasSvg = (doc: CanvasDoc): string =>
+  renderCanvasSvgWithContext(doc, executionContextForDoc(doc));
 
 const doc: CanvasDoc = {
   nodes: [

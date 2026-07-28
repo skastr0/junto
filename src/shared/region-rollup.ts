@@ -1,7 +1,11 @@
 import { Match, Schema } from "effect";
+import type { ActorRefResolver } from "./attention";
 import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
 import type { SnapshotState } from "./entities";
-import { deriveExecutionGraph } from "./execution-graph";
+import {
+  deriveExecutionGraph,
+  type LiveTrustViews,
+} from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
 import { resolveSpec } from "./physics";
 import type { WorkSurfaceActivity } from "./terminal";
@@ -11,10 +15,11 @@ import type { WorkSurfaceActivity } from "./terminal";
 // One rollup per group node — the region is the control group; every member's
 // severity bubbles up to the chip.
 //
-// Pure, side-effect-free, derived from (document + optional live inputs).
-// Never persisted. INVARIANT (mirror of the edge law): unknown or missing
-// live data invents NOTHING — absent snapshots/activity only narrow
-// what can be derived; they never fabricate blocks, attention, or work.
+// Pure, side-effect-free, derived from (document + compiled actor refs +
+// optional live inputs). Never persisted. INVARIANT (mirror of the edge law):
+// unknown or missing live data invents NOTHING — absent snapshots/activity
+// only narrow what can be derived; they never fabricate blocks, attention,
+// or work.
 
 // The severity ladder, worst first. A member lands in the WORST tier it
 // matches; its reasons collect every match, in ladder order.
@@ -65,8 +70,11 @@ export const RegionRollup = Schema.Struct({
 });
 export type RegionRollup = typeof RegionRollup.Type;
 
-export interface RegionRollupInput {
+export interface RegionRollupInput extends LiveTrustViews {
   readonly doc: CanvasDoc;
+  /** Canvas scope and compiled actor identity are mandatory graph inputs. */
+  readonly canvasName: string;
+  readonly resolveActorRef: ActorRefResolver;
   // Reserved seam: binding staleness deliberately does NOT feed the ladder
   // yet — a down adapter would cry wolf on every bound node. Accepted so the
   // digest and the app service share one input shape.
@@ -235,8 +243,21 @@ const countBySeverity = (members: ReadonlyArray<MemberStatus>): RegionRollup["co
 // groupMembers(doc) participate — groups never contain groups, and nodes
 // outside every region are ignored.
 export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<RegionRollup> => {
-  const { doc, agentActivity, terminalStatusByNodeId } = input;
-  const graph = deriveExecutionGraph(doc);
+  const {
+    doc,
+    canvasName,
+    resolveActorRef,
+    stamps,
+    approvals,
+    agentActivity,
+    terminalStatusByNodeId,
+  } = input;
+  const graph = deriveExecutionGraph(doc, {
+    canvasName,
+    resolveActorRef,
+    ...(stamps ? { stamps } : {}),
+    ...(approvals ? { approvals } : {}),
+  });
   const membersByRegion = groupMembers(doc);
   const indexById = new Map(doc.nodes.map((node, index) => [node.id, index] as const));
   const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));

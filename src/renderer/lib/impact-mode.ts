@@ -11,6 +11,7 @@ import {
   type BlockedReason,
   type EdgeEval,
   type ExecutionGraph,
+  type ExecutionGraphContext,
 } from "@shared/execution-graph";
 import { impactCone, type ImpactCone } from "@shared/impact";
 
@@ -26,11 +27,14 @@ export type ImpactSelection = {
   readonly seedLabel: string;
 };
 
-const emptySelection = (rootId: string): ImpactSelection => ({
+const emptySelection = (
+  rootId: string,
+  context: ExecutionGraphContext,
+): ImpactSelection => ({
   active: false,
   cone: impactCone(
     { nodes: [], edges: [] },
-    deriveExecutionGraph({ nodes: [], edges: [] }),
+    deriveExecutionGraph({ nodes: [], edges: [] }, context),
     rootId,
   ),
   seedLabel: "",
@@ -40,8 +44,9 @@ const emptySelection = (rootId: string): ImpactSelection => ({
 export const executionGraphForImpact = (
   doc: CanvasDoc,
   execution: ExecutionSnapshot | null | undefined,
+  context: ExecutionGraphContext,
 ): ExecutionGraph => {
-  if (!execution) return deriveExecutionGraph(doc);
+  if (!execution) return deriveExecutionGraph(doc, context);
 
   const phaseByEdgeId = new Map<string, EdgePhase>();
   const detailByEdgeId = new Map<string, string>();
@@ -94,10 +99,11 @@ export const selectionImpact = (
   doc: CanvasDoc,
   rootNodeId: string,
   execution: ExecutionSnapshot | null | undefined,
+  context: ExecutionGraphContext,
 ): ImpactSelection => {
-  if (!rootNodeId) return emptySelection("");
+  if (!rootNodeId) return emptySelection("", context);
 
-  const graph = executionGraphForImpact(doc, execution);
+  const graph = executionGraphForImpact(doc, execution, context);
   const cone = impactCone(doc, graph, rootNodeId);
   if (cone.nodeIds.size === 0) {
     return { active: false, cone, seedLabel: "" };

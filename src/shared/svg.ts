@@ -1,10 +1,14 @@
 import type { CanvasDoc, CanvasNode, EtherEdgeKind } from "./canvas";
-import { deriveExecutionGraph } from "./execution-graph";
+import {
+  deriveExecutionGraph,
+  type ExecutionGraphContext,
+} from "./execution-graph";
 import { isGroup } from "./graph";
 
 // Headless deep-field render of a canvas to SVG — the "screenshot for agents"
 // half of the agent surface (the text half is digest.ts). Pure and
-// deterministic: same doc in, same SVG out. No DOM, no Electron.
+// deterministic: same doc + actor projection in, same SVG out. No DOM, no
+// Electron.
 
 const GROUND = "#0c0b0a";
 const TEXT = "#EDE6DA";
@@ -56,9 +60,12 @@ const nodeTitle = (node: CanvasNode): string => {
 
 const center = (node: CanvasNode) => ({ x: node.x + node.width / 2, y: node.y + node.height / 2 });
 
-export const renderCanvasSvg = (doc: CanvasDoc): string => {
+export const renderCanvasSvg = (
+  doc: CanvasDoc,
+  context: ExecutionGraphContext,
+): string => {
   const nodesById = new Map(doc.nodes.map((n) => [n.id, n] as const));
-  const graph = deriveExecutionGraph(doc);
+  const graph = deriveExecutionGraph(doc, context);
   const blocked = graph.blocked;
   const activeEdges = graph.blockedEdgeIds;
 

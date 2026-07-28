@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
-import { digestCanvas } from "../src/shared/digest";
+import {
+  digestCanvas as digestCanvasWithActorRefs,
+  type DigestLiveViews,
+} from "../src/shared/digest";
+import {
+  actorRefFixture,
+  executionContextForDoc,
+} from "./helpers/actor-ref-fixtures";
+
+type DigestFixtureViews = Omit<DigestLiveViews, "resolveActorRef">;
+
+const digestCanvas = (
+  name: string,
+  doc: CanvasDoc,
+  snapshots: SnapshotState,
+  live: DigestFixtureViews = {},
+): string =>
+  digestCanvasWithActorRefs(name, doc, snapshots, {
+    ...live,
+    resolveActorRef: executionContextForDoc(doc, name).resolveActorRef,
+  });
 
 const doc: CanvasDoc = {
   nodes: [
@@ -57,7 +77,7 @@ const doc: CanvasDoc = {
             {
               id: "i1",
               state: "input-required",
-              metadata: { claimedBy: "m3" },
+              claimedBy: actorRefFixture("m3", "fixture").seatId,
               history: [
                 {
                   messageId: "m1",

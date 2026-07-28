@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Ban } from "lucide-react";
-import { deriveExecutionGraph } from "@shared/execution-graph";
 import {
   formatRankedStoppageLine,
   rankStoppageSeeds,
   type RankedStoppage,
 } from "@shared/impact";
+import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { deriveOccupancy, type OccupancySpectrumName } from "@shared/occupancy";
 import { HUE } from "../../lib/theme";
 import { nodeTitle } from "../../lib/presentation";
@@ -66,16 +66,17 @@ export function StoppageRank() {
   const doc = use$(state$.doc);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
+  const canvasName = use$(state$.canvasName);
+  const actorRefs = use$(state$.actorRefs);
   const selectedNodeId = use$(state$.selectedNodeId);
   const chatCoarse = use$(chatCoarse$);
 
   const ranked = useMemo(() => {
-    const graph = execution
-      ? executionGraphForImpact(doc, execution)
-      : deriveExecutionGraph(doc);
+    const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
+    const graph = executionGraphForImpact(doc, execution, context);
     return rankStoppageSeeds(doc, graph);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, execution, executionRev]);
+  }, [actorRefs, canvasName, doc, execution, executionRev]);
 
   const occupancyByNodeId = useMemo(() => {
     const feed = chatActivityFeed(doc, chatCoarse ?? {});

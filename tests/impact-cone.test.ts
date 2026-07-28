@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { deriveExecutionGraph } from "../src/shared/execution-graph";
+import { deriveExecutionGraph as deriveExecutionGraphWithContext } from "../src/shared/execution-graph";
 import { impactCone } from "../src/shared/impact";
-import { taskItem, claimed } from "./helpers/task-fixtures";
+import {
+  claimedByNode as claimed,
+  executionContextForDoc,
+} from "./helpers/actor-ref-fixtures";
+import { taskItem } from "./helpers/task-fixtures";
 import { geographySeat, seat } from "./helpers/physics-seats";
+
+const deriveExecutionGraph = (doc: CanvasDoc) =>
+  deriveExecutionGraphWithContext(doc, executionContextForDoc(doc));
 
 const text = (
   id: string,

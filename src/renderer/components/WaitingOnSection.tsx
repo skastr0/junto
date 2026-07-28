@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
-import { deriveExecutionGraph } from "@shared/execution-graph";
+import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { waitingOnPath, formatWaitingOnLines } from "@shared/impact";
 import { state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
@@ -15,11 +15,12 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
   const doc = use$(state$.doc);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
+  const canvasName = use$(state$.canvasName);
+  const actorRefs = use$(state$.actorRefs);
 
   const path = useMemo(() => {
-    const graph = execution
-      ? executionGraphForImpact(doc, execution)
-      : deriveExecutionGraph(doc);
+    const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
+    const graph = executionGraphForImpact(doc, execution, context);
     // Only show for blocked nodes or nodes inside a stoppage cone.
     if (!graph.blocked.has(nodeId) && !graph.seedNodeIds.has(nodeId)) {
       // Generators still surface a short path (themselves).
@@ -30,7 +31,7 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
     }
     return waitingOnPath(doc, graph, nodeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, execution, executionRev, nodeId]);
+  }, [actorRefs, canvasName, doc, execution, executionRev, nodeId]);
 
   if (!path || path.hops.length === 0) return null;
 

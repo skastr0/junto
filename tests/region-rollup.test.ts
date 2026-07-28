@@ -1,9 +1,31 @@
 import { describe, expect, it } from "vitest";
 import type { Task, CanvasDoc } from "../src/shared/canvas";
-import { deriveRegionRollups, type AgentActivity } from "../src/shared/region-rollup";
+import {
+  deriveRegionRollups as deriveRegionRollupsWithContext,
+  type AgentActivity,
+  type RegionRollupInput,
+} from "../src/shared/region-rollup";
 import type { WorkSurfaceActivity } from "../src/shared/terminal";
-import { taskItem, claimed } from "./helpers/task-fixtures";
+import {
+  claimedByNode as claimed,
+  executionContextForDoc,
+} from "./helpers/actor-ref-fixtures";
+import { taskItem } from "./helpers/task-fixtures";
 import { kindForRole } from "./helpers/physics-seats";
+
+type RegionRollupFixtureInput = Omit<
+  RegionRollupInput,
+  "canvasName" | "resolveActorRef"
+>;
+
+const deriveRegionRollups = (input: RegionRollupFixtureInput) => {
+  const context = executionContextForDoc(input.doc);
+  return deriveRegionRollupsWithContext({
+    ...input,
+    canvasName: context.canvasName,
+    resolveActorRef: context.resolveActorRef,
+  });
+};
 
 type Node = CanvasDoc["nodes"][number];
 type Edge = CanvasDoc["edges"][number];
@@ -63,7 +85,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.members[0]).toMatchObject({ nodeId: "n", severity: "blocked", reasons: ["flag:blocker"] });
   });
 
-  it("blocked via execution graph: tasks criteria edge blocks its actor target from the document alone", () => {
+  it("blocked via execution graph: tasks criteria edge blocks its compiled actor target", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
@@ -245,7 +267,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
   });
 });
 
-describe("deriveRegionRollups — absent live inputs", () => {
+describe("deriveRegionRollups — absent activity inputs", () => {
   const doc: CanvasDoc = {
     nodes: [
       group("r", 0, 0, 500, 500, "ops"),

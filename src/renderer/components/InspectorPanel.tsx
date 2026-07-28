@@ -4,6 +4,7 @@ import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import { deriveExecutionGraph } from "@shared/execution-graph";
+import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { deleteEdges, editEdgeLabel, setEdgeColor, setEdgeCriteria, toggleEdgeArrow } from "../lib/edge-mutations";
 import { EdgeCapabilitySection, EdgeCriteriaEditor, EdgePortsAttenuator, NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from "./InspectorFields";
 import { clearSelection, state$ } from "../lib/state";
@@ -201,6 +202,8 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
 
 function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
   const doc = use$(state$.doc);
+  const canvasName = use$(state$.canvasName);
+  const actorRefs = use$(state$.actorRefs);
   const edgeId = use$(state$.selectedEdgeId);
   const execution = use$(kernel$.execution);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
@@ -210,7 +213,12 @@ function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
   const source = doc.nodes.find((node) => node.id === edge.fromNode);
   const target = doc.nodes.find((node) => node.id === edge.toNode);
   // Match canvas: prefer kernel overlay, else cold derive (tasks work offline).
-  const cold = execution ? null : deriveExecutionGraph(doc);
+  const cold = execution
+    ? null
+    : deriveExecutionGraph(
+        doc,
+        executionGraphContextFromActorRefs(canvasName, actorRefs),
+      );
   const livePhase =
     execution?.phaseByEdgeId?.[edge.id] ?? cold?.phaseByEdgeId.get(edge.id) ?? "relates";
   const liveDetail =

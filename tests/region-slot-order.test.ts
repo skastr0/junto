@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { assignSlot, mergeSlotOrder } from "../src/renderer/lib/region-rollups";
-import { deriveRegionRollups } from "../src/shared/region-rollup";
+import { deriveRegionRollups as deriveRegionRollupsWithContext } from "../src/shared/region-rollup";
 import type { CanvasDoc } from "../src/shared/canvas";
+import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
+
+const deriveRegionRollups = (doc: CanvasDoc) => {
+  const context = executionContextForDoc(doc);
+  return deriveRegionRollupsWithContext({
+    doc,
+    canvasName: context.canvasName,
+    resolveActorRef: context.resolveActorRef,
+  });
+};
 
 describe("mergeSlotOrder", () => {
   it("keeps presentational order and appends new regions", () => {
@@ -33,7 +43,7 @@ describe("assignSlot", () => {
 });
 
 describe("cold rollup shell", () => {
-  it("deriveRegionRollups without live inputs still lists every group", () => {
+  it("deriveRegionRollups without activity inputs still lists every group", () => {
     const doc: CanvasDoc = {
       nodes: [
         { id: "r1", type: "group", label: "Tower", x: 0, y: 0, width: 200, height: 200 },
@@ -42,7 +52,7 @@ describe("cold rollup shell", () => {
       ],
       edges: [],
     };
-    const rollups = deriveRegionRollups({ doc });
+    const rollups = deriveRegionRollups(doc);
     expect(rollups.map((r) => r.label)).toEqual(["Tower", "Booth"]);
     expect(rollups.every((r) => r.severity === "idle")).toBe(true);
   });
