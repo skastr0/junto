@@ -26,6 +26,10 @@ import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
+import {
+  artifactSearchText,
+  artifactTaskReferenceLabel,
+} from "./artifact-reference";
 import "./work-ledger.css";
 
 const canvasName = (): string => state$.canvasName.peek() || "";
@@ -445,7 +449,7 @@ function ArtifactDetail({
       </header>
       <div className="work-ledger-detail__meta">
         <span>#{artifact.artifactId}</span>
-        {artifact.task ? <span>Task #{artifact.task.itemId}</span> : null}
+        <span>{artifactTaskReferenceLabel(artifact)}</span>
       </div>
       <div className="work-ledger-detail__scroll">
         <section>
@@ -489,7 +493,7 @@ export function ArtifactLibrary({
     () =>
       normalized
         ? items.filter((artifact) =>
-            `${artifact.name ?? ""} ${artifact.artifactId} ${artifact.task?.itemId ?? ""}`
+            artifactSearchText(artifact)
               .toLowerCase()
               .includes(normalized),
           )
@@ -557,7 +561,7 @@ export function ArtifactLibrary({
                     <span>
                       <strong>{name}</strong>
                       <small>
-                        {artifact.task ? `Task #${artifact.task.itemId}` : "Unbound output"} ·{" "}
+                        {artifactTaskReferenceLabel(artifact)} ·{" "}
                         {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
                       </small>
                     </span>
