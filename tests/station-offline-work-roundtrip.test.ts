@@ -4,9 +4,13 @@ import { join } from "node:path";
 import {
   Effect,
   Either,
+  Exit,
   Layer,
   ManagedRuntime,
+  Queue,
   Schema,
+  Scope,
+  Stream,
 } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
@@ -25,8 +29,15 @@ import {
   ProjectRequest,
   STATION_API_PROTOCOL,
   StationHostId,
+  type StationApiRequest,
   type StationReadiness,
 } from "../src/shared/station-api";
+import {
+  stationControlOk,
+} from "../src/shared/station-api-envelope";
+import type {
+  StationSessionFrame,
+} from "../src/shared/station-session";
 import type { ActorRef } from "../src/shared/work-protocol";
 import {
   CanvasesLive,
@@ -51,12 +62,33 @@ import {
   compileStationPortfolioBody,
 } from "../src/main/vellum/station/portfolio";
 import {
+  makeStationPeerSession,
+  type StationPeerSession,
+  type StationSessionFrameTransport,
+} from "../src/main/vellum/station/peer-session";
+import {
+  StationPropagation,
+  StationPropagationLive,
+} from "../src/main/vellum/station/propagation";
+import {
   makeStationRepositoryLive,
+  StationRepository,
   stationProjectionContentSha256,
 } from "../src/main/vellum/station/repository";
 import {
+  StationLivePeerRegistry,
+  StationLivePeerRegistryLive,
+} from "../src/main/vellum/station/session-registry";
+import {
+  stationControlErrorEnvelope,
+} from "../src/main/vellum/station/dispatcher";
+import {
   makeStateEngineLive,
 } from "../src/main/vellum/state/engine";
+import {
+  WorkLive,
+  WorkService,
+} from "../src/main/vellum/work/service";
 import {
   WorkAuthorityError,
   WorkRepository,
@@ -102,8 +134,14 @@ const makeInstallationRuntime = (
     state,
   );
   const canvases = Layer.provideMerge(CanvasesLive, repositories);
+  const stationApi = Layer.provideMerge(StationApiLive, canvases);
+  const stationRuntime = Layer.mergeAll(
+    stationApi,
+    StationLivePeerRegistryLive,
+  );
+  const work = Layer.provideMerge(WorkLive, stationRuntime);
   return ManagedRuntime.make(
-    Layer.provideMerge(StationApiLive, canvases),
+    Layer.provideMerge(StationPropagationLive, work),
   );
 };
 
@@ -113,13 +151,24 @@ type InstallationHarness = {
   readonly api: typeof StationApiService.Service;
   readonly canvases: typeof CanvasesService.Service;
   readonly work: typeof WorkRepository.Service;
+  readonly workService: typeof WorkService.Service;
   readonly settings: typeof SettingsService.Service;
   readonly fleetTargets: typeof StationFleetTargetRepository.Service;
+  readonly station: typeof StationRepository.Service;
+  readonly livePeers: typeof StationLivePeerRegistry.Service;
+  readonly propagation: typeof StationPropagation.Service;
 };
 
 const opened: Array<InstallationHarness> = [];
+const sessionScopes: Array<Scope.CloseableScope> = [];
 
 afterEach(async () => {
+  const scopes = sessionScopes.splice(0);
+  await Promise.all(
+    scopes.map((scope) =>
+      Effect.runPromise(Scope.close(scope, Exit.void)),
+    ),
+  );
   const closing = opened.splice(0);
   await Promise.all(closing.map(({ runtime }) => runtime.dispose()));
   await Promise.all(
@@ -145,8 +194,12 @@ const openInstallation = async (
         api: yield* StationApiService,
         canvases: yield* CanvasesService,
         work: yield* WorkRepository,
+        workService: yield* WorkService,
         settings: yield* SettingsService,
         fleetTargets: yield* StationFleetTargetRepository,
+        station: yield* StationRepository,
+        livePeers: yield* StationLivePeerRegistry,
+        propagation: yield* StationPropagation,
       };
     }),
   );
@@ -170,6 +223,152 @@ const message = (
   parts: [{ kind: "text" as const, text }],
   taskId,
   contextId: "factory",
+});
+
+const makeInMemoryStationDuplex = Effect.gen(function* () {
+  const commandCenterIncoming =
+    yield* Queue.unbounded<StationSessionFrame>();
+  const remoteIncoming = yield* Queue.unbounded<StationSessionFrame>();
+  const close = Effect.all(
+    [
+      Queue.shutdown(commandCenterIncoming),
+      Queue.shutdown(remoteIncoming),
+    ],
+    { discard: true },
+  );
+  const transport = (
+    incoming: Queue.Dequeue<StationSessionFrame>,
+    outgoing: Queue.Enqueue<StationSessionFrame>,
+  ): StationSessionFrameTransport => ({
+    incoming: Stream.fromQueue(incoming),
+    send: (frame) => Queue.offer(outgoing, frame).pipe(Effect.asVoid),
+    close,
+  });
+  return {
+    commandCenter: transport(
+      commandCenterIncoming,
+      remoteIncoming,
+    ),
+    remote: transport(remoteIncoming, commandCenterIncoming),
+  };
+});
+
+type ProductSessionConnection = {
+  readonly scope: Scope.CloseableScope;
+  readonly commandCenterSession: StationPeerSession;
+  readonly remoteSession: StationPeerSession;
+};
+
+const apiEnvelope = (
+  harness: InstallationHarness,
+  peer:
+    | { readonly _tag: "command-center-route" }
+    | {
+        readonly _tag: "enrolled-remote";
+        readonly installationId: InstallationIdValue;
+      },
+) =>
+  (request: StationApiRequest) =>
+    harness.api.handle(request, readiness, peer).pipe(
+      Effect.map(stationControlOk),
+      Effect.catchAll((error) =>
+        Effect.succeed(stationControlErrorEnvelope(error))
+      ),
+    );
+
+const openProductSessionConnection = async (
+  commandCenter: InstallationHarness,
+  remote: InstallationHarness,
+  commandCenterId: InstallationIdValue,
+  remoteId: InstallationIdValue,
+  remoteHost: HostIdValue,
+): Promise<ProductSessionConnection> => {
+  const scope = await Effect.runPromise(Scope.make());
+  sessionScopes.push(scope);
+  const sessions = await Effect.runPromise(
+    Effect.gen(function* () {
+      const duplex = yield* makeInMemoryStationDuplex;
+      const commandCenterSession = yield* makeStationPeerSession({
+        localRole: "command-center",
+        localInstallationId: commandCenterId,
+        peerInstallationId: remoteId,
+        transport: duplex.commandCenter,
+        handleRequest: apiEnvelope(commandCenter, {
+          _tag: "enrolled-remote",
+          installationId: remoteId,
+        }),
+      });
+      const remoteSession = yield* makeStationPeerSession({
+        localRole: "remote",
+        localInstallationId: remoteId,
+        peerInstallationId: commandCenterId,
+        transport: duplex.remote,
+        handleRequest: apiEnvelope(remote, {
+          _tag: "command-center-route",
+        }),
+      });
+      return { commandCenterSession, remoteSession };
+    }).pipe(Effect.provideService(Scope.Scope, scope)),
+  );
+  await commandCenter.runtime.runPromise(
+    commandCenter.livePeers.activate(
+      remoteHost,
+      remoteId,
+      sessions.commandCenterSession,
+    ).pipe(Effect.provideService(Scope.Scope, scope)),
+  );
+  return { scope, ...sessions };
+};
+
+const closeProductSessionConnection = (
+  connection: ProductSessionConnection,
+): Promise<void> =>
+  Effect.runPromise(Scope.close(connection.scope, Exit.void));
+
+const productPathDocument = (
+  remoteHost: HostIdValue,
+  bindingId: string,
+): CanvasDoc => ({
+  nodes: [
+    {
+      id: "shared-tasks",
+      type: "text",
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 100,
+      text: "Shared Command Center tasks",
+      ether: {
+        entity: { kind: "task" },
+        host: "local",
+      },
+    },
+    {
+      id: "remote-worker",
+      type: "text",
+      x: 320,
+      y: 0,
+      width: 240,
+      height: 100,
+      text: "Remote worker",
+      ether: {
+        entity: { kind: "agent", name: `${remoteHost}:builder` },
+        host: remoteHost,
+        terminal: {
+          bindingId,
+          harness: "codex",
+          launch: { kind: "harness", argv: ["codex"] },
+        },
+      },
+    },
+  ],
+  edges: [
+    {
+      id: "remote-worker-to-shared-tasks",
+      fromNode: "remote-worker",
+      toNode: "shared-tasks",
+    },
+  ],
 });
 
 describe("Station work authority survives Command Center downtime", () => {
@@ -629,5 +828,306 @@ describe("Station work authority survives Command Center downtime", () => {
         ),
       ),
     ).toBe(remoteId);
+  });
+
+  it("claims through WorkService only with a live persistent session and converges after reconnect", async () => {
+    const commandCenterId = installation("cc-product-session-roundtrip");
+    const remoteId = installation("remote-product-session-roundtrip");
+    const remoteHost = hostId("product-remote");
+    const remoteStationHost = stationHostId(remoteHost);
+    const commandCenter = await openInstallation(commandCenterId);
+    const remote = await openInstallation(remoteId);
+    const document = productPathDocument(
+      remoteHost,
+      "binding-product-remote-worker",
+    );
+
+    await commandCenter.runtime.runPromise(
+      commandCenter.settings.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+        supervisedPreferred: true,
+      }),
+    );
+    await commandCenter.runtime.runPromise(
+      commandCenter.fleetTargets.bind(
+        {
+          hostId: remoteHost,
+          stationInstallationId: remoteId,
+        },
+        now,
+      ),
+    );
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.write("factory", document),
+    );
+    await remote.runtime.runPromise(
+      remote.api.handle(
+        PairRequest.make({
+          protocol: STATION_API_PROTOCOL,
+          op: "pair",
+          commandCenterInstallationId: commandCenterId,
+          stationInstallationId: remoteId,
+          stationLabel: "Product Remote",
+          appVersion: "0.1.0",
+        }),
+        readiness,
+        { _tag: "command-center-route" },
+      ),
+    );
+    await remote.runtime.runPromise(
+      remote.api.handle(
+        ConfigureRequest.make({
+          protocol: STATION_API_PROTOCOL,
+          op: "configure",
+          installationId: remoteId,
+          configuration: {
+            role: "remote",
+            hostId: remoteStationHost,
+            agentHostId: remoteStationHost,
+            commandCenterInstallationId: commandCenterId,
+            supervisedPreferred: true,
+          },
+          host: {
+            id: remoteHost,
+            label: "Product Remote",
+            kind: "remote",
+            sshEndpoint: "product-remote",
+            capabilities: ["terminal"],
+          },
+        }),
+        readiness,
+        { _tag: "command-center-route" },
+      ),
+    );
+
+    const firstConnection = await openProductSessionConnection(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+    );
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.livePeers.isLive(remoteHost, remoteId),
+      ),
+    ).toBe(true);
+
+    const projectionReceipt =
+      await commandCenter.runtime.runPromise(
+        commandCenter.propagation.synchronize(
+          {
+            stationInstallationId: remoteId,
+            hostId: remoteStationHost,
+          },
+          firstConnection.commandCenterSession,
+        ),
+      );
+    expect(projectionReceipt.projection.decision).toBe("install");
+    expect(
+      await remote.runtime.runPromise(remote.station.projection),
+    ).toMatchObject({
+      scope: "full",
+      generation: "1",
+    });
+
+    const created = await commandCenter.runtime.runPromise(
+      commandCenter.workService.workTaskCreate(
+        "factory",
+        "shared-tasks",
+        "complete this task while Command Center is disconnected",
+      ),
+    );
+    expect(created).toMatchObject({
+      ok: true,
+      disposition: "applied",
+    });
+    if (!created.ok) {
+      throw new Error("product task creation failed");
+    }
+    const taskId = created.data.id;
+    const commandCenterCanvas =
+      await commandCenter.runtime.runPromise(
+        commandCenter.canvases.read("factory"),
+      );
+    const actor = commandCenterCanvas.actorRefs.find(
+      (candidate) => candidate.nodeId === "remote-worker",
+    );
+    if (actor === undefined) {
+      throw new Error("projection did not compile the Remote actor seat");
+    }
+
+    const claimed = await commandCenter.runtime.runPromise(
+      commandCenter.workService.workTaskClaim(
+        "factory",
+        "shared-tasks",
+        taskId,
+        actor,
+      ),
+    );
+    expect(claimed).toMatchObject({
+      ok: true,
+      disposition: "queued",
+    });
+
+    const claimReceipt = await commandCenter.runtime.runPromise(
+      commandCenter.propagation.synchronize(
+        {
+          stationInstallationId: remoteId,
+          hostId: remoteStationHost,
+        },
+        firstConnection.commandCenterSession,
+      ),
+    );
+    expect(claimReceipt.report).toMatchObject({
+      outboundSent: 1,
+      inboundReceived: 2,
+      inboundAccepted: 2,
+      inboundRejected: 0,
+    });
+    expect(
+      (
+        await remote.runtime.runPromise(
+          remote.work.readSnapshot("factory", "shared-tasks"),
+        )
+      ).tasks.items,
+    ).toEqual([
+      expect.objectContaining({
+        id: taskId,
+        state: "working",
+        claimedBy: actor.seatId,
+      }),
+    ]);
+    expect(
+      await remote.runtime.runPromise(
+        remote.work.itemHome(
+          "task",
+          "factory",
+          "shared-tasks",
+          taskId,
+        ),
+      ),
+    ).toBe(remoteId);
+
+    await closeProductSessionConnection(firstConnection);
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.livePeers.isLive(remoteHost, remoteId),
+      ),
+    ).toBe(false);
+
+    const completed = await remote.runtime.runPromise(
+      remote.workService.workTaskTransition(
+        "factory",
+        "shared-tasks",
+        taskId,
+        "completed",
+        "completed while Command Center was unavailable",
+      ),
+    );
+    expect(completed).toMatchObject({
+      ok: true,
+      disposition: "applied",
+      data: {
+        id: taskId,
+        state: "completed",
+        claimedBy: actor.seatId,
+      },
+    });
+
+    // The Command Center has not exchanged a frame since disconnect, so its
+    // durable read model remains at the last integrated Remote fact.
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.work.readSnapshot(
+            "factory",
+            "shared-tasks",
+          ),
+        )
+      ).tasks.items,
+    ).toEqual([
+      expect.objectContaining({
+        id: taskId,
+        state: "working",
+        claimedBy: actor.seatId,
+      }),
+    ]);
+
+    const secondConnection = await openProductSessionConnection(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+    );
+    const reconciliation =
+      await commandCenter.runtime.runPromise(
+        commandCenter.propagation.synchronize(
+          {
+            stationInstallationId: remoteId,
+            hostId: remoteStationHost,
+          },
+          secondConnection.commandCenterSession,
+        ),
+      );
+    expect(reconciliation.report).toMatchObject({
+      outboundSent: 0,
+      inboundReceived: 1,
+      inboundAccepted: 1,
+      inboundRejected: 0,
+      receivedThrough: [
+        {
+          eventHome: remoteId,
+          entityHome: remoteId,
+          through: "3",
+        },
+      ],
+    });
+
+    const reconciled = await commandCenter.runtime.runPromise(
+      commandCenter.work.readSnapshot(
+        "factory",
+        "shared-tasks",
+      ),
+    );
+    expect(reconciled.tasks.items).toEqual([
+      expect.objectContaining({
+        id: taskId,
+        state: "completed",
+        claimedBy: actor.seatId,
+      }),
+    ]);
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.work.itemHome(
+          "task",
+          "factory",
+          "shared-tasks",
+          taskId,
+        ),
+      ),
+    ).toBe(remoteId);
+
+    const commandCenterCursors =
+      await commandCenter.runtime.runPromise(
+        commandCenter.station.statusFacts,
+      );
+    expect(commandCenterCursors.receivedThrough).toContainEqual({
+      eventHome: remoteId,
+      entityHome: remoteId,
+      through: "3",
+    });
+    expect(
+      commandCenterCursors.peerAcknowledgedThrough,
+    ).toContainEqual({
+      peerInstallationId: remoteId,
+      acknowledgement: {
+        eventHome: commandCenterId,
+        entityHome: remoteId,
+        through: "1",
+      },
+    });
   });
 });
