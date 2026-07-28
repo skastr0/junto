@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { Effect, Either, Schema } from "effect";
 import { ulid } from "ulid";
 import type { Artifact, CanvasDoc, Message, Part } from "@shared/canvas";
+import type { ActorRef } from "@shared/work-protocol";
 import {
   makeAgentMessage,
   makeUserMessage,
@@ -410,6 +411,36 @@ type WorkCaller = {
   readonly occupant: string;
 };
 
+/**
+ * Resolve one process-bound actor node through the compiled execution
+ * projection. Node IDs remain routing/display facts; only ActorRef carries
+ * work authority.
+ */
+export const resolveProcessBoundActorRef = (
+  actorRefs: ReadonlyArray<ActorRef>,
+  caller: Pick<WorkCaller, "canvasName" | "nodeId">,
+): Either.Either<ActorRef, WorkErrorBody> => {
+  const matches = actorRefs.filter(
+    (actor) =>
+      actor.canvasName === caller.canvasName &&
+      actor.nodeId === caller.nodeId,
+  );
+  if (matches.length === 1) return Either.right(matches[0]!);
+  return Either.left({
+    type: "StaleNodeRef",
+    message:
+      matches.length === 0
+        ? `caller node "${caller.nodeId}" has no compiled actor reference`
+        : `caller node "${caller.nodeId}" has ambiguous compiled actor references`,
+    details: {
+      caller: caller.nodeId,
+      retryable: false,
+      next_step:
+        "refresh the Command Center projection and ensure the live process maps to exactly one actor seat",
+    },
+  });
+};
+
 const dispatchOp = (
   op: WorkOp,
   args: unknown,
@@ -562,12 +593,13 @@ const dispatchOp = (
       if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
       const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const actor = (decoded.right.actor?.trim() || caller.nodeId).trim();
+      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(actor)) return yield* Effect.fail(actor.left);
       const result = yield* work.workTaskClaim(
         caller.canvasName,
         decoded.right.target,
         decoded.right.task,
-        actor,
+        actor.right,
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
@@ -579,6 +611,27 @@ const dispatchOp = (
       if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
       const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
+      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(actor)) return yield* Effect.fail(actor.left);
+      const task = gate.node?.ether?.tasks?.items.find(
+        (candidate) => candidate.id === decoded.right.task,
+      );
+      if (
+        task?.claimedBy !== undefined &&
+        task.claimedBy !== actor.right.seatId
+      ) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "ClaimConflict",
+          message:
+            `task "${decoded.right.task}" is claimed by another actor seat`,
+          details: {
+            holder: task.claimedBy,
+            caller: actor.right.seatId,
+            retryable: false,
+            next_step: "only the claimed actor may update an active task",
+          },
+        });
+      }
       const result = yield* work.workTaskTransition(
         caller.canvasName,
         decoded.right.target,
@@ -646,11 +699,14 @@ const dispatchOp = (
         ...(decoded.right.taskId ? { taskId: decoded.right.taskId } : {}),
         metadata: { factoryMail: true, fromSeat: from },
       });
+      const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(sentBy)) return yield* Effect.fail(sentBy.left);
       const result = yield* work.workMessageAppend(
         caller.canvasName,
         decoded.right.target,
         decoded.right.taskId ?? null,
         message,
+        sentBy.right,
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
@@ -663,13 +719,15 @@ const dispatchOp = (
       const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       // The raiser IS the claimant: the calling seat waits on this answer,
-      // so the request is claimed by caller.nodeId at birth.
+      // so the request is claimed by its compiled actor seat at birth.
+      const raisedBy = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(raisedBy)) return yield* Effect.fail(raisedBy.left);
       const result = yield* work.workRequestCreate(
         caller.canvasName,
         decoded.right.target,
         decoded.right.brief,
         decoded.right.metadata,
-        caller.nodeId,
+        raisedBy.right,
         decoded.right.reason,
       );
       const mapped = fromWorkResult(result);
@@ -687,6 +745,8 @@ const dispatchOp = (
         op,
       );
       if ("type" in gate) return yield* Effect.fail(gate);
+      const raisedBy = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(raisedBy)) return yield* Effect.fail(raisedBy.left);
       // File the request (same machinery as request.create), then mark the
       // calling seat blocked and return a stop directive. Hold-until-answer
       // is TODO — fire-and-block ships first.
@@ -695,7 +755,7 @@ const dispatchOp = (
         decoded.right.target,
         decoded.right.brief,
         decoded.right.metadata,
-        caller.nodeId,
+        raisedBy.right,
         decoded.right.reason,
       );
       const mapped = fromWorkResult(result);
@@ -743,10 +803,18 @@ const dispatchOp = (
           ? { metadata: decoded.right.metadata }
           : {}),
       };
+      const publishedBy = resolveProcessBoundActorRef(
+        read.actorRefs,
+        caller,
+      );
+      if (Either.isLeft(publishedBy)) {
+        return yield* Effect.fail(publishedBy.left);
+      }
       const result = yield* work.workArtifactPublish(
         caller.canvasName,
         decoded.right.target,
         artifact,
+        publishedBy.right,
       );
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);

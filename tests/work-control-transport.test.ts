@@ -17,6 +17,7 @@ import {
 } from "../src/shared/work-control";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import {
+  resolveProcessBoundActorRef,
   startWorkControlServer,
   workControlReadiness,
   type WorkControlRuntime,
@@ -28,9 +29,14 @@ import {
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
-import { workTaskCreate } from "../src/shared/work";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+import {
+  StationFleetTargetRepositoryLive,
+} from "../src/main/vellum/station/fleet-target-repository";
+import {
+  StationLivePeerRegistryLive,
+} from "../src/main/vellum/station/session-registry";
 import {
   SettingsLive,
   SettingsService,
@@ -43,6 +49,10 @@ import {
   createMainAuthoringGate,
   type MainAuthoringGate,
 } from "../src/main/vellum/main-authoring-gate";
+import {
+  actorRefFixture,
+} from "./helpers/actor-ref-fixtures";
+import type { ActorRef } from "../src/shared/work-protocol";
 
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
@@ -53,12 +63,16 @@ const makeWorkTestRuntime = (root: string) => {
     Layer.mergeAll(
       WorkRepositoryLive,
       StationRepositoryLive,
+      StationFleetTargetRepositoryLive,
       SettingsLive,
     ),
     stateLive,
   );
   const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
-  const workLive = Layer.provideMerge(WorkLive, canvasesLive);
+  const workLive = Layer.provideMerge(
+    WorkLive,
+    Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
+  );
   return ManagedRuntime.make(
     Layer.mergeAll(workLive, PausePlaneAllPlaying),
   );
@@ -150,29 +164,21 @@ const seedCanonicalWork = async (
   );
   const canvases = await runtime.runPromise(CanvasesService);
   await runtime.runPromise(canvases.write("work-cli", seedDoc()));
-  const authored = await runtime.runPromise(canvases.read("work-cli"));
   const repository = await runtime.runPromise(WorkRepository);
   await runtime.runPromise(
-    repository.mutate({
-      canvasName: "work-cli",
-      nodeId: "tasks",
-      entityHome: "local",
-      eventHome: "test-command-center",
-      operation: "test.seed",
-      authoredDoc: authored.doc,
-      transform: (doc) => {
-        const result = workTaskCreate(
-          doc,
-          "work-cli",
-          "tasks",
-          "ship it",
-          undefined,
+    repository.createTask({
+      sink: { canvasName: "work-cli", nodeId: "tasks" },
+      task: {
+        id: "t1",
+        state: "submitted",
+        history: [
           {
-            id: () => "t1",
-            messageId: () => "m0",
+            messageId: "m0",
+            role: "user",
+            parts: [{ kind: "text", text: "ship it" }],
+            taskId: "t1",
           },
-        );
-        return { doc: result.doc, value: result.task };
+        ],
       },
     }),
   );
@@ -289,7 +295,46 @@ const token = (): string => {
   return readFileSync(workControlTokenPath(workHome), "utf8").trim();
 };
 
+const projectedProcessActor = async (): Promise<ActorRef> => {
+  const runtime = runtimes.at(-1);
+  if (runtime === undefined) throw new Error("missing work-control runtime");
+  const canvases = await runtime.runPromise(CanvasesService);
+  const read = await runtime.runPromise(canvases.read("work-cli"));
+  const actor = read.actorRefs.find((candidate) => candidate.nodeId === "agent");
+  if (actor === undefined) throw new Error("missing projected process actor");
+  return actor;
+};
+
 describe("work control transport", () => {
+  it("resolves process-bound callers to exactly one projected actor reference", () => {
+    const actor = actorRefFixture("agent", "work-cli");
+    const caller = { canvasName: "work-cli", nodeId: "agent" };
+
+    expect(resolveProcessBoundActorRef([actor], caller)).toMatchObject({
+      _tag: "Right",
+      right: actor,
+    });
+    expect(resolveProcessBoundActorRef([], caller)).toMatchObject({
+      _tag: "Left",
+      left: { type: "StaleNodeRef" },
+    });
+    expect(
+      resolveProcessBoundActorRef(
+        [
+          actor,
+          {
+            ...actor,
+            seatId: actorRefFixture("other", "work-cli").seatId,
+          },
+        ],
+        caller,
+      ),
+    ).toMatchObject({
+      _tag: "Left",
+      left: { type: "StaleNodeRef" },
+    });
+  });
+
   it("caps accepted peers before frame parsing and recovers after close", async () => {
     const { server } = await startTestServer({ runtime: { maxActiveClients: 1 } });
     const first = createConnection(server.socketPath);
@@ -604,6 +649,7 @@ describe("work control transport", () => {
 
   it("escalate marks seat blocked; work ops return Blocked; resolve clears", async () => {
     const server = servers[0]!;
+    const actor = await projectedProcessActor();
     const escalated = (await call(server.socketPath, {
       token: token(),
       op: "request.escalate",
@@ -624,6 +670,9 @@ describe("work control transport", () => {
     expect(escalated.data.blocked).toBe(true);
     expect(escalated.data.stop_directive.action).toBe("stop");
     expect(escalated.data.request.state).toBe("input-required");
+    expect(escalated.data.request).toMatchObject({
+      claimedBy: actor.seatId,
+    });
     const requestId = escalated.data.request.id;
     expect(escalated.data.stop_directive.requestId).toBe(requestId);
 
@@ -683,7 +732,7 @@ describe("work control transport", () => {
     const refused = (await call(server.socketPath, {
       token: token(),
       op: "tasks.claim",
-      args: { target: "tasks", task: "t1", actor: "agent" },
+      args: { target: "tasks", task: "t1" },
     })) as {
       ok: false;
       error: { type: string; message: string; details?: { retryable?: boolean } };
@@ -698,7 +747,7 @@ describe("work control transport", () => {
     const admitted = (await call(server.socketPath, {
       token: token(),
       op: "tasks.claim",
-      args: { target: "tasks", task: "t1", actor: "agent" },
+      args: { target: "tasks", task: "t1" },
     })) as { ok: boolean };
     expect(admitted.ok).toBe(true);
   });
@@ -849,31 +898,79 @@ describe("work control transport", () => {
 
   it("claims a connected task", async () => {
     const server = servers[0]!;
+    const actor = await projectedProcessActor();
     const res = (await call(server.socketPath, {
       token: token(),
       op: "tasks.claim",
-      args: { target: "tasks", task: "t1", actor: "agent" },
-    })) as { ok: true; data: { id: string; state: string; metadata?: { claimedBy?: string } } };
+      args: { target: "tasks", task: "t1" },
+    })) as { ok: true; data: { id: string; state: string; claimedBy?: string } };
     expect(res.ok).toBe(true);
     expect(res.data.state).toBe("working");
-    expect(res.data.metadata?.claimedBy).toBe("agent");
+    expect(res.data.claimedBy).toBe(actor.seatId);
   });
 
-  it("ClaimConflict on second actor", async () => {
-    const server = servers[0]!;
-    await call(server.socketPath, {
+  it("denies task updates from a connected actor that does not own the claim", async () => {
+    const runtime = runtimes.at(-1);
+    if (runtime === undefined) throw new Error("missing work-control runtime");
+    const caller = await projectedProcessActor();
+    const other = actorRefFixture("other-agent", "work-cli");
+    const repository = await runtime.runPromise(WorkRepository);
+    await runtime.runPromise(
+      repository.claimLocalTask({
+        sink: { canvasName: "work-cli", nodeId: "tasks" },
+        taskId: "t1",
+        actor: other,
+      }),
+    );
+
+    const response = (await call(servers[0]!.socketPath, {
       token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1", actor: "agent" },
+      op: "tasks.update",
+      args: {
+        target: "tasks",
+        task: "t1",
+        state: "input-required",
+        note: "waiting",
+      },
+    })) as {
+      ok: false;
+      error: {
+        type: string;
+        details?: { holder?: string; caller?: string; retryable?: boolean };
+      };
+    };
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toMatchObject({
+      type: "ClaimConflict",
+      details: {
+        holder: other.seatId,
+        caller: caller.seatId,
+        retryable: false,
+      },
     });
+    const snapshot = await runtime.runPromise(
+      repository.readSnapshot("work-cli", "tasks"),
+    );
+    expect(snapshot.tasks.items.find((task) => task.id === "t1")).toMatchObject({
+      state: "working",
+      claimedBy: other.seatId,
+    });
+  });
+
+  it("rejects client-supplied actor identity", async () => {
+    const server = servers[0]!;
     const res = (await call(server.socketPath, {
       token: token(),
       op: "tasks.claim",
       args: { target: "tasks", task: "t1", actor: "other" },
-    })) as { ok: false; error: { type: string; details?: { holder?: string } } };
+    })) as {
+      ok: false;
+      error: { type: string; details?: { path?: string } };
+    };
     expect(res.ok).toBe(false);
-    expect(res.error.type).toBe("ClaimConflict");
-    expect(res.error.details?.holder).toBe("agent");
+    expect(res.error.type).toBe("InputError");
+    expect(res.error.details?.path).toBe("args");
   });
 
   it("capabilities lists only canonical held grants", async () => {
