@@ -1,4 +1,5 @@
 import {
+  Cause,
   Chunk,
   Context,
   Deferred,
@@ -441,6 +442,9 @@ export const makeOpenSshStationFrameTransport = (
       frame: StationSessionFrame,
     ): Effect.Effect<void, StationSessionTransportError> =>
       Effect.gen(function* () {
+        if (yield* Ref.get(closed)) {
+          return yield* closedError;
+        }
         const bytes = yield* encodeOpenSshStationFrame(
           frame,
           maxFrameBytes,
@@ -465,12 +469,28 @@ export const makeOpenSshStationFrameTransport = (
               ),
             );
             const accepted = yield* restore(
-              Effect.raceFirst(Queue.offer(outbound, {
-                bytes,
-                written,
-                releaseBytes,
-              }), unavailable),
-            ).pipe(Effect.onError(() => releaseBytes));
+              Effect.raceFirst(
+                Queue.offer(outbound, {
+                  bytes,
+                  written,
+                  releaseBytes,
+                }),
+                unavailable,
+              ),
+            ).pipe(
+              Effect.catchAllCause((cause) =>
+                Cause.isInterruptedOnly(cause)
+                  ? Ref.get(closed).pipe(
+                      Effect.flatMap((isClosed) =>
+                        isClosed
+                          ? Effect.fail(closedError)
+                          : Effect.failCause(cause)
+                      ),
+                    )
+                  : Effect.failCause(cause)
+              ),
+              Effect.onError(() => releaseBytes),
+            );
             if (!accepted) {
               yield* releaseBytes;
               return yield* closedError;
