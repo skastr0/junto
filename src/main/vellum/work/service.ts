@@ -799,7 +799,9 @@ export const WorkLive = Layer.effect(
               )
             );
             const home = taskId === null
-              ? yield* homeForNode(targetNode, context)
+              ? context.configuration.role === "command-center"
+                ? context.localInstallationId
+                : context.configuration.commandCenterInstallationId
               : targetNode.ether?.entity?.kind === "requests"
                 ? yield* itemHome(
                   "request",

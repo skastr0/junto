@@ -17,6 +17,15 @@ import {
 import type { Artifact, CanvasDoc, Message } from "../src/shared/canvas";
 import { canTransitionTaskState } from "../src/shared/task";
 import { ActorRef } from "../src/shared/work-protocol";
+import { InstallationId } from "../src/shared/installation-id";
+import {
+  ConfigureRequest,
+  LogicalSequence,
+  PairRequest,
+  ProjectRequest,
+  STATION_API_PROTOCOL,
+  StationHostId,
+} from "../src/shared/station-api";
 
 const ids = (() => {
   let n = 0;
@@ -36,6 +45,10 @@ const actorRef = (
     canvasName,
     nodeId,
   });
+
+const installationId = Schema.decodeUnknownSync(InstallationId);
+const stationHostId = Schema.decodeUnknownSync(StationHostId);
+const logicalSequence = Schema.decodeUnknownSync(LogicalSequence);
 
 const emptyTaskNode = (id = "tasks"): CanvasDoc["nodes"][number] => ({
   id,
@@ -59,7 +72,10 @@ const emptyRequestsNode = (id = "req"): CanvasDoc["nodes"][number] => ({
   ether: { entity: { kind: "requests" } },
 });
 
-const agentNode = (id = "agent"): CanvasDoc["nodes"][number] => ({
+const agentNode = (
+  id = "agent",
+  hostId = "local",
+): CanvasDoc["nodes"][number] => ({
   id,
   type: "text",
   text: "mira",
@@ -68,12 +84,13 @@ const agentNode = (id = "agent"): CanvasDoc["nodes"][number] => ({
   width: 200,
   height: 100,
   ether: {
-    entity: { kind: "agent", name: `local:${id}` },
+    entity: { kind: "agent", name: `${hostId}:${id}` },
     terminal: {
       bindingId: `binding-${id}`,
-      harness: "claude",
       launch: { kind: "harness", argv: ["claude"] },
+      harness: "claude",
     },
+    host: hostId,
   },
 });
 
@@ -407,7 +424,11 @@ import {
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+import {
+  StationRepository,
+  StationRepositoryLive,
+  stationProjectionContentSha256,
+} from "../src/main/vellum/station/repository";
 import {
   StationFleetTargetRepositoryLive,
 } from "../src/main/vellum/station/fleet-target-repository";
@@ -418,26 +439,35 @@ import {
   SettingsLive,
   SettingsService,
 } from "../src/main/vellum/settings/service";
+import {
+  compileStationPortfolioBody,
+} from "../src/main/vellum/station/portfolio";
 
-const stateLive = makeStateEngineLive(join(mockCanvasesHome, "state", "vellum.db"));
-const repositoriesLive = Layer.provideMerge(
-  Layer.mergeAll(
-    WorkRepositoryLive,
-    StationRepositoryLive,
-    StationFleetTargetRepositoryLive,
-    SettingsLive,
-  ),
-  stateLive,
-);
-const canvasesLive = Layer.provideMerge(
-  CanvasesLive,
-  repositoriesLive,
-);
-const workRuntime = ManagedRuntime.make(
-  Layer.provideMerge(
-    WorkLive,
-    Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
-  ),
+const makeWorkRuntime = (databasePath: string) => {
+  const stateLive = makeStateEngineLive(databasePath);
+  const repositoriesLive = Layer.provideMerge(
+    Layer.mergeAll(
+      WorkRepositoryLive,
+      StationRepositoryLive,
+      StationFleetTargetRepositoryLive,
+      SettingsLive,
+    ),
+    stateLive,
+  );
+  const canvasesLive = Layer.provideMerge(
+    CanvasesLive,
+    repositoriesLive,
+  );
+  return ManagedRuntime.make(
+    Layer.provideMerge(
+      WorkLive,
+      Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
+    ),
+  );
+};
+
+const workRuntime = makeWorkRuntime(
+  join(mockCanvasesHome, "state", "vellum.db"),
 );
 let work: Context.Tag.Service<typeof WorkService>;
 let canvases: Context.Tag.Service<typeof CanvasesService>;
@@ -702,5 +732,152 @@ describe("WorkService — concurrent ops", () => {
         (node) => node.id === "requests",
       )?.ether?.requests,
     ).toBeUndefined();
+  });
+
+  it("routes a Remote actor mailbox message to its Command Center with exact sender provenance", async () => {
+    const isolatedRoot = join(
+      tmpdir(),
+      `vellum-work-remote-mail-${randomUUID()}`,
+    );
+    const runtime = makeWorkRuntime(
+      join(isolatedRoot, "state", "vellum.db"),
+    );
+    const commandCenter = installationId("command-center-mail");
+    const hostId = stationHostId("studio");
+
+    try {
+      const station = await runtime.runPromise(StationRepository);
+      const local = await runtime.runPromise(station.installationId);
+      await runtime.runPromise(
+        station.pair(
+          PairRequest.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "pair",
+            commandCenterInstallationId: commandCenter,
+            stationInstallationId: local,
+            stationLabel: "Studio",
+            appVersion: "test",
+          }),
+        ),
+      );
+      await runtime.runPromise(
+        station.configureRemote(
+          ConfigureRequest.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "configure",
+            installationId: local,
+            configuration: {
+              role: "remote",
+              hostId,
+              agentHostId: hostId,
+              commandCenterInstallationId: commandCenter,
+              supervisedPreferred: true,
+            },
+            host: {
+              id: hostId,
+              label: "Studio",
+              kind: "remote",
+              sshEndpoint: "studio",
+              capabilities: ["terminal"],
+            },
+          }),
+        ),
+      );
+
+      const canvasName = "remote-mail";
+      const body = compileStationPortfolioBody(
+        new Map([
+          [
+            canvasName,
+            {
+              nodes: [
+                agentNode("sender", hostId),
+                agentNode("recipient", hostId),
+              ],
+              edges: [
+                {
+                  id: "mail",
+                  fromNode: "sender",
+                  toNode: "recipient",
+                  ether: { ports: ["msg.send"] },
+                },
+              ],
+            } satisfies CanvasDoc,
+          ],
+        ]),
+        new Map([[hostId, local]]),
+      );
+      await runtime.runPromise(
+        station.installProjection(
+          ProjectRequest.make({
+            protocol: STATION_API_PROTOCOL,
+            op: "project",
+            stationInstallationId: local,
+            projection: {
+              scope: "full",
+              generation: logicalSequence("1"),
+              body,
+              contentSha256: stationProjectionContentSha256(body),
+              createdAt: "2026-07-27T12:00:00.000Z",
+            },
+          }),
+        ),
+      );
+
+      const canvases = await runtime.runPromise(CanvasesService);
+      const read = await runtime.runPromise(canvases.read(canvasName));
+      const sender = read.actorRefs.find(
+        (candidate) => candidate.nodeId === "sender",
+      );
+      if (sender === undefined) throw new Error("missing Remote sender actor");
+      const remoteWork = await runtime.runPromise(WorkService);
+      const appended = await runtime.runPromise(
+        remoteWork.workMessageAppend(
+          canvasName,
+          "recipient",
+          null,
+          {
+            messageId: "remote-mail-1",
+            role: "user",
+            parts: [{ kind: "text", text: "from the station" }],
+          },
+          sender,
+        ),
+      );
+      expect(appended).toMatchObject({
+        ok: true,
+        disposition: "queued",
+      });
+
+      const remoteRepository = await runtime.runPromise(WorkRepository);
+      const pending = await runtime.runPromise(
+        remoteRepository.pendingCommands,
+      );
+      expect(pending).toHaveLength(1);
+      expect(pending[0]).toMatchObject({
+        resolution: undefined,
+        command: {
+          operation: "message.append",
+          id: {
+            route: {
+              eventHome: local,
+              entityHome: commandCenter,
+            },
+          },
+          item: {
+            kind: "message",
+            itemId: "remote-mail-1",
+            sink: { canvasName, nodeId: "recipient" },
+          },
+          body: {
+            operation: "message.append",
+            sentBy: sender,
+          },
+        },
+      });
+    } finally {
+      await runtime.dispose();
+      await rm(isolatedRoot, { recursive: true, force: true });
+    }
   });
 });
