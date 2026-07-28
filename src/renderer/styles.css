@@ -965,23 +965,15 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   .inspector-panel { top: auto; right: 10px; bottom: 130px; left: 10px; width: auto; max-height: 42vh; }
 }
 .field-empty { width: 290px; text-align: center; }
-.field-empty__reticle { position: relative; display: block; width: 68px; height: 68px; margin: 0 auto 18px; border: 1px solid rgba(232,163,61,.34); border-radius: 50%; background: transparent; box-shadow: 0 0 35px rgba(232,163,61,.06); padding: 0; color: inherit; }
-.field-empty__reticle::before, .field-empty__reticle::after { content: ""; position: absolute; background: rgba(232,163,61,.32); pointer-events: none; }
+.field-empty__reticle { position: relative; width: 68px; height: 68px; margin: 0 auto 18px; border: 1px solid rgba(232,163,61,.34); border-radius: 50%; box-shadow: 0 0 35px rgba(232,163,61,.06); }
+.field-empty__reticle::before, .field-empty__reticle::after { content: ""; position: absolute; background: rgba(232,163,61,.32); }
 .field-empty__reticle::before { left: 50%; top: 8px; bottom: 8px; width: 1px; }
 .field-empty__reticle::after { top: 50%; left: 8px; right: 8px; height: 1px; }
-.field-empty__reticle span { position: absolute; width: 5px; height: 5px; border: 1px solid var(--color-amber); pointer-events: none; }
+.field-empty__reticle span { position: absolute; width: 5px; height: 5px; border: 1px solid var(--color-amber); }
 .field-empty__reticle span:nth-child(1) { left: -3px; top: -3px; border-right: 0; border-bottom: 0; }
 .field-empty__reticle span:nth-child(2) { right: -3px; top: -3px; border-left: 0; border-bottom: 0; }
 .field-empty__reticle span:nth-child(3) { right: -3px; bottom: -3px; border-left: 0; border-top: 0; }
 .field-empty__reticle span:nth-child(4) { left: -3px; bottom: -3px; border-right: 0; border-top: 0; }
-.field-empty__reticle--action { cursor: pointer; transition: border-color .18s ease, background .18s ease, box-shadow .18s ease, transform .16s ease; }
-.field-empty__reticle--action:hover, .field-empty__reticle--action:focus-visible {
-  border-color: rgba(232,163,61,.72);
-  background: rgba(232,163,61,.08);
-  box-shadow: 0 0 42px rgba(232,163,61,.14);
-  outline: none;
-}
-.field-empty__reticle--action:active { transform: scale(.97); }
 .field-empty__eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--color-amber); font-size: 8px; letter-spacing: .18em; text-transform: uppercase; }
 .field-empty__title { margin-top: 9px; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 26px; letter-spacing: .16em; text-transform: uppercase; }
 .field-empty__copy { margin-top: 10px; color: var(--color-faint); font-size: 10px; letter-spacing: .06em; line-height: 1.7; }
