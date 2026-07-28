@@ -11,15 +11,22 @@ Vellum, and Stations as single-home executors of Command Center intent. If a
 review, backlog item, test, or older architecture note conflicts with it, the
 conflict must be removed rather than preserved as a compatibility path.
 
+[`docs/vellum-protocol.md`](docs/vellum-protocol.md) is the canonical
+multi-installation contract: identity, complete intent projection, sink/item
+authority, synchronous CC-home task claims, offline Remote execution, logical
+event convergence, the five Station verbs, and transport adapters.
+
 **Normative direction:** the protected document is the product; compiled
 projections and capability-bound tools are the agent API. **Sole durable store**
 is `~/.vellum/state/vellum.db`. The Electron main process owns its one
 `StateEngine` connection; renderers, CLIs, helpers, and remote callers use
 IPC/control APIs and never open the database. Every installation runs the same
 schema. Command Center holds authorial canvases and fleet coordination; a
-Remote holds its replace-only projection and host-local work. Single-home rows
-and route-local `(event_home, entity_home, seq)` Work identities make station
-clocks irrelevant to correctness.
+Remote holds its replace-only projection and installation-homed work. Both
+event and entity homes are `InstallationId` values; `HostId` is placement, not
+durable work authority. Single-home rows and route-local
+`(event_home, entity_home, seq)` Work identities make station clocks irrelevant
+to correctness.
 JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
 not durability or input watched by the app.
 

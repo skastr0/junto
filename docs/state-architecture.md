@@ -5,6 +5,8 @@
 **Scope:** durable product state, canvas history, work-plane residency, Station
 coordination, scheduling, backup, and process ownership
 
+**Protocol:** [vellum-protocol.md](vellum-protocol.md)
+
 Vellum has one storage architecture:
 
 ```text
@@ -88,7 +90,8 @@ is the route-local triple `(event_home, entity_home, seq)`. The sequence is
 monotonic only within that route, so two Remotes may each originate sequence
 one without ambiguity. Every Station API event has:
 
-- exactly one event origin and entity home;
+- exactly one event-origin `InstallationId` and entity-authority
+  `InstallationId`;
 - a monotonic decimal logical sequence allocated within that route;
 - origin and received timestamps for display only;
 - a stable semantic content hash for idempotence.
@@ -107,6 +110,19 @@ authority. Work Doctor exposes the status of locally issued pending, applied,
 and rejected commands; route rejection history remains an internal diagnostic
 surface.
 
+A submitted task claim is the one explicit work-home cutover. Claim is the
+atomic start of work (`submitted → working` plus one claimant), never an
+assignment backlog. A Command Center-home queue may fan out to a Remote actor
+only through a live synchronous Command Center-to-Remote exchange. While that
+session is live, Command Center transactionally reserves one exact task and
+actor and persists the claim command; that commit is the attempt boundary. If
+either installation is already unreachable, no future claim is queued. A
+disconnect after commit may replay only the same unresolved identity. Once the
+Remote accepts the claim, the task remains homed there through terminal state
+and continues while Command Center is unavailable. A Remote-home queue may
+claim locally. Requests and artifacts are homed with their raising/publishing
+actor; messages remain Command Center-homed.
+
 ## Station API
 
 The fleet protocol has five bounded, schema-decoded operations:
@@ -116,24 +132,24 @@ The fleet protocol has five bounded, schema-decoded operations:
 | `pair` | Bind one Remote installation to one Command Center installation |
 | `configure` | Commit Remote topology (role, host identity, supervision) |
 | `project` | Install one complete replace-only canvas projection |
-| `report` | Exchange canonical Work events and dispositions after cumulative route ACK cursors |
+| `report` | Duplex exchange of strict Work commands, facts, dispositions, receipts, and cumulative full-route ACK cursors |
 | `status` | Report installation identity, configuration, projection, cursors, and readiness |
 
 Command Center invokes the fixed `vellum-station` executable through the
-operator's enrolled OpenSSH route. The executable accepts no arguments, reads
-one JSON request from stdin, connects to the Remote app's owner-local station
-control socket, and returns one JSON response. It never opens `vellum.db`.
-Socket ownership is not fleet authority: before reading a request, the Remote
-main process obtains the kernel peer PID and admits only the exact packaged
-`vellum-station` executable beneath a bounded process ancestry containing the
-root-owned system `/usr/sbin/sshd`. Every hop is bound by pid, ppid, process
-start identity, executable realpath, device, and inode. The complete ancestry
-is observed again before decoding and again before dispatch. A direct local
-invocation, a renamed program, a process-title imitation, and a changed process
-epoch all fail with `authorization_denied` before `status` can disclose state.
-Vellum intentionally relies on the operator account's OpenSSH authentication
-at this boundary; it does not add a bearer token, pairing secret, or parallel
-credential store.
+operator's enrolled OpenSSH route. It is one persistent bounded framed session:
+the helper accepts no arbitrary command or path, connects to the Remote app's
+owner-local Station socket, and relays correlated frames without opening
+`vellum.db`. Command Center initiates the connection; once authenticated, the
+Remote may initiate only `report` on that same duplex session. It never dials
+Command Center or another Remote. OpenSSH authenticates the Remote host and
+operator account. The fixed helper's owner-local socket handoff is trusted
+same-user containment, not cryptographic proof of the SSH peer inside Electron
+main. Vellum adds no bearer token, pairing secret, or parallel credential
+store; main strict-decodes and authorizes every request.
+
+Session loss does not create a second polling protocol. Each side reconnects
+and resumes from durable `(event_home, entity_home)` cursors. A future HTTPS
+adapter uses mutual TLS but preserves the same dispatcher and five verbs.
 
 The Station wire cannot represent `role: "command-center"`: `configure`
 strictly decodes `RemoteConfiguration`, and excess fields fail instead of being
@@ -151,11 +167,12 @@ Projection installation is monotonic:
 - an older generation is stale;
 - the same generation with a different hash is a conflict.
 
-Reports send canonical Work events strictly after the peer's acknowledged
-route sequence. The receiver accepts only contiguous progress; gaps fail
-closed. A Remote writes the command disposition before acknowledging the
-command. Completed ACKs are durable, so repeating a tick or losing an outer
-response cannot duplicate semantic work.
+Reports send strict versioned Work records strictly after the peer's
+acknowledged full-route sequence. Cursors retain both `event_home` and
+`entity_home`; no transport context supplies a hidden half of identity. The
+receiver accepts only contiguous progress; gaps fail closed. A Remote writes
+the command disposition before acknowledging the command. Completed ACKs are
+durable, so replay or losing an outer response cannot duplicate semantic work.
 
 Every installation must be explicitly configured before Work may mutate.
 Configured role and host identity are immutable until an explicit transfer

@@ -9,6 +9,8 @@ logical propagation, and revocation
 [state-architecture.md](state-architecture.md), and
 [architecture-factory-physics.md](architecture-factory-physics.md)
 
+**Canonical protocol:** [vellum-protocol.md](vellum-protocol.md)
+
 ## Product sentence
 
 One sovereign operator; one Command Center per factory; every installation
@@ -47,6 +49,14 @@ Command Center persists a Remote-homed mutation as pending
   → Remote durably emits a disposition before acknowledging the command
   → Command Center materializes only an applied disposition
   → retries converge idempotently by route cursor
+
+Command Center selects an idle Remote actor for a CC-home submitted task
+  → requires a live authenticated session to that Remote
+  → while live, durably reserves that task and actor as one claim attempt
+  → sends that exact command identity
+  → Remote atomically starts the task and adopts its authority home
+  → Remote returns the applied disposition in that live exchange
+  → Remote continues the one claimed task locally while CC is closed
 ```
 
 The projection is a replaceable cache of intent, not an independently
@@ -62,24 +72,32 @@ unreachable. Neither side invents synchronization.
 ## Station API boundary
 
 `pair`, `configure`, `project`, `report`, and `status` are the complete fleet
-protocol. The contract is transport-neutral; OpenSSH is the current adapter.
-Browser operations are never Station API verbs. Each request and response is
-bounded and decoded with Effect Schema. Identifiers are routing facts, not
-credentials. An unconfigured installation rejects every work mutation. Once
-configured, role and host identity cannot change. Removing a fleet target
-preserves the host-to-installation tombstone; exact reactivation is permitted,
-but silently substituting a fresh installation is not.
+protocol. The contract is transport-neutral; OpenSSH is the first adapter.
+Command Center opens one persistent authenticated session. The session is
+duplex, but a configured Remote may initiate only `report` on that existing
+connection; it never dials Command Center or another Remote. Browser operations
+are never Station API verbs. Each frame is bounded and decoded with Effect
+Schema. Identifiers are routing facts, not credentials. An unconfigured
+installation rejects every work mutation. Once configured, role and host
+identity cannot change. Removing a fleet target preserves the
+host-to-installation tombstone; exact reactivation is permitted, but silently
+substituting a fresh installation is not.
 
 OpenSSH authenticates and transports the fixed `vellum-station` command. The
-helper relays to the app's owner-local Station control socket. It accepts no
-path, shell program, settings body, or database location from the caller.
-Remote main admits the socket only when its kernel peer is that exact packaged
-executable and its stable, bounded process ancestry contains the root-owned
-system sshd executable. The process chain is re-observed before decode and
-dispatch; a direct local helper or a process named `sshd` has no authority.
-There are no SSH file writes or reads in the coordination protocol, no Station
-bearer credential, and no local fallback. Tailscale may supply connectivity; it
-is not authority.
+helper relays bounded correlated frames to the app's owner-local Station
+control socket. It accepts no path, shell program, settings body, or database
+location from the caller. OpenSSH authenticates the Remote host and operator
+account; the helper-to-app socket hop is trusted owner-local containment, not
+cryptographic continuation of that SSH peer identity into Electron main.
+Remote main strict-decodes and authorizes every request. The fixed helper
+narrows the surface but makes no claim against an arbitrary malicious same-user
+process. There are no SSH file writes or reads in the coordination protocol,
+no Station bearer credential, and no local fallback. Tailscale may supply
+connectivity; it is not authority.
+
+Report cursors cover the full `(event_home, entity_home)` route. Work records
+are a strict shared `Command | Fact | Disposition` sum, never an opaque
+repository-private JSON body.
 
 `configure` is Remote-only on this wire. Command Center selection exists only
 in the local main-process settings path; paired and Command Center states are
@@ -127,6 +145,11 @@ node runs; it does not grant a capability.
   generations.
 - Command/disposition exchange survives interruption and converges by logical
   route cursor.
+- A CC-home task can start on a Remote actor only through a live synchronous
+  claim exchange, then continues there with Command Center closed.
+- A Remote cannot queue or perform a new claim against an unreachable
+  Command Center-home queue.
+- One actor never receives an assignment backlog or more than one active task.
 - A Remote executes only its single-home watchers, timers, and work.
 - Offline Remote simulation works with Command Center closed.
 - No `.canvas` pull, settings stamp, manifest, frame, ACK file, or status JSON
