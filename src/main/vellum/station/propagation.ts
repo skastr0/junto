@@ -9,6 +9,7 @@ import {
   compareLogicalSequence,
   type ProjectResponse,
   type RouteCursor,
+  type StatusResponse,
   type StationProjectionReference,
 } from "@shared/station-api";
 import {
@@ -105,6 +106,8 @@ export type StationReportSyncReceipt = {
 export type StationPropagationReceipt = {
   readonly stationInstallationId:
     StationPropagationTarget["stationInstallationId"];
+  /** Exact observation received over this persistent peer session. */
+  readonly remoteStatus: StatusResponse;
   readonly projection: StationProjectionSyncReceipt;
   readonly report: StationReportSyncReceipt;
 };
@@ -484,6 +487,7 @@ export const StationPropagationLive = Layer.effect(
 
         return {
           stationInstallationId: target.stationInstallationId,
+          remoteStatus: status,
           projection,
           report,
         };

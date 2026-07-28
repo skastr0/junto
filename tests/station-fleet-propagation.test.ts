@@ -16,7 +16,9 @@ import {
   ReportRequest,
   ReportResponse,
   STATION_API_PROTOCOL,
+  StationHostId,
   StationSha256,
+  StatusResponse,
   type ReportRequest as ReportRequestValue,
   type StationReadiness,
 } from "../src/shared/station-api";
@@ -60,6 +62,7 @@ const hostId = Schema.decodeUnknownSync(HostId);
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const sequence = Schema.decodeUnknownSync(LogicalSequence);
 const sha256 = Schema.decodeUnknownSync(StationSha256);
+const stationHostId = Schema.decodeUnknownSync(StationHostId);
 
 const COMMAND_CENTER = installationId("fleet-command-center");
 
@@ -73,6 +76,34 @@ const receipt = (
   stationInstallationId: ReturnType<typeof installationId>,
 ): StationPropagationReceipt => ({
   stationInstallationId,
+  remoteStatus: StatusResponse.make({
+    protocol: STATION_API_PROTOCOL,
+    op: "status",
+    installationId: stationInstallationId,
+    state: "ready",
+    configuration: {
+      role: "remote",
+      hostId: stationHostId("fleet-remote"),
+      agentHostId: stationHostId("fleet-remote"),
+      commandCenterInstallationId: COMMAND_CENTER,
+      supervisedPreferred: true,
+    },
+    configuredAt: "2026-07-27T00:00:00.000Z",
+    projection: {
+      generation: sequence("1"),
+      contentSha256: sha256("a".repeat(64)),
+      receivedAt: "2026-07-27T00:00:00.000Z",
+    },
+    receivedThrough: [],
+    peerAcknowledgedThrough: [],
+    readiness: {
+      database: true,
+      workControl: true,
+      simulation: true,
+      session: true,
+    },
+    observedAt: "2026-07-27T00:00:00.000Z",
+  }),
   projection: {
     decision: "unchanged",
     active: {

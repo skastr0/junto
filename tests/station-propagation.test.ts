@@ -322,6 +322,16 @@ describe("StationPropagation", () => {
         ),
       );
       expect(receipt.projection.decision).toBe("install");
+      expect(receipt.remoteStatus).toMatchObject({
+        installationId: REMOTE,
+        state: "ready",
+        readiness: {
+          database: true,
+          workControl: true,
+          simulation: true,
+          session: true,
+        },
+      });
       expect(receipt.report).toMatchObject({
         rounds: 1,
         outboundSent: 0,
