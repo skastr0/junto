@@ -513,6 +513,34 @@ export const registerVellumIpc = (): void => {
       ),
   );
   privilegedIpc.handle(
+    IPC_CHANNELS.workTaskRespond,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+      responseText: string,
+      disposition: "working" | "rejected",
+    ) =>
+      runRendererWorkAuthoring(
+        "ipc.work.task-respond",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workTaskRespond(
+              canvas,
+              nodeId,
+              taskId,
+              responseText,
+              disposition,
+            );
+          }),
+        ),
+      ),
+  );
+  privilegedIpc.handle(
     IPC_CHANNELS.workTaskClaim,
     (_event, canvas: string, nodeId: string, taskId: string, actor: string) =>
       runRendererWorkAuthoring(

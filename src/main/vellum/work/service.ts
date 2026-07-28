@@ -31,6 +31,7 @@ import {
   workRequestResolve,
   workTaskCreate,
   workTaskDescribe,
+  workTaskRespond,
   workTaskTransition,
   type WorkIds,
 } from "@shared/work";
@@ -236,6 +237,13 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       taskId: string,
       state: TaskState,
       note?: string,
+    ) => Effect.Effect<WorkOpResult<Task>>;
+    readonly workTaskRespond: (
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+      responseText: string,
+      disposition: "working" | "rejected",
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskClaim: (
       canvas: string,
@@ -700,6 +708,58 @@ export const WorkLive = Layer.effect(
                   taskId,
                   state,
                   ...(message === undefined ? {} : { message }),
+                }),
+              )
+              : yield* enqueue(
+                context,
+                home,
+                workItem("task", taskId, canvas, nodeId),
+                action,
+                policy.task,
+              );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workTaskRespond: (canvas, nodeId, taskId, responseText, disposition) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read, home] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("task", canvas, nodeId, taskId),
+            ]);
+            if (context.configuration.role !== "command-center") {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message: "only the configured Command Center operator may respond to a task",
+              });
+            }
+            const policy = yield* runPolicy(() =>
+              workTaskRespond(
+                read.doc,
+                canvas,
+                nodeId,
+                taskId,
+                responseText,
+                disposition,
+                ids,
+              )
+            );
+            const message = policy.task.history.at(-1)!;
+            const action = {
+              operation: "task.transition" as const,
+              taskId,
+              state: disposition,
+              message,
+            };
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.transitionTask({
+                  sink: sinkRef(canvas, nodeId),
+                  taskId,
+                  state: disposition,
+                  message,
                 }),
               )
               : yield* enqueue(

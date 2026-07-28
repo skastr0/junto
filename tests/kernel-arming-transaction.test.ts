@@ -192,6 +192,7 @@ const runArm = (
         workTaskCreate: () => Effect.dieMessage("unused work service"),
         workTaskDescribe: () => Effect.dieMessage("unused work service"),
         workTaskTransition: () => Effect.dieMessage("unused work service"),
+        workTaskRespond: () => Effect.dieMessage("unused work service"),
         workTaskClaim: () => Effect.dieMessage("unused work service"),
         workMessageAppend: () => Effect.dieMessage("unused work service"),
         workRequestCreate: () => Effect.dieMessage("unused work service"),

@@ -11,7 +11,10 @@ import {
   MoreHorizontal,
   PanelRightClose,
   Plus,
+  Reply,
   Search,
+  ShieldCheck,
+  ShieldX,
   UserRound,
   X,
 } from "lucide-react";
@@ -699,15 +702,22 @@ function TaskDetailPanel({
   pending,
   onClose,
   onSaveTitle,
+  onRespond,
   onMove,
 }: {
   readonly task: WorkTask;
   readonly pending: boolean;
   readonly onClose: () => void;
   readonly onSaveTitle: (task: WorkTask, title: string) => void;
+  readonly onRespond: (
+    task: WorkTask,
+    response: string,
+    disposition: "working" | "rejected",
+  ) => Promise<boolean>;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
 }) {
   const [title, setTitle] = useState(() => taskTitle(task));
+  const [response, setResponse] = useState("");
   const role = taskRole(task);
   const claim = claimedByOf(task);
   const details = taskDetails(task);
@@ -788,6 +798,61 @@ function TaskDetailPanel({
                     ? "The worker requested explicit operator authority to proceed."
                     : "The worker requested additional context before continuing.")}
               </p>
+            </div>
+
+            <label className="task-detail-panel__response-field">
+              <span>{authorizationRequired ? "Decision note" : "Your response"}</span>
+              <Textarea
+                value={response}
+                onChange={(event) => setResponse(event.target.value)}
+                placeholder={
+                  authorizationRequired
+                    ? "Record constraints, scope, or the reason for this decision…"
+                    : "Give the worker the context, decision, or answer needed to continue…"
+                }
+                rows={5}
+              />
+            </label>
+
+            <div className="task-detail-panel__response-actions">
+              {authorizationRequired ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={pending || !response.trim()}
+                    onClick={async () => {
+                      if (await onRespond(task, response.trim(), "rejected")) setResponse("");
+                    }}
+                  >
+                    <ShieldX size={13} />
+                    Deny request
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={pending || !response.trim()}
+                    onClick={async () => {
+                      if (await onRespond(task, response.trim(), "working")) setResponse("");
+                    }}
+                  >
+                    <ShieldCheck size={13} />
+                    Authorize &amp; resume
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={pending || !response.trim()}
+                  onClick={async () => {
+                    if (await onRespond(task, response.trim(), "working")) setResponse("");
+                  }}
+                >
+                  <Reply size={13} />
+                  Send input &amp; resume
+                </Button>
+              )}
             </div>
 
           </section>
@@ -1015,6 +1080,40 @@ export function TaskBoard({
     }
   };
 
+  const respondToTask = async (
+    task: WorkTask,
+    responseText: string,
+    disposition: "working" | "rejected",
+  ): Promise<boolean> => {
+    if (!api || !responseText.trim()) return false;
+    setError("");
+    setPendingTaskId(task.id);
+    try {
+      const result = await runWorkCanvasMutation(name, () =>
+        api.workTaskRespond(name, node.id, task.id, responseText.trim(), disposition),
+      );
+      if (result === undefined) return false;
+      if (!result.ok) {
+        setError(result.message);
+        setAnnouncement(`Could not respond to ${taskTitle(task)}. ${result.message}`);
+        return false;
+      }
+      setAnnouncement(
+        disposition === "working"
+          ? `Responded to ${taskTitle(task)} and returned it to Working.`
+          : `Recorded the decision and moved ${taskTitle(task)} to Rejected.`,
+      );
+      return true;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      setAnnouncement(`Could not respond to ${taskTitle(task)}. ${message}`);
+      return false;
+    } finally {
+      setPendingTaskId(null);
+    }
+  };
+
   const onDragStart = (event: DragStartEvent) => {
     const data = event.operation.source?.data as BoardDragData | undefined;
     if (data?.kind !== "task") return;
@@ -1202,6 +1301,7 @@ export function TaskBoard({
               pending={pendingTaskId === selectedTask.id}
               onClose={() => setSelectedTaskId(null)}
               onSaveTitle={(task, title) => void saveTaskTitle(task, title)}
+              onRespond={respondToTask}
               onMove={(task, state) => void transitionTask(task, state)}
             />
           ) : null}

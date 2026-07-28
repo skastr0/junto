@@ -79,6 +79,7 @@ export const IPC_CHANNELS = {
   workTaskCreate: "vellum:work-task-create",
   workTaskDescribe: "vellum:work-task-describe",
   workTaskTransition: "vellum:work-task-transition",
+  workTaskRespond: "vellum:work-task-respond",
   workTaskClaim: "vellum:work-task-claim",
   workRequestResolve: "vellum:work-request-resolve",
   // herdr work surface
@@ -556,6 +557,13 @@ export interface VellumApi {
     taskId: string,
     state: TaskState,
     note?: string,
+  ) => Promise<WorkOpResult<Task>>;
+  readonly workTaskRespond: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
+    responseText: string,
+    disposition: "working" | "rejected",
   ) => Promise<WorkOpResult<Task>>;
   readonly workTaskClaim: (
     canvas: string,

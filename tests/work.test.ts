@@ -12,6 +12,7 @@ import {
   workTaskClaim,
   workTaskCreate,
   workTaskDescribe,
+  workTaskRespond,
   workTaskTransition,
   WorkError,
 } from "../src/shared/work";
@@ -187,6 +188,62 @@ describe("work pure transforms", () => {
         }),
       );
     }
+  });
+
+  it("respond atomically records one operator message and resolves attention", () => {
+    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    const created = workTaskCreate(doc, "alpha", "tasks", "need direction", undefined, ids);
+    const claimed = workTaskClaim(
+      created.doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      actorRef("1", "worker-1"),
+      ids,
+    );
+    const waiting = workTaskTransition(
+      claimed.doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      "input-required",
+      "need the deployment region",
+      ids,
+    );
+    doc = waiting.doc;
+
+    const responded = workTaskRespond(
+      doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      "  Deploy to us-east-1.  ",
+      "working",
+      ids,
+    );
+
+    expect(responded.task.state).toBe("working");
+    expect(responded.task.history.at(-1)).toMatchObject({
+      role: "user",
+      taskId: created.task.id,
+      parts: [{ kind: "text", text: "Deploy to us-east-1." }],
+    });
+    expect(() =>
+      workTaskRespond(
+        responded.doc,
+        "alpha",
+        "tasks",
+        created.task.id,
+        "another response",
+        "working",
+        ids,
+      ),
+    ).toThrowError(expect.objectContaining({ code: "illegal_transition" }));
+    expect(
+      (responded.doc.nodes[0]?.ether?.tasks?.items.find(
+        (task) => task.id === created.task.id,
+      )?.history.length),
+    ).toBe(responded.task.history.length);
   });
 
   it("describe re-authors the brief in place, keeps later notes, updates mirror text", () => {
@@ -694,6 +751,61 @@ describe("WorkService — concurrent ops", () => {
     if (!illegal.ok) expect(illegal.code).toBe("illegal_transition");
   });
 
+  it("records a Command Center operator response with its transition in one task fact", async () => {
+    const name = "work-operator-response";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [emptyTaskNode(), agentNode("operator-response-worker")],
+        edges: [{ id: "worker-tasks", fromNode: "operator-response-worker", toNode: "tasks" }],
+      }),
+    );
+    const created = await workRuntime.runPromise(
+      work.workTaskCreate(name, "tasks", "need a deployment decision"),
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const taskId = created.data.id;
+    const actor = (await workRuntime.runPromise(canvases.read(name))).actorRefs.find(
+      (candidate) => candidate.nodeId === "operator-response-worker",
+    );
+    if (actor === undefined) throw new Error("missing operator response worker");
+    await workRuntime.runPromise(work.workTaskClaim(name, "tasks", taskId, actor));
+    await workRuntime.runPromise(
+      repository.transitionTask({
+        sink: { canvasName: name, nodeId: "tasks" },
+        taskId,
+        state: "input-required",
+      }),
+    );
+
+    const result = await workRuntime.runPromise(
+      work.workTaskRespond(
+        name,
+        "tasks",
+        taskId,
+        "Deploy to us-east-1.",
+        "working",
+      ),
+    );
+    expect(result).toMatchObject({ ok: true, disposition: "applied" });
+    const snapshot = await workRuntime.runPromise(repository.readSnapshot(name, "tasks"));
+    const task = snapshot.tasks.items.find((candidate) => candidate.id === taskId);
+    expect(task).toMatchObject({ state: "working" });
+    expect(task?.history.at(-1)).toMatchObject({
+      role: "user",
+      parts: [{ kind: "text", text: "Deploy to us-east-1." }],
+    });
+    const historyLength = task?.history.length;
+
+    const invalid = await workRuntime.runPromise(
+      work.workTaskRespond(name, "tasks", taskId, "not accepted", "working"),
+    );
+    expect(invalid).toMatchObject({ ok: false, code: "illegal_transition" });
+    const afterInvalid = await workRuntime.runPromise(repository.readSnapshot(name, "tasks"));
+    expect(afterInvalid.tasks.items.find((candidate) => candidate.id === taskId)?.history)
+      .toHaveLength(historyLength ?? 0);
+  });
+
   it("persists requests, inbox messages, and artifacts without authorial generations", async () => {
     const name = "work-lanes";
     await workRuntime.runPromise(
@@ -1087,6 +1199,7 @@ describe("WorkService — concurrent ops", () => {
               nodes: [
                 agentNode("sender", hostId),
                 agentNode("recipient", hostId),
+                emptyTaskNode("tasks"),
                 emptyRequestsNode("requests"),
                 {
                   id: "artifacts",
@@ -1146,6 +1259,53 @@ describe("WorkService — concurrent ops", () => {
       );
       if (sender === undefined) throw new Error("missing Remote sender actor");
       const remoteWork = await runtime.runPromise(WorkService);
+      const remoteRepository = await runtime.runPromise(WorkRepository);
+      await runtime.runPromise(
+        remoteRepository.createTask({
+          sink: { canvasName, nodeId: "tasks" },
+          task: {
+            id: "remote-operator-response",
+            state: "submitted",
+            history: [
+              {
+                messageId: "remote-operator-response-brief",
+                role: "agent",
+                parts: [{ kind: "text", text: "need approval" }],
+                taskId: "remote-operator-response",
+                contextId: canvasName,
+              },
+            ],
+          },
+        }),
+      );
+      await runtime.runPromise(
+        remoteRepository.claimLocalTask({
+          sink: { canvasName, nodeId: "tasks" },
+          taskId: "remote-operator-response",
+          actor: sender,
+        }),
+      );
+      await runtime.runPromise(
+        remoteRepository.transitionTask({
+          sink: { canvasName, nodeId: "tasks" },
+          taskId: "remote-operator-response",
+          state: "input-required",
+        }),
+      );
+      const deniedResponse = await runtime.runPromise(
+        remoteWork.workTaskRespond(
+          canvasName,
+          "tasks",
+          "remote-operator-response",
+          "approved",
+          "working",
+        ),
+      );
+      expect(deniedResponse).toMatchObject({ ok: false, code: "invalid" });
+      expect(
+        (await runtime.runPromise(remoteRepository.readSnapshot(canvasName, "tasks")))
+          .tasks.items[0]?.history,
+      ).toHaveLength(1);
       const appended = await runtime.runPromise(
         remoteWork.workMessageAppend(
           canvasName,
@@ -1192,7 +1352,6 @@ describe("WorkService — concurrent ops", () => {
         disposition: "applied",
       });
 
-      const remoteRepository = await runtime.runPromise(WorkRepository);
       const pending = await runtime.runPromise(
         remoteRepository.pendingCommands,
       );

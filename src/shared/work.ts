@@ -361,6 +361,55 @@ export const workTaskTransition = (
   return { doc: withTasks(doc, nodeId, nextItems), task };
 };
 
+/**
+ * The operator's response is one task mutation: record their exact words and
+ * leave the attention state in the same atomic transition. It is deliberately
+ * narrower than a generic message append so a failed transition never leaves
+ * durable context that claims the worker may resume.
+ */
+export const workTaskRespond = (
+  doc: CanvasDoc,
+  canvasName: string,
+  nodeId: string,
+  taskId: string,
+  responseText: string,
+  disposition: "working" | "rejected",
+  ids: WorkIds,
+): WorkTaskResult => {
+  const node = requireNode(doc, nodeId);
+  requireSink(node, ["task"]);
+  const text = responseText.trim();
+  if (!text) throw new WorkError("invalid", "response text must be non-empty");
+  const items = node.ether?.tasks?.items ?? [];
+  const contextId = regionContextId(doc, nodeId, canvasName);
+  const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
+    if (current.state !== "input-required" && current.state !== "auth-required") {
+      throw new WorkError(
+        "illegal_transition",
+        `cannot respond to task "${taskId}" in state ${current.state}`,
+      );
+    }
+    if (!canTransitionTaskState(current.state, disposition)) {
+      throw new WorkError(
+        "illegal_transition",
+        `cannot transition task "${taskId}" from ${current.state} to ${disposition}`,
+      );
+    }
+    const response = makeUserMessage({
+      messageId: ids.messageId(),
+      text,
+      contextId,
+      taskId,
+    });
+    return {
+      ...current,
+      state: disposition,
+      history: [...current.history, response],
+    };
+  });
+  return { doc: withTasks(doc, nodeId, nextItems), task };
+};
+
 export const workTaskClaim = (
   doc: CanvasDoc,
   canvasName: string,
