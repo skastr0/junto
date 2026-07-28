@@ -5,8 +5,8 @@ import {
   DisplayTimestamp,
   InstallationId,
   StationHostId,
+  type RouteCursor as RouteCursorValue,
   type StationConfiguration as StationConfigurationValue,
-  type StationEventAck as StationEventAckValue,
   type StationProjectionReference as StationProjectionReferenceValue,
   type StationReadiness as StationReadinessValue,
   type StatusResponse as StatusResponseValue,
@@ -194,7 +194,7 @@ export type StationDoctorInput = {
   readonly configuration?: StationConfigurationValue;
   readonly configuredAt?: string;
   readonly projection?: StationProjectionReferenceValue;
-  readonly receivedThrough: ReadonlyArray<StationEventAckValue>;
+  readonly receivedThrough: ReadonlyArray<RouteCursorValue>;
   readonly version?: string;
   readonly supervisedInstalled: SupervisedInstallState;
   /** Durable deployment and kernel observations only. */
@@ -288,6 +288,11 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
     lines.push("simulation degraded");
     raise("warning");
   }
+  if (input.readiness.session) lines.push("Station session ready");
+  else {
+    lines.push("Station session disconnected");
+    raise("warning");
+  }
 
   if (configuration?.role === "remote") {
     if (input.projection === undefined) {
@@ -300,7 +305,10 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
     }
   }
   const localCursors = input.receivedThrough
-    .map((cursor) => `${cursor.home}:${cursor.through}`)
+    .map(
+      (cursor) =>
+        `${cursor.eventHome}->${cursor.entityHome}:${cursor.through}`,
+    )
     .join(",");
   lines.push(`logical cursors ${localCursors || "none"}`);
 
@@ -491,7 +499,8 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         `Remote ${remoteHostId} (${endpoint}): Station API ${station?.state ?? "unavailable"} · ` +
         `installation ${station?.installationId ?? "unknown"} · ` +
         `projection ${station?.projection?.generation ?? "absent"} · ` +
-        `cursors ${station?.receivedThrough.length ?? 0} · ` +
+        `received ${station?.receivedThrough.length ?? 0} · ` +
+        `peer-acked ${station?.peerAcknowledgedThrough.length ?? 0} · ` +
         `errors ${problems.join("; ") || "none"}`,
       metadata: {
         [`${prefix}state`]: state,
@@ -506,7 +515,20 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         ),
         [`${prefix}receivedThrough`]:
           station?.receivedThrough
-            .map((cursor) => `${cursor.home}:${cursor.through}`)
+            .map(
+              (cursor) =>
+                `${cursor.eventHome}->${cursor.entityHome}:${cursor.through}`,
+            )
+            .join(",") ?? "",
+        [`${prefix}peerAcknowledgedCursorCount`]: String(
+          station?.peerAcknowledgedThrough.length ?? 0,
+        ),
+        [`${prefix}peerAcknowledgedThrough`]:
+          station?.peerAcknowledgedThrough
+            .map(
+              (cursor) =>
+                `${cursor.eventHome}->${cursor.entityHome}:${cursor.through}`,
+            )
             .join(",") ?? "",
         [`${prefix}databaseReady`]:
           station?.readiness.database === true ? "true" : "false",
@@ -514,6 +536,8 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
           station?.readiness.workControl === true ? "true" : "false",
         [`${prefix}simulationReady`]:
           station?.readiness.simulation === true ? "true" : "false",
+        [`${prefix}sessionReady`]:
+          station?.readiness.session === true ? "true" : "false",
         [`${prefix}errorCount`]: String(problems.length),
       },
       fleetBlind,
@@ -547,6 +571,7 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       databaseReady: input.readiness.database ? "true" : "false",
       workControlReady: input.readiness.workControl ? "true" : "false",
       simulationReady: input.readiness.simulation ? "true" : "false",
+      sessionReady: input.readiness.session ? "true" : "false",
       supervisedPreferred: supervised.metadata.supervisedPreferred,
       supervisedInstalled: supervised.metadata.supervisedInstalled,
       supervisedAligned: supervised.metadata.supervisedAligned,

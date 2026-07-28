@@ -12,12 +12,13 @@ import {
 import {
   InstallationId,
   LogicalSequence,
+  RouteCursor,
   StationHostId,
   StationSha256,
   STATION_API_PROTOCOL,
   StatusResponse,
+  type RouteCursor as RouteCursorValue,
   type StationConfiguration,
-  type StationEventAck,
   type StationProjectionReference,
 } from "../src/shared/station-api";
 import {
@@ -64,10 +65,16 @@ const projection = (generation = "3"): StationProjectionReference => ({
   receivedAt: "2026-07-23T11:45:00.000Z",
 });
 
-const cursor = (home: string, through: string): StationEventAck => ({
-  home: installationId(home),
-  through: logicalSequence(through),
-});
+const cursor = (
+  eventHome: string,
+  entityHome: string,
+  through: string,
+): RouteCursorValue =>
+  Schema.decodeUnknownSync(RouteCursor)({
+    eventHome: installationId(eventHome),
+    entityHome: installationId(entityHome),
+    through,
+  });
 
 const stationStatus = (
   id: string,
@@ -78,10 +85,11 @@ const stationStatus = (
     readonly configured?: boolean;
     readonly configuration?: StationConfiguration;
     readonly projection?: StationProjectionReference | false;
-    readonly receivedThrough?: ReadonlyArray<StationEventAck>;
+    readonly receivedThrough?: ReadonlyArray<RouteCursorValue>;
     readonly databaseReady?: boolean;
     readonly workControlReady?: boolean;
     readonly simulationReady?: boolean;
+    readonly sessionReady?: boolean;
   } = {},
 ) =>
   StatusResponse.make({
@@ -98,11 +106,14 @@ const stationStatus = (
     ...(input.projection === false
       ? {}
       : { projection: input.projection ?? projection() }),
-    receivedThrough: input.receivedThrough ?? [cursor("cc-installation", "12")],
+    receivedThrough: input.receivedThrough ??
+      [cursor("cc-installation", `station-${id}`, "12")],
+    peerAcknowledgedThrough: [],
     readiness: {
       database: input.databaseReady ?? true,
       workControl: input.workControlReady ?? true,
       simulation: input.simulationReady ?? true,
+      session: input.sessionReady ?? true,
     },
     observedAt,
   });
@@ -122,7 +133,7 @@ const localDoctorInput = () => ({
   installationId: commandCenterInstallationId,
   configuration: commandCenterConfiguration(),
   configuredAt,
-  receivedThrough: [] as ReadonlyArray<StationEventAck>,
+  receivedThrough: [] as ReadonlyArray<RouteCursorValue>,
   version: "0.1.0",
   supervisedInstalled: "absent" as const,
   status: defaultStationStatus(),
@@ -131,6 +142,7 @@ const localDoctorInput = () => ({
     database: true,
     workControl: true,
     simulation: true,
+    session: true,
   },
   now: Date.parse("2026-07-23T12:00:00.000Z"),
 });
@@ -190,6 +202,7 @@ describe("station status doctor", () => {
         database: true,
         workControl: true,
         simulation: true,
+        session: true,
       },
     });
 
@@ -210,6 +223,7 @@ describe("station status doctor", () => {
     expect(check.detail).toContain("database ready");
     expect(check.detail).toContain("work control ready");
     expect(check.detail).toContain("simulation ready");
+    expect(check.detail).toContain("Station session ready");
     expect(check.metadata).toMatchObject({
       installationId: "cc-installation",
       role: "command-center",
@@ -217,6 +231,7 @@ describe("station status doctor", () => {
       databaseReady: "true",
       workControlReady: "true",
       simulationReady: "true",
+      sessionReady: "true",
     });
   });
 
@@ -240,8 +255,8 @@ describe("station status doctor", () => {
       configuration: remoteConfiguration("remote-a"),
       projection: projection("42"),
       receivedThrough: [
-        cursor("cc-installation", "9"),
-        cursor("station-remote-a", "17"),
+        cursor("cc-installation", "station-remote-a", "9"),
+        cursor("station-remote-a", "station-remote-a", "17"),
       ],
       supervisedInstalled: "installed",
       kernel: liveKernel({ armedRegionCount: 1 }),
@@ -250,12 +265,13 @@ describe("station status doctor", () => {
     expect(check.status).toBe("ok");
     expect(check.detail).toContain("projection 42");
     expect(check.detail).toContain(
-      "logical cursors cc-installation:9,station-remote-a:17",
+      "logical cursors cc-installation->station-remote-a:9,station-remote-a->station-remote-a:17",
     );
     expect(check.metadata).toMatchObject({
       projectionGeneration: "42",
       receivedCursorCount: "2",
-      receivedThrough: "cc-installation:9,station-remote-a:17",
+      receivedThrough:
+        "cc-installation->station-remote-a:9,station-remote-a->station-remote-a:17",
     });
   });
 
@@ -278,6 +294,12 @@ describe("station status doctor", () => {
       metadata: "simulationReady" as const,
       severity: "warning" as const,
     },
+    {
+      component: "session" as const,
+      detail: /Station session disconnected/i,
+      metadata: "sessionReady" as const,
+      severity: "warning" as const,
+    },
   ])(
     "reports canonical severity when $component readiness is false",
     ({ component, detail, metadata, severity }) => {
@@ -298,6 +320,7 @@ describe("station status doctor", () => {
           component === "workControl" ? "false" : "true",
         simulationReady:
           component === "simulation" ? "false" : "true",
+        sessionReady: component === "session" ? "false" : "true",
       });
       expect(check.metadata?.[metadata]).toBe("false");
     },
@@ -325,8 +348,8 @@ describe("station status doctor", () => {
           station: stationStatus("studio", {
             projection: projection("3"),
             receivedThrough: [
-              cursor("cc-installation", "12"),
-              cursor("station-studio", "7"),
+              cursor("cc-installation", "station-studio", "12"),
+              cursor("station-studio", "station-studio", "7"),
             ],
           }),
         }),
@@ -335,7 +358,7 @@ describe("station status doctor", () => {
 
     expect(check.status).toBe("ok");
     expect(check.detail).toMatch(
-      /Remote studio \(studio-box\): Station API ready · installation station-studio · projection 3 · cursors 2 · errors none/u,
+      /Remote studio \(studio-box\): Station API ready · installation station-studio · projection 3 · received 2 · peer-acked 0 · errors none/u,
     );
     expect(check.metadata).toMatchObject({
       deploymentCount: "1",
@@ -348,10 +371,11 @@ describe("station status doctor", () => {
       "remote.studio.projectionGeneration": "3",
       "remote.studio.receivedCursorCount": "2",
       "remote.studio.receivedThrough":
-        "cc-installation:12,station-studio:7",
+        "cc-installation->station-studio:12,station-studio->station-studio:7",
       "remote.studio.databaseReady": "true",
       "remote.studio.workControlReady": "true",
       "remote.studio.simulationReady": "true",
+      "remote.studio.sessionReady": "true",
       "remote.studio.reachability": "reachable",
     });
   });
