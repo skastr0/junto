@@ -428,6 +428,32 @@ export const WorkLive = Layer.effect(
       );
     };
 
+    const requireLocalActor = (
+      read: CanvasReadResult,
+      actor: ActorRef,
+      targetNodeId: string,
+      op: "msg.send" | "request.create" | "artifact.publish",
+      context: StationContext,
+    ): Effect.Effect<CanvasNode, WorkServiceError> =>
+      requireActor(read, actor, targetNodeId, op).pipe(
+        Effect.flatMap((actorNode) =>
+          homeForNode(actorNode, context).pipe(
+            Effect.flatMap((actorHome) =>
+              actorHome === context.localInstallationId
+                ? Effect.succeed(actorNode)
+                : Effect.fail(
+                  new WorkServiceError({
+                    code: "invalid",
+                    message:
+                      `${op} must originate on the installation that owns ` +
+                      `actor ${JSON.stringify(actor.nodeId)}`,
+                  }),
+                )
+            ),
+          )
+        ),
+      );
+
     const requireRoutableRemote = (
       targetInstallationId: InstallationIdValue,
       context: StationContext,
@@ -782,11 +808,12 @@ export const WorkLive = Layer.effect(
               stationContext,
               readCanvas(canvas),
             ]);
-            yield* requireActor(
+            yield* requireLocalActor(
               read,
               sentBy,
               nodeId,
               "msg.send",
+              context,
             );
             const targetNode = yield* requireNode(read.doc, nodeId);
             const policy = yield* runPolicy(() =>
@@ -855,15 +882,16 @@ export const WorkLive = Layer.effect(
       ) =>
         asResult(
           Effect.gen(function* () {
-            const [, read] = yield* Effect.all([
+            const [context, read] = yield* Effect.all([
               stationContext,
               readCanvas(canvas),
             ]);
-            yield* requireActor(
+            yield* requireLocalActor(
               read,
               raisedBy,
               nodeId,
               "request.create",
+              context,
             );
             const policy = yield* runPolicy(() =>
               workRequestCreate(
@@ -959,15 +987,16 @@ export const WorkLive = Layer.effect(
       ) =>
         asResult(
           Effect.gen(function* () {
-            const [, read] = yield* Effect.all([
+            const [context, read] = yield* Effect.all([
               stationContext,
               readCanvas(canvas),
             ]);
-            yield* requireActor(
+            yield* requireLocalActor(
               read,
               publishedBy,
               nodeId,
               "artifact.publish",
+              context,
             );
             const policy = yield* runPolicy(() =>
               workArtifactPublish(

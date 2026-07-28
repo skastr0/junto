@@ -18,6 +18,7 @@ import type { Artifact, CanvasDoc, Message } from "../src/shared/canvas";
 import { canTransitionTaskState } from "../src/shared/task";
 import { ActorRef } from "../src/shared/work-protocol";
 import { InstallationId } from "../src/shared/installation-id";
+import { HostId } from "../src/shared/remote-hosts";
 import {
   ConfigureRequest,
   LogicalSequence,
@@ -47,6 +48,7 @@ const actorRef = (
   });
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
+const remoteHostId = Schema.decodeUnknownSync(HostId);
 const stationHostId = Schema.decodeUnknownSync(StationHostId);
 const logicalSequence = Schema.decodeUnknownSync(LogicalSequence);
 
@@ -430,6 +432,7 @@ import {
   stationProjectionContentSha256,
 } from "../src/main/vellum/station/repository";
 import {
+  StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
 } from "../src/main/vellum/station/fleet-target-repository";
 import {
@@ -734,7 +737,127 @@ describe("WorkService — concurrent ops", () => {
     ).toBeUndefined();
   });
 
-  it("routes a Remote actor mailbox message to its Command Center with exact sender provenance", async () => {
+  it("rejects actor-originated work when the compiled actor is homed on another installation", async () => {
+    const name = "work-cross-home-actor";
+    const remoteHost = remoteHostId("remote-actor");
+    const remoteInstallation = installationId("remote-actor-installation");
+    const fleetTargets = await workRuntime.runPromise(
+      StationFleetTargetRepository,
+    );
+    await workRuntime.runPromise(
+      fleetTargets.bind(
+        {
+          hostId: remoteHost,
+          stationInstallationId: remoteInstallation,
+        },
+        "2026-07-28T00:00:00.000Z",
+      ),
+    );
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [
+          emptyRequestsNode("requests"),
+          agentNode("remote-sender", remoteHost),
+          agentNode("recipient"),
+          {
+            id: "artifacts",
+            type: "text",
+            text: "artifacts",
+            x: 420,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: { entity: { kind: "artifacts" } },
+          },
+        ],
+        edges: [
+          {
+            id: "request",
+            fromNode: "remote-sender",
+            toNode: "requests",
+          },
+          {
+            id: "message",
+            fromNode: "remote-sender",
+            toNode: "recipient",
+            ether: { ports: ["msg.send"] },
+          },
+          {
+            id: "artifact",
+            fromNode: "remote-sender",
+            toNode: "artifacts",
+          },
+        ],
+      }),
+    );
+    const read = await workRuntime.runPromise(canvases.read(name));
+    const remoteActor = read.actorRefs.find(
+      (candidate) => candidate.nodeId === "remote-sender",
+    );
+    if (remoteActor === undefined) throw new Error("missing Remote actor ref");
+
+    const results = await Promise.all([
+      workRuntime.runPromise(
+        work.workMessageAppend(
+          name,
+          "recipient",
+          null,
+          {
+            messageId: "cross-home-message",
+            role: "agent",
+            parts: [{ kind: "text", text: "forged locally" }],
+          },
+          remoteActor,
+        ),
+      ),
+      workRuntime.runPromise(
+        work.workRequestCreate(
+          name,
+          "requests",
+          "forged request",
+          undefined,
+          remoteActor,
+        ),
+      ),
+      workRuntime.runPromise(
+        work.workArtifactPublish(
+          name,
+          "artifacts",
+          {
+            artifactId: "cross-home-artifact",
+            parts: [{ kind: "text", text: "forged locally" }],
+          },
+          remoteActor,
+        ),
+      ),
+    ]);
+
+    for (const result of results) {
+      expect(result).toMatchObject({ ok: false, code: "invalid" });
+      if (!result.ok) {
+        expect(result.message).toContain(
+          "must originate on the installation that owns actor",
+        );
+      }
+    }
+    const snapshots = await workRuntime.runPromise(
+      repository.snapshotsForCanvas(name),
+    );
+    expect(
+      snapshots.find((snapshot) => snapshot.nodeId === "recipient")?.messages
+        .items ?? [],
+    ).toEqual([]);
+    expect(
+      snapshots.find((snapshot) => snapshot.nodeId === "requests")?.requests
+        .items ?? [],
+    ).toEqual([]);
+    expect(
+      snapshots.find((snapshot) => snapshot.nodeId === "artifacts")?.artifacts
+        .items ?? [],
+    ).toEqual([]);
+  });
+
+  it("lets a Remote-local actor queue mail and create requests and artifacts offline", async () => {
     const isolatedRoot = join(
       tmpdir(),
       `vellum-work-remote-mail-${randomUUID()}`,
@@ -793,6 +916,17 @@ describe("WorkService — concurrent ops", () => {
               nodes: [
                 agentNode("sender", hostId),
                 agentNode("recipient", hostId),
+                emptyRequestsNode("requests"),
+                {
+                  id: "artifacts",
+                  type: "text",
+                  text: "artifacts",
+                  x: 420,
+                  y: 0,
+                  width: 200,
+                  height: 100,
+                  ether: { entity: { kind: "artifacts" } },
+                },
               ],
               edges: [
                 {
@@ -800,6 +934,16 @@ describe("WorkService — concurrent ops", () => {
                   fromNode: "sender",
                   toNode: "recipient",
                   ether: { ports: ["msg.send"] },
+                },
+                {
+                  id: "request",
+                  fromNode: "sender",
+                  toNode: "requests",
+                },
+                {
+                  id: "artifact",
+                  fromNode: "sender",
+                  toNode: "artifacts",
                 },
               ],
             } satisfies CanvasDoc,
@@ -848,6 +992,34 @@ describe("WorkService — concurrent ops", () => {
         ok: true,
         disposition: "queued",
       });
+      const request = await runtime.runPromise(
+        remoteWork.workRequestCreate(
+          canvasName,
+          "requests",
+          "need operator input",
+          undefined,
+          sender,
+        ),
+      );
+      expect(request).toMatchObject({
+        ok: true,
+        disposition: "applied",
+      });
+      const artifact = await runtime.runPromise(
+        remoteWork.workArtifactPublish(
+          canvasName,
+          "artifacts",
+          {
+            artifactId: "remote-artifact-1",
+            parts: [{ kind: "text", text: "created while offline" }],
+          },
+          sender,
+        ),
+      );
+      expect(artifact).toMatchObject({
+        ok: true,
+        disposition: "applied",
+      });
 
       const remoteRepository = await runtime.runPromise(WorkRepository);
       const pending = await runtime.runPromise(
@@ -875,6 +1047,24 @@ describe("WorkService — concurrent ops", () => {
           },
         },
       });
+      const snapshots = await runtime.runPromise(
+        remoteRepository.snapshotsForCanvas(canvasName),
+      );
+      expect(
+        snapshots.find((snapshot) => snapshot.nodeId === "requests")?.requests
+          .items,
+      ).toEqual([
+        expect.objectContaining({
+          state: "input-required",
+          claimedBy: sender.seatId,
+        }),
+      ]);
+      expect(
+        snapshots.find((snapshot) => snapshot.nodeId === "artifacts")?.artifacts
+          .items,
+      ).toEqual([
+        expect.objectContaining({ artifactId: "remote-artifact-1" }),
+      ]);
     } finally {
       await runtime.dispose();
       await rm(isolatedRoot, { recursive: true, force: true });
