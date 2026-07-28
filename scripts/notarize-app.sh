@@ -13,14 +13,20 @@
 #
 # Flow:
 #   1. resolve + verify signed .app and shippable zip
-#   2. asc notarization submit --wait
-#   3. require status Accepted
-#   4. stapler staple the .app; re-zip so the ticket ships inside the archive
-#   5. stapler validate + optional spctl assess
-#   6. write release/notarization-receipt.json
+#   2. clear a stale notarization receipt that no longer matches admitted bytes
+#   3. asc notarization submit --wait
+#   4. require status Accepted
+#   5. stapler staple the .app; re-zip so the ticket ships inside the archive
+#   6. regenerate .zip.blockmap + rewrite latest-mac.yml from final zip bytes
+#   7. stapler validate + optional spctl assess
+#   8. write release/notarization-receipt.json bound to stapled zip hashes
 #
 # Never installs to /Applications. Safe to re-run after a failed submit
 # (re-submits; Apple is idempotent on content hash when applicable).
+#
+# DMG is outside this script: electron-builder builds it before stapling, and
+# this step does not re-hash or re-blockmap the .dmg. Ship zip+yml for
+# electron-updater; treat the DMG as a separate installer artifact.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -86,6 +92,7 @@ require_cmd xcrun
 require_cmd python3
 require_cmd ditto
 require_cmd shasum
+require_cmd node
 
 canonical_existing_nonlink_directory() {
   local description="$1"
@@ -192,6 +199,111 @@ assert_output_unchanged() {
   }
 }
 
+# Drop a prior receipt when it no longer describes the admitted zip/app bytes.
+# A later ordinary (non-notarizing) build can leave an old receipt beside new
+# artifacts; never let that lie survive a re-notarize of different content.
+clear_stale_notarization_receipt() {
+  local receipt="$1"
+  local zip_sha="$2"
+  local app_cdhash="$3"
+  local parsed sub stapled cdhash
+  [[ -f "$receipt" && ! -L "$receipt" ]] || return 0
+  if ! parsed="$(
+    python3 - "$receipt" <<'PY'
+import json, sys
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+except Exception as e:
+    print(f"UNREADABLE\t{e}", file=sys.stderr)
+    sys.exit(2)
+if not isinstance(data, dict):
+    print("BAD_SHAPE", file=sys.stderr)
+    sys.exit(2)
+sub = data.get("zipSha256Submitted") or ""
+stapled = data.get("zipSha256Stapled") or ""
+cd = data.get("appCdHash") or ""
+print(f"{sub}\t{stapled}\t{cd}")
+PY
+  )"; then
+    log "clearing unreadable notarization receipt (cannot verify byte binding)"
+    rm -f -- "$receipt"
+    return 0
+  fi
+  sub="$(printf '%s' "$parsed" | cut -f1)"
+  stapled="$(printf '%s' "$parsed" | cut -f2)"
+  cdhash="$(printf '%s' "$parsed" | cut -f3)"
+  if [[ "$sub" == "$zip_sha" || "$stapled" == "$zip_sha" ]]; then
+    if [[ -z "$app_cdhash" || -z "$cdhash" || "$cdhash" == "$app_cdhash" ]]; then
+      return 0
+    fi
+  fi
+  log "clearing stale notarization receipt (does not match admitted zip/app bytes)"
+  rm -f -- "$receipt"
+}
+
+# After the stapled zip is published, rebuild blockmap + latest-mac.yml so
+# electron-updater metadata describes the same bytes as the ship zip.
+refresh_mac_updater_metadata() {
+  local zip_path="$1"
+  local blockmap_path="$2"
+  local yml_path="$3"
+  local staged_blockmap="$4"
+  local staged_yml="$5"
+  local helper="$SCRIPT_DIR/refresh-mac-updater-metadata.mjs"
+  local args=()
+  local raw size sha512
+  [[ -f "$helper" ]] || {
+    err "missing updater metadata helper: $helper"
+    return 1
+  }
+  [[ -f "$zip_path" && ! -L "$zip_path" ]] || {
+    err "cannot refresh updater metadata without a regular zip"
+    return 1
+  }
+  args=(
+    "$helper"
+    --zip "$zip_path"
+    --blockmap-out "$staged_blockmap"
+  )
+  if [[ -f "$yml_path" && ! -L "$yml_path" ]]; then
+    args+=(--yml-in "$yml_path" --yml-out "$staged_yml")
+  elif [[ -e "$yml_path" || -L "$yml_path" ]]; then
+    err "latest-mac.yml must be absent or a non-symlink file"
+    return 1
+  else
+    log "latest-mac.yml absent — regenerating blockmap only"
+  fi
+  log "regenerating zip blockmap (+ latest-mac.yml when present) from stapled zip …"
+  if ! raw="$(node "${args[@]}")"; then
+    err "refresh-mac-updater-metadata failed"
+    return 1
+  fi
+  size="$(printf '%s' "$raw" | python3 -c 'import json,sys; print(json.load(sys.stdin)["size"])')"
+  sha512="$(printf '%s' "$raw" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha512"])')"
+  [[ -n "$size" && -n "$sha512" ]] || {
+    err "updater metadata helper returned incomplete size/sha512"
+    return 1
+  }
+  [[ -f "$staged_blockmap" && ! -L "$staged_blockmap" ]] || {
+    err "staged blockmap missing after refresh"
+    return 1
+  }
+  ZIP_SIZE_STAPLED="$size"
+  ZIP_SHA512_STAPLED="$sha512"
+  UPDATER_YML_UPDATED=0
+  if [[ -f "$yml_path" && ! -L "$yml_path" ]]; then
+    [[ -f "$staged_yml" && ! -L "$staged_yml" ]] || {
+      err "staged latest-mac.yml missing after refresh"
+      return 1
+    }
+    UPDATER_YML_UPDATED=1
+  fi
+  log "  stapled zip size: $ZIP_SIZE_STAPLED"
+  log "  stapled zip sha512: $ZIP_SHA512_STAPLED"
+}
+
 cleanup_staging() {
   local staging_id
   [[ -n "$STAGING_DIR" ]] || return 0
@@ -221,6 +333,8 @@ APP_ID="$(path_id "$APP_PATH")"
 ZIP_ID="$(path_id "$ZIP_SRC")"
 RECEIPT_PATH="$RELEASE_ROOT/notarization-receipt.json"
 SUBMIT_RECEIPT_PATH="$RELEASE_ROOT/notarization-submit.json"
+BLOCKMAP_PATH="${ZIP_SRC}.blockmap"
+LATEST_MAC_YML="$RELEASE_ROOT/latest-mac.yml"
 assert_release_zip_capability "$ZIP_SRC" || exit 1
 assert_same_identity "release app" "$APP_PATH" "$APP_ID" || exit 1
 STAGING_DIR="$(mktemp -d "$RELEASE_ROOT/.notarize-stage.XXXXXXXX")"
@@ -233,9 +347,16 @@ SUBMIT_LOG="$STAGING_DIR/notarization-submit.json"
 SUBMIT_ERR="$STAGING_DIR/notarization-submit.err"
 NOTARY_LOG="$STAGING_DIR/notarization-log.json"
 STAGED_RECEIPT="$STAGING_DIR/notarization-receipt.json"
+STAGED_BLOCKMAP="$STAGING_DIR/$(basename "$ZIP_SRC").blockmap"
+STAGED_LATEST_MAC_YML="$STAGING_DIR/latest-mac.yml"
 SUBMIT_RECEIPT_ID="$(output_identity "$SUBMIT_RECEIPT_PATH")"
 RECEIPT_ID="$(output_identity "$RECEIPT_PATH")"
+BLOCKMAP_ID="$(output_identity "$BLOCKMAP_PATH")"
+LATEST_MAC_YML_ID="$(output_identity "$LATEST_MAC_YML")"
 ZIP_SHA="$(shasum -a 256 "$ZIP_SRC" | awk '{print $1}')"
+ZIP_SIZE_STAPLED=""
+ZIP_SHA512_STAPLED=""
+UPDATER_YML_UPDATED=0
 
 # The submitted/stapled artifacts are private copies.  Everything that is
 # verified, uploaded, stapled, and published originates from this 0700 stage;
@@ -248,6 +369,10 @@ codesign --verify --deep --strict --verbose=2 "$STAGED_APP"
 STAGED_APP_CDHASH="$(codesign -dv --verbose=4 "$STAGED_APP" 2>&1 | awk -F= '/^CDHash=/{print $2}')"
 STAGED_APP_CDHASH="$(printf '%s\n' "$STAGED_APP_CDHASH" | head -n1)"
 APP_CDHASH="$STAGED_APP_CDHASH"
+# A rebuild can leave an old receipt beside different zip/app bytes. Drop it
+# before submit so a failed mid-run cannot keep claiming a prior notarization.
+clear_stale_notarization_receipt "$RECEIPT_PATH" "$ZIP_SHA" "$APP_CDHASH"
+RECEIPT_ID="$(output_identity "$RECEIPT_PATH")"
 # Freeze the exact archive that authorization submits.  The public release zip
 # is read-only input until the final publish transaction; a replaced artifact
 # cannot become an accidental notarization upload.
@@ -396,6 +521,28 @@ mv -f "$STAGED_ZIP" "$ZIP_SRC"
 assert_same_identity "replaced release zip" "$ZIP_SRC" "$STAGED_ZIP_ID" || exit 1
 ZIP_SHA_STAPLED="$(shasum -a 256 "$ZIP_SRC" | awk '{print $1}')"
 
+# Final zip bytes differ from the pre-staple archive electron-builder hashed.
+# Rebuild blockmap + latest-mac.yml from the published stapled zip only.
+refresh_mac_updater_metadata \
+  "$ZIP_SRC" \
+  "$BLOCKMAP_PATH" \
+  "$LATEST_MAC_YML" \
+  "$STAGED_BLOCKMAP" \
+  "$STAGED_LATEST_MAC_YML" || exit 1
+
+assert_output_unchanged "$BLOCKMAP_PATH" "$BLOCKMAP_ID" || exit 1
+assert_same_identity "release root" "$RELEASE_ROOT" "$RELEASE_ROOT_ID" || exit 1
+STAGED_BLOCKMAP_ID="$(path_id "$STAGED_BLOCKMAP")"
+mv -f "$STAGED_BLOCKMAP" "$BLOCKMAP_PATH"
+assert_same_identity "replaced zip blockmap" "$BLOCKMAP_PATH" "$STAGED_BLOCKMAP_ID" || exit 1
+
+if [[ "$UPDATER_YML_UPDATED" -eq 1 ]]; then
+  assert_output_unchanged "$LATEST_MAC_YML" "$LATEST_MAC_YML_ID" || exit 1
+  STAGED_YML_ID="$(path_id "$STAGED_LATEST_MAC_YML")"
+  mv -f "$STAGED_LATEST_MAC_YML" "$LATEST_MAC_YML"
+  assert_same_identity "replaced latest-mac.yml" "$LATEST_MAC_YML" "$STAGED_YML_ID" || exit 1
+fi
+
 if [[ "$SKIP_SPCTL" -eq 0 ]]; then
   log "Gatekeeper assess …"
   set +e
@@ -412,13 +559,14 @@ else
   log "skipping spctl (--skip-spctl)"
 fi
 
-python3 - "$STAGED_RECEIPT" "$PRODUCT_NAME" "$APP_BUNDLE_ID" "$APP_PATH" "$ZIP_SRC" "$ZIP_SHA" "$ZIP_SHA_STAPLED" "$APP_CDHASH" "$SUBMISSION_ID" "$NOTARY_STATUS" "$SUBMIT_NAME" <<'PY'
+python3 - "$STAGED_RECEIPT" "$PRODUCT_NAME" "$APP_BUNDLE_ID" "$APP_PATH" "$ZIP_SRC" "$ZIP_SHA" "$ZIP_SHA_STAPLED" "$APP_CDHASH" "$SUBMISSION_ID" "$NOTARY_STATUS" "$SUBMIT_NAME" "$ZIP_SIZE_STAPLED" "$ZIP_SHA512_STAPLED" "$BLOCKMAP_PATH" "$LATEST_MAC_YML" "$UPDATER_YML_UPDATED" <<'PY'
 import datetime
 import json
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1])
+yml_updated = sys.argv[16] == "1"
 receipt = {
     "product": sys.argv[2],
     "bundleId": sys.argv[3],
@@ -430,6 +578,11 @@ receipt = {
     "submissionId": sys.argv[9],
     "status": sys.argv[10],
     "submittedName": sys.argv[11],
+    "zipSizeStapled": int(sys.argv[12]),
+    "zipSha512Stapled": sys.argv[13],
+    "blockmapPath": sys.argv[14],
+    "latestMacYmlPath": sys.argv[15],
+    "latestMacYmlUpdated": yml_updated,
     "tool": "asc notarization submit",
     "completedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
 }
@@ -448,4 +601,10 @@ log "  receipt: $RECEIPT_PATH"
 log "  submission: $SUBMISSION_ID"
 log "  stapled app: $APP_PATH"
 log "  ship zip: $ZIP_SRC"
+log "  zip blockmap: $BLOCKMAP_PATH"
+if [[ "$UPDATER_YML_UPDATED" -eq 1 ]]; then
+  log "  latest-mac.yml: $LATEST_MAC_YML (size/sha512 bound to stapled zip)"
+else
+  log "  latest-mac.yml: absent (blockmap only)"
+fi
 log "install stapled local build: bun run app:install:skip-build"

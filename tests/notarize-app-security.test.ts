@@ -195,4 +195,50 @@ describe("notarization path capabilities", () => {
     expect(sourceRecheck).toBeGreaterThan(copy);
     expect(stagedHash).toBeGreaterThan(sourceRecheck);
   });
+
+  it("after staple re-zip, regenerates blockmap and latest-mac.yml from final zip bytes", () => {
+    const rezip = source.indexOf('ditto -c -k --keepParent "$app_base" "$STAGED_ZIP"');
+    const publishZip = source.indexOf('mv -f "$STAGED_ZIP" "$ZIP_SRC"');
+    // Call site (not the function definition) — must run after the stapled zip is published.
+    const refreshCall = source.indexOf(
+      'refresh_mac_updater_metadata \\\n  "$ZIP_SRC" \\\n  "$BLOCKMAP_PATH"',
+    );
+    const blockmapPublish = source.indexOf('mv -f "$STAGED_BLOCKMAP" "$BLOCKMAP_PATH"');
+    const ymlPublish = source.indexOf('mv -f "$STAGED_LATEST_MAC_YML" "$LATEST_MAC_YML"');
+    const helper = source.indexOf("refresh-mac-updater-metadata.mjs");
+    expect(rezip).toBeGreaterThanOrEqual(0);
+    expect(publishZip).toBeGreaterThan(rezip);
+    expect(refreshCall).toBeGreaterThan(publishZip);
+    expect(blockmapPublish).toBeGreaterThan(refreshCall);
+    expect(ymlPublish).toBeGreaterThan(refreshCall);
+    expect(helper).toBeGreaterThanOrEqual(0);
+    expect(source).toContain('assert_same_identity "replaced zip blockmap"');
+    expect(source).toContain('assert_same_identity "replaced latest-mac.yml"');
+    expect(source).toContain("ZIP_SHA512_STAPLED");
+    expect(source).toContain("zipSha512Stapled");
+  });
+
+  it("clears or refreshes a notarization receipt that does not match admitted bytes", () => {
+    const clearFn = source.indexOf("clear_stale_notarization_receipt() {");
+    const call = source.indexOf(
+      'clear_stale_notarization_receipt "$RECEIPT_PATH" "$ZIP_SHA" "$APP_CDHASH"',
+    );
+    const submit = source.indexOf("asc notarization submit \\");
+    const receiptWrite = source.indexOf('"zipSha256Stapled": sys.argv[7]');
+    expect(clearFn).toBeGreaterThanOrEqual(0);
+    expect(call).toBeGreaterThan(clearFn);
+    expect(submit).toBeGreaterThan(call);
+    expect(receiptWrite).toBeGreaterThan(submit);
+    expect(source).toContain("clearing stale notarization receipt");
+    expect(source).toContain("does not match admitted zip/app bytes");
+  });
+
+  it("never lets the metadata helper write durable release paths directly", () => {
+    expect(source).toContain('STAGED_BLOCKMAP="$STAGING_DIR/$(basename "$ZIP_SRC").blockmap"');
+    expect(source).toContain('STAGED_LATEST_MAC_YML="$STAGING_DIR/latest-mac.yml"');
+    expect(source).toContain('--blockmap-out "$staged_blockmap"');
+    expect(source).toContain('--yml-out "$staged_yml"');
+    expect(source).not.toContain('--blockmap-out "$BLOCKMAP_PATH"');
+    expect(source).not.toContain('--yml-out "$LATEST_MAC_YML"');
+  });
 });
