@@ -251,9 +251,17 @@ describe("buildRemoteDeployScript", () => {
       'retire_stale_socket "$TERM_SOCK" "$RETIRED_TERM_SOCKET"',
       proofFailure,
     );
+    const candidatePreflight = script.indexOf(
+      "run_candidate_state_preflight || exit 5",
+      socketRemoval,
+    );
+    const activation = script.indexOf(
+      "begin_candidate_activation",
+      candidatePreflight,
+    );
     const appTransition = script.indexOf(
       '/bin/mv -n "$APP/Contents" "$RETIRED_APP/Contents"',
-      socketRemoval,
+      activation,
     );
 
     expect(validation).toBeGreaterThan(0);
@@ -264,12 +272,51 @@ describe("buildRemoteDeployScript", () => {
     expect(boundedProof).toBeGreaterThan(bootout);
     expect(proofFailure).toBeGreaterThan(boundedProof);
     expect(socketRemoval).toBeGreaterThan(proofFailure);
-    expect(appTransition).toBeGreaterThan(socketRemoval);
+    expect(candidatePreflight).toBeGreaterThan(socketRemoval);
+    expect(activation).toBeGreaterThan(candidatePreflight);
+    expect(appTransition).toBeGreaterThan(activation);
     expect(script).toContain(
       'if ! OBSERVED_EXE_PIDS="$(exact_exe_pids)"; then',
     );
     expect(script).toContain('ALL_LSOF_OUTPUT="$("$LSOF" -n -d txt');
     expect(script).not.toMatch(/\b(?:kill|pkill|killall)\b/u);
+  });
+
+  it("runs only the staged packaged preflight in a clean environment and strictly decodes its receipt", () => {
+    const preflightFunction = script.indexOf(
+      "run_candidate_state_preflight()",
+    );
+    const preflightInvocation = script.indexOf(
+      '"$IN_EXE" --vellum-state-preflight',
+      preflightFunction,
+    );
+    const preflightCall = script.indexOf(
+      "run_candidate_state_preflight || exit 5",
+      preflightInvocation,
+    );
+    const activation = script.indexOf(
+      "begin_candidate_activation",
+      preflightCall,
+    );
+
+    expect(preflightFunction).toBeGreaterThan(0);
+    expect(preflightInvocation).toBeGreaterThan(preflightFunction);
+    expect(preflightCall).toBeGreaterThan(preflightInvocation);
+    expect(activation).toBeGreaterThan(preflightCall);
+    expect(script).toContain('"$ENV" -i');
+    expect(script).toContain(
+      'state_update_preflight_receipt_valid "$PREFLIGHT_RECEIPT"',
+    );
+    expect(script).toContain(
+      '"protocol":"vellum-state-update-preflight/v1"',
+    );
+    expect(script).toContain(
+      'same_file_identity "$IN_EXE" "$CANDIDATE_EXE_ID"',
+    );
+    expect(script).not.toContain("ELECTRON_RUN_AS_NODE");
+    expect(script).not.toMatch(
+      /--vellum-state-preflight(?:=|\s+)(?:database|state|path)/iu,
+    );
   });
 
   it("uses launchd exclusively and requires a distinct executable-backed generation", () => {
@@ -460,7 +507,27 @@ describe("remote deploy transaction behavior", () => {
     };
     const commands = {
       uname: executable("uname", 'echo "Darwin"'),
-      id: executable("id", 'echo "501"'),
+      id: executable(
+        "id",
+        'if [ "${1:-}" = "-un" ]; then echo "remote"; else echo "501"; fi',
+      ),
+      env: executable(
+        "env",
+        [
+          'printf \'%s\\n\' "$*" >> "$FAKE_STATE/preflight.log"',
+          'case "$FAKE_PREFLIGHT_MODE" in',
+          '  fail) exit 41 ;;',
+          '  interrupt) exit 130 ;;',
+          '  malformed) printf \'%s\\n\' \'{"protocol":"vellum-state-update-preflight/v1","ready":true,"extra":"refused"}\' ;;',
+          '  multiline)',
+          '    printf \'%s\\n\' \'{"protocol":"vellum-state-update-preflight/v1","candidateId":"01234567-89ab-4def-8123-0123456789ab","source":"installed","sourceSchemaVersion":1,"targetSchemaVersion":2,"targetSchemaSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","backupFile":"vellum-backup-01234567-89ab-4def-8123-0123456789ab.db","installationId":"test.installation","role":"remote","canvasCount":0,"actorSeatCount":0,"workSnapshotCount":0,"pendingCommandCount":0,"armedRegionCount":0,"schedulerCursorCount":0,"ready":true}\'',
+          '    printf \'extra\\n\'',
+          "    ;;",
+          '  success) printf \'%s\\n\' \'{"protocol":"vellum-state-update-preflight/v1","candidateId":"01234567-89ab-4def-8123-0123456789ab","source":"installed","sourceSchemaVersion":1,"targetSchemaVersion":2,"targetSchemaSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","backupFile":"vellum-backup-01234567-89ab-4def-8123-0123456789ab.db","installationId":"test.installation","role":"remote","canvasCount":0,"actorSeatCount":0,"workSnapshotCount":0,"pendingCommandCount":0,"armedRegionCount":0,"schedulerCursorCount":0,"ready":true}\' ;;',
+          "  *) exit 42 ;;",
+          "esac",
+        ].join("\n"),
+      ),
       launchctl: executable(
         "launchctl",
         [
@@ -651,6 +718,7 @@ describe("remote deploy transaction behavior", () => {
           FAKE_EXISTING_PLIST_INVALID: "0",
           FAKE_LIVE_SOCKET: "",
           FAKE_SWAP_APP_CONTENTS: "0",
+          FAKE_PREFLIGHT_MODE: "success",
           FAKE_APP: appPath,
           FAKE_PLIST: plistPath,
           ...overrides,
@@ -917,6 +985,70 @@ describe("remote deploy transaction behavior", () => {
           "old-generation",
         );
         expect(existsSync(`${harness.appPath}.previous`)).toBe(false);
+      } finally {
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
+
+  it.each([
+    ["candidate failure", "fail", "STATE_PREFLIGHT_FAILED"],
+    ["candidate interruption", "interrupt", "STATE_PREFLIGHT_FAILED"],
+    [
+      "unknown receipt fields",
+      "malformed",
+      "STATE_PREFLIGHT_RECEIPT_INVALID",
+    ],
+    [
+      "multiple receipt lines",
+      "multiline",
+      "STATE_PREFLIGHT_RECEIPT_FRAMING_INVALID",
+    ],
+  ])(
+    "resumes the exact admitted incumbent after %s before activation",
+    (_case, mode, refusal) => {
+      const harness = makeHarness();
+      try {
+        const result = harness.run({ FAKE_PREFLIGHT_MODE: mode });
+        expect(result.status, result.stderr).toBe(12);
+        expect(result.stderr).toContain(refusal);
+        expect(result.stderr).toContain("DEPLOY_NOT_STARTED");
+        expect(result.stdout).toContain("INCUMBENT_RESUMED pid=200");
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "old-generation",
+        );
+        expect(readFileSync(harness.plistPath, "utf8")).toBe("old-plist");
+        expect(existsSync(join(harness.state, "loaded"))).toBe(true);
+        expect(existsSync(`${harness.appPath}.incoming`)).toBe(false);
+        expect(existsSync(`${harness.plistPath}.incoming`)).toBe(false);
+        expect(existsSync(harness.runtime.lockPath)).toBe(false);
+
+        const launchctlLog = readFileSync(
+          join(harness.state, "launchctl.log"),
+          "utf8",
+        );
+        expect(launchctlLog.match(/bootout/gu)).toHaveLength(1);
+        expect(launchctlLog.match(/bootstrap/gu)).toHaveLength(1);
+        expect(
+          readFileSync(
+            join(harness.state, "launched-generations.log"),
+            "utf8",
+          )
+            .trim()
+            .split("\n"),
+        ).toEqual(["old-generation", "old-generation"]);
+
+        const preflightInvocation = readFileSync(
+          join(harness.state, "preflight.log"),
+          "utf8",
+        );
+        expect(preflightInvocation).toContain(
+          "--vellum-state-preflight",
+        );
+        expect(preflightInvocation).toMatch(/^-i /u);
+        expect(preflightInvocation).not.toContain("ELECTRON_RUN_AS_NODE");
+        expect(preflightInvocation).not.toContain("NODE_OPTIONS");
       } finally {
         harness.cleanup();
       }

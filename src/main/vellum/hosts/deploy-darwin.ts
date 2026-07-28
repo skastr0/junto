@@ -507,6 +507,7 @@ export const classifyDeployTransferDisposition = (
 type RemoteDeployScriptCommands = {
   readonly uname: string;
   readonly id: string;
+  readonly env: string;
   readonly launchctl: string;
   readonly lsof: string;
   readonly uuidgen: string;
@@ -531,6 +532,7 @@ const PRODUCTION_DEPLOY_SCRIPT_RUNTIME: RemoteDeployScriptRuntime = {
   commands: {
     uname: "/usr/bin/uname",
     id: "/usr/bin/id",
+    env: "/usr/bin/env",
     launchctl: "/bin/launchctl",
     lsof: "/usr/sbin/lsof",
     uuidgen: "/usr/bin/uuidgen",
@@ -597,6 +599,7 @@ set -euo pipefail
 umask 022
 UNAME=${shellLiteral(runtime.commands.uname)}
 ID=${shellLiteral(runtime.commands.id)}
+ENV=${shellLiteral(runtime.commands.env)}
 LAUNCHCTL=${shellLiteral(runtime.commands.launchctl)}
 LSOF=${shellLiteral(runtime.commands.lsof)}
 UUIDGEN=${shellLiteral(runtime.commands.uuidgen)}
@@ -648,12 +651,16 @@ APP_ID=""
 APP_CONTENTS_ID=""
 PLIST_ID=""
 CANDIDATE_APP_ID=""
+CANDIDATE_CONTENTS_ID=""
+CANDIDATE_EXE_ID=""
 PUBLISHED_APP_ID=""
 PUBLISHED_PLIST_ID=""
 RETIRED_APP_ID=""
 LOCK_ID=""
 LOCK_OWNER_ID=""
 OLD_PID=""
+OLD_JOB_WAS_LOADED=0
+INCUMBENT_STOP_REQUESTED=0
 
 valid_pid() {
   case "$1" in
@@ -827,9 +834,10 @@ job_exists() {
   "$LAUNCHCTL" print "$JOB" >/dev/null 2>&1
 }
 
-exact_exe_pids() {
+exact_path_pids() {
+  OBSERVED_EXECUTABLE="$1"
   ALL_LSOF_OUTPUT="$("$LSOF" -n -d txt -Fp -Fn 2>&1)" || return 2
-  printf '%s\n' "$ALL_LSOF_OUTPUT" | /usr/bin/awk -v exe="$EXE" '
+  printf '%s\n' "$ALL_LSOF_OUTPUT" | /usr/bin/awk -v exe="$OBSERVED_EXECUTABLE" '
     /^$/ { next }
     /^p[0-9]+$/ { pid = substr($0, 2); next }
     /^ftxt$/ { next }
@@ -843,9 +851,15 @@ exact_exe_pids() {
   '
 }
 
-exact_exe_has_pid() {
-  PID_LSOF_OUTPUT="$("$LSOF" -n -a -p "$1" -d txt -Fn 2>&1)" || return 1
-  printf '%s\n' "$PID_LSOF_OUTPUT" | /usr/bin/awk -v exe="$EXE" '
+exact_exe_pids() {
+  exact_path_pids "$EXE"
+}
+
+exact_path_has_pid() {
+  OBSERVED_PID="$1"
+  OBSERVED_EXECUTABLE="$2"
+  PID_LSOF_OUTPUT="$("$LSOF" -n -a -p "$OBSERVED_PID" -d txt -Fn 2>&1)" || return 1
+  printf '%s\n' "$PID_LSOF_OUTPUT" | /usr/bin/awk -v exe="$OBSERVED_EXECUTABLE" '
     /^$/ { next }
     /^p[0-9]+$/ { next }
     /^ftxt$/ { next }
@@ -857,6 +871,10 @@ exact_exe_has_pid() {
     { invalid = 1 }
     END { exit(found && !invalid ? 0 : 1) }
   '
+}
+
+exact_exe_has_pid() {
+  exact_path_has_pid "$1" "$EXE"
 }
 
 single_metadata_value() {
@@ -956,6 +974,162 @@ wait_until_job_and_executable_gone() {
   return 1
 }
 
+wait_until_executable_gone() {
+  WAIT_EXECUTABLE="$1"
+  WAIT_LIMIT="$2"
+  WAIT_INDEX=0
+  while [ "$WAIT_INDEX" -lt "$WAIT_LIMIT" ]; do
+    OBSERVED_EXE_PIDS=""
+    if ! OBSERVED_EXE_PIDS="$(exact_path_pids "$WAIT_EXECUTABLE")"; then
+      echo "PROCESS_OBSERVATION_FAILED executable=$WAIT_EXECUTABLE" >&2
+      return 2
+    fi
+    if [ -z "$OBSERVED_EXE_PIDS" ]; then return 0; fi
+    WAIT_INDEX=$((WAIT_INDEX + 1))
+    "$SLEEP" 1
+  done
+  return 1
+}
+
+resume_incumbent_before_activation() {
+  if [ "$ACTIVATION_STARTED" = "1" ] ||
+    [ "$OLD_JOB_WAS_LOADED" != "1" ] ||
+    [ "$INCUMBENT_STOP_REQUESTED" != "1" ]; then
+    return 0
+  fi
+  wait_until_executable_gone "$IN_EXE" 30 || {
+    echo "CANDIDATE_PREFLIGHT_PROCESS_STILL_PRESENT $IN_EXE" >&2
+    return 1
+  }
+  wait_until_job_and_executable_gone 30 || {
+    echo "INCUMBENT_NOT_QUIESCENT_BEFORE_RESUME $EXE" >&2
+    return 1
+  }
+  same_directory_identity "$APP" "$APP_ID" &&
+    same_directory_identity "$APP/Contents" "$APP_CONTENTS_ID" &&
+    same_file_identity "$PLIST" "$PLIST_ID" || {
+      echo "INCUMBENT_CHANGED_BEFORE_RESUME app=$APP plist=$PLIST" >&2
+      return 1
+    }
+  if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
+    "$LAUNCHCTL" load -w "$PLIST" || {
+      echo "INCUMBENT_RELOAD_FAILED $PLIST" >&2
+      return 1
+    }
+  fi
+  RESUMED_PID="$("$LAUNCHCTL" kickstart -p "$JOB")" || {
+    echo "INCUMBENT_RESTART_PID_NOT_PROVEN" >&2
+    return 1
+  }
+  valid_pid "$RESUMED_PID" || {
+    echo "INCUMBENT_RESTART_PID_INVALID $RESUMED_PID" >&2
+    return 1
+  }
+  RESUMED_IDENTITY_OK=0
+  WAIT_INDEX=0
+  while [ "$WAIT_INDEX" -lt 30 ]; do
+    if job_exists && exact_exe_has_pid "$RESUMED_PID"; then
+      RESUMED_IDENTITY_OK=1
+      break
+    fi
+    WAIT_INDEX=$((WAIT_INDEX + 1))
+    "$SLEEP" 1
+  done
+  [ "$RESUMED_IDENTITY_OK" = "1" ] &&
+    same_directory_identity "$APP" "$APP_ID" &&
+    same_directory_identity "$APP/Contents" "$APP_CONTENTS_ID" &&
+    same_file_identity "$PLIST" "$PLIST_ID" || {
+      echo "INCUMBENT_RESTART_NOT_PROVEN pid=$RESUMED_PID" >&2
+      return 1
+    }
+  INCUMBENT_STOP_REQUESTED=0
+  echo "INCUMBENT_RESUMED pid=$RESUMED_PID"
+}
+
+state_update_preflight_receipt_valid() {
+  PREFLIGHT_RECEIPT="$1"
+  PREFLIGHT_FRESH_PATTERN='^\{"protocol":"vellum-state-update-preflight/v1","candidateId":"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}","source":"fresh","sourceSchemaVersion":(0|[1-9][0-9]{0,15}),"targetSchemaVersion":[1-9][0-9]{0,15},"targetSchemaSha256":"[0-9a-f]{64}","installationId":"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}","role":"(unenrolled|command-center|remote)","canvasCount":(0|[1-9][0-9]{0,15}),"actorSeatCount":(0|[1-9][0-9]{0,15}),"workSnapshotCount":(0|[1-9][0-9]{0,15}),"pendingCommandCount":(0|[1-9][0-9]{0,15}),"armedRegionCount":(0|[1-9][0-9]{0,15}),"schedulerCursorCount":(0|[1-9][0-9]{0,15})(,"activeIntent":\{"generation":"[1-9][0-9]*","contentSha256":"[0-9a-f]{64}"\})?,"ready":true\}$'
+  PREFLIGHT_INSTALLED_PATTERN='^\{"protocol":"vellum-state-update-preflight/v1","candidateId":"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}","source":"installed","sourceSchemaVersion":(0|[1-9][0-9]{0,15}),"targetSchemaVersion":[1-9][0-9]{0,15},"targetSchemaSha256":"[0-9a-f]{64}","backupFile":"vellum-backup-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.db","installationId":"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}","role":"(unenrolled|command-center|remote)","canvasCount":(0|[1-9][0-9]{0,15}),"actorSeatCount":(0|[1-9][0-9]{0,15}),"workSnapshotCount":(0|[1-9][0-9]{0,15}),"pendingCommandCount":(0|[1-9][0-9]{0,15}),"armedRegionCount":(0|[1-9][0-9]{0,15}),"schedulerCursorCount":(0|[1-9][0-9]{0,15})(,"activeIntent":\{"generation":"[1-9][0-9]*","contentSha256":"[0-9a-f]{64}"\})?,"ready":true\}$'
+  [[ "$PREFLIGHT_RECEIPT" =~ $PREFLIGHT_FRESH_PATTERN ]] ||
+    [[ "$PREFLIGHT_RECEIPT" =~ $PREFLIGHT_INSTALLED_PATTERN ]]
+}
+
+run_candidate_state_preflight() {
+  same_directory_identity "$IN/$BUNDLE" "$CANDIDATE_APP_ID" &&
+    same_directory_identity "$IN/$BUNDLE/Contents" "$CANDIDATE_CONTENTS_ID" &&
+    same_file_identity "$IN_EXE" "$CANDIDATE_EXE_ID" || {
+      echo "INCOMING_BUNDLE_CHANGED_BEFORE_STATE_PREFLIGHT $IN/$BUNDLE" >&2
+      return 1
+    }
+  ACCOUNT_NAME="$("$ID" -un)" || {
+    echo "REMOTE_ACCOUNT_NAME_UNAVAILABLE" >&2
+    return 1
+  }
+  PREFLIGHT_SEPARATOR="$(/usr/bin/printf '\\036')"
+  PREFLIGHT_FRAME="$(
+    set +e
+    cd ${shellLiteral(remoteHome)} || exit 70
+    "$ENV" -i \
+      HOME=${shellLiteral(remoteHome)} \
+      LOGNAME="$ACCOUNT_NAME" \
+      PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+      PWD=${shellLiteral(remoteHome)} \
+      USER="$ACCOUNT_NAME" \
+      "$IN_EXE" --vellum-state-preflight
+    PREFLIGHT_CHILD_STATUS=$?
+    /usr/bin/printf '\\036%s' "$PREFLIGHT_CHILD_STATUS"
+  )"
+  case "$PREFLIGHT_FRAME" in
+    *"$PREFLIGHT_SEPARATOR"*) ;;
+    *)
+      echo "STATE_PREFLIGHT_STATUS_MISSING" >&2
+      return 1
+      ;;
+  esac
+  PREFLIGHT_PAYLOAD="\${PREFLIGHT_FRAME%"$PREFLIGHT_SEPARATOR"*}"
+  PREFLIGHT_CHILD_STATUS="\${PREFLIGHT_FRAME##*"$PREFLIGHT_SEPARATOR"}"
+  case "$PREFLIGHT_CHILD_STATUS" in
+    ""|*[!0-9]*)
+      echo "STATE_PREFLIGHT_STATUS_INVALID" >&2
+      return 1
+      ;;
+  esac
+  if [ "$PREFLIGHT_CHILD_STATUS" -ne 0 ]; then
+    echo "STATE_PREFLIGHT_FAILED status=$PREFLIGHT_CHILD_STATUS" >&2
+    return 1
+  fi
+  case "$PREFLIGHT_PAYLOAD" in
+    *$'\n')
+      PREFLIGHT_RECEIPT="\${PREFLIGHT_PAYLOAD%$'\n'}"
+      ;;
+    *)
+      echo "STATE_PREFLIGHT_RECEIPT_FRAMING_INVALID" >&2
+      return 1
+      ;;
+  esac
+  case "$PREFLIGHT_RECEIPT" in
+    *"$PREFLIGHT_SEPARATOR"*|*$'\n'*)
+      echo "STATE_PREFLIGHT_RECEIPT_FRAMING_INVALID" >&2
+      return 1
+      ;;
+  esac
+  state_update_preflight_receipt_valid "$PREFLIGHT_RECEIPT" || {
+    echo "STATE_PREFLIGHT_RECEIPT_INVALID" >&2
+    return 1
+  }
+  wait_until_executable_gone "$IN_EXE" 30 || {
+    echo "CANDIDATE_PREFLIGHT_PROCESS_STILL_PRESENT $IN_EXE" >&2
+    return 1
+  }
+  same_directory_identity "$IN/$BUNDLE" "$CANDIDATE_APP_ID" &&
+    same_directory_identity "$IN/$BUNDLE/Contents" "$CANDIDATE_CONTENTS_ID" &&
+    same_file_identity "$IN_EXE" "$CANDIDATE_EXE_ID" || {
+      echo "INCOMING_BUNDLE_CHANGED_DURING_STATE_PREFLIGHT $IN/$BUNDLE" >&2
+      return 1
+    }
+  echo "STATE_PREFLIGHT_READY"
+}
+
 release_deploy_lock() {
   if [ "$LOCK_HELD" != "1" ]; then return 0; fi
   same_directory_identity "$DEPLOY_LOCK" "$LOCK_ID" || return 1
@@ -1007,6 +1181,9 @@ on_deploy_exit() {
   if [ "$EXIT_CODE" -ne 0 ]; then
     if [ "$ACTIVATION_STARTED" = "1" ]; then
       echo "DEPLOY_FORWARD_REPAIR_REQUIRED app=$APP incoming=$IN plist=$PLIST" >&2
+      EXIT_CODE=${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
+    elif ! resume_incumbent_before_activation; then
+      echo "DEPLOY_INCUMBENT_RESUME_FAILED app=$APP plist=$PLIST" >&2
       EXIT_CODE=${String(DARWIN_DEPLOY_INDETERMINATE_EXIT)}
     elif ! cleanup_staging; then
       echo "DEPLOY_STAGING_CLEANUP_REFUSED incoming=$IN plist_incoming=$PLIST_IN" >&2
@@ -1141,6 +1318,16 @@ CANDIDATE_APP_ID="$(owned_directory_identity "$IN/$BUNDLE" 2>/dev/null || true)"
   echo "INCOMING_BUNDLE_IDENTITY_INVALID $IN/$BUNDLE" >&2
   exit 3
 }
+CANDIDATE_CONTENTS_ID="$(owned_directory_identity "$IN/$BUNDLE/Contents" 2>/dev/null || true)"
+[ -n "$CANDIDATE_CONTENTS_ID" ] || {
+  echo "INCOMING_CONTENTS_IDENTITY_INVALID $IN/$BUNDLE/Contents" >&2
+  exit 3
+}
+CANDIDATE_EXE_ID="$(owned_file_identity "$IN_EXE" 2>/dev/null || true)"
+[ -n "$CANDIDATE_EXE_ID" ] || {
+  echo "INCOMING_EXECUTABLE_IDENTITY_INVALID $IN_EXE" >&2
+  exit 3
+}
 same_directory_identity "$IN/$BUNDLE" "$CANDIDATE_APP_ID" || {
   echo "INCOMING_BUNDLE_CHANGED_DURING_ADMISSION $IN/$BUNDLE" >&2
   exit 3
@@ -1203,10 +1390,11 @@ fi
 # PID-producing launchctl operation and starts a loaded-but-idle old job so its
 # generation can be captured before bootout.
 if job_exists; then
-  [ -n "$APP_ID" ] || {
-    echo "LAUNCHD_JOB_WITHOUT_ADMITTED_APP $JOB" >&2
+  [ -n "$APP_ID" ] && [ -n "$PLIST_ID" ] || {
+    echo "LAUNCHD_JOB_WITHOUT_ADMITTED_INCUMBENT $JOB" >&2
     exit 4
   }
+  OLD_JOB_WAS_LOADED=1
   OLD_PID="$("$LAUNCHCTL" kickstart -p "$JOB")" || { echo "OLD_LAUNCHD_PID_NOT_PROVEN" >&2; exit 4; }
   valid_pid "$OLD_PID" || { echo "OLD_LAUNCHD_PID_INVALID $OLD_PID" >&2; exit 4; }
   OLD_IDENTITY_OK=0
@@ -1221,6 +1409,7 @@ fi
 
 # Ask both the app and launchd to retire the old generation. Neither command is
 # treated as proof; the bounded observation below is the destructive gate.
+INCUMBENT_STOP_REQUESTED=1
 "$OSASCRIPT" -e ${shellLiteral(`with timeout of 5 seconds
   tell application "${PRODUCT_NAME}" to quit
 end timeout`)} >/dev/null 2>&1 || true
@@ -1236,6 +1425,8 @@ fi
 # both absent. Their later existence therefore witnesses a new listener.
 retire_stale_socket "$TERM_SOCK" "$RETIRED_TERM_SOCKET" || exit 5
 retire_stale_socket "$BROWSER_SOCK" "$RETIRED_BROWSER_SOCKET" || exit 5
+
+run_candidate_state_preflight || exit 5
 
 begin_candidate_activation
 
@@ -1329,6 +1520,11 @@ same_directory_identity "$IN/$BUNDLE" "$CANDIDATE_APP_ID" || {
   echo "INCOMING_BUNDLE_CHANGED_BEFORE_PUBLICATION $IN/$BUNDLE" >&2
   exit 5
 }
+same_directory_identity "$IN/$BUNDLE/Contents" "$CANDIDATE_CONTENTS_ID" &&
+  same_file_identity "$IN_EXE" "$CANDIDATE_EXE_ID" || {
+    echo "INCOMING_EXECUTABLE_CHANGED_BEFORE_PUBLICATION $IN_EXE" >&2
+    exit 5
+  }
 if [ -e "$APP" ] || [ -L "$APP" ]; then
   echo "UNADMITTED_APP_APPEARED_BEFORE_PUBLICATION $APP" >&2
   exit 5
