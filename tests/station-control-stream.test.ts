@@ -148,6 +148,14 @@ const makeServer = async (options: {
         }),
       );
     },
+    prepareReport: () =>
+      Effect.dieMessage(
+        "focused control-stream fixture does not prepare domain reports",
+      ),
+    acceptReportResponse: () =>
+      Effect.dieMessage(
+        "focused control-stream fixture does not integrate domain reports",
+      ),
   });
   const server = await startStationControlServer({
     stationHome: join(root, "station"),
