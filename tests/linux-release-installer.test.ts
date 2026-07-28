@@ -818,6 +818,21 @@ const makeRunner = (
         const decoded = JSON.parse(await readFile(source, "utf8")) as {
           readonly version: string;
         };
+        const journal = JSON.parse(
+          await readFile(path.join(paths.stateRoot, "transaction.json"), "utf8"),
+        ) as {
+          readonly transactionId: string;
+          readonly phase: string;
+          readonly debSha256: string;
+          readonly toVersion: string;
+        };
+        expect(journal).toMatchObject({
+          phase: "dpkg-started",
+          toVersion: decoded.version,
+        });
+        expect(argumentsArray).toContain(
+          `--unit=vellum-release-install-${journal.transactionId}.service`,
+        );
         machine.version = decoded.version;
         machine.packageStatus =
           machine.failInstallAfterMutation
@@ -1197,6 +1212,48 @@ const seedInstalledBaseline = async (
 };
 
 describe("Linux privileged release installer", () => {
+  it("makes packaged upgrades prove the exact preflighted dpkg transaction", async () => {
+    const [hook, installer] = await Promise.all([
+      readFile(
+        new URL("../build/linux/before-install.sh", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL("../scripts/linux-release-installer.ts", import.meta.url),
+        "utf8",
+      ),
+    ]);
+    expect(hook).toContain(
+      'os.open("/var/lib/vellum-release-installer", directory_flags)',
+    );
+    expect(hook).toContain(
+      'journal.get("phase") != "dpkg-started"',
+    );
+    expect(hook).toContain(
+      'f"0::/system.slice/vellum-release-install-{transaction_id}.service"',
+    );
+    expect(hook).toContain(
+      'journal.get("fromVersion") != old_version',
+    );
+    expect(hook).toContain(
+      'journal.get("toVersion") != new_version',
+    );
+    expect(hook).not.toMatch(
+      /VELLUM_(?:RELEASE|INSTALL|STATE).*(?:ROOT|PATH|JOURNAL|TRANSACTION)/u,
+    );
+    expect(installer).toContain(
+      "`vellum-release-install-${stage.transactionId}.service`",
+    );
+
+    const embedded = /<<'PY'\n([\s\S]+?)\nPY\n/u.exec(hook)?.[1];
+    expect(embedded).toBeDefined();
+    execFileSync(
+      "/usr/bin/python3",
+      ["-c", "import sys; compile(sys.stdin.read(), '<preinst>', 'exec')"],
+      { input: embedded },
+    );
+  });
+
   it("emits and flushes ROOT_ARMED before reading PREPARE", async () => {
     const fixture = await createFixture();
     const emitted: LinuxReleaseInstallerReceipt[] = [];

@@ -350,38 +350,20 @@ contain receipts and bounded status, never `~/.vellum` itself.
 2. For a managed Remote, promote the new complete bundle into Command Center's
    fixed `current` directory, run **Deploy Remote**, and repeat the readiness
    and Doctor checks. This is the normal upgrade path.
-3. For a manual recovery upgrade, repeat the protected staging procedure above
-   into a fresh version directory, then verify the new bundle before stopping
-   anything. Add the installed version:
-
-   ```sh
-    /var/lib/vellum-release-stage/X.Y.Z/vellum-linux-verify-x64 \
-      --bundle /var/lib/vellum-release-stage/X.Y.Z \
-      --keyring /path/to/authenticated/release-keyring.json \
-      --trusted-keyring-revision AUTHENTICATED_KEYRING_REVISION \
-      --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
-      --trusted-key-id AUTHENTICATED_KEY_ID \
-      --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
-      --peer-station-protocol-preferred 2 \
-      --peer-station-protocol-compatible-from 2 \
-      --peer-station-protocol-warn-below 2 \
-     --installed-version CURRENT_VERSION
-   ```
-
-4. After a green receipt, repeat the staged `packageBytes` and `packageSha256`
-   checks shown above. Only then stop the Vellum user service, install the exact
-   admitted root-owned `deb`, reload the unit, and start it:
-
-   ```sh
-   systemctl --user stop vellum-remote.service
-   sudo apt-get install \
-     '/var/lib/vellum-release-stage/X.Y.Z/Vellum Command-X.Y.Z-x64-linux.deb'
-   systemctl --user daemon-reload
-   systemctl --user start vellum-remote.service
-   ```
-
-5. Repeat every readiness and Doctor check. Do not discard the prior signed
+3. Do not use `apt`, `apt-get`, or `dpkg` to upgrade an installed Vellum
+   package. The packaged pre-install hook rejects an installed-state change
+   unless it is running inside the exact root-journaled, candidate-digest-bound
+   transaction created by **Deploy Remote** after sealed state preflight.
+   Package-manager repair and retry remain inside that same managed
+   transaction.
+4. Repeat every readiness and Doctor check. Do not discard the prior signed
    bundle yet.
+
+The direct `apt-get install ./vellum.deb` command in **Fresh install** is only
+for a host where Vellum has never been installed. Package removal preserves
+the root transaction directory specifically so a later reinstall cannot
+masquerade as first install. Direct package-manager use cannot authorize an
+upgrade, reinstall, or forward repair.
 
 ## Post-COMMIT repair
 

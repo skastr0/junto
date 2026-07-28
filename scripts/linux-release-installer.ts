@@ -4958,6 +4958,9 @@ export class NodeLinuxReleaseInstallerHost
       verified.debSha256,
     );
     await handle.close();
+    // This unit identity is part of the installed-helper transition seam: the
+    // incumbent helper runs dpkg, then the candidate preinst verifies this
+    // transaction against the full debSha256 retained in the root journal.
     await this.#runDpkgTransaction(
       `vellum-release-install-${stage.transactionId}.service`,
       ["--install", source],

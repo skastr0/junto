@@ -228,8 +228,10 @@ On a disposable Ubuntu 24.04 x86_64 host (or disposable VM with host kernel):
 
 ### C. Shared package integrity (both roles)
 
-1. Exercise install, same-version reinstall, upgrade, remove, and purge.
-   Exercise a downgrade only as a rejection: no older build may activate.
+1. Exercise fresh install, managed same-version adoption, managed upgrade,
+   remove, and purge. Prove direct `apt`/`dpkg` upgrade and reinstall are
+   rejected before candidate unpack. Exercise a downgrade only as a rejection:
+   no older build may activate.
    Snapshot the test user's `~/.vellum` tree before each package action and
    prove it is byte-for-byte unchanged afterward.
 2. Inspect `/opt/Vellum Command` as root: every path remains root-owned; no
