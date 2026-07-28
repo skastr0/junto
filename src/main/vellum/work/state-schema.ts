@@ -1047,6 +1047,36 @@ export const WORK_STATE_SCHEMA_SQL = `
     SELECT RAISE(ABORT, 'work message home is immutable');
   END;
 
+  CREATE TRIGGER IF NOT EXISTS work_standalone_messages_require_cc_home
+  BEFORE INSERT ON work_messages
+  WHEN
+    NEW.task_id IS NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM station_configuration AS configuration
+      JOIN station_installation AS installation
+        ON installation.singleton = configuration.singleton
+      WHERE configuration.singleton = 1
+        AND (
+          (
+            configuration.role = 'command-center'
+            AND NEW.entity_home = installation.installation_id
+          )
+          OR
+          (
+            configuration.role = 'remote'
+            AND NEW.entity_home =
+              configuration.command_center_installation_id
+          )
+        )
+    )
+  BEGIN
+    SELECT RAISE(
+      ABORT,
+      'standalone work messages must be Command Center-homed'
+    );
+  END;
+
   CREATE TRIGGER IF NOT EXISTS work_messages_actor_immutable
   BEFORE UPDATE OF actor_seat_id ON work_messages
   WHEN OLD.actor_seat_id <> NEW.actor_seat_id

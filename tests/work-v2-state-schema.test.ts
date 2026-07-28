@@ -38,6 +38,48 @@ const registerInstallation = (
     .run(installationId, observedAt);
 };
 
+const configureLocalInstallation = (
+  database: DatabaseSync,
+  installationId: string,
+  role: "command-center" | "remote",
+  commandCenterInstallationId?: string,
+): void => {
+  database
+    .prepare(
+      `
+        INSERT INTO station_installation(
+          singleton,
+          installation_id,
+          created_at
+        ) VALUES (1, ?, ?)
+      `,
+    )
+    .run(installationId, observedAt);
+  database
+    .prepare(
+      `
+        INSERT INTO station_configuration(
+          singleton,
+          role,
+          host_id,
+          agent_host_id,
+          command_center_installation_id,
+          supervised_preferred,
+          configured_at
+        ) VALUES (1, ?, ?, ?, ?, 1, ?)
+      `,
+    )
+    .run(
+      role,
+      role === "command-center" ? "local" : "remote",
+      role === "command-center" ? null : "remote",
+      role === "command-center"
+        ? null
+        : (commandCenterInstallationId ?? null),
+      observedAt,
+    );
+};
+
 const registerRoute = (
   database: DatabaseSync,
   eventHome: string,
@@ -384,6 +426,11 @@ describe("Work v2 exact-current SQLite schema", () => {
   test("requires immutable canonical sender seats on material mailbox rows", () => {
     const database = makeDatabase();
     registerInstallation(database, "cc-installation");
+    configureLocalInstallation(
+      database,
+      "cc-installation",
+      "command-center",
+    );
     registerRoute(database, "cc-installation", "cc-installation", "1");
     insertFact(database, {
       eventHome: "cc-installation",
@@ -470,6 +517,181 @@ describe("Work v2 exact-current SQLite schema", () => {
         )
         .run(seat("b")),
     ).toThrow(/work message actor seat is immutable/u);
+  });
+
+  test("restricts standalone mailbox rows to the configured Command Center home", () => {
+    const unconfigured = makeDatabase();
+    registerInstallation(unconfigured, "unconfigured-installation");
+    unconfigured
+      .prepare(
+        `
+          INSERT INTO station_installation(
+            singleton,
+            installation_id,
+            created_at
+          ) VALUES (1, ?, ?)
+        `,
+      )
+      .run("unconfigured-installation", observedAt);
+    registerRoute(
+      unconfigured,
+      "unconfigured-installation",
+      "unconfigured-installation",
+      "1",
+    );
+    insertFact(unconfigured, {
+      eventHome: "unconfigured-installation",
+      entityHome: "unconfigured-installation",
+      seq: "1",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "unconfigured-message",
+      contentSha256: hash("b"),
+    });
+
+    const insertMessage = (
+      database: DatabaseSync,
+      values: {
+        readonly messageId: string;
+        readonly entityHome: string;
+        readonly factEventHome: string;
+        readonly factEntityHome: string;
+        readonly taskId?: string;
+      },
+    ) =>
+      database
+        .prepare(
+          `
+            INSERT INTO work_messages(
+              canvas_name,
+              node_id,
+              message_id,
+              position,
+              entity_home,
+              actor_seat_id,
+              fact_event_home,
+              fact_entity_home,
+              fact_seq,
+              role,
+              parts_json,
+              task_id,
+              origin_at,
+              received_at
+            ) VALUES (
+              'factory',
+              'messages',
+              ?,
+              (SELECT count(*) FROM work_messages),
+              ?,
+              ?,
+              ?,
+              ?,
+              '1',
+              'agent',
+              '[]',
+              ?,
+              ?,
+              ?
+            )
+          `,
+        )
+        .run(
+          values.messageId,
+          values.entityHome,
+          seat("b"),
+          values.factEventHome,
+          values.factEntityHome,
+          values.taskId ?? null,
+          observedAt,
+          observedAt,
+        );
+    expect(() =>
+      insertMessage(unconfigured, {
+        messageId: "unconfigured-message",
+        entityHome: "unconfigured-installation",
+        factEventHome: "unconfigured-installation",
+        factEntityHome: "unconfigured-installation",
+      }),
+    ).toThrow(/standalone work messages must be Command Center-homed/u);
+
+    const remote = makeDatabase();
+    registerInstallation(remote, "cc-installation");
+    registerInstallation(remote, "remote-installation");
+    configureLocalInstallation(
+      remote,
+      "remote-installation",
+      "remote",
+      "cc-installation",
+    );
+    registerRoute(
+      remote,
+      "remote-installation",
+      "remote-installation",
+      "1",
+    );
+    registerRoute(remote, "cc-installation", "cc-installation", "1");
+    insertFact(remote, {
+      eventHome: "remote-installation",
+      entityHome: "remote-installation",
+      seq: "1",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "remote-message",
+      contentSha256: hash("c"),
+    });
+    insertFact(remote, {
+      eventHome: "cc-installation",
+      entityHome: "cc-installation",
+      seq: "1",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "cc-message",
+      contentSha256: hash("d"),
+    });
+
+    expect(() =>
+      insertMessage(remote, {
+        messageId: "remote-message",
+        entityHome: "remote-installation",
+        factEventHome: "remote-installation",
+        factEntityHome: "remote-installation",
+      }),
+    ).toThrow(/standalone work messages must be Command Center-homed/u);
+    insertMessage(remote, {
+      messageId: "remote-message",
+      entityHome: "remote-installation",
+      factEventHome: "remote-installation",
+      factEntityHome: "remote-installation",
+      taskId: "remote-task",
+    });
+    insertMessage(remote, {
+      messageId: "cc-message",
+      entityHome: "cc-installation",
+      factEventHome: "cc-installation",
+      factEntityHome: "cc-installation",
+    });
+    expect(
+      remote
+        .prepare(
+          `
+            SELECT message_id, entity_home, task_id
+            FROM work_messages
+            ORDER BY message_id
+          `,
+        )
+        .all(),
+    ).toEqual([
+      {
+        message_id: "cc-message",
+        entity_home: "cc-installation",
+        task_id: null,
+      },
+      {
+        message_id: "remote-message",
+        entity_home: "remote-installation",
+        task_id: "remote-task",
+      },
+    ]);
   });
 
   test("reserves at most one unresolved task claim per item and actor seat", () => {

@@ -88,6 +88,20 @@ const seedInstallations = (
       `,
       [local, observedAt],
     );
+    writer.run(
+      `
+        INSERT INTO station_configuration(
+          singleton,
+          role,
+          host_id,
+          agent_host_id,
+          command_center_installation_id,
+          supervised_preferred,
+          configured_at
+        ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)
+      `,
+      [observedAt],
+    );
   });
 
 beforeAll(async () => {
@@ -102,6 +116,107 @@ afterAll(async () => {
 });
 
 describe("WorkRepository v2 local authority", () => {
+  it("rejects unconfigured local mutation without writing any Work row", async () => {
+    const unconfiguredRoot = join(
+      tmpdir(),
+      `vellum-work-v2-unconfigured-${randomUUID()}`,
+    );
+    const unconfiguredRuntime = ManagedRuntime.make(
+      Layer.provideMerge(
+        WorkRepositoryLive,
+        makeStateEngineLive(join(unconfiguredRoot, "vellum.db")),
+      ),
+    );
+    try {
+      const unconfiguredRepository =
+        await unconfiguredRuntime.runPromise(WorkRepository);
+      const unconfiguredState =
+        await unconfiguredRuntime.runPromise(StateEngine);
+      const unconfiguredInstallation = Schema.decodeUnknownSync(
+        InstallationId,
+      )("unconfigured-repository");
+      await unconfiguredRuntime.runPromise(
+        unconfiguredState.transaction(
+          "test.seed-unconfigured-installation",
+          (writer) => {
+            writer.run(
+              `
+                INSERT INTO station_known_installations(
+                  installation_id,
+                  registered_at
+                ) VALUES (?, ?)
+              `,
+              [unconfiguredInstallation, observedAt],
+            );
+            writer.run(
+              `
+                INSERT INTO station_installation(
+                  singleton,
+                  installation_id,
+                  created_at
+                ) VALUES (1, ?, ?)
+              `,
+              [unconfiguredInstallation, observedAt],
+            );
+          },
+        ),
+      );
+
+      const result = await unconfiguredRuntime.runPromise(
+        unconfiguredRepository
+          .createTask({
+            sink: {
+              canvasName: "factory",
+              nodeId: "unconfigured-tasks",
+            },
+            task: {
+              id: "must-not-exist",
+              state: "submitted",
+              history: [
+                message(
+                  "must-not-exist-brief",
+                  "user",
+                  "deny before configuration",
+                  "must-not-exist",
+                ),
+              ],
+            },
+            originAt: observedAt,
+            receivedAt: observedAt,
+          })
+          .pipe(Effect.either),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left).toBeInstanceOf(WorkAuthorityError);
+        expect(result.left).toMatchObject({
+          reason: "authority-mismatch",
+        });
+      }
+      expect(
+        await unconfiguredRuntime.runPromise(
+          unconfiguredState.read(
+            "test.read-unconfigured-work-counts",
+            (reader) => ({
+              sequences: reader.get<{ readonly count: number }>(
+                "SELECT count(*) AS count FROM work_event_sequences",
+              )!.count,
+              records: reader.get<{ readonly count: number }>(
+                "SELECT count(*) AS count FROM work_events",
+              )!.count,
+              tasks: reader.get<{ readonly count: number }>(
+                "SELECT count(*) AS count FROM work_tasks",
+              )!.count,
+            }),
+          ),
+        ),
+      ).toEqual({ sequences: 0, records: 0, tasks: 0 });
+    } finally {
+      await unconfiguredRuntime.dispose();
+      await rm(unconfiguredRoot, { recursive: true, force: true });
+    }
+  });
+
   it("commits typed task facts on one full route with strict predecessors", async () => {
     const sink = { canvasName: "factory", nodeId: "tasks-local" };
     const created = await runtime.runPromise(

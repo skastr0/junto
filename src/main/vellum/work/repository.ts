@@ -4,6 +4,10 @@ import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { ActorSeatId } from "@shared/actor-seat";
 import { InstallationId } from "@shared/installation-id";
 import {
+  StationApiRole,
+  type StationApiRole as StationApiRoleValue,
+} from "@shared/station-api";
+import {
   Artifact,
   Message,
   Task,
@@ -458,6 +462,11 @@ type CursorRow = StateRow & {
   readonly through_sequence: string;
 };
 
+type LocalWorkAuthority = {
+  readonly installationId: InstallationId;
+  readonly role: StationApiRoleValue;
+};
+
 const canonicalLocalInstallation = (
   reader: StateReader,
 ): InstallationId => {
@@ -472,6 +481,43 @@ const canonicalLocalInstallation = (
     throw new Error("local Station installation identity is not initialized");
   }
   return Schema.decodeUnknownSync(InstallationId)(row.installation_id);
+};
+
+/**
+ * Resolve the complete authority required by every locally initiated Work
+ * mutation inside its transaction. Installation identity without an explicit
+ * configured role is not enough to mint a Work record.
+ */
+const canonicalLocalWorkAuthority = (
+  reader: StateReader,
+): LocalWorkAuthority => {
+  const row = reader.get<
+    StateRow & {
+      readonly installation_id: string;
+      readonly role: string;
+    }
+  >(
+    `
+      SELECT installation.installation_id, configuration.role
+      FROM station_installation AS installation
+      JOIN station_configuration AS configuration
+        ON configuration.singleton = installation.singleton
+      WHERE installation.singleton = 1
+    `,
+  );
+  if (row === undefined) {
+    throw WorkAuthorityError.make({
+      reason: "authority-mismatch",
+      message:
+        "local Station installation must be explicitly configured before Work mutation",
+    });
+  }
+  return {
+    installationId: Schema.decodeUnknownSync(InstallationId)(
+      row.installation_id,
+    ),
+    role: Schema.decodeUnknownSync(StationApiRole)(row.role),
+  };
 };
 
 const textNode = (node: CanvasNode): CanvasNode =>
@@ -3081,7 +3127,8 @@ export const WorkRepositoryLive = Layer.effect(
       const receivedAt = timestamp(input.receivedAt);
       const task = Schema.decodeUnknownSync(Task, strictDecode)(input.task);
       return transaction("work.task.create", input.sink, (writer) => {
-        const localInstallationId = canonicalLocalInstallation(writer);
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
         if (task.state !== "submitted" || task.claimedBy !== undefined) {
           throw authorityError(
             "invalid-transition",
@@ -3125,7 +3172,8 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.message);
       return transaction("work.task.describe", input.sink, (writer) => {
-        const localInstallationId = canonicalLocalInstallation(writer);
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
         const current = loadTask(
           writer,
           "task",
@@ -3183,7 +3231,8 @@ export const WorkRepositoryLive = Layer.effect(
           ? undefined
           : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
       return transaction("work.task.transition", input.sink, (writer) => {
-        const localInstallationId = canonicalLocalInstallation(writer);
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
         const current = loadTask(
           writer,
           "task",
@@ -3236,7 +3285,8 @@ export const WorkRepositoryLive = Layer.effect(
       const originAt = timestamp(input.originAt);
       const receivedAt = timestamp(input.receivedAt);
       return transaction("work.task.claim-local", input.sink, (writer) => {
-        const localInstallationId = canonicalLocalInstallation(writer);
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
         const current = loadTask(
           writer,
           "task",
@@ -3298,7 +3348,8 @@ export const WorkRepositoryLive = Layer.effect(
         input.request,
       );
       return transaction("work.request.create", input.sink, (writer) => {
-        const localInstallationId = canonicalLocalInstallation(writer);
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
         if (
           (request.state !== "input-required" &&
             request.state !== "auth-required") ||
@@ -3346,7 +3397,8 @@ export const WorkRepositoryLive = Layer.effect(
           ? undefined
           : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
       return transaction("work.request.resolve", input.sink, (writer) => {
-        const localInstallationId = canonicalLocalInstallation(writer);
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
         const current = loadTask(
           writer,
           "request",
@@ -3413,7 +3465,17 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.sentBy);
       return transaction("work.message.append", input.sink, (writer) => {
-        const localInstallationId = canonicalLocalInstallation(writer);
+        const authority = canonicalLocalWorkAuthority(writer);
+        const localInstallationId = authority.installationId;
+        if (
+          message.taskId === undefined &&
+          authority.role !== "command-center"
+        ) {
+          throw authorityError(
+            "authority-mismatch",
+            "standalone actor mailbox messages are Command Center-homed",
+          );
+        }
         if (
           writer.get<StateRow>(
             `
@@ -3452,7 +3514,8 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.artifact);
       return transaction("work.artifact.publish", input.sink, (writer) => {
-        const localInstallationId = canonicalLocalInstallation(writer);
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
         if (
           writer.get<StateRow>(
             `
@@ -3495,7 +3558,8 @@ export const WorkRepositoryLive = Layer.effect(
       const originAt = timestamp(input.originAt);
       const receivedAt = timestamp(input.receivedAt);
       return transaction("work.delivery.accepted", input.sink, (writer) => {
-        const localInstallationId = canonicalLocalInstallation(writer);
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
         const receipt = input.receipt;
         if (
           receipt.deliveredItem.sink.canvasName !== input.sink.canvasName ||
@@ -3550,7 +3614,8 @@ export const WorkRepositoryLive = Layer.effect(
         "work.task.reserve-remote-claim",
         input.sink,
         (writer) => {
-          const localInstallationId = canonicalLocalInstallation(writer);
+          const { installationId: localInstallationId } =
+            canonicalLocalWorkAuthority(writer);
           if (
             input.targetInstallationId === localInstallationId
           ) {
@@ -3619,7 +3684,8 @@ export const WorkRepositoryLive = Layer.effect(
         `work.${input.action.operation}.enqueue`,
         input.sink,
         (writer) => {
-          const localInstallationId = canonicalLocalInstallation(writer);
+          const { installationId: localInstallationId } =
+            canonicalLocalWorkAuthority(writer);
           if (
             input.targetInstallationId === localInstallationId
           ) {

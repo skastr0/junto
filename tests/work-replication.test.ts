@@ -73,6 +73,7 @@ const message = (
 const openInstallation = async (
   local: InstallationIdValue,
   peers: ReadonlyArray<InstallationIdValue>,
+  role: "command-center" | "remote",
 ) => {
   const root = join(
     tmpdir(),
@@ -112,6 +113,22 @@ const openInstallation = async (
           ) VALUES (1, ?, ?)
         `,
         [local, observedAt],
+      );
+      writer.run(
+        `
+          INSERT INTO station_configuration(
+            singleton,
+            role,
+            host_id,
+            agent_host_id,
+            command_center_installation_id,
+            supervised_preferred,
+            configured_at
+          ) VALUES (1, ?, ?, ?, ?, 1, ?)
+        `,
+        role === "command-center"
+          ? [role, "local", null, null, observedAt]
+          : [role, "remote", "remote", peers[0], observedAt],
       );
     }),
   );
@@ -167,8 +184,12 @@ describe("WorkRepository v2 report reconciliation", () => {
   it("preserves the exact sender through a Remote-to-CC mailbox command and fact", async () => {
     const cc = installation("cc-message-provenance");
     const remote = installation("remote-message-provenance");
-    const commandCenter = await openInstallation(cc, [remote]);
-    const station = await openInstallation(remote, [cc]);
+    const commandCenter = await openInstallation(
+      cc,
+      [remote],
+      "command-center",
+    );
+    const station = await openInstallation(remote, [cc], "remote");
     const inbox = { canvasName: "factory", nodeId: "cc-inbox" };
     const sender = actor("8", "remote-sender");
     const appended = message(
@@ -273,8 +294,12 @@ describe("WorkRepository v2 report reconciliation", () => {
   it("adopts one CC task on a Remote and integrates returned facts rather than replaying the command", async () => {
     const cc = installation("cc-first-adoption");
     const remote = installation("remote-first-adoption");
-    const commandCenter = await openInstallation(cc, [remote]);
-    const station = await openInstallation(remote, [cc]);
+    const commandCenter = await openInstallation(
+      cc,
+      [remote],
+      "command-center",
+    );
+    const station = await openInstallation(remote, [cc], "remote");
     const sink = { canvasName: "factory", nodeId: "shared-tasks" };
     const worker = actor("a", "remote-worker");
 
@@ -480,8 +505,12 @@ describe("WorkRepository v2 report reconciliation", () => {
   it("replays the exact durable fact/disposition and commits rejections as outcomes", async () => {
     const cc = installation("cc-replay");
     const remote = installation("remote-replay");
-    const commandCenter = await openInstallation(cc, [remote]);
-    const station = await openInstallation(remote, [cc]);
+    const commandCenter = await openInstallation(
+      cc,
+      [remote],
+      "command-center",
+    );
+    const station = await openInstallation(remote, [cc], "remote");
     const sink = { canvasName: "factory", nodeId: "replay-tasks" };
     const worker = actor("b");
 
@@ -570,9 +599,21 @@ describe("WorkRepository v2 report reconciliation", () => {
     const cc = installation("cc-integrity");
     const remote = installation("remote-integrity");
     const impostor = installation("other-known-installation");
-    const commandCenter = await openInstallation(cc, [remote, impostor]);
-    const station = await openInstallation(remote, [cc, impostor]);
-    const other = await openInstallation(impostor, [cc, remote]);
+    const commandCenter = await openInstallation(
+      cc,
+      [remote, impostor],
+      "command-center",
+    );
+    const station = await openInstallation(
+      remote,
+      [cc, impostor],
+      "remote",
+    );
+    const other = await openInstallation(
+      impostor,
+      [cc, remote],
+      "remote",
+    );
     const sink = { canvasName: "factory", nodeId: "integrity-tasks" };
     const worker = actor("c");
 
@@ -710,8 +751,12 @@ describe("WorkRepository v2 report reconciliation", () => {
   it("round-trips request.resolve commands and standalone Remote request/artifact facts", async () => {
     const cc = installation("cc-remote-facts");
     const remote = installation("remote-facts");
-    const commandCenter = await openInstallation(cc, [remote]);
-    const station = await openInstallation(remote, [cc]);
+    const commandCenter = await openInstallation(
+      cc,
+      [remote],
+      "command-center",
+    );
+    const station = await openInstallation(remote, [cc], "remote");
     const requester = actor("d", "requester");
     const requestSink = { canvasName: "factory", nodeId: "requests" };
     const artifactSink = { canvasName: "factory", nodeId: "artifacts" };
@@ -838,38 +883,45 @@ describe("WorkRepository v2 report reconciliation", () => {
       ).artifacts.items[0],
     ).toEqual(artifact.value);
 
-    const mail = await station.runtime.runPromise(
-      station.repository.appendMessage({
-        sink: inbox,
-        message: message("remote-mail", "agent", "must stay CC-homed"),
-        sentBy: requester,
-        originAt: observedAt,
-        receivedAt: observedAt,
-      }),
-    );
-    const deniedMail = await commandCenter.runtime.runPromise(
-      accept(commandCenter.repository, remote, [mail.record], {
-        authorizeFact: (fact) =>
-          fact.operation === "message.append"
-            ? {
-                _tag: "rejected",
-                reason: "locality-mismatch",
-                message: "mail authority is Command Center",
-              }
-            : admitted(),
-      }).pipe(Effect.either),
+    const deniedMail = await station.runtime.runPromise(
+      station.repository
+        .appendMessage({
+          sink: inbox,
+          message: message("remote-mail", "agent", "must stay CC-homed"),
+          sentBy: requester,
+          originAt: observedAt,
+          receivedAt: observedAt,
+        })
+        .pipe(Effect.either),
     );
     expect(Either.isLeft(deniedMail)).toBe(true);
     expect(
-      (
-        await commandCenter.runtime.runPromise(
-          commandCenter.repository.readSnapshot(
-            inbox.canvasName,
-            inbox.nodeId,
-          ),
-        )
-      ).messages.items,
-    ).toEqual([]);
+      await station.runtime.runPromise(
+        station.state.read(
+          "test.read-denied-remote-mail",
+          (reader) => ({
+            records: reader.get<{ readonly count: number }>(
+              `
+                SELECT count(*) AS count
+                FROM work_events
+                WHERE item_kind = 'message'
+                  AND item_id = 'remote-mail'
+              `,
+            )!.count,
+            material: reader.get<{ readonly count: number }>(
+              `
+                SELECT count(*) AS count
+                FROM work_messages
+                WHERE canvas_name = ?
+                  AND node_id = ?
+                  AND message_id = 'remote-mail'
+              `,
+              [inbox.canvasName, inbox.nodeId],
+            )!.count,
+          }),
+        ),
+      ),
+    ).toEqual({ records: 0, material: 0 });
 
     expect(
       (await commandCenter.runtime.runPromise(
