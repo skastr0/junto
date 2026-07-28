@@ -434,6 +434,7 @@ export const WORK_STATE_SCHEMA_SQL = `
     origin_at TEXT NOT NULL CHECK (length(origin_at) BETWEEN 1 AND 64),
     received_at TEXT NOT NULL CHECK (length(received_at) BETWEEN 1 AND 64),
     PRIMARY KEY (canvas_name, node_id, task_id),
+    UNIQUE (canvas_name, node_id, task_id, entity_home),
     UNIQUE (fact_event_home, fact_entity_home, fact_seq),
     CHECK (entity_home = fact_entity_home),
     CHECK (fact_event_home = fact_entity_home),
@@ -617,7 +618,22 @@ export const WORK_STATE_SCHEMA_SQL = `
     fact_seq TEXT NOT NULL,
     name TEXT,
     parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
-    task_id TEXT,
+    task_canvas_name TEXT
+      CHECK (
+        task_canvas_name IS NULL
+        OR length(task_canvas_name) BETWEEN 1 AND 256
+      ),
+    task_node_id TEXT
+      CHECK (
+        task_node_id IS NULL
+        OR length(task_node_id) BETWEEN 1 AND 256
+      ),
+    task_id TEXT
+      CHECK (
+        task_id IS NULL
+        OR length(task_id) BETWEEN 1 AND 256
+      ),
+    task_entity_home TEXT,
     metadata_json TEXT
       CHECK (metadata_json IS NULL OR json_valid(metadata_json)),
     origin_at TEXT NOT NULL CHECK (length(origin_at) BETWEEN 1 AND 64),
@@ -626,8 +642,40 @@ export const WORK_STATE_SCHEMA_SQL = `
     UNIQUE (fact_event_home, fact_entity_home, fact_seq),
     CHECK (entity_home = fact_entity_home),
     CHECK (fact_event_home = fact_entity_home),
+    CHECK (
+      (
+        task_canvas_name IS NULL
+        AND task_node_id IS NULL
+        AND task_id IS NULL
+        AND task_entity_home IS NULL
+      )
+      OR
+      (
+        task_canvas_name IS NOT NULL
+        AND task_node_id IS NOT NULL
+        AND task_id IS NOT NULL
+        AND task_entity_home IS NOT NULL
+      )
+    ),
+    CHECK (
+      task_entity_home IS NULL
+      OR task_entity_home = entity_home
+    ),
     FOREIGN KEY (entity_home)
       REFERENCES station_known_installations(installation_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT,
+    FOREIGN KEY (
+      task_canvas_name,
+      task_node_id,
+      task_id,
+      task_entity_home
+    ) REFERENCES work_tasks(
+      canvas_name,
+      node_id,
+      task_id,
+      entity_home
+    )
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (fact_event_home, fact_entity_home, fact_seq)
@@ -1121,6 +1169,50 @@ export const WORK_STATE_SCHEMA_SQL = `
   WHEN OLD.actor_seat_id <> NEW.actor_seat_id
   BEGIN
     SELECT RAISE(ABORT, 'work artifact actor seat is immutable');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS work_artifacts_require_claimed_task
+  BEFORE INSERT ON work_artifacts
+  WHEN
+    NEW.task_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1
+      FROM work_tasks
+      WHERE canvas_name = NEW.task_canvas_name
+        AND node_id = NEW.task_node_id
+        AND task_id = NEW.task_id
+        AND entity_home = NEW.task_entity_home
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM work_tasks
+      WHERE canvas_name = NEW.task_canvas_name
+        AND node_id = NEW.task_node_id
+        AND task_id = NEW.task_id
+        AND entity_home = NEW.task_entity_home
+        AND actor_seat_id IS NOT NULL
+    )
+  BEGIN
+    SELECT RAISE(
+      ABORT,
+      'work artifact requires an exact claimed same-home task'
+    );
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS work_artifacts_task_reference_immutable
+  BEFORE UPDATE OF
+    task_canvas_name,
+    task_node_id,
+    task_id,
+    task_entity_home
+  ON work_artifacts
+  WHEN
+    OLD.task_canvas_name IS NOT NEW.task_canvas_name
+    OR OLD.task_node_id IS NOT NEW.task_node_id
+    OR OLD.task_id IS NOT NEW.task_id
+    OR OLD.task_entity_home IS NOT NEW.task_entity_home
+  BEGIN
+    SELECT RAISE(ABORT, 'work artifact task reference is immutable');
   END;
 
   CREATE TRIGGER IF NOT EXISTS work_task_transitions_home_immutable

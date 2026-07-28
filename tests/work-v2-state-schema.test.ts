@@ -108,8 +108,9 @@ type RecordFixture = {
     | "task.create"
     | "task.claim"
     | "message.append"
+    | "artifact.publish"
     | "delivery.accepted";
-  readonly itemKind: "task" | "message" | "delivery";
+  readonly itemKind: "task" | "message" | "artifact" | "delivery";
   readonly itemId: string;
   readonly contentSha256: string;
 };
@@ -150,6 +151,8 @@ const insertRecord = (
         ? "tasks"
         : record.itemKind === "message"
           ? "messages"
+          : record.itemKind === "artifact"
+            ? "artifacts"
           : "deliveries",
       record.operation,
       record.contentSha256,
@@ -1215,6 +1218,258 @@ describe("Work v2 exact-current SQLite schema", () => {
         )
         .run(observedAt),
     ).toThrow(/home is immutable except for first claim adoption/u);
+  });
+
+  test("binds artifacts to an exact claimed same-home task without coupling publisher", () => {
+    const database = makeDatabase();
+    registerInstallation(database, "cc-installation");
+    registerInstallation(database, "remote-a");
+    configureLocalInstallation(
+      database,
+      "cc-installation",
+      "command-center",
+    );
+    registerRoute(database, "cc-installation", "cc-installation", "9");
+
+    for (const [seq, operation, itemKind, itemId, digit] of [
+      ["1", "task.claim", "task", "claimed-task", "1"],
+      ["2", "artifact.publish", "artifact", "linked-artifact", "2"],
+      ["3", "artifact.publish", "artifact", "partial-artifact", "3"],
+      ["4", "artifact.publish", "artifact", "missing-artifact", "4"],
+      ["5", "artifact.publish", "artifact", "wrong-home-artifact", "5"],
+      ["6", "task.create", "task", "unclaimed-task", "6"],
+      ["7", "artifact.publish", "artifact", "unclaimed-artifact", "7"],
+      ["8", "artifact.publish", "artifact", "unbound-artifact", "8"],
+      ["9", "artifact.publish", "artifact", "wrong-sink-artifact", "9"],
+    ] as const) {
+      insertFact(database, {
+        eventHome: "cc-installation",
+        entityHome: "cc-installation",
+        seq,
+        operation,
+        itemKind,
+        itemId,
+        contentSha256: hash(digit),
+      });
+    }
+
+    const insertTask = database.prepare(
+      `
+        INSERT INTO work_tasks(
+          canvas_name,
+          node_id,
+          task_id,
+          entity_home,
+          actor_seat_id,
+          fact_event_home,
+          fact_entity_home,
+          fact_seq,
+          state,
+          brief_message_id,
+          created_at,
+          updated_at,
+          origin_at,
+          received_at
+        ) VALUES (
+          'factory',
+          'tasks',
+          ?,
+          'cc-installation',
+          ?,
+          'cc-installation',
+          'cc-installation',
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?
+        )
+      `,
+    );
+    insertTask.run(
+      "claimed-task",
+      seat("b"),
+      "1",
+      "working",
+      "claimed-brief",
+      observedAt,
+      observedAt,
+      observedAt,
+      observedAt,
+    );
+    insertTask.run(
+      "unclaimed-task",
+      null,
+      "6",
+      "submitted",
+      "unclaimed-brief",
+      observedAt,
+      observedAt,
+      observedAt,
+      observedAt,
+    );
+
+    const insertArtifact = database.prepare(
+      `
+        INSERT INTO work_artifacts(
+          canvas_name,
+          node_id,
+          artifact_id,
+          entity_home,
+          actor_seat_id,
+          fact_event_home,
+          fact_entity_home,
+          fact_seq,
+          parts_json,
+          task_canvas_name,
+          task_node_id,
+          task_id,
+          task_entity_home,
+          origin_at,
+          received_at
+        ) VALUES (
+          'factory',
+          'artifacts',
+          ?,
+          'cc-installation',
+          ?,
+          'cc-installation',
+          'cc-installation',
+          ?,
+          '[]',
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?
+        )
+      `,
+    );
+    insertArtifact.run(
+      "linked-artifact",
+      seat("c"),
+      "2",
+      "factory",
+      "tasks",
+      "claimed-task",
+      "cc-installation",
+      observedAt,
+      observedAt,
+    );
+    expect(
+      database
+        .prepare(
+          `
+            SELECT
+              actor_seat_id,
+              task_canvas_name,
+              task_node_id,
+              task_id,
+              task_entity_home
+            FROM work_artifacts
+            WHERE artifact_id = 'linked-artifact'
+          `,
+        )
+        .get(),
+    ).toEqual({
+      actor_seat_id: seat("c"),
+      task_canvas_name: "factory",
+      task_node_id: "tasks",
+      task_id: "claimed-task",
+      task_entity_home: "cc-installation",
+    });
+
+    expect(() =>
+      insertArtifact.run(
+        "partial-artifact",
+        seat("c"),
+        "3",
+        null,
+        "tasks",
+        "claimed-task",
+        "cc-installation",
+        observedAt,
+        observedAt,
+      ),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      insertArtifact.run(
+        "missing-artifact",
+        seat("c"),
+        "4",
+        "factory",
+        "tasks",
+        "missing-task",
+        "cc-installation",
+        observedAt,
+        observedAt,
+      ),
+    ).toThrow(/FOREIGN KEY constraint failed/u);
+    expect(() =>
+      insertArtifact.run(
+        "wrong-sink-artifact",
+        seat("c"),
+        "9",
+        "factory",
+        "other-tasks",
+        "claimed-task",
+        "cc-installation",
+        observedAt,
+        observedAt,
+      ),
+    ).toThrow(/FOREIGN KEY constraint failed/u);
+    expect(() =>
+      insertArtifact.run(
+        "wrong-home-artifact",
+        seat("c"),
+        "5",
+        "factory",
+        "tasks",
+        "claimed-task",
+        "remote-a",
+        observedAt,
+        observedAt,
+      ),
+    ).toThrow(/constraint failed/u);
+    expect(() =>
+      insertArtifact.run(
+        "unclaimed-artifact",
+        seat("c"),
+        "7",
+        "factory",
+        "tasks",
+        "unclaimed-task",
+        "cc-installation",
+        observedAt,
+        observedAt,
+      ),
+    ).toThrow(/exact claimed same-home task/u);
+
+    insertArtifact.run(
+      "unbound-artifact",
+      seat("c"),
+      "8",
+      null,
+      null,
+      null,
+      null,
+      observedAt,
+      observedAt,
+    );
+    expect(() =>
+      database
+        .prepare(
+          `
+            UPDATE work_artifacts
+            SET task_id = 'other-task'
+            WHERE artifact_id = 'linked-artifact'
+          `,
+        )
+        .run(),
+    ).toThrow(/task reference is immutable/u);
   });
 
   test("persists delivery acceptance as an actor-bound fact receipt", () => {

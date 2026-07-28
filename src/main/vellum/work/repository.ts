@@ -444,7 +444,10 @@ type ArtifactRow = StateRow & {
   readonly artifact_id: string;
   readonly name: string | null;
   readonly parts_json: string;
+  readonly task_canvas_name: string | null;
+  readonly task_node_id: string | null;
   readonly task_id: string | null;
+  readonly task_entity_home: string | null;
   readonly metadata_json: string | null;
 };
 
@@ -702,7 +705,10 @@ const loadArtifacts = (
           artifact_id,
           name,
           parts_json,
+          task_canvas_name,
+          task_node_id,
           task_id,
+          task_entity_home,
           metadata_json
         FROM work_artifacts
         WHERE canvas_name = ? AND node_id = ?
@@ -715,7 +721,18 @@ const loadArtifacts = (
         artifactId: row.artifact_id,
         ...(row.name === null ? {} : { name: row.name }),
         parts: parseJson(row.parts_json),
-        ...(row.task_id === null ? {} : { taskId: row.task_id }),
+        ...(row.task_id === null
+          ? {}
+          : {
+              task: {
+                kind: "task",
+                itemId: row.task_id,
+                sink: {
+                  canvasName: row.task_canvas_name,
+                  nodeId: row.task_node_id,
+                },
+              },
+            }),
         ...(row.metadata_json === null
           ? {}
           : { metadata: parseJson(row.metadata_json) }),
@@ -829,6 +846,46 @@ const authorityError = (
   reason: WorkAuthorityError["reason"],
   message: string,
 ): WorkAuthorityError => WorkAuthorityError.make({ reason, message });
+
+const assertArtifactTaskReference = (
+  reader: StateReader,
+  artifactSink: SinkRefValue,
+  artifact: ArtifactValue,
+  entityHome: InstallationId,
+): void => {
+  const taskRef = artifact.task;
+  if (taskRef === undefined) return;
+  if (taskRef.sink.canvasName !== artifactSink.canvasName) {
+    throw authorityError(
+      "target-mismatch",
+      "artifact task reference must belong to the artifact canvas",
+    );
+  }
+  const current = loadTask(
+    reader,
+    "task",
+    taskRef.sink,
+    taskRef.itemId,
+  );
+  if (current === undefined) {
+    throw authorityError(
+      "missing-entity",
+      `artifact task "${taskRef.itemId}" does not exist`,
+    );
+  }
+  if (current.row.entity_home !== entityHome) {
+    throw authorityError(
+      "authority-mismatch",
+      `artifact task "${taskRef.itemId}" is homed on another installation`,
+    );
+  }
+  if (current.task.claimedBy === undefined) {
+    throw authorityError(
+      "invalid-transition",
+      `artifact task "${taskRef.itemId}" must be claimed before linkage`,
+    );
+  }
+};
 
 type ThreadMessageDestination = Exclude<
   MessageAppendDestination,
@@ -1727,11 +1784,14 @@ const writeArtifact = (
         fact_seq,
         name,
         parts_json,
+        task_canvas_name,
+        task_node_id,
         task_id,
+        task_entity_home,
         metadata_json,
         origin_at,
         received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       sink.canvasName,
@@ -1744,7 +1804,12 @@ const writeArtifact = (
       fact.id.seq,
       artifact.name ?? null,
       canonicalJson(artifact.parts),
-      artifact.taskId ?? null,
+      artifact.task?.sink.canvasName ?? null,
+      artifact.task?.sink.nodeId ?? null,
+      artifact.task?.itemId ?? null,
+      artifact.task === undefined
+        ? null
+        : fact.id.route.entityHome,
       artifact.metadata === undefined
         ? null
         : canonicalJson(artifact.metadata),
@@ -2358,6 +2423,12 @@ const resultForCommand = (
       };
     }
     case "artifact.publish": {
+      assertArtifactTaskReference(
+        writer,
+        command.item.sink,
+        action.artifact,
+        command.id.route.entityHome,
+      );
       const exists = writer.get<StateRow>(
         `
           SELECT 1
@@ -3004,6 +3075,12 @@ const validateIncomingFact = (
       return;
     }
     case "artifact.publish": {
+      assertArtifactTaskReference(
+        writer,
+        fact.item.sink,
+        fact.body.artifact,
+        sender,
+      );
       if (
         writer.get<StateRow>(
           `
@@ -3750,6 +3827,12 @@ export const WorkRepositoryLive = Layer.effect(
       return transaction("work.artifact.publish", input.sink, (writer) => {
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
+        assertArtifactTaskReference(
+          writer,
+          input.sink,
+          artifact,
+          localInstallationId,
+        );
         if (
           writer.get<StateRow>(
             `

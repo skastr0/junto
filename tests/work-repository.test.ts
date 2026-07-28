@@ -49,6 +49,22 @@ const actor = {
   nodeId: "builder",
 };
 
+const artifactClaimant = {
+  seatId: Schema.decodeUnknownSync(ActorSeatId)(
+    `seat_${"b".repeat(64)}`,
+  ),
+  canvasName: "factory",
+  nodeId: "artifact-task-worker",
+};
+
+const artifactPublisher = {
+  seatId: Schema.decodeUnknownSync(ActorSeatId)(
+    `seat_${"c".repeat(64)}`,
+  ),
+  canvasName: "factory",
+  nodeId: "artifact-publisher",
+};
+
 const message = (
   messageId: string,
   role: "user" | "agent",
@@ -522,6 +538,188 @@ describe("WorkRepository v2 local authority", () => {
         )
       ).artifacts.items,
     ).toEqual([artifact.value]);
+  });
+
+  it("links artifact provenance to one exact claimed same-home task", async () => {
+    const taskSink = {
+      canvasName: "factory",
+      nodeId: "artifact-source-tasks",
+    };
+    const artifactSink = {
+      canvasName: "factory",
+      nodeId: "artifact-task-links",
+    };
+    const created = await runtime.runPromise(
+      repository.createTask({
+        sink: taskSink,
+        task: {
+          id: "artifact-source-task",
+          state: "submitted",
+          history: [
+            message(
+              "artifact-source-brief",
+              "user",
+              "produce proof",
+              "artifact-source-task",
+            ),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const task = {
+      kind: "task" as const,
+      itemId: created.value.id,
+      sink: taskSink,
+    };
+
+    const beforeClaim = await runtime.runPromise(
+      repository
+        .publishArtifact({
+          sink: artifactSink,
+          publishedBy: artifactPublisher,
+          artifact: {
+            artifactId: "artifact-before-claim",
+            parts: [{ kind: "text", text: "too early" }],
+            task,
+          },
+          originAt: observedAt,
+          receivedAt: observedAt,
+        })
+        .pipe(Effect.either),
+    );
+    expect(Either.isLeft(beforeClaim)).toBe(true);
+    if (Either.isLeft(beforeClaim)) {
+      expect(beforeClaim.left).toMatchObject({
+        reason: "invalid-transition",
+      });
+    }
+
+    await runtime.runPromise(
+      repository.claimLocalTask({
+        sink: taskSink,
+        taskId: created.value.id,
+        actor: artifactClaimant,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const published = await runtime.runPromise(
+      repository.publishArtifact({
+        sink: artifactSink,
+        publishedBy: artifactPublisher,
+        artifact: {
+          artifactId: "artifact-with-task",
+          name: "proof",
+          parts: [{ kind: "text", text: "done" }],
+          task,
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(published.value.task).toEqual(task);
+    expect(
+      (
+        await runtime.runPromise(
+          repository.readSnapshot(
+            artifactSink.canvasName,
+            artifactSink.nodeId,
+          ),
+        )
+      ).artifacts.items,
+    ).toEqual([published.value]);
+    expect(
+      await runtime.runPromise(
+        state.read("test.read-artifact-task-reference", (reader) =>
+          reader.get<{
+            readonly actor_seat_id: string;
+            readonly task_canvas_name: string;
+            readonly task_node_id: string;
+            readonly task_id: string;
+            readonly task_entity_home: string;
+          }>(
+            `
+              SELECT
+                actor_seat_id,
+                task_canvas_name,
+                task_node_id,
+                task_id,
+                task_entity_home
+              FROM work_artifacts
+              WHERE canvas_name = ?
+                AND node_id = ?
+                AND artifact_id = ?
+            `,
+            [
+              artifactSink.canvasName,
+              artifactSink.nodeId,
+              published.value.artifactId,
+            ],
+          ),
+        ),
+      ),
+    ).toEqual({
+      actor_seat_id: artifactPublisher.seatId,
+      task_canvas_name: taskSink.canvasName,
+      task_node_id: taskSink.nodeId,
+      task_id: created.value.id,
+      task_entity_home: cc,
+    });
+
+    for (const [artifactId, invalidTask, reason] of [
+      [
+        "artifact-missing-task",
+        { ...task, itemId: "missing-task" },
+        "missing-entity",
+      ],
+      [
+        "artifact-cross-canvas",
+        {
+          ...task,
+          sink: { ...task.sink, canvasName: "other-canvas" },
+        },
+        "target-mismatch",
+      ],
+    ] as const) {
+      const invalid = await runtime.runPromise(
+        repository
+          .publishArtifact({
+            sink: artifactSink,
+            publishedBy: artifactPublisher,
+            artifact: {
+              artifactId,
+              parts: [{ kind: "text", text: "invalid" }],
+              task: invalidTask,
+            },
+            originAt: observedAt,
+            receivedAt: observedAt,
+          })
+          .pipe(Effect.either),
+      );
+      expect(Either.isLeft(invalid)).toBe(true);
+      if (Either.isLeft(invalid)) {
+        expect(invalid.left).toMatchObject({ reason });
+      }
+    }
+
+    expect(
+      await runtime.runPromise(
+        state.read(
+          "test.count-artifacts-after-invalid-links",
+          (reader) =>
+            reader.get<{ readonly count: number }>(
+              `
+                SELECT count(*) AS count
+                FROM work_artifacts
+                WHERE canvas_name = ? AND node_id = ?
+              `,
+              [artifactSink.canvasName, artifactSink.nodeId],
+            )!.count,
+        ),
+      ),
+    ).toBe(1);
   });
 
   it("materializes task and request appends only in their exact same-home threads", async () => {
