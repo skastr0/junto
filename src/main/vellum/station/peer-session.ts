@@ -666,18 +666,21 @@ export const makeStationPeerSession = (
             break;
         }
 
-        const sent = yield* options.transport.send(frame).pipe(Effect.either);
-        if (Either.isLeft(sent)) {
-          const error = sessionClosed(
-            options.peerInstallationId,
-            "transport-failed",
-            sent.left.message,
-          );
-          yield* closeWith(error);
-          return yield* error;
-        }
-
-        const envelope = yield* Deferred.await(response).pipe(
+        const envelope = yield* Effect.gen(function* () {
+          const sent = yield* options.transport
+            .send(frame)
+            .pipe(Effect.either);
+          if (Either.isLeft(sent)) {
+            const error = sessionClosed(
+              options.peerInstallationId,
+              "transport-failed",
+              sent.left.message,
+            );
+            yield* closeWith(error);
+            return yield* error;
+          }
+          return yield* Deferred.await(response);
+        }).pipe(
           Effect.onInterrupt(() =>
             closeWith(
               sessionClosed(
