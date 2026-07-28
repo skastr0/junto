@@ -346,7 +346,10 @@ const dismissStationRoleGate = async (page: Page): Promise<void> => {
   } catch {
     return; // no gate this run — fine.
   }
-  await page.getByRole("button", { name: /Command Center/ }).first().click();
+  await page
+    .getByRole("button", { name: /Set up as Command Center/ })
+    .first()
+    .click();
   await gate.waitFor({ state: "hidden", timeout: 20_000 });
 };
 

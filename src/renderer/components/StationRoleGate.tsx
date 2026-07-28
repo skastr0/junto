@@ -1,7 +1,6 @@
 import { use$ } from "@legendapp/state/react";
 import { useCallback, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type { DiscoveredPeer } from "@shared/ipc";
 import { state$ } from "../lib/state";
 import { setStationTopology } from "../lib/settings-state";
 import { DIM, FAINT, HUE, INK, RAISE, STROKE, withAlpha } from "../lib/theme";
@@ -13,8 +12,9 @@ type ScanState =
   | { readonly status: "scanning" }
   | {
       readonly status: "done";
-      readonly peers: ReadonlyArray<DiscoveredPeer>;
-      readonly message?: string;
+      /** True only when a Command Center is actually identified — never mesh peers alone. */
+      readonly commandCenterFound: boolean;
+      readonly detail: string;
     };
 
 /**
@@ -24,6 +24,9 @@ type ScanState =
  * Remote identity is never self-selected — a Command Center claims this
  * installation over the Station API. Mesh discovery is opt-in only so we
  * never fire SSH probes or Tailscale CLI from first paint.
+ *
+ * A Tailscale peer list is not a Command Center. Until a non-SSH station
+ * advertisement exists, opt-in scan reports "no Command Center found".
  */
 export function StationRoleGate() {
   const settings = use$(state$.settings);
@@ -52,16 +55,18 @@ export function StationRoleGate() {
     }
   }, [busy, settings?.station?.hostId]);
 
-  const scanMesh = useCallback(async () => {
+  const scanForCommandCenter = useCallback(async () => {
     if (scan.status === "scanning") return;
     setScan({ status: "scanning" });
     try {
-      // Tailscale status only — no SSH reachability probes. Empty mesh is success.
+      // Opt-in only. hostsDiscoverPeers is Tailscale status — peers are not
+      // Command Centers. Do not promote them. No SSH reachability probes.
       if (!window.vellum?.hostsDiscoverPeers) {
         setScan({
           status: "done",
-          peers: [],
-          message: "Mesh discovery API unavailable on this build",
+          commandCenterFound: false,
+          detail:
+            "No Command Center found. Discovery is unavailable on this build — set this machine up as Command Center, or leave it unset until one claims it.",
         });
         return;
       }
@@ -69,32 +74,35 @@ export function StationRoleGate() {
       if (!result.ok) {
         setScan({
           status: "done",
-          peers: [],
-          message: result.message ?? "Could not read Tailscale mesh",
+          commandCenterFound: false,
+          detail:
+            result.message ??
+            "No Command Center found. Could not read the Tailscale mesh — set this machine up as Command Center, or leave it unset until one claims it.",
         });
         return;
       }
+      // Mesh peers alone never mean "Command Center found". Self-assigning
+      // Remote is forbidden; only a real Station API claim establishes Remote.
       setScan({
         status: "done",
-        peers: result.peers ?? [],
-        ...(result.message ? { message: result.message } : {}),
+        commandCenterFound: false,
+        detail:
+          "No Command Center found. Set this machine up as Command Center, or leave it unset until an existing Command Center claims it from fleet controls.",
       });
     } catch (err) {
       setScan({
         status: "done",
-        peers: [],
-        message: err instanceof Error ? err.message : String(err),
+        commandCenterFound: false,
+        detail:
+          err instanceof Error
+            ? `No Command Center found (${err.message}).`
+            : "No Command Center found.",
       });
     }
   }, [scan.status]);
 
   if (settings === undefined) return null;
   if (role === "command-center" || role === "remote") return null;
-
-  const peers = scan.status === "done" ? scan.peers : [];
-  const onlinePeers = peers.filter((peer) => peer.online);
-  const listedPeers = onlinePeers.length > 0 ? onlinePeers : peers;
-  const scanError = scan.status === "done" ? scan.message : undefined;
 
   return createPortal(
     <div
@@ -154,7 +162,7 @@ export function StationRoleGate() {
             type="button"
             disabled={busy || scan.status === "scanning"}
             onClick={() => void establishCommandCenter()}
-            aria-label="Command Center"
+            aria-label="Set up as Command Center"
             style={primaryCardStyle}
           >
             <strong style={{ color: INK }}>Set up as Command Center</strong>
@@ -189,35 +197,36 @@ export function StationRoleGate() {
                 variant="chrome"
                 size="md"
                 disabled={busy || scan.status === "scanning"}
-                onClick={() => void scanMesh()}
-                aria-label="Look for machines on Tailscale"
+                onClick={() => void scanForCommandCenter()}
+                aria-label="Look for a Command Center"
               >
                 {scan.status === "scanning"
                   ? "Looking…"
                   : scan.status === "done"
                     ? "Scan again"
-                    : "Look for machines on Tailscale"}
+                    : "Look for a Command Center"}
               </Button>
               <span style={{ color: FAINT, fontSize: 11, lineHeight: 1.4 }}>
-                Tailscale mesh only — no SSH
+                Opt-in · no SSH
               </span>
             </div>
 
             {scan.status === "idle" ? (
               <p style={{ color: FAINT, fontSize: 12, margin: 0, lineHeight: 1.45 }}>
-                Optional. Scan only if you expect another Vellum machine on your
-                tailnet to claim this host.
+                Optional. Checks for an identifiable Command Center without
+                probing hosts over SSH.
               </p>
             ) : null}
 
             {scan.status === "scanning" ? (
               <p style={{ color: DIM, fontSize: 12, margin: 0, lineHeight: 1.45 }}>
-                Reading Tailscale status…
+                Looking for a Command Center…
               </p>
             ) : null}
 
-            {scan.status === "done" && listedPeers.length === 0 ? (
+            {scan.status === "done" && !scan.commandCenterFound ? (
               <p
+                role="status"
                 style={{
                   color: DIM,
                   fontSize: 12,
@@ -225,46 +234,19 @@ export function StationRoleGate() {
                   lineHeight: 1.45,
                 }}
               >
-                {scanError
-                  ? scanError
-                  : "No other machines found on the Tailscale mesh. Proceed to set this up as Command Center, or leave the app open if a Command Center will claim it later."}
+                {scan.detail}
               </p>
             ) : null}
 
-            {scan.status === "done" && listedPeers.length > 0 ? (
+            {scan.status === "done" && scan.commandCenterFound ? (
               <div style={foundCardStyle} role="status">
                 <Eyebrow tone="cyan" size="xs">
-                  MESH MACHINES VISIBLE
+                  COMMAND CENTER FOUND
                 </Eyebrow>
-                <strong style={{ color: INK, fontSize: 13 }}>
-                  Claim this host from Command Center on:
-                </strong>
-                <ul
-                  style={{
-                    margin: "4px 0 0",
-                    padding: "0 0 0 1.1em",
-                    color: INK,
-                    fontSize: 12,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {listedPeers.map((peer) => (
-                    <li key={peer.name}>
-                      <span style={{ color: INK }}>{peer.name}</span>
-                      {!peer.online ? (
-                        <span style={{ color: FAINT }}> · offline</span>
-                      ) : null}
-                      {peer.os ? (
-                        <span style={{ color: FAINT }}> · {peer.os}</span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
+                <strong style={{ color: INK, fontSize: 13 }}>{scan.detail}</strong>
                 <span style={{ color: DIM, fontSize: 12, lineHeight: 1.45 }}>
-                  Mesh presence is not proof those machines run Command Center.
-                  Open Vellum there, establish Command Center if needed, then
-                  enroll this installation from fleet controls. This machine
-                  stays unset until the Station API claim lands — it never
+                  Leave this installation unset. Enroll it as a Remote from that
+                  Command Center&apos;s fleet controls — this machine never
                   self-assigns Remote.
                 </span>
               </div>
