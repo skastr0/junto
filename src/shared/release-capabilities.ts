@@ -15,7 +15,7 @@ export type ReleaseCapabilities = {
   readonly managedRemoteDeploy: boolean;
   readonly darwinRemoteDeploy: boolean;
   readonly commandCenterTransfer: boolean;
-  /** Tier-3 harness plugin install via packager (local + remote SSH apply). */
+  /** Harness plugin install via packager (local + enrolled Remote SSH apply). */
   readonly pluginInstall: boolean;
 };
 
