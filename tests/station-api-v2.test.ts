@@ -7,19 +7,24 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
+  STATION_API_MAX_REPORT_BATCH_BYTES,
   STATION_API_PROTOCOL,
   StatusRequest,
   StatusResponse,
 } from "../src/shared/station-api";
 import {
+  WORK_PROTOCOL_MAX_RECORD_BYTES,
   WorkCommand,
   WorkFact,
+  workRecordEncodedByteLength,
   type ActorRef,
   type WorkCommand as WorkCommandValue,
   type WorkFact as WorkFactValue,
 } from "../src/shared/work-protocol";
 import {
   makeStationWorkAdmission,
+  mandatoryReportResponseReservationBytes,
+  pageStationReport,
   selectStationReportRoutes,
   StationApiService,
   type StationApiPeerContext,
@@ -260,6 +265,11 @@ const messageFact = (): WorkFactValue =>
       seq: "1",
     },
     recordType: "fact",
+    basis: {
+      kind: "command",
+      command: messageCommand().id,
+      commandSha256: messageCommand().contentSha256,
+    },
     item: {
       kind: "message",
       itemId: message.messageId,
@@ -329,6 +339,11 @@ const threadFact = (): WorkFactValue =>
       seq: "1",
     },
     recordType: "fact",
+    basis: {
+      kind: "projected-intent",
+      generation: "1",
+      contentSha256,
+    },
     item: {
       kind: "message",
       itemId: threadMessage.messageId,
@@ -356,6 +371,11 @@ const artifactFact = (
       seq: "2",
     },
     recordType: "fact",
+    basis: {
+      kind: "projected-intent",
+      generation: "1",
+      contentSha256,
+    },
     item: {
       kind: "artifact",
       itemId: "artifact-1",
@@ -414,7 +434,100 @@ const taskDescribeCommand = (
     },
   });
 
+const largeTaskCreateCommand = (
+  seq: number,
+): WorkCommandValue => {
+  const itemId = `large-task-${seq}`;
+  return Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: cc, entityHome: remote },
+      seq: String(seq),
+    },
+    recordType: "command",
+    item: {
+      kind: "task",
+      itemId,
+      sink: { canvasName: "factory", nodeId: "tasks" },
+    },
+    operation: "task.create",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "task.create",
+      task: {
+        id: itemId,
+        state: "submitted",
+        history: [
+          {
+            messageId: `brief-${seq}`,
+            role: "user",
+            parts: [
+              {
+                kind: "text",
+                text: "x".repeat(220 * 1024),
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
+};
+
 describe("Station API v2 work routing", () => {
+  it("pages large commands only while their mandatory responses fit", async () => {
+    const commands = Array.from(
+      { length: 16 },
+      (_, index) => largeTaskCreateCommand(index + 1),
+    );
+    const work = {
+      recordsAfter: () => Effect.succeed(commands),
+    } as unknown as Parameters<typeof pageStationReport>[0];
+    const facts = {
+      installationId: cc,
+      receivedThrough: [],
+      peerAcknowledgedThrough: [],
+    } as Parameters<typeof pageStationReport>[1];
+
+    expect(
+      commands.every((command) => {
+        const bytes = workRecordEncodedByteLength(command);
+        return (
+          bytes !== undefined &&
+          bytes > 200 * 1024 &&
+          bytes <= WORK_PROTOCOL_MAX_RECORD_BYTES
+        );
+      }),
+    ).toBe(true);
+
+    const batch = await Effect.runPromise(
+      pageStationReport(
+        work,
+        facts,
+        cc,
+        remote,
+        [],
+        [],
+        "command-center",
+        true,
+      ),
+    );
+
+    expect(batch.records).toHaveLength(15);
+    expect(batch.hasMore).toBe(true);
+    expect(
+      mandatoryReportResponseReservationBytes(batch.records),
+    ).toBeLessThanOrEqual(STATION_API_MAX_REPORT_BATCH_BYTES);
+    expect(
+      mandatoryReportResponseReservationBytes([
+        ...batch.records,
+        commands[15]!,
+      ]),
+    ).toBeGreaterThan(STATION_API_MAX_REPORT_BATCH_BYTES);
+  });
+
   it("never broadcasts Command Center local facts to Remote peers", () => {
     const first = selectStationReportRoutes(
       "command-center",

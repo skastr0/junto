@@ -5,6 +5,7 @@ import {
   ReportBatch,
   ReportRequest,
   ReportResponse,
+  STATION_API_MAX_REPORT_BATCH_BYTES,
   STATION_API_MAX_RECORDS_PER_REPORT,
   STATION_API_PROTOCOL,
   StatusResponse,
@@ -21,6 +22,7 @@ import {
   type StationReadiness,
 } from "@shared/station-api";
 import {
+  WORK_PROTOCOL_MAX_RECORD_BYTES,
   type ActorRef,
   type MessageAppendDestination,
   type RouteCursor,
@@ -71,6 +73,10 @@ import {
 
 const strictDecode = { onExcessProperty: "error" } as const;
 const ROUTE_PAGE_LIMIT = STATION_API_MAX_RECORDS_PER_REPORT + 1;
+const REPORT_RESPONSE_FIXED_RESERVE_BYTES =
+  WORK_PROTOCOL_MAX_RECORD_BYTES;
+const REPORT_RESPONSE_BYTES_PER_COMMAND =
+  WORK_PROTOCOL_MAX_RECORD_BYTES * 2;
 
 export type StationApiPeerContext =
   | {
@@ -779,6 +785,27 @@ const reportBatch = (
     hasMore,
   });
 
+/**
+ * Reserve the worst-case mandatory response before a command enters a page.
+ *
+ * Any admitted command can emit one maximum-size fact and one maximum-size
+ * disposition. One additional record-sized reserve covers the response
+ * envelope, cumulative route acknowledgements, and JSON array separators.
+ * Actual response paging remains governed by ReportBatch admission.
+ */
+export const mandatoryReportResponseReservationBytes = (
+  records: ReadonlyArray<WorkRecord>,
+): number =>
+  REPORT_RESPONSE_FIXED_RESERVE_BYTES +
+  records.reduce(
+    (bytes, record) =>
+      bytes +
+      (record.recordType === "command"
+        ? REPORT_RESPONSE_BYTES_PER_COMMAND
+        : 0),
+    0,
+  );
+
 const admitTransactionalResponse = (
   existingAcknowledge: ReadonlyArray<RouteCursor>,
 ) =>
@@ -931,7 +958,7 @@ const captureTopology = (
     };
   });
 
-const pageOutbound = (
+export const pageStationReport = (
   work: Context.Tag.Service<typeof WorkRepository>,
   facts: StationStatusFacts,
   localInstallationId: InstallationIdValue,
@@ -1001,8 +1028,16 @@ const pageOutbound = (
         if (candidate === undefined || seen.has(recordKey(candidate))) {
           continue;
         }
+        const candidateRecords = [...records, candidate];
+        if (
+          mandatoryReportResponseReservationBytes(candidateRecords) >
+            STATION_API_MAX_REPORT_BATCH_BYTES
+        ) {
+          capacityReached = true;
+          break;
+        }
         const decision = decideReportBatchAdmission({
-          records: [...records, candidate],
+          records: candidateRecords,
           acknowledge,
           hasMore: true,
         });
@@ -1224,7 +1259,7 @@ export const StationApiLive = Layer.effect(
           facts,
           peerInstallationId,
         );
-        const batch = yield* pageOutbound(
+        const batch = yield* pageStationReport(
           work,
           facts,
           localInstallationId,
@@ -1340,7 +1375,7 @@ export const StationApiLive = Layer.effect(
           topology,
           request.batch,
         );
-        const batch = yield* pageOutbound(
+        const batch = yield* pageStationReport(
           work,
           result.facts,
           localInstallationId,
