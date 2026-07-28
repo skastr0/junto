@@ -34,7 +34,16 @@ to correctness.
 JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
 not durability or input watched by the app.
 
-**SQLite evolution law:** version 1 is the frozen durable baseline.
+The only product exception to normal-runtime database ownership is the exact
+signed packaged candidate running `--vellum-state-preflight` after the
+installer has fully quiesced the incumbent. That process may open the fixed
+canonical path read-only long enough to mint a verified retained backup; it
+migrates and decodes only a disposable clone, starts no product runtime plane,
+and accepts no database-path redirect. It is an update proof, not a second
+store or general helper access path.
+
+**SQLite evolution law:** version 1 is the frozen durable baseline; version 3
+is current through immutable `1 → 2` and `2 → 3` steps.
 `PRAGMA user_version` selects a contiguous forward-only migration chain, and
 `state_schema_identity` proves the exact shape expected at each step. Every
 schema edit must increment the current version, append an atomic `N → N+1`
@@ -244,8 +253,9 @@ phase, and attention/occupancy are separate planes.
 - `~/.vellum/state/vellum.db` is the only product state store. Do not add JSON
   stores, manifests, seals, pointer files, drop-file protocols, dual
   reads/writes, legacy imports, or rollback paths.
-- The main process is the only production database opener. Headless and remote
-  surfaces must use the app-owned IPC/control/Station APIs.
+- The normal app main process is the only runtime database opener. Headless and
+  remote surfaces must use app-owned IPC/control/Station APIs. The sole update
+  exception is the quiesced, sealed, read-only candidate preflight above.
 - Adapters are read-only. The operator authors intent through Command Center;
   agents mutate only the work plane through `WorkService`.
 - Board/source IDs and tokens never leak into committed source.
