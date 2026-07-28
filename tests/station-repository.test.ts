@@ -9,6 +9,7 @@ import {
   Schema,
 } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
+import { ActorSeatId } from "../src/shared/actor-seat";
 import {
   serializeCanvas,
   type CanvasDoc,
@@ -23,6 +24,7 @@ import {
   StationHostId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/station-api";
+import { ProjectedIntentFactBasis } from "../src/shared/work-protocol";
 import {
   SettingsLive,
   SettingsService,
@@ -42,6 +44,10 @@ import {
   StateEngine,
   type StateRow,
 } from "../src/main/vellum/state/engine";
+import {
+  WorkRepository,
+  WorkRepositoryLive,
+} from "../src/main/vellum/work/repository";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeProjectionSequence =
@@ -71,12 +77,13 @@ const makeRuntime = (
   const stateLive = makeStateEngineLive(path);
   return ManagedRuntime.make(
     Layer.provideMerge(
-      Layer.merge(
+      Layer.mergeAll(
         makeStationRepositoryLive({
           makeInstallationId: () => generatedId,
           now: () => "2026-07-27T12:00:00.000Z",
         }),
         SettingsLive,
+        WorkRepositoryLive,
       ),
       stateLive,
     ),
@@ -1015,6 +1022,221 @@ describe("StationRepository", () => {
         ),
       ),
     ).toEqual([{ generation: "7" }, { generation: "8" }]);
+    await runtime.dispose();
+  });
+
+  it("replaces projected intent without touching Remote-owned Work or synchronization state", async () => {
+    const path = await testDatabase();
+    const local = decodeInstallationId("remote-projection-isolation");
+    const cc = decodeInstallationId("cc-projection-isolation");
+    const runtime = makeRuntime(path, local);
+    const repository = await runtime.runPromise(StationRepository);
+    const work = await runtime.runPromise(WorkRepository);
+    const state = await runtime.runPromise(StateEngine);
+    const initial = projectRequest(
+      local,
+      "41",
+      portfolioBody("initial Remote intent"),
+    );
+
+    await runtime.runPromise(repository.pair(pairRequest(local, cc)));
+    await runtime.runPromise(
+      repository.configureRemote(
+        remoteConfigurationRequest(local, cc),
+      ),
+    );
+    await runtime.runPromise(
+      repository.installProjection(
+        initial,
+        "2026-07-27T12:01:00.000Z",
+      ),
+    );
+
+    const basis = Schema.decodeUnknownSync(
+      ProjectedIntentFactBasis,
+      { onExcessProperty: "error" },
+    )({
+      kind: "projected-intent",
+      generation: initial.projection.generation,
+      contentSha256: initial.projection.contentSha256,
+    });
+    const actor = {
+      seatId: Schema.decodeUnknownSync(ActorSeatId)(
+        `seat_${"7".repeat(64)}`,
+      ),
+      canvasName: "factory",
+      nodeId: "remote-worker",
+    };
+    const tasks = { canvasName: "factory", nodeId: "tasks" };
+    const artifacts = {
+      canvasName: "factory",
+      nodeId: "artifacts",
+    };
+    const created = await runtime.runPromise(
+      work.createTask({
+        sink: tasks,
+        basis,
+        task: {
+          id: "remote-task",
+          state: "submitted",
+          history: [],
+        },
+        originAt: "2026-07-27T12:02:00.000Z",
+        receivedAt: "2026-07-27T12:02:00.000Z",
+      }),
+    );
+    await runtime.runPromise(
+      work.claimLocalTask({
+        sink: tasks,
+        basis,
+        taskId: created.value.id,
+        actor,
+        originAt: "2026-07-27T12:03:00.000Z",
+        receivedAt: "2026-07-27T12:03:00.000Z",
+      }),
+    );
+    const artifact = await runtime.runPromise(
+      work.publishArtifact({
+        sink: artifacts,
+        basis,
+        publishedBy: actor,
+        artifact: {
+          artifactId: "remote-artifact",
+          name: "Remote proof",
+          parts: [{ kind: "text", text: "durable output" }],
+        },
+        originAt: "2026-07-27T12:04:00.000Z",
+        receivedAt: "2026-07-27T12:04:00.000Z",
+      }),
+    );
+    await runtime.runPromise(
+      work.acceptDelivery({
+        sink: artifacts,
+        basis,
+        receipt: {
+          deliveryId: "remote-delivery",
+          deliveredItem: {
+            kind: "artifact",
+            itemId: artifact.value.artifactId,
+            sink: artifacts,
+          },
+          actor,
+          acceptedAt: "2026-07-27T12:05:00.000Z",
+        },
+        originAt: "2026-07-27T12:05:00.000Z",
+        receivedAt: "2026-07-27T12:05:00.000Z",
+      }),
+    );
+    await runtime.runPromise(
+      state.transaction("test.seed-station-sync-cursors", (writer) => {
+        writer.run(
+          `INSERT INTO station_received_cursors(
+             event_home,
+             entity_home,
+             through_sequence,
+             updated_at
+           ) VALUES (?, ?, '9', ?)`,
+          [cc, local, "2026-07-27T12:06:00.000Z"],
+        );
+        writer.run(
+          `INSERT INTO station_peer_ack_cursors(
+             peer_installation_id,
+             event_home,
+             entity_home,
+             through_sequence,
+             acknowledged_at
+           ) VALUES (?, ?, ?, '3', ?)`,
+          [cc, local, local, "2026-07-27T12:06:00.000Z"],
+        );
+      }),
+    );
+
+    const snapshot = () =>
+      runtime.runPromise(
+        Effect.all({
+          tasks: work.readSnapshot(
+            tasks.canvasName,
+            tasks.nodeId,
+          ),
+          artifacts: work.readSnapshot(
+            artifacts.canvasName,
+            artifacts.nodeId,
+          ),
+          deliveryAccepted: work.hasAcceptedDelivery(
+            artifacts,
+            "remote-delivery",
+          ),
+          localRecords: work.recordsAfter({
+            route: { eventHome: local, entityHome: local },
+          }),
+          cursors: state.read(
+            "test.read-station-sync-cursors",
+            (reader) => ({
+              received: reader.all(
+                `SELECT
+                   event_home,
+                   entity_home,
+                   through_sequence,
+                   updated_at
+                   FROM station_received_cursors
+                  ORDER BY event_home, entity_home`,
+              ),
+              acknowledged: reader.all(
+                `SELECT
+                   peer_installation_id,
+                   event_home,
+                   entity_home,
+                   through_sequence,
+                   acknowledged_at
+                   FROM station_peer_ack_cursors
+                  ORDER BY
+                    peer_installation_id,
+                    event_home,
+                    entity_home`,
+              ),
+            }),
+          ),
+        }),
+      );
+    const before = await snapshot();
+
+    const next = projectRequest(
+      local,
+      "42",
+      portfolioBody("replacement Remote intent"),
+    );
+    const installed = await runtime.runPromise(
+      repository.installProjection(
+        next,
+        "2026-07-27T12:07:00.000Z",
+      ),
+    );
+
+    expect(installed).toMatchObject({
+      decision: "install",
+      active: {
+        generation: "42",
+        contentSha256: next.projection.contentSha256,
+      },
+    });
+    expect(await runtime.runPromise(repository.projection)).toMatchObject({
+      ...next.projection,
+      receivedAt: "2026-07-27T12:07:00.000Z",
+    });
+    expect(await snapshot()).toEqual(before);
+    expect(before.tasks.tasks.items).toEqual([
+      expect.objectContaining({
+        id: "remote-task",
+        state: "working",
+        claimedBy: actor.seatId,
+      }),
+    ]);
+    expect(before.artifacts.artifacts.items).toEqual([
+      expect.objectContaining({
+        artifactId: "remote-artifact",
+      }),
+    ]);
+    expect(before.deliveryAccepted).toBe(true);
     await runtime.dispose();
   });
 
