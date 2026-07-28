@@ -1,36 +1,53 @@
 /**
- * Durable Station coordination schema.
+ * Exact-current durable Station coordination schema.
  *
- * Station intent is deliberately small: one installation identity, at most
- * one paired Command Center, one selected role/configuration, and one complete
- * replaceable projection. Canonical events live in the Work schema; Station
- * retains only transport cursors over those route-local logical sequences.
- * Timestamps are display metadata.
+ * Installation identity is the only durable work-routing identity. The
+ * registry is deliberately shared by Station cursors and the Work schema so a
+ * HostId, sentinel, or transport locator cannot enter an event/entity route.
+ * Timestamps remain display metadata.
  *
- * This module is SQL-only so StateEngine can compose it without importing the
- * repository or the station wire contract.
+ * This module is SQL-only so StateEngine composes it into the one installation
+ * database without importing repositories or wire adapters.
  */
 export const STATION_STATE_SCHEMA_STATEMENTS = [
   `
+    CREATE TABLE IF NOT EXISTS station_known_installations (
+      installation_id TEXT PRIMARY KEY
+        CHECK (
+          length(installation_id) BETWEEN 1 AND 128
+          AND installation_id GLOB '[A-Za-z0-9]*'
+          AND installation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+        ),
+      registered_at TEXT NOT NULL
+        CHECK (length(registered_at) BETWEEN 1 AND 64)
+    ) STRICT, WITHOUT ROWID
+  `,
+  `
     CREATE TABLE IF NOT EXISTS station_installation (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-      installation_id TEXT NOT NULL UNIQUE
-        CHECK (length(installation_id) BETWEEN 1 AND 128),
+      installation_id TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL
-        CHECK (length(created_at) BETWEEN 1 AND 64)
+        CHECK (length(created_at) BETWEEN 1 AND 64),
+      FOREIGN KEY (installation_id)
+        REFERENCES station_known_installations(installation_id)
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT
     ) STRICT
   `,
   `
     CREATE TABLE IF NOT EXISTS station_pairing (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-      command_center_installation_id TEXT NOT NULL
-        CHECK (length(command_center_installation_id) BETWEEN 1 AND 128),
+      command_center_installation_id TEXT NOT NULL,
       station_label TEXT NOT NULL
         CHECK (length(station_label) BETWEEN 1 AND 128),
       app_version TEXT NOT NULL
         CHECK (length(app_version) BETWEEN 1 AND 64),
       paired_at TEXT NOT NULL
-        CHECK (length(paired_at) BETWEEN 1 AND 64)
+        CHECK (length(paired_at) BETWEEN 1 AND 64),
+      FOREIGN KEY (command_center_installation_id)
+        REFERENCES station_known_installations(installation_id)
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT
     ) STRICT
   `,
   `
@@ -57,9 +74,12 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
           AND agent_host_id IS NOT NULL
           AND length(agent_host_id) BETWEEN 1 AND 64
           AND command_center_installation_id IS NOT NULL
-          AND length(command_center_installation_id) BETWEEN 1 AND 128
         )
-      )
+      ),
+      FOREIGN KEY (command_center_installation_id)
+        REFERENCES station_known_installations(installation_id)
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT
     ) STRICT
   `,
   `
@@ -86,37 +106,58 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
   `,
   `
     CREATE TABLE IF NOT EXISTS station_received_cursors (
-      home TEXT PRIMARY KEY CHECK (length(home) BETWEEN 1 AND 128),
+      event_home TEXT NOT NULL,
+      entity_home TEXT NOT NULL,
       through_sequence TEXT NOT NULL
         CHECK (
           length(through_sequence) BETWEEN 1 AND 32
           AND through_sequence NOT GLOB '*[^0-9]*'
-          AND (
-            through_sequence = '0'
-            OR substr(through_sequence, 1, 1) <> '0'
-          )
+          AND substr(through_sequence, 1, 1) <> '0'
         ),
       updated_at TEXT NOT NULL
-        CHECK (length(updated_at) BETWEEN 1 AND 64)
+        CHECK (length(updated_at) BETWEEN 1 AND 64),
+      PRIMARY KEY (event_home, entity_home),
+      FOREIGN KEY (event_home)
+        REFERENCES station_known_installations(installation_id)
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT,
+      FOREIGN KEY (entity_home)
+        REFERENCES station_known_installations(installation_id)
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT
     ) STRICT, WITHOUT ROWID
   `,
   `
     CREATE TABLE IF NOT EXISTS station_peer_ack_cursors (
-      peer_installation_id TEXT NOT NULL
-        CHECK (length(peer_installation_id) BETWEEN 1 AND 128),
-      home TEXT NOT NULL CHECK (length(home) BETWEEN 1 AND 128),
+      peer_installation_id TEXT NOT NULL,
+      event_home TEXT NOT NULL,
+      entity_home TEXT NOT NULL,
       through_sequence TEXT NOT NULL
         CHECK (
           length(through_sequence) BETWEEN 1 AND 32
           AND through_sequence NOT GLOB '*[^0-9]*'
-          AND (
-            through_sequence = '0'
-            OR substr(through_sequence, 1, 1) <> '0'
-          )
+          AND substr(through_sequence, 1, 1) <> '0'
         ),
       acknowledged_at TEXT NOT NULL
         CHECK (length(acknowledged_at) BETWEEN 1 AND 64),
-      PRIMARY KEY (peer_installation_id, home)
+      PRIMARY KEY (
+        peer_installation_id,
+        event_home,
+        entity_home
+      ),
+      CHECK (peer_installation_id <> event_home),
+      FOREIGN KEY (peer_installation_id)
+        REFERENCES station_known_installations(installation_id)
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT,
+      FOREIGN KEY (event_home)
+        REFERENCES station_known_installations(installation_id)
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT,
+      FOREIGN KEY (entity_home)
+        REFERENCES station_known_installations(installation_id)
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT
     ) STRICT, WITHOUT ROWID
   `,
   `
@@ -128,20 +169,35 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
           AND host_id GLOB '[A-Za-z0-9]*'
           AND host_id NOT GLOB '*[^A-Za-z0-9._-]*'
         ),
-      station_installation_id TEXT NOT NULL UNIQUE
-        CHECK (
-          length(station_installation_id) BETWEEN 1 AND 128
-          AND station_installation_id GLOB '[A-Za-z0-9]*'
-          AND station_installation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
-        ),
+      station_installation_id TEXT NOT NULL UNIQUE,
       bound_at TEXT NOT NULL
         CHECK (length(bound_at) BETWEEN 1 AND 64),
       retired_at TEXT
         CHECK (
           retired_at IS NULL
           OR length(retired_at) BETWEEN 1 AND 64
-        )
+        ),
+      FOREIGN KEY (station_installation_id)
+        REFERENCES station_known_installations(installation_id)
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT
     ) STRICT, WITHOUT ROWID
+  `,
+  `
+    CREATE TRIGGER IF NOT EXISTS station_known_installation_identity_immutable
+    BEFORE UPDATE OF installation_id ON station_known_installations
+    WHEN OLD.installation_id <> NEW.installation_id
+    BEGIN
+      SELECT RAISE(ABORT, 'known installation identity is immutable');
+    END
+  `,
+  `
+    CREATE TRIGGER IF NOT EXISTS station_local_installation_identity_immutable
+    BEFORE UPDATE OF installation_id ON station_installation
+    WHEN OLD.installation_id <> NEW.installation_id
+    BEGIN
+      SELECT RAISE(ABORT, 'local installation identity is immutable');
+    END
   `,
 ] as const;
 
