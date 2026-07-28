@@ -24,7 +24,7 @@ import {
 } from "@shared/physics";
 import { addEdge, setEdgeCriteria, setEdgePorts } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
-import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeTimer, setNodeView, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeView, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
@@ -423,6 +423,17 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     {node.type === "link" && node.ether?.entity?.kind === "page"
       ? <PageBindingControl node={node} />
       : null}
+    {node.ether?.entity?.kind === "task"
+      ? <TaskQueueHomeControl node={node} />
+      : null}
+    {node.ether?.entity?.kind === "agent"
+      ? <div className="inspector-section">
+          <div className="inspector-section__label">actor placement</div>
+          <div className="inspector-detail">
+            This host is part of the actor seat identity. Create a new actor seat to move it.
+          </div>
+        </div>
+      : null}
     {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "file" ? <div className="inspector-section"><div className="inspector-section__label">file reference</div><div className="inspector-file-fields"><label><span>path</span><input aria-label="File path" value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setFileDraft(fileValue); event.currentTarget.blur(); } }} /></label><label><span>subpath</span><input aria-label="File subpath" value={subpathDraft} placeholder="#section or block" onChange={(event) => setSubpathDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setSubpathDraft(subpathValue); event.currentTarget.blur(); } }} /></label></div></div> : null}
     {node.type === "group" ? <div className="inspector-section"><div className="inspector-section__label">background</div><div className="inspector-background"><input aria-label="Region background source" value={backgroundDraft} placeholder="image URL or file path" onChange={(event) => setBackgroundDraft(event.target.value)} onBlur={() => commitBackground()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitBackground(); event.currentTarget.blur(); } if (event.key === "Escape") { setBackgroundDraft(backgroundValue); event.currentTarget.blur(); } }} /><label><span>fit</span><Select dense aria-label="Region background fit" value={backgroundStyleDraft} options={[{ value: "cover", label: "cover" }, { value: "ratio", label: "contain" }, { value: "repeat", label: "repeat" }]} onChange={(value) => { const style = value as "cover" | "ratio" | "repeat"; setBackgroundStyleDraft(style); commitBackground(backgroundDraft, style); }} /></label></div></div> : null}
@@ -430,6 +441,75 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     {node.type === "group" ? <RegionDefaultsControl node={node} /> : null}
     <KernelFieldEditors node={node} />
   </>;
+}
+
+function TaskQueueHomeControl({ node }: { readonly node: CanvasNode }) {
+  const storedHost = resolveNodeHostId(node);
+  const [host, setHost] = useState(storedHost);
+  const [hostOptions, setHostOptions] = useState<
+    ReadonlyArray<{ readonly id: string; readonly label: string }>
+  >([{ id: storedHost, label: storedHost }]);
+
+  useEffect(() => {
+    setHost(storedHost);
+  }, [node.id, storedHost]);
+
+  useEffect(() => {
+    let current = true;
+    void window.vellum?.hostsList?.()
+      .then((result) => {
+        if (!current || !result.ok || !result.hosts) return;
+        const seen = new Set<string>();
+        const enrolled = result.hosts
+          .filter((candidate) => {
+            if (seen.has(candidate.id)) return false;
+            seen.add(candidate.id);
+            return true;
+          })
+          .map((candidate) => ({
+            id: candidate.id,
+            label:
+              candidate.label === candidate.id
+                ? candidate.id
+                : `${candidate.label} (${candidate.id})`,
+          }));
+        setHostOptions(
+          enrolled.some((candidate) => candidate.id === storedHost)
+            ? enrolled
+            : [
+                { id: storedHost, label: `${storedHost} (unavailable)` },
+                ...enrolled,
+              ],
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [storedHost]);
+
+  return <div className="inspector-section">
+    <div className="inspector-section__label">task queue</div>
+    <label className="inspector-editor">
+      <span>home for new tasks</span>
+      <Select
+        dense
+        aria-label="Task queue home host"
+        value={host}
+        options={hostOptions.map((candidate) => ({
+          value: candidate.id,
+          label: candidate.label,
+        }))}
+        onChange={(next) => {
+          setHost(next);
+          setNodeHost(node.id, next);
+        }}
+      />
+    </label>
+    <div className="inspector-detail">
+      Existing tasks keep their current authority home.
+    </div>
+  </div>;
 }
 
 function PageBindingControl({ node }: { readonly node: CanvasNode }) {
