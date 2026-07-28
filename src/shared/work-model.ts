@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ActorSeatId } from "./actor-seat";
 
 /**
  * Durable work-domain contracts.
@@ -79,6 +80,11 @@ export type TaskState = typeof TaskState.Type;
 export const Task = Schema.Struct({
   id: Schema.String,
   state: TaskState,
+  /**
+   * First-class claimant identity. Claim is domain state, never an opaque
+   * metadata convention.
+   */
+  claimedBy: Schema.optionalWith(ActorSeatId, { exact: true }),
   history: Schema.Array(Message),
   artifactIds: Schema.optionalWith(Schema.Array(Schema.String), {
     exact: true,
@@ -88,7 +94,14 @@ export const Task = Schema.Struct({
   reason: Schema.optionalWith(Schema.String, { exact: true }),
   /** The operator's answer (first-class, stamped on resolve). */
   response: Schema.optionalWith(Schema.String, { exact: true }),
-});
+}).pipe(
+  Schema.filter(
+    ({ metadata }) =>
+      metadata === undefined ||
+      !Object.prototype.hasOwnProperty.call(metadata, "claimedBy") ||
+      "metadata.claimedBy is retired; use Task.claimedBy",
+  ),
+);
 export type Task = typeof Task.Type;
 
 export const Artifact = Schema.Struct({

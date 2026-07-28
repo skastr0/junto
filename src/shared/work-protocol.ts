@@ -1,0 +1,652 @@
+import { Schema } from "effect";
+import { ActorSeatId } from "./actor-seat";
+import { InstallationId } from "./installation-id";
+import { Artifact, Message, Task, TaskState } from "./work-model";
+
+export { ActorSeatId };
+
+/**
+ * Canonical work-event contract.
+ *
+ * This module is the pristine seam between the local work domain, Station
+ * reports, and SQLite repositories. It deliberately contains no ReportBatch,
+ * SSH, socket, database, or wall-clock orchestration concerns.
+ */
+export const WORK_PROTOCOL = "vellum/work/v2" as const;
+
+/** Intrinsic limits for one work record, independent of report batching. */
+export const WORK_PROTOCOL_MAX_RECORD_BYTES = 256 * 1024;
+export const WORK_PROTOCOL_MAX_ID_CHARS = 256;
+export const WORK_PROTOCOL_MAX_CANVAS_NAME_CHARS = 256;
+export const WORK_PROTOCOL_MAX_NODE_ID_CHARS = 256;
+export const WORK_PROTOCOL_MAX_DIAGNOSTIC_CHARS = 2_048;
+export const WORK_PROTOCOL_MAX_TIMESTAMP_CHARS = 64;
+
+const BoundedId = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(WORK_PROTOCOL_MAX_ID_CHARS),
+);
+
+const CanvasName = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(WORK_PROTOCOL_MAX_CANVAS_NAME_CHARS),
+);
+
+const NodeId = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(WORK_PROTOCOL_MAX_NODE_ID_CHARS),
+);
+
+/**
+ * Canonical positive decimal sequence.
+ *
+ * Sequences remain strings across the wire and repository boundary so values
+ * larger than Number.MAX_SAFE_INTEGER cannot lose precision.
+ */
+export const LogicalSequence = Schema.String.pipe(
+  Schema.pattern(/^[1-9][0-9]*$/),
+  Schema.maxLength(32),
+  Schema.brand("WorkLogicalSequence"),
+);
+export type LogicalSequence = typeof LogicalSequence.Type;
+
+export const WorkSha256 = Schema.String.pipe(
+  Schema.pattern(/^[a-f0-9]{64}$/),
+  Schema.brand("WorkSha256"),
+);
+export type WorkSha256 = typeof WorkSha256.Type;
+
+/**
+ * Display metadata only. No policy helper accepts this value as ordering or
+ * authority input.
+ */
+export const DisplayTimestamp = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(WORK_PROTOCOL_MAX_TIMESTAMP_CHARS),
+);
+export type DisplayTimestamp = typeof DisplayTimestamp.Type;
+
+export const BoundedDiagnostic = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(WORK_PROTOCOL_MAX_DIAGNOSTIC_CHARS),
+);
+export type BoundedDiagnostic = typeof BoundedDiagnostic.Type;
+
+export const WorkRoute = Schema.Struct({
+  eventHome: InstallationId,
+  entityHome: InstallationId,
+});
+export type WorkRoute = typeof WorkRoute.Type;
+
+export const WorkRecordId = Schema.Struct({
+  route: WorkRoute,
+  seq: LogicalSequence,
+});
+export type WorkRecordId = typeof WorkRecordId.Type;
+
+export const RouteCursor = Schema.Struct({
+  eventHome: InstallationId,
+  entityHome: InstallationId,
+  through: LogicalSequence,
+});
+export type RouteCursor = typeof RouteCursor.Type;
+
+export const SinkRef = Schema.Struct({
+  canvasName: CanvasName,
+  nodeId: NodeId,
+});
+export type SinkRef = typeof SinkRef.Type;
+
+export const WorkNodeRef = SinkRef;
+export type WorkNodeRef = typeof WorkNodeRef.Type;
+
+export const ActorRef = Schema.Struct({
+  seatId: ActorSeatId,
+  canvasName: CanvasName,
+  nodeId: NodeId,
+});
+export type ActorRef = typeof ActorRef.Type;
+
+export const WorkItemKind = Schema.Literal(
+  "task",
+  "request",
+  "message",
+  "artifact",
+  "delivery",
+);
+export type WorkItemKind = typeof WorkItemKind.Type;
+
+export const WorkItemRef = Schema.Struct({
+  kind: WorkItemKind,
+  itemId: BoundedId,
+  sink: SinkRef,
+});
+export type WorkItemRef = typeof WorkItemRef.Type;
+
+export const WorkOperation = Schema.Literal(
+  "task.create",
+  "task.describe",
+  "task.transition",
+  "task.claim",
+  "request.create",
+  "request.resolve",
+  "message.append",
+  "artifact.publish",
+  "delivery.accepted",
+);
+export type WorkOperation = typeof WorkOperation.Type;
+
+export const DeliveryReceipt = Schema.Struct({
+  deliveryId: BoundedId,
+  deliveredItem: WorkItemRef,
+  actor: ActorRef,
+  acceptedAt: DisplayTimestamp,
+});
+export type DeliveryReceipt = typeof DeliveryReceipt.Type;
+
+export const TaskCreateAction = Schema.Struct({
+  operation: Schema.Literal("task.create"),
+  task: Task,
+}).pipe(
+  Schema.filter(
+    ({ task }) =>
+      (task.state === "submitted" && task.claimedBy === undefined) ||
+      "task.create requires a submitted task snapshot",
+  ),
+);
+export type TaskCreateAction = typeof TaskCreateAction.Type;
+
+export const TaskDescribeAction = Schema.Struct({
+  operation: Schema.Literal("task.describe"),
+  taskId: BoundedId,
+  message: Message,
+});
+export type TaskDescribeAction = typeof TaskDescribeAction.Type;
+
+export const TaskTransitionAction = Schema.Struct({
+  operation: Schema.Literal("task.transition"),
+  taskId: BoundedId,
+  state: TaskState,
+  message: Schema.optionalWith(Message, { exact: true }),
+});
+export type TaskTransitionAction = typeof TaskTransitionAction.Type;
+
+/**
+ * The first-adoption command is self-contained because projections do not
+ * replicate work rows. Its source predecessor belongs wholly to the source
+ * queue authority lane; the prospective target lane has no predecessor yet.
+ */
+export const TaskClaimAction = Schema.Struct({
+  operation: Schema.Literal("task.claim"),
+  sourceQueueHome: InstallationId,
+  sourcePredecessor: Schema.NullOr(WorkRecordId),
+  sourceTask: Task,
+  sink: SinkRef,
+  actor: ActorRef,
+  targetHome: InstallationId,
+}).pipe(
+  Schema.filter((action) => {
+    if (action.sourceTask.state !== "submitted") {
+      return "task.claim requires a submitted source task snapshot";
+    }
+    if (action.sourceTask.claimedBy !== undefined) {
+      return "task.claim requires an unclaimed source task snapshot";
+    }
+    if (action.sourceQueueHome === action.targetHome) {
+      return "task.claim command must cross authority installations";
+    }
+    if (
+      action.sourcePredecessor !== null &&
+      (action.sourcePredecessor.route.eventHome !== action.sourceQueueHome ||
+        action.sourcePredecessor.route.entityHome !== action.sourceQueueHome)
+    ) {
+      return "task.claim source predecessor must belong to the source queue authority lane";
+    }
+    return true;
+  }),
+);
+export type TaskClaimAction = typeof TaskClaimAction.Type;
+
+export const RequestCreateAction = Schema.Struct({
+  operation: Schema.Literal("request.create"),
+  request: Task,
+  raisedBy: ActorRef,
+}).pipe(
+  Schema.filter(
+    ({ request, raisedBy }) =>
+      ((request.state === "input-required" ||
+        request.state === "auth-required") &&
+        request.claimedBy === raisedBy.seatId) ||
+      "request.create requires an attention-state request claimed by its raiser",
+  ),
+);
+export type RequestCreateAction = typeof RequestCreateAction.Type;
+
+export const RequestResolveAction = Schema.Struct({
+  operation: Schema.Literal("request.resolve"),
+  requestId: BoundedId,
+  response: Schema.String,
+  disposition: Schema.Literal("completed", "rejected"),
+  message: Schema.optionalWith(Message, { exact: true }),
+});
+export type RequestResolveAction = typeof RequestResolveAction.Type;
+
+export const MessageAppendAction = Schema.Struct({
+  operation: Schema.Literal("message.append"),
+  message: Message,
+});
+export type MessageAppendAction = typeof MessageAppendAction.Type;
+
+export const ArtifactPublishAction = Schema.Struct({
+  operation: Schema.Literal("artifact.publish"),
+  artifact: Artifact,
+  publishedBy: ActorRef,
+});
+export type ArtifactPublishAction = typeof ArtifactPublishAction.Type;
+
+export const DeliveryAcceptedAction = Schema.Struct({
+  operation: Schema.Literal("delivery.accepted"),
+  receipt: DeliveryReceipt,
+});
+export type DeliveryAcceptedAction = typeof DeliveryAcceptedAction.Type;
+
+export const WorkAction = Schema.Union(
+  TaskCreateAction,
+  TaskDescribeAction,
+  TaskTransitionAction,
+  TaskClaimAction,
+  RequestCreateAction,
+  RequestResolveAction,
+  MessageAppendAction,
+  ArtifactPublishAction,
+  DeliveryAcceptedAction,
+);
+export type WorkAction = typeof WorkAction.Type;
+
+export const TaskMutationResult = Schema.Struct({
+  operation: Schema.Literal(
+    "task.create",
+    "task.describe",
+    "task.transition",
+  ),
+  task: Task,
+});
+export type TaskMutationResult = typeof TaskMutationResult.Type;
+
+export const TaskClaimResult = Schema.Struct({
+  operation: Schema.Literal("task.claim"),
+  task: Task,
+  claimedBy: ActorRef,
+  previousHome: InstallationId,
+}).pipe(
+  Schema.filter(
+    ({ task, claimedBy }) =>
+      (task.state === "working" &&
+        task.claimedBy === claimedBy.seatId) ||
+      "task.claim result requires a working task claimed by the exact actor seat",
+  ),
+);
+export type TaskClaimResult = typeof TaskClaimResult.Type;
+
+export const RequestResult = Schema.Struct({
+  operation: Schema.Literal("request.create", "request.resolve"),
+  request: Task,
+}).pipe(
+  Schema.filter((result) => {
+    if (result.operation === "request.create") {
+      return (
+        ((result.request.state === "input-required" ||
+          result.request.state === "auth-required") &&
+          result.request.claimedBy !== undefined) ||
+        "request.create result requires an attention-state request with a claimant"
+      );
+    }
+    return (
+      result.request.state === "completed" ||
+      result.request.state === "rejected" ||
+      "request.resolve result requires a completed or rejected request"
+    );
+  }),
+);
+export type RequestResult = typeof RequestResult.Type;
+
+export const MessageAppendResult = Schema.Struct({
+  operation: Schema.Literal("message.append"),
+  message: Message,
+});
+export type MessageAppendResult = typeof MessageAppendResult.Type;
+
+export const ArtifactPublishResult = Schema.Struct({
+  operation: Schema.Literal("artifact.publish"),
+  artifact: Artifact,
+});
+export type ArtifactPublishResult = typeof ArtifactPublishResult.Type;
+
+export const DeliveryAcceptedResult = Schema.Struct({
+  operation: Schema.Literal("delivery.accepted"),
+  receipt: DeliveryReceipt,
+});
+export type DeliveryAcceptedResult = typeof DeliveryAcceptedResult.Type;
+
+export const WorkResult = Schema.Union(
+  TaskMutationResult,
+  TaskClaimResult,
+  RequestResult,
+  MessageAppendResult,
+  ArtifactPublishResult,
+  DeliveryAcceptedResult,
+);
+export type WorkResult = typeof WorkResult.Type;
+
+export const WorkRejectionReason = Schema.Literal(
+  "authority-mismatch",
+  "capability-denied",
+  "causal-conflict",
+  "claim-contention",
+  "identity-conflict",
+  "invalid-transition",
+  "locality-mismatch",
+  "missing-entity",
+  "projection-conflict",
+  "target-mismatch",
+);
+export type WorkRejectionReason = typeof WorkRejectionReason.Type;
+
+export const AppliedDisposition = Schema.Struct({
+  status: Schema.Literal("applied"),
+  command: WorkRecordId,
+  commandSha256: WorkSha256,
+  fact: WorkRecordId,
+  factSha256: WorkSha256,
+});
+export type AppliedDisposition = typeof AppliedDisposition.Type;
+
+export const RejectedDisposition = Schema.Struct({
+  status: Schema.Literal("rejected"),
+  command: WorkRecordId,
+  commandSha256: WorkSha256,
+  reason: WorkRejectionReason,
+  message: BoundedDiagnostic,
+});
+export type RejectedDisposition = typeof RejectedDisposition.Type;
+
+export const WorkDispositionBody = Schema.Union(
+  AppliedDisposition,
+  RejectedDisposition,
+);
+export type WorkDispositionBody = typeof WorkDispositionBody.Type;
+
+export const WorkRecordCommon = Schema.Struct({
+  protocol: Schema.Literal(WORK_PROTOCOL),
+  id: WorkRecordId,
+  recordType: Schema.Literal("command", "fact", "disposition"),
+  item: WorkItemRef,
+  operation: WorkOperation,
+  contentSha256: WorkSha256,
+  originAt: DisplayTimestamp,
+});
+export type WorkRecordCommon = typeof WorkRecordCommon.Type;
+
+const sameSink = (left: SinkRef, right: SinkRef): boolean =>
+  left.canvasName === right.canvasName && left.nodeId === right.nodeId;
+
+const itemMatchesAction = (
+  item: WorkItemRef,
+  action: WorkAction,
+): boolean => {
+  switch (action.operation) {
+    case "task.create":
+      return item.kind === "task" && item.itemId === action.task.id;
+    case "task.describe":
+    case "task.transition":
+      return item.kind === "task" && item.itemId === action.taskId;
+    case "task.claim":
+      return (
+        item.kind === "task" &&
+        item.itemId === action.sourceTask.id &&
+        sameSink(item.sink, action.sink)
+      );
+    case "request.create":
+      return item.kind === "request" && item.itemId === action.request.id;
+    case "request.resolve":
+      return item.kind === "request" && item.itemId === action.requestId;
+    case "message.append":
+      return (
+        item.kind === "message" && item.itemId === action.message.messageId
+      );
+    case "artifact.publish":
+      return (
+        item.kind === "artifact" &&
+        item.itemId === action.artifact.artifactId
+      );
+    case "delivery.accepted":
+      return (
+        item.kind === "delivery" &&
+        item.itemId === action.receipt.deliveryId
+      );
+  }
+};
+
+const itemMatchesResult = (
+  item: WorkItemRef,
+  result: WorkResult,
+): boolean => {
+  switch (result.operation) {
+    case "task.create":
+    case "task.describe":
+    case "task.transition":
+    case "task.claim":
+      return item.kind === "task" && item.itemId === result.task.id;
+    case "request.create":
+    case "request.resolve":
+      return item.kind === "request" && item.itemId === result.request.id;
+    case "message.append":
+      return (
+        item.kind === "message" && item.itemId === result.message.messageId
+      );
+    case "artifact.publish":
+      return (
+        item.kind === "artifact" &&
+        item.itemId === result.artifact.artifactId
+      );
+    case "delivery.accepted":
+      return (
+        item.kind === "delivery" &&
+        item.itemId === result.receipt.deliveryId
+      );
+  }
+};
+
+const noPriorMaterialFact = (operation: WorkOperation): boolean =>
+  operation === "task.create" ||
+  operation === "task.claim" ||
+  operation === "request.create" ||
+  operation === "message.append" ||
+  operation === "artifact.publish" ||
+  operation === "delivery.accepted";
+
+const recordByteLength = (record: unknown): number | undefined => {
+  try {
+    const encoded = JSON.stringify(record);
+    return encoded === undefined
+      ? undefined
+      : new TextEncoder().encode(encoded).byteLength;
+  } catch {
+    return undefined;
+  }
+};
+
+export const workRecordEncodedByteLength = (
+  record: unknown,
+): number | undefined => recordByteLength(record);
+
+const withinRecordBound = (record: unknown): boolean | string => {
+  const bytes = recordByteLength(record);
+  if (bytes === undefined) {
+    return "Work record must be JSON-serializable";
+  }
+  return (
+    bytes <= WORK_PROTOCOL_MAX_RECORD_BYTES ||
+    `Work record exceeds ${WORK_PROTOCOL_MAX_RECORD_BYTES} encoded bytes`
+  );
+};
+
+const WorkCommandShape = Schema.Struct({
+  ...WorkRecordCommon.fields,
+  recordType: Schema.Literal("command"),
+  predecessor: Schema.NullOr(WorkRecordId),
+  body: WorkAction,
+});
+
+export const WorkCommand = WorkCommandShape.pipe(
+  Schema.filter((record) => {
+    if (record.id.route.eventHome === record.id.route.entityHome) {
+      return "Work command event and entity homes must be different";
+    }
+    if (record.operation !== record.body.operation) {
+      return "Work command operation must match its action";
+    }
+    if (!itemMatchesAction(record.item, record.body)) {
+      return "Work command item must match its action identity";
+    }
+    if (record.body.operation === "task.claim") {
+      if (record.predecessor !== null) {
+        return "Cross-home task.claim command predecessor must be null";
+      }
+      if (record.id.route.entityHome !== record.body.targetHome) {
+        return "task.claim targetHome must match command entityHome";
+      }
+      return true;
+    }
+    if (noPriorMaterialFact(record.operation)) {
+      return (
+        record.predecessor === null ||
+        "Create command predecessor must be null"
+      );
+    }
+    return (
+      record.predecessor !== null ||
+      "Mutation command must name its predecessor"
+    );
+  }),
+  Schema.filter(withinRecordBound),
+);
+export type WorkCommand = typeof WorkCommand.Type;
+
+const WorkFactShape = Schema.Struct({
+  ...WorkRecordCommon.fields,
+  recordType: Schema.Literal("fact"),
+  predecessor: Schema.NullOr(WorkRecordId),
+  body: WorkResult,
+});
+
+export const WorkFact = WorkFactShape.pipe(
+  Schema.filter((record) => {
+    if (record.id.route.eventHome !== record.id.route.entityHome) {
+      return "Work fact must be emitted by its entity authority home";
+    }
+    if (record.operation !== record.body.operation) {
+      return "Work fact operation must match its result";
+    }
+    if (!itemMatchesResult(record.item, record.body)) {
+      return "Work fact item must match its result identity";
+    }
+    if (record.body.operation === "task.claim") {
+      const crossesAuthority =
+        record.body.previousHome !== record.id.route.entityHome;
+      if (crossesAuthority) {
+        return (
+          record.predecessor === null ||
+          "First cross-home task.claim fact predecessor must be null"
+        );
+      }
+      return (
+        record.predecessor !== null ||
+        "Same-home task.claim fact must name its submitted predecessor"
+      );
+    }
+    if (noPriorMaterialFact(record.operation)) {
+      return (
+        record.predecessor === null ||
+        "Create fact predecessor must be null"
+      );
+    }
+    return (
+      record.predecessor !== null || "Mutation fact must name its predecessor"
+    );
+  }),
+  Schema.filter(withinRecordBound),
+);
+export type WorkFact = typeof WorkFact.Type;
+
+const WorkDispositionShape = Schema.Struct({
+  ...WorkRecordCommon.fields,
+  recordType: Schema.Literal("disposition"),
+  body: WorkDispositionBody,
+});
+
+/**
+ * Structural disposition admission lives here. Repository acceptance must
+ * additionally load the referenced command/fact and prove operation, item,
+ * and recorded hash coherence; those facts are intentionally not duplicated
+ * into this wire body.
+ */
+export const WorkDisposition = WorkDispositionShape.pipe(
+  Schema.filter((record) => {
+    if (record.id.route.eventHome !== record.id.route.entityHome) {
+      return "Work disposition must be emitted by its entity authority home";
+    }
+    if (record.body.command.route.entityHome !== record.id.route.entityHome) {
+      return "Work disposition must address the command entity authority lane";
+    }
+    if (
+      record.body.status === "applied" &&
+      (record.body.fact.route.eventHome !== record.id.route.eventHome ||
+        record.body.fact.route.entityHome !== record.id.route.entityHome)
+    ) {
+      return "Applied disposition fact must belong to the disposition authority lane";
+    }
+    return true;
+  }),
+  Schema.filter(withinRecordBound),
+);
+export type WorkDisposition = typeof WorkDisposition.Type;
+
+export const WorkRecord = Schema.Union(
+  WorkCommand,
+  WorkFact,
+  WorkDisposition,
+);
+export type WorkRecord = typeof WorkRecord.Type;
+
+/**
+ * Repository-only wrapper. `receivedAt` is local observation metadata and is
+ * deliberately absent from every wire WorkRecord variant.
+ */
+export const StoredWorkRecord = Schema.Struct({
+  record: WorkRecord,
+  receivedAt: DisplayTimestamp,
+});
+export type StoredWorkRecord = typeof StoredWorkRecord.Type;
+
+const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
+
+export const decodeWorkAction = Schema.decodeUnknownEither(
+  WorkAction,
+  STRICT_PARSE_OPTIONS,
+);
+
+export const decodeWorkResult = Schema.decodeUnknownEither(
+  WorkResult,
+  STRICT_PARSE_OPTIONS,
+);
+
+export const decodeWorkRecord = Schema.decodeUnknownEither(
+  WorkRecord,
+  STRICT_PARSE_OPTIONS,
+);
+
+export const decodeStoredWorkRecord = Schema.decodeUnknownEither(
+  StoredWorkRecord,
+  STRICT_PARSE_OPTIONS,
+);
