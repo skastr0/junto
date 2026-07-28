@@ -1,5 +1,11 @@
 import { existsSync, lstatSync } from "node:fs";
-import { mkdtemp, mkdir, readdir, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -182,5 +188,56 @@ describe("state update candidate", () => {
       );
     }
     expect(existsSync(target)).toBe(true);
+  });
+
+  it("makes recursive cleanup authority unforgeable from candidate fields", async () => {
+    const layout = await makeRoot();
+    const id = "00000000-0000-4000-8000-000000000001";
+    const directoryPath = join(
+      layout.stateDirectory,
+      "update-candidates",
+      id,
+    );
+    await mkdir(directoryPath, { recursive: true });
+    const witness = join(directoryPath, "must-survive");
+    await writeFile(witness, "operator data");
+
+    const exit = await Effect.runPromise(
+      Effect.exit(
+        releaseStateUpdateCandidate({
+          id: id as never,
+          directoryPath,
+          databasePath: join(directoryPath, "vellum.db"),
+          source: { _tag: "fresh" },
+        }),
+      ),
+    );
+
+    expect(exit._tag).toBe("Failure");
+    if (exit._tag === "Failure") {
+      expect(String(exit.cause)).toContain("requires minted authority");
+    }
+    expect(existsSync(witness)).toBe(true);
+  });
+
+  it("refuses to remove a replacement at a minted candidate path", async () => {
+    const layout = await makeRoot();
+    const candidate = await Effect.runPromise(
+      prepareStateUpdateCandidate(layout.databasePath),
+    );
+    await rm(candidate.directoryPath, { recursive: true, force: true });
+    await mkdir(candidate.directoryPath);
+    const witness = join(candidate.directoryPath, "replacement");
+    await writeFile(witness, "must survive");
+
+    const exit = await Effect.runPromise(
+      Effect.exit(releaseStateUpdateCandidate(candidate)),
+    );
+
+    expect(exit._tag).toBe("Failure");
+    if (exit._tag === "Failure") {
+      expect(String(exit.cause)).toContain("changed identity");
+    }
+    expect(existsSync(witness)).toBe(true);
   });
 });

@@ -49,6 +49,36 @@ export type PreparedStateUpdateCandidate = {
       };
 };
 
+/**
+ * Runtime authority for recursive candidate disposal.
+ *
+ * `PreparedStateUpdateCandidate` remains readable by repository preflight
+ * code, but a structurally similar object can never authorize filesystem
+ * removal. Only this module can mint membership in the WeakSet.
+ */
+const releasableCandidates = new WeakMap<
+  object,
+  {
+    readonly device: number | bigint;
+    readonly inode: number | bigint;
+  }
+>();
+
+const admitCandidateCleanup = (
+  candidate: PreparedStateUpdateCandidate,
+): void => {
+  const root = lstatSync(candidate.directoryPath);
+  if (!root.isDirectory() || root.isSymbolicLink()) {
+    throw new Error(
+      "state update candidate cleanup root is not a real directory",
+    );
+  }
+  releasableCandidates.set(candidate, {
+    device: root.dev,
+    inode: root.ino,
+  });
+};
+
 const candidateError = (
   operation: string,
   cause: unknown,
@@ -168,12 +198,14 @@ export const prepareStateUpdateCandidate = (
       try {
         if (!assertRegularOrMissing(path)) {
           createEmptyCandidate(databasePath);
-          return {
+          const candidate = {
             id,
             databasePath,
             directoryPath,
             source: { _tag: "fresh" as const },
           } satisfies PreparedStateUpdateCandidate;
+          admitCandidateCleanup(candidate);
+          return candidate;
         }
 
         const source = new DatabaseSync(path, {
@@ -204,12 +236,14 @@ export const prepareStateUpdateCandidate = (
           constants.COPYFILE_EXCL,
         );
         makeOwnerOnlyWithoutFollowing(databasePath);
-        return {
+        const candidate = {
           id,
           databasePath,
           directoryPath,
           source: { _tag: "installed" as const, backup },
         } satisfies PreparedStateUpdateCandidate;
+        admitCandidateCleanup(candidate);
+        return candidate;
       } catch (error) {
         rmSync(directoryPath, { recursive: true, force: true });
         throw error;
@@ -227,6 +261,12 @@ export const releaseStateUpdateCandidate = (
 ): Effect.Effect<void, StateUpdateCandidateError> =>
   Effect.try({
     try: () => {
+      const authority = releasableCandidates.get(candidate);
+      if (authority === undefined) {
+        throw new Error(
+          "state update candidate cleanup requires minted authority",
+        );
+      }
       const expected = join(
         dirname(dirname(candidate.directoryPath)),
         STATE_UPDATE_DIRECTORY,
@@ -235,10 +275,22 @@ export const releaseStateUpdateCandidate = (
       if (resolve(candidate.directoryPath) !== resolve(expected)) {
         throw new Error("state update candidate authority is malformed");
       }
+      const root = lstatSync(candidate.directoryPath);
+      if (
+        !root.isDirectory() ||
+        root.isSymbolicLink() ||
+        root.dev !== authority.device ||
+        root.ino !== authority.inode
+      ) {
+        throw new Error(
+          "state update candidate cleanup root changed identity",
+        );
+      }
       rmSync(candidate.directoryPath, {
         recursive: true,
         force: true,
       });
+      releasableCandidates.delete(candidate);
     },
     catch: (error) => candidateError("release", error),
   }).pipe(Effect.withSpan("state.update.release-candidate"));
