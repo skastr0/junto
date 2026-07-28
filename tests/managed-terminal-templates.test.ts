@@ -25,8 +25,10 @@ import {
   parseCodexDebugModels,
   parseGrokModelsCache,
   parseHermesProfileList,
+  parseHermesProviderModelsCache,
   readClaudeModels,
   readGrokModels,
+  readHermesModels,
 } from "../src/main/vellum/term/templates/enumerate-models";
 
 describe("managed-terminal templates (data)", () => {
@@ -375,9 +377,18 @@ describe("model enumeration (fail-soft)", () => {
       id: "claude-fable-5[1m]",
       label: "Fable",
     });
+    // Cache label "Fable" covers the "fable" alias — do not list both.
+    expect(models.map((m) => m.id)).not.toContain("fable");
     expect(models.map((m) => m.id)).toEqual(
-      expect.arrayContaining([...CLAUDE_MODEL_ALIASES]),
+      expect.arrayContaining(
+        CLAUDE_MODEL_ALIASES.filter((id) => id !== "fable"),
+      ),
     );
+  });
+
+  it("parseClaudeModelCache keeps aliases when cache is empty", () => {
+    const { models } = parseClaudeModelCache("{}");
+    expect(models.map((m) => m.id)).toEqual([...CLAUDE_MODEL_ALIASES]);
   });
 
   it("readClaudeModels fails soft on missing file", () => {
@@ -478,6 +489,44 @@ describe("model enumeration (fail-soft)", () => {
     );
     expect(full.profiles[0]?.name).toBe("default");
     expect(full.source).toBe("command");
+  });
+
+  it("parseHermesProviderModelsCache flattens unique provider model ids", () => {
+    const raw = JSON.stringify({
+      "openai-codex": { fp: "a", at: 1, models: ["gpt-5.5", "gpt-5.6-sol"] },
+      anthropic: { fp: "b", at: 2, models: ["claude-fable-5", "gpt-5.5"] },
+      broken: { models: "not-an-array" },
+      stale: { models: ["https://example.com/404", "ok-model"] },
+    });
+    const { models, error } = parseHermesProviderModelsCache(raw);
+    expect(error).toBeUndefined();
+    expect(models.map((m) => m.id)).toEqual([
+      "claude-fable-5",
+      "gpt-5.5",
+      "gpt-5.6-sol",
+      "ok-model",
+    ]);
+    expect(models.find((m) => m.id === "gpt-5.5")?.description).toBe("openai-codex");
+  });
+
+  it("readHermesModels fails soft on missing cache", () => {
+    const result = readHermesModels("/no/such/home", () => undefined);
+    expect(result).toMatchObject({ models: [], source: "empty" });
+    expect(result.error).toMatch(/missing/);
+  });
+
+  it("readHermesModels uses injectable reader", () => {
+    const raw = JSON.stringify({
+      "openai-codex": { models: ["gpt-5.5"] },
+    });
+    const result = readHermesModels("/home/op", (path) => {
+      expect(path).toBe("/home/op/.hermes/provider_models_cache.json");
+      return raw;
+    });
+    expect(result.source).toBe("cache");
+    expect(result.models).toEqual([
+      { id: "gpt-5.5", label: "gpt-5.5", description: "openai-codex" },
+    ]);
   });
 
   it("effortsFor prefers model-carried list then template defaults", () => {

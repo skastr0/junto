@@ -21,6 +21,8 @@ export {
   parseGrokModelsCache,
   enumerateHermesProfiles,
   parseHermesProfileList,
+  parseHermesProviderModelsCache,
+  readHermesModels,
   effortsFor,
   type ModelOption,
   type ProfileOption,

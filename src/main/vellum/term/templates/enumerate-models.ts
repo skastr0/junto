@@ -60,6 +60,10 @@ const defaultReadText: ReadText = (path) => {
 /**
  * Parse `additionalModelOptionsCache` entries plus static aliases.
  * Shape: `[{ value, label, description }]`.
+ *
+ * Aliases are short `--model` shortcuts (fable, sonnet, …). When the cache
+ * already surfaces the same family under a display label ("Fable"), skip the
+ * lowercase alias so the picker does not list both "Fable" and "fable".
  */
 export const parseClaudeModelCache = (
   raw: string,
@@ -70,7 +74,8 @@ export const parseClaudeModelCache = (
     };
     const cache = doc.additionalModelOptionsCache;
     const models: ModelOption[] = [];
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenLabels = new Set<string>();
 
     if (Array.isArray(cache)) {
       for (const entry of cache) {
@@ -82,11 +87,13 @@ export const parseClaudeModelCache = (
             : typeof rec.id === "string"
               ? rec.id
               : undefined;
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
+        if (!id || seenIds.has(id)) continue;
+        seenIds.add(id);
+        const label = typeof rec.label === "string" ? rec.label : id;
+        seenLabels.add(label.toLowerCase());
         models.push({
           id,
-          label: typeof rec.label === "string" ? rec.label : id,
+          label,
           description:
             typeof rec.description === "string" ? rec.description : undefined,
         });
@@ -94,8 +101,10 @@ export const parseClaudeModelCache = (
     }
 
     for (const alias of CLAUDE_MODEL_ALIASES) {
-      if (seen.has(alias)) continue;
-      seen.add(alias);
+      if (seenIds.has(alias)) continue;
+      if (seenLabels.has(alias.toLowerCase())) continue;
+      seenIds.add(alias);
+      seenLabels.add(alias.toLowerCase());
       models.push({ id: alias, label: alias });
     }
 
@@ -307,7 +316,7 @@ export const readGrokModels = (
   };
 };
 
-// ── Hermes: `hermes profile list` (no --json) ──────────────────────────────
+// ── Hermes: `hermes profile list` + provider_models_cache.json ─────────────
 
 /**
  * Parse the fixed-width `hermes profile list` table.
@@ -364,6 +373,88 @@ export const enumerateHermesProfiles = async (
       error: err instanceof Error ? err.message : String(err),
     };
   }
+};
+
+/**
+ * Parse `~/.hermes/provider_models_cache.json`.
+ * Shape: `{ [provider]: { models: string[] | { id|name|model }[], … } }`.
+ * Fail-soft on per-provider 404/error bodies — only collect string ids.
+ * Flat unique list (provider is not part of the spawn `-m` token for these
+ * cache rows; hermes resolves via profile provider + model id).
+ */
+export const parseHermesProviderModelsCache = (
+  raw: string,
+): { models: ModelOption[]; error?: string } => {
+  try {
+    const doc = JSON.parse(raw) as unknown;
+    if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+      return { models: [], error: "provider_models_cache.json is not an object" };
+    }
+    const seen = new Set<string>();
+    const models: ModelOption[] = [];
+
+    for (const [provider, entry] of Object.entries(doc as Record<string, unknown>)) {
+      if (!entry || typeof entry !== "object") continue;
+      const modelsRaw = (entry as { models?: unknown }).models;
+      if (!Array.isArray(modelsRaw)) continue;
+      for (const row of modelsRaw) {
+        let id: string | undefined;
+        if (typeof row === "string") {
+          id = row.trim();
+        } else if (row && typeof row === "object") {
+          const rec = row as Record<string, unknown>;
+          id =
+            typeof rec.id === "string"
+              ? rec.id
+              : typeof rec.name === "string"
+                ? rec.name
+                : typeof rec.model === "string"
+                  ? rec.model
+                  : undefined;
+        }
+        if (!id || seen.has(id)) continue;
+        // Stale/error rows occasionally land as HTTP bodies or URLs — skip.
+        if (/^https?:\/\//i.test(id) || /\b404\b/.test(id) || id.includes("\n")) {
+          continue;
+        }
+        seen.add(id);
+        models.push({
+          id,
+          label: id,
+          description: provider,
+        });
+      }
+    }
+
+    models.sort((a, b) => a.id.localeCompare(b.id));
+    return { models };
+  } catch (err) {
+    return {
+      models: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
+export const readHermesModels = (
+  home: string = homedir(),
+  readText: ReadText = defaultReadText,
+): ModelEnumerateResult => {
+  const path = join(home, ".hermes", "provider_models_cache.json");
+  const raw = readText(path);
+  if (raw === undefined) {
+    return {
+      models: [],
+      source: "empty",
+      error: "missing ~/.hermes/provider_models_cache.json",
+    };
+  }
+  const parsed = parseHermesProviderModelsCache(raw);
+  return {
+    models: parsed.models,
+    source: parsed.models.length > 0 ? "cache" : "empty",
+    error: parsed.error,
+  };
 };
 
 // ── Dispatch ───────────────────────────────────────────────────────────────
