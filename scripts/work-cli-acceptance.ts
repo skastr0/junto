@@ -20,7 +20,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import {
   createAppProcessPlane,
   type AppProcessDrainResult,
@@ -51,6 +51,7 @@ import {
   SettingsService,
 } from "../src/main/vellum/settings/service";
 import { WORK_MAX_FRAME_BYTES } from "../src/shared/work-control";
+import { IntentFactBasis } from "../src/shared/work-protocol";
 
 const REPO = process.cwd();
 const CLI = join(REPO, "dist/vellum");
@@ -478,6 +479,16 @@ const main = async () => {
   // WorkRepository verbs. The canvas never carries a durable work projection.
   const canvasesSvc = await runtime.runPromise(CanvasesService);
   await runtime.runPromise(canvasesSvc.write(CANVAS, seed()));
+  const intentWitness = await runtime.runPromise(
+    canvasesSvc.activeIntentWitness(),
+  );
+  const basis = Schema.decodeUnknownSync(IntentFactBasis, {
+    onExcessProperty: "error",
+  })({
+    kind: "authorial-intent",
+    generation: intentWitness.generation,
+    contentSha256: intentWitness.contentSha256,
+  });
   const repository = await runtime.runPromise(WorkRepository);
   for (const [id, messageId, brief] of [
     ["t1", "m0", "ship it"],
@@ -486,6 +497,7 @@ const main = async () => {
     await runtime.runPromise(
       repository.createTask({
         sink: { canvasName: CANVAS, nodeId: TASKS },
+        basis,
         task: {
           id,
           state: "submitted",

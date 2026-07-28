@@ -7,7 +7,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import type {
   Task,
   Artifact,
@@ -41,7 +41,10 @@ import {
 import {
   compileActorSeatRegistry,
 } from "../../src/main/vellum/station/actor-seat-compiler";
-import type { ActorRef } from "../../src/shared/work-protocol";
+import {
+  IntentFactBasis,
+  type ActorRef,
+} from "../../src/shared/work-protocol";
 
 export interface Sandbox {
   readonly root: string;
@@ -118,6 +121,14 @@ export const writeFixtureCanvas = async (
           supervisedPreferred: true,
         });
         yield* canvasService.write(name, doc);
+        const intentWitness = yield* canvasService.activeIntentWitness();
+        const basis = Schema.decodeUnknownSync(IntentFactBasis, {
+          onExcessProperty: "error",
+        })({
+          kind: "authorial-intent",
+          generation: intentWitness.generation,
+          contentSha256: intentWitness.contentSha256,
+        });
 
         const installationId = yield* stations.installationId;
         const actorRefs: ReadonlyArray<ActorRef> =
@@ -185,6 +196,7 @@ export const writeFixtureCanvas = async (
             }
             yield* workRepository.createTask({
               sink,
+              basis,
               task: {
                 ...submittedBody,
                 state: "submitted",
@@ -199,6 +211,7 @@ export const writeFixtureCanvas = async (
             if (requiresClaim) {
               yield* workRepository.claimLocalTask({
                 sink,
+                basis,
                 taskId: task.id,
                 actor: actorForTask(node.id, task),
               });
@@ -209,6 +222,7 @@ export const writeFixtureCanvas = async (
             ) {
               yield* workRepository.transitionTask({
                 sink,
+                basis,
                 taskId: task.id,
                 state: targetState,
               });
@@ -235,6 +249,7 @@ export const writeFixtureCanvas = async (
             } = request;
             yield* workRepository.createRequest({
               sink,
+              basis,
               request: {
                 ...requestBody,
                 state:
@@ -248,6 +263,7 @@ export const writeFixtureCanvas = async (
             if (targetState === "completed" || targetState === "rejected") {
               yield* workRepository.resolveRequest({
                 sink,
+                basis,
                 requestId: request.id,
                 response: response ?? "fixture resolved",
                 disposition: targetState,
@@ -258,6 +274,7 @@ export const writeFixtureCanvas = async (
           for (const message of node.ether?.messages?.items ?? []) {
             yield* workRepository.appendMessage({
               sink,
+              basis,
               message,
               sentBy: adjacentActor(node.id),
               destination: { kind: "mailbox" },
@@ -267,6 +284,7 @@ export const writeFixtureCanvas = async (
           for (const artifact of node.ether?.artifacts?.items ?? []) {
             yield* workRepository.publishArtifact({
               sink,
+              basis,
               artifact,
               publishedBy: adjacentActor(node.id),
             });
