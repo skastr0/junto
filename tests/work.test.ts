@@ -737,6 +737,104 @@ describe("WorkService — concurrent ops", () => {
     ).toBeUndefined();
   });
 
+  it("returns task and request notes from normalized thread history", async () => {
+    const name = "work-thread-messages";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [
+          emptyTaskNode(),
+          emptyRequestsNode("requests"),
+          agentNode("sender"),
+        ],
+        edges: [
+          {
+            id: "task-note",
+            fromNode: "sender",
+            toNode: "tasks",
+          },
+          {
+            id: "request-note",
+            fromNode: "sender",
+            toNode: "requests",
+          },
+        ],
+      }),
+    );
+    const read = await workRuntime.runPromise(canvases.read(name));
+    const sender = read.actorRefs.find(
+      (candidate) => candidate.nodeId === "sender",
+    );
+    if (sender === undefined) throw new Error("missing sender actor");
+    const task = await workRuntime.runPromise(
+      work.workTaskCreate(name, "tasks", "Thread task"),
+    );
+    const request = await workRuntime.runPromise(
+      work.workRequestCreate(
+        name,
+        "requests",
+        "Thread request",
+        undefined,
+        sender,
+      ),
+    );
+    if (!task.ok || !request.ok) {
+      throw new Error("failed to seed thread work");
+    }
+
+    const taskNote = await workRuntime.runPromise(
+      work.workMessageAppend(
+        name,
+        "tasks",
+        task.data.id,
+        {
+          messageId: "service-task-note",
+          role: "agent",
+          parts: [{ kind: "text", text: "Task progress" }],
+          taskId: task.data.id,
+        },
+        sender,
+      ),
+    );
+    const requestNote = await workRuntime.runPromise(
+      work.workMessageAppend(
+        name,
+        "requests",
+        request.data.id,
+        {
+          messageId: "service-request-note",
+          role: "agent",
+          parts: [{ kind: "text", text: "Request context" }],
+          taskId: request.data.id,
+        },
+        sender,
+      ),
+    );
+    expect(taskNote).toMatchObject({ ok: true, disposition: "applied" });
+    expect(requestNote).toMatchObject({
+      ok: true,
+      disposition: "applied",
+    });
+    if (!taskNote.ok || !requestNote.ok) return;
+    expect(
+      taskNote.doc.nodes
+        .find((node) => node.id === "tasks")
+        ?.ether?.tasks?.items[0]?.history.map(({ messageId }) => messageId),
+    ).toContain("service-task-note");
+    expect(
+      requestNote.doc.nodes
+        .find((node) => node.id === "requests")
+        ?.ether?.requests?.items[0]?.history.map(({ messageId }) => messageId),
+    ).toContain("service-request-note");
+    expect(
+      taskNote.doc.nodes.find((node) => node.id === "tasks")?.ether?.messages
+        ?.items ?? [],
+    ).toEqual([]);
+    expect(
+      requestNote.doc.nodes.find((node) => node.id === "requests")?.ether
+        ?.messages?.items ?? [],
+    ).toEqual([]);
+  });
+
   it("rejects actor-originated work when the compiled actor is homed on another installation", async () => {
     const name = "work-cross-home-actor";
     const remoteHost = remoteHostId("remote-actor");

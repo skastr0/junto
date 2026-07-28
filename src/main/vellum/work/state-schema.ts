@@ -816,6 +816,8 @@ export const WORK_STATE_SCHEMA_SQL = `
       item_id,
       position
     );
+  CREATE UNIQUE INDEX IF NOT EXISTS work_task_messages_sink_identity
+    ON work_task_messages(canvas_name, node_id, message_id);
   CREATE INDEX IF NOT EXISTS work_messages_inbox
     ON work_messages(canvas_name, node_id, position);
   CREATE INDEX IF NOT EXISTS work_artifacts_node
@@ -1040,6 +1042,40 @@ export const WORK_STATE_SCHEMA_SQL = `
     SELECT RAISE(ABORT, 'work task message home is immutable');
   END;
 
+  CREATE TRIGGER IF NOT EXISTS work_task_messages_require_exact_parent
+  BEFORE INSERT ON work_task_messages
+  WHEN NOT (
+    (
+      NEW.parent_lane = 'task'
+      AND EXISTS (
+        SELECT 1
+        FROM work_tasks
+        WHERE canvas_name = NEW.canvas_name
+          AND node_id = NEW.node_id
+          AND task_id = NEW.item_id
+          AND entity_home = NEW.entity_home
+      )
+    )
+    OR
+    (
+      NEW.parent_lane = 'request'
+      AND EXISTS (
+        SELECT 1
+        FROM work_requests
+        WHERE canvas_name = NEW.canvas_name
+          AND node_id = NEW.node_id
+          AND request_id = NEW.item_id
+          AND entity_home = NEW.entity_home
+      )
+    )
+  )
+  BEGIN
+    SELECT RAISE(
+      ABORT,
+      'work task message requires an exact same-home parent'
+    );
+  END;
+
   CREATE TRIGGER IF NOT EXISTS work_messages_home_immutable
   BEFORE UPDATE OF entity_home ON work_messages
   WHEN OLD.entity_home <> NEW.entity_home
@@ -1047,11 +1083,10 @@ export const WORK_STATE_SCHEMA_SQL = `
     SELECT RAISE(ABORT, 'work message home is immutable');
   END;
 
-  CREATE TRIGGER IF NOT EXISTS work_standalone_messages_require_cc_home
+  CREATE TRIGGER IF NOT EXISTS work_messages_require_cc_home
   BEFORE INSERT ON work_messages
   WHEN
-    NEW.task_id IS NULL
-    AND NOT EXISTS (
+    NOT EXISTS (
       SELECT 1
       FROM station_configuration AS configuration
       JOIN station_installation AS installation
@@ -1073,7 +1108,7 @@ export const WORK_STATE_SCHEMA_SQL = `
   BEGIN
     SELECT RAISE(
       ABORT,
-      'standalone work messages must be Command Center-homed'
+      'work mailbox messages must be Command Center-homed'
     );
   END;
 

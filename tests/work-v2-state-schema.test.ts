@@ -519,7 +519,7 @@ describe("Work v2 exact-current SQLite schema", () => {
     ).toThrow(/work message actor seat is immutable/u);
   });
 
-  test("restricts standalone mailbox rows to the configured Command Center home", () => {
+  test("restricts every mailbox row to the configured Command Center home", () => {
     const unconfigured = makeDatabase();
     registerInstallation(unconfigured, "unconfigured-installation");
     unconfigured
@@ -612,7 +612,7 @@ describe("Work v2 exact-current SQLite schema", () => {
         factEventHome: "unconfigured-installation",
         factEntityHome: "unconfigured-installation",
       }),
-    ).toThrow(/standalone work messages must be Command Center-homed/u);
+    ).toThrow(/work mailbox messages must be Command Center-homed/u);
 
     const remote = makeDatabase();
     registerInstallation(remote, "cc-installation");
@@ -656,19 +656,22 @@ describe("Work v2 exact-current SQLite schema", () => {
         factEventHome: "remote-installation",
         factEntityHome: "remote-installation",
       }),
-    ).toThrow(/standalone work messages must be Command Center-homed/u);
-    insertMessage(remote, {
-      messageId: "remote-message",
-      entityHome: "remote-installation",
-      factEventHome: "remote-installation",
-      factEntityHome: "remote-installation",
-      taskId: "remote-task",
-    });
+    ).toThrow(/work mailbox messages must be Command Center-homed/u);
+    expect(() =>
+      insertMessage(remote, {
+        messageId: "remote-message",
+        entityHome: "remote-installation",
+        factEventHome: "remote-installation",
+        factEntityHome: "remote-installation",
+        taskId: "remote-task",
+      }),
+    ).toThrow(/work mailbox messages must be Command Center-homed/u);
     insertMessage(remote, {
       messageId: "cc-message",
       entityHome: "cc-installation",
       factEventHome: "cc-installation",
       factEntityHome: "cc-installation",
+      taskId: "cc-task-reference",
     });
     expect(
       remote
@@ -684,14 +687,127 @@ describe("Work v2 exact-current SQLite schema", () => {
       {
         message_id: "cc-message",
         entity_home: "cc-installation",
-        task_id: null,
-      },
-      {
-        message_id: "remote-message",
-        entity_home: "remote-installation",
-        task_id: "remote-task",
+        task_id: "cc-task-reference",
       },
     ]);
+  });
+
+  test("requires every thread message to name an exact same-home parent", () => {
+    const database = makeDatabase();
+    registerInstallation(database, "cc-installation");
+    configureLocalInstallation(
+      database,
+      "cc-installation",
+      "command-center",
+    );
+    registerRoute(database, "cc-installation", "cc-installation", "2");
+    insertFact(database, {
+      eventHome: "cc-installation",
+      entityHome: "cc-installation",
+      seq: "1",
+      operation: "task.create",
+      itemKind: "task",
+      itemId: "task-1",
+      contentSha256: hash("1"),
+    });
+    insertFact(database, {
+      eventHome: "cc-installation",
+      entityHome: "cc-installation",
+      seq: "2",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "thread-message",
+      contentSha256: hash("2"),
+    });
+    database
+      .prepare(
+        `
+          INSERT INTO work_tasks(
+            canvas_name,
+            node_id,
+            task_id,
+            entity_home,
+            fact_event_home,
+            fact_entity_home,
+            fact_seq,
+            state,
+            brief_message_id,
+            created_at,
+            updated_at,
+            origin_at,
+            received_at
+          ) VALUES (
+            'factory',
+            'tasks',
+            'task-1',
+            'cc-installation',
+            'cc-installation',
+            'cc-installation',
+            '1',
+            'submitted',
+            'brief-1',
+            ?,
+            ?,
+            ?,
+            ?
+          )
+        `,
+      )
+      .run(observedAt, observedAt, observedAt, observedAt);
+
+    const insertThread = database.prepare(
+      `
+        INSERT INTO work_task_messages(
+          canvas_name,
+          node_id,
+          parent_lane,
+          item_id,
+          message_id,
+          position,
+          message_kind,
+          entity_home,
+          fact_event_home,
+          fact_entity_home,
+          fact_seq,
+          role,
+          parts_json,
+          origin_at,
+          received_at
+        ) VALUES (
+          'factory',
+          'tasks',
+          'task',
+          ?,
+          ?,
+          1,
+          'history',
+          'cc-installation',
+          'cc-installation',
+          'cc-installation',
+          '2',
+          'agent',
+          '[]',
+          ?,
+          ?
+        )
+      `,
+    );
+    expect(() =>
+      insertThread.run(
+        "missing-task",
+        "orphan-message",
+        observedAt,
+        observedAt,
+      ),
+    ).toThrow(/exact same-home parent/u);
+    expect(() =>
+      insertThread.run(
+        "task-1",
+        "thread-message",
+        observedAt,
+        observedAt,
+      ),
+    ).not.toThrow();
   });
 
   test("reserves at most one unresolved task claim per item and actor seat", () => {

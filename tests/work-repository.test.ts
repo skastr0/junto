@@ -524,6 +524,155 @@ describe("WorkRepository v2 local authority", () => {
     ).toEqual([artifact.value]);
   });
 
+  it("materializes task and request appends only in their exact same-home threads", async () => {
+    const taskSink = { canvasName: "factory", nodeId: "thread-tasks" };
+    const requestSink = {
+      canvasName: "factory",
+      nodeId: "thread-requests",
+    };
+    await runtime.runPromise(
+      repository.createTask({
+        sink: taskSink,
+        task: {
+          id: "thread-task-1",
+          state: "submitted",
+          history: [
+            message(
+              "thread-task-brief",
+              "user",
+              "Task brief",
+              "thread-task-1",
+            ),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await runtime.runPromise(
+      repository.createRequest({
+        sink: requestSink,
+        raisedBy: actor,
+        request: {
+          id: "thread-request-1",
+          state: "input-required",
+          claimedBy: actor.seatId,
+          history: [
+            message(
+              "thread-request-brief",
+              "agent",
+              "Request brief",
+              "thread-request-1",
+            ),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+
+    await runtime.runPromise(
+      repository.appendMessage({
+        sink: taskSink,
+        message: message(
+          "thread-task-note",
+          "agent",
+          "Task note",
+          "thread-task-1",
+        ),
+        sentBy: actor,
+        destination: { kind: "task", itemId: "thread-task-1" },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await runtime.runPromise(
+      repository.appendMessage({
+        sink: requestSink,
+        message: message(
+          "thread-request-note",
+          "agent",
+          "Request note",
+          "thread-request-1",
+        ),
+        sentBy: actor,
+        destination: {
+          kind: "request",
+          itemId: "thread-request-1",
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+
+    const taskSnapshot = await runtime.runPromise(
+      repository.readSnapshot(taskSink.canvasName, taskSink.nodeId),
+    );
+    const requestSnapshot = await runtime.runPromise(
+      repository.readSnapshot(requestSink.canvasName, requestSink.nodeId),
+    );
+    expect(
+      taskSnapshot.tasks.items[0]?.history.map(({ messageId }) => messageId),
+    ).toEqual(["thread-task-brief", "thread-task-note"]);
+    expect(
+      requestSnapshot.requests.items[0]?.history.map(
+        ({ messageId }) => messageId,
+      ),
+    ).toEqual(["thread-request-brief", "thread-request-note"]);
+    expect(taskSnapshot.messages.items).toEqual([]);
+    expect(requestSnapshot.messages.items).toEqual([]);
+    expect(
+      await runtime.runPromise(
+        state.read(
+          "test.read-thread-message-lanes",
+          (reader) => ({
+            threads: reader.get<{ readonly count: number }>(
+              `
+                SELECT count(*) AS count
+                FROM work_task_messages
+                WHERE message_id IN (?, ?)
+              `,
+              ["thread-task-note", "thread-request-note"],
+            )?.count,
+            inboxes: reader.get<{ readonly count: number }>(
+              `
+                SELECT count(*) AS count
+                FROM work_messages
+                WHERE message_id IN (?, ?)
+              `,
+              ["thread-task-note", "thread-request-note"],
+            )?.count,
+          }),
+        ),
+      ),
+    ).toEqual({ threads: 2, inboxes: 0 });
+
+    const missingParent = await runtime.runPromise(
+      repository
+        .appendMessage({
+          sink: taskSink,
+          message: message(
+            "missing-thread-note",
+            "agent",
+            "No parent",
+            "missing-task",
+          ),
+          sentBy: actor,
+          destination: { kind: "task", itemId: "missing-task" },
+          originAt: observedAt,
+          receivedAt: observedAt,
+        })
+        .pipe(Effect.either),
+    );
+    expect(missingParent).toMatchObject({
+      _tag: "Left",
+      left: {
+        _tag: "WorkAuthorityError",
+        reason: "missing-entity",
+      },
+    });
+  });
+
   it("derives fact authority from the database singleton, never caller input", async () => {
     const sink = { canvasName: "factory", nodeId: "tasks-authority" };
     const attemptedOverride = {
