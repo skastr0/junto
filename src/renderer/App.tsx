@@ -123,7 +123,7 @@ const openCanvas = async (name: string) => {
 
 const assertCanvasNavigationAdmitted = (): void => {
   if (canvasMutationsQuiesced()) {
-    throw new Error("Canvas navigation is unavailable while Vellum is quitting.");
+    throw new Error("Canvas navigation is unavailable while Vellum Command is quitting.");
   }
 };
 

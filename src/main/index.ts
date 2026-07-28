@@ -897,7 +897,7 @@ const createRendererFailureWindow = (): BrowserWindow => {
     height: 360,
     minWidth: 520,
     minHeight: 300,
-    title: "Vellum recovery",
+    title: "Vellum Command recovery",
     backgroundColor: "#0c0b0a",
     ...e2eMainWindowOptions(e2ePresentation),
     webPreferences: {

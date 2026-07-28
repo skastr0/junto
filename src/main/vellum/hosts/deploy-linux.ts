@@ -546,7 +546,7 @@ const preflightDetail = (
     case "disk":
       return "the Remote has insufficient bounded staging, install, and forward-repair reserve";
     case "package":
-      return "the installed Vellum package state is malformed";
+      return "the installed Vellum Remote package state is malformed";
     case "version":
       return "the admitted package version is invalid";
     case "linger":

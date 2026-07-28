@@ -455,7 +455,7 @@ const dispatchOp = (
           message: e.message,
           details: {
             retryable: false,
-            next_step: "open the canvas in Vellum",
+            next_step: "open the canvas in Vellum Command",
           },
         }),
       ),
@@ -1149,7 +1149,7 @@ export const startWorkControlServer = async (
               admission.message,
               {
                 retryable: true,
-                next_step: "launch Vellum, then `vellum doctor`",
+                next_step: "launch Vellum Command, then `vellum doctor`",
               },
               req.op,
               req.id,
@@ -1166,8 +1166,8 @@ export const startWorkControlServer = async (
               retryable: admission.reason === "peer_pid_unavailable",
               next_step:
                 admission.reason === "process_unbound"
-                  ? "open the agent's terminal in Vellum so its process is registered"
-                  : "ensure the CLI runs as a child of a live Vellum agent process",
+                  ? "open the agent's terminal in Vellum Command so its process is registered"
+                  : "ensure the CLI runs as a child of a live Vellum Command agent process",
               missing: "process-bind",
             },
             req.op,

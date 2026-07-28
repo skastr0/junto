@@ -204,7 +204,7 @@ export const browserAuthzMessage = (denial: BrowserAuthzDenial): string => {
     case "caller_wrong_kind":
       return "caller must be an actor node — geography (herdr, regions, notes) holds no browser grant";
     case "not_connected":
-      return "missing edge between caller and page — draw an edge in Vellum";
+      return "missing edge between caller and page — draw an edge in Vellum Command";
     case "page_missing":
       return "page node not found or not a page";
   }

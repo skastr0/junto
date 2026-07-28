@@ -178,12 +178,12 @@ export const sendStationControlRequest = (
         runtimeDown(error)
           ? stationControlErr(
               "runtime_down",
-              "Vellum station is not running",
+              "Vellum Command is not running",
               true,
             )
           : stationControlErr(
               "unavailable",
-              "station control request failed",
+              "control request failed",
               true,
             ),
       );

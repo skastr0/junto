@@ -593,7 +593,7 @@ if (isDev) {
 
 export const trailer60: DemoScenario = {
   id: "trailer-60",
-  title: "Vellum — 60s trailer",
+  title: "Vellum Command — 60s trailer",
   bpm: 110,
   beats,
 };
