@@ -55,26 +55,88 @@ database executes the current composed DDL and is stamped at the current
 version. A non-empty unversioned database is adopted only if its live and
 recorded identities equal the frozen version-1 witness. Every later schema
 change increments `CURRENT_STATE_SCHEMA_VERSION`, retains every prior witness,
-and appends exactly one synchronous migration step.
+and appends exactly one synchronous migration step. Once a migration ships,
+its version, name, input witness, and behavior are immutable. A repair is a new
+forward migration, never an edit to history, because an installation may skip
+any number of releases before applying the chain.
 
-Startup migration is one `BEGIN IMMEDIATE` transaction. Each step may change
-DDL and transform rows, but it cannot yield or open another connection. The
-complete chain must end in the exact fresh-compiled current schema with no
-foreign-key violations. Only then do the final identity and `user_version`
-commit. Any error rolls back the entire chain. Newer versions, gaps, branches,
-unknown version-zero shapes, identity drift, and final-schema mismatch fail
-without mutation.
+Routine startup evolution follows four explicit stages:
+
+1. **Expand.** Add a representation beside the installed one.
+2. **Preserve.** Copy forward into new columns or tables without rewriting any
+   pre-existing value or changing row identity.
+3. **Deprecate.** Stop consuming and producing the old representation after
+   parity is proven, but keep its bytes and never reuse its name or meaning.
+4. **Retire.** Physically remove only through a separate operator-approved
+   compaction after a coherent backup, exact replacement parity, no current
+   reader or writer, and fleet compatibility evidence.
+
+The startup migration capability enforces the first three stages. It rejects
+row deletion, insertion into an installed table, overwriting an installed
+column, schema-object removal, table/column rename or drop, row replacement,
+attached databases, transaction control, and direct schema-version mutation.
+Each step also proves every installed table and column survives with the same
+shape. New columns and tables may receive copy-forward data.
+
+Startup work must remain bounded. A migration may perform additive metadata
+DDL and a demonstrably bounded copy-forward required to open the current
+schema. It may not hide an unbounded table rebuild, `VACUUM`, derived-index
+rebuild, or long backfill in application bootstrap. When such work is actually
+needed, it is one specifically designed, durable, resumable, idempotent
+post-start evolution job with visible status—not a speculative general
+migration framework.
+
+The complete chain runs in one `BEGIN IMMEDIATE` and must end in the exact
+fresh-compiled current schema with no foreign-key violations. Only then do the
+final identity and `user_version` commit. Any error rolls back the entire
+chain. Newer versions, gaps, branches, unknown version-zero shapes, identity
+drift, and final-schema mismatch fail without mutation.
 
 This is schema evolution of the sole current store, not compatibility mode.
 There is no downgrade, old-schema runtime reader, dual write, file-store
 importer, or “delete `vellum.db` and retry” product instruction. Every real
 migration requires an old-version fixture and a repository-level proof that
-meaningful existing rows survive.
+meaningful existing rows and old column values survive byte-for-byte.
+
+Installed SQLite state is a legitimate destructive-state compatibility
+boundary. Retaining a deprecated column or table is therefore required data
+protection, not permission to keep a second runtime domain model. Current code
+reads and writes one canonical representation; retained old bytes are inert
+until an explicit recovery or compaction workflow uses them.
+
+## Gentle update transaction
+
+A package update and a schema migration form one operator-visible update
+transaction:
+
+1. the running installation creates and verifies a coherent `VACUUM INTO`
+   pre-migration backup before it yields execution;
+2. the candidate migrates a coherent clone and proves database open, Work
+   control, Station API, simulation readiness, and current-schema integrity
+   before the current factory is stopped;
+3. only then is the live installation quiesced and the candidate allowed to
+   advance the live database;
+4. if no schema-version advance committed, the unchanged database may resume
+   under the prior binary;
+5. after a version advance or candidate-authored durable work commits,
+   recovery remains forward-only—never launch an older binary against that
+   database;
+6. retain the pre-migration backup through at least one fully healthy launch
+   and expose a bounded forward-recovery/export surface before any automatic
+   retention policy exists.
+
+Remote rollout is one installation at a time. A candidate is not healthy
+merely because a socket opened: readiness includes a Station round trip,
+simulation, projection/work cursor continuity, and the migrated schema.
 
 ## One schema, different residency
 
-Command Center and Remote run the same app and bootstrap the same current
-schema. Role changes row residency and runtime behavior, not table shape.
+Command Center and Remote run the same application and, at a given release,
+bootstrap the same role-independent schema. Because installations update
+independently, a fleet may temporarily contain different recognized schema
+versions. Those databases are never opened or attached across machines; wire
+compatibility is handled by the Station protocol. Role changes row residency
+and runtime behavior, not table shape.
 
 | State | Command Center | Remote |
 |---|---|---|
@@ -330,6 +392,12 @@ A storage change is releasable only when:
 8. headless and SSH helpers are proven to reach the app rather than the file;
 9. `VACUUM INTO` produces a coherent owner-only backup;
 10. an older recognized SQLite version migrates in place with representative
-    state preserved, while failure rolls back schema, data, identity, and
-    version;
-11. repository search finds no retired product-state path.
+    rows and old column values preserved, while failure rolls back schema,
+    data, identity, and version;
+11. skipped-release fixtures prove the append-only chain from every supported
+    installed version;
+12. destructive SQL and structural contraction are rejected by the migration
+    capability;
+13. package preflight and interruption tests prove a failed candidate does not
+    strand a previously healthy factory;
+14. repository search finds no retired product-state path.

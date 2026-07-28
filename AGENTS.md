@@ -9,7 +9,9 @@ product trust model. It defines Vellum as a single-operator factory, attached
 agents as trusted but fallible, edges as enforceable operator intent inside
 Vellum, and Stations as single-home executors of Command Center intent. If a
 review, backlog item, test, or older architecture note conflicts with it, the
-conflict must be removed rather than preserved as a compatibility path.
+conflict is migration work. Compatibility exists only at the two proven
+external boundaries: installed SQLite state and independently updated Station
+wire peers. It must not preserve an obsolete internal domain or file store.
 
 [`docs/vellum-protocol.md`](docs/vellum-protocol.md) is the canonical
 multi-installation contract: identity, complete intent projection, sink/item
@@ -20,11 +22,13 @@ event convergence, the five Station verbs, and transport adapters.
 projections and capability-bound tools are the agent API. **Sole durable store**
 is `~/.vellum/state/vellum.db`. The Electron main process owns its one
 `StateEngine` connection; renderers, CLIs, helpers, and remote callers use
-IPC/control APIs and never open the database. Every installation runs the same
-schema. Command Center holds authorial canvases and fleet coordination; a
-Remote holds its replace-only projection and installation-homed work. Both
-event and entity homes are `InstallationId` values; `HostId` is placement, not
-durable work authority. Single-home rows and route-local
+IPC/control APIs and never open the database. Every app version has one
+role-independent schema; independently updated installations may temporarily
+run different recognized versions. Command Center holds authorial canvases and
+fleet coordination; a Remote holds its replace-only projection and
+installation-homed work. Both event and entity homes are `InstallationId`
+values; `HostId` is placement, not durable work authority. Single-home rows and
+route-local
 `(event_home, entity_home, seq)` Work identities make station clocks irrelevant
 to correctness.
 JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
@@ -34,9 +38,32 @@ not durability or input watched by the app.
 `PRAGMA user_version` selects a contiguous forward-only migration chain, and
 `state_schema_identity` proves the exact shape expected at each step. Every
 schema edit must increment the current version, append an atomic `N → N+1`
-migration, and prove old rows survive. Never ask an installed system to delete
-`vellum.db`; never add a downgrade, old-schema runtime reader, dual write, or
-file-store compatibility path.
+migration, and prove old rows survive. Shipped migration history is immutable:
+never edit, delete, reorder, or renumber a released step.
+
+Routine migrations are **expand → preserve → deprecate**:
+
+- add new tables, columns, indexes, triggers, or representations beside the
+  old shape;
+- copy forward without deleting rows, overwriting old column values, renaming,
+  dropping, tightening, or reusing an existing durable name or meaning;
+- stop using the old representation only after the new one is verified, while
+  retaining the old bytes in the schema.
+
+Physical retirement is not a startup migration. It requires a separate
+reviewed compaction, a verified coherent backup, replacement-parity proof,
+fleet compatibility evidence, and explicit operator approval. Never ask an
+installed system to delete `vellum.db`; never add a downgrade, old-schema
+runtime reader, dual write, or file-store compatibility path.
+
+**Station skew law:** the exact Station v2 wire is the installed compatibility
+floor. A newer Command Center must keep an enrolled older Remote operating
+under its last valid projection and select only a mutually supported strict
+wire/profile. Unsupported projection or Work capability means no mutation and
+an explicit `update required` state, never a generic retry loop or partial
+down-conversion. A version codec may retire only after every enrolled Station
+using it is upgraded or explicitly retired and its pending records are
+reconciled.
 
 ## The agent surface (headless — no GUI needed)
 

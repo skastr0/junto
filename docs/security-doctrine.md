@@ -10,9 +10,12 @@ product Vellum is becoming and the claims a production release must be able to
 prove.
 
 When another document, backlog item, review, test, or implementation conflicts
-with this doctrine, the conflict must be removed. Internal compatibility,
-dual-read, dual-write, and dormant fallback paths are not exceptions to the
-doctrine.
+with this doctrine, the conflict must be removed. Compatibility is permitted
+only at two proven external boundaries: installed SQLite state that cannot be
+updated atomically with its binary, and independently updated enrolled
+Stations. Those exceptions remain boundary codecs or retained inert data; they
+do not justify duplicate internal domains, dual writes, dormant fallback
+stores, or retired file paths.
 
 The exact multi-installation contract is
 [`vellum-protocol.md`](vellum-protocol.md). That document may refine protocol
@@ -282,8 +285,10 @@ commit full-map `canvas_generations` and advance `canvas_head` transactionally.
 History is ordinary queryable database state, not a content-addressed directory
 or manifest tree.
 
-Every installation uses the same schema. Role changes which rows are resident
-and active, not which storage implementation exists:
+Every app version provides one role-independent schema. Independently updated
+installations may temporarily run different recognized schema versions; no
+installation opens another installation's database. Role changes which rows
+are resident and active, not which storage implementation exists:
 
 - Command Center holds authorial canvas generations, fleet enrollment and
   coordination, and all work homed to Command Center;
@@ -305,19 +310,32 @@ is the migration cursor; `state_schema_identity` remains the exact normalized
 schema witness. Fresh databases compile the current schema directly. Existing
 databases run one contiguous, release-authored migration chain inside a single
 `BEGIN IMMEDIATE`, followed by exact `sqlite_schema` verification and
-`foreign_key_check`. Schema changes, data transforms, the identity stamp, and
-the version advance commit together or all roll back. A database from a newer
-release, an unknown version, a missing migration, or a drifted version witness
-fails closed without mutation.
+`foreign_key_check`. Additive schema changes, copy-forward data, the identity
+stamp, and the version advance commit together or all roll back. A database
+from a newer release, an unknown version, a missing migration, or a drifted
+version witness fails closed without mutation.
 
 Version 1 is the frozen post-consolidation baseline. An unversioned non-empty
 database is adopted only when both its live schema and recorded identity match
 that exact baseline. This is not a general legacy importer: there is no
 file-store reader, dual schema, downgrade, repair path, or instruction to
 delete `vellum.db`. Every schema change after version 1 must append an
-`N → N+1` migration and prove representative data preservation. The transient
-in-memory schema compiler contains no product data and is not an authority
-connection.
+`N → N+1` migration and prove representative data preservation. A released
+migration is immutable and may never be edited, removed, reordered, or
+renumbered.
+
+Routine migrations are expand, preserve, and deprecate. They add a new
+representation, copy forward while retaining every installed row and old
+column value, and then make the old representation inert. They cannot delete
+or replace installed rows, overwrite installed fields, rename/drop/reuse
+durable names, or contract schema. Physical retirement is a separate
+operator-approved compaction requiring a verified coherent backup, exact
+replacement parity, no current reader/writer, fleet compatibility evidence,
+and explicit retention intent. Canonical user and factory history has no
+automatic retirement horizon.
+
+The transient in-memory schema compiler contains no product data and is not an
+authority connection.
 
 Canvas confidentiality follows the operator's operating-system account, disk,
 backup, and export choices. Vellum does not become a general secret-management
@@ -565,8 +583,38 @@ HTTPS adapter may pass real mTLS peer evidence only when its termination and
 handoff genuinely preserve that evidence.
 
 OpenSSH's authenticated operator account is the authority for the current
-network route; no second Vellum bearer credential or compatibility path
-exists.
+network route; no second Vellum bearer credential exists. Wire-version
+compatibility does not create another credential or weaken route admission.
+
+Installed Station version skew is an unavoidable runtime boundary. The exact
+Station API/session/work v2 contracts are the first installed compatibility
+floor and remain immutable. Future protocol evolution negotiates a strict
+version/capability profile before domain traffic and selects the highest
+mutually supported closed codec. It never ignores unknown fields, guesses from
+application SemVer, partially decodes a report, or down-converts operator
+intent.
+
+A newer Command Center must retain the exact older wire codec while an
+enrolled, non-retired Station still needs it or has unreconciled records under
+it. A newer Remote likewise accepts the currently supported older Command
+Center codec. Compatibility lives only at the transport/domain boundary and
+normalizes immediately into the one current internal model.
+
+If no compatible profile exists:
+
+- the Remote continues local execution under its last valid projection;
+- Command Center sends no projection, claim, command, or acknowledgement that
+  the Remote cannot represent;
+- no task or actor reservation is created merely because a socket is live;
+- ordered records remain durable and unacknowledged at the incompatible route
+  head;
+- Command Center reports `running locally — update required`, not generic
+  unavailability or healthy synchronization.
+
+A Station codec may retire only after every enrolled Station using it has
+upgraded or been explicitly retired and all durable records in that codec have
+been reconciled. This is the objective retirement trigger for the runtime-skew
+exception.
 
 Installation, host, factory, actor, resource, event-home, and entity-home
 identifiers on this protocol are routing facts, not credentials. Vellum has
@@ -698,9 +746,12 @@ Root or administrator authority is a real boundary.
 - Vellum does not retain an administrator password as ambient fleet authority.
 - Installation and update inputs are verified before privileged mutation.
 - Partial installs and updates are recoverable and honestly reported.
-- Once an update candidate may have opened the current SQLite database,
-  recovery is forward-only: Vellum retains or stops that candidate and never
-  restores or launches an older bundle against possibly advanced state.
+- Read-only candidate preflight or a fully rolled-back migration does not
+  advance the recovery fence: the unchanged database may resume under its
+  prior binary.
+- Once a candidate commits a schema-version advance or candidate-authored
+  durable work, recovery is forward-only: Vellum retains or repairs that
+  candidate and never launches an older bundle against advanced state.
 - Host-destructive APIs accept Vellum-owned resources or tightly bounded
   targets rather than arbitrary paths or PIDs.
 
@@ -823,8 +874,11 @@ A release is blocked while any product path preserves:
   `(event_home, entity_home)`;
 - direct database access from a renderer, headless CLI, helper, or second
   process;
-- dual reads, dual writes, legacy imports, compatibility adapters, or a
-  rollback path to a retired file store;
+- dual reads, dual writes, legacy imports, or compatibility adapters outside
+  the explicit installed-SQLite and Station-wire boundaries;
+- permissive Station decoding, guessed downgrade, or an older wire codec kept
+  after its enrolled-fleet retirement trigger;
+- a rollback path to a retired file store;
 - Station merging, negotiating, electing, or vetoing Command Center intent;
 - security requirements derived solely from a hostile same-user model;
 - readiness or deployment ceremonies whose only protection is against a

@@ -2,7 +2,7 @@
 
 **Status:** normative target contract; implementation in progress
 
-**Version:** 2.0.0
+**Version:** 2.1.0
 
 **Audience:** Vellum contributors, reviewers, and operators qualifying
 Command Center-to-Remote behavior
@@ -53,7 +53,8 @@ The canonical implementation has:
 
 1. one `~/.vellum/state/vellum.db` per installation;
 2. one Electron-main `StateEngine` connection per database;
-3. the same exact-current schema on Command Center and every Remote;
+3. one role-independent schema per app version, migrated locally on each
+   installation without requiring fleet-wide lockstep;
 4. one Command Center authoring canvas and protected topology;
 5. one complete replace-only authorial projection on each Remote;
 6. normalized, single-home work rows outside canvas generations;
@@ -61,8 +62,8 @@ The canonical implementation has:
 8. one Command Center-initiated persistent session per reachable Remote;
 9. OpenSSH as the first authenticated session adapter;
 10. a clean adapter boundary for future HTTPS with mutual TLS;
-11. no file-store, polling-protocol, remote-browser, or compatibility path
-    surviving beside that end state.
+11. no file-store, polling-protocol, remote-browser, or retired internal
+    compatibility path surviving beside that end state.
 
 The file-store-to-SQLite change was a direct cutover. SQLite version 1 is now
 the durable baseline: later releases migrate an installed `vellum.db`
@@ -70,7 +71,8 @@ forward in place through a contiguous transactionally applied chain. This
 does not create protocol coexistence, legacy file import, dual reads/writes,
 or downgrade support. Unknown, drifted, and newer database versions fail
 closed without mutation; a recognized older version is upgraded and retained,
-not deleted.
+not deleted. Released migrations are append-only, and routine evolution is
+expand/preserve/deprecate: installed rows, fields, names, and meanings survive.
 
 ## Terminology
 
@@ -1169,6 +1171,8 @@ Purpose: expose bounded current facts needed for fleet supervision.
 Status includes:
 
 - installation identity;
+- application and local SQLite schema versions;
+- supported Station session/API/Work versions and capability identifiers;
 - role and host configuration;
 - paired Command Center identity;
 - active projection generation/hash;
@@ -1266,6 +1270,56 @@ Session identity is ephemeral and never authority state. On loss:
 
 No polling protocol survives as a permanent parallel fallback after the
 persistent session cutover. Reconnection is the one recovery path.
+
+### Version skew and compatibility
+
+Command Center and Remotes are installed applications and cannot be updated
+atomically. That is a proven runtime-skew constraint, not speculative backward
+compatibility.
+
+The exact v2 session, Station API, control envelope, Work protocol, and
+projection contracts are frozen as the first installed wire profile. They are
+never widened in place. A future session revision begins with a strict
+compatibility exchange before domain traffic:
+
+```text
+CompatibilityProfile {
+  appVersion                 // display/diagnostic only
+  stateSchemaVersion
+  sessionVersions[]
+  stationApiVersions[]
+  workProtocolVersions[]
+  projectionVersions[]
+  capabilities[]
+}
+```
+
+The negotiated profile is bound to the live session and is the only evidence
+used to select an encoder or authorize a feature. Application SemVer, cached
+host metadata, and mere socket liveness are not compatibility authority.
+
+Rules:
+
+1. Use the highest mutually supported strict profile.
+2. Keep closed version-specific decoders; never ignore excess fields.
+3. New Command Center may reconnect with frozen v2 only when the initial
+   negotiation proves the peer is pre-negotiation v2. It must not fall back
+   after an identity, authorization, integrity, or domain failure.
+4. New Remote accepts a currently supported older Command Center profile.
+5. Gate durable mutation before reservation. An unsupported remote claim
+   leaves task submitted, actor free, and creates no command row.
+6. Never down-convert or partially install a projection. Retain the last valid
+   projection and report update-required.
+7. Never skip an unsupported record in a contiguous route. Retain it at the
+   durable head and leave the acknowledgement unchanged.
+8. One incompatible Remote does not block synchronization with another.
+9. No-common-profile is a typed, non-retryable software state, not network
+   unavailability.
+
+Frozen v2 may be removed only after every enrolled Station that used it has
+negotiated a newer profile or been explicitly retired and every v2 record has
+been reconciled. The fleet protocol owner owns that retirement; elapsed time
+or a new Command Center release is not sufficient evidence.
 
 ## OpenSSH adapter
 
@@ -1666,9 +1720,11 @@ The canonical protocol blocks release while any live path preserves:
 - unclaim, steal, lease expiry, or implicit re-home;
 - wall-clock ordering;
 - polling as a permanent peer-exchange implementation after stream cutover;
-- simultaneous v1/v2 Station protocols;
-- compatibility decoders, dual reads/writes, legacy imports, or fallback
-  stores;
+- the retired Station v1 protocol;
+- permissive or unbounded compatibility decoding;
+- an older Station codec retained without an enrolled peer or unreconciled
+  record that proves the runtime-skew exception;
+- dual reads/writes, legacy imports, or fallback stores;
 - artifact `taskId` fields or item-ID-only artifact/task joins;
 - inferred message residency without an explicit mailbox/task/request
   destination.
@@ -1743,6 +1799,9 @@ affected consumers and deletes the superseded path.
 | Transport can evolve | dispatcher/work tests run without an SSH process |
 | Persistent SSH is bounded | malformed/oversize frames close only that Remote session |
 | Failure is isolated | one unreachable Remote does not block another |
+| Version skew is bounded | new CC speaks frozen v2 to an enrolled v2 Remote; unsupported capability mutates nothing |
+| Incompatible Remote keeps working | local simulation continues under the last valid projection while CC reports update-required |
+| Ordered data survives skew | unsupported route-head record remains durable and unacknowledged until upgrade |
 
 ## Validation discipline
 
@@ -1766,6 +1825,9 @@ This document names one canonical end state. A protocol change must:
 3. delete the superseded internal contract;
 4. avoid parallel version support unless an external runtime-skew constraint
    is proven;
-5. name any forced exception, owner, and objective retirement trigger.
+5. treat installed enrolled Stations as that proven constraint and keep the
+   exception inside strict wire codecs;
+6. name every supported version, owner, and objective fleet-evidence
+   retirement trigger.
 
 “Keep the old path just in case” is not an accepted protocol design.
