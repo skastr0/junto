@@ -102,7 +102,9 @@ browser RPC.
 | Deploy | `src/main/vellum/hosts/deploy-remote.ts` |
 | Pair/configure | `src/main/vellum/hosts/configure-remote.ts` |
 | Station API | `src/main/vellum/station/api.ts` |
-| Fixed SSH client | `src/main/vellum/station/remote-client.ts` |
+| Enrollment identity bootstrap | `src/main/vellum/station/openssh-bootstrap.ts` |
+| Persistent OpenSSH peer exchange | `src/main/vellum/station/openssh-peer-exchange.ts` |
+| Fleet session supervisor | `src/main/vellum/station/fleet-propagation.ts` |
 | Station control | `src/main/vellum/station/control-server.ts` |
 | Term control UDS | `src/main/vellum/term/control-*.ts` |
 | Router | `src/main/vellum/term/router.ts` |

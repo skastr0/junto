@@ -94,13 +94,11 @@ describe("SSH architecture", () => {
       // Linux renders fixed preflight/install programs; artifact and station
       // facts cross only the bounded stdin frame owned by SshTransport.
       "src/main/vellum/hosts/deploy-linux.ts",
-      // Exact settings snapshot/CAS/rollback policy; SshTransport still owns OpenSSH.
-      "src/main/vellum/hosts/remote-settings-transaction.ts",
       "src/main/vellum/term/router.ts",
-      // Canonical Station API transport and propagation use typed endpoint
-      // values from the SSH kernel; they do not construct free-form commands.
-      "src/main/vellum/station/remote-client.ts",
-      "src/main/vellum/station/propagation.ts",
+      // Fresh enrollment performs one bounded identity bootstrap; normal
+      // fleet traffic uses only the persistent OpenSSH peer exchange.
+      "src/main/vellum/station/openssh-bootstrap.ts",
+      "src/main/vellum/station/openssh-peer-exchange.ts",
       "src/main/vellum/station/fleet-propagation.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
@@ -118,6 +116,32 @@ describe("SSH architecture", () => {
     });
 
     expect(violations).toEqual([]);
+  });
+
+  it("has one persistent Station exchange and no one-shot Station client", () => {
+    const retiredClient = join(
+      root,
+      "src/main/vellum/station/remote-client.ts",
+    );
+    const fleet = readFileSync(
+      join(root, "src/main/vellum/station/fleet-propagation.ts"),
+      "utf8",
+    );
+    const exchange = readFileSync(
+      join(root, "src/main/vellum/station/openssh-peer-exchange.ts"),
+      "utf8",
+    );
+    const doctor = readFileSync(
+      join(root, "src/main/vellum/hosts/doctor.ts"),
+      "utf8",
+    );
+
+    expect(existsSync(retiredClient)).toBe(false);
+    expect(fleet).toContain("StationPeerExchange");
+    expect(fleet).toContain("exchange.open");
+    expect(exchange).toContain("sharedStream");
+    expect(doctor).toContain("StationFleetPropagation");
+    expect(doctor).toContain("fleet.synchronize");
   });
 
   it("product modules outside ssh/ do not import makeRemoteCommand", () => {
