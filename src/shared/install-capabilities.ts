@@ -9,7 +9,6 @@ import {
   PLUGIN_INSTALL_DISABLED_DETAIL,
   RELEASE_CAPABILITIES,
   REMOTE_INSTALLS_OPERATOR_DISABLED_DETAIL,
-  ROUTE_TOKENS_DISABLED_DETAIL,
   type ReleaseCapabilities,
 } from "./release-capabilities";
 import type { StationRoleSetting } from "./settings";

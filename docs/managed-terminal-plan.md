@@ -2,7 +2,10 @@
 
 Status: plan of record. Authored 2026-07-26 after the ACP/terminal decision arc and a 63-item executed-probe verification pass.
 Evidence: [`managed-terminal-verification.md`](managed-terminal-verification.md) (per-harness verified facts + traps) · [`research/managed-terminal-probes/`](research/managed-terminal-probes/) (raw reports).
-Supersedes for v1: the ACP-first framing in [`factory-harness-integration.md`](factory-harness-integration.md) §1 Mode A/B and §7 plugin lowering. That doc's factory model (owned session, seat state, tick) stands unchanged — only the transport changes.
+Supersedes for v1: the retired ACP-first and remote-client proposal preserved at
+[`factory-harness-integration.md`](factory-harness-integration.md). The current
+factory model has one actor runtime and one work admission path: a
+Vellum-spawned managed terminal using owner-local process-bind.
 
 ---
 
@@ -53,7 +56,7 @@ This is why the plan is short. Most of the factory is built.
 | PTY ownership, spawn, byte journal, resize, exit, sealed kill plane | **built** | `src/main/vellum/term/local-host.ts` (single data hook at `observeData:698`), `plane.ts`, `router.ts`, `sessions.ts`, `release-fence.ts`, `shell-policy.ts` |
 | Remote terminals over SSH | **built** | `term/remote/`, and `hermes --profile X -m Y` over `ssh -t` verified working (R1–R3) |
 | Renderer terminal surface (xterm) | **built** | `src/renderer/components/terminal/{TerminalSurface,TerminalCard,TerminalWizard,TerminalInventory}.tsx` |
-| Work-control server: all ops + scopes + process-bind identity + route tokens (tier 3) | **built** | `src/main/vellum/work/{control,authz,caller-resolve,live-seat,route-tokens,service}.ts` — ops: `ping doctor capabilities onboard tasks.list tasks.claim tasks.update msg.list msg.send request.create artifact.publish` |
+| Work-control server: all ops + scopes + process-bind identity | **built** | `src/main/vellum/work/{control,authz,caller-resolve,live-seat,service}.ts` — ops: `ping doctor capabilities onboard tasks.list tasks.claim tasks.update msg.list msg.send request.create artifact.publish` |
 | **Station CLI, agent-native** | **built** | `src/cli/` — `vellum onboard \| doctor \| capabilities \| tasks list\|claim\|update \| msg list\|send \| request create \| artifact publish \| schema \| examples`; JSON-in/JSON-out, batch-capable, `dist/vellum` via `bun run cli:build` |
 | **Mailbox with transport abstraction** — pending-until-live, deliver-on-append + deliver-on-attach, pause-aware | **built** | `src/main/vellum/work/message-delivery.ts` (`MessageDeliveryTransport`) — today: ACP `chatPrompt` + herdr control stream |
 | Kernel tick / pulse: claim routing, pulse composition, armed/paused state, execution snapshots | **built** | `src/main/vellum/kernel/{cycle,evaluate,service}.ts` — incl. `composePulseMessage`, `MIN_LIVE_PULSE_SPACING_MS` |

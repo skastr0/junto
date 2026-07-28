@@ -14,11 +14,10 @@ describe("computeInstallCapabilities", () => {
     expect(caps.effective.installPluginLocal).toBe(
       RELEASE_CAPABILITIES.pluginInstall,
     );
-    // route-token admin requires kill-switch on
     expect(caps.detail.installPluginRemote).toMatch(/turned off/i);
   });
 
-  it("enables remote plugin + route admin when operator opts in on CC", () => {
+  it("enables remote plugin installation when the operator opts in on Command Center", () => {
     const caps = computeInstallCapabilities({
       stationRole: "command-center",
       remoteManagedInstalls: true,
