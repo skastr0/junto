@@ -120,6 +120,12 @@ import { loadStationSupervisor } from "./vellum/supervision/select";
 import { SettingsService } from "./vellum/settings/service";
 import { StateEngine } from "./vellum/state/service";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
+import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
+import {
+  makeLicenseCoordinator,
+  type LicenseCoordinator,
+} from "./vellum/license/coordinator";
+import { LicenseService } from "./vellum/license/service";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
 import {
@@ -286,6 +292,13 @@ type HerdrPlaneService = Context.Tag.Service<typeof HerdrPlane>;
 type HermesPlaneService = Context.Tag.Service<typeof HermesPlane>;
 let herdrPlaneService: HerdrPlaneService | undefined;
 let hermesPlaneService: HermesPlaneService | undefined;
+type KernelServiceShape = Context.Tag.Service<typeof KernelService>;
+let kernelService: KernelServiceShape | undefined;
+let licenseCoordinator: LicenseCoordinator | undefined;
+let unregisterLicenseIpc: (() => void) | undefined;
+let rendererWindowAdmissionReady = false;
+let productRuntimeStarted = false;
+let productRuntimeSuspended = false;
 let shutdownAdmissionClosed = false;
 let shutdownReason = "app_quit";
 let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"]>>> | undefined;
@@ -336,6 +349,39 @@ let skipQuitConfirm = false;
 let quitConfirmGeneration = 0;
 /** True while a native confirm dialog is open — blocks a second dialog, not signal force. */
 let quitConfirmPending = false;
+
+/**
+ * License loss is a monotonic product-admission cut, not an application quit.
+ *
+ * Main-process IPC admission has already been revoked synchronously by the
+ * LicenseCoordinator before this hook runs. Close every remaining product
+ * ingress immediately, but deliberately leave local PTYs and attached
+ * processes alive; the ordinary quit path remains their sole signal/drain
+ * authority.
+ */
+const suspendProductRuntimeForLicenseRevocation = (): void => {
+  if (productRuntimeSuspended) return;
+  productRuntimeSuspended = true;
+  nodeRefOwnerReady = false;
+  pendingNodeRefUri = undefined;
+  activeNodeRefDelivery = undefined;
+  disconnectNodeRefIngress();
+  disconnectNodeRefIngress = () => undefined;
+
+  kernelService?.suspend();
+  termPlane.suspendForLicenseRevocation();
+  workControl?.beginShutdown();
+  canvasControl?.beginShutdown();
+  stationRemoteReportPumpShutdown ??= stationRemoteReportPump?.close();
+  stationControl?.beginShutdown();
+  hostOperationsShutdown.beginShutdown();
+
+  unsubscribeCanvasEdgeGrants?.();
+  unsubscribeCanvasEdgeGrants = undefined;
+  browserShutdown ??= browserComposition?.drainOnQuit(
+    "license_revoked",
+  );
+};
 
 const CANVAS_FLUSH_TIMEOUT_MS = 45_000;
 const pendingCanvasFlushes = new Map<
@@ -658,6 +704,7 @@ const createWindow = () => {
   // activate/second-instance events must not resurrect an authoring renderer
   // while the bounded fallback is finishing a partially torn-down runtime.
   if (
+    !rendererWindowAdmissionReady ||
     shutdownAdmissionClosed ||
     signalRendererDestroyInProgress ||
     signalQuitState.rendererQuiesced() ||
@@ -690,10 +737,12 @@ const createWindow = () => {
       sandbox: true,
     },
   });
-  void browserCompositionHost.bindVisibleWindow(mainWindow).catch(() => {
-    if (!mainWindow.isDestroyed()) mainWindow.destroy();
-    exitAfterDetach(1, "browser-composition-host-bind-failure");
-  });
+  if (productRuntimeStarted && !productRuntimeSuspended) {
+    void browserCompositionHost.bindVisibleWindow(mainWindow).catch(() => {
+      if (!mainWindow.isDestroyed()) mainWindow.destroy();
+      exitAfterDetach(1, "browser-composition-host-bind-failure");
+    });
+  }
   trustedMainWindow = mainWindow;
   // BrowserWindow's `closed` event fires after its native object and
   // WebContents have been destroyed. Capture the routing identity while it is
@@ -704,6 +753,8 @@ const createWindow = () => {
   let closeFlush: Promise<void> | undefined;
   mainWindow.on("close", (event) => {
     if (
+      !productRuntimeStarted ||
+      productRuntimeSuspended ||
       closeWindowsWithoutCanvasFlush ||
       closeAfterCanvasFlush ||
       signalQuiescedWindows.has(mainWindow)
@@ -850,9 +901,11 @@ const createWindow = () => {
     disconnectNodeRefIngress = disconnect;
   });
   mainWindow.on("closed", () => {
-    void browserCompositionHost.releaseVisibleWindow(mainWindow).catch(() => {
-      exitAfterDetach(1, "browser-composition-host-release-failure");
-    });
+    if (productRuntimeStarted && !productRuntimeSuspended) {
+      void browserCompositionHost.releaseVisibleWindow(mainWindow).catch(() => {
+        exitAfterDetach(1, "browser-composition-host-release-failure");
+      });
+    }
     const pending = pendingCanvasFlushes.get(mainWebContentsId);
     if (pending !== undefined) {
       clearTimeout(pending.timer);
@@ -1048,6 +1101,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     existing.focus();
   });
 
+  app.on("activate", () => {
+    retryActiveNodeRef();
+    if (!headless && currentTrustedMainWindow() === undefined) createWindow();
+  });
+
   void app.whenReady().then(async () => {
     // Re-apply after ready: dock.hide before ready is a no-op / race on some
     // Electron builds, and E2E must never plant a Dock icon mid-suite.
@@ -1088,9 +1146,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    nodeRefOwnerReady = true;
-    activatePendingNodeRef();
-
     // Warm the resolved spawn environment (login-shell PATH + static floor) so
     // process.env.PATH is fixed before any adapter/service spawns a CLI. Never
     // rejects; adapters also await it lazily, so this is belt-and-suspenders.
@@ -1109,6 +1164,102 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         roots.push(join(app.getAppPath(), "scripts"));
       }
       configurePeerPidHelperRoots(roots);
+    }
+
+    // Control sockets must never land under the real operator home when E2E /
+    // headless probes sandbox via HOME or --user-data-dir. Electron's
+    // app.getPath("home") ignores HOME; resolveControlHome is the isolation gate.
+    const controlHomeInput = {
+      envHome: process.env.HOME,
+      electronHome: app.getPath("home"),
+      userData: app.getPath("userData"),
+      e2e: process.env.VELLUM_E2E === "1",
+      headless,
+      packaged: app.isPackaged,
+    } as const;
+    const termControlHome = resolveControlHome(controlHomeInput);
+    const browserControlHome = resolveControlHome({
+      ...controlHomeInput,
+      explicitHome: process.env.VELLUM_BROWSER_HOME,
+    });
+
+    const stations = await AppRuntime.runPromise(StationRepository);
+    const stationConfiguration = await AppRuntime.runPromise(
+      stations.configuration,
+    );
+
+    // A newly installed packaged headless process has no renderer in which to
+    // select its role. Keep exactly the owner-local Station enrollment verbs
+    // alive so it can become a configured Remote, then require a restart. No
+    // product IPC, work/canvas/term/browser control, kernel, or license
+    // provider call is reachable in this bootstrap process.
+    if (
+      app.isPackaged &&
+      headless &&
+      stationConfiguration === undefined
+    ) {
+      try {
+        stationControl = await startStationControlServer({
+          home: termControlHome,
+          appVersion: app.getVersion(),
+          stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
+          run: (effect) => AppRuntime.runPromise(effect),
+          localHandoffAuthority:
+            makeOwnerLocalStationControlHandoffAuthority(),
+          readiness: () => ({
+            database: true,
+            workControl: false,
+            simulation: false,
+          }),
+          admitRequest: (request) =>
+            request.op === "status" ||
+            request.op === "pair" ||
+            request.op === "configure",
+        });
+        if (shutdownAdmissionClosed) stationControl.beginShutdown();
+      } catch (error) {
+        console.error(
+          "[station-control] enrollment bootstrap failed:",
+          error,
+        );
+        exitAfterDetach(1, "station-bootstrap-startup-failure");
+      }
+      return;
+    }
+
+    const licenseConfig = compiledLicenseBuildConfig(app.isPackaged);
+    const licenseService = await AppRuntime.runPromise(LicenseService);
+    const coordinator = makeLicenseCoordinator({
+      config: licenseConfig,
+      mode:
+        stationConfiguration?.configuration.role === "remote"
+          ? "remote-support"
+          : "licensed-command-center",
+      service: licenseService,
+      run: (effect) => AppRuntime.runPromise(effect),
+      openExternal: (url) => shell.openExternal(url),
+      application: {
+        relaunch: () => app.relaunch(),
+        quit: () => app.quit(),
+      },
+      onAccessRevoked: suspendProductRuntimeForLicenseRevocation,
+    });
+    licenseCoordinator = coordinator;
+    unregisterLicenseIpc = coordinator.registerIpc(ipcMain);
+    const licenseDecision =
+      await coordinator.decideStartupAdmission();
+
+    if (!licenseDecision.admitted) {
+      if (headless) {
+        console.error(
+          `[license] headless Command Center startup denied (${licenseDecision.status.reason})`,
+        );
+        exitAfterDetach(1, "license-startup-denied");
+        return;
+      }
+      rendererWindowAdmissionReady = true;
+      createWindow();
+      return;
     }
 
     registerIpcHandlers();
@@ -1144,22 +1295,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     }
   herdrActiveControlCount = () => herdr.sessions.activeControlCount();
   await AppRuntime.runPromise(herdr.start);
-    // Control sockets must never land under the real operator home when E2E /
-    // headless probes sandbox via HOME or --user-data-dir. Electron's
-    // app.getPath("home") ignores HOME; resolveControlHome is the isolation gate.
-    const controlHomeInput = {
-      envHome: process.env.HOME,
-      electronHome: app.getPath("home"),
-      userData: app.getPath("userData"),
-      e2e: process.env.VELLUM_E2E === "1",
-      headless,
-      packaged: app.isPackaged,
-    } as const;
-    const termControlHome = resolveControlHome(controlHomeInput);
-    const browserControlHome = resolveControlHome({
-      ...controlHomeInput,
-      explicitHome: process.env.VELLUM_BROWSER_HOME,
-    });
     try {
       canvasControl = await startCanvasControlServer({
         home: termControlHome,
@@ -1175,8 +1310,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // start is idempotent with the IPC startup path; invoking it here makes the
     // headless/zero-window station contract explicit before readiness opens.
     try {
-      const kernel = await AppRuntime.runPromise(KernelService);
-      kernel.start();
+      kernelService = await AppRuntime.runPromise(KernelService);
+      kernelService.start();
       stationControl = await startStationControlServer({
         home: termControlHome,
         appVersion: app.getVersion(),
@@ -1190,9 +1325,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           simulation: true,
         }),
       });
-      const [stationApi, stations, work] = await Promise.all([
+      const [stationApi, work] = await Promise.all([
         AppRuntime.runPromise(StationApiService),
-        AppRuntime.runPromise(StationRepository),
         AppRuntime.runPromise(WorkRepository),
       ]);
       stationRemoteReportPump = startStationRemoteReportPump({
@@ -1217,6 +1351,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       console.error("[term] control socket failed to start:", error);
     }
     powerMonitor.on("resume", () => {
+      if (productRuntimeSuspended) return;
       void AppRuntime.runPromise(Effect.flatMap(HerdrPlane, (plane) => plane.warm)).catch(() => {
         console.error("[herdr] resume warm failed");
       });
@@ -1374,12 +1509,14 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
+    productRuntimeStarted = true;
+    await coordinator.startMonitoring();
+    if (!productRuntimeSuspended) {
+      nodeRefOwnerReady = true;
+      activatePendingNodeRef();
+    }
+    rendererWindowAdmissionReady = true;
     if (!headless) createWindow();
-
-    app.on("activate", () => {
-      retryActiveNodeRef();
-      if (!headless && currentTrustedMainWindow() === undefined) createWindow();
-    });
   })
     .catch(() => {
       console.error("[startup] initialization failed");
@@ -1410,6 +1547,7 @@ const beginShutdownAdmission = (reason: string): void => {
   shutdownReason = reason;
   if (shutdownAdmissionClosed) return;
   shutdownAdmissionClosed = true;
+  licenseCoordinator?.stopMonitoring();
   nodeRefOwnerReady = false;
   pendingNodeRefUri = undefined;
   activeNodeRefDelivery = undefined;
@@ -1454,6 +1592,10 @@ const recoverMainAuthoringPrecommit = (): void => {
 };
 
 const commitMainAuthoringOnQuit = async (): Promise<void> => {
+  // Activation-only and revoked renderers never own a live authoring surface.
+  // Waiting for a canvas flush there would strand quit on an IPC channel that
+  // was intentionally never opened (or has already been revoked).
+  if (!productRuntimeStarted || productRuntimeSuspended) return;
   const epoch = ensureMainAuthoringPrecommit();
   const preDrain = await mainAuthoringGate.drain(epoch);
   if (!preDrain.clean) {
@@ -1482,6 +1624,9 @@ const detachRuntimeOnQuit = (reason: string): void => {
     throw new Error("runtime detach blocked before signal durability commit");
   }
   runtimeDetachedForQuit = true;
+  licenseCoordinator?.stopMonitoring();
+  unregisterLicenseIpc?.();
+  unregisterLicenseIpc = undefined;
   // Canvas control cannot reopen. Cut it only after the renderer/document
   // durability boundary is irreversible, never during a recoverable precommit.
   canvasControl?.beginShutdown();
