@@ -11,6 +11,15 @@ import type {
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { templateFor } from "@shared/managed-terminal-templates";
 import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
+import { isValidStationHostId } from "@shared/station";
+
+const requireHostId = (value: string): string => {
+  const host = value.trim();
+  if (!isValidStationHostId(host)) {
+    throw new Error(`invalid station host id: ${JSON.stringify(value)}`);
+  }
+  return host;
+};
 
 export const makeTextNode = (x: number, y: number): TextNode => ({
   id: `node-${ulid()}`,
@@ -154,19 +163,27 @@ export const makeManagedAgentNode = (
 };
 
 // A tasks node — task list; blocks only when edged with criteria.mode tasks.
-export const makeTasksNode = (x: number, y: number): TextNode => ({
-  id: `task-${ulid()}`,
-  type: "text",
-  text: "tasks",
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 240,
-  height: 120,
-  ether: {
-    entity: { kind: "task" },
-    tasks: { items: [] },
-  },
-});
+export const makeTasksNode = (
+  x: number,
+  y: number,
+  queueHost: string,
+): TextNode => {
+  const host = requireHostId(queueHost);
+  return {
+    id: `task-${ulid()}`,
+    type: "text",
+    text: "tasks",
+    x: Math.round(x),
+    y: Math.round(y),
+    width: 240,
+    height: 120,
+    ether: {
+      entity: { kind: "task" },
+      host,
+      tasks: { items: [] },
+    },
+  };
+};
 
 // Operator requests — items live around state input-required.
 export const makeRequestsNode = (x: number, y: number): TextNode => ({

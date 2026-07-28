@@ -696,7 +696,8 @@ const makeAddActions = (
   },
   addTasks: () => {
     const position = positionFor({ width: 240, height: 120 });
-    const node = makeTasksNode(position.x, position.y);
+    const stationHost = state$.settings.station.hostId.peek() || "local";
+    const node = makeTasksNode(position.x, position.y, stationHost);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();

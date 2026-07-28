@@ -13,6 +13,7 @@ import {
   makeHerdrNode,
   makeManagedAgentNode,
   makePageNode,
+  makeTasksNode,
   makeWatcherNode,
 } from "../src/renderer/lib/node-factories";
 
@@ -42,6 +43,7 @@ describe("node host assignment", () => {
       label: "codex",
     });
     const page = makePageNode(0, 0, "https://example.com");
+    const tasks = makeTasksNode(0, 0, "remote-a");
     const watcher = makeWatcherNode(0, 0, "remote-a");
     const herdr = makeHerdrNode(0, 0, {
       host: "remote-a",
@@ -50,9 +52,17 @@ describe("node host assignment", () => {
 
     expect(agent.ether?.host).toBe("local");
     expect(page.ether?.host).toBe("local");
+    expect(tasks.ether?.host).toBe("remote-a");
     expect(watcher.ether?.host).toBe("remote-a");
     expect(herdr.ether?.host).toBe("remote-a");
     expect(resolveNodeHostId(herdr)).toBe("remote-a");
+  });
+
+  it("refuses to create a tasks sink with an implicit or malformed queue home", () => {
+    expect(() => makeTasksNode(0, 0, "")).toThrow("invalid station host id");
+    expect(() => makeTasksNode(0, 0, "-option")).toThrow(
+      "invalid station host id",
+    );
   });
 
   it("legacy nodes without ether.host resolve to local", () => {
