@@ -1244,6 +1244,9 @@ describe("WorkService — concurrent ops", () => {
             projection: {
               scope: "full",
               generation: logicalSequence("1"),
+              sourceCanvasGeneration: logicalSequence("1"),
+              sourceIntentSha256:
+                stationProjectionContentSha256("remote work source"),
               body,
               contentSha256: stationProjectionContentSha256(body),
               createdAt: "2026-07-27T12:00:00.000Z",

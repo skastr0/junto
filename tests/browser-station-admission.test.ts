@@ -46,6 +46,8 @@ const commandCenterConfiguration = (): StationConfigurationValue =>
 const projection = (): StationProjection => ({
   scope: "full",
   generation: logicalSequence("7"),
+  sourceCanvasGeneration: logicalSequence("4"),
+  sourceIntentSha256: contentSha256,
   body: projectionBody,
   contentSha256,
   createdAt: "2026-07-27T15:00:00.000Z",

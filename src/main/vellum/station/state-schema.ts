@@ -83,25 +83,54 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
     ) STRICT
   `,
   `
-    CREATE TABLE IF NOT EXISTS station_projection (
-      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    CREATE TABLE IF NOT EXISTS station_projection_versions (
       generation TEXT NOT NULL
         CHECK (
           length(generation) BETWEEN 1 AND 32
           AND generation NOT GLOB '*[^0-9]*'
           AND (generation = '0' OR substr(generation, 1, 1) <> '0')
         ),
-      body TEXT NOT NULL
-        CHECK (length(body) BETWEEN 1 AND 67108864),
       content_sha256 TEXT NOT NULL
         CHECK (
           length(content_sha256) = 64
           AND content_sha256 NOT GLOB '*[^a-f0-9]*'
         ),
+      source_canvas_generation TEXT NOT NULL
+        CHECK (
+          length(source_canvas_generation) BETWEEN 1 AND 32
+          AND source_canvas_generation NOT GLOB '*[^0-9]*'
+          AND (
+            source_canvas_generation = '0'
+            OR substr(source_canvas_generation, 1, 1) <> '0'
+          )
+        ),
+      source_intent_sha256 TEXT NOT NULL
+        CHECK (
+          length(source_intent_sha256) = 64
+          AND source_intent_sha256 NOT GLOB '*[^a-f0-9]*'
+        ),
+      body TEXT NOT NULL
+        CHECK (length(body) BETWEEN 1 AND 67108864),
       created_at TEXT NOT NULL
         CHECK (length(created_at) BETWEEN 1 AND 64),
       received_at TEXT NOT NULL
-        CHECK (length(received_at) BETWEEN 1 AND 64)
+        CHECK (length(received_at) BETWEEN 1 AND 64),
+      PRIMARY KEY (generation),
+      UNIQUE (generation, content_sha256)
+    ) STRICT, WITHOUT ROWID
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS station_projection_head (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      generation TEXT NOT NULL,
+      content_sha256 TEXT NOT NULL,
+      FOREIGN KEY (generation, content_sha256)
+        REFERENCES station_projection_versions(
+          generation,
+          content_sha256
+        )
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT
     ) STRICT
   `,
   `
@@ -197,6 +226,20 @@ export const STATION_STATE_SCHEMA_STATEMENTS = [
     WHEN OLD.installation_id <> NEW.installation_id
     BEGIN
       SELECT RAISE(ABORT, 'local installation identity is immutable');
+    END
+  `,
+  `
+    CREATE TRIGGER IF NOT EXISTS station_projection_version_immutable_update
+    BEFORE UPDATE ON station_projection_versions
+    BEGIN
+      SELECT RAISE(ABORT, 'station projection versions are immutable');
+    END
+  `,
+  `
+    CREATE TRIGGER IF NOT EXISTS station_projection_version_immutable_delete
+    BEFORE DELETE ON station_projection_versions
+    BEGIN
+      SELECT RAISE(ABORT, 'station projection versions are immutable');
     END
   `,
 ] as const;

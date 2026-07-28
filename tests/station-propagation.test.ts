@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   InstallationId,
+  LogicalSequence,
   ProjectResponse,
   ReportRequest,
   ReportResponse,
@@ -50,6 +51,9 @@ const REMOTE = installationId("remote-one");
 const LOCAL_HOST = stationHostId("local");
 const REMOTE_HOST = stationHostId("remote-one");
 const NOW = "2026-07-27T12:00:00.000Z";
+const AUTHORITY_SHA256 =
+  stationProjectionContentSha256("test canvas authority");
+const projectionSequence = Schema.decodeUnknownSync(LogicalSequence);
 
 const TARGET: StationFleetTarget = {
   hostId: REMOTE_HOST,
@@ -76,6 +80,8 @@ const canvases = (
     }),
     list: Effect.succeed([]),
     read: () => Effect.fail(new CanvasError({ message: "unused" })),
+    readWithIntentWitness: () =>
+      Effect.fail(new CanvasError({ message: "unused" })),
     write: () => Effect.fail(new CanvasError({ message: "unused" })),
     mutate: () => Effect.fail(new CanvasError({ message: "unused" })),
     create: () => Effect.fail(new CanvasError({ message: "unused" })),
@@ -94,14 +100,24 @@ const canvases = (
       ),
     liveAuthorityGeneration: () => Effect.succeed(generation),
     authoritySnapshot: () =>
-      Effect.succeed({ generation, documents }),
+      Effect.succeed({
+        generation,
+        intentSha256: AUTHORITY_SHA256,
+        documents,
+      }),
+    activeIntentWitness: () =>
+      Effect.succeed({
+        generation,
+        contentSha256: AUTHORITY_SHA256,
+      }),
     activeActorRefs: () => Effect.succeed([]),
   });
 
 const repository = (
   role: "command-center" | "remote" = "command-center",
-) =>
-  StationRepository.of({
+) => {
+  let archived: ProjectRequest["projection"] | undefined;
+  return StationRepository.of({
     installationId: Effect.succeed(COMMAND_CENTER),
     pairing: Effect.succeed(undefined),
     configuration: Effect.succeed({
@@ -122,11 +138,43 @@ const repository = (
       configuredAt: NOW,
     }),
     projection: Effect.succeed(undefined),
+    projectionByReference: (reference) =>
+      Effect.succeed(
+        archived?.generation === reference.generation &&
+            archived.contentSha256 === reference.contentSha256
+          ? { ...archived, receivedAt: NOW }
+          : undefined,
+      ),
+    archiveProjection: (draft) =>
+      Effect.sync(() => {
+        const contentSha256 =
+          stationProjectionContentSha256(draft.body);
+        if (
+          archived?.sourceCanvasGeneration ===
+            draft.sourceCanvasGeneration &&
+          archived.sourceIntentSha256 === draft.sourceIntentSha256 &&
+          archived.contentSha256 === contentSha256 &&
+          archived.body === draft.body
+        ) {
+          return archived;
+        }
+        archived = {
+          ...draft,
+          generation: projectionSequence(
+            archived === undefined
+              ? "1"
+              : (BigInt(archived.generation) + 1n).toString(),
+          ),
+          contentSha256,
+        };
+        return archived;
+      }),
     pair: () => Effect.die("unused"),
     configureRemote: () => Effect.die("unused"),
     installProjection: () => Effect.die("unused"),
     statusFacts: Effect.die("unused"),
   });
+};
 
 const fleetTargets = StationFleetTargetRepository.of({
   bind: () => Effect.die("unused"),
@@ -312,7 +360,11 @@ describe("StationPropagation", () => {
           return Effect.die("unexpected Station operation");
       }
     });
-    const stationRuntime = runtime(api());
+    const stationRuntime = runtime(
+      api(),
+      repository(),
+      canvases(undefined, "41"),
+    );
 
     try {
       const receipt = await stationRuntime.runPromise(
@@ -334,6 +386,11 @@ describe("StationPropagation", () => {
         "status",
       ]);
       expect(projected?.projection.scope).toBe("full");
+      expect(projected?.projection).toMatchObject({
+        generation: "1",
+        sourceCanvasGeneration: "41",
+        sourceIntentSha256: AUTHORITY_SHA256,
+      });
       expect(projected?.projection.contentSha256).toBe(
         stationProjectionContentSha256(
           projected?.projection.body ?? "",

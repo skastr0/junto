@@ -148,6 +148,10 @@ const projectRequest = (
     projection: {
       scope: "full",
       generation: decodeProjectionSequence(generation),
+      sourceCanvasGeneration: decodeProjectionSequence(generation),
+      sourceIntentSha256: stationProjectionContentSha256(
+        `source:${body}`,
+      ),
       body,
       contentSha256: stationProjectionContentSha256(body),
       createdAt: "2026-07-27T12:00:00.000Z",
@@ -843,6 +847,178 @@ describe("StationRepository", () => {
     expect(await runtime.runPromise(repository.statusFacts)).toEqual(
       factsBeforeRefusal,
     );
+    await runtime.dispose();
+  });
+
+  it("allocates projection-specific generations and reuses an exact archived compile", async () => {
+    const path = await testDatabase();
+    const local = decodeInstallationId("command-projection-archive");
+    const runtime = makeRuntime(path, local);
+    const repository = await runtime.runPromise(StationRepository);
+    const state = await runtime.runPromise(StateEngine);
+    const body = portfolioBody("compiled intent");
+    const sourceIntentSha256 =
+      stationProjectionContentSha256("authorial intent 4");
+    const draft = {
+      scope: "full" as const,
+      sourceCanvasGeneration: decodeProjectionSequence("4"),
+      sourceIntentSha256,
+      body,
+      createdAt: "2026-07-27T12:00:00.000Z",
+    };
+
+    const first = await runtime.runPromise(
+      repository.archiveProjection(
+        draft,
+        "2026-07-27T12:01:00.000Z",
+      ),
+    );
+    const retry = await runtime.runPromise(
+      repository.archiveProjection(
+        { ...draft, createdAt: "2026-07-27T13:00:00.000Z" },
+        "2026-07-27T13:01:00.000Z",
+      ),
+    );
+    const nextSource = await runtime.runPromise(
+      repository.archiveProjection(
+        {
+          ...draft,
+          sourceCanvasGeneration: decodeProjectionSequence("5"),
+          sourceIntentSha256:
+            stationProjectionContentSha256("authorial intent 5"),
+        },
+        "2026-07-27T14:01:00.000Z",
+      ),
+    );
+    const topologyChange = await runtime.runPromise(
+      repository.archiveProjection(
+        {
+          ...draft,
+          sourceCanvasGeneration: decodeProjectionSequence("5"),
+          sourceIntentSha256:
+            stationProjectionContentSha256("authorial intent 5"),
+          body: portfolioBody("compiled intent after fleet change"),
+        },
+        "2026-07-27T15:01:00.000Z",
+      ),
+    );
+
+    expect(first).toMatchObject({
+      generation: "1",
+      sourceCanvasGeneration: "4",
+      sourceIntentSha256,
+      contentSha256: stationProjectionContentSha256(body),
+    });
+    expect(retry).toEqual(first);
+    expect(nextSource.generation).toBe("2");
+    expect(topologyChange.generation).toBe("3");
+    expect(
+      await runtime.runPromise(
+        repository.projectionByReference({
+          generation: first.generation,
+          contentSha256: first.contentSha256,
+        }),
+      ),
+    ).toMatchObject({
+      ...first,
+      receivedAt: "2026-07-27T12:01:00.000Z",
+    });
+    expect(await runtime.runPromise(repository.projection)).toMatchObject(
+      topologyChange,
+    );
+
+    const durable = await runtime.runPromise(
+      state.read("test.projection-archive-history", (reader) => ({
+        versions: reader.all<
+          StateRow & {
+            readonly generation: string;
+            readonly source_canvas_generation: string;
+          }
+        >(
+          `SELECT generation, source_canvas_generation
+             FROM station_projection_versions
+            ORDER BY length(generation), generation`,
+        ),
+        head: reader.get<
+          StateRow & {
+            readonly generation: string;
+            readonly content_sha256: string;
+          }
+        >(
+          `SELECT generation, content_sha256
+             FROM station_projection_head
+            WHERE singleton = 1`,
+        ),
+      })),
+    );
+    expect(durable.versions).toEqual([
+      { generation: "1", source_canvas_generation: "4" },
+      { generation: "2", source_canvas_generation: "5" },
+      { generation: "3", source_canvas_generation: "5" },
+    ]);
+    expect(durable.head).toEqual({
+      generation: topologyChange.generation,
+      content_sha256: topologyChange.contentSha256,
+    });
+    await runtime.dispose();
+  });
+
+  it("retains every installed Remote projection version while advancing one head", async () => {
+    const path = await testDatabase();
+    const local = decodeInstallationId("remote-projection-history");
+    const runtime = makeRuntime(path, local);
+    const repository = await runtime.runPromise(StationRepository);
+    const state = await runtime.runPromise(StateEngine);
+    const firstRequest = projectRequest(
+      local,
+      "7",
+      portfolioBody("first installed intent"),
+    );
+    const secondRequest = projectRequest(
+      local,
+      "8",
+      portfolioBody("second installed intent"),
+    );
+
+    await runtime.runPromise(
+      repository.installProjection(
+        firstRequest,
+        "2026-07-27T12:01:00.000Z",
+      ),
+    );
+    await runtime.runPromise(
+      repository.installProjection(
+        secondRequest,
+        "2026-07-27T12:02:00.000Z",
+      ),
+    );
+
+    expect(
+      await runtime.runPromise(
+        repository.projectionByReference({
+          generation: firstRequest.projection.generation,
+          contentSha256: firstRequest.projection.contentSha256,
+        }),
+      ),
+    ).toMatchObject({
+      ...firstRequest.projection,
+      receivedAt: "2026-07-27T12:01:00.000Z",
+    });
+    expect(await runtime.runPromise(repository.projection)).toMatchObject({
+      ...secondRequest.projection,
+      receivedAt: "2026-07-27T12:02:00.000Z",
+    });
+    expect(
+      await runtime.runPromise(
+        state.read("test.remote-projection-history", (reader) =>
+          reader.all<{ readonly generation: string }>(
+            `SELECT generation
+               FROM station_projection_versions
+              ORDER BY generation`,
+          )
+        ),
+      ),
+    ).toEqual([{ generation: "7" }, { generation: "8" }]);
     await runtime.dispose();
   });
 

@@ -5,6 +5,7 @@ import {
   ProjectRequest,
   STATION_API_PROTOCOL,
   StationHostId,
+  StationSha256,
   StatusRequest,
   compareLogicalSequence,
   type ProjectResponse,
@@ -31,7 +32,6 @@ import {
 } from "./peer-session";
 import {
   StationRepository,
-  stationProjectionContentSha256,
   type StationRepositoryError,
 } from "./repository";
 import {
@@ -68,6 +68,7 @@ export class StationPropagationInvariantError extends Schema.TaggedError<Station
       "simulation-unavailable",
       "session-unavailable",
       "invalid-generation",
+      "invalid-source-intent-hash",
       "projection-stale",
       "projection-conflict",
       "projection-result-mismatch",
@@ -112,12 +113,12 @@ export type StationPropagationReceipt = {
   readonly report: StationReportSyncReceipt;
 };
 
-type DesiredProjection = {
-  readonly generation: LogicalSequence;
-  readonly body: string;
-  readonly contentSha256: ProjectRequest["projection"]["contentSha256"];
-  readonly createdAt: string;
-};
+type DesiredProjection = ProjectRequest["projection"];
+
+type CompiledProjectionDraft = Omit<
+  DesiredProjection,
+  "generation" | "contentSha256"
+>;
 
 const invariant = (
   operation: string,
@@ -137,7 +138,7 @@ const desiredProjection = (
     StationPropagationTarget["stationInstallationId"]
   >,
 ): Effect.Effect<
-  DesiredProjection,
+  CompiledProjectionDraft,
   StationPortfolioError | StationPropagationInvariantError
 > =>
   Effect.gen(function* () {
@@ -149,6 +150,16 @@ const desiredProjection = (
         "projection",
         "invalid-generation",
         "canvas authority generation is not a canonical logical sequence",
+      );
+    }
+    const intentSha256 = Schema.decodeUnknownEither(StationSha256)(
+      snapshot.intentSha256,
+    );
+    if (Either.isLeft(intentSha256)) {
+      return yield* invariant(
+        "projection",
+        "invalid-source-intent-hash",
+        "canvas authority intent hash is not a canonical SHA-256",
       );
     }
     const body = yield* Effect.try({
@@ -167,9 +178,10 @@ const desiredProjection = (
     });
     const now = yield* Clock.currentTimeMillis;
     return {
-      generation: generation.right,
+      scope: "full",
+      sourceCanvasGeneration: generation.right,
+      sourceIntentSha256: intentSha256.right,
       body,
-      contentSha256: stationProjectionContentSha256(body),
       createdAt: new Date(now).toISOString(),
     };
   });
@@ -266,11 +278,7 @@ const synchronizeProjection = (
       op: "project",
       stationInstallationId: target.stationInstallationId,
       projection: {
-        scope: "full",
-        generation: desired.generation,
-        body: desired.body,
-        contentSha256: desired.contentSha256,
-        createdAt: desired.createdAt,
+        ...desired,
       },
     }),
   ).pipe(
@@ -473,10 +481,11 @@ export const StationPropagationLive = Layer.effect(
             enrolled.stationInstallationId,
           );
         }
-        const desired = yield* desiredProjection(
+        const compiled = yield* desiredProjection(
           snapshot,
           installationByHostId,
         );
+        const desired = yield* repository.archiveProjection(compiled);
         const projection = yield* synchronizeProjection(
           session,
           target,

@@ -29,6 +29,7 @@ import {
   ProjectRequest,
   STATION_API_PROTOCOL,
   StationHostId,
+  StationSha256,
   type StationApiRequest,
   type StationReadiness,
 } from "../src/shared/station-api";
@@ -115,6 +116,9 @@ const stationHostId = (value: string) =>
 
 const generation = (value: string) =>
   Schema.decodeUnknownSync(LogicalSequence)(value);
+
+const projectionSha256 = (value: string) =>
+  Schema.decodeUnknownSync(StationSha256)(value);
 
 const makeInstallationRuntime = (
   databasePath: string,
@@ -511,6 +515,10 @@ describe("Station work authority survives Command Center downtime", () => {
           projection: {
             scope: "full",
             generation: generation("1"),
+            sourceCanvasGeneration: generation(authority.generation),
+            sourceIntentSha256: projectionSha256(
+              authority.intentSha256,
+            ),
             body: projectionBody,
             contentSha256:
               stationProjectionContentSha256(projectionBody),

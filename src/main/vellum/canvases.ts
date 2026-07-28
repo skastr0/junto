@@ -84,7 +84,18 @@ export type CanvasChangeDetail = {
 /** One transactionally coherent view of the protected document authority. */
 export type CanvasAuthoritySnapshot = {
   readonly generation: string;
+  readonly intentSha256: string;
   readonly documents: ReadonlyMap<string, CanvasDoc>;
+};
+
+export type ActiveIntentWitness = {
+  readonly generation: string;
+  readonly contentSha256: string;
+};
+
+export type CanvasReadWithIntentWitness = {
+  readonly read: CanvasReadResult;
+  readonly intentWitness: ActiveIntentWitness;
 };
 
 export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
@@ -93,6 +104,9 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError>;
     readonly read: (name: string) => Effect.Effect<CanvasReadResult, CanvasError>;
+    readonly readWithIntentWitness: (
+      name: string,
+    ) => Effect.Effect<CanvasReadWithIntentWitness, CanvasError>;
     readonly write: (
       name: string,
       doc: CanvasDoc,
@@ -138,6 +152,14 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
     /** Generation and documents read in one SQLite snapshot. */
     readonly authoritySnapshot: () => Effect.Effect<
       CanvasAuthoritySnapshot,
+      CanvasError
+    >;
+    /**
+     * Exact active intent identity from one SQLite snapshot: authorial canvas
+     * generation/hash on Command Center, projection generation/hash on Remote.
+     */
+    readonly activeIntentWitness: () => Effect.Effect<
+      ActiveIntentWitness,
       CanvasError
     >;
     /**
@@ -452,13 +474,16 @@ const readStationProjection = (
 ): ActivePortfolioSnapshot => {
   const row = reader.get<StationProjectionRow>(
     `SELECT
-       generation,
-       body,
-       content_sha256,
-       created_at,
-       received_at
-     FROM station_projection
-     WHERE singleton = 1`,
+       version.generation AS generation,
+       version.body AS body,
+       version.content_sha256 AS content_sha256,
+       version.created_at AS created_at,
+       version.received_at AS received_at
+     FROM station_projection_head head
+     JOIN station_projection_versions version
+       ON version.generation = head.generation
+      AND version.content_sha256 = head.content_sha256
+     WHERE head.singleton = 1`,
   );
   if (row === undefined) {
     return {
@@ -505,6 +530,20 @@ const readActivePortfolio = (
   readLocalStationRole(reader) === "remote"
     ? readStationProjection(reader)
     : readCommandCenterPortfolio(reader);
+
+const intentWitnessFromSnapshot = (
+  snapshot: ActivePortfolioSnapshot,
+): ActiveIntentWitness => {
+  if (!snapshot.hasHead || snapshot.intentSha256 === undefined) {
+    throw new CanvasError({
+      message: "installation has no active intent",
+    });
+  }
+  return {
+    generation: snapshot.generation,
+    contentSha256: snapshot.intentSha256,
+  };
+};
 
 const assertAuthorialInstallation = (
   reader: StateReader,
@@ -775,7 +814,9 @@ export const CanvasesLive = Layer.effect(
       ),
     );
 
-  const read = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
+  const readWithIntentWitness = (
+    name: string,
+  ): Effect.Effect<CanvasReadWithIntentWitness, CanvasError> =>
     Effect.gen(function* () {
       const canonicalName = yield* Effect.try({
         try: () => canvasNameFrom(name),
@@ -796,17 +837,30 @@ export const CanvasesLive = Layer.effect(
             canonicalName,
           );
           return {
-            name: canonicalName,
-            doc: projectWorkSnapshots(entry.doc, projection.snapshots),
-            actorRefs: snapshot.actorRefs.filter(
-              (actor) => actor.canvasName === canonicalName,
-            ),
-            revision: entry.revision,
-            workRevision: projection.workRevision,
+            read: {
+              name: canonicalName,
+              doc: projectWorkSnapshots(
+                entry.doc,
+                projection.snapshots,
+              ),
+              actorRefs: snapshot.actorRefs.filter(
+                (actor) => actor.canvasName === canonicalName,
+              ),
+              revision: entry.revision,
+              workRevision: projection.workRevision,
+            },
+            intentWitness: intentWitnessFromSnapshot(snapshot),
           };
         })
         .pipe(Effect.mapError(toCanvasError));
     });
+
+  const read = (
+    name: string,
+  ): Effect.Effect<CanvasReadResult, CanvasError> =>
+    readWithIntentWitness(name).pipe(
+      Effect.map(({ read }) => read),
+    );
 
   const write = (
     name: string,
@@ -1053,12 +1107,33 @@ export const CanvasesLive = Layer.effect(
     CanvasError
   > =>
     readAuthority("canvas.authority-snapshot").pipe(
-      Effect.map((snapshot) => ({
-        generation: snapshot.generation,
-        documents: new Map(
-          [...snapshot.documents].map(([name, entry]) => [name, entry.doc]),
-        ),
-      })),
+      Effect.flatMap((snapshot) =>
+        snapshot.hasHead && snapshot.intentSha256 !== undefined
+          ? Effect.succeed({
+              generation: snapshot.generation,
+              intentSha256: snapshot.intentSha256,
+              documents: new Map(
+                [...snapshot.documents].map(([name, entry]) => [
+                  name,
+                  entry.doc,
+                ]),
+              ),
+            })
+          : Effect.fail(
+              new CanvasError({
+                message:
+                  "cannot read canvas authority snapshot without an active authorial head",
+              }),
+            )
+      ),
+    );
+
+  const activeIntentWitness = (): Effect.Effect<
+    ActiveIntentWitness,
+    CanvasError
+  > =>
+    readActive("canvas.active-intent-witness").pipe(
+      Effect.map(intentWitnessFromSnapshot),
     );
 
   const liveDocuments = (): Effect.Effect<
@@ -1107,6 +1182,7 @@ export const CanvasesLive = Layer.effect(
     ),
     list,
     read,
+    readWithIntentWitness,
     write,
     mutate,
     create,
@@ -1118,6 +1194,7 @@ export const CanvasesLive = Layer.effect(
     liveDocuments,
     liveAuthorityGeneration,
     authoritySnapshot,
+    activeIntentWitness,
     activeActorRefs,
   });
   }),

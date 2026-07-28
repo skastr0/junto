@@ -318,6 +318,9 @@ describe("active ActorRef projection", () => {
             projection: {
               scope: "full",
               generation: sequence("1"),
+              sourceCanvasGeneration: sequence("1"),
+              sourceIntentSha256:
+                stationProjectionContentSha256("remote actor source"),
               body,
               contentSha256: stationProjectionContentSha256(body),
               createdAt: "2026-07-27T12:01:00.000Z",

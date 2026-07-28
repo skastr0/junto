@@ -311,6 +311,8 @@ describe("Station API v2 contract", () => {
         projection: {
           scope: "full",
           generation: "1",
+          sourceCanvasGeneration: "1",
+          sourceIntentSha256: hashA,
           body: '{"nodes":[],"edges":[]}',
           contentSha256: hashA,
           createdAt: timestamp,
@@ -710,6 +712,8 @@ describe("Station API v2 contract", () => {
     const same = Schema.decodeUnknownSync(StationProjectionBody)({
       scope: "full",
       generation: generationOne,
+      sourceCanvasGeneration: generationOne,
+      sourceIntentSha256: hashA,
       body: "{}",
       contentSha256: hashA,
       createdAt: timestamp,

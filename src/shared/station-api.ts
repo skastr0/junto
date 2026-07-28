@@ -176,6 +176,8 @@ export type ConfigureResponse = typeof ConfigureResponse.Type;
 export const StationProjectionBody = Schema.Struct({
   scope: Schema.Literal("full"),
   generation: LogicalSequence,
+  sourceCanvasGeneration: LogicalSequence,
+  sourceIntentSha256: StationSha256,
   body: Schema.String.pipe(Schema.maxLength(STATION_API_MAX_PROJECTION_CHARS)),
   contentSha256: StationSha256,
   createdAt: DisplayTimestamp,

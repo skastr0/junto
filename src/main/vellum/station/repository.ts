@@ -154,6 +154,11 @@ export type StationProjection = StationProjectionBodyValue & {
   readonly receivedAt: string;
 };
 
+export type StationProjectionDraft = Omit<
+  StationProjectionBodyValue,
+  "generation" | "contentSha256"
+>;
+
 export type StationConfigurationRecord = {
   readonly configuration: StationConfigurationValue;
   readonly configuredAt: string;
@@ -193,6 +198,23 @@ export class StationRepository extends Context.Tag("@vellum/StationRepository")<
       StationProjection | undefined,
       StationRepositoryError
     >;
+    readonly projectionByReference: (
+      reference: Pick<
+        StationProjectionReferenceValue,
+        "generation" | "contentSha256"
+      >,
+    ) => Effect.Effect<
+      StationProjection | undefined,
+      StationRepositoryError
+    >;
+    /**
+     * Archive the exact compiled Command Center projection and allocate its
+     * projection-specific generation before any transport write.
+     */
+    readonly archiveProjection: (
+      projection: StationProjectionDraft,
+      archivedAt?: string,
+    ) => Effect.Effect<StationProjectionBodyValue, StationRepositoryError>;
     readonly pair: (
       request: PairRequest,
       pairedAt?: string,
@@ -226,8 +248,10 @@ type PairingRow = StateRow & {
 
 type ProjectionRow = StateRow & {
   readonly generation: string;
-  readonly body: string;
   readonly content_sha256: string;
+  readonly source_canvas_generation: string;
+  readonly source_intent_sha256: string;
+  readonly body: string;
   readonly created_at: string;
   readonly received_at: string;
 };
@@ -347,13 +371,40 @@ const selectProjection = (
 ): ProjectionRow | undefined =>
   reader.get<ProjectionRow>(
     `SELECT
+       version.generation AS generation,
+       version.content_sha256 AS content_sha256,
+       version.source_canvas_generation AS source_canvas_generation,
+       version.source_intent_sha256 AS source_intent_sha256,
+       version.body AS body,
+       version.created_at AS created_at,
+       version.received_at AS received_at
+     FROM station_projection_head head
+     JOIN station_projection_versions version
+       ON version.generation = head.generation
+      AND version.content_sha256 = head.content_sha256
+     WHERE head.singleton = 1`,
+  );
+
+const selectProjectionByReference = (
+  reader: StateReader,
+  reference: Pick<
+    StationProjectionReferenceValue,
+    "generation" | "contentSha256"
+  >,
+): ProjectionRow | undefined =>
+  reader.get<ProjectionRow>(
+    `SELECT
        generation,
-       body,
        content_sha256,
+       source_canvas_generation,
+       source_intent_sha256,
+       body,
        created_at,
        received_at
-     FROM station_projection
-     WHERE singleton = 1`,
+     FROM station_projection_versions
+     WHERE generation = ?
+       AND content_sha256 = ?`,
+    [reference.generation, reference.contentSha256],
   );
 
 const pairingFromRow = (row: PairingRow): StationPairing => ({
@@ -374,6 +425,8 @@ const projectionFromRow = (row: ProjectionRow): StationProjection =>
     ...decodeProjectionBody({
       scope: "full",
       generation: row.generation,
+      sourceCanvasGeneration: row.source_canvas_generation,
+      sourceIntentSha256: row.source_intent_sha256,
       body: row.body,
       contentSha256: row.content_sha256,
       createdAt: row.created_at,
@@ -562,6 +615,175 @@ export const makeStationRepositoryLive = (
           ),
           Effect.withSpan("station-repository.projection"),
         );
+
+      const projectionByReference = (
+        reference: Pick<
+          StationProjectionReferenceValue,
+          "generation" | "contentSha256"
+        >,
+      ): Effect.Effect<
+        StationProjection | undefined,
+        StationRepositoryError
+      > =>
+        engine
+          .read(
+            "station.projection-by-reference",
+            (reader) => selectProjectionByReference(reader, reference),
+          )
+          .pipe(
+            Effect.mapError((error) =>
+              persistenceError("projection-by-reference", error),
+            ),
+            Effect.flatMap((row) =>
+              row === undefined
+                ? Effect.succeed(undefined)
+                : verifyStoredProjection(row).pipe(
+                    Effect.as(projectionFromRow(row)),
+                  )
+            ),
+            Effect.withSpan(
+              "station-repository.projection-by-reference",
+            ),
+          );
+
+      const archiveProjection = Effect.fn(
+        "StationRepository.archiveProjection",
+      )(function* (
+        projection: StationProjectionDraft,
+        archivedAt = clock(),
+      ) {
+        const admittedCreatedAt = yield* admitTimestamp(
+          "archive-projection",
+          "createdAt",
+          projection.createdAt,
+        );
+        const admittedArchivedAt = yield* admitTimestamp(
+          "archive-projection",
+          "archivedAt",
+          archivedAt,
+        );
+        yield* Effect.try({
+          try: () => decodeStationPortfolioBody(projection.body),
+          catch: (error) =>
+            error instanceof StationPortfolioError
+              ? error
+              : StationPortfolioError.make({
+                  operation: "decode",
+                  message: "station portfolio could not be decoded",
+                }),
+        });
+        const contentSha256 = stationProjectionContentSha256(
+          projection.body,
+        );
+
+        const outcome = yield* engine
+          .transaction("station.archive-projection", (writer) => {
+            const current = selectProjection(writer);
+            if (current !== undefined) {
+              const currentActual = stationProjectionContentSha256(
+                current.body,
+              );
+              const currentDeclared = decodeHash(
+                current.content_sha256,
+              );
+              if (currentActual !== currentDeclared) {
+                return {
+                  _tag: "corrupt" as const,
+                  row: current,
+                  actual: currentActual,
+                  declared: currentDeclared,
+                };
+              }
+              if (
+                current.body === projection.body &&
+                current.content_sha256 === contentSha256 &&
+                current.source_canvas_generation ===
+                  projection.sourceCanvasGeneration &&
+                current.source_intent_sha256 ===
+                  projection.sourceIntentSha256
+              ) {
+                return {
+                  _tag: "archived" as const,
+                  row: current,
+                };
+              }
+            }
+
+            const generation = decodeSequence(
+              current === undefined
+                ? "1"
+                : (BigInt(current.generation) + 1n).toString(),
+            );
+            writer.run(
+              `INSERT INTO station_projection_versions(
+                 generation,
+                 content_sha256,
+                 source_canvas_generation,
+                 source_intent_sha256,
+                 body,
+                 created_at,
+                 received_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [
+                generation,
+                contentSha256,
+                projection.sourceCanvasGeneration,
+                projection.sourceIntentSha256,
+                projection.body,
+                admittedCreatedAt,
+                admittedArchivedAt,
+              ],
+            );
+            writer.run(
+              `INSERT INTO station_projection_head(
+                 singleton,
+                 generation,
+                 content_sha256
+               ) VALUES (1, ?, ?)
+               ON CONFLICT(singleton) DO UPDATE SET
+                 generation = excluded.generation,
+                 content_sha256 = excluded.content_sha256`,
+              [generation, contentSha256],
+            );
+            return {
+              _tag: "archived" as const,
+              row: {
+                generation,
+                content_sha256: contentSha256,
+                source_canvas_generation:
+                  projection.sourceCanvasGeneration,
+                source_intent_sha256:
+                  projection.sourceIntentSha256,
+                body: projection.body,
+                created_at: admittedCreatedAt,
+                received_at: admittedArchivedAt,
+              } satisfies ProjectionRow,
+            };
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              persistenceError("archive-projection", error),
+            ),
+          );
+
+        if (outcome._tag === "corrupt") {
+          return yield* StationProjectionIntegrityError.make({
+            generation: decodeSequence(outcome.row.generation),
+            declaredContentSha256: outcome.declared,
+            actualContentSha256: outcome.actual,
+          });
+        }
+        const archived = projectionFromRow(outcome.row);
+        return decodeProjectionBody({
+          scope: archived.scope,
+          generation: archived.generation,
+          sourceCanvasGeneration: archived.sourceCanvasGeneration,
+          sourceIntentSha256: archived.sourceIntentSha256,
+          body: archived.body,
+          contentSha256: archived.contentSha256,
+          createdAt: archived.createdAt,
+        });
+      });
 
       const pair = Effect.fn("StationRepository.pair")(
         function* (request: PairRequest, pairedAt = clock()) {
@@ -901,26 +1123,37 @@ export const makeStationRepositoryLive = (
             );
             if (decision === "install") {
               writer.run(
-                `INSERT INTO station_projection(
-                   singleton,
+                `INSERT INTO station_projection_versions(
                    generation,
-                   body,
                    content_sha256,
+                   source_canvas_generation,
+                   source_intent_sha256,
+                   body,
                    created_at,
                    received_at
-                 ) VALUES (1, ?, ?, ?, ?, ?)
-                 ON CONFLICT(singleton) DO UPDATE SET
-                   generation = excluded.generation,
-                   body = excluded.body,
-                   content_sha256 = excluded.content_sha256,
-                   created_at = excluded.created_at,
-                   received_at = excluded.received_at`,
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
                 [
                   request.projection.generation,
-                  request.projection.body,
                   request.projection.contentSha256,
+                  request.projection.sourceCanvasGeneration,
+                  request.projection.sourceIntentSha256,
+                  request.projection.body,
                   admittedCreatedAt,
                   admittedReceivedAt,
+                ],
+              );
+              writer.run(
+                `INSERT INTO station_projection_head(
+                   singleton,
+                   generation,
+                   content_sha256
+                 ) VALUES (1, ?, ?)
+                 ON CONFLICT(singleton) DO UPDATE SET
+                   generation = excluded.generation,
+                   content_sha256 = excluded.content_sha256`,
+                [
+                  request.projection.generation,
+                  request.projection.contentSha256,
                 ],
               );
               return {
@@ -1020,6 +1253,8 @@ export const makeStationRepositoryLive = (
         pairing: readPairing,
         configuration: readConfiguration,
         projection: readProjection,
+        projectionByReference,
+        archiveProjection,
         pair,
         configureRemote,
         installProjection,

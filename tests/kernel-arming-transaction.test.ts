@@ -45,6 +45,8 @@ const fakeCanvases = Layer.succeed(
     doctor: Effect.succeed(check("canvases")),
     list: Effect.succeed([]),
     read: (name: string) => Effect.succeed(emptyDoc(name)),
+    readWithIntentWitness: () =>
+      Effect.fail(new CanvasError({ message: "not used" })),
     write: () => Effect.succeed({ revision: "written-r1" }),
     mutate: () => Effect.void,
     create: (name: string) => Effect.succeed(emptyDoc(name)),
@@ -56,7 +58,16 @@ const fakeCanvases = Layer.succeed(
     liveDocuments: () => Effect.succeed([]),
     liveAuthorityGeneration: () => Effect.succeed("0"),
     authoritySnapshot: () =>
-      Effect.succeed({ generation: "0", documents: new Map() }),
+      Effect.succeed({
+        generation: "0",
+        intentSha256: "a".repeat(64),
+        documents: new Map(),
+      }),
+    activeIntentWitness: () =>
+      Effect.succeed({
+        generation: "0",
+        contentSha256: "a".repeat(64),
+      }),
     activeActorRefs: () => Effect.succeed([]),
   }),
 );
@@ -124,6 +135,9 @@ const runArm = (
         pairing: Effect.succeed(undefined),
         configuration: Effect.succeed(undefined),
         projection: Effect.succeed(undefined),
+        projectionByReference: () => Effect.succeed(undefined),
+        archiveProjection: () =>
+          Effect.dieMessage("unused station repository"),
         pair: () => Effect.dieMessage("unused station repository"),
         configureRemote: () => Effect.dieMessage("unused station repository"),
         installProjection: () => Effect.dieMessage("unused station repository"),

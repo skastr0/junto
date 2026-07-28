@@ -167,6 +167,8 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
             })
           : Effect.fail(new CanvasError({ message: `canvas "${name}" does not exist` }));
       },
+      readWithIntentWitness: () =>
+        Effect.fail(new CanvasError({ message: "not used" })),
       write: () => Effect.succeed({ revision: "written-r1" }),
       mutate: () => Effect.void,
       create: (name: string) => Effect.succeed({
@@ -184,7 +186,16 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       liveDocuments: () => Effect.succeed([]),
       liveAuthorityGeneration: () => Effect.succeed("0"),
       authoritySnapshot: () =>
-        Effect.succeed({ generation: "0", documents: new Map(docs) }),
+        Effect.succeed({
+          generation: "0",
+          intentSha256: "a".repeat(64),
+          documents: new Map(docs),
+        }),
+      activeIntentWitness: () =>
+        Effect.succeed({
+          generation: "0",
+          contentSha256: "a".repeat(64),
+        }),
       activeActorRefs: () => Effect.succeed([]),
     }),
   );

@@ -150,6 +150,9 @@ describe("CanvasesService Station projection", () => {
             projection: {
               scope: "full",
               generation: decodeSequence("8"),
+              sourceCanvasGeneration: decodeSequence("3"),
+              sourceIntentSha256:
+                stationProjectionContentSha256("remote intent source"),
               body,
               contentSha256: stationProjectionContentSha256(body),
               createdAt: "2026-07-27T12:01:00.000Z",

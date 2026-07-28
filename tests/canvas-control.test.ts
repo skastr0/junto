@@ -91,6 +91,8 @@ const makeRuntime = (input: {
             workRevision: "0",
           });
     },
+    readWithIntentWitness: () =>
+      Effect.fail(new CanvasError({ message: "not used" })),
     write: () => Effect.fail(new CanvasError({ message: "not used" })),
     mutate: () => Effect.fail(new CanvasError({ message: "not used" })),
     create: () => Effect.fail(new CanvasError({ message: "not used" })),
@@ -114,8 +116,14 @@ const makeRuntime = (input: {
     authoritySnapshot: () =>
       Effect.sync(() => ({
         generation: "1",
+        intentSha256: "a".repeat(64),
         documents: new Map(documents),
       })),
+    activeIntentWitness: () =>
+      Effect.succeed({
+        generation: "1",
+        contentSha256: "a".repeat(64),
+      }),
     activeActorRefs: () => Effect.succeed([]),
   });
   const snapshots = SnapshotsService.of({
