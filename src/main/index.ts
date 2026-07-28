@@ -119,6 +119,7 @@ import {
 import { loadStationSupervisor } from "./vellum/supervision/select";
 import { SettingsService } from "./vellum/settings/service";
 import { StateEngine } from "./vellum/state/service";
+import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
 import {
@@ -1178,6 +1179,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       kernel.start();
       stationControl = await startStationControlServer({
         home: termControlHome,
+        appVersion: app.getVersion(),
+        stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
         run: (effect) => AppRuntime.runPromise(effect),
         localHandoffAuthority:
           makeOwnerLocalStationControlHandoffAuthority(),
