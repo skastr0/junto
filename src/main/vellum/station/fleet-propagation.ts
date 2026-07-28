@@ -77,7 +77,9 @@ import {
 
 export const STATION_FLEET_RECONNECT_MIN_MS = 250;
 export const STATION_FLEET_RECONNECT_MAX_MS = 30_000;
+export const STATION_FLEET_STABLE_SESSION_MS = 30_000;
 export const STATION_FLEET_SYNCHRONIZE_TIMEOUT_MS = 15_000;
+export const STATION_FLEET_MAX_WAITERS_PER_TARGET = 64;
 
 const READY: StationReadiness = {
   database: true,
@@ -350,6 +352,43 @@ const unavailableFromAttempt = (
   );
 };
 
+/**
+ * Transport loss is retried autonomously. Configuration, identity, protocol,
+ * and explicit non-retryable peer failures park until a product invalidation
+ * or an operator synchronization request wakes the target.
+ */
+const retryWithoutInvalidation = (error: AttemptError): boolean => {
+  switch (error._tag) {
+    case "StationPeerRouteResolutionError":
+      return false;
+    case "StationPeerExchangeError":
+      return error.reason === "connect-failed";
+    case "StationPeerSessionClosedError":
+      return true;
+    case "StationPeerRejectedError":
+      return error.retryable;
+    case "StationPeerSessionProtocolError":
+      return false;
+    case "StationLivePeerUnavailable":
+      return (
+        error.reason === "session-closed" ||
+        error.reason === "unavailable"
+      );
+    case "StationPropagationInvariantError":
+      return (
+        error.reason === "database-unavailable" ||
+        error.reason === "work-control-unavailable" ||
+        error.reason === "simulation-unavailable" ||
+        error.reason === "session-unavailable" ||
+        error.reason === "report-round-limit"
+      );
+    case "StationApiInvariantError":
+      return false;
+    default:
+      return true;
+  }
+};
+
 const toPropagationTarget = (
   target: StationFleetTarget,
 ): StationPropagationTarget => ({
@@ -529,6 +568,7 @@ export const StationFleetPropagationLive = Layer.scoped(
 
         while (true) {
           attempt += 1;
+          let synchronizedAt: number | undefined;
           const beforeConnect = yield* readStatus(
             control.target.hostId,
           );
@@ -590,7 +630,7 @@ export const StationFleetPropagationLive = Layer.scoped(
                 control.target.stationInstallationId,
                 session,
               );
-              failureCount = 0;
+              synchronizedAt = yield* Clock.currentTimeMillis;
               yield* markSynchronized(
                 control,
                 receipt,
@@ -626,9 +666,19 @@ export const StationFleetPropagationLive = Layer.scoped(
             control.target,
             attempted.left,
           );
-          const delay = yield* retryDelay(failureCount);
-          failureCount += 1;
           const currentTime = yield* Clock.currentTimeMillis;
+          if (
+            synchronizedAt !== undefined &&
+            currentTime - synchronizedAt >=
+              STATION_FLEET_STABLE_SESSION_MS
+          ) {
+            failureCount = 0;
+          }
+          const retryable = retryWithoutInvalidation(attempted.left);
+          const delay = retryable
+            ? yield* retryDelay(failureCount)
+            : undefined;
+          failureCount = retryable ? failureCount + 1 : 0;
           const beforeBackoff = yield* readStatus(
             control.target.hostId,
           );
@@ -636,7 +686,13 @@ export const StationFleetPropagationLive = Layer.scoped(
             phase: "backoff",
             sessionOpen: false,
             attempt,
-            nextRetryAt: new Date(currentTime + delay).toISOString(),
+            ...(delay === undefined
+              ? {}
+              : {
+                  nextRetryAt: new Date(
+                    currentTime + delay,
+                  ).toISOString(),
+                }),
             ...(beforeBackoff?.lastReceipt === undefined
               ? {}
               : { lastReceipt: beforeBackoff.lastReceipt }),
@@ -647,10 +703,14 @@ export const StationFleetPropagationLive = Layer.scoped(
             failureResult(control.target, failure, status),
           );
 
-          yield* Effect.raceFirst(
-            Effect.sleep(Duration.millis(delay)),
-            Queue.take(control.wake),
-          );
+          if (delay === undefined) {
+            yield* Queue.take(control.wake);
+          } else {
+            yield* Effect.raceFirst(
+              Effect.sleep(Duration.millis(delay)),
+              Queue.take(control.wake),
+            );
+          }
         }
       });
 
@@ -800,11 +860,15 @@ export const StationFleetPropagationLive = Layer.scoped(
     );
     const unsubscribeWork = work.subscribeChanges(() => invalidate());
     const unsubscribeHosts = subscribeHostsSnapshot(() => invalidate());
+    const unsubscribeFleetTargets = targets.subscribeChanges((hostId) =>
+      invalidate(hostId)
+    );
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         unsubscribeCanvases();
         unsubscribeWork();
         unsubscribeHosts();
+        unsubscribeFleetTargets();
       })
     );
 
@@ -841,10 +905,27 @@ export const StationFleetPropagationLive = Layer.scoped(
         const waiter = yield* Deferred.make<
           StationFleetPropagationResult
         >();
-        yield* Ref.update(control.waiters, (current) => [
-          ...current,
-          waiter,
-        ]);
+        const admitted = yield* Ref.modify(
+          control.waiters,
+          (current): readonly [boolean, ReadonlyArray<WorkerWaiter>] =>
+            current.length >= STATION_FLEET_MAX_WAITERS_PER_TARGET
+              ? [false, current]
+              : [true, [...current, waiter]],
+        );
+        if (!admitted) {
+          const current = yield* readStatus(control.target.hostId);
+          const failure = unavailable(
+            control.target.hostId,
+            control.target.stationInstallationId,
+            "connection-failed",
+            `Station reconciliation already has ${STATION_FLEET_MAX_WAITERS_PER_TARGET} bounded waiters`,
+          );
+          return failureResult(
+            control.target,
+            failure,
+            current,
+          );
+        }
         const currentStatus = yield* readStatus(control.target.hostId);
         if (
           currentStatus?.phase === "ready" ||

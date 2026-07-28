@@ -134,6 +134,7 @@ const fleetTargets = StationFleetTargetRepository.of({
   get: () => Effect.succeed(TARGET),
   list: Effect.succeed([TARGET]),
   remove: () => Effect.die("unused"),
+  subscribeChanges: () => () => {},
 });
 
 type RequestHandler = <R extends StationApiRequest>(

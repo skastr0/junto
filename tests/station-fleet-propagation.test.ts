@@ -30,6 +30,7 @@ import {
   type StationApiPeerContext,
 } from "../src/main/vellum/station/api";
 import {
+  STATION_FLEET_MAX_WAITERS_PER_TARGET,
   StationFleetPropagation,
   StationFleetPropagationLive,
   StationFleetPeerUnavailable,
@@ -141,6 +142,7 @@ type SessionRecord = {
 type HarnessOptions = {
   readonly failRouteFor?: ReadonlySet<HostIdValue>;
   readonly blockSecondRouteFor?: HostIdValue;
+  readonly blockFirstSynchronizationFor?: HostIdValue;
   readonly blockFirstTargetList?: boolean;
   readonly responseHasMore?: boolean;
 };
@@ -149,6 +151,9 @@ const makeHarness = (
   fleet: ReadonlyArray<StationFleetTarget>,
   options: HarnessOptions = {},
 ) => {
+  const currentFleet = new Map(
+    fleet.map((entry) => [entry.hostId, entry] as const),
+  );
   const byInstallation = new Map(
     fleet.map((entry) => [entry.stationInstallationId, entry] as const),
   );
@@ -159,6 +164,15 @@ const makeHarness = (
         [entry.hostId, Effect.runSync(Queue.unbounded<number>())] as const,
     ),
   );
+  const synchronizationEventsFor = (
+    host: HostIdValue,
+  ): Queue.Queue<number> => {
+    const existing = synchronizationEvents.get(host);
+    if (existing !== undefined) return existing;
+    const created = Effect.runSync(Queue.unbounded<number>());
+    synchronizationEvents.set(host, created);
+    return created;
+  };
   const routeResolutionCounts = new Map<HostIdValue, number>();
   const openCounts = new Map<
     StationFleetTarget["stationInstallationId"],
@@ -177,8 +191,11 @@ const makeHarness = (
   const releaseSecondRoute = Effect.runSync(Deferred.make<void>());
   const targetListStarted = Effect.runSync(Deferred.make<void>());
   const releaseTargetList = Effect.runSync(Deferred.make<void>());
+  const synchronizationStarted = Effect.runSync(Deferred.make<void>());
+  const releaseSynchronization = Effect.runSync(Deferred.make<void>());
   const canvasListeners = new Set<(name: string) => void>();
   const workListeners = new Set<(canvasName: string, nodeId: string) => void>();
+  const fleetTargetListeners = new Set<(hostId: HostIdValue) => void>();
   let targetListCount = 0;
 
   const fleetTargets = StationFleetTargetRepository.of({
@@ -188,11 +205,36 @@ const makeHarness = (
         yield* Deferred.succeed(targetListStarted, undefined);
         yield* Deferred.await(releaseTargetList);
       }
-      return fleet;
+      return [...currentFleet.values()];
     }),
-    bind: () => Effect.die("fleet test does not bind targets"),
-    get: () => Effect.die("fleet test does not look up one target"),
-    remove: () => Effect.die("fleet test does not remove targets"),
+    bind: (identity, boundAt = "2026-07-27T00:00:00.000Z") =>
+      Effect.sync(() => {
+        const entry: StationFleetTarget = {
+          ...identity,
+          boundAt,
+        };
+        currentFleet.set(entry.hostId, entry);
+        byInstallation.set(entry.stationInstallationId, entry);
+        for (const listener of fleetTargetListeners) {
+          listener(entry.hostId);
+        }
+        return entry;
+      }),
+    get: (host) => Effect.sync(() => currentFleet.get(host)),
+    remove: (host) =>
+      Effect.sync(() => {
+        const removed = currentFleet.delete(host);
+        if (removed) {
+          for (const listener of fleetTargetListeners) listener(host);
+        }
+        return removed;
+      }),
+    subscribeChanges: (listener) => {
+      fleetTargetListeners.add(listener);
+      return () => {
+        fleetTargetListeners.delete(listener);
+      };
+    },
   });
 
   const propagation = StationPropagation.of({
@@ -201,11 +243,15 @@ const makeHarness = (
         expect(session.peerInstallationId).toBe(input.stationInstallationId);
         const next = (synchronizationCounts.get(input.hostId) ?? 0) + 1;
         synchronizationCounts.set(input.hostId, next);
-        const events = synchronizationEvents.get(input.hostId);
-        if (events === undefined) {
-          return yield* Effect.die("missing synchronization event queue");
-        }
+        const events = synchronizationEventsFor(input.hostId);
         yield* Queue.offer(events, next);
+        if (
+          options.blockFirstSynchronizationFor === input.hostId &&
+          next === 1
+        ) {
+          yield* Deferred.succeed(synchronizationStarted, undefined);
+          yield* Deferred.await(releaseSynchronization);
+        }
         return receipt(input.stationInstallationId);
       }),
   });
@@ -364,12 +410,19 @@ const makeHarness = (
       closeCounts.get(remote) ?? 0,
     synchronizationCount: (host: HostIdValue): number =>
       synchronizationCounts.get(host) ?? 0,
+    routeResolutionCount: (host: HostIdValue): number =>
+      routeResolutionCounts.get(host) ?? 0,
     takeSynchronization: (host: HostIdValue): Effect.Effect<number> => {
-      const events = synchronizationEvents.get(host);
-      return events === undefined
-        ? Effect.die("missing synchronization event queue")
-        : Queue.take(events);
+      return Queue.take(synchronizationEventsFor(host));
     },
+    bindTarget: (entry: StationFleetTarget) =>
+      fleetTargets.bind(
+        {
+          hostId: entry.hostId,
+          stationInstallationId: entry.stationInstallationId,
+        },
+        entry.boundAt,
+      ).pipe(Effect.asVoid),
     disconnect: (
       remote: StationFleetTarget["stationInstallationId"],
     ): Effect.Effect<void> =>
@@ -398,6 +451,11 @@ const makeHarness = (
     releaseTargetList: Deferred.succeed(releaseTargetList, undefined).pipe(
       Effect.asVoid,
     ),
+    synchronizationStarted: Deferred.await(synchronizationStarted),
+    releaseSynchronization: Deferred.succeed(
+      releaseSynchronization,
+      undefined,
+    ).pipe(Effect.asVoid),
     emitCanvasChange: (): void => {
       for (const listener of canvasListeners) listener("portfolio");
     },
@@ -506,6 +564,31 @@ describe("StationFleetPropagation persistent supervisor", () => {
       expect(succeeded?.ok).toBe(true);
       expect(harness.openCount(unavailable.stationInstallationId)).toBe(0);
       expect(harness.openCount(healthy.stationInstallationId)).toBe(1);
+    });
+  });
+
+  it("starts a worker when an existing host gains a fleet target after startup", async () => {
+    const remote = target("late-bind-host", "late-bind-station");
+    const harness = makeHarness([]);
+
+    await withRuntime(harness, async (runtime) => {
+      const service = await runtime.runPromise(StationFleetPropagation);
+      const registry = await runtime.runPromise(StationLivePeerRegistry);
+      await runtime.runPromise(service.start());
+
+      expect(harness.openCount(remote.stationInstallationId)).toBe(0);
+      await runtime.runPromise(harness.bindTarget(remote));
+      expect(
+        await runtime.runPromise(harness.takeSynchronization(remote.hostId)),
+      ).toBe(1);
+      await ready(runtime, service, remote.hostId);
+
+      expect(harness.openCount(remote.stationInstallationId)).toBe(1);
+      expect(
+        await runtime.runPromise(
+          registry.isLive(remote.hostId, remote.stationInstallationId),
+        ),
+      ).toBe(true);
     });
   });
 
@@ -693,6 +776,56 @@ describe("StationFleetPropagation persistent supervisor", () => {
         expect(result.error.reason).toBe("route-unavailable");
       }
       expect(harness.openCount(remote.stationInstallationId)).toBe(0);
+      const parkedResolutionCount = harness.routeResolutionCount(
+        remote.hostId,
+      );
+      expect(parkedResolutionCount).toBeGreaterThanOrEqual(1);
+
+      await runtime.runPromise(Effect.sleep("600 millis"));
+      expect(harness.routeResolutionCount(remote.hostId)).toBe(
+        parkedResolutionCount,
+      );
+
+      const explicitlyRetried = await runtime.runPromise(
+        service.synchronize(remote.hostId),
+      );
+      expect(explicitlyRetried[0]?.ok).toBe(false);
+      expect(harness.routeResolutionCount(remote.hostId)).toBe(
+        parkedResolutionCount + 1,
+      );
+    });
+  });
+
+  it("bounds concurrent reconciliation waiters per target", async () => {
+    const remote = target("waiter-host", "waiter-station");
+    const harness = makeHarness([remote], {
+      blockFirstSynchronizationFor: remote.hostId,
+    });
+
+    await withRuntime(harness, async (runtime) => {
+      const service = await runtime.runPromise(StationFleetPropagation);
+      await runtime.runPromise(service.start());
+      await runtime.runPromise(harness.synchronizationStarted);
+
+      const requests = Array.from(
+        { length: STATION_FLEET_MAX_WAITERS_PER_TARGET + 1 },
+        () => runtime.runPromise(service.synchronize(remote.hostId)),
+      );
+      const capacity = await Promise.race(requests);
+
+      expect(capacity[0]?.ok).toBe(false);
+      if (capacity[0]?.ok === false) {
+        expect(capacity[0].error.reason).toBe("connection-failed");
+        expect(capacity[0].error.message).toContain(
+          `${STATION_FLEET_MAX_WAITERS_PER_TARGET} bounded waiters`,
+        );
+      }
+
+      await runtime.runPromise(harness.releaseSynchronization);
+      const completed = await Promise.all(requests);
+      expect(
+        completed.filter((result) => result[0]?.ok === true),
+      ).toHaveLength(STATION_FLEET_MAX_WAITERS_PER_TARGET);
     });
   });
 });

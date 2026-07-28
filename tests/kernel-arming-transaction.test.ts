@@ -137,6 +137,7 @@ const runArm = (
         get: () => Effect.succeed(undefined),
         list: Effect.succeed([]),
         remove: () => Effect.dieMessage("unused fleet target repository"),
+        subscribeChanges: () => () => {},
       }),
     ),
     Layer.succeed(
