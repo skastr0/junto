@@ -145,8 +145,8 @@ export class CanvasesService extends Context.Tag("@vellum/CanvasesService")<
     >;
     /**
      * Last committed canvas-authority generation as a decimal string.
-     * Projection frames must stamp this (not wall-clock) so CC and Remote
-     * share one generation identity for the live document set.
+     * Projection compilation records this as its source audit generation;
+     * projection versions allocate their own monotonic generation.
      */
     readonly liveAuthorityGeneration: () => Effect.Effect<string, CanvasError>;
     /** Generation and documents read in one SQLite snapshot. */
