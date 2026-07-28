@@ -670,12 +670,14 @@ export const registerVellumIpc = (): void => {
         // Grok (and all seats): never paste when macOS clipboard holds an image.
         assertClipboardSafe: assertMacClipboardSafeForPaste,
         onAttention: (bindingId, reason) => {
-          broadcast(IPC_CHANNELS.agentSeatStateChanged, {
+          // One seat event producer: preserve the generation epoch and let
+          // runtime lifecycle invalidation suppress nudges for dead seats.
+          if (!seatStateRuntime.machine.getSlot(bindingId)) return;
+          seatStateRuntime.machine.force(
             bindingId,
-            state: "attention",
+            "attention",
             reason,
-            at: Date.now(),
-          });
+          );
         },
       });
       const driveReady = (bindingId: string): boolean => {

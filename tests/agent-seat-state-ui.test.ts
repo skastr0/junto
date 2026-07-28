@@ -47,21 +47,13 @@ describe("decodeAgentSeatStateEvent", () => {
     });
   });
 
-  it("fills defaults when epoch/confidence omitted (attention nudge path)", () => {
-    const decoded = decodeAgentSeatStateEvent({
+  it("rejects partial lifecycle events without epoch or confidence", () => {
+    expect(decodeAgentSeatStateEvent({
       bindingId: "b2",
       state: "attention",
       reason: "nudge",
       at: 42,
-    });
-    expect(decoded).toEqual({
-      bindingId: "b2",
-      epoch: "",
-      state: "attention",
-      reason: "nudge",
-      confidence: "low",
-      at: 42,
-    });
+    })).toBeUndefined();
   });
 
   it("rejects missing bindingId or invalid state", () => {
@@ -77,6 +69,7 @@ describe("harnessFromSeatState / clueFromAgentSeat", () => {
     expect(harnessFromSeatState("working")).toBe("working");
     expect(harnessFromSeatState("idle")).toBe("idle");
     expect(harnessFromSeatState("unknown")).toBe("unknown");
+    expect(harnessFromSeatState("gone")).toBe("unknown");
   });
 
   it("builds an occupancy clue with process-bind presence", () => {
@@ -89,10 +82,29 @@ describe("harnessFromSeatState / clueFromAgentSeat", () => {
     expect(clueFromAgentSeat(undefined)).toBeUndefined();
   });
 
+  it("turns a gone generation into an explicit vacant-seat clue", () => {
+    expect(
+      clueFromAgentSeat(
+        event({ bindingId: "b1", state: "gone", at: 100 }),
+      ),
+    ).toEqual({
+      hasOccupant: false,
+      activity: { harness: "unknown" },
+      lastSeenAtMs: 100,
+    });
+  });
+
   it("workSurfaceFromSeat marks session running for rollups", () => {
     expect(workSurfaceFromSeat(event({ bindingId: "b1", state: "working" }))).toEqual({
       session: "running",
       harness: "working",
+      source: "native",
+    });
+    expect(
+      workSurfaceFromSeat(event({ bindingId: "b1", state: "gone" })),
+    ).toEqual({
+      session: "exited",
+      harness: "unknown",
       source: "native",
     });
   });
@@ -108,12 +120,25 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
     expect(agentSeat$.byBindingId.b1.peek()?.state).toBe("working");
   });
 
+  it("does not let an older generation event replace a newer tombstone", () => {
+    applyAgentSeatStateEvent(
+      event({ bindingId: "b1", epoch: "e2", state: "gone", at: 20 }),
+    );
+    applyAgentSeatStateEvent(
+      event({ bindingId: "b1", epoch: "e1", state: "attention", at: 10 }),
+    );
+    expect(agentSeat$.byBindingId.b1.peek()).toMatchObject({
+      epoch: "e2",
+      state: "gone",
+    });
+  });
+
   it("builds terminalStatusByNodeId from doc + seat map", () => {
     const map = terminalStatusByNodeIdFromSeats(
       [terminalNode("n1", "bind-a"), terminalNode("n2", "bind-b"), terminalNode("n3", "missing")],
       {
         "bind-a": event({ bindingId: "bind-a", state: "attention" }),
-        "bind-b": event({ bindingId: "bind-b", state: "working" }),
+        "bind-b": event({ bindingId: "bind-b", state: "gone" }),
       },
     );
     expect(map.get("n1")).toEqual({
@@ -121,7 +146,10 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
       harness: "attention",
       source: "native",
     });
-    expect(map.get("n2")?.harness).toBe("working");
+    expect(map.get("n2")).toMatchObject({
+      session: "exited",
+      harness: "unknown",
+    });
     expect(map.has("n3")).toBe(false);
   });
 });

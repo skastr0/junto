@@ -52,9 +52,10 @@ const herdrCoarseKey = (
  * Per-region, per-member: keep the worse severity between `client` (herdr/chat)
  * and `live` (main IPC graph). Region severity/counts recomputed.
  */
-const fuseWorst = (
+export const fuseRegionRollups = (
   client: ReadonlyArray<RegionRollup>,
   live: ReadonlyArray<RegionRollup>,
+  clientAuthoritativeNodeIds: ReadonlySet<string> = new Set(),
 ): ReadonlyArray<RegionRollup> => {
   if (live.length === 0) return client;
   if (client.length === 0) return live;
@@ -79,6 +80,9 @@ const fuseWorst = (
     const members = a.members.map((am) => {
       const bm = bMembers.get(am.nodeId);
       if (!bm) return am;
+      // A host-local lifecycle tombstone is newer and more specific than a
+      // cached main rollup. Never preserve activity from its dead generation.
+      if (clientAuthoritativeNodeIds.has(am.nodeId)) return am;
       return SEVERITY_RANK[am.severity] <= SEVERITY_RANK[bm.severity] ? am : bm;
     });
     // Members only on live (shouldn't happen often) — append.
@@ -174,6 +178,15 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [docVersion, docEpoch, seatKey],
   );
+  const vacantSeatNodeIds = useMemo(
+    () =>
+      new Set(
+        [...terminalStatusByNodeId.entries()]
+          .filter(([, activity]) => activity.session === "exited")
+          .map(([nodeId]) => nodeId),
+      ),
+    [terminalStatusByNodeId],
+  );
 
   // Client derive — always has herdr/chat/flags/seat; no IPC required for those.
   const client = useMemo(
@@ -234,7 +247,10 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   }, [canvasName]);
 
   // Fuse: live can win on glyph/graph; client always contributes herdr/chat.
-  return useMemo(() => fuseWorst(client, live), [client, live]);
+  return useMemo(
+    () => fuseRegionRollups(client, live, vacantSeatNodeIds),
+    [client, live, vacantSeatNodeIds],
+  );
 }
 
 /** Merge live region ids into a presentational 1–9 slot order. */

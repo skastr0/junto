@@ -74,9 +74,16 @@ export class SeatStateRuntime {
     this.machine.bind(bindingId, { harness, epoch });
   }
 
-  unbind(bindingId: string): void {
+  unbind(
+    bindingId: string,
+    epoch?: string,
+    reason = "generation_unbound",
+  ): void {
+    const current = this.machine.getSlot(bindingId);
+    if (epoch !== undefined && current?.epoch !== epoch) return;
+    const event = this.machine.unbind(bindingId, { epoch, reason });
+    if (!event) return;
     this.harnessByBinding.delete(bindingId);
-    this.machine.unbind(bindingId);
   }
 
   isSeatIdle(bindingId: string): boolean {

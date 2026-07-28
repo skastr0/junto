@@ -607,7 +607,9 @@ export class LocalSessionHost extends EventEmitter {
       }
       if (!this.liveRecords.has(rec)) {
         this.observerPlane.detach(bindingId, epoch);
-        if (seat.kind === "agent") seatStateRuntime.unbind(bindingId);
+        if (seat.kind === "agent") {
+          seatStateRuntime.unbind(bindingId, epoch, "generation_aborted");
+        }
         clearFirstTypedMessage(bindingId);
         return this.summaryOf(rec);
       }
@@ -1104,7 +1106,11 @@ export class LocalSessionHost extends EventEmitter {
   private removeLiveRecord(rec: SessionRec): void {
     // Drop headless grid for this exact generation (epoch-gated).
     this.observerPlane.detach(rec.bindingId, rec.epoch);
-    seatStateRuntime.unbind(rec.bindingId);
+    seatStateRuntime.unbind(
+      rec.bindingId,
+      rec.epoch,
+      "generation_exited",
+    );
     clearFirstTypedMessage(rec.bindingId);
     clearCapturedSessionId(rec.bindingId);
     if (!this.liveRecords.delete(rec) || this.liveRecords.size !== 0) return;

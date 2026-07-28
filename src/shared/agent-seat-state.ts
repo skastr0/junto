@@ -2,10 +2,16 @@
  * Agent seat state — product states for a managed-terminal worker seat.
  *
  * `done` is not a state: presentation derives it as idle + unseen.
- * Phase 2 emits these events; Phase 3/4 wire them into kernel + UI.
+ * `gone` is an authoritative lifecycle invalidation: the former occupant's
+ * generation exited or was unbound, so its last activity must not remain live.
  */
 
-export type AgentSeatState = "idle" | "working" | "attention" | "unknown";
+export type AgentSeatState =
+  | "idle"
+  | "working"
+  | "attention"
+  | "unknown"
+  | "gone";
 
 export type AgentSeatConfidence = "high" | "low";
 
@@ -33,10 +39,12 @@ export const AGENT_SEAT_STATES: readonly AgentSeatState[] = [
   "working",
   "attention",
   "unknown",
+  "gone",
 ] as const;
 
 export const isAgentSeatState = (value: unknown): value is AgentSeatState =>
   value === "idle" ||
   value === "working" ||
   value === "attention" ||
-  value === "unknown";
+  value === "unknown" ||
+  value === "gone";

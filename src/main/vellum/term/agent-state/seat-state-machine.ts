@@ -5,8 +5,7 @@
  * Debounce (herdr design values, reimplemented):
  * - base tick 300ms (caller cadence — we accept feeds as they arrive)
  * - only low-confidence Working→Idle is held
- * - 3 consecutive confirmations OR 700ms cap
- * - 100ms recheck while holding (caller may feed faster; we time by clock)
+ * - 3 consecutive confirmations OR a real 700ms cap timer
  * - visible idle / attention publish immediately
  * - never publish idle while visibleAttention is true
  */
@@ -57,6 +56,8 @@ type BindingSlot = {
     firstAt: number;
     confirmations: number;
     reason: string;
+    evaluation: SeatEvaluation;
+    timer: ReturnType<typeof setTimeout> | undefined;
   };
   lastEval: SeatEvaluation | null;
 };
@@ -85,24 +86,73 @@ export class SeatStateMachine {
     ) {
       return;
     }
-    this.slots.set(bindingId, {
+    if (prior) this.clearPendingIdle(prior);
+    const slot: BindingSlot = {
       harness: config.harness,
       epoch,
       state: "unknown",
-      reason: "bound",
+      reason:
+        prior?.epoch !== undefined && prior.epoch !== epoch
+          ? "generation_replaced"
+          : prior
+            ? "binding_reconfigured"
+            : "generation_bound",
       confidence: "low",
       visibleIdle: false,
       visibleWorking: false,
       visibleAttention: false,
       lastPublishedAt: 0,
-      hookState: prior?.hookState ?? null,
+      // Hook evidence belongs to one process generation. A replacement starts
+      // unknown and must earn fresh activity from its own observer stream.
+      hookState:
+        prior?.epoch === epoch
+          ? prior.hookState
+          : null,
       pendingIdle: null,
       lastEval: null,
-    });
+    };
+    this.slots.set(bindingId, slot);
+    this.maybePublish(
+      slot,
+      bindingId,
+      this.lifecycleEvaluation(slot, "unknown", slot.reason, "low"),
+      true,
+    );
   }
 
-  unbind(bindingId: string): void {
+  /**
+   * Invalidate exactly one live generation. An old generation's late exit
+   * cannot clear a replacement that already owns the binding.
+   */
+  unbind(
+    bindingId: string,
+    options: {
+      readonly epoch?: string;
+      readonly reason?: string;
+    } = {},
+  ): AgentSeatStateEvent | null {
+    const slot = this.slots.get(bindingId);
+    if (!slot) return null;
+    if (
+      options.epoch !== undefined &&
+      slot.epoch !== options.epoch
+    ) {
+      return null;
+    }
+    this.clearPendingIdle(slot);
+    const event = this.maybePublish(
+      slot,
+      bindingId,
+      this.lifecycleEvaluation(
+        slot,
+        "gone",
+        options.reason ?? "generation_unbound",
+        "high",
+      ),
+      true,
+    );
     this.slots.delete(bindingId);
+    return event;
   }
 
   setHookState(
@@ -161,12 +211,14 @@ export class SeatStateMachine {
     opts?: Partial<EvaluateOptions> & { harness?: HarnessId | string },
   ): AgentSeatStateEvent | null {
     const bindingId = snapshot.bindingId;
-    const slot = this.ensure(bindingId, opts?.harness);
+    let slot = this.ensure(bindingId, opts?.harness);
     if (snapshot.epoch && slot.epoch && snapshot.epoch !== slot.epoch) {
-      // Epoch mismatch — rebind to the new generation.
-      slot.epoch = snapshot.epoch;
-      slot.state = "unknown";
-      slot.pendingIdle = null;
+      // Epoch mismatch — publish replacement before evaluating the new screen.
+      this.bind(bindingId, {
+        harness: opts?.harness ?? slot.harness,
+        epoch: snapshot.epoch,
+      });
+      slot = this.ensure(bindingId, opts?.harness);
     } else if (snapshot.epoch && !slot.epoch) {
       slot.epoch = snapshot.epoch;
     }
@@ -203,11 +255,31 @@ export class SeatStateMachine {
     if (hold) {
       const t = this.now();
       if (!slot.pendingIdle) {
-        slot.pendingIdle = {
+        const pending: NonNullable<BindingSlot["pendingIdle"]> = {
           firstAt: t,
           confirmations: 1,
           reason: next.reason,
+          evaluation: next,
+          timer: undefined,
         };
+        pending.timer = setTimeout(() => {
+          if (slot.pendingIdle !== pending) return;
+          slot.pendingIdle = null;
+          this.maybePublish(
+            slot,
+            bindingId,
+            {
+              ...pending.evaluation,
+              reason: `${pending.reason}+debounced_idle`,
+            },
+          );
+        }, SEAT_DEBOUNCE.pendingIdleCapMs);
+        (
+          pending.timer as ReturnType<typeof setTimeout> & {
+            unref?: () => void;
+          }
+        ).unref?.();
+        slot.pendingIdle = pending;
         return null;
       }
       slot.pendingIdle.confirmations += 1;
@@ -224,12 +296,12 @@ export class SeatStateMachine {
         ...next,
         reason: `${next.reason}+debounced_idle`,
       };
-      slot.pendingIdle = null;
+      this.clearPendingIdle(slot);
       return this.maybePublish(slot, bindingId, released);
     }
 
     // Any non-held transition clears pending idle.
-    slot.pendingIdle = null;
+    this.clearPendingIdle(slot);
     return this.maybePublish(slot, bindingId, next);
   }
 
@@ -241,30 +313,18 @@ export class SeatStateMachine {
     confidence: "high" | "low" = "high",
   ): AgentSeatStateEvent {
     const slot = this.ensure(bindingId, undefined);
-    slot.pendingIdle = null;
-    const evalLike: SeatEvaluation = {
+    this.clearPendingIdle(slot);
+    const evalLike = this.lifecycleEvaluation(
+      slot,
       state,
       reason,
-      priority: 0,
       confidence,
-      visibleIdle: state === "idle",
-      visibleWorking: state === "working",
-      visibleAttention: state === "attention",
-      skipStateUpdate: false,
-      ruleId: null,
-      harness:
-        typeof slot.harness === "string" &&
-        (slot.harness === "claude" ||
-          slot.harness === "codex" ||
-          slot.harness === "grok" ||
-          slot.harness === "hermes")
-          ? slot.harness
-          : "claude",
-    };
+    );
     return this.maybePublish(slot, bindingId, evalLike, true)!;
   }
 
   dispose(): void {
+    for (const slot of this.slots.values()) this.clearPendingIdle(slot);
     this.slots.clear();
     this.listeners.clear();
   }
@@ -346,6 +406,41 @@ export class SeatStateMachine {
     }
     this.onEvent?.(event);
     return event;
+  }
+
+  private clearPendingIdle(slot: BindingSlot): void {
+    if (!slot.pendingIdle) return;
+    if (slot.pendingIdle.timer !== undefined) {
+      clearTimeout(slot.pendingIdle.timer);
+    }
+    slot.pendingIdle = null;
+  }
+
+  private lifecycleEvaluation(
+    slot: BindingSlot,
+    state: AgentSeatState,
+    reason: string,
+    confidence: "high" | "low",
+  ): SeatEvaluation {
+    return {
+      state,
+      reason,
+      priority: 0,
+      confidence,
+      visibleIdle: state === "idle",
+      visibleWorking: state === "working",
+      visibleAttention: state === "attention",
+      skipStateUpdate: false,
+      ruleId: null,
+      harness:
+        typeof slot.harness === "string" &&
+        (slot.harness === "claude" ||
+          slot.harness === "codex" ||
+          slot.harness === "grok" ||
+          slot.harness === "hermes")
+          ? slot.harness
+          : "claude",
+    };
   }
 }
 

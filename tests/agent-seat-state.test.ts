@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FALLBACK_IDLE,
   SeatStateMachine,
@@ -13,6 +13,10 @@ import {
 } from "../src/main/vellum/term/agent-state";
 import type { ObserverGridSnapshot } from "../src/main/vellum/term/observer/types";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const snap = (
   partial: Partial<ObserverGridSnapshot> & {
@@ -410,6 +414,7 @@ describe("SeatStateMachine — transitions without flapping", () => {
     expect(ev?.confidence).toBe("high");
 
     expect(events.map((e) => e.state)).toEqual([
+      "unknown",
       "idle",
       "working",
       "attention",
@@ -473,6 +478,34 @@ describe("SeatStateMachine — transitions without flapping", () => {
       harness: "claude",
     });
     expect(released?.state).toBe("idle");
+  });
+
+  it("releases the 700ms cap without requiring another PTY snapshot", async () => {
+    vi.useFakeTimers();
+    const events: AgentSeatStateEvent[] = [];
+    const m = new SeatStateMachine({ onEvent: (event) => events.push(event) });
+    m.bind("b1", { harness: "claude", epoch: "e1" });
+
+    expect(
+      m.feed(snap({ title: "⣿ work" }), { harness: "claude" })?.state,
+    ).toBe("working");
+    expect(
+      m.feed(snap({ title: "", lines: ["quiet"] }), {
+        harness: "claude",
+      }),
+    ).toBeNull();
+    expect(m.getState("b1")).toBe("working");
+
+    await vi.advanceTimersByTimeAsync(SEAT_DEBOUNCE.pendingIdleCapMs);
+
+    expect(m.getState("b1")).toBe("idle");
+    expect(events.at(-1)).toMatchObject({
+      bindingId: "b1",
+      epoch: "e1",
+      state: "idle",
+    });
+    expect(events.at(-1)?.reason).toContain("debounced_idle");
+    m.dispose();
   });
 
   it("visible idle bypasses debounce", () => {
@@ -566,6 +599,65 @@ describe("SeatStateMachine — transitions without flapping", () => {
     const ev = m.force("b1", "idle", "process_exited");
     expect(ev.state).toBe("idle");
     expect(ev.reason).toBe("process_exited");
+  });
+
+  it("publishes replacement and epoch-gated gone lifecycle events", () => {
+    const events: AgentSeatStateEvent[] = [];
+    const m = new SeatStateMachine({
+      now: () => 1_000,
+      onEvent: (event) => events.push(event),
+    });
+    m.bind("b1", { harness: "grok", epoch: "e1" });
+    m.force("b1", "attention", "permission");
+
+    m.bind("b1", { harness: "grok", epoch: "e2" });
+    expect(events.at(-1)).toMatchObject({
+      epoch: "e2",
+      state: "unknown",
+      reason: "generation_replaced",
+    });
+
+    expect(
+      m.unbind("b1", { epoch: "e1", reason: "late_old_exit" }),
+    ).toBeNull();
+    expect(m.getSlot("b1")?.epoch).toBe("e2");
+
+    expect(
+      m.unbind("b1", { epoch: "e2", reason: "generation_exited" }),
+    ).toMatchObject({
+      epoch: "e2",
+      state: "gone",
+      reason: "generation_exited",
+    });
+    expect(m.getState("b1")).toBeUndefined();
+  });
+
+  it("does not carry hook evidence into a replacement generation", () => {
+    const m = new SeatStateMachine({ now: () => 1_000 });
+    m.bind("b1", { harness: "claude", epoch: "e1" });
+    m.setHookState("b1", {
+      state: "working",
+      reason: "old_hook",
+      at: 1_000,
+      fullLifecycle: true,
+    });
+    expect(
+      m.feed(snap({ epoch: "e1", title: "⣿ work" }), {
+        harness: "claude",
+      })?.state,
+    ).toBe("working");
+
+    m.bind("b1", { harness: "claude", epoch: "e2" });
+    expect(
+      m.feed(
+        snap({
+          epoch: "e2",
+          title: "✳ Claude",
+          lines: [HR, "❯ ready", HR],
+        }),
+        { harness: "claude" },
+      )?.state,
+    ).toBe("idle");
   });
 });
 

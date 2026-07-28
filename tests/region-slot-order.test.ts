@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { assignSlot, mergeSlotOrder } from "../src/renderer/lib/region-rollups";
-import { deriveRegionRollups as deriveRegionRollupsWithContext } from "../src/shared/region-rollup";
+import {
+  assignSlot,
+  fuseRegionRollups,
+  mergeSlotOrder,
+} from "../src/renderer/lib/region-rollups";
+import {
+  deriveRegionRollups as deriveRegionRollupsWithContext,
+  type RegionRollup,
+} from "../src/shared/region-rollup";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
 
@@ -39,6 +46,55 @@ describe("assignSlot", () => {
 
   it("moves an existing region without duplicating", () => {
     expect(assignSlot(["a", "b", "c"], "c", 0)).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("fuseRegionRollups", () => {
+  const rollup = (
+    severity: "attention" | "idle",
+    reason?: string,
+  ): RegionRollup => ({
+    regionId: "r1",
+    label: "Region",
+    severity,
+    counts: {
+      total: 1,
+      blocked: 0,
+      attention: severity === "attention" ? 1 : 0,
+      working: 0,
+    },
+    members: [{
+      nodeId: "actor",
+      label: "Actor",
+      kind: "agent",
+      severity,
+      reasons: reason ? [reason] : [],
+    }],
+  });
+
+  it("does not preserve cached activity after a generation is gone", () => {
+    const fused = fuseRegionRollups(
+      [rollup("idle")],
+      [rollup("attention", "activity:attention")],
+      new Set(["actor"]),
+    );
+    expect(fused[0]).toMatchObject({
+      severity: "idle",
+      counts: { attention: 0 },
+    });
+    expect(fused[0]?.members[0]).toMatchObject({
+      nodeId: "actor",
+      severity: "idle",
+    });
+  });
+
+  it("still keeps worse live evidence for seats without a tombstone", () => {
+    expect(
+      fuseRegionRollups(
+        [rollup("idle")],
+        [rollup("attention", "permission:pending")],
+      )[0]?.severity,
+    ).toBe("attention");
   });
 });
 

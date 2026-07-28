@@ -71,4 +71,25 @@ describe("SeatStateRuntime idle gate", () => {
     expect(rt.isSeatIdle("b1")).toBe(false);
     rt.stop();
   });
+
+  it("emits gone only for the current terminal generation", () => {
+    const events: Array<{ readonly epoch: string; readonly state: string }> = [];
+    const rt = new SeatStateRuntime({
+      now: () => 2_000,
+      onEvent: (event) => events.push(event),
+    });
+    rt.bindHarness("b1", "grok", "e1");
+    rt.bindHarness("b1", "grok", "e2");
+
+    rt.unbind("b1", "e1", "late_old_exit");
+    expect(rt.machine.getSlot("b1")?.epoch).toBe("e2");
+
+    rt.unbind("b1", "e2", "generation_exited");
+    expect(events.at(-1)).toMatchObject({
+      epoch: "e2",
+      state: "gone",
+    });
+    expect(rt.getState("b1")).toBeUndefined();
+    rt.stop();
+  });
 });

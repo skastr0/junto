@@ -41,25 +41,24 @@ export const agentSeat$ = observable<AgentSeatStore>({
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-/** Defensive decode — main may omit epoch/confidence on the attention nudge path. */
+/** Strict lifecycle decode — every producer carries one exact generation. */
 export const decodeAgentSeatStateEvent = (raw: unknown): AgentSeatStateEvent | undefined => {
   if (!isRecord(raw)) return undefined;
   if (typeof raw.bindingId !== "string" || raw.bindingId.length === 0) return undefined;
   if (!isAgentSeatState(raw.state)) return undefined;
-  const at =
-    typeof raw.at === "number" && Number.isFinite(raw.at) ? raw.at : Date.now();
-  const epoch = typeof raw.epoch === "string" ? raw.epoch : "";
-  const confidence: AgentSeatConfidence =
-    raw.confidence === "high" || raw.confidence === "low" ? raw.confidence : "low";
-  const reason = typeof raw.reason === "string" ? raw.reason : raw.state;
+  if (typeof raw.epoch !== "string") return undefined;
+  if (raw.confidence !== "high" && raw.confidence !== "low") return undefined;
+  if (typeof raw.reason !== "string") return undefined;
+  if (typeof raw.at !== "number" || !Number.isFinite(raw.at)) return undefined;
+  const confidence: AgentSeatConfidence = raw.confidence;
   const harness = typeof raw.harness === "string" ? raw.harness : undefined;
   return {
     bindingId: raw.bindingId,
-    epoch,
+    epoch: raw.epoch,
     state: raw.state,
-    reason,
+    reason: raw.reason,
     confidence,
-    at,
+    at: raw.at,
     ...(harness ? { harness } : {}),
   };
 };
@@ -78,7 +77,7 @@ export const clueFromAgentSeat = (
 ): OccupancyClue | undefined => {
   if (!event) return undefined;
   return {
-    hasOccupant: true,
+    hasOccupant: event.state !== "gone",
     activity: { harness: harnessFromSeatState(event.state) },
     lastSeenAtMs: event.at,
   };
@@ -90,7 +89,7 @@ export const workSurfaceFromSeat = (
 ): WorkSurfaceActivity | undefined => {
   if (!event) return undefined;
   return {
-    session: "running",
+    session: event.state === "gone" ? "exited" : "running",
     harness: harnessFromSeatState(event.state),
     source: "native",
   };
@@ -102,6 +101,8 @@ const rememberNodeJoin = (bindingId: string, nodeId: string | undefined): void =
 };
 
 export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
+  const current = agentSeat$.byBindingId[event.bindingId].peek();
+  if (current && event.at < current.at) return;
   agentSeat$.byBindingId[event.bindingId].set(event);
   // Inventory join when the session is already cached with a canvas pin.
   const session = terminal$.sessionByBindingId[event.bindingId].peek();
