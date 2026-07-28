@@ -144,6 +144,9 @@ describe("hardened app installer", () => {
     const candidate = position(install, 'audit_app_bundle "$APP_SRC"');
     const stageCopy = position(install, 'ditto --rsrc "$APP_SRC" "$STAGE"');
     const staged = position(install, 'audit_app_bundle "$STAGE"');
+    const incumbentBind = install.lastIndexOf(
+      "\nbind_unsupervised_incumbent\n",
+    );
     const quiesce = position(install, "unload_launchd");
     const statePreflight = install.lastIndexOf(
       "run_staged_state_update_preflight",
@@ -154,6 +157,8 @@ describe("hardened app installer", () => {
 
     expect(candidate).toBeLessThan(stageCopy);
     expect(stageCopy).toBeLessThan(staged);
+    expect(staged).toBeLessThan(incumbentBind);
+    expect(incumbentBind).toBeLessThan(quiesce);
     expect(staged).toBeLessThan(quiesce);
     expect(quiesce).toBeLessThan(statePreflight);
     expect(statePreflight).toBeLessThan(replace);
@@ -919,6 +924,114 @@ printf '%s\n' "$(cat "$PLIST_STAGE")" "$(cat "$PLIST")"`,
       install.lastIndexOf("resume_launchd_job"),
     ).toBeGreaterThan(
       install.lastIndexOf("CANDIDATE_PUBLISHED=1"),
+    );
+  });
+
+  it("binds only the exact fixed unsupervised app generation before quiescence", () => {
+    const processStart = position(
+      install,
+      "fixed_installed_app_process_running() {",
+    );
+    const processEnd = position(
+      install,
+      "\nbind_unsupervised_incumbent() {",
+    );
+    const processProbe = install.slice(processStart, processEnd);
+    const bindStart = processEnd + 1;
+    const bindEnd = position(
+      install,
+      "\nresume_unsupervised_incumbent() {",
+    );
+    const bind = install.slice(bindStart, bindEnd);
+    const bindCall = install.lastIndexOf(
+      "\nbind_unsupervised_incumbent\n",
+    );
+    const unload = position(install, "\nunload_launchd\n");
+
+    expect(processProbe).toContain(
+      'local executable="$APP_DST/Contents/MacOS/$PRODUCT_NAME"',
+    );
+    expect(processProbe).toContain(
+      "/bin/ps -axww -o command=",
+    );
+    expect(processProbe).toContain(
+      '"${command:0:${#executable}}" == "$executable"',
+    );
+    expect(processProbe).not.toContain("pgrep -x");
+    expect(processProbe).not.toContain("APP_SRC");
+    expect(bind).toContain("if launchd_loaded; then");
+    expect(bind).toContain("LAUNCHD_WAS_LOADED=1");
+    expect(bind).toContain(
+      'identity="$(path_identity "$APP_DST")"',
+    );
+    expect(bind).toContain(
+      'assert_owned_current_app "$identity"',
+    );
+    expect(
+      bind.lastIndexOf("fixed_installed_app_process_running"),
+    ).toBeLessThan(
+      position(bind, "UNSUPERVISED_INCUMBENT_WAS_RUNNING=1"),
+    );
+    expect(bindCall).toBeGreaterThan(0);
+    expect(bindCall).toBeLessThan(unload);
+  });
+
+  it("reopens only the unchanged fixed app on pre-activation failure and proves it returned", () => {
+    const resumeStart = position(
+      install,
+      "resume_unsupervised_incumbent() {",
+    );
+    const resumeEnd = position(install, "\ncd \"$REPO_ROOT\"");
+    const resume = install.slice(resumeStart, resumeEnd);
+    const activationGuard = position(
+      resume,
+      'if [[ "${ACTIVATION_STARTED:-0}" -ne 0 ]]',
+    );
+    const identityAdmission = position(
+      resume,
+      'assert_owned_current_app "$UNSUPERVISED_INCUMBENT_APP_ID"',
+    );
+    const open = position(
+      resume,
+      '/usr/bin/open "$APP_DST"',
+    );
+    const boundedProof = position(
+      resume,
+      "for i in $(seq 1 20); do",
+    );
+
+    expect(activationGuard).toBeLessThan(identityAdmission);
+    expect(identityAdmission).toBeLessThan(open);
+    expect(open).toBeLessThan(boundedProof);
+    expect(resume).toContain("/usr/bin/env -i \\");
+    expect(resume).toContain('HOME="$ACCOUNT_HOME"');
+    expect(resume).toContain('PATH="/usr/bin:/bin"');
+    expect(resume).not.toContain("open -a");
+    expect(resume).not.toContain("APP_SRC");
+    expect(resume).toContain(
+      '"$(path_identity "$APP_DST" 2>/dev/null)" != "$UNSUPERVISED_INCUMBENT_APP_ID"',
+    );
+    expect(
+      resume.lastIndexOf(
+        'assert_owned_current_app \\\n        "$UNSUPERVISED_INCUMBENT_APP_ID"',
+      ),
+    ).toBeGreaterThan(boundedProof);
+    expect(resume).toContain("sleep 0.5");
+    expect(resume).toContain(
+      "unchanged unsupervised incumbent did not resume within 10s",
+    );
+
+    const launchdResume = position(
+      install,
+      'if [[ "$status" -ne 0 && "$ACTIVATION_STARTED" -eq 0 && "$LAUNCHD_WAS_LOADED" -eq 1 ]] && ! resume_launchd_job',
+    );
+    const unsupervisedResume = position(
+      install,
+      'if [[ "$status" -ne 0 && "$ACTIVATION_STARTED" -eq 0 && "$UNSUPERVISED_INCUMBENT_WAS_RUNNING" -eq 1 ]] && ! resume_unsupervised_incumbent',
+    );
+    expect(launchdResume).toBeLessThan(unsupervisedResume);
+    expect(install.slice(unsupervisedResume)).toContain(
+      "failed to resume the unchanged pre-activation app",
     );
   });
 });

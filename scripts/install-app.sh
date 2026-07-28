@@ -66,6 +66,8 @@ LAUNCHD_WAS_LOADED=0
 if launchd_loaded; then
   LAUNCHD_WAS_LOADED=1
 fi
+UNSUPERVISED_INCUMBENT_WAS_RUNNING=0
+UNSUPERVISED_INCUMBENT_APP_ID=""
 
 resume_launchd_job() {
   if [[ "$LAUNCHD_WAS_LOADED" -ne 1 || launchd_loaded ]]; then
@@ -74,6 +76,102 @@ resume_launchd_job() {
   assert_safe_scoped_file "LaunchAgent plist" "$PLIST" "$INSTALL_USER_ROOT/Library/LaunchAgents/${LABEL}.plist" || return 1
   launchctl bootstrap "$DOMAIN" "$PLIST" || return 1
   launchctl enable "$DOMAIN/$LABEL"
+}
+
+fixed_installed_app_process_running() {
+  local executable="$APP_DST/Contents/MacOS/$PRODUCT_NAME"
+  local command
+  if [[ -n "$INSTALL_SANDBOX_ROOT" ]]; then
+    return 1
+  fi
+  while IFS= read -r command; do
+    if [[
+      "${command:0:${#executable}}" == "$executable" &&
+      (
+        "${#command}" -eq "${#executable}" ||
+        "${command:${#executable}:1}" == " "
+      )
+    ]]; then
+      return 0
+    fi
+  done < <(/bin/ps -axww -o command= 2>/dev/null)
+  return 1
+}
+
+bind_unsupervised_incumbent() {
+  local identity
+  if launchd_loaded; then
+    LAUNCHD_WAS_LOADED=1
+    return 0
+  fi
+  if [[ "$LAUNCHD_WAS_LOADED" -eq 1 ]]; then
+    return 0
+  fi
+  if ! fixed_installed_app_process_running; then
+    return 0
+  fi
+  assert_app_destination_capability || return 1
+  identity="$(path_identity "$APP_DST")" || return 1
+  assert_owned_current_app "$identity" || return 1
+  # A process that exited during admission does not need recovery. Bind only
+  # the exact installed generation still alive at the quiescence boundary.
+  if ! fixed_installed_app_process_running; then
+    return 0
+  fi
+  UNSUPERVISED_INCUMBENT_APP_ID="$identity"
+  UNSUPERVISED_INCUMBENT_WAS_RUNNING=1
+}
+
+resume_unsupervised_incumbent() {
+  local account_name temp_root identity i
+  if [[ "$UNSUPERVISED_INCUMBENT_WAS_RUNNING" -ne 1 ]]; then
+    return 0
+  fi
+  if [[ "${ACTIVATION_STARTED:-0}" -ne 0 ]]; then
+    err "refusing to resume an older unsupervised app after activation"
+    return 1
+  fi
+  assert_app_destination_capability || return 1
+  identity="$(path_identity "$APP_DST" 2>/dev/null)" || return 1
+  if [[
+    -z "$UNSUPERVISED_INCUMBENT_APP_ID" ||
+    "$identity" != "$UNSUPERVISED_INCUMBENT_APP_ID"
+  ]]; then
+    err "unsupervised incumbent changed identity before recovery"
+    return 1
+  fi
+  assert_owned_current_app "$UNSUPERVISED_INCUMBENT_APP_ID" || return 1
+  if fixed_installed_app_process_running; then
+    return 0
+  fi
+
+  account_name="$(id -un)" || return 1
+  temp_root="$(current_user_test_temp_root)" || return 1
+  log "resuming unchanged unsupervised incumbent → $APP_DST"
+  if [[
+    "$(path_identity "$APP_DST" 2>/dev/null)" != "$UNSUPERVISED_INCUMBENT_APP_ID"
+  ]]; then
+    err "unsupervised incumbent changed identity at recovery launch"
+    return 1
+  fi
+  /usr/bin/env -i \
+    HOME="$ACCOUNT_HOME" \
+    LOGNAME="$account_name" \
+    PATH="/usr/bin:/bin" \
+    TMPDIR="$temp_root" \
+    USER="$account_name" \
+    /usr/bin/open "$APP_DST" || return 1
+  for i in $(seq 1 20); do
+    if fixed_installed_app_process_running; then
+      assert_owned_current_app \
+        "$UNSUPERVISED_INCUMBENT_APP_ID" || return 1
+      log "unchanged unsupervised incumbent resumed"
+      return 0
+    fi
+    sleep 0.5
+  done
+  err "unchanged unsupervised incumbent did not resume within 10s"
+  return 1
 }
 cd "$REPO_ROOT"
 bun "$SCRIPT_DIR/electron-security-policy.ts" validate
@@ -327,6 +425,10 @@ cleanup_install() {
     err "failed to resume the pre-activation LaunchAgent"
     cleanup_failed=1
   fi
+  if [[ "$status" -ne 0 && "$ACTIVATION_STARTED" -eq 0 && "$UNSUPERVISED_INCUMBENT_WAS_RUNNING" -eq 1 ]] && ! resume_unsupervised_incumbent; then
+    err "failed to resume the unchanged pre-activation app"
+    cleanup_failed=1
+  fi
   if [[ "$ACTIVATION_STARTED" -eq 0 || "$CANDIDATE_PUBLISHED" -eq 1 ]]; then
     if ! safe_remove_install_stage; then
       err "refusing unsafe install stage cleanup"
@@ -372,6 +474,7 @@ STAGED_APP_ID="$(path_identity "$STAGE")"
 
 # Detach before binary swap: launchd unload + soft quit so before-quit runs
 # and herdrStreams.detachAllOnQuit releases control (panes stay alive).
+bind_unsupervised_incumbent
 unload_launchd
 quit_running_app
 if launchd_loaded || vellum_processes_running; then
