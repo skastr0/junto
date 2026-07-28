@@ -543,7 +543,7 @@ export const workRequestResolve = (
 
 export const workArtifactPublish = (
   doc: CanvasDoc,
-  _canvasName: string,
+  canvasName: string,
   nodeId: string,
   artifact: Artifact,
 ): WorkArtifactResult => {
@@ -554,6 +554,32 @@ export const workArtifactPublish = (
   }
   if (!Array.isArray(artifact.parts) || artifact.parts.length === 0) {
     throw new WorkError("invalid", "artifact must have at least one part");
+  }
+  const taskRef = artifact.task;
+  if (taskRef !== undefined) {
+    if (taskRef.sink.canvasName !== canvasName) {
+      throw new WorkError(
+        "invalid",
+        "artifact task reference must belong to the artifact canvas",
+      );
+    }
+    const taskNode = requireNode(doc, taskRef.sink.nodeId);
+    requireSink(taskNode, ["task"]);
+    const task = taskNode.ether?.tasks?.items.find(
+      (candidate) => candidate.id === taskRef.itemId,
+    );
+    if (task === undefined) {
+      throw new WorkError(
+        "task_not_found",
+        `task "${taskRef.itemId}" not found`,
+      );
+    }
+    if (task.claimedBy === undefined) {
+      throw new WorkError(
+        "invalid",
+        `task "${taskRef.itemId}" must be claimed before artifact linkage`,
+      );
+    }
   }
   const existing = node.ether?.artifacts?.items ?? [];
   if (existing.some((a) => a.artifactId === artifact.artifactId)) {

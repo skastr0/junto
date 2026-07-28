@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Context, Layer, ManagedRuntime, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  workArtifactPublish,
   workMessageAppend,
   workRequestCreate,
   workRequestResolve,
@@ -394,6 +395,78 @@ describe("work pure transforms", () => {
     };
     const created = workTaskCreate(doc, "canvas-name", "tasks", "inside", undefined, ids);
     expect(created.task.history[0]?.contextId).toBe("forge-lane");
+  });
+
+  it("links artifacts only to an exact claimed task in the same canvas", () => {
+    const artifactNode: CanvasDoc["nodes"][number] = {
+      id: "artifacts",
+      type: "text",
+      text: "artifacts",
+      x: 240,
+      y: 0,
+      width: 200,
+      height: 100,
+      ether: { entity: { kind: "artifacts" } },
+    };
+    let doc: CanvasDoc = {
+      nodes: [emptyTaskNode(), artifactNode],
+      edges: [],
+    };
+    const created = workTaskCreate(
+      doc,
+      "alpha",
+      "tasks",
+      "ship",
+      undefined,
+      ids,
+    );
+    doc = created.doc;
+
+    const artifact = {
+      artifactId: "artifact-task-proof",
+      parts: [{ kind: "text" as const, text: "proof" }],
+      task: {
+        kind: "task" as const,
+        itemId: created.task.id,
+        sink: { canvasName: "alpha", nodeId: "tasks" },
+      },
+    };
+
+    expect(() =>
+      workArtifactPublish(doc, "alpha", "artifacts", artifact),
+    ).toThrow(/must be claimed/);
+
+    const claimed = workTaskClaim(
+      doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      actorRef("1", "worker-1"),
+      ids,
+    );
+    doc = claimed.doc;
+    expect(
+      workArtifactPublish(doc, "alpha", "artifacts", artifact).artifact.task,
+    ).toEqual(artifact.task);
+
+    expect(() =>
+      workArtifactPublish(doc, "alpha", "artifacts", {
+        ...artifact,
+        artifactId: "artifact-missing-task",
+        task: { ...artifact.task, itemId: "missing" },
+      }),
+    ).toThrow(/not found/);
+
+    expect(() =>
+      workArtifactPublish(doc, "alpha", "artifacts", {
+        ...artifact,
+        artifactId: "artifact-cross-canvas",
+        task: {
+          ...artifact.task,
+          sink: { ...artifact.task.sink, canvasName: "other" },
+        },
+      }),
+    ).toThrow(/artifact canvas/);
   });
 
   it("state machine: terminal has no exits", () => {
