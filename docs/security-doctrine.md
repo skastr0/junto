@@ -557,6 +557,17 @@ identifiers on this protocol are routing facts, not credentials. Vellum has
 one `InstallationId` concept; aliases such as `originStationId` and
 `originInstallationId` must not survive beside canonical `eventHome`.
 
+For a fresh Remote, Command Center may not know the database-generated
+`InstallationId` before the first authenticated SSH connection. Identity
+discovery is therefore a narrow bootstrap ceremony on an operator-enrolled SSH
+route: Command Center opens the fixed framed helper, sends exactly one strict
+`status` request, records the returned installation identity, closes that
+bootstrap session, and then opens the normal known-peer session for pairing
+and configuration. The bootstrap admits no other verb and cannot silently
+replace or repair an existing fleet binding. It is not the retired one-shot
+Station client, and the observed identifier does not become a credential;
+OpenSSH remains the authentication boundary for that route.
+
 Authenticated transport does not grant role-promotion authority. The Station
 wire's `configure` request contains only `RemoteConfiguration`; Command Center
 configuration is a distinct local-main operation. Strict decoding rejects

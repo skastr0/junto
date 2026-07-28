@@ -1160,6 +1160,38 @@ Command Center
                     └── Remote main Station dispatcher
 ```
 
+### Fresh enrollment identity discovery
+
+An enrolled SSH route can be authenticated before Command Center knows the
+fresh Remote database's `InstallationId`. That first identity lookup is an
+explicit bootstrap phase, not a reason to retain the retired one-request
+Station client.
+
+The OpenSSH adapter performs bootstrap as follows:
+
+1. the operator has already registered the exact Remote host and SSH route;
+2. Command Center resolves the packaged Remote platform and opens the same
+   fixed `vellum-station` framed SSH command used by ordinary sessions;
+3. the bootstrap session admits exactly one correlated `status` request;
+4. Remote main returns its strict `StatusResponse`;
+5. Command Center records the returned `InstallationId` only as the identity
+   observed on that authenticated operator-controlled route;
+6. the bootstrap session closes;
+7. Command Center mints the enrolled known-peer route and opens a normal
+   persistent session for `pair`, `configure`, projection, and work traffic.
+
+The bootstrap session does not accept `pair`, `configure`, `project`, or
+`report`; it does not create fleet authority; and it does not leave a generic
+one-shot request path behind. A malformed response, a second frame, a timeout,
+or an identity/configuration conflict closes it without binding a fleet
+target. Once a host is bound, later sessions require that exact
+`InstallationId`; bootstrap discovery is not rerun as identity repair.
+
+This ceremony deliberately does not claim that `InstallationId` authenticates
+the Remote. OpenSSH authenticates the route at the boundary it owns. Pairing
+then records which logical installation the operator accepted over that
+route.
+
 The helper:
 
 - accepts no arbitrary command, path, database location, or shell payload;
