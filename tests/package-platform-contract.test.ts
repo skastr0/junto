@@ -43,7 +43,11 @@ describe("native package pipeline contract", () => {
     expect(pkg.description).not.toMatch(/macOS/u);
     expect(pkg.build.forceCodeSigning).toBeUndefined();
     expect(pkg.build.npmRebuild).toBe(false);
-    expect(pkg.build.mac).toMatchObject({ forceCodeSigning: true, artifactName: "${productName}-${version}-${arch}-mac.${ext}" });
+    expect(pkg.build.mac).toMatchObject({
+      forceCodeSigning: true,
+      // Hyphenated stem matches Cloudflare /mac/arm64/Vellum-Command-* contract.
+      artifactName: "Vellum-Command-${version}-${arch}-mac.${ext}",
+    });
     expect(pkg.build.asarUnpack).toEqual([
       "node_modules/node-pty/build/Release/{pty.node,spawn-helper}",
       "node_modules/node-pty/prebuilds/${os}-${arch}/{pty.node,spawn-helper}",

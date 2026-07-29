@@ -4,28 +4,34 @@
  * Packaged apps never accept a runtime arbitrary feed URL override.
  * --channel is Dodo licensing and must not be reused here.
  *
- * Production target remains Cloudflare:
+ * Production custom domain (after DNS):
  *   https://releases.vellumcommand.com/mac/arm64
- * Until R2 is enabled on the Cloudflare account, the interim public feed is
- * the skastr0/vellum-releases GitHub release assets (generic provider).
+ *
+ * Live Worker (deployed; use until custom domain is wired):
+ *   workers.dev base + /mac/arm64
  */
 
 declare const __VELLUM_MAC_UPDATE_FEED_URL__: string | undefined;
 
-/** Intended production generic provider base (Cloudflare Worker + R2). */
-export const MAC_ARM64_UPDATE_FEED_URL_CLOUDFLARE =
+/** Custom-domain production generic provider base (DNS still pending). */
+export const MAC_ARM64_UPDATE_FEED_URL_CUSTOM_DOMAIN =
   "https://releases.vellumcommand.com/mac/arm64" as const;
 
 /**
- * Interim public generic feed while Cloudflare R2 is disabled.
- * Points at the latest prerelease tag assets under skastr0/vellum-releases.
+ * Live Cloudflare Worker download surface from Alchemy deploy.
+ * Bucket: vellum-releases. Update this if the Worker hostname changes.
+ */
+export const MAC_ARM64_UPDATE_FEED_URL_WORKER =
+  "https://vellumreleasedistribution-rele2p3h3apcupwjim2zajqqmhyd.skastr052.workers.dev/mac/arm64" as const;
+
+/**
+ * Interim GitHub public feed (used only when Worker is unavailable).
  */
 export const MAC_ARM64_UPDATE_FEED_URL_INTERIM =
   "https://github.com/skastr0/vellum-releases/releases/download/v0.1.0" as const;
 
-/** Active packaged default until Cloudflare production feed is live. */
-export const MAC_ARM64_UPDATE_FEED_URL =
-  MAC_ARM64_UPDATE_FEED_URL_INTERIM;
+/** Active packaged default: live Worker path. */
+export const MAC_ARM64_UPDATE_FEED_URL = MAC_ARM64_UPDATE_FEED_URL_WORKER;
 
 export type UpdateFeedConfig = {
   readonly provider: "generic";

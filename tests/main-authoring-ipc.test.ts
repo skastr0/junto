@@ -28,6 +28,7 @@ const runtime = vi.hoisted(() => ({
 }));
 
 vi.mock("electron", () => ({
+  app: { getVersion: () => "0.0.0-test" },
   BrowserWindow: { getAllWindows: () => [] },
   ipcMain: {
     handle: (channel: string, handler: InvokeHandler) => electron.handlers.set(channel, handler),
