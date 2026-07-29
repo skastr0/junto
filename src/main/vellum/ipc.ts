@@ -44,6 +44,7 @@ import { GROK_MIN_POST_SPAWN_MS, ManagedTerminalDrive } from "./term/drive";
 import { assertMacClipboardSafeForPaste } from "./term/drive/clipboard-safe";
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
+import { terminalTailRuntime } from "./term/tail-runtime";
 import {
   peekFirstTypedMessage,
   takeFirstTypedMessage,
@@ -78,7 +79,11 @@ const broadcast = (channel: string, payload: unknown) => {
       window.webContents.isDestroyed() ||
       !isTrustedMainWebContents(window.webContents)
     ) continue;
-    window.webContents.send(channel, payload);
+    try {
+      window.webContents.send(channel, payload);
+    } catch (error) {
+      console.error(`[ipc] broadcast ${channel} failed for window ${window.id}:`, error);
+    }
   }
 };
 
@@ -686,6 +691,8 @@ export const registerVellumIpc = (): void => {
       // Observer → seat state machine → idle gate for drive typing.
       // Fail closed: unknown/unbound seats are not idle (never type into dialogs).
       seatStateRuntime.start();
+      // Observer → coalesced tail broadcast for native terminal node-card preview.
+      terminalTailRuntime.start();
       const managedDrive = new ManagedTerminalDrive({
         write: (bindingId, data) =>
           !productAutomationSuspended &&
@@ -782,6 +789,9 @@ export const registerVellumIpc = (): void => {
           managedPulseReadyCancels.set(bindingId, { epoch, cancel });
         }
       }, { replayCurrentSessions: true });
+      terminalTailRuntime.subscribe((event) => {
+        broadcast(IPC_CHANNELS.terminalTailChanged, event);
+      });
       seatStateRuntime.subscribe((event) => {
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
         if (event.state === "idle") {

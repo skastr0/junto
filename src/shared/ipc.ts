@@ -36,6 +36,7 @@ import type {
 } from "./settings";
 import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
+import type { TerminalTailEvent } from "./terminal-tail";
 import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
 import type { ActorRef } from "./work-protocol";
@@ -232,6 +233,8 @@ export const IPC_CHANNELS = {
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateSnapshot: "vellum:agent-seat-state-snapshot",
   agentSeatStateChanged: "vellum:agent-seat-state-changed",
+  /** Main → renderer: coalesced tail lines for native terminal node cards. */
+  terminalTailChanged: "vellum:terminal-tail-changed",
   browserSessionChanged: "vellum:browser-session-changed",
 } as const;
 
@@ -1293,6 +1296,10 @@ export interface VellumTerminalApi {
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   readonly onAgentSeatStateChanged: (
     listener: (event: AgentSeatStateEvent) => void,
+  ) => () => void;
+  /** Main → renderer: coalesced tail lines for native terminal node cards. */
+  readonly onTerminalTailChanged: (
+    listener: (event: TerminalTailEvent) => void,
   ) => () => void;
 }
 
