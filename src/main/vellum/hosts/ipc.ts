@@ -1047,7 +1047,14 @@ export const registerHostsIpc = (
     if (job === undefined) return;
     for (const window of BrowserWindow.getAllWindows()) {
       if (window.isDestroyed() || window.webContents.isDestroyed()) continue;
-      window.webContents.send(IPC_CHANNELS.hostsDeployJobChanged, job);
+      try {
+        window.webContents.send(IPC_CHANNELS.hostsDeployJobChanged, job);
+      } catch (error) {
+        console.error(
+          `[hosts-ipc] broadcast ${IPC_CHANNELS.hostsDeployJobChanged} failed for window ${window.id}:`,
+          error,
+        );
+      }
     }
   };
   const unsubscribeDeployJobs = subscribeDeployJobs((job) => {

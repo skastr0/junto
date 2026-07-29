@@ -577,7 +577,13 @@ const makeKernelService = (
   const emitSnapshot = (): void => {
     const snapshot = composeSnapshot();
     lastPulseLogLength = snapshot.pulseLog.length;
-    for (const listener of snapshotListeners) listener(snapshot);
+    for (const listener of snapshotListeners) {
+      try {
+        listener(snapshot);
+      } catch (error) {
+        console.error("[kernel] snapshot listener failed:", error);
+      }
+    }
     // Durable debug state shares the app-owned SQLite connection. It is useful
     // after restart, but external processes must never open the live database.
     void Effect.runPromise(

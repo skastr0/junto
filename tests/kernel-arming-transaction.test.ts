@@ -340,6 +340,33 @@ describe("KernelService.armRegion — transactional persist-then-mutate", () => 
     expect(getArmed().has("ether::r1")).toBe(false);
   });
 
+  it("keeps snapshot fanout alive when one listener throws", async () => {
+    const writes: ArmingWrite[] = [];
+    const runtime = makeKernelRuntime({}, writes);
+    let seen = 0;
+
+    const result = await runtime.runPromise(
+      Effect.flatMap(KernelService, (kernel) =>
+        Effect.sync(() => {
+          kernel.subscribe(() => {
+            throw new Error("boom");
+          });
+          kernel.subscribe(() => {
+            seen += 1;
+          });
+        }).pipe(Effect.zipRight(kernel.armRegion("ether", "r1", true))),
+      ),
+    );
+    await runtime.dispose();
+
+    expect(result).toEqual({ ok: true });
+    expect(seen).toBe(1);
+    expect(writes).toEqual([
+      { canvasName: "ether", regionId: "r1", armed: true },
+    ]);
+    expect(getArmed().get("ether::r1")).toBe(true);
+  });
+
   it("a manual pulse invoked after suspension is a no-op", async () => {
     const runtime = makeKernelRuntime({}, []);
     await runtime.runPromise(
