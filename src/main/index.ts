@@ -78,6 +78,8 @@ import { KernelService } from "./vellum/kernel/service";
 import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
 import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum/browser/station-admission";
 import { configurePeerPidHelperRoots } from "./vellum/process-identity";
+import { evaluateSchemaCompatibility } from "./vellum/state/schema-version-probe";
+import { ensureSchemaCompatibleOrRecover } from "./vellum/update/startup-schema-recovery";
 import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
 import {
   canonicalNodeRefUri,
@@ -1240,6 +1242,29 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // rejects; adapters also await it lazily, so this is belt-and-suspenders.
     await resolvedSpawnEnv();
     if (shutdownAdmissionClosed) return;
+
+    // Schema gate BEFORE AppRuntime opens SQLite. An older binary must not
+    // crash-exit when the installed DB was advanced by a newer build — that
+    // bricks auto-update (no healthy session to Restart-and-install). Offer
+    // feed recovery without writing the database.
+    {
+      const compatibility = evaluateSchemaCompatibility();
+      if (!compatibility.ok) {
+        const outcome = await ensureSchemaCompatibleOrRecover({
+          app,
+          headless,
+          compatibility,
+        });
+        if (outcome.action === "installing") {
+          // quitAndInstall owns process lifetime from here.
+          return;
+        }
+        if (outcome.action === "quit") {
+          exitAfterDetach(1, outcome.reason);
+          return;
+        }
+      }
+    }
 
     // Seal process-bind peer-PID helper roots before any UDS control server starts.
     // Packaged: electron-builder extraResources → resources/bin/unix-peer-pid.py

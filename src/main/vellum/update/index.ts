@@ -46,3 +46,14 @@ export {
   type InstallPlan,
   type UpdateServiceOptions,
 } from "./service";
+export {
+  ensureSchemaCompatibleOrRecover,
+  feedVersionUnbricks,
+  runStartupSchemaRecovery,
+  type SchemaRecoveryOutcome,
+} from "./startup-schema-recovery";
+export {
+  evaluateSchemaCompatibility,
+  probeInstalledStateSchema,
+  type SchemaCompatibility,
+} from "../state/schema-version-probe";
