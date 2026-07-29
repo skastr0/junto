@@ -258,46 +258,27 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     fitRef.current = fit;
 
     /**
-     * Wheel ownership — capture phase so we win over native viewport scroll
-     * and SmoothScrollableElement without racing defaultPrevented.
+     * Wheel: do NOT capture-phase preventDefault.
      *
-     * - Mouse-reporting TUI (Grok, Claude Code, …): do not capture; xterm's
-     *   CoreMouseService must see the event for click/hover/wheel protocol.
-     * - Alt buffer without mouse (vim, less): let xterm convert wheel → arrows.
-     * - Normal buffer scrollback: we own wheel → term.scrollLines and stop the
-     *   native/web scrollbar path that was making the surface unusable.
+     * xterm 6 SmoothScrollableElement bails when `browserEvent.defaultPrevented`
+     * is already set (`scrollableElement.ts` `_onMouseWheel`). A capture
+     * preventDefault therefore kills normal-buffer scrollback while TUI mouse
+     * protocol still looked "handled" — the "fixed but still broken" state.
+     *
+     * Owners (xterm internals, no custom dual path):
+     * - mouse-reporting TUI → CoreMouseService on `.xterm`
+     * - alt buffer, no mouse → xterm wheel → cursor up/down
+     * - normal scrollback → SmoothScrollableElement
+     *
+     * Bubble-only: stop scroll chaining into canvas/page after xterm ran.
      */
-    const onWheelCapture = (ev: WheelEvent): void => {
+    const onWheelBubble = (ev: WheelEvent): void => {
       if (ev.ctrlKey || ev.metaKey) return;
-      if (ev.deltaY === 0) return;
-
-      // TUI mouse protocol owns the pointer plane. Kill native viewport scroll
-      // (overflow-y:scroll rail) but do NOT stopPropagation — xterm's
-      // CoreMouseService must still receive the event for click/hover/wheel.
-      if (term.modes.mouseTrackingMode !== "none") {
-        ev.preventDefault();
-        return;
-      }
-
-      // Alt buffer: xterm maps wheel to cursor up/down for the app.
-      if (term.buffer.active.type === "alternate") {
-        ev.preventDefault();
-        return;
-      }
-
-      const cellH =
-        (term as unknown as { _core?: XtermCore })._core?._renderService
-          ?.dimensions?.css?.cell?.height ?? FALLBACK_CELL_H;
-      const lines = Math.max(
-        1,
-        Math.min(30, Math.round(Math.abs(ev.deltaY) / Math.max(1, cellH))),
-      );
-      // Capture + stop: one owner only. deltaY>0 = scroll content up (later lines).
-      ev.preventDefault();
-      ev.stopPropagation();
-      term.scrollLines(ev.deltaY > 0 ? lines : -lines);
+      // xterm / SSE already preventDefault when they consume; still block
+      // parent scroll when they don't (empty scrollback, edge geometry).
+      if (!ev.defaultPrevented) ev.preventDefault();
     };
-    host.addEventListener("wheel", onWheelCapture, { passive: false, capture: true });
+    host.addEventListener("wheel", onWheelBubble, { passive: false });
 
     // Keep the xterm textarea focused so key + mouse protocol stay live.
     const onPointerDownCapture = (): void => {
@@ -371,7 +352,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     }
 
     return () => {
-      host.removeEventListener("wheel", onWheelCapture, { capture: true });
+      host.removeEventListener("wheel", onWheelBubble);
       host.removeEventListener("pointerdown", onPointerDownCapture, { capture: true });
       window.removeEventListener("resize", onWindowResize);
       observer.disconnect();

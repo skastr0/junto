@@ -2291,8 +2291,10 @@ ol.note-md__list > .note-md__li::before {
 /* Absolute fill so .xterm never drives host content height.
    Inset = visual pad (must match XTERM_PAD_* in TerminalSurface). Do not use
    CSS padding on this node — absolute children ignore padding and desync the
-   mouse grid from the PTY. Critical (xterm 6): viewport overflow-y:scroll
-   (not hidden) keeps SmoothScrollableElement scrollback wired after pin. */
+   mouse grid from the PTY.
+   xterm 6 scroll authority is SmoothScrollableElement (.xterm-scrollable-element),
+   NOT the legacy .xterm-viewport div (absolute fill + default overflow-y:scroll
+   from xterm.css — that layer steals wheel from SSE / CoreMouseService). */
 .native-terminal-surface__xterm .xterm {
   position: absolute !important;
   top: 6px;
@@ -2304,10 +2306,12 @@ ol.note-md__list > .note-md__li::before {
   padding: 0;
   box-sizing: border-box;
 }
+/* Legacy viewport: background + overview-ruler anchor only. Never a scroll surface. */
 .native-terminal-surface__xterm .xterm-viewport {
   width: 100% !important;
   height: 100% !important;
-  overflow-y: scroll !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
   scrollbar-width: none;
 }
 .native-terminal-surface__xterm .xterm-viewport::-webkit-scrollbar {
@@ -2318,13 +2322,13 @@ ol.note-md__list > .note-md__li::before {
 .native-terminal-surface__xterm .xterm-screen {
   width: 100% !important;
 }
-/* xterm 6 scrollable wrapper must fill the viewport for wheel hit-testing. */
+/* Real scroll + wheel hit target (xterm 6 SmoothScrollableElement). */
 .native-terminal-surface__xterm .xterm-scrollable-element {
   width: 100% !important;
   height: 100% !important;
+  pointer-events: auto !important;
 }
-/* Custom VS Code scrollbar (Auto) — hide chrome; keep layout. pointer-events
-   none so the rail never steals clicks from the TUI canvas. */
+/* Hide VS Code scrollbar chrome; do not steal clicks from the TUI canvas. */
 .native-terminal-surface__xterm .xterm-scrollable-element > .scrollbar {
   opacity: 0 !important;
   width: 0 !important;
