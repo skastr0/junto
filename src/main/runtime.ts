@@ -93,6 +93,7 @@ import {
 import {
   deferredUpdateHostHooks,
   installUpdateProviderHandle,
+  macArm64UpdateFeed,
   makePlatformUpdateProvider,
   makeUpdateServiceLayer,
 } from "./vellum/update";
@@ -260,10 +261,21 @@ const UpdateServiceLive = Layer.unwrapEffect(
       isPackaged: app.isPackaged,
     });
     installUpdateProviderHandle(provider);
+    const packaged = app.isPackaged;
     return makeUpdateServiceLayer({
       currentVersion: app.getVersion() || productMetadata.version,
       provider,
       host: deferredUpdateHostHooks(),
+      install: {
+        packaged,
+        platform: process.platform,
+        arch: process.arch,
+        electronVersion: process.versions.electron ?? "unknown",
+        providerKind: provider.kind,
+        ...(packaged && provider.kind === "mac"
+          ? { feedUrl: macArm64UpdateFeed().url }
+          : {}),
+      },
     });
   }),
 );

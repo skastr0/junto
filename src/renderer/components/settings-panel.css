@@ -487,6 +487,34 @@
   margin: 16px 0 0;
   font-size: 11px;
 }
+.settings-mono-value {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  word-break: break-all;
+}
+.settings-install-facts {
+  margin: 0 0 16px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid rgba(237, 230, 218, 0.1);
+}
+.settings-install-facts__head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-bottom: 10px;
+  color: #ede6da;
+  font-size: 13px;
+}
+.settings-install-facts__head span:last-child {
+  color: #8a8378;
+  font-size: 11px;
+  line-height: 1.4;
+}
 
 .settings-profile-list {
   margin-top: 4px;

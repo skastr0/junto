@@ -33,4 +33,20 @@ describe("shared update schemas", () => {
       }),
     ).toThrow();
   });
+
+  it("decodes install provenance on idle status", () => {
+    const status = decodeUpdateStatus(
+      idleUpdateStatus("0.1.2", {
+        packaged: true,
+        platform: "darwin",
+        arch: "arm64",
+        electronVersion: "39.0.0",
+        providerKind: "mac",
+        feedUrl: "https://example.test/mac/arm64",
+      }),
+    );
+    expect(status.install?.packaged).toBe(true);
+    expect(status.install?.feedUrl).toContain("mac/arm64");
+    expect(status.currentVersion).toBe("0.1.2");
+  });
 });

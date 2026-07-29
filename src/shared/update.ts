@@ -57,6 +57,24 @@ export const UpdateErrorInfo = Schema.Struct({
 export type UpdateErrorInfo = typeof UpdateErrorInfo.Type;
 
 /**
+ * Operator-visible install identity for Settings. No private digests,
+ * signing blobs, or host filesystem paths — only facts useful for support
+ * and release evidence (version, channel surface, packaged vs dev).
+ */
+export const UpdateInstallProvenance = Schema.Struct({
+  packaged: Schema.Boolean,
+  platform: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32)),
+  arch: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32)),
+  electronVersion: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64)),
+  providerKind: Schema.Literal("mac", "linux", "unsupported"),
+  feedUrl: Schema.optionalWith(
+    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
+    { exact: true },
+  ),
+});
+export type UpdateInstallProvenance = typeof UpdateInstallProvenance.Type;
+
+/**
  * Renderer-facing update state. No filesystem paths, digests, or receipts
  * cross this boundary — those stay main-owned readiness authority.
  */
@@ -73,15 +91,20 @@ export const UpdateStatus = Schema.Struct({
    */
   canInstall: Schema.Boolean,
   lastCheckedAt: Schema.optionalWith(Schema.String, { exact: true }),
+  install: Schema.optionalWith(UpdateInstallProvenance, { exact: true }),
 });
 export type UpdateStatus = typeof UpdateStatus.Type;
 
 export const decodeUpdateStatus = Schema.decodeUnknownSync(UpdateStatus);
 
-export const idleUpdateStatus = (currentVersion: string): UpdateStatus => ({
+export const idleUpdateStatus = (
+  currentVersion: string,
+  install?: UpdateInstallProvenance,
+): UpdateStatus => ({
   phase: "idle",
   currentVersion,
   canInstall: false,
+  ...(install === undefined ? {} : { install }),
 });
 
 export interface UpdateApi {

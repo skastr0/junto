@@ -466,6 +466,7 @@ function AdvancedSection() {
 
   return (
     <div className="settings-section">
+      <InstallationFacts />
       <FieldRow label="Open last canvas" hint="resume the previous surface on launch">
         <input
           type="checkbox"
@@ -495,6 +496,72 @@ function AdvancedSection() {
         </p>
       ) : null}
       <StateRecoveryControls />
+    </div>
+  );
+}
+
+function InstallationFacts() {
+  const status = use$(updateState$.status);
+  const settingsVersion = use$(state$.settings.version);
+  const station = use$(state$.settings.station);
+  const install = status.install;
+  const platformLabel =
+    install === undefined
+      ? "—"
+      : `${install.platform}/${install.arch} · electron ${install.electronVersion}`;
+  const buildLabel =
+    install === undefined
+      ? "—"
+      : install.packaged
+        ? `packaged · ${install.providerKind} updater`
+        : "development (self-update disabled)";
+  const feedLabel =
+    install?.feedUrl !== undefined && install.feedUrl.length > 0
+      ? install.feedUrl
+      : install?.packaged
+        ? "no feed for this platform"
+        : "n/a in development builds";
+
+  return (
+    <div className="settings-install-facts" aria-label="Installation identity">
+      <div className="settings-install-facts__head">
+        <span>Installation</span>
+        <span>
+          App version and release provenance. Check for updates lives under
+          Updates.
+        </span>
+      </div>
+      <FieldRow label="App version" hint="running Vellum Command build">
+        <span style={{ color: INK, fontSize: 13 }}>{status.currentVersion}</span>
+      </FieldRow>
+      <FieldRow label="Build" hint="packaged vs development">
+        <span style={{ color: INK, fontSize: 13 }}>{buildLabel}</span>
+      </FieldRow>
+      <FieldRow label="Platform" hint="OS, architecture, Electron runtime">
+        <span style={{ color: INK, fontSize: 13 }}>{platformLabel}</span>
+      </FieldRow>
+      <FieldRow label="Update feed" hint="packaged release channel only">
+        <span
+          className="settings-mono-value"
+          style={{ color: INK, fontSize: 12 }}
+          title={install?.feedUrl}
+        >
+          {feedLabel}
+        </span>
+      </FieldRow>
+      <FieldRow label="Host id" hint="this machine across the fleet">
+        <span style={{ color: INK, fontSize: 13 }}>
+          {station.hostId.length > 0 ? station.hostId : "—"}
+        </span>
+      </FieldRow>
+      <FieldRow label="Settings schema" hint="prefs document version in vellum.db">
+        <span style={{ color: INK, fontSize: 13 }}>v{settingsVersion}</span>
+      </FieldRow>
+      <FieldRow label="State store" hint="sole durable product database">
+        <span className="settings-mono-value" style={{ color: INK, fontSize: 12 }}>
+          ~/.vellum/state/vellum.db
+        </span>
+      </FieldRow>
     </div>
   );
 }
@@ -541,6 +608,9 @@ function UpdatesSection() {
 
   return (
     <div className="settings-section">
+      <FieldRow label="Installed version" hint="currently running Vellum Command">
+        <span style={{ color: INK, fontSize: 13 }}>{status.currentVersion}</span>
+      </FieldRow>
       <FieldRow label="Application updates" hint={summary}>
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -596,7 +666,8 @@ function UpdatesSection() {
       ) : null}
       <p className="settings-note">
         Packaged installs contact the Vellum release server. Dev builds cannot
-        self-update. No update telemetry is sent.
+        self-update. No update telemetry is sent. Full install provenance is
+        under Advanced.
       </p>
     </div>
   );
@@ -1564,7 +1635,8 @@ export function SettingsPanel() {
   const open = use$(state$.settingsOpen);
   const loading = use$(state$.settingsLoading);
   const error = use$(state$.settingsError);
-  const version = use$(state$.settings.version);
+  const settingsVersion = use$(state$.settings.version);
+  const appVersion = use$(updateState$.status.currentVersion);
   const [section, setSection] = useState<PanelSection>("appearance");
 
   useEffect(() => {
@@ -1652,7 +1724,8 @@ export function SettingsPanel() {
               </p>
             ) : null}
             <p className="settings-foot" style={{ color: DIM }}>
-              settings v{version} · ~/.vellum/state/vellum.db
+              Vellum Command {appVersion} · settings schema v{settingsVersion} ·
+              ~/.vellum/state/vellum.db
             </p>
           </div>
         </div>

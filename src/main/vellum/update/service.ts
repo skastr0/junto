@@ -3,6 +3,7 @@ import {
   decodeUpdateStatus,
   idleUpdateStatus,
   type AvailableRelease,
+  type UpdateInstallProvenance,
   type UpdateStatus,
 } from "@shared/update";
 import {
@@ -68,6 +69,8 @@ export type UpdateServiceOptions = {
   readonly currentVersion: string;
   readonly provider: UpdateProvider;
   readonly host: UpdateHostHooks;
+  /** Operator-visible install identity; mirrored onto every projected status. */
+  readonly install?: UpdateInstallProvenance;
   readonly expandZip?: typeof expandMacUpdateZip;
   readonly runPreflight?: typeof runCandidateStatePreflight;
 };
@@ -86,6 +89,7 @@ const projectStatus = (
     readonly canInstall?: boolean;
   },
   candidate: AuthorizedUpdateCandidate | undefined,
+  install: UpdateInstallProvenance | undefined,
 ): UpdateStatus => {
   // Schema.optionalWith({ exact: true }) rejects explicit undefined — strip
   // optional keys that are still unset before decoding.
@@ -101,6 +105,7 @@ const projectStatus = (
   if (base.lastCheckedAt !== undefined) {
     cleaned.lastCheckedAt = base.lastCheckedAt;
   }
+  if (install !== undefined) cleaned.install = install;
   return decodeUpdateStatus(cleaned);
 };
 
@@ -200,6 +205,7 @@ export const finalizeInstallAfterQuiesce = (input: {
           : { available: input.plan.available }),
       },
       bound,
+      undefined,
     );
   }).pipe(Effect.withSpan("update.finalize-install"));
 
@@ -207,8 +213,16 @@ export const makeUpdateService = (
   options: UpdateServiceOptions,
 ): Effect.Effect<Context.Tag.Service<typeof UpdateService>> =>
   Effect.gen(function* () {
+    const install = options.install;
+    const statusOf = (
+      base: Omit<UpdateStatus, "canInstall"> & {
+        readonly canInstall?: boolean;
+      },
+      candidate: AuthorizedUpdateCandidate | undefined,
+    ): UpdateStatus => projectStatus(base, candidate, install);
+
     const initial: LiveState = {
-      status: idleUpdateStatus(options.currentVersion),
+      status: idleUpdateStatus(options.currentVersion, install),
       candidate: undefined,
       stagingRoot: undefined,
       installInFlight: false,
@@ -266,7 +280,7 @@ export const makeUpdateService = (
             case "checking": {
               yield* setStatus((state) => ({
                 ...state,
-                status: projectStatus(
+                status: statusOf(
                   {
                     phase: "checking",
                     currentVersion: options.currentVersion,
@@ -283,7 +297,7 @@ export const makeUpdateService = (
             case "available": {
               yield* setStatus((state) => ({
                 ...state,
-                status: projectStatus(
+                status: statusOf(
                   {
                     phase: "available",
                     currentVersion: options.currentVersion,
@@ -299,7 +313,7 @@ export const makeUpdateService = (
               yield* setStatus((state) => ({
                 ...state,
                 candidate: undefined,
-                status: projectStatus(
+                status: statusOf(
                   {
                     phase: "idle",
                     currentVersion: options.currentVersion,
@@ -313,7 +327,7 @@ export const makeUpdateService = (
             case "progress": {
               yield* setStatus((state) => ({
                 ...state,
-                status: projectStatus(
+                status: statusOf(
                   {
                     phase: "downloading",
                     currentVersion: options.currentVersion,
@@ -352,7 +366,7 @@ export const makeUpdateService = (
                 candidate,
                 stagingRoot,
                 installInFlight: false,
-                status: projectStatus(
+                status: statusOf(
                   {
                     phase: "ready",
                     currentVersion: options.currentVersion,
@@ -374,7 +388,7 @@ export const makeUpdateService = (
                     : ("check-failed" as const);
               yield* setStatus((state) => ({
                 ...state,
-                status: projectStatus(
+                status: statusOf(
                   {
                     phase: "error",
                     currentVersion: options.currentVersion,
@@ -394,7 +408,7 @@ export const makeUpdateService = (
           Effect.catchAll((error) =>
             setStatus((state) => ({
               ...state,
-              status: projectStatus(
+              status: statusOf(
                 {
                   phase: "error",
                   currentVersion: options.currentVersion,
@@ -501,7 +515,7 @@ export const makeUpdateService = (
           ...state,
           candidate: undefined,
           stagingRoot: undefined,
-          status: projectStatus(
+          status: statusOf(
             {
               phase: "error",
               currentVersion: options.currentVersion,
@@ -525,7 +539,7 @@ export const makeUpdateService = (
       yield* setStatus((state) => ({
         ...state,
         installInFlight: true,
-        status: projectStatus(
+        status: statusOf(
           {
             phase: "installing",
             currentVersion: options.currentVersion,
@@ -580,7 +594,7 @@ export const makeUpdateService = (
             yield* setStatus((state) => ({
               ...state,
               installInFlight: false,
-              status: projectStatus(
+              status: statusOf(
                 {
                   phase: "error",
                   currentVersion: options.currentVersion,
