@@ -8,14 +8,14 @@ import { updateError, type UpdateError } from "./errors";
 /** Product identity — must match production packaging and deploy-darwin. */
 const PRODUCT_NAME = "Vellum Command";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
-const BUNDLE_IDENTIFIER = "skastr0.vellum";
+const BUNDLE_IDENTIFIER = "skastr0.vellumcommand";
 const TEAM_IDENTIFIER = "EXAMP12345";
 /**
  * Same Developer ID requirement as `deploy-darwin.ts` DEVELOPER_ID_REQUIREMENT.
  * Anchor + identifier + intermediate Apple WWDR + leaf Developer ID + team OU.
  */
 const DEVELOPER_ID_REQUIREMENT =
-  '=anchor apple generic and identifier "skastr0.vellum" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"';
+  '=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"';
 
 const ADMIT_TIMEOUT_MS = 30_000;
 

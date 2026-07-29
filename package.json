@@ -127,7 +127,7 @@
     "@skastr0/prism-packager": "0.4.4"
   },
   "build": {
-    "appId": "skastr0.vellum",
+    "appId": "skastr0.vellumcommand",
     "productName": "Vellum Command",
     "afterPack": "./scripts/electron-builder-after-pack.mjs",
     "npmRebuild": false,

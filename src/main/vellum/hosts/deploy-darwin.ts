@@ -59,12 +59,12 @@ import {
 
 const PRODUCT_NAME = "Vellum Command";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
-const LABEL = "skastr0.vellum";
+const LABEL = "skastr0.vellumcommand";
 const TEAM_IDENTIFIER = "EXAMP12345";
 const SIGNING_AUTHORITY =
   "Developer ID Application: Example Maintainer (EXAMP12345)";
 const DEVELOPER_ID_REQUIREMENT =
-  '=anchor apple generic and identifier "skastr0.vellum" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"';
+  '=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"';
 const DEPLOY_TIMEOUT_MS = 20 * 60 * 1000;
 const REMOTE_APP_PATH = `/Applications/${APP_BUNDLE_NAME}`;
 const REMOTE_STATION_EXECUTABLE =

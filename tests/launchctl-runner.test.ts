@@ -129,11 +129,11 @@ describe("launchctl runner target boundary", () => {
     await expect(running).resolves.toMatchObject({
       clean: true,
       ok: true,
-      target: "gui/501/skastr0.vellum",
+      target: "gui/501/skastr0.vellumcommand",
     });
     expect(processPlane.spawnChild).toHaveBeenCalledWith(
       expect.objectContaining({
-        args: ["print", "gui/501/skastr0.vellum"],
+        args: ["print", "gui/501/skastr0.vellumcommand"],
       }),
     );
   });
@@ -195,7 +195,7 @@ describe("launchctl runner process authority", () => {
       source: "settings.launchctl-runner",
       purpose: "print launch agent",
       command: LAUNCHCTL_PATH,
-      args: ["print", "gui/501/skastr0.vellum"],
+      args: ["print", "gui/501/skastr0.vellumcommand"],
       shell: false,
     });
 
@@ -212,7 +212,7 @@ describe("launchctl runner process authority", () => {
       source: "settings.launchctl-runner",
       purpose: "kickstart launch agent",
       command: LAUNCHCTL_PATH,
-      args: ["kickstart", "gui/501/skastr0.vellum"],
+      args: ["kickstart", "gui/501/skastr0.vellumcommand"],
       shell: false,
     });
   });

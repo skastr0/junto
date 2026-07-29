@@ -9,7 +9,7 @@
   "machO": [
     {
       "path": "Contents/MacOS/Vellum Command",
-      "identifier": "skastr0.vellum",
+      "identifier": "skastr0.vellumcommand",
       "profile": "jit"
     },
     {
@@ -124,22 +124,22 @@
     },
     {
       "path": "Contents/Frameworks/Vellum Command Helper (Renderer).app/Contents/MacOS/Vellum Command Helper (Renderer)",
-      "identifier": "skastr0.vellum.helper.Renderer",
+      "identifier": "skastr0.vellumcommand.helper.Renderer",
       "profile": "jit"
     },
     {
       "path": "Contents/Frameworks/Vellum Command Helper (GPU).app/Contents/MacOS/Vellum Command Helper (GPU)",
-      "identifier": "skastr0.vellum.helper.GPU",
+      "identifier": "skastr0.vellumcommand.helper.GPU",
       "profile": "jit"
     },
     {
       "path": "Contents/Frameworks/Vellum Command Helper (Plugin).app/Contents/MacOS/Vellum Command Helper (Plugin)",
-      "identifier": "skastr0.vellum.helper.Plugin",
+      "identifier": "skastr0.vellumcommand.helper.Plugin",
       "profile": "none"
     },
     {
       "path": "Contents/Frameworks/Vellum Command Helper.app/Contents/MacOS/Vellum Command Helper",
-      "identifier": "skastr0.vellum.helper",
+      "identifier": "skastr0.vellumcommand.helper",
       "profile": "jit"
     }
   ]

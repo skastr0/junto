@@ -19,10 +19,10 @@ describe("supervised station probe", () => {
       join(root, "src/main/vellum/settings/supervised-probe.ts"),
       "utf8",
     );
-    expect(VELLUM_LAUNCHD_LABEL).toBe("skastr0.vellum");
+    expect(VELLUM_LAUNCHD_LABEL).toBe("skastr0.vellumcommand");
     expect(runner.match(/skastr0\.vellum/gu)).toHaveLength(1);
     expect(probe).not.toContain("VELLUM_LAUNCHD_LABEL");
-    expect(probe).not.toContain("skastr0.vellum");
+    expect(probe).not.toContain("skastr0.vellumcommand");
   });
 
   it.each([

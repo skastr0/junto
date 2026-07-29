@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/main/vellum/settings/launchctl-runner", () => ({
-  VELLUM_LAUNCHD_LABEL: "skastr0.vellum",
+  VELLUM_LAUNCHD_LABEL: "skastr0.vellumcommand",
   launchAgentTargetForCurrentUser: mocks.launchAgentTargetForCurrentUser,
   printLaunchAgent: mocks.printLaunchAgent,
   kickstartLaunchAgent: mocks.kickstartLaunchAgent,
@@ -22,13 +22,13 @@ import { createDarwinStationSupervisor } from "../src/main/vellum/supervision/da
 
 const launchdPrint = (
   body: string,
-): string => `gui/501/skastr0.vellum = {\n${body}\n}\n`;
+): string => `gui/501/skastr0.vellumcommand = {\n${body}\n}\n`;
 
 const successful = (
   stdout = launchdPrint("\tstate = not running"),
 ): LaunchctlRunResult => ({
   action: "print",
-  target: "gui/501/skastr0.vellum",
+  target: "gui/501/skastr0.vellumcommand",
   stdout,
   stderr: "",
   clean: true,
@@ -41,7 +41,7 @@ const failed = (
   code: number | null = null,
 ): LaunchctlRunResult => ({
   action: "print",
-  target: "gui/501/skastr0.vellum",
+  target: "gui/501/skastr0.vellumcommand",
   stdout: "",
   stderr: "bounded diagnostic",
   clean: kind !== "close-timeout",
@@ -68,7 +68,7 @@ describe("Darwin station supervisor observation", () => {
 
     expect(supervisor.metadata).toMatchObject({
       provider: "launchd",
-      serviceLabel: "skastr0.vellum",
+      serviceLabel: "skastr0.vellumcommand",
     });
     expect(observation).toEqual({
       provider: "launchd",

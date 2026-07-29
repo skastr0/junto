@@ -421,7 +421,7 @@ const preflightRuntime = (requestedAppPath: string): void => {
   ]);
   const launchAgent = runFixed("/bin/launchctl", [
     "print",
-    `gui/${String(currentUid())}/skastr0.vellum`,
+    `gui/${String(currentUid())}/skastr0.vellumcommand`,
   ]);
   if (launchAgent.status === 0) {
     throw new Error("the Vellum LaunchAgent is loaded; unload it before packaged smoke");

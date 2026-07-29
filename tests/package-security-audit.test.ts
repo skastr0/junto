@@ -23,7 +23,7 @@ import {
 
 const developerIdCodesign = `
 Executable=/tmp/Vellum Command.app/Contents/MacOS/Vellum Command
-Identifier=skastr0.vellum
+Identifier=skastr0.vellumcommand
 Format=app bundle with Mach-O thin (arm64)
 CodeDirectory v=20500 size=431 flags=0x10000(runtime) hashes=3+7 location=embedded
 Signature size=9055
@@ -108,7 +108,7 @@ describe("codesign metadata audit", () => {
     [
       "wrong identifier",
       developerIdCodesign.replace(
-        "Identifier=skastr0.vellum",
+        "Identifier=skastr0.vellumcommand",
         "Identifier=evil.vellum",
       ),
     ],
@@ -175,7 +175,7 @@ describe("Electron fuse audit", () => {
 describe("ASAR integrity audit", () => {
   const hash = "a".repeat(64);
   const plist = {
-    CFBundleIdentifier: "skastr0.vellum",
+    CFBundleIdentifier: "skastr0.vellumcommand",
     CFBundleExecutable: "Vellum Command",
     LSMinimumSystemVersion: "13.0",
     ElectronAsarIntegrity: {

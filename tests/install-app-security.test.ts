@@ -517,9 +517,9 @@ while :; do /bin/sleep 1; done`,
   });
 
   it("fixes production identities and write targets while retaining read-only candidate selection", () => {
-    expect(paths).toContain('LABEL="skastr0.vellum"');
+    expect(paths).toContain('LABEL="skastr0.vellumcommand"');
     expect(paths).toContain('PRODUCT_NAME="Vellum Command"');
-    expect(paths).toContain('APP_BUNDLE_ID="skastr0.vellum"');
+    expect(paths).toContain('APP_BUNDLE_ID="skastr0.vellumcommand"');
     expect(paths).toContain("installer identities are fixed");
     expect(paths).toContain("installer write targets are derived");
     expect(paths).toContain('APP_SRC="$(read_config_value VELLUM_APP_SRC');
@@ -555,7 +555,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
     expect(result.status).toBe(0);
     expect(result.stdout.trim().split("\n")).toEqual([
       join(sandbox, "Applications", "Vellum Command.app"),
-      join(sandbox, "Library", "LaunchAgents", "skastr0.vellum.plist"),
+      join(sandbox, "Library", "LaunchAgents", "skastr0.vellumcommand.plist"),
       join(sandbox, "Library", "Logs", "Vellum Command"),
       join(sandbox, ".local", "bin"),
       join(sandbox, ".vellum", "state", "vellum.db"),
@@ -967,12 +967,12 @@ cat "$PLIST"`,
     const sandbox = makeSandbox();
     const launchAgents = join(sandbox, "Library", "LaunchAgents");
     mkdirSync(launchAgents, { recursive: true });
-    const plist = join(launchAgents, "skastr0.vellum.plist");
+    const plist = join(launchAgents, "skastr0.vellumcommand.plist");
     writeFileSync(
       plist,
       `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
-<key>Label</key><string>skastr0.vellum</string>
+<key>Label</key><string>skastr0.vellumcommand</string>
 <key>ProgramArguments</key><array>
 <string>${join(sandbox, "Applications", "Vellum Command.app", "Contents", "MacOS", "Vellum Command")}</string>
 <string>--foreign</string>

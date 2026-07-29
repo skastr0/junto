@@ -71,7 +71,7 @@ function runNotarize(
   const bashEnvironment = join(fixture.root, "bash-env");
   writeFileSync(
     bashEnvironment,
-    'function /usr/libexec/PlistBuddy() { printf "%s\\n" "skastr0.vellum"; }\n',
+    'function /usr/libexec/PlistBuddy() { printf "%s\\n" "skastr0.vellumcommand"; }\n',
   );
   return spawnSync("/bin/bash", [fixture.script, ...resolvedArgs], {
     cwd: fixture.root,

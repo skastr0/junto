@@ -61,7 +61,7 @@ describe("validateLocalBundleProvenance", () => {
   const executablePath = `${appPath}/Contents/MacOS/Vellum Command`;
   const metadata = [
     `Executable=${executablePath}`,
-    "Identifier=skastr0.vellum",
+    "Identifier=skastr0.vellumcommand",
     "CodeDirectory v=20500 flags=0x10000(runtime) hashes=3+7 location=embedded",
     "Signature size=9055",
     `CDHash=${TEST_CDHASH}`,
@@ -76,7 +76,7 @@ describe("validateLocalBundleProvenance", () => {
   ): Parameters<typeof validateLocalBundleProvenance>[0] => ({
     appPath,
     executablePath,
-    bundleIdentifier: "skastr0.vellum",
+    bundleIdentifier: "skastr0.vellumcommand",
     bundleExecutable: "Vellum Command",
     bundleVersion: "0.1.0",
     codesignMetadata: metadata,
@@ -86,7 +86,7 @@ describe("validateLocalBundleProvenance", () => {
   it("admits only the pinned bundle, executable, team, and Developer ID receipt", () => {
     expect(validateLocalBundleProvenance(valid())).toEqual({
       appPath,
-      bundleIdentifier: "skastr0.vellum",
+      bundleIdentifier: "skastr0.vellumcommand",
       bundleExecutable: "Vellum Command",
       version: "0.1.0",
       teamIdentifier: "EXAMP12345",
@@ -107,7 +107,7 @@ describe("validateLocalBundleProvenance", () => {
     ],
     [
       "wrong signed identifier",
-      { codesignMetadata: metadata.replace("Identifier=skastr0.vellum", "Identifier=evil") },
+      { codesignMetadata: metadata.replace("Identifier=skastr0.vellumcommand", "Identifier=evil") },
     ],
     [
       "wrong team",
@@ -498,7 +498,7 @@ describe("remote deploy transaction behavior", () => {
       remoteHome,
       "Library",
       "LaunchAgents",
-      "skastr0.vellum.plist",
+      "skastr0.vellumcommand.plist",
     );
     const termSocketPath = join(
       remoteHome,
@@ -652,7 +652,7 @@ describe("remote deploy transaction behavior", () => {
           'if [ "$FAKE_CODESIGN_FAIL" = "1" ]; then exit 1; fi',
           'if [ "$1" = "-d" ]; then',
           '  echo "Executable=$target/Contents/MacOS/Vellum Command" >&2',
-          '  echo "Identifier=skastr0.vellum" >&2',
+          '  echo "Identifier=skastr0.vellumcommand" >&2',
           '  echo "CodeDirectory v=20500 flags=0x10000(runtime)" >&2',
           '  echo "Signature size=9055" >&2',
           '  echo "Authority=Developer ID Application: Example Maintainer (EXAMP12345)" >&2',
@@ -686,14 +686,14 @@ describe("remote deploy transaction behavior", () => {
         [
           'target="${@: -1}"',
           'case "$*" in',
-          '  *CFBundleIdentifier*) echo "skastr0.vellum" ;;',
+          '  *CFBundleIdentifier*) echo "skastr0.vellumcommand" ;;',
           '  *CFBundleExecutable*) echo "Vellum Command" ;;',
           '  *ProgramArguments.1*) exit 1 ;;',
           '  *ProgramArguments.0*)',
           '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "/unowned/executable"; else echo "$FAKE_EXE"; fi',
           "    ;;",
           '  *Label*)',
-          '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "unowned.label"; else echo "skastr0.vellum"; fi',
+          '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "unowned.label"; else echo "skastr0.vellumcommand"; fi',
           "    ;;",
           "  *) exit 1 ;;",
           "esac",

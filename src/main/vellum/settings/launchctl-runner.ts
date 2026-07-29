@@ -12,7 +12,7 @@ export const LAUNCHCTL_PATH = "/bin/launchctl";
 export const LAUNCHCTL_DEADLINE_MS = 3_000;
 export const LAUNCHCTL_STDOUT_CAP_BYTES = 64 * 1024;
 export const LAUNCHCTL_STDERR_CAP_BYTES = 16 * 1024;
-export const VELLUM_LAUNCHD_LABEL = "skastr0.vellum";
+export const VELLUM_LAUNCHD_LABEL = "skastr0.vellumcommand";
 
 const VellumLaunchAgentTargetTypeId: unique symbol = Symbol(
   "@vellum/VellumLaunchAgentTarget",
@@ -97,7 +97,7 @@ interface LaunchctlRunnerOptions {
 const MAX_DIAGNOSTIC_CHARACTERS = 512;
 const MAX_LAUNCHD_UID = 0xffff_ffff;
 const LAUNCHD_TARGET_PATTERN =
-  /^gui\/(0|[1-9]\d{0,9})\/skastr0\.vellum$/;
+  /^gui\/(0|[1-9]\d{0,9})\/skastr0\.vellumcommand$/;
 
 const boundedPositiveInteger = (
   value: number | undefined,

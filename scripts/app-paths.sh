@@ -18,10 +18,10 @@ read_config_value() {
   printf '%s' "$fallback"
 }
 
-LABEL="skastr0.vellum"
+LABEL="skastr0.vellumcommand"
 PRODUCT_NAME="Vellum Command"
-APP_BUNDLE_ID="skastr0.vellum"
-APP_SIGNING_REQUIREMENT='=anchor apple generic and identifier "skastr0.vellum" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"'
+APP_BUNDLE_ID="skastr0.vellumcommand"
+APP_SIGNING_REQUIREMENT='=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"'
 
 # Repo root = parent of scripts/
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
