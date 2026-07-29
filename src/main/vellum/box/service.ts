@@ -363,7 +363,12 @@ export const makeBoxFleetService = (
       ),
     refresh: (boxId) =>
       persistOwned(boxId, (box) => cli.info(box)).pipe(
-        Effect.map(inspectOwnedBox),
+        Effect.flatMap((updated) => {
+          const record = inspectOwnedBox(updated);
+          // Re-warm / re-enroll so host_registry tracks provider IP churn.
+          if (sshUsable(record.machine)) return prepareOwned(updated);
+          return Effect.succeed(record);
+        }),
       ),
     stop: (boxId) =>
       persistOwned(boxId, (box) => cli.stop(box)).pipe(
@@ -371,11 +376,10 @@ export const makeBoxFleetService = (
       ),
     resume: (boxId) =>
       persistOwned(boxId, (box) => cli.resume(box)).pipe(
-        Effect.flatMap((resumed) =>
-          sshUsable(inspectOwnedBox(resumed).machine)
-            ? prepareOwned(resumed)
-            : Effect.succeed(inspectOwnedBox(resumed)),
-        ),
+        // Wait through provider restore, then always re-bind OpenSSH route
+        // (IPs change on every stop/resume).
+        Effect.flatMap((resumed) => awaitSshUsable(resumed)),
+        Effect.flatMap((ready) => prepareOwned(ready)),
       ),
     prepareSsh: (boxId) =>
       authorizeMutation.pipe(
@@ -432,6 +436,8 @@ export const BoxFleetServiceLive = Layer.effect(
           identityFile,
           hostKeyPolicy: "accept-new",
         }).pipe(Effect.flatMap((route) => ssh.warm(route))),
+      // Reload process-local host snapshot after registry mutations so probes
+      // and deploy see the new Box IP immediately (not after app restart).
       convergeHosts: hosts.list.pipe(Effect.asVoid),
     });
   }),

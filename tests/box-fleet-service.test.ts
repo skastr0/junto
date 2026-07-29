@@ -170,7 +170,7 @@ describe("Box Fleet service ownership", () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 
-  it("removes a stopped Box from executable placement without losing ownership", async () => {
+  it("keeps a stopped Box enrolled with its last OpenSSH route", async () => {
     const { repository, state } = await fixture();
     const cli = BoxCli.of({
       availability: Effect.never,
@@ -188,8 +188,11 @@ describe("Box Fleet service ownership", () => {
       service.stop("bx_c79mgja6"),
     );
 
-    expect(stopped.hostId).toBeUndefined();
-    expect(await makeHostsRegistry(state).get("box-c79mgja6")).toBeUndefined();
+    // Stop must not unenroll — same Station, temporarily unreachable.
+    expect(stopped.hostId).toBe("box-c79mgja6");
+    expect(await makeHostsRegistry(state).get("box-c79mgja6")).toMatchObject({
+      sshEndpoint: "user@203.0.113.8",
+    });
     expect(await Effect.runPromise(repository.list)).toHaveLength(1);
   });
 

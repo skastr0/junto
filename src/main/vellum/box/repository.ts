@@ -317,16 +317,20 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
             if (row === undefined) {
               throw new Error("Box ownership disappeared during update");
             }
-            const routeInvalidated =
-              row.machine_ip !== machine.ip ||
-              !isSshUsableState(machine.state);
+            // IP churn is normal on stop/resume. Keep the fleet host row and
+            // rewrite its OpenSSH endpoint in place — never drop placement.
+            const ipChanged =
+              row.machine_ip !== machine.ip &&
+              machine.ip !== null &&
+              machine.ip.trim() !== "";
+            // Re-verify only when the route identity changed; stopped state
+            // keeps the last endpoint so the host stays visible as unreachable.
             writer.run(
               `UPDATE box_resources
                SET name = ?,
                    machine_ip = ?,
                    machine_state = ?,
                    provider_updated_at = ?,
-                   host_id = CASE WHEN ? THEN NULL ELSE host_id END,
                    ssh_prepared_at =
                      CASE WHEN ? THEN NULL ELSE ssh_prepared_at END,
                    ssh_verified_at =
@@ -337,16 +341,20 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
                 machine.ip,
                 machine.state,
                 machine.updatedAt,
-                routeInvalidated ? 1 : 0,
-                routeInvalidated ? 1 : 0,
-                routeInvalidated ? 1 : 0,
+                ipChanged ? 1 : 0,
+                ipChanged ? 1 : 0,
                 machine.id,
               ],
             );
-            if (routeInvalidated && row.host_id !== null) {
-              writer.run("DELETE FROM host_registry WHERE id = ?", [
-                row.host_id,
-              ]);
+            if (ipChanged && row.host_id !== null) {
+              const label = machine.name.trim() || row.name;
+              writer.run(
+                `UPDATE host_registry
+                 SET ssh_endpoint = ?,
+                     label = ?
+                 WHERE id = ?`,
+                [`user@${machine.ip}`, label, row.host_id],
+              );
             }
             const updated = selectByBoxId(writer, machine.id);
             if (updated === undefined) {

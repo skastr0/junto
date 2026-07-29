@@ -16,6 +16,7 @@ import type {
   HostsTestResult,
 } from "@shared/ipc";
 import {
+  appendDeployJobStage,
   beginDeployJob,
   finishDeployJob,
   getDeployJob,
@@ -800,6 +801,9 @@ export const registerHostsIpc = (
               } satisfies HostsTestResult;
             }
             const hosts = yield* HostsService;
+            // Box IPs churn on stop/resume — refresh provider route before probe.
+            const boxes = yield* BoxFleetService;
+            yield* boxes.ensureHostAvailable(id).pipe(Effect.ignore);
             const startedAt = Date.now();
             const result = yield* Effect.either(hosts.test(id));
             const latencyMs = Date.now() - startedAt;
@@ -1053,6 +1057,21 @@ export const registerHostsIpc = (
                 const settingsSvc = yield* SettingsService;
                 const hosts = yield* HostsService;
                 const stationStatus = yield* StationStatusService;
+                // Same Box, new public IP after stop/resume: rebind OpenSSH
+                // route before package activation so Deploy is not stranded.
+                const boxes = yield* BoxFleetService;
+                const route = yield* boxes
+                  .ensureHostAvailable(decoded.id)
+                  .pipe(Effect.either);
+                if (route._tag === "Right" && route.right !== undefined) {
+                  const ip = route.right.machine.ip;
+                  appendDeployJobStage(
+                    decoded.id,
+                    ip
+                      ? `box route refreshed user@${ip} state=${route.right.machine.state}`
+                      : `box route refreshed state=${route.right.machine.state}`,
+                  );
+                }
 
                 const failJob = (
                   result: HostsDeployRemoteResult,
