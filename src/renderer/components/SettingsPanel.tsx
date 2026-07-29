@@ -1094,7 +1094,7 @@ function HostsSection() {
         use the host id (or optional hermes id). Expand <strong>Services</strong> on a host to
         list its served URLs and open them as canvas pages.
         {isCommandCenter
-          ? " On Command Center: Enroll fresh Remote stages station role on a pristine target (manual .deb install first). Managed package deploy remains release-gated."
+          ? " On Command Center: Deploy Remote installs/updates the Linux package over SSH when managed installs are allowed. Enroll fresh Remote is for a target that already has a station role staged."
           : ""}
       </p>
 

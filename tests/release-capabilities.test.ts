@@ -1,15 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
   MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
   RELEASE_CAPABILITIES,
 } from "../src/shared/release-capabilities";
 
-describe("RELEASE_CAPABILITIES beta surface", () => {
-  it("keeps projection canonical and freezes managed deploy paths", () => {
+describe("RELEASE_CAPABILITIES product surface", () => {
+  it("enables managed Linux package deploy; freezes Darwin full-app remote", () => {
     expect(RELEASE_CAPABILITIES.freshRemoteEnrollment).toBe(true);
     expect("stationProjection" in RELEASE_CAPABILITIES).toBe(false);
-    expect(RELEASE_CAPABILITIES.managedRemoteDeploy).toBe(false);
+    expect(RELEASE_CAPABILITIES.managedRemoteDeploy).toBe(true);
     expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(false);
     expect(RELEASE_CAPABILITIES.commandCenterTransfer).toBe(false);
   });
@@ -18,25 +18,13 @@ describe("RELEASE_CAPABILITIES beta surface", () => {
     expect(Object.isFrozen(RELEASE_CAPABILITIES)).toBe(true);
     expect(() => {
       // @ts-expect-error intentional mutation probe
-      RELEASE_CAPABILITIES.managedRemoteDeploy = true;
+      RELEASE_CAPABILITIES.managedRemoteDeploy = false;
     }).toThrow();
   });
 
   it("exposes stable operator-facing denial copy", () => {
-    expect(MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL).toMatch(/manual/i);
-    expect(MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL).toMatch(/\.deb/i);
+    expect(MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL.length).toBeGreaterThan(20);
     expect(DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL).toMatch(/Darwin/i);
-  });
-});
-
-describe("HostsService managed deploy gate", () => {
-  it("deployConfiguredRemote refuses without loading providers when disabled", async () => {
-    // Product policy is compile-time false — import service path and assert
-    // the shared constant is the gate (IPC/service both read RELEASE_CAPABILITIES).
-    expect(RELEASE_CAPABILITIES.managedRemoteDeploy).toBe(false);
-    const { MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL: detail } = await import(
-      "../src/shared/release-capabilities"
-    );
-    expect(detail.length).toBeGreaterThan(20);
+    expect(DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL).toMatch(/Linux/i);
   });
 });

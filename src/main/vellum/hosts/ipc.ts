@@ -939,11 +939,12 @@ export const registerHostsIpc = (
           Effect.gen(function* () {
             const settingsSvc = yield* SettingsService;
             const doc = yield* settingsSvc.get;
+            // No Command Center process.platform here: managed Linux package
+            // deploy must not require darwinRemoteDeploy on a Mac CC.
             return computeDeployCapabilities({
               stationRole: doc.station.role,
               remoteManagedInstalls: doc.fleet.remoteManagedInstalls,
               release: RELEASE_CAPABILITIES,
-              platform: process.platform,
             });
           }).pipe(
             Effect.catchAll((error) =>
@@ -974,11 +975,13 @@ export const registerHostsIpc = (
         // Effect flight retention. Operator/role inputs are forced permissive
         // so this gate can only ever deny for release-surface reasons — the
         // settings-backed operator/role gates still run inside the runtime.
+        // Pre-decode release gate: only `managedRemoteDeploy`. Do not pass
+        // Command Center `process.platform` — that would freeze Linux package
+        // deploy on a Mac CC while Darwin remote deploy is still product-off.
         const releaseGate = computeDeployCapabilities({
           stationRole: "command-center",
           remoteManagedInstalls: true,
           release: RELEASE_CAPABILITIES,
-          platform: process.platform,
         });
         if (!releaseGate.effective.deployRemote) {
           const detail =
@@ -1027,7 +1030,6 @@ export const registerHostsIpc = (
                   remoteManagedInstalls:
                     settingsResult.right.fleet.remoteManagedInstalls,
                   release: RELEASE_CAPABILITIES,
-                  platform: process.platform,
                 });
                 if (!effective.effective.deployRemote) {
                   const detail =

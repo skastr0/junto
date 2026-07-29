@@ -236,54 +236,14 @@ describe("host IPC shutdown admission", () => {
     expect(runtime.runPromise).not.toHaveBeenCalled();
   });
 
-  it("denies managed deploy without entering the app runtime (beta surface)", async () => {
-    const gate = register(15);
-    // RELEASE_CAPABILITIES.managedRemoteDeploy is false — no credential parse,
-    // no provider load, no Effect flight retention.
-    await expect(
-      invoke(IPC_CHANNELS.hostsDeployRemote, { id: "studio" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      code: "validation",
-      detail: expect.stringMatching(/manual|\.deb|disabled/i),
-    });
-    expect(runtime.runPromise).not.toHaveBeenCalled();
-    await expect(gate.drainOnQuit()).resolves.toMatchObject({
-      clean: true,
-      retained: 0,
-    });
-  });
-
-  it("rejects deploy IPC without decoding credentials when managed deploy is off", async () => {
+  it("rejects invalid deploy IPC shape without entering the app runtime", async () => {
     register();
-    const sha = "a".repeat(64);
-    const request = {
-      kind: "linux-administrator-password",
-      hostId: "studio",
-      sshEndpoint: "studio-box",
-      version: "1.2.3",
-      manifestSha256: sha,
-      debSha256: sha,
-      inventorySha256: sha,
-    } as const;
+    // Managed deploy is release-enabled; invalid payloads still fail closed
+    // before AppRuntime (decode gate), and never retain a flight.
     const inputs: ReadonlyArray<unknown> = [
       "studio",
       { id: "studio", extra: true },
-      {
-        id: "studio",
-        authorization: {
-          request,
-          password: "secret",
-          retry: true,
-        },
-      },
-      {
-        id: "studio",
-        authorization: {
-          request: { ...request, hostId: "substituted" },
-          password: "secret",
-        },
-      },
+      { authorization: { password: "secret" } },
     ];
 
     for (const input of inputs) {
@@ -292,7 +252,7 @@ describe("host IPC shutdown admission", () => {
       ).resolves.toMatchObject({
         ok: false,
         code: "validation",
-        detail: expect.stringMatching(/manual|\.deb|disabled/i),
+        detail: expect.stringMatching(/invalid/i),
       });
     }
     expect(runtime.runPromise).not.toHaveBeenCalled();

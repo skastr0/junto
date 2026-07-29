@@ -50,6 +50,9 @@ export const computeDeployCapabilities = (
   const operatorOn = input.remoteManagedInstalls === true;
   const cc = isCommandCenter(input.stationRole);
 
+  // `platform` is the *target* Remote kernel when known. Omit it for
+  // pre-decode release gates so a Mac Command Center is not blocked from
+  // Linux package deploy by the Darwin-only freeze flag.
   const releaseDeploy =
     release.managedRemoteDeploy === true &&
     (input.platform === "darwin" ? release.darwinRemoteDeploy === true : true);
