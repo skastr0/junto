@@ -95,8 +95,8 @@ export class BoxFleetService extends Context.Tag("@vellum/box/BoxFleetService")<
     readonly prepareSsh: (
       boxId: string,
     ) => Effect.Effect<BoxResource, BoxFleetError>;
-    /** Pin while authored host demand exists; otherwise arm a provider TTL. */
-    readonly setPlacementDemand: (
+    /** Pin while active work exists on the host; otherwise arm a provider TTL. */
+    readonly setActivityDemand: (
       boxId: string,
       demanded: boolean,
     ) => Effect.Effect<BoxResource, BoxFleetError>;
@@ -280,7 +280,7 @@ export const makeBoxFleetService = (
     );
   };
 
-  const placementPolicy = (demanded: boolean): BoxAutoStopPolicy =>
+  const activityPolicy = (demanded: boolean): BoxAutoStopPolicy =>
     demanded
       ? { kind: "disabled" }
       : { kind: "ttl", ttlSeconds: BOX_IDLE_AUTO_STOP_SECONDS };
@@ -382,11 +382,11 @@ export const makeBoxFleetService = (
         Effect.andThen(owned(boxId)),
         Effect.flatMap(prepareOwned),
       ),
-    setPlacementDemand: (boxId, demanded) =>
+    setActivityDemand: (boxId, demanded) =>
       authorizeMutation.pipe(
         Effect.andThen(owned(boxId)),
         Effect.flatMap((box) =>
-          cli.setAutoStop(box, placementPolicy(demanded)).pipe(
+          cli.setAutoStop(box, activityPolicy(demanded)).pipe(
             Effect.as(inspectOwnedBox(box)),
           ),
         ),

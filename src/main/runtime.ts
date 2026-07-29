@@ -43,7 +43,7 @@ import { SshTransportLive } from "./vellum/ssh";
 import {
   BoxCliLive,
   BoxFleetServiceLive,
-  BoxPlacementPolicyLive,
+  BoxActivityPolicyLive,
   BoxOwnershipRepositoryLive,
   BoxProcessRunnerLive,
 } from "./vellum/box";
@@ -219,8 +219,8 @@ const BoxFleetLive = Layer.provideMerge(
   ),
 );
 
-const BoxPlacementPolicyWithFleetLive = Layer.provideMerge(
-  BoxPlacementPolicyLive,
+const BoxActivityPolicyWithFleetLive = Layer.provideMerge(
+  BoxActivityPolicyLive,
   Layer.mergeAll(
     BoxFleetLive,
     CanvasesWithStateLive,
@@ -297,7 +297,7 @@ const BaseLayer = Layer.mergeAll(
   SnapshotsWithProductsLive,
   HostsWithSshLive,
   StationFleetServicesLive,
-  BoxPlacementPolicyWithFleetLive,
+  BoxActivityPolicyWithFleetLive,
   LicenseWithStateLive,
   UpdateServiceLive,
 );

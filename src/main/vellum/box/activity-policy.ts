@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Queue } from "effect";
-import type { CanvasDoc } from "@shared/canvas";
+import type { Task } from "@shared/canvas";
+import type { CanvasReadResult } from "@shared/ipc";
 import { resolveNodePlacement } from "@shared/physics";
 import { CanvasesService } from "../canvases";
 import { SettingsService } from "../settings/service";
@@ -11,27 +12,75 @@ const machineCanReceiveLease = (resource: BoxResource): boolean =>
   resource.machine.state === "idle" ||
   resource.machine.state === "running";
 
-export const placedHostIds = (
-  documents: Iterable<CanvasDoc>,
-): ReadonlySet<string> => {
-  const placed = new Set<string>();
-  for (const document of documents) {
-    for (const node of document.nodes) {
-      const placement = resolveNodePlacement(node);
-      if (placement.assignment !== undefined) {
-        placed.add(placement.assignment);
+const isActiveWork = (item: Task): boolean =>
+  item.state === "working" ||
+  item.state === "input-required" ||
+  item.state === "auth-required";
+
+export interface BoxHostActivity {
+  readonly activeHostIds: ReadonlySet<string>;
+  /**
+   * Active work without an exact compiled actor/placement cannot safely
+   * authorize a provider sleep decision. Callers keep owned Boxes awake until
+   * the projection becomes coherent.
+   */
+  readonly hasUnresolvedActiveWork: boolean;
+}
+
+/**
+ * Derive provider demand from Vellum's canonical work truth.
+ *
+ * Placement is only routing intent. A Box is active when an actor placed on it
+ * owns an item whose claim has already started work. Submitted and terminal
+ * items do not pin a machine.
+ */
+export const deriveBoxHostActivity = (
+  reads: Iterable<CanvasReadResult>,
+): BoxHostActivity => {
+  const activeHostIds = new Set<string>();
+  let hasUnresolvedActiveWork = false;
+
+  for (const read of reads) {
+    const actorBySeat = new Map(
+      read.actorRefs.map((actor) => [actor.seatId, actor]),
+    );
+    const nodeById = new Map(read.doc.nodes.map((node) => [node.id, node]));
+
+    for (const node of read.doc.nodes) {
+      const items = [
+        ...(node.ether?.tasks?.items ?? []),
+        ...(node.ether?.requests?.items ?? []),
+      ];
+      for (const item of items) {
+        if (!isActiveWork(item)) continue;
+        const actor =
+          item.claimedBy === undefined
+            ? undefined
+            : actorBySeat.get(item.claimedBy);
+        const actorNode =
+          actor === undefined ? undefined : nodeById.get(actor.nodeId);
+        const hostId =
+          actorNode === undefined
+            ? undefined
+            : resolveNodePlacement(actorNode).assignment;
+        if (hostId === undefined) {
+          hasUnresolvedActiveWork = true;
+        } else {
+          activeHostIds.add(hostId);
+        }
       }
     }
   }
-  return placed;
+
+  return { activeHostIds, hasUnresolvedActiveWork };
 };
 
-export class BoxPlacementPolicy extends Context.Tag(
-  "@vellum/box/BoxPlacementPolicy",
+export class BoxActivityPolicy extends Context.Tag(
+  "@vellum/box/BoxActivityPolicy",
 )<
-  BoxPlacementPolicy,
+  BoxActivityPolicy,
   {
-    /** Coalesced reconciliation after authorial placement or Box lifecycle. */
+    /** Coalesced reconciliation after work, routing, or Box lifecycle changes. */
     readonly request: () => void;
     /** Interaction gate for a possibly provider-stopped Vellum-owned host. */
     readonly ensureHostAvailable: (
@@ -40,8 +89,8 @@ export class BoxPlacementPolicy extends Context.Tag(
   }
 >() {}
 
-export const BoxPlacementPolicyLive = Layer.scoped(
-  BoxPlacementPolicy,
+export const BoxActivityPolicyLive = Layer.scoped(
+  BoxActivityPolicy,
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const settings = yield* SettingsService;
@@ -58,11 +107,16 @@ export const BoxPlacementPolicyLive = Layer.scoped(
           return;
         }
 
-        const [authority, resources] = yield* Effect.all([
-          canvases.authoritySnapshot(),
+        const [summaries, resources] = yield* Effect.all([
+          canvases.list,
           fleet.list,
         ]);
-        const demand = placedHostIds(authority.documents.values());
+        const reads = yield* Effect.forEach(
+          summaries,
+          (summary) => canvases.read(summary.name),
+          { concurrency: 4 },
+        );
+        const activity = deriveBoxHostActivity(reads);
         const visible = new Set<string>(
           resources.map((resource) => resource.machine.id),
         );
@@ -77,12 +131,14 @@ export const BoxPlacementPolicyLive = Layer.scoped(
               appliedDemand.delete(resource.machine.id);
               return Effect.void;
             }
-            const demanded = demand.has(boxHostId(resource.machine.id));
+            const demanded =
+              activity.hasUnresolvedActiveWork ||
+              activity.activeHostIds.has(boxHostId(resource.machine.id));
             if (appliedDemand.get(resource.machine.id) === demanded) {
               return Effect.void;
             }
             return fleet
-              .setPlacementDemand(resource.machine.id, demanded)
+              .setActivityDemand(resource.machine.id, demanded)
               .pipe(
                 Effect.tap(() =>
                   Effect.sync(() => {
@@ -91,7 +147,7 @@ export const BoxPlacementPolicyLive = Layer.scoped(
                 ),
                 Effect.catchAll((error) =>
                   Effect.logWarning(
-                    `Box placement lease reconciliation failed for ${resource.machine.id}`,
+                    `Box activity lease reconciliation failed for ${resource.machine.id}`,
                     error,
                   ),
                 ),
@@ -103,7 +159,7 @@ export const BoxPlacementPolicyLive = Layer.scoped(
       }),
     ).pipe(
       Effect.catchAll((error) =>
-        Effect.logWarning("Box placement lease reconciliation failed", error),
+        Effect.logWarning("Box activity lease reconciliation failed", error),
       ),
     );
 
@@ -116,6 +172,8 @@ export const BoxPlacementPolicyLive = Layer.scoped(
     const request = (): void => {
       if (!admissionClosed) invalidations.unsafeOffer(undefined);
     };
+    // CanvasesService merges committed Work changes into this invalidation
+    // stream, so claims and terminal transitions need no second subscription.
     const unsubscribe = canvases.subscribeChanges(request);
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
@@ -126,7 +184,7 @@ export const BoxPlacementPolicyLive = Layer.scoped(
 
     request();
 
-    return BoxPlacementPolicy.of({
+    return BoxActivityPolicy.of({
       request,
       ensureHostAvailable: (hostId) =>
         fleet.ensureHostAvailable(hostId).pipe(

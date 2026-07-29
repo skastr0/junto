@@ -23,10 +23,10 @@ export {
   type CreateFleetBoxOptions,
 } from "./service";
 export {
-  BoxPlacementPolicy,
-  BoxPlacementPolicyLive,
-  placedHostIds,
-} from "./placement-policy";
+  BoxActivityPolicy,
+  BoxActivityPolicyLive,
+  deriveBoxHostActivity,
+} from "./activity-policy";
 export {
   BoxOwnershipRepositoryLive,
   BoxResource,

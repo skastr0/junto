@@ -379,9 +379,9 @@ export function FleetBoxPanel({
 
         <footer className="fleet-box-panel__footer">
           <span>
-            New Boxes use your Box account defaults and secrets. With no canvas
-            node placed on a Box, Vellum arms Box&apos;s 10-minute automatic
-            stop; placed Boxes remain available.
+            New Boxes use your Box account defaults and secrets. Active work
+            keeps its Box available; when the Box has no active work, Vellum
+            arms Box&apos;s 10-minute automatic stop.
           </span>
           <span>Delete machines and manage billing in the Box dashboard.</span>
         </footer>

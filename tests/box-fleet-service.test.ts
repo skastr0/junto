@@ -322,8 +322,8 @@ describe("Box Fleet service ownership", () => {
     });
     const service = makeBoxFleetService(cli, repository);
 
-    await Effect.runPromise(service.setPlacementDemand("bx_c79mgja6", false));
-    await Effect.runPromise(service.setPlacementDemand("bx_c79mgja6", true));
+    await Effect.runPromise(service.setActivityDemand("bx_c79mgja6", false));
+    await Effect.runPromise(service.setActivityDemand("bx_c79mgja6", true));
 
     expect(setAutoStop.mock.calls.map(([, policy]) => policy)).toEqual([
       { kind: "ttl", ttlSeconds: 600 },

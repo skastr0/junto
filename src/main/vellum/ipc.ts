@@ -14,7 +14,7 @@ import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { CanvasesService } from "./canvases";
-import { BoxPlacementPolicy } from "./box";
+import { BoxActivityPolicy } from "./box";
 
 import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
@@ -86,7 +86,7 @@ const broadcast = (channel: string, payload: unknown) => {
 const ensureBoxHostAvailable = (hostId: string): Promise<void> =>
   hostOperationGate.run(HOST_OPERATION_ADMISSIONS.boxActivate, () =>
     AppRuntime.runPromise(
-      Effect.flatMap(BoxPlacementPolicy, (policy) =>
+      Effect.flatMap(BoxActivityPolicy, (policy) =>
         policy.ensureHostAvailable(hostId),
       ),
     ),
