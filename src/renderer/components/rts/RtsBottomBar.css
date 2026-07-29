@@ -149,57 +149,29 @@
   --rts-chip-hue-mid: rgba(237, 230, 218, 0.12);
 }
 
+/* Severity is a static wash + ActivityMark wave — never continuous filter /
+   conic-border compositor work. Animated @property + mask-composite conics
+   and filter:brightness were measured pinning the GPU helper at 60–85% with
+   a 3-node canvas (fleet closed). Identity stays; paint stops thrashing. */
 .rts-chip--strip.is-sev-working {
   box-shadow:
     inset 0 0 0 1px var(--rts-chip-hue-glow),
-    0 0 12px var(--rts-chip-hue-glow);
-  animation: rts-chip-breathe 1.8s ease-in-out infinite;
-}
-
-/* Moving border — rotating conic sweep for working regions. */
-.rts-chip--strip.is-sev-working::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  background: conic-gradient(
-    from var(--rts-chip-angle, 0deg),
-    transparent 0deg,
-    transparent 220deg,
-    var(--rts-chip-hue) 280deg,
-    transparent 340deg
-  );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: rts-chip-border-spin 2.2s linear infinite;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.rts-chip--strip.is-sev-working > * {
-  position: relative;
-  z-index: 1;
+    0 0 10px var(--rts-chip-hue-glow);
+  background: color-mix(in srgb, var(--rts-chip-hue) 12%, var(--rts-chip-hue-soft));
 }
 
 .rts-chip--strip.is-sev-attention {
   box-shadow:
     inset 0 0 0 1px var(--rts-chip-hue-glow),
-    0 0 14px var(--rts-chip-hue-glow);
-  animation: rts-chip-pulse 1.25s ease-in-out infinite;
+    0 0 12px var(--rts-chip-hue-glow);
+  background: color-mix(in srgb, var(--rts-chip-hue) 14%, var(--rts-chip-hue-soft));
 }
 
 .rts-chip--strip.is-sev-blocked {
   box-shadow:
     inset 0 0 0 1px var(--rts-chip-hue-glow),
-    0 0 16px var(--rts-chip-hue-glow);
-  animation: rts-chip-pulse 0.95s ease-in-out infinite;
+    0 0 14px var(--rts-chip-hue-glow);
+  background: color-mix(in srgb, var(--rts-chip-hue) 16%, var(--rts-chip-hue-soft));
 }
 
 .rts-chip--strip.is-sev-parked {
@@ -210,10 +182,6 @@
   opacity: 0.62;
   border-style: dashed;
   animation: none;
-}
-
-.rts-chip--strip.is-sev-paused::before {
-  display: none;
 }
 
 .rts-chip--strip.is-active {
@@ -229,58 +197,7 @@
   /* Keep selection rim readable over severity glow. */
   box-shadow:
     inset 0 0 0 1px rgba(232, 163, 61, 0.35),
-    0 0 14px var(--rts-chip-hue-glow);
-}
-
-@property --rts-chip-angle {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
-}
-
-@keyframes rts-chip-border-spin {
-  to {
-    --rts-chip-angle: 360deg;
-  }
-}
-
-@keyframes rts-chip-breathe {
-  0%,
-  100% {
-    background-color: var(--rts-chip-hue-soft);
-  }
-  50% {
-    background-color: color-mix(in srgb, var(--rts-chip-hue) 18%, transparent);
-  }
-}
-
-@keyframes rts-chip-pulse {
-  0%,
-  100% {
-    background-color: var(--rts-chip-hue-soft);
-    filter: brightness(1);
-  }
-  50% {
-    background-color: color-mix(in srgb, var(--rts-chip-hue) 22%, transparent);
-    filter: brightness(1.08);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rts-chip--strip.is-sev-working,
-  .rts-chip--strip.is-sev-attention,
-  .rts-chip--strip.is-sev-blocked {
-    animation: none;
-  }
-
-  .rts-chip--strip.is-sev-working::before {
-    animation: none;
-    background: transparent;
-    box-shadow: inset 0 0 0 1px var(--rts-chip-hue-mid);
-    -webkit-mask: none;
-    mask: none;
-    padding: 0;
-  }
+    0 0 12px var(--rts-chip-hue-glow);
 }
 
 /* Triad panels live on row 2 of the shell grid. */
@@ -292,8 +209,10 @@
   max-height: 120px;
   border: 1px solid rgba(237, 230, 218, 0.1);
   border-radius: 8px;
-  background: rgba(12, 11, 10, 0.88);
-  backdrop-filter: blur(12px);
+  /* Solid ground — was backdrop-filter:blur(12px) over an already-opaque
+     0.88 fill, which re-composites the whole panel whenever anything above
+     animates (ActivityMark, status dots). Drop the useless blur. */
+  background: rgba(12, 11, 10, 0.94);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   overflow: hidden; /* never scroll the bar panels */
   grid-row: 2;

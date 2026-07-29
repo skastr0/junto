@@ -30,6 +30,7 @@ import { startSettingsBridge, closeSettings } from "./lib/settings-state";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
+import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
@@ -336,6 +337,9 @@ export function App() {
     // Managed-agent seat state (attention/working) — subscribe early so canvas
     // node chrome paints before any TerminalCard mounts.
     const stopAgentSeat = subscribeAgentSeatState();
+    // Freeze continuous CSS when the page is hidden / reduced-motion so the
+    // GPU helper can drop off the fan curve (fleet closed is not enough).
+    const stopSurfaceMotion = startSurfaceMotionGate();
 
     const offSnapshots = vellum.onSnapshotsChanged((state) => state$.snapshots.set(state));
     const offCanvas = vellum.onCanvasChanged((name) => {
@@ -371,6 +375,7 @@ export function App() {
       stopSettings?.();
       stopUpdate?.();
       stopAgentSeat?.();
+      stopSurfaceMotion();
     };
   }, []);
 

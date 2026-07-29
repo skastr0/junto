@@ -1,4 +1,5 @@
 import { GradientSpin, type SpinPattern } from "gradient-spin";
+import { use$ } from "@legendapp/state/react";
 import {
   ACTIVITY_TONE_HEX,
   houseGradientStops,
@@ -7,6 +8,7 @@ import {
   type ActivitySpec,
   type ActivityTone,
 } from "../lib/activity";
+import { surfaceMotionLive$ } from "../lib/surface-motion";
 
 const SIZE: Record<
   ActivitySize,
@@ -75,9 +77,13 @@ export function ActivityMark({
   pattern = "snake",
   active = true,
 }: ActivityMarkProps) {
+  const surfaceLive = use$(surfaceMotionLive$);
   const hex = ACTIVITY_TONE_HEX[tone];
   const dims = SIZE[size];
-  const wave = mode === "wave" && active;
+  // Page hidden / reduced-motion: static tone dot — GradientSpin keyframes
+  // still schedule compositor work even under animation-play-state:paused on
+  // some Electron builds; unmount the spinner entirely when motion is gated.
+  const wave = mode === "wave" && active && surfaceLive;
 
   // Footprint matches the wave grid so mode flips don't shift card chrome.
   const box = dims.cols * dims.cellSize + (dims.cols - 1) * dims.cellGap;

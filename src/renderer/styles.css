@@ -1092,12 +1092,31 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .react-flow__node-group { background: transparent !important; border: 0 !important; }
 .react-flow__pane { background-image: radial-gradient(circle at 50% 50%, rgba(232,163,61,.018), transparent 45%); }
 
+/* Surface motion gate — page hidden / prefers-reduced-motion (see
+   surface-motion.ts). Pauses continuous CSS so the GPU helper can idle.
+   Fleet WebGL is gated separately; this covers ActivityMark, status dots,
+   edge ripples, occupancy pulses, and any remaining infinite keyframes. */
+html[data-surface-motion="paused"] *,
+html[data-surface-motion="paused"] *::before,
+html[data-surface-motion="paused"] *::after {
+  animation-play-state: paused !important;
+}
+
 /* Viewport busy freeze — pan/zoom owns the compositor; kill paint thrash. */
 .react-flow.is-viewport-busy .react-flow__node,
 .react-flow.is-viewport-busy .react-flow__edge,
 .react-flow.is-viewport-busy .vellum-node,
 .react-flow.is-viewport-busy .vellum-edge-label {
   transition: none !important;
+  animation: none !important;
+}
+.react-flow.is-viewport-busy .vellum-blocker,
+.react-flow.is-viewport-busy .vellum-status-dot-pulse,
+.react-flow.is-viewport-busy .vellum-edge-ripple .react-flow__edge-path,
+.react-flow.is-viewport-busy path.vellum-edge-ripple,
+.react-flow.is-viewport-busy .vellum-dot--pulse,
+.react-flow.is-viewport-busy .vellum-herdr-working-dot,
+.react-flow.is-viewport-busy .vellum-armed-dot {
   animation: none !important;
 }
 .react-flow.is-viewport-busy .react-flow__node:hover .vellum-node {
@@ -1520,7 +1539,7 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   }
 }
 
-/* StatusDot live pulse — soft glow breathing, honors reduced motion. */
+/* StatusDot live pulse — opacity only (never filter/box-shadow animation). */
 .vellum-status-dot-pulse {
   animation: vellumStatusDotPulse 2.4s ease-in-out infinite;
 }
@@ -1533,6 +1552,17 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   50% {
     opacity: 0.45;
   }
+}
+
+/* Hidden/reduced-motion: freeze continuous status/edge paint entirely. */
+html[data-surface-motion="paused"] .vellum-status-dot-pulse,
+html[data-surface-motion="paused"] .vellum-blocker,
+html[data-surface-motion="paused"] .vellum-edge-ripple .react-flow__edge-path,
+html[data-surface-motion="paused"] path.vellum-edge-ripple,
+html[data-surface-motion="paused"] .vellum-dot--pulse,
+html[data-surface-motion="paused"] .vellum-herdr-working-dot,
+html[data-surface-motion="paused"] .vellum-armed-dot {
+  animation: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
