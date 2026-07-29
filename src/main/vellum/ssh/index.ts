@@ -47,6 +47,8 @@ export {
   compileLinuxReleaseBridge,
   compileLinuxRemotePreflight,
   compileLinuxRemotePreflightSource,
+  compileLinuxRemoteUnitActivate,
+  compileLinuxRemoteUnitActivateSource,
   confineHerdrStagePath,
   HERDR_IMAGE_STAGE_DIR,
 } from "./remote-plan";

@@ -1126,11 +1126,11 @@ describe("Linux Remote privileged deployment", () => {
     expect(ready).toMatchObject({
       ok: true,
       disposition: "ready",
-      detail: expect.stringContaining("installed from the signed bundle"),
+      detail: expect.stringContaining("already installed and structurally ready"),
     });
+    // Same-version ready: no sealed re-transaction — preflight only.
     expect(harness.run).toHaveBeenCalledTimes(1);
-    expect(harness.transactCalls).toHaveLength(1);
-    expect(harness.events).toContain("commit");
+    expect(harness.transactCalls).toHaveLength(0);
   });
 
   it("commits an exact stale-journal recovery plan whose projected baseline differs from preflight", async () => {

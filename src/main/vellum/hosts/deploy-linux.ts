@@ -50,6 +50,7 @@ import {
 } from "../ssh/domain";
 import {
   deploymentStream,
+  oneShot,
   oneShotWithStdin,
 } from "../ssh/program";
 import {
@@ -57,6 +58,7 @@ import {
   compileLinuxReleaseBridge,
   compileLinuxRemotePreflight,
   compileLinuxRemotePreflightSource,
+  compileLinuxRemoteUnitActivate,
 } from "../ssh/remote-plan";
 import type { SshLease } from "../ssh/service";
 import {
@@ -651,6 +653,119 @@ const runPreflight = (
       );
     }
     return decodeLinuxRemotePreflight(result.stdout);
+  });
+
+const LINUX_UNIT_ACTIVATE_OK =
+  /^LINUX_REMOTE_UNIT_ACTIVATE_V1 ok=1 active=(active|activating)$/u;
+
+/** Enable linger + enable/restart unit when package is already on disk. */
+const runUnitActivate = (
+  input: RemoteDeploymentProviderInput,
+): Effect.Effect<{ readonly active: "active" | "activating" }, Error> =>
+  Effect.gen(function* () {
+    const command = yield* compileLinuxRemoteUnitActivate();
+    const result = yield* input.ssh.run(
+      oneShot(input.target.sshTarget, command, { budget: "standard" }),
+    );
+    const line = result.stdout.trim().split("\n").at(-1) ?? "";
+    const match = LINUX_UNIT_ACTIVATE_OK.exec(line);
+    if (match === null) {
+      return yield* Effect.fail(
+        new Error(
+          result.stdout.trim() ||
+            result.stderr.trim() ||
+            "Linux unit activate returned no receipt",
+        ),
+      );
+    }
+    return { active: match[1] as "active" | "activating" };
+  });
+
+const sleepMs = (ms: number): Effect.Effect<void> =>
+  Effect.promise(() => new Promise((resolve) => setTimeout(resolve, ms)));
+
+/**
+ * Package already matches the admitted release: do not re-run the sealed
+ * bridge/installer (that path dies mid-transcript when nothing to commit).
+ * Activate the user unit and poll preflight readiness instead.
+ */
+const activateInstalledPackage = (
+  input: RemoteDeploymentProviderInput,
+  candidate: LinuxRemoteArtifactCandidate,
+  stages: string[],
+  version: string,
+  /** Pre-activate linger: after first activation linger is on → longer ready wait. */
+  lingerAlreadyEnabled: boolean,
+): Effect.Effect<DeployRemoteResult, never> =>
+  Effect.gen(function* () {
+    appendStage(stages, `package ${version} already on host — unit activation path`);
+    const activated = yield* runUnitActivate(input).pipe(Effect.either);
+    if (activated._tag === "Left") {
+      appendStage(
+        stages,
+        `unit activate failed: ${activated.left.message}`,
+      );
+      return deployFailure(
+        input,
+        stages,
+        `package is installed but the Remote unit could not be activated — ${activated.left.message}`,
+        {
+          code: "conflict",
+          disposition: "indeterminate",
+          version,
+          recoveryAction: { kind: "repair-linux-release-transaction" },
+        },
+      );
+    }
+    appendStage(
+      stages,
+      `unit activate ok active=${activated.right.active}`,
+    );
+
+    // First pass (linger was off): fail fast so outer configure still hits
+    // enrollment station sock. Second pass (linger on): wait for work ready.
+    const waitMs = lingerAlreadyEnabled ? 50_000 : 8_000;
+    appendStage(
+      stages,
+      `waiting up to ${Math.round(waitMs / 1000)}s for work-control ready`,
+    );
+    const deadline = Date.now() + waitMs;
+    while (Date.now() < deadline) {
+      const probe = yield* runPreflight(input, candidate).pipe(Effect.either);
+      if (probe._tag === "Right" && probe.right.ok && probe.right.currentReady) {
+        appendStage(
+          stages,
+          `work control ready generation=${probe.right.generation ?? "unknown"}`,
+        );
+        return {
+          ok: true,
+          detail: `${input.target.host.label}: Linux Remote ${version} package present and structurally ready`,
+          stages: Object.freeze([...stages]),
+          disposition: "ready" as const,
+          version,
+        } satisfies DeployRemoteResult;
+      }
+      yield* sleepMs(1_500);
+    }
+    appendStage(
+      stages,
+      lingerAlreadyEnabled
+        ? "readiness poll timed out after prior activation"
+        : "unit up — work control not ready yet (outer path will configure then retry)",
+    );
+    return deployFailure(
+      input,
+      stages,
+      lingerAlreadyEnabled
+        ? "package is installed and the unit was restarted, but work control did not become ready"
+        : "package is installed and the unit is up, but work control is not ready — Station configuration is required next",
+      {
+        code: "conflict",
+        disposition: "indeterminate",
+        version,
+        recoveryAction: { kind: "repair-linux-release-transaction" },
+      },
+    );
   });
 
 class LinuxDeploymentProtocolError extends Error {
@@ -2250,12 +2365,39 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           adoptPreflight = postInstall.right;
         }
 
-        if (firstInstallHost) {
-          appendStage(
+        // Package already matches admitted release: sealed re-transaction ends
+        // mid-transcript (nothing to commit). Activate unit + poll readiness.
+        const packageExact =
+          adoptPreflight.installedVersion === admission.version &&
+          hasLinuxReleaseCustody(adoptPreflight);
+        if (packageExact) {
+          adoptPasswordLine.fill(0);
+          if (adoptPreflight.currentReady) {
+            appendStage(
+              stages,
+              `package ${admission.version} already ready generation=${adoptPreflight.generation ?? "unknown"}`,
+            );
+            return {
+              ok: true,
+              detail: `${providerInput.target.host.label}: Linux Remote ${admission.version} already installed and structurally ready`,
+              stages: Object.freeze([...stages]),
+              disposition: "ready" as const,
+              version: admission.version,
+            } satisfies DeployRemoteResult;
+          }
+          return yield* activateInstalledPackage(
+            providerInput,
+            candidate,
             stages,
-            `starting sealed adopt for ${admission.version} (package already on host)`,
+            admission.version,
+            adoptPreflight.lingerEnabled,
           );
         }
+
+        appendStage(
+          stages,
+          `starting sealed adopt for ${admission.version}`,
+        );
         const adoptAttempt = firstInstallHost
           ? releaseAttempt(providerInput, adoptPreflight, admission)
           : attempt;

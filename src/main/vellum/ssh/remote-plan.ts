@@ -174,14 +174,28 @@ fi
 ENABLE_STATE=$(/usr/bin/systemctl --user is-enabled vellum-remote.service 2>/dev/null || true)
 ACTIVE_STATE=$(/usr/bin/systemctl --user is-active vellum-remote.service 2>/dev/null || true)
 if [ "$CURRENT_VERSION" = none ]; then
+  # No package: unit must not be installed. "inactive" covers a missing unit
+  # (systemctl is-active prints inactive and exits non-zero).
   [ "$ENABLE_STATE" = not-found ] || refuse systemd-user
   [ "$ACTIVE_STATE" = inactive ] || refuse systemd-user
   ENABLED=0
   ACTIVE=0
   UNIT_STATE=not-found
 else
-  case "$ENABLE_STATE" in enabled) ENABLED=1 ;; disabled) ENABLED=0 ;; *) refuse systemd-user ;; esac
-  case "$ACTIVE_STATE" in active) ACTIVE=1 ;; inactive) ACTIVE=0 ;; *) refuse systemd-user ;; esac
+  # Package present: enabled|disabled are normal. is-enabled may also print
+  # enabled-runtime / static on some images — treat as enabled for preflight.
+  case "$ENABLE_STATE" in
+    enabled|enabled-runtime|static) ENABLED=1 ;;
+    disabled|masked) ENABLED=0 ;;
+    *) refuse systemd-user ;;
+  esac
+  # Crash-loop and start races report activating/failed/deactivating — that is
+  # "not ready", not a malformed user manager. Only refuse unknown strings.
+  case "$ACTIVE_STATE" in
+    active) ACTIVE=1 ;;
+    inactive|failed|activating|deactivating|reloading) ACTIVE=0 ;;
+    *) refuse systemd-user ;;
+  esac
   UNIT_STATE=present
 fi
 LINGER_VALUE=$(/usr/bin/loginctl show-user "$UID_VALUE" -p Linger --value 2>/dev/null || true)
@@ -363,6 +377,46 @@ export const compileLinuxReleaseBridge = (): Effect.Effect<
   RemoteCommand,
   SshInputError
 > => makeRemoteCommand(LINUX_RELEASE_BRIDGE_PATH, []);
+
+/**
+ * Fixed unit activation for a package that is already on disk.
+ * Enables linger (so user units survive SSH disconnect), enables and restarts
+ * vellum-remote, prints one machine-readable line. No free-form argv.
+ */
+export const compileLinuxRemoteUnitActivateSource = (): string =>
+  String.raw`
+set -eu
+umask 077
+fail() {
+  echo "LINUX_REMOTE_UNIT_ACTIVATE_V1 ok=0 reason=$1"
+  exit 0
+}
+UID_VALUE=$(/usr/bin/id -u)
+case "$UID_VALUE" in ""|*[!0-9]*|0) fail identity ;; esac
+# Box and similar images ship Linger=no; user units die when the SSH session ends.
+if ! /usr/bin/loginctl show-user "$UID_VALUE" -p Linger --value 2>/dev/null | /usr/bin/grep -qx yes; then
+  /usr/bin/sudo -n /usr/bin/loginctl enable-linger "$UID_VALUE" >/dev/null 2>&1 || fail linger
+fi
+/usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || fail systemd-user
+/usr/bin/systemctl --user enable vellum-remote.service >/dev/null 2>&1 || fail enable
+/usr/bin/systemctl --user reset-failed vellum-remote.service >/dev/null 2>&1 || true
+/usr/bin/systemctl --user restart vellum-remote.service >/dev/null 2>&1 || fail restart
+ACTIVE=$(/usr/bin/systemctl --user is-active vellum-remote.service 2>/dev/null || true)
+case "$ACTIVE" in
+  active|activating) ;;
+  *) fail "active-$ACTIVE" ;;
+esac
+echo "LINUX_REMOTE_UNIT_ACTIVATE_V1 ok=1 active=$ACTIVE"
+`.trim();
+
+export const compileLinuxRemoteUnitActivate = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> =>
+  Effect.gen(function* () {
+    const source = compileLinuxRemoteUnitActivateSource();
+    return yield* makeRemoteCommand("/bin/bash", ["-c", source]);
+  });
 
 /**
  * Pure compile of the fixed first-install program.
