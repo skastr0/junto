@@ -402,8 +402,9 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           rows: result.screen?.rows ?? result.rows ?? 0,
         };
         let lastSeq: bigint | undefined;
-        // Prefer grid snapshot attach — correct after multi-hour sessions;
-        // byte journal is a truncating ring and can cut mid-escape.
+        // Main returns the exact raw journal while it is complete (preserving
+        // SGR/color + TUI paint semantics), and only supplies a plain-text grid
+        // after the bounded raw journal has actually truncated.
         const screenLines = result.screen?.lines;
         if (screenLines && screenLines.length > 0) {
           // Plain-text rebuild loses DEC private modes. Re-arm alt-screen +

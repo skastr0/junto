@@ -53,8 +53,9 @@ export type ObserverGridSnapshot = {
 export type ObserverListener = (snapshot: ObserverGridSnapshot) => void;
 
 /**
- * Full-buffer attach payload for the renderer — replaces byte-journal replay.
- * Survives long sessions without mid-escape ring truncation.
+ * Full-buffer attach payload for the renderer. Used only after the exact raw
+ * byte journal has truncated; survives long sessions without replaying from
+ * the middle of an escape sequence.
  */
 export type AttachScreen = {
   readonly bindingId: string;
@@ -69,7 +70,8 @@ export type AttachScreen = {
   readonly seq: bigint;
   /**
    * Full active buffer lines top→bottom (scrollback + viewport).
-   * Plain text (SGR lost on attach) — content-correct for very long sessions.
+   * Plain text (SGR lost on fallback attach) — content-correct for very long
+   * sessions whose exact raw journal no longer starts at generation birth.
    */
   readonly lines: readonly string[];
   readonly signals: ObserverSignals;

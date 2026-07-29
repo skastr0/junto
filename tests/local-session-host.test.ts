@@ -550,6 +550,48 @@ describe("LocalSessionHost", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("replays the exact colored PTY journal while it is still complete", async () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(44_150),
+    }));
+    const host = hostWith(fake);
+    host.create({ bindingId: "colored-reopen" });
+    fake.controllers[0]?.emitData("\u001b[31mred\u001b[0m\r\n");
+    await Promise.resolve();
+
+    const attached = host.attach({
+      bindingId: "colored-reopen",
+      mode: "observe",
+    });
+    expect(attached.ok).toBe(true);
+    if (!attached.ok) return;
+    expect(attached.screen).toBeUndefined();
+    expect(
+      attached.journal
+        .map((entry) => (entry.type === "output" ? entry.data : ""))
+        .join(""),
+    ).toContain("\u001b[31mred\u001b[0m");
+  });
+
+  it("falls back to the observer screen only after the raw journal truncates", async () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(44_151),
+    }));
+    const host = hostWith(fake);
+    host.create({ bindingId: "long-reopen" });
+    fake.controllers[0]?.emitData("x".repeat(512 * 1024 + 1));
+    await Promise.resolve();
+
+    const attached = host.attach({
+      bindingId: "long-reopen",
+      mode: "observe",
+    });
+    expect(attached.ok).toBe(true);
+    if (!attached.ok) return;
+    expect(attached.screen).toBeDefined();
+    expect(attached.journal).toEqual([]);
+  });
+
   it("reports resistant terminals with central TERM/KILL receipts and keeps them noninteractive", async () => {
     vi.useFakeTimers();
     const fake = makeFakeTerminalProcessAuthority(() => ({

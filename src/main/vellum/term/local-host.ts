@@ -226,6 +226,12 @@ type SessionRec = {
   seq: bigint;
   journal: JournalEntry[];
   journalBytes: number;
+  /**
+   * Once any raw PTY bytes fall out of the bounded journal, replaying it can
+   * begin mid-control-sequence. Until then it is the only exact presentation
+   * source: the observer grid intentionally contains plain text only.
+   */
+  journalTruncated: boolean;
   controlLeaseId: string | undefined;
   killed: boolean;
   termReceipt: AppProcessSignalReceipt | undefined;
@@ -597,6 +603,7 @@ export class LocalSessionHost extends EventEmitter {
       seq: 0n,
       journal: [],
       journalBytes: 0,
+      journalTruncated: false,
       controlLeaseId: undefined,
       killed: false,
       termReceipt: undefined,
@@ -808,10 +815,12 @@ export class LocalSessionHost extends EventEmitter {
       return { ok: false, message: "session interaction revoked during stop" };
     }
 
-    // Prefer full-grid attach over journal: long sessions must not depend on a
-    // truncating 512KB byte ring (mid-escape corruption under heavy output).
+    // Exact raw replay wins while the bounded journal is complete. It retains
+    // SGR/color, hyperlinks, cursor operations, and TUI paint semantics that a
+    // plain-text observer grid cannot reconstruct. Only fall back to the full
+    // observer buffer after raw history has actually been truncated.
     const screen = this.observerPlane.attachScreen(rec.bindingId);
-    const screenPayload = screen
+    const screenPayload = rec.journalTruncated && screen
       ? {
           bindingId: screen.bindingId,
           epoch: screen.epoch,
@@ -826,8 +835,8 @@ export class LocalSessionHost extends EventEmitter {
           signals: screen.signals,
         }
       : undefined;
-    // When screen is present, do not ship the journal — forces clients onto
-    // the correct path and avoids double-paint.
+    // A truncated raw ring can begin mid-escape, so never combine it with the
+    // observer fallback. A complete journal needs no lossy screen projection.
     const journal = screenPayload ? ([] as const) : rec.journal.slice();
 
     if (input.mode === "control") {
@@ -1310,6 +1319,7 @@ export class LocalSessionHost extends EventEmitter {
     }
     while (rec.journalBytes > MAX_JOURNAL_BYTES && rec.journal.length > 0) {
       const dropped = rec.journal.shift();
+      rec.journalTruncated = true;
       if (dropped?.type === "output") {
         rec.journalBytes -= Buffer.byteLength(dropped.data, "utf8");
       }
