@@ -142,7 +142,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://releases.vellumcommand.com/mac/arm64"
+        "url": "https://github.com/skastr0/vellum-releases/releases/download/v0.1.0"
       }
     ],
     "files": [
