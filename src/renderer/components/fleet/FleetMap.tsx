@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   BaseEdge,
   ReactFlow,
   ReactFlowProvider,
   useInternalNode,
+  useReactFlow,
   type Edge,
   type EdgeProps,
   type EdgeTypes,
@@ -170,6 +171,7 @@ function FleetMapInner({
   readonly ditherLevel: FleetDitherLevel;
   readonly onDitherLevelChange: (level: FleetDitherLevel) => void;
 }) {
+  const { fitView } = useReactFlow();
   const stations = useMemo(() => hosts.filter((host) => host.kind === "remote"), [hosts]);
   const topologyKey = useMemo(
     () =>
@@ -181,6 +183,11 @@ function FleetMapInner({
         .join("|"),
     [stations, peers],
   );
+
+  useEffect(() => {
+    if (stations.length === 0 && peers.length === 0) return;
+    void fitView({ padding: 0.25, maxZoom: 1.2 });
+  }, [fitView, topologyKey, stations.length, peers.length]);
 
   const nodes = useMemo<ReadonlyArray<FleetFlowNode>>(() => {
     const stationIds = stations.map((host) => host.id);
@@ -301,7 +308,6 @@ function FleetMapInner({
       }}
     >
     <ReactFlow
-      key={topologyKey}
       nodes={nodes as Array<FleetFlowNode>}
       edges={edges as Array<Edge>}
       nodeTypes={fleetNodeTypes}

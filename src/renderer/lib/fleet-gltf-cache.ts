@@ -1,6 +1,7 @@
 /*
  * Shared GLTF templates for fleet machine signatures.
- * One network parse per URL; every viewer clones so dispose is instance-local.
+ * One network parse per URL; every viewer gets a deep clone so dispose is
+ * instance-local and does not tear down the cached template or siblings.
  */
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -21,6 +22,21 @@ const disposeObject = (root: THREE.Object3D): void => {
       material.dispose();
     }
   });
+};
+
+const deepCloneObject3D = (source: THREE.Object3D): THREE.Object3D => {
+  const clone = source.clone(true);
+  clone.traverse((node) => {
+    const mesh = node as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    if (mesh.geometry) mesh.geometry = mesh.geometry.clone();
+    if (Array.isArray(mesh.material)) {
+      mesh.material = mesh.material.map((material) => material.clone());
+    } else if (mesh.material) {
+      mesh.material = mesh.material.clone();
+    }
+  });
+  return clone;
 };
 
 const prepareTemplate = (scene: THREE.Object3D): THREE.Object3D => {
@@ -63,8 +79,7 @@ const fetchTemplate = (src: string): Promise<THREE.Object3D> =>
     );
   });
 
-/** Resolve a clone of the shared template for `src`. Safe to call concurrently. */
-export const loadFleetGltfClone = (src: string): Promise<THREE.Object3D> => {
+const loadTemplate = (src: string): Promise<THREE.Object3D> => {
   let pending = templates.get(src);
   if (!pending) {
     pending = fetchTemplate(src).catch((error) => {
@@ -74,8 +89,12 @@ export const loadFleetGltfClone = (src: string): Promise<THREE.Object3D> => {
     });
     templates.set(src, pending);
   }
-  return pending.then((template) => template.clone(true));
+  return pending;
 };
+
+/** Resolve a deep clone of the shared template for `src`. Safe to call concurrently. */
+export const loadFleetGltfClone = (src: string): Promise<THREE.Object3D> =>
+  loadTemplate(src).then((template) => deepCloneObject3D(template));
 
 export const disposeFleetGltfClone = (root: THREE.Object3D): void => {
   disposeObject(root);
@@ -83,7 +102,5 @@ export const disposeFleetGltfClone = (root: THREE.Object3D): void => {
 
 /** Warm the template cache without attaching a viewer (hover / idle prefetch). */
 export const prefetchFleetGltf = (src: string): void => {
-  void loadFleetGltfClone(src).then((clone) => {
-    disposeFleetGltfClone(clone);
-  });
+  void loadTemplate(src).catch(() => undefined);
 };
