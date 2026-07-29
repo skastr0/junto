@@ -45,6 +45,15 @@ export const ensureTerminalRunning = async (
       ...(binding.agentKey ? { agentKey: binding.agentKey } : {}),
     });
     terminal$.sessionByBindingId[binding.bindingId].set(next);
+    // Create is still allowed to open the surface for journal/error replay
+    // when the generation dies before the first attach (bad cwd, missing
+    // shell). Callers that only need a live seat treat exited as failure.
+    if (next.status === "exited") {
+      return {
+        ok: false,
+        message: "terminal exited immediately after spawn",
+      };
+    }
     return { ok: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -63,7 +72,13 @@ export const openTerminal = async (
   const result = await ensureTerminalRunning(node);
   if (!result.ok) {
     console.error("[terminal] open failed", result.message);
-    return;
+    // Still open the surface when a generation exists so the operator can
+    // read the spawn journal (e.g. unexpanded cwd / missing shell). A total
+    // unbound failure leaves the surface closed.
+    const binding = resolveTerminalBinding(node);
+    if (binding?.kind !== "native") return;
+    const session = terminal$.sessionByBindingId[binding.bindingId].peek();
+    if (!session) return;
   }
   openTerminalSurface(node, zone);
 };

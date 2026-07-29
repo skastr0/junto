@@ -6,7 +6,9 @@
  */
 
 import { EventEmitter } from "node:events";
+import { existsSync, statSync } from "node:fs";
 import * as os from "node:os";
+import { isAbsolute, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { Either } from "effect";
 import type { HarnessId } from "@shared/managed-terminal-templates";
@@ -317,11 +319,43 @@ const defaultShell = (): string => {
   );
 };
 
-const resolveCwd = (launch: TerminalLaunch | undefined): string =>
-  (launch?.cwd && launch.cwd.trim()) ||
-  process.env.HOME ||
-  os.homedir() ||
-  process.cwd();
+/**
+ * Expand a station-local cwd. Region paths and the directory picker author `~`
+ * / `~/…` (see host-directory); node-pty requires a real absolute path and
+ * exits the child immediately when given a literal tilde.
+ */
+export const expandTerminalCwd = (
+  input: string | undefined,
+  home: string = os.homedir(),
+): string => {
+  const requested = input?.trim() ?? "";
+  if (!requested || requested === "~") return home;
+  if (requested.startsWith("~/")) return join(home, requested.slice(2));
+  return requested;
+};
+
+const resolveCwd = (launch: TerminalLaunch | undefined): string => {
+  const expanded = expandTerminalCwd(
+    (launch?.cwd && launch.cwd.trim()) ||
+      process.env.HOME ||
+      os.homedir() ||
+      process.cwd(),
+  );
+  // node-pty rejects relative cwds; fall back rather than mint a doomed spawn.
+  if (!isAbsolute(expanded)) {
+    return os.homedir() || process.cwd();
+  }
+  return expanded;
+};
+
+/** True when the path is an existing directory the child can start in. */
+const isUsableCwd = (cwd: string): boolean => {
+  try {
+    return existsSync(cwd) && statSync(cwd).isDirectory();
+  } catch {
+    return false;
+  }
+};
 
 /** An actor seat whose harness launch does not name an executable argv. */
 export type AgentLaunchUnresolvable = {
@@ -356,6 +390,14 @@ export const resolveLaunch = (
   const cwd = resolveCwd(launch);
   // Actor seat: scrub nested Claude markers + merge seat inject after scrub
   // so ambient CLAUDE_CODE_CHILD_SESSION cannot disable the child transcript.
+  // PTY is always a real xterm surface. Inherit ambient TERM only when it is
+  // already an xterm* value — a host launched under TERM=dumb (CI, headless
+  // harnesses) must not blank interactive shells.
+  const ambientTerm = process.env.TERM?.trim() ?? "";
+  const term =
+    ambientTerm.startsWith("xterm") || ambientTerm.startsWith("screen")
+      ? ambientTerm
+      : "xterm-256color";
   const env: Record<string, string> =
     seat.kind === "agent"
       ? {
@@ -363,13 +405,13 @@ export const resolveLaunch = (
             ...(options?.seatInject ?? {}),
             ...(launch?.env ?? {}),
           }),
-          TERM: process.env.TERM || "xterm-256color",
+          TERM: term,
           COLORTERM: process.env.COLORTERM || "truecolor",
         }
       : {
           ...(process.env as Record<string, string>),
           ...(launch?.env ?? {}),
-          TERM: process.env.TERM || "xterm-256color",
+          TERM: term,
           COLORTERM: process.env.COLORTERM || "truecolor",
         };
   // Defensive: never let scrubbed keys re-enter via TERM/COLORTERM path.
@@ -562,6 +604,16 @@ export class LocalSessionHost extends EventEmitter {
       return this.summaryOf(rec);
     }
     const launch = resolved.right;
+    if (!isUsableCwd(launch.cwd)) {
+      // node-pty exits the child with code 1 and no output for a missing or
+      // non-directory cwd (including a literal unexpanded `~/…` before expand).
+      // Fail before ownership so the journal names the path.
+      this.failBeforeOwnership(
+        rec,
+        new Error(`working directory is not a usable directory: ${launch.cwd}`),
+      );
+      return this.summaryOf(rec);
+    }
 
     let lease: AppTerminalLease;
     try {

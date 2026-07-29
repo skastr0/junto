@@ -4,7 +4,10 @@ import type {
   AppProcessSignalReceipt,
   AppTerminalLease,
 } from "../src/main/vellum/app-process-plane";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
+  expandTerminalCwd,
   LocalSessionHost,
   resolveLaunch,
   TerminalLaunchError,
@@ -72,6 +75,55 @@ describe("LocalSessionHost", () => {
     );
     expect(launch.file).toBe("/bin/sh");
     expect(launch.args).toEqual(["-l"]);
+  });
+
+  it("expands region ~/ cwd paths before spawn (node-pty rejects literal tildes)", () => {
+    expect(expandTerminalCwd("~")).toBe(homedir());
+    expect(expandTerminalCwd("~/Projects/vellum")).toBe(
+      join(homedir(), "Projects/vellum"),
+    );
+    expect(expandTerminalCwd("/absolute/repo")).toBe("/absolute/repo");
+
+    const launch = Either.getOrThrow(
+      resolveLaunch({
+        kind: "terminal",
+        launch: { kind: "shell", cwd: "~/Projects/vellum" },
+      }),
+    );
+    expect(launch.cwd).toBe(join(homedir(), "Projects/vellum"));
+    expect(launch.env.TERM).toMatch(/^(xterm|screen)/);
+  });
+
+  it("forces an xterm TERM when the host process runs under TERM=dumb", () => {
+    vi.stubEnv("TERM", "dumb");
+    const launch = Either.getOrThrow(resolveLaunch({ kind: "terminal" }));
+    expect(launch.env.TERM).toBe("xterm-256color");
+  });
+
+  it("fails before ownership when the launch cwd is missing", () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_901),
+    }));
+    const host = hostWith(fake);
+
+    const summary = host.create({
+      bindingId: "bad-cwd",
+      launch: {
+        kind: "shell",
+        cwd: join(homedir(), "definitely-missing-vellum-cwd-probe"),
+      },
+    });
+
+    expect(summary).toMatchObject({ bindingId: "bad-cwd", status: "exited" });
+    expect(fake.controllers).toHaveLength(0);
+    const attached = host.attach({ bindingId: "bad-cwd", mode: "observe" });
+    expect(attached.ok).toBe(true);
+    if (!attached.ok) return;
+    expect(
+      attached.journal
+        .map((entry) => (entry.type === "output" ? entry.data : ""))
+        .join(""),
+    ).toContain("working directory is not a usable directory");
   });
 
   it("rejects a missing or non-absolute shell before process spawn", () => {

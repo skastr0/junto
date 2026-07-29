@@ -179,6 +179,23 @@ export const subscribeKernelPauseWake = (
 ): (() => void) => subscribe(() => scheduleCycle());
 
 /**
+ * Keep the kernel's hot Work projection at the exact claim result.
+ *
+ * WorkService already returns the post-transaction hydrated document. Retain
+ * it before the delivery phase so a claim can wake its seat in this cycle
+ * instead of waiting for the repository notification/resync repair cycle.
+ */
+export const retainSuccessfulClaimProjection = (
+  documents: Map<string, CanvasDoc>,
+  canvasName: string,
+  result: { readonly ok: boolean; readonly doc?: CanvasDoc },
+): boolean => {
+  if (!result.ok || result.doc === undefined) return false;
+  documents.set(canvasName, result.doc);
+  return true;
+};
+
+/**
  * One evaluation may run at a time. Any number of overlapping triggers retain
  * exactly one repair pass, so lifecycle bursts cannot race shared kernel
  * memory or grow an unbounded retry backlog.
@@ -796,7 +813,14 @@ const makeKernelService = (
             `[kernel] claim tick failed for ${selection.sink.canvasName}/${selection.sink.nodeId}/${selection.task.itemId}: ${result.message}`,
           );
         }
-        if (result.ok) busyActorSeatIds.add(selection.actor.seatId);
+        if (result.ok) {
+          retainSuccessfulClaimProjection(
+            docs,
+            selection.sink.canvasName,
+            result,
+          );
+          busyActorSeatIds.add(selection.actor.seatId);
+        }
       }
     }
   };

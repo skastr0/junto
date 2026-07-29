@@ -53,6 +53,8 @@ type AttachResult = {
   readonly lease?: { readonly leaseId: string; readonly epoch: string };
   readonly cols?: number;
   readonly rows?: number;
+  /** Session status at attach time — retained exited generations still attach. */
+  readonly status?: "starting" | "running" | "exited" | string;
   /** Preferred: full headless grid for long-session attach (no journal ring). */
   readonly screen?: {
     readonly bindingId?: string;
@@ -429,20 +431,23 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           }
         }
         attachDone = true;
+        let sawExit = result.status === "exited";
         for (const event of pending) {
           if (event.epoch !== result.lease.epoch) continue;
           if (lastSeq !== undefined && event.seq !== undefined && event.seq <= lastSeq) continue;
           if (event.type === "output" && event.data) term.write(event.data);
-          if (event.type === "exit") setStatus("exited");
+          if (event.type === "exit") sawExit = true;
         }
         pending.length = 0;
-        setStatus("control");
+        // Attach succeeds for retained exited generations (journal/screen
+        // replay). Never paint those as a live control lease.
+        setStatus(sawExit ? "exited" : "control");
         // Journal replayed at prior focus size. Repaint through layout settle;
         // only a real cols×rows transition is forwarded to the child PTY.
         requestAnimationFrame(() => {
           if (!alive) return;
           pushResize();
-          term.focus();
+          if (!sawExit) term.focus();
         });
         for (const ms of SETTLE_FITS_MS) {
           settleTimers.push(
