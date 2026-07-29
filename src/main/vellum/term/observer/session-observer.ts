@@ -9,6 +9,11 @@
  */
 
 import { createRequire } from "node:module";
+import {
+  applyDecPrivateMode,
+  idleAttachModes,
+  type TerminalAttachModes,
+} from "@shared/term-attach-modes";
 import { sanitizeTitle } from "./sanitize";
 import {
   afterLastHorizontalRule,
@@ -20,7 +25,6 @@ import {
 import type {
   ObserverGridSnapshot,
   ObserverListener,
-  ObserverModes,
   ObserverSignals,
   SessionObserverOptions,
 } from "./types";
@@ -78,10 +82,7 @@ export class SessionObserver {
   private readonly listeners = new Set<ObserverListener>();
   private title = "";
   private osc9 = "";
-  private modes: ObserverModes = {
-    bracketedPaste: false,
-    synchronizedOutput: false,
-  };
+  private modes: TerminalAttachModes = idleAttachModes();
   private seq = 0n;
   private writeQueue: Promise<void> = Promise.resolve();
   private disposed = false;
@@ -141,39 +142,39 @@ export class SessionObserver {
       }),
     );
     // CSI ? Pm h / l — DEC private modes (prefix `?`).
+    // Track paste/sync/alt-screen/mouse so plain-text attach can re-arm the
+    // renderer (hover/click die when mouse modes are lost after term.reset).
     this.disposables.push(
       this.term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) => {
-        if (this.paramsInclude(params, 2004)) {
-          this.modes = { ...this.modes, bracketedPaste: true };
-        }
-        if (this.paramsInclude(params, 2026)) {
-          this.modes = { ...this.modes, synchronizedOutput: true };
+        for (const mode of this.flatParams(params)) {
+          this.modes = applyDecPrivateMode(this.modes, mode, true);
         }
         return false; // let xterm also process
       }),
     );
     this.disposables.push(
       this.term.parser.registerCsiHandler({ prefix: "?", final: "l" }, (params) => {
-        if (this.paramsInclude(params, 2004)) {
-          this.modes = { ...this.modes, bracketedPaste: false };
-        }
-        if (this.paramsInclude(params, 2026)) {
-          this.modes = { ...this.modes, synchronizedOutput: false };
+        for (const mode of this.flatParams(params)) {
+          this.modes = applyDecPrivateMode(this.modes, mode, false);
         }
         return false;
       }),
     );
   }
 
-  private paramsInclude(
+  private flatParams(
     params: ReadonlyArray<number | number[]>,
-    mode: number,
-  ): boolean {
+  ): readonly number[] {
+    const out: number[] = [];
     for (const p of params) {
-      if (typeof p === "number" && p === mode) return true;
-      if (Array.isArray(p) && p.includes(mode)) return true;
+      if (typeof p === "number" && Number.isFinite(p)) out.push(p);
+      else if (Array.isArray(p)) {
+        for (const n of p) {
+          if (typeof n === "number" && Number.isFinite(n)) out.push(n);
+        }
+      }
     }
-    return false;
+    return out;
   }
 
   /** Feed PTY bytes. seq is the plane's journal sequence. */
@@ -212,7 +213,7 @@ export class SessionObserver {
   clearSignals(): void {
     this.title = "";
     this.osc9 = "";
-    this.modes = { bracketedPaste: false, synchronizedOutput: false };
+    this.modes = idleAttachModes();
   }
 
   subscribe(listener: ObserverListener): () => void {

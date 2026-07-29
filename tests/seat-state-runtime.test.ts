@@ -24,6 +24,8 @@ const snap = (
       modes: partial.signals?.modes ?? {
         bracketedPaste: true,
         synchronizedOutput: false,
+        altScreen: false,
+        mouseModes: [],
       },
     },
   };

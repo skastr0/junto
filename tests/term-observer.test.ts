@@ -88,7 +88,7 @@ describe("SessionObserver", () => {
     }
   });
 
-  it("tracks bracketed paste and synchronized output modes", async () => {
+  it("tracks bracketed paste, sync, alt-screen, and mouse modes", async () => {
     const obs = new SessionObserver({
       bindingId: "b1",
       epoch: "e1",
@@ -96,15 +96,43 @@ describe("SessionObserver", () => {
       rows: 24,
     });
     try {
-      await feedAndWait(obs, "\x1b[?2004h\x1b[?2026h");
+      await feedAndWait(
+        obs,
+        "\x1b[?2004h\x1b[?2026h\x1b[?1049h\x1b[?1000;1003;1006h",
+      );
       let snap = await obs.snapshot();
       expect(snap.signals.modes.bracketedPaste).toBe(true);
       expect(snap.signals.modes.synchronizedOutput).toBe(true);
+      expect(snap.signals.modes.altScreen).toBe(true);
+      expect(snap.signals.modes.mouseModes).toEqual([1000, 1003, 1006]);
 
-      await feedAndWait(obs, "\x1b[?2004l\x1b[?2026l", 2n);
+      await feedAndWait(
+        obs,
+        "\x1b[?2004l\x1b[?2026l\x1b[?1000;1003;1006l\x1b[?1049l",
+        2n,
+      );
       snap = await obs.snapshot();
       expect(snap.signals.modes.bracketedPaste).toBe(false);
       expect(snap.signals.modes.synchronizedOutput).toBe(false);
+      expect(snap.signals.modes.altScreen).toBe(false);
+      expect(snap.signals.modes.mouseModes).toEqual([]);
+    } finally {
+      obs.dispose();
+    }
+  });
+
+  it("attachScreen carries mode signals for renderer re-arm", async () => {
+    const obs = new SessionObserver({
+      bindingId: "b1",
+      epoch: "e1",
+      cols: 40,
+      rows: 10,
+    });
+    try {
+      await feedAndWait(obs, "\x1b[?1049h\x1b[?1000;1006hhello\r\n");
+      const screen = await obs.attachScreen();
+      expect(screen.signals.modes.altScreen).toBe(true);
+      expect(screen.signals.modes.mouseModes).toEqual([1000, 1006]);
     } finally {
       obs.dispose();
     }

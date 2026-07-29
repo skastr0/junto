@@ -34,7 +34,12 @@ const snap = (
     signals: partial.signals ?? {
       title: partial.title ?? "",
       osc9: partial.osc9 ?? "",
-      modes: { bracketedPaste: false, synchronizedOutput: false },
+      modes: {
+        bracketedPaste: false,
+        synchronizedOutput: false,
+        altScreen: false,
+        mouseModes: [],
+      },
     },
     seq: partial.seq ?? 1n,
     epoch: partial.epoch ?? "e1",

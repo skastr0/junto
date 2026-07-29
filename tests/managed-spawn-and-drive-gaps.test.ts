@@ -51,7 +51,12 @@ describe("isManagedTerminalReady", () => {
           signals: {
             title: "Hermes",
             osc9: "",
-            modes: { bracketedPaste: false, synchronizedOutput: false },
+            modes: {
+              bracketedPaste: false,
+              synchronizedOutput: false,
+              altScreen: false,
+              mouseModes: [],
+            },
           },
         },
       }),

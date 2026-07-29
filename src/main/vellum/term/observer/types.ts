@@ -16,6 +16,16 @@ export type ObserverModes = {
   readonly bracketedPaste: boolean;
   /** CSI ?2026 — synchronized output (repaint boundary). */
   readonly synchronizedOutput: boolean;
+  /**
+   * CSI ?1049/1047/47 — alternate screen. Plain-text attach must re-enter
+   * alt before painting lines or the TUI lands on the wrong buffer.
+   */
+  readonly altScreen: boolean;
+  /**
+   * Active mouse DEC private modes (1000/1002/1003/1006/…). Re-armed on the
+   * renderer after grid attach so hover/click reach CoreMouseService again.
+   */
+  readonly mouseModes: readonly number[];
 };
 
 export type ObserverSignals = {

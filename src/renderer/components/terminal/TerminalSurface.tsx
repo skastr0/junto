@@ -17,11 +17,31 @@ import {
 import { surfaceById } from "../../lib/surface-registry";
 import { getVellumApi } from "../../lib/vellum-api";
 import {
+  buildAttachRestoreEscapes,
+  idleAttachModes,
+  type TerminalAttachModes,
+} from "@shared/term-attach-modes";
+import {
   VELLUM_XTERM_FONT_FAMILY,
   VELLUM_XTERM_THEME,
 } from "../../lib/terminal-theme";
 import { ActivityMark } from "../ActivityMark";
 import { Button, OverlayHeader } from "../ui";
+
+const modesFromScreen = (
+  screen: AttachResult["screen"],
+): TerminalAttachModes => {
+  const m = screen?.signals?.modes;
+  if (!m) return idleAttachModes();
+  return {
+    bracketedPaste: m.bracketedPaste === true,
+    synchronizedOutput: m.synchronizedOutput === true,
+    altScreen: m.altScreen === true,
+    mouseModes: Array.isArray(m.mouseModes)
+      ? m.mouseModes.filter((n): n is number => typeof n === "number")
+      : [],
+  };
+};
 
 const KILL_ARM_MS = 3000;
 
@@ -39,6 +59,16 @@ type AttachResult = {
     readonly rows?: number;
     readonly seq?: bigint;
     readonly lines?: readonly string[];
+    readonly signals?: {
+      readonly title?: string;
+      readonly osc9?: string;
+      readonly modes?: {
+        readonly bracketedPaste?: boolean;
+        readonly synchronizedOutput?: boolean;
+        readonly altScreen?: boolean;
+        readonly mouseModes?: readonly number[];
+      };
+    };
   };
   readonly journal?: readonly {
     readonly type: string;
@@ -416,9 +446,16 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         // byte journal is a truncating ring and can cut mid-escape.
         const screenLines = result.screen?.lines;
         if (screenLines && screenLines.length > 0) {
+          // Plain-text rebuild loses DEC private modes. Re-arm alt-screen +
+          // mouse on the *renderer* only so CoreMouseService matches the live
+          // PTY app (which never re-sends modes it already enabled).
+          const restore = buildAttachRestoreEscapes(
+            modesFromScreen(result.screen),
+          );
           term.reset();
-          // Plain-text rebuild of retained scrollback + viewport.
+          if (restore.beforeContent) term.write(restore.beforeContent);
           term.write(screenLines.join("\r\n"));
+          if (restore.afterContent) term.write(restore.afterContent);
           if (result.screen?.seq !== undefined) lastSeq = result.screen.seq;
         } else {
           for (const item of result.journal ?? []) {

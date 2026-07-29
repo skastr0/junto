@@ -705,6 +705,9 @@ export class LocalSessionHost extends EventEmitter {
           rows: screen.rows,
           seq: screen.seq,
           lines: screen.lines,
+          // Mode flags for renderer re-arm after plain-text rebuild
+          // (mouse/alt-screen — without these hover/click die on attach).
+          signals: screen.signals,
         }
       : undefined;
     // When screen is present, do not ship the journal — forces clients onto
