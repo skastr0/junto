@@ -132,6 +132,34 @@ describe("notarization path capabilities", () => {
     expect(result.stderr).toContain("zip must be an existing non-symlink file");
   });
 
+  it("accepts hyphenated production artifactName zip (Vellum-Command-*-mac.zip)", () => {
+    // Source-level: both spaced PRODUCT_NAME and locked artifactName forms.
+    expect(source).toContain('"${PRODUCT_NAME}-"*-mac.zip');
+    expect(source).toContain('"Vellum-Command-"*-mac.zip');
+
+    const result = runNotarize((fixture) => {
+      const hyphenZip = join(fixture.root, "release", "Vellum-Command-0.1.0-arm64-mac.zip");
+      writeFileSync(hyphenZip, "fixture-hyphen\n");
+      return ["--app", fixture.app, "--zip", hyphenZip];
+    });
+    // Must pass the name check (not "zip must be a Vellum macOS release artifact").
+    // Full notarize may still fail later (codesign/asc mocks) — only name gate matters.
+    expect(result.stderr).not.toContain("zip must be a Vellum macOS release artifact");
+    if (result.status !== 0) {
+      expect(result.stderr).not.toMatch(/zip must be a Vellum macOS release artifact/);
+    }
+  });
+
+  it("refuses wrong zip basenames even as direct release children", () => {
+    const result = runNotarize((fixture) => {
+      const evil = join(fixture.root, "release", "evil-0.1.0-arm64-mac.zip");
+      writeFileSync(evil, "fixture\n");
+      return ["--app", fixture.app, "--zip", evil];
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("zip must be a Vellum macOS release artifact");
+  });
+
   it("applies the same release-root confinement to ambient source selectors", () => {
     const appOutside = runNotarize([], {
       VELLUM_APP_SRC: "/tmp/outside.app",

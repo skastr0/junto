@@ -6,7 +6,8 @@
 #   scripts/notarize-app.sh --skip-spctl   # skip Gatekeeper assess (CI edge cases)
 #
 # Prerequisites:
-#   - Packaged release: release/mac-*/Vellum.app + release/Vellum-*-mac.zip
+#   - Packaged release: release/mac-*/Vellum Command.app +
+#     release/Vellum-Command-*-mac.zip (or legacy Vellum Command-*-mac.zip)
 #     (from scripts/build-app.sh / bun run app:build)
 #   - `asc` authenticated (asc doctor) with Notary API access
 #   - Developer ID-signed app (already enforced by packaging)
@@ -130,7 +131,9 @@ assert_release_zip_capability() {
     return 1
   }
   base="$(basename "$path")"
-  [[ "$base" == "${PRODUCT_NAME}-"*-mac.zip ]] || {
+  # Accept both legacy spaced names (PRODUCT_NAME) and locked production
+  # artifactName (package.json / Cloudflare: Vellum-Command-*-mac.zip).
+  [[ "$base" == "${PRODUCT_NAME}-"*-mac.zip || "$base" == "Vellum-Command-"*-mac.zip ]] || {
     err "zip must be a Vellum macOS release artifact"
     return 1
   }
