@@ -25,9 +25,9 @@
 # Never installs to /Applications. Safe to re-run after a failed submit
 # (re-submits; Apple is idempotent on content hash when applicable).
 #
-# DMG is outside this script: electron-builder builds it before stapling, and
-# this step does not re-hash or re-blockmap the .dmg. Ship zip+yml for
-# electron-updater; treat the DMG as a separate installer artifact.
+# After staple, rebuild the human DMG via scripts/make-mac-dmg.sh so the
+# volume root is Vellum Command.app + Applications (not a nested mac-arm64
+# folder from electron-builder --prepackaged).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -544,6 +544,56 @@ if [[ "$UPDATER_YML_UPDATED" -eq 1 ]]; then
   STAGED_YML_ID="$(path_id "$STAGED_LATEST_MAC_YML")"
   mv -f "$STAGED_LATEST_MAC_YML" "$LATEST_MAC_YML"
   assert_same_identity "replaced latest-mac.yml" "$LATEST_MAC_YML" "$STAGED_YML_ID" || exit 1
+fi
+
+# Human-install DMG must contain the stapled app at the volume root.
+log "rebuilding install DMG from stapled app …"
+APP_VERSION="$(
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+    "$APP_PATH/Contents/Info.plist" 2>/dev/null || printf '0.0.0'
+)"
+DMG_PATH="$RELEASE_ROOT/Vellum-Command-${APP_VERSION}-arm64-mac.dmg"
+bash "$SCRIPT_DIR/make-mac-dmg.sh" \
+  --app "$APP_PATH" \
+  --out "$DMG_PATH" \
+  --volname "${PRODUCT_NAME} ${APP_VERSION}" || exit 1
+if [[ -f "$DMG_PATH" && -f "$LATEST_MAC_YML" ]]; then
+  # Bind dmg size/sha512 in latest-mac.yml (zip already bound by refresh helper).
+  python3 - "$LATEST_MAC_YML" "$DMG_PATH" <<'PY'
+import base64, hashlib, pathlib, sys
+yml_path = pathlib.Path(sys.argv[1])
+dmg = pathlib.Path(sys.argv[2])
+data = dmg.read_bytes()
+sha = base64.b64encode(hashlib.sha512(data).digest()).decode()
+size = len(data)
+name = dmg.name
+lines = yml_path.read_text(encoding="utf-8").splitlines()
+out = []
+i = 0
+while i < len(lines):
+    line = lines[i]
+    out.append(line)
+    if f"url: {name}" in line or line.strip().endswith(name):
+        i += 1
+        while i < len(lines) and (
+            lines[i].lstrip().startswith("sha512:")
+            or lines[i].lstrip().startswith("size:")
+            or lines[i].strip() == ""
+        ):
+            if lines[i].lstrip().startswith("sha512:"):
+                indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+                out.append(f"{indent}sha512: {sha}")
+            elif lines[i].lstrip().startswith("size:"):
+                indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+                out.append(f"{indent}size: {size}")
+            else:
+                out.append(lines[i])
+            i += 1
+        continue
+    i += 1
+yml_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+print(f"latest-mac.yml dmg bound: {name} size={size}")
+PY
 fi
 
 if [[ "$SKIP_SPCTL" -eq 0 ]]; then
