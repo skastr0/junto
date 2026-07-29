@@ -12,18 +12,32 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  isZipUpdateUrl,
-  safeArtifactName,
-  updateLatestMacYml,
-  zipUrlCandidates,
-} from "../scripts/refresh-mac-updater-metadata.mjs";
 
 const require = createRequire(import.meta.url);
 const yaml = require("js-yaml") as typeof import("js-yaml");
 
 const root = join(import.meta.dirname, "..");
 const helper = join(root, "scripts", "refresh-mac-updater-metadata.mjs");
+const {
+  isZipUpdateUrl,
+  safeArtifactName,
+  updateLatestMacYml,
+  zipUrlCandidates,
+} = require(helper) as {
+  readonly isZipUpdateUrl: (
+    url: string,
+    candidates: ReadonlySet<string>,
+  ) => boolean;
+  readonly safeArtifactName: (name: string) => string;
+  readonly updateLatestMacYml: (
+    ymlIn: string,
+    ymlOut: string,
+    zipPath: string,
+    size: number,
+    sha512: string,
+  ) => string[];
+  readonly zipUrlCandidates: (zipPath: string) => Set<string>;
+};
 const temporaryRoots: string[] = [];
 
 function temporaryRoot(): string {
