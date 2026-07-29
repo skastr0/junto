@@ -26,6 +26,7 @@ import {
   VELLUM_XTERM_FONT_FAMILY,
   VELLUM_XTERM_THEME,
 } from "../../lib/terminal-theme";
+import { shouldNotifyPtyResize } from "../../lib/terminal-resize";
 import { ActivityMark } from "../ActivityMark";
 import { Button, OverlayHeader } from "../ui";
 
@@ -99,12 +100,6 @@ const XTERM_PAD_Y = 12; // 6 + 6
 const RESIZE_DEBOUNCE_MS = 48;
 /** After open/attach, wait for focus-shell enter + stored size apply. */
 const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
-/**
- * After the settle burst, force a one-cell PTY nudge so TUI apps (Grok, etc.)
- * redraw when pin remount lands on a stable geom that would otherwise skip
- * terminalResize (lastGeom already matches).
- */
-const PTY_NUDGE_AFTER_SETTLE_MS = 650;
 
 type XtermCore = {
   readonly _renderService?: {
@@ -176,14 +171,13 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
    * Do not max with FitAddon — that blocked focus→pin shrink when Fit still
    * reported the larger focus canvas. Island defense is CSS (flex:1;height:0).
    *
-   * `forcePty`: always notify the PTY even when cols×rows match lastGeom
-   * (attach/journal remount needs SIGWINCH so TUIs redraw).
-   *
    * Always `term.refresh` after a successful measure — pin remount, tab
    * unpark (1×1 → real box with same cols×rows), and dock drag leave the
    * scrollable viewport desynced if we skip paint when geom is unchanged.
+   * That renderer-only repaint must never signal the child PTY unless its
+   * measured cols×rows genuinely changed.
    */
-  const pushResize = (opts?: { readonly forcePty?: boolean }): void => {
+  const pushResize = (): void => {
     const term = termRef.current;
     const host = hostRef.current;
     if (!term || !host) return;
@@ -211,61 +205,17 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       // ignore — older paint paths still usable
     }
 
-    const geomChanged =
-      lastGeom.current.cols !== cols || lastGeom.current.rows !== rows;
-    if (!geomChanged && !opts?.forcePty) {
-      setGeomLabel(`${cols}×${rows}`);
-      return;
-    }
-    lastGeom.current = { cols, rows };
     setGeomLabel(`${cols}×${rows}`);
 
     const lease = leaseRef.current;
     const api = apiRef.current;
-    if (lease && api) void api.terminalResize(lease, cols, rows);
-  };
+    if (!lease || !api) return;
 
-  /**
-   * Temporary ±1 row then restore — guarantees a PTY resize edge when pin
-   * settle lands on a stable geom (manual dock drag fixed the same way).
-   */
-  const forcePtyNudge = (): void => {
-    const term = termRef.current;
-    const host = hostRef.current;
-    const api = apiRef.current;
-    const lease = leaseRef.current;
-    if (!term || !host || !api || !lease) return;
+    const nextGeom = { cols, rows };
+    if (!shouldNotifyPtyResize(lastGeom.current, nextGeom)) return;
 
-    const measured = measureHost(host, term);
-    if (!measured) return;
-
-    const cols = Math.max(20, Math.min(300, measured.cols));
-    const rows = Math.max(5, Math.min(120, measured.rows));
-    const nudgedRows = Math.max(5, rows - 1);
-
-    try {
-      term.resize(cols, nudgedRows);
-    } catch {
-      return;
-    }
-    void api.terminalResize(lease, cols, nudgedRows);
-
-    requestAnimationFrame(() => {
-      if (termRef.current !== term || leaseRef.current !== lease) return;
-      try {
-        term.resize(cols, rows);
-      } catch {
-        return;
-      }
-      void api.terminalResize(lease, cols, rows);
-      lastGeom.current = { cols, rows };
-      setGeomLabel(`${cols}×${rows}`);
-      try {
-        term.refresh(0, Math.max(0, rows - 1));
-      } catch {
-        // ignore
-      }
-    });
+    lastGeom.current = nextGeom;
+    void api.terminalResize(lease, cols, rows);
   };
 
   useLayoutEffect(() => {
@@ -325,16 +275,16 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     let lastHostBox = { w: 0, h: 0 };
     /** Previous RO sample was parked/invisible (<40px). Unpark needs force fit. */
     let prevHostTiny = true;
-    const scheduleResize = (opts?: { readonly forcePty?: boolean }): void => {
+    const scheduleResize = (): void => {
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
-        pushResize(opts);
+        pushResize();
       }, RESIZE_DEBOUNCE_MS);
     };
-    const hardFitBurst = (opts?: { readonly forcePty?: boolean }): void => {
+    const hardFitBurst = (): void => {
       for (const ms of SETTLE_FITS_MS) {
-        settleTimers.push(setTimeout(() => pushResize(opts), ms));
+        settleTimers.push(setTimeout(() => pushResize(), ms));
       }
     };
 
@@ -361,10 +311,11 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         (Math.abs(w - lastHostBox.w) > 24 || Math.abs(h - lastHostBox.h) > 24);
       prevHostTiny = nowTiny;
       if (nowReal) lastHostBox = { w, h };
-      // Pin/dock reflow or unpark: force PTY + settle so scroll/viewport re-sync.
+      // Pin/dock reflow or unpark: settle the local viewport. pushResize only
+      // signals the child if the measured terminal geometry actually changed.
       if (grewBack || sizeJump) {
-        hardFitBurst({ forcePty: true });
-        scheduleResize({ forcePty: true });
+        hardFitBurst();
+        scheduleResize();
         return;
       }
       scheduleResize();
@@ -444,6 +395,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         }
         leaseRef.current = result.lease.leaseId;
         epochRef.current = result.lease.epoch;
+        lastGeom.current = {
+          cols: result.screen?.cols ?? result.cols ?? 0,
+          rows: result.screen?.rows ?? result.rows ?? 0,
+        };
         let lastSeq: bigint | undefined;
         // Prefer grid snapshot attach — correct after multi-hour sessions;
         // byte journal is a truncating ring and can cut mid-escape.
@@ -482,26 +437,20 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
         }
         pending.length = 0;
         setStatus("control");
-        // Journal replayed at prior focus size; force PTY on every settle tick
-        // so the shell learns the pinned box, then one ±1-row nudge after layout
-        // stabilizes (same effect as a manual dock drag).
+        // Journal replayed at prior focus size. Repaint through layout settle;
+        // only a real cols×rows transition is forwarded to the child PTY.
         requestAnimationFrame(() => {
           if (!alive) return;
-          pushResize({ forcePty: true });
+          pushResize();
           term.focus();
         });
         for (const ms of SETTLE_FITS_MS) {
           settleTimers.push(
             setTimeout(() => {
-              if (alive) pushResize({ forcePty: true });
+              if (alive) pushResize();
             }, ms),
           );
         }
-        settleTimers.push(
-          setTimeout(() => {
-            if (alive) forcePtyNudge();
-          }, PTY_NUDGE_AFTER_SETTLE_MS),
-        );
       })
       .catch((error: unknown) =>
         setStatus(error instanceof Error ? error.message : String(error)),
