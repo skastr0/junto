@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 
-import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 const GLB_MAGIC = 0x46546c67;
 const JSON_CHUNK = 0x4e4f534a;
@@ -136,15 +137,78 @@ const prepare = (json: Record<string, any>, binary: Buffer): Buffer => {
   return result;
 };
 
+const SIMPLIFY_RATIO = 0.25;
+
+const makeSpec = (inputPath: string, outputName: string) => ({
+  version: "v2",
+  meta: { name: `Prepare ${outputName}`, tags: ["fleet", "decimate"] },
+  inputs: [{ id: "source", source: "file", path_or_url: inputPath }],
+  steps: [
+    {
+      id: "pack",
+      uses: "gltf.pack.v1",
+      with: {
+        input_mesh: { from_input: "source" },
+        profile_ref: "profile.universal-runtime.glb.v1",
+        asset_category: "prop",
+        simplify_ratio: SIMPLIFY_RATIO,
+        meshopt: false,
+        output_name: `${outputName}-packed`,
+      },
+    },
+  ],
+  outputs: { mesh: { from_step: "pack", output: "mesh" } },
+});
+
+const runFlare = async (specPath: string): Promise<string> => {
+  const proc = Bun.spawn(["flare", "run", specPath, "--wait"], {
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  const output = await new Response(proc.stdout).json();
+  const exitCode = await proc.exited;
+  if (exitCode !== 0 || output.ok !== true) {
+    throw new Error(`flare run failed: ${JSON.stringify(output)}`);
+  }
+  const meshArtifact = output.data.artifacts.find(
+    (a: any) => a.metadata?.channel_name === "mesh",
+  );
+  if (!meshArtifact?.store_uri) {
+    throw new Error("flare run did not emit a mesh artifact");
+  }
+  return meshArtifact.store_uri as string;
+};
+
+const decimateWithFlare = async (inputPath: string, tmpDir: string): Promise<string> => {
+  const name = basename(inputPath, ".glb");
+  const specPath = resolve(tmpDir, `${name}.spec.json`);
+  await writeFile(specPath, JSON.stringify(makeSpec(resolve(inputPath), name)));
+  return runFlare(specPath);
+};
+
 const [inputPath, outputPath] = process.argv.slice(2);
 if (!inputPath || !outputPath) {
   console.error("usage: bun scripts/prepare-fleet-glb.ts <input.glb> <output.glb>");
   process.exit(1);
 }
 
-const source = Buffer.from(await Bun.file(inputPath).arrayBuffer());
+const tmpDir = await mkdtemp(join(tmpdir(), "fleet-prepare-"));
+let decimatedUri: string | undefined;
+try {
+  decimatedUri = await decimateWithFlare(inputPath, tmpDir);
+} finally {
+  if (decimatedUri === undefined) {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+const source = Buffer.from(await Bun.file(decimatedUri).arrayBuffer());
 const { json, binary } = parseGlb(source);
 const prepared = prepare(json, binary);
 await mkdir(dirname(outputPath), { recursive: true });
 await Bun.write(outputPath, prepared);
-console.log(`${inputPath} -> ${outputPath} (${source.length} -> ${prepared.length} bytes)`);
+
+// Clean up the temp flare spec and any temporary flare artifacts we can reach.
+await rm(tmpDir, { recursive: true, force: true });
+
+console.log(`${inputPath} -> ${outputPath} (${source.length} -> ${prepared.length} bytes, gltfpack + material strip)`);
