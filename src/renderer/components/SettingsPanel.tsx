@@ -27,6 +27,7 @@ import {
 } from "../lib/settings-state";
 import {
   checkForUpdates,
+  restartAndInstallUpdate,
   updateState$,
 } from "../lib/update-state";
 import {
@@ -43,11 +44,12 @@ import { LicenseSection } from "./license";
 import { Button, Select } from "./ui";
 import "./settings-panel.css";
 
-/** Settings sections: prefs sections + hosts (hosts is not a SettingsSectionKey). */
-type PanelSection = SettingsSectionKey | "hosts" | "license";
+/** Settings sections: prefs sections + non-prefs panels (hosts/license/updates). */
+type PanelSection = SettingsSectionKey | "hosts" | "license" | "updates";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "station", label: "Machine", blurb: "Command Center or Remote role" },
+  { key: "updates", label: "Updates", blurb: "check and install app updates" },
   { key: "appearance", label: "Appearance", blurb: "theme, density, motion" },
   { key: "canvas", label: "Canvas", blurb: "defaults for the portfolio field" },
   { key: "hosts", label: "Hosts", blurb: "fleet + network services" },
@@ -492,13 +494,12 @@ function AdvancedSection() {
           {loginItemError}
         </p>
       ) : null}
-      <UpdateCheckControls />
       <StateRecoveryControls />
     </div>
   );
 }
 
-function UpdateCheckControls() {
+function UpdatesSection() {
   const status = use$(updateState$.status);
   const busy = use$(updateState$.busy);
   const [localError, setLocalError] = useState<string | undefined>();
@@ -531,49 +532,73 @@ function UpdateCheckControls() {
       default:
         return status.lastCheckedAt
           ? `last checked ${status.lastCheckedAt.slice(0, 19).replace("T", " ")} UTC`
-          : "packaged Command Center only";
+          : `running ${status.currentVersion} — check for a newer release`;
     }
   })();
 
+  const showRestart =
+    status.phase === "ready" || status.phase === "installing";
+
   return (
-    <>
-      <FieldRow
-        label="Updates"
-        hint={summary}
-      >
-        <Button
-          variant="chrome"
-          size="sm"
-          disabled={busy || status.phase === "installing"}
-          aria-label="Check for updates"
-          onClick={() => {
-            setLocalError(undefined);
-            void checkForUpdates()
-              .then((next) => {
-                if (next?.phase === "error" && next.error) {
-                  setLocalError(next.error.message);
-                }
-              })
-              .catch((error: unknown) => {
-                setLocalError(
-                  error instanceof Error ? error.message : String(error),
-                );
-              });
-          }}
-        >
-          Check for updates
-        </Button>
-        {localError || (status.phase === "error" && status.error) ? (
-          <span className="settings-note" style={{ color: HUE.crimson }} role="status">
-            {localError ?? status.error?.message}
-          </span>
-        ) : null}
+    <div className="settings-section">
+      <FieldRow label="Application updates" hint={summary}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="chrome"
+            size="sm"
+            disabled={busy || status.phase === "installing"}
+            aria-label="Check for updates"
+            onClick={() => {
+              setLocalError(undefined);
+              void checkForUpdates()
+                .then((next) => {
+                  if (next?.phase === "error" && next.error) {
+                    setLocalError(next.error.message);
+                  }
+                })
+                .catch((error: unknown) => {
+                  setLocalError(
+                    error instanceof Error ? error.message : String(error),
+                  );
+                });
+            }}
+          >
+            Check for updates
+          </Button>
+          {showRestart ? (
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={busy && status.phase === "installing"}
+              aria-label="Restart and install update"
+              onClick={() => {
+                setLocalError(undefined);
+                void restartAndInstallUpdate().catch((error: unknown) => {
+                  setLocalError(
+                    error instanceof Error ? error.message : String(error),
+                  );
+                });
+              }}
+            >
+              {status.phase === "installing"
+                ? "Installing…"
+                : status.available
+                  ? `Restart to install ${status.available.version}`
+                  : "Restart to install"}
+            </Button>
+          ) : null}
+        </div>
       </FieldRow>
+      {localError || (status.phase === "error" && status.error) ? (
+        <p className="settings-note" style={{ color: HUE.crimson }} role="status">
+          {localError ?? status.error?.message}
+        </p>
+      ) : null}
       <p className="settings-note">
-        Vellum contacts its release server to check for application updates.
-        No persistent updater identity or update telemetry is sent.
+        Packaged installs contact the Vellum release server. Dev builds cannot
+        self-update. No update telemetry is sent.
       </p>
-    </>
+    </div>
   );
 }
 
@@ -1510,6 +1535,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
   switch (section) {
     case "station":
       return <StationSection />;
+    case "updates":
+      return <UpdatesSection />;
     case "appearance":
       return <AppearanceSection />;
     case "canvas":
@@ -1575,7 +1602,7 @@ export function SettingsPanel() {
             </div>
           </div>
           <div className="settings-panel__header-actions">
-            {section !== "hosts" && section !== "license" ? (
+            {section !== "hosts" && section !== "license" && section !== "updates" ? (
               <button
                 type="button"
                 className="settings-panel__ghost"
