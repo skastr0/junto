@@ -27,7 +27,6 @@ import { specOf } from "../lib/node-spec";
 import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeView, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
-import { armRegion, kernel$, pulseRegion } from "../lib/kernel-view";
 import { resolveNodeHostId } from "@shared/station";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
@@ -329,15 +328,11 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const groupLabelValue = node.type === "group" ? node.label ?? "" : "";
   const fileValue = node.type === "file" ? node.file : "";
   const subpathValue = node.type === "file" ? node.subpath ?? "" : "";
-  const backgroundValue = node.type === "group" ? node.background ?? "" : "";
-  const backgroundStyleValue = node.type === "group" ? node.backgroundStyle ?? "cover" : "cover";
   const [textDraft, setTextDraft] = useState(textValue);
   const [linkDraft, setLinkDraft] = useState(linkValue);
   const [groupLabelDraft, setGroupLabelDraft] = useState(groupLabelValue);
   const [fileDraft, setFileDraft] = useState(fileValue);
   const [subpathDraft, setSubpathDraft] = useState(subpathValue);
-  const [backgroundDraft, setBackgroundDraft] = useState(backgroundValue);
-  const [backgroundStyleDraft, setBackgroundStyleDraft] = useState<"cover" | "ratio" | "repeat">(backgroundStyleValue);
   const workRoleValue = node.ether?.workRole ?? "";
   const [workRoleDraft, setWorkRoleDraft] = useState(workRoleValue);
   const showWorkRole = Boolean(node.ether?.entity);
@@ -349,16 +344,13 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     setGroupLabelDraft(groupLabelValue);
     setFileDraft(fileValue);
     setSubpathDraft(subpathValue);
-    setBackgroundDraft(backgroundValue);
-    setBackgroundStyleDraft(backgroundStyleValue);
     setWorkRoleDraft(workRoleValue);
-  }, [backgroundStyleValue, backgroundValue, fileValue, groupLabelValue, linkValue, node.id, subpathValue, textValue, workRoleValue]);
+  }, [fileValue, groupLabelValue, linkValue, node.id, subpathValue, textValue, workRoleValue]);
 
   const commitText = () => { if (node.type === "text" && textDraft !== textValue) editText(node.id, textDraft); };
   const commitLink = () => { if (node.type === "link" && linkDraft.trim() && linkDraft.trim() !== linkValue) editLink(node.id, linkDraft.trim()); };
   const commitGroupLabel = () => { if (node.type === "group" && groupLabelDraft !== groupLabelValue) renameGroup(node.id, groupLabelDraft.trim()); };
   const commitFile = () => { if (node.type === "file") editFileDetails(node.id, fileDraft, subpathDraft); };
-  const commitBackground = (background = backgroundDraft, style = backgroundStyleDraft) => { if (node.type === "group") editGroupBackground(node.id, background, style); };
 
   return <>
     {showWorkRole ? (
@@ -436,11 +428,76 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
       : null}
     {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
     {node.type === "file" ? <div className="inspector-section"><div className="inspector-section__label">file reference</div><div className="inspector-file-fields"><label><span>path</span><input aria-label="File path" value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setFileDraft(fileValue); event.currentTarget.blur(); } }} /></label><label><span>subpath</span><input aria-label="File subpath" value={subpathDraft} placeholder="#section or block" onChange={(event) => setSubpathDraft(event.target.value)} onBlur={commitFile} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitFile(); event.currentTarget.blur(); } if (event.key === "Escape") { setSubpathDraft(subpathValue); event.currentTarget.blur(); } }} /></label></div></div> : null}
-    {node.type === "group" ? <div className="inspector-section"><div className="inspector-section__label">background</div><div className="inspector-background"><input aria-label="Region background source" value={backgroundDraft} placeholder="image URL or file path" onChange={(event) => setBackgroundDraft(event.target.value)} onBlur={() => commitBackground()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitBackground(); event.currentTarget.blur(); } if (event.key === "Escape") { setBackgroundDraft(backgroundValue); event.currentTarget.blur(); } }} /><label><span>fit</span><Select dense aria-label="Region background fit" value={backgroundStyleDraft} options={[{ value: "cover", label: "cover" }, { value: "ratio", label: "contain" }, { value: "repeat", label: "repeat" }]} onChange={(value) => { const style = value as "cover" | "ratio" | "repeat"; setBackgroundStyleDraft(style); commitBackground(backgroundDraft, style); }} /></label></div></div> : null}
+    {/* Region dense fields: preferred entry is individual kind-strip keys
+        (briefing / defaults / background / paths). Keep these for the legacy
+        full form path and any non-RTS openers. */}
+    {node.type === "group" ? <RegionBackgroundEditor node={node} /> : null}
     {node.type === "group" ? <RegionHoldControl node={node} /> : null}
     {node.type === "group" ? <RegionDefaultsControl node={node} /> : null}
     <KernelFieldEditors node={node} />
   </>;
+}
+
+/** Region background URL + fit — focused form body for the kind-strip key. */
+export function RegionBackgroundEditor({ node }: { readonly node: CanvasNode }) {
+  if (node.type !== "group") return null;
+  const backgroundValue = node.background ?? "";
+  const backgroundStyleValue = node.backgroundStyle ?? "cover";
+  const [backgroundDraft, setBackgroundDraft] = useState(backgroundValue);
+  const [backgroundStyleDraft, setBackgroundStyleDraft] = useState<"cover" | "ratio" | "repeat">(backgroundStyleValue);
+
+  useEffect(() => {
+    setBackgroundDraft(backgroundValue);
+    setBackgroundStyleDraft(backgroundStyleValue);
+  }, [node.id, backgroundValue, backgroundStyleValue]);
+
+  const commitBackground = (background = backgroundDraft, style = backgroundStyleDraft) => {
+    editGroupBackground(node.id, background, style);
+  };
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">background</div>
+      <div className="inspector-background">
+        <input
+          aria-label="Region background source"
+          value={backgroundDraft}
+          placeholder="image URL or file path"
+          onChange={(event) => setBackgroundDraft(event.target.value)}
+          onBlur={() => commitBackground()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitBackground();
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              setBackgroundDraft(backgroundValue);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <label>
+          <span>fit</span>
+          <Select
+            dense
+            aria-label="Region background fit"
+            value={backgroundStyleDraft}
+            options={[
+              { value: "cover", label: "cover" },
+              { value: "ratio", label: "contain" },
+              { value: "repeat", label: "repeat" },
+            ]}
+            onChange={(value) => {
+              const style = value as "cover" | "ratio" | "repeat";
+              setBackgroundStyleDraft(style);
+              commitBackground(backgroundDraft, style);
+            }}
+          />
+        </label>
+      </div>
+    </div>
+  );
 }
 
 function TaskQueueHomeControl({ node }: { readonly node: CanvasNode }) {
@@ -688,7 +745,8 @@ export function EdgeCriteriaEditor({
 // Region hold (group nodes only): a structural container whose contents
 // travel with it when dragged. Membership is derived from geometry at drag
 // time — this toggle only ever writes the boolean flag, never a member list.
-function RegionHoldControl({ node }: { readonly node: CanvasNode }) {
+// Prefer the command-bar Hold key; this control remains for form surfaces.
+export function RegionHoldControl({ node }: { readonly node: CanvasNode }) {
   const hold = Boolean(node.ether?.region?.hold);
   return <div className="inspector-section">
     <div className="inspector-section__label">region</div>
@@ -707,7 +765,8 @@ function RegionHoldControl({ node }: { readonly node: CanvasNode }) {
 
 // Create-time stamp source for herdr/page nodes placed inside this region.
 // Not live rebind — node ether wins after create. Clear empties the bag.
-function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
+// Kind-strip "defaults" key opens this alone — not the kitchen-sink inspector.
+export function RegionDefaultsControl({ node }: { readonly node: CanvasNode }) {
   const stored = node.ether?.region?.defaults;
   const [host, setHost] = useState(stored?.herdr?.host ?? "");
   const [session, setSession] = useState(
@@ -858,71 +917,52 @@ const commitRegionInstruction = (node: CanvasNode, instruction: string): void =>
   });
 };
 
-// Region pulse surface: the briefing every agent inside receives, the ARM
-// switch (app-state only — armRegion never touches the document), and manual
-// pulse/dry-pulse triggers. Arming is deliberately never silent: the caution
-// line says exactly what flipping it costs.
-function RegionPulseControl({ node }: { readonly node: CanvasNode }) {
+/**
+ * Pulse briefing only — arm / pulse / dry-pulse live on the command card.
+ * Kind-strip "briefing" key opens this alone.
+ */
+export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
   const instructionValue = node.ether?.region?.instruction ?? "";
   const [instructionDraft, setInstructionDraft] = useState(instructionValue);
-  const armed = Boolean(use$(kernel$.armed[node.id]));
-  const [pulseError, setPulseError] = useState("");
-  const [armError, setArmError] = useState("");
 
-  useEffect(() => { setInstructionDraft(instructionValue); setArmError(""); }, [node.id, instructionValue]);
+  useEffect(() => {
+    setInstructionDraft(instructionValue);
+  }, [node.id, instructionValue]);
 
   const commitInstruction = () => {
     if (instructionDraft === instructionValue) return;
     commitRegionInstruction(node, instructionDraft);
   };
 
-  // Arming is transactional in main (store write before the memory flip); a
-  // failed persist returns { ok:false } instead of throwing, so the toggle
-  // never lies about a change that did not stick. Surface it quietly inline.
-  const toggleArm = () => {
-    setArmError("");
-    void armRegion(node.id, !armed)
-      .then((result) => { if (!result.ok) setArmError(result.error ?? "arming did not save"); })
-      .catch((error: unknown) => setArmError(error instanceof Error ? error.message : String(error)));
-  };
-
-  const runPulse = (dry: boolean) => {
-    setPulseError("");
-    void pulseRegion(node.id, { dry }).catch((error: unknown) => setPulseError(error instanceof Error ? error.message : String(error)));
-  };
-
-  return <div className="inspector-section">
-    <div className="inspector-section__label">pulse briefing</div>
-    <label className="inspector-editor">
-      <span>every agent inside receives this</span>
-      <textarea
-        aria-label="Region pulse briefing"
-        placeholder="what should agents inside this region do when it pulses?"
-        value={instructionDraft}
-        onChange={(event) => setInstructionDraft(event.target.value)}
-        onBlur={commitInstruction}
-        onKeyDown={(event) => { if (event.key === "Escape") { setInstructionDraft(instructionValue); event.currentTarget.blur(); } }}
-      />
-    </label>
-    <div className="inspector-flags mt-2">
-      <button
-        type="button"
-        className="inspector-flag-toggle"
-        aria-label="Arm region"
-        aria-pressed={armed}
-        style={{ color: armed ? HUE.amber : "#68604a", borderColor: armed ? withAlpha(HUE.amber, 0.5) : "rgba(237,230,218,.12)", background: armed ? withAlpha(HUE.amber, 0.1) : "rgba(255,255,255,.02)" }}
-        onClick={toggleArm}
-      >{armed ? "armed" : "disarmed"}</button>
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">pulse briefing</div>
+      <label className="inspector-editor">
+        <span>every agent inside receives this</span>
+        <textarea
+          aria-label="Region pulse briefing"
+          placeholder="what should agents inside this region do when it pulses?"
+          value={instructionDraft}
+          onChange={(event) => setInstructionDraft(event.target.value)}
+          onBlur={commitInstruction}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setInstructionDraft(instructionValue);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      </label>
+      <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.6) }}>
+        arm + pulse keys live on the command card · armed pulses spend real agent turns
+      </div>
     </div>
-    {armError
-      ? <button type="button" aria-label="Dismiss arming error" title="dismiss" onClick={() => setArmError("")} className="mt-1 block w-full cursor-pointer text-left text-[9px] uppercase tracking-[0.14em]" style={{ color: withAlpha(HUE.crimson, 0.85) }}>{armError}</button>
-      : <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.6) }}>armed pulses spend real agent turns</div>}
-    <div className="mt-2 flex gap-2">
-      <button type="button" className="inspector-flag-toggle" onClick={() => runPulse(false)}>pulse now</button>
-      <button type="button" className="inspector-flag-toggle" onClick={() => runPulse(true)}>dry pulse</button>
-    </div>
-    {pulseError ? <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.8) }}>{pulseError}</div> : null}
-  </div>;
+  );
+}
+
+// Legacy full-form path: briefing only (ops moved to command keys).
+function RegionPulseControl({ node }: { readonly node: CanvasNode }) {
+  return <RegionBriefingEditor node={node} />;
 }
 
 const WATCH_KIND_OPTIONS: ReadonlyArray<{ readonly value: EtherWatch["kind"]; readonly label: string }> = [

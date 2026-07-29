@@ -548,9 +548,11 @@ export function KindStrip() {
   }
 
   if (node.type === "group") {
+    // KindSurface owns the region field strip; this legacy KindStrip path
+    // only surfaces when KindSurface is not mounted.
     return (
       <div className="rts-quiet rts-quiet--compact">
-        Region · arm · pulse · rollcall live on the left
+        Region · command card has ops · kind surface has fields
       </div>
     );
   }

@@ -61,6 +61,8 @@ describe("primaryCommandActions", () => {
     expect(primaryCommandActions("region")).toEqual([
       "arm-region",
       "pulse-region",
+      "dry-pulse-region",
+      "hold-region",
       "slot-cue",
     ]);
     expect(primaryCommandActions("link")).toEqual(["open-link"]);

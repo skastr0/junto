@@ -18,6 +18,8 @@ export type PrimaryCommandAction =
   | "kill-pane"
   | "arm-region"
   | "pulse-region"
+  | "dry-pulse-region"
+  | "hold-region"
   | "slot-cue"
   | "open-link";
 
@@ -57,7 +59,9 @@ export function primaryCommandActions(
       return out;
     }
     case "region":
-      return ["arm-region", "pulse-region", "slot-cue"];
+      // Ops only — dense field editors (briefing/defaults/background/paths)
+      // live as individual kind-strip keys, not this card.
+      return ["arm-region", "pulse-region", "dry-pulse-region", "hold-region", "slot-cue"];
     case "link":
       return ["open-link"];
     case "default":

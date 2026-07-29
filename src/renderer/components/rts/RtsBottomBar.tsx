@@ -16,9 +16,12 @@ import {
   Crosshair,
   ExternalLink,
   Eye,
+  FlaskConical,
   HardHat,
   Hash,
   Link2,
+  Lock,
+  LockOpen,
   PauseCircle,
   Pencil,
   Shield,
@@ -38,7 +41,15 @@ import {
   type RegionRetapMemory,
 } from "../../lib/region-retap";
 import { signalMark, signalMarkForMember } from "../../lib/signal-mark";
-import { deleteNode, deleteNodes, setNodeColor, toggleFlag, setFlagForNodes, addNode } from "../../lib/mutations";
+import {
+  deleteNode,
+  deleteNodes,
+  setNodeColor,
+  toggleFlag,
+  setFlagForNodes,
+  addNode,
+  setRegionHold,
+} from "../../lib/mutations";
 import { makeGroupNode } from "../../lib/node-factories";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { herdr$ } from "../../lib/herdr-state";
@@ -232,6 +243,7 @@ function RegionCommandCard({
   const visible = members.slice(0, ROLLCALL_VISIBLE);
   const extra = members.length - visible.length;
   const armed = Boolean(use$(kernel$.armed[node.id]));
+  const hold = Boolean(node.ether?.region?.hold);
   const slotOrder = use$(state$.regionSlotOrder);
   const slot = slotIndexOf(slotOrder, node.id);
   const [armBusy, setArmBusy] = useState(false);
@@ -246,8 +258,8 @@ function RegionCommandCard({
       .finally(() => setArmBusy(false));
   };
 
-  const runPulse = () => {
-    void pulseRegion(node.id).catch(() => undefined);
+  const runPulse = (dry = false) => {
+    void pulseRegion(node.id, dry ? { dry: true } : undefined).catch(() => undefined);
   };
 
   const assignToFirstFree = () => {
@@ -288,8 +300,32 @@ function RegionCommandCard({
         );
       case "pulse-region":
         return (
-          <CmdKey key={action} label="Pulse region" title="pulse now" onClick={runPulse}>
+          <CmdKey key={action} label="Pulse region" title="pulse now · spends turns when armed" onClick={() => runPulse(false)}>
             <Zap size={ICON} />
+          </CmdKey>
+        );
+      case "dry-pulse-region":
+        return (
+          <CmdKey
+            key={action}
+            label="Dry pulse"
+            title="dry pulse · briefing only, no agent turns"
+            onClick={() => runPulse(true)}
+          >
+            <FlaskConical size={ICON} />
+          </CmdKey>
+        );
+      case "hold-region":
+        return (
+          <CmdKey
+            key={action}
+            label={hold ? "Release hold" : "Hold contents"}
+            title={hold ? "holding contents — drag moves members" : "hold contents when dragging"}
+            active={hold}
+            style={hold ? { color: HUE.amber } : undefined}
+            onClick={() => setRegionHold(node.id, !hold)}
+          >
+            {hold ? <Lock size={ICON} /> : <LockOpen size={ICON} />}
           </CmdKey>
         );
       case "slot-cue":
@@ -332,9 +368,14 @@ function RegionCommandCard({
   if (armed) {
     metaBits.push(<span key="armed" style={{ color: HUE.amber }}> · armed</span>);
   }
+  if (hold) {
+    metaBits.push(<span key="hold" style={{ color: HUE.amber }}> · hold</span>);
+  }
   // Slot lives on the Hash key only — meta used to print `1 · #1` which
   // looked like a duplicated index.
 
+  // Keys: pause + 5 primary + rename + delete = 8 → 2×4 grid (fits 120px panel).
+  // Focus is free via the region hotbar chip; field forms live on the kind strip.
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__label">
@@ -382,9 +423,6 @@ function RegionCommandCard({
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Region actions">
           <PauseScopeKey scope={{ kind: "region", id: node.id }} />
           {primary.map(primaryKey)}
-          <CmdKey label="Focus region" onClick={() => state$.focusNodeId.set(node.id)}>
-            <Crosshair size={ICON} />
-          </CmdKey>
           <CmdKey label="Edit region name" onClick={() => state$.editNodeId.set(node.id)}>
             <Pencil size={ICON} />
           </CmdKey>

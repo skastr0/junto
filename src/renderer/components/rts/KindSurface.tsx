@@ -4,10 +4,23 @@
  * Identity + live glance + kind action keys live here. Dense node/edge field
  * editors open in a FocusSurface form (not a sidebar). Reuses pristine
  * InspectorFields editors as-is; this file is glue only.
+ *
+ * Regions: ops (arm/pulse/hold/slot) live on the command card. This strip is
+ * individual field keys — briefing, defaults, paths, background, placement —
+ * each opening a small form, not the kitchen-sink inspector modal.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
-import { RefreshCw, Settings2, X } from "lucide-react";
+import {
+  FolderOpen,
+  Image,
+  MapPin,
+  Package,
+  RefreshCw,
+  ScrollText,
+  Settings2,
+  X,
+} from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import { state$ } from "../../lib/state";
@@ -22,6 +35,7 @@ import { OverlayHeader, IconButton } from "../ui";
 import { HarnessMark } from "../herdr/HarnessMark";
 import { WaitingOnSection } from "../WaitingOnSection";
 import { NoteMarkdown } from "../../lib/note-markdown";
+import { RegionPathsModal } from "../RegionPathsModal";
 import {
   EdgeCapabilitySection,
   EdgeCriteriaEditor,
@@ -29,6 +43,9 @@ import {
   NodeCapabilityInventory,
   NodeFieldEditors,
   NodePlacementSection,
+  RegionBackgroundEditor,
+  RegionBriefingEditor,
+  RegionDefaultsControl,
 } from "../InspectorFields";
 import {
   deleteEdges,
@@ -40,6 +57,8 @@ import { KindActions, EdgePairStrip, KindKey } from "./RtsControls";
 import "./rts-controls.css";
 
 const ICON = 12;
+
+type RegionFormKey = "briefing" | "defaults" | "background" | "placement";
 
 function AgentIdentityRow({ node }: { readonly node: CanvasNode }) {
   const entity = node.ether?.entity;
@@ -307,6 +326,175 @@ function PlacementGlance({ node }: { readonly node: CanvasNode }) {
   );
 }
 
+function RegionFieldFocus({
+  node,
+  form,
+  onClose,
+}: {
+  readonly node: CanvasNode;
+  readonly form: RegionFormKey;
+  readonly onClose: () => void;
+}) {
+  const copy: Record<RegionFormKey, { readonly title: string; readonly status: string; readonly body: ReactNode }> = {
+    briefing: {
+      title: "pulse briefing",
+      status: "agents inside receive this on pulse",
+      body: <RegionBriefingEditor node={node} />,
+    },
+    defaults: {
+      title: "spawn defaults",
+      status: "stamped onto new herdr / page nodes",
+      body: <RegionDefaultsControl node={node} />,
+    },
+    background: {
+      title: "background",
+      status: "image + fit for the region plate",
+      body: <RegionBackgroundEditor node={node} />,
+    },
+    placement: {
+      title: "placement",
+      status: "command center vs local host home",
+      body: <NodePlacementSection node={node} />,
+    },
+  };
+  const panel = copy[form];
+  return (
+    <FocusSurface
+      measure="form"
+      height="fit"
+      layer="detail"
+      label={`Region ${panel.title}`}
+      onClose={onClose}
+      closeOnEscape
+      closeOnBackdrop
+      panelClassName="rts-kind-form-panel nowheel"
+    >
+      <OverlayHeader
+        eyebrow="region"
+        title={panel.title}
+        status={panel.status}
+        actions={
+          <IconButton aria-label="Close fields" title="Close fields" onClick={onClose}>
+            <X size={14} />
+          </IconButton>
+        }
+      />
+      <div className="rts-kind-form-body inspector-body">{panel.body}</div>
+    </FocusSurface>
+  );
+}
+
+/**
+ * Region kind strip — individual field keys instead of one mega inspector.
+ * Ops (arm/pulse/hold/slot) are on the left command card.
+ */
+function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
+  const [form, setForm] = useState<RegionFormKey | null>(null);
+  const [pathsOpen, setPathsOpen] = useState(false);
+  const armed = Boolean(use$(kernel$.armed[node.id]));
+  const hold = Boolean(node.ether?.region?.hold);
+  const instruction = Boolean(node.ether?.region?.instruction?.trim());
+  const defaults = node.ether?.region?.defaults;
+  const hasDefaults = Boolean(
+    defaults?.herdr?.host ||
+      defaults?.page?.url ||
+      defaults?.page?.profile ||
+      defaults?.page?.host,
+  );
+  const pathMap = defaults?.paths;
+  const hasPaths = Boolean(
+    pathMap && Object.values(pathMap).some((p) => typeof p === "string" && p.trim().length > 0),
+  );
+  const hasBackground = Boolean(node.type === "group" && node.background);
+
+  useEffect(() => {
+    setForm(null);
+    setPathsOpen(false);
+  }, [node.id]);
+
+  const toggleForm = (key: RegionFormKey) => {
+    setPathsOpen(false);
+    setForm((current) => (current === key ? null : key));
+  };
+
+  const glanceBits: string[] = [];
+  if (armed) glanceBits.push("armed");
+  if (hold) glanceBits.push("hold");
+  if (instruction) glanceBits.push("briefing");
+  if (hasDefaults) glanceBits.push("defaults");
+  if (hasPaths) glanceBits.push("paths");
+  if (hasBackground) glanceBits.push("bg");
+
+  return (
+    <div className="rts-kind-surface">
+      <div className="rts-kind-id rts-kind-id--compact">
+        <div className="rts-kind-id__text">
+          <div className="rts-kind-id__name">{nodeTitle(node)}</div>
+          <div className="rts-kind-id__live">
+            {glanceBits.length > 0 ? glanceBits.join(" · ") : "region fields"}
+          </div>
+        </div>
+      </div>
+
+      <PlacementGlance node={node} />
+
+      <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
+        <span className="rts-kind-strip__label">region</span>
+        <KindKey
+          label={form === "briefing" ? "Close briefing" : "Pulse briefing"}
+          title="pulse briefing · text agents receive"
+          active={form === "briefing" || instruction}
+          style={form === "briefing" || instruction ? { color: HUE.amber } : undefined}
+          onClick={() => toggleForm("briefing")}
+        >
+          <ScrollText size={ICON} />
+        </KindKey>
+        <KindKey
+          label={form === "defaults" ? "Close defaults" : "Spawn defaults"}
+          title="herdr / page stamp for new nodes in this region"
+          active={form === "defaults" || hasDefaults}
+          style={form === "defaults" || hasDefaults ? { color: HUE.cyan } : undefined}
+          onClick={() => toggleForm("defaults")}
+        >
+          <Package size={ICON} />
+        </KindKey>
+        <KindKey
+          label={pathsOpen ? "Close folder paths" : "Folder paths"}
+          title="host folder paths · stamped onto actors"
+          active={pathsOpen || hasPaths}
+          style={pathsOpen || hasPaths ? { color: HUE.amber } : undefined}
+          onClick={() => {
+            setForm(null);
+            setPathsOpen((open) => !open);
+          }}
+        >
+          <FolderOpen size={ICON} />
+        </KindKey>
+        <KindKey
+          label={form === "background" ? "Close background" : "Background"}
+          title="region plate image + fit"
+          active={form === "background" || hasBackground}
+          style={form === "background" || hasBackground ? { color: HUE.violet } : undefined}
+          onClick={() => toggleForm("background")}
+        >
+          <Image size={ICON} />
+        </KindKey>
+        <KindKey
+          label={form === "placement" ? "Close placement" : "Placement"}
+          title="command center vs local host home"
+          active={form === "placement"}
+          onClick={() => toggleForm("placement")}
+        >
+          <MapPin size={ICON} />
+        </KindKey>
+      </div>
+
+      {form ? <RegionFieldFocus node={node} form={form} onClose={() => setForm(null)} /> : null}
+      {pathsOpen ? <RegionPathsModal nodeId={node.id} onClose={() => setPathsOpen(false)} /> : null}
+    </div>
+  );
+}
+
 /**
  * Full kind middle surface: glance + actions + Fields focus form.
  */
@@ -362,24 +550,7 @@ export function KindSurface() {
   }
 
   if (node.type === "group") {
-    return (
-      <div className="rts-kind-surface">
-        <div className="rts-quiet rts-quiet--compact">
-          Region · arm · pulse · rollcall live on the left
-        </div>
-        <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
-          <KindKey
-            label={formOpen ? "Close fields" : "Open fields"}
-            title="spawn defaults · pulse briefing · label"
-            active={formOpen}
-            onClick={() => setFormOpen((open) => !open)}
-          >
-            <Settings2 size={ICON} />
-          </KindKey>
-        </div>
-        {formOpen ? <NodeFormFocus node={node} onClose={() => setFormOpen(false)} /> : null}
-      </div>
-    );
+    return <RegionKindSurface node={node} />;
   }
 
   const kind = node.ether?.entity?.kind;
