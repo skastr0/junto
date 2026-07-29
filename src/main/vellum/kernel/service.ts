@@ -468,6 +468,25 @@ export const managedTaskDeliveryId = (
     )
     .digest("hex")}`;
 
+/** Stable receipt for the session compaction that precedes one task prompt. */
+export const managedTaskCompactionDeliveryId = (
+  sink: SinkRef,
+  taskId: string,
+  actorSeatId: ActorSeatId,
+): string =>
+  `delivery_${createHash("sha256")
+    .update(
+      JSON.stringify([
+        "vellum/managed-task-compaction/v1",
+        sink.canvasName,
+        sink.nodeId,
+        taskId,
+        actorSeatId,
+      ]),
+      "utf8",
+    )
+    .digest("hex")}`;
+
 const makeKernelService = (
   canvases: CanvasesShape,
   snapshots: SnapshotsShape,
@@ -873,6 +892,11 @@ const makeKernelService = (
           const surface = actorDeliverySurfaceOf(actor);
           if (surface?._tag !== "managedAgent") continue;
           const sinkRef = { canvasName, nodeId: sink.id } satisfies SinkRef;
+          const compactionDeliveryId = managedTaskCompactionDeliveryId(
+            sinkRef,
+            task.id,
+            actorSeatId,
+          );
           const deliveryId = managedTaskDeliveryId(
             sinkRef,
             task.id,
@@ -887,6 +911,52 @@ const makeKernelService = (
           }
           if (!generationIsActive(generation)) return;
           ensureManagedSeatRunning(canvasName, doc, actor, authority);
+          if (
+            !await Effect.runPromise(
+              workRepository.hasAcceptedDelivery(
+                sinkRef,
+                compactionDeliveryId,
+              ),
+            )
+          ) {
+            // A task boundary gets its own harness turn. Never concatenate
+            // `/compact` with the claim brief: slash commands are interpreted
+            // only as standalone prompts, and the seat must become idle again
+            // before the next durable delivery is admitted.
+            const compacted = await managedPulseDeliver(
+              surface.bindingId,
+              "/compact",
+            );
+            if (!compacted) continue;
+            const intentWitness = await Effect.runPromise(
+              canvases.activeIntentWitness(),
+            );
+            const basis = Schema.decodeUnknownSync(IntentFactBasis)({
+              kind:
+                scope.role === "command-center"
+                  ? "authorial-intent"
+                  : "projected-intent",
+              generation: intentWitness.generation,
+              contentSha256: intentWitness.contentSha256,
+            });
+            await Effect.runPromise(
+              workRepository.acceptDelivery({
+                sink: sinkRef,
+                basis,
+                receipt: {
+                  deliveryId: compactionDeliveryId,
+                  deliveredItem: {
+                    kind: "task",
+                    itemId: task.id,
+                    sink: sinkRef,
+                  },
+                  actor: actorRef,
+                  acceptedAt: new Date().toISOString(),
+                },
+              }),
+            );
+            continue;
+          }
           // Final prompt-send admission. If suspension occurs while the
           // transport is accepting this already-admitted prompt, its receipt
           // is still allowed to settle below.
