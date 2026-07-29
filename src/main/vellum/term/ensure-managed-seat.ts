@@ -10,6 +10,7 @@ import type { ActorRef } from "@shared/work-protocol";
 import { deriveActorSeatId } from "../station/actor-seat-compiler";
 import { launchForManagedSpawn } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
+import { seatStateRuntime } from "./agent-state";
 
 export type ManagedSeatRuntimeAuthority = {
   readonly actor: ActorRef;
@@ -66,6 +67,21 @@ export const isManagedSeatRuntimeLocal = (
   return (
     deriveActorSeatId(authority.installationId, surface.bindingId) ===
     authority.actor.seatId
+  );
+};
+
+/**
+ * Claim admission for a local managed seat. Identity locality alone is not
+ * enough: the exact live generation must be running and observer-confirmed
+ * idle before durable work can move to `working`.
+ */
+export const localManagedSeatReadyForClaim = (
+  bindingId: string,
+): boolean => {
+  const live = termPlane.host.get(bindingId);
+  return (
+    live?.status === "running" &&
+    seatStateRuntime.isSeatIdle(bindingId)
   );
 };
 

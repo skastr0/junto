@@ -152,6 +152,41 @@ describe("kernel actor and delivery identity", () => {
     expect(managedTaskDeliveryId(sink, "task-2", seatId)).not.toBe(delivery);
   });
 
+  it("selects a local actor only after its managed seat is ready to receive work", async () => {
+    const installationId = installation("command-center");
+    const node = actorNode("local");
+    const actor = authority(installationId, "local", node).actor;
+    const scope = {
+      role: "command-center" as const,
+      hostId: "local",
+      installationId,
+    };
+    const available = (ready: boolean) => ({
+      isLocalSeatReady: () => ready,
+      installationForHost: async () => undefined,
+      isLive: async () => false,
+    });
+
+    expect(
+      await actorSeatSelectableNow(
+        "factory",
+        node,
+        actor,
+        scope,
+        available(false),
+      ),
+    ).toBe(false);
+    expect(
+      await actorSeatSelectableNow(
+        "factory",
+        node,
+        actor,
+        scope,
+        available(true),
+      ),
+    ).toBe(true);
+  });
+
   it("never selects a foreign actor from a Remote projection", async () => {
     const node = actorNode("box-b");
     const actor = {
@@ -174,6 +209,7 @@ describe("kernel actor and delivery identity", () => {
           installationId: installation("remote-a"),
         },
         {
+          isLocalSeatReady: () => false,
           installationForHost: async () => installation("remote-b"),
           isLive: async () => true,
         },
@@ -246,6 +282,7 @@ describe("kernel actor and delivery identity", () => {
     ];
     const registry = activeActorRegistry(actorRefs);
     const availability = {
+      isLocalSeatReady: () => false,
       installationForHost: async (hostId: string) =>
         hostId === "box-offline"
           ? offlineInstallation

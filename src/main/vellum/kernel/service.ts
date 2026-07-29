@@ -60,6 +60,7 @@ import { WorkService } from "../work/service";
 import {
   ensureManagedSeatRunning,
   isManagedSeatRuntimeLocal,
+  localManagedSeatReadyForClaim,
   type ManagedSeatRuntimeAuthority,
 } from "../term/ensure-managed-seat";
 import { seatStateRuntime } from "../term/agent-state";
@@ -363,6 +364,7 @@ const runtimeAuthority = (
 };
 
 type ActorAvailability = {
+  readonly isLocalSeatReady: (bindingId: string) => boolean;
   readonly installationForHost: (
     hostId: HostIdValue,
   ) => Promise<InstallationId | undefined>;
@@ -390,7 +392,13 @@ export const actorSeatSelectableNow = async (
     installationId: scope.installationId,
     hostId: scope.hostId,
   } satisfies ManagedSeatRuntimeAuthority;
-  if (isManagedSeatRuntimeLocal(canvasName, node, localAuthority)) return true;
+  if (isManagedSeatRuntimeLocal(canvasName, node, localAuthority)) {
+    const surface = actorDeliverySurfaceOf(node);
+    return (
+      surface?._tag === "managedAgent" &&
+      availability.isLocalSeatReady(surface.bindingId)
+    );
+  }
   if (scope.role !== "command-center") return false;
 
   const surface = actorDeliverySurfaceOf(node);
@@ -682,6 +690,7 @@ const makeKernelService = (
           candidate.actor,
           scope,
           {
+            isLocalSeatReady: localManagedSeatReadyForClaim,
             installationForHost: async (hostId) =>
               (
                 await Effect.runPromise(fleetTargets.get(hostId))
