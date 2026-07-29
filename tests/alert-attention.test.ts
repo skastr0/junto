@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   collectAlertSignals,
   cycleAlertFocus,
+  isTypingSurface,
   observeAlertSignals,
   resetAlertQueue,
+  shouldCycleAlertOnKey,
 } from "../src/renderer/lib/alert-attention";
 import { alertId } from "../src/renderer/lib/alert-queue";
 import * as sfx from "../src/renderer/lib/sfx";
@@ -247,5 +249,53 @@ describe("observeAlertSignals + cycleAlertFocus", () => {
     const play = vi.spyOn(sfx, "playAlert").mockImplementation(() => undefined);
     expect(cycleAlertFocus()).toBe(false);
     expect(play).not.toHaveBeenCalled();
+  });
+});
+
+describe("shouldCycleAlertOnKey / isTypingSurface", () => {
+  const bare = {
+    repeat: false,
+    metaKey: false,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    key: " ",
+    code: "Space",
+    target: null as EventTarget | null,
+  };
+
+  /** Duck-typed Element stub — vitest node env has no DOM. */
+  const stubSurface = (match: boolean): EventTarget =>
+    ({
+      closest: (selector: string) =>
+        match &&
+        (selector.includes(".xterm") ||
+          selector.includes("textarea") ||
+          selector.includes("native-terminal") ||
+          selector.includes("herdr-"))
+          ? {}
+          : null,
+    }) as unknown as EventTarget;
+
+  it("allows bare Space on the canvas", () => {
+    expect(shouldCycleAlertOnKey(bare)).toBe(true);
+  });
+
+  it("refuses Shift+Space (Caps Lock typing chord)", () => {
+    // Regression: Shift+Space must reach the PTY / text surface, not cycle alerts.
+    // Caps Lock + Shift (for lowercase) then Space is a common dead chord.
+    expect(shouldCycleAlertOnKey({ ...bare, shiftKey: true })).toBe(false);
+  });
+
+  it("refuses Space while focus is inside xterm chrome", () => {
+    const target = stubSurface(true);
+    expect(isTypingSurface(target)).toBe(true);
+    expect(shouldCycleAlertOnKey({ ...bare, target })).toBe(false);
+  });
+
+  it("allows Space when target is not a typing surface", () => {
+    const target = stubSurface(false);
+    expect(isTypingSurface(target)).toBe(false);
+    expect(shouldCycleAlertOnKey({ ...bare, target })).toBe(true);
   });
 });

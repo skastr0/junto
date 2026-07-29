@@ -1579,6 +1579,12 @@ function CanvasGraph() {
       panOnScroll
       panOnScrollSpeed={1.2}
       panOnDrag={[1]}
+      // Default panActivationKeyCode is "Space". xyflow's useKeyPress
+      // preventDefaults Space whenever *any* modifier is held — including
+      // Shift — even while focus is inside xterm's textarea. With Caps Lock
+      // on, Shift is held to type lowercase, so Shift+Space silently drops
+      // the space into the PTY. Pan is already mid-drag + scroll; kill Space.
+      panActivationKeyCode={null}
       selectionOnDrag
       selectionMode={SelectionMode.Partial}
       zoomOnDoubleClick={false}

@@ -314,6 +314,8 @@ function FleetMapInner({
       minZoom={0.3}
       maxZoom={1.6}
       panOnDrag
+      // Same as canvas: default Space pan preventDefaults Shift+Space.
+      panActivationKeyCode={null}
       zoomOnScroll
       nodesDraggable={false}
       nodesConnectable={false}

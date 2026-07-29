@@ -27,8 +27,40 @@ import { kernel$ } from "./kernel-view";
 import { playAlert } from "./sfx";
 import { state$ } from "./state";
 
-const isTextEditing = (target: EventTarget | null): boolean =>
-  target instanceof Element && Boolean(target.closest("input, textarea, [contenteditable='true']"));
+const TYPING_SURFACE_SELECTOR =
+  "input, textarea, [contenteditable='true'], .xterm, .xterm-helper-textarea, .native-terminal-surface, .herdr-xterm, .herdr-terminal-panel, [data-terminal-surface]";
+
+/**
+ * Surfaces where Space must type, not cycle alerts.
+ * Includes xterm (native + herdr display) — the helper textarea is a real
+ * <textarea>, but focus can also land on .xterm chrome / host wrappers.
+ * Uses duck-typed `closest` so node unit tests can stub without DOM globals.
+ */
+export const isTypingSurface = (target: EventTarget | null): boolean => {
+  if (!target || typeof (target as { closest?: unknown }).closest !== "function") return false;
+  return Boolean((target as Element).closest(TYPING_SURFACE_SELECTOR));
+};
+
+/** Pure gate for the Space/` alert cycle — exported for regression tests. */
+export const shouldCycleAlertOnKey = (
+  event: Pick<
+    KeyboardEvent,
+    "repeat" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "key" | "code" | "target"
+  >,
+): boolean => {
+  if (event.repeat) return false;
+  // Shift+Space is ordinary typing (Caps Lock + Shift for lowercase then space).
+  if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
+  const isCycleKey =
+    event.key === " " ||
+    event.key === "Spacebar" ||
+    event.code === "Space" ||
+    event.key === "`" ||
+    event.code === "Backquote";
+  if (!isCycleKey) return false;
+  if (isTypingSurface(event.target)) return false;
+  return true;
+};
 
 const agentNodeId = (doc: CanvasDoc, agentKey: string): string | undefined => {
   for (const node of doc.nodes) {
@@ -216,18 +248,8 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
   // Hotkey: Space or backtick. Capture phase so Space isn't eaten by focused
   // RF nodes / RTS buttons (those match [role=button] and previously no-op'd).
   useEffect(() => {
-    const isCycleKey = (event: KeyboardEvent): boolean =>
-      event.key === " " ||
-      event.key === "Spacebar" ||
-      event.code === "Space" ||
-      event.key === "`" ||
-      event.code === "Backquote";
-
     const onKey = (event: KeyboardEvent): void => {
-      if (event.repeat) return;
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (!isCycleKey(event)) return;
-      if (isTextEditing(event.target)) return;
+      if (!shouldCycleAlertOnKey(event)) return;
       if (queue.items.length === 0) return;
       event.preventDefault();
       event.stopPropagation();
