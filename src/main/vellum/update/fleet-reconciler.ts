@@ -6,7 +6,7 @@
  *
  * Auto-walk only when:
  *   remoteManagedInstalls ∧ availableRelease.version === CC version
- * Actual deploy remains gated by RELEASE_CAPABILITIES (still frozen until
+ * Actual deploy remains gated by RELEASE_CAPABILITIES + operator kill-switch until
  * real qualification). This module never invents a second installer.
  */
 

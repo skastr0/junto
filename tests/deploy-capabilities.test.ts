@@ -12,7 +12,7 @@ describe("computeDeployCapabilities", () => {
     expect(caps.detail.deployRemote).toMatch(/turned off|Settings/i);
   });
 
-  it("enables managed deploy on Command Center when operator allows (no target platform)", () => {
+  it("enables deploy on Command Center when operator allows", () => {
     const caps = computeDeployCapabilities({
       stationRole: "command-center",
       remoteManagedInstalls: true,
@@ -21,33 +21,21 @@ describe("computeDeployCapabilities", () => {
     expect(caps.detail.deployRemote).toBeUndefined();
   });
 
-  it("enables Linux target package deploy without darwinRemoteDeploy", () => {
-    const caps = computeDeployCapabilities({
-      stationRole: "command-center",
-      remoteManagedInstalls: true,
-      platform: "linux",
-    });
-    expect(caps.effective.deployRemote).toBe(true);
-  });
-
-  it("still freezes Darwin target when darwinRemoteDeploy is off", () => {
-    const caps = computeDeployCapabilities({
-      stationRole: "command-center",
-      remoteManagedInstalls: true,
-      platform: "darwin",
-    });
-    expect(caps.effective.deployRemote).toBe(false);
-    expect(caps.detail.deployRemote).toMatch(/Darwin/i);
+  it("enables Linux and Darwin targets under full product surface", () => {
+    for (const platform of ["linux", "darwin"] as const) {
+      const caps = computeDeployCapabilities({
+        stationRole: "command-center",
+        remoteManagedInstalls: true,
+        platform,
+      });
+      expect(caps.effective.deployRemote).toBe(true);
+    }
   });
 
   it("refuses deployment away from Command Center", () => {
     const caps = computeDeployCapabilities({
       stationRole: "remote",
       remoteManagedInstalls: true,
-      release: {
-        ...RELEASE_CAPABILITIES,
-        managedRemoteDeploy: true,
-      },
       platform: "linux",
     });
     expect(caps.effective.deployRemote).toBe(false);
@@ -67,7 +55,7 @@ describe("computeDeployCapabilities", () => {
     expect(caps.effective.deployRemote).toBe(false);
   });
 
-  it("deploy requires managed + darwin on darwin targets when both true", () => {
+  it("refuses Darwin target when only darwinRemoteDeploy is frozen", () => {
     const caps = computeDeployCapabilities({
       stationRole: "command-center",
       remoteManagedInstalls: true,
@@ -75,9 +63,10 @@ describe("computeDeployCapabilities", () => {
       release: {
         ...RELEASE_CAPABILITIES,
         managedRemoteDeploy: true,
-        darwinRemoteDeploy: true,
+        darwinRemoteDeploy: false,
       },
     });
-    expect(caps.effective.deployRemote).toBe(true);
+    expect(caps.effective.deployRemote).toBe(false);
+    expect(caps.detail.deployRemote).toMatch(/Darwin/i);
   });
 });

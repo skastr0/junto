@@ -6,12 +6,12 @@ import {
 } from "../src/shared/release-capabilities";
 
 describe("RELEASE_CAPABILITIES product surface", () => {
-  it("enables managed Linux package deploy; freezes Darwin full-app remote", () => {
+  it("enables every deploy product path", () => {
     expect(RELEASE_CAPABILITIES.freshRemoteEnrollment).toBe(true);
-    expect("stationProjection" in RELEASE_CAPABILITIES).toBe(false);
     expect(RELEASE_CAPABILITIES.managedRemoteDeploy).toBe(true);
-    expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(false);
-    expect(RELEASE_CAPABILITIES.commandCenterTransfer).toBe(false);
+    expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(true);
+    expect(RELEASE_CAPABILITIES.commandCenterTransfer).toBe(true);
+    expect("stationProjection" in RELEASE_CAPABILITIES).toBe(false);
   });
 
   it("is frozen (not ambient-env knobs)", () => {
@@ -22,9 +22,8 @@ describe("RELEASE_CAPABILITIES product surface", () => {
     }).toThrow();
   });
 
-  it("exposes stable operator-facing denial copy", () => {
+  it("keeps denial copy for test/operator freezes", () => {
     expect(MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL.length).toBeGreaterThan(20);
     expect(DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL).toMatch(/Darwin/i);
-    expect(DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL).toMatch(/Linux/i);
   });
 });
