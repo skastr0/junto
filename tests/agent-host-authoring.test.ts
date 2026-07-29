@@ -3,6 +3,7 @@ import {
   actorHostChoicesFromEnrollment,
   type AgentHostChoice,
 } from "../src/renderer/components/terminal/AgentCascadeMenu";
+import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 
 const configured: AgentHostChoice = {
   id: "local",
@@ -51,5 +52,18 @@ describe("agent host authoring", () => {
     expect(actorHostChoicesFromEnrollment([], configured)).toEqual([
       configured,
     ]);
+  });
+
+  it("stamps the selected host-local path into the stable actor node", () => {
+    const node = makeManagedAgentNode(10, 20, {
+      harness: "grok",
+      host: "build-box",
+      agentHost: "hermes-build-box",
+      cwd: "/srv/work/vellum",
+    });
+
+    expect(node.ether?.host).toBe("build-box");
+    expect(node.ether?.terminal?.launch?.cwd).toBe("/srv/work/vellum");
+    expect(node.ether?.entity?.name).toBe("hermes-build-box:grok");
   });
 });

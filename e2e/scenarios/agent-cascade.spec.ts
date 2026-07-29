@@ -16,22 +16,38 @@ test("managed harnesses are direct palette actions with cascading choices", asyn
 
     for (const label of ["Claude Code", "Codex", "Grok", "Hermes"]) {
       await expect(
-        page.getByRole("button", { name: `Add ${label} agent` }),
+        page.getByRole("button", { name: new RegExp(`${label} agent`) }),
       ).toBeVisible();
     }
     await expect(page.getByText("New managed agent")).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Add Claude Code agent" }).hover();
-    await expect(
-      page.getByRole("menu", { name: "Claude Code models" }),
-    ).toBeVisible();
+    await page
+      .getByRole("button", { name: /Claude Code agent/ })
+      .hover();
+    const models = page.getByRole("menu", { name: "Claude Code models" });
+    await expect(models).toBeVisible();
 
     await page.screenshot({
       path: join(SHOTS, "20b-agent-cascade.png"),
       fullPage: false,
     });
 
-    await page.keyboard.press("Escape");
+    await models.getByRole("menuitem").first().click();
+    const location = page.getByRole("dialog", {
+      name: "Choose agent location",
+    });
+    await expect(location).toBeVisible();
+    await expect(location.getByLabel("Agent host")).toBeVisible();
+    await expect(location.getByLabel("Agent working directory")).toHaveValue(
+      /^\//,
+      { timeout: 10_000 },
+    );
+    await page.screenshot({
+      path: join(SHOTS, "20c-agent-location.png"),
+      fullPage: false,
+    });
+    await location.getByRole("button", { name: "cancel" }).click();
+
     const viewport = await page.evaluate(() => ({
       width: window.innerWidth,
       height: window.innerHeight,

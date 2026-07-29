@@ -625,15 +625,26 @@ test("capture every surface for design review", async () => {
       await addItem.click();
       await shot(page, "20-node-palette");
       const claudeAgent = page.getByRole("button", {
-        name: "Add Claude Code agent",
+        name: /Claude Code agent/,
       });
       if (await claudeAgent.isVisible().catch(() => false)) {
         await claudeAgent.hover();
-        await page
-          .getByRole("menu", { name: "Claude Code models" })
-          .waitFor({ state: "visible" });
+        const models = page.getByRole("menu", { name: "Claude Code models" });
+        await models.waitFor({ state: "visible" });
         await shot(page, "20b-agent-cascade");
+        await models.getByRole("menuitem").first().click();
+        const location = page.getByRole("dialog", {
+          name: "Choose agent location",
+        });
+        await expect(location).toBeVisible();
+        await expect(location.getByLabel("Agent working directory")).toHaveValue(
+          /^\//,
+          { timeout: 10_000 },
+        );
+        await shot(page, "20c-agent-location");
+        await location.getByRole("button", { name: "cancel" }).click();
       }
+      await addItem.click();
       const termWiz = page.getByRole("button", {
         name: "Add native terminal work surface",
       });

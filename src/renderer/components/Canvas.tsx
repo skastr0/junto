@@ -38,7 +38,7 @@ import { nodeTitle } from "../lib/presentation";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
-import { resolvePageSpawnDefaults, resolveRegionCwd } from "@shared/region-defaults";
+import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import {
   makeArtifactsNode,
@@ -63,8 +63,12 @@ import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard } from "./terminal/TerminalWizard";
 import {
   AgentCascadeMenu,
-  type AgentSpawnChoices,
+  type AgentConfigurationChoices,
 } from "./terminal/AgentCascadeMenu";
+import {
+  AgentLocationModal,
+  type AgentLocationRequest,
+} from "./terminal/AgentLocationModal";
 import { HarnessMark } from "./herdr/HarnessMark";
 import { openTerminal } from "../lib/terminal-actions";
 import { CanvasMagnifier } from "./CanvasMagnifier";
@@ -580,7 +584,7 @@ function useCanvasInteractions(
 
 interface AddActions {
   readonly create: (kind: "text" | "file" | "link" | "group") => void;
-  readonly addAgent: (choices: AgentSpawnChoices) => void;
+  readonly addAgent: (choices: AgentConfigurationChoices) => void;
   readonly addWatcher: () => void;
   readonly addTimer: () => void;
   readonly addTasks: () => void;
@@ -645,28 +649,12 @@ const makeAddActions = (
   addAgent: (choices) => {
     const size = { width: 260, height: 110 };
     const position = positionFor(size);
-    const host = choices.host;
-    // Create-time cwd stamp from containing region paths (host-keyed).
-    // Escape hatch: place outside the region, or edit launch.cwd after create.
-    const cwd = resolveRegionCwd(
-      state$.doc.peek(),
-      position.x + size.width / 2,
-      position.y + size.height / 2,
-      host,
-    );
-    const node = makeManagedAgentNode(position.x, position.y, {
-      ...choices,
-      ...(cwd ? { cwd } : {}),
-    });
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
     dismiss();
-    // A foreign actor starts on its own installation after projection. The
-    // Command Center authoring action must not create that process through its
-    // local terminal path.
-    if (host === (state$.settings.station.hostId.peek() || "local")) {
-      void openTerminal(node);
-    }
+    window.dispatchEvent(
+      new CustomEvent<AgentLocationRequest>("vellum:configure-agent-location", {
+        detail: { choices, position },
+      }),
+    );
   },
   addWatcher: () => {
     const position = positionFor({ width: 240, height: 96 });
@@ -863,7 +851,7 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
       label: template.displayName,
       sub: "",
       icon: <HarnessMark agent={template.harness} size={20} />,
-      ariaLabel: `Choose ${template.displayName} agent host and model`,
+      ariaLabel: `Configure ${template.displayName} agent`,
       group: paletteGroupFor("agent", false),
       harness: template.harness,
     })),
@@ -994,13 +982,7 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
         key={agentCascade.harness}
         harness={agentCascade.harness}
         anchor={agentCascade.anchor}
-        initialHostId={state$.settings.station.hostId.peek() || "local"}
-        initialAgentHostId={
-          state$.settings.station.agentHostId.peek() ||
-          state$.settings.station.hostId.peek() ||
-          "local"
-        }
-        onSpawn={actions.addAgent}
+        onConfigure={actions.addAgent}
         onPointerEnter={keepCascadeOpen}
         onPointerLeave={closeCascadeSoon}
       />
@@ -1449,12 +1431,17 @@ function CanvasGraph() {
   const connecting = useConnection((connection) => connection.inProgress);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [terminalAnchor, setTerminalAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [agentLocation, setAgentLocation] = useState<AgentLocationRequest | null>(null);
   useEffect(() => {
     const openTerminal = (event: Event) =>
       setTerminalAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
+    const configureAgent = (event: Event) =>
+      setAgentLocation((event as CustomEvent<AgentLocationRequest>).detail);
     window.addEventListener("vellum:new-terminal", openTerminal);
+    window.addEventListener("vellum:configure-agent-location", configureAgent);
     return () => {
       window.removeEventListener("vellum:new-terminal", openTerminal);
+      window.removeEventListener("vellum:configure-agent-location", configureAgent);
     };
   }, []);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
@@ -1554,6 +1541,29 @@ function CanvasGraph() {
 
   return <>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
+    {agentLocation ? (
+      <AgentLocationModal
+        request={agentLocation}
+        onClose={() => setAgentLocation(null)}
+        onCreate={(choices) => {
+          const node = makeManagedAgentNode(
+            agentLocation.position.x,
+            agentLocation.position.y,
+            choices,
+          );
+          addNode(node, { edit: false });
+          state$.focusNodeId.set(node.id);
+          setAgentLocation(null);
+          // A foreign actor starts on its own installation after projection.
+          if (
+            choices.host ===
+            (state$.settings.station.hostId.peek() || "local")
+          ) {
+            void openTerminal(node);
+          }
+        }}
+      />
+    ) : null}
     <ReactFlow
       className={[
         connecting ? "is-connecting" : "",
