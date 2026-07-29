@@ -138,10 +138,11 @@ const getContext = (): AudioContext | null => {
 };
 
 const resumeContext = async (ctx: AudioContext): Promise<boolean> => {
-  if (ctx.state === "running") return true;
   try {
-    await ctx.resume();
-    return ctx.state === "running";
+    if (ctx.state !== "running") await ctx.resume();
+    // Compare via string so control-flow narrowing of AudioContextState
+    // does not treat post-resume "running" as impossible.
+    return `${ctx.state}` === "running";
   } catch {
     return false;
   }
