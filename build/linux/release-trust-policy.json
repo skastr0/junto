@@ -1,10 +1,10 @@
 {
   "schema": "vellum/linux-release-trust-policy/v1",
-  "state": "unconfigured",
-  "issuedAt": null,
-  "expiresAt": null,
-  "trustedKeyringRevision": null,
-  "trustedKeyringSha256": null,
-  "trustedKeyId": null,
-  "trustedKeyFingerprintSha256": null
+  "state": "configured",
+  "issuedAt": "2026-07-29T09:26:51.967Z",
+  "expiresAt": "2026-08-28T09:26:51.967Z",
+  "trustedKeyringRevision": 1,
+  "trustedKeyringSha256": "77878a59cea16ee1c22cba9d3add4980a7c52cb0c8f02272c4e021dec701b7da",
+  "trustedKeyId": "vellum-linux-2026a",
+  "trustedKeyFingerprintSha256": "3111af1bb9934cec983f0a871f302a4a74e51314d0496135433ca3dc2f9ac4a9"
 }

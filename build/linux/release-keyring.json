@@ -1,5 +1,14 @@
 {
   "schema": "vellum/linux-release-keyring/v1",
   "revision": 1,
-  "keys": []
+  "keys": [
+    {
+      "keyId": "vellum-linux-2026a",
+      "algorithm": "ed25519",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEALIHLyKoFLJHM+J3qQvkpEsOy0lQ4E+m1Lr8Uj8fuckg=\n-----END PUBLIC KEY-----\n",
+      "fingerprintSha256": "3111af1bb9934cec983f0a871f302a4a74e51314d0496135433ca3dc2f9ac4a9",
+      "status": "active",
+      "validFrom": "2026-07-29T09:26:51.967Z"
+    }
+  ]
 }
