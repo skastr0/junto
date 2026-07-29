@@ -540,15 +540,11 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   background: rgba(232, 163, 61, 0.25);
 }
 /* xterm absolute-fill so it never drives host content height (island loop).
-   No DOM overflow — same contract as native-terminal-surface.
-   xterm 6 paints a custom SmoothScrollableElement scrollbar (not the native
-   overflow track). Hide it — TUI mouse protocol owns wheel; plain shell still
-   scrolls via the scrollable element without chrome. */
+   Herdr owns wheel via capture → herdrStreamScroll (no mouse protocol).
+   Keep viewport non-scrolling so native overflow never steals wheel. */
 .herdr-xterm {
   outline: none;
-  overflow: hidden;
   overscroll-behavior: none;
-  touch-action: none;
 }
 .herdr-xterm .xterm {
   position: absolute !important;
@@ -557,12 +553,11 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   height: 100% !important;
   padding: 6px 8px;
   box-sizing: border-box;
-  overflow: hidden !important;
 }
 .herdr-xterm .xterm-viewport {
   width: 100% !important;
   height: 100% !important;
-  overflow: hidden !important;
+  overflow-y: hidden !important;
   scrollbar-width: none;
 }
 .herdr-xterm .xterm-viewport::-webkit-scrollbar {
@@ -572,15 +567,13 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
 }
 .herdr-xterm .xterm-screen {
   width: 100% !important;
-  overflow: hidden !important;
 }
 .herdr-xterm .xterm-scrollable-element {
   width: 100% !important;
   height: 100% !important;
-  overflow: hidden !important;
 }
 .herdr-xterm .xterm-scrollable-element > .scrollbar {
-  display: none !important;
+  opacity: 0 !important;
   width: 0 !important;
   pointer-events: none !important;
 }
@@ -2292,31 +2285,29 @@ ol.note-md__list > .note-md__li::before {
   height: 0;
   overflow: hidden;
   outline: none;
-  /* Terminal owns all pointer/wheel — never chain to canvas/page scroll. */
   overscroll-behavior: none;
-  touch-action: none;
-  pointer-events: auto;
+  cursor: text;
 }
 /* Absolute fill so .xterm never drives host content height.
-   No DOM overflow anywhere in this tree — a native overflow track or xterm 6
-   SmoothScrollableElement chrome steals wheel from full-screen TUIs (Grok,
-   Claude Code) and double-scrolls with the app. Match herdr: overflow hidden;
-   mouse-reporting apps own wheel via CoreMouseService; plain shell scrollback
-   still works via SmoothScrollableElement (scrollbar chrome hidden). */
+   Inset = visual pad (must match XTERM_PAD_* in TerminalSurface). Do not use
+   CSS padding on this node — absolute children ignore padding and desync the
+   mouse grid from the PTY. Critical (xterm 6): viewport overflow-y:scroll
+   (not hidden) keeps SmoothScrollableElement scrollback wired after pin. */
 .native-terminal-surface__xterm .xterm {
   position: absolute !important;
-  inset: 0;
-  width: 100% !important;
-  height: 100% !important;
-  padding: 6px 8px;
+  top: 6px;
+  right: 8px;
+  bottom: 6px;
+  left: 8px;
+  width: auto !important;
+  height: auto !important;
+  padding: 0;
   box-sizing: border-box;
-  overflow: hidden !important;
 }
 .native-terminal-surface__xterm .xterm-viewport {
   width: 100% !important;
   height: 100% !important;
-  overflow: hidden !important;
-  /* belt: xterm.css defaults overflow-y:scroll and paints a track */
+  overflow-y: scroll !important;
   scrollbar-width: none;
 }
 .native-terminal-surface__xterm .xterm-viewport::-webkit-scrollbar {
@@ -2326,18 +2317,16 @@ ol.note-md__list > .note-md__li::before {
 }
 .native-terminal-surface__xterm .xterm-screen {
   width: 100% !important;
-  overflow: hidden !important;
 }
 /* xterm 6 scrollable wrapper must fill the viewport for wheel hit-testing. */
 .native-terminal-surface__xterm .xterm-scrollable-element {
   width: 100% !important;
   height: 100% !important;
-  overflow: hidden !important;
 }
-/* Custom VS Code scrollbar (Auto) — hide chrome + hit target so it cannot
-   steal clicks from the TUI or paint a "web scroll" rail. */
+/* Custom VS Code scrollbar (Auto) — hide chrome; keep layout. pointer-events
+   none so the rail never steals clicks from the TUI canvas. */
 .native-terminal-surface__xterm .xterm-scrollable-element > .scrollbar {
-  display: none !important;
+  opacity: 0 !important;
   width: 0 !important;
   pointer-events: none !important;
 }

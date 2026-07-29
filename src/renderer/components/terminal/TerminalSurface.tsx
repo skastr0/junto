@@ -101,16 +101,25 @@ const measureHost = (
   host: HTMLElement,
   term: Terminal,
 ): { cols: number; rows: number; w: number; h: number } | null => {
-  const rect = host.getBoundingClientRect();
-  const w = rect.width;
-  const h = rect.height;
+  // Prefer the live .xterm box (already inset by CSS). Fall back to host − pad
+  // before the first open.
+  const surface = (term.element ?? host) as HTMLElement;
+  const rect = surface.getBoundingClientRect();
+  let w = rect.width;
+  let h = rect.height;
+  if ((!term.element || w < 40 || h < 40) && surface !== host) {
+    const hostRect = host.getBoundingClientRect();
+    w = Math.max(0, hostRect.width - XTERM_PAD_X);
+    h = Math.max(0, hostRect.height - XTERM_PAD_Y);
+  } else if (!term.element) {
+    w = Math.max(0, w - XTERM_PAD_X);
+    h = Math.max(0, h - XTERM_PAD_Y);
+  }
   if (w < 40 || h < 40) return null;
 
   const { cellW, cellH } = readCellSize(term);
-  const innerW = Math.max(0, w - XTERM_PAD_X);
-  const innerH = Math.max(0, h - XTERM_PAD_Y);
-  const cols = Math.max(20, Math.min(300, Math.floor(innerW / cellW)));
-  const rows = Math.max(5, Math.min(120, Math.floor(innerH / cellH)));
+  const cols = Math.max(20, Math.min(300, Math.floor(w / cellW)));
+  const rows = Math.max(5, Math.min(120, Math.floor(h / cellH)));
   return { cols, rows, w, h };
 };
 
@@ -248,21 +257,53 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     termRef.current = term;
     fitRef.current = fit;
 
-    // Wheel ownership (xterm 6):
-    // - Mouse-reporting TUI (Grok, Claude Code, …): CoreMouseService binds
-    //   wheel on `.xterm` and disables SmoothScrollableElement.handleMouseWheel.
-    // - Plain shell: SmoothScrollableElement owns buffer scrollback.
-    // Do NOT also map wheel → term.scrollLines — that double-scrolled against
-    // the scrollable element and fought TUI mouse protocol (weird scroll-up,
-    // dead click/hover). Only block scroll-chaining out of the host.
-    const onWheel = (ev: WheelEvent): void => {
-      // Let browser zoom shortcuts through.
+    /**
+     * Wheel ownership — capture phase so we win over native viewport scroll
+     * and SmoothScrollableElement without racing defaultPrevented.
+     *
+     * - Mouse-reporting TUI (Grok, Claude Code, …): do not capture; xterm's
+     *   CoreMouseService must see the event for click/hover/wheel protocol.
+     * - Alt buffer without mouse (vim, less): let xterm convert wheel → arrows.
+     * - Normal buffer scrollback: we own wheel → term.scrollLines and stop the
+     *   native/web scrollbar path that was making the surface unusable.
+     */
+    const onWheelCapture = (ev: WheelEvent): void => {
       if (ev.ctrlKey || ev.metaKey) return;
-      // Stop parent/page scroll without stopPropagation so xterm's own
-      // listeners (mouse protocol or SmoothScrollableElement) still run.
+      if (ev.deltaY === 0) return;
+
+      // TUI mouse protocol owns the pointer plane. Kill native viewport scroll
+      // (overflow-y:scroll rail) but do NOT stopPropagation — xterm's
+      // CoreMouseService must still receive the event for click/hover/wheel.
+      if (term.modes.mouseTrackingMode !== "none") {
+        ev.preventDefault();
+        return;
+      }
+
+      // Alt buffer: xterm maps wheel to cursor up/down for the app.
+      if (term.buffer.active.type === "alternate") {
+        ev.preventDefault();
+        return;
+      }
+
+      const cellH =
+        (term as unknown as { _core?: XtermCore })._core?._renderService
+          ?.dimensions?.css?.cell?.height ?? FALLBACK_CELL_H;
+      const lines = Math.max(
+        1,
+        Math.min(30, Math.round(Math.abs(ev.deltaY) / Math.max(1, cellH))),
+      );
+      // Capture + stop: one owner only. deltaY>0 = scroll content up (later lines).
       ev.preventDefault();
+      ev.stopPropagation();
+      term.scrollLines(ev.deltaY > 0 ? lines : -lines);
     };
-    host.addEventListener("wheel", onWheel, { passive: false });
+    host.addEventListener("wheel", onWheelCapture, { passive: false, capture: true });
+
+    // Keep the xterm textarea focused so key + mouse protocol stay live.
+    const onPointerDownCapture = (): void => {
+      term.focus();
+    };
+    host.addEventListener("pointerdown", onPointerDownCapture, { capture: true });
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const settleTimers: ReturnType<typeof setTimeout>[] = [];
@@ -330,7 +371,8 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     }
 
     return () => {
-      host.removeEventListener("wheel", onWheel);
+      host.removeEventListener("wheel", onWheelCapture, { capture: true });
+      host.removeEventListener("pointerdown", onPointerDownCapture, { capture: true });
       window.removeEventListener("resize", onWindowResize);
       observer.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
@@ -498,11 +540,6 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     <div
       ref={rootRef}
       className="native-terminal-surface"
-      onPointerDown={() => {
-        // Focus before xterm selection / mouse-protocol handlers run so
-        // keystrokes and TUI click targets stay live after pin/unpark.
-        termRef.current?.focus();
-      }}
     >
       <OverlayHeader
         eyebrow={`terminal · ${hostId} · close detaches (session keeps running)`}
