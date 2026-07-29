@@ -57,7 +57,7 @@ This is why the plan is short. Most of the factory is built.
 | Remote terminals over SSH | **built** | `term/remote/`, and `hermes --profile X -m Y` over `ssh -t` verified working (R1–R3) |
 | Renderer terminal surface (xterm) | **built** | `src/renderer/components/terminal/{TerminalSurface,TerminalCard,TerminalWizard,TerminalInventory}.tsx` |
 | Work-control server: all ops + scopes + process-bind identity | **built** | `src/main/vellum/work/{control,authz,caller-resolve,live-seat,service}.ts` — ops: `ping doctor capabilities onboard tasks.list tasks.claim tasks.update msg.list msg.send request.create artifact.publish` |
-| **Station CLI, agent-native** | **built** | `src/cli/` — `vellum onboard \| doctor \| capabilities \| tasks list\|claim\|update \| msg list\|send \| request create \| artifact publish \| schema \| examples`; JSON-in/JSON-out, batch-capable, `dist/vellum` via `bun run cli:build` |
+| **Station CLI, agent-native** | **built** | `src/cli/` — `vellum onboard \| doctor \| capabilities \| tasks list\|claim\|update \| msg list\|send \| request create \| artifact publish \| browser \| schema \| examples`; JSON-in/JSON-out, batch-capable, `dist/vellum` via `bun run cli:build`; browser commands retain their host-local control socket behind the one agent-facing command |
 | **Mailbox with transport abstraction** — pending-until-live, deliver-on-append + deliver-on-attach, pause-aware | **built** | `src/main/vellum/work/message-delivery.ts` (`MessageDeliveryTransport`) — today: ACP `chatPrompt` + herdr control stream |
 | Kernel tick / pulse: claim routing, pulse composition, armed/paused state, execution snapshots | **built** | `src/main/vellum/kernel/{cycle,evaluate,service}.ts` — incl. `composePulseMessage`, `MIN_LIVE_PULSE_SPACING_MS` |
 | Factory physics: tasks pull queue, seats, blocking as worker-state, on-fire/on-ice, claim law | **built** | see `architecture-factory-physics.md`, `vellum-factory-simulation-model` |
@@ -132,7 +132,7 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
   - Grok: `~/.grok/models_cache.json` (or ACP init); efforts = high/medium/low.
   - Hermes: `hermes profile list` (~1s, parseable, no `--json`) + `~/.hermes/profiles/*/config.yaml`; models from `provider_models_cache.json` — **validate, staleness is proven** (exit 0 with an HTTP 404 body); effort has no flag → typed `/reasoning` (verify session-scoped) or omitted in v1.
 - **Spawn env scrubbing (mandatory):** strip `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` — otherwise a Vellum launched from inside a Claude session silently disables the child's transcript persistence and excludes it from `--resume`.
-- Inject `PATH` so `dist/vellum` resolves; inject seat/socket/token env (verified to reach agent shell subprocesses on all four).
+- Inject `PATH` so `dist/vellum` resolves, including its canonical `vellum browser` dispatcher; inject seat/socket/token env (verified to reach agent shell subprocesses on all four).
 - Session id: pin where possible (Claude `--session-id`, Grok `--session-id`), capture otherwise (Codex: SessionStart hook > `CODEX_THREAD_ID` > notify > rollout; Hermes: `HERMES_SESSION_ID` env). Store on the seat for cold wake.
 - Per-harness spawn traps: Grok **requires a git cwd** (else a modal swallows the prompt); Hermes needs **`chat --tui -q`** (`-z` is headless); Codex resume **does not inherit flags** — re-pass everything.
 
@@ -146,7 +146,7 @@ This is the piece the operator flagged as needing to be strong. **Two tiers, bec
 - **Tier B — first typed message** (Codex, Hermes): the same text delivered as the session's first typed prompt. Costs a little context; gains full visibility in the transcript, which suits the legibility doctrine. (Candidate to check later: a codex `-c` instructions-file key — unverified, do not assume.)
 - **Injected payload** (the content the pruned global rule used to carry):
   1. Worker doctrine — factory seat, pull queue, claim-is-factory, requests block, artifacts never block, identity is process-bind, reach is edges.
-  2. The CLI contract — call **`vellum onboard`** at session start and after compaction; the op table; errors (`ScopeError`, `ClaimConflict`, `RuntimeDown`, `Blocked`) are ground truth.
+  2. The CLI contract — call **`vellum onboard`** at session start and after compaction; the work op table plus `vellum browser` for `browser.automate`; errors (`ScopeError`, `ClaimConflict`, `RuntimeDown`, `Blocked`) are ground truth.
   3. Seat context — seat ref, connected targets.
 - **Then the task arrives as a typed prompt** carrying the task assignment. `vellum onboard` returns seat + role + connected targets + claimed task metadata — which is loop step 6 exactly.
 - **Plugin: DROPPED entirely** (operator ruling 2026-07-26 — supersedes the earlier "prune to an opt-in tier"). There is no user-installed tool surface in anyone's harness config. `packages/vellum-plugin/` goes away; the doctrine *text* becomes the injected payload and `tools/shared/work-client.ts` folds into whatever needs the socket. Reason: an opt-in tier re-introduces the ambiguity the no-tiers ruling exists to kill — "this terminal has the integration, so is it an actor?" is a question with no good answer. Injection happens **only** through a Vellum-spawned template.

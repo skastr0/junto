@@ -18,6 +18,7 @@ import {
   requestCommand,
   tasksCommand,
 } from "./commands/work";
+import { runBrowserCli } from "../../scripts/browser-cli";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import {
   setExitCode,
@@ -65,7 +66,14 @@ export const runCli = (args: ReadonlyArray<string>) =>
 
 // When executed as the CLI entrypoint (bun / compiled binary).
 if (import.meta.main) {
-  runCli(Bun.argv).pipe(BunRuntime.runMain);
+  const browserIndex = Bun.argv.findIndex(
+    (argument, index) => index > 0 && argument === "browser",
+  );
+  if (browserIndex >= 0) {
+    await runBrowserCli(Bun.argv.slice(browserIndex + 1));
+  } else {
+    runCli(Bun.argv).pipe(BunRuntime.runMain);
+  }
 }
 
 void Cause;

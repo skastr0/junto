@@ -11,7 +11,7 @@ import {
   resetFirstTypedForTest,
 } from "../src/main/vellum/term/first-typed";
 import {
-  nodeIsConnectedToWork,
+  nodeHasActionableFactoryEdge,
   launchForManagedSpawn,
 } from "../src/main/vellum/term/managed-spawn-plan";
 import type { CanvasDoc } from "../src/shared/canvas";
@@ -115,11 +115,11 @@ describe("managed spawn plan", () => {
   });
 
   it("detects work edges", () => {
-    expect(nodeIsConnectedToWork(baseDoc(true), "worker")).toBe(true);
-    expect(nodeIsConnectedToWork(baseDoc(false), "worker")).toBe(false);
+    expect(nodeHasActionableFactoryEdge(baseDoc(true), "worker")).toBe(true);
+    expect(nodeHasActionableFactoryEdge(baseDoc(false), "worker")).toBe(false);
   });
 
-  it("treats artifacts as work but not pages", () => {
+  it("treats artifact and page capability edges as injection-worthy", () => {
     const base = baseDoc(false);
     const artifacts: CanvasDoc = {
       ...base,
@@ -135,7 +135,7 @@ describe("managed spawn plan", () => {
       }],
       edges: [...base.edges, { id: "artifact-edge", fromNode: "worker", toNode: "artifacts" }],
     };
-    expect(nodeIsConnectedToWork(artifacts, "worker")).toBe(true);
+    expect(nodeHasActionableFactoryEdge(artifacts, "worker")).toBe(true);
 
     const page: CanvasDoc = {
       ...base,
@@ -151,7 +151,15 @@ describe("managed spawn plan", () => {
       }],
       edges: [...base.edges, { id: "page-edge", fromNode: "worker", toNode: "page" }],
     };
-    expect(nodeIsConnectedToWork(page, "worker")).toBe(false);
+    expect(nodeHasActionableFactoryEdge(page, "worker")).toBe(true);
+    const { plan } = launchForManagedSpawn({
+      doc: page,
+      nodeId: "worker",
+      harness: "claude",
+      documentLaunch: { kind: "harness", argv: ["claude"] },
+    });
+    expect(plan?.injection.inject).toBe(true);
+    expect(plan?.injection.systemPrompt).toContain("vellum browser pages --json");
   });
 
   it("connected replan applies Tier A system prompt for claude", () => {

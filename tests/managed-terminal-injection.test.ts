@@ -33,6 +33,8 @@ describe("managed-terminal injection text", () => {
     expect(text!).toContain("ClaimConflict");
     expect(text!).toContain("RuntimeDown");
     expect(text!).toContain("Blocked");
+    expect(text!).toContain("vellum browser pages --json");
+    expect(text!).toContain("managed agent's existing shell");
     expect(text!).toContain("process-bind");
     expect(text!).toContain("canvas-a::worker-1");
     expect(text!).toContain("tasks-main");

@@ -225,9 +225,9 @@ type Call = LocalCall;
 const parseArgs = (
   argv: ReadonlyArray<string>,
 ): { call: Call; json: boolean } | { error: string } => {
-  // The packaged executable is installed under both names. `vellum-browser`
-  // receives the command directly; `vellum browser` reaches the same binary
-  // through a symlink and contributes the one dispatch word below.
+  // The standalone compatibility helper receives the command directly. The
+  // canonical `vellum browser` dispatcher calls this same parser and may leave
+  // its one dispatch word in argv.
   let commandArgv = argv[0] === "browser" ? argv.slice(1) : [...argv];
   const json = commandArgv.includes("--json");
   commandArgv = commandArgv.filter((value) => value !== "--json");
@@ -329,8 +329,9 @@ const controlHome = (): string | ControlErr => {
   return normalize(configured);
 };
 
-const main = async (): Promise<void> => {
-  const rawArgv = process.argv.slice(2);
+export const runBrowserCli = async (
+  rawArgv: ReadonlyArray<string> = process.argv.slice(2),
+): Promise<void> => {
   // Hidden station wrapper and station-trust exit before any transport.
   if (rawArgv[0] === "station" || rawArgv[0] === "station-trust") {
     console.error(
@@ -382,4 +383,6 @@ const main = async (): Promise<void> => {
   printHuman(parsed.call.route, envelope.data);
 };
 
-await main();
+if (import.meta.main) {
+  await runBrowserCli();
+}

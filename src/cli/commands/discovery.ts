@@ -6,6 +6,7 @@ import { CLI_NAME, CLI_VERSION, DEFAULT_TIMEOUT_MS } from "../core/constants";
 import {
   allExamples,
   allSchemas,
+  annotateCapabilityInvocations,
   commandCapabilities,
   renderSchemaContract,
 } from "../core/discovery";
@@ -149,7 +150,9 @@ export const capabilitiesCommand = Command.make(
       Effect.gen(function* () {
         const socket = yield* WorkSocket;
         // Live wiring from edges — daemon uses process-bound caller.
-        return yield* socket.call("capabilities", {}, toUndefined(timeout));
+        return annotateCapabilityInvocations(
+          yield* socket.call("capabilities", {}, toUndefined(timeout)),
+        );
       }),
     ),
 ).pipe(Command.withDescription("Live edge wiring as a contract"));
@@ -162,7 +165,9 @@ export const onboardCommand = Command.make(
       "onboard",
       Effect.gen(function* () {
         const socket = yield* WorkSocket;
-        return yield* socket.call("onboard", {}, toUndefined(timeout));
+        return annotateCapabilityInvocations(
+          yield* socket.call("onboard", {}, toUndefined(timeout)),
+        );
       }),
     ),
 ).pipe(Command.withDescription("Onboard briefing from live document state"));

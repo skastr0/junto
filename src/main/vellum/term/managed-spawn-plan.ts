@@ -17,12 +17,20 @@ import {
 } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
 
-// Work sinks that make an actor seat operational. `page` is a sink in the
-// factory registry but browser capability alone does not make this a work seat.
-const WORK_KINDS = new Set(["task", "tasks", "requests", "request", "artifacts"]);
+// Capability sinks that make an actor seat operational. Browser automation is
+// a factory tool even though it uses the browser-control socket rather than the
+// work-control socket, so a page-only seat still receives the tool briefing.
+const ACTIONABLE_FACTORY_KINDS = new Set([
+  "task",
+  "tasks",
+  "requests",
+  "request",
+  "artifacts",
+  "page",
+]);
 
-/** True when the node has an undirected edge to an operational work sink. */
-export const nodeIsConnectedToWork = (
+/** True when the node has an undirected edge to an actionable factory sink. */
+export const nodeHasActionableFactoryEdge = (
   doc: CanvasDoc,
   nodeId: string,
 ): boolean => {
@@ -34,7 +42,7 @@ export const nodeIsConnectedToWork = (
   for (const id of neighbors) {
     const n = doc.nodes.find((x) => x.id === id);
     const kind = n?.ether?.entity?.kind;
-    if (kind && WORK_KINDS.has(kind)) return true;
+    if (kind && ACTIONABLE_FACTORY_KINDS.has(kind)) return true;
   }
   return false;
 };
@@ -192,7 +200,7 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
 
   const connected =
     input.doc && input.nodeId
-      ? nodeIsConnectedToWork(input.doc, input.nodeId)
+      ? nodeHasActionableFactoryEdge(input.doc, input.nodeId)
       : false;
 
   const sessionId = input.sessionId?.trim();

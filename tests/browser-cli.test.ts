@@ -80,6 +80,7 @@ const runCli = (
   options: {
     readonly home: string;
     readonly controlHome?: string;
+    readonly entry?: "browser" | "vellum";
   },
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
   new Promise((resolveRun, rejectRun) => {
@@ -88,7 +89,11 @@ const runCli = (
       HOME: options.home,
       [CONTROL_HOME_ENV]: options.controlHome,
     };
-    const child = spawn("bun", [join(repoRoot, "scripts/browser-cli.ts"), ...args], {
+    const entry =
+      options.entry === "vellum"
+        ? [join(repoRoot, "src/cli/main.ts"), "browser"]
+        : [join(repoRoot, "scripts/browser-cli.ts")];
+    const child = spawn("bun", [...entry, ...args], {
       cwd: repoRoot,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -119,7 +124,7 @@ afterEach(async () => {
 });
 
 describe("packaged browser CLI contract", () => {
-  it("supports both command names with owner-local process-bound requests", async () => {
+  it("supports the canonical vellum browser command and standalone compatibility helper", async () => {
     const root = await newRoot();
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
@@ -130,10 +135,15 @@ describe("packaged browser CLI contract", () => {
     const dispatched = await runCli(["browser", "doctor", "--json"], {
       home: root,
     });
+    const canonical = await runCli(["doctor", "--json"], {
+      home: root,
+      entry: "vellum",
+    });
 
     expect(direct.code, direct.stderr).toBe(0);
     expect(dispatched.code, dispatched.stderr).toBe(0);
-    expect(seen).toHaveLength(2);
+    expect(canonical.code, canonical.stderr).toBe(0);
+    expect(seen).toHaveLength(3);
     for (const request of seen) {
       expect(request.url).toBe("/doctor");
       expect(request.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");

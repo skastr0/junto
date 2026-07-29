@@ -1,5 +1,13 @@
 import { JSONSchema, Schema } from "effect";
 import {
+  CloseRequest,
+  EvalRequest,
+  GotoRequest,
+  OpenRequest,
+  ScreenshotRequest,
+  StopRequest,
+} from "../../shared/browser-control";
+import {
   ArtifactPublishCliArgs,
   EmptyArgs,
   MsgListArgs,
@@ -46,6 +54,52 @@ export interface CommandCapability {
     readonly supports_concurrency_option: boolean;
   };
 }
+
+export interface CapabilityInvocation {
+  readonly port: "browser.automate";
+  readonly command: "vellum browser";
+  readonly discover: "vellum browser pages --json";
+}
+
+const BROWSER_INVOCATION: CapabilityInvocation = {
+  port: "browser.automate",
+  command: "vellum browser",
+  discover: "vellum browser pages --json",
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const invocationsForConnected = (value: unknown): unknown => {
+  if (!Array.isArray(value)) return value;
+  return value.map((entry) => {
+    if (!isRecord(entry) || !Array.isArray(entry.grants)) return entry;
+    const invocations = entry.grants.includes("browser.automate")
+      ? [BROWSER_INVOCATION]
+      : [];
+    return invocations.length > 0 ? { ...entry, invocations } : entry;
+  });
+};
+
+/**
+ * Add command realization to live edge grants. The daemon remains the authority
+ * for what is held; the CLI explains how the agent can exercise a cross-plane
+ * grant without requiring a harness-native tool registry.
+ */
+export const annotateCapabilityInvocations = <T>(value: T): T => {
+  if (!isRecord(value)) return value;
+  const capabilities = isRecord(value.capabilities)
+    ? {
+        ...value.capabilities,
+        connected: invocationsForConnected(value.capabilities.connected),
+      }
+    : value.capabilities;
+  return {
+    ...value,
+    connected: invocationsForConnected(value.connected),
+    ...(capabilities === undefined ? {} : { capabilities }),
+  } as T;
+};
 
 export const renderSchemaContract = (contract: CommandSchemaContract) => ({
   command_id: contract.command_id,
@@ -138,6 +192,63 @@ export const artifactPublishSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
+const browserSchema = (
+  operation: string,
+  command: string,
+  description: string,
+  schema: Schema.Schema.AnyNoContext,
+): CommandSchemaContract => ({
+  command_id: `browser.${operation}`,
+  command: `browser ${command}`,
+  schema_id: `browser.${operation}.input/v1`,
+  description,
+  schema,
+  input_modes: ["positional"],
+});
+
+export const browserPagesSchema = browserSchema(
+  "pages",
+  "pages",
+  "List page nodes admitted by the caller's live browser.automate edges.",
+  EmptyArgs,
+);
+export const browserOpenSchema = browserSchema(
+  "open",
+  "open <vellum-ref>",
+  "Open or reuse a granted page session.",
+  OpenRequest,
+);
+export const browserGotoSchema = browserSchema(
+  "goto",
+  "goto <sessionId> <url>",
+  "Navigate an admitted browser session.",
+  GotoRequest,
+);
+export const browserEvalSchema = browserSchema(
+  "eval",
+  "eval <sessionId> <code>",
+  "Evaluate JavaScript in an admitted browser session.",
+  EvalRequest,
+);
+export const browserScreenshotSchema = browserSchema(
+  "screenshot",
+  "shot <sessionId>",
+  "Capture a server-owned PNG from an admitted browser session.",
+  ScreenshotRequest,
+);
+export const browserCloseSchema = browserSchema(
+  "close",
+  "close <sessionId>",
+  "Detach a browser surface while keeping its session warm.",
+  CloseRequest,
+);
+export const browserStopSchema = browserSchema(
+  "stop",
+  "stop <sessionId>",
+  "Destroy an admitted browser session.",
+  StopRequest,
+);
+
 export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   tasksListSchema,
   tasksClaimSchema,
@@ -147,6 +258,13 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   requestCreateSchema,
   requestEscalateSchema,
   artifactPublishSchema,
+  browserPagesSchema,
+  browserOpenSchema,
+  browserGotoSchema,
+  browserEvalSchema,
+  browserScreenshotSchema,
+  browserCloseSchema,
+  browserStopSchema,
 ];
 
 export const allExamples: ReadonlyArray<CommandExample> = [
@@ -241,6 +359,20 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     name: "list",
     input: { target: "n7" },
     args: ["tasks", "list", '{"target":"n7"}'],
+  },
+  {
+    command_id: "browser.pages",
+    command: "browser pages",
+    name: "list granted pages",
+    args: ["browser", "pages", "--json"],
+    input: {},
+  },
+  {
+    command_id: "browser.open",
+    command: "browser open <vellum-ref>",
+    name: "open a granted page",
+    args: ["browser", "open", "vellum://canvas/work?node=page-1", "--json"],
+    input: { ref: "vellum://canvas/work?node=page-1" },
   },
 ];
 
@@ -382,6 +514,55 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
       supports_concurrency_option: true,
     },
   },
+  {
+    command_id: "browser.pages",
+    command: "browser pages",
+    category: "discovery",
+    description: "List page nodes granted through browser.automate edges.",
+    schemas: [browserPagesSchema],
+    examples: allExamples.filter((e) => e.command_id === "browser.pages"),
+  },
+  {
+    command_id: "browser.open",
+    command: "browser open",
+    category: "workflow",
+    description: "Open or reuse a granted page session.",
+    schemas: [browserOpenSchema],
+    examples: allExamples.filter((e) => e.command_id === "browser.open"),
+  },
+  {
+    command_id: "browser.goto",
+    command: "browser goto",
+    category: "workflow",
+    description: "Navigate an admitted browser session.",
+    schemas: [browserGotoSchema],
+  },
+  {
+    command_id: "browser.eval",
+    command: "browser eval",
+    category: "workflow",
+    description: "Evaluate JavaScript in an admitted browser session.",
+    schemas: [browserEvalSchema],
+  },
+  {
+    command_id: "browser.screenshot",
+    command: "browser shot",
+    category: "workflow",
+    description: "Capture a server-owned page screenshot.",
+    schemas: [browserScreenshotSchema],
+  },
+  {
+    command_id: "browser.close",
+    command: "browser close",
+    category: "workflow",
+    description: "Detach a browser surface while keeping its session warm.",
+    schemas: [browserCloseSchema],
+  },
+  {
+    command_id: "browser.stop",
+    command: "browser stop",
+    category: "workflow",
+    description: "Destroy an admitted browser session.",
+    schemas: [browserStopSchema],
+  },
 ];
-
-void EmptyArgs;

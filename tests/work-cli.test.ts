@@ -16,6 +16,7 @@ import { InputError } from "../src/cli/core/errors";
 import {
   allSchemas,
   allExamples,
+  annotateCapabilityInvocations,
   renderSchemaContract,
 } from "../src/cli/core/discovery";
 import { materializeArtifactParts } from "../src/cli/core/artifact-parts";
@@ -136,6 +137,40 @@ describe("schema/examples from validating schemas", () => {
         }
       }
     }
+  });
+
+  it("discovers the browser surface from schema and live edge grants", () => {
+    expect(allSchemas.map((contract) => contract.command_id)).toEqual(
+      expect.arrayContaining([
+        "browser.pages",
+        "browser.open",
+        "browser.goto",
+        "browser.eval",
+        "browser.screenshot",
+        "browser.close",
+        "browser.stop",
+      ]),
+    );
+
+    const live = annotateCapabilityInvocations({
+      connected: [
+        { id: "page-1", grants: ["browser.automate"] },
+        { id: "tasks", grants: ["tasks.list"] },
+      ],
+      capabilities: {
+        connected: [{ id: "page-1", grants: ["browser.automate"] }],
+      },
+    });
+    expect(live.connected[0]).toMatchObject({
+      id: "page-1",
+      invocations: [{
+        port: "browser.automate",
+        command: "vellum browser",
+        discover: "vellum browser pages --json",
+      }],
+    });
+    expect(live.connected[1]).not.toHaveProperty("invocations");
+    expect(live.capabilities.connected[0]).toHaveProperty("invocations");
   });
 });
 
