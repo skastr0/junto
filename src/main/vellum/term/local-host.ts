@@ -457,6 +457,15 @@ export class LocalSessionHost extends EventEmitter {
 
   /** Open the actor seat. Its harness is declared, never inferred at spawn. */
   createAgentSeat(input: LocalHostAgentSeatInput): TerminalSessionSummary {
+    const bindingId = input.bindingId.trim();
+    const current = this.sessions.get(bindingId);
+    if (current && sessionStatusOf(current) !== "exited") {
+      // One binding owns one live actor generation. Create is an idempotent
+      // ensure at this boundary: renderer remounts, concurrent factory wake,
+      // or duplicate IPC must never turn into permission to signal and replace
+      // a healthy harness. Explicit kill followed by create remains restart.
+      return this.summaryOf(current);
+    }
     return this.open(
       {
         kind: "agent",

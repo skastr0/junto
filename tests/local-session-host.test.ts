@@ -216,6 +216,40 @@ describe("LocalSessionHost", () => {
     );
   });
 
+  it("treats duplicate actor-seat create as an idempotent live ensure", async () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_440),
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = hostWith(fake);
+    const input = {
+      bindingId: "stable-agent-seat",
+      harness: "claude" as const,
+      agentKey: "local:claude",
+      launch: { kind: "harness" as const, argv: ["/usr/local/bin/claude"] },
+      canvasName: "factory",
+      nodeId: "agent-node",
+    };
+
+    const initial = host.createAgentSeat(input);
+    const duplicate = host.createAgentSeat(input);
+
+    expect(duplicate).toEqual(initial);
+    expect(fake.controllers).toHaveLength(1);
+    expect(fake.controllers[0]?.signals).toEqual([]);
+    expect(host.runningCount()).toBe(1);
+
+    expect(host.kill(input.bindingId)).toBe(true);
+    await vi.waitFor(() =>
+      expect(host.get(input.bindingId)?.status).toBe("exited"),
+    );
+    const restarted = host.createAgentSeat(input);
+
+    expect(restarted.epoch).not.toBe(initial.epoch);
+    expect(fake.controllers).toHaveLength(2);
+    expect(host.runningCount()).toBe(1);
+  });
+
   it("enforces control leases and routes IO only through the lease facade", () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(42_500),
