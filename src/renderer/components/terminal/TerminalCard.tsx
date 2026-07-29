@@ -26,7 +26,14 @@ const launchSummary = (
  * No Start/Open/Kill buttons on the card (herdr pattern).
  * Managed-agent seat state paints attention (amber + !) / working (cyan).
  */
-export function TerminalCard({ node }: { readonly node: CanvasNode }) {
+export function TerminalCard({
+  node,
+  graphBlocked = false,
+}: {
+  readonly node: CanvasNode;
+  /** Execution-graph blocked — crimson spinner even when seat is idle. */
+  readonly graphBlocked?: boolean;
+}) {
   const binding = resolveTerminalBinding(node);
   const native = binding?.kind === "native" ? binding : undefined;
   const [session, setSession] = useState<TerminalSessionSummary>();
@@ -83,6 +90,7 @@ export function TerminalCard({ node }: { readonly node: CanvasNode }) {
     seatState,
     running: session?.status === "running",
     starting: session?.status === "starting",
+    graphBlocked,
   });
 
   return (

@@ -182,9 +182,12 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
 function EntityCard({
   node,
   kind,
+  graphBlocked = false,
 }: {
   readonly node: CanvasNode;
   readonly kind: string;
+  /** Execution-graph blocked — crimson spinner even when seat is idle. */
+  readonly graphBlocked?: boolean;
 }) {
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const nameHue = node.color ? accentColor(node.color) : INK;
@@ -239,13 +242,23 @@ function EntityCard({
       : rawName;
   const managed = managedHarness !== undefined && isHarnessId(managedHarness);
   const activity = managed
-    ? terminalActivity({ seatState: seatEvent?.state })
-    : chatActivity({
-        status: coarse?.status ?? "idle",
-        pendingPermission: Boolean(coarse?.pendingPermissionId),
-        tools: coarse?.hasBusyTools ? [{ status: "in_progress" as const }] : [],
-        sending: coarse?.turnBusy ?? false,
-      });
+    ? terminalActivity({
+        seatState: seatEvent?.state,
+        graphBlocked,
+      })
+    : graphBlocked
+      ? {
+          mode: "wave" as const,
+          tone: "crimson" as const,
+          pattern: "arrow-up" as const,
+          label: "blocked",
+        }
+      : chatActivity({
+          status: coarse?.status ?? "idle",
+          pendingPermission: Boolean(coarse?.pendingPermissionId),
+          tools: coarse?.hasBusyTools ? [{ status: "in_progress" as const }] : [],
+          sending: coarse?.turnBusy ?? false,
+        });
   const context = [
     terminalBinding?.kind === "native"
       ? terminalBinding.hostId
@@ -598,9 +611,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "terminal" ? (
-            <TerminalCard node={node} />
+            <TerminalCard node={node} graphBlocked={data.blocked} />
           ) : entityKind === "agent" ? (
-            <EntityCard node={node} kind="agent" />
+            <EntityCard node={node} kind="agent" graphBlocked={data.blocked} />
           ) : (
             <NoteMarkdown source={text} />
           )}

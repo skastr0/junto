@@ -1,8 +1,18 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { Handle, NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
-import { Ban, ExternalLink, Maximize2, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import {
+  Ban,
+  ExternalLink,
+  LocateFixed,
+  Maximize2,
+  Pause,
+  Pencil,
+  Play,
+  Trash2,
+} from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
+import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { isExecutableNode } from "@shared/station";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
 import { resizeNode } from "../../lib/geometry";
@@ -14,6 +24,9 @@ import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-s
 import { attentionOf } from "@shared/attention";
 import { deriveOccupancy } from "@shared/occupancy";
 import { useNodeOccupancyClue } from "../../lib/occupancy-feed";
+import { kernel$ } from "../../lib/kernel-view";
+import { executionGraphForImpact } from "../../lib/impact-mode";
+import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause";
 import { Chip, IconButton, ToolbarPill } from "../ui";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
@@ -35,6 +48,7 @@ function NodeActions({
   toolbarExtras,
   flagBlocker,
   liveHerdrBlocked,
+  shellBlocked,
   nodePaused,
 }: {
   readonly node: CanvasNode;
@@ -46,6 +60,8 @@ function NodeActions({
   readonly flagBlocker: boolean;
   /** Live herdr agent_status blocked — not a document flag. */
   readonly liveHerdrBlocked: boolean;
+  /** Graph blocked or seed chrome — may have a resolvable cause. */
+  readonly shellBlocked: boolean;
   /** Node-scope pause (undefined = not an executable seat, no toggle). */
   readonly nodePaused?: boolean;
 }) {
@@ -57,6 +73,31 @@ function NodeActions({
     : liveHerdrBlocked
       ? "herdr blocked (live) — flag to pin"
       : "flag blocker";
+
+  // Only resolve the waiting-on path while selected + blocked — keeps idle
+  // cards off the kernel/doc subscription for this walk.
+  const doc = use$(state$.doc);
+  const execution = use$(kernel$.execution);
+  const executionRev = use$(kernel$.executionRev);
+  const canvasName = use$(state$.canvasName);
+  const actorRefs = use$(state$.actorRefs);
+  const cause = useMemo(() => {
+    if (!selected || !shellBlocked) return null;
+    const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
+    const graph = executionGraphForImpact(doc, execution, context);
+    return resolveBlockerCause(doc, graph, node.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    selected,
+    shellBlocked,
+    node.id,
+    doc,
+    execution,
+    executionRev,
+    canvasName,
+    actorRefs,
+  ]);
+
   return (
     <NodeToolbar isVisible={selected} position={Position.Top} offset={8}>
       <ToolbarPill>
@@ -89,6 +130,34 @@ function NodeActions({
           </IconButton>
         ) : null}
         {toolbarExtras}
+        {cause ? (
+          <IconButton
+            className="nodrag nopan"
+            aria-label={
+              cause.isSelf
+                ? cause.openWorkDetail
+                  ? `Open blocker cause: ${cause.title}`
+                  : `Focus blocker cause: ${cause.title}`
+                : `Jump to blocker cause: ${cause.title}`
+            }
+            style={{ color: HUE.crimson }}
+            title={
+              cause.isSelf
+                ? cause.openWorkDetail
+                  ? `open cause · ${cause.title}`
+                  : `blocker cause · ${cause.title}`
+                : `jump to cause · ${cause.title}`
+            }
+            data-testid="node-toolbar-blocker-cause"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              focusBlockerCause(cause);
+            }}
+          >
+            <LocateFixed size={14} />
+          </IconButton>
+        ) : null}
         {nodePaused !== undefined ? (
           <IconButton
             className="nodrag nopan"
@@ -232,7 +301,11 @@ export function NodeShell({
         : undefined;
   const primaryHue = primaryFlag ? FLAG_HUES[primaryFlag] : undefined;
   const accent = accentColor(node.color);
-  const border = isBlocker ? HUE.crimson : primaryHue ? withAlpha(primaryHue, 0.52) : borderColor(node.color, selected);
+  const border = shellBlocked
+    ? HUE.crimson
+    : primaryHue
+      ? withAlpha(primaryHue, 0.52)
+      : borderColor(node.color, selected);
   const background = shellBlocked
     ? `linear-gradient(135deg, ${withAlpha(HUE.crimson, 0.12)}, rgba(18,15,13,0.92))`
     : primaryFlag === "attention"
@@ -241,24 +314,26 @@ export function NodeShell({
         ? `linear-gradient(135deg, ${withAlpha(HUE.violet, 0.09)}, rgba(14,13,12,0.96))`
         : "linear-gradient(135deg, rgba(30,25,20,0.94), rgba(14,13,12,0.96))";
   const shadow = selected
-    ? `0 0 0 1px ${withAlpha(accent, 0.25)}, 0 12px 30px rgba(0,0,0,0.22)`
-    : isBlocker
+    ? `0 0 0 1px ${withAlpha(shellBlocked ? HUE.crimson : accent, 0.25)}, 0 12px 30px rgba(0,0,0,0.22)`
+    : shellBlocked
       ? `0 0 0 1px ${withAlpha(HUE.crimson, 0.18)}, 0 10px 28px rgba(0,0,0,0.18)`
       : primaryFlag === "attention"
         ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
         : primaryFlag === "parked"
           ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px rgba(0,0,0,0.18)`
           : "0 10px 28px rgba(0,0,0,0.18)";
+  // Pulse + corner spin for any stoppage chrome (graph blocked, flag, herdr).
+  // isBlocker alone used to skip actors blocked only by upstream criteria.
   return (
     <div
-      className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${isBlocker ? "vellum-blocker" : ""}`}
+      className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${shellBlocked ? "vellum-blocker" : ""}`}
       data-blocked={shellBlocked ? "true" : undefined}
       data-herdr-blocked={liveHerdrBlocked ? "true" : undefined}
       data-seat-attention={liveSeatAttention ? "true" : undefined}
       data-occupancy={occupancyState}
       data-attention={attention === "idle" && liveSeatAttention ? "fire" : attention}
       style={{
-        border: `1px solid ${selected ? withAlpha(isBlocker ? HUE.crimson : accent, 0.75) : border}`,
+        border: `1px solid ${selected ? withAlpha(isBlocker || shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
         background,
         boxShadow: shadow,
       }}
@@ -309,14 +384,29 @@ export function NodeShell({
         toolbarExtras={toolbarExtras}
         flagBlocker={flagBlocker}
         liveHerdrBlocked={liveHerdrBlocked}
+        shellBlocked={shellBlocked}
         nodePaused={executable ? nodePaused : undefined}
       />
-      {flags.length > 0 || liveHerdrBlocked || liveSeatAttention ? (
+      {flags.length > 0 || liveHerdrBlocked || liveSeatAttention || (shellBlocked && !flagBlocker && !liveHerdrBlocked) ? (
         <div className="vellum-node__flag-rail">
+          {shellBlocked && !flagBlocker && !liveHerdrBlocked ? (
+            <span
+              key="graph-blocked"
+              className="vellum-node__flag vellum-node__flag--blocked-live"
+              title="blocked — waiting on upstream"
+              style={{
+                color: FLAG_HUES.blocker,
+                borderColor: withAlpha(FLAG_HUES.blocker, 0.36),
+                background: withAlpha(FLAG_HUES.blocker, 0.09),
+              }}
+            >
+              blocked
+            </span>
+          ) : null}
           {liveHerdrBlocked && !flagBlocker ? (
             <span
               key="herdr-blocked"
-              className="vellum-node__flag"
+              className="vellum-node__flag vellum-node__flag--blocked-live"
               title="herdr blocked (live)"
               style={{
                 color: FLAG_HUES.blocker,

@@ -194,6 +194,11 @@ export function terminalActivity(input: {
   readonly seatState?: AgentSeatState | null;
   readonly running?: boolean;
   readonly starting?: boolean;
+  /**
+   * Execution-graph blocked (waiting on upstream request/input, seed, etc.).
+   * Seat-local attention still wins — that needs input on *this* seat.
+   */
+  readonly graphBlocked?: boolean;
 }): ActivitySpec {
   if (input.seatState === "attention") {
     return {
@@ -201,6 +206,15 @@ export function terminalActivity(input: {
       tone: SEVERITY_TONE.attention,
       pattern: "ripple",
       label: "needs operator input",
+    };
+  }
+  // Stoppage cone membership: crimson spinner even when the seat is idle.
+  if (input.graphBlocked) {
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.blocked,
+      pattern: "arrow-up",
+      label: "blocked",
     };
   }
   if (input.seatState === "working") {

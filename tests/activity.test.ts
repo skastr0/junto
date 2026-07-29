@@ -148,6 +148,27 @@ describe("terminalActivity", () => {
     });
   });
 
+  it("waves crimson when graph-blocked even if the seat is idle", () => {
+    expect(
+      terminalActivity({ seatState: "idle", graphBlocked: true }),
+    ).toMatchObject({
+      mode: "wave",
+      tone: "crimson",
+      pattern: "arrow-up",
+      label: "blocked",
+    });
+  });
+
+  it("seat attention still beats graph-blocked (local input first)", () => {
+    expect(
+      terminalActivity({ seatState: "attention", graphBlocked: true }),
+    ).toMatchObject({
+      mode: "wave",
+      tone: "amber",
+      pattern: "ripple",
+    });
+  });
+
   it("falls back to process lifecycle for raw terminals", () => {
     expect(terminalActivity({ starting: true })).toMatchObject({
       mode: "wave",

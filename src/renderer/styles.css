@@ -1113,6 +1113,8 @@ html[data-surface-motion="paused"] *::after {
   animation: none !important;
 }
 .react-flow.is-viewport-busy .vellum-blocker,
+.react-flow.is-viewport-busy .vellum-blocker::after,
+.react-flow.is-viewport-busy .vellum-node__flag--blocked-live,
 .react-flow.is-viewport-busy .vellum-status-dot-pulse,
 .react-flow.is-viewport-busy .vellum-edge-ripple .react-flow__edge-path,
 .react-flow.is-viewport-busy path.vellum-edge-ripple,
@@ -1533,18 +1535,60 @@ html[data-surface-motion="paused"] *::after {
   border-color: rgba(237, 230, 218, 0.28);
 }
 
-/* --- Blocker pulse: multi-second, quiet, no bounce -------------------- */
+/* --- Blocker pulse + corner spin: readable stoppage without bounce ---- */
 .vellum-blocker {
-  animation: vellumPulse 3s ease-in-out infinite;
+  animation: vellumPulse 1.6s ease-in-out infinite;
+  position: relative;
+}
+/* Corner spinner: continuous crimson tick so blocked seats don't read as static. */
+.vellum-blocker::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(229, 72, 77, 0.88);
+  border-top-color: transparent;
+  border-left-color: rgba(229, 72, 77, 0.28);
+  box-shadow: 0 0 8px rgba(229, 72, 77, 0.35);
+  animation: vellumBlockerSpin 0.75s linear infinite;
+  pointer-events: none;
+  z-index: 3;
 }
 
 @keyframes vellumPulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(229, 72, 77, 0);
+    box-shadow:
+      0 0 0 0 rgba(229, 72, 77, 0),
+      0 0 10px 0 rgba(229, 72, 77, 0);
   }
   50% {
-    box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.22);
+    box-shadow:
+      0 0 0 4px rgba(229, 72, 77, 0.3),
+      0 0 18px 2px rgba(229, 72, 77, 0.16);
+  }
+}
+
+@keyframes vellumBlockerSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Live blocked flag chip — soft opacity pulse so the rail isn't static text. */
+.vellum-node__flag--blocked-live {
+  animation: vellumBlockerFlagPulse 1.2s ease-in-out infinite;
+}
+@keyframes vellumBlockerFlagPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
   }
 }
 
@@ -1566,6 +1610,8 @@ html[data-surface-motion="paused"] *::after {
 /* Hidden/reduced-motion: freeze continuous status/edge paint entirely. */
 html[data-surface-motion="paused"] .vellum-status-dot-pulse,
 html[data-surface-motion="paused"] .vellum-blocker,
+html[data-surface-motion="paused"] .vellum-blocker::after,
+html[data-surface-motion="paused"] .vellum-node__flag--blocked-live,
 html[data-surface-motion="paused"] .vellum-edge-ripple .react-flow__edge-path,
 html[data-surface-motion="paused"] path.vellum-edge-ripple,
 html[data-surface-motion="paused"] .vellum-dot--pulse,
@@ -1576,6 +1622,8 @@ html[data-surface-motion="paused"] .vellum-armed-dot {
 
 @media (prefers-reduced-motion: reduce) {
   .vellum-blocker,
+  .vellum-blocker::after,
+  .vellum-node__flag--blocked-live,
   .vellum-status-dot-pulse,
   .vellum-edge-ripple .react-flow__edge-path,
   path.vellum-edge-ripple {
@@ -1618,10 +1666,6 @@ path.vellum-edge-ripple {
    (attention / activity_blocked / stalled) stay visually distinct per I12 —
    ring offset, rim offset, and a corner meter never collapse into one look.
    `gone` is muted, not crimson — I20 forbids implying revoke/compromise. */
-.vellum-node[data-occupancy="empty"] {
-  outline: 1.5px dashed rgba(143, 163, 176, 0.32);
-  outline-offset: 3px;
-}
 .vellum-node[data-occupancy="idle"] {
   outline: 1px solid rgba(143, 163, 176, 0.22);
   outline-offset: 2px;
