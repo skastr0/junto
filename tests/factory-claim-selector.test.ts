@@ -1,6 +1,9 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { selectFactoryClaims } from "../src/shared/factory-tick";
+import {
+  actorsNeedingWake,
+  selectFactoryClaims,
+} from "../src/shared/factory-tick";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { ActorRef } from "../src/shared/work-protocol";
 
@@ -121,5 +124,71 @@ describe("factory claim selector", () => {
     );
 
     expect(selected[0]?.actor).toEqual(peer);
+  });
+
+  describe("lazy actor wake", () => {
+    const peer = Schema.decodeUnknownSync(ActorRef)({
+      seatId: `seat_${"2".repeat(64)}`,
+      canvasName: "demo",
+      nodeId: "peer",
+    });
+    const twoActors: CanvasDoc = {
+      ...doc,
+      nodes: [
+        ...doc.nodes,
+        {
+          ...doc.nodes[0]!,
+          id: "peer",
+          ether: {
+            ...doc.nodes[0]!.ether,
+            terminal: { bindingId: "bind-2", harness: "claude" },
+          },
+        },
+      ],
+      edges: [...doc.edges, { id: "e2", fromNode: "peer", toNode: "tasks" }],
+    };
+    const resolve = (ref: { readonly nodeId: string }) =>
+      ref.nodeId === "worker" ? worker : ref.nodeId === "peer" ? peer : undefined;
+
+    it("wakes nobody when there is no open work", () => {
+      const idle: CanvasDoc = {
+        ...twoActors,
+        nodes: twoActors.nodes.map((node) =>
+          node.id === "tasks"
+            ? { ...node, ether: { ...node.ether, tasks: { items: [] } } }
+            : node,
+        ),
+      };
+      expect([
+        ...actorsNeedingWake(idle, "demo", resolve, { isAwake: () => false }),
+      ]).toEqual([]);
+    });
+
+    it("wakes the actor an open task would fall to", () => {
+      expect([
+        ...actorsNeedingWake(twoActors, "demo", resolve, {
+          isAwake: () => false,
+        }),
+      ]).toEqual(["peer"]);
+    });
+
+    // Coverage is keyed by task, not by actor: the live seat here is not even
+    // the one the unrestricted pass would pick, and still nobody is woken.
+    it("leaves both asleep when a live seat can already absorb the work", () => {
+      expect([
+        ...actorsNeedingWake(twoActors, "demo", resolve, {
+          isAwake: (actor) => actor.id === "worker",
+        }),
+      ]).toEqual([]);
+    });
+
+    it("does not wake a paused seat", () => {
+      expect([
+        ...actorsNeedingWake(twoActors, "demo", resolve, {
+          isAwake: () => false,
+          seatPaused: (nodeId) => nodeId === "peer",
+        }),
+      ]).toEqual(["worker"]);
+    });
   });
 });

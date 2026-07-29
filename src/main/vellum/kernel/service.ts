@@ -58,6 +58,7 @@ import { StationRepository } from "../station/repository";
 import { StationLivePeerRegistry } from "../station/session-registry";
 import { KernelStateRepository } from "./repository";
 import {
+  actorsNeedingWake,
   isClaimableTaskSink,
   selectFactoryClaims,
 } from "@shared/factory-tick";
@@ -711,10 +712,18 @@ const makeKernelService = (
 
   // --- evaluation cycle --------------------------------------------------------
 
-  // Seat creation must precede watcher/timer evaluation, but it is not itself
-  // a factory claim tick. A newly-created seat can still be `starting` (and its
-  // managed drive not ready), so cycle.ts retains zero-acceptance scheduled
-  // pulses and this pre-pass offers them again on a later cycle.
+  /**
+   * A managed actor is lazy: until something wants it, it is only a node on
+   * the canvas. Starting every authored seat on boot (and again on every node
+   * add) charged the whole region's process cost up front, which is the tax
+   * this pre-pass exists to avoid.
+   *
+   * Waking is therefore demand-driven: `actorsNeedingWake` names exactly the
+   * actors that open work would fall to and that no live seat can absorb.
+   *
+   * Explicit operator activation (double-click → terminal open) remains the
+   * other start authority, and it does not route through here.
+   */
   const startManagedSeats = (
     scope: ActiveStationScope,
     registry: ActiveActorRegistry,
@@ -724,9 +733,32 @@ const makeKernelService = (
       if (!generationIsActive(generation)) return;
       const state = pause.stateFor(canvasName);
       if (!state.playing) continue;
+
+      const seatPausedHere = (nodeId: string): boolean =>
+        seatPaused(state, doc, nodeId);
+      const wanted = actorsNeedingWake(doc, canvasName, registry.resolve, {
+        seatPaused: seatPausedHere,
+        // Awake covers both "already live here" and "not this station's seat
+        // to start" — a Remote's actor is started by its own installation.
+        isAwake: (node) => {
+          const authority = runtimeAuthority(scope, registry, canvasName, node);
+          if (authority === undefined) return true;
+          if (!isManagedSeatRuntimeLocal(canvasName, node, authority)) {
+            return true;
+          }
+          const surface = actorDeliverySurfaceOf(node);
+          return (
+            surface?._tag === "managedAgent" &&
+            localManagedSeatReadyForClaim(surface.bindingId)
+          );
+        },
+      });
+      if (wanted.size === 0) continue;
+
       for (const node of doc.nodes) {
         if (!generationIsActive(generation)) return;
-        if (seatPaused(state, doc, node.id)) continue;
+        if (!wanted.has(node.id)) continue;
+        if (seatPausedHere(node.id)) continue;
         const authority = runtimeAuthority(
           scope,
           registry,

@@ -70,7 +70,6 @@ import {
   type AgentLocationRequest,
 } from "./terminal/AgentLocationModal";
 import { HarnessMark } from "./herdr/HarnessMark";
-import { openTerminal } from "../lib/terminal-actions";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
@@ -1554,13 +1553,10 @@ function CanvasGraph() {
           addNode(node, { edit: false });
           state$.focusNodeId.set(node.id);
           setAgentLocation(null);
-          // A foreign actor starts on its own installation after projection.
-          if (
-            choices.host ===
-            (state$.settings.station.hostId.peek() || "local")
-          ) {
-            void openTerminal(node, "focus", { resume: false });
-          }
+          // A new actor is lazy: it lands as a node and nothing else. Its
+          // process starts when the operator activates it (double-click) or
+          // when the factory hands it a task — authoring a region should not
+          // charge a harness launch per card.
         }}
       />
     ) : null}
