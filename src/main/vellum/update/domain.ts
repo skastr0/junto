@@ -42,31 +42,40 @@ export const mintAuthorizedCandidate = (
   return candidate;
 };
 
+/**
+ * Bind a successful preflight receipt to a minted candidate.
+ * Fails as Effect error (never throws into defect).
+ */
 export const bindPreflightReceipt = (
   candidate: AuthorizedUpdateCandidate,
   receipt: StateUpdatePreflightReceipt,
   zipSha256: string,
-): AuthorizedUpdateCandidate => {
-  if (!authorizedCandidates.has(candidate)) {
-    throw updateError(
-      "candidate-mismatch",
-      "preflight bind requires a minted update candidate",
-    );
-  }
-  if (candidate.zipSha256 !== zipSha256) {
-    throw updateError(
-      "candidate-mismatch",
-      "preflight receipt zip digest does not match the downloaded candidate",
-    );
-  }
-  const bound: AuthorizedUpdateCandidate = {
-    ...candidate,
-    preflightReceipt: receipt,
-    authorizedAt: new Date().toISOString(),
-  };
-  authorizedCandidates.add(bound);
-  return bound;
-};
+): Effect.Effect<AuthorizedUpdateCandidate, UpdateError> =>
+  Effect.gen(function* () {
+    if (!authorizedCandidates.has(candidate)) {
+      return yield* Effect.fail(
+        updateError(
+          "candidate-mismatch",
+          "preflight bind requires a minted update candidate",
+        ),
+      );
+    }
+    if (candidate.zipSha256 !== zipSha256) {
+      return yield* Effect.fail(
+        updateError(
+          "candidate-mismatch",
+          "preflight receipt zip digest does not match the downloaded candidate",
+        ),
+      );
+    }
+    const bound: AuthorizedUpdateCandidate = {
+      ...candidate,
+      preflightReceipt: receipt,
+      authorizedAt: new Date().toISOString(),
+    };
+    authorizedCandidates.add(bound);
+    return bound;
+  });
 
 export const isMintedCandidate = (
   candidate: AuthorizedUpdateCandidate | undefined,
@@ -74,8 +83,19 @@ export const isMintedCandidate = (
   candidate !== undefined && authorizedCandidates.has(candidate);
 
 /**
- * Install is permitted only for the exact minted candidate that has a
- * bound preflight receipt for the same ZIP digest.
+ * Operator may Restart: minted candidate with a staged admitted app path.
+ * Surfaces as UpdateStatus.canInstall in the ready phase.
+ */
+export const canOperatorInstall = (
+  candidate: AuthorizedUpdateCandidate | undefined,
+): boolean =>
+  isMintedCandidate(candidate) &&
+  candidate.stagedAppPath !== undefined &&
+  candidate.stagedAppPath.length > 0;
+
+/**
+ * Install finalize is permitted only for the exact minted candidate that has
+ * a bound preflight receipt for the same ZIP digest.
  */
 export const canAuthorizeInstall = (
   candidate: AuthorizedUpdateCandidate | undefined,

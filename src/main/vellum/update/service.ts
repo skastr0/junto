@@ -8,6 +8,7 @@ import {
 import {
   bindPreflightReceipt,
   canAuthorizeInstall,
+  canOperatorInstall,
   hashFileSha256,
   isMintedCandidate,
   mintAuthorizedCandidate,
@@ -78,6 +79,8 @@ type LiveState = {
   readonly installInFlight: boolean;
 };
 
+const BUSY_PHASES = new Set(["ready", "downloading", "installing"]);
+
 const projectStatus = (
   base: Omit<UpdateStatus, "canInstall"> & {
     readonly canInstall?: boolean;
@@ -89,7 +92,8 @@ const projectStatus = (
   const cleaned: Record<string, unknown> = {
     phase: base.phase,
     currentVersion: base.currentVersion,
-    canInstall: canAuthorizeInstall(candidate),
+    // Operator Restart affordance once staged app is admitted+minted.
+    canInstall: canOperatorInstall(candidate),
   };
   if (base.available !== undefined) cleaned.available = base.available;
   if (base.progress !== undefined) cleaned.progress = base.progress;
@@ -149,10 +153,16 @@ export const finalizeInstallAfterQuiesce = (input: {
       ),
     );
 
-    const bound = bindPreflightReceipt(
+    const bound = yield* bindPreflightReceipt(
       input.candidate,
       receipt,
       input.plan.zipSha256,
+    ).pipe(
+      Effect.tapError(() =>
+        Effect.sync(() => {
+          input.host.relaunchWithoutInstall();
+        }),
+      ),
     );
     if (!canAuthorizeInstall(bound)) {
       input.host.relaunchWithoutInstall();
@@ -165,8 +175,20 @@ export const finalizeInstallAfterQuiesce = (input: {
     }
 
     yield* releaseStaging(input.plan.stagingRoot);
-    yield* Effect.sync(() => {
-      input.provider.quitAndInstall();
+    yield* Effect.try({
+      try: () => {
+        input.provider.quitAndInstall();
+      },
+      catch: (cause) => {
+        input.host.relaunchWithoutInstall();
+        return updateError(
+          "install-refused",
+          cause instanceof Error
+            ? `quitAndInstall failed: ${cause.message}`
+            : "quitAndInstall failed",
+          cause,
+        );
+      },
     });
 
     return projectStatus(
@@ -176,7 +198,6 @@ export const finalizeInstallAfterQuiesce = (input: {
         ...(input.plan.available === undefined
           ? {}
           : { available: input.plan.available }),
-        canInstall: true,
       },
       bound,
     );
@@ -197,8 +218,18 @@ export const makeUpdateService = (
     const expandZip = options.expandZip ?? expandMacUpdateZip;
     const runPreflight = options.runPreflight ?? runCandidateStatePreflight;
 
-    // Last minted candidate retained for finalize after runtime dispose.
-    let lastCandidate: AuthorizedUpdateCandidate | undefined;
+    // Serial provider-event queue — prevent concurrent Effect.runPromise races.
+    let eventChain: Promise<void> = Promise.resolve();
+    const enqueueProviderEvent = (work: Effect.Effect<void>): void => {
+      eventChain = eventChain
+        .then(() =>
+          Effect.runPromise(work).then(
+            () => undefined,
+            () => undefined,
+          ),
+        )
+        .catch(() => undefined);
+    };
 
     const publish = (next: LiveState): Effect.Effect<UpdateStatus> =>
       Effect.gen(function* () {
@@ -226,7 +257,7 @@ export const makeUpdateService = (
     const onProviderEvent = (
       event: Parameters<Parameters<UpdateProvider["start"]>[0]>[0],
     ): void => {
-      void Effect.runPromise(
+      enqueueProviderEvent(
         Effect.gen(function* () {
           const current = yield* read();
           if (current.installInFlight) return;
@@ -265,7 +296,6 @@ export const makeUpdateService = (
               return;
             }
             case "not-available": {
-              lastCandidate = undefined;
               yield* setStatus((state) => ({
                 ...state,
                 candidate: undefined,
@@ -315,7 +345,6 @@ export const makeUpdateService = (
                   ? {}
                   : { stagedAppPath: executablePath }),
               });
-              lastCandidate = candidate;
               if (current.stagingRoot !== undefined) {
                 yield* releaseStaging(current.stagingRoot);
               }
@@ -385,8 +414,9 @@ export const makeUpdateService = (
                 },
                 state.candidate,
               ),
-            })),
+            })).pipe(Effect.asVoid),
           ),
+          Effect.asVoid,
         ),
       );
     };
@@ -402,6 +432,10 @@ export const makeUpdateService = (
       function* () {
         const current = yield* read();
         if (current.installInFlight) {
+          return current.status;
+        }
+        // Skip scheduled/operator check while download/ready/install is live.
+        if (BUSY_PHASES.has(current.status.phase)) {
           return current.status;
         }
         yield* Effect.tryPromise({
@@ -461,10 +495,12 @@ export const makeUpdateService = (
       }
       const zipSha256 = yield* hashFileSha256(candidate.downloadedFile);
       if (zipSha256 !== candidate.zipSha256) {
-        lastCandidate = undefined;
+        const staleStaging = current.stagingRoot;
+        yield* releaseStaging(staleStaging);
         yield* setStatus((state) => ({
           ...state,
           candidate: undefined,
+          stagingRoot: undefined,
           status: projectStatus(
             {
               phase: "error",
@@ -512,7 +548,6 @@ export const makeUpdateService = (
         currentVersion: options.currentVersion,
       };
       installPlans.add(plan);
-      lastCandidate = candidate;
       return { plan, candidate };
     });
 
@@ -583,6 +618,7 @@ export const makeUpdateService = (
  * Join the application ManagedRuntime as a scoped coordinator.
  * Background checks: ~30s after startup, then every six hours.
  * Network failures stay quiet (Effect.ignore) and retry on the next tick.
+ * Skips when phase is ready|downloading|installing (see check()).
  */
 export const makeUpdateServiceLayer = (
   options: UpdateServiceOptions,

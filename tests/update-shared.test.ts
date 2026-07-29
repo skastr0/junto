@@ -12,15 +12,16 @@ describe("shared update schemas", () => {
     expect(status.currentVersion).toBe("0.1.0");
   });
 
-  it("decodes ready with available release", () => {
+  it("decodes ready with available release and operator canInstall", () => {
     const status = decodeUpdateStatus({
       phase: "ready",
       currentVersion: "0.1.0",
       available: { version: "0.2.0", releaseName: "next" },
-      canInstall: false,
+      canInstall: true,
       lastCheckedAt: "2026-07-28T00:00:00.000Z",
     });
     expect(status.available?.version).toBe("0.2.0");
+    expect(status.canInstall).toBe(true);
   });
 
   it("rejects unknown phases", () => {

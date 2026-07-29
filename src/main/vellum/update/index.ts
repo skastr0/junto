@@ -3,12 +3,19 @@ export {
   admitsRemoteAutoRollout,
   bindPreflightReceipt,
   canAuthorizeInstall,
+  canOperatorInstall,
   hashFileSha256,
   isMintedCandidate,
   mintAuthorizedCandidate,
   remoteRolloutTargetVersion,
   type AuthorizedUpdateCandidate,
 } from "./domain";
+export {
+  admitStagedMacApp,
+  type AdmitMacAppCommand,
+  type AdmitStagedMacAppOptions,
+} from "./admit-mac-app";
+export { sealedPreflightEnv } from "./preflight-runner";
 export {
   planFleetRemoteUpdates,
   remotesMayReceiveFeedVersion,

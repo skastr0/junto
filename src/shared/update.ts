@@ -66,7 +66,11 @@ export const UpdateStatus = Schema.Struct({
   available: Schema.optionalWith(AvailableRelease, { exact: true }),
   progress: Schema.optionalWith(UpdateDownloadProgress, { exact: true }),
   error: Schema.optionalWith(UpdateErrorInfo, { exact: true }),
-  /** True only after readiness gate bound the exact downloaded candidate. */
+  /**
+   * Operator may Restart: minted candidate with admitted staged app path.
+   * True in phase `ready` once expand+admit succeeded. Final quitAndInstall
+   * still requires a bound preflight receipt (main-side canAuthorizeInstall).
+   */
   canInstall: Schema.Boolean,
   lastCheckedAt: Schema.optionalWith(Schema.String, { exact: true }),
 });

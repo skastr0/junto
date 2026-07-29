@@ -7,10 +7,7 @@ import {
   UpdateService,
   type InstallPlan,
 } from "../src/main/vellum/update/service";
-import {
-  mintAuthorizedCandidate,
-  type AuthorizedUpdateCandidate,
-} from "../src/main/vellum/update/domain";
+import type { AuthorizedUpdateCandidate } from "../src/main/vellum/update/domain";
 import type {
   UpdateProvider,
   UpdateProviderListener,
@@ -35,11 +32,23 @@ const makeFakeProvider = (): {
   readonly provider: UpdateProvider;
   readonly emit: (event: Parameters<UpdateProviderListener>[0]) => void;
   readonly quitAndInstall: ReturnType<typeof vi.fn>;
+  readonly check: ReturnType<typeof vi.fn>;
 } => {
   let listener: UpdateProviderListener | undefined;
   const quitAndInstall = vi.fn();
+  const check = vi.fn(async () => {
+    listener?.({ _tag: "checking" });
+    listener?.({
+      _tag: "available",
+      release: {
+        version: "0.2.0",
+        releaseName: "test",
+      } satisfies AvailableRelease,
+    });
+  });
   return {
     quitAndInstall,
+    check,
     emit: (event) => {
       listener?.(event);
     },
@@ -51,16 +60,7 @@ const makeFakeProvider = (): {
       stop: () => {
         listener = undefined;
       },
-      check: async () => {
-        listener?.({ _tag: "checking" });
-        listener?.({
-          _tag: "available",
-          release: {
-            version: "0.2.0",
-            releaseName: "test",
-          } satisfies AvailableRelease,
-        });
-      },
+      check: () => check(),
       quitAndInstall: () => {
         quitAndInstall();
       },
@@ -89,6 +89,18 @@ const receipt = (
     ready: true,
   }) as StateUpdatePreflightReceipt;
 
+const waitFor = async (
+  predicate: () => Promise<boolean>,
+  timeoutMs = 500,
+): Promise<void> => {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("condition not met before timeout");
+};
+
 describe("UpdateService", () => {
   it("tracks check → available through the provider", async () => {
     const { provider } = makeFakeProvider();
@@ -104,9 +116,14 @@ describe("UpdateService", () => {
     );
 
     const status = await Effect.runPromise(service.check);
-    // Provider events are applied asynchronously via Effect.runPromise;
-    // allow a turn for the available event to land.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(async () => {
+      const latest = await Effect.runPromise(service.getState);
+      return (
+        latest.phase === "available" ||
+        latest.phase === "checking" ||
+        status.phase === "checking"
+      );
+    });
     const latest = await Effect.runPromise(service.getState);
     expect(
       latest.phase === "available" ||
@@ -137,69 +154,14 @@ describe("UpdateService", () => {
     }
   });
 
-  it("finalizeInstallAfterQuiesce binds receipt then quitAndInstall", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-update-svc-"));
+  it("sets canInstall true when ready with staged app path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-update-ready-"));
     roots.push(root);
     const zipPath = join(root, "update.zip");
-    const body = Buffer.from("zip-body");
+    const body = Buffer.from("zip-body-ready");
     await writeFile(zipPath, body);
-    const zipSha256 = createHash("sha256").update(body).digest("hex");
 
-    const { provider, quitAndInstall } = makeFakeProvider();
-    const candidate = mintAuthorizedCandidate({
-      version: "0.2.0",
-      downloadedFile: zipPath,
-      zipSha256,
-      stagedAppPath: join(root, "fake-exec"),
-    });
-
-    const plan: InstallPlan = {
-      version: "0.2.0",
-      downloadedFile: zipPath,
-      zipSha256,
-      executablePath: join(root, "fake-exec"),
-      stagingRoot: undefined,
-      available: { version: "0.2.0" },
-      currentVersion: "0.1.0",
-    };
-    // Mint plan membership through prepareInstall WeakSet by reusing
-    // isMintedInstallPlan path: finalize checks plan WeakSet.
-    // We need a plan minted by prepareInstall — use the service path.
-    const service = await Effect.runPromise(
-      makeUpdateService({
-        currentVersion: "0.1.0",
-        provider,
-        host: {
-          quiesceForPreflight: async () => undefined,
-          relaunchWithoutInstall: () => undefined,
-        },
-        expandZip: () =>
-          Effect.succeed({
-            stagingRoot: root,
-            appPath: join(root, "Vellum Command.app"),
-            executablePath: join(root, "fake-exec"),
-          }),
-      }),
-    );
-
-    // Drive download event so prepareInstall can succeed
-    const fake = makeFakeProvider();
-    // Use the same provider instance that service listens on — emit via
-    // the first provider's check is not enough; emit downloaded directly.
-    // Recreate with shared emit:
-    void service;
-    void candidate;
-    void plan;
-    void quitAndInstall;
-    void fake;
-
-    // Direct finalize with a properly minted plan from prepare after download:
     const harness = makeFakeProvider();
-    let captured: {
-      plan: InstallPlan;
-      candidate: AuthorizedUpdateCandidate;
-    } | undefined;
-
     const svc = await Effect.runPromise(
       makeUpdateService({
         currentVersion: "0.1.0",
@@ -222,7 +184,157 @@ describe("UpdateService", () => {
       release: { version: "0.2.0" },
       downloadedFile: zipPath,
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(async () => {
+      const state = await Effect.runPromise(svc.getState);
+      return state.phase === "ready";
+    });
+    const ready = await Effect.runPromise(svc.getState);
+    expect(ready.phase).toBe("ready");
+    expect(ready.canInstall).toBe(true);
+  });
+
+  it("skips check when phase is ready", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-update-skip-"));
+    roots.push(root);
+    const zipPath = join(root, "update.zip");
+    await writeFile(zipPath, Buffer.from("zip-body-skip"));
+
+    const harness = makeFakeProvider();
+    const svc = await Effect.runPromise(
+      makeUpdateService({
+        currentVersion: "0.1.0",
+        provider: harness.provider,
+        host: {
+          quiesceForPreflight: async () => undefined,
+          relaunchWithoutInstall: () => undefined,
+        },
+        expandZip: () =>
+          Effect.succeed({
+            stagingRoot: root,
+            appPath: join(root, "Vellum Command.app"),
+            executablePath: join(root, "fake-exec"),
+          }),
+      }),
+    );
+
+    harness.emit({
+      _tag: "downloaded",
+      release: { version: "0.2.0" },
+      downloadedFile: zipPath,
+    });
+    await waitFor(async () => {
+      const state = await Effect.runPromise(svc.getState);
+      return state.phase === "ready";
+    });
+    harness.check.mockClear();
+    const status = await Effect.runPromise(svc.check);
+    expect(status.phase).toBe("ready");
+    expect(harness.check).not.toHaveBeenCalled();
+  });
+
+  it("serializes concurrent provider events", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-update-serial-"));
+    roots.push(root);
+    const zipA = join(root, "a.zip");
+    const zipB = join(root, "b.zip");
+    await writeFile(zipA, Buffer.from("zip-a"));
+    await writeFile(zipB, Buffer.from("zip-b"));
+
+    let expandCount = 0;
+    let maxConcurrent = 0;
+    let inFlight = 0;
+    const harness = makeFakeProvider();
+    const svc = await Effect.runPromise(
+      makeUpdateService({
+        currentVersion: "0.1.0",
+        provider: harness.provider,
+        host: {
+          quiesceForPreflight: async () => undefined,
+          relaunchWithoutInstall: () => undefined,
+        },
+        expandZip: () =>
+          Effect.tryPromise({
+            try: async () => {
+              inFlight += 1;
+              maxConcurrent = Math.max(maxConcurrent, inFlight);
+              expandCount += 1;
+              await new Promise((resolve) => setTimeout(resolve, 30));
+              inFlight -= 1;
+              return {
+                stagingRoot: root,
+                appPath: join(root, "Vellum Command.app"),
+                executablePath: join(root, "fake-exec"),
+              };
+            },
+            catch: (cause) => cause as never,
+          }),
+      }),
+    );
+
+    harness.emit({
+      _tag: "downloaded",
+      release: { version: "0.2.0" },
+      downloadedFile: zipA,
+    });
+    harness.emit({
+      _tag: "downloaded",
+      release: { version: "0.2.1" },
+      downloadedFile: zipB,
+    });
+    await waitFor(async () => {
+      const state = await Effect.runPromise(svc.getState);
+      return (
+        expandCount >= 2 &&
+        state.phase === "ready" &&
+        state.available?.version === "0.2.1"
+      );
+    });
+    expect(maxConcurrent).toBe(1);
+    const state = await Effect.runPromise(svc.getState);
+    expect(state.phase).toBe("ready");
+    expect(state.available?.version).toBe("0.2.1");
+  });
+
+  it("finalizeInstallAfterQuiesce binds receipt then quitAndInstall", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-update-svc-"));
+    roots.push(root);
+    const zipPath = join(root, "update.zip");
+    const body = Buffer.from("zip-body");
+    await writeFile(zipPath, body);
+    const zipSha256 = createHash("sha256").update(body).digest("hex");
+
+    let captured: {
+      plan: InstallPlan;
+      candidate: AuthorizedUpdateCandidate;
+    } | undefined;
+
+    const harness = makeFakeProvider();
+    const svc = await Effect.runPromise(
+      makeUpdateService({
+        currentVersion: "0.1.0",
+        provider: harness.provider,
+        host: {
+          quiesceForPreflight: async () => undefined,
+          relaunchWithoutInstall: () => undefined,
+        },
+        expandZip: () =>
+          Effect.succeed({
+            stagingRoot: root,
+            appPath: join(root, "Vellum Command.app"),
+            executablePath: join(root, "fake-exec"),
+          }),
+      }),
+    );
+
+    harness.emit({
+      _tag: "downloaded",
+      release: { version: "0.2.0" },
+      downloadedFile: zipPath,
+    });
+    await waitFor(async () => {
+      const state = await Effect.runPromise(svc.getState);
+      return state.phase === "ready" && state.canInstall;
+    });
 
     const prepared = await Effect.runPromise(svc.prepareInstall);
     captured = prepared;
@@ -247,6 +359,65 @@ describe("UpdateService", () => {
     expect(status.phase).toBe("installing");
     expect(status.canInstall).toBe(true);
     expect(harness.quitAndInstall).toHaveBeenCalledOnce();
+  });
+
+  it("relaunchWithoutInstall when quitAndInstall throws", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-update-quit-fail-"));
+    roots.push(root);
+    const zipPath = join(root, "update.zip");
+    await writeFile(zipPath, Buffer.from("zip-quit-fail"));
+
+    const harness = makeFakeProvider();
+    harness.quitAndInstall.mockImplementation(() => {
+      throw new Error("electron-updater refused");
+    });
+    const relaunch = vi.fn();
+    const svc = await Effect.runPromise(
+      makeUpdateService({
+        currentVersion: "0.1.0",
+        provider: harness.provider,
+        host: {
+          quiesceForPreflight: async () => undefined,
+          relaunchWithoutInstall: relaunch,
+        },
+        expandZip: () =>
+          Effect.succeed({
+            stagingRoot: root,
+            appPath: join(root, "Vellum Command.app"),
+            executablePath: join(root, "fake-exec"),
+          }),
+      }),
+    );
+
+    harness.emit({
+      _tag: "downloaded",
+      release: { version: "0.2.0" },
+      downloadedFile: zipPath,
+    });
+    await waitFor(async () => {
+      const state = await Effect.runPromise(svc.getState);
+      return state.phase === "ready";
+    });
+    const prepared = await Effect.runPromise(svc.prepareInstall);
+    const result = await Effect.runPromise(
+      Effect.either(
+        finalizeInstallAfterQuiesce({
+          plan: prepared.plan,
+          candidate: prepared.candidate,
+          provider: harness.provider,
+          host: {
+            quiesceForPreflight: async () => undefined,
+            relaunchWithoutInstall: relaunch,
+          },
+          runPreflight: () =>
+            Effect.succeed(
+              receipt("11111111-1111-4111-8111-111111111111"),
+            ),
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Left");
+    expect(relaunch).toHaveBeenCalled();
   });
 
   it("joins ManagedRuntime as a Layer service", async () => {

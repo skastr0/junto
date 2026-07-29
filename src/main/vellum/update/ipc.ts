@@ -106,6 +106,9 @@ export const registerUpdateIpc = (
     try {
       await requireUpdateHostHooks().quiesceForPreflight();
     } catch (error) {
+      // Clear pending install authority before relaunch so a later path
+      // cannot finalize with a stale captured plan.
+      takeInstallAuthority();
       const message =
         error instanceof Error
           ? `failed to quiesce for preflight: ${error.message}`
