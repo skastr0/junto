@@ -466,6 +466,57 @@ describe("WorkRepository v2 local authority", () => {
     ).toBe(cc);
   });
 
+  it("atomically clears the claimant when active work returns to Queue", async () => {
+    const sink = { canvasName: "factory", nodeId: "tasks-release" };
+    const created = await runtime.runPromise(
+      repository.createTask({
+        sink,
+        basis: authorialBasis,
+        task: {
+          id: "task-release",
+          state: "submitted",
+          history: [
+            message("brief-release", "user", "release this task", "task-release"),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await runtime.runPromise(
+      repository.claimLocalTask({
+        sink,
+        basis: authorialBasis,
+        taskId: created.value.id,
+        actor,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+
+    const released = await runtime.runPromise(
+      repository.transitionTask({
+        sink,
+        basis: authorialBasis,
+        taskId: created.value.id,
+        state: "submitted",
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+
+    expect(released.value.state).toBe("submitted");
+    expect(released.value.claimedBy).toBeUndefined();
+    const snapshot = await runtime.runPromise(
+      repository.readSnapshot(sink.canvasName, sink.nodeId),
+    );
+    expect(snapshot.tasks.items[0]).toMatchObject({
+      id: created.value.id,
+      state: "submitted",
+    });
+    expect(snapshot.tasks.items[0]?.claimedBy).toBeUndefined();
+  });
+
   it("roundtrips the exact immutable intent basis on an emitted fact", async () => {
     const sink = { canvasName: "factory", nodeId: "basis-roundtrip" };
     const created = await runtime.runPromise(

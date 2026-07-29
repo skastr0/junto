@@ -12,7 +12,10 @@ import { SCHEDULER_STATE_SCHEMA_SQL } from "../scheduler/state-schema";
 import { STATION_STATE_SCHEMA_SQL } from "../station/state-schema";
 import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema";
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
-import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
+import {
+  WORK_STATE_SCHEMA_SQL,
+  WORK_STATE_SCHEMA_V3_SQL,
+} from "../work/state-schema";
 
 /**
  * Exact proof of whichever recognized schema version is currently committed.
@@ -95,7 +98,7 @@ export const STATE_SCHEMA_V1_FRAGMENTS = [
   STATION_STATE_SCHEMA_SQL,
   STATION_STATUS_STATE_SCHEMA_SQL,
   USAGE_STATE_SCHEMA_SQL,
-  WORK_STATE_SCHEMA_SQL,
+  WORK_STATE_SCHEMA_V3_SQL,
 ] as const;
 
 export const STATE_SCHEMA_V1_SQL = STATE_SCHEMA_V1_FRAGMENTS.join("\n");
@@ -108,10 +111,17 @@ export const STATE_SCHEMA_V2_FRAGMENTS = [
 export const STATE_SCHEMA_V2_SQL =
   STATE_SCHEMA_V2_FRAGMENTS.join("\n");
 
-export const STATE_SCHEMA_FRAGMENTS = [
+export const STATE_SCHEMA_V3_FRAGMENTS = [
   ...STATE_SCHEMA_V2_FRAGMENTS,
   LICENSE_STATE_V2_SCHEMA_SQL,
 ] as const;
+
+export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V3_FRAGMENTS.map(
+  (fragment) =>
+    fragment === WORK_STATE_SCHEMA_V3_SQL
+      ? WORK_STATE_SCHEMA_SQL
+      : fragment,
+);
 
 /**
  * Fresh-install and final-verification target for the current version.

@@ -194,6 +194,38 @@ describe("work pure transforms", () => {
     }
   });
 
+  it("releases active work back to Queue and clears its claimant atomically", () => {
+    const created = workTaskCreate(
+      { nodes: [emptyTaskNode()], edges: [] },
+      "alpha",
+      "tasks",
+      "release me",
+      undefined,
+      ids,
+    );
+    const claimed = workTaskClaim(
+      created.doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      actorRef("1", "worker-1"),
+      ids,
+    );
+
+    const released = workTaskTransition(
+      claimed.doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      "submitted",
+      undefined,
+      ids,
+    );
+
+    expect(released.task.state).toBe("submitted");
+    expect(released.task.claimedBy).toBeUndefined();
+  });
+
   it("respond atomically records one operator message and resolves attention", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "alpha", "tasks", "need direction", undefined, ids);

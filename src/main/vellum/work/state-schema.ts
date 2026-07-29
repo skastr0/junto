@@ -1248,8 +1248,15 @@ export const WORK_STATE_SCHEMA_SQL = `
   WHEN
     OLD.actor_seat_id IS NOT NULL
     AND OLD.actor_seat_id IS NOT NEW.actor_seat_id
+    AND NOT (
+      NEW.actor_seat_id IS NULL
+      AND NEW.state = 'submitted'
+    )
   BEGIN
-    SELECT RAISE(ABORT, 'work task actor seat is immutable after first claim');
+    SELECT RAISE(
+      ABORT,
+      'work task actor seat is immutable except for operator release'
+    );
   END;
 
   CREATE TRIGGER IF NOT EXISTS work_requests_home_immutable
@@ -1412,3 +1419,34 @@ export const WORK_STATE_SCHEMA_SQL = `
     SELECT RAISE(ABORT, 'work delivery receipt home is immutable');
   END;
 `;
+
+/**
+ * Historical Work schema embedded in state schema versions 1–3.
+ * Kept as an exact forward-migration witness; fresh installs use the current
+ * trigger above. This avoids duplicating the rest of the large Work schema.
+ */
+export const WORK_STATE_SCHEMA_V3_SQL = WORK_STATE_SCHEMA_SQL.replace(
+  `  CREATE TRIGGER IF NOT EXISTS work_tasks_actor_immutable
+  BEFORE UPDATE OF actor_seat_id ON work_tasks
+  WHEN
+    OLD.actor_seat_id IS NOT NULL
+    AND OLD.actor_seat_id IS NOT NEW.actor_seat_id
+    AND NOT (
+      NEW.actor_seat_id IS NULL
+      AND NEW.state = 'submitted'
+    )
+  BEGIN
+    SELECT RAISE(
+      ABORT,
+      'work task actor seat is immutable except for operator release'
+    );
+  END;`,
+  `  CREATE TRIGGER IF NOT EXISTS work_tasks_actor_immutable
+  BEFORE UPDATE OF actor_seat_id ON work_tasks
+  WHEN
+    OLD.actor_seat_id IS NOT NULL
+    AND OLD.actor_seat_id IS NOT NEW.actor_seat_id
+  BEGIN
+    SELECT RAISE(ABORT, 'work task actor seat is immutable after first claim');
+  END;`,
+);

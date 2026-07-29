@@ -61,6 +61,7 @@ import {
   mirrorArtifactsText,
   mirrorRequestsText,
   mirrorTasksText,
+  taskWithTransitionState,
 } from "@shared/task";
 import {
   StateEngine,
@@ -2496,8 +2497,7 @@ const resultForCommand = (
         body: {
           operation: "task.transition",
           task: {
-            ...current!.task,
-            state: action.state,
+            ...taskWithTransitionState(current!.task, action.state),
             history:
               action.message === undefined
                 ? current!.task.history
@@ -3217,6 +3217,17 @@ const taskWithoutStateHistoryResponse = (task: TaskValue): unknown => {
   return rest;
 };
 
+const taskWithoutTransitionFields = (task: TaskValue): unknown => {
+  const {
+    state: _state,
+    claimedBy: _claimedBy,
+    history: _history,
+    response: _response,
+    ...rest
+  } = task;
+  return rest;
+};
+
 const historyIsSameOrOneAppend = (
   current: ReadonlyArray<MessageValue>,
   next: ReadonlyArray<MessageValue>,
@@ -3412,11 +3423,16 @@ const validateIncomingFact = (
         );
       }
       const next = fact.body.task;
+      const expectedClaimant =
+        next.state === "submitted"
+          ? undefined
+          : current!.task.claimedBy;
       if (
         !canTransitionTaskState(current!.task.state, next.state) ||
-        canonicalJson(taskWithoutStateHistoryResponse(next)) !==
+        next.claimedBy !== expectedClaimant ||
+        canonicalJson(taskWithoutTransitionFields(next)) !==
           canonicalJson(
-            taskWithoutStateHistoryResponse(current!.task),
+            taskWithoutTransitionFields(current!.task),
           ) ||
         next.response !== current!.task.response ||
         !historyIsSameOrOneAppend(current!.task.history, next.history)
@@ -4043,8 +4059,7 @@ export const WorkRepositoryLive = Layer.effect(
           );
         }
         const task = Schema.decodeUnknownSync(Task, strictDecode)({
-          ...current.task,
-          state: input.state,
+          ...taskWithTransitionState(current.task, input.state),
           history:
             message === undefined
               ? current.task.history

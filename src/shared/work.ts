@@ -20,6 +20,7 @@ import {
   mirrorArtifactsText,
   mirrorRequestsText,
   mirrorTasksText,
+  taskWithTransitionState,
 } from "./task";
 import { groupMembers, isGroup } from "./graph";
 import {
@@ -356,7 +357,7 @@ export const workTaskTransition = (
         }),
       ];
     }
-    return { ...current, state, history };
+    return { ...taskWithTransitionState(current, state), history };
   });
   return { doc: withTasks(doc, nodeId, nextItems), task };
 };

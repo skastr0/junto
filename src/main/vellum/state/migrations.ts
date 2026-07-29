@@ -33,6 +33,8 @@ export type StateSchemaMigration = {
   readonly name: string;
   readonly safety: typeof STATE_SCHEMA_MIGRATION_SAFETY;
   readonly fromIdentity: VerifiedStateSchemaIdentity;
+  /** Exact non-table schema objects this step is authorized to replace. */
+  readonly replacesObjects?: ReadonlyArray<`trigger:${string}`>;
   /**
    * Runs synchronously inside StateEngine's startup BEGIN IMMEDIATE. Throwing
    * rolls back DDL, copied-forward data, schema identity, and user_version.
@@ -76,7 +78,14 @@ export const STATE_SCHEMA_V2_IDENTITY = {
     "85dfa3a5cd4d6623ab197c18e40c0c7ca1d15c63ac049410f00da53b5fbf1658",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 3;
+export const STATE_SCHEMA_V3_IDENTITY = {
+  actualSchemaSha256:
+    "4a8d0fd0545e2108c79c611fc4f56acb1ce96a1972cae13cbf7e716b241bc941",
+  sourceSchemaSha256:
+    "8592d391d2a11d0602e853dfb9969cfead60e655ac96a2c893faaa81dd841114",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 4;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -98,6 +107,34 @@ export const STATE_SCHEMA_MIGRATIONS =
       fromIdentity: STATE_SCHEMA_V2_IDENTITY,
       migrate: (database) => {
         database.exec(LICENSE_STATE_V2_SCHEMA_SQL);
+      },
+    },
+    {
+      fromVersion: 3,
+      toVersion: 4,
+      name: "allow-atomic-task-release",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V3_IDENTITY,
+      replacesObjects: ["trigger:work_tasks_actor_immutable"],
+      migrate: (database) => {
+        database.exec(`
+          DROP TRIGGER work_tasks_actor_immutable;
+          CREATE TRIGGER work_tasks_actor_immutable
+          BEFORE UPDATE OF actor_seat_id ON work_tasks
+          WHEN
+            OLD.actor_seat_id IS NOT NULL
+            AND OLD.actor_seat_id IS NOT NEW.actor_seat_id
+            AND NOT (
+              NEW.actor_seat_id IS NULL
+              AND NEW.state = 'submitted'
+            )
+          BEGIN
+            SELECT RAISE(
+              ABORT,
+              'work task actor seat is immutable except for operator release'
+            );
+          END;
+        `);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
@@ -263,6 +300,7 @@ const expandSchemaSnapshot = (
 const assertExpandSchemaPreserved = (
   before: ExpandSchemaSnapshot,
   database: DatabaseSync,
+  replacesObjects: ReadonlySet<string>,
 ): void => {
   const after = expandSchemaSnapshot(database);
   for (const [tableName, beforeColumns] of before.tables) {
@@ -285,6 +323,7 @@ const assertExpandSchemaPreserved = (
     }
   }
   for (const [key, sql] of before.retainedObjects) {
+    if (replacesObjects.has(key)) continue;
     if (after.retainedObjects.get(key) !== sql) {
       throw new Error(
         `state schema startup migration changed durable ${key}`,
@@ -343,6 +382,7 @@ const runMigrationStep = (
   migration: StateSchemaMigration,
 ): void => {
   const before = expandSchemaSnapshot(database);
+  const replacesObjects = new Set<string>(migration.replacesObjects ?? []);
   const connection: StateSchemaMigrationDatabase = {
     exec: (sql) => {
       assertExpandOnlyMigrationSql(sql);
@@ -356,7 +396,19 @@ const runMigrationStep = (
   database.setAuthorizer((actionCode, arg1, arg2) =>
     actionCode === constants.SQLITE_TRANSACTION ||
       actionCode === constants.SQLITE_SAVEPOINT ||
-      destructiveMigrationActions.has(actionCode) ||
+      (
+        destructiveMigrationActions.has(actionCode) &&
+        !(
+          actionCode === constants.SQLITE_DROP_TRIGGER &&
+          arg1 !== null &&
+          replacesObjects.has(`trigger:${arg1}`)
+        ) &&
+        !(
+          actionCode === constants.SQLITE_DELETE &&
+          (arg1 === "sqlite_master" || arg1 === "sqlite_schema") &&
+          replacesObjects.size > 0
+        )
+      ) ||
       (
         actionCode === constants.SQLITE_INSERT &&
         arg1 !== null &&
@@ -378,7 +430,7 @@ const runMigrationStep = (
   );
   try {
     migration.migrate(connection);
-    assertExpandSchemaPreserved(before, database);
+    assertExpandSchemaPreserved(before, database, replacesObjects);
   } finally {
     database.setAuthorizer(null);
   }

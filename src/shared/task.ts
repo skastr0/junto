@@ -35,6 +35,7 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
     "rejected",
   ]),
   working: new Set([
+    "submitted",
     "working",
     "input-required",
     "completed",
@@ -44,6 +45,7 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
     "auth-required",
   ]),
   "input-required": new Set([
+    "submitted",
     "working",
     "completed",
     "canceled",
@@ -52,6 +54,7 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
     "auth-required",
   ]),
   "auth-required": new Set([
+    "submitted",
     "working",
     "completed",
     "canceled",
@@ -67,6 +70,22 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
 
 export const canTransitionTaskState = (from: TaskState, to: TaskState): boolean =>
   LEGAL_TRANSITIONS[from].has(to);
+
+/**
+ * Apply the state-bearing part of a task transition.
+ *
+ * Returning active work to `submitted` is the operator's atomic release:
+ * Queue inventory is unclaimed by schema, so the claimant disappears in the
+ * same fact that changes state. Every authority path uses this transform.
+ */
+export const taskWithTransitionState = (
+  task: Task,
+  state: TaskState,
+): Task => {
+  if (state !== "submitted") return { ...task, state };
+  const { claimedBy: _claimedBy, ...unclaimed } = task;
+  return { ...unclaimed, state };
+};
 
 /** Tasks node text mirror: one brief line per item (human-readable offline). */
 export const mirrorTasksText = (items: ReadonlyArray<Task>): string => {
