@@ -29,7 +29,7 @@ import { agentSeat$ } from "../../lib/agent-seat-state";
 import { openHerdrTerminal } from "../../lib/herdr-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentChatSurface } from "../../lib/dock-state";
-import { workDetailOpen$ } from "../../lib/work-detail-open";
+import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { HarnessMark } from "../herdr/HarnessMark";
@@ -432,6 +432,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const [renaming, setRenaming] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [workDetail, setWorkDetail] = useState(false);
+  const [workDetailItemId, setWorkDetailItemId] = useState<string | undefined>();
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
   const entityKind = node.ether?.entity?.kind;
@@ -458,16 +459,18 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     state$.editNodeId.set("");
   }, [isEditTarget, node.id, isFreeNote, isHerdr, text]);
 
-  // Cross-surface open trigger (RTS bars): mirrors the editNodeId pattern —
-  // consume the target, open the work-plane detail overlay, clear.
+  // Cross-surface open trigger (RTS bars / jump-to-cause): mirrors editNodeId —
+  // consume the target (+ optional item id), open the work-plane detail, clear.
   const isWorkDetailTarget = use$(
     () => workDetailOpen$.nodeId.get() === node.id,
   );
   useEffect(() => {
     if (!isWorkDetailTarget) return;
-    if (isWorkSurface) setWorkDetail(true);
-    workDetailOpen$.nodeId.set("");
-  }, [isWorkDetailTarget, isWorkSurface]);
+    const consumed = consumeWorkDetailOpen(node.id);
+    if (!isWorkSurface || !consumed) return;
+    setWorkDetailItemId(consumed.itemId || undefined);
+    setWorkDetail(true);
+  }, [isWorkDetailTarget, isWorkSurface, node.id]);
 
   const commit = () => {
     setEditing(false);
@@ -532,13 +535,33 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         />
       ) : null}
       {workDetail && entityKind === "task" ? (
-        <TasksDetail node={node} onClose={() => setWorkDetail(false)} />
+        <TasksDetail
+          node={node}
+          initialItemId={workDetailItemId}
+          onClose={() => {
+            setWorkDetail(false);
+            setWorkDetailItemId(undefined);
+          }}
+        />
       ) : null}
       {workDetail && entityKind === "requests" ? (
-        <RequestsDetail node={node} onClose={() => setWorkDetail(false)} />
+        <RequestsDetail
+          node={node}
+          initialItemId={workDetailItemId}
+          onClose={() => {
+            setWorkDetail(false);
+            setWorkDetailItemId(undefined);
+          }}
+        />
       ) : null}
       {workDetail && entityKind === "artifacts" ? (
-        <ArtifactsDetail node={node} onClose={() => setWorkDetail(false)} />
+        <ArtifactsDetail
+          node={node}
+          onClose={() => {
+            setWorkDetail(false);
+            setWorkDetailItemId(undefined);
+          }}
+        />
       ) : null}
       {editing &&
       !maximized &&

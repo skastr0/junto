@@ -20,6 +20,7 @@ import {
   HardHat,
   Hash,
   Link2,
+  LocateFixed,
   Lock,
   LockOpen,
   PauseCircle,
@@ -29,7 +30,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
-import { groupMembers } from "@shared/graph";
+import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { state$, toggleFlagFilter } from "../../lib/state";
@@ -73,6 +74,8 @@ import { useAlertAttention } from "../../lib/alert-attention";
 import { specOf } from "../../lib/node-spec";
 import { roleOf } from "@shared/physics";
 import { openWorkDetail } from "../../lib/work-detail-open";
+import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause";
+import { executionGraphForImpact } from "../../lib/impact-mode";
 import { ConnectEditor } from "../InspectorFields";
 import { PulseTray } from "../PulseTray";
 import { StoppageRank } from "./StoppageRank";
@@ -439,6 +442,9 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
   const snapshots = use$(state$.snapshots);
+  const actorRefs = use$(state$.actorRefs);
+  const execution = use$(kernel$.execution);
+  const executionRev = use$(kernel$.executionRev);
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
   const herdrMeta = use$(herdr$.metaByNodeId[nodeId]);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -452,6 +458,22 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     setCopyDetail("");
     setConnectOpen(false);
   }, [canvasName, nodeId]);
+
+  const blockerCause = useMemo(() => {
+    if (!node) return null;
+    const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
+    const graph = executionGraphForImpact(doc, execution, context);
+    const shellBlocked =
+      graph.blocked.has(node.id) ||
+      graph.seedNodeIds.has(node.id) ||
+      (node.ether?.flags?.includes("blocker") ?? false) ||
+      (node.ether?.entity?.kind === "herdr" &&
+        herdrMeta?.meta?.agentStatus === "blocked");
+    if (!shellBlocked) return null;
+    const blockedActorSeatId = actorRefs.find((ref) => ref.nodeId === node.id)?.seatId;
+    return resolveBlockerCause(doc, graph, node.id, { blockedActorSeatId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev is the kernel tick
+  }, [actorRefs, canvasName, doc, execution, executionRev, herdrMeta?.meta?.agentStatus, node]);
 
   if (!node) {
     return (
@@ -574,6 +596,22 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
               onClick={() => openWorkDetail(node.id)}
             >
               <Eye size={ICON} />
+            </CmdKey>
+          ) : null}
+          {blockerCause ? (
+            <CmdKey
+              label={
+                blockerCause.isSelf
+                  ? blockerCause.openWorkDetail
+                    ? "Open blocker cause"
+                    : "Blocker cause"
+                  : "Jump to blocker cause"
+              }
+              title={`jump to cause · ${blockerCause.title}`}
+              style={{ color: HUE.crimson }}
+              onClick={() => focusBlockerCause(blockerCause)}
+            >
+              <LocateFixed size={ICON} />
             </CmdKey>
           ) : null}
           {executableRole ? <span className="rts-cmd-keys__rule" aria-hidden /> : null}

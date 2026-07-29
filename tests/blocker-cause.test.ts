@@ -3,6 +3,7 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import { deriveExecutionGraph as deriveExecutionGraphWithContext } from "../src/shared/execution-graph";
 import { resolveBlockerCause } from "../src/renderer/lib/blocker-cause";
 import {
+  actorRefFixture,
   claimedByNode as claimed,
   executionContextForDoc,
 } from "./helpers/actor-ref-fixtures";
@@ -50,18 +51,22 @@ const blockedByRequestsDoc = (): CanvasDoc => ({
 });
 
 describe("resolveBlockerCause", () => {
-  it("points a blocked actor at the requests generator and marks work detail", () => {
+  it("points a blocked actor at the requests generator and the holding item", () => {
     const doc = blockedByRequestsDoc();
     const graph = deriveExecutionGraph(doc);
     expect(graph.blocked.has("agent")).toBe(true);
 
-    const cause = resolveBlockerCause(doc, graph, "agent");
+    const seatId = actorRefFixture("agent").seatId;
+    const cause = resolveBlockerCause(doc, graph, "agent", {
+      blockedActorSeatId: seatId,
+    });
     expect(cause).not.toBeNull();
     expect(cause!.causeNodeId).toBe("req");
     expect(cause!.isSelf).toBe(false);
     expect(cause!.openWorkDetail).toBe(true);
     expect(cause!.role).toBe("generator");
-    expect(cause!.title.toLowerCase()).toMatch(/inbox|generator|input|approve/i);
+    expect(cause!.workItemId).toBe("q1");
+    expect(cause!.title.toLowerCase()).toMatch(/inbox|approve/i);
   });
 
   it("on the generator itself, resolves self + open work detail", () => {

@@ -326,14 +326,22 @@ function RequestDetail({
 export function RequestInbox({
   node,
   onClose,
+  initialItemId,
 }: {
   readonly node: CanvasNode;
   readonly onClose: () => void;
+  /** Pre-select this request when opened from jump-to-cause. */
+  readonly initialItemId?: string;
 }) {
   const items = node.ether?.requests?.items ?? [];
   const pendingItems = items.filter((request) => request.state === "input-required");
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(pendingItems[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    if (initialItemId && items.some((request) => request.id === initialItemId)) {
+      return initialItemId;
+    }
+    return pendingItems[0]?.id ?? null;
+  });
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const api = getVellumApi();

@@ -130,21 +130,27 @@ export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
 export function TasksDetail({
   node,
   onClose,
+  initialItemId,
 }: {
   readonly node: CanvasNode;
   readonly onClose: () => void;
+  /** Pre-select this task when opening (jump-to-blocker-cause). */
+  readonly initialItemId?: string;
 }) {
-  return <TaskBoard node={node} onClose={onClose} />;
+  return <TaskBoard node={node} onClose={onClose} initialItemId={initialItemId} />;
 }
 
 export function RequestsDetail({
   node,
   onClose,
+  initialItemId,
 }: {
   readonly node: CanvasNode;
   readonly onClose: () => void;
+  /** Pre-select this request when opening (jump-to-blocker-cause). */
+  readonly initialItemId?: string;
 }) {
-  return <RequestInbox node={node} onClose={onClose} />;
+  return <RequestInbox node={node} onClose={onClose} initialItemId={initialItemId} />;
 }
 
 export function ArtifactsDetail({

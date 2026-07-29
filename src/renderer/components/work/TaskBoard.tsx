@@ -996,9 +996,12 @@ function TaskDetailPanel({
 export function TaskBoard({
   node,
   onClose,
+  initialItemId,
 }: {
   readonly node: CanvasNode;
   readonly onClose: () => void;
+  /** Pre-select this task when opened from jump-to-cause. */
+  readonly initialItemId?: string;
 }) {
   const items = node.ether?.tasks?.items ?? [];
   const glance = sinkGlance(items);
@@ -1012,7 +1015,12 @@ export function TaskBoard({
   const [activeLane, setActiveLane] = useState<LaneId | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => {
+    if (initialItemId && items.some((task) => task.id === initialItemId)) {
+      return initialItemId;
+    }
+    return null;
+  });
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const api = getVellumApi();
