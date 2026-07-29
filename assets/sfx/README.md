@@ -46,3 +46,8 @@ Promote only after listening at system volume — reject outliers, re-roll that 
 `src/renderer/lib/sfx.ts` — `playAlert(id)` reads **settings.audio**
 (master mute/volume + per-clip enable/volume). Defaults: cycle at 18%, others
 ~50–55%. Configure under **Settings → Audio**.
+
+Playback is **Web Audio** (`AudioBufferSourceNode`), never `HTMLAudioElement` /
+`<audio>`. Chromium’s HTML media path registers with macOS MediaPlayer / Now
+Playing and can raise the “access Apple Music / media library” TCC dialog —
+UI chimes must not.
