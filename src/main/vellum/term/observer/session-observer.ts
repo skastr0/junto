@@ -11,6 +11,7 @@
 import { createRequire } from "node:module";
 import {
   applyDecPrivateMode,
+  buildMouseEncodingEscape,
   idleAttachModes,
   type TerminalAttachModes,
 } from "@shared/term-attach-modes";
@@ -278,7 +279,12 @@ export class SessionObserver {
       // cursor, modes, normal buffer, and alternate buffer. Replaying this
       // into another same-sized xterm restores terminal state instead of a
       // plain-text approximation.
-      serialized: this.serializer.serialize(),
+      //
+      // It does not restore the mouse report *encoding*, so the tracked
+      // DEC state supplies it — otherwise a TUI that negotiated SGR gets
+      // X10 reports and every wheel tick is dropped.
+      serialized:
+        this.serializer.serialize() + buildMouseEncodingEscape(this.modes),
     };
   }
 

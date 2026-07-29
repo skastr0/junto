@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import {
   SessionObserver,
@@ -198,6 +199,53 @@ describe("SessionObserver", () => {
       const screen = await obs.attachScreen();
       expect(screen.serialized).toContain("\u001b[31mred");
       expect(screen.serialized).toContain("\u001b[0m");
+    } finally {
+      obs.dispose();
+    }
+  });
+
+  /**
+   * DEC private modes Grok 0.2.x sets at startup (measured from a real PTY):
+   * alt screen, any-event tracking, SGR encoding, focus, bracketed paste.
+   */
+  const GROK_STARTUP_MODES =
+    "[?1049h[?1000h[?1002h[?1003h" +
+    "[?1015h[?1006h[?1004h[?2004h";
+
+  it("attachScreen restores the negotiated mouse report encoding", async () => {
+    const obs = new SessionObserver({
+      bindingId: "b1",
+      epoch: "e1",
+      cols: 40,
+      rows: 5,
+    });
+    try {
+      await feedAndWait(obs, `${GROK_STARTUP_MODES}grok is up\r\n`);
+      const screen = await obs.attachScreen();
+
+      // Replay into a fresh grid the way TerminalSurface does on attach: a
+      // wheel tick only reaches the TUI when the encoding survives too.
+      const { Terminal } = createRequire(import.meta.url)("@xterm/headless") as {
+        Terminal: new (options?: Record<string, unknown>) => {
+          write: (data: string, cb?: () => void) => void;
+          modes: { readonly mouseTrackingMode: string };
+          dispose: () => void;
+        };
+      };
+      const reattached = new Terminal({ cols: 40, rows: 5, allowProposedApi: true });
+      try {
+        await new Promise<void>((resolve) => {
+          reattached.write(screen.serialized, resolve);
+        });
+        expect(reattached.modes.mouseTrackingMode).toBe("any");
+        expect(
+          (reattached as unknown as {
+            _core: { coreMouseService: { activeEncoding: string } };
+          })._core.coreMouseService.activeEncoding,
+        ).toBe("SGR");
+      } finally {
+        reattached.dispose();
+      }
     } finally {
       obs.dispose();
     }
