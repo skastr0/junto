@@ -391,8 +391,13 @@ describe("native package pipeline contract", () => {
     expect(index.indexOf("app.enableSandbox();")).toBeLessThan(
       index.indexOf("const packagedSandboxDisablingSwitch ="),
     );
+    // Preflight must not request the product singleton (incumbent still holds
+    // it during candidate readiness). Product boots still request the lock.
     expect(index).toMatch(
-      /const gotSingleInstanceLock\s*=\s*packagedSandboxDisablingSwitch === undefined && app\.requestSingleInstanceLock\(\)/u,
+      /const gotSingleInstanceLock = stateUpdatePreflight\s*\n\s*\? true\s*\n\s*: packagedSandboxDisablingSwitch === undefined &&\s*\n\s*app\.requestSingleInstanceLock\(\)/u,
+    );
+    expect(index).toContain(
+      "Candidate preflight is a second Electron process",
     );
   });
 });

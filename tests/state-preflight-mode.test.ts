@@ -39,12 +39,22 @@ describe("packaged state preflight mode", () => {
   });
 
   it("accepts no database path and keeps Electron RunAsNode fused off", () => {
-    expect(main).toContain(
-      'process.argv.includes("--vellum-state-preflight")',
+    expect(main).toContain("STATE_UPDATE_PREFLIGHT_SWITCH");
+    expect(main).toMatch(
+      /process\.argv\.includes\(\s*\n\s*STATE_UPDATE_PREFLIGHT_SWITCH,/u,
     );
     expect(main).not.toMatch(
       /--vellum-state-preflight(?:=|\s+<|\s+\[).*database/iu,
     );
     expect(policy.fuses?.RunAsNode).toBe(false);
+  });
+
+  it("does not contend for the product single-instance lock", () => {
+    // Incumbent holds the lock while spawning the candidate. Preflight that
+    // also requests the lock app.quit()s with no receipt and install aborts.
+    expect(main).toMatch(
+      /const gotSingleInstanceLock = stateUpdatePreflight\s*\n\s*\? true/u,
+    );
+    expect(main).toContain("releaseSingleInstanceLock");
   });
 });

@@ -1115,12 +1115,20 @@ const ensureSupervised = async (): Promise<boolean> => {
 // would race the same app-owned StateEngine connection and control sockets.
 // The second process exits immediately; the first focuses its window — or, when
 // the factory is windowless on macOS, recreates the surface (mirror activate).
+//
+// State-update preflight is not a product instance: the incumbent holds the
+// singleton while spawning the candidate for --vellum-state-preflight. If
+// preflight also requestSingleInstanceLock(), Electron fails the lock and we
+// app.quit() with no receipt — install aborts and the operator stays on the
+// old version with "ready to install" still showing.
 const packagedSandboxDisablingSwitch = findPackagedSandboxDisablingSwitch({
   packaged: app.isPackaged,
   hasSwitch: (name) => app.commandLine.hasSwitch(name),
 });
-const gotSingleInstanceLock =
-  packagedSandboxDisablingSwitch === undefined && app.requestSingleInstanceLock();
+const gotSingleInstanceLock = stateUpdatePreflight
+  ? true
+  : packagedSandboxDisablingSwitch === undefined &&
+    app.requestSingleInstanceLock();
 if (packagedSandboxDisablingSwitch !== undefined) {
   console.error(
     `[sandbox] packaged startup rejected --${packagedSandboxDisablingSwitch}`,
@@ -1135,20 +1143,22 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 } else if (!gotSingleInstanceLock) {
   app.quit();
 } else {
-  app.on("second-instance", (_event, commandLine) => {
-    const uri = latestNodeRefUri(commandLine);
-    if (uri !== undefined) queueNodeRefUri(uri);
-    const existing = currentTrustedMainWindow();
-    if (!existing) {
-      // Windowless keep-alive: Spotlight/`open -a` must not leave a dead UI.
-      if (!headless) createWindow();
-      return;
-    }
-    if (e2eIsolateFocus) return;
-    if (existing.isMinimized()) existing.restore();
-    existing.show();
-    existing.focus();
-  });
+  if (!stateUpdatePreflight) {
+    app.on("second-instance", (_event, commandLine) => {
+      const uri = latestNodeRefUri(commandLine);
+      if (uri !== undefined) queueNodeRefUri(uri);
+      const existing = currentTrustedMainWindow();
+      if (!existing) {
+        // Windowless keep-alive: Spotlight/`open -a` must not leave a dead UI.
+        if (!headless) createWindow();
+        return;
+      }
+      if (e2eIsolateFocus) return;
+      if (existing.isMinimized()) existing.restore();
+      existing.show();
+      existing.focus();
+    });
+  }
 
   app.on("activate", () => {
     retryActiveNodeRef();
@@ -1390,6 +1400,15 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         await disposeRuntimeFailClosed("update-install-preflight");
         runtimeDisposed = true;
         skipQuitConfirm = true;
+        // Candidate preflight is a second Electron process. Drop the product
+        // singleton so a preflight that still requests the lock cannot lose to
+        // this still-alive (but non-product) process. Preflight itself must
+        // not request the lock (see stateUpdatePreflight branch above).
+        try {
+          app.releaseSingleInstanceLock();
+        } catch {
+          // already released or unsupported
+        }
       },
       relaunchWithoutInstall: () => {
         // app.exit bypasses before-quit; keep the same path on readiness failure.
