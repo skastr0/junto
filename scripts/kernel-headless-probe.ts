@@ -66,6 +66,10 @@ const MAIN_ENTRY = join(REPO_ROOT, "out", "main", "index.js");
 const RENDERER_DIR = join(REPO_ROOT, "out", "renderer");
 const RENDERER_ENTRY = join(RENDERER_DIR, "index.html");
 const SEED_ENTRY = join(REPO_ROOT, "scripts", "kernel-headless-seed.ts");
+const PROBE_ENTRY = join(REPO_ROOT, "scripts", "kernel-headless-probe.ts");
+const ELECTRON_GUARDIAN_FLAG = "--electron-guardian";
+const ELECTRON_GUARDIAN =
+  process.argv.indexOf(ELECTRON_GUARDIAN_FLAG) >= 0;
 const STARTUP_SMOKE = process.argv.includes("--startup-smoke");
 
 const BOOT_POLL_MS = 500;
@@ -83,7 +87,13 @@ const SEED_TIMEOUT_MS = 30_000;
 const PROBE_TEMP_PREFIX = process.platform === "darwin"
   ? "/tmp/vkh-"
   : join(tmpdir(), "vellum-kernel-probe-");
-const probeSupervisor = createProbeProcessSupervisor({ maxLogBytes: PROBE_LOG_BYTES });
+const probeSupervisor = createProbeProcessSupervisor({
+  maxLogBytes: PROBE_LOG_BYTES,
+  // The guardian owns a second process group and may spend its full bounded
+  // TERM→KILL drain before it closes.
+  termGraceMs: 5_000,
+  killGraceMs: 3_000,
+});
 const activeSandboxes = new Set<ProbeSandbox>();
 let watchdogExitRequested = false;
 let externalExitRequested = false;
@@ -208,10 +218,16 @@ const spawnApp = (
     ...electronEnvironment
   } = process.env;
   const child = probeSupervisor.spawnGroup({
-    source: "kernel-headless-probe",
-    purpose: "run isolated headless Vellum fixture",
-    command: ELECTRON_BIN,
-    args: [MAIN_ENTRY, `--user-data-dir=${fixture.userDataDir}`, "--vellum-headless"],
+    source: "kernel-headless-probe-guardian",
+    purpose: "guard isolated headless Vellum fixture",
+    command: process.execPath,
+    args: [
+      PROBE_ENTRY,
+      ELECTRON_GUARDIAN_FLAG,
+      MAIN_ENTRY,
+      `--user-data-dir=${fixture.userDataDir}`,
+      "--vellum-headless",
+    ],
     cwd: REPO_ROOT,
     env: {
       ...electronEnvironment,
@@ -463,54 +479,152 @@ const signalExitCode = (signal: ProbeShutdownSignal): number => {
   }
 };
 
-const signalDrain = installProbeSignalDrain({
-  finalize,
-  beforeDrain: (signal) => {
-    externalExitRequested = true;
-    process.exitCode = signalExitCode(signal);
-    console.error(`\nkernel-headless-probe: ${signal} RECEIVED; DRAINING`);
-  },
-  onFailure: (_signal, error) => {
-    console.error(error instanceof Error ? error.stack ?? error.message : error);
-  },
-});
+const runElectronGuardian = async (): Promise<void> => {
+  const flagIndex = process.argv.indexOf(ELECTRON_GUARDIAN_FLAG);
+  const electronArgs = process.argv.slice(flagIndex + 1);
+  if (flagIndex < 0 || electronArgs.length === 0) {
+    throw new Error("electron guardian requires an Electron entry or argument");
+  }
 
-const watchdog = setTimeout(() => {
-  watchdogExitRequested = true;
-  console.error("\nkernel-headless-probe: GLOBAL WATCHDOG EXPIRED");
-  void (async () => {
-    await finalize("kernel-headless-probe-watchdog").catch((error) => {
+  const supervisor = createProbeProcessSupervisor({
+    maxLogBytes: PROBE_LOG_BYTES,
+  });
+  const child = supervisor.spawnGroup({
+    source: "kernel-headless-probe-electron",
+    purpose: "run guarded Electron fixture",
+    command: ELECTRON_BIN,
+    args: electronArgs,
+    cwd: REPO_ROOT,
+    env: process.env,
+  });
+  child.onOutput((source, _snapshot, chunk) => {
+    const destination = source === "stdout" ? process.stdout : process.stderr;
+    destination.write(chunk);
+  });
+
+  let resolveDone!: () => void;
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
+  let stopFlight: Promise<boolean> | undefined;
+  const requestStop = (
+    reason: string,
+    desiredExitCode = process.exitCode ?? 0,
+  ): Promise<boolean> => {
+    if (stopFlight !== undefined) return stopFlight;
+    stopFlight = supervisor.shutdown(reason).then(
+      (receipt) => {
+        if (!receipt.clean) {
+          console.error(
+            `kernel-headless-probe guardian drain failed: ${JSON.stringify(receipt)}`,
+          );
+          process.exitCode = 2;
+          return false;
+        }
+        process.exitCode = desiredExitCode;
+        return true;
+      },
+      (error) => {
+        console.error(error instanceof Error ? error.stack ?? error.message : error);
+        process.exitCode = 2;
+        return false;
+      },
+    ).finally(resolveDone);
+    return stopFlight;
+  };
+
+  const signalDrain = installProbeSignalDrain({
+    finalize: requestStop,
+    beforeDrain: (signal) => {
+      process.exitCode = signalExitCode(signal);
+    },
+  });
+  const onParentEnd = (): void => {
+    void requestStop("kernel-headless-probe-parent-eof");
+  };
+  const onParentError = (): void => {
+    void requestStop("kernel-headless-probe-parent-input-error", 2);
+  };
+  process.stdin.once("end", onParentEnd);
+  process.stdin.once("error", onParentError);
+  process.stdin.resume();
+  void child.closed.then((close) => {
+    if (stopFlight !== undefined) return;
+    const exitCode = close.exitCode ?? (close.signal === null ? 0 : 1);
+    void requestStop("kernel-headless-probe-electron-closed", exitCode);
+  });
+
+  try {
+    await done;
+  } finally {
+    signalDrain.uninstall();
+    process.stdin.off("end", onParentEnd);
+    process.stdin.off("error", onParentError);
+    process.stdin.pause();
+  }
+};
+
+const runProbeProgram = async (): Promise<void> => {
+  const signalDrain = installProbeSignalDrain({
+    finalize,
+    beforeDrain: (signal) => {
+      externalExitRequested = true;
+      process.exitCode = signalExitCode(signal);
+      console.error(`\nkernel-headless-probe: ${signal} RECEIVED; DRAINING`);
+    },
+    onFailure: (_signal, error) => {
       console.error(error instanceof Error ? error.stack ?? error.message : error);
-      return false;
-    });
-    process.exitCode = 124;
-  })();
-}, PROBE_RUNTIME_TIMEOUT_MS);
-watchdog.unref();
+    },
+  });
 
-try {
-  await main();
-} catch (err) {
-  console.error("\nkernel-headless-probe: FAILED");
-  console.error(err instanceof Error ? err.stack ?? err.message : err);
-  if (!watchdogExitRequested && !externalExitRequested) process.exitCode = 2;
-} finally {
-  const clean = await finalize("kernel-headless-probe-finalize");
-  if (!clean && !watchdogExitRequested && (process.exitCode ?? 0) === 0) {
+  const watchdog = setTimeout(() => {
+    watchdogExitRequested = true;
+    console.error("\nkernel-headless-probe: GLOBAL WATCHDOG EXPIRED");
+    void (async () => {
+      await finalize("kernel-headless-probe-watchdog").catch((error) => {
+        console.error(error instanceof Error ? error.stack ?? error.message : error);
+        return false;
+      });
+      process.exitCode = 124;
+    })();
+  }, PROBE_RUNTIME_TIMEOUT_MS);
+  watchdog.unref();
+
+  try {
+    await main();
+  } catch (err) {
+    console.error("\nkernel-headless-probe: FAILED");
+    console.error(err instanceof Error ? err.stack ?? err.message : err);
+    if (!watchdogExitRequested && !externalExitRequested) process.exitCode = 2;
+  } finally {
+    const clean = await finalize("kernel-headless-probe-finalize");
+    if (!clean && !watchdogExitRequested && (process.exitCode ?? 0) === 0) {
+      process.exitCode = 2;
+    }
+    if (
+      mainSucceeded &&
+      clean &&
+      !watchdogExitRequested &&
+      (process.exitCode ?? 0) === 0
+    ) {
+      console.log(
+        STARTUP_SMOKE
+          ? "\nkernel-headless-probe: STARTUP SMOKE GREEN"
+          : "\nkernel-headless-probe: ALL PASSES GREEN",
+      );
+    }
+    clearTimeout(watchdog);
+    signalDrain.uninstall();
+  }
+};
+
+if (ELECTRON_GUARDIAN) {
+  try {
+    await runElectronGuardian();
+  } catch (error) {
+    console.error(error instanceof Error ? error.stack ?? error.message : error);
     process.exitCode = 2;
   }
-  if (
-    mainSucceeded &&
-    clean &&
-    !watchdogExitRequested &&
-    (process.exitCode ?? 0) === 0
-  ) {
-    console.log(
-      STARTUP_SMOKE
-        ? "\nkernel-headless-probe: STARTUP SMOKE GREEN"
-        : "\nkernel-headless-probe: ALL PASSES GREEN",
-    );
-  }
-  clearTimeout(watchdog);
-  signalDrain.uninstall();
+} else {
+  await runProbeProgram();
 }

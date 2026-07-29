@@ -5,9 +5,11 @@ import { decodeCanvasDoc } from "../src/shared/canvas";
 import { isCanonicalCanvasName } from "../src/shared/canvas-name";
 import { actorDeliverySurfaceOf } from "../src/shared/actor-surface";
 import { agentKeysForExecutableSource } from "../src/shared/station";
+import { readFullProcessEpochSnapshot } from "../src/main/vellum/process-epoch";
 import {
   createProbeProcessSupervisor,
   type ProbeProcessClose,
+  type ProbeProcessHandle,
 } from "../scripts/probe-process-supervisor";
 import {
   KERNEL_PROBE_AGENT_KEY,
@@ -23,6 +25,26 @@ const BUN_BINARY = "bun";
 const canLaunchElectron =
   process.platform !== "linux" || Boolean(process.env.DISPLAY?.trim());
 
+const waitForOutput = async (
+  child: ProbeProcessHandle,
+  pattern: RegExp,
+  timeoutMs: number,
+): Promise<RegExpMatchArray> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const match = child.output().stdout.match(pattern);
+    if (match !== null) return match;
+    if (child.exited()) {
+      const close = await child.closed;
+      throw new Error(
+        `probe containment parent exited before marker (code ${String(close.exitCode)}, signal ${String(close.signal)})\n${close.stderr}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`probe containment marker exceeded ${timeoutMs}ms`);
+};
+
 const runOwnedCommand = async (
   purpose: string,
   args: ReadonlyArray<string>,
@@ -30,10 +52,10 @@ const runOwnedCommand = async (
 ): Promise<ProbeProcessClose> => {
   const supervisor = createProbeProcessSupervisor({
     maxLogBytes: 512 * 1024,
-    // The nested probe receives TERM and drains its separately-owned Electron
-    // group. Give that capability-owned cleanup time before outer escalation.
-    termGraceMs: 5_000,
-    killGraceMs: 3_000,
+    // The nested probe drains its guardian, which drains the separately-owned
+    // Electron group. Leave both bounded shutdown layers real cleanup margin.
+    termGraceMs: 10_000,
+    killGraceMs: 5_000,
   });
   const child = supervisor.spawnGroup({
     source: "test.kernel-headless-probe",
@@ -74,6 +96,9 @@ describe("kernel headless proof fixture", () => {
     expect(probeSource).toContain(
       'join(root, ".vellum", "state", "vellum.db")',
     );
+    expect(probeSource).toContain("ELECTRON_GUARDIAN_FLAG");
+    expect(probeSource).toContain("kernel-headless-probe-parent-eof");
+    expect(probeSource).toContain('process.stdin.once("end", onParentEnd)');
     expect(seedSource).toContain(
       'from "../src/main/vellum/state/engine"',
     );
@@ -127,6 +152,72 @@ describe("kernel headless proof fixture", () => {
       ),
     ).toEqual([]);
   });
+});
+
+describe("kernel probe process containment", () => {
+  it("drains the guarded Electron group when its parent pipe reaches EOF", async () => {
+    const supervisor = createProbeProcessSupervisor({
+      maxLogBytes: 64 * 1024,
+      termGraceMs: 5_000,
+      killGraceMs: 3_000,
+    });
+    const guardedSource = [
+      'process.stdout.write(`guarded-electron:${process.pid}\\n`);',
+      "setTimeout(() => process.exit(3), 5_000);",
+      "setInterval(() => undefined, 1_000);",
+    ].join("\n");
+    const guardian = supervisor.spawnGroup({
+      source: "test.kernel-headless-probe.eof-guardian",
+      purpose: "prove parent EOF drains guarded Electron",
+      command: BUN_BINARY,
+      args: [
+        "scripts/kernel-headless-probe.ts",
+        "--electron-guardian",
+        "--eval",
+        guardedSource,
+      ],
+      cwd: REPO_ROOT,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    });
+
+    try {
+      const marker = await waitForOutput(
+        guardian,
+        /guarded-electron:([1-9][0-9]*)/u,
+        5_000,
+      );
+      const guardedPid = Number(marker[1]);
+      const snapshot = readFullProcessEpochSnapshot();
+      expect(snapshot).toBeDefined();
+      const guardedEpoch = snapshot?.find((row) => row.pid === guardedPid);
+      expect(guardedEpoch).toBeDefined();
+
+      guardian.endInput();
+      const close = await supervisor.waitForClose(
+        guardian,
+        10_000,
+        "Electron guardian did not exit after parent EOF",
+      );
+      expect(close).toMatchObject({ exitCode: 0, signal: null });
+      const drained = await supervisor.shutdown("guardian-eof-regression-finished");
+      expect(drained).toEqual({
+        clean: true,
+        groupDrain: { clean: true, stragglers: [] },
+        refusedSignals: [],
+        active: [],
+      });
+      expect(
+        readFullProcessEpochSnapshot()?.some(
+          (row) =>
+            row.pid === guardedPid &&
+            row.startKey === guardedEpoch?.startKey,
+        ),
+      ).toBe(false);
+    } finally {
+      guardian.endInput();
+      await supervisor.shutdown("kernel-probe-guardian-test-finalize");
+    }
+  }, 15_000);
 });
 
 describe.runIf(canLaunchElectron)("kernel headless real startup wiring", () => {

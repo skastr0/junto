@@ -44,6 +44,8 @@ export interface ProbeProcessHandle {
   readonly purpose: string;
   readonly closed: Promise<ProbeProcessClose>;
   readonly exited: () => boolean;
+  /** Close only this supervisor-owned child's stdin pipe. */
+  readonly endInput: () => void;
   readonly output: () => ProbeProcessOutput;
   readonly onOutput: (listener: ProbeProcessOutputListener) => () => void;
 }
@@ -331,6 +333,9 @@ export const createProbeProcessSupervisor = (
       purpose: lease.purpose,
       closed,
       exited: () => authority.get(handleValue)?.exited ?? false,
+      endInput: () => {
+        requireRecord(handleValue).lease.io.stdin.end();
+      },
       output: () => {
         const record = requireRecord(handleValue);
         return frozenOutput(record);
