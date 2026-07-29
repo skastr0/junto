@@ -743,16 +743,10 @@ export const registerVellumIpc = (): void => {
         driveReady,
       );
       // Grok ≥1.5s post-spawn before first paste (verified trap).
-      termPlane.host.on("event", (payload: {
-        type?: string;
-        bindingId?: string;
-        epoch?: string;
-        status?: string;
-      }) => {
+      termPlane.host.subscribeEvents((payload) => {
         if (payload.type !== "session") return;
         const bindingId = payload.bindingId;
         const epoch = payload.epoch;
-        if (!bindingId || !epoch) return;
         if (payload.status === "exited") {
           managedDrive.invalidateBinding(bindingId);
           cancelManagedPulseReady(bindingId, epoch);
@@ -781,7 +775,7 @@ export const registerVellumIpc = (): void => {
           );
           managedPulseReadyCancels.set(bindingId, { epoch, cancel });
         }
-      });
+      }, { replayCurrentSessions: true });
       seatStateRuntime.subscribe((event) => {
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
         if (event.state === "idle") {

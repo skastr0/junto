@@ -250,6 +250,71 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(0);
   });
 
+  it("subscribes before replaying the current live generation", async () => {
+    const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+      pid: trackSyntheticPid(42_425 + index),
+    }));
+    const host = hostWith(fake);
+    const first = host.createAgentSeat({
+      bindingId: "replay-running",
+      harness: "grok",
+      agentKey: "local:grok",
+      launch: { kind: "harness", argv: ["/usr/local/bin/grok"] },
+    });
+    const seen: Array<{
+      readonly bindingId: string;
+      readonly epoch: string;
+      readonly status: string;
+    }> = [];
+
+    const unsubscribe = host.subscribeEvents((event) => {
+      if (event.type !== "session") return;
+      seen.push(event);
+    }, { replayCurrentSessions: true });
+
+    expect(seen).toEqual([
+      expect.objectContaining({
+        bindingId: "replay-running",
+        epoch: first.epoch,
+        status: "running",
+        pid: 42_425,
+      }),
+    ]);
+
+    fake.controllers[0]?.exit();
+    await vi.waitFor(() => expect(host.get("replay-running")?.status).toBe("exited"));
+    expect(seen.at(-1)).toMatchObject({
+      bindingId: "replay-running",
+      epoch: first.epoch,
+      status: "exited",
+    });
+    unsubscribe();
+  });
+
+  it("never replays an exited generation as a live session", async () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_426),
+    }));
+    const host = hostWith(fake);
+    const exited = host.createAgentSeat({
+      bindingId: "replay-exited",
+      harness: "grok",
+      agentKey: "local:grok",
+      launch: { kind: "harness", argv: ["/usr/local/bin/grok"] },
+    });
+    fake.controllers[0]?.exit();
+    await vi.waitFor(() => expect(host.get("replay-exited")?.status).toBe("exited"));
+    const seen: Array<{ readonly epoch: string; readonly status: string }> = [];
+
+    const unsubscribe = host.subscribeEvents((event) => {
+      if (event.type === "session") seen.push(event);
+    }, { replayCurrentSessions: true });
+
+    expect(seen).toEqual([]);
+    expect(host.get("replay-exited")?.epoch).toBe(exited.epoch);
+    unsubscribe();
+  });
+
   it("captures a labeled harness session split across PTY chunks without accepting a bare UUID", () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({ pid: trackSyntheticPid(42_430) }));
     const host = hostWith(fake);

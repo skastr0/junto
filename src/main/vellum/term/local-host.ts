@@ -141,6 +141,17 @@ export type LocalHostEvent =
       readonly pid?: number;
     };
 
+export type LocalHostEventListener = (event: LocalHostEvent) => void;
+
+export type LocalHostEventSubscriptionOptions = {
+  /**
+   * Replay each binding's current live generation after the listener is
+   * installed. This closes startup read/subscribe windows without making
+   * exited generations look live.
+   */
+  readonly replayCurrentSessions?: boolean;
+};
+
 export type ControlLease = {
   readonly leaseId: string;
   readonly bindingId: string;
@@ -699,6 +710,42 @@ export class LocalSessionHost extends EventEmitter {
   get(bindingId: string): TerminalSessionSummary | undefined {
     const rec = this.sessions.get(bindingId);
     return rec ? this.summaryOf(rec) : undefined;
+  }
+
+  /**
+   * Subscribe first, then optionally replay current live session state.
+   *
+   * The exact-record recheck matters when a replay listener synchronously
+   * stops or replaces another binding: only the generation still authoritative
+   * in `sessions` may be presented as current.
+   */
+  subscribeEvents(
+    listener: LocalHostEventListener,
+    options: LocalHostEventSubscriptionOptions = {},
+  ): () => void {
+    this.on("event", listener);
+    if (options.replayCurrentSessions) {
+      try {
+        for (const rec of [...this.sessions.values()]) {
+          if (this.sessions.get(rec.bindingId) !== rec) continue;
+          const status = sessionStatusOf(rec);
+          if (status === "exited") continue;
+          listener({
+            type: "session",
+            bindingId: rec.bindingId,
+            epoch: rec.epoch,
+            status,
+            ...(status === "running" && rec.pid !== undefined
+              ? { pid: rec.pid }
+              : {}),
+          });
+        }
+      } catch (error) {
+        this.off("event", listener);
+        throw error;
+      }
+    }
+    return () => this.off("event", listener);
   }
 
   bindCanvas(
