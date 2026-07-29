@@ -68,7 +68,7 @@ describe("session id parsing + authorial pin", () => {
     }
   });
 
-  it("spawn replan resumes stored sessionId", () => {
+  it("spawn replan uses a stored authoring pin without implicitly resuming", () => {
     const node = makeManagedAgentNode(0, 0, {
       harness: "claude",
       host: "local",
@@ -83,15 +83,29 @@ describe("session id parsing + authorial pin", () => {
       documentLaunch: node.ether!.terminal!.launch,
     });
     expect(launch?.argv).toBeDefined();
-    // resume path prefers -r / --resume when resume=true (default when stored)
     const argv = launch!.argv ?? [];
-    expect(
-      argv.includes("--resume") ||
-        argv.includes("-r") ||
-        argv.includes("--session-id") ||
-        argv.includes(sid),
-    ).toBe(true);
+    expect(argv).toContain("--session-id");
     expect(argv).toContain(sid);
+    expect(argv).not.toContain("--resume");
+    expect(argv).not.toContain("-r");
+  });
+
+  it("spawn replan resumes only when the caller explicitly requests it", () => {
+    const node = makeManagedAgentNode(0, 0, {
+      harness: "claude",
+      host: "local",
+    });
+    const sid = node.ether!.terminal!.sessionId!;
+    const doc: CanvasDoc = { nodes: [node], edges: [] };
+    const { launch } = launchForManagedSpawn({
+      doc,
+      nodeId: node.id,
+      harness: "claude",
+      documentLaunch: node.ether!.terminal!.launch,
+      resume: true,
+    });
+    expect(launch?.argv).toEqual(expect.arrayContaining(["--resume", sid]));
+    expect(launch?.argv).not.toContain("--session-id");
   });
 
   it("capture store holds binding→session", () => {

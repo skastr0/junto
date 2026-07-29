@@ -253,8 +253,6 @@ export const launchForManagedSpawn = (
     const stored = node?.ether?.terminal?.sessionId?.trim();
     if (stored) {
       sessionId = stored;
-      // Re-spawn of an existing seat with a stored id is always resume-capable.
-      resume = input.resume ?? true;
     }
   }
   const plan = planManagedSpawn({ ...input, sessionId, resume });
