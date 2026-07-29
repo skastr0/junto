@@ -1,10 +1,22 @@
-import { autoUpdater } from "electron-updater";
+/**
+ * electron-updater is CommonJS. electron-vite externalizes deps, so a named
+ * ESM import dies at packaged main load with
+ * "Named export 'autoUpdater' not found". Load via createRequire (same pattern
+ * as term/observer/session-observer for @xterm/headless).
+ */
+import { createRequire } from "node:module";
+import type { AppUpdater } from "electron-updater";
 import type { AvailableRelease } from "@shared/update";
 import { macArm64UpdateFeed } from "./compiled-config";
 import type {
   UpdateProvider,
   UpdateProviderListener,
 } from "./provider";
+
+const require = createRequire(import.meta.url);
+const { autoUpdater } = require("electron-updater") as {
+  autoUpdater: AppUpdater;
+};
 
 const toRelease = (info: {
   readonly version: string;
