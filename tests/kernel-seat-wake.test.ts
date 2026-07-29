@@ -4,6 +4,7 @@ import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import {
   kernelCycleNeededForSeatEvent,
   makeCoalescedKernelCycleScheduler,
+  subscribeKernelPauseWake,
   subscribeKernelSeatWake,
 } from "../src/main/vellum/kernel/service";
 
@@ -21,6 +22,28 @@ const seatEvent = (
 });
 
 describe("Kernel managed-seat wake scheduling", () => {
+  it("wakes immediately on play and pause transitions", () => {
+    let listener: ((canvasName: string) => void) | undefined;
+    let wakes = 0;
+    const unsubscribe = subscribeKernelPauseWake(
+      (next) => {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      () => {
+        wakes += 1;
+      },
+    );
+
+    listener?.("factory");
+    listener?.("factory");
+    expect(wakes).toBe(2);
+    unsubscribe();
+    expect(listener).toBeUndefined();
+  });
+
   it("wakes for deliverable and generation lifecycle events only", () => {
     expect(kernelCycleNeededForSeatEvent(seatEvent("idle", "prompt"))).toBe(
       true,

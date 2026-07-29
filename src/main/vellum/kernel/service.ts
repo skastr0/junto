@@ -168,6 +168,16 @@ export const subscribeKernelSeatWake = (
     if (kernelCycleNeededForSeatEvent(event)) scheduleCycle();
   });
 
+type PauseSubscribe = (
+  listener: (canvasName: string) => void,
+) => () => void;
+
+/** Every authoritative play/pause transition invalidates kernel scheduling. */
+export const subscribeKernelPauseWake = (
+  subscribe: PauseSubscribe,
+  scheduleCycle: () => void,
+): (() => void) => subscribe(() => scheduleCycle());
+
 /**
  * One evaluation may run at a time. Any number of overlapping triggers retain
  * exactly one repair pass, so lifecycle bursts cannot race shared kernel
@@ -1025,6 +1035,10 @@ const makeKernelService = (
         lifecycleCleanups = [
           canvases.subscribeChanges((name) => void resyncCanvas(name)),
           snapshots.subscribe(() => scheduleCycle()),
+          // Play/pause is an authoritative runtime transition. Resume must
+          // claim immediately; pause must promptly cause the next cycle to
+          // observe the closed gate instead of waiting for the 30s watchdog.
+          subscribeKernelPauseWake(pause.subscribe, scheduleCycle),
           subscribeSeatBlocks(() => scheduleCycle()),
           subscribeKernelSeatWake(
             (listener) => seatStateRuntime.subscribe(listener),
