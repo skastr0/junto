@@ -42,6 +42,12 @@ test("managed harnesses are direct palette actions with cascading choices", asyn
       /^\//,
       { timeout: 10_000 },
     );
+    await expect(
+      location.getByRole("button", { name: "create agent" }),
+    ).toBeVisible();
+    await expect(
+      location.getByRole("button", { name: "create agent" }),
+    ).toBeEnabled();
     await page.screenshot({
       path: join(SHOTS, "20c-agent-location.png"),
       fullPage: false,

@@ -641,6 +641,9 @@ test("capture every surface for design review", async () => {
           /^\//,
           { timeout: 10_000 },
         );
+        await expect(
+          location.getByRole("button", { name: "create agent" }),
+        ).toBeVisible();
         await shot(page, "20c-agent-location");
         await location.getByRole("button", { name: "cancel" }).click();
       }

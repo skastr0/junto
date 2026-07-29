@@ -6,7 +6,7 @@ import { getVellumApi } from "../../lib/vellum-api";
 import { Button, IconButton, Input } from "../ui";
 
 const TREE_STYLE = {
-  height: "300px",
+  height: "220px",
   "--trees-bg-override": "#0d0e0d",
   "--trees-bg-muted-override": "#171816",
   "--trees-fg-override": "#d9d4c8",
@@ -98,7 +98,7 @@ export function HostDirectoryPicker({
   }, []);
 
   return (
-    <div className="grid min-h-0 gap-2">
+    <div className="grid min-h-0 gap-2 normal-case tracking-normal">
       <form
         className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2"
         onSubmit={(event) => {
@@ -135,7 +135,7 @@ export function HostDirectoryPicker({
         </IconButton>
       </form>
 
-      <div className="min-h-[180px] overflow-hidden rounded-[5px] border border-stroke bg-inset">
+      <div className="min-h-[160px] overflow-hidden rounded-[5px] border border-stroke bg-inset">
         {loading && !snapshot ? (
           <div role="status" className="px-3 py-6 text-center text-[11px] text-dim">
             Reading {hostId}…
