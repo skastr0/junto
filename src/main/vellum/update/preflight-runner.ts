@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { Effect, Schema } from "effect";
 import {
   STATE_UPDATE_PREFLIGHT_PROTOCOL,
+  STATE_UPDATE_PREFLIGHT_SWITCH,
   StateUpdatePreflightReceipt,
   type StateUpdatePreflightReceipt as Receipt,
 } from "../state/candidate-readiness";
@@ -62,7 +63,7 @@ export const runCandidateStatePreflight = (input: {
         const timeoutMs = input.timeoutMs ?? PREFLIGHT_TIMEOUT_MS;
         const child = spawn(
           input.executablePath,
-          ["--vellum-state-preflight"],
+          [STATE_UPDATE_PREFLIGHT_SWITCH],
           {
             stdio: ["ignore", "pipe", "pipe"],
             env: input.env ?? sealedPreflightEnv(),

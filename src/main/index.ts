@@ -30,6 +30,7 @@ import { AppRuntime } from "./runtime";
 import { releaseDemoRuntimeIsolation } from "./vellum/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./vellum/canvases";
+import { STATE_UPDATE_PREFLIGHT_SWITCH } from "./vellum/state/candidate-readiness";
 import { resolveControlHome } from "./vellum/control-home";
 import { registerDemoIpcHandlers } from "./vellum/demo/ipc";
 import {
@@ -254,8 +255,9 @@ if (startupNodeRefUri !== undefined) queueNodeRefUri(startupNodeRefUri);
 // Explicit headless mode keeps the runtime, watchers, kernel, and local UDS
 // services alive without creating a renderer. It replaces the former dev CDP
 // listener: headless qualification must never require a network control port.
-const stateUpdatePreflight =
-  process.argv.includes("--vellum-state-preflight");
+const stateUpdatePreflight = process.argv.includes(
+  STATE_UPDATE_PREFLIGHT_SWITCH,
+);
 const headless =
   stateUpdatePreflight || process.argv.includes("--vellum-headless");
 

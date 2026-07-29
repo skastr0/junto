@@ -32,6 +32,10 @@ import {
 export const STATE_UPDATE_PREFLIGHT_PROTOCOL =
   "vellum-state-update-preflight/v1" as const;
 
+/** CLI switch for sealed candidate preflight — single string site for packaging audit. */
+export const STATE_UPDATE_PREFLIGHT_SWITCH =
+  "--vellum-state-preflight" as const;
+
 export const StateUpdatePreflightReceipt = Schema.Struct({
   protocol: Schema.Literal(STATE_UPDATE_PREFLIGHT_PROTOCOL),
   candidateId: Schema.UUID,
