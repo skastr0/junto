@@ -1,9 +1,16 @@
+import { use$ } from "@legendapp/state/react";
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, Play, RefreshCw, Square } from "lucide-react";
-import type {
-  BoxAvailabilityResult,
-  BoxFleetResource,
-} from "@shared/ipc";
+import {
+  boxAvailabilityNeedsRefresh,
+  boxFleet$,
+  cacheBoxAvailability,
+  cacheOwnedBoxes,
+  invalidateBoxAvailability,
+  invalidateOwnedBoxes,
+  ownedBoxesNeedRefresh,
+  upsertCachedBox,
+} from "../../lib/box-fleet-state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { Button, Chip, StatusDot } from "../ui";
 
@@ -23,38 +30,94 @@ export function FleetBoxPanel({
   readonly onClose: () => void;
   readonly onFleetChanged: () => Promise<void>;
 }) {
-  const [availability, setAvailability] =
-    useState<BoxAvailabilityResult | null>(null);
-  const [boxes, setBoxes] = useState<ReadonlyArray<BoxFleetResource>>([]);
-  const [busy, setBusy] = useState<string | null>("loading");
+  const availability = use$(boxFleet$.availability);
+  const availabilityValid = use$(boxFleet$.availabilityValid);
+  const boxes = use$(boxFleet$.boxes);
+  const [busy, setBusy] = useState<string | null>(() =>
+    boxAvailabilityNeedsRefresh() || ownedBoxesNeedRefresh()
+      ? "loading"
+      : null
+  );
   const [message, setMessage] = useState("");
 
-  const load = useCallback(async () => {
+  const refreshAvailability = useCallback(async (force = false) => {
     const api = getVellumApi();
-    if (!api?.boxAvailability || !api.boxListOwned) {
+    if (!api?.boxAvailability) {
+      invalidateBoxAvailability();
       setMessage("Box integration is unavailable in this build.");
-      setBusy(null);
       return;
     }
-    setBusy("loading");
     try {
-      const [status, owned] = await Promise.all([
-        api.boxAvailability(),
-        api.boxListOwned(),
-      ]);
-      setAvailability(status);
-      setBoxes(owned.ok ? [...(owned.boxes ?? [])] : []);
-      if (!owned.ok) setMessage(owned.message ?? "Could not read owned Boxes.");
+      if (!force && !boxAvailabilityNeedsRefresh()) return;
+      const status = await api.boxAvailability();
+      if (!status.ok) {
+        invalidateBoxAvailability();
+        setMessage(status.message ?? status.detail);
+        return;
+      }
+      cacheBoxAvailability(status);
     } catch (cause) {
+      invalidateBoxAvailability();
       setMessage(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(null);
     }
   }, []);
 
+  const refreshOwnedBoxes = useCallback(async (force = false) => {
+    const api = getVellumApi();
+    if (!api?.boxListOwned) {
+      invalidateOwnedBoxes();
+      setMessage("Box integration is unavailable in this build.");
+      return;
+    }
+    try {
+      if (!force && !ownedBoxesNeedRefresh()) return;
+      const owned = await api.boxListOwned();
+      if (!owned.ok) {
+        invalidateOwnedBoxes();
+        setMessage(owned.message ?? "Could not read owned Boxes.");
+        return;
+      }
+      cacheOwnedBoxes(owned.boxes ?? []);
+    } catch (cause) {
+      invalidateOwnedBoxes();
+      setMessage(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
+
+  const loadMissing = useCallback(async () => {
+    const needsAvailability = boxAvailabilityNeedsRefresh();
+    const needsBoxes = ownedBoxesNeedRefresh();
+    if (!needsAvailability && !needsBoxes) {
+      setBusy(null);
+      return;
+    }
+    setBusy(
+      boxFleet$.availability.peek() === null &&
+        boxFleet$.boxes.peek().length === 0
+        ? "loading"
+        : null
+    );
+    await Promise.all([
+      needsAvailability ? refreshAvailability() : Promise.resolve(),
+      needsBoxes ? refreshOwnedBoxes() : Promise.resolve(),
+    ]);
+    setBusy(null);
+  }, [refreshAvailability, refreshOwnedBoxes]);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadMissing();
+  }, [loadMissing]);
+
+  const refreshFleetView = async () => {
+    try {
+      await onFleetChanged();
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      setMessage((current) =>
+        `${current}${current ? " " : ""}Fleet view refresh failed: ${detail}`
+      );
+    }
+  };
 
   const create = async () => {
     const api = getVellumApi();
@@ -64,17 +127,25 @@ export function FleetBoxPanel({
     try {
       const result = await api.boxCreate();
       if (!result.ok) {
+        invalidateOwnedBoxes();
         const recovery =
           result.recoveryBoxId && result.provisioningStage
             ? ` Box ${result.recoveryBoxId} exists; retry from stage ${result.provisioningStage}.`
             : "";
         setMessage(`${result.message ?? "Box creation failed."}${recovery}`);
-        await Promise.all([load(), onFleetChanged()]);
+        await Promise.all([refreshOwnedBoxes(), refreshFleetView()]);
         return;
       }
+      if (result.box) {
+        upsertCachedBox(result.box);
+      } else {
+        invalidateOwnedBoxes();
+        await refreshOwnedBoxes();
+      }
       setMessage("Box created, SSH verified, and enrolled in Command Fleet.");
-      await Promise.all([load(), onFleetChanged()]);
+      await refreshFleetView();
     } catch (cause) {
+      invalidateOwnedBoxes();
       setMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(null);
@@ -100,18 +171,19 @@ export function FleetBoxPanel({
     try {
       const result = await invoke(boxId);
       if (!result.ok) {
+        invalidateOwnedBoxes();
         setMessage(result.message ?? `Box ${operation} failed.`);
         return;
       }
       if (result.box) {
-        setBoxes((current) =>
-          current.map((box) =>
-            box.boxId === result.box!.boxId ? result.box! : box,
-          ),
-        );
+        upsertCachedBox(result.box);
+      } else {
+        invalidateOwnedBoxes();
+        await refreshOwnedBoxes();
       }
-      await onFleetChanged();
+      await refreshFleetView();
     } catch (cause) {
+      invalidateOwnedBoxes();
       setMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(null);
@@ -119,6 +191,7 @@ export function FleetBoxPanel({
   };
 
   const ready =
+    availabilityValid &&
     availability?.available === true &&
     availability.authenticated &&
     availability.healthy;
@@ -151,7 +224,13 @@ export function FleetBoxPanel({
 
         <div className="fleet-box-panel__provider">
           <StatusDot
-            tone={ready ? "green" : availability?.available ? "amber" : "dim"}
+            tone={
+              ready
+                ? "green"
+                : availability?.available
+                  ? "amber"
+                  : "dim"
+            }
           />
           <div>
             <strong>
@@ -169,7 +248,11 @@ export function FleetBoxPanel({
               size="xs"
               variant="subtle"
               disabled={busy !== null}
-              onClick={() => void load()}
+              onClick={() => {
+                setBusy("detect");
+                setMessage("");
+                void refreshAvailability(true).finally(() => setBusy(null));
+              }}
             >
               <RefreshCw size={11} />
               Detect
