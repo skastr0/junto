@@ -9,10 +9,12 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { lstat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { Effect, Fiber, Queue, Stream } from "effect";
 import { LINUX_RELEASE_MANIFEST } from "../../../../scripts/linux-release-bundle";
+import {
+  ensureLinuxReleaseCache,
+  linuxRemoteArtifactBundleRoot,
+} from "./linux-release-feed";
 import {
   LINUX_RELEASE_BRIDGE_STAGE_PROTOCOL,
   decodeLinuxReleaseBridgeAuthArmed,
@@ -291,19 +293,25 @@ const boundedBundleInventory = (
   });
 };
 
-export const linuxRemoteArtifactBundleRoot = (home = homedir()): string =>
-  join(home, ".vellum", "releases", "linux-x64-glibc", "current");
+export { linuxRemoteArtifactBundleRoot } from "./linux-release-feed";
 
 /**
  * Production trust is compiled into the application by the release authority.
  * The mutable candidate cannot provide keys, pins, target facts, or a path.
+ *
+ * Cache source of truth: stable channel on the release Worker (R2). Local
+ * ~/.vellum/releases/linux-x64-glibc/current is a seated cache after download.
  */
 export const makeProductionLinuxArtifactAuthority = (
-  home = homedir(),
+  home?: string,
 ): LinuxRemoteArtifactAuthority => {
-  const bundleRoot = linuxRemoteArtifactBundleRoot(home);
+  const resolvedHome = home;
   return Object.freeze({
     resolve: async () => {
+      const cache = await ensureLinuxReleaseCache({
+        ...(resolvedHome === undefined ? {} : { home: resolvedHome }),
+      });
+      const bundleRoot = cache.bundleRoot;
       const metadata = await lstat(bundleRoot);
       const expectedUid = process.getuid?.();
       if (
