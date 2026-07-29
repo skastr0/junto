@@ -65,7 +65,7 @@ export function FleetDeployJobPanel({
       aria-label={`Deploy job ${STATUS_LABEL[job.status]}`}
     >
       <div className="fleet-deploy-job__head">
-        <div className="fleet-detail__section-label">Deploy progress</div>
+        <span className="fleet-deploy-job__title">Progress</span>
         <Chip tone={STATUS_TONE[job.status]}>{STATUS_LABEL[job.status]}</Chip>
         {elapsed ? (
           <span className="fleet-deploy-job__elapsed">{elapsed}</span>

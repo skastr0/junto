@@ -154,20 +154,49 @@ const startStandard = (command: Command.StandardCommand): Effect.Effect<TrackedS
     catch: failure,
   });
 
+/**
+ * NodeWritable/Readable emit async EPIPE after the peer closes the SSH pipe.
+ * Without a listener, that becomes Electron's "JavaScript error in the main
+ * process" dialog even when Effect already maps the failure into deploy stages.
+ * Attach once; rethrow non-broken-pipe faults so real IO bugs stay loud.
+ */
+const containBrokenPipe = (stream: {
+  readonly on: (
+    event: "error",
+    listener: (error: NodeJS.ErrnoException) => void,
+  ) => unknown;
+}): void => {
+  stream.on("error", (error) => {
+    if (
+      error.code === "EPIPE" ||
+      error.code === "EIO" ||
+      error.code === "ERR_STREAM_DESTROYED"
+    ) {
+      return;
+    }
+    throw error;
+  });
+};
+
 export const ProcessSpawnerLive = Layer.succeed(ProcessSpawner, ProcessSpawner.of({
   start: (command) => {
     if (command._tag !== "StandardCommand") return Effect.fail(failure());
-    return Effect.acquireRelease(startStandard(command), stopProcess).pipe(Effect.map((tracked): ProcessHandle => ({
-      pid: tracked.lease.io.pidForDiagnostics ?? -1,
-      exitCode: Effect.promise(() => tracked.outcome).pipe(
-        Effect.flatMap((outcome) => outcome._tag === "exit" ? Effect.succeed(outcome.code) : Effect.fail(failure())),
-      ),
-      isRunning: Effect.sync(() =>
-        !tracked.preSpawnFailed() && !tracked.processEnded()
-      ),
-      stdin: NodeSink.fromWritable(() => tracked.lease.io.stdin, failure, { endOnDone: true }),
-      stdout: NodeStream.fromReadable(() => tracked.lease.io.stdout, failure),
-      stderr: NodeStream.fromReadable(() => tracked.lease.io.stderr, failure),
-    })));
+    return Effect.acquireRelease(startStandard(command), stopProcess).pipe(Effect.map((tracked): ProcessHandle => {
+      containBrokenPipe(tracked.lease.io.stdin);
+      containBrokenPipe(tracked.lease.io.stdout);
+      containBrokenPipe(tracked.lease.io.stderr);
+      return {
+        pid: tracked.lease.io.pidForDiagnostics ?? -1,
+        exitCode: Effect.promise(() => tracked.outcome).pipe(
+          Effect.flatMap((outcome) => outcome._tag === "exit" ? Effect.succeed(outcome.code) : Effect.fail(failure())),
+        ),
+        isRunning: Effect.sync(() =>
+          !tracked.preSpawnFailed() && !tracked.processEnded()
+        ),
+        stdin: NodeSink.fromWritable(() => tracked.lease.io.stdin, failure, { endOnDone: true }),
+        stdout: NodeStream.fromReadable(() => tracked.lease.io.stdout, failure),
+        stderr: NodeStream.fromReadable(() => tracked.lease.io.stderr, failure),
+      };
+    }));
   },
 }));

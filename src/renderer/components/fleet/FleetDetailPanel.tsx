@@ -328,11 +328,43 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
 
   return (
     <div className="fleet-detail__body">
-      {deployJob ? (
-        <section className="fleet-detail__section fleet-detail__section--deploy">
-          <FleetDeployJobPanel job={deployJob} />
-        </section>
-      ) : null}
+      {/* Deploy + progress share one surface — never bury the action under Identity. */}
+      <section className="fleet-detail__section fleet-detail__section--deploy">
+        <div className="fleet-detail__section-label">Remote deploy</div>
+        {deployJob ? <FleetDeployJobPanel job={deployJob} /> : null}
+        <div className="fleet-detail__actions">
+          <Button
+            variant="primary"
+            size="xs"
+            disabled={actionBusy !== "" || !deployEnabled || deployInFlight}
+            title={
+              deployInFlight
+                ? "Deploy already running in Command Center"
+                : deployDetail
+            }
+            {...activateOnPointerUp(() => void runAction("deploy"))}
+          >
+            {deployInFlight ? "deploying…" : "Deploy Vellum Remote"}
+          </Button>
+          {!deployEnabled && deployDetail ? (
+            <p className="fleet-detail__note">{deployDetail}</p>
+          ) : null}
+        </div>
+        {actionLine ? (
+          <p
+            className="fleet-detail__note"
+            role="status"
+            style={{ whiteSpace: "pre-wrap" }}
+          >
+            {actionLine}
+          </p>
+        ) : !deployJob ? (
+          <p className="fleet-detail__note">
+            Package install, sealed adopt, and readiness run in the main
+            process. Progress and step log appear here while Deploy runs.
+          </p>
+        ) : null}
+      </section>
 
       <section className="fleet-detail__section">
         <div className="fleet-detail__section-label">Identity</div>
@@ -545,24 +577,6 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           >
             {actionBusy === "configure" ? "configuring…" : "Configure Remote"}
           </Button>
-          <Button
-            variant="primary"
-            size="xs"
-            disabled={actionBusy !== "" || !deployEnabled || deployInFlight}
-            title={
-              deployInFlight
-                ? "Deploy already running in Command Center"
-                : deployDetail
-            }
-            {...activateOnPointerUp(() => void runAction("deploy"))}
-          >
-            {deployInFlight ? "deploying…" : "Deploy Vellum Remote"}
-          </Button>
-          {!deployEnabled && deployDetail ? (
-            <p className="fleet-detail__note">{deployDetail}</p>
-          ) : null}
-
-
           {confirmRemove ? (
             <Button
               size="xs"
@@ -583,11 +597,6 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             </Button>
           )}
         </div>
-        {actionLine ? (
-          <p className="fleet-detail__note" role="status" style={{ whiteSpace: "pre-wrap" }}>
-            {actionLine}
-          </p>
-        ) : null}
       </section>
       {authorizationRequest ? (
         <FleetLinuxAdminPasswordDialog

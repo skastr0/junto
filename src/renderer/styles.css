@@ -3375,12 +3375,23 @@ ol.note-md__list > .note-md__li::before {
 .fleet-detail__plugin-targets input {
   accent-color: var(--color-amber);
 }
+.fleet-detail__section--deploy {
+  gap: 10px;
+  padding-top: 14px;
+}
 .fleet-deploy-job {
   display: flex;
   flex-direction: column;
   gap: 8px;
   width: 100%;
-  padding: 12px 0 4px;
+  padding: 4px 0 2px;
+}
+.fleet-deploy-job__title {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-ink-2);
 }
 .fleet-deploy-job--compact {
   padding: 8px 12px;
