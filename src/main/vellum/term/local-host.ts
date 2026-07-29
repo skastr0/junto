@@ -413,8 +413,12 @@ export const resolveLaunch = (
     seat.kind === "agent"
       ? {
           ...buildSpawnEnv(process.env, {
-            ...(options?.seatInject ?? {}),
             ...(launch?.env ?? {}),
+            // Live host authority wins over the earlier pure launch plan.
+            // In dev, that keeps repo/dist ahead of a stale installed CLI;
+            // for every build, it prevents document/ambient launch env from
+            // replacing the process-bound seat and control-socket contract.
+            ...(options?.seatInject ?? {}),
           }),
           TERM: term,
           COLORTERM: process.env.COLORTERM || "truecolor",

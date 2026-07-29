@@ -178,6 +178,37 @@ describe("LocalSessionHost", () => {
     });
   });
 
+  it("keeps the live seat environment authoritative over a stale launch plan", () => {
+    const resolved = Either.getOrThrow(
+      resolveLaunch(
+        {
+          kind: "agent",
+          harness: "codex",
+          agentKey: "local:codex",
+          launch: {
+            kind: "harness",
+            argv: ["codex"],
+            env: {
+              PATH: "/installed/bin:/usr/bin",
+              VELLUM_SOCKET: "/stale/work.sock",
+              CLAUDECODE: "nested",
+            },
+          },
+        },
+        {
+          seatInject: {
+            PATH: "/repo/dist:/usr/bin",
+            VELLUM_SOCKET: "/live/work.sock",
+          },
+        },
+      ),
+    );
+
+    expect(resolved.env.PATH).toBe("/repo/dist:/usr/bin");
+    expect(resolved.env.VELLUM_SOCKET).toBe("/live/work.sock");
+    expect(resolved.env.CLAUDECODE).toBeUndefined();
+  });
+
   it("drives an unresolvable agent seat to the error state instead of a login shell", () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(42_900),
