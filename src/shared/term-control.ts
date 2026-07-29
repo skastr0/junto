@@ -9,6 +9,7 @@ import {
   type LinuxReleaseFence,
 } from "./linux-release-fence";
 import type { TerminalLaunch, TerminalSessionSummary } from "./terminal";
+import type { HostDirectorySnapshot } from "./host-directory";
 
 export const TERM_CONTROL_PROTOCOL = 1 as const;
 export const TERM_MAX_FRAME_BYTES = 2 * 1024 * 1024;
@@ -38,6 +39,12 @@ export type TermControlRequest =
       readonly label?: string;
     }
   | { readonly v: 1; readonly id: string; readonly op: "list" }
+  | {
+      readonly v: 1;
+      readonly id: string;
+      readonly op: "directory.read";
+      readonly path?: string;
+    }
   | { readonly v: 1; readonly id: string; readonly op: "get"; readonly bindingId: string }
   | { readonly v: 1; readonly id: string; readonly op: "kill"; readonly bindingId: string }
   | {
@@ -117,6 +124,8 @@ export type TermAttachPayload = {
 export type TermListPayload = {
   readonly sessions: readonly TerminalSessionSummary[];
 };
+
+export type TermDirectoryPayload = HostDirectorySnapshot;
 
 export type TermMaintenanceEvidence = {
   readonly activeTerminalSessions: number;

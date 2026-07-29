@@ -25,6 +25,7 @@ import {
   type TermMaintenanceQuiescenceEvidence,
 } from "@shared/term-control";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import type { HostDirectorySnapshot } from "@shared/host-directory";
 import {
   parseRemoteUnixSocketPath,
   parseHostSshRoute,
@@ -44,6 +45,7 @@ import type {
   TerminalOpenInput,
 } from "./local-host";
 import { TermControlClient } from "./control-client";
+import { readHostDirectory } from "./host-directory";
 import type { TermControlClientShutdownReceipt } from "./control-client";
 
 const runScopePromise = <A>(
@@ -408,6 +410,19 @@ export class TerminalRouter extends EventEmitter {
       }
     }
     return out;
+  }
+
+  async readDirectory(
+    hostId: string | undefined,
+    path?: string,
+  ): Promise<HostDirectorySnapshot> {
+    const normalizedHostId = hostId?.trim();
+    if (!normalizedHostId || this.isLocalHostId(normalizedHostId)) {
+      return readHostDirectory(path);
+    }
+    const client = await this.ensureRemoteClient(normalizedHostId);
+    this.assertRouteAdmission(normalizedHostId);
+    return client.readDirectory(path);
   }
 
   async get(

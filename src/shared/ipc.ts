@@ -37,6 +37,7 @@ import type {
 import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
 import type { TerminalSessionSummary, TerminalLaunch } from "./terminal";
+import type { HostDirectorySnapshot } from "./host-directory";
 import type { ActorRef } from "./work-protocol";
 import type { LicenseApi } from "./license";
 import type {
@@ -215,6 +216,7 @@ export const IPC_CHANNELS = {
   terminalResize: "vellum:terminal-resize",
   terminalShutdown: "vellum:terminal-shutdown",
   terminalEvent: "vellum:terminal-event",
+  hostDirectoryRead: "vellum:host-directory-read",
   /** Fail-soft model list for the managed-terminal harness picker. */
   managedTerminalModels: "vellum:managed-terminal-models",
   /** Fail-soft Hermes profile list for the harness picker. */
@@ -1239,6 +1241,11 @@ export interface VellumTerminalApi {
   readonly terminalCreate: (input: TerminalCreateInput) => Promise<TerminalSessionSummary>;
   readonly terminalGet: (bindingId: string, hostId?: string) => Promise<TerminalSessionSummary | undefined>;
   readonly terminalKill: (bindingId: string, hostId?: string) => Promise<boolean>;
+  /** Read one bounded directory page on the selected local or Remote host. */
+  readonly hostDirectoryRead: (
+    hostId: string,
+    path?: string,
+  ) => Promise<HostDirectorySnapshot>;
   readonly terminalBindCanvas: (
     bindingId: string,
     ref: { canvasName?: string; nodeId?: string } | null,

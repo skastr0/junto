@@ -89,6 +89,14 @@ export const registerTerminalIpc = (
     return router.list(hostId);
   });
 
+  ipcMain.handle(
+    IPC_CHANNELS.hostDirectoryRead,
+    async (event, hostId: string, path?: string) => {
+      assertTrusted(event);
+      return router.readDirectory(hostId, path);
+    },
+  );
+
   ipcMain.handle(IPC_CHANNELS.terminalCreate, async (event, input) => {
     assertTrusted(event);
     const harness =

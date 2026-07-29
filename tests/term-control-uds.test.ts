@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConnection } from "node:net";
@@ -74,6 +74,17 @@ describe("term control UDS", () => {
 
     const listed = await client.list();
     expect(listed.some((s) => s.bindingId === "bind_a")).toBe(true);
+
+    const browsedPath = join(home, "project");
+    mkdirSync(browsedPath);
+    const browsed = await client.readDirectory(home);
+    expect(browsed.entries).toContainEqual(
+      expect.objectContaining({
+        name: "project",
+        path: join(browsed.root, "project"),
+        kind: "directory",
+      }),
+    );
 
     const attach = await client.attach({
       bindingId: "bind_a",

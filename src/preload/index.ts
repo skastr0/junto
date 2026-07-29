@@ -645,6 +645,8 @@ const terminalApi: VellumTerminalApi = {
   terminalCreate: (input) => invoke(IPC_CHANNELS.terminalCreate, IPC_TIMEOUT_MS, input),
   terminalGet: (bindingId, hostId) => invoke(IPC_CHANNELS.terminalGet, IPC_TIMEOUT_MS, bindingId, hostId),
   terminalKill: (bindingId, hostId) => invoke(IPC_CHANNELS.terminalKill, IPC_TIMEOUT_MS, bindingId, hostId),
+  hostDirectoryRead: (hostId, path) =>
+    invoke(IPC_CHANNELS.hostDirectoryRead, IPC_TIMEOUT_MS, hostId, path),
   terminalBindCanvas: (bindingId, ref, hostId) =>
     invoke(IPC_CHANNELS.terminalBindCanvas, IPC_TIMEOUT_MS, bindingId, ref, hostId),
   terminalAttach: (input) => invoke(IPC_CHANNELS.terminalAttach, IPC_TIMEOUT_MS, input),

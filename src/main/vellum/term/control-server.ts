@@ -58,6 +58,7 @@ import {
   observeLinuxReleaseFence,
   type LinuxReleaseFenceObservation,
 } from "./release-fence";
+import { readHostDirectory } from "./host-directory";
 
 const tokenHash = (token: string): Buffer =>
   createHash("sha256").update(token, "utf8").digest();
@@ -387,6 +388,13 @@ export const startTermControlServer = async (
         }
         case "list":
           return { v: 1, id, ok: true, data: { sessions: host.list() } };
+        case "directory.read":
+          return {
+            v: 1,
+            id,
+            ok: true,
+            data: await readHostDirectory(req.path),
+          };
         case "get":
           return { v: 1, id, ok: true, data: host.get(req.bindingId) ?? null };
         case "kill":

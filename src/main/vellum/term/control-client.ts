@@ -19,6 +19,8 @@ import {
   type TermControlResponse,
 } from "@shared/term-control";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import { Schema } from "effect";
+import { HostDirectorySnapshot } from "@shared/host-directory";
 import type { ControlLease, JournalEntry, LocalHostEvent } from "./local-host";
 
 type Pending = {
@@ -358,6 +360,19 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     if (!res.ok) throw new Error(res.error);
     const data = res.data as { sessions?: TerminalSessionSummary[] };
     return data.sessions ?? [];
+  }
+
+  async readDirectory(path?: string): Promise<typeof HostDirectorySnapshot.Type> {
+    const res = await this.call({
+      v: 1,
+      id: this.nextId(),
+      op: "directory.read",
+      ...(path?.trim() ? { path: path.trim() } : {}),
+    });
+    if (!res.ok) throw new Error(res.error);
+    return Schema.decodeUnknownSync(HostDirectorySnapshot, {
+      onExcessProperty: "error",
+    })(res.data);
   }
 
   async get(bindingId: string): Promise<TerminalSessionSummary | undefined> {
