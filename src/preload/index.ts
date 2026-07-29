@@ -529,6 +529,8 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.boxStop, 180_000, boxId),
   boxResume: (boxId: string) =>
     invoke(IPC_CHANNELS.boxResume, 180_000, boxId),
+  boxDetach: (boxId: string) =>
+    invoke(IPC_CHANNELS.boxDetach, IPC_TIMEOUT_MS, boxId),
   settingsGet: () => invoke<SettingsOpResult>(IPC_CHANNELS.settingsGet, IPC_TIMEOUT_MS),
   settingsPatch: (patch: SettingsPatch) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsPatch, IPC_TIMEOUT_MS, patch),

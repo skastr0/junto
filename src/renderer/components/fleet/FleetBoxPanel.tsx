@@ -153,7 +153,7 @@ export function FleetBoxPanel({
   };
 
   const operate = async (
-    operation: "refresh" | "prepare" | "stop" | "resume",
+    operation: "refresh" | "prepare" | "stop" | "resume" | "detach",
     boxId: string,
   ) => {
     const api = getVellumApi();
@@ -164,7 +164,9 @@ export function FleetBoxPanel({
           ? api?.boxPrepareSsh
           : operation === "stop"
             ? api?.boxStop
-            : api?.boxResume;
+            : operation === "detach"
+              ? api?.boxDetach
+              : api?.boxResume;
     if (!invoke) return;
     setBusy(`${operation}:${boxId}`);
     setMessage("");
@@ -173,6 +175,13 @@ export function FleetBoxPanel({
       if (!result.ok) {
         invalidateOwnedBoxes();
         setMessage(result.message ?? `Box ${operation} failed.`);
+        return;
+      }
+      if (operation === "detach") {
+        invalidateOwnedBoxes();
+        await refreshOwnedBoxes();
+        await refreshFleetView();
+        setMessage("Detached from Vellum. Provider Box is unchanged.");
         return;
       }
       if (result.box) {
@@ -370,6 +379,15 @@ export function FleetBoxPanel({
                       {stopped ? <Play size={11} /> : <Square size={10} />}
                       {transitioning ? "Wait" : stopped ? "Resume" : "Stop"}
                     </Button>
+                    <Button
+                      size="xs"
+                      variant="danger"
+                      disabled={boxBusy}
+                      title="Remove from Vellum only — does not delete the Box account machine"
+                      onClick={() => void operate("detach", box.boxId)}
+                    >
+                      Detach
+                    </Button>
                   </div>
                 </article>
               );
@@ -383,7 +401,10 @@ export function FleetBoxPanel({
             keeps its Box available; when the Box has no active work, Vellum
             arms Box&apos;s 10-minute automatic stop.
           </span>
-          <span>Delete machines and manage billing in the Box dashboard.</span>
+          <span>
+            Detach drops Vellum ownership + fleet only. Destroy machines in the
+            Box dashboard.
+          </span>
         </footer>
 
         {message ? (

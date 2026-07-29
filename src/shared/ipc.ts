@@ -177,6 +177,8 @@ export const IPC_CHANNELS = {
   boxPrepareSsh: "vellum:box-prepare-ssh",
   boxStop: "vellum:box-stop",
   boxResume: "vellum:box-resume",
+  /** Drop Vellum ownership + fleet host; does not destroy the provider Box. */
+  boxDetach: "vellum:box-detach",
   // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
   // The opaque challenge is generation identity, never product authority.
   rendererSurfaceChallenge: "vellum:renderer-surface-challenge",
@@ -688,6 +690,8 @@ export interface VellumApi extends LicenseApi, UpdateApi {
   readonly boxPrepareSsh: (boxId: string) => Promise<BoxFleetResult>;
   readonly boxStop: (boxId: string) => Promise<BoxFleetResult>;
   readonly boxResume: (boxId: string) => Promise<BoxFleetResult>;
+  /** Remove from Vellum ownership + fleet only; Box account machine remains. */
+  readonly boxDetach: (boxId: string) => Promise<BoxFleetResult>;
 }
 
 export interface HostsOpResult {

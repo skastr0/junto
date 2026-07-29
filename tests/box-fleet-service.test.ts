@@ -196,6 +196,28 @@ describe("Box Fleet service ownership", () => {
     expect(await Effect.runPromise(repository.list)).toHaveLength(1);
   });
 
+  it("detaches ownership and fleet host without touching the provider", async () => {
+    const { repository, state } = await fixture();
+    const stop = vi.fn(() => Effect.succeed(machine("stopped")));
+    const cli = BoxCli.of({
+      availability: Effect.never,
+      create: vi.fn(() => Effect.succeed(machine())),
+      info: vi.fn(() => Effect.succeed(machine())),
+      stop,
+      resume: vi.fn(() => Effect.succeed(machine())),
+      prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop: vi.fn(() => Effect.void),
+    });
+    const service = makeBoxFleetService(cli, repository);
+    await Effect.runPromise(service.create());
+
+    await Effect.runPromise(service.detach("bx_c79mgja6"));
+
+    expect(stop).not.toHaveBeenCalled();
+    expect(await Effect.runPromise(repository.list)).toHaveLength(0);
+    expect(await makeHostsRegistry(state).get("box-c79mgja6")).toBeUndefined();
+  });
+
   it("converges the process-local route before a lifecycle call returns", async () => {
     const { repository, state } = await fixture();
     const registry = makeHostsRegistry(state);

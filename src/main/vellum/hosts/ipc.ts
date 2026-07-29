@@ -677,6 +677,30 @@ export const registerHostsIpc = (
     ),
   );
 
+  ipcMain.handle(IPC_CHANNELS.boxDetach, (_event, boxId: unknown) =>
+    surfaceShutdownRefusal(
+      operations.run(HOST_OPERATION_ADMISSIONS.boxDetach, () =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            if (typeof boxId !== "string" || boxId.length === 0) {
+              return {
+                ok: false,
+                code: "validation",
+                message: "Box id required",
+              } satisfies BoxFleetResult;
+            }
+            const boxes = yield* BoxFleetService;
+            const result = yield* Effect.either(boxes.detach(boxId));
+            return result._tag === "Right"
+              ? ({ ok: true } satisfies BoxFleetResult)
+              : boxFailure(result.left);
+          }),
+        ),
+      ),
+      (error) => boxFailure(error),
+    ),
+  );
+
   // Tailscale mesh peers not yet enrolled. Read path — mirrors hostsList
   // gating (registry-read admission). Degrades to an empty peer list; the
   // tailscale CLI being absent is never an error surface.
@@ -776,6 +800,38 @@ export const registerHostsIpc = (
                 message:
                   `fleet target could not be removed: ${targetRemoved.left._tag}`,
               } satisfies HostsOpResult;
+            }
+            // Box-owned hosts: also drop ownership so the Box panel + Fleet
+            // stay consistent (stop alone no longer unenrolls).
+            const boxes = yield* BoxFleetService;
+            const owned = yield* Effect.either(
+              boxes.list.pipe(
+                Effect.map((list) =>
+                  list.find((resource) => resource.hostId === id),
+                ),
+              ),
+            );
+            if (
+              owned._tag === "Right" &&
+              owned.right !== undefined
+            ) {
+              const detached = yield* Effect.either(
+                boxes.detach(owned.right.machine.id),
+              );
+              if (detached._tag === "Left") {
+                return {
+                  ok: false,
+                  code: "io",
+                  message:
+                    detached.left instanceof Error
+                      ? detached.left.message
+                      : "Box could not be detached from Vellum",
+                } satisfies HostsOpResult;
+              }
+              // detach already removed host_registry; reload list for caller.
+              const hosts = yield* HostsService;
+              const remaining = yield* Effect.either(hosts.list);
+              return toOp(remaining as never);
             }
             const hosts = yield* HostsService;
             const result = yield* Effect.either(hosts.remove(id));

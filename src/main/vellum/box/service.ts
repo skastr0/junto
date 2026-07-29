@@ -52,6 +52,7 @@ export class BoxFleetProvisioningError extends Schema.TaggedError<BoxFleetProvis
       "record-ssh-preparation",
       "verify-openssh",
       "enroll-host",
+      "detach",
       "refresh-routing",
     ),
     detail: Schema.String,
@@ -95,6 +96,13 @@ export class BoxFleetService extends Context.Tag("@vellum/box/BoxFleetService")<
     readonly prepareSsh: (
       boxId: string,
     ) => Effect.Effect<BoxResource, BoxFleetError>;
+    /**
+     * Remove Vellum ownership + fleet host. Provider Box is left alone
+     * (stopped/running at account). Use Box dashboard to destroy machines.
+     */
+    readonly detach: (
+      boxId: string,
+    ) => Effect.Effect<void, BoxFleetError>;
     /** Pin while active work exists on the host; otherwise arm a provider TTL. */
     readonly setActivityDemand: (
       boxId: string,
@@ -385,6 +393,25 @@ export const makeBoxFleetService = (
       authorizeMutation.pipe(
         Effect.andThen(owned(boxId)),
         Effect.flatMap(prepareOwned),
+      ),
+    detach: (boxId) =>
+      authorizeMutation.pipe(
+        Effect.andThen(owned(boxId)),
+        Effect.flatMap((box) => {
+          const machineId = inspectOwnedBox(box).machine.id;
+          return ownership.detach(box).pipe(
+            Effect.mapError((error) =>
+              provisioningError(machineId, "detach", error),
+            ),
+            Effect.zipRight(
+              handoff.convergeHosts.pipe(
+                Effect.mapError((error) =>
+                  provisioningError(machineId, "refresh-routing", error),
+                ),
+              ),
+            ),
+          );
+        }),
       ),
     setActivityDemand: (boxId, demanded) =>
       authorizeMutation.pipe(

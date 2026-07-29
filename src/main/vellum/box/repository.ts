@@ -168,6 +168,13 @@ export class BoxOwnershipRepository extends Context.Tag(
       box: OwnedBox,
       identityFile: string,
     ) => Effect.Effect<OwnedBox, BoxOwnershipPersistenceError>;
+    /**
+     * Drop local ownership + fleet host placement. Does not stop or destroy
+     * the provider Box — only detaches it from Vellum.
+     */
+    readonly detach: (
+      box: OwnedBox,
+    ) => Effect.Effect<void, BoxOwnershipPersistenceError>;
   }
 >() {}
 
@@ -451,6 +458,39 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
       return admitOwnedBox(record satisfies OwnedBoxRecord);
     });
 
+    const detach = Effect.fn("BoxOwnershipRepository.detach")(function* (
+      box: OwnedBox,
+    ) {
+      const current = inspectOwnedBox(box);
+      yield* state
+        .transaction("box.ownership.detach", (writer) => {
+          const row = selectByBoxId(writer, current.machine.id);
+          if (row === undefined) {
+            throw new Error("Box ownership disappeared before detach");
+          }
+          // box_resources.host_id → host_registry ON DELETE RESTRICT
+          if (row.host_id !== null) {
+            writer.run(
+              `UPDATE box_resources
+               SET host_id = NULL,
+                   ssh_prepared_at = NULL,
+                   ssh_verified_at = NULL
+               WHERE box_id = ?`,
+              [current.machine.id],
+            );
+            writer.run("DELETE FROM host_registry WHERE id = ?", [
+              row.host_id,
+            ]);
+          }
+          writer.run("DELETE FROM box_resources WHERE box_id = ?", [
+            current.machine.id,
+          ]);
+        })
+        .pipe(
+          Effect.mapError((error) => toPersistenceError("detach", error)),
+        );
+    });
+
     return BoxOwnershipRepository.of({
       enrollCreated,
       requireOwned,
@@ -459,6 +499,7 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
       updateMachine,
       markSshPrepared,
       enrollVerifiedHost,
+      detach,
     });
   }),
 );
