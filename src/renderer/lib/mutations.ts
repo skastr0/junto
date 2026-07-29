@@ -16,6 +16,7 @@ import type { BindingHint } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { DEFAULT_STATION_HOST_ID, isValidStationHostId } from "@shared/station";
+import { licenseCustody } from "./license-custody";
 import { state$ } from "./state";
 
 const past: CanvasDoc[] = [];
@@ -455,6 +456,12 @@ export const replaceActiveActorRefs = (
 // Commit a new document. `structural` bumps docVersion so React Flow rebuilds;
 // pass false for pure position writes RF already reflects (drag stop).
 export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = structural): void => {
+  if (licenseCustody.isReadOnly()) {
+    state$.error.set(
+      "license maintenance — canvas is read-only until access is restored",
+    );
+    return;
+  }
   if (!canvasMutationAdmissionOpen) return;
   if (recordHistory) {
     past.push(state$.doc.peek());

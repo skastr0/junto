@@ -150,12 +150,21 @@ export const PausePlaneLive = Layer.effect(
       );
 
     const setPlaying = (canvas: string, playing: boolean) => {
-      if (playing && licenseFactoryHold.forcesPaused()) {
+      if (playing && licenseFactoryHold.isMaintenance()) {
         return Effect.fail(
           new PauseStateError({
             message:
               "factory is in license maintenance — resume after access is restored",
           }),
+        );
+      }
+      // Sticky latch after a prior maintenance episode: allow explicit play
+      // under full access, then clear so agents are not auto-resumed.
+      if (playing && licenseFactoryHold.requiresOperatorPlay()) {
+        return persist(canvas, repository.setPlaying(canvas, playing)).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => licenseFactoryHold.clearAfterOperatorPlay()),
+          ),
         );
       }
       return persist(canvas, repository.setPlaying(canvas, playing));

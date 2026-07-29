@@ -1306,6 +1306,29 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 
     const licenseConfig = compiledLicenseBuildConfig(app.isPackaged);
     const licenseService = await AppRuntime.runPromise(LicenseService);
+    // Remote: seed lease from durable Station contact before admission so a
+    // restart within the 3-day window does not force maintenance.
+    if (stationConfiguration?.configuration.role === "remote") {
+      try {
+        const stations = await AppRuntime.runPromise(StationRepository);
+        const facts = await AppRuntime.runPromise(stations.statusFacts);
+        const candidates: number[] = [];
+        if (facts.pairing?.pairedAt) {
+          const ms = Date.parse(facts.pairing.pairedAt);
+          if (Number.isFinite(ms)) candidates.push(ms);
+        }
+        const headReceived = facts.projection?.receivedAt;
+        if (typeof headReceived === "string") {
+          const ms = Date.parse(headReceived);
+          if (Number.isFinite(ms)) candidates.push(ms);
+        }
+        if (candidates.length > 0) {
+          remoteLeaseState.hydrate(Math.max(...candidates));
+        }
+      } catch {
+        // Missing pairing/projection is a never-checked-in Remote.
+      }
+    }
     const coordinator = makeLicenseCoordinator({
       config: licenseConfig,
       mode:
