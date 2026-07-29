@@ -1091,7 +1091,26 @@ export const WorkLive = Layer.effect(
             if (outcome.disposition === "applied") {
               clearSeatBlockedByRequest(canvas, taskId);
             }
-            return yield* complete(canvas, outcome);
+            const completed = yield* complete(canvas, outcome);
+            if (
+              outcome.disposition === "applied" &&
+              before?.claimedBy !== undefined
+            ) {
+              const raisers = read.actorRefs.filter(
+                (actor) =>
+                  actor.canvasName === canvas &&
+                  actor.seatId === before.claimedBy,
+              );
+              if (raisers.length === 1) {
+                messageDelivery.notifyRequestResolved({
+                  canvas,
+                  actorNodeId: raisers[0]!.nodeId,
+                  requestId: taskId,
+                  response: policy.task.response!,
+                });
+              }
+            }
+            return completed;
           }),
         ),
 

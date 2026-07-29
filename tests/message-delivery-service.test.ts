@@ -99,6 +99,66 @@ const waitUntil = async (
 };
 
 describe("MessageDeliveryService", () => {
+  it("pushes an operator response to the exact requesting actor", async () => {
+    const store = makeStore({ c: agentDoc([]) });
+    const writes: Array<{ bindingId: string; text: string }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async (bindingId, text) => {
+          writes.push({ bindingId, text });
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyRequestResolved({
+      canvas: "c",
+      actorNodeId: "agent",
+      requestId: "request-7",
+      response: "Use the staging key.",
+    });
+
+    await waitUntil(() => writes.length === 1);
+    expect(writes).toEqual([
+      {
+        bindingId: "bind-mira",
+        text: "[request resolved · request-7] Use the staging key.",
+      },
+    ]);
+  });
+
+  it("retries a refused request response when the seat becomes idle", async () => {
+    const store = makeStore({ c: agentDoc([]) });
+    let accepts = false;
+    const writes: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          writes.push(text);
+          return accepts;
+        },
+      },
+      store,
+    });
+
+    service.notifyRequestResolved({
+      canvas: "c",
+      actorNodeId: "agent",
+      requestId: "request-8",
+      response: "Proceed.",
+    });
+    await waitUntil(() => writes.length === 1);
+    accepts = true;
+    service.onManagedTerminalIdle("bind-mira");
+    await waitUntil(() => writes.length === 2);
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(writes).toHaveLength(2);
+  });
+
   it("stamps deliveredAt through the store when managed terminal drive accepts", async () => {
     const msg = userMsg("m1");
     const store = makeStore({ c: agentDoc([msg]) });

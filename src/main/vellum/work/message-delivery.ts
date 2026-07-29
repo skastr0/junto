@@ -9,6 +9,7 @@ import {
   deliveryTargetOf,
   isPendingDelivery,
   listPendingDeliveries,
+  sanitizeDeliveryLine,
   stampMessageDelivered,
 } from "@shared/message-delivery";
 import type { SurfaceDeliveryTarget } from "@shared/actor-surface";
@@ -50,6 +51,15 @@ export class MessageDeliveryService {
    * Later attach/idle re-drives must stamp only — never re-send (at-most-once).
    */
   private readonly transportAccepted = new Set<string>();
+  private readonly pendingRequestResponses = new Map<
+    string,
+    {
+      readonly canvas: string;
+      readonly actorNodeId: string;
+      readonly requestId: string;
+      readonly response: string;
+    }
+  >();
   private transport: MessageDeliveryTransport | undefined;
   private store: MessageDeliveryStore | undefined;
   private now: MessageDeliveryClock = () => Date.now();
@@ -77,6 +87,7 @@ export class MessageDeliveryService {
     this.lifecycleGeneration += 1;
     this.inFlight.clear();
     this.transportAccepted.clear();
+    this.pendingRequestResponses.clear();
     this.transport = undefined;
     this.store = undefined;
     this.now = () => Date.now();
@@ -100,6 +111,7 @@ export class MessageDeliveryService {
     this.seatPausedLookup = undefined;
     this.inFlight.clear();
     this.transportAccepted.clear();
+    this.pendingRequestResponses.clear();
   }
 
   private active(generation: number): boolean {
@@ -116,9 +128,27 @@ export class MessageDeliveryService {
     void this.attemptOne(canvas, nodeId, message);
   }
 
+  /**
+   * Push an operator's answer back into the exact live actor seat that raised
+   * the request. The resolved request remains the durable source of truth;
+   * this process-local entry is only the retryable transport nudge.
+   */
+  notifyRequestResolved(input: {
+    readonly canvas: string;
+    readonly actorNodeId: string;
+    readonly requestId: string;
+    readonly response: string;
+  }): void {
+    if (this.suspended) return;
+    const key = `${input.canvas}::${input.actorNodeId}::request::${input.requestId}`;
+    this.pendingRequestResponses.set(key, input);
+    void this.attemptRequestResponse(key, input);
+  }
+
   /** Native terminal session attached — offer pending messages as unsubmitted paste. */
   onTerminalAttached(bindingId: string): void {
     if (this.suspended) return;
+    void this.retryRequestResponses(bindingId);
     void this.scanAndDeliver(
       (target) => target.bindingId === bindingId,
     );
@@ -131,6 +161,7 @@ export class MessageDeliveryService {
    */
   onManagedTerminalIdle(bindingId: string): void {
     if (this.suspended) return;
+    void this.retryRequestResponses(bindingId);
     void this.scanAndDeliver(
       (target) => target.bindingId === bindingId,
     );
@@ -139,7 +170,59 @@ export class MessageDeliveryService {
   /** Pause released — re-drive everything held pending while paused. */
   onResumed(): void {
     if (this.suspended) return;
+    void this.retryRequestResponses();
     void this.scanAndDeliver(() => true);
+  }
+
+  private async retryRequestResponses(bindingId?: string): Promise<void> {
+    for (const [key, pending] of this.pendingRequestResponses) {
+      if (bindingId !== undefined) {
+        const doc = await this.store?.readDoc(pending.canvas);
+        const node = doc?.nodes.find((candidate) => candidate.id === pending.actorNodeId);
+        if (node === undefined || deliveryTargetOf(node)?.bindingId !== bindingId) continue;
+      }
+      await this.attemptRequestResponse(key, pending);
+    }
+  }
+
+  private async attemptRequestResponse(
+    key: string,
+    pending: {
+      readonly canvas: string;
+      readonly actorNodeId: string;
+      readonly requestId: string;
+      readonly response: string;
+    },
+  ): Promise<void> {
+    const generation = this.lifecycleGeneration;
+    if (!this.active(generation) || this.inFlight.has(key)) return;
+    const transport = this.transport;
+    const store = this.store;
+    if (!transport || !store) return;
+    this.inFlight.add(key);
+    try {
+      const doc = await store.readDoc(pending.canvas);
+      if (!this.active(generation) || !doc) return;
+      if (this.seatPausedLookup?.(pending.canvas, doc, pending.actorNodeId)) return;
+      const node = doc.nodes.find((candidate) => candidate.id === pending.actorNodeId);
+      if (!node) return;
+      const target = deliveryTargetOf(node);
+      if (!target) return;
+      const payload = sanitizeDeliveryLine(
+        `[request resolved · ${pending.requestId}] ${pending.response}`,
+      );
+      const delivered = await this.deliver(
+        transport,
+        target,
+        payload,
+        `request:${pending.requestId}`,
+      );
+      if (delivered) this.pendingRequestResponses.delete(key);
+    } catch {
+      // Leave pending for the next idle/attach/resume lifecycle event.
+    } finally {
+      this.inFlight.delete(key);
+    }
   }
 
   private async scanAndDeliver(
