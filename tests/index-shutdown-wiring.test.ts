@@ -20,4 +20,26 @@ describe("index shutdown wiring", () => {
     expect(block).toContain("browserControl = await startBrowserControlServer(");
     expect(block).toContain("composition.bindControlShutdown(browserControl)");
   });
+
+  it("suspends kernel admission before normal product teardown begins", () => {
+    const start = source.indexOf("const beginShutdownAdmission");
+    const end = source.indexOf("const ensureMainAuthoringPrecommit", start);
+    const block = source.slice(start, end);
+    const admissionCut = block.indexOf("shutdownAdmissionClosed = true");
+    const kernelCut = block.indexOf("kernelService?.suspend()");
+
+    expect(admissionCut).toBeGreaterThanOrEqual(0);
+    expect(kernelCut).toBeGreaterThan(admissionCut);
+    for (const teardown of [
+      "browserComposition?.drainOnQuit(reason)",
+      "beginStationFleetPropagationShutdown()",
+      "workControl?.beginShutdown()",
+      "stationControl?.beginShutdown()",
+      "hostOperationsShutdown.beginShutdown()",
+      "termPlane.beginShutdown(reason)",
+      "appProcessPlane.beginShutdown()",
+    ]) {
+      expect(kernelCut).toBeLessThan(block.indexOf(teardown));
+    }
+  });
 });

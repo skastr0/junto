@@ -1726,6 +1726,9 @@ const beginShutdownAdmission = (reason: string): void => {
   shutdownReason = reason;
   if (shutdownAdmissionClosed) return;
   shutdownAdmissionClosed = true;
+  // Close kernel scheduling at the same synchronous, one-way admission cut.
+  // No product teardown may strand work claimed by a later kernel cycle.
+  kernelService?.suspend();
   licenseCoordinator?.stopMonitoring();
   if (licenseClockChangeSubscription !== undefined) {
     systemPreferences.unsubscribeLocalNotification(
