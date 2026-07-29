@@ -121,6 +121,19 @@ export type TerminalRouterBootstrapAbsenceReceipt = {
   readonly unitState: "not-found";
 };
 
+/** Package is on disk but generation/work control is not up — no Remote term dial. */
+export type TerminalRouterBootstrapPresentUnreadyReceipt = {
+  readonly hostId: string;
+  readonly endpoint: string;
+  readonly packageState: "present";
+  readonly unitState: "present";
+  readonly ready: false;
+};
+
+export type TerminalRouterBootstrapCutReceipt =
+  | TerminalRouterBootstrapAbsenceReceipt
+  | TerminalRouterBootstrapPresentUnreadyReceipt;
+
 /**
  * Deployment-owned proof authority. Production reruns its fixed remote
  * package/systemd preflight after the router installs the host cut.
@@ -139,6 +152,12 @@ export type TerminalRouterMaintenanceEvidence =
       readonly kind: "bootstrap-package-absent";
       readonly packageState: "absent";
       readonly unitState: "not-found";
+    }
+  | {
+      readonly kind: "bootstrap-package-present-unready";
+      readonly packageState: "present";
+      readonly unitState: "present";
+      readonly ready: false;
     };
 
 /**
@@ -185,24 +204,45 @@ const boundedRuntimeValue = (value: number | undefined, ceiling: number): number
 const wait = (durationMs: number): Promise<void> =>
   new Promise((resolveWait) => setTimeout(resolveWait, durationMs));
 
-const isExactBootstrapAbsenceReceipt = (
+const isExactBootstrapCutReceipt = (
   value: unknown,
   target: TerminalRouterBootstrapTarget,
-): value is TerminalRouterBootstrapAbsenceReceipt => {
+): value is TerminalRouterBootstrapCutReceipt => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
   const record = value as Record<string, unknown>;
+  if (record.hostId !== target.hostId || record.endpoint !== target.endpoint) {
+    return false;
+  }
   const keys = Object.keys(record).sort();
-  const expected = ["endpoint", "hostId", "packageState", "unitState"];
-  return (
-    keys.length === expected.length &&
-    keys.every((key, index) => key === expected[index]) &&
-    record.hostId === target.hostId &&
-    record.endpoint === target.endpoint &&
+  // First-install / package-absent cut.
+  if (
+    keys.length === 4 &&
+    keys[0] === "endpoint" &&
+    keys[1] === "hostId" &&
+    keys[2] === "packageState" &&
+    keys[3] === "unitState" &&
     record.packageState === "absent" &&
     record.unitState === "not-found"
-  );
+  ) {
+    return true;
+  }
+  // Package present, work control not generation-ready — do not dial Remote term.
+  if (
+    keys.length === 5 &&
+    keys[0] === "endpoint" &&
+    keys[1] === "hostId" &&
+    keys[2] === "packageState" &&
+    keys[3] === "ready" &&
+    keys[4] === "unitState" &&
+    record.packageState === "present" &&
+    record.unitState === "present" &&
+    record.ready === false
+  ) {
+    return true;
+  }
+  return false;
 };
 
 const allSettledBefore = async (
@@ -664,14 +704,26 @@ export class TerminalRouter extends EventEmitter {
       if (
         proofOutcome.timedOut ||
         proofOutcome.outcomes[0]?.status !== "fulfilled" ||
-        !isExactBootstrapAbsenceReceipt(
+        !isExactBootstrapCutReceipt(
           proofOutcome.outcomes[0].value,
           target,
         )
       ) {
-        throw new Error("remote bootstrap absence proof was denied");
+        throw new Error("remote bootstrap cut proof was denied");
       }
+      const receipt = proofOutcome.outcomes[0].value;
       this.assertMaintenanceTargetCurrent(cut);
+      if (receipt.packageState === "present") {
+        return this.holdMaintenanceCut(
+          cut,
+          Object.freeze({
+            kind: "bootstrap-package-present-unready" as const,
+            packageState: "present" as const,
+            unitState: "present" as const,
+            ready: false as const,
+          }),
+        );
+      }
       return this.holdMaintenanceCut(
         cut,
         Object.freeze({

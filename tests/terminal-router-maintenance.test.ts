@@ -303,7 +303,7 @@ describe("TerminalRouter host maintenance", () => {
           untrustedExtra: true,
         }),
       }),
-    ).rejects.toThrow(/absence proof was denied/);
+    ).rejects.toThrow(/cut proof was denied/);
     await expect(
       router.create({ bindingId: "after-malformed", hostId: "studio" }),
     ).rejects.toThrow(/dial after denied proof/);

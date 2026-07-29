@@ -445,27 +445,44 @@ export type LinuxRemoteLiveWorkAdmission =
       readonly evidence: LinuxRemoteLiveWorkEvidence;
     };
 
+export type LinuxRemoteBootstrapCutReceipt =
+  | {
+      readonly packageState: "absent";
+      readonly unitState: "not-found";
+    }
+  | {
+      readonly packageState: "present";
+      readonly unitState: "present";
+      readonly ready: false;
+    };
+
 export type LinuxRemoteLiveWorkAuthority = {
   readonly acquire: (
     input: RemoteDeploymentProviderInput,
-    installedVersion: string | undefined,
-    proveBootstrapAbsence: () => Promise<boolean>,
+    /**
+     * When the Remote is already generation-ready, dial its term plane.
+     * Otherwise hold a CC-local bootstrap cut (first-install or package
+     * present but work control not ready).
+     */
+    liveTermCut: boolean,
+    proveBootstrapCut: () => Promise<LinuxRemoteBootstrapCutReceipt | null>,
   ) => Effect.Effect<LinuxRemoteLiveWorkAdmission, Error>;
 };
 
 /**
  * The router cut lives in Command Center memory, so restarting the Remote
  * cannot reopen terminal admission. Bootstrap installs the same cut first and
- * then reruns the fixed absence proof without dialing a nonexistent service.
+ * then reruns the fixed absence / unready proof without dialing a nonexistent
+ * service. Live term maintenance is only used when work control is already up.
  */
 export const makeProductionLinuxLiveWorkAuthority =
   (): LinuxRemoteLiveWorkAuthority =>
     Object.freeze({
-      acquire: (providerInput, installedVersion, proveBootstrapAbsence) =>
+      acquire: (providerInput, liveTermCut, proveBootstrapCut) =>
         Effect.tryPromise({
           try: async () => {
             const { termPlane } = await import("../term/plane");
-            if (installedVersion === undefined) {
+            if (!liveTermCut) {
               const lease =
                 await termPlane.router.acquireRemoteHostBootstrapMaintenance(
                   providerInput.target.host.id,
@@ -479,16 +496,16 @@ export const makeProductionLinuxLiveWorkAuthority =
                           "terminal bootstrap target changed",
                         );
                       }
-                      if (!(await proveBootstrapAbsence())) {
+                      const receipt = await proveBootstrapCut();
+                      if (receipt === null) {
                         throw new Error(
-                          "remote bootstrap absence proof was denied",
+                          "remote bootstrap cut proof was denied",
                         );
                       }
                       return {
                         hostId: target.hostId,
                         endpoint: target.endpoint,
-                        packageState: "absent" as const,
-                        unitState: "not-found" as const,
+                        ...receipt,
                       };
                     },
                   },
@@ -1993,35 +2010,69 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           ? Buffer.from(passwordLine)
           : passwordLine;
 
-        const proveBootstrapAbsence = async (): Promise<boolean> => {
+        const proveBootstrapCut = async (): Promise<
+          LinuxRemoteBootstrapCutReceipt | null
+        > => {
           const rerun = await Effect.runPromise(
             runPreflight(providerInput, candidate),
           );
-          if (!rerun.ok) return false;
+          if (!rerun.ok) return null;
           if (firstInstallHost) {
-            return isLinuxFirstInstallHost(rerun);
+            return isLinuxFirstInstallHost(rerun)
+              ? { packageState: "absent", unitState: "not-found" }
+              : null;
+          }
+          // Package on disk, work control not ready — common after a failed
+          // first adopt. Do not dial Remote term; it is not up.
+          if (
+            !rerun.currentReady &&
+            hasLinuxReleaseCustody(rerun) &&
+            rerun.installedVersion !== undefined &&
+            rerun.unitState === "present"
+          ) {
+            return {
+              packageState: "present",
+              unitState: "present",
+              ready: false,
+            };
           }
           // Package-absent cut with custody already present (legacy bootstrap).
-          return (
+          if (
             rerun.installedVersion === undefined &&
             rerun.unitState === "not-found" &&
             rerun.helperInstalled &&
             rerun.bridgeInstalled
-          );
+          ) {
+            return { packageState: "absent", unitState: "not-found" };
+          }
+          return null;
         };
+        // Only dial the Remote term plane when generation readiness already
+        // proves work/term control is up. Otherwise CC-local bootstrap cut.
+        const liveTermCut =
+          preflight.currentReady === true &&
+          preflight.installedVersion !== undefined;
+        appendStage(
+          stages,
+          liveTermCut
+            ? "terminal route cut via live Remote term plane"
+            : "terminal route cut via CC bootstrap (Remote work control not ready)",
+        );
         const maintenance = yield* Effect.acquireRelease(
           input.liveWorkAuthority.acquire(
             providerInput,
-            preflight.installedVersion,
-            proveBootstrapAbsence,
+            liveTermCut,
+            proveBootstrapCut,
           ),
           (lease) => (lease.acquired ? lease.release : Effect.void),
         ).pipe(Effect.either);
         if (maintenance._tag === "Left") {
+          const cause = maintenance.left.message;
+          appendStage(stages, `terminal route cut failed: ${cause}`);
           return deployFailure(
             providerInput,
             stages,
-            "the Command Center could not hold the Remote terminal route closed for package activation",
+            `the Command Center could not hold the Remote terminal route closed for package activation — ${cause}`,
             {
               code: "conflict",
               disposition: "not-started",

@@ -227,11 +227,19 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     setAuthorizationRequest(undefined);
     setAuthorizationPassword("");
     setAuthorizationError(undefined);
-    // Durable job panel owns stages + progress; keep actionLine for recovery copy only.
+    // Recovery + summary in actionLine. Always attach stages on failure so a
+    // missing job-bridge (stale preload) still shows what main ran.
     const recovery = deployRecoveryGuidance(result.recoveryAction);
+    const stages = result.stages?.length
+      ? `\n${result.stages.map((stage) => `· ${stage}`).join("\n")}`
+      : "";
     if (!result.ok) {
       setActionLine(
-        [result.detail || result.message || "deploy failed", recovery]
+        [
+          result.detail || result.message || "deploy failed",
+          recovery,
+          stages,
+        ]
           .filter(Boolean)
           .join("\n"),
       );
@@ -250,9 +258,14 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     if (kind === "deploy" && !deployEnabled) return;
     if (kind === "deploy" && deployJob?.status === "running") return;
     setActionBusy(kind);
+    const jobBridge =
+      typeof api.hostsDeployJobGet === "function" &&
+      typeof api.onHostsDeployJobChanged === "function";
     setActionLine(
       kind === "deploy"
-        ? "Deploy accepted — progress is live below (main process)."
+        ? jobBridge
+          ? "Deploy accepted — live progress is at the top of this panel (main process; survives closing Fleet)."
+          : "Deploy accepted — restart Command Center fully to enable the live progress panel (preload/main not hot-reloaded)."
         : "",
     );
     try {

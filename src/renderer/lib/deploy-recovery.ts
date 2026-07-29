@@ -12,7 +12,11 @@ export const deployRecoveryGuidance = (
       return `Close ${recoveryAction.activeTerminalSessions} active Vellum terminal ${sessionLabel}, then retry deployment.`;
     }
     case "restore-terminal-live-work-observation":
-      return "Restore terminal live-work observation through the deployment runbook or support, then retry deployment.";
+      return [
+        "Command Center could not take a terminal-route maintenance cut for this host.",
+        "Common causes: a previous deploy left a cut held (fully quit and reopen Vellum), the terminal plane is shutting down, or the Remote term plane is unreachable while the package is already installed.",
+        "Fully restart Command Center, close any terminals to that host, then retry Deploy.",
+      ].join("\n");
     case "bootstrap-linux-release-installer":
       return [
         "This host cannot elevate without a password (sudo -n failed).",
