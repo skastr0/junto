@@ -109,11 +109,13 @@ describe("work-control wire schemas", () => {
       "tasks.update",
       "msg.list",
       "msg.send",
-      "request.create",
       "request.escalate",
       "artifact.publish",
     ]);
     expect(Either.isRight(ops)).toBe(true);
+    expect(
+      Either.isLeft(Schema.decodeUnknownEither(WorkOpName)("request.create")),
+    ).toBe(true);
   });
 });
 
@@ -228,7 +230,12 @@ describe("work authz — edges as capability", () => {
     const ok = admitWorkTarget(board, "agent", "tasks", "tasks.claim");
     expect(Either.isRight(ok)).toBe(true);
 
-    const regionOnly = admitWorkTarget(board, "agent", "req", "request.create");
+    const regionOnly = admitWorkTarget(
+      board,
+      "agent",
+      "req",
+      "request.escalate",
+    );
     expect(Either.isLeft(regionOnly)).toBe(true);
     if (Either.isLeft(regionOnly)) {
       expect(regionOnly.left.type).toBe("ScopeError");
@@ -271,7 +278,7 @@ describe("work authz — edges as capability", () => {
         caller: "agent",
         target: "req",
         message: "physics msg",
-        port: "request.create",
+        port: "request.escalate",
       }),
     );
     expect(notConnected.type).toBe("ScopeError");

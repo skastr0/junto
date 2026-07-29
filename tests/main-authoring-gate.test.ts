@@ -360,7 +360,6 @@ describe("work-control main authoring classification", () => {
       "tasks.update": "authorial",
       "msg.list": "read",
       "msg.send": "authorial",
-      "request.create": "authorial",
       "request.escalate": "authorial",
       "artifact.publish": "authorial",
     } as const satisfies Record<
@@ -379,9 +378,6 @@ describe("work-control main authoring classification", () => {
       "control.work.tasks-update",
     );
     expect(mainAuthoringLabelForWorkOperation("msg.send")).toBe("control.work.msg-send");
-    expect(mainAuthoringLabelForWorkOperation("request.create")).toBe(
-      "control.work.request-create",
-    );
     expect(mainAuthoringLabelForWorkOperation("request.escalate")).toBe(
       "control.work.request-escalate",
     );

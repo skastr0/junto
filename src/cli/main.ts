@@ -15,7 +15,6 @@ import {
   artifactCommand,
   escalateCommand,
   msgCommand,
-  requestCommand,
   tasksCommand,
 } from "./commands/work";
 import { runBrowserCli } from "../../scripts/browser-cli";
@@ -40,7 +39,6 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     examplesCommand,
     tasksCommand,
     msgCommand,
-    requestCommand,
     escalateCommand,
     artifactCommand,
   ]),

@@ -12,7 +12,6 @@ import {
   EmptyArgs,
   MsgListArgs,
   MsgSendArgs,
-  RequestCreateArgs,
   RequestEscalateArgs,
   TasksClaimArgs,
   TasksListArgs,
@@ -161,16 +160,6 @@ export const msgSendSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
-export const requestCreateSchema: CommandSchemaContract = {
-  command_id: "request.create",
-  command: "request create",
-  schema_id: "request.create.input/v1",
-  description: "Create an input-required request on a connected requests node.",
-  schema: RequestCreateArgs,
-  accepts_batch: true,
-  input_modes: inputModes,
-};
-
 export const requestEscalateSchema: CommandSchemaContract = {
   command_id: "request.escalate",
   command: "escalate",
@@ -255,7 +244,6 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   tasksUpdateSchema,
   msgListSchema,
   msgSendSchema,
-  requestCreateSchema,
   requestEscalateSchema,
   artifactPublishSchema,
   browserPagesSchema,
@@ -304,22 +292,6 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     name: "note on task",
     input: { target: "n7", text: "working", taskId: "t1" },
     args: ["msg", "send", '{"target":"n7","text":"working","taskId":"t1"}'],
-  },
-  {
-    command_id: "request.create",
-    command: "request create",
-    name: "ask operator",
-    input: {
-      target: "req1",
-      brief: "approve deploy?",
-      reason: "prod deploy is gated on operator sign-off",
-      metadata: { urgency: "high" },
-    },
-    args: [
-      "request",
-      "create",
-      '{"target":"req1","brief":"approve deploy?","reason":"prod deploy is gated on operator sign-off","metadata":{"urgency":"high"}}',
-    ],
   },
   {
     command_id: "request.escalate",
@@ -473,19 +445,6 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     description: "Send a message (batch-capable).",
     schemas: [msgSendSchema],
     examples: allExamples.filter((e) => e.command_id === "msg.send"),
-    batch: {
-      accepts_batch: true,
-      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
-      supports_concurrency_option: true,
-    },
-  },
-  {
-    command_id: "request.create",
-    command: "request create",
-    category: "workflow",
-    description: "Create a request (batch-capable).",
-    schemas: [requestCreateSchema],
-    examples: allExamples.filter((e) => e.command_id === "request.create"),
     batch: {
       accepts_batch: true,
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,

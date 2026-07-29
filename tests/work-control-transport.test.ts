@@ -1087,7 +1087,7 @@ describe("work control transport", () => {
       "tasks.claim",
     );
     expect(res.data.connected.find((c) => c.id === "req")?.grants).toContain(
-      "request.create",
+      "request.escalate",
     );
   });
 

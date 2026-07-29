@@ -30,7 +30,6 @@ import {
   EmptyArgs,
   MsgListArgs,
   MsgSendArgs,
-  RequestCreateArgs,
   RequestEscalateArgs,
   TasksClaimArgs,
   TasksListArgs,
@@ -66,7 +65,6 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "tasks.claim",
   "tasks.update",
   "msg.send",
-  "request.create",
   "request.escalate",
   "artifact.publish",
 ]);
@@ -81,7 +79,6 @@ const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "tasks.update",
   "msg.list",
   "msg.send",
-  "request.create",
   "request.escalate",
   "artifact.publish",
 ]);
@@ -713,28 +710,6 @@ const dispatchOp = (
       return exposeWorkMutation(mapped.right);
     }
 
-    if (op === "request.create") {
-      const decoded = decodeArgs(RequestCreateArgs, args);
-      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      // The raiser IS the claimant: the calling seat waits on this answer,
-      // so the request is claimed by its compiled actor seat at birth.
-      const raisedBy = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Either.isLeft(raisedBy)) return yield* Effect.fail(raisedBy.left);
-      const result = yield* work.workRequestCreate(
-        caller.canvasName,
-        decoded.right.target,
-        decoded.right.brief,
-        decoded.right.metadata,
-        raisedBy.right,
-        decoded.right.reason,
-      );
-      const mapped = fromWorkResult(result);
-      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
-      return exposeWorkMutation(mapped.right);
-    }
-
     if (op === "request.escalate") {
       const decoded = decodeArgs(RequestEscalateArgs, args);
       if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
@@ -747,9 +722,8 @@ const dispatchOp = (
       if ("type" in gate) return yield* Effect.fail(gate);
       const raisedBy = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Either.isLeft(raisedBy)) return yield* Effect.fail(raisedBy.left);
-      // File the request (same machinery as request.create), then mark the
-      // calling seat blocked and return a stop directive. Hold-until-answer
-      // is TODO — fire-and-block ships first.
+      // File the durable request, then mark the calling seat blocked and
+      // return a stop directive. Hold-until-answer is TODO.
       const result = yield* work.workRequestCreate(
         caller.canvasName,
         decoded.right.target,

@@ -50,7 +50,7 @@ export class Granted extends Schema.Class<Granted>("Granted")({
     "tasks.update",
     "msg.list",
     "msg.send",
-    "request.create",
+    "request.escalate",
     "artifact.publish",
     "browser.automate",
   ),

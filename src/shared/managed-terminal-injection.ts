@@ -97,7 +97,7 @@ Call **\`vellum onboard\`** at session start and after every compaction (or when
 | claim | \`vellum tasks claim --target <id> --task <id>\` |
 | progress / settle / block task | \`vellum tasks update --target <id> --task <id> --state <state>\` |
 | read / write thread | \`vellum msg list\` · \`vellum msg send\` |
-| escalate to human | \`vellum request create\` · \`vellum escalate\` |
+| escalate to human | \`vellum escalate\` |
 | ship output | \`vellum artifact publish\` |
 | list granted pages | \`vellum browser pages --json\` |
 | open a granted page | \`vellum browser open <vellum-ref> --json\` |

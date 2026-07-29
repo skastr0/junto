@@ -172,6 +172,14 @@ describe("schema/examples from validating schemas", () => {
     expect(live.connected[1]).not.toHaveProperty("invocations");
     expect(live.capabilities.connected[0]).toHaveProperty("invocations");
   });
+
+  it("exposes escalation as the sole agent request surface", () => {
+    const commandIds = allSchemas.map((contract) => contract.command_id);
+    expect(commandIds).toContain("request.escalate");
+    expect(commandIds).not.toContain("request.create");
+    expect(allExamples.some((example) => example.command_id === "request.create"))
+      .toBe(false);
+  });
 });
 
 describe("artifact path materialization", () => {

@@ -14,18 +14,13 @@ export type TargetWorkOpName = Exclude<
  * One port per target work op. Adding a WorkOpName requires a row here
  * (`satisfies` fails closed).
  */
-/**
- * Target work op → edge Port. Escalate reuses the request.create capability
- * (same edge + requests sink); the block/stop is work-plane seat state.
- */
 export const PortForWorkOp = {
   "tasks.list": "tasks.list",
   "tasks.claim": "tasks.claim",
   "tasks.update": "tasks.update",
   "msg.list": "msg.list",
   "msg.send": "msg.send",
-  "request.create": "request.create",
-  "request.escalate": "request.create",
+  "request.escalate": "request.escalate",
   "artifact.publish": "artifact.publish",
 } as const satisfies Record<TargetWorkOpName, Port>;
 
@@ -42,7 +37,6 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "tasks.update",
   "msg.list",
   "msg.send",
-  "request.create",
   "request.escalate",
   "artifact.publish",
 ];
@@ -60,7 +54,7 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
  */
 export const OPS_BY_SINK = {
   task: ["tasks.list", "tasks.claim", "tasks.update", "msg.list", "msg.send"],
-  requests: ["request.create", "request.escalate", "msg.list", "msg.send"],
+  requests: ["request.escalate", "msg.list", "msg.send"],
   artifacts: ["artifact.publish"],
   page: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;

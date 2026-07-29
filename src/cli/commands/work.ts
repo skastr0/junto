@@ -4,7 +4,6 @@ import {
   ArtifactPublishCliArgs,
   MsgListArgs,
   MsgSendArgs,
-  RequestCreateArgs,
   RequestEscalateArgs,
   TasksClaimArgs,
   TasksListArgs,
@@ -133,31 +132,9 @@ export const msgCommand = Command.make("msg").pipe(
   Command.withSubcommands([msgListCommand, msgSendCommand]),
 );
 
-// --- request ---
-
-const requestCreateCommand = Command.make(
-  "create",
-  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
-  ({ input, concurrency, timeout }) =>
-    executeJsonCommand(
-      "request create",
-      runMutationBatch({
-        input,
-        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-        itemSchema: RequestCreateArgs,
-        run: (item) => callDomain("request.create", item, toUndefined(timeout)),
-      }),
-    ),
-).pipe(Command.withDescription("Create a request (batch-capable)"));
-
-export const requestCommand = Command.make("request").pipe(
-  Command.withDescription("Request ops"),
-  Command.withSubcommands([requestCreateCommand]),
-);
-
 /**
  * Escalate: file a request, mark the seat blocked, return a stop directive.
- * Domain op: request.escalate. Hold-until-answer is TODO (fire-and-block).
+ * Hold-until-answer is TODO (fire-and-block).
  */
 export const escalateCommand = Command.make(
   "escalate",

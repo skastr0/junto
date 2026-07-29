@@ -41,7 +41,6 @@ export const WorkOpName = Schema.Literal(
   "tasks.update",
   "msg.list",
   "msg.send",
-  "request.create",
   "request.escalate",
   "artifact.publish",
 );
@@ -200,7 +199,7 @@ export const MsgSendArgs = Schema.Struct({
 });
 export type MsgSendArgs = typeof MsgSendArgs.Type;
 
-export const RequestCreateArgs = Schema.Struct({
+export const RequestEscalateArgs = Schema.Struct({
   target: Schema.String,
   brief: Schema.String,
   /** Why the caller is raising this — lands first-class on the request. */
@@ -210,15 +209,7 @@ export const RequestCreateArgs = Schema.Struct({
     { exact: true },
   ),
 });
-export type RequestCreateArgs = typeof RequestCreateArgs.Type;
-
-/**
- * Escalate = request.create + seat-block + stop directive.
- * Same input shape as request.create. Optional in-band hold for the operator
- * answer is TODO (ship fire-and-block first).
- */
-export const RequestEscalateArgs = RequestCreateArgs;
-export type RequestEscalateArgs = RequestCreateArgs;
+export type RequestEscalateArgs = typeof RequestEscalateArgs.Type;
 
 /** Wire/stop payload agents understand after escalate or while Blocked. */
 export type StopDirective = {

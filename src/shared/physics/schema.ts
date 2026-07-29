@@ -36,7 +36,7 @@ export const Port = Schema.Literal(
   "tasks.update",
   "msg.list",
   "msg.send",
-  "request.create",
+  "request.escalate",
   "artifact.publish",
   "browser.automate",
 );
@@ -48,7 +48,7 @@ export const ALL_PORTS: ReadonlyArray<Port> = [
   "tasks.update",
   "msg.list",
   "msg.send",
-  "request.create",
+  "request.escalate",
   "artifact.publish",
   "browser.automate",
 ];

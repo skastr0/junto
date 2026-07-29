@@ -39,7 +39,7 @@ const taskOffers = portSet(
   "msg.list",
   "msg.send",
 );
-const requestsOffers = portSet("request.create", "msg.list", "msg.send");
+const requestsOffers = portSet("request.escalate", "msg.list", "msg.send");
 const artifactsOffers = portSet("artifact.publish");
 const pageOffers = portSet("browser.automate");
 

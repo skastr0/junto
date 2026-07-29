@@ -249,9 +249,7 @@ describe("physics work-ports", () => {
       expect(PortForWorkOp[op]).toBeDefined();
     }
     expect(Object.keys(PortForWorkOp).sort()).toEqual([...TARGET_WORK_OPS].sort());
-    // escalate reuses the request.create capability port
-    expect(PortForWorkOp["request.escalate"]).toBe("request.create");
-    expect(PortForWorkOp["request.create"]).toBe("request.create");
+    expect(PortForWorkOp["request.escalate"]).toBe("request.escalate");
   });
 });
 

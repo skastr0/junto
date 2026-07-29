@@ -291,14 +291,14 @@ const operationForActor = (
       return "tasks.update";
     case "request.create":
     case "request.resolve":
-      return "request.create";
+      return "request.escalate";
     case "artifact.publish":
       return "artifact.publish";
     case "delivery.accepted":
       return deliveredKind === "task"
         ? "tasks.claim"
         : deliveredKind === "request"
-          ? "request.create"
+          ? "request.escalate"
           : deliveredKind === "artifact"
             ? "artifact.publish"
             : deliveredKind === "message"

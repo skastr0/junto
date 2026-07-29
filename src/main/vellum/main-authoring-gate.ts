@@ -28,7 +28,6 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.tasks-claim",
   "control.work.tasks-update",
   "control.work.msg-send",
-  "control.work.request-create",
   "control.work.request-escalate",
   "control.work.artifact-publish",
   "delivery.message-stamp",
@@ -56,7 +55,6 @@ const WORK_OPERATION_CLASSIFICATION = {
   "tasks.update": "authorial",
   "msg.list": "read",
   "msg.send": "authorial",
-  "request.create": "authorial",
   "request.escalate": "authorial",
   "artifact.publish": "authorial",
 } as const satisfies Record<WorkOpName, MainAuthoringWorkClassification>;
@@ -69,7 +67,6 @@ const WORK_AUTHORING_LABELS = {
   "tasks.claim": "control.work.tasks-claim",
   "tasks.update": "control.work.tasks-update",
   "msg.send": "control.work.msg-send",
-  "request.create": "control.work.request-create",
   "request.escalate": "control.work.request-escalate",
   "artifact.publish": "control.work.artifact-publish",
 } as const satisfies Record<
@@ -78,7 +75,6 @@ const WORK_AUTHORING_LABELS = {
     | "tasks.claim"
     | "tasks.update"
     | "msg.send"
-    | "request.create"
     | "request.escalate"
     | "artifact.publish"
   >,

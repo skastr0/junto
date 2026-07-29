@@ -868,7 +868,7 @@ const makeKernelService = (
               "",
               "You claimed this task from the factory pull queue.",
               "Run `vellum onboard`, do the work, and update it with `vellum tasks update`.",
-              "If blocked on a human, use `vellum escalate` or create a request.",
+              "If blocked on a human, use `vellum escalate`.",
             ].join("\n"),
           );
           if (!accepted) continue;

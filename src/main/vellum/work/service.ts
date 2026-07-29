@@ -390,7 +390,7 @@ export const WorkLive = Layer.effect(
       op:
         | "tasks.claim"
         | "msg.send"
-        | "request.create"
+        | "request.escalate"
         | "artifact.publish",
     ): Effect.Effect<CanvasNode, WorkServiceError> => {
       const exact = read.actorRefs.filter((candidate) =>
@@ -467,7 +467,7 @@ export const WorkLive = Layer.effect(
       read: CanvasReadResult,
       actor: ActorRef,
       targetNodeId: string,
-      op: "msg.send" | "request.create" | "artifact.publish",
+      op: "msg.send" | "request.escalate" | "artifact.publish",
       context: StationContext,
     ): Effect.Effect<CanvasNode, WorkServiceError> =>
       requireActor(read, actor, targetNodeId, op).pipe(
@@ -1004,7 +1004,7 @@ export const WorkLive = Layer.effect(
               read,
               raisedBy,
               nodeId,
-              "request.create",
+              "request.escalate",
               context,
             );
             const policy = yield* runPolicy(() =>
