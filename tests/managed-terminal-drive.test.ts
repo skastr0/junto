@@ -302,6 +302,66 @@ describe("ManagedTerminalDrive", () => {
     vi.useRealTimers();
   });
 
+  it("never carries queued or retrying text across a terminal generation", async () => {
+    vi.useFakeTimers();
+    try {
+      drive = makeDrive({
+        stallWatch: true,
+        stallTimeoutMs: 5_000,
+      });
+      await expect(drive.writePrompt("b1", "old generation")).resolves.toBe(
+        true,
+      );
+      expect(writes).toHaveLength(2);
+
+      idle = false;
+      const queued = drive.writePrompt("b1", "also old");
+      expect(drive.queuedCount("b1")).toBe(1);
+
+      drive.invalidateBinding("b1");
+      await expect(queued).resolves.toBe(false);
+      expect(drive.queuedCount("b1")).toBe(0);
+
+      idle = true;
+      drive.onSeatIdle("b1");
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(writes).toHaveLength(2);
+
+      await expect(drive.writePrompt("b1", "new generation")).resolves.toBe(
+        true,
+      );
+      expect(writes.slice(2)).toEqual([
+        { bindingId: "b1", data: encodeBracketedPaste("new generation") },
+        { bindingId: "b1", data: CR },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not submit CR after the binding changes during paste", async () => {
+    let releasePaste!: (ok: boolean) => void;
+    const pasteResult = new Promise<boolean>((resolve) => {
+      releasePaste = resolve;
+    });
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        return writes.length === 1 ? pasteResult : true;
+      },
+    });
+
+    const writing = drive.writePrompt("b1", "old generation");
+    await flushMicrotasks();
+    drive.invalidateBinding("b1");
+    releasePaste(true);
+
+    await expect(writing).resolves.toBe(false);
+    expect(writes).toEqual([
+      { bindingId: "b1", data: encodeBracketedPaste("old generation") },
+    ]);
+  });
+
   it("suspends queued prompts and stall retries without writing or signaling the PTY", async () => {
     vi.useFakeTimers();
     try {

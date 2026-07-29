@@ -754,10 +754,12 @@ export const registerVellumIpc = (): void => {
         const epoch = payload.epoch;
         if (!bindingId || !epoch) return;
         if (payload.status === "exited") {
+          managedDrive.invalidateBinding(bindingId);
           cancelManagedPulseReady(bindingId, epoch);
           return;
         }
         if (payload.status !== "running") return;
+        managedDrive.invalidateBinding(bindingId);
         cancelManagedPulseReady(bindingId);
         const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;
         if (harness === "grok") {

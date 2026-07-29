@@ -116,6 +116,8 @@ export class ManagedTerminalDrive {
   private readonly awaitingTurn = new Set<string>();
   /** bindingId → earliest write time (Grok post-spawn, etc.). */
   private readonly readyAfter = new Map<string, number>();
+  /** Per-binding generation cut: terminal epoch changes invalidate old writes. */
+  private readonly bindingGenerations = new Map<string, number>();
   private suspended = false;
   private lifecycleGeneration = 0;
 
@@ -138,6 +140,21 @@ export class ManagedTerminalDrive {
   }
 
   /**
+   * Cut all transport state retained for one terminal generation.
+   *
+   * A binding id is stable across PTY replacement, so queued prompts, an
+   * in-flight paste→CR pair, and stall retries must not survive an epoch
+   * change and land in the replacement process.
+   */
+  invalidateBinding(bindingId: string): void {
+    this.bindingGenerations.set(
+      bindingId,
+      (this.bindingGenerations.get(bindingId) ?? 0) + 1,
+    );
+    this.clearBindingTransientState(bindingId);
+  }
+
+  /**
    * Monotonic license-revocation cut.
    *
    * Existing PTY processes and their host generations remain alive. This
@@ -156,6 +173,17 @@ export class ManagedTerminalDrive {
     return !this.suspended && generation === this.lifecycleGeneration;
   }
 
+  private activeBinding(
+    bindingId: string,
+    generation: number,
+    bindingGeneration: number,
+  ): boolean {
+    return (
+      this.active(generation) &&
+      (this.bindingGenerations.get(bindingId) ?? 0) === bindingGeneration
+    );
+  }
+
   /**
    * Deliver one submitted prompt when idle. Queues when the seat is busy;
    * promise resolves when the write lands, fails, or queue times out.
@@ -167,7 +195,10 @@ export class ManagedTerminalDrive {
     opts: WritePromptOptions = {},
   ): Promise<boolean> {
     const generation = this.lifecycleGeneration;
-    if (!this.active(generation)) return false;
+    const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return false;
+    }
     const ready = opts.ready ?? true;
     const queueIfBusy = opts.queueIfBusy ?? true;
     if (!ready) {
@@ -193,7 +224,9 @@ export class ManagedTerminalDrive {
         const t = setTimeout(r, waitMs);
         t.unref?.();
       });
-      if (!this.active(generation)) return false;
+      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+        return false;
+      }
       this.readyAfter.delete(bindingId);
     }
 
@@ -204,7 +237,9 @@ export class ManagedTerminalDrive {
       } catch {
         safe = false;
       }
-      if (!this.active(generation)) return false;
+      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+        return false;
+      }
       if (!safe) {
         this.onAttention?.(bindingId, "clipboard-unsafe");
         return false;
@@ -215,7 +250,7 @@ export class ManagedTerminalDrive {
       if (!queueIfBusy) return false;
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
       return new Promise<boolean>((resolve) => {
-        if (!this.active(generation)) {
+        if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
           resolve(false);
           return;
         }
@@ -230,7 +265,7 @@ export class ManagedTerminalDrive {
         };
         entry.timer = setTimeout(() => {
           entry.timer = undefined;
-          if (!this.active(generation)) {
+          if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
             resolve(false);
             return;
           }
@@ -254,7 +289,12 @@ export class ManagedTerminalDrive {
       });
     }
 
-    return this.executePrompt(bindingId, text, generation);
+    return this.executePrompt(
+      bindingId,
+      text,
+      generation,
+      bindingGeneration,
+    );
   }
 
   /**
@@ -263,7 +303,10 @@ export class ManagedTerminalDrive {
    */
   async interrupt(bindingId: string): Promise<boolean> {
     const generation = this.lifecycleGeneration;
-    if (!this.active(generation)) return false;
+    const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return false;
+    }
     const idle = this.isSeatIdle(bindingId);
     const now = this.now();
     if (
@@ -277,7 +320,9 @@ export class ManagedTerminalDrive {
       return false;
     }
     const ok = await Promise.resolve(this.writeFn(bindingId, INTERRUPT_BYTE));
-    if (!this.active(generation)) return false;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return false;
+    }
     if (ok && idle) {
       this.lastIdleInterruptAt.set(bindingId, now);
     }
@@ -322,6 +367,28 @@ export class ManagedTerminalDrive {
     this.stallRetried.clear();
     this.awaitingTurn.clear();
     this.readyAfter.clear();
+    this.bindingGenerations.clear();
+  }
+
+  private clearBindingTransientState(bindingId: string): void {
+    const stallTimer = this.stallTimers.get(bindingId);
+    if (stallTimer !== undefined) {
+      clearTimeout(stallTimer);
+      this.stallTimers.delete(bindingId);
+    }
+    const queue = this.queues.get(bindingId);
+    if (queue !== undefined) {
+      this.queues.delete(bindingId);
+      for (const item of queue) {
+        if (item.timer !== undefined) clearTimeout(item.timer);
+        item.resolve(false);
+      }
+    }
+    this.writing.delete(bindingId);
+    this.lastIdleInterruptAt.delete(bindingId);
+    this.stallRetried.delete(bindingId);
+    this.awaitingTurn.delete(bindingId);
+    this.readyAfter.delete(bindingId);
   }
 
   /** Test seam — restore a fresh instance-like admission state. */
@@ -338,7 +405,8 @@ export class ManagedTerminalDrive {
 
   private async drainOne(bindingId: string): Promise<void> {
     const generation = this.lifecycleGeneration;
-    if (!this.active(generation)) return;
+    const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) return;
     if (!this.isSeatIdle(bindingId) || this.writing.has(bindingId)) return;
     const q = this.queues.get(bindingId);
     if (!q || q.length === 0) return;
@@ -349,6 +417,7 @@ export class ManagedTerminalDrive {
       bindingId,
       next.text,
       generation,
+      bindingGeneration,
     );
     next.resolve(ok);
   }
@@ -357,22 +426,33 @@ export class ManagedTerminalDrive {
     bindingId: string,
     text: string,
     generation: number,
+    bindingGeneration: number,
   ): Promise<boolean> {
-    if (!this.active(generation)) return false;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return false;
+    }
     this.writing.add(bindingId);
     try {
       const ok = await this.writePasteAndCr(
         bindingId,
         text,
         generation,
+        bindingGeneration,
       );
-      if (!this.active(generation)) return false;
+      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+        return false;
+      }
       if (!ok) {
         this.onAttention?.(bindingId, "write-failed");
         return false;
       }
       if (this.stallWatch) {
-        this.armStallWatch(bindingId, text, generation);
+        this.armStallWatch(
+          bindingId,
+          text,
+          generation,
+          bindingGeneration,
+        );
       }
       return true;
     } finally {
@@ -384,29 +464,35 @@ export class ManagedTerminalDrive {
     bindingId: string,
     text: string,
     generation: number,
+    bindingGeneration: number,
   ): Promise<boolean> {
-    if (!this.active(generation)) return false;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return false;
+    }
     const [paste, cr] = buildPromptWriteSequence(text);
     // ONE write for the full paste envelope…
     if (!(await Promise.resolve(this.writeFn(bindingId, paste)))) return false;
-    if (!this.active(generation)) return false;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return false;
+    }
     // …then a SEPARATE CR write. Never join; never LF.
     if (!(await Promise.resolve(this.writeFn(bindingId, cr)))) return false;
-    return this.active(generation);
+    return this.activeBinding(bindingId, generation, bindingGeneration);
   }
 
   private armStallWatch(
     bindingId: string,
     text: string,
     generation: number,
+    bindingGeneration: number,
   ): void {
-    if (!this.active(generation)) return;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) return;
     const prior = this.stallTimers.get(bindingId);
     if (prior !== undefined) clearTimeout(prior);
     this.awaitingTurn.add(bindingId);
     const timer = setTimeout(() => {
       this.stallTimers.delete(bindingId);
-      if (!this.active(generation)) return;
+      if (!this.activeBinding(bindingId, generation, bindingGeneration)) return;
       if (!this.awaitingTurn.has(bindingId)) return;
       if (!this.stallRetried.has(bindingId)) {
         this.stallRetried.add(bindingId);
@@ -414,14 +500,22 @@ export class ManagedTerminalDrive {
           bindingId,
           text,
           generation,
+          bindingGeneration,
         ).then((ok) => {
-          if (!this.active(generation)) return;
+          if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+            return;
+          }
           if (!ok) {
             this.onAttention?.(bindingId, "write-failed");
             this.awaitingTurn.delete(bindingId);
             return;
           }
-          this.armStallWatch(bindingId, text, generation);
+          this.armStallWatch(
+            bindingId,
+            text,
+            generation,
+            bindingGeneration,
+          );
         });
         return;
       }
