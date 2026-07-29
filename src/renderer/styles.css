@@ -540,10 +540,15 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   background: rgba(232, 163, 61, 0.25);
 }
 /* xterm absolute-fill so it never drives host content height (island loop).
-   No DOM overflow — same contract as native-terminal-surface. */
+   No DOM overflow — same contract as native-terminal-surface.
+   xterm 6 paints a custom SmoothScrollableElement scrollbar (not the native
+   overflow track). Hide it — TUI mouse protocol owns wheel; plain shell still
+   scrolls via the scrollable element without chrome. */
 .herdr-xterm {
   outline: none;
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 .herdr-xterm .xterm {
   position: absolute !important;
@@ -568,6 +573,16 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
 .herdr-xterm .xterm-screen {
   width: 100% !important;
   overflow: hidden !important;
+}
+.herdr-xterm .xterm-scrollable-element {
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+.herdr-xterm .xterm-scrollable-element > .scrollbar {
+  display: none !important;
+  width: 0 !important;
+  pointer-events: none !important;
 }
 
 /* Generic desktop chrome. macOS adds hiddenInset geometry below. */
@@ -2277,12 +2292,17 @@ ol.note-md__list > .note-md__li::before {
   height: 0;
   overflow: hidden;
   outline: none;
+  /* Terminal owns all pointer/wheel — never chain to canvas/page scroll. */
+  overscroll-behavior: none;
+  touch-action: none;
+  pointer-events: auto;
 }
 /* Absolute fill so .xterm never drives host content height.
-   No DOM overflow anywhere in this tree — a web scrollbar here steals wheel
-   from full-screen TUIs (Claude Code, etc.) and double-scrolls with the app.
-   Match herdr: overflow hidden; PTY/TUI owns scroll; buffer scrollback still
-   works via keyboard / xterm.scrollLines. */
+   No DOM overflow anywhere in this tree — a native overflow track or xterm 6
+   SmoothScrollableElement chrome steals wheel from full-screen TUIs (Grok,
+   Claude Code) and double-scrolls with the app. Match herdr: overflow hidden;
+   mouse-reporting apps own wheel via CoreMouseService; plain shell scrollback
+   still works via SmoothScrollableElement (scrollbar chrome hidden). */
 .native-terminal-surface__xterm .xterm {
   position: absolute !important;
   inset: 0;
@@ -2313,6 +2333,13 @@ ol.note-md__list > .note-md__li::before {
   width: 100% !important;
   height: 100% !important;
   overflow: hidden !important;
+}
+/* Custom VS Code scrollbar (Auto) — hide chrome + hit target so it cannot
+   steal clicks from the TUI or paint a "web scroll" rail. */
+.native-terminal-surface__xterm .xterm-scrollable-element > .scrollbar {
+  display: none !important;
+  width: 0 !important;
+  pointer-events: none !important;
 }
 
 /* =============================================================================

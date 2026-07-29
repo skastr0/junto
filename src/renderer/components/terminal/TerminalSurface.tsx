@@ -248,21 +248,18 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     termRef.current = term;
     fitRef.current = fit;
 
-    // Viewport CSS is overflow:hidden (no web scrollbar). Without DOM scroll,
-    // wheel would not move client scrollback — translate to buffer scroll when
-    // the app is not mouse-reporting (TUIs own the wheel via mouse protocol).
+    // Wheel ownership (xterm 6):
+    // - Mouse-reporting TUI (Grok, Claude Code, …): CoreMouseService binds
+    //   wheel on `.xterm` and disables SmoothScrollableElement.handleMouseWheel.
+    // - Plain shell: SmoothScrollableElement owns buffer scrollback.
+    // Do NOT also map wheel → term.scrollLines — that double-scrolled against
+    // the scrollable element and fought TUI mouse protocol (weird scroll-up,
+    // dead click/hover). Only block scroll-chaining out of the host.
     const onWheel = (ev: WheelEvent): void => {
-      if (term.modes.mouseTrackingMode !== "none") return;
+      // Let browser zoom shortcuts through.
       if (ev.ctrlKey || ev.metaKey) return;
-      if (ev.deltaY === 0) return;
-      const cellH =
-        (term as unknown as { _core?: XtermCore })._core?._renderService
-          ?.dimensions?.css?.cell?.height ?? FALLBACK_CELL_H;
-      const lines = Math.max(
-        1,
-        Math.round(Math.abs(ev.deltaY) / Math.max(1, cellH)),
-      );
-      term.scrollLines(ev.deltaY > 0 ? lines : -lines);
+      // Stop parent/page scroll without stopPropagation so xterm's own
+      // listeners (mouse protocol or SmoothScrollableElement) still run.
       ev.preventDefault();
     };
     host.addEventListener("wheel", onWheel, { passive: false });
@@ -501,7 +498,11 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     <div
       ref={rootRef}
       className="native-terminal-surface"
-      onMouseDown={() => termRef.current?.focus()}
+      onPointerDown={() => {
+        // Focus before xterm selection / mouse-protocol handlers run so
+        // keystrokes and TUI click targets stay live after pin/unpark.
+        termRef.current?.focus();
+      }}
     >
       <OverlayHeader
         eyebrow={`terminal · ${hostId} · close detaches (session keeps running)`}
