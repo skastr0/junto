@@ -1559,7 +1559,7 @@ function CanvasGraph() {
             choices.host ===
             (state$.settings.station.hostId.peek() || "local")
           ) {
-            void openTerminal(node);
+            void openTerminal(node, "focus", { resume: false });
           }
         }}
       />

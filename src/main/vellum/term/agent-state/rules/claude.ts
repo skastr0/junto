@@ -66,6 +66,20 @@ export const claudeRules: SeatRulePack = {
       },
     },
     {
+      id: "resume_summary_choice",
+      state: "attention",
+      priority: 1210,
+      region: "whole_recent",
+      visibleAttention: true,
+      matchers: {
+        contains: [
+          "resume from summary",
+          "resume full session as-is",
+          "enter to confirm",
+        ],
+      },
+    },
+    {
       id: "btw_overlay_working",
       state: "working",
       priority: 975,

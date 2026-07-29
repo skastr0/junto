@@ -163,6 +163,7 @@ export const registerTerminalIpc = (
             documentLaunch: input.launch,
             agentKey,
             cwd: input.launch?.cwd,
+            resume: input.resume === true,
           });
           if (planned.launch) launch = planned.launch;
           firstTypedMessage = planned.plan?.firstTypedMessage;

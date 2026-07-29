@@ -1227,6 +1227,12 @@ export interface TerminalCreateInput {
    * (`entity.kind === "agent"`). Absent → principal stays kind terminal.
    */
   readonly agentKey?: string;
+  /**
+   * Managed harness lifecycle intent. New authoring uses false so a reserved
+   * session id becomes a first-session pin; reopening/recovery uses true.
+   * Ignored for raw terminal geography.
+   */
+  readonly resume?: boolean;
 }
 
 /** Fail-soft model option for the harness picker (main enumeration). */

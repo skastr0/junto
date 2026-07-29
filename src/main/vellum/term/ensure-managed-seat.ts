@@ -112,6 +112,7 @@ export const ensureManagedSeatRunning = (
     documentLaunch: surface.launch,
     agentKey: surface.agentKey,
     cwd: surface.launch?.cwd,
+    resume: true,
   });
 
   try {

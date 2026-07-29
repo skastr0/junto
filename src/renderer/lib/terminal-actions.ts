@@ -11,6 +11,7 @@ import { openTerminalSurface, terminal$ } from "./terminal-state";
 
 export const ensureTerminalRunning = async (
   node: CanvasNode,
+  options?: { readonly resume?: boolean },
 ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
   const binding = resolveTerminalBinding(node);
   if (binding?.kind !== "native") {
@@ -45,6 +46,9 @@ export const ensureTerminalRunning = async (
       label: binding.label,
       ...(binding.harness ? { harness: binding.harness } : {}),
       ...(binding.agentKey ? { agentKey: binding.agentKey } : {}),
+      ...(binding.harness
+        ? { resume: options?.resume ?? true }
+        : {}),
     });
     terminal$.sessionByBindingId[binding.bindingId].set(next);
     // Create is still allowed to open the surface for journal/error replay
@@ -70,8 +74,9 @@ export const ensureTerminalRunning = async (
 export const openTerminal = async (
   node: CanvasNode,
   zone: WorkZone = "focus",
+  options?: { readonly resume?: boolean },
 ): Promise<void> => {
-  const result = await ensureTerminalRunning(node);
+  const result = await ensureTerminalRunning(node, options);
   if (!result.ok) {
     console.error("[terminal] open failed", result.message);
     // Still open the surface when a generation exists so the operator can

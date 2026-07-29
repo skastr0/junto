@@ -42,6 +42,7 @@ import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { GROK_MIN_POST_SPAWN_MS, ManagedTerminalDrive } from "./term/drive";
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
+import { isClaudeResumeSummaryChoice } from "./term/drive/claude-startup";
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
 import { terminalTailRuntime } from "./term/tail-runtime";
@@ -674,6 +675,7 @@ export const registerVellumIpc = (): void => {
         string,
         { readonly epoch: string; readonly cancel: () => void }
       >();
+      const acceptedClaudeRecoveryEpoch = new Map<string, string>();
       const cancelManagedPulseReady = (
         bindingId: string,
         epoch?: string,
@@ -772,11 +774,13 @@ export const registerVellumIpc = (): void => {
         if (payload.status === "exited") {
           managedDrive.invalidateBinding(bindingId);
           cancelManagedPulseReady(bindingId, epoch);
+          acceptedClaudeRecoveryEpoch.delete(bindingId);
           return;
         }
         if (payload.status !== "running") return;
         managedDrive.invalidateBinding(bindingId);
         cancelManagedPulseReady(bindingId);
+        acceptedClaudeRecoveryEpoch.delete(bindingId);
         const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;
         if (harness === "grok") {
           managedDrive.markSpawned(bindingId, GROK_MIN_POST_SPAWN_MS);
@@ -803,6 +807,31 @@ export const registerVellumIpc = (): void => {
       });
       seatStateRuntime.subscribe((event) => {
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
+        if (
+          event.state === "attention" &&
+          !productAutomationSuspended &&
+          seatStateRuntime.machine.getSlot(event.bindingId)?.harness ===
+            "claude"
+        ) {
+          const live = termPlane.host.get(event.bindingId);
+          const epoch = live?.epoch;
+          const screen = terminalObserverPlane.snapshot(event.bindingId)?.text;
+          if (
+            live?.status === "running" &&
+            epoch &&
+            screen &&
+            acceptedClaudeRecoveryEpoch.get(event.bindingId) !== epoch &&
+            isClaudeResumeSummaryChoice(screen)
+          ) {
+            // The selector's highlighted first option is Claude's own
+            // recommended summary recovery. This is startup navigation, not a
+            // permission decision, and runs at most once per PTY generation.
+            acceptedClaudeRecoveryEpoch.set(event.bindingId, epoch);
+            if (!termPlane.host.writeManagedSeat(event.bindingId, "\r")) {
+              acceptedClaudeRecoveryEpoch.delete(event.bindingId);
+            }
+          }
+        }
         if (event.state === "idle") {
           // Tier B doctrine: first typed message once seat is ready+idle.
           // Peek first — only consume after a successful write so not-ready
