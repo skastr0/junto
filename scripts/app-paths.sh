@@ -765,16 +765,49 @@ publish_staged_app_candidate() {
   return 1
 }
 
-# Prefer artifactName zip (Vellum-<ver>-arm64-mac.zip); else first *.zip under release/.
+# Prefer zip matching the packaged app version (Vellum-Command-<ver>-*-mac.zip).
+# Never return an arbitrary first glob hit — stale 0.1.0 next to 0.1.1 caused
+# notarize to submit the wrong archive and staple to fail.
 detect_release_zip() {
-  local c
-  # Bash: unmatched globs stay literal when nullglob is off — skip non-files.
-  for c in "$RELEASE_DIR/${PRODUCT_NAME}-"*-mac.zip "$RELEASE_DIR/"*.zip; do
-    if [[ -f "$c" ]]; then
-      printf '%s' "$c"
-      return 0
+  local app version preferred c newest="" newest_mtime=0 mtime
+  app="$(detect_macos_app_src 2>/dev/null || true)"
+  if [[ -n "$app" && -d "$app" ]]; then
+    version="$(
+      /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+        "$app/Contents/Info.plist" 2>/dev/null || true
+    )"
+  fi
+  if [[ -n "$version" ]]; then
+    for preferred in \
+      "$RELEASE_DIR/Vellum-Command-${version}-arm64-mac.zip" \
+      "$RELEASE_DIR/Vellum-Command-${version}-mac.zip" \
+      "$RELEASE_DIR/${PRODUCT_NAME}-${version}-arm64-mac.zip" \
+      "$RELEASE_DIR/${PRODUCT_NAME}-${version}-mac.zip"
+    do
+      if [[ -f "$preferred" && ! -L "$preferred" ]]; then
+        printf '%s' "$preferred"
+        return 0
+      fi
+    done
+  fi
+  # Fallback: newest matching release zip by mtime.
+  shopt -s nullglob
+  for c in \
+    "$RELEASE_DIR"/Vellum-Command-*-mac.zip \
+    "$RELEASE_DIR/${PRODUCT_NAME}-"*-mac.zip
+  do
+    [[ -f "$c" && ! -L "$c" ]] || continue
+    mtime="$(stat -f '%m' "$c" 2>/dev/null || echo 0)"
+    if (( mtime >= newest_mtime )); then
+      newest_mtime=$mtime
+      newest="$c"
     fi
   done
+  shopt -u nullglob
+  if [[ -n "$newest" ]]; then
+    printf '%s' "$newest"
+    return 0
+  fi
   return 1
 }
 
