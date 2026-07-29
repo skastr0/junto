@@ -224,6 +224,16 @@ describe("work pure transforms", () => {
 
     expect(released.task.state).toBe("submitted");
     expect(released.task.claimedBy).toBeUndefined();
+    expect(released.task.history).toHaveLength(
+      claimed.task.history.length + 1,
+    );
+    expect(released.task.history.at(-1)).toMatchObject({
+      role: "user",
+      parts: [{ kind: "text", text: "Released to Queue by operator." }],
+      metadata: {
+        "vellum.taskRelease.actorSeatId": claimed.task.claimedBy,
+      },
+    });
   });
 
   it("respond atomically records one operator message and resolves attention", () => {

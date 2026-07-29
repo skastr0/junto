@@ -82,4 +82,44 @@ describe("factory claim selector", () => {
       doc.nodes.find((node) => node.id === "worker")?.ether?.messages,
     ).toBeUndefined();
   });
+
+  it("can exclude only the released task-seat pair while leaving peers eligible", () => {
+    const peer = Schema.decodeUnknownSync(ActorRef)({
+      seatId: `seat_${"2".repeat(64)}`,
+      canvasName: "demo",
+      nodeId: "peer",
+    });
+    const withPeer: CanvasDoc = {
+      ...doc,
+      nodes: [
+        ...doc.nodes,
+        {
+          ...doc.nodes[0]!,
+          id: "peer",
+          ether: {
+            ...doc.nodes[0]!.ether,
+            terminal: { bindingId: "bind-2", harness: "claude" },
+          },
+        },
+      ],
+      edges: [
+        ...doc.edges,
+        { id: "e2", fromNode: "peer", toNode: "tasks" },
+      ],
+    };
+    const selected = selectFactoryClaims(
+      withPeer,
+      "demo",
+      (ref) => ref.nodeId === "worker"
+        ? worker
+        : ref.nodeId === "peer"
+          ? peer
+          : undefined,
+      {
+        claimEligible: (_task, actor) => actor.seatId !== worker.seatId,
+      },
+    );
+
+    expect(selected[0]?.actor).toEqual(peer);
+  });
 });

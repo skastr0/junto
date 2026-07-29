@@ -23,7 +23,12 @@ import {
   DEFAULT_STATION_HOST_ID,
   type StationRole,
 } from "@shared/station";
-import { claimedByOf, taskBrief } from "@shared/task";
+import {
+  claimedByOf,
+  taskBrief,
+  taskReleaseBoundary,
+} from "@shared/task";
+import type { Task } from "@shared/work-model";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorSeatId } from "@shared/actor-seat";
 import {
@@ -454,6 +459,7 @@ export const managedTaskDeliveryId = (
   sink: SinkRef,
   taskId: string,
   actorSeatId: ActorSeatId,
+  claimBoundaryMessageId: string,
 ): string =>
   `delivery_${createHash("sha256")
     .update(
@@ -463,6 +469,7 @@ export const managedTaskDeliveryId = (
         sink.nodeId,
         taskId,
         actorSeatId,
+        claimBoundaryMessageId,
       ]),
       "utf8",
     )
@@ -473,6 +480,7 @@ export const managedTaskCompactionDeliveryId = (
   sink: SinkRef,
   taskId: string,
   actorSeatId: ActorSeatId,
+  claimBoundaryMessageId: string,
 ): string =>
   `delivery_${createHash("sha256")
     .update(
@@ -482,6 +490,7 @@ export const managedTaskCompactionDeliveryId = (
         sink.nodeId,
         taskId,
         actorSeatId,
+        claimBoundaryMessageId,
       ]),
       "utf8",
     )
@@ -514,6 +523,55 @@ const makeKernelService = (
   let lifecycleCleanups: Array<() => void> = [];
   let safetyInterval: ReturnType<typeof setInterval> | undefined;
   let pulseLogPollInterval: ReturnType<typeof setInterval> | undefined;
+  const reclaimCooldowns = new Map<
+    string,
+    {
+      readonly expiresAt: number;
+      readonly timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  let wakeAfterReclaimGrace = (): void => {};
+
+  const reclaimCooldownKey = (
+    canvasName: string,
+    sinkNodeId: string,
+    taskId: string,
+    boundaryMessageId: string,
+  ): string =>
+    `${canvasName}\0${sinkNodeId}\0${taskId}\0${boundaryMessageId}`;
+
+  const MANAGED_TASK_RECLAIM_GRACE_MS = 5_000;
+
+  const claimEligibleAfterRelease = (
+    canvasName: string,
+    sinkNodeId: string,
+    task: Task,
+    actorSeatId: ActorSeatId,
+  ): boolean => {
+    const release = taskReleaseBoundary(task);
+    if (release === undefined || release.actorSeatId !== actorSeatId) {
+      return true;
+    }
+    const key = reclaimCooldownKey(
+      canvasName,
+      sinkNodeId,
+      task.id,
+      release.messageId,
+    );
+    const now = Date.now();
+    const existing = reclaimCooldowns.get(key);
+    if (existing !== undefined) {
+      if (now < existing.expiresAt) return false;
+      return true;
+    }
+    const expiresAt = now + MANAGED_TASK_RECLAIM_GRACE_MS;
+    const timer = setTimeout(() => {
+      wakeAfterReclaimGrace();
+    }, MANAGED_TASK_RECLAIM_GRACE_MS);
+    timer.unref?.();
+    reclaimCooldowns.set(key, { expiresAt, timer });
+    return false;
+  };
 
   const clearLifecycleScheduling = (): void => {
     if (safetyInterval !== undefined) {
@@ -524,6 +582,10 @@ const makeKernelService = (
       clearInterval(pulseLogPollInterval);
       pulseLogPollInterval = undefined;
     }
+    for (const cooldown of reclaimCooldowns.values()) {
+      clearTimeout(cooldown.timer);
+    }
+    reclaimCooldowns.clear();
     for (const cleanup of lifecycleCleanups.splice(0)) {
       try {
         cleanup();
@@ -813,6 +875,13 @@ const makeKernelService = (
               selectableActorSeatIds.has(actorRef.seatId)
             );
           },
+          claimEligible: (task, actor, sink) =>
+            claimEligibleAfterRelease(
+              canvasName,
+              sink.id,
+              task,
+              actor.seatId,
+            ),
           busyActorSeatIds,
         },
       );
@@ -892,15 +961,19 @@ const makeKernelService = (
           const surface = actorDeliverySurfaceOf(actor);
           if (surface?._tag !== "managedAgent") continue;
           const sinkRef = { canvasName, nodeId: sink.id } satisfies SinkRef;
+          const claimBoundaryMessageId =
+            task.history.at(-1)?.messageId ?? task.id;
           const compactionDeliveryId = managedTaskCompactionDeliveryId(
             sinkRef,
             task.id,
             actorSeatId,
+            claimBoundaryMessageId,
           );
           const deliveryId = managedTaskDeliveryId(
             sinkRef,
             task.id,
             actorSeatId,
+            claimBoundaryMessageId,
           );
           if (
             await Effect.runPromise(
@@ -1014,6 +1087,7 @@ const makeKernelService = (
   const scheduleCycle = (): void => {
     if (!suspended) scheduleCoalescedCycle();
   };
+  wakeAfterReclaimGrace = scheduleCycle;
 
   // --- doc hydration + mid-cycle resync ---------------------------------------
 

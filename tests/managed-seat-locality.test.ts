@@ -146,19 +146,21 @@ describe("kernel actor and delivery identity", () => {
       installation("remote-a"),
       "binding-alpha",
     );
-    const delivery = managedTaskDeliveryId(sink, "task-1", seatId);
+    const delivery = managedTaskDeliveryId(sink, "task-1", seatId, "message-1");
 
     expect(delivery).toMatch(/^delivery_[a-f0-9]{64}$/u);
-    expect(managedTaskDeliveryId(sink, "task-1", seatId)).toBe(delivery);
-    expect(managedTaskDeliveryId(sink, "task-2", seatId)).not.toBe(delivery);
+    expect(managedTaskDeliveryId(sink, "task-1", seatId, "message-1")).toBe(delivery);
+    expect(managedTaskDeliveryId(sink, "task-2", seatId, "message-1")).not.toBe(delivery);
+    expect(managedTaskDeliveryId(sink, "task-1", seatId, "message-2")).not.toBe(delivery);
     const compaction = managedTaskCompactionDeliveryId(
       sink,
       "task-1",
       seatId,
+      "message-1",
     );
     expect(compaction).toMatch(/^delivery_[a-f0-9]{64}$/u);
     expect(compaction).not.toBe(delivery);
-    expect(managedTaskCompactionDeliveryId(sink, "task-1", seatId)).toBe(
+    expect(managedTaskCompactionDeliveryId(sink, "task-1", seatId, "message-1")).toBe(
       compaction,
     );
   });

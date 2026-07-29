@@ -16,6 +16,7 @@ import {
   claimedByOf,
   isTerminalTaskState,
   makeAgentMessage,
+  makeTaskReleaseMessage,
   makeUserMessage,
   mirrorArtifactsText,
   mirrorRequestsText,
@@ -346,7 +347,18 @@ export const workTaskTransition = (
       );
     }
     let history = current.history;
-    if (note?.trim()) {
+    if (state === "submitted") {
+      history = [
+        ...history,
+        makeTaskReleaseMessage({
+          messageId: ids.messageId(),
+          text: note?.trim() || "Released to Queue by operator.",
+          contextId,
+          taskId,
+          actorSeatId: claimedByOf(current),
+        }),
+      ];
+    } else if (note?.trim()) {
       history = [
         ...history,
         makeAgentMessage({

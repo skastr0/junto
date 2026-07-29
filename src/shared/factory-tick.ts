@@ -1,5 +1,6 @@
 import { Either, HashSet } from "effect";
 import type { CanvasDoc, CanvasNode } from "./canvas";
+import type { Task } from "./work-model";
 import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf } from "./task";
 import {
@@ -84,6 +85,12 @@ export const selectFactoryClaims = (
   opts?: {
     readonly seatPaused?: (nodeId: string) => boolean;
     readonly actorEligible?: (actor: CanvasNode) => boolean;
+    /** Per-task actor admission, e.g. a recent operator-release grace. */
+    readonly claimEligible?: (
+      task: Task,
+      actor: ActorRef,
+      sink: CanvasNode,
+    ) => boolean;
     /** Occupancy already observed outside this document. */
     readonly busyActorSeatIds?: ReadonlySet<ActorSeatId>;
   },
@@ -95,6 +102,7 @@ export const selectFactoryClaims = (
   ]);
   const isPausedSeat = opts?.seatPaused ?? (() => false);
   const actorEligible = opts?.actorEligible ?? (() => true);
+  const claimEligible = opts?.claimEligible ?? (() => true);
   const capabilityView = canvasDocToCapabilityView(doc);
 
   const sinks = doc.nodes
@@ -152,7 +160,9 @@ export const selectFactoryClaims = (
 
     for (const task of open) {
       const selected = freeActors.find(
-        ({ actor: candidate }) => !busy.has(candidate.seatId),
+        ({ actor: candidate }) =>
+          !busy.has(candidate.seatId) &&
+          claimEligible(task, candidate, node),
       );
       if (!selected) break;
       const sink = { canvasName, nodeId: node.id } satisfies SinkRef;

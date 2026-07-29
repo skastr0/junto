@@ -156,5 +156,51 @@ export const makeAgentMessage = (params: {
   ...(params.metadata ? { metadata: params.metadata } : {}),
 });
 
+const TASK_RELEASE_ACTOR_SEAT_KEY = "vellum.taskRelease.actorSeatId";
+
+/**
+ * Exact operator-release boundary for one claimed task generation.
+ *
+ * The message id gives subsequent delivery receipts a fresh identity while
+ * the seat marker lets factory selection briefly avoid handing the task
+ * straight back to the actor it was explicitly released from.
+ */
+export const makeTaskReleaseMessage = (params: {
+  readonly messageId: string;
+  readonly text: string;
+  readonly contextId: string;
+  readonly taskId: string;
+  readonly actorSeatId?: ActorSeatId;
+}): Message =>
+  makeUserMessage({
+    messageId: params.messageId,
+    text: params.text,
+    contextId: params.contextId,
+    taskId: params.taskId,
+    ...(params.actorSeatId === undefined
+      ? {}
+      : {
+        metadata: {
+          [TASK_RELEASE_ACTOR_SEAT_KEY]: params.actorSeatId,
+        },
+      }),
+  });
+
+export const taskReleaseBoundary = (
+  task: Task,
+): { readonly messageId: string; readonly actorSeatId: ActorSeatId } | undefined => {
+  const message = task.history.at(-1);
+  const actorSeatId = message?.metadata?.[TASK_RELEASE_ACTOR_SEAT_KEY];
+  return message !== undefined &&
+      message.role === "user" &&
+      typeof actorSeatId === "string" &&
+      /^seat_[a-f0-9]{64}$/u.test(actorSeatId)
+    ? {
+      messageId: message.messageId,
+      actorSeatId: actorSeatId as ActorSeatId,
+    }
+    : undefined;
+};
+
 export const claimedByOf = (task: Task): ActorSeatId | undefined =>
   task.claimedBy;
