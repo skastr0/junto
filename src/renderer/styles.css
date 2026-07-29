@@ -197,6 +197,8 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   width: min(var(--focus-form-width, 448px), calc(100vw - 32px));
   height: auto;
   max-height: min(86vh, 720px);
+  /* Children (e.g. task create form) must scroll inside this cap. */
+  min-height: 0;
   background: var(--color-raise-2);
 }
 

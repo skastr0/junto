@@ -848,7 +848,7 @@ function TaskCreateDialog({
             value={details}
             onChange={(event) => setDetails(event.target.value)}
             placeholder="Describe the context, constraints, expected result, and any proof the worker should return…"
-            rows={9}
+            rows={6}
           />
           <small>Long-form is welcome. Line breaks and detailed acceptance notes are preserved.</small>
         </label>
