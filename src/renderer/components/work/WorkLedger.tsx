@@ -81,12 +81,42 @@ const imageSrc = (part: Part): string | undefined => {
   return undefined;
 };
 
-function downloadRaw(part: Extract<Part, { kind: "raw" }>, filename: string) {
-  const binary = atob(part.bytesBase64);
+const isTextMediaType = (mediaType: string | undefined): boolean => {
+  if (mediaType === undefined) return false;
+  const [top] = mediaType.split(";");
+  const clean = top.trim().toLowerCase();
+  if (clean.startsWith("text/")) return true;
+  if (clean.endsWith("+json") || clean.endsWith("+xml")) return true;
+  const known = new Set([
+    "application/json",
+    "application/ld+json",
+    "application/javascript",
+    "application/ecmascript",
+    "application/typescript",
+    "application/x-sh",
+    "application/x-csh",
+    "application/x-python",
+    "application/x-python-code",
+    "application/yaml",
+    "application/x-yaml",
+    "application/toml",
+  ]);
+  return known.has(clean);
+};
+
+const bytesOfBase64 = (b64: string): Uint8Array => {
+  const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
   }
+  return bytes;
+};
+
+const formatBytes = (count: number): string => `${count.toLocaleString()} bytes`;
+
+function downloadRaw(part: Extract<Part, { kind: "raw" }>, filename: string) {
+  const bytes = bytesOfBase64(part.bytesBase64) as Uint8Array<ArrayBuffer>;
   const file = new Blob([bytes], { type: part.mediaType ?? "application/octet-stream" });
   const url = URL.createObjectURL(file);
   const anchor = document.createElement("a");
@@ -103,6 +133,25 @@ function PartView({
   readonly part: Part;
   readonly filename: string;
 }) {
+  const bytes = useMemo(() => {
+    if (part.kind === "raw" && !isImagePart(part)) return bytesOfBase64(part.bytesBase64);
+    return undefined;
+  }, [part]);
+
+  const text = useMemo(() => {
+    if (part.kind !== "raw" || bytes === undefined) return undefined;
+    if (part.mediaType && !isTextMediaType(part.mediaType)) return undefined;
+    try {
+      const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      if (part.mediaType) return decoded;
+      if (decoded.includes("\0")) return undefined;
+      if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(decoded)) return undefined;
+      return decoded;
+    } catch {
+      return undefined;
+    }
+  }, [part, bytes]);
+
   if (part.kind === "text") {
     return <pre className="work-ledger-part work-ledger-part--text">{part.text}</pre>;
   }
@@ -134,8 +183,24 @@ function PartView({
           <img src={src} alt={filename} />
           <Button size="xs" variant="subtle" onClick={() => downloadRaw(part, filename)}>
             <Download size={11} />
-            Download
+            Save
           </Button>
+        </div>
+      );
+    }
+    if (text !== undefined && bytes !== undefined) {
+      return (
+        <div className="work-ledger-part work-ledger-part--raw-text">
+          <div className="work-ledger-part__bar">
+            <FileText size={13} />
+            <span className="work-ledger-part__type">{part.mediaType ?? "text"}</span>
+            <span className="work-ledger-part__bytes">{formatBytes(bytes.length)}</span>
+            <Button size="xs" variant="subtle" onClick={() => downloadRaw(part, filename)}>
+              <Download size={11} />
+              Save
+            </Button>
+          </div>
+          <pre className="work-ledger-part__body">{text}</pre>
         </div>
       );
     }
@@ -144,7 +209,7 @@ function PartView({
         <FileBox size={18} />
         <div>
           <strong>{part.mediaType ?? "Binary data"}</strong>
-          <span>{Math.ceil((part.bytesBase64.length * 3) / 4).toLocaleString()} bytes</span>
+          <span>{formatBytes(bytes?.length ?? 0)}</span>
         </div>
         <Button size="xs" variant="subtle" onClick={() => downloadRaw(part, filename)}>
           <Download size={11} />
