@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # Compile Vellum and package for one explicit native target.
 #
-#   scripts/build-app.sh --target mac|linux [--fast] [--verify] [--notarize]
-#   scripts/build-app.sh --compile-only
+#   scripts/build-app.sh --target mac|linux [--channel beta|production] [--fast] [--verify] [--notarize]
+#   scripts/build-app.sh --compile-only [--channel beta|production]
+#   scripts/build-app.sh --license-preflight-only [--channel beta|production]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 TARGET=""
+LICENSE_CHANNEL_FLAG=""
 FAST=0
 VERIFY=0
 COMPILE_ONLY=0
 NOTARIZE=0
+LICENSE_PREFLIGHT_ONLY=0
 
 usage() {
   sed -n '2,6p' "$0" | sed 's/^# \?//'
@@ -21,13 +24,31 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --target) TARGET="${2:-}"; shift 2 ;;
+    --target)
+      [[ $# -ge 2 && -n "$2" ]] || {
+        printf 'vellum: error: --target requires mac or linux\n' >&2
+        exit 1
+      }
+      TARGET="$2"
+      shift 2
+      ;;
     --mac) TARGET="mac"; shift ;;
     --linux) TARGET="linux"; shift ;;
+    --channel)
+      [[ $# -ge 2 && -n "$2" ]] || {
+        printf 'vellum: error: --channel requires beta or production\n' >&2
+        exit 1
+      }
+      LICENSE_CHANNEL_FLAG="$2"
+      shift 2
+      ;;
+    --beta) LICENSE_CHANNEL_FLAG="beta"; shift ;;
+    --production) LICENSE_CHANNEL_FLAG="production"; shift ;;
     --fast) FAST=1; shift ;;
     --verify) VERIFY=1; shift ;;
     --notarize) NOTARIZE=1; shift ;;
     --compile-only) COMPILE_ONLY=1; shift ;;
+    --license-preflight-only) LICENSE_PREFLIGHT_ONLY=1; shift ;;
     -h|--help) usage 0 ;;
     *) printf 'vellum: error: unknown flag: %s\n' "$1" >&2; usage 1 ;;
   esac
@@ -48,6 +69,51 @@ fi
 if [[ "$NOTARIZE" -eq 1 && "$TARGET" != "mac" ]]; then
   printf 'vellum: error: notarization is only available for the mac target\n' >&2
   exit 1
+fi
+
+BUN_EXECUTABLE="$(type -P bun || true)"
+if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
+  printf 'vellum: error: Bun is required to resolve the license build profile\n' >&2
+  exit 1
+fi
+if [[
+  -n "$LICENSE_CHANNEL_FLAG" &&
+  -n "${VELLUM_LICENSE_CHANNEL:-}" &&
+  "$LICENSE_CHANNEL_FLAG" != "$VELLUM_LICENSE_CHANNEL"
+]]; then
+  printf 'vellum: error: --channel conflicts with VELLUM_LICENSE_CHANNEL\n' >&2
+  exit 1
+fi
+export VELLUM_LICENSE_CHANNEL="${LICENSE_CHANNEL_FLAG:-${VELLUM_LICENSE_CHANNEL:-beta}}"
+LICENSE_PROFILE_FIELDS="$(
+  "$BUN_EXECUTABLE" "$SCRIPT_DIR/license-build-profile.ts" --fields
+)"
+IFS=$'\t' read -r \
+  VELLUM_LICENSE_CHANNEL \
+  VELLUM_LICENSE_ENVIRONMENT \
+  VELLUM_DODO_BUSINESS_ID \
+  VELLUM_DODO_PRODUCT_ID \
+  <<< "$LICENSE_PROFILE_FIELDS"
+if [[
+  -z "$VELLUM_LICENSE_CHANNEL" ||
+  -z "$VELLUM_LICENSE_ENVIRONMENT" ||
+  -z "$VELLUM_DODO_BUSINESS_ID" ||
+  -z "$VELLUM_DODO_PRODUCT_ID"
+ ]]; then
+  printf 'vellum: error: license build profile resolver returned incomplete fields\n' >&2
+  exit 1
+fi
+export VELLUM_LICENSE_CHANNEL
+export VELLUM_DODO_BUSINESS_ID
+export VELLUM_DODO_PRODUCT_ID
+printf \
+  'vellum: license build profile %s → Dodo %s (%s / %s)\n' \
+  "$VELLUM_LICENSE_CHANNEL" \
+  "$VELLUM_LICENSE_ENVIRONMENT" \
+  "$VELLUM_DODO_BUSINESS_ID" \
+  "$VELLUM_DODO_PRODUCT_ID"
+if [[ "$LICENSE_PREFLIGHT_ONLY" -eq 1 ]]; then
+  exit 0
 fi
 
 cd "$REPO_ROOT"
@@ -89,6 +155,10 @@ build_compiled_cli() {
 
 printf 'vellum: electron-vite build → out/ …\n'
 bunx electron-vite build
+printf 'vellum: auditing compiled license binding …\n'
+bun "$SCRIPT_DIR/audit-license-build.ts" \
+  --bundle "$REPO_ROOT/out/main/index.js" \
+  --expected-env
 printf 'vellum: standalone work CLI → dist/vellum …\n'
 build_compiled_cli "$REPO_ROOT/dist/vellum" src/cli/main.ts
 printf 'vellum: standalone browser CLI → dist/vellum-browser …\n'

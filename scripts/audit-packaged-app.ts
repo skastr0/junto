@@ -30,6 +30,10 @@ import rawRuntimePolicy from "./macos-runtime-policy.json";
 import {
   auditRetiredStateRuntimeBundle,
 } from "./audit-retired-state-signatures";
+import {
+  auditPackagedLicenseBinding,
+  type LicenseBuildAuditReceipt,
+} from "./audit-license-build";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -98,6 +102,7 @@ export interface PackageAuditReceipt {
   readonly teamIdentifier: string;
   readonly runtimeVersion: string;
   readonly minimumSystemVersion: string;
+  readonly license: LicenseBuildAuditReceipt;
   readonly fuses: Readonly<Record<FuseName, "Enabled" | "Disabled">>;
   readonly stateUpdatePreflight: PackagedStateUpdatePreflightAuditReceipt;
   readonly machO: {
@@ -1040,6 +1045,7 @@ export const auditPackagedApp = async (
     browserCliPath,
     stationCliPath,
   });
+  const license = auditPackagedLicenseBinding(appAsarPath);
   const stateUpdatePreflight =
     auditPackagedStateUpdatePreflight(appAsarPath);
 
@@ -1085,6 +1091,7 @@ export const auditPackagedApp = async (
     teamIdentifier: codesign.teamIdentifier,
     runtimeVersion: codesign.runtimeVersion,
     minimumSystemVersion: policy.minimumSystemVersion,
+    license,
     fuses,
     stateUpdatePreflight,
     machO,

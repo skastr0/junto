@@ -83,8 +83,17 @@ Prefer source?
 
 ```bash
 bun install
-bun run app:build
+bun run app:build              # pinned Dodo Test beta profile
 bun run app:install:skip-build
+```
+
+Production packaging is explicit and fails before compilation unless the Live
+Dodo business and product IDs are present:
+
+```bash
+VELLUM_DODO_BUSINESS_ID=bus_... \
+VELLUM_DODO_PRODUCT_ID=pdt_... \
+bun run app:build:production
 ```
 
 ## Quick start

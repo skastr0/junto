@@ -28,6 +28,10 @@ import {
 } from "./finalize-linux-package";
 import { auditLinuxPtyPlacement } from "./linux-packaged-pty-smoke";
 import { auditLinuxRetiredStateRuntimeBundle } from "./audit-retired-state-signatures";
+import {
+  auditPackagedLicenseBinding,
+  type LicenseBuildAuditReceipt,
+} from "./audit-license-build";
 
 export const LINUX_PACKAGE_NAME = "vellum";
 export const LINUX_INSTALL_DIRECTORY = "/opt/Vellum Command";
@@ -213,6 +217,7 @@ export interface LinuxPackageAuditReceipt {
   readonly dependencies: ReadonlyArray<string>;
   readonly archiveEntries: number;
   readonly nativeObjects: ReadonlyArray<string>;
+  readonly license: LicenseBuildAuditReceipt;
   readonly fuses: Readonly<Record<string, "Enabled" | "Disabled">>;
   readonly chromeSandboxMode: "0755";
   readonly appArmor: "userns";
@@ -1178,6 +1183,7 @@ export const auditLinuxPackage = async ({
       installerPath: releaseInstaller,
       bridgePath: releaseBridge,
     });
+    const license = auditPackagedLicenseBinding(appAsar);
     validateAppArmorProfile(await readFile(appArmorProfile, "utf8"));
     validateLinuxRemoteLauncher(await readFile(remoteLauncher, "utf8"));
     validateSystemdUserUnit(await readFile(remoteUnit, "utf8"));
@@ -1232,6 +1238,7 @@ export const auditLinuxPackage = async ({
       nativeObjects: elfObjects.map((entry) =>
         path.relative(extractedReal, entry),
       ),
+      license,
       fuses: fuseReceipt,
       chromeSandboxMode: "0755",
       appArmor: "userns",

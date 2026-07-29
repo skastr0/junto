@@ -33,8 +33,13 @@ Unsolicited large rewrites, new subsystems, broad formatting changes, generated 
 ```bash
 bun install
 bun run verify          # typecheck + unit tests + vite compile
-bun run app:build       # package signed macOS app + zip/dmg
+bun run app:build       # package pinned Dodo Test beta app + zip/dmg
 ```
+
+`app:build` and its platform/verification variants always produce the pinned
+beta profile unless `--channel production` is explicit. Production packaging
+requires `VELLUM_DODO_BUSINESS_ID` and `VELLUM_DODO_PRODUCT_ID`; packaged
+development builds are rejected.
 
 Before submitting:
 

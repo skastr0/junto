@@ -15,6 +15,8 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 cd "$REPO_ROOT"
+bun "$SCRIPT_DIR/audit-license-build.ts" \
+  --bundle "$REPO_ROOT/out/main/index.js"
 bun "$SCRIPT_DIR/electron-security-policy.ts" validate
 if [[ "$(uname -m)" == "arm64" ]]; then
   TARGET_ARCH="arm64"
