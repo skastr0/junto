@@ -98,6 +98,7 @@ describe("managed-terminal templates (data)", () => {
       "CLAUDE_CODE_CHILD_SESSION",
       "CLAUDECODE",
       "CLAUDE_CODE_ENTRYPOINT",
+      "NO_COLOR",
     ]);
     for (const t of allTemplates()) {
       expect(t.envSpec.scrub).toEqual(SPAWN_ENV_SCRUB);
@@ -118,6 +119,7 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
       CLAUDECODE: "1",
       CLAUDE_CODE_CHILD_SESSION: "yes",
       CLAUDE_CODE_ENTRYPOINT: "cli",
+      NO_COLOR: "1",
       VELLUM_TOKEN: "tok",
       EMPTY: undefined,
     });
@@ -142,6 +144,7 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
       },
     );
     expect(env.CLAUDECODE).toBeUndefined();
+    expect(env.NO_COLOR).toBeUndefined();
     expect(env.PATH).toBe("/opt/vellum/bin:/usr/bin");
     expect(env.VELLUM_SOCKET).toBe("/tmp/work.sock");
     expect(env.HOME).toBe("/home/op");

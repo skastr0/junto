@@ -94,13 +94,18 @@ export type ArgvSpec = {
 
 /**
  * Env keys that must be stripped from the ambient process env before spawn.
- * Verified trap: launching from inside a Claude session silently disables the
- * child's transcript persistence and excludes it from `--resume`.
+ * Verified traps:
+ * - launching from inside a Claude session silently disables the child's
+ *   transcript persistence and excludes it from `--resume`;
+ * - agent/tooling parents commonly export NO_COLOR for their own logs, which
+ *   disables the managed harness TUI even though Vellum provides a truecolor
+ *   xterm PTY.
  */
 export const SPAWN_ENV_SCRUB: readonly string[] = [
   "CLAUDE_CODE_CHILD_SESSION",
   "CLAUDECODE",
   "CLAUDE_CODE_ENTRYPOINT",
+  "NO_COLOR",
 ] as const;
 
 export type EnvSpec = {

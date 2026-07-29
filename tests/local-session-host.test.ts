@@ -100,6 +100,22 @@ describe("LocalSessionHost", () => {
     expect(launch.env.TERM).toBe("xterm-256color");
   });
 
+  it("does not pass ambient NO_COLOR into a managed agent TUI", () => {
+    vi.stubEnv("NO_COLOR", "1");
+    const launch = Either.getOrThrow(
+      resolveLaunch({
+        kind: "agent",
+        harness: "codex",
+        agentKey: "local:codex",
+        launch: { kind: "harness", argv: ["codex"] },
+      }),
+    );
+
+    expect(launch.env.NO_COLOR).toBeUndefined();
+    expect(launch.env.TERM).toMatch(/^(xterm|screen)/);
+    expect(launch.env.COLORTERM).toBe("truecolor");
+  });
+
   it("fails before ownership when the launch cwd is missing", async () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(42_901),

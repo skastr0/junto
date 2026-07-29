@@ -22,6 +22,7 @@ describe("zero-config-write spawn audit", () => {
       CLAUDE_CODE_CHILD_SESSION: "1",
       CLAUDECODE: "1",
       CLAUDE_CODE_ENTRYPOINT: "cli",
+      NO_COLOR: "1",
       PATH: "/usr/bin",
       HOME: "/tmp/home",
     };
