@@ -278,6 +278,38 @@ describe("LocalSessionHost", () => {
     expect(fake.controllers[0]?.resizes).toEqual([{ cols: 100, rows: 40 }]);
   });
 
+  it("delivers factory prompts without taking over the interactive control lease", () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_510),
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = hostWith(fake);
+    host.createAgentSeat({
+      bindingId: "managed-io",
+      harness: "claude",
+      agentKey: "local:claude",
+      launch: { kind: "harness", argv: ["/usr/local/bin/claude"] },
+    });
+
+    const interactive = host.attach({
+      bindingId: "managed-io",
+      mode: "control",
+    });
+    expect(interactive.ok).toBe(true);
+    if (!interactive.ok) return;
+
+    expect(host.writeManagedSeat("managed-io", "factory prompt")).toBe(true);
+    expect(host.write(interactive.lease, "operator input")).toBe(true);
+    expect(fake.controllers[0]?.writes).toEqual([
+      "factory prompt",
+      "operator input",
+    ]);
+    expect(fake.controllers[0]?.signals).toEqual([]);
+
+    host.create({ bindingId: "geography" });
+    expect(host.writeManagedSeat("geography", "forbidden")).toBe(false);
+  });
+
   it("binds anchored terminal identity and never lets an old generation erase its replacement", async () => {
     const identities = makeProcessIdentityMap();
     setProcessIdentityMapForTests(identities);

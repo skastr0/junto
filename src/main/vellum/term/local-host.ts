@@ -779,8 +779,37 @@ export class LocalSessionHost extends EventEmitter {
     if (!rec || rec.killed || !rec.lease || !sessionPhaseAllowsWrite(rec.phase)) return false;
     if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
     if (lease.epoch !== rec.epoch) return false;
+    return this.writeRecord(rec, data);
+  }
+
+  /**
+   * In-process factory delivery for the current managed-agent generation.
+   *
+   * Product automation is not an external terminal controller and must never
+   * enter control-lease takeover arbitration with the interactive renderer.
+   * The kernel has already proven the actor edge and binding; this boundary
+   * additionally refuses geography terminals and dead generations.
+   */
+  writeManagedSeat(bindingId: string, data: string): boolean {
+    const rec = this.sessions.get(bindingId);
+    if (
+      !rec ||
+      !rec.agentKey ||
+      !rec.harness ||
+      rec.killed ||
+      !rec.lease ||
+      !sessionPhaseAllowsWrite(rec.phase)
+    ) {
+      return false;
+    }
+    return this.writeRecord(rec, data);
+  }
+
+  private writeRecord(rec: SessionRec, data: string): boolean {
+    const lease = rec.lease;
+    if (!lease) return false;
     try {
-      rec.lease.io.write(data);
+      lease.io.write(data);
       return true;
     } catch {
       // PTY write failure (broken pipe family) — leave generation registered

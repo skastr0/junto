@@ -55,7 +55,6 @@ import {
 } from "./term/managed-pulse-bridge";
 import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
-import type { ControlLease } from "./term/local-host";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { licensedRendererIpc } from "./license/admission";
 import type { WorkMetadata, TaskState } from "@shared/canvas";
@@ -656,9 +655,9 @@ export const registerVellumIpc = (): void => {
         );
       });
 
-      // Managed-terminal drive: process-local control leases for factory typing.
-      // Takeover is intentional — the factory owns control; UI attaches as observe.
-      const driveLeases = new Map<string, ControlLease>();
+      // Managed-terminal drive: in-process agent-seat writes for factory typing.
+      // External control leases belong to interactive terminal clients; product
+      // automation must never steal them during claim delivery.
       let productAutomationSuspended = false;
       const managedPulseReadyCancels = new Map<
         string,
@@ -678,39 +677,13 @@ export const registerVellumIpc = (): void => {
         pending.cancel();
         managedPulseReadyCancels.delete(bindingId);
       };
-      const ensureDriveLease = (bindingId: string): ControlLease | undefined => {
-        if (productAutomationSuspended) return undefined;
-        const existing = driveLeases.get(bindingId);
-        if (existing) {
-          // Epoch/session may have rotated — host.write rejects stale leases.
-          return existing;
-        }
-        const attached = termPlane.host.attach({
-          bindingId,
-          mode: "control",
-          takeover: true,
-        });
-        if (!attached.ok) return undefined;
-        driveLeases.set(bindingId, attached.lease);
-        return attached.lease;
-      };
       // Observer → seat state machine → idle gate for drive typing.
       // Fail closed: unknown/unbound seats are not idle (never type into dialogs).
       seatStateRuntime.start();
       const managedDrive = new ManagedTerminalDrive({
-        write: (bindingId, data) => {
-          let lease = ensureDriveLease(bindingId);
-          if (!lease) return false;
-          let ok = termPlane.host.write(lease, data);
-          if (!ok) {
-            // Lease may be stale after kill/recreate — re-attach once.
-            driveLeases.delete(bindingId);
-            lease = ensureDriveLease(bindingId);
-            if (!lease) return false;
-            ok = termPlane.host.write(lease, data);
-          }
-          return ok;
-        },
+        write: (bindingId, data) =>
+          !productAutomationSuspended &&
+          termPlane.host.writeManagedSeat(bindingId, data),
         isSeatIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
         // Grok (and all seats): never paste when macOS clipboard holds an image.
         assertClipboardSafe: assertMacClipboardSafeForPaste,
@@ -738,10 +711,6 @@ export const registerVellumIpc = (): void => {
             pending.cancel();
           }
           managedPulseReadyCancels.clear();
-          for (const lease of driveLeases.values()) {
-            termPlane.host.release(lease);
-          }
-          driveLeases.clear();
         },
       });
       termPlane.bindProductAutomationSuspension(
