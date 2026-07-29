@@ -174,7 +174,7 @@ describe("configured Remote deploy", () => {
     expect(configure).not.toHaveBeenCalled();
   });
 
-  it("does not configure when package readiness is not proven", async () => {
+  it("does not configure when package mutation never started", async () => {
     const configure = vi.fn(() =>
       Effect.die("configure must not run"),
     );
@@ -190,7 +190,7 @@ describe("configured Remote deploy", () => {
               detail: "package readiness is indeterminate",
               code: "io",
               stages: ["activation began", "readiness failed"],
-              disposition: "indeterminate",
+              disposition: "not-started",
             }),
           configure,
         }),
@@ -199,11 +199,84 @@ describe("configured Remote deploy", () => {
 
     expect(result).toMatchObject({
       ok: false,
-      outcome: "indeterminate",
-      packageState: "unknown",
+      outcome: "failed",
+      packageState: "previous",
       role: "previous",
     });
     expect(configure).not.toHaveBeenCalled();
+  });
+
+  it("configures via enrollment bootstrap then retries activation when package is present without ready", async () => {
+    const sequence: string[] = [];
+    let packageCalls = 0;
+    const deployPrepared = vi.fn(() =>
+      Effect.sync(() => {
+        packageCalls += 1;
+        sequence.push(`package-${packageCalls}`);
+        if (packageCalls === 1) {
+          return {
+            ok: false,
+            detail: "release session failed: product control plane did not become ready",
+            code: "conflict" as const,
+            stages: [
+              "first-install package 0.1.2 installed; custody present",
+              "starting sealed adopt for 0.1.2 (package already on host)",
+              "adopt/release session error: product control plane",
+            ],
+            disposition: "indeterminate" as const,
+            version: "0.1.2",
+          };
+        }
+        return {
+          ok: true,
+          detail: "package ready after configuration",
+          stages: ["systemd generation ready"],
+          disposition: "ready" as const,
+          version: "0.1.2",
+        };
+      }),
+    );
+    const configure = vi.fn(() =>
+      Effect.sync(() => {
+        sequence.push("configure");
+        return successfulConfiguration;
+      }),
+    );
+    const prepare = vi.fn(() =>
+      Effect.sync(() => {
+        sequence.push("prepare");
+        return { ok: true as const, target } as never;
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        options,
+        operations({ prepare, deployPrepared, configure }),
+      ),
+    );
+
+    expect(sequence).toEqual([
+      "prepare",
+      "package-1",
+      "configure",
+      "prepare",
+      "package-2",
+    ]);
+    expect(configure).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: true,
+      outcome: "ready",
+      packageState: "present",
+      role: "remote",
+      stationInstallationId:
+        successfulConfiguration.stationInstallationId,
+    });
+    expect(result.stages?.some((s) => /enrollment bootstrap/u.test(s))).toBe(
+      true,
+    );
   });
 
   it("keeps a ready package and reports indeterminate when API configuration fails", async () => {

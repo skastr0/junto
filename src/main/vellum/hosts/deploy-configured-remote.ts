@@ -169,11 +169,69 @@ const configurationFailure = (
 };
 
 /**
+ * Linux first-boot chicken-egg:
+ * - work control readiness requires durable station_configuration
+ * - packaged headless without configuration only starts Station enrollment
+ *   bootstrap (pair/configure admitted; workControl=false)
+ * - sealed package readiness waits for work control
+ *
+ * So when the package is on disk but readiness failed, configure through
+ * enrollment bootstrap once, then re-admit and re-run package activation.
+ */
+const packagePresentWithoutReady = (
+  deployed: DeployRemoteResult,
+): boolean => {
+  if (deployed.disposition === "not-started") return false;
+  if (deployed.disposition === "ready" && deployed.ok) return false;
+  return (deployed.stages ?? []).some(
+    (stage) =>
+      /^first-install package .+ installed/u.test(stage) ||
+      /custody present/u.test(stage) ||
+      /^starting sealed adopt/u.test(stage) ||
+      /^root-owned transaction .+ committed/u.test(stage) ||
+      /signed artifact admitted/u.test(stage),
+  );
+};
+
+const finishWithConfiguration = (
+  host: RemoteHost,
+  deployed: DeployRemoteResult,
+  configured: ConfigureRemoteResult,
+): ConfiguredRemoteDeployResult => {
+  const detail = `${deployed.detail} · ${configured.detail}`;
+  return {
+    ...deployed,
+    ok: true,
+    detail,
+    message: deployed.message ?? detail,
+    hostEndpoint: host.sshEndpoint,
+    disposition: "ready",
+    outcome: "ready",
+    packageState: "present",
+    role: "remote",
+    lastSeen: configured.configuredAt ?? new Date().toISOString(),
+    station: configured.station,
+    ...(configured.stationInstallationId === undefined
+      ? {}
+      : {
+          stationInstallationId: configured.stationInstallationId,
+        }),
+    configuration: {
+      ok: true,
+      detail: configured.detail,
+    },
+  };
+};
+
+/**
  * Install one Remote package, then pair/configure its app-owned database.
  *
  * A package provider may use the intended station fields as bounded admission
  * facts, but only the Station API commits durable configuration. There is no
  * settings snapshot, seal, file rollback, or alternate trust-provision lane.
+ *
+ * Exception: Linux first-boot may configure while the unit is still in
+ * enrollment bootstrap so a second activation can publish work readiness.
  */
 export const deployConfiguredRemoteHost = (
   ssh: Ssh,
@@ -203,7 +261,7 @@ export const deployConfiguredRemoteHost = (
       });
     }
 
-    const deployed = yield* operations.deployPrepared(
+    let deployed = yield* operations.deployPrepared(
       ssh,
       preparation.target,
       {
@@ -212,6 +270,75 @@ export const deployConfiguredRemoteHost = (
       },
       options.authorization,
     );
+
+    // Break the first-boot readiness ↔ configuration deadlock once.
+    if (
+      (!deployed.ok || deployed.disposition !== "ready") &&
+      packagePresentWithoutReady(deployed)
+    ) {
+      const bootstrapConfigure = yield* operations
+        .configure(ssh, host, options)
+        .pipe(Effect.either);
+      if (bootstrapConfigure._tag === "Right" && bootstrapConfigure.right.ok) {
+        const stages = [
+          ...(deployed.stages ?? []),
+          "station configured via enrollment bootstrap after package present",
+          "retrying package activation for work-control readiness",
+        ];
+        const retryPrep = yield* operations.prepare(ssh, host);
+        if (retryPrep.ok) {
+          const retried = yield* operations.deployPrepared(
+            ssh,
+            retryPrep.target,
+            {
+              state: "applied",
+              remoteHostId: host.id,
+            },
+            options.authorization,
+          );
+          deployed = {
+            ...retried,
+            stages: Object.freeze([
+              ...stages,
+              ...(retried.stages ?? []),
+            ]),
+          };
+          if (retried.ok && retried.disposition === "ready") {
+            // Configuration already applied; do not pair/configure twice.
+            return finishWithConfiguration(
+              host,
+              deployed,
+              bootstrapConfigure.right,
+            );
+          }
+        } else {
+          deployed = {
+            ...deployed,
+            stages: Object.freeze([
+              ...stages,
+              `readiness retry admission failed: ${retryPrep.result.detail}`,
+            ]),
+          };
+        }
+      } else if (bootstrapConfigure._tag === "Right") {
+        deployed = {
+          ...deployed,
+          stages: Object.freeze([
+            ...(deployed.stages ?? []),
+            `enrollment bootstrap configure failed: ${bootstrapConfigure.right.detail}`,
+          ]),
+        };
+      } else {
+        deployed = {
+          ...deployed,
+          stages: Object.freeze([
+            ...(deployed.stages ?? []),
+            `enrollment bootstrap configure error: ${bootstrapConfigure.left.message}`,
+          ]),
+        };
+      }
+    }
+
     if (!deployed.ok || deployed.disposition !== "ready") {
       return failedPackageResult(host, deployed);
     }
@@ -226,28 +353,5 @@ export const deployConfiguredRemoteHost = (
       return configurationFailure(host, deployed, configured.right);
     }
 
-    const detail = `${deployed.detail} · ${configured.right.detail}`;
-    return {
-      ...deployed,
-      ok: true,
-      detail,
-      message: deployed.message ?? detail,
-      hostEndpoint: host.sshEndpoint,
-      disposition: "ready",
-      outcome: "ready",
-      packageState: "present",
-      role: "remote",
-      lastSeen: configured.right.configuredAt ?? new Date().toISOString(),
-      station: configured.right.station,
-      ...(configured.right.stationInstallationId === undefined
-        ? {}
-        : {
-            stationInstallationId:
-              configured.right.stationInstallationId,
-          }),
-      configuration: {
-        ok: true,
-        detail: configured.right.detail,
-      },
-    } satisfies ConfiguredRemoteDeployResult;
+    return finishWithConfiguration(host, deployed, configured.right);
   }).pipe(Effect.withSpan("hosts.deploy-configured-remote"));

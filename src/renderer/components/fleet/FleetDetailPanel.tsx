@@ -24,6 +24,7 @@ import {
   REMOTE_UPDATE_IDLE_PRODUCT_COPY,
   shouldAutoWalkRemoteUpdate,
 } from "@shared/remote-update-status";
+import { useHostDeployJob } from "../../lib/deploy-job-state";
 import { deployRecoveryGuidance } from "../../lib/deploy-recovery";
 import { setFleetAppearance } from "../../lib/fleet-appearance";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
@@ -43,6 +44,7 @@ import { updateState$ } from "../../lib/update-state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { isValidLinuxAdministratorPassword } from "../SettingsPanel";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
+import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
 
 export type FleetSelection =
   | { readonly kind: "cc" }
@@ -141,8 +143,12 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   const [authorizationError, setAuthorizationError] = useState<
     string | undefined
   >(undefined);
+  const deployJob = useHostDeployJob(host.id);
   const reach = reachabilityLine(probe);
   const probing = probe?.status === "probing";
+  // Prefer main-owned job for busy state so panel remount mid-deploy still shows deploying.
+  const deployInFlight =
+    actionBusy === "deploy" || deployJob?.status === "running";
   const resolvedModel = resolveFleetMachineModel(host);
   const color = hostColor(host, fleetMachineColor(resolvedModel));
   const automatic = !FLEET_MACHINE_CATALOG.some(
@@ -221,12 +227,20 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     setAuthorizationRequest(undefined);
     setAuthorizationPassword("");
     setAuthorizationError(undefined);
+    // Durable job panel owns stages + progress; keep actionLine for recovery copy only.
     const recovery = deployRecoveryGuidance(result.recoveryAction);
-    const stages = result.stages?.length
-      ? `\n${result.stages.map((stage) => `· ${stage}`).join("\n")}`
-      : "";
+    if (!result.ok) {
+      setActionLine(
+        [result.detail || result.message || "deploy failed", recovery]
+          .filter(Boolean)
+          .join("\n"),
+      );
+      return;
+    }
     setActionLine(
-      `${result.detail || (result.ok ? "Remote deployed and ready" : (result.message ?? "deploy failed"))}${recovery ? `\n${recovery}` : ""}${stages}`,
+      [result.detail || "Remote deployed and ready", recovery]
+        .filter(Boolean)
+        .join("\n"),
     );
   };
 
@@ -234,8 +248,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     const api = getVellumApi();
     if (!api) return;
     if (kind === "deploy" && !deployEnabled) return;
+    if (kind === "deploy" && deployJob?.status === "running") return;
     setActionBusy(kind);
-    setActionLine(kind === "deploy" ? "deploying Vellum Remote — this can take a while…" : "");
+    setActionLine(
+      kind === "deploy"
+        ? "Deploy accepted — progress is live below (main process)."
+        : "",
+    );
     try {
       if (kind === "configure") {
         const result = await api.hostsConfigureRemote(host.id);
@@ -296,6 +315,12 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
 
   return (
     <div className="fleet-detail__body">
+      {deployJob ? (
+        <section className="fleet-detail__section fleet-detail__section--deploy">
+          <FleetDeployJobPanel job={deployJob} />
+        </section>
+      ) : null}
+
       <section className="fleet-detail__section">
         <div className="fleet-detail__section-label">Identity</div>
         <div className="fleet-detail__kv">
@@ -502,7 +527,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         <div className="fleet-detail__actions">
           <Button
             size="xs"
-            disabled={actionBusy !== ""}
+            disabled={actionBusy !== "" || deployInFlight}
             {...activateOnPointerUp(() => void runAction("configure"))}
           >
             {actionBusy === "configure" ? "configuring…" : "Configure Remote"}
@@ -510,11 +535,15 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           <Button
             variant="primary"
             size="xs"
-            disabled={actionBusy !== "" || !deployEnabled}
-            title={deployDetail}
+            disabled={actionBusy !== "" || !deployEnabled || deployInFlight}
+            title={
+              deployInFlight
+                ? "Deploy already running in Command Center"
+                : deployDetail
+            }
             {...activateOnPointerUp(() => void runAction("deploy"))}
           >
-            {actionBusy === "deploy" ? "deploying…" : "Deploy Vellum Remote"}
+            {deployInFlight ? "deploying…" : "Deploy Vellum Remote"}
           </Button>
           {!deployEnabled && deployDetail ? (
             <p className="fleet-detail__note">{deployDetail}</p>
@@ -525,7 +554,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <Button
               size="xs"
               variant="danger"
-              disabled={actionBusy !== ""}
+              disabled={actionBusy !== "" || deployInFlight}
               {...activateOnPointerUp(() => void runAction("remove"))}
             >
               {actionBusy === "remove" ? "removing…" : `Confirm remove ${host.id}`}
@@ -534,7 +563,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <Button
               size="xs"
               variant="danger"
-              disabled={actionBusy !== ""}
+              disabled={actionBusy !== "" || deployInFlight}
               {...activateOnPointerUp(() => setConfirmRemove(true))}
             >
               Remove host
@@ -552,7 +581,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           request={authorizationRequest}
           password={authorizationPassword}
           error={authorizationError}
-          busy={actionBusy === "deploy"}
+          busy={deployInFlight}
           onPasswordChange={setAuthorizationPassword}
           onCancel={() => {
             setAuthorizationRequest(undefined);

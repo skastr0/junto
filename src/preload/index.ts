@@ -505,6 +505,12 @@ const vellumApi: VellumApi = {
     invoke(IPC_CHANNELS.hostsConfigureRemote, IPC_TIMEOUT_MS, id),
   hostsDeployRemote: (input) =>
     invoke(IPC_CHANNELS.hostsDeployRemote, 1_200_000, input),
+  hostsDeployJobGet: (hostId: string) =>
+    invoke(IPC_CHANNELS.hostsDeployJobGet, IPC_TIMEOUT_MS, hostId),
+  hostsDeployJobsList: () =>
+    invoke(IPC_CHANNELS.hostsDeployJobsList, IPC_TIMEOUT_MS),
+  onHostsDeployJobChanged: (listener) =>
+    subscribe(IPC_CHANNELS.hostsDeployJobChanged, listener),
   hostsDeployCapabilities: () =>
     invoke(IPC_CHANNELS.hostsDeployCapabilities, IPC_TIMEOUT_MS),
   boxAvailability: () =>

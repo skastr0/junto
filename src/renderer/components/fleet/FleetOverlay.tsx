@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { CloudCog, Plus, RefreshCw } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
+import { useRunningDeployJobs } from "../../lib/deploy-job-state";
 import { type FleetDitherLevel } from "../../lib/fleet-layout";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
@@ -10,6 +11,7 @@ import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
+import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
 import { FleetDetailPanel, type FleetSelection } from "./FleetDetailPanel";
 import { FleetBoxPanel } from "./FleetBoxPanel";
 import { FleetHostForm } from "./FleetHostForm";
@@ -27,6 +29,7 @@ function FleetOverlayInner() {
   const [boxPanelOpen, setBoxPanelOpen] = useState(false);
   const [ccHostId, setCcHostId] = useState("");
   const ditherLevel = use$(state$.settings.fleet.ditherLevel);
+  const runningDeploys = useRunningDeployJobs();
   const stations = hosts.filter((host) => host.kind === "remote");
   const reachable = stations.filter(
     (host) => probes[host.id]?.status === "reachable",
@@ -135,6 +138,30 @@ function FleetOverlayInner() {
           </>
         }
       />
+      {runningDeploys.length > 0 ? (
+        <div className="fleet-deploy-strip" aria-label="Active Remote deploys">
+          {runningDeploys.map((job) => {
+            const hostLabel =
+              hosts.find((host) => host.id === job.hostId)?.label ?? job.hostId;
+            const selectedHere =
+              selection?.kind === "station" &&
+              selection.host.id === job.hostId;
+            // Detail panel already shows full log for the selected host.
+            if (selectedHere) return null;
+            return (
+              <button
+                key={job.jobId}
+                type="button"
+                className="fleet-deploy-strip__item"
+                onClick={() => setSelectedId(job.hostId)}
+              >
+                <span className="fleet-deploy-strip__host">{hostLabel}</span>
+                <FleetDeployJobPanel job={job} compact />
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
       <div className="fleet-body">
         <div className="fleet-map-wrap">
           <FleetMap

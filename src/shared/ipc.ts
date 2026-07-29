@@ -46,6 +46,7 @@ import type {
   StateRecoveryListResult,
 } from "./state-recovery";
 import type { UpdateApi } from "./update";
+import type { HostDeployJobSnapshot } from "./deploy-job";
 export type { UpdateApi, UpdateStatus, AvailableRelease, UpdatePhase } from "./update";
 
 export const IPC_CHANNELS = {
@@ -161,6 +162,11 @@ export const IPC_CHANNELS = {
   hostsConfigureRemote: "vellum:hosts-configure-remote",
   /** Command Center: install/update .app + start Remote station over SSH. */
   hostsDeployRemote: "vellum:hosts-deploy-remote",
+  /** Live / last deploy job for a host (main-owned; survives panel unmount). */
+  hostsDeployJobGet: "vellum:hosts-deploy-job-get",
+  hostsDeployJobsList: "vellum:hosts-deploy-jobs-list",
+  /** Main → renderer: deploy job snapshot changed. */
+  hostsDeployJobChanged: "vellum:hosts-deploy-job-changed",
   /** Effective Remote deploy capability (RELEASE ∩ operator ∩ role). */
   hostsDeployCapabilities: "vellum:hosts-deploy-capabilities",
   // Optional, user-owned Box CLI provider. Vellum never imports account inventory.
@@ -664,6 +670,15 @@ export interface VellumApi extends LicenseApi, UpdateApi {
   readonly hostsDeployRemote: (
     input: HostsDeployRemoteInput,
   ) => Promise<HostsDeployRemoteResult>;
+  /** Live / last main-owned deploy job for a host (survives panel unmount). */
+  readonly hostsDeployJobGet: (
+    hostId: string,
+  ) => Promise<HostDeployJobSnapshot | null>;
+  readonly hostsDeployJobsList: () => Promise<ReadonlyArray<HostDeployJobSnapshot>>;
+  /** Subscribe to main-process deploy job updates. */
+  readonly onHostsDeployJobChanged: (
+    listener: (job: HostDeployJobSnapshot) => void,
+  ) => () => void;
   /** SoT for Remote deployment capability gates. */
   readonly hostsDeployCapabilities: () => Promise<HostsDeployCapabilitiesResult>;
   readonly boxAvailability: () => Promise<BoxAvailabilityResult>;
@@ -857,6 +872,11 @@ export interface HostsDeployRemoteResult {
   /** Present only when one exact Linux target requires fresh OS authorization. */
   readonly authorizationRequest?: HostsDeployRemoteAuthorizationRequest;
 }
+
+export type {
+  HostDeployJobSnapshot,
+  HostDeployJobStatus,
+} from "./deploy-job";
 
 // The attached-chat surface is declared separately and merged into the
 // preload bridge alongside VellumApi.

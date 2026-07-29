@@ -75,6 +75,7 @@ import {
   type RemoteDeploymentProvider,
   type RemoteDeploymentProviderInput,
 } from "./remote-deployment";
+import { reportDeployStage } from "./deploy-job-registry";
 
 const HELPER = "/usr/libexec/vellum-release-installer";
 const BRIDGE = "/usr/libexec/vellum-release-bridge";
@@ -539,9 +540,10 @@ const appendStage = (stages: string[], value: string): void => {
     .subarray(0, MAX_STAGE_BYTES - 3)
     .toString("utf8")
     .replace(/\uFFFD$/u, "");
-  stages.push(
-    encoded.byteLength <= MAX_STAGE_BYTES ? value : `${prefix}...`,
-  );
+  const line =
+    encoded.byteLength <= MAX_STAGE_BYTES ? value : `${prefix}...`;
+  stages.push(line);
+  reportDeployStage(line);
 };
 
 const boundedStages = (values: readonly string[]): string[] => {
@@ -1718,11 +1720,20 @@ const sessionFailure = (
   input: RemoteDeploymentProviderInput,
   stages: readonly string[],
   version: string,
-): DeployRemoteResult =>
-  deployFailure(
+  cause?: unknown,
+): DeployRemoteResult => {
+  const causeText =
+    cause instanceof Error
+      ? cause.message
+      : cause !== undefined
+        ? String(cause)
+        : undefined;
+  return deployFailure(
     input,
     stages,
-    "the staged Linux release did not produce exact cleanup, readiness, or forward-repair evidence",
+    causeText !== undefined && causeText.length > 0
+      ? `release session failed: ${causeText}`
+      : "the staged Linux release did not produce exact cleanup, readiness, or forward-repair evidence",
     {
       code: "conflict",
       disposition: "indeterminate",
@@ -1732,6 +1743,7 @@ const sessionFailure = (
       },
     },
   );
+};
 
 export const makeLinuxRemoteDeploymentProvider = (input: {
   readonly artifactAuthority: LinuxRemoteArtifactAuthority;
@@ -2089,10 +2101,19 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           ).pipe(Effect.either);
           if (firstInstall._tag === "Left") {
             adoptPasswordLine.fill(0);
+            appendStage(
+              stages,
+              `first-install session error: ${
+                firstInstall.left instanceof Error
+                  ? firstInstall.left.message
+                  : String(firstInstall.left)
+              }`,
+            );
             return sessionFailure(
               providerInput,
               stages,
               admission.version,
+              firstInstall.left,
             );
           }
           const firstOutcome = firstInstall.right;
@@ -2178,22 +2199,37 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           adoptPreflight = postInstall.right;
         }
 
+        if (firstInstallHost) {
+          appendStage(
+            stages,
+            `starting sealed adopt for ${admission.version} (package already on host)`,
+          );
+        }
+        const adoptAttempt = firstInstallHost
+          ? releaseAttempt(providerInput, adoptPreflight, admission)
+          : attempt;
         const installed = yield* runReleaseSession(
           providerInput,
-          // Rebuild attempt against post-install identity when first-install ran.
-          firstInstallHost
-            ? releaseAttempt(providerInput, adoptPreflight, admission)
-            : attempt,
+          adoptAttempt,
           admission,
           adoptPreflight,
           adoptPasswordLine,
         ).pipe(Effect.either);
         if (installed._tag === "Left") {
           adoptPasswordLine.fill(0);
+          appendStage(
+            stages,
+            `adopt/release session error: ${
+              installed.left instanceof Error
+                ? installed.left.message
+                : String(installed.left)
+            }`,
+          );
           return sessionFailure(
             providerInput,
             stages,
             admission.version,
+            installed.left,
           );
         }
         const outcome = installed.right;
@@ -2220,7 +2256,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
         const receipt = outcome.receipt;
         appendStage(
           stages,
-          `root-owned transaction ${attempt.stage.transactionId} committed operation=${receipt.operation}`,
+          `root-owned transaction ${adoptAttempt.stage.transactionId} committed operation=${receipt.operation}`,
         );
         appendStage(
           stages,

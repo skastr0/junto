@@ -1,4 +1,5 @@
 import type { IpcMain } from "electron";
+import { BrowserWindow } from "electron";
 import { Context, Effect } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type {
@@ -14,6 +15,14 @@ import type {
   HostsOpResult,
   HostsTestResult,
 } from "@shared/ipc";
+import {
+  beginDeployJob,
+  finishDeployJob,
+  getDeployJob,
+  listDeployJobs,
+  setActiveDeployJobHost,
+  subscribeDeployJobs,
+} from "./deploy-job-registry";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import {
   endpointHostToken,
@@ -965,8 +974,27 @@ export const registerHostsIpc = (
     ),
   );
 
+  const broadcastDeployJob = (job: ReturnType<typeof getDeployJob>) => {
+    if (job === undefined) return;
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) continue;
+      window.webContents.send(IPC_CHANNELS.hostsDeployJobChanged, job);
+    }
+  };
+  const unsubscribeDeployJobs = subscribeDeployJobs((job) => {
+    broadcastDeployJob(job);
+  });
+  void unsubscribeDeployJobs;
+
+  ipcMain.handle(IPC_CHANNELS.hostsDeployJobGet, (_event, hostId: unknown) => {
+    if (typeof hostId !== "string" || hostId.length === 0) return null;
+    return getDeployJob(hostId) ?? null;
+  });
+  ipcMain.handle(IPC_CHANNELS.hostsDeployJobsList, () => listDeployJobs());
+
   // Install/update Vellum.app on remote over SSH + start headless station.
   // Gated by RELEASE_CAPABILITIES and operator kill-switch (effective.deployRemote).
+  // Job runs in main (stages broadcast live); IPC still awaits the final result.
   ipcMain.handle(IPC_CHANNELS.hostsDeployRemote, (_event, input: unknown) =>
     surfaceShutdownRefusal(
       operations.run(HOST_OPERATION_ADMISSIONS.deployRemote, () => {
@@ -1006,6 +1034,8 @@ export const registerHostsIpc = (
           } satisfies HostsDeployRemoteResult);
         }
 
+        beginDeployJob(decoded.id);
+
         return AppRuntime.runPromise(
           withHostsDeployRemoteAuthorization(
             decoded,
@@ -1015,14 +1045,35 @@ export const registerHostsIpc = (
                 const hosts = yield* HostsService;
                 const stationStatus = yield* StationStatusService;
 
+                const failJob = (
+                  result: HostsDeployRemoteResult,
+                  status: "failed" | "auth_required" = "failed",
+                ): HostsDeployRemoteResult => {
+                  finishDeployJob(decoded.id, {
+                    status,
+                    detail: result.detail,
+                    stages: result.stages ?? getDeployJob(decoded.id)?.stages,
+                    ...(result.version === undefined
+                      ? {}
+                      : { version: result.version }),
+                    ...(result.recoveryAction === undefined
+                      ? {}
+                      : {
+                          recoveryHint: result.recoveryAction.kind,
+                        }),
+                  });
+                  return result;
+                };
+
                 const settingsResult = yield* Effect.either(settingsSvc.get);
                 if (settingsResult._tag === "Left") {
-                  return {
+                  return failJob({
                     ok: false,
                     detail: settingsResult.left.message,
                     code: settingsResult.left.code,
                     message: settingsResult.left.message,
-                  } satisfies HostsDeployRemoteResult;
+                    stages: getDeployJob(decoded.id)?.stages,
+                  });
                 }
 
                 const effective = computeDeployCapabilities({
@@ -1035,129 +1086,166 @@ export const registerHostsIpc = (
                   const detail =
                     effective.detail.deployRemote ??
                     MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL;
-                  return {
+                  return failJob({
                     ok: false,
                     detail,
                     code: "validation",
                     message: detail,
-                    stages: [],
-                  } satisfies HostsDeployRemoteResult;
+                    stages: getDeployJob(decoded.id)?.stages,
+                  });
                 }
 
                 const authority = yield* Effect.either(
                   resolveCommandCenterConfigureOptions(true),
                 );
                 if (authority._tag === "Left") {
-                  return {
+                  return failJob({
                     ok: false,
                     detail: authority.left.message,
                     code: authority.left.code,
                     message: authority.left.message,
-                    stages: [],
-                  } satisfies HostsDeployRemoteResult;
+                    stages: getDeployJob(decoded.id)?.stages,
+                  });
                 }
 
-                const deploy = yield* hosts.deployConfiguredRemote(decoded.id, {
-                  ...authority.right,
-                  ...(authorization === undefined ? {} : { authorization }),
-                  onAdmitted: (host) => {
-                    const admittedAt = new Date().toISOString();
-                    const detail = `${host.label}: deployment admitted; completion receipt pending`;
-                    return stationStatus
-                      .recordDeployment(
-                        deployRecordFromResult({
-                          hostId: host.id,
-                          endpoint: host.sshEndpoint ?? "",
-                          ok: false,
-                          outcome: "indeterminate",
-                          packageState: "previous",
-                          role: "previous",
-                          configurationOk: false,
-                          detail,
-                          stages: [
-                            "durable deployment admission recorded",
-                          ],
-                          at: admittedAt,
-                        }),
-                      )
-                      .pipe(
-                        Effect.mapError((error) =>
-                          new RemoteHostsError(
-                            "io",
-                            error instanceof Error
-                              ? error.message
-                              : String(error),
-                          )
-                        ),
-                      );
-                  },
-                  onCompleted: (host, result) => {
-                    const recordedAt = new Date().toISOString();
-                    return stationStatus
-                      .recordDeployment(
-                        deployRecordFromResult({
-                          hostId: host.id,
-                          endpoint: host.sshEndpoint ?? "",
-                          ok: result.ok,
-                          outcome: result.outcome,
-                          packageState: result.packageState,
-                          role: result.role,
-                          version: result.version,
-                          ...(result.lastSeen === undefined
-                            ? {}
-                            : { lastSeen: result.lastSeen }),
-                          configurationOk: result.configuration.ok,
-                          detail: result.detail,
-                          stages: result.stages,
-                          at: recordedAt,
-                        }),
-                      )
-                      .pipe(
-                        Effect.mapError((error) =>
-                          new RemoteHostsError(
-                            "io",
-                            error instanceof Error
-                              ? error.message
-                              : String(error),
-                          )
-                        ),
-                      );
-                  },
-                });
-                if (!deploy.ok) return projectDeployRemoteResult(deploy);
-                if (deploy.stationInstallationId === undefined) {
-                  return projectDeployRemoteResult(
-                    deploymentFleetBindingFailure(
-                      deploy,
-                      "Remote configuration returned no Station installation identity",
+                // Main owns the job: stage host is set for live appendStage
+                // broadcasts. Deploy stays on this Effect fiber (no nested
+                // AppRuntime.runPromise). Failures are value-shaped (ok:false).
+                setActiveDeployJobHost(decoded.id);
+                const deployResult = yield* hosts
+                  .deployConfiguredRemote(decoded.id, {
+                    ...authority.right,
+                    ...(authorization === undefined
+                      ? {}
+                      : { authorization }),
+                    onAdmitted: (host) => {
+                      const admittedAt = new Date().toISOString();
+                      const detail = `${host.label}: deployment admitted; completion receipt pending`;
+                      return stationStatus
+                        .recordDeployment(
+                          deployRecordFromResult({
+                            hostId: host.id,
+                            endpoint: host.sshEndpoint ?? "",
+                            ok: false,
+                            outcome: "indeterminate",
+                            packageState: "previous",
+                            role: "previous",
+                            configurationOk: false,
+                            detail,
+                            stages: [
+                              "durable deployment admission recorded",
+                            ],
+                            at: admittedAt,
+                          }),
+                        )
+                        .pipe(
+                          Effect.mapError(
+                            (error) =>
+                              new RemoteHostsError(
+                                "io",
+                                error instanceof Error
+                                  ? error.message
+                                  : String(error),
+                              ),
+                          ),
+                        );
+                    },
+                    onCompleted: (host, result) => {
+                      const recordedAt = new Date().toISOString();
+                      return stationStatus
+                        .recordDeployment(
+                          deployRecordFromResult({
+                            hostId: host.id,
+                            endpoint: host.sshEndpoint ?? "",
+                            ok: result.ok,
+                            outcome: result.outcome,
+                            packageState: result.packageState,
+                            role: result.role,
+                            version: result.version,
+                            ...(result.lastSeen === undefined
+                              ? {}
+                              : { lastSeen: result.lastSeen }),
+                            configurationOk: result.configuration.ok,
+                            detail: result.detail,
+                            stages: result.stages,
+                            at: recordedAt,
+                          }),
+                        )
+                        .pipe(
+                          Effect.mapError(
+                            (error) =>
+                              new RemoteHostsError(
+                                "io",
+                                error instanceof Error
+                                  ? error.message
+                                  : String(error),
+                              ),
+                          ),
+                        );
+                    },
+                  })
+                  .pipe(
+                    Effect.ensuring(
+                      Effect.sync(() => {
+                        setActiveDeployJobHost(undefined);
+                      }),
                     ),
                   );
+
+                if (!deployResult.ok) {
+                  return failJob(
+                    projectDeployRemoteResult(deployResult),
+                    deployResult.authorizationRequest !== undefined
+                      ? "auth_required"
+                      : "failed",
+                  );
+                }
+                if (deployResult.stationInstallationId === undefined) {
+                  const failed = deploymentFleetBindingFailure(
+                    deployResult,
+                    "Remote configuration returned no Station installation identity",
+                  );
+                  return failJob(projectDeployRemoteResult(failed));
                 }
                 const bound = yield* Effect.either(
                   bindConfiguredRemoteTarget(
                     hosts,
                     decoded.id,
-                    deploy.stationInstallationId,
+                    deployResult.stationInstallationId,
                   ),
                 );
-                return projectDeployRemoteResult(
+                const finalResult =
                   bound._tag === "Right"
-                    ? deploy
+                    ? deployResult
                     : deploymentFleetBindingFailure(
-                        deploy,
+                        deployResult,
                         bound.left.message,
-                      ),
-                );
+                      );
+                const projected = projectDeployRemoteResult(finalResult);
+                finishDeployJob(decoded.id, {
+                  status: finalResult.ok ? "succeeded" : "failed",
+                  detail: finalResult.detail,
+                  stages: finalResult.stages,
+                  ...(finalResult.version === undefined
+                    ? {}
+                    : { version: finalResult.version }),
+                });
+                return projected;
               }),
           ).pipe(
-            Effect.catchTag("LinuxAdministratorAuthorizationInputError", () =>
-              Effect.succeed({
+            Effect.catchTag("LinuxAdministratorAuthorizationInputError", () => {
+              finishDeployJob(decoded.id, {
+                status: "failed",
+                detail: "Linux administrator authorization is invalid",
+                stages: getDeployJob(decoded.id)?.stages,
+              });
+              return Effect.succeed({
                 ok: false,
                 detail: "Linux administrator authorization is invalid",
                 code: "validation",
                 message: "Linux administrator authorization is invalid",
-              } satisfies HostsDeployRemoteResult),
-            ),
+              } satisfies HostsDeployRemoteResult);
+            }),
           ),
         );
       }),

@@ -23,7 +23,14 @@ export const deployRecoveryGuidance = (
         "Box fleet users should already have passwordless sudo — if this appears on a Box, SSH access or image policy is wrong.",
       ].join("\n");
     case "repair-linux-release-transaction":
-      return "Repair the Linux release transaction through the deployment runbook or support, then retry deployment.";
+      return [
+        "The sealed adopt/start step did not prove readiness.",
+        "On the host, inspect:",
+        "  systemctl --user status vellum-remote.service",
+        "  journalctl --user -u vellum-remote.service -n 80 --no-pager",
+        "  ls -la ~/.vellum/work/",
+        "Then retry Deploy, or escalate with the step log from Fleet.",
+      ].join("\n");
     case "retry-linux-release-install":
       return "Retry deployment later; the current Linux release install did not complete.";
   }
