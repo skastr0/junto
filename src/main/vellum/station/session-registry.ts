@@ -106,6 +106,12 @@ export class StationLivePeerRegistry extends Context.Tag(
       hostId: HostIdValue,
       installationId: InstallationIdValue,
     ) => Effect.Effect<boolean>;
+    /**
+     * Subscribe to authoritative active-peer lifecycle changes. Notifications
+     * are published only after an activation is visible or its exact matching
+     * registration has been removed.
+     */
+    readonly subscribe: (listener: () => void) => () => void;
     readonly withSession: <A, E, R>(
       witness: StationLivePeer,
       effect: Effect.Effect<A, E, R>,
@@ -118,6 +124,18 @@ export const StationLivePeerRegistryLive = Layer.effect(
   Effect.gen(function* () {
     const registryLock = yield* Effect.makeSemaphore(1);
     const active = new Map<HostIdValue, ActivePeer>();
+    const listeners = new Set<() => void>();
+
+    const notify = (): void => {
+      for (const listener of [...listeners]) {
+        try {
+          listener();
+        } catch {
+          // The lifecycle mutation is already authoritative. One observer
+          // cannot prevent the remaining observers from seeing it.
+        }
+      }
+    };
 
     const registered = (
       peer: ActivePeer,
@@ -166,18 +184,25 @@ export const StationLivePeerRegistryLive = Layer.effect(
               "Station host already has an active peer session",
             );
           }
+          yield* Effect.sync(notify);
           return peer;
         }),
         (peer) =>
           peer.lifetime.withPermits(1)(
-            registryLock.withPermits(1)(
-              Effect.sync(() => {
-                if (active.get(peer.witness.hostId) === peer) {
-                  active.delete(peer.witness.hostId);
-                }
-                livePeerAuthorities.delete(peer.witness);
-              }),
-            ),
+            Effect.gen(function* () {
+              const removed = yield* registryLock.withPermits(1)(
+                Effect.sync(() => {
+                  const isCurrent =
+                    active.get(peer.witness.hostId) === peer;
+                  if (isCurrent) {
+                    active.delete(peer.witness.hostId);
+                  }
+                  livePeerAuthorities.delete(peer.witness);
+                  return isCurrent;
+                }),
+              );
+              if (removed) yield* Effect.sync(notify);
+            }),
           ),
       ).pipe(Effect.map((peer) => peer.witness));
 
@@ -271,6 +296,10 @@ export const StationLivePeerRegistryLive = Layer.effect(
       activate,
       require: requirePeer,
       isLive,
+      subscribe: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
       withSession,
     });
   }),

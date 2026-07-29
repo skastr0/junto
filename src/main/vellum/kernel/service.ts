@@ -1059,6 +1059,7 @@ const makeKernelService = (
         lifecycleCleanups = [
           canvases.subscribeChanges((name) => void resyncCanvas(name)),
           snapshots.subscribe(() => scheduleCycle()),
+          livePeers.subscribe(() => scheduleCycle()),
           // Play/pause is an authoritative runtime transition. Resume must
           // claim immediately; pause must promptly cause the next cycle to
           // observe the closed gate instead of waiting for the 30s watchdog.

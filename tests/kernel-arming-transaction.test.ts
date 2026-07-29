@@ -172,6 +172,7 @@ const makeKernelRuntime = (
         activate: () => Effect.dieMessage("unused live peer registry"),
         require: () => Effect.dieMessage("unused live peer registry"),
         isLive: () => Effect.succeed(false),
+        subscribe: () => () => {},
         withSession: (_witness, effect) => effect,
       }),
     ),

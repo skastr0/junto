@@ -81,6 +81,38 @@ const makeSession = (
   });
 
 describe("StationLivePeerRegistry", () => {
+  it("publishes exact active-peer lifecycle transitions and supports unsubscribe", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const registry = yield* StationLivePeerRegistry;
+          const peer = yield* makeSession();
+          const peerScope = yield* Scope.make();
+          let notifications = 0;
+          const unsubscribe = registry.subscribe(() => {
+            notifications += 1;
+          });
+
+          yield* registry.activate(HOST, REMOTE, peer.session).pipe(
+            Effect.provideService(Scope.Scope, peerScope),
+          );
+          expect(notifications).toBe(1);
+
+          yield* Scope.close(peerScope, Exit.void);
+          expect(notifications).toBe(2);
+
+          unsubscribe();
+          const replacementScope = yield* Scope.make();
+          yield* registry.activate(HOST, REMOTE, peer.session).pipe(
+            Effect.provideService(Scope.Scope, replacementScope),
+          );
+          yield* Scope.close(replacementScope, Exit.void);
+          expect(notifications).toBe(2);
+        }),
+      ).pipe(Effect.provide(StationLivePeerRegistryLive)),
+    );
+  });
+
   it("reports liveness only for the exact active identity and open session", async () => {
     await Effect.runPromise(
       Effect.scoped(
