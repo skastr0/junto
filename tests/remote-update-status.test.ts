@@ -6,6 +6,7 @@ import {
   deriveRemoteUpdateStatus,
   mapIdleGateToUpdateStatus,
   remoteUpdateStatusLabel,
+  resolveRemoteAvailableForStatus,
   shouldAutoWalkRemoteUpdate,
   waitingForIdleUpdateStatus,
 } from "../src/shared/remote-update-status";
@@ -89,6 +90,56 @@ describe("shouldAutoWalkRemoteUpdate", () => {
   });
 });
 
+describe("resolveRemoteAvailableForStatus", () => {
+  it("compares against CC while feed waits (CC-first)", () => {
+    expect(
+      resolveRemoteAvailableForStatus({
+        feedVersion: "0.2.0",
+        commandCenterVersion: "0.1.0",
+      }),
+    ).toEqual({
+      feedVersion: "0.2.0",
+      feedAhead: true,
+      availableForStatus: "0.1.0",
+      availableRemoteReleaseVersion: undefined,
+    });
+    // Lagging Remote vs CC still surfaces update-available while feed waits.
+    expect(
+      deriveRemoteUpdateStatus({
+        installedVersion: "0.0.9",
+        availableVersion: resolveRemoteAvailableForStatus({
+          feedVersion: "0.2.0",
+          commandCenterVersion: "0.1.0",
+        }).availableForStatus,
+      }).updateStatus,
+    ).toBe("update-available");
+  });
+
+  it("uses feed when it matches CC, else falls back to CC", () => {
+    expect(
+      resolveRemoteAvailableForStatus({
+        feedVersion: "0.1.0",
+        commandCenterVersion: "0.1.0",
+      }),
+    ).toEqual({
+      feedVersion: "0.1.0",
+      feedAhead: false,
+      availableForStatus: "0.1.0",
+      availableRemoteReleaseVersion: "0.1.0",
+    });
+    expect(
+      resolveRemoteAvailableForStatus({
+        commandCenterVersion: "0.1.0",
+      }),
+    ).toEqual({
+      feedVersion: undefined,
+      feedAhead: false,
+      availableForStatus: "0.1.0",
+      availableRemoteReleaseVersion: "0.1.0",
+    });
+  });
+});
+
 describe("idle gate and phase derivation", () => {
   it("maps active terminal sessions to waiting-for-idle only", () => {
     expect(mapIdleGateToUpdateStatus("active-terminal-sessions")).toBe(
@@ -111,6 +162,21 @@ describe("idle gate and phase derivation", () => {
         availableVersion: "0.1.1",
       }).updateStatus,
     ).toBe("update-available");
+    // Incomplete pair: helper keeps closed-set default; UI shows "unknown"
+    // when installedVersion is absent (do not claim product parity).
+    expect(
+      deriveRemoteUpdateStatus({
+        availableVersion: "0.1.0",
+      }),
+    ).toEqual({
+      availableVersion: "0.1.0",
+      updateStatus: "up-to-date",
+    });
+    expect(
+      deriveRemoteUpdateStatus({
+        availableVersion: "0.1.0",
+      }).installedVersion,
+    ).toBeUndefined();
   });
 
   it("lets live phase override version comparison", () => {

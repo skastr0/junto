@@ -13,6 +13,7 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import {
   deriveRemoteUpdateStatus,
   remoteUpdateStatusLabel,
+  resolveRemoteAvailableForStatus,
   REMOTE_UPDATE_IDLE_PRODUCT_COPY,
   shouldAutoWalkRemoteUpdate,
 } from "@shared/remote-update-status";
@@ -131,23 +132,29 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   const automatic = !FLEET_MACHINE_CATALOG.some(
     ({ id }) => id === host.appearance?.glyph,
   );
-  // Available Remote release is the CC-running version once self-update has
-  // landed (CC-first). While a newer CC feed is pending, Remotes wait.
-  const availableRemoteVersion =
-    availableUpdate?.version !== undefined && availableUpdate.version !== ccVersion
-      ? undefined
-      : (availableUpdate?.version ?? ccVersion);
+  // CC-first: while feed is ahead of running CC, Available column waits and
+  // auto-walk is suppressed — but status still compares Remote vs CC so a
+  // lagging Remote is not mislabeled "Up to date".
+  const {
+    feedAhead,
+    feedVersion,
+    availableForStatus,
+    availableRemoteReleaseVersion,
+  } = resolveRemoteAvailableForStatus({
+    ...(availableUpdate?.version !== undefined
+      ? { feedVersion: availableUpdate.version }
+      : {}),
+    commandCenterVersion: ccVersion,
+  });
   const installedRemoteVersion = probe?.protocol?.peer?.appVersion;
   const remoteUpdate = deriveRemoteUpdateStatus({
     ...(installedRemoteVersion !== undefined
       ? { installedVersion: installedRemoteVersion }
       : {}),
-    ...(availableRemoteVersion !== undefined
-      ? { availableVersion: availableRemoteVersion }
-      : {}),
+    availableVersion: availableForStatus,
   });
   const autoWalkWouldRun = shouldAutoWalkRemoteUpdate({
-    availableRemoteReleaseVersion: availableRemoteVersion,
+    availableRemoteReleaseVersion,
     commandCenterVersion: ccVersion,
     remoteManagedInstalls,
   });
@@ -304,14 +311,16 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           <span>{remoteUpdate.installedVersion ?? "unknown"}</span>
           <span>Available version</span>
           <span>
-            {remoteUpdate.availableVersion ??
-              (availableUpdate?.version !== undefined &&
-              availableUpdate.version !== ccVersion
-                ? `waiting for CC ${availableUpdate.version}`
-                : "—")}
+            {feedAhead && feedVersion !== undefined
+              ? `waiting for CC ${feedVersion}`
+              : (remoteUpdate.availableVersion ?? "—")}
           </span>
           <span>Update status</span>
-          <span>{remoteUpdateStatusLabel(remoteUpdate.updateStatus)}</span>
+          <span>
+            {remoteUpdate.installedVersion === undefined
+              ? "unknown"
+              : remoteUpdateStatusLabel(remoteUpdate.updateStatus)}
+          </span>
         </div>
         {remoteUpdate.updateStatus === "update-available" ? (
           <p className="fleet-detail__note">

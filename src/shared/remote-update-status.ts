@@ -92,6 +92,39 @@ export const shouldAutoWalkRemoteUpdate = (input: {
   return available === local;
 };
 
+/**
+ * CC-first available release for Remote status comparison.
+ *
+ * While the update feed is ahead of the running Command Center, Remotes
+ * must wait (Available column: "waiting for CC …"). Status still compares
+ * the Remote against the **CC** version so a lagging Remote is not
+ * mislabeled "Up to date" just because the feed target is suppressed.
+ */
+export const resolveRemoteAvailableForStatus = (input: {
+  readonly feedVersion?: string;
+  readonly commandCenterVersion: string;
+}): {
+  readonly feedAhead: boolean;
+  readonly feedVersion: string | undefined;
+  /** Version to pass into `deriveRemoteUpdateStatus` for lag detection. */
+  readonly availableForStatus: string;
+  /**
+   * Release admitted for Remote auto-walk / install.
+   * Undefined while feed waits on CC (CC-first).
+   */
+  readonly availableRemoteReleaseVersion: string | undefined;
+} => {
+  const feed = input.feedVersion?.trim() || undefined;
+  const cc = input.commandCenterVersion.trim();
+  const feedAhead = feed !== undefined && feed !== cc;
+  return {
+    feedVersion: feed,
+    feedAhead,
+    availableForStatus: feedAhead ? cc : (feed ?? cc),
+    availableRemoteReleaseVersion: feedAhead ? undefined : (feed ?? cc),
+  };
+};
+
 /** Ephemeral install phase observed by main (not durable). */
 export type RemoteUpdatePhase =
   | { readonly kind: "quiet" }
@@ -162,6 +195,9 @@ export const deriveRemoteUpdateStatus = (input: {
       ) {
         updateStatus = "update-available";
       } else {
+        // Equal versions, or incomplete pair (missing installed/available).
+        // Incomplete pair is not product parity — UI labels status "unknown"
+        // when installedVersion is absent rather than "Up to date".
         updateStatus = "up-to-date";
       }
       break;
