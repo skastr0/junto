@@ -26,6 +26,7 @@ import {
 import {
   claimedByOf,
   taskBrief,
+  taskMediaParts,
   taskReleaseBoundary,
 } from "@shared/task";
 import type { Task } from "@shared/work-model";
@@ -1034,6 +1035,15 @@ const makeKernelService = (
           // transport is accepting this already-admitted prompt, its receipt
           // is still allowed to settle below.
           if (!generationIsActive(generation)) return;
+          const media = taskMediaParts(task);
+          const mediaNote =
+            media.length === 0
+              ? []
+              : [
+                  "",
+                  `This task includes ${media.length} first-class media attachment${media.length === 1 ? "" : "s"} (${media.map((part) => part.mediaType ?? "raw").join(", ")}) on history[0] as raw parts.`,
+                  "Inspect them via `vellum tasks list` (bytesBase64 + mediaType travel with the projected claim — no host path).",
+                ];
           const accepted = await managedPulseDeliver(
             surface.bindingId,
             [
@@ -1042,6 +1052,7 @@ const makeKernelService = (
               "You claimed this task from the factory pull queue.",
               "Run `vellum onboard`, do the work, and update it with `vellum tasks update`.",
               "If blocked on a human, use `vellum escalate`.",
+              ...mediaNote,
             ].join("\n"),
           );
           if (!accepted) continue;

@@ -14,6 +14,7 @@ import type {
   WorkMetadata,
   Task,
   CanvasDoc,
+  Part,
   TaskState,
 } from "./canvas";
 import type {
@@ -594,6 +595,8 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     brief: string,
     metadata?: WorkMetadata,
     reason?: string,
+    /** First-class task media (raw image parts) projected into remote claims. */
+    media?: ReadonlyArray<Part>,
   ) => Promise<WorkOpResult<Task>>;
   readonly workTaskDescribe: (
     canvas: string,

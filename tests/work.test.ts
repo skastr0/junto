@@ -409,6 +409,36 @@ describe("work pure transforms", () => {
     expect(bare.task.reason).toBeUndefined();
   });
 
+  it("task create attaches first-class media raw parts on the brief", () => {
+    const pngBase64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    const created = workTaskCreate(
+      doc,
+      "c",
+      "tasks",
+      "fix the screenshot bug",
+      { title: "screenshot bug", details: "see attached" },
+      ids,
+      undefined,
+      [{ kind: "raw", bytesBase64: pngBase64, mediaType: "image/png" }],
+    );
+    expect(created.task.history[0]?.parts).toEqual([
+      { kind: "text", text: "fix the screenshot bug" },
+      { kind: "raw", bytesBase64: pngBase64, mediaType: "image/png" },
+    ]);
+    expect(() =>
+      workTaskCreate(doc, "c", "tasks", "bad media", undefined, ids, undefined, [
+        { kind: "raw", bytesBase64: pngBase64, mediaType: "application/pdf" },
+      ]),
+    ).toThrow(/mediaType not allowed/);
+    expect(() =>
+      workTaskCreate(doc, "c", "tasks", "empty media", undefined, ids, undefined, [
+        { kind: "raw", bytesBase64: "", mediaType: "image/png" },
+      ]),
+    ).toThrow(/empty/);
+  });
+
   it("request create + resolve appends user message and clears input-required", () => {
     let doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
     const created = workRequestCreate(

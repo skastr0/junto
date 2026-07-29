@@ -8,6 +8,7 @@ import type {
   Task,
   Artifact,
   Message,
+  Part,
   TaskState,
 } from "./work-model";
 import type { ActorRef } from "./work-protocol";
@@ -22,6 +23,7 @@ import {
   mirrorRequestsText,
   mirrorTasksText,
   taskWithTransitionState,
+  validateTaskMediaParts,
 } from "./task";
 import { groupMembers, isGroup } from "./graph";
 import {
@@ -266,12 +268,20 @@ export const workTaskCreate = (
   metadata: WorkMetadata | undefined,
   ids: WorkIds,
   reason?: string,
+  /**
+   * First-class media on the brief message (raw image parts). Stored in
+   * history[0].parts so remote claims / tasks.list project them without host
+   * paths.
+   */
+  media?: ReadonlyArray<Part>,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
   rejectRetiredClaimMetadata(metadata);
+  const mediaError = validateTaskMediaParts(media);
+  if (mediaError) throw new WorkError("invalid", mediaError);
   const taskId = ids.id();
   const contextId = regionContextId(doc, nodeId, canvasName);
   const briefMessage = makeUserMessage({
@@ -279,6 +289,7 @@ export const workTaskCreate = (
     text: trimmed,
     contextId,
     taskId,
+    ...(media && media.length > 0 ? { extraParts: media } : {}),
   });
   const why = reason?.trim();
   const task: Task = {

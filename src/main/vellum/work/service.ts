@@ -8,6 +8,7 @@ import type {
   CanvasDoc,
   CanvasNode,
   Message,
+  Part,
   Task,
   TaskState,
   WorkMetadata,
@@ -227,6 +228,7 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       brief: string,
       metadata?: WorkMetadata,
       reason?: string,
+      media?: ReadonlyArray<Part>,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskDescribe: (
       canvas: string,
@@ -620,7 +622,7 @@ export const WorkLive = Layer.effect(
     );
 
     return WorkService.of({
-      workTaskCreate: (canvas, nodeId, brief, metadata, reason) =>
+      workTaskCreate: (canvas, nodeId, brief, metadata, reason, media) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
@@ -637,6 +639,7 @@ export const WorkLive = Layer.effect(
                 metadata,
                 ids,
                 reason,
+                media,
               )
             );
             const home = yield* homeForNode(node, context);

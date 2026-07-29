@@ -6,11 +6,13 @@ import {
   CircleDot,
   Filter,
   GripVertical,
+  ImagePlus,
   KeyRound,
   LoaderCircle,
   MessageSquareWarning,
   MoreHorizontal,
   PanelRightClose,
+  Paperclip,
   Plus,
   Reply,
   RotateCcw,
@@ -31,7 +33,14 @@ import { useSortable } from "@dnd-kit/react/sortable";
 import type { CanvasNode, Part, TaskState, WorkMetadata } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import { sinkGlance, workRoleOf, workRolesInDoc } from "@shared/attention";
-import { canTransitionTaskState, claimedByOf, taskBrief } from "@shared/task";
+import {
+  canTransitionTaskState,
+  claimedByOf,
+  taskBrief,
+  taskMediaParts,
+  TASK_MEDIA_MAX_PARTS,
+  validateTaskMediaParts,
+} from "@shared/task";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
 import { Chip, type ChipTone } from "../ui/Chip";
@@ -42,9 +51,57 @@ import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
 import { applyWorkCanvasWrite, setNodeWorkRole } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
+import {
+  extractHerdrClipboardImage,
+  fileToHerdrClipboardImage,
+  type HerdrClipboardImage,
+} from "../../lib/herdr-clipboard-image";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import "./task-board.css";
+
+type TaskMediaDraft = {
+  readonly id: string;
+  readonly mediaType: string;
+  readonly bytesBase64: string;
+  readonly previewUrl: string;
+  readonly label: string;
+};
+
+const EXT_TO_MEDIA_TYPE: Readonly<Record<string, string>> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+};
+
+const mediaTypeFromExtension = (extension: string): string =>
+  EXT_TO_MEDIA_TYPE[extension.toLowerCase()] ?? `image/${extension.toLowerCase()}`;
+
+const draftFromClipboardImage = (
+  image: HerdrClipboardImage,
+  label: string,
+): TaskMediaDraft => {
+  const mediaType = mediaTypeFromExtension(image.extension);
+  return {
+    id: `media-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    mediaType,
+    bytesBase64: image.dataBase64,
+    previewUrl: `data:${mediaType};base64,${image.dataBase64}`,
+    label,
+  };
+};
+
+const mediaPartsFromDrafts = (
+  drafts: ReadonlyArray<TaskMediaDraft>,
+): ReadonlyArray<Extract<Part, { kind: "raw" }>> =>
+  drafts.map((draft) => ({
+    kind: "raw" as const,
+    bytesBase64: draft.bytesBase64,
+    mediaType: draft.mediaType,
+  }));
 
 type Ether = NonNullable<CanvasNode["ether"]>;
 type WorkTask = NonNullable<Ether["tasks"]>["items"][number];
@@ -500,6 +557,7 @@ function TaskCard({
   );
   const role = taskRole(task);
   const context = latestText(task);
+  const mediaCount = taskMediaParts(task).length;
 
   return (
     <article
@@ -522,6 +580,8 @@ function TaskCard({
       tabIndex={0}
       aria-busy={pending}
       aria-label={`Open details for ${brief}${
+        mediaCount > 0 ? `, ${mediaCount} media attachment${mediaCount === 1 ? "" : "s"}` : ""
+      }${
         claimantRetired ? ", stalled because its claimed seat is retired" : ""
       }`}
       aria-current={selected ? "true" : undefined}
@@ -579,6 +639,15 @@ function TaskCard({
                 />
                 <span title={claim}>{claim ?? "Unclaimed"}</span>
                 {role ? <span className="task-board-card__role">{role}</span> : null}
+                {mediaCount > 0 ? (
+                  <span
+                    className="task-board-card__media"
+                    title={`${mediaCount} media attachment${mediaCount === 1 ? "" : "s"}`}
+                  >
+                    <Paperclip size={11} aria-hidden />
+                    {mediaCount}
+                  </span>
+                ) : null}
               </div>
               {context && (task.state === "input-required" || task.state === "auth-required") ? (
                 <p className="task-board-card__context">{context}</p>
@@ -650,12 +719,62 @@ function TaskCreateDialog({
   readonly roles: ReadonlyArray<string>;
   readonly pending: boolean;
   readonly onClose: () => void;
-  readonly onCreate: (title: string, details: string, role: string) => void;
+  readonly onCreate: (
+    title: string,
+    details: string,
+    role: string,
+    media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
+  ) => void;
 }) {
   const roleListId = `task-role-options-${useId().replaceAll(":", "")}`;
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
   const [role, setRole] = useState("");
+  const [media, setMedia] = useState<TaskMediaDraft[]>([]);
+  const [mediaError, setMediaError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+
+  const appendMedia = (draft: TaskMediaDraft) => {
+    setMedia((current) => {
+      if (current.length >= TASK_MEDIA_MAX_PARTS) {
+        setMediaError(`At most ${TASK_MEDIA_MAX_PARTS} images per task.`);
+        return current;
+      }
+      const next = [...current, draft];
+      const validation = validateTaskMediaParts(mediaPartsFromDrafts(next));
+      if (validation) {
+        setMediaError(validation);
+        return current;
+      }
+      setMediaError("");
+      return next;
+    });
+  };
+
+  const ingestClipboardOrFiles = async (data: DataTransfer | null | undefined) => {
+    if (!data) return false;
+    const image = await extractHerdrClipboardImage(data);
+    if (image === null) return false;
+    if ("error" in image) {
+      setMediaError(image.error);
+      return true;
+    }
+    appendMedia(draftFromClipboardImage(image, `paste-${image.extension}`));
+    return true;
+  };
+
+  const ingestFileList = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    for (const file of Array.from(files)) {
+      const image = await fileToHerdrClipboardImage(file);
+      if ("error" in image) {
+        setMediaError(image.error);
+        continue;
+      }
+      appendMedia(draftFromClipboardImage(image, file.name || `upload-${image.extension}`));
+    }
+  };
 
   return (
     <FocusSurface
@@ -682,7 +801,19 @@ function TaskCreateDialog({
         className="task-create-dialog__form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (title.trim()) onCreate(title.trim(), details.trim(), role.trim());
+          if (!title.trim()) return;
+          const parts = mediaPartsFromDrafts(media);
+          const validation = validateTaskMediaParts(parts);
+          if (validation) {
+            setMediaError(validation);
+            return;
+          }
+          onCreate(title.trim(), details.trim(), role.trim(), parts);
+        }}
+        onPaste={(event) => {
+          void ingestClipboardOrFiles(event.clipboardData).then((handled) => {
+            if (handled) event.preventDefault();
+          });
         }}
       >
         <label>
@@ -721,6 +852,95 @@ function TaskCreateDialog({
           />
           <small>Long-form is welcome. Line breaks and detailed acceptance notes are preserved.</small>
         </label>
+        <div
+          className={`task-create-dialog__media${dragOver ? " is-dragover" : ""}`}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            setDragOver(true);
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={(event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+            setDragOver(false);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragOver(false);
+            void ingestClipboardOrFiles(event.dataTransfer);
+          }}
+        >
+          <div className="task-create-dialog__media-heading">
+            <span>
+              <Paperclip size={12} aria-hidden />
+              Media
+            </span>
+            <small>
+              Paste, drop, or attach images. Stored as first-class raw parts on the task — projected to remote claims, not host paths.
+            </small>
+          </div>
+          {media.length > 0 ? (
+            <ul className="task-create-dialog__media-list">
+              {media.map((item) => (
+                <li key={item.id}>
+                  <img src={item.previewUrl} alt={item.label} />
+                  <div>
+                    <strong>{item.label}</strong>
+                    <span>{item.mediaType}</span>
+                  </div>
+                  <IconButton
+                    aria-label={`Remove ${item.label}`}
+                    title="Remove"
+                    disabled={pending}
+                    onClick={() =>
+                      setMedia((current) => current.filter((entry) => entry.id !== item.id))
+                    }
+                  >
+                    <X size={12} />
+                  </IconButton>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="task-create-dialog__media-empty">
+              <ImagePlus size={14} aria-hidden />
+              No images yet — paste a screenshot or drop a file here.
+            </p>
+          )}
+          <div className="task-create-dialog__media-actions">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
+              multiple
+              hidden
+              onChange={(event) => {
+                void ingestFileList(event.target.files);
+                event.target.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              size="xs"
+              variant="subtle"
+              disabled={pending || media.length >= TASK_MEDIA_MAX_PARTS}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <ImagePlus size={12} />
+              Attach image
+            </Button>
+            <span>
+              {media.length}/{TASK_MEDIA_MAX_PARTS}
+            </span>
+          </div>
+          {mediaError ? (
+            <p className="task-create-dialog__media-error" role="alert">
+              {mediaError}
+            </p>
+          ) : null}
+        </div>
         <footer>
           <Button type="button" variant="subtle" onClick={onClose} disabled={pending}>
             Cancel
@@ -760,6 +980,7 @@ function TaskDetailPanel({
   const role = taskRole(task);
   const claim = claimedByOf(task);
   const details = taskDetails(task);
+  const media = taskMediaParts(task);
   const attentionRequired = task.state === "input-required" || task.state === "auth-required";
   const authorizationRequired = task.state === "auth-required";
   const requestContext = latestText(task);
@@ -949,6 +1170,26 @@ function TaskDetailPanel({
           )}
         </section>
 
+        {media.length > 0 ? (
+          <section className="task-detail-panel__section">
+            <h3>
+              <Paperclip size={13} aria-hidden />
+              Media
+            </h3>
+            <ul className="task-detail-panel__media">
+              {media.map((part, index) => (
+                <li key={`${part.mediaType ?? "raw"}-${index}`}>
+                  <img
+                    src={`data:${part.mediaType};base64,${part.bytesBase64}`}
+                    alt={`Task attachment ${index + 1}`}
+                  />
+                  <span>{part.mediaType ?? "image"}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         <section className="task-detail-panel__section">
           <h3>
             <Activity size={13} aria-hidden />
@@ -1076,7 +1317,12 @@ export function TaskBoard({
     : undefined;
   const knownRoles = workRolesInDoc(state$.doc.peek());
 
-  const createTask = async (title: string, details: string, role: string) => {
+  const createTask = async (
+    title: string,
+    details: string,
+    role: string,
+    media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
+  ) => {
     if (!api || !title.trim()) return;
     setError("");
     setCreatingPending(true);
@@ -1087,7 +1333,14 @@ export function TaskBoard({
         ...(role.trim() ? { workRole: role.trim() } : {}),
       };
       const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskCreate(name, node.id, title.trim(), metadata),
+        api.workTaskCreate(
+          name,
+          node.id,
+          title.trim(),
+          metadata,
+          undefined,
+          media.length > 0 ? media : undefined,
+        ),
       );
       if (result === undefined) return;
       if (!result.ok) {
@@ -1328,7 +1581,9 @@ export function TaskBoard({
             onClose={() => {
               if (!creatingPending) setCreating(false);
             }}
-            onCreate={(title, details, role) => void createTask(title, details, role)}
+            onCreate={(title, details, role, media) =>
+              void createTask(title, details, role, media)
+            }
           />
         ) : null}
 

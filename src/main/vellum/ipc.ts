@@ -59,7 +59,7 @@ import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { licensedRendererIpc } from "./license/admission";
-import type { WorkMetadata, TaskState } from "@shared/canvas";
+import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
 import type { ActorRef } from "@shared/work-protocol";
 import {
   MainAuthoringRefused,
@@ -498,7 +498,15 @@ export const registerVellumIpc = (): void => {
 
   privilegedIpc.handle(
     IPC_CHANNELS.workTaskCreate,
-    (_event, canvas: string, nodeId: string, brief: string, metadata?: WorkMetadata, reason?: string) =>
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      brief: string,
+      metadata?: WorkMetadata,
+      reason?: string,
+      media?: ReadonlyArray<Part>,
+    ) =>
       runRendererWorkAuthoring(
         "ipc.work.task-create",
         () => AppRuntime.runPromise(
@@ -506,7 +514,7 @@ export const registerVellumIpc = (): void => {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
             const work = yield* WorkService;
-            return yield* work.workTaskCreate(canvas, nodeId, brief, metadata, reason);
+            return yield* work.workTaskCreate(canvas, nodeId, brief, metadata, reason, media);
           }),
         ),
       ),
