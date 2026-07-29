@@ -230,6 +230,7 @@ export const IPC_CHANNELS = {
   /** Fail-soft Hermes profile list for the harness picker. */
   managedTerminalProfiles: "vellum:managed-terminal-profiles",
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
+  agentSeatStateSnapshot: "vellum:agent-seat-state-snapshot",
   agentSeatStateChanged: "vellum:agent-seat-state-changed",
   browserSessionChanged: "vellum:browser-session-changed",
 } as const;
@@ -1287,6 +1288,8 @@ export interface VellumTerminalApi {
   ) => Promise<ManagedTerminalModelsResult>;
   /** Fail-soft Hermes profile enumeration. */
   readonly managedTerminalProfiles: () => Promise<ManagedTerminalProfilesResult>;
+  /** Current managed-seat projection for renderer restart hydration. */
+  readonly agentSeatStateSnapshot: () => Promise<ReadonlyArray<AgentSeatStateEvent>>;
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   readonly onAgentSeatStateChanged: (
     listener: (event: AgentSeatStateEvent) => void,

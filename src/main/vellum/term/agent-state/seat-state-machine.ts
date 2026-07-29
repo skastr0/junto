@@ -167,6 +167,28 @@ export class SeatStateMachine {
     return this.slots.get(bindingId)?.state;
   }
 
+  /**
+   * Current live projection for renderer (re)hydration.
+   *
+   * Slots created only by an early hook observation have never published and
+   * therefore are not presentation truth yet. Bound seats publish immediately,
+   * so every live managed seat appears here with its last authoritative state.
+   */
+  currentEvents(): ReadonlyArray<AgentSeatStateEvent> {
+    return [...this.slots.entries()]
+      .filter(([, slot]) => slot.lastPublishedAt > 0)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([bindingId, slot]) => ({
+        bindingId,
+        epoch: slot.epoch,
+        state: slot.state,
+        reason: slot.reason,
+        confidence: slot.confidence,
+        at: slot.lastPublishedAt,
+        harness: slot.harness,
+      }));
+  }
+
   getSlot(
     bindingId: string,
   ): Readonly<

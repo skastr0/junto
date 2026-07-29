@@ -418,6 +418,12 @@ export const registerVellumIpc = (): void => {
     AppRuntime.runPromise(Effect.map(KernelService, (kernel) => kernel.getSnapshot())),
   );
 
+  // Managed-seat activity lives in main. A renderer-only restart must hydrate
+  // the current projection instead of waiting for a future state transition.
+  privilegedIpc.handle(IPC_CHANNELS.agentSeatStateSnapshot, () =>
+    seatStateRuntime.currentEvents(),
+  );
+
   // Factory pause plane — canvas-level switch. start is idempotent hydration,
   // so an early renderer read/write never races boot into the born-paused
   // default composing a store write from an unhydrated map.

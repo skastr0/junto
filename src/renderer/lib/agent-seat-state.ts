@@ -1,11 +1,13 @@
 /**
  * Managed-agent seat state — renderer store for Phase 3 chrome.
  *
- * Main broadcasts `agentSeatStateChanged` (bindingId-keyed). This module:
- *   1. keeps the latest event per bindingId
- *   2. joins bindingId → canvas nodeId when known (document terminal bind
+ * Main owns a current snapshot and broadcasts `agentSeatStateChanged`
+ * (bindingId-keyed). This module:
+ *   1. subscribes, then hydrates the snapshot so renderer restarts lose no state
+ *   2. keeps the latest event per bindingId
+ *   3. joins bindingId → canvas nodeId when known (document terminal bind
  *      or terminal inventory session.canvasName/nodeId)
- *   3. feeds occupancy / card chrome (attention amber, working cyan)
+ *   4. feeds occupancy / card chrome (attention amber, working cyan)
  *
  * Never writes the canvas. Absent bridge degrades to a no-op subscribe.
  */
@@ -149,7 +151,7 @@ export const terminalStatusByNodeIdFromSeats = (
   return out;
 };
 
-// Singleton fan-out: window.vellum.onAgentSeatStateChanged → agentSeat$.
+// Singleton fan-out: main snapshot + onAgentSeatStateChanged → agentSeat$.
 // Safe to call from App boot and every card mount; only the first call
 // actually subscribes. Absent bridge method degrades to a no-op unsubscribe.
 let activeUnsubscribe: (() => void) | undefined;
@@ -165,10 +167,29 @@ export const subscribeAgentSeatState = (): (() => void) => {
     if (!event) return;
     applyAgentSeatStateEvent(event);
   });
+  let active = true;
   activeUnsubscribe = () => {
+    active = false;
     unsubscribe();
     activeUnsubscribe = undefined;
   };
+
+  // Subscribe before reading current state. If a transition races the invoke,
+  // applyAgentSeatStateEvent's timestamp guard keeps an older snapshot from
+  // replacing the streamed event.
+  if (typeof api.agentSeatStateSnapshot === "function") {
+    void api.agentSeatStateSnapshot().then(
+      (snapshot) => {
+        if (!active || !Array.isArray(snapshot)) return;
+        for (const raw of snapshot) {
+          const event = decodeAgentSeatStateEvent(raw);
+          if (event) applyAgentSeatStateEvent(event);
+        }
+      },
+      () => undefined,
+    );
+  }
+
   return activeUnsubscribe;
 };
 

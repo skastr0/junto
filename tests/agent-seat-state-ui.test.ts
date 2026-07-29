@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, beforeEach, vi } from "vitest";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type { CanvasNode } from "../src/shared/canvas";
 import {
@@ -7,6 +7,7 @@ import {
   decodeAgentSeatStateEvent,
   harnessFromSeatState,
   resetAgentSeatState,
+  subscribeAgentSeatState,
   terminalStatusByNodeIdFromSeats,
   workSurfaceFromSeat,
   agentSeat$,
@@ -151,5 +152,70 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
       harness: "unknown",
     });
     expect(map.has("n3")).toBe(false);
+  });
+});
+
+describe("subscribeAgentSeatState renderer hydration", () => {
+  beforeEach(() => {
+    resetAgentSeatState();
+  });
+
+  afterEach(() => {
+    resetAgentSeatState();
+    delete (globalThis as { window?: unknown }).window;
+  });
+
+  it("hydrates progress state already live in main after a renderer restart", async () => {
+    const snapshot = event({
+      bindingId: "b-live",
+      state: "working",
+      reason: "rule:osc_title_working",
+      at: 20,
+    });
+    const unsubscribe = vi.fn();
+    (globalThis as unknown as { window: { vellum: unknown } }).window = {
+      vellum: {
+        onAgentSeatStateChanged: vi.fn(() => unsubscribe),
+        agentSeatStateSnapshot: vi.fn(async () => [snapshot]),
+      },
+    };
+
+    const stop = subscribeAgentSeatState();
+    await vi.waitFor(() => {
+      expect(agentSeat$.byBindingId["b-live"].peek()).toEqual(snapshot);
+    });
+
+    stop();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it("does not let an older hydration overwrite a newer streamed event", async () => {
+    let listener: ((raw: unknown) => void) | undefined;
+    let resolveSnapshot:
+      | ((events: ReadonlyArray<AgentSeatStateEvent>) => void)
+      | undefined;
+    const snapshot = new Promise<ReadonlyArray<AgentSeatStateEvent>>((resolve) => {
+      resolveSnapshot = resolve;
+    });
+    (globalThis as unknown as { window: { vellum: unknown } }).window = {
+      vellum: {
+        onAgentSeatStateChanged: vi.fn((next: (raw: unknown) => void) => {
+          listener = next;
+          return () => undefined;
+        }),
+        agentSeatStateSnapshot: vi.fn(() => snapshot),
+      },
+    };
+
+    const stop = subscribeAgentSeatState();
+    listener?.(event({ bindingId: "b-race", state: "attention", at: 30 }));
+    resolveSnapshot?.([
+      event({ bindingId: "b-race", state: "working", at: 20 }),
+    ]);
+    await snapshot;
+    await Promise.resolve();
+
+    expect(agentSeat$.byBindingId["b-race"].peek()?.state).toBe("attention");
+    stop();
   });
 });

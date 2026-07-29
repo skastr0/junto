@@ -427,6 +427,45 @@ describe("SeatStateMachine — transitions without flapping", () => {
     ]);
   });
 
+  it("projects the current published state for renderer hydration", () => {
+    let t = 1_000;
+    const m = new SeatStateMachine({ now: () => t });
+    m.bind("b2", { harness: "codex", epoch: "e2" });
+    t += 10;
+    m.force("b2", "working", "rule:osc_title_working");
+    t += 10;
+    m.bind("b1", { harness: "claude", epoch: "e1" });
+    m.setHookState("hook-only", {
+      state: "working",
+      reason: "early_hook",
+      at: t,
+    });
+
+    expect(m.currentEvents()).toEqual([
+      {
+        bindingId: "b1",
+        epoch: "e1",
+        state: "unknown",
+        reason: "generation_bound",
+        confidence: "low",
+        at: 1_020,
+        harness: "claude",
+      },
+      {
+        bindingId: "b2",
+        epoch: "e2",
+        state: "working",
+        reason: "rule:osc_title_working",
+        confidence: "high",
+        at: 1_010,
+        harness: "codex",
+      },
+    ]);
+
+    m.unbind("b2", { epoch: "e2" });
+    expect(m.currentEvents().map((event) => event.bindingId)).toEqual(["b1"]);
+  });
+
   it("debounces low-confidence working→idle (3 confirmations)", () => {
     let t = 1_000;
     const m = new SeatStateMachine({ now: () => t });

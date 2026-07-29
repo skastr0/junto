@@ -96,6 +96,11 @@ export class SeatStateRuntime {
     return this.machine.getState(bindingId);
   }
 
+  /** Bounded current-state projection; no history or renderer-owned cache. */
+  currentEvents(): ReadonlyArray<AgentSeatStateEvent> {
+    return this.machine.currentEvents();
+  }
+
   subscribe(listener: (event: AgentSeatStateEvent) => void): () => void {
     this.eventListeners.add(listener);
     return () => {
