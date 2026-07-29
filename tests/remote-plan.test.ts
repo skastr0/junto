@@ -24,6 +24,8 @@ describe("remote-plan public surface", () => {
       "HERDR_IMAGE_STAGE_DIR",
       "compileDarwinRemoteDeployScript",
       "compileHerdrImageStage",
+      "compileLinuxFirstInstall",
+      "compileLinuxFirstInstallSource",
       "compileLinuxReleaseBridge",
       "compileLinuxRemotePreflight",
       "compileLinuxRemotePreflightSource",
@@ -33,10 +35,12 @@ describe("remote-plan public surface", () => {
 });
 
 describe("linux remote preflight compiler", () => {
-  it("emits V3 protocol with fixed product helper/bridge paths only", () => {
+  it("emits V4 protocol with fixed product helper/bridge paths only", () => {
     const source = compileLinuxRemotePreflightSource();
-    expect(source).toContain("LINUX_REMOTE_PREFLIGHT_V3");
-    expect(source).toContain("LINUX_REMOTE_PREFLIGHT_REFUSED_V3");
+    expect(source).toContain("LINUX_REMOTE_PREFLIGHT_V4");
+    expect(source).toContain("LINUX_REMOTE_PREFLIGHT_REFUSED_V4");
+    expect(source).toContain("installerState=");
+    expect(source).toContain("/var/lib/vellum-release-installer");
     expect(source).toContain("/usr/libexec/vellum-release-installer");
     expect(source).toContain("/usr/libexec/vellum-release-bridge");
     expect(source).toContain(

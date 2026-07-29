@@ -14,7 +14,7 @@ export const deployRecoveryGuidance = (
     case "restore-terminal-live-work-observation":
       return "Restore terminal live-work observation through the deployment runbook or support, then retry deployment.";
     case "bootstrap-linux-release-installer":
-      return "Install the current signed Linux package and helper, then retry deployment.";
+      return "The Remote is not a clean first-install host and lacks package-owned release installer custody. Repair the host (or wipe leftover installer state on a true blank machine), then retry Deploy.";
     case "repair-linux-release-transaction":
       return "Repair the Linux release transaction through the deployment runbook or support, then retry deployment.";
     case "retry-linux-release-install":

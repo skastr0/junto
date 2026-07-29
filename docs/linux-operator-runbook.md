@@ -238,15 +238,22 @@ qualification**, not unit start or managed activation.
 
 ## Managed deployment from Command Center
 
-Linux deployment has two explicit phases:
+**Deploy Remote** is the product path for both first install and later updates
+on a registered SSH host. Command Center never uploads a free-form privileged
+executable: it only transfers an admitted signed release and runs fixed
+product RemoteCommands.
 
-1. An administrator performs the fresh signed-package install above. This
-   bootstraps the package-owned privileged installer; Command Center never
-   uploads or substitutes a privileged executable.
-2. Subsequent install/update attempts originate in Command Center through
-   **Settings → Hosts → Deploy Remote**.
+| Remote state | What Deploy does |
+|---|---|
+| Never installed (no `vellum` package, no helper/bridge, no `/var/lib/vellum-release-installer`) | **First install:** fixed noninteractive `apt-get install` of the admitted `.deb` under a root-held stage, then sealed bridge/installer **adopt** for activation and readiness |
+| Package custody present (helper + bridge exact) | **Managed update/adopt:** existing bridge → root installer path |
+| Half-state (e.g. package removed but installer state left behind) | Refused — repair; not treated as first install |
 
-Before phase 2, install the complete promoted release bundle—not only its
+Optional offline fresh install (`sudo apt-get install ./….deb` above) still
+works for air-gapped or non-CC operators. After that manual bootstrap, the
+first Deploy is same-version **adopt**, then upgrades.
+
+Before Deploy, install the complete promoted release bundle—not only its
 `deb`—at this fixed owner-controlled location on Command Center:
 
 ```text
@@ -315,7 +322,7 @@ Deployment failures expose one bounded recovery action in Settings:
 
 | recovery | operator action |
 |---|---|
-| bootstrap Linux release installer | install the current signed package with the fresh-install procedure, then retry |
+| bootstrap Linux release installer | host is not clean first-install and lacks custody — repair leftover installer state or complete a manual fresh install of the signed package, then retry Deploy |
 | active Vellum terminals | close the counted sessions, confirm their work is preserved, then retry |
 | restore live-work observation | restore the product observation path through this runbook or support; do not bypass the route cut |
 | retry Linux release install | let the current serialized attempt finish, then retry |

@@ -129,6 +129,7 @@ const preflight = (input: {
   readonly current?: string;
   readonly helper?: 0 | 1;
   readonly bridge?: 0 | 1;
+  readonly installerState?: 0 | 1;
   readonly ready?: 0 | 1;
   readonly unit?: "not-found" | "present";
   readonly generation?: string;
@@ -136,15 +137,22 @@ const preflight = (input: {
   const current = input.current ?? "none";
   const installed = current !== "none";
   const ready = input.ready ?? 0;
+  const helper = input.helper ?? 1;
+  const bridge = input.bridge ?? 1;
+  // Default: custody hosts have installer state; first-install hosts do not.
+  const installerState =
+    input.installerState ??
+    (helper === 0 && bridge === 0 && !installed ? 0 : 1);
   return [
-    "LINUX_REMOTE_PREFLIGHT_V3",
+    "LINUX_REMOTE_PREFLIGHT_V4",
     "disk=9999999999",
     `current=${current}`,
     `enabled=${ready}`,
     `active=${ready}`,
     "linger=1",
-    `helper=${input.helper ?? 1}`,
-    `bridge=${input.bridge ?? 1}`,
+    `helper=${helper}`,
+    `bridge=${bridge}`,
+    `installerState=${installerState}`,
     `ready=${ready}`,
     `generation=${input.generation ?? (ready ? generation : "none")}`,
     "uid=1000",
@@ -834,7 +842,7 @@ const makeTranscriptHarness = (
 };
 
 describe("Linux Remote privileged deployment", () => {
-  it("decodes only an exact V3 Ubuntu preflight receipt", () => {
+  it("decodes only an exact V4 Ubuntu preflight receipt", () => {
     expect(decodeLinuxRemotePreflight(preflight())).toEqual({
       ok: true,
       availableBytes: 9_999_999_999,
@@ -843,6 +851,7 @@ describe("Linux Remote privileged deployment", () => {
       lingerEnabled: true,
       helperInstalled: true,
       bridgeInstalled: true,
+      installerStatePresent: true,
       currentReady: false,
       uid: 1000,
       gid: 1000,
@@ -864,13 +873,14 @@ describe("Linux Remote privileged deployment", () => {
       currentReady: true,
       generation,
       bridgeInstalled: true,
+      installerStatePresent: true,
     });
     expect(
       decodeLinuxRemotePreflight(preflight({ ready: 1 })),
     ).toEqual({ ok: false, reason: "malformed" });
     expect(
       decodeLinuxRemotePreflight(
-        "LINUX_REMOTE_PREFLIGHT_REFUSED_V3 reason=architecture\n",
+        "LINUX_REMOTE_PREFLIGHT_REFUSED_V4 reason=architecture\n",
       ),
     ).toEqual({ ok: false, reason: "architecture" });
     expect(
@@ -1427,9 +1437,35 @@ describe("Linux Remote privileged deployment", () => {
     expect(postCommitHarness.commit()).toBeDefined();
   });
 
-  it("requires exact package custody before asking for authorization", async () => {
+  it("asks for authorization on a clean first-install host without package custody", async () => {
     const harness = makeTranscriptHarness(
-      preflight({ helper: 0, bridge: 0 }),
+      preflight({ helper: 0, bridge: 0, installerState: 0 }),
+    );
+    const route = heldRouteCut();
+    const provider = makeProvider(route.authority);
+
+    const receipt = await Effect.runPromise(
+      provider.deploy(providerInput(harness.ssh)),
+    );
+
+    expect(receipt).toMatchObject({
+      ok: false,
+      code: "auth_required",
+      disposition: "not-started",
+      version: "1.2.3",
+    });
+    expect(receipt.authorizationRequest).toMatchObject({
+      kind: "linux-administrator-password",
+      version: "1.2.3",
+    });
+    expect(harness.transactCalls).toHaveLength(0);
+    expect(route.acquire).not.toHaveBeenCalled();
+  });
+
+  it("refuses half-state hosts that are not first-install eligible", async () => {
+    // Package gone but installer state remains (post-remove) — not first-install.
+    const harness = makeTranscriptHarness(
+      preflight({ helper: 0, bridge: 0, installerState: 1 }),
     );
     const route = heldRouteCut();
     const provider = makeProvider(route.authority);

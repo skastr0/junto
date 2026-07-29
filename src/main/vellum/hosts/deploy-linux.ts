@@ -2,9 +2,13 @@
  * Ubuntu Remote deployment.
  *
  * The Command Center admits a complete signed release bundle locally, proves
- * the fixed Remote platform, holds a host-scoped terminal route cut, and then
- * streams the bundle to one preinstalled root-owned helper. No candidate path,
- * package-manager command, repair path, or sudo argv is caller-controlled.
+ * the fixed Remote platform, holds a host-scoped terminal route cut, then either:
+ * - never-installed host: product first-install (fixed apt of the admitted deb) then
+ *   sealed bridge/installer adopt for activation; or
+ * - installed host: streams the bundle to the package-owned bridge/helper.
+ *
+ * No candidate path, free-form package-manager argv, repair path, or sudo
+ * argv is caller-controlled — only product-minted RemoteCommands.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -52,6 +56,7 @@ import {
   compileLinuxReleaseBridge,
   compileLinuxRemotePreflight,
   compileLinuxRemotePreflightSource,
+  compileLinuxFirstInstall,
 } from "../ssh/remote-plan";
 import type { SshLease } from "../ssh/service";
 import {
@@ -88,9 +93,20 @@ const MAX_PROTOCOL_LINE_BYTES = 16 * 1024;
 const MAX_SSH_WRITE_BYTES = 1024 * 1024;
 
 const LINUX_PREFLIGHT =
-  /^LINUX_REMOTE_PREFLIGHT_V3 disk=([1-9][0-9]{0,19}) current=(none|[0-9]+\.[0-9]+\.[0-9]+) enabled=([01]) active=([01]) linger=([01]) helper=([01]) bridge=([01]) ready=([01]) generation=(none|[0-9a-f]{32}) uid=([1-9][0-9]{0,9}) gid=([1-9][0-9]{0,9}) host=([a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?) libc=([0-9]+\.[0-9]+) unit=(not-found|present)$/u;
+  /^LINUX_REMOTE_PREFLIGHT_V4 disk=([1-9][0-9]{0,19}) current=(none|[0-9]+\.[0-9]+\.[0-9]+) enabled=([01]) active=([01]) linger=([01]) helper=([01]) bridge=([01]) installerState=([01]) ready=([01]) generation=(none|[0-9a-f]{32}) uid=([1-9][0-9]{0,9}) gid=([1-9][0-9]{0,9}) host=([a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?) libc=([0-9]+\.[0-9]+) unit=(not-found|present)$/u;
 const LINUX_PREFLIGHT_REFUSED =
-  /^LINUX_REMOTE_PREFLIGHT_REFUSED_V3 reason=(os|release|architecture|libc|commands|systemd-user|disk|package|version|linger|identity)$/u;
+  /^LINUX_REMOTE_PREFLIGHT_REFUSED_V4 reason=(os|release|architecture|libc|commands|systemd-user|disk|package|version|linger|identity)$/u;
+
+const LINUX_FIRST_INSTALL_ARMED =
+  /^LINUX_FIRST_INSTALL_ARMED_V1 version=([0-9]+\.[0-9]+\.[0-9]+) debSha256=([0-9a-f]{64}) debBytes=([1-9][0-9]{0,19})$/u;
+const LINUX_FIRST_INSTALL_OK =
+  /^LINUX_FIRST_INSTALL_OK_V1 version=([0-9]+\.[0-9]+\.[0-9]+)$/u;
+const LINUX_FIRST_INSTALL_AUTH_FAILED =
+  /^LINUX_FIRST_INSTALL_AUTH_FAILED_V1$/u;
+const LINUX_FIRST_INSTALL_REFUSED =
+  /^LINUX_FIRST_INSTALL_REFUSED_V1 reason=([a-z-]+)$/u;
+const LINUX_FIRST_INSTALL_FAILED =
+  /^LINUX_FIRST_INSTALL_FAILED_V1 reason=([a-z-]+)$/u;
 
 export type LinuxRemotePreflightEvidence =
   | {
@@ -102,6 +118,8 @@ export type LinuxRemotePreflightEvidence =
       readonly lingerEnabled: boolean;
       readonly helperInstalled: boolean;
       readonly bridgeInstalled: boolean;
+      /** True when /var/lib/vellum-release-installer exists (blocks first-install apt). */
+      readonly installerStatePresent: boolean;
       readonly currentReady: boolean;
       readonly generation?: string;
       readonly uid: number;
@@ -147,12 +165,12 @@ export const decodeLinuxRemotePreflight = (
   const match = LINUX_PREFLIGHT.exec(line);
   if (match === null) return { ok: false, reason: "malformed" };
   const availableBytes = Number(match[1]);
-  const uid = Number(match[10]);
-  const gid = Number(match[11]);
-  const currentReady = match[8] === "1";
+  const uid = Number(match[11]);
+  const gid = Number(match[12]);
+  const currentReady = match[9] === "1";
   const installedVersion =
     match[2] === "none" ? undefined : match[2];
-  const unitState = match[14] as "not-found" | "present";
+  const unitState = match[15] as "not-found" | "present";
   if (
     !Number.isSafeInteger(availableBytes) ||
     availableBytes <= 0 ||
@@ -160,7 +178,7 @@ export const decodeLinuxRemotePreflight = (
     uid <= 0 ||
     !Number.isSafeInteger(gid) ||
     gid <= 0 ||
-    !HOST.test(match[12] ?? "") ||
+    !HOST.test(match[13] ?? "") ||
     (installedVersion === undefined && unitState !== "not-found") ||
     (installedVersion !== undefined && unitState !== "present") ||
     (installedVersion === undefined &&
@@ -170,8 +188,8 @@ export const decodeLinuxRemotePreflight = (
     (currentReady &&
       (match[3] !== "1" ||
         match[4] !== "1" ||
-        match[9] === "none")) ||
-    (!currentReady && match[9] !== "none")
+        match[10] === "none")) ||
+    (!currentReady && match[10] !== "none")
   ) {
     return { ok: false, reason: "malformed" };
   }
@@ -184,15 +202,31 @@ export const decodeLinuxRemotePreflight = (
     lingerEnabled: match[5] === "1",
     helperInstalled: match[6] === "1",
     bridgeInstalled: match[7] === "1",
+    installerStatePresent: match[8] === "1",
     currentReady,
-    ...(match[9] === "none" ? {} : { generation: match[9] }),
+    ...(match[10] === "none" ? {} : { generation: match[10] }),
     uid,
     gid,
-    host: match[12]!,
-    libcVersion: match[13]!,
+    host: match[13]!,
+    libcVersion: match[14]!,
     unitState,
   });
 };
+
+/** True first-install host: never packaged, no helpers, no installer custody tree. */
+export const isLinuxFirstInstallHost = (
+  preflight: Extract<LinuxRemotePreflightEvidence, { readonly ok: true }>,
+): boolean =>
+  preflight.installedVersion === undefined &&
+  preflight.unitState === "not-found" &&
+  !preflight.helperInstalled &&
+  !preflight.bridgeInstalled &&
+  !preflight.installerStatePresent;
+
+/** Helpers exact for managed bridge/installer path. */
+export const hasLinuxReleaseCustody = (
+  preflight: Extract<LinuxRemotePreflightEvidence, { readonly ok: true }>,
+): boolean => preflight.helperInstalled && preflight.bridgeInstalled;
 
 /**
  * Read-only platform and generation proof. Privileged recovery and package
@@ -1165,11 +1199,151 @@ const afterPasswordRecord = (
   }
 };
 
+type LinuxFirstInstallOutcome =
+  | { readonly kind: "authorization-failed" }
+  | { readonly kind: "refused"; readonly reason: string }
+  | { readonly kind: "failed"; readonly reason: string }
+  | { readonly kind: "ok"; readonly version: string };
+
+/** Stream only the admitted .deb from the signed bundle inventory. */
+const admittedDebChunks = async function* (
+  admission: LinuxRemoteArtifactAdmission,
+): AsyncIterable<Uint8Array> {
+  let found = false;
+  for await (const entry of admission.openBundle()) {
+    if (
+      entry.sha256 === admission.sha256 &&
+      entry.bytes === admission.bytes &&
+      entry.name.endsWith(".deb")
+    ) {
+      found = true;
+      let bytes = 0;
+      for await (const chunk of entry.stream) {
+        bytes += chunk.byteLength;
+        if (bytes > entry.bytes) {
+          throw new Error("admitted Linux deb exceeded its receipt");
+        }
+        yield Uint8Array.from(chunk);
+      }
+      if (bytes !== entry.bytes) {
+        throw new Error("admitted Linux deb ended before its receipt");
+      }
+      return;
+    }
+  }
+  if (!found) {
+    throw new Error("signed Linux bundle is missing its admitted deb");
+  }
+};
+
+/**
+ * First install on a never-installed host: fixed product command stages the
+ * admitted deb, takes one password, runs noninteractive apt of that exact
+ * hash under a root-held path, and proves helper/bridge custody.
+ */
+const runFirstInstallSession = (
+  input: RemoteDeploymentProviderInput,
+  admission: LinuxRemoteArtifactAdmission,
+  passwordLine: Buffer,
+): Effect.Effect<LinuxFirstInstallOutcome, Error> =>
+  Effect.gen(function* () {
+    const command = yield* compileLinuxFirstInstall();
+    return yield* input.ssh.transact(
+      deploymentStream(input.target.sshTarget, command),
+      (lease) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const output = yield* protocolOutput(lease);
+            const header = yield* protocolStep(() =>
+              Buffer.from(
+                `LINUX_FIRST_INSTALL_V1 version=${admission.version} debSha256=${admission.sha256} debBytes=${admission.bytes}\n`,
+                "utf8",
+              ),
+            );
+            yield* writeBounded(lease, header);
+            yield* Stream.runForEach(
+              Stream.fromAsyncIterable(
+                admittedDebChunks(admission),
+                (error) =>
+                  error instanceof Error
+                    ? error
+                    : new Error(String(error)),
+              ),
+              (chunk) => writeBounded(lease, chunk),
+            );
+
+            const armedLine = yield* takeProtocolLine(output);
+            const armed = LINUX_FIRST_INSTALL_ARMED.exec(armedLine);
+            if (
+              armed === null ||
+              armed[1] !== admission.version ||
+              armed[2] !== admission.sha256 ||
+              Number(armed[3]) !== admission.bytes
+            ) {
+              // May already be a terminal refusal before ARMED.
+              if (LINUX_FIRST_INSTALL_REFUSED.test(armedLine)) {
+                const refused = LINUX_FIRST_INSTALL_REFUSED.exec(armedLine);
+                return {
+                  kind: "refused" as const,
+                  reason: refused?.[1] ?? "unknown",
+                };
+              }
+              if (LINUX_FIRST_INSTALL_FAILED.test(armedLine)) {
+                const failed = LINUX_FIRST_INSTALL_FAILED.exec(armedLine);
+                return {
+                  kind: "failed" as const,
+                  reason: failed?.[1] ?? "unknown",
+                };
+              }
+              return yield* Effect.fail(
+                new LinuxDeploymentProtocolError(
+                  "Linux first-install arm receipt did not match the admitted deb",
+                ),
+              );
+            }
+
+            yield* lease.writeSensitive(passwordLine);
+            yield* lease.closeInput;
+
+            const resultLine = yield* takeProtocolLine(output);
+            if (LINUX_FIRST_INSTALL_AUTH_FAILED.test(resultLine)) {
+              return { kind: "authorization-failed" as const };
+            }
+            const refused = LINUX_FIRST_INSTALL_REFUSED.exec(resultLine);
+            if (refused !== null) {
+              return {
+                kind: "refused" as const,
+                reason: refused[1] ?? "unknown",
+              };
+            }
+            const failed = LINUX_FIRST_INSTALL_FAILED.exec(resultLine);
+            if (failed !== null) {
+              return {
+                kind: "failed" as const,
+                reason: failed[1] ?? "unknown",
+              };
+            }
+            const ok = LINUX_FIRST_INSTALL_OK.exec(resultLine);
+            if (ok === null || ok[1] !== admission.version) {
+              return yield* Effect.fail(
+                new LinuxDeploymentProtocolError(
+                  "Linux first-install completion receipt is malformed",
+                ),
+              );
+            }
+            return { kind: "ok" as const, version: ok[1]! };
+          }),
+        ),
+    );
+  });
+
 const runReleaseSession = (
   input: RemoteDeploymentProviderInput,
   attempt: LinuxReleaseAttempt,
   admission: LinuxRemoteArtifactAdmission,
   preflight: Extract<LinuxRemotePreflightEvidence, { readonly ok: true }>,
+  /** When set, skip credential take (password already taken for first-install). */
+  passwordLineOverride?: Buffer,
 ): Effect.Effect<LinuxReleaseSessionOutcome, Error> =>
   Effect.gen(function* () {
     const command = yield* compileLinuxReleaseBridge();
@@ -1211,29 +1385,34 @@ const runReleaseSession = (
             );
           }
 
-          const credential =
-            input.authorization?.kind === "linux-administrator-password"
-              ? input.authorization.credential
-              : undefined;
-          if (
-            credential === undefined ||
-            !linuxAdministratorCredentialMatches(
-              credential,
-              attempt.binding,
-            )
-          ) {
-            return yield* Effect.fail(
-              new LinuxDeploymentProtocolError(
-                "Linux administrator authorization is unavailable",
-              ),
+          let passwordLine: Buffer;
+          if (passwordLineOverride !== undefined) {
+            passwordLine = passwordLineOverride;
+          } else {
+            const credential =
+              input.authorization?.kind === "linux-administrator-password"
+                ? input.authorization.credential
+                : undefined;
+            if (
+              credential === undefined ||
+              !linuxAdministratorCredentialMatches(
+                credential,
+                attempt.binding,
+              )
+            ) {
+              return yield* Effect.fail(
+                new LinuxDeploymentProtocolError(
+                  "Linux administrator authorization is unavailable",
+                ),
+              );
+            }
+            passwordLine = yield* protocolStep(() =>
+              takeLinuxAdministratorPasswordLine(
+                credential,
+                attempt.binding,
+              )
             );
           }
-          const passwordLine = yield* protocolStep(() =>
-            takeLinuxAdministratorPasswordLine(
-              credential,
-              attempt.binding,
-            )
-          );
           yield* lease.writeSensitive(passwordLine).pipe(
             Effect.ensuring(
               Effect.sync(() => {
@@ -1639,11 +1818,13 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             },
           );
         }
-        if (!preflight.helperInstalled || !preflight.bridgeInstalled) {
+        const firstInstallHost = isLinuxFirstInstallHost(preflight);
+        const custodyReady = hasLinuxReleaseCustody(preflight);
+        if (!firstInstallHost && !custodyReady) {
           return deployFailure(
             providerInput,
             stages,
-            "the fixed root-owned Linux release installer and unprivileged bridge must be bootstrapped by an operator",
+            "the Remote is not a clean first-install host and lacks package-owned release installer custody — repair before retry",
             {
               code: "auth_required",
               disposition: "not-started",
@@ -1756,15 +1937,46 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
         }
         appendStage(
           stages,
-          `preflight ok current=${preflight.installedVersion ?? "none"} helper=exact bridge=exact`,
+          firstInstallHost
+            ? `preflight ok first-install host=${preflight.host}`
+            : `preflight ok current=${preflight.installedVersion ?? "none"} helper=exact bridge=exact`,
         );
+
+        // Take password once. On first-install, writeSensitive zeros the
+        // first-install copy; adopt uses a retained second copy.
+        const passwordTaken = yield* protocolStep(() =>
+          takeLinuxAdministratorPasswordLine(
+            credential!,
+            attempt.binding,
+          ),
+        ).pipe(Effect.either);
+        if (passwordTaken._tag === "Left") {
+          return deployFailure(
+            providerInput,
+            stages,
+            "Linux administrator authorization is unavailable",
+            {
+              code: "auth_required",
+              disposition: "not-started",
+              version: admission.version,
+            },
+          );
+        }
+        const passwordLine = passwordTaken.right;
+        const adoptPasswordLine = firstInstallHost
+          ? Buffer.from(passwordLine)
+          : passwordLine;
 
         const proveBootstrapAbsence = async (): Promise<boolean> => {
           const rerun = await Effect.runPromise(
             runPreflight(providerInput, candidate),
           );
+          if (!rerun.ok) return false;
+          if (firstInstallHost) {
+            return isLinuxFirstInstallHost(rerun);
+          }
+          // Package-absent cut with custody already present (legacy bootstrap).
           return (
-            rerun.ok &&
             rerun.installedVersion === undefined &&
             rerun.unitState === "not-found" &&
             rerun.helperInstalled &&
@@ -1854,13 +2066,116 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           `terminal route cut held observation=${liveWork.evidence.observationId}`,
         );
 
+        let adoptPreflight = preflight;
+        if (firstInstallHost) {
+          const firstInstall = yield* runFirstInstallSession(
+            providerInput,
+            admission,
+            passwordLine,
+          ).pipe(Effect.either);
+          if (firstInstall._tag === "Left") {
+            adoptPasswordLine.fill(0);
+            return sessionFailure(
+              providerInput,
+              stages,
+              admission.version,
+            );
+          }
+          const firstOutcome = firstInstall.right;
+          if (firstOutcome.kind === "authorization-failed") {
+            adoptPasswordLine.fill(0);
+            return deployFailure(
+              providerInput,
+              stages,
+              "the one-shot Linux administrator password was not accepted; the exact staged payload was removed",
+              {
+                code: "auth_required",
+                disposition: "not-started",
+                version: admission.version,
+              },
+            );
+          }
+          if (firstOutcome.kind === "refused") {
+            adoptPasswordLine.fill(0);
+            return deployFailure(
+              providerInput,
+              stages,
+              firstOutcome.reason === "not-first-install"
+                ? "the Remote is not eligible for first-install package bootstrap"
+                : `Linux first-install refused (${firstOutcome.reason})`,
+              {
+                code: "validation",
+                disposition: "not-started",
+                version: admission.version,
+                recoveryAction: {
+                  kind: "bootstrap-linux-release-installer",
+                },
+              },
+            );
+          }
+          if (firstOutcome.kind === "failed") {
+            adoptPasswordLine.fill(0);
+            // Mutation may have started (apt); treat as indeterminate.
+            return deployFailure(
+              providerInput,
+              stages,
+              `Linux first-install failed after package mutation began (${firstOutcome.reason})`,
+              {
+                code: "conflict",
+                disposition: "indeterminate",
+                version: admission.version,
+                recoveryAction: {
+                  kind: "repair-linux-release-transaction",
+                },
+              },
+            );
+          }
+          appendStage(
+            stages,
+            `first-install package ${firstOutcome.version} installed; custody present`,
+          );
+
+          // Re-preflight: package + helper/bridge must now be exact for adopt.
+          const postInstall = yield* runPreflight(
+            providerInput,
+            candidate,
+          ).pipe(Effect.either);
+          if (
+            postInstall._tag === "Left" ||
+            !postInstall.right.ok ||
+            !hasLinuxReleaseCustody(postInstall.right) ||
+            postInstall.right.installedVersion !== admission.version
+          ) {
+            adoptPasswordLine.fill(0);
+            return deployFailure(
+              providerInput,
+              stages,
+              "first-install completed but post-install preflight did not prove package custody",
+              {
+                code: "conflict",
+                disposition: "indeterminate",
+                version: admission.version,
+                recoveryAction: {
+                  kind: "repair-linux-release-transaction",
+                },
+              },
+            );
+          }
+          adoptPreflight = postInstall.right;
+        }
+
         const installed = yield* runReleaseSession(
           providerInput,
-          attempt,
+          // Rebuild attempt against post-install identity when first-install ran.
+          firstInstallHost
+            ? releaseAttempt(providerInput, adoptPreflight, admission)
+            : attempt,
           admission,
-          preflight,
+          adoptPreflight,
+          adoptPasswordLine,
         ).pipe(Effect.either);
         if (installed._tag === "Left") {
+          adoptPasswordLine.fill(0);
           return sessionFailure(
             providerInput,
             stages,

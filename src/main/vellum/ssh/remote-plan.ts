@@ -27,28 +27,33 @@ const shellSingleQuote = (value: string): string =>
 //
 // Named compiler: no free path/command args from callers. Stdin supplies
 // bundle bytes + version + package hashes; stdout is exactly one
-// LINUX_REMOTE_PREFLIGHT_V3 (or REFUSED_V3) line. Generation readiness is a
+// LINUX_REMOTE_PREFLIGHT_V4 (or REFUSED_V4) line. Generation readiness is a
 // plain `${INVOCATION}\n` receipt under ready-$INVOCATION (exact 33 bytes via
 // wc + cmp against printf) plus work sock/token — never deep JSON, never term/browser.
 
 /** Product paths for release helper/bridge — never caller-controlled. */
 const LINUX_RELEASE_INSTALLER_PATH = "/usr/libexec/vellum-release-installer";
 const LINUX_RELEASE_BRIDGE_PATH = "/usr/libexec/vellum-release-bridge";
+/** Root custody tree created by package postinst / installer journals. */
+const LINUX_RELEASE_INSTALLER_STATE = "/var/lib/vellum-release-installer";
+/** Root-held first-install stage (product path only). */
+const LINUX_FIRST_INSTALL_STAGE_ROOT = "/var/lib/vellum-release-stage/first-install";
 
 /**
  * Pure compile of the fixed Ubuntu Remote preflight shell source.
- * Source of truth for the V3 protocol body; deploy-linux must not re-author it.
+ * Source of truth for the V4 protocol body; deploy-linux must not re-author it.
  */
 export const compileLinuxRemotePreflightSource = (): string => {
   // Local names only for String.raw path interpolation — product constants.
   const HELPER = LINUX_RELEASE_INSTALLER_PATH;
   const BRIDGE = LINUX_RELEASE_BRIDGE_PATH;
+  const INSTALLER_STATE = LINUX_RELEASE_INSTALLER_STATE;
   // `${"$"}` escapes shell `${…}` so TypeScript does not consume `$`.
   return String.raw`
 set -eu
 umask 077
 refuse() {
-  echo "LINUX_REMOTE_PREFLIGHT_REFUSED_V3 reason=$1"
+  echo "LINUX_REMOTE_PREFLIGHT_REFUSED_V4 reason=$1"
   exit 0
 }
 private_file() {
@@ -191,6 +196,10 @@ if [ -f "${BRIDGE}" ] && [ ! -L "${BRIDGE}" ] &&
    [ "$(/usr/bin/stat -c '%u:%g:%a:%h' "${BRIDGE}" 2>/dev/null || true)" = "0:0:755:1" ]; then
   BRIDGE_READY=1
 fi
+INSTALLER_STATE_PRESENT=0
+if [ -e "${INSTALLER_STATE}" ] || [ -L "${INSTALLER_STATE}" ]; then
+  INSTALLER_STATE_PRESENT=1
+fi
 CURRENT_READY=0
 CURRENT_GENERATION=none
 if [ "$ENABLED" = 1 ] && [ "$ACTIVE" = 1 ]; then
@@ -222,7 +231,7 @@ if [ "$ENABLED" = 1 ] && [ "$ACTIVE" = 1 ]; then
     CURRENT_GENERATION="$INVOCATION"
   fi
 fi
-echo "LINUX_REMOTE_PREFLIGHT_V3 disk=$AVAILABLE_BYTES current=$CURRENT_VERSION enabled=$ENABLED active=$ACTIVE linger=$LINGER helper=$HELPER_READY bridge=$BRIDGE_READY ready=$CURRENT_READY generation=$CURRENT_GENERATION uid=$UID_VALUE gid=$GID_VALUE host=$HOST_VALUE libc=$LIBC_VERSION unit=$UNIT_STATE"
+echo "LINUX_REMOTE_PREFLIGHT_V4 disk=$AVAILABLE_BYTES current=$CURRENT_VERSION enabled=$ENABLED active=$ACTIVE linger=$LINGER helper=$HELPER_READY bridge=$BRIDGE_READY installerState=$INSTALLER_STATE_PRESENT ready=$CURRENT_READY generation=$CURRENT_GENERATION uid=$UID_VALUE gid=$GID_VALUE host=$HOST_VALUE libc=$LIBC_VERSION unit=$UNIT_STATE"
 `.trim();
 };
 
@@ -343,12 +352,213 @@ export const compileHerdrImageStage = (
 
 /**
  * Fixed Ubuntu release-bridge executable — no caller argv, no free path.
- * Sole mutation surface for Linux Remote deploy streams.
+ * Managed upgrade/adopt mutation surface for Linux Remote deploy streams.
  */
 export const compileLinuxReleaseBridge = (): Effect.Effect<
   RemoteCommand,
   SshInputError
 > => makeRemoteCommand(LINUX_RELEASE_BRIDGE_PATH, []);
+
+/**
+ * Pure compile of the fixed first-install program.
+ *
+ * Protocol (duplex stdin/stdout over dedicated SSH):
+ * 1. CC → `LINUX_FIRST_INSTALL_V1 version=… debSha256=… debBytes=…\n`
+ * 2. CC → exact deb bytes
+ * 3. Remote → `LINUX_FIRST_INSTALL_ARMED_V1 …` after owner stage + hash
+ * 4. CC → one password line (writeSensitive)
+ * 5. Remote → root-held re-stage, re-hash, noninteractive apt-get install,
+ *    then `LINUX_FIRST_INSTALL_OK_V1 version=…` or AUTH_FAILED / REFUSED / FAILED
+ *
+ * Only for hosts with no package, no helper/bridge, and no installer state dir.
+ */
+export const compileLinuxFirstInstallSource = (): string => {
+  const HELPER = LINUX_RELEASE_INSTALLER_PATH;
+  const BRIDGE = LINUX_RELEASE_BRIDGE_PATH;
+  const INSTALLER_STATE = LINUX_RELEASE_INSTALLER_STATE;
+  const ROOT_STAGE = LINUX_FIRST_INSTALL_STAGE_ROOT;
+  return String.raw`
+set -eu
+umask 077
+refuse() {
+  echo "LINUX_FIRST_INSTALL_REFUSED_V1 reason=$1"
+  exit 0
+}
+fail() {
+  echo "LINUX_FIRST_INSTALL_FAILED_V1 reason=$1"
+  exit 0
+}
+auth_failed() {
+  echo "LINUX_FIRST_INSTALL_AUTH_FAILED_V1"
+  exit 0
+}
+for REQUIRED_COMMAND in \
+  /bin/mkdir \
+  /bin/rm \
+  /bin/chmod \
+  /bin/sync \
+  /usr/bin/apt-get \
+  /usr/bin/dpkg-query \
+  /usr/bin/sha256sum \
+  /usr/bin/stat \
+  /usr/bin/sudo \
+  /usr/bin/install \
+  /usr/bin/head \
+  /usr/bin/tr \
+  /usr/bin/awk
+do
+  [ -x "$REQUIRED_COMMAND" ] || refuse commands
+done
+if [ -e "${INSTALLER_STATE}" ] || [ -L "${INSTALLER_STATE}" ]; then
+  refuse not-first-install
+fi
+if [ -f "${HELPER}" ] || [ -L "${HELPER}" ] ||
+   [ -f "${BRIDGE}" ] || [ -L "${BRIDGE}" ]; then
+  refuse not-first-install
+fi
+PACKAGE_STATE=$(/usr/bin/dpkg-query -W -f='${"$"}{Status}\n' vellum 2>/dev/null || true)
+if [ -n "$PACKAGE_STATE" ]; then
+  if echo "$PACKAGE_STATE" | /usr/bin/awk '
+    $0 == "install ok installed" { found = 1 }
+    END { exit(found ? 0 : 1) }
+  '; then
+    refuse not-first-install
+  fi
+fi
+IFS= read -r HEADER || refuse header
+case "$HEADER" in
+  LINUX_FIRST_INSTALL_V1\ version=*) ;;
+  *) refuse header ;;
+esac
+VERSION=$(echo "$HEADER" | /usr/bin/awk '{
+  for (i = 1; i <= NF; i++) {
+    if ($i ~ /^version=/) { sub(/^version=/, "", $i); print $i; exit }
+  }
+  exit 1
+}')
+DEB_SHA=$(echo "$HEADER" | /usr/bin/awk '{
+  for (i = 1; i <= NF; i++) {
+    if ($i ~ /^debSha256=/) { sub(/^debSha256=/, "", $i); print $i; exit }
+  }
+  exit 1
+}')
+DEB_BYTES=$(echo "$HEADER" | /usr/bin/awk '{
+  for (i = 1; i <= NF; i++) {
+    if ($i ~ /^debBytes=/) { sub(/^debBytes=/, "", $i); print $i; exit }
+  }
+  exit 1
+}')
+echo "$VERSION" | /usr/bin/awk -F. '
+  NF == 3 && $1 ~ /^(0|[1-9][0-9]*)$/ &&
+  $2 ~ /^(0|[1-9][0-9]*)$/ &&
+  $3 ~ /^(0|[1-9][0-9]*)$/ { ok = 1 }
+  END { exit(ok ? 0 : 1) }
+' || refuse version
+case "$DEB_SHA" in *[!0-9a-f]*|"") refuse package ;; esac
+[ "${"$"}{#DEB_SHA}" -eq 64 ] || refuse package
+case "$DEB_BYTES" in ""|*[!0-9]*) refuse package ;; esac
+[ "$DEB_BYTES" -gt 0 ] && [ "$DEB_BYTES" -le 3221225472 ] || refuse package
+OWNER_STAGE="$HOME/.vellum/release-stage"
+OWNER_DEB="$OWNER_STAGE/first-install.deb"
+if [ -L "$HOME/.vellum" ]; then refuse stage; fi
+/bin/mkdir -p -- "$HOME/.vellum"
+/bin/mkdir -p -- "$OWNER_STAGE"
+if [ -L "$OWNER_STAGE" ] || [ ! -d "$OWNER_STAGE" ]; then refuse stage; fi
+if [ -e "$OWNER_DEB" ] || [ -L "$OWNER_DEB" ]; then
+  /bin/rm -f -- "$OWNER_DEB" || true
+fi
+set -C
+/usr/bin/head -c "$DEB_BYTES" > "$OWNER_DEB" || { set +C; /bin/rm -f -- "$OWNER_DEB"; fail stage-write; }
+set +C
+/bin/chmod 600 -- "$OWNER_DEB"
+ACTUAL_BYTES=$(/usr/bin/stat -c '%s' "$OWNER_DEB" 2>/dev/null || true)
+[ "$ACTUAL_BYTES" = "$DEB_BYTES" ] || { /bin/rm -f -- "$OWNER_DEB"; fail size; }
+ACTUAL_SHA=$(/usr/bin/sha256sum -- "$OWNER_DEB" | /usr/bin/awk '{ print $1 }')
+[ "$ACTUAL_SHA" = "$DEB_SHA" ] || { /bin/rm -f -- "$OWNER_DEB"; fail hash; }
+echo "LINUX_FIRST_INSTALL_ARMED_V1 version=$VERSION debSha256=$DEB_SHA debBytes=$DEB_BYTES"
+IFS= read -r PASSWORD_LINE || { /bin/rm -f -- "$OWNER_DEB"; auth_failed; }
+export DEBIAN_FRONTEND=noninteractive
+ROOT_DEB="${ROOT_STAGE}/Vellum-Command.deb"
+SUDO_SCRIPT=$(/usr/bin/cat <<EOF
+set -eu
+umask 077
+if [ -e "${INSTALLER_STATE}" ] || [ -L "${INSTALLER_STATE}" ]; then
+  echo refuse-not-first-install
+  exit 11
+fi
+/bin/mkdir -p -- "${ROOT_STAGE}"
+/bin/chmod 700 -- "${ROOT_STAGE}"
+/usr/bin/install -o root -g root -m 600 -- "$OWNER_DEB" "$ROOT_DEB"
+ROOT_SHA=\$(/usr/bin/sha256sum -- "$ROOT_DEB" | /usr/bin/awk '{ print \$1 }')
+ROOT_BYTES=\$(/usr/bin/stat -c '%s' "$ROOT_DEB")
+if [ "\$ROOT_SHA" != "$DEB_SHA" ] || [ "\$ROOT_BYTES" != "$DEB_BYTES" ]; then
+  /bin/rm -f -- "$ROOT_DEB"
+  echo refuse-hash
+  exit 12
+fi
+/usr/bin/apt-get install -y -- "$ROOT_DEB"
+/bin/rm -f -- "$ROOT_DEB"
+/bin/sync
+echo install-ok
+EOF
+)
+set +e
+SUDO_OUT=$(printf '%s\n' "$PASSWORD_LINE" | /usr/bin/sudo -S -k -p '' /bin/sh -c "$SUDO_SCRIPT" 2>/dev/null)
+SUDO_STATUS=$?
+set -e
+PASSWORD_LINE=""
+/bin/rm -f -- "$OWNER_DEB" || true
+case "$SUDO_STATUS:$SUDO_OUT" in
+  0:*install-ok*) ;;
+  11:*|*:refuse-not-first-install*) refuse not-first-install ;;
+  12:*|*:refuse-hash*) fail hash ;;
+  1:*|*)
+    # sudo authentication failure is typically exit 1 with empty/no install-ok.
+    if [ "$SUDO_STATUS" -eq 1 ] && [ -z "$SUDO_OUT" ]; then
+      auth_failed
+    fi
+    fail apt
+    ;;
+esac
+if [ ! -f "${HELPER}" ] || [ -L "${HELPER}" ] ||
+   [ "$(/usr/bin/stat -c '%u:%g:%a:%h' "${HELPER}" 2>/dev/null || true)" != "0:0:755:1" ]; then
+  fail helper
+fi
+if [ ! -f "${BRIDGE}" ] || [ -L "${BRIDGE}" ] ||
+   [ "$(/usr/bin/stat -c '%u:%g:%a:%h' "${BRIDGE}" 2>/dev/null || true)" != "0:0:755:1" ]; then
+  fail bridge
+fi
+PACKAGE_VERSION=$(/usr/bin/dpkg-query -W -f='${"$"}{Version}' vellum 2>/dev/null || true)
+[ "$PACKAGE_VERSION" = "$VERSION" ] || fail package
+echo "LINUX_FIRST_INSTALL_OK_V1 version=$VERSION"
+`.trim();
+};
+
+/**
+ * Fixed first-install product program — no free argv, no free paths.
+ */
+export const compileLinuxFirstInstall = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> => {
+  try {
+    const source = compileLinuxFirstInstallSource();
+    return makeRemoteCommand("/bin/sh", [
+      "-c",
+      source,
+      "vellum-plan:linux-first-install",
+    ]);
+  } catch (error) {
+    return Effect.fail(
+      new SshInputError({
+        message:
+          error instanceof Error
+            ? error.message
+            : "linux first-install compile failed",
+      }),
+    );
+  }
+};
 
 /**
  * Darwin app stream receiver: product deploy script as `/bin/bash -lc <source>`.
