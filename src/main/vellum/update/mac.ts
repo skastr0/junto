@@ -3,6 +3,10 @@
  * ESM import dies at packaged main load with
  * "Named export 'autoUpdater' not found". Load via createRequire (same pattern
  * as term/observer/session-observer for @xterm/headless).
+ *
+ * Lazy: the package's autoUpdater getter constructs MacUpdater immediately,
+ * which needs Electron's app. Eager require at module load blows up vitest
+ * (and any import graph that only needs types / composition).
  */
 import { createRequire } from "node:module";
 import type { AppUpdater } from "electron-updater";
@@ -14,8 +18,10 @@ import type {
 } from "./provider";
 
 const require = createRequire(import.meta.url);
-const { autoUpdater } = require("electron-updater") as {
-  autoUpdater: AppUpdater;
+
+const autoUpdater = (): AppUpdater => {
+  const mod = require("electron-updater") as { autoUpdater: AppUpdater };
+  return mod.autoUpdater;
 };
 
 const toRelease = (info: {
@@ -73,30 +79,31 @@ export const makeMacUpdateProvider = (options: {
       if (started) return;
       started = true;
 
-      autoUpdater.autoDownload = true;
-      autoUpdater.autoInstallOnAppQuit = false;
-      autoUpdater.allowDowngrade = false;
+      const updater = autoUpdater();
+      updater.autoDownload = true;
+      updater.autoInstallOnAppQuit = false;
+      updater.allowDowngrade = false;
       // Disable electron-updater's own full-changelog logger noise in production.
-      autoUpdater.logger = null;
+      updater.logger = null;
 
       if (options.isPackaged) {
         const feed = macArm64UpdateFeed();
-        autoUpdater.setFeedURL({
+        updater.setFeedURL({
           provider: feed.provider,
           url: feed.url,
         });
       }
 
-      autoUpdater.on("checking-for-update", () => {
+      updater.on("checking-for-update", () => {
         emit({ _tag: "checking" });
       });
-      autoUpdater.on("update-available", (info) => {
+      updater.on("update-available", (info) => {
         emit({ _tag: "available", release: toRelease(info) });
       });
-      autoUpdater.on("update-not-available", () => {
+      updater.on("update-not-available", () => {
         emit({ _tag: "not-available" });
       });
-      autoUpdater.on("download-progress", (progress) => {
+      updater.on("download-progress", (progress) => {
         emit({
           _tag: "progress",
           progress: {
@@ -107,14 +114,14 @@ export const makeMacUpdateProvider = (options: {
           },
         });
       });
-      autoUpdater.on("update-downloaded", (event) => {
+      updater.on("update-downloaded", (event) => {
         emit({
           _tag: "downloaded",
           release: toRelease(event),
           downloadedFile: event.downloadedFile,
         });
       });
-      autoUpdater.on("error", (error) => {
+      updater.on("error", (error) => {
         emit({
           _tag: "error",
           message: error instanceof Error ? error.message : String(error),
@@ -134,11 +141,11 @@ export const makeMacUpdateProvider = (options: {
         });
         return;
       }
-      await autoUpdater.checkForUpdates();
+      await autoUpdater().checkForUpdates();
     },
     quitAndInstall: () => {
       // Explicit operator install only — never force-restart on ordinary quit.
-      autoUpdater.quitAndInstall(false, true);
+      autoUpdater().quitAndInstall(false, true);
     },
   };
 };
