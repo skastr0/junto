@@ -1339,7 +1339,14 @@ html[data-surface-motion="paused"] *::after {
   white-space: nowrap;
 }
 
-.agent-cascade { display: flex; gap: 3px; }
+/* Horizontal padding + negative margin expand the hover hit box toward the
+   parent palette so the pointer can cross the gap without closing the cascade. */
+.agent-cascade {
+  display: flex;
+  gap: 3px;
+  padding: 0 8px;
+  margin: 0 -8px;
+}
 .agent-cascade__column {
   width: 184px;
   max-height: 288px;

@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import {
@@ -73,6 +80,8 @@ export const actorHostChoicesFromEnrollment = (
     : [configured, ...enrolled];
 };
 
+type CascadeSide = "end" | "start";
+
 type CascadePosition =
   | { readonly top: number; readonly left: number; readonly flexDirection: "row" }
   | { readonly top: number; readonly right: number; readonly flexDirection: "row-reverse" };
@@ -80,13 +89,35 @@ type CascadePosition =
 const MENU_WIDTH = 184;
 const MENU_GAP = 3;
 const MENU_MAX_HEIGHT = 288;
+/** Edge margin so the cascade never kisses the viewport. */
+const VIEWPORT_PAD = 8;
+/**
+ * Max progressive columns for side selection (profile → model → effort).
+ * Side is chosen against this width once so opening a sub-column never flips
+ * the cascade under the pointer (right → left jump).
+ */
+const MAX_CASCADE_COLUMNS = 3;
 
-const positionFor = (anchor: HTMLElement, columnCount: number): CascadePosition => {
+const cascadeWidth = (columnCount: number): number =>
+  columnCount * MENU_WIDTH + Math.max(0, columnCount - 1) * MENU_GAP;
+
+/** Prefer the end (right of LTR anchor). Only flip when max width will not fit. */
+const sideFor = (anchor: HTMLElement, reserveColumns: number): CascadeSide => {
   const rect = anchor.getBoundingClientRect();
-  const width = columnCount * MENU_WIDTH + Math.max(0, columnCount - 1) * MENU_GAP;
-  const roomRight = window.innerWidth - rect.right - 8;
-  const top = Math.max(8, Math.min(rect.top - 5, window.innerHeight - MENU_MAX_HEIGHT - 8));
-  if (roomRight >= width) {
+  const roomEnd = window.innerWidth - rect.right - VIEWPORT_PAD;
+  return roomEnd >= cascadeWidth(reserveColumns) ? "end" : "start";
+};
+
+const positionFor = (
+  anchor: HTMLElement,
+  side: CascadeSide,
+): CascadePosition => {
+  const rect = anchor.getBoundingClientRect();
+  const top = Math.max(
+    VIEWPORT_PAD,
+    Math.min(rect.top - 5, window.innerHeight - MENU_MAX_HEIGHT - VIEWPORT_PAD),
+  );
+  if (side === "end") {
     return { top, left: rect.right + MENU_GAP, flexDirection: "row" };
   }
   return {
@@ -167,7 +198,13 @@ export function AgentCascadeMenu({
   const [enumeratedEfforts, setEnumeratedEfforts] = useState<readonly string[]>([]);
   const [activeProfile, setActiveProfile] = useState<ManagedTerminalProfileOption | null>(null);
   const [activeModel, setActiveModel] = useState<ManagedTerminalModelOption | null>(null);
-  const [position, setPosition] = useState<CascadePosition>(() => positionFor(anchor, 1));
+  // Lock open-side once so growing sub-columns never re-anchor under the cursor.
+  const sideRef = useRef<CascadeSide | null>(null);
+  const [position, setPosition] = useState<CascadePosition>(() => {
+    const side = sideFor(anchor, MAX_CASCADE_COLUMNS);
+    sideRef.current = side;
+    return positionFor(anchor, side);
+  });
 
   useEffect(() => {
     let live = true;
@@ -210,21 +247,23 @@ export function AgentCascadeMenu({
   const showModelColumn =
     harness !== "hermes" || (activeProfile !== null && (models === null || models.length > 0));
   const showEffortColumn = activeModel !== null && efforts.length > 0;
-  const columnCount =
-    1 +
-    Number(showModelColumn && harness === "hermes") +
-    Number(showEffortColumn);
 
   useLayoutEffect(() => {
-    const update = () => setPosition(positionFor(anchor, columnCount));
-    update();
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
-    return () => {
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
+    const update = (rechooseSide: boolean) => {
+      if (rechooseSide || sideRef.current === null) {
+        sideRef.current = sideFor(anchor, MAX_CASCADE_COLUMNS);
+      }
+      setPosition(positionFor(anchor, sideRef.current));
     };
-  }, [anchor, columnCount]);
+    update(false);
+    const onResize = () => update(true);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onResize, true);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onResize, true);
+    };
+  }, [anchor]);
 
   const profileChoices = profiles ?? [];
   // Hermes: pin the profile's configured model to the top of the second column
