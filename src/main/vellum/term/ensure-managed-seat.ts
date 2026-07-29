@@ -17,6 +17,29 @@ export type ManagedSeatRuntimeAuthority = {
   readonly hostId: string;
 };
 
+export type AutomaticManagedSeatDisposition =
+  | "create-initial-generation"
+  | "reuse-live-generation"
+  | "require-explicit-restart";
+
+/**
+ * Automatic factory operation owns first start and prompt injection, not
+ * process supervision. An exited generation is durable negative evidence:
+ * replacing it on every kernel repair cycle can turn a harness failure (or an
+ * operator kill) into an unbounded crash loop.
+ *
+ * The renderer's explicit terminal-open action remains the restart authority.
+ */
+export const automaticManagedSeatDisposition = (
+  status: "starting" | "running" | "exited" | "missing" | undefined,
+): AutomaticManagedSeatDisposition => {
+  if (status === undefined) return "create-initial-generation";
+  if (status === "starting" || status === "running") {
+    return "reuse-live-generation";
+  }
+  return "require-explicit-restart";
+};
+
 /**
  * Prove that a compiled actor reference names this installation's executable
  * seat before any host process is inspected or created.
@@ -59,7 +82,9 @@ export const ensureManagedSeatRunning = (
   if (surface?._tag !== "managedAgent") return false;
 
   const live = termPlane.host.get(surface.bindingId);
-  if (live?.status === "running" || live?.status === "starting") return true;
+  const disposition = automaticManagedSeatDisposition(live?.status);
+  if (disposition === "reuse-live-generation") return true;
+  if (disposition === "require-explicit-restart") return false;
 
   const planned = launchForManagedSpawn({
     doc,
