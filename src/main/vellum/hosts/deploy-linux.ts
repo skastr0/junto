@@ -53,10 +53,10 @@ import {
   oneShotWithStdin,
 } from "../ssh/program";
 import {
+  compileLinuxFirstInstall,
   compileLinuxReleaseBridge,
   compileLinuxRemotePreflight,
   compileLinuxRemotePreflightSource,
-  compileLinuxFirstInstall,
 } from "../ssh/remote-plan";
 import type { SshLease } from "../ssh/service";
 import {
@@ -93,7 +93,7 @@ const MAX_PROTOCOL_LINE_BYTES = 16 * 1024;
 const MAX_SSH_WRITE_BYTES = 1024 * 1024;
 
 const LINUX_PREFLIGHT =
-  /^LINUX_REMOTE_PREFLIGHT_V4 disk=([1-9][0-9]{0,19}) current=(none|[0-9]+\.[0-9]+\.[0-9]+) enabled=([01]) active=([01]) linger=([01]) helper=([01]) bridge=([01]) installerState=([01]) ready=([01]) generation=(none|[0-9a-f]{32}) uid=([1-9][0-9]{0,9}) gid=([1-9][0-9]{0,9}) host=([a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?) libc=([0-9]+\.[0-9]+) unit=(not-found|present)$/u;
+  /^LINUX_REMOTE_PREFLIGHT_V4 disk=([1-9][0-9]{0,19}) current=(none|[0-9]+\.[0-9]+\.[0-9]+) enabled=([01]) active=([01]) linger=([01]) helper=([01]) bridge=([01]) installerState=([01]) passwordlessSudo=([01]) ready=([01]) generation=(none|[0-9a-f]{32}) uid=([1-9][0-9]{0,9}) gid=([1-9][0-9]{0,9}) host=([a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?) libc=([0-9]+\.[0-9]+) unit=(not-found|present)$/u;
 const LINUX_PREFLIGHT_REFUSED =
   /^LINUX_REMOTE_PREFLIGHT_REFUSED_V4 reason=(os|release|architecture|libc|commands|systemd-user|disk|package|version|linger|identity)$/u;
 
@@ -120,6 +120,8 @@ export type LinuxRemotePreflightEvidence =
       readonly bridgeInstalled: boolean;
       /** True when /var/lib/vellum-release-installer exists (blocks first-install apt). */
       readonly installerStatePresent: boolean;
+      /** True when SSH user can `sudo -n` (Box fleet and similar). */
+      readonly passwordlessSudo: boolean;
       readonly currentReady: boolean;
       readonly generation?: string;
       readonly uid: number;
@@ -165,12 +167,12 @@ export const decodeLinuxRemotePreflight = (
   const match = LINUX_PREFLIGHT.exec(line);
   if (match === null) return { ok: false, reason: "malformed" };
   const availableBytes = Number(match[1]);
-  const uid = Number(match[11]);
-  const gid = Number(match[12]);
-  const currentReady = match[9] === "1";
+  const uid = Number(match[12]);
+  const gid = Number(match[13]);
+  const currentReady = match[10] === "1";
   const installedVersion =
     match[2] === "none" ? undefined : match[2];
-  const unitState = match[15] as "not-found" | "present";
+  const unitState = match[16] as "not-found" | "present";
   if (
     !Number.isSafeInteger(availableBytes) ||
     availableBytes <= 0 ||
@@ -178,7 +180,7 @@ export const decodeLinuxRemotePreflight = (
     uid <= 0 ||
     !Number.isSafeInteger(gid) ||
     gid <= 0 ||
-    !HOST.test(match[13] ?? "") ||
+    !HOST.test(match[14] ?? "") ||
     (installedVersion === undefined && unitState !== "not-found") ||
     (installedVersion !== undefined && unitState !== "present") ||
     (installedVersion === undefined &&
@@ -188,8 +190,8 @@ export const decodeLinuxRemotePreflight = (
     (currentReady &&
       (match[3] !== "1" ||
         match[4] !== "1" ||
-        match[10] === "none")) ||
-    (!currentReady && match[10] !== "none")
+        match[11] === "none")) ||
+    (!currentReady && match[11] !== "none")
   ) {
     return { ok: false, reason: "malformed" };
   }
@@ -203,12 +205,13 @@ export const decodeLinuxRemotePreflight = (
     helperInstalled: match[6] === "1",
     bridgeInstalled: match[7] === "1",
     installerStatePresent: match[8] === "1",
+    passwordlessSudo: match[9] === "1",
     currentReady,
-    ...(match[10] === "none" ? {} : { generation: match[10] }),
+    ...(match[11] === "none" ? {} : { generation: match[11] }),
     uid,
     gid,
-    host: match[13]!,
-    libcVersion: match[14]!,
+    host: match[14]!,
+    libcVersion: match[15]!,
     unitState,
   });
 };
@@ -607,6 +610,9 @@ const preflightInput = (
   >,
 ): string =>
   `${candidate.bundleBytes}\n${candidate.version}\n${candidate.sha256}\n${candidate.manifestSha256}\n`;
+
+/** Empty password line for sudo -S / first-install when elevation is passwordless. */
+const PASSWORDLESS_SUDO_LINE = Buffer.from("\n");
 
 const runPreflight = (
   input: RemoteDeploymentProviderInput,
@@ -1910,12 +1916,12 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             "linux-administrator-password"
             ? providerInput.authorization.credential
             : undefined;
-        if (
-          !linuxAdministratorCredentialMatches(
-            credential,
-            attempt.binding,
-          )
-        ) {
+        const passwordlessSudo = preflight.passwordlessSudo;
+        const hasPassword = linuxAdministratorCredentialMatches(
+          credential,
+          attempt.binding,
+        );
+        if (!passwordlessSudo && !hasPassword) {
           const authorizationRequest = {
             kind: "linux-administrator-password" as const,
             ...attempt.binding,
@@ -1925,11 +1931,14 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             ...deployFailure(
               providerInput,
               stages,
-              "fresh administrator authorization is required for this exact Linux target and signed release",
+              "this host needs sudo for package install — passwordless sudo failed; enter the administrator password, or bootstrap manually (see recovery)",
               {
                 code: "auth_required",
                 disposition: "not-started",
                 version: admission.version,
+                recoveryAction: {
+                  kind: "bootstrap-linux-release-installer",
+                },
               },
             ),
             authorizationRequest,
@@ -1938,31 +1947,36 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
         appendStage(
           stages,
           firstInstallHost
-            ? `preflight ok first-install host=${preflight.host}`
-            : `preflight ok current=${preflight.installedVersion ?? "none"} helper=exact bridge=exact`,
+            ? `preflight ok first-install host=${preflight.host} passwordlessSudo=${passwordlessSudo ? "yes" : "no"}`
+            : `preflight ok current=${preflight.installedVersion ?? "none"} helper=exact bridge=exact passwordlessSudo=${passwordlessSudo ? "yes" : "no"}`,
         );
 
-        // Take password once. On first-install, writeSensitive zeros the
-        // first-install copy; adopt uses a retained second copy.
-        const passwordTaken = yield* protocolStep(() =>
-          takeLinuxAdministratorPasswordLine(
-            credential!,
-            attempt.binding,
-          ),
-        ).pipe(Effect.either);
-        if (passwordTaken._tag === "Left") {
-          return deployFailure(
-            providerInput,
-            stages,
-            "Linux administrator authorization is unavailable",
-            {
-              code: "auth_required",
-              disposition: "not-started",
-              version: admission.version,
-            },
-          );
+        // Prefer passwordless (Box). Else take the one-shot password.
+        // First-install may zero its copy; adopt keeps a retained copy.
+        let passwordLine: Buffer;
+        if (passwordlessSudo) {
+          passwordLine = Buffer.from(PASSWORDLESS_SUDO_LINE);
+        } else {
+          const passwordTaken = yield* protocolStep(() =>
+            takeLinuxAdministratorPasswordLine(
+              credential!,
+              attempt.binding,
+            ),
+          ).pipe(Effect.either);
+          if (passwordTaken._tag === "Left") {
+            return deployFailure(
+              providerInput,
+              stages,
+              "Linux administrator authorization is unavailable",
+              {
+                code: "auth_required",
+                disposition: "not-started",
+                version: admission.version,
+              },
+            );
+          }
+          passwordLine = passwordTaken.right;
         }
-        const passwordLine = passwordTaken.right;
         const adoptPasswordLine = firstInstallHost
           ? Buffer.from(passwordLine)
           : passwordLine;

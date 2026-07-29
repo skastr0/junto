@@ -130,6 +130,7 @@ const preflight = (input: {
   readonly helper?: 0 | 1;
   readonly bridge?: 0 | 1;
   readonly installerState?: 0 | 1;
+  readonly passwordlessSudo?: 0 | 1;
   readonly ready?: 0 | 1;
   readonly unit?: "not-found" | "present";
   readonly generation?: string;
@@ -143,6 +144,8 @@ const preflight = (input: {
   const installerState =
     input.installerState ??
     (helper === 0 && bridge === 0 && !installed ? 0 : 1);
+  // Default: password required unless test opts into Box-like passwordless.
+  const passwordlessSudo = input.passwordlessSudo ?? 0;
   return [
     "LINUX_REMOTE_PREFLIGHT_V4",
     "disk=9999999999",
@@ -153,6 +156,7 @@ const preflight = (input: {
     `helper=${helper}`,
     `bridge=${bridge}`,
     `installerState=${installerState}`,
+    `passwordlessSudo=${passwordlessSudo}`,
     `ready=${ready}`,
     `generation=${input.generation ?? (ready ? generation : "none")}`,
     "uid=1000",
@@ -852,6 +856,7 @@ describe("Linux Remote privileged deployment", () => {
       helperInstalled: true,
       bridgeInstalled: true,
       installerStatePresent: true,
+      passwordlessSudo: false,
       currentReady: false,
       uid: 1000,
       gid: 1000,
@@ -900,7 +905,9 @@ describe("Linux Remote privileged deployment", () => {
     expect(script).toContain('"0:0:755:1"');
     expect(script).toContain("PACKAGE_VERIFY_OK=1");
     expect(script).toContain('[ "$PACKAGE_VERIFY_OK" = 1 ]');
-    expect(script).not.toMatch(/sudo\s+-n/u);
+    // Preflight probes passwordless elevation (Box); does not run package mutation.
+    expect(script).toMatch(/sudo\s+-n\s+true/u);
+    expect(script).toContain("passwordlessSudo=");
     expect(script).not.toContain("package-cache");
     expect(script).not.toContain("mktemp");
   });
@@ -1437,9 +1444,14 @@ describe("Linux Remote privileged deployment", () => {
     expect(postCommitHarness.commit()).toBeDefined();
   });
 
-  it("asks for authorization on a clean first-install host without package custody", async () => {
+  it("asks for authorization on a clean first-install host without passwordless sudo", async () => {
     const harness = makeTranscriptHarness(
-      preflight({ helper: 0, bridge: 0, installerState: 0 }),
+      preflight({
+        helper: 0,
+        bridge: 0,
+        installerState: 0,
+        passwordlessSudo: 0,
+      }),
     );
     const route = heldRouteCut();
     const provider = makeProvider(route.authority);
@@ -1460,6 +1472,27 @@ describe("Linux Remote privileged deployment", () => {
     });
     expect(harness.transactCalls).toHaveLength(0);
     expect(route.acquire).not.toHaveBeenCalled();
+  });
+
+  it("skips password UI when preflight reports passwordless sudo (Box)", async () => {
+    const harness = makeTranscriptHarness(
+      preflight({ passwordlessSudo: 1 }),
+    );
+    const route = heldRouteCut();
+    const provider = makeProvider(route.authority);
+
+    // No credential — Box path must still start the release session.
+    const receipt = await Effect.runPromise(
+      provider.deploy(providerInput(harness.ssh)),
+    );
+
+    expect(receipt.authorizationRequest).toBeUndefined();
+    expect(harness.transactCalls.length).toBeGreaterThan(0);
+    expect(route.acquire).toHaveBeenCalled();
+    // Empty line for sudo -S / passwordless first-install arm.
+    expect(
+      harness.sensitiveWrites.some((bytes) => bytes.equals(Buffer.from("\n"))),
+    ).toBe(true);
   });
 
   it("refuses half-state hosts that are not first-install eligible", async () => {

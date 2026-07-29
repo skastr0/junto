@@ -3,11 +3,18 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useRef,
   useState,
   type CSSProperties,
+  type FormEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { Command, WandSparkles, X } from "lucide-react";
-import type { DiscoveredPeer } from "@shared/ipc";
+import type {
+  DiscoveredPeer,
+  HostsDeployRemoteAuthorizationRequest,
+  HostsDeployRemoteResult,
+} from "@shared/ipc";
 import type { HostsDeployCapabilities } from "@shared/deploy-capabilities";
 import type { RemoteHost } from "@shared/remote-hosts";
 import {
@@ -17,6 +24,7 @@ import {
   REMOTE_UPDATE_IDLE_PRODUCT_COPY,
   shouldAutoWalkRemoteUpdate,
 } from "@shared/remote-update-status";
+import { deployRecoveryGuidance } from "../../lib/deploy-recovery";
 import { setFleetAppearance } from "../../lib/fleet-appearance";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
 import { FLEET_COLORS, hostColor } from "../../lib/fleet-layout";
@@ -33,6 +41,7 @@ import { state$ } from "../../lib/state";
 import { HUE, withAlpha } from "../../lib/theme";
 import { updateState$ } from "../../lib/update-state";
 import { getVellumApi } from "../../lib/vellum-api";
+import { isValidLinuxAdministratorPassword } from "../SettingsPanel";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
 
 export type FleetSelection =
@@ -125,6 +134,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   const [actionLine, setActionLine] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [caps, setCaps] = useState<HostsDeployCapabilities | null>(null);
+  const [authorizationRequest, setAuthorizationRequest] = useState<
+    HostsDeployRemoteAuthorizationRequest | undefined
+  >(undefined);
+  const [authorizationPassword, setAuthorizationPassword] = useState("");
+  const [authorizationError, setAuthorizationError] = useState<
+    string | undefined
+  >(undefined);
   const reach = reachabilityLine(probe);
   const probing = probe?.status === "probing";
   const resolvedModel = resolveFleetMachineModel(host);
@@ -186,6 +202,34 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     setFleetAppearance(host, appearance, setActionLine);
   };
 
+  const presentDeployResult = (result: HostsDeployRemoteResult) => {
+    if (result.authorizationRequest) {
+      setAuthorizationRequest(result.authorizationRequest);
+      setAuthorizationPassword("");
+      setAuthorizationError(undefined);
+      const recovery = deployRecoveryGuidance(result.recoveryAction);
+      setActionLine(
+        [
+          result.detail || "Administrator password required for package install.",
+          recovery,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+      return;
+    }
+    setAuthorizationRequest(undefined);
+    setAuthorizationPassword("");
+    setAuthorizationError(undefined);
+    const recovery = deployRecoveryGuidance(result.recoveryAction);
+    const stages = result.stages?.length
+      ? `\n${result.stages.map((stage) => `· ${stage}`).join("\n")}`
+      : "";
+    setActionLine(
+      `${result.detail || (result.ok ? "Remote deployed and ready" : (result.message ?? "deploy failed"))}${recovery ? `\n${recovery}` : ""}${stages}`,
+    );
+  };
+
   const runAction = async (kind: "configure" | "deploy" | "remove") => {
     const api = getVellumApi();
     if (!api) return;
@@ -198,11 +242,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         setActionLine(result.detail || (result.ok ? "configured as a Remote" : (result.message ?? "configure failed")));
       } else if (kind === "deploy") {
         const result = await api.hostsDeployRemote({ id: host.id });
-        if (result.authorizationRequest) {
-          setActionLine("Administrator authorization required — finish the deploy from Settings → Hosts.");
-        } else {
-          setActionLine(result.detail || (result.ok ? "Remote deployed and ready" : (result.message ?? "deploy failed")));
-        }
+        presentDeployResult(result);
       } else {
         const result = await api.hostsRemove(host.id);
         if (result.ok) {
@@ -216,6 +256,40 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     } finally {
       setActionBusy("");
       setConfirmRemove(false);
+    }
+  };
+
+  const authorizeDeployment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const request = authorizationRequest;
+    const password = authorizationPassword;
+    setAuthorizationPassword("");
+    if (!request) return;
+    if (!isValidLinuxAdministratorPassword(password)) {
+      setAuthorizationError("Enter an administrator password without line breaks.");
+      return;
+    }
+    const api = getVellumApi();
+    if (!api?.hostsDeployRemote) {
+      setAuthorizationError("Deploy Remote API unavailable.");
+      return;
+    }
+    setActionBusy("deploy");
+    setAuthorizationError(undefined);
+    setActionLine("deploying Vellum Remote with administrator password…");
+    try {
+      const result = await api.hostsDeployRemote({
+        id: request.hostId,
+        authorization: { request, password },
+      });
+      presentDeployResult(result);
+    } catch (error) {
+      setAuthorizationRequest(undefined);
+      setActionLine(
+        error instanceof Error ? error.message : "Administrator authorization failed.",
+      );
+    } finally {
+      setActionBusy("");
     }
   };
 
@@ -468,12 +542,140 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           )}
         </div>
         {actionLine ? (
-          <p className="fleet-detail__note" role="status">
+          <p className="fleet-detail__note" role="status" style={{ whiteSpace: "pre-wrap" }}>
             {actionLine}
           </p>
         ) : null}
       </section>
+      {authorizationRequest ? (
+        <FleetLinuxAdminPasswordDialog
+          request={authorizationRequest}
+          password={authorizationPassword}
+          error={authorizationError}
+          busy={actionBusy === "deploy"}
+          onPasswordChange={setAuthorizationPassword}
+          onCancel={() => {
+            setAuthorizationRequest(undefined);
+            setAuthorizationPassword("");
+            setAuthorizationError(undefined);
+          }}
+          onSubmit={authorizeDeployment}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function FleetLinuxAdminPasswordDialog({
+  request,
+  password,
+  error,
+  busy,
+  onPasswordChange,
+  onCancel,
+  onSubmit,
+}: {
+  readonly request: HostsDeployRemoteAuthorizationRequest;
+  readonly password: string;
+  readonly error?: string;
+  readonly busy: boolean;
+  readonly onPasswordChange: (password: string) => void;
+  readonly onCancel: () => void;
+  readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const passwordInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    passwordInput.current?.focus();
+  }, [request]);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!busy) onCancel();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [busy, onCancel]);
+  return createPortal(
+    <div className="settings-authorization-surface" role="presentation">
+      <button
+        type="button"
+        className="settings-authorization-surface__backdrop"
+        aria-label="Cancel administrator authorization"
+        tabIndex={-1}
+        disabled={busy}
+        onClick={onCancel}
+      />
+      <form
+        className="settings-authorization-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fleet-linux-authorization-title"
+        onSubmit={onSubmit}
+      >
+        <p className="settings-authorization-dialog__eyebrow">Package install</p>
+        <h3 id="fleet-linux-authorization-title">Administrator password</h3>
+        <p className="settings-authorization-dialog__copy">
+          Passwordless sudo failed on this host. Enter the Linux administrator
+          password for one install attempt, or cancel and bootstrap the .deb
+          manually (instructions stay in the fleet panel).
+        </p>
+        <dl className="settings-authorization-facts">
+          <div>
+            <dt>Host</dt>
+            <dd>{request.hostId}</dd>
+          </div>
+          <div>
+            <dt>SSH</dt>
+            <dd>{request.endpoint}</dd>
+          </div>
+          <div>
+            <dt>Version</dt>
+            <dd>{request.version}</dd>
+          </div>
+        </dl>
+        <label
+          className="settings-authorization-password"
+          htmlFor="fleet-linux-administrator-password"
+        >
+          Administrator password
+          <input
+            ref={passwordInput}
+            id="fleet-linux-administrator-password"
+            type="password"
+            value={password}
+            maxLength={256}
+            autoComplete="off"
+            disabled={busy}
+            onChange={(event) => onPasswordChange(event.target.value)}
+          />
+        </label>
+        {error ? (
+          <p className="settings-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="settings-authorization-dialog__actions">
+          <button
+            type="button"
+            className="settings-panel__ghost"
+            disabled={busy}
+            onClick={onCancel}
+          >
+            cancel
+          </button>
+          <button
+            type="submit"
+            className="settings-panel__ghost settings-authorization-dialog__submit"
+            disabled={busy}
+          >
+            {busy ? "deploying…" : "deploy with password"}
+          </button>
+        </div>
+      </form>
+    </div>,
+    document.body,
   );
 }
 

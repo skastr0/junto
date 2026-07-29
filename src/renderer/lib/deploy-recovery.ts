@@ -14,7 +14,14 @@ export const deployRecoveryGuidance = (
     case "restore-terminal-live-work-observation":
       return "Restore terminal live-work observation through the deployment runbook or support, then retry deployment.";
     case "bootstrap-linux-release-installer":
-      return "The Remote is not a clean first-install host and lacks package-owned release installer custody. Repair the host (or wipe leftover installer state on a true blank machine), then retry Deploy.";
+      return [
+        "This host cannot elevate without a password (sudo -n failed).",
+        "Option A: enter the Linux administrator password when prompted.",
+        "Option B (manual): copy the signed .deb from ~/.vellum/releases/linux-x64-glibc/current/ to the host and run:",
+        "  sudo apt-get install -y './Vellum Command-*-x64-linux.deb'",
+        "then retry Deploy.",
+        "Box fleet users should already have passwordless sudo — if this appears on a Box, SSH access or image policy is wrong.",
+      ].join("\n");
     case "repair-linux-release-transaction":
       return "Repair the Linux release transaction through the deployment runbook or support, then retry deployment.";
     case "retry-linux-release-install":

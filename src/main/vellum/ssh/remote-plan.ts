@@ -200,6 +200,11 @@ INSTALLER_STATE_PRESENT=0
 if [ -e "${INSTALLER_STATE}" ] || [ -L "${INSTALLER_STATE}" ]; then
   INSTALLER_STATE_PRESENT=1
 fi
+# Passwordless elevation (e.g. Box fleet user). Prefer this over a typed password.
+PASSWORDLESS_SUDO=0
+if /usr/bin/sudo -n true >/dev/null 2>&1; then
+  PASSWORDLESS_SUDO=1
+fi
 CURRENT_READY=0
 CURRENT_GENERATION=none
 if [ "$ENABLED" = 1 ] && [ "$ACTIVE" = 1 ]; then
@@ -231,7 +236,7 @@ if [ "$ENABLED" = 1 ] && [ "$ACTIVE" = 1 ]; then
     CURRENT_GENERATION="$INVOCATION"
   fi
 fi
-echo "LINUX_REMOTE_PREFLIGHT_V4 disk=$AVAILABLE_BYTES current=$CURRENT_VERSION enabled=$ENABLED active=$ACTIVE linger=$LINGER helper=$HELPER_READY bridge=$BRIDGE_READY installerState=$INSTALLER_STATE_PRESENT ready=$CURRENT_READY generation=$CURRENT_GENERATION uid=$UID_VALUE gid=$GID_VALUE host=$HOST_VALUE libc=$LIBC_VERSION unit=$UNIT_STATE"
+echo "LINUX_REMOTE_PREFLIGHT_V4 disk=$AVAILABLE_BYTES current=$CURRENT_VERSION enabled=$ENABLED active=$ACTIVE linger=$LINGER helper=$HELPER_READY bridge=$BRIDGE_READY installerState=$INSTALLER_STATE_PRESENT passwordlessSudo=$PASSWORDLESS_SUDO ready=$CURRENT_READY generation=$CURRENT_GENERATION uid=$UID_VALUE gid=$GID_VALUE host=$HOST_VALUE libc=$LIBC_VERSION unit=$UNIT_STATE"
 `.trim();
 };
 
@@ -476,6 +481,7 @@ ACTUAL_BYTES=$(/usr/bin/stat -c '%s' "$OWNER_DEB" 2>/dev/null || true)
 ACTUAL_SHA=$(/usr/bin/sha256sum -- "$OWNER_DEB" | /usr/bin/awk '{ print $1 }')
 [ "$ACTUAL_SHA" = "$DEB_SHA" ] || { /bin/rm -f -- "$OWNER_DEB"; fail hash; }
 echo "LINUX_FIRST_INSTALL_ARMED_V1 version=$VERSION debSha256=$DEB_SHA debBytes=$DEB_BYTES"
+# One line: empty (passwordless / sudo -n path) or administrator password.
 IFS= read -r PASSWORD_LINE || { /bin/rm -f -- "$OWNER_DEB"; auth_failed; }
 export DEBIAN_FRONTEND=noninteractive
 ROOT_DEB="${ROOT_STAGE}/Vellum-Command.deb"
@@ -503,8 +509,14 @@ echo install-ok
 EOF
 )
 set +e
-SUDO_OUT=$(printf '%s\n' "$PASSWORD_LINE" | /usr/bin/sudo -S -k -p '' /bin/sh -c "$SUDO_SCRIPT" 2>/dev/null)
-SUDO_STATUS=$?
+if [ -z "$PASSWORD_LINE" ]; then
+  # Passwordless sudo (e.g. Box fleet user): never prompt.
+  SUDO_OUT=$(/usr/bin/sudo -n /bin/sh -c "$SUDO_SCRIPT" 2>/dev/null)
+  SUDO_STATUS=$?
+else
+  SUDO_OUT=$(printf '%s\n' "$PASSWORD_LINE" | /usr/bin/sudo -S -k -p '' /bin/sh -c "$SUDO_SCRIPT" 2>/dev/null)
+  SUDO_STATUS=$?
+fi
 set -e
 PASSWORD_LINE=""
 /bin/rm -f -- "$OWNER_DEB" || true
