@@ -24,7 +24,7 @@ export const INTERRUPT_BYTE = "\u0003";
  */
 export const MIN_IDLE_INTERRUPT_GAP_MS = 1_000;
 
-/** Stall: no turn-start after a prompt write → retry once, then attention. */
+/** Bounded wait for turn-start acknowledgement after a prompt write. */
 export const DEFAULT_PROMPT_STALL_MS = 5_000;
 
 /** Wrap text in a bracketed-paste envelope (single write payload). */

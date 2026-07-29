@@ -1,7 +1,7 @@
 /**
  * Managed-terminal drive — state-gated typing transport for agent seats.
  *
- * Owns: paste+CR recipe, idle gate, mid-turn queue, interrupt spacing, stall retry.
+ * Owns: paste+CR recipe, idle gate, mid-turn queue, interrupt spacing, turn-start acknowledgement.
  * Does not own: PTY leases, seat state machine (injected lookups).
  *
  * Fail-closed: not idle → bounded queue or immediate refusal by caller policy.
@@ -81,6 +81,13 @@ type QueuedPrompt = {
   timer: ReturnType<typeof setTimeout> | undefined;
 };
 
+type PendingTurn = {
+  readonly generation: number;
+  readonly bindingGeneration: number;
+  readonly resolve: (ok: boolean) => void;
+  timer: ReturnType<typeof setTimeout> | undefined;
+};
+
 export type ManagedTerminalDriveOptions = {
   readonly write: TerminalWriter;
   readonly isSeatIdle: SeatIdleLookup;
@@ -91,8 +98,10 @@ export type ManagedTerminalDriveOptions = {
   readonly idleInterruptGapMs?: number;
   readonly queueTimeoutMs?: number;
   /**
-   * When true (default), after paste+CR arm a stall watch: no onTurnStart
-   * within stallTimeoutMs → retry once → attention.
+   * When true (default), a successful paste+CR is accepted only after
+   * onTurnStart. Missing acknowledgement resolves false and raises attention;
+   * the drive never retries physical input because a late retry could land
+   * mid-turn.
    */
   readonly stallWatch?: boolean;
 };
@@ -111,9 +120,8 @@ export class ManagedTerminalDrive {
   private readonly queues = new Map<string, QueuedPrompt[]>();
   private readonly writing = new Set<string>();
   private readonly lastIdleInterruptAt = new Map<string, number>();
-  private readonly stallTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly stallRetried = new Set<string>();
-  private readonly awaitingTurn = new Set<string>();
+  private readonly pendingTurns = new Map<string, PendingTurn>();
+  private readonly turnStartCounts = new Map<string, number>();
   /** bindingId → earliest write time (Grok post-spawn, etc.). */
   private readonly readyAfter = new Map<string, number>();
   /** Per-binding generation cut: terminal epoch changes invalidate old writes. */
@@ -186,7 +194,9 @@ export class ManagedTerminalDrive {
 
   /**
    * Deliver one submitted prompt when idle. Queues when the seat is busy;
-   * promise resolves when the write lands, fails, or queue times out.
+   * With stall watching enabled, the promise resolves true only after an
+   * explicit turn-start acknowledgement. It resolves false on write failure,
+   * acknowledgement timeout, generation change, shutdown, or queue timeout.
    * Returns false immediately for not-ready / clipboard-unsafe / write fail.
    */
   async writePrompt(
@@ -208,7 +218,9 @@ export class ManagedTerminalDrive {
 
     if (
       !queueIfBusy &&
-      (!this.isSeatIdle(bindingId) || this.writing.has(bindingId))
+      (!this.isSeatIdle(bindingId) ||
+        this.writing.has(bindingId) ||
+        this.pendingTurns.has(bindingId))
     ) {
       return false;
     }
@@ -246,7 +258,11 @@ export class ManagedTerminalDrive {
       }
     }
 
-    if (!this.isSeatIdle(bindingId) || this.writing.has(bindingId)) {
+    if (
+      !this.isSeatIdle(bindingId) ||
+      this.writing.has(bindingId) ||
+      this.pendingTurns.has(bindingId)
+    ) {
       if (!queueIfBusy) return false;
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
       return new Promise<boolean>((resolve) => {
@@ -343,18 +359,17 @@ export class ManagedTerminalDrive {
    */
   onTurnStart(bindingId: string): void {
     if (this.suspended) return;
-    this.awaitingTurn.delete(bindingId);
-    this.stallRetried.delete(bindingId);
-    const timer = this.stallTimers.get(bindingId);
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      this.stallTimers.delete(bindingId);
-    }
+    this.turnStartCounts.set(
+      bindingId,
+      (this.turnStartCounts.get(bindingId) ?? 0) + 1,
+    );
+    this.resolvePendingTurn(bindingId, true);
   }
 
   private clearTransientState(): void {
-    for (const timer of this.stallTimers.values()) clearTimeout(timer);
-    this.stallTimers.clear();
+    for (const [bindingId] of this.pendingTurns) {
+      this.resolvePendingTurn(bindingId, false);
+    }
     for (const q of this.queues.values()) {
       for (const item of q) {
         if (item.timer !== undefined) clearTimeout(item.timer);
@@ -364,18 +379,13 @@ export class ManagedTerminalDrive {
     this.queues.clear();
     this.writing.clear();
     this.lastIdleInterruptAt.clear();
-    this.stallRetried.clear();
-    this.awaitingTurn.clear();
+    this.turnStartCounts.clear();
     this.readyAfter.clear();
     this.bindingGenerations.clear();
   }
 
   private clearBindingTransientState(bindingId: string): void {
-    const stallTimer = this.stallTimers.get(bindingId);
-    if (stallTimer !== undefined) {
-      clearTimeout(stallTimer);
-      this.stallTimers.delete(bindingId);
-    }
+    this.resolvePendingTurn(bindingId, false);
     const queue = this.queues.get(bindingId);
     if (queue !== undefined) {
       this.queues.delete(bindingId);
@@ -386,8 +396,7 @@ export class ManagedTerminalDrive {
     }
     this.writing.delete(bindingId);
     this.lastIdleInterruptAt.delete(bindingId);
-    this.stallRetried.delete(bindingId);
-    this.awaitingTurn.delete(bindingId);
+    this.turnStartCounts.delete(bindingId);
     this.readyAfter.delete(bindingId);
   }
 
@@ -407,7 +416,11 @@ export class ManagedTerminalDrive {
     const generation = this.lifecycleGeneration;
     const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) return;
-    if (!this.isSeatIdle(bindingId) || this.writing.has(bindingId)) return;
+    if (
+      !this.isSeatIdle(bindingId) ||
+      this.writing.has(bindingId) ||
+      this.pendingTurns.has(bindingId)
+    ) return;
     const q = this.queues.get(bindingId);
     if (!q || q.length === 0) return;
     const next = q.shift()!;
@@ -433,6 +446,7 @@ export class ManagedTerminalDrive {
     }
     this.writing.add(bindingId);
     try {
+      const turnStartCount = this.turnStartCounts.get(bindingId) ?? 0;
       const ok = await this.writePasteAndCr(
         bindingId,
         text,
@@ -447,9 +461,13 @@ export class ManagedTerminalDrive {
         return false;
       }
       if (this.stallWatch) {
-        this.armStallWatch(
+        // Observer delivery can race the CR writer's promise resolution.
+        // Preserve a turn-start seen anywhere during the physical sequence.
+        if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
+          return true;
+        }
+        return await this.awaitTurnStart(
           bindingId,
-          text,
           generation,
           bindingGeneration,
         );
@@ -480,49 +498,50 @@ export class ManagedTerminalDrive {
     return this.activeBinding(bindingId, generation, bindingGeneration);
   }
 
-  private armStallWatch(
+  private awaitTurnStart(
     bindingId: string,
-    text: string,
     generation: number,
     bindingGeneration: number,
-  ): void {
-    if (!this.activeBinding(bindingId, generation, bindingGeneration)) return;
-    const prior = this.stallTimers.get(bindingId);
-    if (prior !== undefined) clearTimeout(prior);
-    this.awaitingTurn.add(bindingId);
-    const timer = setTimeout(() => {
-      this.stallTimers.delete(bindingId);
-      if (!this.activeBinding(bindingId, generation, bindingGeneration)) return;
-      if (!this.awaitingTurn.has(bindingId)) return;
-      if (!this.stallRetried.has(bindingId)) {
-        this.stallRetried.add(bindingId);
-        void this.writePasteAndCr(
+  ): Promise<boolean> {
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return Promise.resolve(false);
+    }
+    return new Promise<boolean>((resolve) => {
+      const pending: PendingTurn = {
+        generation,
+        bindingGeneration,
+        resolve,
+        timer: undefined,
+      };
+      pending.timer = setTimeout(() => {
+        if (this.pendingTurns.get(bindingId) !== pending) return;
+        this.pendingTurns.delete(bindingId);
+        pending.timer = undefined;
+        if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+          resolve(false);
+          return;
+        }
+        this.onAttention?.(bindingId, "prompt-stalled");
+        resolve(false);
+      }, this.stallTimeoutMs);
+      pending.timer.unref?.();
+      this.pendingTurns.set(bindingId, pending);
+    });
+  }
+
+  private resolvePendingTurn(bindingId: string, ok: boolean): void {
+    const pending = this.pendingTurns.get(bindingId);
+    if (pending === undefined) return;
+    this.pendingTurns.delete(bindingId);
+    if (pending.timer !== undefined) clearTimeout(pending.timer);
+    pending.timer = undefined;
+    pending.resolve(
+      ok &&
+        this.activeBinding(
           bindingId,
-          text,
-          generation,
-          bindingGeneration,
-        ).then((ok) => {
-          if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
-            return;
-          }
-          if (!ok) {
-            this.onAttention?.(bindingId, "write-failed");
-            this.awaitingTurn.delete(bindingId);
-            return;
-          }
-          this.armStallWatch(
-            bindingId,
-            text,
-            generation,
-            bindingGeneration,
-          );
-        });
-        return;
-      }
-      this.awaitingTurn.delete(bindingId);
-      this.stallRetried.delete(bindingId);
-      this.onAttention?.(bindingId, "prompt-stalled");
-    }, this.stallTimeoutMs);
-    this.stallTimers.set(bindingId, timer);
+          pending.generation,
+          pending.bindingGeneration,
+        ),
+    );
   }
 }

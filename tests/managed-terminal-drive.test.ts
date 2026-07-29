@@ -258,7 +258,7 @@ describe("ManagedTerminalDrive", () => {
     ]);
   });
 
-  it("stall: no turn-start → retry once → attention", async () => {
+  it("stall: no turn-start → false + attention with one physical paste+CR maximum", async () => {
     vi.useFakeTimers();
     const attention: string[] = [];
     drive = makeDrive({
@@ -266,26 +266,27 @@ describe("ManagedTerminalDrive", () => {
       stallTimeoutMs: 5_000,
       onAttention: (_id, reason) => attention.push(reason),
     });
-    const ok = await drive.writePrompt("b1", "stalled");
-    expect(ok).toBe(true);
+    const result = drive.writePrompt("b1", "stalled");
+    let settled = false;
+    void result.then(() => {
+      settled = true;
+    });
+    await flushMicrotasks();
     expect(writes).toHaveLength(2); // paste + CR
+    expect(settled).toBe(false);
 
-    vi.advanceTimersByTime(5_000);
-    await flushMicrotasks();
-    // Retry once.
-    expect(writes).toHaveLength(4);
-    expect(attention).toEqual([]);
-
-    vi.advanceTimersByTime(5_000);
-    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(result).resolves.toBe(false);
     expect(attention).toEqual(["prompt-stalled"]);
-    // No third full write pair after attention.
-    expect(writes).toHaveLength(4);
+    expect(writes).toEqual([
+      { bindingId: "b1", data: encodeBracketedPaste("stalled") },
+      { bindingId: "b1", data: CR },
+    ]);
 
     vi.useRealTimers();
   });
 
-  it("stall cleared by onTurnStart — no retry", async () => {
+  it("turn-start is the receipt-facing acceptance acknowledgement", async () => {
     vi.useFakeTimers();
     const attention: string[] = [];
     drive = makeDrive({
@@ -293,8 +294,16 @@ describe("ManagedTerminalDrive", () => {
       stallTimeoutMs: 5_000,
       onAttention: (_id, reason) => attention.push(reason),
     });
-    await drive.writePrompt("b1", "ok");
+    const delivered = drive.writePrompt("b1", "ok");
+    let settled = false;
+    void delivered.then(() => {
+      settled = true;
+    });
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+
     drive.onTurnStart("b1");
+    await expect(delivered).resolves.toBe(true);
     vi.advanceTimersByTime(10_000);
     await flushMicrotasks();
     expect(writes).toHaveLength(2);
@@ -302,23 +311,61 @@ describe("ManagedTerminalDrive", () => {
     vi.useRealTimers();
   });
 
-  it("never carries queued or retrying text across a terminal generation", async () => {
+  it("does not lose a turn-start that races the CR writer completion", async () => {
+    drive = makeDrive({
+      stallWatch: true,
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        if (data === CR) drive.onTurnStart(bindingId);
+        return true;
+      },
+    });
+
+    await expect(drive.writePrompt("b1", "fast turn")).resolves.toBe(true);
+    expect(writes).toHaveLength(2);
+  });
+
+  it("managed pulse reports a stalled prompt as refused for durable receipt logic", async () => {
     vi.useFakeTimers();
     try {
       drive = makeDrive({
         stallWatch: true,
         stallTimeoutMs: 5_000,
       });
-      await expect(drive.writePrompt("b1", "old generation")).resolves.toBe(
-        true,
+      const pulse = makeManagedPulseDeliver(
+        (bindingId, text, options) =>
+          drive.writePrompt(bindingId, text, options),
+        () => true,
       );
+
+      const accepted = pulse("b1", "kernel pulse");
+      await flushMicrotasks();
       expect(writes).toHaveLength(2);
 
-      idle = false;
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(accepted).resolves.toBe(false);
+      expect(writes).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never carries queued or awaiting-ack text across a terminal generation", async () => {
+    vi.useFakeTimers();
+    try {
+      drive = makeDrive({
+        stallWatch: true,
+        stallTimeoutMs: 5_000,
+      });
+      const awaitingTurn = drive.writePrompt("b1", "old generation");
+      await flushMicrotasks();
+      expect(writes).toHaveLength(2);
+
       const queued = drive.writePrompt("b1", "also old");
       expect(drive.queuedCount("b1")).toBe(1);
 
       drive.invalidateBinding("b1");
+      await expect(awaitingTurn).resolves.toBe(false);
       await expect(queued).resolves.toBe(false);
       expect(drive.queuedCount("b1")).toBe(0);
 
@@ -327,9 +374,10 @@ describe("ManagedTerminalDrive", () => {
       await vi.advanceTimersByTimeAsync(10_000);
       expect(writes).toHaveLength(2);
 
-      await expect(drive.writePrompt("b1", "new generation")).resolves.toBe(
-        true,
-      );
+      const newGeneration = drive.writePrompt("b1", "new generation");
+      await flushMicrotasks();
+      drive.onTurnStart("b1");
+      await expect(newGeneration).resolves.toBe(true);
       expect(writes.slice(2)).toEqual([
         { bindingId: "b1", data: encodeBracketedPaste("new generation") },
         { bindingId: "b1", data: CR },
@@ -362,16 +410,15 @@ describe("ManagedTerminalDrive", () => {
     ]);
   });
 
-  it("suspends queued prompts and stall retries without writing or signaling the PTY", async () => {
+  it("suspends queued prompts and pending acknowledgements without writing or signaling the PTY", async () => {
     vi.useFakeTimers();
     try {
       drive = makeDrive({
         stallWatch: true,
         stallTimeoutMs: 5_000,
       });
-      await expect(
-        drive.writePrompt("b1", "awaiting turn"),
-      ).resolves.toBe(true);
+      const awaitingTurn = drive.writePrompt("b1", "awaiting turn");
+      await flushMicrotasks();
       expect(writes).toHaveLength(2);
 
       idle = false;
@@ -379,6 +426,7 @@ describe("ManagedTerminalDrive", () => {
       expect(drive.queuedCount("b1")).toBe(1);
 
       drive.suspend();
+      await expect(awaitingTurn).resolves.toBe(false);
       await expect(queued).resolves.toBe(false);
       expect(drive.queuedCount("b1")).toBe(0);
 

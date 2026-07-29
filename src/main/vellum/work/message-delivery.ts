@@ -19,7 +19,7 @@ export type MessageDeliveryTransport = {
   readonly sendTerminalPaste?: (bindingId: string, text: string, messageId: string) => boolean;
   /**
    * Managed-terminal drive: paste+CR into an agent seat PTY, idle-gated.
-   * Returns true only when the prompt was accepted (on the wire or queued-then-written).
+   * Returns true only after the managed seat acknowledges turn-start.
    */
   readonly sendManagedTerminalPrompt?: (bindingId: string, text: string) => Promise<boolean>;
 };
