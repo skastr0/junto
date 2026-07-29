@@ -332,13 +332,15 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   overflow: hidden;
 }
 .focus-surface__panel.work-focus-shell__panel {
-  /* allow user resize of the centered focus shell */
-  resize: both;
+  /* Width is the user's dial; height is stage-fixed so every work surface
+     (browser, terminal, split) opens at the same height as the pinned dock
+     instead of inheriting whatever box the last resize happened to leave. */
+  resize: horizontal;
   overflow: hidden;
   min-width: min(420px, 92vw);
-  min-height: min(280px, 70vh);
   max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 56px);
+  height: 100%;
+  max-height: 100%;
 }
 .focus-surface__panel.work-focus-shell__panel--chat {
   align-self: center;

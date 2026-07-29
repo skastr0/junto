@@ -49,7 +49,7 @@ export function WorkFocusShell() {
   }, []);
 
   const panelObserverRef = useRef<ResizeObserver | null>(null);
-  const lastWritten = useRef<{ w: number; h: number } | null>(null);
+  const lastWritten = useRef<number | null>(null);
   useEffect(() => {
     if (!hasFocus) return;
     const id = requestAnimationFrame(() => {
@@ -57,20 +57,20 @@ export function WorkFocusShell() {
         ".focus-surface__panel.work-focus-shell__panel",
       ) as HTMLElement | null;
       if (!panel) return;
+      // Width only: height is stage-fixed in CSS so the shell opens at the
+      // same height every time. A remembered height made each open inherit
+      // the last resize (and the last surface kind's natural box).
       const stored = dock$.registry.peek().focusSize;
       if (stored) {
         panel.style.width = `${stored.width}px`;
-        panel.style.height = `${stored.height}px`;
-        lastWritten.current = { w: stored.width, h: stored.height };
+        lastWritten.current = stored.width;
       }
       panelObserverRef.current?.disconnect();
       const obs = new ResizeObserver(() => {
         const w = panel.offsetWidth;
-        const h = panel.offsetHeight;
-        const prev = lastWritten.current;
-        if (prev && prev.w === w && prev.h === h) return;
-        lastWritten.current = { w, h };
-        setWorkbenchFocusSize({ width: w, height: h });
+        if (lastWritten.current === w) return;
+        lastWritten.current = w;
+        setWorkbenchFocusSize({ width: w, height: panel.offsetHeight });
       });
       obs.observe(panel);
       panelObserverRef.current = obs;
