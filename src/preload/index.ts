@@ -48,6 +48,8 @@ import type {
 // the main process always wins the race and tears the wedged session down
 // before the renderer's own timeout would fire.
 const IPC_TIMEOUT_MS = 45_000;
+/** Box-backed host interaction may include provider resume + SSH verification. */
+const HOST_ACTIVATION_IPC_TIMEOUT_MS = 360_000;
 
 // Dual codexbar fan-out (enabled providers + codex --all-accounts) can take
 // well over 45s when vendor web endpoints are slow. getUsage stays on the
@@ -632,7 +634,12 @@ const herdrApi: VellumHerdrApi = {
 const browserApi: VellumBrowserApi = {
   browserProfiles: () => invoke(IPC_CHANNELS.browserProfiles, IPC_TIMEOUT_MS),
   browserSurfaceConfig: () => invoke(IPC_CHANNELS.browserSurfaceConfig, IPC_TIMEOUT_MS),
-  browserOpen: (input: BrowserOpenInput) => invoke(IPC_CHANNELS.browserOpen, IPC_TIMEOUT_MS, input),
+  browserOpen: (input: BrowserOpenInput) =>
+    invoke(
+      IPC_CHANNELS.browserOpen,
+      HOST_ACTIVATION_IPC_TIMEOUT_MS,
+      input,
+    ),
   browserClose: (sessionId) => invoke(IPC_CHANNELS.browserClose, IPC_TIMEOUT_MS, sessionId),
   browserStop: (sessionId) => invoke(IPC_CHANNELS.browserStop, IPC_TIMEOUT_MS, sessionId),
   browserWipeProfile: (input: BrowserProfileWipeInput) =>
@@ -647,15 +654,41 @@ const browserApi: VellumBrowserApi = {
 };
 
 const terminalApi: VellumTerminalApi = {
-  terminalList: (hostId) => invoke(IPC_CHANNELS.terminalList, IPC_TIMEOUT_MS, hostId),
-  terminalCreate: (input) => invoke(IPC_CHANNELS.terminalCreate, IPC_TIMEOUT_MS, input),
-  terminalGet: (bindingId, hostId) => invoke(IPC_CHANNELS.terminalGet, IPC_TIMEOUT_MS, bindingId, hostId),
+  terminalList: (hostId) =>
+    invoke(
+      IPC_CHANNELS.terminalList,
+      HOST_ACTIVATION_IPC_TIMEOUT_MS,
+      hostId,
+    ),
+  terminalCreate: (input) =>
+    invoke(
+      IPC_CHANNELS.terminalCreate,
+      HOST_ACTIVATION_IPC_TIMEOUT_MS,
+      input,
+    ),
+  terminalGet: (bindingId, hostId) =>
+    invoke(
+      IPC_CHANNELS.terminalGet,
+      HOST_ACTIVATION_IPC_TIMEOUT_MS,
+      bindingId,
+      hostId,
+    ),
   terminalKill: (bindingId, hostId) => invoke(IPC_CHANNELS.terminalKill, IPC_TIMEOUT_MS, bindingId, hostId),
   hostDirectoryRead: (hostId, path) =>
-    invoke(IPC_CHANNELS.hostDirectoryRead, IPC_TIMEOUT_MS, hostId, path),
+    invoke(
+      IPC_CHANNELS.hostDirectoryRead,
+      HOST_ACTIVATION_IPC_TIMEOUT_MS,
+      hostId,
+      path,
+    ),
   terminalBindCanvas: (bindingId, ref, hostId) =>
     invoke(IPC_CHANNELS.terminalBindCanvas, IPC_TIMEOUT_MS, bindingId, ref, hostId),
-  terminalAttach: (input) => invoke(IPC_CHANNELS.terminalAttach, IPC_TIMEOUT_MS, input),
+  terminalAttach: (input) =>
+    invoke(
+      IPC_CHANNELS.terminalAttach,
+      HOST_ACTIVATION_IPC_TIMEOUT_MS,
+      input,
+    ),
   terminalRelease: (leaseId) => invoke(IPC_CHANNELS.terminalRelease, IPC_TIMEOUT_MS, leaseId),
   terminalWrite: (leaseId, data, encoding) => invoke(IPC_CHANNELS.terminalWrite, IPC_TIMEOUT_MS, leaseId, data, encoding),
   terminalResize: (leaseId, cols, rows) => invoke(IPC_CHANNELS.terminalResize, IPC_TIMEOUT_MS, leaseId, cols, rows),

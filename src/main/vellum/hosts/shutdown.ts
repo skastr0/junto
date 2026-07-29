@@ -30,6 +30,7 @@ export interface HostOperationAdmission {
     | "box.create"
     | "box.refresh"
     | "box.prepare-ssh"
+    | "box.activate"
     | "box.stop"
     | "box.resume";
   readonly kind: HostOperationKind;
@@ -78,6 +79,10 @@ export const HOST_OPERATION_ADMISSIONS = Object.freeze({
   } satisfies HostOperationAdmission),
   boxPrepareSsh: Object.freeze({
     label: "box.prepare-ssh",
+    kind: "remote-mutation",
+  } satisfies HostOperationAdmission),
+  boxActivate: Object.freeze({
+    label: "box.activate",
     kind: "remote-mutation",
   } satisfies HostOperationAdmission),
   boxStop: Object.freeze({

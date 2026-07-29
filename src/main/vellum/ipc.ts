@@ -24,6 +24,10 @@ import type { PulseRegionOptions } from "./kernel/service";
 import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
 import { registerHostsIpc } from "./hosts/ipc";
+import {
+  HOST_OPERATION_ADMISSIONS,
+  hostOperationGate,
+} from "./hosts/shutdown";
 import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
 import { SettingsService } from "./settings/service";
@@ -78,6 +82,15 @@ const broadcast = (channel: string, payload: unknown) => {
     window.webContents.send(channel, payload);
   }
 };
+
+const ensureBoxHostAvailable = (hostId: string): Promise<void> =>
+  hostOperationGate.run(HOST_OPERATION_ADMISSIONS.boxActivate, () =>
+    AppRuntime.runPromise(
+      Effect.flatMap(BoxPlacementPolicy, (policy) =>
+        policy.ensureHostAvailable(hostId),
+      ),
+    ),
+  );
 
 const runMainAuthoring = <A>(
   label: MainAuthoringLabel,
@@ -244,12 +257,7 @@ export const registerVellumIpc = (): void => {
   );
   registerTerminalIpc(privilegedIpc, termPlane, {
     isTrustedSender: isTrustedMainWebContents,
-    ensureHostAvailable: (hostId) =>
-      AppRuntime.runPromise(
-        Effect.flatMap(BoxPlacementPolicy, (policy) =>
-          policy.ensureHostAvailable(hostId),
-        ),
-      ),
+    ensureHostAvailable: ensureBoxHostAvailable,
   });
   registerSettingsIpc(privilegedIpc, broadcast);
   registerHostsIpc(privilegedIpc);
@@ -914,11 +922,6 @@ export const registerVellumBrowserIpc = (sessions: BrowserSessionService): void 
       .filter(isTrustedMainWebContents),
     undefined,
     undefined,
-    (hostId) =>
-      AppRuntime.runPromise(
-        Effect.flatMap(BoxPlacementPolicy, (policy) =>
-          policy.ensureHostAvailable(hostId),
-        ),
-      ),
+    ensureBoxHostAvailable,
   );
 };
