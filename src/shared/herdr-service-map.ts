@@ -258,6 +258,8 @@ export const DEFAULT_AMBIENT_TTL_MS = 3 * 60_000;
 
 export const deriveHealth = (input: {
   readonly interesting: boolean;
+  /** A strong server hint means an empty LISTEN result is an actual failure. */
+  readonly portExpected?: boolean;
   readonly pending: boolean;
   readonly ports?: ReadonlyArray<HerdrServicePort>;
   readonly checkedAt?: number;
@@ -272,7 +274,7 @@ export const deriveHealth = (input: {
   const now = input.now ?? Date.now();
   const staleAfter = input.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
   const hasPort = (input.ports?.length ?? 0) > 0;
-  if (!hasPort) return "dead";
+  if (!hasPort) return input.portExpected === false ? "skipped" : "dead";
   if (now - input.checkedAt > staleAfter) return "stale";
   return "live";
 };
@@ -298,6 +300,7 @@ export const projectService = (input: {
   const interesting = level !== "none";
   const health = deriveHealth({
     interesting,
+    portExpected: level === "strong",
     pending: input.pending === true,
     ports: input.ports,
     checkedAt: input.checkedAt,

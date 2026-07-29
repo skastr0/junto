@@ -152,6 +152,21 @@ describe("herdr-service-map health", () => {
     expect(dead.health).toBe("dead");
     expect(dead.url).toBeUndefined();
   });
+
+  it("does not call a coding harness dead when it has no listening port", () => {
+    const amp = projectService({
+      hostId: "local",
+      paneId: "w1:p1",
+      processes: [{ name: "amp", cmdline: "amp", pid: 42 }],
+      ports: [],
+      hostBase: "127.0.0.1",
+      checkedAt: Date.now(),
+    });
+
+    expect(interestLevel(amp.processes)).toBe("weak");
+    expect(amp.health).toBe("skipped");
+    expect(amp.url).toBeUndefined();
+  });
 });
 
 describe("herdr-service-map queue", () => {
