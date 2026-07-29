@@ -167,7 +167,10 @@ describe("Box CLI adapter", () => {
     });
 
     const result = await withCli(runner, "/bin/true", (cli) =>
-      cli.create({ autoStop: false, includeAccountSecrets: false }),
+      cli.create({
+        autoStop: { kind: "ttl", ttlSeconds: 600 },
+        includeAccountSecrets: false,
+      }),
     );
 
     expect(requests.map((request) => request.args)).toEqual([
@@ -175,7 +178,8 @@ describe("Box CLI adapter", () => {
         "--no-update",
         "--json",
         "new",
-        "--no-auto-stop",
+        "--ttl",
+        "600",
         "--no-env",
       ],
       ["--no-update", "--json", "info", boxId],
@@ -205,6 +209,26 @@ describe("Box CLI adapter", () => {
       "ssh",
       boxId,
       "true",
+    ]);
+  });
+
+  it("changes only the owned Box provider lifetime", async () => {
+    const requests: BoxProcessRequest[] = [];
+    const runner = makeRunner((next) => {
+      requests.push(next);
+      return success("{}");
+    });
+
+    await withCli(runner, "/bin/true", (cli) =>
+      Effect.all([
+        cli.setAutoStop(ownedBox, { kind: "ttl", ttlSeconds: 600 }),
+        cli.setAutoStop(ownedBox, { kind: "disabled" }),
+      ], { concurrency: 1 }),
+    );
+
+    expect(requests.map((request) => request.args)).toEqual([
+      ["--no-update", "extend", boxId, "--ttl", "600"],
+      ["--no-update", "extend", boxId, "--no-auto-stop"],
     ]);
   });
 

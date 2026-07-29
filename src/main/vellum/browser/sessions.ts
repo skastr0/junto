@@ -138,6 +138,7 @@ export type BrowserUiOperationKind =
   | "profile-wipe"
   | "view-destroy"
   | "page-resolve"
+  | "host-activation"
   | "profile-wipe-confirmation"
   | "profiles-read"
   | "surface-config";
@@ -679,7 +680,7 @@ export class BrowserSessionService {
   retainUiIngress<A>(
     kind: Extract<
       BrowserUiOperationKind,
-      "page-resolve" | "profile-wipe-confirmation"
+      "page-resolve" | "host-activation" | "profile-wipe-confirmation"
     >,
     operation: Promise<A>,
   ): Promise<A> {

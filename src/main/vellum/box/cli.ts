@@ -32,6 +32,12 @@ const decodeActionEnvelope = Schema.decodeUnknown(BoxActionEnvelope, {
 const decodeNewLine = Schema.decodeUnknown(BoxNewLine, {
   onExcessProperty: "ignore",
 });
+const decodeTtlSeconds = Schema.decodeUnknown(
+  Schema.Number.pipe(
+    Schema.int(),
+    Schema.between(60, 7 * 24 * 60 * 60),
+  ),
+);
 
 const parseJson = (
   operation: string,
@@ -96,6 +102,15 @@ export interface BoxCliOptions {
   readonly homeDirectory?: string;
 }
 
+export type BoxAutoStopPolicy =
+  | {
+      readonly kind: "ttl";
+      readonly ttlSeconds: number;
+    }
+  | {
+      readonly kind: "disabled";
+    };
+
 const parseJsonLines = (
   operation: string,
   stdout: string,
@@ -158,7 +173,7 @@ export class BoxCli extends Context.Tag("@vellum/box/BoxCli")<
     readonly availability: Effect.Effect<BoxCliAvailability>;
     readonly create: (
       options?: {
-        readonly autoStop?: boolean;
+        readonly autoStop?: BoxAutoStopPolicy;
         readonly includeAccountSecrets?: boolean;
       },
     ) => Effect.Effect<BoxMachine, BoxCliError>;
@@ -173,6 +188,11 @@ export class BoxCli extends Context.Tag("@vellum/box/BoxCli")<
      * exact owned machine. Ordinary remote traffic belongs to SshTransport.
      */
     readonly prepareSsh: (box: OwnedBox) => Effect.Effect<void, BoxCliError>;
+    /** Change only the provider-managed lifetime of this exact owned Box. */
+    readonly setAutoStop: (
+      box: OwnedBox,
+      policy: BoxAutoStopPolicy,
+    ) => Effect.Effect<void, BoxCliError>;
   }
 >() {}
 
@@ -255,22 +275,39 @@ export const makeBoxCli = (
       ),
     );
 
+  const autoStopArgs = (
+    policy: BoxAutoStopPolicy | undefined,
+  ): Effect.Effect<ReadonlyArray<string>, BoxCliProtocolError> =>
+    policy === undefined
+      ? Effect.succeed([])
+      : policy.kind === "disabled"
+        ? Effect.succeed(["--no-auto-stop"])
+        : decodeTtlSeconds(policy.ttlSeconds).pipe(
+            Effect.map((ttlSeconds) => ["--ttl", String(ttlSeconds)]),
+            Effect.mapError((error) => protocolError("auto-stop", error)),
+          );
+
   const createMachine = (
     createOptions: {
-      readonly autoStop?: boolean;
+      readonly autoStop?: BoxAutoStopPolicy;
       readonly includeAccountSecrets?: boolean;
     },
   ): Effect.Effect<BoxMachine, BoxCliError> =>
-    run(
-      "new",
-      [
-        "--json",
-        "new",
-        ...(createOptions.autoStop === false ? ["--no-auto-stop"] : []),
-        ...(createOptions.includeAccountSecrets === false ? ["--no-env"] : []),
-      ],
-      120_000,
-    ).pipe(
+    autoStopArgs(createOptions.autoStop).pipe(
+      Effect.flatMap((lifetimeArgs) =>
+        run(
+          "new",
+          [
+            "--json",
+            "new",
+            ...lifetimeArgs,
+            ...(createOptions.includeAccountSecrets === false
+              ? ["--no-env"]
+              : []),
+          ],
+          120_000,
+        ),
+      ),
       Effect.flatMap((result) => parseJsonLines("new", result.stdout)),
       Effect.flatMap((values) =>
         Effect.forEach(values, (value) =>
@@ -430,6 +467,17 @@ export const makeBoxCli = (
       ),
     prepareSsh: (box) =>
       run("prepare-ssh", ["ssh", ownedBoxId(box), "true"], 120_000).pipe(
+        Effect.asVoid,
+      ),
+    setAutoStop: (box, policy) =>
+      autoStopArgs(policy).pipe(
+        Effect.flatMap((args) =>
+          run(
+            "extend",
+            ["extend", ownedBoxId(box), ...args],
+            30_000,
+          ),
+        ),
         Effect.asVoid,
       ),
   });

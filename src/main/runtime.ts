@@ -43,6 +43,7 @@ import { SshTransportLive } from "./vellum/ssh";
 import {
   BoxCliLive,
   BoxFleetServiceLive,
+  BoxPlacementPolicyLive,
   BoxOwnershipRepositoryLive,
   BoxProcessRunnerLive,
 } from "./vellum/box";
@@ -218,6 +219,15 @@ const BoxFleetLive = Layer.provideMerge(
   ),
 );
 
+const BoxPlacementPolicyWithFleetLive = Layer.provideMerge(
+  BoxPlacementPolicyLive,
+  Layer.mergeAll(
+    BoxFleetLive,
+    CanvasesWithStateLive,
+    StateRepositoriesLive,
+  ),
+);
+
 // HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.
 // Making that complete input feed the host-aware transports is the boot-order
 // barrier: no Herdr/Hermes plane can construct before synchronous routing has
@@ -287,7 +297,7 @@ const BaseLayer = Layer.mergeAll(
   SnapshotsWithProductsLive,
   HostsWithSshLive,
   StationFleetServicesLive,
-  BoxFleetLive,
+  BoxPlacementPolicyWithFleetLive,
   LicenseWithStateLive,
   UpdateServiceLive,
 );

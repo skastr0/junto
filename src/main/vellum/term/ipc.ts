@@ -15,6 +15,11 @@ type LeaseOwner = {
 
 export type TerminalIpcGate = {
   readonly isTrustedSender: (sender: WebContents) => boolean;
+  /**
+   * Integration hook invoked before a named host is resolved. Core terminal
+   * routing remains provider-neutral; an optional provider may restore it.
+   */
+  readonly ensureHostAvailable?: (hostId: string) => Promise<void>;
 };
 
 const deny = (message: string): never => {
@@ -37,6 +42,21 @@ export const registerTerminalIpc = (
     if (!sender || sender.isDestroyed()) deny("terminal ipc: sender gone");
     if (gate && !gate.isTrustedSender(sender)) deny("terminal ipc: untrusted sender");
     return sender;
+  };
+  const ensureHostAvailable = async (
+    hostId: string | undefined,
+  ): Promise<void> => {
+    const target = hostId?.trim();
+    if (
+      target === undefined ||
+      target.length === 0 ||
+      target === "local" ||
+      target === "*" ||
+      target === "all"
+    ) {
+      return;
+    }
+    await gate?.ensureHostAvailable?.(target);
   };
 
   const release = (leaseId: string): void => {
@@ -86,6 +106,7 @@ export const registerTerminalIpc = (
   ipcMain.handle(IPC_CHANNELS.terminalList, async (event, hostId?: string) => {
     assertTrusted(event);
     if (hostId === "*" || hostId === "all") return router.listAll();
+    await ensureHostAvailable(hostId);
     return router.list(hostId);
   });
 
@@ -93,12 +114,14 @@ export const registerTerminalIpc = (
     IPC_CHANNELS.hostDirectoryRead,
     async (event, hostId: string, path?: string) => {
       assertTrusted(event);
+      await ensureHostAvailable(hostId);
       return router.readDirectory(hostId, path);
     },
   );
 
   ipcMain.handle(IPC_CHANNELS.terminalCreate, async (event, input) => {
     assertTrusted(event);
+    await ensureHostAvailable(input?.hostId);
     const harness =
       typeof input?.harness === "string" ? input.harness.trim() : "";
     // No harness on the wire ⇒ the node is geography; it opens a shell.
@@ -185,6 +208,7 @@ export const registerTerminalIpc = (
     IPC_CHANNELS.terminalGet,
     async (event, bindingId: string, hostId?: string) => {
       assertTrusted(event);
+      await ensureHostAvailable(hostId);
       return router.get(bindingId, hostId);
     },
   );
@@ -208,6 +232,7 @@ export const registerTerminalIpc = (
   ipcMain.handle(IPC_CHANNELS.terminalAttach, async (event, input: AttachInput) => {
     const sender = assertTrusted(event);
     const hostId = input.hostId?.trim() || "local";
+    await ensureHostAvailable(hostId);
     if (input.mode === "control" && input.takeover) {
       const priorLeaseId = controlByBinding.get(input.bindingId);
       if (priorLeaseId) release(priorLeaseId);

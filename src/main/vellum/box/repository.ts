@@ -16,6 +16,9 @@ import {
   type OwnedBoxRecord,
 } from "./ownership";
 
+export const boxHostId = (boxId: string): string =>
+  `box-${boxId.slice(3)}`;
+
 export const BoxResource = Schema.Struct({
   machine: BoxMachine,
   hostId: Schema.optionalWith(Schema.String, { exact: true }),
@@ -118,7 +121,7 @@ const hostForMachine = (
     throw new Error(`Box ${machine.id} did not provide an SSH address`);
   }
   return {
-    id: `box-${machine.id.slice(3)}`,
+    id: boxHostId(machine.id),
     label: machine.name.trim() || `Box ${machine.id.slice(3)}`,
     kind: "remote",
     sshEndpoint: `user@${machine.ip}`,
@@ -143,6 +146,13 @@ export class BoxOwnershipRepository extends Context.Tag(
     readonly requireOwned: (
       boxId: string,
     ) => Effect.Effect<OwnedBox, BoxOwnershipError>;
+    /**
+     * Resolve only the deterministic host identity of a resource already
+     * present in Vellum ownership state. Account inventory is never queried.
+     */
+    readonly findOwnedByHostId: (
+      hostId: string,
+    ) => Effect.Effect<OwnedBox | undefined, BoxOwnershipPersistenceError>;
     readonly list: Effect.Effect<
       ReadonlyArray<BoxResource>,
       BoxOwnershipPersistenceError
@@ -233,6 +243,39 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
         return admitOwnedBox(record satisfies OwnedBoxRecord);
       },
     );
+
+    const findOwnedByHostId = Effect.fn(
+      "BoxOwnershipRepository.findOwnedByHostId",
+    )(function* (hostId: string) {
+      const record = yield* state
+        .read("box.ownership.find-by-host", (reader) => {
+          const row = reader.get<BoxResourceRow>(
+            `SELECT
+               box_id,
+               host_id,
+               name,
+               machine_ip,
+               machine_state,
+               provider_created_at,
+               provider_updated_at,
+               ssh_prepared_at,
+               ssh_verified_at,
+               enrolled_at
+             FROM box_resources
+             WHERE ('box-' || substr(box_id, 4)) = ?`,
+            [hostId],
+          );
+          return row === undefined ? undefined : rowToResource(row);
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            toPersistenceError("find-owned-by-host", error),
+          ),
+        );
+      return record === undefined
+        ? undefined
+        : admitOwnedBox(record satisfies OwnedBoxRecord);
+    });
 
     const list = state
       .read("box.ownership.list", (reader) =>
@@ -403,6 +446,7 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
     return BoxOwnershipRepository.of({
       enrollCreated,
       requireOwned,
+      findOwnedByHostId,
       list,
       updateMachine,
       markSshPrepared,

@@ -14,6 +14,7 @@ import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { CanvasesService } from "./canvases";
+import { BoxPlacementPolicy } from "./box";
 
 import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
@@ -241,7 +242,15 @@ export const registerVellumIpc = (): void => {
       .map((window) => window.webContents)
       .filter(isTrustedMainWebContents),
   );
-  registerTerminalIpc(privilegedIpc, termPlane);
+  registerTerminalIpc(privilegedIpc, termPlane, {
+    isTrustedSender: isTrustedMainWebContents,
+    ensureHostAvailable: (hostId) =>
+      AppRuntime.runPromise(
+        Effect.flatMap(BoxPlacementPolicy, (policy) =>
+          policy.ensureHostAvailable(hostId),
+        ),
+      ),
+  });
   registerSettingsIpc(privilegedIpc, broadcast);
   registerHostsIpc(privilegedIpc);
   registerUpdateIpc(
@@ -903,5 +912,13 @@ export const registerVellumBrowserIpc = (sessions: BrowserSessionService): void 
     () => BrowserWindow.getAllWindows()
       .map((window) => window.webContents)
       .filter(isTrustedMainWebContents),
+    undefined,
+    undefined,
+    (hostId) =>
+      AppRuntime.runPromise(
+        Effect.flatMap(BoxPlacementPolicy, (policy) =>
+          policy.ensureHostAvailable(hostId),
+        ),
+      ),
   );
 };

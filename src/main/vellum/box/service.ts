@@ -1,7 +1,10 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { BoxCli } from "./cli";
+import {
+  BoxCli,
+  type BoxAutoStopPolicy,
+} from "./cli";
 import {
   BoxId,
   type BoxCliAvailability,
@@ -10,6 +13,7 @@ import {
 } from "./domain";
 import {
   BoxOwnershipRepository,
+  boxHostId,
   type BoxOwnershipError,
   type BoxOwnershipPersistenceError,
   type BoxResource,
@@ -66,6 +70,8 @@ export interface CreateFleetBoxOptions {
   readonly includeAccountSecrets?: boolean;
 }
 
+export const BOX_IDLE_AUTO_STOP_SECONDS = 10 * 60;
+
 export class BoxFleetService extends Context.Tag("@vellum/box/BoxFleetService")<
   BoxFleetService,
   {
@@ -89,6 +95,18 @@ export class BoxFleetService extends Context.Tag("@vellum/box/BoxFleetService")<
     readonly prepareSsh: (
       boxId: string,
     ) => Effect.Effect<BoxResource, BoxFleetError>;
+    /** Pin while authored host demand exists; otherwise arm a provider TTL. */
+    readonly setPlacementDemand: (
+      boxId: string,
+      demanded: boolean,
+    ) => Effect.Effect<BoxResource, BoxFleetError>;
+    /**
+     * Refresh provider truth and transparently restore an owned Box route.
+     * Non-Box and unowned host identities are deliberately ignored.
+     */
+    readonly ensureHostAvailable: (
+      hostId: string,
+    ) => Effect.Effect<BoxResource | undefined, BoxFleetError>;
   }
 >() {}
 
@@ -142,6 +160,14 @@ export const makeBoxFleetService = (
     Effect.void,
   handoff: BoxOpenSshHandoff = defaultHandoff,
 ): Context.Tag.Service<typeof BoxFleetService> => {
+  const activationLocks = new Map<string, Effect.Semaphore>();
+  const activationLock = (hostId: string): Effect.Semaphore => {
+    const existing = activationLocks.get(hostId);
+    if (existing !== undefined) return existing;
+    const created = Effect.unsafeMakeSemaphore(1);
+    activationLocks.set(hostId, created);
+    return created;
+  };
   const owned = (boxId: string) =>
     decodeBoxId(boxId).pipe(
       Effect.mapError(validationError),
@@ -230,6 +256,79 @@ export const makeBoxFleetService = (
     );
   };
 
+  const awaitSshUsable = (
+    box: OwnedBox,
+    attemptsRemaining = 30,
+  ): Effect.Effect<OwnedBox, BoxFleetError> => {
+    const record = inspectOwnedBox(box);
+    if (sshUsable(record.machine)) return Effect.succeed(box);
+    if (attemptsRemaining <= 0) {
+      return Effect.fail(
+        provisioningError(
+          record.machine.id,
+          "verify-openssh",
+          new Error("Box did not become SSH-ready after resume"),
+        ),
+      );
+    }
+    return Effect.sleep("2 seconds").pipe(
+      Effect.andThen(cli.info(box)),
+      Effect.flatMap((machine) => ownership.updateMachine(box, machine)),
+      Effect.flatMap((updated) =>
+        awaitSshUsable(updated, attemptsRemaining - 1),
+      ),
+    );
+  };
+
+  const placementPolicy = (demanded: boolean): BoxAutoStopPolicy =>
+    demanded
+      ? { kind: "disabled" }
+      : { kind: "ttl", ttlSeconds: BOX_IDLE_AUTO_STOP_SECONDS };
+
+  const ensureHostAvailable = (
+    hostId: string,
+  ): Effect.Effect<BoxResource | undefined, BoxFleetError> =>
+    activationLock(hostId).withPermits(1)(
+      ownership.findOwnedByHostId(hostId).pipe(
+        Effect.flatMap((candidate) => {
+          if (candidate === undefined) return Effect.succeed(undefined);
+          return authorizeMutation.pipe(
+            Effect.andThen(
+              cli.info(candidate).pipe(
+                Effect.flatMap((machine) =>
+                  ownership.updateMachine(candidate, machine),
+                ),
+              ),
+            ),
+            Effect.tap((current) =>
+              convergeHosts(inspectOwnedBox(current).machine.id),
+            ),
+            Effect.flatMap((current) => {
+              const record = inspectOwnedBox(current);
+              if (
+                sshUsable(record.machine) &&
+                record.hostId === boxHostId(record.machine.id) &&
+                record.sshVerifiedAt !== undefined
+              ) {
+                return Effect.succeed(record);
+              }
+              if (sshUsable(record.machine)) return prepareOwned(current);
+              return cli.resume(current).pipe(
+                Effect.flatMap((machine) =>
+                  ownership.updateMachine(current, machine),
+                ),
+                Effect.flatMap((resumed) => awaitSshUsable(resumed)),
+                Effect.tap((resumed) =>
+                  convergeHosts(inspectOwnedBox(resumed).machine.id),
+                ),
+                Effect.flatMap(prepareOwned),
+              );
+            }),
+          );
+        }),
+      ),
+    );
+
   return BoxFleetService.of({
     availability: cli.availability,
     list: ownership.list,
@@ -239,7 +338,10 @@ export const makeBoxFleetService = (
           Effect.suspend(() =>
             cli
               .create({
-                autoStop: false,
+                autoStop: {
+                  kind: "ttl",
+                  ttlSeconds: BOX_IDLE_AUTO_STOP_SECONDS,
+                },
                 includeAccountSecrets: options.includeAccountSecrets,
               })
               .pipe(
@@ -280,6 +382,16 @@ export const makeBoxFleetService = (
         Effect.andThen(owned(boxId)),
         Effect.flatMap(prepareOwned),
       ),
+    setPlacementDemand: (boxId, demanded) =>
+      authorizeMutation.pipe(
+        Effect.andThen(owned(boxId)),
+        Effect.flatMap((box) =>
+          cli.setAutoStop(box, placementPolicy(demanded)).pipe(
+            Effect.as(inspectOwnedBox(box)),
+          ),
+        ),
+      ),
+    ensureHostAvailable,
   });
 };
 

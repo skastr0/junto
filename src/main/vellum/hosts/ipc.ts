@@ -59,6 +59,7 @@ import type { InstallationId } from "@shared/station-api";
 import { StationFleetTargetRepository } from "../station/fleet-target-repository";
 import {
   BoxFleetService,
+  BoxPlacementPolicy,
   type BoxResourceType,
 } from "../box";
 
@@ -545,7 +546,9 @@ export const registerHostsIpc = (
         AppRuntime.runPromise(
           Effect.gen(function* () {
             const boxes = yield* BoxFleetService;
+            const placement = yield* BoxPlacementPolicy;
             const result = yield* Effect.either(boxes.create());
+            if (result._tag === "Right") placement.request();
             return result._tag === "Right"
               ? {
                   ok: true,
@@ -572,7 +575,9 @@ export const registerHostsIpc = (
               } satisfies BoxFleetResult;
             }
             const boxes = yield* BoxFleetService;
+            const placement = yield* BoxPlacementPolicy;
             const result = yield* Effect.either(boxes.refresh(boxId));
+            if (result._tag === "Right") placement.request();
             return result._tag === "Right"
               ? {
                   ok: true,
@@ -599,7 +604,9 @@ export const registerHostsIpc = (
               } satisfies BoxFleetResult;
             }
             const boxes = yield* BoxFleetService;
+            const placement = yield* BoxPlacementPolicy;
             const result = yield* Effect.either(boxes.stop(boxId));
+            if (result._tag === "Right") placement.request();
             return result._tag === "Right"
               ? {
                   ok: true,
@@ -653,7 +660,9 @@ export const registerHostsIpc = (
               } satisfies BoxFleetResult;
             }
             const boxes = yield* BoxFleetService;
+            const placement = yield* BoxPlacementPolicy;
             const result = yield* Effect.either(boxes.resume(boxId));
+            if (result._tag === "Right") placement.request();
             return result._tag === "Right"
               ? {
                   ok: true,

@@ -64,6 +64,7 @@ afterEach(async () => {
 describe("Box Fleet service ownership", () => {
   it("returns a created Box only after SSH preparation and route verification", async () => {
     const { repository, state } = await fixture();
+    const create = vi.fn(() => Effect.succeed(machine()));
     const cli = BoxCli.of({
       availability: Effect.succeed({
         available: true,
@@ -71,11 +72,12 @@ describe("Box Fleet service ownership", () => {
         healthy: true,
         detail: "ready",
       }),
-      create: vi.fn(() => Effect.succeed(machine())),
+      create,
       info: vi.fn(() => Effect.succeed(machine())),
       stop: vi.fn(() => Effect.succeed(machine("stopped"))),
       resume: vi.fn(() => Effect.succeed(machine())),
       prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(cli, repository);
 
@@ -93,6 +95,10 @@ describe("Box Fleet service ownership", () => {
       capabilities: ["terminal", "browser", "herdr", "hermes"],
     });
     expect(await Effect.runPromise(repository.list)).toHaveLength(1);
+    expect(create).toHaveBeenCalledWith({
+      autoStop: { kind: "ttl", ttlSeconds: 600 },
+      includeAccountSecrets: undefined,
+    });
   });
 
   it("keeps provider ownership visible when SSH preparation fails", async () => {
@@ -111,6 +117,7 @@ describe("Box Fleet service ownership", () => {
           }),
         ),
       ),
+      setAutoStop: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(cli, repository);
 
@@ -138,6 +145,7 @@ describe("Box Fleet service ownership", () => {
       stop: vi.fn(() => Effect.succeed(machine("stopped"))),
       resume: vi.fn(() => Effect.succeed(machine())),
       prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop: vi.fn(() => Effect.void),
     });
     const failingRepository = BoxOwnershipRepository.of({
       ...repository,
@@ -171,6 +179,7 @@ describe("Box Fleet service ownership", () => {
       stop: vi.fn(() => Effect.succeed(machine("stopping"))),
       resume: vi.fn(() => Effect.succeed(machine())),
       prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(cli, repository);
     await Effect.runPromise(service.create());
@@ -199,6 +208,7 @@ describe("Box Fleet service ownership", () => {
         Effect.succeed(machine("running", "203.0.113.99")),
       ),
       prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(
       cli,
@@ -229,6 +239,7 @@ describe("Box Fleet service ownership", () => {
       stop,
       resume: vi.fn(() => Effect.succeed(machine())),
       prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(cli, repository);
 
@@ -253,6 +264,7 @@ describe("Box Fleet service ownership", () => {
       stop: vi.fn(() => Effect.succeed(machine("stopped"))),
       resume: vi.fn(() => Effect.succeed(machine())),
       prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(
       cli,
@@ -284,6 +296,7 @@ describe("Box Fleet service ownership", () => {
       stop: vi.fn(() => Effect.succeed(machine("stopped"))),
       resume: vi.fn(() => Effect.succeed(resumed)),
       prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop: vi.fn(() => Effect.void),
     });
     const service = makeBoxFleetService(cli, repository);
 
@@ -292,5 +305,85 @@ describe("Box Fleet service ownership", () => {
     expect(
       (await makeHostsRegistry(state).get("box-c79mgja6"))?.sshEndpoint,
     ).toBe("user@203.0.113.99");
+  });
+
+  it("maps canvas demand to an exact owned Box provider lease", async () => {
+    const { repository } = await fixture();
+    await Effect.runPromise(repository.enrollCreated(machine()));
+    const setAutoStop = vi.fn((_box: unknown, _policy: unknown) => Effect.void);
+    const cli = BoxCli.of({
+      availability: Effect.never,
+      create: vi.fn(() => Effect.succeed(machine())),
+      info: vi.fn(() => Effect.succeed(machine())),
+      stop: vi.fn(() => Effect.succeed(machine("stopped"))),
+      resume: vi.fn(() => Effect.succeed(machine())),
+      prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop,
+    });
+    const service = makeBoxFleetService(cli, repository);
+
+    await Effect.runPromise(service.setPlacementDemand("bx_c79mgja6", false));
+    await Effect.runPromise(service.setPlacementDemand("bx_c79mgja6", true));
+
+    expect(setAutoStop.mock.calls.map(([, policy]) => policy)).toEqual([
+      { kind: "ttl", ttlSeconds: 600 },
+      { kind: "disabled" },
+    ]);
+  });
+
+  it("refreshes provider truth and resumes a TTL-stopped Box on host interaction", async () => {
+    const { repository, state } = await fixture();
+    let providerMachine = machine();
+    const resume = vi.fn(() => {
+      providerMachine = machine("running", "203.0.113.99");
+      return Effect.succeed(providerMachine);
+    });
+    const cli = BoxCli.of({
+      availability: Effect.never,
+      create: vi.fn(() => Effect.succeed(machine())),
+      info: vi.fn(() => Effect.succeed(providerMachine)),
+      stop: vi.fn(() => Effect.succeed(machine("stopped"))),
+      resume,
+      prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop: vi.fn(() => Effect.void),
+    });
+    const service = makeBoxFleetService(cli, repository);
+    await Effect.runPromise(service.create());
+    providerMachine = machine("stopped");
+
+    const restored = await Effect.runPromise(
+      service.ensureHostAvailable("box-c79mgja6"),
+    );
+
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(restored?.machine).toMatchObject({
+      state: "running",
+      ip: "203.0.113.99",
+    });
+    expect(
+      (await makeHostsRegistry(state).get("box-c79mgja6"))?.sshEndpoint,
+    ).toBe("user@203.0.113.99");
+  });
+
+  it("does not query Box for a host absent from Vellum ownership", async () => {
+    const { repository } = await fixture();
+    const info = vi.fn(() => Effect.succeed(machine()));
+    const cli = BoxCli.of({
+      availability: Effect.never,
+      create: vi.fn(() => Effect.succeed(machine())),
+      info,
+      stop: vi.fn(() => Effect.succeed(machine("stopped"))),
+      resume: vi.fn(() => Effect.succeed(machine())),
+      prepareSsh: vi.fn(() => Effect.void),
+      setAutoStop: vi.fn(() => Effect.void),
+    });
+    const service = makeBoxFleetService(cli, repository);
+
+    const result = await Effect.runPromise(
+      service.ensureHostAvailable("other-host"),
+    );
+
+    expect(result).toBeUndefined();
+    expect(info).not.toHaveBeenCalled();
   });
 });

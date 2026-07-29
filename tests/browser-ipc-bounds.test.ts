@@ -46,6 +46,7 @@ describe("browser IPC bounds ingress", () => {
     message: "test resolver",
   }));
   const confirmProfileWipe = vi.fn(async () => false);
+  const activateHost = vi.fn(async (_hostId: string) => undefined);
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -53,6 +54,7 @@ describe("browser IPC bounds ingress", () => {
     resolvePageTarget.mockClear();
     confirmProfileWipe.mockReset();
     confirmProfileWipe.mockResolvedValue(false);
+    activateHost.mockClear();
     const viewAdapter: BrowserViewAdapter = () => {
       throw new Error("invalid IPC input constructed a browser view");
     };
@@ -72,6 +74,7 @@ describe("browser IPC bounds ingress", () => {
       () => [],
       resolvePageTarget,
       confirmProfileWipe,
+      activateHost,
     );
   });
 
@@ -152,6 +155,32 @@ describe("browser IPC bounds ingress", () => {
     expect(result).toMatchObject({ ok: false, code: "not_found" });
     expect(resolvePageTarget).toHaveBeenCalledOnce();
     expect(resolvePageTarget).toHaveBeenCalledWith(PAGE_REF);
+  });
+
+  it("activates a remote page host before opening its browser session", async () => {
+    resolvePageTarget.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        ref: PAGE_REF,
+        nodeId: "page-1",
+        url: "https://example.com",
+        hostId: "box-c79mgja6",
+        profile: "default",
+      },
+    });
+    const open = vi.spyOn(browserSessions, "open").mockResolvedValue({
+      ok: false,
+      code: "failed",
+      message: "stub open",
+    });
+
+    await invoke(IPC_CHANNELS.browserOpen, { ref: PAGE_REF });
+
+    expect(activateHost).toHaveBeenCalledWith("box-c79mgja6");
+    expect(open).toHaveBeenCalledOnce();
+    expect(activateHost.mock.invocationCallOrder[0]).toBeLessThan(
+      open.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("invalidates a delayed page resolver before it can create a UI view", async () => {
