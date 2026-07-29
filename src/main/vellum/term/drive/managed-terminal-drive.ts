@@ -47,7 +47,9 @@ export type DriveAttentionCallback = (
  * (or otherwise unsafe paste surface). Drive aborts to attention and does
  * NOT clear the operator's clipboard.
  */
-export type ClipboardSafeAssert = () => boolean | Promise<boolean>;
+export type ClipboardSafeAssert = (
+  bindingId: string,
+) => boolean | Promise<boolean>;
 
 export type WritePromptOptions = {
   /**
@@ -245,7 +247,7 @@ export class ManagedTerminalDrive {
     if (this.assertClipboardSafe) {
       let safe = false;
       try {
-        safe = await Promise.resolve(this.assertClipboardSafe());
+        safe = await Promise.resolve(this.assertClipboardSafe(bindingId));
       } catch {
         safe = false;
       }

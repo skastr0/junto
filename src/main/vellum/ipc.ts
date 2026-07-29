@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain } from "electron";
 import { Effect } from "effect";
 import {
   IPC_CHANNELS,
@@ -41,7 +41,7 @@ import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { GROK_MIN_POST_SPAWN_MS, ManagedTerminalDrive } from "./term/drive";
-import { assertMacClipboardSafeForPaste } from "./term/drive/clipboard-safe";
+import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
 import { terminalTailRuntime } from "./term/tail-runtime";
@@ -698,8 +698,17 @@ export const registerVellumIpc = (): void => {
           !productAutomationSuspended &&
           termPlane.host.writeManagedSeat(bindingId, data),
         isSeatIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
-        // Grok (and all seats): never paste when macOS clipboard holds an image.
-        assertClipboardSafe: assertMacClipboardSafeForPaste,
+        // Only Grok has the clipboard-image TUI trap. Electron exposes the
+        // pasteboard format list without decoding its payload; all other
+        // harnesses bypass this preflight entirely.
+        assertClipboardSafe: (bindingId) => {
+          if (
+            seatStateRuntime.machine.getSlot(bindingId)?.harness !== "grok"
+          ) {
+            return true;
+          }
+          return clipboardFormatsAreSafeForGrok(clipboard.availableFormats());
+        },
         onAttention: (bindingId, reason) => {
           // One seat event producer: preserve the generation epoch and let
           // runtime lifecycle invalidation suppress nudges for dead seats.
