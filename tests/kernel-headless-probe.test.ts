@@ -220,7 +220,7 @@ describe("kernel probe process containment", () => {
   }, 15_000);
 });
 
-describe.runIf(canLaunchElectron)("kernel headless real startup wiring", () => {
+describe.skipIf(!canLaunchElectron)("kernel headless real startup wiring", () => {
   beforeAll(async () => {
     const build = await runOwnedCommand(
       "build Electron artifacts for kernel startup smoke",

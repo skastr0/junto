@@ -180,7 +180,8 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
     const executableIndexSource = indexSource
       .replace(/\/\*[\s\S]*?\*\//gu, "")
       .replace(/\/\/[^\n]*/gu, "");
-    expect(executableIndexSource.match(/app\.exit\(/gu)).toHaveLength(1);
+    // Direct exits: preflight-only success path + exitAfterDetach helper.
+    expect(executableIndexSource.match(/app\.exit\(/gu)).toHaveLength(2);
     expect(indexSource).toMatch(/exitAfterDetach[\s\S]*app\.exit\(exitCode\)/u);
   });
 });

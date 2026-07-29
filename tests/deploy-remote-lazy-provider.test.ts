@@ -2,10 +2,11 @@ import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 
-const providerEvaluations = vi.hoisted(() => ({
+// Mutable counters shared with the runtime mock (no vi.hoisted — bun).
+const providerEvaluations = {
   darwin: 0,
   linux: 0,
-}));
+};
 
 vi.mock("../src/main/vellum/hosts/deploy-darwin", async () => {
   providerEvaluations.darwin += 1;
@@ -104,19 +105,15 @@ describe("Remote deployment provider evaluation", () => {
     expect(providerEvaluations).toEqual({ darwin: 0, linux: 1 });
   });
 
-  it("refuses Darwin provider load under beta without evaluating deploy-darwin", async () => {
-    const { DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL } = await import(
-      "../src/shared/release-capabilities"
-    );
+  it("loads Darwin provider under full product surface without evaluating linux", async () => {
     const {
       loadRemoteDeploymentProvider,
       makeRemoteDeploymentDispatcher,
     } = await import("../src/main/vellum/hosts/deploy-remote");
 
-    await expect(loadRemoteDeploymentProvider("darwin")).rejects.toThrow(
-      DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
-    );
-    expect(providerEvaluations).toEqual({ darwin: 0, linux: 0 });
+    const provider = await loadRemoteDeploymentProvider("darwin");
+    expect(provider?.platform).toBe("darwin");
+    expect(providerEvaluations).toEqual({ darwin: 1, linux: 0 });
 
     const dispatcher = makeRemoteDeploymentDispatcher({
       commandCenterPlatform: "darwin",
@@ -128,12 +125,13 @@ describe("Remote deployment provider evaluation", () => {
       }),
     );
     expect(result).toMatchObject({
-      ok: false,
-      code: "validation",
-      disposition: "not-started",
-      message: "remote deployment provider unavailable",
+      ok: true,
+      detail: "darwin ready",
+      disposition: "ready",
     });
-    expect(providerEvaluations).toEqual({ darwin: 0, linux: 0 });
+    // Selector may load again on deploy; never touch the linux branch.
+    expect(providerEvaluations.linux).toBe(0);
+    expect(providerEvaluations.darwin).toBeGreaterThanOrEqual(1);
   });
 
   it("fails closed on an unsupported target without evaluating a provider", async () => {

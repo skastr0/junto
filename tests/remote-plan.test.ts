@@ -29,6 +29,8 @@ describe("remote-plan public surface", () => {
       "compileLinuxReleaseBridge",
       "compileLinuxRemotePreflight",
       "compileLinuxRemotePreflightSource",
+      "compileLinuxRemoteUnitActivate",
+      "compileLinuxRemoteUnitActivateSource",
       "confineHerdrStagePath",
     ]);
   });

@@ -674,14 +674,16 @@ describe("signed Linux release bundle", () => {
     });
   });
 
-  it("fails production deploy closed until independent trust is configured", async () => {
+  it("fails production deploy when the bundle is not signed by the configured key", async () => {
+    // Fixture mints its own ed25519 key; production admission uses the
+    // checked-in keyring pin. A foreign signature must never admit.
     const fixture = await createFixture();
     await expect(
       verifyProductionLinuxDeployBundle({
         bundleDirectory: fixture.directory,
-        now: NOW,
+        now: Date.parse("2026-07-29T12:00:00.000Z"),
       }),
-    ).rejects.toThrow(/trust is not configured/u);
+    ).rejects.toThrow(/signature|trusted|key|fingerprint|mismatch|keyring/iu);
   });
 
   it("rejects tampered metadata, payloads, checksums, and undeclared extras", async () => {
@@ -852,7 +854,7 @@ describe("signed Linux release bundle", () => {
     ).rejects.toThrow(/downgrade/u);
   });
 
-  it("blocks manifest creation with the intentionally empty production keyring", async () => {
+  it("rejects empty keyrings and pins the checked-in active release key", async () => {
     expect(() =>
       decodeLinuxReleaseKeyring({
         schema: "vellum/linux-release-keyring/v1",
@@ -860,14 +862,24 @@ describe("signed Linux release bundle", () => {
         keys: [],
       })
     ).toThrow(/no trusted keys/u);
-    const empty = await readFile(
-      new URL("../build/linux/release-keyring.json", import.meta.url),
-      "utf8",
-    );
-    expect(JSON.parse(empty)).toEqual({
+    const checkedIn = JSON.parse(
+      await readFile(
+        new URL("../build/linux/release-keyring.json", import.meta.url),
+        "utf8",
+      ),
+    ) as {
+      readonly schema: string;
+      readonly revision: number;
+      readonly keys: ReadonlyArray<{ readonly keyId: string; readonly status: string }>;
+    };
+    expect(checkedIn).toMatchObject({
       schema: "vellum/linux-release-keyring/v1",
       revision: 1,
-      keys: [],
+    });
+    expect(checkedIn.keys).toHaveLength(1);
+    expect(checkedIn.keys[0]).toMatchObject({
+      keyId: "vellum-linux-2026a",
+      status: "active",
     });
   });
 

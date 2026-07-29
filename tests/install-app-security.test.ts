@@ -1128,7 +1128,10 @@ printf '%s\n' "$(cat "$PLIST_STAGE")" "$(cat "$PLIST")"`,
     );
 
     const helperStart = position(paths, "begin_one_way_app_cutover() {");
-    const helperEnd = position(paths, "# Prefer artifactName zip");
+    const helperEnd = position(
+      paths,
+      "# Prefer zip matching the packaged app version",
+    );
     const helper = paths.slice(helperStart, helperEnd);
     expect(position(helper, 'assert_owned_current_app "$expected_identity"'))
       .toBeLessThan(position(helper, "ACTIVATION_STARTED=1"));

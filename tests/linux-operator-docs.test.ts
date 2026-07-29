@@ -180,7 +180,8 @@ describe("Linux v1 operator documentation", () => {
 
   it("qualifies downgrades only as one-way cutover rejections", async () => {
     const qualification = await readDoc("linux-package-qualification.md");
-    expect(qualification).toContain(
+    const normalized = qualification.replace(/\s+/gu, " ");
+    expect(normalized).toContain(
       "Exercise a downgrade only as a rejection: no older build may activate.",
     );
   });

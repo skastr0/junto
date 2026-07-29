@@ -181,9 +181,15 @@ describe("Linux release artifact identity", () => {
       mkdir(release, { recursive: true }),
       mkdir(logs, { recursive: true }),
     ]);
-    const deb = "Vellum Command-0.1.0-x64-linux.deb";
+    const packageVersion = JSON.parse(
+      await readFile(
+        new URL("../package.json", import.meta.url),
+        "utf8",
+      ),
+    ).version as string;
+    const deb = `Vellum Command-${packageVersion}-x64-linux.deb`;
     const diagnostic =
-      "Vellum Command-0.1.0-x64-linux.unpacked.tar.gz";
+      `Vellum Command-${packageVersion}-x64-linux.unpacked.tar.gz`;
     const evidenceNames = [
       diagnostic,
     ];
@@ -273,7 +279,7 @@ describe("Linux release artifact identity", () => {
     expect(JSON.stringify(manifest)).not.toContain(root);
     expect(await readFile(path.join(logs, "unit.log"), "utf8")).toBe("passed\n");
     expect(linuxCiChecksumLines(manifest)).toContain(
-      "release/Vellum Command-0.1.0-x64-linux.deb",
+      `release/Vellum Command-${packageVersion}-x64-linux.deb`,
     );
     await expect(verifyLinuxCiReleaseManifest({
       manifest,
