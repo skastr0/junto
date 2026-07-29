@@ -86,7 +86,7 @@ function NodeActions({
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
     const graph = executionGraphForImpact(doc, execution, context);
     return resolveBlockerCause(doc, graph, node.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev is the kernel tick; execution object identity alone can stay stable while blocked/reasons flip
   }, [
     selected,
     shellBlocked,
