@@ -52,6 +52,8 @@
     "app:build:ship": "bash scripts/build-app.sh --verify --notarize",
     "app:build:beta:ship": "bash scripts/build-app.sh --channel beta --verify --notarize",
     "app:build:production:ship": "bash scripts/build-app.sh --channel production --verify --notarize",
+    "version:bump": "bun scripts/bump-version.ts",
+    "mac:release:publish": "bun scripts/publish-mac-release.ts",
     "linux:release:evidence": "bun scripts/linux-release-inventory.ts",
     "linux:release:create": "bun scripts/linux-release-tool.ts create",
     "linux:release:sign": "bun scripts/linux-release-tool.ts sign",

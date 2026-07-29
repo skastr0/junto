@@ -36,6 +36,10 @@ bun run verify          # typecheck + unit tests + vite compile
 bun run app:build       # package pinned Dodo Test beta app + zip/dmg
 ```
 
+Maintainer macOS ship loop (version bump → notarize → R2 feed): see
+[`docs/mac-release-runbook.md`](docs/mac-release-runbook.md)
+(`bun run version:bump`, `bun run app:build:ship`, `bun run mac:release:publish`).
+
 `app:build` and its platform/verification variants always produce the pinned
 beta profile unless `--channel production` is explicit. Production packaging
 requires `VELLUM_DODO_BUSINESS_ID` and `VELLUM_DODO_PRODUCT_ID`; packaged
