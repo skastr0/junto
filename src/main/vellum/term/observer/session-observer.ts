@@ -60,11 +60,24 @@ type HeadlessTerminal = {
     ) => { dispose: () => void };
   };
   write: (data: string, cb?: () => void) => void;
+  loadAddon: (addon: { activate: (terminal: HeadlessTerminal) => void; dispose: () => void }) => void;
   resize: (cols: number, rows: number) => void;
   dispose: () => void;
 };
 const { Terminal } = require("@xterm/headless") as {
   Terminal: new (options?: Record<string, unknown>) => HeadlessTerminal;
+};
+type HeadlessSerializeAddon = {
+  activate: (terminal: HeadlessTerminal) => void;
+  serialize: (options?: {
+    readonly scrollback?: number;
+    readonly excludeModes?: boolean;
+    readonly excludeAltBuffer?: boolean;
+  }) => string;
+  dispose: () => void;
+};
+const { SerializeAddon } = require("@xterm/addon-serialize") as {
+  SerializeAddon: new () => HeadlessSerializeAddon;
 };
 
 /**
@@ -79,6 +92,7 @@ export class SessionObserver {
   readonly bindingId: string;
   readonly epoch: string;
   private readonly term: HeadlessTerminal;
+  private readonly serializer: HeadlessSerializeAddon;
   private readonly disposables: Array<{ dispose: () => void }> = [];
   private readonly listeners = new Set<ObserverListener>();
   private title = "";
@@ -93,8 +107,8 @@ export class SessionObserver {
     this.epoch = opts.epoch;
     const cols = Math.max(20, Math.min(300, opts.cols));
     const rows = Math.max(5, Math.min(120, opts.rows));
-    // Long sessions: retain a deep scrollback in the headless grid so attach
-    // can rebuild the screen without a truncating byte journal.
+    // Long sessions: retain a deep scrollback in the headless terminal so the
+    // canonical VT serializer can restore the complete terminal state.
     const scrollback = Math.max(
       opts.scrollback ?? 50_000,
       rows * 4,
@@ -106,6 +120,8 @@ export class SessionObserver {
       allowProposedApi: true,
       scrollback,
     });
+    this.serializer = new SerializeAddon();
+    this.term.loadAddon(this.serializer);
     const wanted = opts.unicodeVersion ?? DEFAULT_UNICODE;
     try {
       this.term.unicode.activeVersion = wanted;
@@ -143,8 +159,8 @@ export class SessionObserver {
       }),
     );
     // CSI ? Pm h / l — DEC private modes (prefix `?`).
-    // Track paste/sync/alt-screen/mouse so plain-text attach can re-arm the
-    // renderer (hover/click die when mouse modes are lost after term.reset).
+    // Track paste/sync/alt-screen/mouse for seat-state observation. Reopen
+    // state itself is restored by the canonical VT serializer.
     this.disposables.push(
       this.term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) => {
         for (const mode of this.flatParams(params)) {
@@ -252,30 +268,17 @@ export class SessionObserver {
     const buf = this.term.buffer.active;
     const cols = this.term.cols;
     const rows = this.term.rows;
-    const lines: string[] = [];
-    // Full buffer length includes scrollback; this is the long-session source of truth.
-    for (let i = 0; i < buf.length; i++) {
-      const line = buf.getLine(i);
-      lines.push(line ? line.translateToString(true, 0, cols) : "");
-    }
-    // Drop pure trailing empties (keep at least viewport height).
-    while (lines.length > rows && lines[lines.length - 1] === "") {
-      lines.pop();
-    }
     return {
       bindingId: this.bindingId,
       epoch: this.epoch,
       cols,
       rows,
-      cursorX: Math.max(0, Math.min(cols - 1, buf.cursorX)),
-      cursorY: Math.max(0, Math.min(rows - 1, buf.cursorY)),
       seq: this.seq,
-      lines,
-      signals: {
-        title: this.title,
-        osc9: this.osc9,
-        modes: this.modes,
-      },
+      // Official xterm serializer emits VT sequences for cells, colors,
+      // cursor, modes, normal buffer, and alternate buffer. Replaying this
+      // into another same-sized xterm restores terminal state instead of a
+      // plain-text approximation.
+      serialized: this.serializer.serialize(),
     };
   }
 
@@ -289,6 +292,11 @@ export class SessionObserver {
       } catch {
         // ignore
       }
+    }
+    try {
+      this.serializer.dispose();
+    } catch {
+      // ignore
     }
     try {
       this.term.dispose();

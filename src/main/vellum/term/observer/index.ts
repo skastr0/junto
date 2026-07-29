@@ -80,9 +80,11 @@ export class TerminalObserverPlane {
     return this.byBinding.get(bindingId)?.snapshotNow();
   }
 
-  /** Full-buffer attach screen when a live observer exists. */
-  attachScreen(bindingId: string): import("./types").AttachScreen | undefined {
-    return this.byBinding.get(bindingId)?.attachScreenNow();
+  /** Settled serialized VT state when a live observer exists. */
+  async attachScreen(
+    bindingId: string,
+  ): Promise<import("./types").AttachScreen | undefined> {
+    return this.byBinding.get(bindingId)?.attachScreen();
   }
 
   subscribeAll(listener: ObserverListener): () => void {

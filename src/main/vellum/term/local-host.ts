@@ -226,12 +226,6 @@ type SessionRec = {
   seq: bigint;
   journal: JournalEntry[];
   journalBytes: number;
-  /**
-   * Once any raw PTY bytes fall out of the bounded journal, replaying it can
-   * begin mid-control-sequence. Until then it is the only exact presentation
-   * source: the observer grid intentionally contains plain text only.
-   */
-  journalTruncated: boolean;
   controlLeaseId: string | undefined;
   killed: boolean;
   termReceipt: AppProcessSignalReceipt | undefined;
@@ -522,7 +516,11 @@ export class LocalSessionHost extends EventEmitter {
   createAgentSeat(input: LocalHostAgentSeatInput): TerminalSessionSummary {
     const bindingId = input.bindingId.trim();
     const current = this.sessions.get(bindingId);
-    if (current && sessionStatusOf(current) !== "exited") {
+    if (
+      current &&
+      !current.killed &&
+      sessionStatusOf(current) !== "exited"
+    ) {
       // One binding owns one live actor generation. Create is an idempotent
       // ensure at this boundary: renderer remounts, concurrent factory wake,
       // or duplicate IPC must never turn into permission to signal and replace
@@ -603,7 +601,6 @@ export class LocalSessionHost extends EventEmitter {
       seq: 0n,
       journal: [],
       journalBytes: 0,
-      journalTruncated: false,
       controlLeaseId: undefined,
       killed: false,
       termReceipt: undefined,
@@ -779,64 +776,53 @@ export class LocalSessionHost extends EventEmitter {
     this.bindProcessIdentity(rec);
   }
 
-  attach(input: {
+  async attach(input: {
     readonly bindingId: string;
     readonly mode: "control" | "observe";
     readonly takeover?: boolean;
-  }):
+  }): Promise<
     | {
         readonly ok: true;
         readonly lease: ControlLease;
         readonly cols: number;
         readonly rows: number;
-        /**
-         * Preferred long-session attach: full headless grid (scrollback + viewport).
-         * When present, renderer should apply this and ignore `journal`.
-         */
+        /** Canonical live-session attach: serialized xterm VT state. */
         readonly screen?: {
           readonly bindingId: string;
           readonly epoch: string;
           readonly cols: number;
           readonly rows: number;
-          readonly cursorX: number;
-          readonly cursorY: number;
           readonly seq: bigint;
-          readonly lines: readonly string[];
+          readonly serialized: string;
         };
-        /** Bounded byte ring for sessions without an observer. */
+        /** Spawn/setup diagnostics only, when no live observer was created. */
         readonly journal: readonly JournalEntry[];
         readonly status: "starting" | "running" | "exited";
         readonly pid?: number;
       }
-    | { readonly ok: false; readonly message: string } {
+    | { readonly ok: false; readonly message: string }
+  > {
     const rec = this.sessions.get(input.bindingId);
     if (!rec) return { ok: false, message: "session not found" };
     if (rec.killed) {
       return { ok: false, message: "session interaction revoked during stop" };
     }
 
-    // Exact raw replay wins while the bounded journal is complete. It retains
-    // SGR/color, hyperlinks, cursor operations, and TUI paint semantics that a
-    // plain-text observer grid cannot reconstruct. Only fall back to the full
-    // observer buffer after raw history has actually been truncated.
-    const screen = this.observerPlane.attachScreen(rec.bindingId);
-    const screenPayload = rec.journalTruncated && screen
+    // One canonical live attach representation: xterm's serialized VT state.
+    // Never reconstruct a terminal from observer text.
+    const screen = await this.observerPlane.attachScreen(rec.bindingId);
+    const screenPayload = screen
       ? {
           bindingId: screen.bindingId,
           epoch: screen.epoch,
           cols: screen.cols,
           rows: screen.rows,
-          cursorX: screen.cursorX,
-          cursorY: screen.cursorY,
           seq: screen.seq,
-          lines: screen.lines,
-          // Mode flags for renderer re-arm after plain-text rebuild
-          // (mouse/alt-screen — without these hover/click die on attach).
-          signals: screen.signals,
+          serialized: screen.serialized,
         }
       : undefined;
-    // A truncated raw ring can begin mid-escape, so never combine it with the
-    // observer fallback. A complete journal needs no lossy screen projection.
+    // A live observer owns presentation. Journal is retained only for
+    // pre-observer spawn/setup failures, never as an alternate live painter.
     const journal = screenPayload ? ([] as const) : rec.journal.slice();
 
     if (input.mode === "control") {
@@ -1075,6 +1061,7 @@ export class LocalSessionHost extends EventEmitter {
 
   private requestStop(rec: SessionRec): void {
     if (sessionStatusOf(rec) === "exited") return;
+    if (rec.killed) return;
     rec.killed = true;
     rec.controlLeaseId = undefined;
     if (rec.pid !== undefined) {
@@ -1319,7 +1306,6 @@ export class LocalSessionHost extends EventEmitter {
     }
     while (rec.journalBytes > MAX_JOURNAL_BYTES && rec.journal.length > 0) {
       const dropped = rec.journal.shift();
-      rec.journalTruncated = true;
       if (dropped?.type === "output") {
         rec.journalBytes -= Buffer.byteLength(dropped.data, "utf8");
       }
@@ -1364,6 +1350,7 @@ export class LocalSessionHost extends EventEmitter {
       epoch: rec.epoch,
       hostId: rec.hostId,
       status: sessionStatusOf(rec),
+      ...(rec.killed ? { stopping: true as const } : {}),
       title: rec.title,
       cwd: rec.cwd,
       pid: rec.pid,

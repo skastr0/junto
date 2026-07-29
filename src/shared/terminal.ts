@@ -230,6 +230,11 @@ export type TerminalSessionSummary = {
   readonly epoch: string;
   readonly hostId: string;
   readonly status: TerminalSessionStatus;
+  /**
+   * Process termination was requested and interaction authority is revoked,
+   * but the exact exit witness has not settled yet.
+   */
+  readonly stopping?: true;
   readonly title?: string;
   readonly cwd?: string;
   readonly pid?: number;

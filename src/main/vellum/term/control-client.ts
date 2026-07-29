@@ -486,6 +486,14 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
         lease: ControlLease;
         cols: number;
         rows: number;
+        screen?: {
+          readonly bindingId: string;
+          readonly epoch: string;
+          readonly cols: number;
+          readonly rows: number;
+          readonly seq: bigint;
+          readonly serialized: string;
+        };
         journal: readonly JournalEntry[];
         status: string;
         pid?: number;
@@ -508,6 +516,14 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       mode: "control" | "observe";
       cols: number;
       rows: number;
+      screen?: {
+        bindingId?: unknown;
+        epoch?: unknown;
+        cols?: unknown;
+        rows?: unknown;
+        seq?: unknown;
+        serialized?: unknown;
+      };
       journal: unknown;
       status: string;
       pid?: number;
@@ -522,6 +538,23 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       },
       cols: data.cols,
       rows: data.rows,
+      ...(data.screen &&
+      typeof data.screen.bindingId === "string" &&
+      typeof data.screen.epoch === "string" &&
+      typeof data.screen.cols === "number" &&
+      typeof data.screen.rows === "number" &&
+      typeof data.screen.serialized === "string"
+        ? {
+            screen: {
+              bindingId: data.screen.bindingId,
+              epoch: data.screen.epoch,
+              cols: data.screen.cols,
+              rows: data.screen.rows,
+              seq: reviveSeq(data.screen.seq) ?? 0n,
+              serialized: data.screen.serialized,
+            },
+          }
+        : {}),
       journal: reviveJournal(data.journal),
       status: data.status,
       pid: data.pid,

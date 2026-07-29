@@ -98,6 +98,9 @@ export const ensureManagedSeatRunning = (
   if (surface?._tag !== "managedAgent") return false;
 
   const live = termPlane.host.get(surface.bindingId);
+  // Automatic factory repair never replaces a generation the operator (or
+  // shutdown) has stopped. Explicit renderer open owns that restart.
+  if (live?.stopping) return false;
   const disposition = automaticManagedSeatDisposition(live?.status);
   if (disposition === "reuse-live-generation") return true;
   if (disposition === "require-explicit-restart") return false;

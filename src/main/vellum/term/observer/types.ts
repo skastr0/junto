@@ -16,15 +16,9 @@ export type ObserverModes = {
   readonly bracketedPaste: boolean;
   /** CSI ?2026 — synchronized output (repaint boundary). */
   readonly synchronizedOutput: boolean;
-  /**
-   * CSI ?1049/1047/47 — alternate screen. Plain-text attach must re-enter
-   * alt before painting lines or the TUI lands on the wrong buffer.
-   */
+  /** CSI ?1049/1047/47 — alternate screen state used by seat observation. */
   readonly altScreen: boolean;
-  /**
-   * Active mouse DEC private modes (1000/1002/1003/1006/…). Re-armed on the
-   * renderer after grid attach so hover/click reach CoreMouseService again.
-   */
+  /** Active mouse DEC private modes (1000/1002/1003/1006/…). */
   readonly mouseModes: readonly number[];
 };
 
@@ -53,28 +47,19 @@ export type ObserverGridSnapshot = {
 export type ObserverListener = (snapshot: ObserverGridSnapshot) => void;
 
 /**
- * Full-buffer attach payload for the renderer. Used only after the exact raw
+ * Full-buffer VT attach payload for the renderer. Used after the exact raw
  * byte journal has truncated; survives long sessions without replaying from
- * the middle of an escape sequence.
+ * the middle of an escape sequence or flattening terminal presentation.
  */
 export type AttachScreen = {
   readonly bindingId: string;
   readonly epoch: string;
   readonly cols: number;
   readonly rows: number;
-  /** Zero-based cursor column within the active viewport. */
-  readonly cursorX: number;
-  /** Zero-based cursor row within the active viewport. */
-  readonly cursorY: number;
   /** PTY plane seq at serialization time. */
   readonly seq: bigint;
-  /**
-   * Full active buffer lines top→bottom (scrollback + viewport).
-   * Plain text (SGR lost on fallback attach) — content-correct for very long
-   * sessions whose exact raw journal no longer starts at generation birth.
-   */
-  readonly lines: readonly string[];
-  readonly signals: ObserverSignals;
+  /** Serialized VT state for the full normal + alternate buffers. */
+  readonly serialized: string;
 };
 
 export type SessionObserverOptions = {

@@ -20,13 +20,15 @@ export const ensureTerminalRunning = async (
   if (!api?.terminalCreate) {
     return { ok: false, message: "terminal API unavailable — restart Vellum Command" };
   }
-  const existing = terminal$.sessionByBindingId[binding.bindingId].peek();
-  if (existing?.status === "running" || existing?.status === "starting") {
-    return { ok: true };
-  }
+  // Renderer state is a display cache, not process authority. In particular,
+  // a kill issued from the focused surface used to leave a cached "running"
+  // row here, so every reopen attached to the already-revoked generation.
   try {
     const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
-    if (live?.status === "running" || live?.status === "starting") {
+    if (
+      !live?.stopping &&
+      (live?.status === "running" || live?.status === "starting")
+    ) {
       terminal$.sessionByBindingId[binding.bindingId].set(live);
       return { ok: true };
     }

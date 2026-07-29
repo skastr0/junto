@@ -17,33 +17,12 @@ import {
 import { surfaceById } from "../../lib/surface-registry";
 import { getVellumApi } from "../../lib/vellum-api";
 import {
-  buildAttachCursorEscape,
-  buildAttachRestoreEscapes,
-  idleAttachModes,
-  type TerminalAttachModes,
-} from "@shared/term-attach-modes";
-import {
   VELLUM_XTERM_FONT_FAMILY,
   VELLUM_XTERM_THEME,
 } from "../../lib/terminal-theme";
 import { shouldNotifyPtyResize } from "../../lib/terminal-resize";
 import { ActivityMark } from "../ActivityMark";
 import { Button, OverlayHeader } from "../ui";
-
-const modesFromScreen = (
-  screen: AttachResult["screen"],
-): TerminalAttachModes => {
-  const m = screen?.signals?.modes;
-  if (!m) return idleAttachModes();
-  return {
-    bracketedPaste: m.bracketedPaste === true,
-    synchronizedOutput: m.synchronizedOutput === true,
-    altScreen: m.altScreen === true,
-    mouseModes: Array.isArray(m.mouseModes)
-      ? m.mouseModes.filter((n): n is number => typeof n === "number")
-      : [],
-  };
-};
 
 const KILL_ARM_MS = 3000;
 
@@ -55,26 +34,14 @@ type AttachResult = {
   readonly rows?: number;
   /** Session status at attach time — retained exited generations still attach. */
   readonly status?: "starting" | "running" | "exited" | string;
-  /** Preferred: full headless grid for long-session attach (no journal ring). */
+  /** Canonical live-session attach: serialized xterm VT state. */
   readonly screen?: {
     readonly bindingId?: string;
     readonly epoch?: string;
     readonly cols?: number;
     readonly rows?: number;
-    readonly cursorX?: number;
-    readonly cursorY?: number;
     readonly seq?: bigint;
-    readonly lines?: readonly string[];
-    readonly signals?: {
-      readonly title?: string;
-      readonly osc9?: string;
-      readonly modes?: {
-        readonly bracketedPaste?: boolean;
-        readonly synchronizedOutput?: boolean;
-        readonly altScreen?: boolean;
-        readonly mouseModes?: readonly number[];
-      };
-    };
+    readonly serialized?: string;
   };
   readonly journal?: readonly {
     readonly type: string;
@@ -402,28 +369,14 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           rows: result.screen?.rows ?? result.rows ?? 0,
         };
         let lastSeq: bigint | undefined;
-        // Main returns the exact raw journal while it is complete (preserving
-        // SGR/color + TUI paint semantics), and only supplies a plain-text grid
-        // after the bounded raw journal has actually truncated.
-        const screenLines = result.screen?.lines;
-        if (screenLines && screenLines.length > 0) {
-          // Plain-text rebuild loses DEC private modes. Re-arm alt-screen +
-          // mouse on the *renderer* only so CoreMouseService matches the live
-          // PTY app (which never re-sends modes it already enabled).
-          const restore = buildAttachRestoreEscapes(
-            modesFromScreen(result.screen),
-          );
+        // Live sessions have exactly one attach representation: serialized VT
+        // state. Journal is only for failures before an observer existed.
+        const serializedScreen = result.screen?.serialized;
+        if (serializedScreen) {
+          // Serialized xterm VT state restores cells, SGR/color, cursor,
+          // normal/alternate buffers, and terminal modes in one representation.
           term.reset();
-          if (restore.beforeContent) term.write(restore.beforeContent);
-          term.write(screenLines.join("\r\n"));
-          const cursorEscape = buildAttachCursorEscape({
-            x: result.screen?.cursorX,
-            y: result.screen?.cursorY,
-            cols: result.screen?.cols ?? term.cols,
-            rows: result.screen?.rows ?? term.rows,
-          });
-          if (cursorEscape) term.write(cursorEscape);
-          if (restore.afterContent) term.write(restore.afterContent);
+          term.write(serializedScreen);
           if (result.screen?.seq !== undefined) lastSeq = result.screen.seq;
         } else {
           for (const item of result.journal ?? []) {
@@ -440,11 +393,11 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           if (event.type === "exit") sawExit = true;
         }
         pending.length = 0;
-        // Attach succeeds for retained exited generations (journal/screen
-        // replay). Never paint those as a live control lease.
+        // Retained exited generations may expose their final raw journal.
+        // Never paint those as a live control lease.
         setStatus(sawExit ? "exited" : "control");
-        // Journal replayed at prior focus size. Repaint through layout settle;
-        // only a real cols×rows transition is forwarded to the child PTY.
+        // Repaint through layout settle; only a real cols×rows transition is
+        // forwarded to the child PTY.
         requestAnimationFrame(() => {
           if (!alive) return;
           pushResize();

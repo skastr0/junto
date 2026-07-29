@@ -1,11 +1,4 @@
-/**
- * DEC private modes that must be re-armed on the renderer after a plain-text
- * attach rebuild. Grid attach loses SGR and mode state; the live PTY app still
- * believes mouse/alt-screen are on, so hover/click die until we re-inject.
- *
- * Sequences are written to the *renderer* xterm only (term.write), never to the
- * PTY — the app already has these modes set.
- */
+/** DEC private modes tracked by the headless observer for seat-state signals. */
 
 /** Mouse tracking / encoding modes (xterm CoreMouseService). */
 export const MOUSE_DEC_MODES = [
@@ -46,42 +39,6 @@ export const isMouseDecMode = (mode: number): boolean => MOUSE_SET.has(mode);
 export const isAltScreenDecMode = (mode: number): boolean => ALT_SET.has(mode);
 
 /**
- * Restore the active-grid cursor after a plain-text screen rebuild.
- * Coordinates are zero-based in the attach contract; CUP is one-based.
- * Older independently updated peers may omit them, in which case replay
- * remains usable and live output continues from xterm's current cursor.
- */
-export const buildAttachCursorEscape = (
-  cursor:
-    | {
-        readonly x?: number;
-        readonly y?: number;
-        readonly cols: number;
-        readonly rows: number;
-      }
-    | undefined,
-): string => {
-  const xValue = cursor?.x;
-  const yValue = cursor?.y;
-  if (
-    !cursor ||
-    typeof xValue !== "number" ||
-    typeof yValue !== "number" ||
-    !Number.isFinite(xValue) ||
-    !Number.isFinite(yValue) ||
-    !Number.isFinite(cursor.cols) ||
-    !Number.isFinite(cursor.rows) ||
-    cursor.cols < 1 ||
-    cursor.rows < 1
-  ) {
-    return "";
-  }
-  const x = Math.max(0, Math.min(Math.floor(xValue), Math.floor(cursor.cols) - 1));
-  const y = Math.max(0, Math.min(Math.floor(yValue), Math.floor(cursor.rows) - 1));
-  return `\x1b[${y + 1};${x + 1}H`;
-};
-
-/**
  * Apply a DECSET/DECRST mode number onto attach mode state.
  * `set` true = CSI ? Pm h, false = CSI ? Pm l.
  */
@@ -112,32 +69,4 @@ export const applyDecPrivateMode = (
     };
   }
   return current;
-};
-
-/**
- * Escapes to re-arm renderer xterm after plain-text grid attach.
- * - `beforeContent`: enter alt screen so writes land on the TUI buffer
- * - `afterContent`: mouse + paste + sync (app already owns these on the PTY)
- */
-export const buildAttachRestoreEscapes = (
-  modes: TerminalAttachModes,
-): { readonly beforeContent: string; readonly afterContent: string } => {
-  let beforeContent = "";
-  if (modes.altScreen) {
-    // 1049 = save cursor + alt screen (what nearly all TUIs use).
-    beforeContent = "\x1b[?1049h";
-  }
-
-  const after: string[] = [];
-  if (modes.mouseModes.length > 0) {
-    // Encoding (1006) before tracking level is conventional; join is fine.
-    after.push(`\x1b[?${modes.mouseModes.join(";")}h`);
-  }
-  if (modes.bracketedPaste) after.push("\x1b[?2004h");
-  if (modes.synchronizedOutput) after.push("\x1b[?2026h");
-
-  return {
-    beforeContent,
-    afterContent: after.join(""),
-  };
 };

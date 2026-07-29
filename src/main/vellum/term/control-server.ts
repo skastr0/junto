@@ -403,7 +403,7 @@ export const startTermControlServer = async (
           host.bindCanvas(req.bindingId, req.ref);
           return { v: 1, id, ok: true };
         case "attach": {
-          const result = host.attach({
+          const result = await host.attach({
             bindingId: req.bindingId,
             mode: req.mode,
             takeover: req.takeover,
@@ -423,6 +423,7 @@ export const startTermControlServer = async (
               rows: result.rows,
               status: result.status,
               pid: result.pid,
+              screen: result.screen,
               journal: result.journal,
             },
           };

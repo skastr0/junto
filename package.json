@@ -88,10 +88,12 @@
     "@pierre/diffs": "^1.1.21",
     "@pierre/trees": "^1.0.0-beta.3",
     "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.11.2",
     "effect": "^3.21.1",
+    "electron-updater": "^6.6.2",
     "gradient-spin": "^0.1.0",
     "lucide-react": "^0.468.0",
     "motion": "^12.23.24",
@@ -100,8 +102,7 @@
     "react-dom": "^19.2.0",
     "thinking-orbs": "0.1.1",
     "three": "^0.185.1",
-    "ulid": "^3.0.2",
-    "electron-updater": "^6.6.2"
+    "ulid": "^3.0.2"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",

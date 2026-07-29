@@ -121,40 +121,6 @@ describe("SessionObserver", () => {
     }
   });
 
-  it("attachScreen carries mode signals for renderer re-arm", async () => {
-    const obs = new SessionObserver({
-      bindingId: "b1",
-      epoch: "e1",
-      cols: 40,
-      rows: 10,
-    });
-    try {
-      await feedAndWait(obs, "\x1b[?1049h\x1b[?1000;1006hhello\r\n");
-      const screen = await obs.attachScreen();
-      expect(screen.signals.modes.altScreen).toBe(true);
-      expect(screen.signals.modes.mouseModes).toEqual([1000, 1006]);
-    } finally {
-      obs.dispose();
-    }
-  });
-
-  it("attachScreen carries the active cursor for renderer replay", async () => {
-    const obs = new SessionObserver({
-      bindingId: "b1",
-      epoch: "e1",
-      cols: 40,
-      rows: 10,
-    });
-    try {
-      await feedAndWait(obs, "prompt");
-      const screen = await obs.attachScreen();
-      expect(screen.cursorX).toBe(6);
-      expect(screen.cursorY).toBe(0);
-    } finally {
-      obs.dispose();
-    }
-  });
-
   it("renders plain text into the grid", async () => {
     const obs = new SessionObserver({
       bindingId: "b1",
@@ -212,10 +178,26 @@ describe("SessionObserver", () => {
       for (let i = 0; i < 30; i++) blob += `line-${i}\r\n`;
       await feedAndWait(obs, blob);
       const screen = await obs.attachScreen();
-      expect(screen.lines.some((l) => l.includes("line-0"))).toBe(true);
-      expect(screen.lines.some((l) => l.includes("line-29"))).toBe(true);
-      expect(screen.lines.length).toBeGreaterThan(5);
+      expect(screen.serialized).toContain("line-0");
+      expect(screen.serialized).toContain("line-29");
       expect(screen.bindingId).toBe("b1");
+    } finally {
+      obs.dispose();
+    }
+  });
+
+  it("attachScreen preserves SGR color as serialized VT state", async () => {
+    const obs = new SessionObserver({
+      bindingId: "b1",
+      epoch: "e1",
+      cols: 40,
+      rows: 5,
+    });
+    try {
+      await feedAndWait(obs, "\u001b[31mred\u001b[0m\r\n");
+      const screen = await obs.attachScreen();
+      expect(screen.serialized).toContain("\u001b[31mred");
+      expect(screen.serialized).toContain("\u001b[0m");
     } finally {
       obs.dispose();
     }

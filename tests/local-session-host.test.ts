@@ -100,7 +100,7 @@ describe("LocalSessionHost", () => {
     expect(launch.env.TERM).toBe("xterm-256color");
   });
 
-  it("fails before ownership when the launch cwd is missing", () => {
+  it("fails before ownership when the launch cwd is missing", async () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(42_901),
     }));
@@ -116,7 +116,7 @@ describe("LocalSessionHost", () => {
 
     expect(summary).toMatchObject({ bindingId: "bad-cwd", status: "exited" });
     expect(fake.controllers).toHaveLength(0);
-    const attached = host.attach({ bindingId: "bad-cwd", mode: "observe" });
+    const attached = await host.attach({ bindingId: "bad-cwd", mode: "observe" });
     expect(attached.ok).toBe(true);
     if (!attached.ok) return;
     expect(
@@ -209,7 +209,7 @@ describe("LocalSessionHost", () => {
     expect(resolved.env.CLAUDECODE).toBeUndefined();
   });
 
-  it("drives an unresolvable agent seat to the error state instead of a login shell", () => {
+  it("drives an unresolvable agent seat to the error state instead of a login shell", async () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(42_900),
     }));
@@ -229,7 +229,7 @@ describe("LocalSessionHost", () => {
     expect(fake.controllers).toHaveLength(0);
     expect(host.runningCount()).toBe(0);
 
-    const attached = host.attach({ bindingId: "seat-unresolvable", mode: "observe" });
+    const attached = await host.attach({ bindingId: "seat-unresolvable", mode: "observe" });
     expect(attached.ok).toBe(true);
     if (!attached.ok) return;
     expect(attached.status).toBe("exited");
@@ -398,7 +398,37 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(1);
   });
 
-  it("enforces control leases and routes IO only through the lease facade", () => {
+  it("lets explicit reopen replace a stopping actor generation immediately", () => {
+    const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+      pid: trackSyntheticPid(42_450 + index),
+      exitOnSignal: false,
+    }));
+    const host = hostWith(fake);
+    const input = {
+      bindingId: "restart-stopping-seat",
+      harness: "codex" as const,
+      agentKey: "local:codex",
+      launch: { kind: "harness" as const, argv: ["/usr/local/bin/codex"] },
+      canvasName: "factory",
+      nodeId: "codex-node",
+    };
+
+    const initial = host.createAgentSeat(input);
+    expect(host.kill(input.bindingId)).toBe(true);
+    expect(host.get(input.bindingId)).toMatchObject({
+      epoch: initial.epoch,
+      status: "running",
+      stopping: true,
+    });
+
+    const replacement = host.createAgentSeat(input);
+    expect(replacement.epoch).not.toBe(initial.epoch);
+    expect(replacement.stopping).toBeUndefined();
+    expect(fake.controllers).toHaveLength(2);
+    expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
+  });
+
+  it("enforces control leases and routes IO only through the lease facade", async () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(42_500),
       exitOnSignal: "SIGTERM",
@@ -406,17 +436,17 @@ describe("LocalSessionHost", () => {
     const host = hostWith(fake);
     host.create({ bindingId: "lease-io" });
 
-    const observer = host.attach({ bindingId: "lease-io", mode: "observe" });
+    const observer = await host.attach({ bindingId: "lease-io", mode: "observe" });
     expect(observer.ok).toBe(true);
     if (observer.ok) expect(host.write(observer.lease, "blocked")).toBe(false);
 
-    const first = host.attach({ bindingId: "lease-io", mode: "control" });
+    const first = await host.attach({ bindingId: "lease-io", mode: "control" });
     expect(first.ok).toBe(true);
-    expect(host.attach({ bindingId: "lease-io", mode: "control" })).toEqual({
+    expect(await host.attach({ bindingId: "lease-io", mode: "control" })).toEqual({
       ok: false,
       message: "control lease held (pass takeover)",
     });
-    const takeover = host.attach({ bindingId: "lease-io", mode: "control", takeover: true });
+    const takeover = await host.attach({ bindingId: "lease-io", mode: "control", takeover: true });
     expect(takeover.ok).toBe(true);
     if (!takeover.ok) return;
 
@@ -426,7 +456,7 @@ describe("LocalSessionHost", () => {
     expect(fake.controllers[0]?.resizes).toEqual([{ cols: 100, rows: 40 }]);
   });
 
-  it("delivers factory prompts without taking over the interactive control lease", () => {
+  it("delivers factory prompts without taking over the interactive control lease", async () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(42_510),
       exitOnSignal: "SIGTERM",
@@ -439,7 +469,7 @@ describe("LocalSessionHost", () => {
       launch: { kind: "harness", argv: ["/usr/local/bin/claude"] },
     });
 
-    const interactive = host.attach({
+    const interactive = await host.attach({
       bindingId: "managed-io",
       mode: "control",
     });
@@ -550,7 +580,7 @@ describe("LocalSessionHost", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("replays the exact colored PTY journal while it is still complete", async () => {
+  it("reopens a live PTY only from serialized VT state", async () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(44_150),
     }));
@@ -559,21 +589,17 @@ describe("LocalSessionHost", () => {
     fake.controllers[0]?.emitData("\u001b[31mred\u001b[0m\r\n");
     await Promise.resolve();
 
-    const attached = host.attach({
+    const attached = await host.attach({
       bindingId: "colored-reopen",
       mode: "observe",
     });
     expect(attached.ok).toBe(true);
     if (!attached.ok) return;
-    expect(attached.screen).toBeUndefined();
-    expect(
-      attached.journal
-        .map((entry) => (entry.type === "output" ? entry.data : ""))
-        .join(""),
-    ).toContain("\u001b[31mred\u001b[0m");
+    expect(attached.screen?.serialized).toContain("\u001b[31mred");
+    expect(attached.journal).toEqual([]);
   });
 
-  it("falls back to the observer screen only after the raw journal truncates", async () => {
+  it("keeps the same serialized VT attach after the raw journal truncates", async () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(44_151),
     }));
@@ -582,7 +608,7 @@ describe("LocalSessionHost", () => {
     fake.controllers[0]?.emitData("x".repeat(512 * 1024 + 1));
     await Promise.resolve();
 
-    const attached = host.attach({
+    const attached = await host.attach({
       bindingId: "long-reopen",
       mode: "observe",
     });
@@ -604,7 +630,7 @@ describe("LocalSessionHost", () => {
       lateExitGraceMs: 8,
     });
     host.create({ bindingId: "stubborn" });
-    const attached = host.attach({ bindingId: "stubborn", mode: "control" });
+    const attached = await host.attach({ bindingId: "stubborn", mode: "control" });
     expect(attached.ok).toBe(true);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
@@ -625,7 +651,7 @@ describe("LocalSessionHost", () => {
       expect(host.write(attached.lease, "must-not-write")).toBe(false);
       expect(host.resize(attached.lease, 90, 30)).toBe(false);
     }
-    expect(host.attach({ bindingId: "stubborn", mode: "control" })).toEqual({
+    expect(await host.attach({ bindingId: "stubborn", mode: "control" })).toEqual({
       ok: false,
       message: "session interaction revoked during stop",
     });

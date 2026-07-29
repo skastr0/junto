@@ -531,7 +531,7 @@ export class TerminalRouter extends EventEmitter {
       };
     }
     if (this.isLocalHostId(hostId)) {
-      return this.local.attach(input);
+      return await this.local.attach(input);
     }
     try {
       const entry = await this.ensureRemoteEntry(hostId);
