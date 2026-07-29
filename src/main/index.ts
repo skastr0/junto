@@ -1356,13 +1356,20 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 
     // UpdateService host hooks: release SQLite before sealed preflight, and
     // relaunch without Squirrel install when readiness fails after quiesce.
+    // After successful quiesce we mark runtimeDisposed + skipQuitConfirm so
+    // electron-updater quitAndInstall is not blocked by before-quit re-commit.
     installUpdateHostHooks({
       quiesceForPreflight: async () => {
         await commitMainAuthoringOnQuit();
         detachRuntimeOnQuit("update-install-preflight");
-        await disposeRuntime();
+        await disposeRuntimeFailClosed("update-install-preflight");
+        runtimeDisposed = true;
+        skipQuitConfirm = true;
       },
       relaunchWithoutInstall: () => {
+        // app.exit bypasses before-quit; keep the same path on readiness failure.
+        skipQuitConfirm = true;
+        runtimeDisposed = true;
         app.relaunch();
         app.exit(0);
       },
@@ -1979,6 +1986,8 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
 };
 
 const disposeRuntime = (): Promise<void> => {
+  // Soft dispose for ordinary quit: log failures but still resolve so the
+  // native quit sequence can continue after best-effort teardown.
   runtimeDispose ??= drainRuntimeOnQuit(shutdownReason)
     .then(() => AppRuntime.dispose())
     .finally(releaseDemoRuntimeIsolation)
@@ -1986,6 +1995,23 @@ const disposeRuntime = (): Promise<void> => {
       console.error("[runtime] dispose failed:", error);
     });
   return runtimeDispose;
+};
+
+/**
+ * Fail-closed dispose for update preflight. SQLite must be released before
+ * the candidate opens the canonical state path — swallow is not allowed.
+ */
+const disposeRuntimeFailClosed = (reason: string): Promise<void> => {
+  if (runtimeDisposed) return Promise.resolve();
+  const work = drainRuntimeOnQuit(reason)
+    .then(() => AppRuntime.dispose())
+    .finally(releaseDemoRuntimeIsolation);
+  // Share the singleton so a later soft dispose does not re-enter.
+  runtimeDispose ??= work.catch((error) => {
+    console.error(`[runtime] dispose failed (${reason}):`, error);
+    throw error;
+  });
+  return work;
 };
 
 /** An app exit is authorized only after every owned local child reports exit. */
