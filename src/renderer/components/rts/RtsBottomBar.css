@@ -489,13 +489,6 @@
   overflow: hidden;
 }
 
-.rts-cmd-keys--col {
-  flex-direction: column;
-  margin-top: 0;
-  align-self: center;
-  gap: 3px;
-}
-
 .rts-cmd-head {
   display: flex;
   flex-direction: column;
@@ -577,6 +570,28 @@
   flex-shrink: 0;
   margin-top: auto;
   overflow: hidden;
+}
+
+/* Region keys: 2-col grid so pause/arm/pulse/slot + focus/edit/delete all
+   fit inside the fixed 120px panel (single column clipped the slot key).
+   Compound selector beats .rts-cmd-keys { display:flex } above. */
+.rts-cmd-keys.rts-cmd-keys--col {
+  display: grid;
+  grid-template-columns: repeat(2, 22px);
+  gap: 2px;
+  margin-top: 0;
+  align-self: center;
+  align-content: center;
+  overflow: visible;
+}
+
+.rts-cmd-shell--region .rts-key {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  max-width: 22px;
+  max-height: 22px;
 }
 
 .rts-cmd-keys__rule {

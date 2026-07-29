@@ -11,6 +11,7 @@ describe("signalMark", () => {
     expect(signalMark("working").hue).toBe(HUE.cyan);
     expect(signalMark("parked").hue).toBe(HUE.violet);
     expect(signalMark("idle").kind).toBe("idle");
+    expect(signalMark("idle").symbol).toBe("○");
   });
 
   it("refines labels from rollup reasons without changing severity", () => {

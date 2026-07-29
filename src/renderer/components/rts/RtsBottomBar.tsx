@@ -310,10 +310,35 @@ function RegionCommandCard({
     }
   };
 
+  const memberCount = regionRollup.counts.total;
+  const metaBits: ReactNode[] = [
+    <span key="members">{memberCount === 1 ? "1 member" : `${memberCount} members`}</span>,
+  ];
+  if (regionRollup.counts.blocked > 0) {
+    metaBits.push(
+      <span key="b" style={{ color: HUE.crimson }}> · {regionRollup.counts.blocked}b</span>,
+    );
+  }
+  if (regionRollup.counts.attention > 0) {
+    metaBits.push(
+      <span key="a" style={{ color: HUE.amber }}> · {regionRollup.counts.attention}a</span>,
+    );
+  }
+  if (regionRollup.counts.working > 0) {
+    metaBits.push(
+      <span key="w" style={{ color: HUE.cyan }}> · {regionRollup.counts.working}w</span>,
+    );
+  }
+  if (armed) {
+    metaBits.push(<span key="armed" style={{ color: HUE.amber }}> · armed</span>);
+  }
+  // Slot lives on the Hash key only — meta used to print `1 · #1` which
+  // looked like a duplicated index.
+
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__label">
-        command · region
+        command
         <span className="rts-signal" style={{ color: mark.hue }} title={mark.label}>
           {mark.symbol} {mark.label}
         </span>
@@ -323,14 +348,7 @@ function RegionCommandCard({
         <div className="rts-cmd-region-main">
           <div className="rts-cmd-head">
             <div className="rts-cmd__title" title={regionRollup.label}>{regionRollup.label}</div>
-            <div className="rts-cmd__meta">
-              {regionRollup.counts.total}
-              {regionRollup.counts.blocked > 0 ? <span style={{ color: HUE.crimson }}> · {regionRollup.counts.blocked}b</span> : null}
-              {regionRollup.counts.attention > 0 ? <span style={{ color: HUE.amber }}> · {regionRollup.counts.attention}a</span> : null}
-              {regionRollup.counts.working > 0 ? <span style={{ color: HUE.cyan }}> · {regionRollup.counts.working}w</span> : null}
-              {armed ? <span style={{ color: HUE.amber }}> · armed</span> : null}
-              {slot !== null ? <span style={{ color: HUE.cyan }}> · #{slot + 1}</span> : null}
-            </div>
+            <div className="rts-cmd__meta">{metaBits}</div>
           </div>
           {members.length > 0 ? (
             <div className="rts-rollcall-strip" aria-label="Region members">
@@ -364,7 +382,6 @@ function RegionCommandCard({
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Region actions">
           <PauseScopeKey scope={{ kind: "region", id: node.id }} />
           {primary.map(primaryKey)}
-          <span className="rts-cmd-keys__rule" aria-hidden />
           <CmdKey label="Focus region" onClick={() => state$.focusNodeId.set(node.id)}>
             <Crosshair size={ICON} />
           </CmdKey>
