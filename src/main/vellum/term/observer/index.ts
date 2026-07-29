@@ -87,6 +87,16 @@ export class TerminalObserverPlane {
 
   subscribeAll(listener: ObserverListener): () => void {
     this.globalListeners.add(listener);
+    // A live PTY may have emitted its only readiness screen before a
+    // downstream runtime finished booting. Subscriptions are therefore
+    // current-state observations, not future-edge-only notifications.
+    for (const observer of this.byBinding.values()) {
+      try {
+        listener(observer.snapshotNow());
+      } catch (err) {
+        console.error("[term-observer] global listener replay failed:", err);
+      }
+    }
     return () => {
       this.globalListeners.delete(listener);
     };

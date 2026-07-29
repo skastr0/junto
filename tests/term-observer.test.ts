@@ -281,16 +281,16 @@ describe("TerminalObserverPlane", () => {
     expect(plane.get("b")).toBeUndefined();
   });
 
-  it("subscribeAll receives snapshots from sessions attached earlier", async () => {
+  it("subscribeAll immediately replays sessions attached earlier", async () => {
     const plane = new TerminalObserverPlane();
-    plane.attach({ bindingId: "b", epoch: "e1", cols: 40, rows: 10 });
+    const observer = plane.attach({ bindingId: "b", epoch: "e1", cols: 40, rows: 10 });
+    plane.feed("b", "\x1b]0;before-sub\x07", 1n);
+    await observer.snapshot();
     const seen: string[] = [];
     plane.subscribeAll((snap) => {
       seen.push(snap.signals.title);
     });
-    plane.feed("b", "\x1b]0;late-sub\x07", 1n);
-    await plane.get("b")!.snapshot();
-    expect(seen).toContain("late-sub");
+    expect(seen).toEqual(["before-sub"]);
     plane.disposeAll();
   });
 });
