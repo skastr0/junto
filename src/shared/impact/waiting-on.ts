@@ -94,6 +94,7 @@ export const waitingOnPath = (
 
 const reasonPhrase = (reason: BlockedReason): string => {
   if (reason.kind === "edge") return reason.detail || "generating edge";
+  if (reason.kind === "work") return reason.detail || "waiting for operator";
   return reason.detail || "manual seed";
 };
 

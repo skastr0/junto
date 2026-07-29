@@ -7,6 +7,7 @@ import { ChatServiceContext, type ChatService } from "./chat/service";
 import { HerdrPlane } from "./herdr/plane";
 import { SnapshotsService } from "./snapshots";
 import type { WorkSurfaceActivity } from "@shared/terminal";
+import { liveSeatBlocksForCanvas } from "./work/blocked-seat";
 
 /** Herdr vocabulary stops at this adapter boundary. */
 export const herdrAgentStatusActivity = (status: string): WorkSurfaceActivity => {
@@ -82,6 +83,7 @@ export const makeRegionRollupLive = (
             return deriveRegionRollups({
               doc,
               ...executionGraphContextFromActorRefs(canvasName, actorRefs),
+              workBlockedSeats: liveSeatBlocksForCanvas(canvasName, doc),
               snapshots: state,
               agentActivity,
               terminalStatusByNodeId,

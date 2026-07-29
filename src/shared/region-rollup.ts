@@ -5,6 +5,7 @@ import type { SnapshotState } from "./entities";
 import {
   deriveExecutionGraph,
   type LiveTrustViews,
+  type WorkBlockedSeat,
 } from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
 import { resolveSpec } from "./physics";
@@ -75,6 +76,7 @@ export interface RegionRollupInput extends LiveTrustViews {
   /** Canvas scope and compiled actor identity are mandatory graph inputs. */
   readonly canvasName: string;
   readonly resolveActorRef: ActorRefResolver;
+  readonly workBlockedSeats?: ReadonlyMap<string, WorkBlockedSeat>;
   // Reserved seam: binding staleness deliberately does NOT feed the ladder
   // yet — a down adapter would cry wolf on every bound node. Accepted so the
   // digest and the app service share one input shape.
@@ -120,7 +122,7 @@ const workSurfaceContribution = (
 };
 
 // Rank for mapped execution-graph reasons: edge before seed (no relay cascade).
-const GRAPH_REASON_RANK = { edge: 0, seed: 1 } as const;
+const GRAPH_REASON_RANK = { work: 0, edge: 1, seed: 2 } as const;
 
 // mirrors digest.titleOf — duplicated on purpose: shared modules stay
 // decoupled, and the label convention must not drift with the projection.
@@ -167,7 +169,8 @@ const deriveMember = (
     (a, b) => GRAPH_REASON_RANK[a.kind] - GRAPH_REASON_RANK[b.kind],
   );
   for (const reason of graphReasons) {
-    if (reason.kind === "edge") reasons.push(`edge:${reason.detail}`);
+    if (reason.kind === "work") reasons.push(`work:${reason.detail}`);
+    else if (reason.kind === "edge") reasons.push(`edge:${reason.detail}`);
     else reasons.push(`seed:${reason.detail}`);
   }
   if (surface.reason === "activity:blocked") reasons.push(surface.reason);
@@ -247,6 +250,7 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
     doc,
     canvasName,
     resolveActorRef,
+    workBlockedSeats,
     stamps,
     approvals,
     agentActivity,
@@ -255,6 +259,7 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
   const graph = deriveExecutionGraph(doc, {
     canvasName,
     resolveActorRef,
+    ...(workBlockedSeats ? { workBlockedSeats } : {}),
     ...(stamps ? { stamps } : {}),
     ...(approvals ? { approvals } : {}),
   });

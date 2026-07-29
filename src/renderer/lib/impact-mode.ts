@@ -91,7 +91,7 @@ export const executionGraphForImpact = (
 const reasonBrief = (reason: BlockedReason): string => {
   if (reason.kind === "edge") return reason.detail || "generating edge";
   if (reason.kind === "seed") return reason.detail || "manual seed";
-  return "relay";
+  return reason.detail || "waiting for operator";
 };
 
 /** Derive the stoppage cone for the selected node (empty when outside cone). */

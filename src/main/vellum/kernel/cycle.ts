@@ -35,6 +35,7 @@ import {
   type GlyphIndex,
   type WatcherStatus,
 } from "./evaluate";
+import { liveSeatBlocksForCanvas } from "../work/blocked-seat";
 import { findEntity, type SnapshotState } from "../../../shared/entities";
 
 // --- frozen interface --------------------------------------------------------
@@ -599,6 +600,7 @@ export async function deliverPulse(params: DeliverPulseParams): Promise<DeliverP
         const graph = deriveExecutionGraph(doc, {
           canvasName: params.canvasName,
           resolveActorRef,
+          workBlockedSeats: liveSeatBlocksForCanvas(params.canvasName, doc),
         });
         const executionContext = composeRegionExecutionContext(
           doc,
@@ -801,6 +803,7 @@ const snapshotFromGraph = (
   const graph = deriveExecutionGraph(doc, {
     canvasName,
     resolveActorRef,
+    workBlockedSeats: liveSeatBlocksForCanvas(canvasName, doc),
   });
   const phaseByEdgeId: Record<string, EdgePhase> = {};
   const detailByEdgeId: Record<string, string> = {};

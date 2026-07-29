@@ -5,6 +5,7 @@ import {
   clearSeatBlockedByRequest,
   getSeatBlock,
   liveSeatBlock,
+  liveSeatBlocksForCanvas,
   markSeatBlocked,
   requestStillBlocking,
   resetSeatBlocks,
@@ -86,6 +87,24 @@ describe("blocked-seat plane", () => {
     });
     const live = liveSeatBlock("demo", "agent", docWithRequest("input-required"));
     expect(live?.requestId).toBe("r1");
+  });
+
+  it("projects the exact blocked actor and request into execution state", () => {
+    markSeatBlocked({
+      canvasName: "demo",
+      nodeId: "agent",
+      requestId: "r1",
+      target: "requests",
+      brief: "need operator choice",
+    });
+
+    expect(
+      liveSeatBlocksForCanvas("demo", docWithRequest("input-required")).get("agent"),
+    ).toEqual({
+      requestId: "r1",
+      targetNodeId: "requests",
+      detail: "need operator choice",
+    });
   });
 
   it("liveSeatBlock auto-clears when request is completed", () => {

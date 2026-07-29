@@ -212,6 +212,41 @@ describe("evaluateEdge — authorial modes", () => {
 });
 
 describe("deriveExecutionGraph — no cascade", () => {
+  it("projects live escalation stoppage directly onto its actor", () => {
+    const actor = actorRef("agent", "1");
+    const doc: CanvasDoc = {
+      nodes: [
+        seat("agent", "actor"),
+        seat("requests", "sink", { name: "requests" }),
+      ],
+      edges: [],
+    };
+    const graph = deriveExecutionGraph(doc, {
+      ...contextFor([actor]),
+      workBlockedSeats: new Map([
+        [
+          "agent",
+          {
+            requestId: "request-1",
+            targetNodeId: "requests",
+            detail: "choose deployment",
+          },
+        ],
+      ]),
+    });
+
+    expect(graph.blocked).toEqual(new Set(["agent"]));
+    expect(graph.reasonsByNodeId.get("agent")).toEqual([
+      {
+        kind: "work",
+        requestId: "request-1",
+        targetNodeId: "requests",
+        detail: "choose deployment",
+      },
+    ]);
+    expect(graph.blockedEdgeIds.size).toBe(0);
+  });
+
   it("claimed input-required blocks the claimant only; no second-hop propagation", () => {
     const a1 = actorRef("a1", "1");
     const a2 = actorRef("a2", "2");

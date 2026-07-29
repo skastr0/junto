@@ -47,6 +47,14 @@ export type LiveTrustViews = {
 export type ExecutionGraphContext = LiveTrustViews & {
   readonly canvasName: string;
   readonly resolveActorRef: ActorRefResolver;
+  /** Live work-plane stoppage keyed by the blocked actor node. */
+  readonly workBlockedSeats?: ReadonlyMap<string, WorkBlockedSeat>;
+};
+
+export type WorkBlockedSeat = {
+  readonly requestId: string;
+  readonly targetNodeId: string;
+  readonly detail: string;
 };
 
 export type BlockedReason =
@@ -58,6 +66,12 @@ export type BlockedReason =
     }
   | {
       readonly kind: "seed";
+      readonly detail: string;
+    }
+  | {
+      readonly kind: "work";
+      readonly requestId: string;
+      readonly targetNodeId: string;
       readonly detail: string;
     };
 
@@ -307,6 +321,18 @@ export const deriveExecutionGraph = (
       seedNodeIds.add(node.id);
       markBlocked(node.id, { kind: "seed", detail: `blocker flag on ${titleOf(node, node.id)}` });
     }
+  }
+
+  // Escalation is runtime stoppage on its exact raiser. The actor→requests
+  // edge grants the operation; visual stoppage does not synthesize a reverse
+  // authorial edge.
+  for (const [nodeId, block] of context.workBlockedSeats ?? []) {
+    markBlocked(nodeId, {
+      kind: "work",
+      requestId: block.requestId,
+      targetNodeId: block.targetNodeId,
+      detail: block.detail,
+    });
   }
 
   // Generating edges only — no relay through other edges.

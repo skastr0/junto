@@ -334,6 +334,7 @@ export interface ExecutionSnapshot {
       ReadonlyArray<
         | { readonly kind: "edge"; readonly edgeId: string; readonly fromNodeId: string; readonly detail: string }
         | { readonly kind: "seed"; readonly detail: string }
+        | { readonly kind: "work"; readonly requestId: string; readonly targetNodeId: string; readonly detail: string }
       >
     >
   >;

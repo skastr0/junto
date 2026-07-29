@@ -69,6 +69,7 @@ import {
   subscribeManagedPulseReady,
 } from "../term/managed-pulse-bridge";
 import { WorkRepository } from "../work/repository";
+import { subscribeSeatBlocks } from "../work/blocked-seat";
 import {
   checkTimers,
   deliverPulse,
@@ -1024,6 +1025,7 @@ const makeKernelService = (
         lifecycleCleanups = [
           canvases.subscribeChanges((name) => void resyncCanvas(name)),
           snapshots.subscribe(() => scheduleCycle()),
+          subscribeSeatBlocks(() => scheduleCycle()),
           subscribeKernelSeatWake(
             (listener) => seatStateRuntime.subscribe(listener),
             scheduleCycle,

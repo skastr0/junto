@@ -11,6 +11,7 @@
  * fire-and-block first.
  */
 import type { CanvasDoc } from "@shared/canvas";
+import type { WorkBlockedSeat } from "@shared/execution-graph";
 import {
   makeStopDirective,
   type StopDirective,
@@ -31,6 +32,24 @@ const seatKey = (canvasName: string, nodeId: string): string =>
 
 /** Process-local: one map per main process. */
 const blocks = new Map<string, SeatBlock>();
+const listeners = new Set<(canvasName: string) => void>();
+
+const publish = (canvasName: string): void => {
+  for (const listener of listeners) {
+    try {
+      listener(canvasName);
+    } catch {
+      // Projection observers never participate in enforcement.
+    }
+  }
+};
+
+export const subscribeSeatBlocks = (
+  listener: (canvasName: string) => void,
+): (() => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
 
 export const markSeatBlocked = (input: {
   readonly canvasName: string;
@@ -48,11 +67,15 @@ export const markSeatBlocked = (input: {
     blockedAt: Date.now(),
   };
   blocks.set(seatKey(input.canvasName, input.nodeId), block);
+  publish(input.canvasName);
   return block;
 };
 
-export const clearSeatBlocked = (canvasName: string, nodeId: string): boolean =>
-  blocks.delete(seatKey(canvasName, nodeId));
+export const clearSeatBlocked = (canvasName: string, nodeId: string): boolean => {
+  const cleared = blocks.delete(seatKey(canvasName, nodeId));
+  if (cleared) publish(canvasName);
+  return cleared;
+};
 
 /** Clear any seat blocked on this request (resolve path). */
 export const clearSeatBlockedByRequest = (
@@ -66,6 +89,7 @@ export const clearSeatBlockedByRequest = (
       cleared = true;
     }
   }
+  if (cleared) publish(canvasName);
   return cleared;
 };
 
@@ -76,7 +100,9 @@ export const getSeatBlock = (
 
 /** Test/harness: drop all blocks. */
 export const resetSeatBlocks = (): void => {
+  const canvases = new Set(Array.from(blocks.values(), (block) => block.canvasName));
   blocks.clear();
+  for (const canvasName of canvases) publish(canvasName);
 };
 
 /**
@@ -117,6 +143,27 @@ export const liveSeatBlock = (
     return undefined;
   }
   return block;
+};
+
+/** Active work stoppage projection for execution graph / region rollups. */
+export const liveSeatBlocksForCanvas = (
+  canvasName: string,
+  doc: CanvasDoc,
+): ReadonlyMap<string, WorkBlockedSeat> => {
+  const live = new Map<string, WorkBlockedSeat>();
+  for (const block of [...blocks.values()]) {
+    if (block.canvasName !== canvasName) continue;
+    if (!requestStillBlocking(doc, block)) {
+      clearSeatBlocked(canvasName, block.nodeId);
+      continue;
+    }
+    live.set(block.nodeId, {
+      requestId: block.requestId,
+      targetNodeId: block.target,
+      detail: block.brief,
+    });
+  }
+  return live;
 };
 
 export const stopDirectiveFromBlock = (block: SeatBlock): StopDirective =>

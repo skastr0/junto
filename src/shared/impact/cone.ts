@@ -46,8 +46,8 @@ const isPhaseMemberSeat = (node: CanvasNode | undefined): boolean => {
 };
 
 const reasonRank = (reason: BlockedReason): number => {
-  if (reason.kind === "edge") return 0;
-  if (reason.kind === "seed") return 1;
+  if (reason.kind === "work") return 0;
+  if (reason.kind === "edge") return 1;
   return 2;
 };
 
@@ -61,10 +61,14 @@ const sortReasons = (reasons: ReadonlyArray<BlockedReason>): BlockedReason[] =>
     if (a.kind === "seed" && b.kind === "seed") {
       return a.detail < b.detail ? -1 : a.detail > b.detail ? 1 : 0;
     }
+    if (a.kind === "work" && b.kind === "work") {
+      return a.requestId < b.requestId ? -1 : a.requestId > b.requestId ? 1 : 0;
+    }
     return 0;
   });
 
 const reasonKey = (reason: BlockedReason): string => {
+  if (reason.kind === "work") return `work:${reason.requestId}`;
   if (reason.kind === "edge") return `edge:${reason.edgeId}`;
   return `seed:${reason.detail}`;
 };
