@@ -46,6 +46,42 @@ export const isMouseDecMode = (mode: number): boolean => MOUSE_SET.has(mode);
 export const isAltScreenDecMode = (mode: number): boolean => ALT_SET.has(mode);
 
 /**
+ * Restore the active-grid cursor after a plain-text screen rebuild.
+ * Coordinates are zero-based in the attach contract; CUP is one-based.
+ * Older independently updated peers may omit them, in which case replay
+ * remains usable and live output continues from xterm's current cursor.
+ */
+export const buildAttachCursorEscape = (
+  cursor:
+    | {
+        readonly x?: number;
+        readonly y?: number;
+        readonly cols: number;
+        readonly rows: number;
+      }
+    | undefined,
+): string => {
+  const xValue = cursor?.x;
+  const yValue = cursor?.y;
+  if (
+    !cursor ||
+    typeof xValue !== "number" ||
+    typeof yValue !== "number" ||
+    !Number.isFinite(xValue) ||
+    !Number.isFinite(yValue) ||
+    !Number.isFinite(cursor.cols) ||
+    !Number.isFinite(cursor.rows) ||
+    cursor.cols < 1 ||
+    cursor.rows < 1
+  ) {
+    return "";
+  }
+  const x = Math.max(0, Math.min(Math.floor(xValue), Math.floor(cursor.cols) - 1));
+  const y = Math.max(0, Math.min(Math.floor(yValue), Math.floor(cursor.rows) - 1));
+  return `\x1b[${y + 1};${x + 1}H`;
+};
+
+/**
  * Apply a DECSET/DECRST mode number onto attach mode state.
  * `set` true = CSI ? Pm h, false = CSI ? Pm l.
  */

@@ -679,6 +679,8 @@ export class LocalSessionHost extends EventEmitter {
           readonly epoch: string;
           readonly cols: number;
           readonly rows: number;
+          readonly cursorX: number;
+          readonly cursorY: number;
           readonly seq: bigint;
           readonly lines: readonly string[];
         };
@@ -703,6 +705,8 @@ export class LocalSessionHost extends EventEmitter {
           epoch: screen.epoch,
           cols: screen.cols,
           rows: screen.rows,
+          cursorX: screen.cursorX,
+          cursorY: screen.cursorY,
           seq: screen.seq,
           lines: screen.lines,
           // Mode flags for renderer re-arm after plain-text rebuild

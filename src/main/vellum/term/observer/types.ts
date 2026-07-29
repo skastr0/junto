@@ -61,6 +61,10 @@ export type AttachScreen = {
   readonly epoch: string;
   readonly cols: number;
   readonly rows: number;
+  /** Zero-based cursor column within the active viewport. */
+  readonly cursorX: number;
+  /** Zero-based cursor row within the active viewport. */
+  readonly cursorY: number;
   /** PTY plane seq at serialization time. */
   readonly seq: bigint;
   /**

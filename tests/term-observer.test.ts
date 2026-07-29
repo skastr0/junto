@@ -138,6 +138,23 @@ describe("SessionObserver", () => {
     }
   });
 
+  it("attachScreen carries the active cursor for renderer replay", async () => {
+    const obs = new SessionObserver({
+      bindingId: "b1",
+      epoch: "e1",
+      cols: 40,
+      rows: 10,
+    });
+    try {
+      await feedAndWait(obs, "prompt");
+      const screen = await obs.attachScreen();
+      expect(screen.cursorX).toBe(6);
+      expect(screen.cursorY).toBe(0);
+    } finally {
+      obs.dispose();
+    }
+  });
+
   it("renders plain text into the grid", async () => {
     const obs = new SessionObserver({
       bindingId: "b1",

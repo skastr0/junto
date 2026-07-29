@@ -40,6 +40,7 @@ type HeadlessTerminal = {
   buffer: {
     active: {
       baseY: number;
+      cursorX: number;
       cursorY: number;
       viewportY: number;
       length: number;
@@ -266,6 +267,8 @@ export class SessionObserver {
       epoch: this.epoch,
       cols,
       rows,
+      cursorX: Math.max(0, Math.min(cols - 1, buf.cursorX)),
+      cursorY: Math.max(0, Math.min(rows - 1, buf.cursorY)),
       seq: this.seq,
       lines,
       signals: {

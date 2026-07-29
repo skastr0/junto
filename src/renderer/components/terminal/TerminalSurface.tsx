@@ -17,6 +17,7 @@ import {
 import { surfaceById } from "../../lib/surface-registry";
 import { getVellumApi } from "../../lib/vellum-api";
 import {
+  buildAttachCursorEscape,
   buildAttachRestoreEscapes,
   idleAttachModes,
   type TerminalAttachModes,
@@ -57,6 +58,8 @@ type AttachResult = {
     readonly epoch?: string;
     readonly cols?: number;
     readonly rows?: number;
+    readonly cursorX?: number;
+    readonly cursorY?: number;
     readonly seq?: bigint;
     readonly lines?: readonly string[];
     readonly signals?: {
@@ -455,6 +458,13 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           term.reset();
           if (restore.beforeContent) term.write(restore.beforeContent);
           term.write(screenLines.join("\r\n"));
+          const cursorEscape = buildAttachCursorEscape({
+            x: result.screen?.cursorX,
+            y: result.screen?.cursorY,
+            cols: result.screen?.cols ?? term.cols,
+            rows: result.screen?.rows ?? term.rows,
+          });
+          if (cursorEscape) term.write(cursorEscape);
           if (restore.afterContent) term.write(restore.afterContent);
           if (result.screen?.seq !== undefined) lastSeq = result.screen.seq;
         } else {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyDecPrivateMode,
+  buildAttachCursorEscape,
   buildAttachRestoreEscapes,
   idleAttachModes,
 } from "../src/shared/term-attach-modes";
@@ -40,5 +41,17 @@ describe("term-attach-modes", () => {
     );
     expect(beforeContent).toBe("");
     expect(afterContent).toBe("");
+  });
+
+  it("restores a zero-based retained cursor with bounded CUP coordinates", () => {
+    expect(
+      buildAttachCursorEscape({ x: 5, y: 2, cols: 40, rows: 10 }),
+    ).toBe("\x1b[3;6H");
+    expect(
+      buildAttachCursorEscape({ x: 99, y: -2, cols: 40, rows: 10 }),
+    ).toBe("\x1b[1;40H");
+    expect(
+      buildAttachCursorEscape({ x: undefined, y: 2, cols: 40, rows: 10 }),
+    ).toBe("");
   });
 });
