@@ -1626,20 +1626,7 @@ path.vellum-edge-ripple {
   outline: 1px solid rgba(143, 163, 176, 0.22);
   outline-offset: 2px;
 }
-.vellum-node[data-occupancy="working"] {
-  outline: 1.5px solid rgba(57, 198, 214, 0.55);
-  outline-offset: 2px;
-  animation: vellumOccWorking 2.2s ease-in-out infinite;
-}
-@keyframes vellumOccWorking {
-  0%,
-  100% {
-    outline-color: rgba(57, 198, 214, 0.55);
-  }
-  50% {
-    outline-color: rgba(57, 198, 214, 0.16);
-  }
-}
+/* Working belongs to the shared upper-right ActivityMark, never the shell. */
 /* attention = needs input (occupant); ring set off the edge. */
 .vellum-node[data-occupancy="attention"] {
   outline: 2px solid rgba(232, 163, 61, 0.75);
@@ -1711,12 +1698,6 @@ path.vellum-edge-ripple {
   );
   pointer-events: none;
 }
-@media (prefers-reduced-motion: reduce) {
-  .vellum-node[data-occupancy="working"] {
-    animation: none;
-  }
-}
-
 /* Scrollbars kept faint. */
 ::-webkit-scrollbar {
   width: 10px;

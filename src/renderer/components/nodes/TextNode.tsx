@@ -10,27 +10,35 @@ import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
-import { findEntity, findFreshEntity } from "@shared/entities";
+import { findEntity } from "@shared/entities";
 import { workRoleOf } from "@shared/attention";
-import { chatActivity, timerActivity, watcherActivity } from "../../lib/activity";
+import {
+  chatActivity,
+  terminalActivity,
+  timerActivity,
+  watcherActivity,
+} from "../../lib/activity";
 import { chatCoarse$ } from "../../lib/chat-state";
-import { accentColor, INK, DIM, SOURCE_HUE, withAlpha } from "../../lib/theme";
+import { accentColor, INK, DIM } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
-import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
+import { isHarnessId } from "@shared/managed-terminal-templates";
+import { resolveTerminalBinding } from "@shared/terminal";
+import { agentSeat$ } from "../../lib/agent-seat-state";
 import { openHerdrTerminal } from "../../lib/herdr-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentChatSurface } from "../../lib/dock-state";
 import { workDetailOpen$ } from "../../lib/work-detail-open";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HerdrCard } from "../herdr/HerdrCard";
+import { HarnessMark } from "../herdr/HarnessMark";
 import { TerminalCard } from "../terminal/TerminalCard";
 import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
 import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FocusSurface } from "../FocusSurface";
-import { Button, Chip, Eyebrow, IconButton } from "../ui";
+import { Button, Eyebrow, IconButton } from "../ui";
 import {
   ArtifactsCard,
   ArtifactsDetail,
@@ -39,6 +47,7 @@ import {
   TasksCard,
   TasksDetail,
 } from "../work/WorkSurfaces";
+import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import { NodeShell } from "./NodeShell";
 
 // Re-renders every intervalMs so relative-time copy ("fired 2m ago", "next
@@ -76,7 +85,8 @@ function formatCountdown(nextFire: number, now: number): string {
 // DERIVED from kernel$ (never from the document) — the node itself only ever
 // carries the definition (ether.watch).
 function WatcherCard({ node }: { readonly node: CanvasNode }) {
-  const runtime = use$(kernel$.watchers[node.id]) as WatcherRuntimeState | undefined;
+  const runtime = use$(kernel$.watchers[node.id]) as
+    WatcherRuntimeState | undefined;
   const now = useRelativeNow(30_000);
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const status = runtime?.status ?? "unknown";
@@ -87,15 +97,33 @@ function WatcherCard({ node }: { readonly node: CanvasNode }) {
       <div>
         <div className="flex items-center gap-2">
           <ActivityMarkFromSpec spec={activity} />
-          <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>watcher</span>
+          <span
+            className="text-[8px] uppercase tracking-[0.18em]"
+            style={{ color: "#68604a" }}
+          >
+            watcher
+          </span>
         </div>
-        <div className="mt-1 truncate font-mono text-[13px] font-semibold leading-snug" style={{ color: INK }} title={rawName}>
+        <div
+          className="mt-1 truncate font-mono text-[13px] font-semibold leading-snug"
+          style={{ color: INK }}
+          title={rawName}
+        >
           {rawName}
         </div>
       </div>
-      <div className="text-[10px] leading-snug tabular-nums" style={{ color: DIM }}>
-        <div className="truncate" title={detail}>{detail}</div>
-        {runtime?.lastFiredAt ? <div className="mt-0.5" style={{ opacity: 0.7 }}>{formatAgo(runtime.lastFiredAt, now)}</div> : null}
+      <div
+        className="text-[10px] leading-snug tabular-nums"
+        style={{ color: DIM }}
+      >
+        <div className="truncate" title={detail}>
+          {detail}
+        </div>
+        {runtime?.lastFiredAt ? (
+          <div className="mt-0.5" style={{ opacity: 0.7 }}>
+            {formatAgo(runtime.lastFiredAt, now)}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -114,33 +142,35 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
       <div>
         <div className="flex items-center gap-2">
           <ActivityMarkFromSpec spec={activity} />
-          <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>timer</span>
+          <span
+            className="text-[8px] uppercase tracking-[0.18em]"
+            style={{ color: "#68604a" }}
+          >
+            timer
+          </span>
         </div>
-        <div className="mt-1 truncate font-mono text-[13px] font-semibold leading-snug" style={{ color: INK }} title={rawName}>
+        <div
+          className="mt-1 truncate font-mono text-[13px] font-semibold leading-snug"
+          style={{ color: INK }}
+          title={rawName}
+        >
           {rawName}
         </div>
       </div>
-      <div className="text-[10px] leading-snug tabular-nums" style={{ color: DIM }}>
+      <div
+        className="text-[10px] leading-snug tabular-nums"
+        style={{ color: DIM }}
+      >
         {/* Countdown numbers are content, not status labels. */}
         <div>{nextFire ? formatCountdown(nextFire, now) : "—"}</div>
-        {everyMinutes ? <div className="mt-0.5" style={{ opacity: 0.7 }}>every {everyMinutes}m</div> : null}
+        {everyMinutes ? (
+          <div className="mt-0.5" style={{ opacity: 0.7 }}>
+            every {everyMinutes}m
+          </div>
+        ) : null}
       </div>
     </div>
   );
-}
-
-/** Live chat activity for a hermes agent node — separate component so hooks stay unconditional.
- *  Subscribes to chatCoarse$ only (no transcript) so streaming tokens do not re-render marks. */
-function AgentActivityMark({ agentKey }: { readonly agentKey: string }) {
-  const coarse = use$(chatCoarse$[agentKey]);
-  const status = coarse?.status ?? "idle";
-  const activity = chatActivity({
-    status,
-    pendingPermission: Boolean(coarse?.pendingPermissionId),
-    tools: coarse?.hasBusyTools ? [{ status: "in_progress" as const }] : [],
-    sending: coarse?.turnBusy ?? false,
-  });
-  return <ActivityMarkFromSpec spec={activity} />;
 }
 
 // An entity card (project / agent) is ONE node: its name, one line of live
@@ -149,7 +179,13 @@ function AgentActivityMark({ agentKey }: { readonly agentKey: string }) {
 //
 // Subscribes to this agent's hermes entity only (primitive-derived selectors)
 // so unrelated snapshot churn does not re-render every agent card.
-function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: string }) {
+function EntityCard({
+  node,
+  kind,
+}: {
+  readonly node: CanvasNode;
+  readonly kind: string;
+}) {
   const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
   const nameHue = node.color ? accentColor(node.color) : INK;
   const workRole = workRoleOf(node);
@@ -158,6 +194,15 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
     kind === "agent" && typeof node.ether?.terminal?.harness === "string"
       ? node.ether.terminal.harness
       : undefined;
+  const terminalBinding = resolveTerminalBinding(node);
+  const bindingId =
+    terminalBinding?.kind === "native" ? terminalBinding.bindingId : undefined;
+  const seatEvent = use$(
+    agentSeat$.byBindingId[bindingId ?? "__vellum-entity-card-no-binding__"],
+  );
+  const coarse = use$(
+    chatCoarse$[hermesKey ?? "__vellum-entity-card-no-agent__"],
+  );
   const line = use$(() => {
     if (!hermesKey) return "";
     const hermes = findEntity(state$.snapshots.get(), "hermes", hermesKey);
@@ -169,76 +214,98 @@ function EntityCard({ node, kind }: { readonly node: CanvasNode; readonly kind: 
     if (typeof model === "string" && model) segments.push(model);
     return segments.join(" · ");
   });
-  const hermesFresh = use$(() => {
-    if (!hermesKey) return false;
-    return findFreshEntity(state$.snapshots.get(), "hermes", hermesKey) !== undefined;
-  });
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [identity, setIdentity] = useState<AgentIdentity | null>(null);
   useEffect(() => {
     if (!hermesKey) return;
     let cancelled = false;
-    void getAgentAvatar(hermesKey).then((url) => { if (!cancelled) setAvatarUrl(url); }).catch(() => undefined);
-    void getAgentIdentity(hermesKey).then((value) => { if (!cancelled) setIdentity(value); }).catch(() => undefined);
-    return () => { cancelled = true; };
+    void getAgentAvatar(hermesKey)
+      .then((url) => {
+        if (!cancelled) setAvatarUrl(url);
+      })
+      .catch(() => undefined);
+    void getAgentIdentity(hermesKey)
+      .then((value) => {
+        if (!cancelled) setIdentity(value);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [hermesKey]);
-  const displayName = hermesKey && identity?.displayName && identity.displayName !== rawName ? identity.displayName : rawName;
-  const badgeLabels =
-    managedHarness && isHarnessId(managedHarness)
-      ? templateFor(managedHarness).capabilityBadges.labels.slice(0, 3)
-      : [];
+  const displayName =
+    hermesKey && identity?.displayName && identity.displayName !== rawName
+      ? identity.displayName
+      : rawName;
+  const managed = managedHarness !== undefined && isHarnessId(managedHarness);
+  const activity = managed
+    ? terminalActivity({ seatState: seatEvent?.state })
+    : chatActivity({
+        status: coarse?.status ?? "idle",
+        pendingPermission: Boolean(coarse?.pendingPermissionId),
+        tools: coarse?.hasBusyTools ? [{ status: "in_progress" as const }] : [],
+        sending: coarse?.turnBusy ?? false,
+      });
+  const context = [
+    terminalBinding?.kind === "native"
+      ? terminalBinding.hostId
+      : node.ether?.host,
+    workRole,
+  ].filter((value): value is string => Boolean(value));
+
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
       <div>
-        <div className="flex items-center justify-between gap-2">
-          <span
-            className="truncate text-[8px] uppercase tracking-[0.18em]"
-            style={{ color: "#68604a" }}
+        <ExecutionCardHeader
+          decal={
+            managed ? (
+              <HarnessMark agent={managedHarness} size={28} />
+            ) : avatarUrl ? (
+              <span className="size-7 shrink-0 overflow-hidden rounded-md">
+                <img
+                  src={avatarUrl}
+                  alt=""
+                  className="size-full object-cover"
+                />
+              </span>
+            ) : (
+              <HarnessMark size={28} />
+            )
+          }
+          title={
+            <div
+              className="truncate font-mono text-[14px] font-semibold leading-snug"
+              style={{ color: nameHue }}
+              title={rawName}
+            >
+              {displayName}
+            </div>
+          }
+          activity={
+            seatEvent?.state === "attention" && seatEvent.reason
+              ? { ...activity, label: seatEvent.reason }
+              : activity
+          }
+        />
+        {context.length > 0 ? (
+          <div
+            className="mt-1 truncate text-[10px] tabular-nums"
+            style={{ color: DIM }}
             title={workRole ? `work role: ${workRole}` : undefined}
           >
-            {managedHarness ? `agent · ${managedHarness}` : kind}
-            {workRole ? <span style={{ color: "#9a8b62" }}> · {workRole}</span> : null}
-          </span>
-          <span className="flex items-center gap-1.5">
-            {hermesKey && !managedHarness ? <AgentActivityMark agentKey={hermesKey} /> : null}
-            {hermesKey && !managedHarness ? (
-              <span
-                title={`hermes · ${hermesFresh ? "fresh" : "stale"}`}
-                className="size-[5px] rounded-full"
-                style={{
-                  background: SOURCE_HUE.hermes ?? DIM,
-                  opacity: hermesFresh ? 1 : 0.3,
-                  boxShadow: hermesFresh ? `0 0 6px ${withAlpha(SOURCE_HUE.hermes ?? DIM, 0.6)}` : "none",
-                }}
-              />
-            ) : null}
-          </span>
-        </div>
-        <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
-          {hermesKey && !managedHarness ? (
-            <span className="shrink-0 overflow-hidden rounded-full" style={{ width: 20, height: 20 }}>
-              {avatarUrl ? <img src={avatarUrl} alt="" className="size-full object-cover" /> : null}
-            </span>
-          ) : null}
-          <span className="truncate font-mono text-[14px] font-semibold leading-snug" style={{ color: nameHue }} title={rawName}>
-            {displayName}
-          </span>
-        </div>
-        {badgeLabels.length > 0 ? (
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {badgeLabels.map((label) => (
-              <Chip key={label} tone="steel" title={label}>
-                {label}
-              </Chip>
-            ))}
+            {context.join(" › ")}
           </div>
         ) : null}
       </div>
-      <div className="line-clamp-2 text-[10px] leading-snug tabular-nums" style={{ color: DIM }} title={line}>
-        {managedHarness
-          ? "double-click to open terminal"
-          : line || "no live data"}
-      </div>
+      {!managed ? (
+        <div
+          className="line-clamp-2 text-[10px] leading-snug tabular-nums"
+          style={{ color: DIM }}
+          title={line}
+        >
+          {line || "no live data"}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -305,12 +372,19 @@ function NoteEditModal({
     >
       <div className="note-edit-modal nowheel">
         <div className="note-edit-modal__chrome">
-          <Eyebrow tone="faint" size="xs">note · markdown</Eyebrow>
+          <Eyebrow tone="faint" size="xs">
+            note · markdown
+          </Eyebrow>
           <div className="note-edit-modal__actions">
             <Button size="xs" variant="chrome" onClick={onCommit}>
               done
             </Button>
-            <IconButton size="sm" aria-label="Close without saving" title="discard" onClick={onDiscard}>
+            <IconButton
+              size="sm"
+              aria-label="Close without saving"
+              title="discard"
+              onClick={onDiscard}
+            >
               <X size={13} />
             </IconButton>
           </div>
@@ -338,8 +412,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const isTerminal = node.ether?.entity?.kind === "terminal";
   const isAgent = node.ether?.entity?.kind === "agent";
   const managedTerminal =
-    Boolean(node.ether?.terminal?.bindingId) &&
-    (isTerminal || isAgent);
+    Boolean(node.ether?.terminal?.bindingId) && (isTerminal || isAgent);
   // Boolean selector: only this node re-renders when edit intent targets it.
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const [editing, setEditing] = useState(false);
@@ -350,7 +423,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const entityKind = node.ether?.entity?.kind;
   const isWorkSurface =
-    entityKind === "task" || entityKind === "requests" || entityKind === "artifacts";
+    entityKind === "task" ||
+    entityKind === "requests" ||
+    entityKind === "artifacts";
 
   useEffect(() => {
     if (editing && !maximized) {
@@ -372,7 +447,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
 
   // Cross-surface open trigger (RTS bars): mirrors the editNodeId pattern —
   // consume the target, open the work-plane detail overlay, clear.
-  const isWorkDetailTarget = use$(() => workDetailOpen$.nodeId.get() === node.id);
+  const isWorkDetailTarget = use$(
+    () => workDetailOpen$.nodeId.get() === node.id,
+  );
   useEffect(() => {
     if (!isWorkDetailTarget) return;
     if (isWorkSurface) setWorkDetail(true);
@@ -414,7 +491,13 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       node={node}
       selected={selected}
       blocked={data.blocked}
-      onEdit={isHerdr ? () => setRenaming(true) : managedTerminal ? undefined : openInline}
+      onEdit={
+        isHerdr
+          ? () => setRenaming(true)
+          : managedTerminal
+            ? undefined
+            : openInline
+      }
       onMaximize={isFreeNote ? openMaximized : undefined}
       inlineEdit={!isHerdr && !managedTerminal}
       toolbarExtras={
@@ -444,7 +527,11 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       {workDetail && entityKind === "artifacts" ? (
         <ArtifactsDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
-      {editing && !maximized && !isHerdr && !managedTerminal && !isWorkSurface ? (
+      {editing &&
+      !maximized &&
+      !isHerdr &&
+      !managedTerminal &&
+      !isWorkSurface ? (
         <textarea
           ref={ref}
           autoFocus
@@ -492,23 +579,31 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             openInline();
           }}
         >
-          {entityKind === "watcher" ? <WatcherCard node={node} />
-            : entityKind === "timer" ? <TimerCard node={node} />
-              : entityKind === "task" ? <TasksCard node={node} />
-                : entityKind === "requests" ? <RequestsCard node={node} />
-                  : entityKind === "artifacts" ? <ArtifactsCard node={node} />
-                : entityKind === "herdr" ? (
-                  <HerdrCard
-                    node={node}
-                    selected={selected}
-                    renaming={renaming}
-                    onRequestRename={() => setRenaming(true)}
-                    onRenameDone={() => setRenaming(false)}
-                  />
-                )
-                : entityKind === "terminal" ? <TerminalCard node={node} />
-                : entityKind === "agent" ? <EntityCard node={node} kind="agent" />
-                : <NoteMarkdown source={text} />}
+          {entityKind === "watcher" ? (
+            <WatcherCard node={node} />
+          ) : entityKind === "timer" ? (
+            <TimerCard node={node} />
+          ) : entityKind === "task" ? (
+            <TasksCard node={node} />
+          ) : entityKind === "requests" ? (
+            <RequestsCard node={node} />
+          ) : entityKind === "artifacts" ? (
+            <ArtifactsCard node={node} />
+          ) : entityKind === "herdr" ? (
+            <HerdrCard
+              node={node}
+              selected={selected}
+              renaming={renaming}
+              onRequestRename={() => setRenaming(true)}
+              onRenameDone={() => setRenaming(false)}
+            />
+          ) : entityKind === "terminal" ? (
+            <TerminalCard node={node} />
+          ) : entityKind === "agent" ? (
+            <EntityCard node={node} kind="agent" />
+          ) : (
+            <NoteMarkdown source={text} />
+          )}
         </div>
       ) : (
         <div

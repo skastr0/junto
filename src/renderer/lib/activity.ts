@@ -12,6 +12,7 @@
  */
 
 import type { SpinPattern } from "gradient-spin";
+import type { AgentSeatState } from "@shared/agent-seat-state";
 import { HUE } from "./theme";
 
 export type ActivityTone = "amber" | "cyan" | "green" | "crimson" | "steel";
@@ -91,15 +92,11 @@ export function houseGradientStops(
 
 // --- herdr -------------------------------------------------------------------
 
-export type HerdrAgentStatus = "idle" | "working" | "blocked" | "done" | "unknown" | string;
+export type HerdrAgentStatus =
+  "idle" | "working" | "blocked" | "done" | "unknown" | string;
 export type HerdrMetaStatus = "idle" | "loading" | "ok" | "error" | string;
 export type HerdrConnState =
-  | "connected"
-  | "degraded"
-  | "lost"
-  | "failed"
-  | "unknown"
-  | string;
+  "connected" | "degraded" | "lost" | "failed" | "unknown" | string;
 
 /**
  * Herdr agent_status is (AgentState, seen):
@@ -123,14 +120,28 @@ export function herdrActivity(input: {
   // metaStatus:"loading" together — waving every GradientSpin pegs the
   // renderer (~70% CPU idle on an 80-pane board). Working/blocked still wave.
   if (input.metaStatus === "loading") {
-    return { mode: "static", tone: SEVERITY_TONE.working, label: "loading meta" };
+    return {
+      mode: "static",
+      tone: SEVERITY_TONE.working,
+      label: "loading meta",
+    };
   }
   const agent = input.agentStatus ?? "unknown";
   if (agent === "working") {
-    return { mode: "wave", tone: SEVERITY_TONE.working, pattern: "snake", label: "working" };
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.working,
+      pattern: "snake",
+      label: "working",
+    };
   }
   if (agent === "blocked") {
-    return { mode: "wave", tone: SEVERITY_TONE.blocked, pattern: "arrow-up", label: "blocked" };
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.blocked,
+      pattern: "arrow-up",
+      label: "blocked",
+    };
   }
   // Unseen idle: herdr's "done" = rollup attention. Wave amber until open
   // marks the pane seen (done → idle). Must not keep working-cyan — that
@@ -144,10 +155,23 @@ export function herdrActivity(input: {
     };
   }
   if (input.connState === "degraded") {
-    return { mode: "wave", tone: "steel", pattern: "diagonal", label: "degraded" };
+    return {
+      mode: "wave",
+      tone: "steel",
+      pattern: "diagonal",
+      label: "degraded",
+    };
   }
-  if (input.connState === "lost" || input.connState === "failed" || input.metaStatus === "error") {
-    return { mode: "static", tone: SEVERITY_TONE.blocked, label: input.metaStatus === "error" ? "error" : String(input.connState) };
+  if (
+    input.connState === "lost" ||
+    input.connState === "failed" ||
+    input.metaStatus === "error"
+  ) {
+    return {
+      mode: "static",
+      tone: SEVERITY_TONE.blocked,
+      label: input.metaStatus === "error" ? "error" : String(input.connState),
+    };
   }
   // Seen idle: quiet. Static — never animate every idle card in a fleet.
   if (agent === "idle") {
@@ -160,16 +184,58 @@ export function herdrActivity(input: {
   return { mode: "static", tone: SEVERITY_TONE.idle, label: agent };
 }
 
+// --- native terminal / managed seat -----------------------------------------
+
+/**
+ * One status grammar for raw native terminals and managed agent terminals.
+ * A seat event carries richer intent than process liveness and therefore wins.
+ */
+export function terminalActivity(input: {
+  readonly seatState?: AgentSeatState | null;
+  readonly running?: boolean;
+  readonly starting?: boolean;
+}): ActivitySpec {
+  if (input.seatState === "attention") {
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.attention,
+      pattern: "ripple",
+      label: "needs operator input",
+    };
+  }
+  if (input.seatState === "working") {
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.working,
+      pattern: "snake",
+      label: "working",
+    };
+  }
+  if (input.starting) {
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.working,
+      pattern: "diagonal",
+      label: "starting",
+    };
+  }
+  if (input.seatState === "idle") {
+    return { mode: "static", tone: SEVERITY_TONE.idle, label: "idle" };
+  }
+  if (input.running) {
+    return { mode: "static", tone: "green", label: "running" };
+  }
+  return {
+    mode: "static",
+    tone: SEVERITY_TONE.idle,
+    label: input.seatState === "gone" ? "gone" : "stopped",
+  };
+}
+
 // --- browser -----------------------------------------------------------------
 
 export type BrowserSessionState =
-  | "idle"
-  | "loading"
-  | "ready"
-  | "failed"
-  | "detached"
-  | "destroyed"
-  | string;
+  "idle" | "loading" | "ready" | "failed" | "detached" | "destroyed" | string;
 
 export function browserActivity(input: {
   readonly state?: BrowserSessionState | null;
@@ -201,14 +267,20 @@ export function browserActivity(input: {
 
 export type WatcherStatus = "satisfied" | "pending" | "unknown" | string;
 
-export function watcherActivity(status: WatcherStatus | null | undefined): ActivitySpec {
+export function watcherActivity(
+  status: WatcherStatus | null | undefined,
+): ActivitySpec {
   if (status === "pending") {
     return { mode: "wave", tone: SEVERITY_TONE.attention, label: "pending" };
   }
   if (status === "satisfied") {
     return { mode: "static", tone: "green", label: "satisfied" };
   }
-  return { mode: "static", tone: SEVERITY_TONE.idle, label: status ?? "unknown" };
+  return {
+    mode: "static",
+    tone: SEVERITY_TONE.idle,
+    label: status ?? "unknown",
+  };
 }
 
 /**
@@ -230,8 +302,10 @@ export function timerActivity(input: {
 
 // --- hermes / chat -----------------------------------------------------------
 
-export type ChatConnStatus = "idle" | "connecting" | "live" | "closed" | "error" | string;
-export type ToolStatus = "pending" | "in_progress" | "completed" | "failed" | string;
+export type ChatConnStatus =
+  "idle" | "connecting" | "live" | "closed" | "error" | string;
+export type ToolStatus =
+  "pending" | "in_progress" | "completed" | "failed" | string;
 
 export function chatActivity(input: {
   readonly status?: ChatConnStatus | null;
@@ -244,13 +318,19 @@ export function chatActivity(input: {
   }
   // Permission = attention (same amber as herdr done / flag:attention).
   if (input.pendingPermission) {
-    return { mode: "wave", tone: SEVERITY_TONE.attention, label: "awaiting permission" };
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.attention,
+      label: "awaiting permission",
+    };
   }
   if (input.sending) {
     return { mode: "wave", tone: SEVERITY_TONE.working, label: "sending" };
   }
   const tools = input.tools ?? [];
-  const busyTool = tools.some((t) => t.status === "pending" || t.status === "in_progress");
+  const busyTool = tools.some(
+    (t) => t.status === "pending" || t.status === "in_progress",
+  );
   if (busyTool) {
     return { mode: "wave", tone: SEVERITY_TONE.working, label: "tool running" };
   }
@@ -266,7 +346,9 @@ export function chatActivity(input: {
   return { mode: "static", tone: SEVERITY_TONE.idle, label: "idle" };
 }
 
-export function toolActivity(status: ToolStatus | null | undefined): ActivitySpec {
+export function toolActivity(
+  status: ToolStatus | null | undefined,
+): ActivitySpec {
   if (status === "pending" || status === "in_progress") {
     return { mode: "wave", tone: SEVERITY_TONE.working, label: status };
   }
@@ -276,10 +358,17 @@ export function toolActivity(status: ToolStatus | null | undefined): ActivitySpe
   if (status === "failed") {
     return { mode: "static", tone: SEVERITY_TONE.blocked, label: "failed" };
   }
-  return { mode: "static", tone: SEVERITY_TONE.idle, label: status ?? "unknown" };
+  return {
+    mode: "static",
+    tone: SEVERITY_TONE.idle,
+    label: status ?? "unknown",
+  };
 }
 
-export function loadingActivity(loading: boolean, label = "loading"): ActivitySpec {
+export function loadingActivity(
+  loading: boolean,
+  label = "loading",
+): ActivitySpec {
   return loading
     ? { mode: "wave", tone: SEVERITY_TONE.working, label }
     : { mode: "static", tone: SEVERITY_TONE.idle, label: "ready" };

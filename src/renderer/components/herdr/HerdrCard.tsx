@@ -25,11 +25,13 @@ import { resolveAuthoredPageHost } from "../../lib/page-authoring";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
-import { ActivityMarkFromSpec } from "../ActivityMark";
+import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
 import { HarnessMark } from "./HarnessMark";
 
 type HerdrCardApi = ReturnType<typeof getVellumApi> & {
-  herdrObserveTouch?: (input: HerdrObserveTouchInput) => Promise<{ readonly pooled: boolean }>;
+  herdrObserveTouch?: (
+    input: HerdrObserveTouchInput,
+  ) => Promise<{ readonly pooled: boolean }>;
 };
 
 // Pre-warm the observe pool at most once per 30s per terminal on hover intent.
@@ -54,7 +56,8 @@ const isAutoDerivedLabel = (
   if (!trimmed || trimmed.toLowerCase() === "herdr") return true;
   const paneId = herdr.paneId;
   if (!paneId) return false;
-  if (trimmed === paneId || trimmed === `${herdr.host} · ${paneId}`) return true;
+  if (trimmed === paneId || trimmed === `${herdr.host} · ${paneId}`)
+    return true;
   if (liveAgent && trimmed === `${liveAgent} · ${paneId}`) return true;
   if (herdr.label && trimmed === `${herdr.label} · ${paneId}`) return true;
   return false;
@@ -131,7 +134,8 @@ export function HerdrCard({
   const host = herdr?.host ?? "";
   const mirror = use$(herdr$.mirrorByHost[host]);
   const fresh = mirror?.fresh ?? false;
-  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "herdr";
+  const rawName =
+    (node.type === "text" ? node.text : "").split("\n")[0] ?? "herdr";
   const preWarmRef = useRef<{ terminalId: string; at: number } | null>(null);
   const openGuardRef = useRef(0);
 
@@ -143,7 +147,9 @@ export function HerdrCard({
 
   // Push: default-session cards only. Mirror is default-session; named sessions
   // are separate servers and must not fan out CLI meta on default events (VL-030).
-  const pushDriven = Boolean(herdr?.host && herdr.paneId && !herdr.session && fresh);
+  const pushDriven = Boolean(
+    herdr?.host && herdr.paneId && !herdr.session && fresh,
+  );
 
   useEffect(() => {
     if (!herdr?.host || !herdr.paneId) return;
@@ -191,7 +197,14 @@ export function HerdrCard({
       cancelled = true;
       unregPoll?.();
     };
-  }, [node.id, herdr?.host, herdr?.paneId, herdr?.session, herdr?.terminalId, pushDriven]);
+  }, [
+    node.id,
+    herdr?.host,
+    herdr?.paneId,
+    herdr?.session,
+    herdr?.terminalId,
+    pushDriven,
+  ]);
 
   if (!herdr) {
     return <div className="text-xs text-faint">herdr unbound</div>;
@@ -224,7 +237,12 @@ export function HerdrCard({
     meta?.workspaceLabel ?? herdr.workspaceId,
     meta?.tabLabel ?? tabShort,
   ].filter((s): s is string => Boolean(s));
-  const crumbTitle = [herdr.host, herdr.session ?? undefined, herdr.workspaceId, herdr.tabId]
+  const crumbTitle = [
+    herdr.host,
+    herdr.session ?? undefined,
+    herdr.workspaceId,
+    herdr.tabId,
+  ]
     .filter((s): s is string => Boolean(s))
     .join(" › ");
 
@@ -238,10 +256,12 @@ export function HerdrCard({
       ? `:${service.ports.map((p) => p.port).join(",")}`
       : undefined;
   const serveTag = service?.serveJoined
-    ? service.serveLabel ?? "svc"
+    ? (service.serveLabel ?? "svc")
     : undefined;
   const serviceBadge =
-    service?.health === "live" || service?.health === "stale"
+    service?.health === "skipped"
+      ? undefined
+      : service?.health === "live" || service?.health === "stale"
       ? [
           serveTag,
           processLine,
@@ -280,7 +300,11 @@ export function HerdrCard({
     const width = node.width ?? 260;
     const x = node.x + width + 40;
     const y = node.y;
-    const seed = resolvePageSpawnDefaults(state$.doc.peek(), x + width / 2, y + 55);
+    const seed = resolvePageSpawnDefaults(
+      state$.doc.peek(),
+      x + width / 2,
+      y + 55,
+    );
     const page = makePageNode(
       x,
       y,
@@ -324,7 +348,12 @@ export function HerdrCard({
     if (!terminalId) return;
     const now = Date.now();
     const last = preWarmRef.current;
-    if (last && last.terminalId === terminalId && now - last.at < PREWARM_THROTTLE_MS) return;
+    if (
+      last &&
+      last.terminalId === terminalId &&
+      now - last.at < PREWARM_THROTTLE_MS
+    )
+      return;
     preWarmRef.current = { terminalId, at: now };
     const api = getVellumApi() as HerdrCardApi | undefined;
     void api?.herdrObserveTouch?.({
@@ -342,11 +371,21 @@ export function HerdrCard({
       onPointerEnter={preWarm}
     >
       <div>
-        <div className="flex items-center gap-2">
-          <HarnessMark agent={agent} size={28} focused={meta?.focused === true} />
-          <div className="min-w-0 flex-1">
-            {renaming ? (
-              <RenameInput initial={rawName} onCommit={commitRename} onDone={onRenameDone} />
+        <ExecutionCardHeader
+          decal={
+            <HarnessMark
+              agent={agent}
+              size={28}
+              focused={meta?.focused === true}
+            />
+          }
+          title={
+            renaming ? (
+              <RenameInput
+                initial={rawName}
+                onCommit={commitRename}
+                onDone={onRenameDone}
+              />
             ) : (
               <button
                 type="button"
@@ -364,20 +403,20 @@ export function HerdrCard({
               >
                 {hero}
               </button>
-            )}
-            <div className="truncate text-[11px]" style={{ color: DIM }}>
-              {harnessDisplayName(agent)}
-            </div>
-          </div>
-          <ActivityMarkFromSpec
-            spec={
-              metaCache?.error
-                ? { ...activity, label: metaCache.error }
-                : activity
-            }
-          />
-        </div>
-        <div className="mt-0.5 truncate text-[10px] tabular-nums" style={{ color: DIM }} title={crumbTitle}>
+            )
+          }
+          subtitle={harnessDisplayName(agent)}
+          activity={
+            metaCache?.error
+              ? { ...activity, label: metaCache.error }
+              : activity
+          }
+        />
+        <div
+          className="mt-0.5 truncate text-[10px] tabular-nums"
+          style={{ color: DIM }}
+          title={crumbTitle}
+        >
           {crumbs.join(" › ")}
         </div>
       </div>
@@ -420,11 +459,17 @@ export function HerdrCard({
             </button>
           </div>
         ) : null}
-        <div className="line-clamp-1 text-[10px]" style={{ color: DIM }} title={bottomTitle}>
+        <div
+          className="line-clamp-1 text-[10px]"
+          style={{ color: DIM }}
+          title={bottomTitle}
+        >
           {cwd ? (
             <>
               <span style={{ color: withAlpha(INK, 0.6) }}>{cwdBase}</span>
-              {preview ? <span style={{ color: DIM }}>{` — ${preview}`}</span> : null}
+              {preview ? (
+                <span style={{ color: DIM }}>{` — ${preview}`}</span>
+              ) : null}
             </>
           ) : (
             bottomFallback

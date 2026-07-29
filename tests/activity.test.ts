@@ -5,6 +5,7 @@ import {
   herdrActivity,
   houseGradientStops,
   loadingActivity,
+  terminalActivity,
   timerActivity,
   toolActivity,
   watcherActivity,
@@ -25,7 +26,9 @@ describe("houseGradientStops", () => {
     const stops = houseGradientStops("amber", { cyanTip: true });
     expect(stops[2]?.color).toMatch(/^#[0-9a-fA-F]{6}$/);
     // tip should move toward cyan vs pure amber mid stop
-    expect(stops[2]?.color.toLowerCase()).not.toBe(stops[1]?.color.toLowerCase());
+    expect(stops[2]?.color.toLowerCase()).not.toBe(
+      stops[1]?.color.toLowerCase(),
+    );
   });
 });
 
@@ -70,7 +73,9 @@ describe("herdrActivity", () => {
 
   it("meta loading stays static (fleet-safe) and beats agent idle", () => {
     // First-hydrate loading must not wave — N unbound cards would peg the GPU.
-    expect(herdrActivity({ agentStatus: "idle", metaStatus: "loading" })).toMatchObject({
+    expect(
+      herdrActivity({ agentStatus: "idle", metaStatus: "loading" }),
+    ).toMatchObject({
       mode: "static",
       tone: "cyan",
       label: "loading meta",
@@ -78,14 +83,18 @@ describe("herdrActivity", () => {
   });
 
   it("degraded connection waves steel when agent is idle (seen)", () => {
-    expect(herdrActivity({ agentStatus: "idle", connState: "degraded" })).toMatchObject({
+    expect(
+      herdrActivity({ agentStatus: "idle", connState: "degraded" }),
+    ).toMatchObject({
       mode: "wave",
       tone: "steel",
     });
   });
 
   it("done (unseen) beats degraded so attention amber stays visible", () => {
-    expect(herdrActivity({ agentStatus: "done", connState: "degraded" })).toMatchObject({
+    expect(
+      herdrActivity({ agentStatus: "done", connState: "degraded" }),
+    ).toMatchObject({
       mode: "wave",
       tone: "amber",
       pattern: "ripple",
@@ -104,20 +113,65 @@ describe("herdrActivity", () => {
 describe("browserActivity", () => {
   it("waves on loading and attaching", () => {
     expect(browserActivity({ state: "loading" }).mode).toBe("wave");
-    expect(browserActivity({ state: "ready", attaching: true }).mode).toBe("wave");
+    expect(browserActivity({ state: "ready", attaching: true }).mode).toBe(
+      "wave",
+    );
   });
 
   it("static ready / failed / idle", () => {
-    expect(browserActivity({ state: "ready" })).toMatchObject({ mode: "static", tone: "green" });
+    expect(browserActivity({ state: "ready" })).toMatchObject({
+      mode: "static",
+      tone: "green",
+    });
     expect(browserActivity({ state: "failed" }).tone).toBe("crimson");
     expect(browserActivity({ state: "idle" }).mode).toBe("static");
+  });
+});
+
+describe("terminalActivity", () => {
+  it("uses the same working, attention, and idle grammar as herdr", () => {
+    expect(terminalActivity({ seatState: "working" })).toMatchObject({
+      mode: "wave",
+      tone: "cyan",
+      pattern: "snake",
+    });
+    expect(terminalActivity({ seatState: "attention" })).toMatchObject({
+      mode: "wave",
+      tone: "amber",
+      pattern: "ripple",
+    });
+    expect(
+      terminalActivity({ seatState: "idle", running: true }),
+    ).toMatchObject({
+      mode: "static",
+      tone: "steel",
+    });
+  });
+
+  it("falls back to process lifecycle for raw terminals", () => {
+    expect(terminalActivity({ starting: true })).toMatchObject({
+      mode: "wave",
+      tone: "cyan",
+      pattern: "diagonal",
+    });
+    expect(terminalActivity({ running: true })).toMatchObject({
+      mode: "static",
+      tone: "green",
+    });
+    expect(terminalActivity({})).toMatchObject({
+      mode: "static",
+      tone: "steel",
+    });
   });
 });
 
 describe("watcherActivity + timerActivity", () => {
   it("watcher pending waves; satisfied static green", () => {
     expect(watcherActivity("pending").mode).toBe("wave");
-    expect(watcherActivity("satisfied")).toMatchObject({ mode: "static", tone: "green" });
+    expect(watcherActivity("satisfied")).toMatchObject({
+      mode: "static",
+      tone: "green",
+    });
   });
 
   it("timer due waves; future static", () => {
@@ -131,7 +185,9 @@ describe("watcherActivity + timerActivity", () => {
 describe("chatActivity + toolActivity + loadingActivity", () => {
   it("waves on connecting, permission, tools, sending", () => {
     expect(chatActivity({ status: "connecting" }).mode).toBe("wave");
-    expect(chatActivity({ status: "live", pendingPermission: true }).mode).toBe("wave");
+    expect(chatActivity({ status: "live", pendingPermission: true }).mode).toBe(
+      "wave",
+    );
     expect(chatActivity({ status: "live", sending: true }).mode).toBe("wave");
     expect(
       chatActivity({ status: "live", tools: [{ status: "in_progress" }] }).mode,
@@ -141,19 +197,29 @@ describe("chatActivity + toolActivity + loadingActivity", () => {
   it("uses severity tones: work=cyan, attention=amber, blocked=crimson", () => {
     expect(chatActivity({ status: "connecting" }).tone).toBe("cyan");
     expect(chatActivity({ status: "live", sending: true }).tone).toBe("cyan");
-    expect(chatActivity({ status: "live", tools: [{ status: "in_progress" }] }).tone).toBe("cyan");
-    expect(chatActivity({ status: "live", pendingPermission: true }).tone).toBe("amber");
+    expect(
+      chatActivity({ status: "live", tools: [{ status: "in_progress" }] }).tone,
+    ).toBe("cyan");
+    expect(chatActivity({ status: "live", pendingPermission: true }).tone).toBe(
+      "amber",
+    );
     expect(chatActivity({ status: "error" }).tone).toBe("crimson");
   });
 
   it("static live quiet / error / closed", () => {
-    expect(chatActivity({ status: "live" })).toMatchObject({ mode: "static", tone: "green" });
+    expect(chatActivity({ status: "live" })).toMatchObject({
+      mode: "static",
+      tone: "green",
+    });
     expect(chatActivity({ status: "error" }).tone).toBe("crimson");
     expect(chatActivity({ status: "closed" }).mode).toBe("static");
   });
 
   it("tool rows", () => {
-    expect(toolActivity("in_progress")).toMatchObject({ mode: "wave", tone: "cyan" });
+    expect(toolActivity("in_progress")).toMatchObject({
+      mode: "wave",
+      tone: "cyan",
+    });
     expect(toolActivity("completed").tone).toBe("green");
     expect(toolActivity("failed").tone).toBe("crimson");
   });
