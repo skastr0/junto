@@ -13,6 +13,7 @@ import {
   PanelRightClose,
   Plus,
   Reply,
+  RotateCcw,
   Search,
   ShieldCheck,
   ShieldX,
@@ -425,7 +426,7 @@ function TaskActionsMenu({
               })
             }
           >
-            Move to {destination.label}
+            {destination.id === "queue" ? "Unclaim to Queue" : `Move to ${destination.label}`}
           </button>
         ))}
         {terminalActions.length > 0 ? (
@@ -796,6 +797,18 @@ function TaskDetailPanel({
               >
                 Stalled · retired seat
               </Chip>
+            ) : null}
+            {claim && canTransitionTaskState(task.state, "submitted") ? (
+              <Button
+                size="xs"
+                variant="subtle"
+                disabled={pending}
+                title="Clear this claim and return the task to Queue"
+                onClick={() => onMove(task, "submitted")}
+              >
+                <RotateCcw size={12} />
+                Unclaim to Queue
+              </Button>
             ) : null}
           </div>
           <h2>{taskTitle(task)}</h2>

@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { CanvasNode } from "@shared/canvas";
 import type { VellumTerminalApi } from "@shared/ipc";
 import { resolveTerminalBinding } from "@shared/terminal";
+import { taskBrief } from "@shared/task";
 import { MONO_CELL } from "../../lib/focus-measure";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -21,6 +22,9 @@ import {
   VELLUM_XTERM_THEME,
 } from "../../lib/terminal-theme";
 import { shouldNotifyPtyResize } from "../../lib/terminal-resize";
+import { claimedTaskForActorNode } from "../../lib/claimed-task";
+import { state$ } from "../../lib/state";
+import { releaseTaskToQueue } from "../../lib/work-actions";
 import { ActivityMark } from "../ActivityMark";
 import { Button, OverlayHeader } from "../ui";
 
@@ -131,6 +135,12 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const lastGeom = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
   const [status, setStatus] = useState("attaching…");
   const [geomLabel, setGeomLabel] = useState("");
+  const [releasePending, setReleasePending] = useState(false);
+  const [releaseError, setReleaseError] = useState("");
+  const canvasName = use$(state$.canvasName);
+  const doc = use$(state$.doc);
+  const actorRefs = use$(state$.actorRefs);
+  const claimedTask = claimedTaskForActorNode(doc, actorRefs, node.id);
   const binding = resolveTerminalBinding(node);
   const bindingId = binding?.kind === "native" ? binding.bindingId : "";
   const hostId = binding?.kind === "native" ? binding.hostId : "local";
@@ -461,6 +471,23 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       .then(() => setStatus("exited"));
   };
   const attached = status === "control";
+  const releaseClaim = async (): Promise<void> => {
+    if (!claimedTask || releasePending) return;
+    setReleasePending(true);
+    setReleaseError("");
+    try {
+      const result = await releaseTaskToQueue(
+        canvasName,
+        claimedTask.sinkNodeId,
+        claimedTask.task.id,
+      );
+      if (result && !result.ok) setReleaseError(result.message);
+    } catch (cause) {
+      setReleaseError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setReleasePending(false);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -520,6 +547,32 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           </>
         }
       />
+      {claimedTask ? (
+        <div
+          className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-[11px]"
+          role="status"
+        >
+          <span className="shrink-0 uppercase tracking-[0.12em] text-cyan">
+            Claimed task
+          </span>
+          <strong className="min-w-0 flex-1 truncate text-ink">
+            {taskBrief(claimedTask.task)}
+          </strong>
+          {releaseError ? (
+            <span className="max-w-[32ch] truncate text-crimson" title={releaseError}>
+              {releaseError}
+            </span>
+          ) : null}
+          <Button
+            size="xs"
+            variant="subtle"
+            disabled={releasePending}
+            onClick={() => void releaseClaim()}
+          >
+            {releasePending ? "Releasing…" : "Unclaim"}
+          </Button>
+        </div>
+      ) : null}
       <div ref={hostRef} className="native-terminal-surface__xterm" />
     </div>
   );
