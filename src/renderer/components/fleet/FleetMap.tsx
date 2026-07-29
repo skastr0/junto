@@ -29,6 +29,7 @@ import {
   type GhostStationFlowNode,
   type StationFlowNode,
 } from "./FleetNodes";
+import { FleetRendererProvider } from "./FleetRenderer";
 
 export const COMMAND_CENTER_ID = "command-center";
 
@@ -307,61 +308,63 @@ function FleetMapInner({
         }
       }}
     >
-    <ReactFlow
-      nodes={nodes as Array<FleetFlowNode>}
-      edges={edges as Array<Edge>}
-      nodeTypes={fleetNodeTypes}
-      edgeTypes={fleetEdgeTypes}
-      onNodeClick={(event, node) => {
-        if (event.detail === 0 && node.type !== "discoveryBand") onSelect(node.id);
-      }}
-      fitView
-      fitViewOptions={{ padding: 0.25, maxZoom: 1.2 }}
-      minZoom={0.3}
-      maxZoom={1.6}
-      panOnDrag
-      // Same as canvas: default Space pan preventDefaults Shift+Space.
-      panActivationKeyCode={null}
-      zoomOnScroll
-      nodesDraggable={false}
-      nodesConnectable={false}
-      edgesFocusable={false}
-      nodesFocusable
-      proOptions={{ hideAttribution: true }}
-    >
-      <div className="fleet-map__context" role="status">
-        <span>Command Center routes</span>
-        <span>
-          {stations.length} enrolled · {peers.length} discovered
-        </span>
-      </div>
-      <div
-        className="fleet-map__dither"
-        role="group"
-        aria-label="Dither detail"
-        onPointerDown={(event) => event.stopPropagation()}
+    <FleetRendererProvider>
+      <ReactFlow
+        nodes={nodes as Array<FleetFlowNode>}
+        edges={edges as Array<Edge>}
+        nodeTypes={fleetNodeTypes}
+        edgeTypes={fleetEdgeTypes}
+        onNodeClick={(event, node) => {
+          if (event.detail === 0 && node.type !== "discoveryBand") onSelect(node.id);
+        }}
+        fitView
+        fitViewOptions={{ padding: 0.25, maxZoom: 1.2 }}
+        minZoom={0.3}
+        maxZoom={1.6}
+        panOnDrag
+        // Same as canvas: default Space pan preventDefaults Shift+Space.
+        panActivationKeyCode={null}
+        zoomOnScroll
+        nodesDraggable={false}
+        nodesConnectable={false}
+        edgesFocusable={false}
+        nodesFocusable
+        proOptions={{ hideAttribution: true }}
       >
-        <span>dither</span>
-        {FLEET_DITHER_LEVELS.map((level) => (
-          <button
-            key={level.id}
-            type="button"
-            className={level.id === ditherLevel ? "is-active" : undefined}
-            aria-pressed={level.id === ditherLevel}
-            {...activateOnPointerUp(() => onDitherLevelChange(level.id))}
-          >
-            {level.label}
-          </button>
-        ))}
-      </div>
-      <div className="fleet-map__legend" aria-label="Fleet route states">
-        <span><i className="fleet-pip--reachable" />reachable</span>
-        <span><i className="fleet-pip--probing" />checking</span>
-        <span><i className="fleet-pip--unreachable" />unreachable</span>
-        <span><i className="fleet-pip--unknown" />untested</span>
-      </div>
-      <div className="fleet-map__hint">drag to pan · scroll to zoom · select a machine to inspect</div>
-    </ReactFlow>
+        <div className="fleet-map__context" role="status">
+          <span>Command Center routes</span>
+          <span>
+            {stations.length} enrolled · {peers.length} discovered
+          </span>
+        </div>
+        <div
+          className="fleet-map__dither"
+          role="group"
+          aria-label="Dither detail"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <span>dither</span>
+          {FLEET_DITHER_LEVELS.map((level) => (
+            <button
+              key={level.id}
+              type="button"
+              className={level.id === ditherLevel ? "is-active" : undefined}
+              aria-pressed={level.id === ditherLevel}
+              {...activateOnPointerUp(() => onDitherLevelChange(level.id))}
+            >
+              {level.label}
+            </button>
+          ))}
+        </div>
+        <div className="fleet-map__legend" aria-label="Fleet route states">
+          <span><i className="fleet-pip--reachable" />reachable</span>
+          <span><i className="fleet-pip--probing" />checking</span>
+          <span><i className="fleet-pip--unreachable" />unreachable</span>
+          <span><i className="fleet-pip--unknown" />untested</span>
+        </div>
+        <div className="fleet-map__hint">drag to pan · scroll to zoom · select a machine to inspect</div>
+      </ReactFlow>
+    </FleetRendererProvider>
     </div>
   );
 }
