@@ -711,7 +711,7 @@
   display: flex;
   justify-content: flex-end;
   gap: 7px;
-  margin: 0 -18px -14px;
+  margin: 14px -18px -14px;
   padding: 12px 18px 14px;
   border-top: 1px solid var(--color-stroke);
   background:
