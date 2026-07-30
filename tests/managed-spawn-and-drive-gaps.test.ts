@@ -17,6 +17,7 @@ import {
   nodeHasActionableFactoryEdge,
   launchForManagedSpawn,
 } from "../src/main/vellum/term/managed-spawn-plan";
+import { __setSessionExistenceHomeForTest } from "../src/main/vellum/term/session-existence";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { createRequire } from "node:module";
 
@@ -259,9 +260,6 @@ describe("managed spawn plan", () => {
 
   it("re-passes Codex model, effort, and approval on resume", () => {
     const home = mkdtempSync(join(tmpdir(), "vellum-codex-resume-"));
-    const {
-      __setSessionExistenceHomeForTest,
-    } = require("../src/main/vellum/term/session-existence") as typeof import("../src/main/vellum/term/session-existence");
     __setSessionExistenceHomeForTest(home);
     try {
       const rolloutDir = join(home, ".codex", "sessions", "2026", "07", "30");

@@ -10,6 +10,8 @@ const allowed = new Set([
   "src/main/vellum/state/migrations.ts",
   "src/main/vellum/state/recovery.ts",
   "src/main/vellum/state/schema-identity.ts",
+  // Read-only pre-AppRuntime probe for newer-than-supported schema recovery.
+  "src/main/vellum/state/schema-version-probe.ts",
   "src/main/vellum/state/update-candidate.ts",
 ]);
 
