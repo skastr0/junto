@@ -9,7 +9,7 @@ import { EventEmitter } from "node:events";
 import { existsSync, statSync } from "node:fs";
 import * as os from "node:os";
 import { isAbsolute, join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { Either } from "effect";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
@@ -54,6 +54,12 @@ import {
   clearCapturedSessionId,
   getCapturedSessionId,
 } from "./session-id-store";
+import {
+  isHarnessResumeFailureText,
+  isPinSessionHarness,
+  launchArgvUsesResume,
+} from "./session-existence";
+import { planFreshPinSession } from "./managed-spawn-plan";
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
 import { buildManagedSeatInject } from "./templates/seat-env";
 
@@ -234,6 +240,15 @@ type SessionRec = {
   sessionCaptureTail: string;
   /** Exact-record escalation; never follows a mutable binding lookup. */
   escalationTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * This generation used harness resume argv (`-r` / `--resume` / `resume`).
+   * On proven resume failure we fail open to a fresh pin session once.
+   */
+  resumeAttempt: boolean;
+  resumeFailureSeen: boolean;
+  failOpenUsed: boolean;
+  /** Payload to recreate a pin generation after resume failure. */
+  failOpenSeed?: LocalHostAgentSeatInput;
 };
 
 const sessionStatusOf = (
@@ -535,10 +550,22 @@ export class LocalSessionHost extends EventEmitter {
         ...(input.launch ? { launch: input.launch } : {}),
       },
       input,
+      {
+        resumeAttempt: launchArgvUsesResume(input.launch?.argv),
+        failOpenSeed: input,
+      },
     );
   }
 
-  private open(seat: TerminalSeat, input: TerminalOpenInput): TerminalSessionSummary {
+  private open(
+    seat: TerminalSeat,
+    input: TerminalOpenInput,
+    agentMeta?: {
+      readonly resumeAttempt: boolean;
+      readonly failOpenSeed: LocalHostAgentSeatInput;
+      readonly failOpenUsed?: boolean;
+    },
+  ): TerminalSessionSummary {
     if (this.shuttingDown) {
       throw new Error("terminal host shutting down");
     }
@@ -607,6 +634,10 @@ export class LocalSessionHost extends EventEmitter {
       killReceipt: undefined,
       sessionCaptureTail: "",
       escalationTimer: undefined,
+      resumeAttempt: agentMeta?.resumeAttempt === true,
+      resumeFailureSeen: false,
+      failOpenUsed: agentMeta?.failOpenUsed === true,
+      failOpenSeed: agentMeta?.failOpenSeed,
     };
     this.sessions.set(bindingId, rec);
     this.liveRecords.add(rec);
@@ -1123,6 +1154,20 @@ export class LocalSessionHost extends EventEmitter {
       const sid = extractSessionIdFromText(captureText);
       if (sid) recordCapturedSessionId(rec.bindingId, sid);
       rec.sessionCaptureTail = captureText.slice(-SESSION_CAPTURE_TAIL_BYTES);
+    } else {
+      rec.sessionCaptureTail = `${rec.sessionCaptureTail}${data}`.slice(
+        -SESSION_CAPTURE_TAIL_BYTES,
+      );
+    }
+    // Resume failure evidence is harness-printed, not our cache. Tail is enough
+    // when the error is short; also check the live chunk.
+    if (
+      rec.resumeAttempt &&
+      !rec.resumeFailureSeen &&
+      (isHarnessResumeFailureText(data) ||
+        isHarnessResumeFailureText(rec.sessionCaptureTail))
+    ) {
+      rec.resumeFailureSeen = true;
     }
     try {
       this.emitEvent({
@@ -1188,6 +1233,92 @@ export class LocalSessionHost extends EventEmitter {
       epoch: rec.epoch,
       status: "exited",
       pid: rec.pid,
+    });
+    // Never fail-closed on resume: if the harness rejected -r, open a fresh pin.
+    this.maybeFailOpenAfterResumeFailure(rec);
+  }
+
+  /**
+   * One-shot fail-open: resume generation died with harness proof of a missing
+   * remote/local session → mint a new pin id and respawn. Explicit resumption
+   * UI (later) is the only path that may fail closed.
+   */
+  private maybeFailOpenAfterResumeFailure(rec: SessionRec): void {
+    if (rec.failOpenUsed || !rec.resumeAttempt || !rec.resumeFailureSeen) return;
+    if (rec.killed) return;
+    const seed = rec.failOpenSeed;
+    if (!seed || !rec.harness || !isPinSessionHarness(rec.harness)) return;
+    if (this.shuttingDown) return;
+
+    rec.failOpenUsed = true;
+    const freshId = randomUUID();
+    let freshLaunch = seed.launch;
+    try {
+      const plan = planFreshPinSession({
+        harness: rec.harness,
+        documentLaunch: seed.launch,
+        agentKey: seed.agentKey,
+        cwd: seed.launch?.cwd ?? rec.cwd,
+        sessionId: freshId,
+      });
+      freshLaunch = plan.launch;
+    } catch (err) {
+      console.error(
+        `[term] fail-open pin plan failed for ${rec.bindingId}; leaving exited:`,
+        err,
+      );
+      return;
+    }
+
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, {
+      seq: rec.seq,
+      type: "output",
+      data:
+        `\r\n[vellum] resume failed for prior session; starting fresh session ${freshId}\r\n`,
+    });
+
+    // Defer so exit bookkeeping finishes before the replacement generation.
+    queueMicrotask(() => {
+      if (this.shuttingDown) return;
+      const live = this.sessions.get(rec.bindingId);
+      if (live && sessionStatusOf(live) !== "exited") return;
+      try {
+        this.open(
+          {
+            kind: "agent",
+            harness: seed.harness,
+            agentKey: seed.agentKey,
+            ...(freshLaunch ? { launch: freshLaunch } : {}),
+          },
+          {
+            bindingId: seed.bindingId,
+            ...(seed.hostId ? { hostId: seed.hostId } : {}),
+            ...(seed.cols !== undefined ? { cols: seed.cols } : {}),
+            ...(seed.rows !== undefined ? { rows: seed.rows } : {}),
+            ...(seed.canvasName ? { canvasName: seed.canvasName } : {}),
+            ...(seed.nodeId ? { nodeId: seed.nodeId } : {}),
+            ...(seed.label ? { label: seed.label } : {}),
+            ...(seed.title ? { title: seed.title } : {}),
+            ...(seed.firstTypedMessage
+              ? { firstTypedMessage: seed.firstTypedMessage }
+              : {}),
+          },
+          {
+            resumeAttempt: false,
+            failOpenSeed: {
+              ...seed,
+              ...(freshLaunch ? { launch: freshLaunch } : {}),
+            },
+            failOpenUsed: true,
+          },
+        );
+      } catch (err) {
+        console.error(
+          `[term] fail-open respawn failed for ${rec.bindingId}:`,
+          err,
+        );
+      }
     });
   }
 

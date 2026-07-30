@@ -16,6 +16,9 @@ import {
   type HarnessId,
 } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
+import {
+  shouldResumeHarnessSession,
+} from "./session-existence";
 
 // Capability sinks that make an actor seat operational. Browser automation is
 // a factory tool even though it uses the browser-control socket rather than the
@@ -207,6 +210,19 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
   const recovered = recoverDocumentLaunchChoices(harness, input.documentLaunch);
   const profile = input.profile ?? recovered.profile ??
     (harness === "hermes" ? profileFromAgentKey(input.agentKey) : undefined);
+  const cwd =
+    input.cwd?.trim() ||
+    input.documentLaunch?.cwd?.trim() ||
+    undefined;
+  // -r / --resume only when external harness state proves the id exists.
+  // Canvas mint alone is not proof; unproven → pin/create (fail open).
+  const resume =
+    Boolean(sessionId && input.resume) &&
+    shouldResumeHarnessSession(true, {
+      harness,
+      sessionId: sessionId ?? "",
+      ...(cwd ? { cwd } : {}),
+    });
   const choices: ManagedLaunchChoices = {
     injection: {
       connected,
@@ -223,16 +239,12 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     ...(input.permissionMode ?? recovered.permissionMode
       ? { permissionMode: input.permissionMode ?? recovered.permissionMode }
       : {}),
-    ...(sessionId && input.resume
+    ...(sessionId && resume
       ? { resumeId: sessionId }
       : sessionId
         ? { sessionId }
         : {}),
-    ...(input.cwd
-      ? { cwd: input.cwd }
-      : input.documentLaunch?.cwd
-        ? { cwd: input.documentLaunch.cwd }
-        : {}),
+    ...(cwd ? { cwd } : {}),
   };
 
   return resolveManagedLaunchPlan(harness, choices);
@@ -275,4 +287,33 @@ export const launchForManagedSpawn = (
 export const harnessFromNode = (node: CanvasNode | undefined): string | undefined => {
   const h = node?.ether?.terminal?.harness?.trim();
   return h && h.length > 0 ? h : undefined;
+};
+
+/**
+ * Fail-open after a dead resume: mint a fresh pin session id and rebuild argv
+ * without `-r`/`--resume`. Caller owns any durable canvas write of the new id.
+ */
+export const planFreshPinSession = (input: {
+  readonly harness: HarnessId;
+  readonly documentLaunch?: TerminalLaunch;
+  readonly agentKey?: string;
+  readonly cwd?: string;
+  readonly sessionId: string;
+}): ManagedLaunchPlan => {
+  const recovered = recoverDocumentLaunchChoices(input.harness, input.documentLaunch);
+  const profile =
+    recovered.profile ??
+    (input.harness === "hermes" ? profileFromAgentKey(input.agentKey) : undefined);
+  const cwd = input.cwd?.trim() || input.documentLaunch?.cwd?.trim() || undefined;
+  return resolveManagedLaunchPlan(input.harness, {
+    injection: { connected: false },
+    sessionId: input.sessionId,
+    ...(profile ? { profile } : {}),
+    ...(recovered.model ? { model: recovered.model } : {}),
+    ...(recovered.effort ? { effort: recovered.effort } : {}),
+    ...(recovered.permissionMode
+      ? { permissionMode: recovered.permissionMode }
+      : {}),
+    ...(cwd ? { cwd } : {}),
+  });
 };

@@ -1,4 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ManagedTerminalDrive,
   DEFAULT_QUEUE_TIMEOUT_MS,
@@ -255,24 +258,40 @@ describe("managed spawn plan", () => {
   });
 
   it("re-passes Codex model, effort, and approval on resume", () => {
-    const { launch } = launchForManagedSpawn({
-      doc: baseDoc(true),
-      nodeId: "worker",
-      harness: "codex",
-      sessionId: "thread_123",
-      resume: true,
-      documentLaunch: {
-        kind: "harness",
-        argv: [
-          "codex", "-m", "gpt-5", "-c", 'model_reasoning_effort="high"',
-          "-a", "never",
-        ],
-      },
-    });
-    expect(launch?.argv).toEqual(expect.arrayContaining([
-      "resume", "thread_123", "-m", "gpt-5", "-c",
-      'model_reasoning_effort="high"', "-a", "never",
-    ]));
+    const home = mkdtempSync(join(tmpdir(), "vellum-codex-resume-"));
+    const {
+      __setSessionExistenceHomeForTest,
+    } = require("../src/main/vellum/term/session-existence") as typeof import("../src/main/vellum/term/session-existence");
+    __setSessionExistenceHomeForTest(home);
+    try {
+      const rolloutDir = join(home, ".codex", "sessions", "2026", "07", "30");
+      mkdirSync(rolloutDir, { recursive: true });
+      writeFileSync(
+        join(rolloutDir, "rollout-2026-07-30T00-00-00-thread_123.jsonl"),
+        "",
+      );
+      const { launch } = launchForManagedSpawn({
+        doc: baseDoc(true),
+        nodeId: "worker",
+        harness: "codex",
+        sessionId: "thread_123",
+        resume: true,
+        documentLaunch: {
+          kind: "harness",
+          argv: [
+            "codex", "-m", "gpt-5", "-c", 'model_reasoning_effort="high"',
+            "-a", "never",
+          ],
+        },
+      });
+      expect(launch?.argv).toEqual(expect.arrayContaining([
+        "resume", "thread_123", "-m", "gpt-5", "-c",
+        'model_reasoning_effort="high"', "-a", "never",
+      ]));
+    } finally {
+      __setSessionExistenceHomeForTest(undefined);
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it("recovers Codex inline effort and inline approval flags", () => {

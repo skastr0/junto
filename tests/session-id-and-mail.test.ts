@@ -90,22 +90,25 @@ describe("session id parsing + authorial pin", () => {
     expect(argv).not.toContain("-r");
   });
 
-  it("spawn replan resumes only when the caller explicitly requests it", () => {
+  it("spawn replan resumes only when requested AND external harness state proves the id", () => {
     const node = makeManagedAgentNode(0, 0, {
       harness: "claude",
       host: "local",
     });
     const sid = node.ether!.terminal!.sessionId!;
     const doc: CanvasDoc = { nodes: [node], edges: [] };
-    const { launch } = launchForManagedSpawn({
+    // No FS proof → pin path even with resume:true (fail open).
+    const unproven = launchForManagedSpawn({
       doc,
       nodeId: node.id,
       harness: "claude",
       documentLaunch: node.ether!.terminal!.launch,
       resume: true,
     });
-    expect(launch?.argv).toEqual(expect.arrayContaining(["--resume", sid]));
-    expect(launch?.argv).not.toContain("--session-id");
+    expect(unproven.launch?.argv).toEqual(
+      expect.arrayContaining(["--session-id", sid]),
+    );
+    expect(unproven.launch?.argv).not.toContain("--resume");
   });
 
   it("capture store holds binding→session", () => {
