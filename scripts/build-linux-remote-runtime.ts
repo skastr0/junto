@@ -274,6 +274,7 @@ export const extractNodeBinaryFromArchive = ({
   readonly version: string;
 }): void => {
   const member = `node-v${requireNodeRemoteVersion(version)}-linux-x64/bin/node`;
+  const stagingParent = path.dirname(destinationNode);
   const extractRoot = mkdtempSync(
     path.join(tmpdir(), "vellum-node-extract-"),
   );
