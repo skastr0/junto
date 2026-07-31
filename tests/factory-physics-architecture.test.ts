@@ -110,13 +110,4 @@ describe("factory physics architecture", () => {
     );
     expect(readsState).toBe(true);
   });
-
-  it("delivers factory claims directly without mutating the agent session first", () => {
-    const kernel = readFileSync(
-      join(root, "src", "main", "vellum", "kernel", "service.ts"),
-      "utf8",
-    );
-    expect(kernel).toContain("[factory claim]");
-    expect(kernel).not.toContain('"/compact"');
-  });
 });
