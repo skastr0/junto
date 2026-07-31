@@ -8,6 +8,7 @@ import type { WritePromptOptions } from "./drive";
 export type ManagedPulseDeliver = (
   bindingId: string,
   message: string,
+  options?: Pick<WritePromptOptions, "acknowledgement">,
 ) => Promise<boolean>;
 
 export type ManagedPromptWriter = (
@@ -34,10 +35,11 @@ export const makeManagedPulseDeliver = (
   writePrompt: ManagedPromptWriter,
   isReady: (bindingId: string) => boolean,
 ): ManagedPulseDeliver =>
-  (bindingId, message) =>
+  (bindingId, message, options) =>
     writePrompt(bindingId, message, {
       ready: isReady(bindingId),
       queueIfBusy: false,
+      ...(options ?? {}),
     });
 
 let deliver: ManagedPulseDeliver | undefined;
@@ -95,7 +97,8 @@ export const scheduleManagedPulseReady = (
 export const managedPulseDeliver = (
   bindingId: string,
   message: string,
+  options?: Pick<WritePromptOptions, "acknowledgement">,
 ): Promise<boolean> => {
   if (!deliver) return Promise.resolve(false);
-  return deliver(bindingId, message);
+  return deliver(bindingId, message, options);
 };

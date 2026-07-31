@@ -1016,6 +1016,11 @@ const makeKernelService = (
             const compacted = await managedPulseDeliver(
               surface.bindingId,
               "/compact",
+              // Claude can answer "Not enough messages to compact" without
+              // emitting a turn-start hook/title transition. The PTY write is
+              // the one-shot acceptance boundary for this control command;
+              // the durable receipt below prevents an idle-triggered loop.
+              { acknowledgement: "write" },
             );
             if (!compacted) continue;
             const intentWitness = await Effect.runPromise(
