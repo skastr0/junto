@@ -963,14 +963,16 @@ cat "$PLIST"`,
     );
   });
 
-  it("rejects an otherwise matching LaunchAgent with extra program arguments", () => {
-    const sandbox = makeSandbox();
-    const launchAgents = join(sandbox, "Library", "LaunchAgents");
-    mkdirSync(launchAgents, { recursive: true });
-    const plist = join(launchAgents, "skastr0.vellumcommand.plist");
-    writeFileSync(
-      plist,
-      `<?xml version="1.0" encoding="UTF-8"?>
+  it.runIf(process.platform === "darwin")(
+    "rejects an otherwise matching LaunchAgent with extra program arguments",
+    () => {
+      const sandbox = makeSandbox();
+      const launchAgents = join(sandbox, "Library", "LaunchAgents");
+      mkdirSync(launchAgents, { recursive: true });
+      const plist = join(launchAgents, "skastr0.vellumcommand.plist");
+      writeFileSync(
+        plist,
+        `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>Label</key><string>skastr0.vellumcommand</string>
 <key>ProgramArguments</key><array>
@@ -978,10 +980,10 @@ cat "$PLIST"`,
 <string>--foreign</string>
 </array>
 </dict></plist>`,
-    );
-    const result = runPaths(
-      sandbox,
-      `set -euo pipefail
+      );
+      const result = runPaths(
+        sandbox,
+        `set -euo pipefail
 source "$1"
 assert_installer_path_capabilities
 PLIST_ID="$(path_identity "$PLIST")"
@@ -989,13 +991,14 @@ if assert_owned_launchd_plist "$PLIST_ID"; then
   exit 91
 fi
 test -f "$PLIST"`,
-    );
-    expect(result.status).toBe(0);
-    expect(result.stderr).toContain(
-      "existing LaunchAgent plist has unexpected program arguments",
-    );
-    expect(readFileSync(plist, "utf8")).toContain("--foreign");
-  });
+      );
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain(
+        "existing LaunchAgent plist has unexpected program arguments",
+      );
+      expect(readFileSync(plist, "utf8")).toContain("--foreign");
+    },
+  );
 
   it("publishes a LaunchAgent candidate exclusively when the fixed path stays absent", () => {
     const sandbox = makeSandbox();

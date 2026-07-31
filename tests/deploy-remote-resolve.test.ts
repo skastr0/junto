@@ -483,6 +483,7 @@ describe("buildRemoteDeployScript", () => {
 
 describe("remote deploy transaction behavior", () => {
   const makeHarness = () => {
+    const testOwnerUid = process.getuid?.() ?? 501;
     const root = mkdtempSync("/tmp/vellum-deploy-test-");
     const bin = join(root, "bin");
     const state = join(root, "state");
@@ -529,7 +530,7 @@ describe("remote deploy transaction behavior", () => {
       uname: executable("uname", 'echo "Darwin"'),
       id: executable(
         "id",
-        'if [ "${1:-}" = "-un" ]; then echo "remote"; else echo "501"; fi',
+        `if [ "\${1:-}" = "-un" ]; then echo "remote"; else echo "${testOwnerUid}"; fi`,
       ),
       env: executable(
         "env",
@@ -648,8 +649,9 @@ describe("remote deploy transaction behavior", () => {
         "codesign",
         [
           'target="${@: -1}"',
+          'printf \'%s\\n\' "$*" >> "$FAKE_STATE/codesign.log"',
           'if [ "$FAKE_EXISTING_APP_INVALID" = "1" ] && [ "$target" = "$FAKE_APP" ]; then exit 1; fi',
-          'if [ "$FAKE_CODESIGN_FAIL" = "1" ]; then exit 1; fi',
+          'if [ "$FAKE_CODESIGN_FAIL" = "1" ] && [ "$target" = "$FAKE_INCOMING_APP" ]; then echo "codesign: incoming signature refused" >&2; exit 1; fi',
           'if [ "$1" = "-d" ]; then',
           '  echo "Executable=$target/Contents/MacOS/Vellum Command" >&2',
           '  echo "Identifier=skastr0.vellumcommand" >&2',
@@ -747,6 +749,7 @@ describe("remote deploy transaction behavior", () => {
           ...process.env,
           FAKE_STATE: state,
           FAKE_EXE: executablePath,
+          FAKE_INCOMING_APP: `${appPath}.incoming/Vellum Command.app`,
           FAKE_CODESIGN_FAIL: "0",
           FAKE_REMOTE_CDHASH: TEST_CDHASH,
           FAKE_LSOF_GLOBAL_ERROR: "0",
@@ -790,7 +793,19 @@ describe("remote deploy transaction behavior", () => {
         const launchctlLog = existsSync(launchctlLogPath)
           ? readFileSync(launchctlLogPath, "utf8")
           : "";
-        expect(result.status).not.toBe(0);
+        const codesignLog = readFileSync(
+          join(harness.state, "codesign.log"),
+          "utf8",
+        );
+        expect(result.status, result.stderr).toBe(12);
+        expect(result.stderr).toContain(
+          "codesign: incoming signature refused",
+        );
+        expect(result.stderr).toContain("DEPLOY_NOT_STARTED");
+        expect(codesignLog).toContain(
+          `${harness.appPath}.incoming/Vellum Command.app`,
+        );
+        expect(existsSync(join(harness.state, "tar-ran"))).toBe(true);
         expect(readFileSync(harness.executablePath, "utf8")).toBe(
           "old-generation",
         );
