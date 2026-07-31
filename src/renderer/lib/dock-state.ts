@@ -54,15 +54,29 @@ export interface DockChatPayload {
   readonly title: string;
 }
 
+export interface DockTaskCreatePayload {
+  readonly nodeId: string;
+  readonly title: string;
+  /** task = enqueue to queue; proposal = planning lane. */
+  readonly mode: "task" | "proposal";
+}
+
 const HERDR_SURFACE_PREFIX = "herdr:";
 const TERMINAL_SURFACE_PREFIX = "terminal:";
 const CHAT_SURFACE_PREFIX = "chat:";
+const TASK_CREATE_SURFACE_PREFIX = "task-create:";
 export const terminalSurfaceId = (nodeId: string): string => `${TERMINAL_SURFACE_PREFIX}${nodeId}`;
 export const parseTerminalSurfaceId = (id: string): string | null => id.startsWith(TERMINAL_SURFACE_PREFIX) && id.length > TERMINAL_SURFACE_PREFIX.length ? id.slice(TERMINAL_SURFACE_PREFIX.length) : null;
 export const chatSurfaceId = (nodeId: string): string => `${CHAT_SURFACE_PREFIX}${nodeId}`;
 export const parseChatSurfaceId = (id: string): string | null =>
   id.startsWith(CHAT_SURFACE_PREFIX) && id.length > CHAT_SURFACE_PREFIX.length
     ? id.slice(CHAT_SURFACE_PREFIX.length)
+    : null;
+export const taskCreateSurfaceId = (nodeId: string): string =>
+  `${TASK_CREATE_SURFACE_PREFIX}${nodeId}`;
+export const parseTaskCreateSurfaceId = (id: string): string | null =>
+  id.startsWith(TASK_CREATE_SURFACE_PREFIX) && id.length > TASK_CREATE_SURFACE_PREFIX.length
+    ? id.slice(TASK_CREATE_SURFACE_PREFIX.length)
     : null;
 
 /** Surface id for a herdr terminal bound to a canvas node. */
@@ -81,6 +95,8 @@ export const dock$ = observable({
   browserByRef: {} as Record<string, DockBrowserPayload>,
   /** chat:<nodeId> -> ACP surface identity. ACP runtime state remains keyed by agentKey. */
   chatById: {} as Record<string, DockChatPayload>,
+  /** task-create:<nodeId> -> quick enqueue surface for a tasks sink. */
+  taskCreateById: {} as Record<string, DockTaskCreatePayload>,
   /** Explicit Stop Page failures stay visible until retry/open succeeds. */
   stopErrorByRef: {} as Record<string, string>,
   configHydrated: false,
@@ -136,6 +152,8 @@ const applyTransition = (transition: WorkbenchTransition): void => {
       // Closing a surface does not disconnect the ACP session. It only removes
       // the operator's current view, matching browser detach semantics.
       dock$.chatById[closed.id].delete();
+    } else if (closed.kind === "task-create") {
+      dock$.taskCreateById[closed.id].delete();
     }
   }
 };
@@ -157,6 +175,35 @@ export const openAgentChatSurface = (
     title,
   });
   applyTransition(openSurface(dock$.registry.peek(), { id, kind: "chat" }, zone));
+  clearHerdrKeyboardFocus();
+};
+
+/**
+ * Open (or re-focus) the quick task-enqueue surface for a tasks sink node.
+ * Lands in the shared focus/pinned workbench so it can sit beside a terminal
+ * (and be pinned itself). Create does not dismiss — the form clears for the next.
+ */
+export const openTaskCreateSurface = (
+  node: CanvasNode,
+  options?: {
+    readonly zone?: WorkZone;
+    readonly mode?: "task" | "proposal";
+  },
+): void => {
+  if (node.ether?.entity?.kind !== "task") return;
+  const id = taskCreateSurfaceId(node.id);
+  const title =
+    (node.type === "text" ? node.text : "").split("\n")[0]?.trim() || "Tasks";
+  const mode = options?.mode ?? "task";
+  const zone = options?.zone ?? "focus";
+  dock$.taskCreateById[id].set({
+    nodeId: node.id,
+    title,
+    mode,
+  });
+  applyTransition(
+    openSurface(dock$.registry.peek(), { id, kind: "task-create" }, zone),
+  );
   clearHerdrKeyboardFocus();
 };
 

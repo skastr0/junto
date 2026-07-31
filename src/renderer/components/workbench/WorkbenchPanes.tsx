@@ -20,6 +20,7 @@ import { terminal$ } from "../../lib/terminal-state";
 import { TerminalSurface } from "../terminal/TerminalSurface";
 import { Button } from "../ui";
 import { ChatSurface } from "../chat/ChatSurface";
+import { TaskEnqueueSurface } from "../work/TaskEnqueueSurface";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 
 function HerdrSurfaceSlot({
@@ -126,12 +127,22 @@ function resolveSurfaceBody(
       />
     );
   }
+  if (surface.kind === "task-create") {
+    return (
+      <TaskEnqueueSurface
+        surface={surface}
+        zone={zone}
+        visible={visible}
+        onActivate={onActivate}
+      />
+    );
+  }
   return (
     <section
       className="dock-slot workbench-surface"
       onMouseDown={activateSurfaceOnMouseDown(onActivate)}
     >
-      <div className="workbench-surface__placeholder">chat · {surface.id}</div>
+      <div className="workbench-surface__placeholder">{surface.kind} · {surface.id}</div>
     </section>
   );
 }

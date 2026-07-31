@@ -32,6 +32,11 @@ export function surfaceLabel(
   if (surface.kind === "chat") {
     return dock$.chatById[surface.id].peek()?.title ?? "ACP chat";
   }
+  if (surface.kind === "task-create") {
+    const payload = dock$.taskCreateById[surface.id].peek();
+    if (!payload) return "enqueue";
+    return payload.mode === "proposal" ? `propose · ${payload.title}` : `enqueue · ${payload.title}`;
+  }
   return surface.kind;
 }
 

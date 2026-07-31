@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   Activity,
@@ -31,7 +31,7 @@ import {
 import { useSortable } from "@dnd-kit/react/sortable";
 import type { CanvasDoc, CanvasNode, Part, TaskState, WorkMetadata } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
-import { sinkGlance, workRoleOf, workRolesInDoc } from "@shared/attention";
+import { sinkGlance, workRoleOf } from "@shared/attention";
 import {
   canTransitionTaskState,
   claimedByOf,
@@ -54,6 +54,7 @@ import { IconButton } from "../ui/IconButton";
 import { Input, Textarea } from "../ui/Field";
 import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
+import { openTaskCreateSurface } from "../../lib/dock-state";
 import { applyWorkCanvasWrite, setNodeWorkRole } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import {
@@ -896,13 +897,20 @@ function DragCardPreview({ task }: { readonly task: WorkTask }) {
 
 type CreateDialogMode = "task" | "proposal";
 
-function TaskCreateDialog({
+/** Focus portal (board) or inline workbench pane (pinnable enqueue). */
+export type TaskCreateShell = "focus" | "inline";
+
+export function TaskCreateDialog({
   mode,
   roles,
   pending,
   artifactsNodeId,
   onClose,
   onCreate,
+  shell = "focus",
+  stayOpen = false,
+  resetToken = 0,
+  headerActions,
 }: {
   readonly mode: CreateDialogMode;
   readonly roles: ReadonlyArray<string>;
@@ -918,6 +926,15 @@ function TaskCreateDialog({
     dependsOn: ReadonlyArray<string>,
     finishCriteria: import("@shared/work-model").FinishCriteria | undefined,
   ) => void;
+  readonly shell?: TaskCreateShell;
+  /**
+   * When true, submit does not imply dismiss — caller keeps the surface open
+   * and bumps `resetToken` after a successful create so fields clear for the next.
+   */
+  readonly stayOpen?: boolean;
+  readonly resetToken?: number;
+  /** Extra header actions (pin/close) for workbench chrome. */
+  readonly headerActions?: ReactNode;
 }) {
   const isProposal = mode === "proposal";
   const roleListId = `task-role-options-${useId().replaceAll(":", "")}`;
@@ -936,6 +953,32 @@ function TaskCreateDialog({
   const [formError, setFormError] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
+  const [flash, setFlash] = useState("");
+
+  useEffect(() => {
+    if (resetToken === 0) return;
+    setTitle("");
+    setDetails("");
+    setRole("");
+    setDependsOnText("");
+    setCriteriaText("");
+    setRequireArtifacts(false);
+    setArtifactsInstruction("");
+    setArtifactNamesText("");
+    setRequireGit(false);
+    setMedia([]);
+    setMediaError("");
+    setFormError("");
+    setDragOver(false);
+    setDescriptionOpen(false);
+    setFlash(isProposal ? "Proposed — ready for next" : "Queued — ready for next");
+  }, [resetToken, isProposal]);
+
+  useEffect(() => {
+    if (!flash) return;
+    const t = window.setTimeout(() => setFlash(""), 2200);
+    return () => window.clearTimeout(t);
+  }, [flash]);
 
   const appendMedia = (draft: TaskMediaDraft) => {
     setMedia((current) => {
@@ -974,34 +1017,10 @@ function TaskCreateDialog({
     }
   };
 
-  return (
-    <>
-      <FocusSurface
-        measure="document"
-        height="fit"
-        layer="work"
-        label={isProposal ? "Create proposal" : "Create task"}
-        onClose={onClose}
-        closeOnBackdrop={!pending && !descriptionOpen}
-        closeOnEscape={!pending && !descriptionOpen}
-        panelClassName="task-create-dialog"
-      >
-        <OverlayHeader
-          eyebrow={isProposal ? "new proposal" : "new task"}
-          title="Define the work"
-          actions={
-            <IconButton
-              aria-label={isProposal ? "Close proposal creator" : "Close task creator"}
-              title="Close"
-              onClick={onClose}
-              disabled={pending}
-            >
-              <X size={14} />
-            </IconButton>
-          }
-        />
+  const formBody = (
         <form
           className="task-create-dialog__form"
+          data-shell={shell}
           onSubmit={(event) => {
             event.preventDefault();
             if (!title.trim()) return;
@@ -1296,9 +1315,15 @@ function TaskCreateDialog({
           ) : null}
 
           <footer>
-            <Button type="button" variant="subtle" onClick={onClose} disabled={pending}>
-              Cancel
-            </Button>
+            {stayOpen ? (
+              <span className="task-create-dialog__stay-hint" aria-live="polite">
+                {flash || "Stays open after create"}
+              </span>
+            ) : (
+              <Button type="button" variant="subtle" onClick={onClose} disabled={pending}>
+                Cancel
+              </Button>
+            )}
             <Button type="submit" variant="primary" disabled={pending || !title.trim()}>
               {pending
                 ? isProposal
@@ -1306,10 +1331,88 @@ function TaskCreateDialog({
                   : "Creating…"
                 : isProposal
                   ? "Create proposal"
-                  : "Create task"}
+                  : stayOpen
+                    ? "Enqueue"
+                    : "Create task"}
             </Button>
           </footer>
         </form>
+  );
+
+  const header = (
+    <OverlayHeader
+      eyebrow={isProposal ? "new proposal" : stayOpen ? "quick enqueue" : "new task"}
+      title={stayOpen ? "Enqueue to queue" : "Define the work"}
+      actions={
+        <>
+          {headerActions}
+          <IconButton
+            aria-label={isProposal ? "Close proposal creator" : "Close task creator"}
+            title="Close"
+            onClick={onClose}
+            disabled={pending}
+          >
+            <X size={14} />
+          </IconButton>
+        </>
+      }
+    />
+  );
+
+  if (shell === "inline") {
+    return (
+      <div className="task-create-dialog task-create-dialog--inline" data-testid="task-enqueue-form">
+        {header}
+        {formBody}
+        {descriptionOpen ? (
+          <div className="task-description-focus task-description-focus--inline">
+            <OverlayHeader
+              eyebrow="description"
+              title="Task description"
+              actions={
+                <IconButton
+                  aria-label="Close description"
+                  title="Close"
+                  onClick={() => setDescriptionOpen(false)}
+                >
+                  <X size={14} />
+                </IconButton>
+              }
+            />
+            <div className="task-description-focus__body">
+              <Textarea
+                autoFocus
+                value={details}
+                onChange={(event) => setDetails(event.target.value)}
+                placeholder="Context, constraints, expected result…"
+                rows={16}
+              />
+              <footer>
+                <Button type="button" variant="primary" onClick={() => setDescriptionOpen(false)}>
+                  Done
+                </Button>
+              </footer>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <FocusSurface
+        measure="document"
+        height="fit"
+        layer="work"
+        label={isProposal ? "Create proposal" : "Create task"}
+        onClose={onClose}
+        closeOnBackdrop={!pending && !descriptionOpen}
+        closeOnEscape={!pending && !descriptionOpen}
+        panelClassName="task-create-dialog"
+      >
+        {header}
+        {formBody}
       </FocusSurface>
 
       {descriptionOpen ? (
@@ -1353,6 +1456,8 @@ function TaskCreateDialog({
     </>
   );
 }
+
+export { resolveArtifactsNodeId };
 
 function TaskDetailPanel({
   task,
@@ -1778,8 +1883,6 @@ export function TaskBoard({
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hideClosed, setHideClosed] = useState(false);
-  const [creating, setCreating] = useState<CreateDialogMode | null>(null);
-  const [creatingPending, setCreatingPending] = useState(false);
   const [roleDraft, setRoleDraft] = useState(workRoleOf(node) ?? "");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeLane, setActiveLane] = useState<LaneId | null>(null);
@@ -1850,95 +1953,6 @@ export function TaskBoard({
     : undefined;
   const selectedIsProposal =
     selectedTask !== undefined && proposalById.has(selectedTask.id);
-  const knownRoles = workRolesInDoc(state$.doc.peek());
-
-  const createTask = async (
-    title: string,
-    details: string,
-    role: string,
-    media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
-    dependsOn: ReadonlyArray<string> = [],
-    finishCriteria?: import("@shared/work-model").FinishCriteria,
-  ) => {
-    if (!api || !title.trim()) return;
-    setError("");
-    setCreatingPending(true);
-    try {
-      const metadata: WorkMetadata = {
-        title: title.trim(),
-        ...(details.trim() ? { details: details.trim() } : {}),
-        ...(role.trim() ? { workRole: role.trim() } : {}),
-      };
-      const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskCreate(
-          name,
-          node.id,
-          title.trim(),
-          metadata,
-          undefined,
-          media.length > 0 ? media : undefined,
-          dependsOn.length > 0 ? dependsOn : undefined,
-          finishCriteria,
-        ),
-      );
-      if (result === undefined) return;
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      setAnnouncement(`Created ${title.trim()} in Queue.`);
-      setCreating(null);
-      setSelectedTaskId(result.data.id);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setCreatingPending(false);
-    }
-  };
-
-  const createProposal = async (
-    title: string,
-    details: string,
-    role: string,
-    media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
-    dependsOn: ReadonlyArray<string> = [],
-    finishCriteria?: import("@shared/work-model").FinishCriteria,
-  ) => {
-    if (!api || !title.trim()) return;
-    setError("");
-    setCreatingPending(true);
-    try {
-      const metadata: WorkMetadata = {
-        title: title.trim(),
-        ...(details.trim() ? { details: details.trim() } : {}),
-        ...(role.trim() ? { workRole: role.trim() } : {}),
-      };
-      const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskPropose(
-          name,
-          node.id,
-          title.trim(),
-          metadata,
-          undefined,
-          media.length > 0 ? media : undefined,
-          dependsOn.length > 0 ? dependsOn : undefined,
-          finishCriteria,
-        ),
-      );
-      if (result === undefined) return;
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      setAnnouncement(`Proposed ${title.trim()} for planning.`);
-      setCreating(null);
-      setSelectedTaskId(result.data.id);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setCreatingPending(false);
-    }
-  };
 
   const transitionTask = async (task: WorkTask, state: TaskState) => {
     if (!api || task.state === state) return;
@@ -2146,13 +2160,22 @@ export function TaskBoard({
               >
                 <Filter size={14} />
               </IconButton>
-              <Button variant="subtle" size="sm" onClick={() => setCreating("proposal")}>
+              <Button
+                variant="subtle"
+                size="sm"
+                onClick={() => openTaskCreateSurface(node, { mode: "proposal" })}
+              >
                 <Plus size={12} />
                 New proposal
               </Button>
-              <Button variant="primary" size="sm" onClick={() => setCreating("task")}>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => openTaskCreateSurface(node, { mode: "task" })}
+                data-testid="task-board-enqueue"
+              >
                 <Plus size={12} />
-                New task
+                Enqueue
               </Button>
               <IconButton aria-label="Close task flow" title="Close" onClick={onClose}>
                 <X size={14} />
@@ -2183,32 +2206,6 @@ export function TaskBoard({
               </button>
             ) : null}
           </div>
-        ) : null}
-
-        {creating ? (
-          <TaskCreateDialog
-            mode={creating}
-            roles={knownRoles}
-            pending={creatingPending}
-            artifactsNodeId={resolveArtifactsNodeId(node.id, state$.doc.peek())}
-            onClose={() => {
-              if (!creatingPending) setCreating(null);
-            }}
-            onCreate={(title, details, role, media, dependsOn, finishCriteria) => {
-              if (creating === "proposal") {
-                void createProposal(
-                  title,
-                  details,
-                  role,
-                  media,
-                  dependsOn,
-                  finishCriteria,
-                );
-                return;
-              }
-              void createTask(title, details, role, media, dependsOn, finishCriteria);
-            }}
-          />
         ) : null}
 
         {error ? (
@@ -2242,7 +2239,9 @@ export function TaskBoard({
                 activeActorSeatIds={activeActorSeatIds}
                 proposalById={proposalById}
                 onCreate={() =>
-                  setCreating(lane.id === "proposal" ? "proposal" : "task")
+                  openTaskCreateSurface(node, {
+                    mode: lane.id === "proposal" ? "proposal" : "task",
+                  })
                 }
                 onSelect={setSelectedTaskId}
                 onMove={(task, state) => void transitionTask(task, state)}

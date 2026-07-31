@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import type {
   CanvasNode,
   Part,
@@ -9,6 +9,7 @@ import type { WorkOpResult } from "@shared/ipc";
 import type { BoardPost, BoardTopic } from "@shared/work-model";
 import { isTerminalTaskState, taskBrief } from "@shared/task";
 import { sinkGlance, workRoleOf } from "@shared/attention";
+import { openTaskCreateSurface } from "../../lib/dock-state";
 import { DIM, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
@@ -84,14 +85,35 @@ export function TasksCard({ node }: { readonly node: CanvasNode }) {
         <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
           tasks{role ? ` · ${role}` : ""}
         </span>
-        <span
-          className="text-[9px] tabular-nums"
-          style={{ color: needsInput > 0 ? HUE.amber : DIM }}
-          data-testid="tasks-glance"
-        >
-          {inFlight} in flight
-          {needsInput > 0 ? ` · ${needsInput} need input` : ""}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className="text-[9px] tabular-nums"
+            style={{ color: needsInput > 0 ? HUE.amber : DIM }}
+            data-testid="tasks-glance"
+          >
+            {inFlight} in flight
+            {needsInput > 0 ? ` · ${needsInput} need input` : ""}
+          </span>
+          <button
+            type="button"
+            className="nodrag nowheel factory-glance__enqueue"
+            data-testid="tasks-card-enqueue"
+            title="Quick enqueue (pinnable)"
+            aria-label="Quick enqueue task"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openTaskCreateSurface(node, { mode: "task" });
+            }}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <Plus size={11} strokeWidth={2.25} aria-hidden />
+          </button>
+        </div>
       </div>
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {(hotItems.length > 0 ? hotItems : items.filter((t) => !isTerminalTaskState(t.state)))

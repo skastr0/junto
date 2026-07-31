@@ -20,6 +20,28 @@
 .vellum-node[data-node-kind="cron"], .vellum-node[data-node-kind="timer"] { border-radius: 7px 11px 11px 7px; }
 
 .factory-glance__header { min-height: 12px; }
+.factory-glance__enqueue {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgb(237 230 218 / 0.14);
+  border-radius: 4px;
+  background: rgb(237 230 218 / 0.05);
+  color: var(--color-amber, #e8b86d);
+  cursor: pointer;
+}
+.factory-glance__enqueue:hover,
+.factory-glance__enqueue:focus-visible {
+  border-color: rgb(232 184 109 / 0.45);
+  background: rgb(232 184 109 / 0.12);
+  color: var(--color-ink, #ede6da);
+  outline: none;
+}
 .factory-glance__list { position: relative; }
 .factory-glance__row {
   position: relative;

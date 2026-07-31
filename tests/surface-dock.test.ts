@@ -23,10 +23,12 @@ import {
   herdrSurfaceId,
   openAgentChatSurface,
   openDockBrowser,
+  openTaskCreateSurface,
   pinWorkbenchSurface,
   reconcileDockFromLiveSessions,
   stopDockBrowser,
   syncHerdrWorkbenchSlot,
+  taskCreateSurfaceId,
   terminalSurfaceId,
 } from "../src/renderer/lib/dock-state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
@@ -128,10 +130,26 @@ describe("surface-registry (pure workbench)", () => {
     expect(visiblePanes(state, "focus").pane0).toBe("a");
   });
 
-  it("classifies browser as non-interactive; herdr/chat as interactive", () => {
+  it("classifies browser as non-interactive; herdr/chat/task-create as interactive", () => {
     expect(isInteractiveSurface("browser")).toBe(false);
     expect(isInteractiveSurface("herdr")).toBe(true);
     expect(isInteractiveSurface("chat")).toBe(true);
+    expect(isInteractiveSurface("task-create")).toBe(true);
+  });
+
+  it("opens task-create into focus and pins beside other surfaces", () => {
+    let t = openSurface(initialWorkbenchState(), {
+      id: "terminal:n1",
+      kind: "terminal",
+    });
+    t = pinSurface(t.state, "terminal:n1");
+    t = openSurface(t.state, { id: "task-create:tasks-1", kind: "task-create" }, "focus");
+    expect(t.state.surfaces.map((s) => `${s.zone}:${s.kind}`).sort()).toEqual([
+      "focus:task-create",
+      "pinned:terminal",
+    ]);
+    t = pinSurface(t.state, "task-create:tasks-1");
+    expect(t.state.pinnedMru).toEqual(["task-create:tasks-1", "terminal:n1"]);
   });
 });
 
@@ -257,6 +275,35 @@ describe("dock-state", () => {
       sessionId: "session-1",
       state: "loading",
     });
+  });
+
+  it("opens task-create enqueue surface and keeps payload across pin", () => {
+    const node = {
+      id: "tasks-1",
+      type: "text" as const,
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 96,
+      text: "Say hi",
+      ether: { entity: { kind: "task" } },
+    } satisfies CanvasNode;
+    openTaskCreateSurface(node, { mode: "task" });
+    const id = taskCreateSurfaceId(node.id);
+    expect(dock$.registry.peek().surfaces).toEqual([
+      { id, kind: "task-create", zone: "focus" },
+    ]);
+    expect(dock$.taskCreateById[id].peek()).toEqual({
+      nodeId: "tasks-1",
+      title: "Say hi",
+      mode: "task",
+    });
+    pinWorkbenchSurface(id);
+    expect(dock$.registry.peek().surfaces[0]?.zone).toBe("pinned");
+    expect(dock$.taskCreateById[id].peek()?.mode).toBe("task");
+    closeWorkbenchSurface(id);
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(dock$.taskCreateById[id].peek()).toBeUndefined();
   });
 
   it("opens agent chat as a focus surface and preserves its payload across pinning", () => {
