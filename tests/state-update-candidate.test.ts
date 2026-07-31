@@ -2,13 +2,15 @@ import { existsSync, lstatSync } from "node:fs";
 import {
   mkdtemp,
   mkdir,
+  lstat,
   readFile,
   readdir,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -29,6 +31,34 @@ vi.mock("../src/main/vellum/state/engine", async (importOriginal) => ({
 }));
 
 const roots: string[] = [];
+
+const replaceDirectoryWithDistinctInode = async (
+  path: string,
+  removeOriginal: () => Promise<void>,
+): Promise<void> => {
+  const original = await lstat(path);
+  await removeOriginal();
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    await mkdir(path, { mode: 0o700 });
+    const replacement = await lstat(path);
+    if (replacement.dev !== original.dev || replacement.ino !== original.ino) {
+      expect(
+        replacement.dev !== original.dev || replacement.ino !== original.ino,
+      ).toBe(true);
+      return;
+    }
+
+    // ext4 may immediately reuse the just-freed inode. Keep that inode linked
+    // inside the exact test root so the next replacement must be distinct.
+    await rename(
+      path,
+      join(dirname(path), `.retained-inode-${attempt}`),
+    );
+  }
+
+  throw new Error("test fixture could not mint a distinct directory inode");
+};
 
 afterEach(async () => {
   while (roots.length > 0) {
@@ -364,8 +394,10 @@ describe("state update candidate", () => {
     const candidate = await Effect.runPromise(
       prepareStateUpdateCandidate(),
     );
-    await rm(candidate.directoryPath, { recursive: true, force: true });
-    await mkdir(candidate.directoryPath);
+    await replaceDirectoryWithDistinctInode(
+      candidate.directoryPath,
+      () => rm(candidate.directoryPath, { recursive: true, force: true }),
+    );
     const witness = join(candidate.directoryPath, "replacement");
     await writeFile(witness, "must survive");
 

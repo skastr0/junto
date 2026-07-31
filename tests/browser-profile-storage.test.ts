@@ -44,6 +44,34 @@ const SECOND_WIPE_ID = "22222222-2222-4222-8222-222222222222";
 const PROFILE = "personal";
 const PARTITION = "persist:vellum-profile-personal";
 
+const replaceDirectoryWithDistinctInode = async (
+  path: string,
+  removeOriginal: () => Promise<void>,
+): Promise<void> => {
+  const original = await lstat(path);
+  await removeOriginal();
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    await mkdir(path, { mode: 0o700 });
+    const replacement = await lstat(path);
+    if (replacement.dev !== original.dev || replacement.ino !== original.ino) {
+      expect(
+        replacement.dev !== original.dev || replacement.ino !== original.ino,
+      ).toBe(true);
+      return;
+    }
+
+    // ext4 may immediately reuse the just-freed inode. Keep that inode linked
+    // inside the exact test root so the next replacement must be distinct.
+    await rename(
+      path,
+      join(dirname(path), `.retained-inode-${attempt}`),
+    );
+  }
+
+  throw new Error("test fixture could not mint a distinct directory inode");
+};
+
 interface Layout {
   readonly root: string;
   readonly userDataPath: string;
@@ -839,8 +867,10 @@ describe("browser profile storage lifecycle", () => {
     const layout = await createLayout();
     const harness = makeHarness(layout);
     const { lifecycle, pending } = await preparePending(layout, harness);
-    await rmdir(layout.storagePath);
-    await mkdir(layout.storagePath, { mode: 0o700 });
+    await replaceDirectoryWithDistinctInode(
+      layout.storagePath,
+      () => rmdir(layout.storagePath),
+    );
     harness.calls.length = 0;
 
     await expectStorageError(lifecycle.executeLive(pending), "path_changed");
@@ -1287,8 +1317,10 @@ describe("browser profile storage lifecycle", () => {
       fileSystem: {
         rename: async (from, to) => {
           await rename(from, to);
-          await rmdir(to);
-          await mkdir(to, { mode: 0o700 });
+          await replaceDirectoryWithDistinctInode(
+            to,
+            () => rmdir(to),
+          );
         },
       },
     });
