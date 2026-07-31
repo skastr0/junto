@@ -9,7 +9,10 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import { assessSupervisedRuntime } from "@shared/station";
 import { CanvasesLive } from "./vellum/canvases";
-import { HermesPlaneLive } from "./vellum/hermes/plane";
+import {
+  ChatServiceFromHermesLive,
+  HermesPlaneLive,
+} from "./vellum/hermes/plane";
 import { HermesTransportLive } from "./vellum/hermes/transport";
 import { HerdrPlaneLive, HerdrPlane } from "./vellum/herdr/plane";
 import { HerdrTransportLive } from "./vellum/herdr/transport";
@@ -233,9 +236,15 @@ export const RemoteProductPlanesLive = Layer.provideMerge(
   ProductTransportsLive,
 );
 
+// ChatServiceContext is required by RegionRollup; hermes owns the chat instance.
+const ProductPlanesWithChatLive = Layer.provideMerge(
+  ChatServiceFromHermesLive,
+  RemoteProductPlanesLive,
+);
+
 const SnapshotsWithProductsLive = Layer.provideMerge(
   SnapshotsLive,
-  RemoteProductPlanesLive,
+  ProductPlanesWithChatLive,
 );
 
 const BaseLayer = Layer.mergeAll(
@@ -253,7 +262,7 @@ const RemoteRootLayer = Layer.provideMerge(
   Layer.mergeAll(KernelWithWorkLive, RegionRollupLive),
   Layer.provideMerge(
     BaseWithPauseLive,
-    Layer.mergeAll(RemoteProductPlanesLive, CanvasesWithStateLive),
+    Layer.mergeAll(ProductPlanesWithChatLive, CanvasesWithStateLive),
   ),
 );
 
