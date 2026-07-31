@@ -961,7 +961,7 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
                       openCascade(entry.harness, event.currentTarget);
                       requestAnimationFrame(() => {
                         document
-                          .querySelector<HTMLElement>(".agent-cascade__column")
+                          .querySelector<HTMLElement>(".agent-cascade__items")
                           ?.focus();
                       });
                     }}

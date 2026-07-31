@@ -83,3 +83,50 @@ test("managed harnesses are direct palette actions with cascading choices", asyn
     await vellum.close();
   }
 });
+
+/**
+ * The path taken through the cascade has to stay readable once the pointer has
+ * moved on — otherwise the effort column is a list of bare words belonging to
+ * a model you can no longer see.
+ */
+test("the cascade shows which harness and model the open column belongs to", async () => {
+  await mkdir(SHOTS, { recursive: true });
+  const vellum = await launchVellum();
+
+  try {
+    const { page } = vellum;
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Add canvas item" }).click();
+
+    const harnessRow = page.getByRole("button", { name: /Claude Code agent/ });
+    await harnessRow.hover();
+    const models = page.getByRole("menu", { name: "Claude Code models" });
+    await expect(models).toBeVisible();
+    await expect(
+      page.locator(".agent-cascade__caption-parent").first(),
+    ).toHaveText("Claude Code");
+
+    const model = models.getByRole("menuitem").first();
+    const modelName = (await model.textContent())?.trim() ?? "";
+    await model.hover();
+    const efforts = page.getByRole("menu", { name: new RegExp(`${modelName} effort`) });
+    await expect(efforts).toBeVisible();
+
+    // Pointer in the effort column: both earlier steps stay lit, and the column
+    // says whose efforts these are.
+    await efforts.getByRole("menuitem").first().hover();
+    await expect(harnessRow).toHaveAttribute("aria-expanded", "true");
+    await expect(model).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      page.locator(".agent-cascade__caption-parent").last(),
+    ).toHaveText(modelName);
+
+    await page.screenshot({
+      path: join(SHOTS, "20f-agent-cascade-path.png"),
+      fullPage: false,
+    });
+    await page.keyboard.press("Escape");
+  } finally {
+    await vellum.close();
+  }
+});

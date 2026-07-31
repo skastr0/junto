@@ -137,16 +137,31 @@ function LoadingRows() {
   );
 }
 
+/**
+ * One cascade column. The caption is what the column is choosing (`model`,
+ * `effort`) qualified by the step that opened it, so a column read on its own
+ * still says which harness or model it belongs to.
+ */
 function MenuColumn({
   label,
+  step,
+  parent,
   children,
 }: {
   readonly label: string;
+  readonly step: string;
+  readonly parent: string;
   readonly children: React.ReactNode;
 }) {
   return (
-    <div className="agent-cascade__column" role="menu" aria-label={label} tabIndex={-1}>
-      {children}
+    <div className="agent-cascade__column">
+      <div className="agent-cascade__caption" aria-hidden>
+        <span className="agent-cascade__caption-parent">{parent}</span>
+        <span className="agent-cascade__caption-step">{step}</span>
+      </div>
+      <div className="agent-cascade__items" role="menu" aria-label={label} tabIndex={-1}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -288,7 +303,15 @@ export function AgentCascadeMenu({
       onMouseEnter={onPointerEnter}
       onMouseLeave={onPointerLeave}
     >
-      <MenuColumn label={harness === "hermes" ? "Hermes profiles" : `${templateFor(harness).displayName} models`}>
+      <MenuColumn
+        label={
+          harness === "hermes"
+            ? "Hermes profiles"
+            : `${templateFor(harness).displayName} models`
+        }
+        parent={templateFor(harness).displayName}
+        step={harness === "hermes" ? "profile" : "model"}
+      >
         {firstColumnIsLoading ? (
           <LoadingRows />
         ) : harness === "hermes" ? (
@@ -337,7 +360,11 @@ export function AgentCascadeMenu({
       </MenuColumn>
 
       {showModelColumn && harness === "hermes" ? (
-        <MenuColumn label={`${activeProfile?.name ?? "Hermes"} models`}>
+        <MenuColumn
+          label={`${activeProfile?.name ?? "Hermes"} models`}
+          parent={activeProfile?.name ?? "Hermes"}
+          step="model"
+        >
           {models === null ? (
             <LoadingRows />
           ) : (
@@ -367,7 +394,11 @@ export function AgentCascadeMenu({
       ) : null}
 
       {showEffortColumn ? (
-        <MenuColumn label={`${activeModel.label} effort`}>
+        <MenuColumn
+          label={`${activeModel.label} effort`}
+          parent={activeModel.label}
+          step="effort"
+        >
           {efforts.map((effort) => (
             <CascadeItem
               key={effort}
