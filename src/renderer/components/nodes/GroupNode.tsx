@@ -44,7 +44,6 @@ function RegionToolbar({
         className="nodrag nopan"
         aria-label={hasPaths ? "Region folder paths (set)" : "Region folder paths"}
         title={hasPaths ? "folder paths (set)" : "folder paths"}
-        tone={hasPaths ? "accent" : "default"}
         onPointerDown={stopDrag}
         onClick={(event) => { stopDrag(event); onPaths(); }}
       >

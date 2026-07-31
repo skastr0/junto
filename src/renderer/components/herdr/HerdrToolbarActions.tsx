@@ -5,6 +5,7 @@ import type { CanvasNode } from "@shared/canvas";
 import { connectionStateOf, herdr$, openHerdrTerminal } from "../../lib/herdr-state";
 import { killHerdrPane, killHerdrTab, recreateHerdrPane } from "../../lib/herdr-actions";
 import { HUE } from "../../lib/theme";
+import { IconButton } from "../ui";
 import { OpenHerdrMark } from "./OpenHerdrMark";
 
 const ARM_MS = 3000;
@@ -14,6 +15,9 @@ type HerdrAction = "kill-pane" | "kill-tab" | "recreate";
 // Selection-toolbar herdr actions. Open is one-click (double-click on the card
 // already does the same). Destructive actions stay two-click arm: first arms
 // (crimson, ~3s), second executes. Never on the card body.
+//
+// Icons share the toolbar steel chrome (IconButton default) — no per-action
+// accent colors. Crimson is reserved for armed confirm only.
 export function HerdrToolbarActions({ node }: { readonly node: CanvasNode }) {
   const herdr = node.ether?.herdr;
   const conn = use$(herdr$.connectionByNodeId[node.id]);
@@ -58,13 +62,11 @@ export function HerdrToolbarActions({ node }: { readonly node: CanvasNode }) {
   const actionButton = (action: HerdrAction, label: string, icon: ReactNode) => {
     const isArmed = armed === action;
     return (
-      <button
+      <IconButton
+        className="nodrag nopan"
         aria-label={isArmed ? `confirm ${label}` : label}
-        className={`nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10 ${
-          isArmed ? "" : "text-ink-2 hover:text-ink"
-        }`}
-        style={isArmed ? { color: HUE.crimson } : undefined}
         title={isArmed ? `confirm ${label}` : label}
+        style={isArmed ? { color: HUE.crimson } : undefined}
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -72,16 +74,15 @@ export function HerdrToolbarActions({ node }: { readonly node: CanvasNode }) {
         }}
       >
         {icon}
-      </button>
+      </IconButton>
     );
   };
 
   return (
     <>
-      <button
+      <IconButton
+        className="nodrag nopan"
         aria-label="Open work surface"
-        className="nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10"
-        style={{ color: HUE.cyan }}
         title="open work surface"
         onPointerDown={(event) => {
           event.preventDefault();
@@ -90,7 +91,7 @@ export function HerdrToolbarActions({ node }: { readonly node: CanvasNode }) {
         }}
       >
         <OpenHerdrMark size={14} />
-      </button>
+      </IconButton>
       {actionButton("kill-pane", "kill pane", <SquareX size={14} />)}
       {herdr.tabId ? actionButton("kill-tab", "kill tab", <PanelTopClose size={14} />) : null}
       {connState === "lost" || connState === "failed"

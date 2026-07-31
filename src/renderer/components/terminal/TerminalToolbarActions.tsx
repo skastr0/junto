@@ -3,6 +3,7 @@ import { Pin, SquareTerminal, SquareX } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { killTerminal, openTerminal } from "../../lib/terminal-actions";
 import { HUE } from "../../lib/theme";
+import { IconButton } from "../ui";
 
 const ARM_MS = 3000;
 
@@ -10,6 +11,9 @@ const ARM_MS = 3000;
  * Selection-toolbar actions for native terminal nodes.
  * Open is one-click; open-pinned lands in the side dock; kill is two-click arm
  * (same pattern as HerdrToolbarActions). Never on the card body.
+ *
+ * Icons share the toolbar steel chrome (IconButton default) — no per-action
+ * accent colors. Crimson is reserved for the armed kill confirm only.
  */
 export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) {
   const [armed, setArmed] = useState(false);
@@ -45,11 +49,9 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
 
   return (
     <>
-      <button
-        type="button"
+      <IconButton
+        className="nodrag nopan"
         aria-label="Open terminal"
-        className="nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10"
-        style={{ color: HUE.cyan }}
         title="open terminal"
         onPointerDown={(event) => {
           event.preventDefault();
@@ -58,12 +60,10 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
         }}
       >
         <SquareTerminal size={14} />
-      </button>
-      <button
-        type="button"
+      </IconButton>
+      <IconButton
+        className="nodrag nopan"
         aria-label="Open terminal pinned"
-        className="nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10"
-        style={{ color: HUE.cyan }}
         title="open terminal pinned"
         onPointerDown={(event) => {
           event.preventDefault();
@@ -72,15 +72,12 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
         }}
       >
         <Pin size={14} />
-      </button>
-      <button
-        type="button"
+      </IconButton>
+      <IconButton
+        className="nodrag nopan"
         aria-label={armed ? "confirm kill session" : "kill session"}
-        className={`nodrag nopan grid size-7 place-items-center rounded text-[11px] transition hover:bg-white/10 ${
-          armed ? "" : "text-ink-2 hover:text-ink"
-        }`}
-        style={armed ? { color: HUE.crimson } : undefined}
         title={armed ? "confirm kill session" : "kill session"}
+        style={armed ? { color: HUE.crimson } : undefined}
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -88,7 +85,7 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
         }}
       >
         <SquareX size={14} />
-      </button>
+      </IconButton>
     </>
   );
 }
