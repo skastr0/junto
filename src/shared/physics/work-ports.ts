@@ -19,6 +19,11 @@ export const PortForWorkOp = {
   "tasks.create": "tasks.create",
   "tasks.claim": "tasks.claim",
   "tasks.update": "tasks.update",
+  // Content access is task-scoped read/materialization and reuses the task
+  // sink's existing read grant; it never creates a second storage capability.
+  "content.path": "tasks.list",
+  "content.stat": "tasks.list",
+  "content.materialize": "tasks.list",
   "msg.list": "msg.list",
   "msg.send": "msg.send",
   // Read/reply reuse list/send edge ports — no new capability surface.
@@ -44,6 +49,9 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "tasks.create",
   "tasks.claim",
   "tasks.update",
+  "content.path",
+  "content.stat",
+  "content.materialize",
   "msg.list",
   "msg.send",
   "msg.read",
@@ -73,6 +81,9 @@ export const OPS_BY_SINK = {
     "tasks.create",
     "tasks.claim",
     "tasks.update",
+    "content.path",
+    "content.stat",
+    "content.materialize",
     "msg.list",
     "msg.send",
     "msg.read",

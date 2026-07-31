@@ -6,6 +6,7 @@ import {
   FinishCriteria,
   RawPart,
 } from "./work-model";
+import { ContentRef } from "./content";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
 // socket at ~/.vellum/work/control.sock. Pure module — no Node imports — so
@@ -47,6 +48,9 @@ export const WorkOpName = Schema.Literal(
   "tasks.create",
   "tasks.claim",
   "tasks.update",
+  "content.path",
+  "content.stat",
+  "content.materialize",
   "msg.list",
   "msg.send",
   "msg.read",
@@ -237,6 +241,36 @@ export const TasksUpdateArgs = Schema.Struct({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksUpdateArgs = typeof TasksUpdateArgs.Type;
+
+/** Process-bound content access always names the connected task sink. */
+const StrictContentRef = ContentRef.annotations({
+  parseOptions: { onExcessProperty: "error" },
+});
+
+const ContentAccessFields = {
+  target: Schema.String.pipe(Schema.minLength(1)),
+  task: Schema.String.pipe(Schema.minLength(1)),
+  ref: StrictContentRef,
+} as const;
+
+export const ContentPathArgs = Schema.Struct(ContentAccessFields).annotations({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type ContentPathArgs = typeof ContentPathArgs.Type;
+
+export const ContentStatArgs = Schema.Struct(ContentAccessFields).annotations({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type ContentStatArgs = typeof ContentStatArgs.Type;
+
+export const ContentMaterializeArgs = Schema.Struct({
+  ...ContentAccessFields,
+  /** Optional single filename; directory components are never accepted. */
+  name: Schema.optionalWith(Schema.String, { exact: true }),
+}).annotations({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type ContentMaterializeArgs = typeof ContentMaterializeArgs.Type;
 
 export const MsgListArgs = Schema.Struct({
   target: Schema.String,

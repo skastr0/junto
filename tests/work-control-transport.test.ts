@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import {
   createConnection,
   createServer as createNetServer,
@@ -897,6 +897,94 @@ describe("work control transport", () => {
       state: "verified",
       verifiedSha256: media.ref.sha256,
       verifiedByteLength: media.ref.byteLength,
+    });
+  });
+
+  it("serves authorized task content through the process-bound control socket", async () => {
+    const server = servers[0]!;
+    const created = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.create",
+      args: {
+        target: "tasks",
+        brief: "inspect the attached recording",
+        media: [
+          {
+            kind: "raw",
+            bytesBase64: Buffer.from("task-content").toString("base64"),
+            mediaType: "image/png",
+          },
+        ],
+      },
+    })) as {
+      ok: true;
+      data: {
+        id: string;
+      };
+    };
+    expect(created.ok).toBe(true);
+
+    const runtime = runtimes.at(-1);
+    if (runtime === undefined) throw new Error("missing work-control runtime");
+    const work = await runtime.runPromise(WorkService);
+    const approved = await runtime.runPromise(
+      work.workTaskApproveProposal("work-cli", "tasks", created.data.id),
+    );
+    expect(approved.ok).toBe(true);
+    if (!approved.ok) throw new Error(approved.message);
+    const media = approved.data.history
+      .flatMap((message) => message.parts)
+      .find((part) => part.kind === "content");
+    expect(media?.kind).toBe("content");
+    if (media?.kind !== "content") throw new Error("expected ContentRef part");
+
+    const statResponse = (await call(server.socketPath, {
+      token: token(),
+      op: "content.stat",
+      args: { target: "tasks", task: approved.data.id, ref: media.ref },
+    })) as {
+      ok: true;
+      data: { state: string; availability: { state: string; verifiedByteLength?: number } };
+    };
+    expect(statResponse).toMatchObject({
+      ok: true,
+      data: {
+        state: "verified",
+        availability: { state: "verified", verifiedByteLength: Buffer.byteLength("task-content") },
+      },
+    });
+
+    const pathResponse = (await call(server.socketPath, {
+      token: token(),
+      op: "content.path",
+      args: { target: "tasks", task: approved.data.id, ref: media.ref },
+    })) as { ok: true; data: { path: string } };
+    expect(pathResponse.ok).toBe(true);
+    expect(pathResponse.data.path).toContain("/content/sha256/");
+
+    const materialized = (await call(server.socketPath, {
+      token: token(),
+      op: "content.materialize",
+      args: {
+        target: "tasks",
+        task: approved.data.id,
+        ref: media.ref,
+        name: "recording.png",
+      },
+    })) as { ok: true; data: { path: string; materialized: boolean } };
+    expect(materialized.ok).toBe(true);
+    expect(materialized.data.materialized).toBe(true);
+    expect(materialized.data.path).toContain("materialized");
+    expect(await readFile(materialized.data.path, "utf8")).toBe("task-content");
+
+    const repeated = (await call(server.socketPath, {
+      token: token(),
+      op: "content.materialize",
+      args: { target: "tasks", task: approved.data.id, ref: media.ref, name: "recording.png" },
+    })) as { ok: true; data: { path: string; materialized: boolean } };
+    expect(repeated).toMatchObject({
+      ok: true,
+      data: { path: materialized.data.path, materialized: false },
     });
   });
 

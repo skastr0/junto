@@ -11,7 +11,7 @@ import {
 import { createServer, type Server, type Socket } from "node:net";
 import { resolveVellumHome } from "@shared/vellum-home";
 import { join } from "node:path";
-import { Effect, Either, Schema } from "effect";
+import { Effect, Either, Option, Schema } from "effect";
 import { ulid } from "ulid";
 import type { Artifact, CanvasDoc, Message, Part } from "@shared/canvas";
 import {
@@ -37,6 +37,9 @@ import {
   BoardListArgs,
   BoardMarkReadArgs,
   BoardPostArgs,
+  ContentMaterializeArgs,
+  ContentPathArgs,
+  ContentStatArgs,
   EmptyArgs,
   MsgListArgs,
   MsgReadArgs,
@@ -65,6 +68,14 @@ import {
   type WorkResponseEnvelope,
 } from "@shared/work-control";
 import { CanvasesService } from "../canvases";
+import { ContentService } from "../content/service";
+import {
+  materializeContentObject,
+  taskContentRef,
+  taskItemsForNode,
+} from "../content/agent-access";
+import { contentObjectPath } from "../content/paths";
+import { ContentStoreError } from "../content/store";
 import { WorkService, type WorkOpResult } from "./service";
 import {
   liveSeatBlock,
@@ -79,6 +90,7 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "tasks.claim",
   "tasks.create",
   "tasks.update",
+  "content.materialize",
   "preamble",
   "msg.send",
   "msg.read",
@@ -100,6 +112,9 @@ const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "tasks.claim",
   "tasks.create",
   "tasks.update",
+  "content.path",
+  "content.stat",
+  "content.materialize",
   "preamble",
   "msg.list",
   "msg.send",
@@ -443,6 +458,7 @@ const requireTarget = (
 type WorkCaller = {
   readonly canvasName: string;
   readonly nodeId: string;
+  readonly workHome: string;
   /** Occupant label for proof stamps / logs. */
   readonly occupant: string;
 };
@@ -482,7 +498,11 @@ const dispatchOp = (
   args: unknown,
   caller: WorkCaller,
   version: string,
-): Effect.Effect<unknown, WorkErrorBody, WorkService | CanvasesService | PausePlane> =>
+): Effect.Effect<
+  unknown,
+  WorkErrorBody,
+  WorkService | CanvasesService | PausePlane
+> =>
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const work = yield* WorkService;
@@ -654,6 +674,111 @@ const dispatchOp = (
       const items = gate.node?.ether?.tasks?.items ?? [];
       const proposals = gate.node?.ether?.tasks?.proposals ?? [];
       return { target: decoded.right.target, items, proposals };
+    }
+
+    if (
+      op === "content.path" ||
+      op === "content.stat" ||
+      op === "content.materialize"
+    ) {
+      const decoded =
+        op === "content.path"
+          ? decodeArgs(ContentPathArgs, args)
+          : op === "content.stat"
+            ? decodeArgs(ContentStatArgs, args)
+            : decodeArgs(ContentMaterializeArgs, args);
+      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const target = decoded.right.target;
+      const taskId = decoded.right.task;
+      const gate = requireTarget(board, caller.nodeId, target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const task = taskItemsForNode(gate.node!).find(
+        (candidate) => candidate.id === taskId,
+      );
+      if (task === undefined) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "UnknownTarget",
+          message: `task "${taskId}" not found on target "${target}"`,
+          details: { target: taskId, retryable: false },
+        });
+      }
+      const authorizedRef = taskContentRef(task, decoded.right.ref);
+      if (authorizedRef === undefined) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "ScopeError",
+          message: `content ref is not attached to task "${taskId}"`,
+          details: {
+            target,
+            caller: caller.nodeId,
+            hint: "use a ContentRef carried by the authorized task",
+            retryable: false,
+          },
+        });
+      }
+
+      const contentOption = yield* Effect.serviceOption(ContentService);
+      if (Option.isNone(contentOption)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InternalError",
+          message: "content service is unavailable on this Station",
+          details: { retryable: true },
+        });
+      }
+      const content = contentOption.value;
+      const availability = yield* content.availability(authorizedRef).pipe(
+        Effect.mapError((error): WorkErrorBody => ({
+          type: "InternalError",
+          message: error.message,
+          details: { retryable: true },
+        })),
+      );
+      const base = {
+        target,
+        task: taskId,
+        ref: authorizedRef,
+        availability,
+        state: availability.state,
+      } as const;
+      if (availability.state !== "verified") {
+        return base;
+      }
+
+      const canonicalPath = contentObjectPath(content.root, authorizedRef.sha256);
+      if (op !== "content.materialize") {
+        return { ...base, path: canonicalPath };
+      }
+
+      const name =
+        op === "content.materialize"
+          ? (decoded.right as ContentMaterializeArgs).name
+          : undefined;
+      const materialized = yield* Effect.tryPromise({
+        try: () =>
+          materializeContentObject({
+            contentRoot: content.root,
+            workHome: caller.workHome,
+            canvasName: caller.canvasName,
+            targetNodeId: target,
+            taskId,
+            ref: authorizedRef,
+            name,
+          }),
+        catch: (error): WorkErrorBody => {
+          const invalidInput =
+            error instanceof ContentStoreError && error.code === "invalid";
+          return {
+            type: invalidInput ? "InputError" : "InternalError",
+            message: error instanceof Error ? error.message : String(error),
+            details: { retryable: !invalidInput },
+          };
+        },
+      });
+      return {
+        ...base,
+        path: materialized.path,
+        canonicalPath,
+        materialized: materialized.created,
+      };
     }
 
     if (op === "tasks.create") {
@@ -1566,6 +1691,7 @@ export const startWorkControlServer = async (
               const caller: WorkCaller = {
                 canvasName: callerResolved.caller.canvasName,
                 nodeId: callerResolved.caller.nodeId,
+                workHome,
                 occupant,
               };
               return options.run(

@@ -19,6 +19,7 @@ import {
   preambleCommand,
   tasksCommand,
 } from "./commands/work";
+import { contentCommand } from "./commands/content";
 import {
   fleetOperatorCommand,
   qualificationOperatorCommand,
@@ -50,6 +51,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     msgCommand,
     escalateCommand,
     artifactCommand,
+    contentCommand,
     boardCommand,
     stationOperatorCommand,
     fleetOperatorCommand,

@@ -113,6 +113,9 @@ export const requiresConnection = (op: WorkOpName): boolean => {
     case "tasks.create":
     case "tasks.claim":
     case "tasks.update":
+    case "content.path":
+    case "content.stat":
+    case "content.materialize":
     case "msg.list":
     case "msg.send":
     case "msg.read":

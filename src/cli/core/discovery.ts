@@ -9,6 +9,9 @@ import {
 } from "../../shared/browser-control";
 import {
   ArtifactPublishCliArgs,
+  ContentMaterializeArgs,
+  ContentPathArgs,
+  ContentStatArgs,
   EmptyArgs,
   MsgListArgs,
   MsgReadArgs,
@@ -228,6 +231,36 @@ export const artifactPublishSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
+export const contentPathSchema: CommandSchemaContract = {
+  command_id: "content.path",
+  command: "content path",
+  schema_id: "content.path.input/v1",
+  description:
+    "Resolve an authorized task ContentRef to its verified canonical local path.",
+  schema: ContentPathArgs,
+  input_modes: inputModes,
+};
+
+export const contentStatSchema: CommandSchemaContract = {
+  command_id: "content.stat",
+  command: "content stat",
+  schema_id: "content.stat.input/v1",
+  description:
+    "Read availability, identity, metadata, and local path for an authorized task ContentRef.",
+  schema: ContentStatArgs,
+  input_modes: inputModes,
+};
+
+export const contentMaterializeSchema: CommandSchemaContract = {
+  command_id: "content.materialize",
+  command: "content materialize",
+  schema_id: "content.materialize.input/v1",
+  description:
+    "Stream an authorized task ContentRef into a stable Vellum Command task-scoped workspace path.",
+  schema: ContentMaterializeArgs,
+  input_modes: inputModes,
+};
+
 const browserSchema = (
   operation: string,
   command: string,
@@ -297,6 +330,9 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   preambleSchema,
   requestEscalateSchema,
   artifactPublishSchema,
+  contentPathSchema,
+  contentStatSchema,
+  contentMaterializeSchema,
   browserPagesSchema,
   browserOpenSchema,
   browserGotoSchema,
@@ -474,6 +510,68 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     name: "list",
     input: { target: "n7" },
     args: ["tasks", "list", '{"target":"n7"}'],
+  },
+  {
+    command_id: "content.path",
+    command: "content path",
+    name: "resolve task content",
+    description: "Resolve a ContentRef carried by task t1 on target n7.",
+    input: {
+      target: "n7",
+      task: "t1",
+      ref: {
+        sha256:
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        byteLength: 12,
+        mediaType: "application/octet-stream",
+      },
+    },
+    args: [
+      "content",
+      "path",
+      '{"target":"n7","task":"t1","ref":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byteLength":12,"mediaType":"application/octet-stream"}}',
+    ],
+  },
+  {
+    command_id: "content.stat",
+    command: "content stat",
+    name: "inspect task content",
+    input: {
+      target: "n7",
+      task: "t1",
+      ref: {
+        sha256:
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        byteLength: 12,
+        mediaType: "application/octet-stream",
+      },
+    },
+    args: [
+      "content",
+      "stat",
+      '{"target":"n7","task":"t1","ref":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byteLength":12,"mediaType":"application/octet-stream"}}',
+    ],
+  },
+  {
+    command_id: "content.materialize",
+    command: "content materialize",
+    name: "materialize task content",
+    input: {
+      target: "n7",
+      task: "t1",
+      name: "record.bin",
+      ref: {
+        sha256:
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        byteLength: 12,
+        mediaType: "application/octet-stream",
+      },
+    },
+    args: [
+      "content",
+      "materialize",
+      '{"target":"n7","task":"t1","name":"record.bin","ref":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byteLength":12,"mediaType":"application/octet-stream"}}',
+    ],
   },
   {
     command_id: "browser.pages",
@@ -662,6 +760,30 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,
       supports_concurrency_option: true,
     },
+  },
+  {
+    command_id: "content.path",
+    command: "content path",
+    category: "workflow",
+    description: "Resolve an authorized task ContentRef to a local path.",
+    schemas: [contentPathSchema],
+    examples: allExamples.filter((e) => e.command_id === "content.path"),
+  },
+  {
+    command_id: "content.stat",
+    command: "content stat",
+    category: "workflow",
+    description: "Inspect availability for an authorized task ContentRef.",
+    schemas: [contentStatSchema],
+    examples: allExamples.filter((e) => e.command_id === "content.stat"),
+  },
+  {
+    command_id: "content.materialize",
+    command: "content materialize",
+    category: "workflow",
+    description: "Materialize an authorized task ContentRef into the task workspace.",
+    schemas: [contentMaterializeSchema],
+    examples: allExamples.filter((e) => e.command_id === "content.materialize"),
   },
   {
     command_id: "browser.pages",
