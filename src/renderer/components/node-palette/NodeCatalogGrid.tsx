@@ -51,13 +51,13 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "terminal", kind: "terminal", category: "shell", label: "Terminal", subtitle: "native shell",
     icon: SquareTerminal, accentClass: "text-cyan",
     purpose: "A managed shell on the selected host for commands, logs, and hands-on operator work.",
-    connections: [{ target: "Tasks", relationship: "receives a concrete task context", ports: ["tasks.list"] }],
+    connections: [{ target: "Any node", relationship: "keeps shell work spatially adjacent as display context", ports: [] }],
   },
   {
     id: "herdr", kind: "herdr", category: "shell", label: "Herdr", subtitle: "attach an existing pane",
     icon: PanelTop, accentClass: "text-indigo",
     purpose: "A bridge to an existing terminal pane without taking ownership of the underlying process.",
-    connections: [{ target: "Tasks", relationship: "keeps an existing work lane visible", ports: ["tasks.list"] }],
+    connections: [{ target: "Any node", relationship: "keeps an existing pane visible as display context", ports: [] }],
   },
   {
     id: "tasks", kind: "task", category: "sinks", label: "Tasks", subtitle: "shared claim queue",
