@@ -775,16 +775,20 @@ describe("Station API v2 work routing", () => {
       _tag: "admitted",
     });
 
+    const actorTopicCommand = boardTopicCommand();
+    if (actorTopicCommand.body.operation !== "board.topic.create") {
+      throw new Error("boardTopicCommand must build board.topic.create");
+    }
     const operatorAuthored = Schema.decodeUnknownSync(
       WorkCommand,
       strictDecode,
     )({
-      ...boardTopicCommand(),
+      ...actorTopicCommand,
       body: {
-        ...boardTopicCommand().body,
+        ...actorTopicCommand.body,
         createdBy: { kind: "operator", label: "operator" },
         topic: {
-          ...boardTopicCommand().body.topic,
+          ...actorTopicCommand.body.topic,
           openedBy: { kind: "operator", label: "operator" },
         },
       },
