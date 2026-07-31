@@ -105,7 +105,7 @@ describe("observeAlertSignals + cycleAlertFocus", () => {
     const signal = { id: alertId.node("n1"), kind: "attention" as const, subjectKey: "n1", nodeId: "n1", level: 1 };
     observeAlertSignals([]);
     observeAlertSignals([signal]);
-    expect(play).toHaveBeenCalledWith("permission");
+    expect(play).toHaveBeenCalledWith("attention");
   });
 });
 

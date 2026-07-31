@@ -201,6 +201,19 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
     });
     expect(map.has("n3")).toBe(false);
   });
+
+  it("projects idle unseen seats as node attention", () => {
+    const map = terminalStatusByNodeIdFromSeats(
+      [terminalNode("n-ready", "bind-ready")],
+      { "bind-ready": event({ bindingId: "bind-ready", state: "idle" }) },
+      { "bind-ready": true },
+    );
+    expect(map.get("n-ready")).toEqual({
+      session: "running",
+      harness: "attention",
+      source: "native",
+    });
+  });
 });
 
 describe("subscribeAgentSeatState renderer hydration", () => {

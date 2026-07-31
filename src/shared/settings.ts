@@ -152,7 +152,8 @@ export const StationSettings = WithoutRetiredTopologyIntegrity.pipe(
 export type StationSettings = typeof StationSettings.Type;
 
 // RTS UI SFX — per-clip enable + volume under a master mute/gain.
-// Clip keys are camelCase; renderer maps alert ids (herdr-done → herdrDone).
+// `permission`, `herdrDone`, and `orphan` remain durable compatibility keys;
+// the active renderer catalog presents the generic node-state vocabulary.
 const unitInterval = Schema.Number.pipe(Schema.between(0, 1));
 
 export const SfxClipPrefs = Schema.Struct({

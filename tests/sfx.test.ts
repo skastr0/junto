@@ -83,11 +83,12 @@ describe("sfx catalog", () => {
   });
 
   it("exposes alert ids with resolvable urls", () => {
-    expect(ALERT_SFX_IDS).toHaveLength(5);
+    expect(ALERT_SFX_IDS).toEqual(["blocked", "attention", "cycle"]);
     for (const id of ALERT_SFX_IDS) {
       expect(sfxUrl(id)).toMatch(/\.mp3/);
       expect(sfxIdToClipKey(id)).toBeTruthy();
     }
+    expect(sfxIdToClipKey("attention")).toBe("permission");
   });
 
   it("master mute skips Web Audio work and never touches HTMLAudioElement", async () => {

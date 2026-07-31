@@ -108,7 +108,7 @@ export const observeAlertSignals = (signals: ReadonlyArray<AlertSignal>): void =
   const result = observeSignals(queue, signals);
   queue = result.queue;
   for (const item of result.risen) {
-    playAlert(item.kind === "blocked" ? "blocked" : "permission");
+    playAlert(item.kind === "blocked" ? "blocked" : "attention");
   }
 };
 

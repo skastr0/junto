@@ -160,6 +160,10 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     string,
     { state?: string; at?: number } | undefined
   >;
+  const needsLookByBinding = use$(agentSeat$.needsLookByBindingId) as Record<
+    string,
+    boolean | undefined
+  >;
   const seatKey = useMemo(
     () =>
       Object.entries(seatByBinding ?? {})
@@ -168,15 +172,24 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
         .join("|"),
     [seatByBinding],
   );
+  const needsLookKey = useMemo(
+    () =>
+      Object.entries(needsLookByBinding ?? {})
+        .map(([id, value]) => `${id}:${value === true ? 1 : 0}`)
+        .sort()
+        .join("|"),
+    [needsLookByBinding],
+  );
   const terminalStatusByNodeId = useMemo(
     () =>
       terminalStatusByNodeIdFromSeats(
         doc?.nodes ?? [],
         agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>,
+        agentSeat$.needsLookByBindingId.peek() as Record<string, boolean | undefined>,
       ),
     // seatKey captures state changes; docVersion/docEpoch capture node binds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [docVersion, docEpoch, seatKey],
+    [docVersion, docEpoch, seatKey, needsLookKey],
   );
   const vacantSeatNodeIds = useMemo(
     () =>

@@ -12,8 +12,6 @@
 
 import blockedUrl from "../assets/sfx/blocked.mp3?url";
 import cycleUrl from "../assets/sfx/cycle.mp3?url";
-import herdrDoneUrl from "../assets/sfx/herdr-done.mp3?url";
-import orphanUrl from "../assets/sfx/orphan.mp3?url";
 import permissionUrl from "../assets/sfx/permission.mp3?url";
 import type { AudioSettings, SfxClipsSettings } from "@shared/settings";
 import { defaultAudio } from "@shared/settings";
@@ -21,15 +19,13 @@ import { state$ } from "./state";
 
 export const ALERT_SFX_IDS = [
   "blocked",
-  "permission",
-  "herdr-done",
-  "orphan",
+  "attention",
   "cycle",
 ] as const;
 
 export type AlertSfxId = (typeof ALERT_SFX_IDS)[number];
 
-/** Settings key for each alert id (camelCase). */
+/** All durable settings keys, including retired compatibility clips. */
 export type SfxClipKey = keyof SfxClipsSettings;
 
 export const SFX_CLIP_KEYS: ReadonlyArray<SfxClipKey> = [
@@ -42,17 +38,15 @@ export const SFX_CLIP_KEYS: ReadonlyArray<SfxClipKey> = [
 
 export const SFX_LABELS: Readonly<Record<AlertSfxId, string>> = {
   blocked: "Blocked",
-  permission: "Permission pending",
-  "herdr-done": "Herdr done",
-  orphan: "Orphaned arm",
+  attention: "Attention",
   cycle: "Cycle / next alert",
 };
 
 const URLS: Readonly<Record<AlertSfxId, string>> = {
   blocked: blockedUrl,
-  permission: permissionUrl,
-  "herdr-done": herdrDoneUrl,
-  orphan: orphanUrl,
+  // Keep the existing bytes and durable `permission` clip preference while
+  // presenting this sound as the generic node-attention cue.
+  attention: permissionUrl,
   cycle: cycleUrl,
 };
 
@@ -60,20 +54,19 @@ const isAlertSfxId = (value: string): value is AlertSfxId =>
   (ALERT_SFX_IDS as ReadonlyArray<string>).includes(value);
 
 export const sfxIdToClipKey = (id: AlertSfxId): SfxClipKey => {
-  switch (id) {
-    case "herdr-done":
-      return "herdrDone";
-    default:
-      return id;
-  }
+  return id === "attention" ? "permission" : id;
 };
 
-export const clipKeyToSfxId = (key: SfxClipKey): AlertSfxId => {
+/** Map active settings clips back to alert ids; retired keys have no producer. */
+export const clipKeyToSfxId = (key: SfxClipKey): AlertSfxId | undefined => {
   switch (key) {
-    case "herdrDone":
-      return "herdr-done";
-    default:
+    case "permission":
+      return "attention";
+    case "blocked":
+    case "cycle":
       return key;
+    default:
+      return undefined;
   }
 };
 
