@@ -1095,7 +1095,7 @@ function HostsSection() {
         use the host id (or optional hermes id). Expand <strong>Services</strong> on a host to
         list its served URLs and open them as canvas pages.
         {isCommandCenter
-          ? " On Command Center: Deploy Remote installs/updates the Linux package over SSH when managed installs are allowed. Enroll fresh Remote is for a target that already has a station role staged."
+          ? " On Command Center: Deploy Remote installs/updates Vellum Command on macOS Remotes over SSH when managed installs are allowed. Linux managed deploy is not available in this release. Enroll fresh Remote is for a target that already has a station role staged."
           : ""}
       </p>
 

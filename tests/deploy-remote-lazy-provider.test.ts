@@ -210,7 +210,8 @@ describe("Remote deployment provider evaluation", () => {
       ok: false,
       code: "validation",
       disposition: "not-started",
-      message: "remote deployment provider unavailable",
+      // Loader throw text is preserved (not degraded to a generic string).
+      message: "provider failed during evaluation",
     });
     expect(loadProvider).toHaveBeenCalledExactlyOnceWith("linux");
     expect(providerEvaluations).toEqual({ darwin: 0, linux: 0 });

@@ -100,4 +100,49 @@ describe("configured remote deploy (userland)", () => {
     expect(result.ok).toBe(false);
     expect(configure).not.toHaveBeenCalled();
   });
+
+  it("does not admit or package-mutate when prepare refuses the target", async () => {
+    let admitted = false;
+    let packageMutated = false;
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        {
+          ...options,
+          onAdmitted: () =>
+            Effect.sync(() => {
+              admitted = true;
+            }),
+        },
+        operations({
+          prepare: () =>
+            Effect.succeed({
+              ok: false,
+              result: {
+                ok: false,
+                detail: "Linux Remote managed deployment is not available",
+                code: "validation",
+                stages: ["uname"],
+                disposition: "not-started",
+              },
+            } as never),
+          deployPrepared: () =>
+            Effect.sync(() => {
+              packageMutated = true;
+              return {
+                ok: true,
+                detail: "should not run",
+                stages: [],
+                disposition: "ready" as const,
+                version: "1.0.0",
+              };
+            }),
+        }),
+      ),
+    );
+    expect(result.ok).toBe(false);
+    expect(admitted).toBe(false);
+    expect(packageMutated).toBe(false);
+  });
 });

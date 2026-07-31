@@ -86,13 +86,10 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
       id: string,
       options: ConfiguredRemoteDeployOptions & {
         /**
-         * Durable admission barrier run after registry resolution and before
-         * any remote mutation. A failure prevents the deployment from starting.
+         * Final receipt barrier; runs under the same endpoint semaphore.
+         * Platform admission (`onAdmitted`) runs inside deployConfiguredRemoteHost
+         * after prepare succeeds — never before release/platform refuse.
          */
-        readonly onAdmitted?: (
-          host: RemoteHostT,
-        ) => Effect.Effect<void, RemoteHostsError>;
-        /** Final receipt barrier; runs under the same endpoint semaphore. */
         readonly onCompleted?: (
           host: RemoteHostT,
           result: ConfiguredRemoteDeployResult,
@@ -329,28 +326,8 @@ export const makeHostsService = (
         return yield* serializeHostMutation(
           host,
           Effect.gen(function* () {
-            if (options.onAdmitted) {
-              const admission = yield* options.onAdmitted(host).pipe(
-                Effect.either,
-              );
-              if (admission._tag === "Left") {
-                const detail = `${host.label}: deployment did not start because its durable admission receipt could not be persisted — ${admission.left.message}`;
-                return {
-                  ok: false,
-                  detail,
-                  code: admission.left.code,
-                  message: detail,
-                  hostEndpoint: host.sshEndpoint,
-                  stages: [],
-                  disposition: "not-started" as const,
-                  outcome: "failed" as const,
-                  packageState: "previous" as const,
-                  role: "previous" as const,
-                  statusRecorded: false,
-                  configuration: { ok: false, detail },
-                } satisfies ConfiguredRemoteDeployResult;
-              }
-            }
+            // onAdmitted runs inside deployConfiguredRemoteHost after prepare
+            // so unsupported platforms never mint a durable admission receipt.
             const deployed = yield* operations.deployConfiguredRemoteHost(
               ssh,
               host,

@@ -79,11 +79,13 @@ export const planFleetRemoteUpdates = (input: {
     // and mid-flight phases stay off the auto-deploy queue until idle again.
     const phase = remote.phase?.kind ?? "quiet";
     const phaseAllowsAttempt = phase === "quiet" || phase === "failed";
+    // Managed auto-walk follows the production host allowlist (darwin-only
+    // while Linux managed deploy is frozen). Linux remotes stay observed.
     const eligibleForAutoDeploy =
       autoWalk &&
       admits &&
       versionGap &&
-      (remote.platform === "darwin" || remote.platform === "linux") &&
+      remote.platform === "darwin" &&
       phaseAllowsAttempt;
 
     return {

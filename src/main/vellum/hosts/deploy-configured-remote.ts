@@ -50,6 +50,13 @@ export type ConfiguredRemoteDeployResult = DeployRemoteResult & {
 export type ConfiguredRemoteDeployOptions = ConfigureRemoteOptions & {
   /** Defaults to the stable feed; qualification may explicitly use the cache. */
   readonly artifactSource?: LinuxReleaseCacheSource;
+  /**
+   * Durable admission after platform prepare succeeds and before package
+   * mutation. A failure prevents deployPrepared from running.
+   */
+  readonly onAdmitted?: (
+    host: RemoteHost,
+  ) => Effect.Effect<void, RemoteHostsError>;
 };
 
 export type ConfiguredRemoteDeployOperations = {
@@ -229,6 +236,19 @@ export const deployConfiguredRemoteHost = (
         unsupportedTarget: preparation.result.unsupportedTarget,
         recoveryAction: preparation.result.recoveryAction,
       });
+    }
+
+    // Platform is known only after prepare. Admit durably only once the target
+    // is release-eligible so Linux freezes never leave a half-started receipt.
+    if (options.onAdmitted) {
+      const admission = yield* options.onAdmitted(host).pipe(Effect.either);
+      if (admission._tag === "Left") {
+        const detail = `${host.label}: deployment did not start because its durable admission receipt could not be persisted — ${admission.left.message}`;
+        return failedBeforeMutation(host, detail, {
+          code: admission.left.code,
+          stages: preparation.target.progress,
+        });
+      }
     }
 
     let deployed = yield* operations.deployPrepared(

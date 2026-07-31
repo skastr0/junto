@@ -2,6 +2,11 @@
 
 import type { Context } from "effect";
 import { Effect } from "effect";
+import {
+  DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
+  LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
+  RELEASE_CAPABILITIES,
+} from "@shared/release-capabilities";
 import { hostHasCapability, type RemoteHost } from "@shared/remote-hosts";
 import { SshTransport } from "../ssh";
 import type {
@@ -139,6 +144,8 @@ export const makeRemoteDeploymentDispatcher = (input: {
     | {
         readonly ok: false;
         readonly reason: "missing" | "unavailable";
+        /** Loader/release denial text when the provider path refuses. */
+        readonly detail?: string;
       };
 
   const resolveProvider = (
@@ -153,11 +160,16 @@ export const makeRemoteDeploymentDispatcher = (input: {
     }
     return Effect.tryPromise({
       try: () => input.loadProvider!(platform),
-      catch: () => undefined,
+      catch: (cause) =>
+        cause instanceof Error ? cause.message : String(cause),
     }).pipe(
       Effect.match({
-        onFailure: () =>
-          ({ ok: false, reason: "unavailable" }) satisfies ProviderResolution,
+        onFailure: (detail) =>
+          ({
+            ok: false,
+            reason: "unavailable",
+            detail,
+          }) satisfies ProviderResolution,
         onSuccess: (provider) =>
           provider?.platform === platform
             ? ({ ok: true, provider }) satisfies ProviderResolution
@@ -174,9 +186,48 @@ export const makeRemoteDeploymentDispatcher = (input: {
       Effect.flatMap((preparation) => {
         if (!preparation.ok) return Effect.succeed(preparation);
         const { target } = preparation;
+        // Release surface gate with stable product copy before provider body.
+        // Loader also freezes, but prepare must not degrade the denial text.
+        if (
+          target.platform.platform === "linux" &&
+          !RELEASE_CAPABILITIES.linuxRemoteDeploy
+        ) {
+          return Effect.succeed({
+            ok: false as const,
+            result: remoteDeploymentFailure(
+              `${target.host.label}: ${LINUX_REMOTE_DEPLOY_DISABLED_DETAIL}`,
+              {
+                code: "validation",
+                message: LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
+                stages: target.progress,
+              },
+            ),
+          });
+        }
+        if (
+          target.platform.platform === "darwin" &&
+          !RELEASE_CAPABILITIES.darwinRemoteDeploy
+        ) {
+          return Effect.succeed({
+            ok: false as const,
+            result: remoteDeploymentFailure(
+              `${target.host.label}: ${DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL}`,
+              {
+                code: "validation",
+                message: DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL,
+                stages: target.progress,
+              },
+            ),
+          });
+        }
         return resolveProvider(target.platform.platform).pipe(
           Effect.map((resolution) => {
             if (!resolution.ok) {
+              const unavailableDetail =
+                resolution.detail !== undefined &&
+                resolution.detail.trim().length > 0
+                  ? resolution.detail
+                  : `${target.platform.platform} deployment provider is unavailable`;
               return {
                 ok: false as const,
                 result:
@@ -192,10 +243,10 @@ export const makeRemoteDeploymentDispatcher = (input: {
                         target.progress,
                       )
                     : remoteDeploymentFailure(
-                        `${target.host.label}: ${target.platform.platform} deployment provider is unavailable`,
+                        `${target.host.label}: ${unavailableDetail}`,
                         {
                           code: "validation",
-                          message: "remote deployment provider unavailable",
+                          message: unavailableDetail,
                           stages: target.progress,
                         },
                       ),

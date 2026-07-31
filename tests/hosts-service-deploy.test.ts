@@ -73,15 +73,27 @@ const unusedFleet = {} as Context.Tag.Service<
 >;
 
 describe("HostsService configured deploy admission", () => {
-  it("runs the durable admission barrier before any remote mutation", async () => {
+  it("runs the durable admission barrier before package mutation", async () => {
     const host = remote("studio");
     let admitted = false;
+    let mutated = false;
+    // Service forwards onAdmitted into deployConfiguredRemoteHost; the real
+    // body admits after prepare. This mock mirrors that contract.
     const mutation = vi.fn(
-      (_ssh, target: RemoteHost, received: ConfiguredRemoteDeployOptions) => {
-        expect(admitted).toBe(true);
-        expect(received.artifactSource).toBe("verified-cache");
-        return Effect.succeed(failedResult(target));
-      },
+      (
+        _ssh: unknown,
+        target: RemoteHost,
+        received: ConfiguredRemoteDeployOptions,
+      ) =>
+        Effect.gen(function* () {
+          expect(received.artifactSource).toBe("verified-cache");
+          if (received.onAdmitted) {
+            yield* received.onAdmitted(target);
+          }
+          expect(admitted).toBe(true);
+          mutated = true;
+          return failedResult(target);
+        }),
     );
     const service = makeHostsService(
       registryFor([host]),
@@ -106,12 +118,34 @@ describe("HostsService configured deploy admission", () => {
     );
 
     expect(mutation).toHaveBeenCalledOnce();
+    expect(mutated).toBe(true);
   });
 
-  it("does not mutate when the durable admission receipt fails", async () => {
+  it("does not package-mutate when the durable admission receipt fails", async () => {
     const host = remote("studio");
-    const mutation = vi.fn((_ssh, target: RemoteHost) =>
-      Effect.succeed(failedResult(target)),
+    let mutated = false;
+    const mutation = vi.fn(
+      (
+        _ssh: unknown,
+        target: RemoteHost,
+        received: ConfiguredRemoteDeployOptions,
+      ) =>
+        Effect.gen(function* () {
+          if (received.onAdmitted) {
+            const admission = yield* received
+              .onAdmitted(target)
+              .pipe(Effect.either);
+            if (admission._tag === "Left") {
+              return {
+                ...failedResult(target),
+                detail: admission.left.message,
+                code: admission.left.code,
+              } satisfies ConfiguredRemoteDeployResult;
+            }
+          }
+          mutated = true;
+          return failedResult(target);
+        }),
     );
     const service = makeHostsService(
       registryFor([host]),
@@ -132,7 +166,7 @@ describe("HostsService configured deploy admission", () => {
       }),
     );
 
-    expect(mutation).not.toHaveBeenCalled();
+    expect(mutated).toBe(false);
     expect(result).toMatchObject({
       outcome: "failed",
       disposition: "not-started",
@@ -207,8 +241,17 @@ describe("HostsService configured deploy admission", () => {
       {
         configureRemoteHost: unused as never,
         deployRemoteHost: unused as never,
-        deployConfiguredRemoteHost: ((_ssh: unknown, host: RemoteHost) =>
-          Effect.succeed(failedResult(host))) as never,
+        deployConfiguredRemoteHost: ((
+          _ssh: unknown,
+          host: RemoteHost,
+          options: ConfiguredRemoteDeployOptions,
+        ) =>
+          Effect.gen(function* () {
+            if (options.onAdmitted) {
+              yield* options.onAdmitted(host);
+            }
+            return failedResult(host);
+          })) as never,
       },
     );
 

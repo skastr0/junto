@@ -188,9 +188,11 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
 
   // Fail-closed when capabilities unknown: gated actions stay disabled.
   // Linux hosts stay enrolled/read-only when managed Linux deploy is off.
+  // Box-enrolled host ids are always Linux; probe facts confirm other hosts.
   const knownLinuxHost =
-    probe?.linuxCapabilities !== undefined &&
-    probe.linuxCapabilities.facts.platform === "linux";
+    host.id.startsWith("box-") ||
+    (probe?.linuxCapabilities !== undefined &&
+      probe.linuxCapabilities.facts.platform === "linux");
   const linuxManagedOff = caps?.release.linuxRemoteDeploy === false;
   const linuxReleaseBlocked = knownLinuxHost && linuxManagedOff;
   const deployEnabled =

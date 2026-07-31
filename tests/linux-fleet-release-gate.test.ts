@@ -18,7 +18,7 @@ describe("linux fleet release gate (production defaults)", () => {
     expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(true);
   });
 
-  it("computeDeployCapabilities refuses Linux targets with zero side effects", () => {
+  it("computeDeployCapabilities refuses Linux targets (pure formula)", () => {
     const caps = computeDeployCapabilities({
       stationRole: "command-center",
       remoteManagedInstalls: true,

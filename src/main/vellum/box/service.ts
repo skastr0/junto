@@ -434,9 +434,10 @@ export const makeBoxFleetService = (
         Effect.andThen(owned(boxId)),
         Effect.flatMap(prepareOwned),
       ),
+    // Detach is local ownership cleanup only — allowed while Box fleet is
+    // frozen so operators can remove preserved rows without provider calls.
     detach: (boxId) =>
-      requireBoxFleet().pipe(
-        Effect.andThen(authorizeMutation),
+      authorizeMutation.pipe(
         Effect.andThen(owned(boxId)),
         Effect.flatMap((box) => {
           const machineId = inspectOwnedBox(box).machine.id;
