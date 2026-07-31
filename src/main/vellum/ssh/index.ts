@@ -62,6 +62,7 @@ export {
   remoteHermesCli,
   remoteHerdrCli,
   remoteHostProbe,
+  remoteLinuxCapabilityDoctor,
   remoteLsofTcpListen,
   remoteProductVersion,
   remoteTailscaleServeStatus,

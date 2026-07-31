@@ -70,6 +70,7 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
         readonly detail: string;
         readonly reachability?: "reachable" | "unreachable" | "unknown";
         readonly protocol?: StationProtocolObservation;
+        readonly linuxCapabilities?: import("@shared/linux-host-capabilities").LinuxHostCapabilityObservation;
       },
       RemoteHostsError
     >;

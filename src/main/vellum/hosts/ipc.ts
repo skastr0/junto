@@ -605,6 +605,9 @@ export const registerHostsIpc = (
                 ...(result.right.protocol === undefined
                   ? {}
                   : { protocol: result.right.protocol }),
+                ...(result.right.linuxCapabilities === undefined
+                  ? {}
+                  : { linuxCapabilities: result.right.linuxCapabilities }),
               } satisfies HostsTestResult;
             }
             return {

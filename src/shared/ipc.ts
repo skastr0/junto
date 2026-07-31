@@ -809,6 +809,11 @@ export interface HostsTestResult {
   readonly reachability?: "reachable" | "unreachable" | "unknown";
   /** Process-local Station wire compatibility; never persisted or added to v2. */
   readonly protocol?: import("./station-status").StationProtocolObservation;
+  /**
+   * Linux host-capability Doctor observation from the closed SSH probe.
+   * Present only when the remote probe returned a closed capability record.
+   */
+  readonly linuxCapabilities?: import("./linux-host-capabilities").LinuxHostCapabilityObservation;
   readonly code?: string;
   readonly message?: string;
 }

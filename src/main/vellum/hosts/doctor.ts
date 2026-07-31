@@ -3,6 +3,8 @@ import { constants } from "node:fs";
 import type { Context } from "effect";
 import { Effect } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
+import { observeLinuxHostCapabilityDoctor } from "@shared/linux-host-capability-doctor";
+import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
 import type { StationRemoteObservation } from "@shared/station-status";
 import {
   hermesKeyFor,
@@ -16,7 +18,10 @@ import {
 } from "../ssh/domain";
 import { OPENSSH_CLIENT_EXECUTABLE } from "../ssh/live";
 import { oneShot } from "../ssh/program";
-import { remoteProductVersion } from "../ssh/read-commands";
+import {
+  remoteLinuxCapabilityDoctor,
+  remoteProductVersion,
+} from "../ssh/read-commands";
 import { SshTransport } from "../ssh/service";
 import {
   StationFleetPropagation,
@@ -152,6 +157,31 @@ const remoteBinary = (
             : String(error),
       }),
     ),
+  );
+
+/**
+ * Closed zero-arg Linux capability Doctor over SSH. Best-effort: a probe,
+ * transport, or parse failure never fails the host connection test.
+ */
+const probeLinuxHostCapabilities = (
+  ssh: Ssh,
+  host: RemoteHost,
+): Effect.Effect<LinuxHostCapabilityObservation | undefined> =>
+  parseHostSshRoute(host).pipe(
+    Effect.flatMap((parsed) =>
+      remoteLinuxCapabilityDoctor().pipe(
+        Effect.flatMap((command) =>
+          ssh.run(oneShot(parsed, command, { budget: "status" })),
+        ),
+      ),
+    ),
+    Effect.map((result) => {
+      const observation = observeLinuxHostCapabilityDoctor(result.stdout);
+      return observation === null ? undefined : observation;
+    }),
+    Effect.catchAll(() => Effect.succeed(undefined)),
+    // Test doubles and transport defects must not surface through hostsTest.
+    Effect.catchAllDefect(() => Effect.succeed(undefined)),
   );
 
 const probeSshHost = (
@@ -492,6 +522,7 @@ export const testHostConnection = (
   readonly detail: string;
   readonly reachability?: "reachable" | "unreachable" | "unknown";
   readonly protocol?: StationRemoteObservation["protocol"];
+  readonly linuxCapabilities?: LinuxHostCapabilityObservation;
 }> =>
   host.kind === "local"
     ? Effect.gen(function* () {
@@ -520,13 +551,24 @@ export const testHostConnection = (
             "local host ready",
         };
       })
-    : probeSshHost(ssh, fleet, host).pipe(
-        Effect.map((result) => ({
-          ok: result.status === "ok",
-          detail: result.detail,
+    : Effect.gen(function* () {
+        const result = yield* probeSshHost(ssh, fleet, host);
+        const linuxCapabilities = yield* probeLinuxHostCapabilities(ssh, host);
+        const coreReady =
+          linuxCapabilities === undefined ||
+          linuxCapabilities.status === "ready";
+        return {
+          ok: result.status === "ok" && coreReady,
+          detail:
+            linuxCapabilities === undefined
+              ? result.detail
+              : `${result.detail} · host ${linuxCapabilities.status}: ${linuxCapabilities.summary}`,
           reachability: result.observation.reachability,
           ...(result.observation.protocol === undefined
             ? {}
             : { protocol: result.observation.protocol }),
-        })),
-      );
+          ...(linuxCapabilities === undefined
+            ? {}
+            : { linuxCapabilities }),
+        };
+      });
