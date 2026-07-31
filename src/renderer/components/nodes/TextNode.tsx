@@ -78,16 +78,20 @@ function formatCountdown(nextFire: number, now: number): string {
   const minutes = Math.round((nextFire - now) / 60000);
   // Due state is ActivityMark wave only — no "pulsing…" label.
   if (minutes <= 0) return "now";
-  if (minutes < 60) return `next pulse in ${minutes}m`;
+  if (minutes < 60) return `next run in ${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
-  return `next pulse in ${hours}h${remainder ? ` ${remainder}m` : ""}`;
+  return `next run in ${hours}h${remainder ? ` ${remainder}m` : ""}`;
 }
 
-// A watcher card: a predicate over live data. Its status is entirely
-// DERIVED from kernel$ (never from the document) — the node itself only ever
-// carries the definition (ether.watch).
-function WatcherCard({ node }: { readonly node: CanvasNode }) {
+// Gauge / relay card: status is DERIVED from kernel$ (never the document).
+function WatcherCard({
+  node,
+  label,
+}: {
+  readonly node: CanvasNode;
+  readonly label: "gauge" | "relay";
+}) {
   const runtime = use$(kernel$.watchers[node.id]) as
     WatcherRuntimeState | undefined;
   const now = useRelativeNow(30_000);
@@ -104,7 +108,7 @@ function WatcherCard({ node }: { readonly node: CanvasNode }) {
             className="text-[8px] uppercase tracking-[0.18em]"
             style={{ color: "#68604a" }}
           >
-            watcher
+            {label}
           </span>
         </div>
         <div
@@ -132,8 +136,7 @@ function WatcherCard({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-// A timer card: a bare pulse on an interval. Countdown reads kernel$.nextFire
-// (derived); the interval itself is the document's ether.timer.everyMinutes.
+// Cron card: countdown from kernel$.nextFire; interval from ether.timer.
 function TimerCard({ node }: { readonly node: CanvasNode }) {
   const nextFire = use$(kernel$.nextFire[node.id]) as number | undefined;
   const now = useRelativeNow(30_000);
@@ -149,7 +152,7 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
             className="text-[8px] uppercase tracking-[0.18em]"
             style={{ color: "#68604a" }}
           >
-            timer
+            cron
           </span>
         </div>
         <div
@@ -621,8 +624,10 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           }}
         >
           {entityKind === "watcher" ? (
-            <WatcherCard node={node} />
-          ) : entityKind === "timer" ? (
+            <WatcherCard node={node} label="gauge" />
+          ) : entityKind === "relay" ? (
+            <WatcherCard node={node} label="relay" />
+          ) : entityKind === "timer" || entityKind === "cron" ? (
             <TimerCard node={node} />
           ) : entityKind === "task" ? (
             <TasksCard node={node} />

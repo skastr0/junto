@@ -89,7 +89,13 @@ export const SinkKind = Schema.Literal(
 );
 export type SinkKind = typeof SinkKind.Type;
 
-export const SchedulerKind = Schema.Literal("watcher", "timer");
+/** Closed scheduler kinds. `timer` remains for decode of older docs; product UI authors `cron`. */
+export const SchedulerKind = Schema.Literal(
+  "watcher",
+  "timer",
+  "cron",
+  "relay",
+);
 export type SchedulerKind = typeof SchedulerKind.Type;
 
 export const WellKnownKind = Schema.Union(ActorKind, SinkKind, SchedulerKind);

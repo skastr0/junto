@@ -2,7 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { HashMap, HashSet, Option, Schema } from "effect";
-import type { CanvasDoc, CanvasEdge, CanvasNode, EdgeCriteria, EtherFlag, EtherRegionDefaults, EtherWatch } from "@shared/canvas";
+import type {
+  CanvasDoc,
+  CanvasEdge,
+  CanvasNode,
+  EdgeCriteria,
+  EdgeEffect,
+  EtherFlag,
+  EtherRegionDefaults,
+  EtherRelay,
+  EtherWatch,
+} from "@shared/canvas";
 import { isGroup } from "@shared/graph";
 import { workRolesInDoc } from "@shared/attention";
 import {
@@ -25,11 +35,13 @@ import {
 import {
   addEdge,
   setEdgeCriteria,
+  setEdgeEffect,
   setEdgeNotify,
   setEdgePorts,
 } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
-import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeHost, setNodeRelay, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { isSchedulerEntityKind } from "@shared/scheduler-effects";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { resolveNodeHostId } from "@shared/station";
@@ -689,7 +701,8 @@ function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
   return <>
     {node.type === "group" ? <RegionPulseControl node={node} /> : null}
     {kind === "watcher" ? <WatcherEditor node={node} /> : null}
-    {kind === "timer" ? <TimerEditor node={node} /> : null}
+    {kind === "timer" || kind === "cron" ? <TimerEditor node={node} /> : null}
+    {kind === "relay" ? <RelayEditor node={node} /> : null}
     {kind === "task" || kind === "requests" || kind === "artifacts" ? (
       <div className="inspector-section">
         <div className="inspector-section__label">work plane</div>
@@ -700,6 +713,107 @@ function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
     ) : null}
     {kind === "agent" ? <AgentMessagesPane node={node} /> : null}
   </>;
+}
+
+function EdgeEffectEditor({
+  edgeId,
+  fromNode,
+  toNode,
+}: {
+  readonly edgeId: string;
+  readonly fromNode: CanvasNode | undefined;
+  readonly toNode: CanvasNode | undefined;
+}) {
+  const doc = use$(state$.doc);
+  const edge = doc.edges.find((candidate) => candidate.id === edgeId);
+  const effect = edge?.ether?.effect;
+  const fromIsScheduler = isSchedulerEntityKind(fromNode?.ether?.entity?.kind);
+  if (!fromIsScheduler) return null;
+
+  const mode = effect?.mode ?? "none";
+  const brief =
+    effect && effect.mode === "enqueue_task" ? effect.brief : fromNode?.type === "text" ? fromNode.text : "";
+
+  const setMode = (next: "none" | "enqueue_task" | "set_flag") => {
+    if (next === "none") {
+      setEdgeEffect(edgeId, undefined);
+      return;
+    }
+    if (next === "enqueue_task") {
+      setEdgeEffect(edgeId, {
+        mode: "enqueue_task",
+        brief: brief.trim() || "Scheduled work",
+        reason: "scheduler",
+      });
+      return;
+    }
+    setEdgeEffect(edgeId, {
+      mode: "set_flag",
+      flag: "attention",
+      enabled: true,
+    });
+  };
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">automation effect</div>
+      <div className="inspector-detail" style={{ marginBottom: 8 }}>
+        On fire → target {toNode ? nodeTitle(toNode) : "…"}
+      </div>
+      <label className="inspector-editor">
+        <span>mode</span>
+        <Select
+          dense
+          aria-label="Edge automation effect"
+          value={mode}
+          options={[
+            { value: "none", label: "none" },
+            { value: "enqueue_task", label: "enqueue task" },
+            { value: "set_flag", label: "set flag" },
+          ]}
+          onChange={(value) => setMode(value as "none" | "enqueue_task" | "set_flag")}
+        />
+      </label>
+      {effect?.mode === "enqueue_task" ? (
+        <label className="inspector-editor">
+          <span>brief</span>
+          <input
+            aria-label="Enqueue task brief"
+            value={effect.brief}
+            onChange={(event) =>
+              setEdgeEffect(edgeId, {
+                mode: "enqueue_task",
+                brief: event.target.value,
+                reason: effect.reason ?? "scheduler",
+              })
+            }
+          />
+        </label>
+      ) : null}
+      {effect?.mode === "set_flag" ? (
+        <label className="inspector-editor">
+          <span>flag</span>
+          <Select
+            dense
+            aria-label="Set flag name"
+            value={effect.flag}
+            options={[
+              { value: "blocker", label: "blocker" },
+              { value: "attention", label: "attention" },
+              { value: "parked", label: "parked" },
+            ]}
+            onChange={(value) =>
+              setEdgeEffect(edgeId, {
+                mode: "set_flag",
+                flag: value as EtherFlag,
+                enabled: effect.enabled,
+              })
+            }
+          />
+        </label>
+      ) : null}
+    </div>
+  );
 }
 
 export function EdgeCriteriaEditor({
@@ -716,6 +830,7 @@ export function EdgeCriteriaEditor({
   const doc = use$(state$.doc);
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
   const criteria = edge?.ether?.criteria;
+  const toNode = doc.nodes.find((node) => node.id === edge?.toNode);
   const fromKind = fromNode?.ether?.entity?.kind;
   const fromIsTask = fromKind === "task" || fromKind === "requests";
 
@@ -732,6 +847,8 @@ export function EdgeCriteriaEditor({
   };
 
   return (
+    <>
+    <EdgeEffectEditor edgeId={edgeId} fromNode={fromNode} toNode={toNode} />
     <div className="inspector-section">
       <div className="inspector-section__label">phase</div>
       {livePhase ? (
@@ -771,6 +888,7 @@ export function EdgeCriteriaEditor({
         </label>
       )}
     </div>
+    </>
   );
 }
 
@@ -1088,7 +1206,7 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined) {
   };
 }
 
-// Watcher editor: sole live kind is hermes stat_threshold.
+// Gauge editor: hermes stat_threshold.
 function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   const watch = node.ether?.watch;
   const {
@@ -1120,7 +1238,7 @@ function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   };
 
   return <div className="inspector-section">
-    <div className="inspector-section__label">watcher · stat threshold</div>
+    <div className="inspector-section__label">gauge · hermes threshold</div>
     <StatThresholdFields
       source={source}
       entityKey={key}
@@ -1147,10 +1265,93 @@ function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
+function RelayEditor({ node }: { readonly node: CanvasNode }) {
+  const relay = node.ether?.relay;
+  const [sourceNodeId, setSourceNodeId] = useState(relay?.sourceNodeId ?? "");
+  const [path, setPath] = useState<EtherRelay["path"]>(relay?.path ?? "task_state");
+  const [equals, setEquals] = useState(relay?.equals ?? "completed");
+  const [itemId, setItemId] = useState(relay?.itemId ?? "");
+
+  useEffect(() => {
+    setSourceNodeId(relay?.sourceNodeId ?? "");
+    setPath(relay?.path ?? "task_state");
+    setEquals(relay?.equals ?? "completed");
+    setItemId(relay?.itemId ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.id]);
+
+  const commit = (overrides: Partial<EtherRelay> = {}) => {
+    const next: EtherRelay = {
+      sourceNodeId: (overrides.sourceNodeId ?? sourceNodeId).trim(),
+      path: overrides.path ?? path,
+      ...( (overrides.equals ?? equals).trim()
+        ? { equals: (overrides.equals ?? equals).trim() }
+        : {}),
+      ...( (overrides.itemId ?? itemId).trim()
+        ? { itemId: (overrides.itemId ?? itemId).trim() }
+        : {}),
+    };
+    if (!next.sourceNodeId) return;
+    setNodeRelay(node.id, next);
+  };
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">relay · watch node</div>
+      <label className="inspector-editor">
+        <span>source node id</span>
+        <input
+          aria-label="Relay source node id"
+          value={sourceNodeId}
+          onChange={(event) => setSourceNodeId(event.target.value)}
+          onBlur={() => commit()}
+        />
+      </label>
+      <label className="inspector-editor">
+        <span>path</span>
+        <Select
+          dense
+          aria-label="Relay path"
+          value={path}
+          options={[
+            { value: "task_state", label: "task state" },
+            { value: "flags", label: "flags" },
+          ]}
+          onChange={(value) => {
+            const next = value as EtherRelay["path"];
+            setPath(next);
+            commit({ path: next });
+          }}
+        />
+      </label>
+      <label className="inspector-editor">
+        <span>equals</span>
+        <input
+          aria-label="Relay equals"
+          value={equals}
+          onChange={(event) => setEquals(event.target.value)}
+          onBlur={() => commit()}
+          placeholder={path === "flags" ? "blocker" : "completed"}
+        />
+      </label>
+      {path === "task_state" ? (
+        <label className="inspector-editor">
+          <span>item id (optional)</span>
+          <input
+            aria-label="Relay task item id"
+            value={itemId}
+            onChange={(event) => setItemId(event.target.value)}
+            onBlur={() => commit()}
+          />
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
 const MIN_TIMER_EVERY_MINUTES = 5;
 
-// Timer editor: one field, one v1 guard — the 5-minute floor is enforced
-// here before the value ever reaches setNodeTimer.
+// Cron editor: interval field; 5-minute UI floor before setNodeTimer.
 function TimerEditor({ node }: { readonly node: CanvasNode }) {
   const timer = node.ether?.timer;
   const defaultMinutes = timer?.everyMinutes ?? 30;

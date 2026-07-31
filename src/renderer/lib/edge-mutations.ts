@@ -1,6 +1,13 @@
 import { ulid } from "ulid";
-import type { CanvasEdge, CanvasNode, EdgeCriteria, EdgeEnd } from "@shared/canvas";
+import type {
+  CanvasEdge,
+  CanvasNode,
+  EdgeCriteria,
+  EdgeEffect,
+  EdgeEnd,
+} from "@shared/canvas";
 import type { Port } from "@shared/physics";
+import { inferSchedulerEdgeEffect } from "@shared/scheduler-effects";
 import { state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
 
@@ -117,6 +124,28 @@ export const inferEdgeCriteria = (fromNode: CanvasNode | undefined): EdgeCriteri
   return undefined;
 };
 
+/** Author scheduler automation effect on an edge (or clear). */
+export const setEdgeEffect = (
+  id: string,
+  effect: EdgeEffect | undefined,
+): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    edges: doc.edges.map((edge) => {
+      if (edge.id !== id) return edge;
+      if (!effect) {
+        if (!edge.ether || edge.ether.effect === undefined) return edge;
+        const rest = without(edge.ether, "effect");
+        return Object.keys(rest).length > 0
+          ? { ...edge, ether: rest }
+          : without(edge, "ether");
+      }
+      return { ...edge, ether: { ...(edge.ether ?? {}), effect } };
+    }),
+  });
+};
+
 /** Operator-authored board wake eligibility on an edge. */
 export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
   const doc = state$.doc.peek();
@@ -154,16 +183,25 @@ export const addEdge = (params: {
     return;
   }
   const fromNode = doc.nodes.find((node) => node.id === params.source);
+  const toNode = doc.nodes.find((node) => node.id === params.target);
   const criteria = params.criteria ?? inferEdgeCriteria(fromNode);
+  const effect = inferSchedulerEdgeEffect(fromNode, toNode);
   const fromSide = parseSide(params.sourceHandle);
   const toSide = parseSide(params.targetHandle);
+  const ether =
+    criteria || effect
+      ? {
+          ...(criteria ? { criteria } : {}),
+          ...(effect ? { effect } : {}),
+        }
+      : undefined;
   const edge: CanvasEdge = {
     id: `edge-${ulid()}`,
     fromNode: params.source,
     toNode: params.target,
     ...(fromSide ? { fromSide } : {}),
     ...(toSide ? { toSide } : {}),
-    ...(criteria ? { ether: { criteria } } : {}),
+    ...(ether ? { ether } : {}),
   };
   state$.selectedNodeId.set("");
   state$.selectedEdgeId.set(edge.id);

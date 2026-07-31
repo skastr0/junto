@@ -1,16 +1,10 @@
-// Pure watcher evaluation. Nothing in this module touches the document,
+// Pure gauge evaluation. Nothing in this module touches the document,
 // IPC, or delivery — it takes already-fetched snapshots and returns a
-// derived verdict. cycle.ts owns the loop that keeps those inputs fresh
-// and turns a fired verdict into a region pulse.
+// derived verdict. cycle.ts owns the loop and applies edge effects on fire.
 //
-// LAW (src/shared/canvas.ts EtherWatch/EtherTimer comments): watcher runtime
-// state is DERIVED, never written to the document; edge-detection memory —
-// "did this newly become true since the last time we looked" — lives only
-// in app memory, and the first evaluation of anything is always a baseline
-// that can never fire. That law is stated generically for "watcher runtime
-// state," not scoped to one kind, so it is applied uniformly here: every
-// watcher only ever "fires" on a rising edge into `satisfied`, never on the
-// resting state, and never on its own first observation.
+// LAW: watcher/gauge runtime state is DERIVED, never written to the document;
+// edge-detection memory lives only in app memory; first observation is always
+// a baseline that can never fire. Rising edge into `satisfied` only.
 
 import type { CanvasDoc, EtherWatch } from "@shared/canvas";
 // Value import: vitest here has no alias resolver for runtime imports (only
@@ -135,4 +129,25 @@ export function detectPulses(
     out.push({ nodeId: node.id, watch, result });
   }
   return out;
+}
+
+/**
+ * Rising-edge helper for non-hermes sensors (relay). Shares the same
+ * seenLevelStatus map so first observation never fires.
+ */
+export function evaluateWatcherLevel(
+  canvasName: string,
+  nodeId: string,
+  evaluation: WatcherEvaluation,
+): WatcherEvalResult {
+  const memoryKey = `${canvasName}::${nodeId}`;
+  const previous = seenLevelStatus.get(memoryKey);
+  if (evaluation.status !== "unknown") {
+    seenLevelStatus.set(memoryKey, evaluation.status);
+  }
+  const fired =
+    previous !== undefined &&
+    previous !== "satisfied" &&
+    evaluation.status === "satisfied";
+  return { state: evaluation, fired };
 }

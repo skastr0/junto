@@ -1130,4 +1130,34 @@ export const setNodeTimer = (id: string, timer: EtherTimer | undefined): void =>
   });
 };
 
+export const setNodeRelay = (
+  id: string,
+  relay: import("@shared/canvas").EtherRelay | undefined,
+): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id) return n;
+      if (relay && relay.sourceNodeId.trim().length > 0) {
+        return {
+          ...n,
+          ether: {
+            ...(n.ether ?? {}),
+            relay: {
+              sourceNodeId: relay.sourceNodeId.trim(),
+              path: relay.path,
+              ...(relay.itemId?.trim() ? { itemId: relay.itemId.trim() } : {}),
+              ...(relay.equals?.trim() ? { equals: relay.equals.trim() } : {}),
+            },
+          },
+        };
+      }
+      if (!n.ether) return n;
+      const nextEther = without(n.ether, "relay");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+    }),
+  });
+};
+
 // Checklist mutator deleted — work ops live in main (WorkService).

@@ -298,8 +298,7 @@ export function watcherActivity(
 }
 
 /**
- * Timer: wave when due (now >= nextFire). Missing nextFire is settled pending
- * (static), not "actively pulsing."
+ * Cron: wave when due (now >= nextFire). Missing nextFire is settled pending.
  */
 export function timerActivity(input: {
   readonly nextFire?: number | null;
@@ -309,7 +308,7 @@ export function timerActivity(input: {
     return { mode: "static", tone: SEVERITY_TONE.idle, label: "pending" };
   }
   if (input.now >= input.nextFire) {
-    return { mode: "wave", tone: SEVERITY_TONE.attention, label: "pulsing" };
+    return { mode: "wave", tone: SEVERITY_TONE.attention, label: "due" };
   }
   return { mode: "static", tone: SEVERITY_TONE.idle, label: "scheduled" };
 }

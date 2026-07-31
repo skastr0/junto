@@ -601,12 +601,10 @@ interface AddActions extends ModeDeckActions {
   readonly addPage: () => void;
 }
 
-// Watcher/timer nodes are TEXT nodes carrying entity kind "watcher"/"timer" +
-// ether.watch/ether.timer (open vocab per the kernel contract). Inline here
-// rather than node-factories.ts — that module sits outside this lane.
+// Scheduler nodes: gauge (watcher), cron, relay — host-scoped kernel fire.
 const makeWatcherNode = (x: number, y: number): TextNode => ({
   ...makeTextNode(x, y),
-  text: "watcher",
+  text: "gauge",
   width: 240,
   height: 96,
   ether: {
@@ -618,11 +616,11 @@ const makeWatcherNode = (x: number, y: number): TextNode => ({
 
 const makeTimerNode = (x: number, y: number): TextNode => ({
   ...makeTextNode(x, y),
-  text: "heartbeat",
+  text: "cron",
   width: 240,
   height: 96,
   ether: {
-    entity: { kind: "timer" },
+    entity: { kind: "cron" },
     host: "local",
     timer: { everyMinutes: 30 },
   },
@@ -692,7 +690,7 @@ const makeAddActions = (
     const node = {
       ...makeTimerNode(position.x, position.y),
       ether: {
-        entity: { kind: "timer" as const },
+        entity: { kind: "cron" as const },
         host: stationHost,
         timer: { everyMinutes: 30 },
       },
@@ -787,40 +785,6 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
     };
   }, [active, dismiss]);
 };
-
-// Palette sections — derived from the same roleOf the capability kernel
-// uses (geography holds no seat and wields no ocap). Never a hand-maintained
-// per-entry group list.
-type PaletteGroup = "Actors" | "Sinks" | "Schedulers" | "Geography";
-
-const PALETTE_GROUP_BY_ROLE: Record<FactoryRoleName, PaletteGroup> = {
-  actor: "Actors",
-  sink: "Sinks",
-  scheduler: "Schedulers",
-  geography: "Geography",
-};
-
-const paletteGroupFor = (kind: string | undefined, isGroupNode: boolean): PaletteGroup =>
-  PALETTE_GROUP_BY_ROLE[roleOf(resolveSpec({ isGroup: isGroupNode, kind }))];
-
-type MenuEntryBase = {
-  readonly key: string;
-  readonly label: string;
-  readonly sub: string;
-  readonly icon: React.ReactNode;
-  readonly ariaLabel: string;
-  readonly group: PaletteGroup;
-};
-
-type MenuEntry =
-  | (MenuEntryBase & {
-      readonly harness: HarnessId;
-      readonly onSelect?: never;
-    })
-  | (MenuEntryBase & {
-      readonly harness?: never;
-      readonly onSelect: () => void;
-    });
 
 // Auto-focused filter + arrow/Enter selection. Typing narrows by label+sub;
 // Enter commits the highlighted row. Managed agents are direct rows whose
@@ -925,8 +889,8 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
     { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", group: paletteGroupFor("artifacts", false), onSelect: () => actions.addArtifacts() },
     { key: "board", label: "board", sub: "bulletin · topics + posts", icon: <FileText size={14} />, ariaLabel: "Add bulletin board", group: paletteGroupFor("board", false), onSelect: () => actions.addBoard() },
     { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", group: paletteGroupFor("page", false), onSelect: () => actions.addPage() },
-    { key: "watcher", label: "watcher", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add watcher", group: paletteGroupFor("watcher", false), onSelect: () => actions.addWatcher() },
-    { key: "timer", label: "timer", sub: "pulse on an interval", icon: <Timer size={14} />, ariaLabel: "Add timer", group: paletteGroupFor("timer", false), onSelect: () => actions.addTimer() },
+    { key: "watcher", label: "gauge", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add gauge", group: paletteGroupFor("watcher", false), onSelect: () => actions.addWatcher() },
+    { key: "timer", label: "cron", sub: "schedule on an interval", icon: <Timer size={14} />, ariaLabel: "Add cron", group: paletteGroupFor("timer", false), onSelect: () => actions.addTimer() },
     { key: "text", label: "note", sub: "freeform text", icon: <FileText size={14} />, ariaLabel: "Add note", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("text") },
     { key: "file", label: "file", sub: "workspace path", icon: <FileText size={14} />, ariaLabel: "Add file", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("file") },
     { key: "link", label: "link", sub: "web reference", icon: <Link2 size={14} />, ariaLabel: "Add link", group: paletteGroupFor(undefined, false), onSelect: () => actions.create("link") },

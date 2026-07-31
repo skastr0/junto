@@ -1,7 +1,7 @@
-// The kernel evaluation cycle. Watcher status, timer claim/nextFire, execution
-// graph, flagOnUnsatisfied, and phase-mirror hooks live here. Region Pulse
-// delivery (inject, arming, pulse log, delivery queue) is retired product —
-// see state-schema retained tables; this module no longer delivers pulses.
+// The kernel evaluation cycle. Gauge/relay status, cron claim/nextFire,
+// scheduler edge effects, execution graph, flagOnUnsatisfied, and phase-mirror
+// hooks live here. Region pulse inject is retired — effects are edge-authored
+// only (enqueue / set_flag), never geometry fan-out.
 
 import type { CanvasDoc, EdgePhase } from "@shared/canvas";
 import {
@@ -22,10 +22,13 @@ import type {
 import type { ActorRefResolver } from "@shared/attention";
 import {
   detectPulses,
+  evaluateWatcherLevel,
   purgeCanvasEdgeMemory,
   resetWatcherMemory,
   type WatcherStatus,
 } from "./evaluate";
+import { evaluateRelay } from "@shared/scheduler-effects";
+import { applySchedulerFire } from "./effects";
 import { liveSeatBlocksForCanvas } from "../work/blocked-seat";
 import type { SnapshotState } from "../../../shared/entities";
 
@@ -304,15 +307,14 @@ export const runEvaluationCycle = async (): Promise<void> => {
         }
         const watcherKey = `${canvasName}::${nodeId}`;
         const previous = watchers.get(watcherKey);
-        // Region Pulse delivery is retired: rising-edge `fired` no longer
-        // injects a seat prompt. Optionally preserve prior lastFiredAt if any
-        // external path ever stamped it; product path leaves it unset.
         const nextRuntime: WatcherRuntimeState = {
           status: result.state.status,
           detail: result.state.detail,
-          ...(previous?.lastFiredAt !== undefined
-            ? { lastFiredAt: previous.lastFiredAt }
-            : {}),
+          ...(result.fired
+            ? { lastFiredAt: Date.now() }
+            : previous?.lastFiredAt !== undefined
+              ? { lastFiredAt: previous.lastFiredAt }
+              : {}),
         };
         watchers.set(watcherKey, nextRuntime);
 
@@ -323,7 +325,44 @@ export const runEvaluationCycle = async (): Promise<void> => {
           watch.flagOnUnsatisfied,
           result.state.status,
         );
-        // result.fired: evaluation status only — no pulse inject.
+        if (result.fired) {
+          await applySchedulerFire(doc, {
+            canvasName,
+            sourceNodeId: nodeId,
+            kind: "gauge",
+            fireKey: `gauge:${watcherKey}:${nextRuntime.lastFiredAt ?? Date.now()}`,
+            status: result.state.status,
+          });
+        }
+      }
+
+      // Relay nodes: watch another node's projection; rising edge → effects.
+      for (const node of doc.nodes) {
+        if (node.type !== "text" || !node.ether?.relay) continue;
+        if (!isNodeEligibleOnStation(node, stationHostId)) continue;
+        const evaluation = evaluateRelay(doc, node.ether.relay);
+        const result = evaluateWatcherLevel(canvasName, node.id, evaluation);
+        const watcherKey = `${canvasName}::${node.id}`;
+        const previous = watchers.get(watcherKey);
+        const nextRuntime: WatcherRuntimeState = {
+          status: result.state.status,
+          detail: result.state.detail,
+          ...(result.fired
+            ? { lastFiredAt: Date.now() }
+            : previous?.lastFiredAt !== undefined
+              ? { lastFiredAt: previous.lastFiredAt }
+              : {}),
+        };
+        watchers.set(watcherKey, nextRuntime);
+        if (result.fired) {
+          await applySchedulerFire(doc, {
+            canvasName,
+            sourceNodeId: node.id,
+            kind: "relay",
+            fireKey: `relay:${watcherKey}:${nextRuntime.lastFiredAt ?? Date.now()}`,
+            status: result.state.status,
+          });
+        }
       }
     } catch (err) {
       // One bad doc never stalls the rest — swallow, mark degraded, continue
@@ -422,8 +461,16 @@ export const checkTimers = async (
           continue;
         }
 
-        // Due: claim advanced nextFire only — no pulse inject on fire.
+        // Due: advance nextFire and apply edge-authored effects (enqueue / flags).
         nextFire.set(timerKey, decision.nextState.nextDueAtEpochMs);
+        const { identity } = decision;
+        await applySchedulerFire(doc, {
+          canvasName,
+          sourceNodeId: node.id,
+          kind: "cron",
+          fireKey: `cron:${identity.homeStationId}:${identity.timerKey}:${identity.scheduleId}:${identity.claimSlot}`,
+          status: "satisfied",
+        });
       } catch (error) {
         nextFire.delete(timerKey);
         console.error(
@@ -471,21 +518,17 @@ const splitNamespacedKey = (key: string): readonly [canvasName: string, id: stri
   return [key.slice(0, idx), key.slice(idx + 2)];
 };
 
-// Per-cycle reconcile for canvases that STILL exist but whose watcher/timer
-// nodes changed underneath us: a node deleted, or its ether.watch / ether.timer
-// removed, leaves a stale `${canvasName}::${nodeId}` entry in watchers/nextFire
-// that would otherwise project into the snapshot forever (purgeCanvasMemory
-// only fires on whole-canvas deletion, never on an in-place node edit). Drops
-// exactly those entries whose owning canvas IS hydrated but no longer carries a
-// matching watch/timer. Entries for a canvas that is NOT hydrated are left
-// alone (that is purgeCanvasMemory's job, on delete).
+// Per-cycle reconcile for canvases that STILL exist but whose gauge/cron/relay
+// nodes changed underneath us. Drops stale `${canvasName}::${nodeId}` entries.
 export const reconcileLiveCanvasMemory = (): void => {
-  const hasWatch = (canvasName: string, nodeId: string): boolean => {
+  const hasSensor = (canvasName: string, nodeId: string): boolean => {
     const doc = docs.get(canvasName);
-    if (!doc) return false; // canvas not hydrated — leave to purgeCanvasMemory
+    if (!doc) return false;
     return doc.nodes.some(
       (node) =>
-        node.id === nodeId && node.type === "text" && node.ether?.watch !== undefined,
+        node.id === nodeId &&
+        node.type === "text" &&
+        (node.ether?.watch !== undefined || node.ether?.relay !== undefined),
     );
   };
   const hasTimer = (canvasName: string, nodeId: string): boolean => {
@@ -499,7 +542,7 @@ export const reconcileLiveCanvasMemory = (): void => {
   for (const key of [...watchers.keys()]) {
     const split = splitNamespacedKey(key);
     if (!split || !docs.has(split[0])) continue;
-    if (!hasWatch(split[0], split[1])) watchers.delete(key);
+    if (!hasSensor(split[0], split[1])) watchers.delete(key);
   }
   for (const key of [...nextFire.keys()]) {
     const split = splitNamespacedKey(key);

@@ -84,6 +84,8 @@ export const KindSpecs = {
   board: { kind: "board", role: "sink", offers: boardOffers },
   watcher: { kind: "watcher", role: "scheduler", offers: emptyOffers },
   timer: { kind: "timer", role: "scheduler", offers: emptyOffers },
+  cron: { kind: "cron", role: "scheduler", offers: emptyOffers },
+  relay: { kind: "relay", role: "scheduler", offers: emptyOffers },
 } as const satisfies KindSpecTable;
 
 export const KindRegistry: HashMap.HashMap<WellKnownKind, KindSpec> =

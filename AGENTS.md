@@ -158,23 +158,23 @@ kinds are inert furniture. Watch sources are closed to `hermes`; retired
 private-source bindings and excess document fields fail strict decode rather
 than being rewritten.
 
-## Kernel: watchers and timers
+## Kernel: cron, gauge, relay
 
-Region pulse product is **retired** (no arm/pulse UI, no prompt inject from
-watchers/timers/manual). Agent turns come from factory claim, work messages,
-board notify, and the managed-terminal seat UI — not geometry broadcasts.
+Region pulse inject is **retired**. Schedulers fire **edge-authored effects**
+only (`ether.effect` on directed scheduler→target edges). Actors pull work via
+the factory claim tick — never via geometry broadcast.
 
-**EtherWatch**: `{ kind: "stat_threshold", source, key, stat, op, value, flagOnUnsatisfied }`. Predicate on live hermes data only. Rising edge into `satisfied` updates derived watcher status; first observation is always baseline. Does **not** inject into agent seats.
+| Kind | Body | Fire |
+|---|---|---|
+| **cron** (`timer` still decodes) | `ether.timer.everyMinutes` | Durable due → apply effects |
+| **gauge** (`watcher`) | `ether.watch` hermes `stat_threshold` | Rising edge → apply effects |
+| **relay** | `ether.relay` (node projection) | Rising edge → apply effects |
 
-**EtherTimer**: `{ everyMinutes }`. Durable home-scoped schedule; projects `nextFire` for UI. Does **not** inject into agent seats.
+**Effects (v1):** `enqueue_task` (task sink) · `set_flag` (any node). Soft relates
+without `effect` still do nothing. Claim assignment stays the factory tick.
 
-**EtherRegion**: `{ hold, instruction }` on group nodes. Geography + optional operator briefing text (document furniture). Not a delivery fan-out.
-
-**Scheduler laws**: (1) Watcher truth is derived, never authorial document
-state. (2) A watcher or timer evaluates only on its single home installation.
-(3) `everyMinutes` catch-up coalesces missed intervals into at most one due
-tick. Wall-clock timestamps are display and due-time metadata only; fleet
-ordering uses route-local `(event_home, entity_home, seq)` Work identities.
+**Scheduler laws**: (1) Sensor truth is derived. (2) Single-home evaluation.
+(3) Interval catch-up ≤1 due tick. (4) Effects suppressed when canvas paused.
 
 ## Sources (read-only adapters)
 

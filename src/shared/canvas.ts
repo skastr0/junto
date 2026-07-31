@@ -83,6 +83,8 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "page",
   "watcher",
   "timer",
+  "cron",
+  "relay",
 ] as const;
 
 // Bound herdr work surface (PTY pane on a host). Not a hermes agent binding;
@@ -257,11 +259,9 @@ export const EtherRegion = Schema.Struct({
 });
 export type EtherRegion = typeof EtherRegion.Type;
 
-// A watcher is a PREDICATE node — an assertion over live hermes data,
-// evaluated by the app's poll loop; its runtime state is derived, never
-// stored. Live kind is only stat_threshold (numeric comparison on a hermes
-// entity). Retired glyph kinds (glyphs_done / glyphs_entered_state) and
-// private-source watchers fail strict decode.
+// Gauge (entity.kind watcher): predicate over live hermes roster stats.
+// Runtime state is derived, never stored. Live kind is only stat_threshold.
+// Retired glyph kinds and private-source watchers fail strict decode.
 export const WatchKind = Schema.Literal("stat_threshold");
 export type WatchKind = typeof WatchKind.Type;
 
@@ -273,18 +273,58 @@ export const EtherWatch = Schema.Struct({
   stat: Schema.optionalWith(Schema.String, { exact: true }),
   op: Schema.optionalWith(Schema.Literal("gt", "lt", "eq"), { exact: true }),
   value: Schema.optionalWith(Schema.Number, { exact: true }),
-  // Level watchers may mirror their unsatisfied state into the blocker flag
+  // Level watchers may mirror unsatisfied into a blocker flag on THIS node
+  // (display seed; schedulers are not blockable seats).
   flagOnUnsatisfied: Schema.optionalWith(Schema.Boolean, { exact: true }),
 });
 export type EtherWatch = typeof EtherWatch.Type;
 
-// A timer is a CLOCK node — a bare pulse on an interval. The definition
-// lives here; whether ticks may spend agent turns is the region's in-app
-// arming, never the file's.
+// Cron schedule body (entity.kind cron | timer). Interval only for v1;
+// calendar schedules require an explicit catch-up + TZ contract first.
 export const EtherTimer = Schema.Struct({
   everyMinutes: Schema.Number,
 });
 export type EtherTimer = typeof EtherTimer.Type;
+
+/**
+ * Relay: watch another canvas node's typed projection.
+ * Fires rising-edge into satisfied when the predicate holds (same law as gauge).
+ */
+export const EtherRelay = Schema.Struct({
+  /** Node id whose projection is watched (same canvas). */
+  sourceNodeId: Schema.String,
+  /**
+   * Closed projection paths:
+   * - task_state: a task sink item reaches `equals` state (default completed)
+   * - flags: source node carries flag `equals` (blocker|parked|attention)
+   */
+  path: Schema.Literal("task_state", "flags"),
+  /** Task item id when path is task_state. Absent = any item matching equals. */
+  itemId: Schema.optionalWith(Schema.String, { exact: true }),
+  /** Expected state or flag name depending on path. */
+  equals: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type EtherRelay = typeof EtherRelay.Type;
+
+// Automation effect plane (sibling of criteria/ports/notify). Kernel-home fire
+// applies these; never process-bind ocap. Claim assignment stays factory tick.
+export const EdgeEffectEnqueueTask = Schema.Struct({
+  mode: Schema.Literal("enqueue_task"),
+  brief: Schema.String,
+  reason: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type EdgeEffectEnqueueTask = typeof EdgeEffectEnqueueTask.Type;
+
+export const EdgeEffectSetFlag = Schema.Struct({
+  mode: Schema.Literal("set_flag"),
+  flag: EtherFlag,
+  /** true = enable, false = clear. "mirror" = pending→on / satisfied→off for level sensors. */
+  enabled: Schema.Union(Schema.Boolean, Schema.Literal("mirror")),
+});
+export type EdgeEffectSetFlag = typeof EdgeEffectSetFlag.Type;
+
+export const EdgeEffect = Schema.Union(EdgeEffectEnqueueTask, EdgeEffectSetFlag);
+export type EdgeEffect = typeof EdgeEffect.Type;
 
 // Work read plane — normalized WorkService rows are projected into these
 // fields for renderer/kernel consumers. They remain part of the composed
@@ -344,6 +384,7 @@ export const EtherNodeExtension = Schema.Struct({
   region: Schema.optionalWith(EtherRegion, { exact: true }),
   watch: Schema.optionalWith(EtherWatch, { exact: true }),
   timer: Schema.optionalWith(EtherTimer, { exact: true }),
+  relay: Schema.optionalWith(EtherRelay, { exact: true }),
   tasks: Schema.optionalWith(EtherTasks, { exact: true }),
   requests: Schema.optionalWith(EtherRequests, { exact: true }),
   artifacts: Schema.optionalWith(EtherArtifacts, { exact: true }),
@@ -385,6 +426,11 @@ export const EtherEdgeExtension = Schema.Struct({
    * Not a Port — delivery plane, not capability. Absent = false.
    */
   notify: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  /**
+   * Scheduler automation effect. Applied by the kernel on home-local fire.
+   * Not a Port and not criteria. Soft relates without effect still do nothing.
+   */
+  effect: Schema.optionalWith(EdgeEffect, { exact: true }),
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
 

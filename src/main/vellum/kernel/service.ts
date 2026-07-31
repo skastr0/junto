@@ -90,6 +90,8 @@ import {
   __setSnapshotsForTest,
   __setTimerSchedulerForTest,
 } from "./cycle";
+import { setSchedulerEffectDeps } from "./effects";
+import type { EtherFlag } from "@shared/canvas";
 
 export class KernelService extends Context.Tag("@vellum/KernelService")<
   KernelService,
@@ -579,8 +581,8 @@ const makeKernelService = (
     }
   };
 
-  // Timer claim/nextFire only (no inject on fire). Factory claims use
-  // managedPulseDeliver directly — not region-pulse delivery deps.
+  // Cron durable due + nextFire. Factory claims use managedPulseDeliver
+  // separately — not region-pulse delivery deps.
   __setTimerSchedulerForTest({
     claimInterval: (input) =>
       Effect.runPromise(scheduler.claimInterval(input)),
@@ -590,9 +592,86 @@ const makeKernelService = (
       ),
   });
 
-  // Derived flags and edge phases are runtime projection only. They never
-  // write back into the authorial canvas, especially on a Remote.
-  __setFlagWriterForTest(undefined);
+  // Process-local effect receipts (at-most-once within this runtime).
+  // Catch-up coalesce already limits to one fire per wake; receipts cover
+  // retries of the same fireKey within the process.
+  const effectReceipts = new Set<string>();
+
+  const setNodeFlag = (
+    canvasName: string,
+    nodeId: string,
+    flag: EtherFlag,
+    enabled: boolean,
+  ): void => {
+    void Effect.runPromise(
+      canvases.mutate(canvasName, (doc) => {
+        const nodes = doc.nodes.map((node) => {
+          if (node.id !== nodeId) return node;
+          const flags = new Set(node.ether?.flags ?? []);
+          if (enabled) flags.add(flag);
+          else flags.delete(flag);
+          const nextFlags = [...flags] as ReadonlyArray<EtherFlag>;
+          const ether = { ...(node.ether ?? {}) };
+          if (nextFlags.length === 0) delete ether.flags;
+          else ether.flags = nextFlags as typeof ether.flags;
+          return Object.keys(ether).length > 0
+            ? { ...node, ether }
+            : (() => {
+                const { ether: _drop, ...rest } = node;
+                return rest;
+              })();
+        });
+        return { ...doc, nodes };
+      }),
+    ).catch((error) => {
+      console.error(`[kernel] setFlag failed for ${canvasName}/${nodeId}:`, error);
+    });
+  };
+
+  setSchedulerEffectDeps({
+    effectsEnabled: () => {
+      // Suppress automation while every hydrated canvas is paused.
+      // Mixed play/pause: per-canvas check happens at apply via pause.stateFor.
+      for (const name of docs.keys()) {
+        if (pause.stateFor(name).playing) return true;
+      }
+      return docs.size === 0;
+    },
+    hasReceipt: (fireKey, edgeId) => effectReceipts.has(`${fireKey}::${edgeId}`),
+    recordReceipt: (fireKey, edgeId) => {
+      effectReceipts.add(`${fireKey}::${edgeId}`);
+    },
+    enqueueTask: async ({ canvasName, sinkNodeId, brief, reason }) => {
+      if (!pause.stateFor(canvasName).playing) {
+        return { ok: false, message: "canvas paused" };
+      }
+      const result = await Effect.runPromise(
+        work.workTaskCreate(
+          canvasName,
+          sinkNodeId,
+          brief,
+          undefined,
+          reason ?? "scheduler",
+          undefined,
+          undefined,
+          undefined,
+        ),
+      );
+      if (!result.ok) {
+        return { ok: false, message: result.message };
+      }
+      return { ok: true };
+    },
+    setFlag: setNodeFlag,
+  });
+
+  // flagOnUnsatisfied + set_flag effects write via CanvasesService (CC authoring).
+  __setFlagWriterForTest({
+    setFlag: (canvasName, nodeId, flag, enabled) => {
+      setNodeFlag(canvasName, nodeId, flag as EtherFlag, enabled);
+    },
+  });
+  // Edge phase mirror remains projection-only (no authorial writeback).
   __setPhaseMirrorForTest(undefined);
 
   // --- evaluation cycle --------------------------------------------------------

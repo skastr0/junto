@@ -99,11 +99,18 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     connections: [{ target: "Agent", relationship: "surfaces live state beside connected work", ports: [] }],
   },
   {
-    id: "timer", kind: "timer", category: "schedule", label: "Timer", subtitle: "pulse on an interval",
+    id: "timer", kind: "timer", category: "schedule", label: "Cron", subtitle: "schedule on an interval",
     icon: Clock3, accentClass: "text-violet",
-    purpose: "A durable, home-scoped interval marker that projects its next due time.",
-    attention: "A timer is schedule metadata only. It never injects prompts or wakes an agent seat.",
-    connections: [{ target: "Region", relationship: "lives alongside the operating geography", ports: [] }],
+    purpose: "A durable, home-scoped schedule that fires authored edge effects (enqueue tasks, set flags).",
+    attention: "Connect cron → task with an effect edge to mint work. Actors still pull via the claim tick.",
+    connections: [{ target: "Task", relationship: "enqueues work on fire", ports: [] }],
+  },
+  {
+    id: "watcher", kind: "watcher", category: "schedule", label: "Gauge", subtitle: "live data condition",
+    icon: Eye, accentClass: "text-violet",
+    purpose: "A hermes roster predicate (e.g. running). Rising edge can fire the same edge effects as cron.",
+    attention: "Hermes roster stats are thin today (running 0/1). Effects need an outbound edge.",
+    connections: [{ target: "Task", relationship: "enqueues work when condition trips", ports: [] }],
   },
   {
     id: "note", kind: "text", category: "canvas", label: "Note", subtitle: "freeform text",

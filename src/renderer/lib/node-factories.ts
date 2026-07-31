@@ -318,7 +318,7 @@ export const makePageNode = (
   };
 };
 
-/** Watcher predicate node — stamps host for host-scoped kernel fire. */
+/** Gauge (watcher) predicate node — hermes stat threshold. */
 export const makeWatcherNode = (
   x: number,
   y: number,
@@ -326,7 +326,7 @@ export const makeWatcherNode = (
 ): TextNode => ({
   id: `watch-${ulid()}`,
   type: "text",
-  text: "watcher",
+  text: "gauge",
   x: Math.round(x),
   y: Math.round(y),
   width: 220,
@@ -338,23 +338,48 @@ export const makeWatcherNode = (
   },
 });
 
-/** Timer clock node — stamps host for host-scoped kernel fire. */
+/** Cron schedule node — durable interval; fires edge effects on due. */
 export const makeTimerNode = (
   x: number,
   y: number,
   everyMinutes = 30,
   host = "local",
 ): TextNode => ({
-  id: `timer-${ulid()}`,
+  id: `cron-${ulid()}`,
   type: "text",
-  text: "timer",
+  text: "cron",
   x: Math.round(x),
   y: Math.round(y),
   width: 200,
   height: 88,
   ether: {
-    entity: { kind: "timer" },
+    entity: { kind: "cron" },
     host,
     timer: { everyMinutes },
+  },
+});
+
+/** Relay — watch another node projection; fire edge effects on rising edge. */
+export const makeRelayNode = (
+  x: number,
+  y: number,
+  sourceNodeId: string,
+  host = "local",
+): TextNode => ({
+  id: `relay-${ulid()}`,
+  type: "text",
+  text: "relay",
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 220,
+  height: 96,
+  ether: {
+    entity: { kind: "relay" },
+    host,
+    relay: {
+      sourceNodeId,
+      path: "task_state",
+      equals: "completed",
+    },
   },
 });
