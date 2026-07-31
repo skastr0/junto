@@ -74,6 +74,8 @@ import {
 } from "./terminal/AgentLocationModal";
 import { HarnessMark } from "./herdr/HarnessMark";
 import { CanvasMagnifier } from "./CanvasMagnifier";
+import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
+import type { AgentLaunchContextValue } from "./node-palette/AgentLaunchContext";
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
 type CanvasFlow = {
@@ -584,9 +586,8 @@ function useCanvasInteractions(
   return { onConnect, onConnectEnd, onNodeDragStart, onNodeDrag, onNodeDragStop, onNodesDelete, onEdgesDelete, onSelectionChange, onPaneClick };
 }
 
-interface AddActions {
+interface AddActions extends ModeDeckActions {
   readonly create: (kind: "text" | "file" | "link" | "group") => void;
-  readonly addAgent: (choices: AgentConfigurationChoices) => void;
   readonly addWatcher: () => void;
   readonly addTimer: () => void;
   readonly addTasks: () => void;
@@ -657,6 +658,15 @@ const makeAddActions = (
       new CustomEvent<AgentLocationRequest>("vellum:configure-agent-location", {
         detail: { choices, position },
       }),
+    );
+  },
+  addConfiguredAgent: (choices, position) => {
+    dismiss();
+    window.dispatchEvent(
+      new CustomEvent<{
+        readonly choices: AgentConfigurationChoices & AgentLaunchContextValue;
+        readonly position: { readonly x: number; readonly y: number };
+      }>("vellum:create-configured-agent", { detail: { choices, position } }),
     );
   },
   addWatcher: () => {
@@ -1190,6 +1200,14 @@ function CanvasFieldTools() {
   };
 
   const actions = makeAddActions(nextPosition, dismiss);
+  // This position is shared with the persistent launch context while the deck
+  // is open, so its region default describes the same next-agent placement.
+  const agentPosition = useMemo(
+    () => nextPosition({ width: 260, height: 110 }),
+    // Recompute only when the deck opens; do not make folder/host interaction
+    // shift the containing-region decision underneath the operator.
+    [open],
+  );
 
   return (
     <div className="rts-field-tools" aria-label="Canvas field tools">
@@ -1216,7 +1234,7 @@ function CanvasFieldTools() {
                   "--node-palette-max-height": `${menuBox.maxHeight}px`,
                 } as React.CSSProperties}
               >
-                <AddMenu actions={actions} />
+                <NodePaletteModeDeck actions={actions} agentPosition={agentPosition} />
               </div>,
               document.body,
             )
@@ -1276,6 +1294,7 @@ function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }
     return { x: Math.round(point.x - size.width / 2), y: Math.round(point.y - size.height / 2) };
   };
   const actions = makeAddActions(positionFor, onClose);
+  const agentPosition = positionFor({ width: 260, height: 110 });
   return (
     <div
       ref={menuRef}
@@ -1288,7 +1307,7 @@ function ContextAddMenu({ at, onClose }: { readonly at: { x: number; y: number }
         "--node-palette-max-height": `${placement.maxHeight}px`,
       } as React.CSSProperties}
     >
-      <AddMenu actions={actions} />
+      <NodePaletteModeDeck actions={actions} agentPosition={agentPosition} />
     </div>
   );
 }
@@ -1574,11 +1593,23 @@ function CanvasGraph() {
       setTerminalAnchor((event as CustomEvent<{ x: number; y: number }>).detail);
     const configureAgent = (event: Event) =>
       setAgentLocation((event as CustomEvent<AgentLocationRequest>).detail);
+    const createConfiguredAgent = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        readonly choices: AgentConfigurationChoices & AgentLaunchContextValue;
+        readonly position: { readonly x: number; readonly y: number };
+      }>).detail;
+      if (!detail) return;
+      const node = makeManagedAgentNode(detail.position.x, detail.position.y, detail.choices);
+      addNode(node, { edit: false });
+      state$.focusNodeId.set(node.id);
+    };
     window.addEventListener("vellum:new-terminal", openTerminal);
     window.addEventListener("vellum:configure-agent-location", configureAgent);
+    window.addEventListener("vellum:create-configured-agent", createConfiguredAgent);
     return () => {
       window.removeEventListener("vellum:new-terminal", openTerminal);
       window.removeEventListener("vellum:configure-agent-location", configureAgent);
+      window.removeEventListener("vellum:create-configured-agent", createConfiguredAgent);
     };
   }, []);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
