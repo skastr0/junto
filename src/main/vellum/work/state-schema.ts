@@ -1642,8 +1642,32 @@ export const WORK_TASK_FINISH_STATE_SCHEMA_SQL = `
 `;
 
 /**
- * Bulletin board sink (expand-only). Local multi-reader tables — not mailbox.
- * P0 writes go through WorkRepository board verbs (not work_events protocol).
+ * Planning arms on proposals (dependsOn + finishCriteria). Expand-only side
+ * table so work_task_proposals CREATE (v5 witness) stays frozen. Media lives
+ * on brief_json already.
+ */
+export const WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS work_proposal_planning (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    proposal_id TEXT NOT NULL CHECK (length(proposal_id) BETWEEN 1 AND 256),
+    depends_on_json TEXT
+      CHECK (depends_on_json IS NULL OR json_valid(depends_on_json)),
+    finish_criteria_json TEXT
+      CHECK (finish_criteria_json IS NULL OR json_valid(finish_criteria_json)),
+    PRIMARY KEY (canvas_name, node_id, proposal_id),
+    FOREIGN KEY (canvas_name, node_id, proposal_id)
+      REFERENCES work_task_proposals(canvas_name, node_id, proposal_id)
+      ON DELETE CASCADE
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+`;
+
+/**
+ * Bulletin board sink (expand-only). CC multi-reader tables — not mailbox.
+ * Writes mint work_events (`board.topic.create` / `board.post.append`); Remotes
+ * enqueue to CC and materialize only command-correlated self-echo. Full list
+ * is Command Center-local (CC does not broadcast its (CC,CC) fact lane).
  */
 export const WORK_BOARD_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS work_board_topics (

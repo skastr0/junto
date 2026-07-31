@@ -400,13 +400,39 @@ export const workTaskPropose = (
   ids: WorkIds,
   proposedBy: ActorRef,
   reason?: string,
+  /**
+   * First-class media on the brief message — same contract as task.create.
+   */
+  media?: ReadonlyArray<Part>,
+  /** Same-sink hard prerequisites (task ids). Empty / omitted = free. */
+  dependsOn?: ReadonlyArray<string>,
+  finishCriteria?: FinishCriteria,
 ): WorkProposalResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
   rejectRetiredClaimMetadata(metadata);
+  const mediaError = validateTaskMediaParts(media);
+  if (mediaError) throw new WorkError("invalid", mediaError);
   const proposalId = ids.id();
+  const existing = node.ether?.tasks?.items ?? [];
+  const normalizedDeps = normalizeDependsOn(dependsOn);
+  const depError = validateTaskDependsOn({
+    taskId: proposalId,
+    dependsOn: normalizedDeps,
+    byId: taskIndexById(existing),
+  });
+  if (depError) throw new WorkError("invalid", depError);
+  let criteria: FinishCriteria | undefined;
+  try {
+    criteria = normalizeFinishCriteria(finishCriteria);
+  } catch (cause) {
+    throw new WorkError(
+      "invalid",
+      cause instanceof Error ? cause.message : String(cause),
+    );
+  }
   const contextId = regionContextId(doc, nodeId, canvasName);
   const proposal: TaskProposal = {
     id: proposalId,
@@ -416,16 +442,19 @@ export const workTaskPropose = (
       text: trimmed,
       contextId,
       taskId: proposalId,
+      ...(media && media.length > 0 ? { extraParts: media } : {}),
     }),
     proposedBy,
     ...(metadata ? { metadata } : {}),
     ...(reason?.trim() ? { reason: reason.trim() } : {}),
+    ...(normalizedDeps ? { dependsOn: normalizedDeps } : {}),
+    ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
   };
   return {
     doc: withTasks(
       doc,
       nodeId,
-      node.ether?.tasks?.items ?? [],
+      existing,
       [...(node.ether?.tasks?.proposals ?? []), proposal],
     ),
     proposal,
@@ -458,6 +487,13 @@ export const workTaskApproveProposal = (
     );
   }
   const taskId = ids.id();
+  // Re-validate deps against current items at approve time (still not self).
+  const depError = validateTaskDependsOn({
+    taskId,
+    dependsOn: current.dependsOn,
+    byId: taskIndexById(items),
+  });
+  if (depError) throw new WorkError("invalid", depError);
   const task: Task = {
     id: taskId,
     state: "submitted",
@@ -471,6 +507,12 @@ export const workTaskApproveProposal = (
     }],
     ...(current.metadata ? { metadata: current.metadata } : {}),
     ...(current.reason ? { reason: current.reason } : {}),
+    ...(current.dependsOn && current.dependsOn.length > 0
+      ? { dependsOn: current.dependsOn }
+      : {}),
+    ...(current.finishCriteria !== undefined
+      ? { finishCriteria: current.finishCriteria }
+      : {}),
   };
   const proposal: TaskProposal = {
     ...current,

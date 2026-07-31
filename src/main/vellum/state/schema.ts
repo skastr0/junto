@@ -15,6 +15,7 @@ import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema"
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
+  WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
   WORK_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_V3_SQL,
@@ -163,12 +164,21 @@ export const STATE_SCHEMA_V9_FRAGMENTS = [
 
 export const STATE_SCHEMA_V9_SQL = STATE_SCHEMA_V9_FRAGMENTS.join("\n");
 
-/** Current: board tables + board work-event vocabulary (expanded CHECKs). */
-export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V9_FRAGMENTS.map((fragment) =>
-  fragment === WORK_STATE_SCHEMA_SQL
-    ? WORK_STATE_SCHEMA_BOARD_VOCAB_SQL
-    : fragment,
+/** Schema at version 10: board tables + board work-event vocabulary. */
+export const STATE_SCHEMA_V10_FRAGMENTS = STATE_SCHEMA_V9_FRAGMENTS.map(
+  (fragment) =>
+    fragment === WORK_STATE_SCHEMA_SQL
+      ? WORK_STATE_SCHEMA_BOARD_VOCAB_SQL
+      : fragment,
 ) as unknown as typeof STATE_SCHEMA_V9_FRAGMENTS;
+
+export const STATE_SCHEMA_V10_SQL = STATE_SCHEMA_V10_FRAGMENTS.join("\n");
+
+/** Current: v10 + proposal planning arms (dependsOn / finishCriteria). */
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V10_FRAGMENTS,
+  WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
+] as const;
 
 /**
  * Fresh-install and final-verification target for the current version.

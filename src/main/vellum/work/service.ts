@@ -255,10 +255,14 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       metadata: WorkMetadata | undefined,
       proposedBy: ActorRef,
       reason?: string,
+      media?: ReadonlyArray<Part>,
+      dependsOn?: ReadonlyArray<string>,
+      finishCriteria?: FinishCriteria,
     ) => Effect.Effect<WorkOpResult<TaskProposal>>;
     /**
      * Command Center operator planning: mint a pending proposal without an
-     * agent seat (uses operatorPlanningActorRef). Not claimable until approve.
+     * agent seat (uses operatorPlanningActorRef). Same contract as task.create;
+     * not claimable until approve.
      */
     readonly workTaskProposeOperator: (
       canvas: string,
@@ -266,6 +270,9 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       brief: string,
       metadata?: WorkMetadata,
       reason?: string,
+      media?: ReadonlyArray<Part>,
+      dependsOn?: ReadonlyArray<string>,
+      finishCriteria?: FinishCriteria,
     ) => Effect.Effect<WorkOpResult<TaskProposal>>;
     readonly workTaskApproveProposal: (
       canvas: string,
@@ -776,7 +783,17 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskPropose: (canvas, nodeId, brief, metadata, proposedBy, reason) =>
+      workTaskPropose: (
+        canvas,
+        nodeId,
+        brief,
+        metadata,
+        proposedBy,
+        reason,
+        media,
+        dependsOn,
+        finishCriteria,
+      ) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
@@ -801,6 +818,9 @@ export const WorkLive = Layer.effect(
                 ids,
                 proposedBy,
                 reason,
+                media,
+                dependsOn,
+                finishCriteria,
               )
             );
             const home = yield* homeForNode(node, context);
@@ -823,7 +843,16 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskProposeOperator: (canvas, nodeId, brief, metadata, reason) =>
+      workTaskProposeOperator: (
+        canvas,
+        nodeId,
+        brief,
+        metadata,
+        reason,
+        media,
+        dependsOn,
+        finishCriteria,
+      ) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
@@ -851,6 +880,9 @@ export const WorkLive = Layer.effect(
                 ids,
                 proposedBy,
                 reason,
+                media,
+                dependsOn,
+                finishCriteria,
               )
             );
             const home = yield* homeForNode(node, context);
@@ -1559,6 +1591,8 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
+      // Full multi-reader board is CC-local materialization. On Remote this
+      // returns only locally materialised rows (self-echo of applied enqueues).
       workBoardList: (canvas, nodeId, topicId) =>
         asResult(
           Effect.gen(function* () {

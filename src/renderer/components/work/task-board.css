@@ -568,20 +568,6 @@
   padding: 0;
 }
 
-.task-create-dialog__body--proposal {
-  grid-template-columns: minmax(0, 7fr) minmax(220px, 3fr);
-}
-
-.task-create-dialog__aside-note {
-  margin: 0;
-  padding: 12px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 8px;
-  color: var(--color-dim);
-  font-size: 11px;
-  line-height: 1.5;
-  background: transparent;
-}
 
 .task-create-dialog__primary,
 .task-create-dialog__aside {

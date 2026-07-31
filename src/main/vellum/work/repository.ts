@@ -180,6 +180,31 @@ const sameActor = (left: ActorRef, right: ActorRef): boolean =>
   left.canvasName === right.canvasName &&
   left.nodeId === right.nodeId;
 
+const sameBoardAuthor = (
+  left: BoardAuthorValue,
+  right: BoardAuthorValue,
+): boolean =>
+  left.kind === right.kind &&
+  (left.seatId ?? null) === (right.seatId ?? null) &&
+  (left.nodeId ?? null) === (right.nodeId ?? null) &&
+  (left.label ?? null) === (right.label ?? null);
+
+/** Force every seed post author to the admitted writer (anti-forgery). */
+const topicWithBoundAuthors = (
+  topic: BoardTopicValue,
+  createdBy: BoardAuthorValue,
+): BoardTopicValue => {
+  const posts = topic.posts?.map((post) => ({
+    ...post,
+    author: createdBy,
+  }));
+  return {
+    ...topic,
+    openedBy: createdBy,
+    ...(posts === undefined ? {} : { posts }),
+  };
+};
+
 const item = (
   kind: WorkItemRef["kind"],
   itemId: string,
@@ -1182,8 +1207,9 @@ const loadLaneTasks = (
 const loadProposals = (
   reader: StateReader,
   sink: SinkRefValue,
-): ReadonlyArray<TaskProposalValue> =>
-  reader
+): ReadonlyArray<TaskProposalValue> => {
+  const planning = loadProposalPlanningMap(reader, sink);
+  return reader
     .all<ProposalRow>(
       `
         SELECT
@@ -1202,8 +1228,9 @@ const loadProposals = (
       `,
       [sink.canvasName, sink.nodeId],
     )
-    .map((row) =>
-      Schema.decodeUnknownSync(TaskProposal, strictDecode)({
+    .map((row) => {
+      const arms = planning.get(row.proposal_id);
+      return Schema.decodeUnknownSync(TaskProposal, strictDecode)({
         id: row.proposal_id,
         state: row.state,
         brief: parseJson(row.brief_json),
@@ -1219,8 +1246,104 @@ const loadProposals = (
           ? {}
           : { metadata: parseJson(row.metadata_json) }),
         ...(row.reason === null ? {} : { reason: row.reason }),
-      }),
+        ...(arms?.dependsOn !== undefined ? { dependsOn: arms.dependsOn } : {}),
+        ...(arms?.finishCriteria !== undefined
+          ? { finishCriteria: arms.finishCriteria }
+          : {}),
+      });
+    });
+};
+
+const loadProposalPlanningMap = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): Map<
+  string,
+  {
+    readonly dependsOn?: ReadonlyArray<string>;
+    readonly finishCriteria?: TaskProposalValue["finishCriteria"];
+  }
+> => {
+  const rows = reader.all<
+    StateRow & {
+      readonly proposal_id: string;
+      readonly depends_on_json: string | null;
+      readonly finish_criteria_json: string | null;
+    }
+  >(
+    `
+      SELECT proposal_id, depends_on_json, finish_criteria_json
+      FROM work_proposal_planning
+      WHERE canvas_name = ? AND node_id = ?
+    `,
+    [sink.canvasName, sink.nodeId],
+  );
+  const map = new Map<
+    string,
+    {
+      readonly dependsOn?: ReadonlyArray<string>;
+      readonly finishCriteria?: TaskProposalValue["finishCriteria"];
+    }
+  >();
+  for (const row of rows) {
+    map.set(row.proposal_id, {
+      ...(row.depends_on_json === null
+        ? {}
+        : {
+            dependsOn: parseJson(row.depends_on_json) as ReadonlyArray<string>,
+          }),
+      ...(row.finish_criteria_json === null
+        ? {}
+        : {
+            finishCriteria: parseJson(
+              row.finish_criteria_json,
+            ) as TaskProposalValue["finishCriteria"],
+          }),
+    });
+  }
+  return map;
+};
+
+const writeProposalPlanning = (
+  writer: StateWriter,
+  sink: SinkRefValue,
+  proposal: TaskProposalValue,
+): void => {
+  const hasDepends =
+    proposal.dependsOn !== undefined && proposal.dependsOn.length > 0;
+  const hasFinish = proposal.finishCriteria !== undefined;
+  if (!hasDepends && !hasFinish) {
+    writer.run(
+      `
+        DELETE FROM work_proposal_planning
+        WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
+      `,
+      [sink.canvasName, sink.nodeId, proposal.id],
     );
+    return;
+  }
+  writer.run(
+    `
+      INSERT INTO work_proposal_planning(
+        canvas_name,
+        node_id,
+        proposal_id,
+        depends_on_json,
+        finish_criteria_json
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(canvas_name, node_id, proposal_id) DO UPDATE SET
+        depends_on_json = excluded.depends_on_json,
+        finish_criteria_json = excluded.finish_criteria_json
+    `,
+    [
+      sink.canvasName,
+      sink.nodeId,
+      proposal.id,
+      hasDepends ? canonicalJson(proposal.dependsOn) : null,
+      hasFinish ? canonicalJson(proposal.finishCriteria) : null,
+    ],
+  );
+};
 
 const receiptAcceptedAtMs = (
   reader: StateReader,
@@ -2916,6 +3039,7 @@ const writeProposal = (
       receivedAt,
     ],
   );
+  writeProposalPlanning(writer, sink, proposal);
 };
 
 const materializeFact = (
@@ -3003,8 +3127,8 @@ const materializeFact = (
       writeDelivery(writer, fact.body.receipt, fact, receivedAt);
       return;
     case "board.topic.create": {
-      const topic = fact.body.topic;
       const createdBy = fact.body.createdBy;
+      const topic = topicWithBoundAuthors(fact.body.topic, createdBy);
       writer.run(
         `
           INSERT INTO work_board_topics(
@@ -3012,13 +3136,6 @@ const materializeFact = (
             author_kind, author_seat_id, author_node_id, author_label,
             parts_json, post_count, last_activity_at, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(canvas_name, node_id, topic_id) DO UPDATE SET
-            title = excluded.title,
-            state = excluded.state,
-            parts_json = excluded.parts_json,
-            post_count = excluded.post_count,
-            last_activity_at = excluded.last_activity_at,
-            updated_at = excluded.updated_at
         `,
         [
           fact.item.sink.canvasName,
@@ -3045,7 +3162,6 @@ const materializeFact = (
               author_kind, author_seat_id, author_node_id, author_label,
               parts_json, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(canvas_name, node_id, topic_id, post_id) DO NOTHING
           `,
           [
             fact.item.sink.canvasName,
@@ -3053,10 +3169,10 @@ const materializeFact = (
             post.topicId,
             post.postId,
             post.position,
-            post.author.kind,
-            post.author.seatId ?? null,
-            post.author.nodeId ?? null,
-            post.author.label ?? null,
+            createdBy.kind,
+            createdBy.seatId ?? null,
+            createdBy.nodeId ?? null,
+            createdBy.label ?? null,
             JSON.stringify(post.parts),
             post.createdAt,
           ],
@@ -3065,20 +3181,10 @@ const materializeFact = (
       return;
     }
     case "board.post.append": {
+      // Position authority is the fact body (assigned at apply/mint time).
       const post = fact.body.post;
       const createdBy = fact.body.createdBy;
-      const maxPos = writer.get<StateRow & { readonly m: number | null }>(
-        `
-          SELECT MAX(position) AS m FROM work_board_posts
-          WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
-        `,
-        [fact.item.sink.canvasName, fact.item.sink.nodeId, post.topicId],
-      );
-      const position =
-        typeof maxPos?.m === "number" && Number.isFinite(maxPos.m)
-          ? maxPos.m + 1
-          : 0;
-      writer.run(
+      const inserted = writer.run(
         `
           INSERT INTO work_board_posts(
             canvas_name, node_id, topic_id, post_id, position,
@@ -3092,7 +3198,7 @@ const materializeFact = (
           fact.item.sink.nodeId,
           post.topicId,
           post.postId,
-          position,
+          post.position,
           createdBy.kind,
           createdBy.seatId ?? null,
           createdBy.nodeId ?? null,
@@ -3101,22 +3207,24 @@ const materializeFact = (
           post.createdAt,
         ],
       );
-      writer.run(
-        `
-          UPDATE work_board_topics
-          SET post_count = post_count + 1,
-              last_activity_at = ?,
-              updated_at = ?
-          WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
-        `,
-        [
-          post.createdAt,
-          post.createdAt,
-          fact.item.sink.canvasName,
-          fact.item.sink.nodeId,
-          post.topicId,
-        ],
-      );
+      if (Number(inserted.changes) > 0) {
+        writer.run(
+          `
+            UPDATE work_board_topics
+            SET post_count = post_count + 1,
+                last_activity_at = ?,
+                updated_at = ?
+            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+          `,
+          [
+            post.createdAt,
+            post.createdAt,
+            fact.item.sink.canvasName,
+            fact.item.sink.nodeId,
+            post.topicId,
+          ],
+        );
+      }
       return;
     }
   }
@@ -3803,10 +3911,11 @@ const resultForCommand = (
           `topic "${action.topic.topicId}" already exists`,
         );
       }
+      const topic = topicWithBoundAuthors(action.topic, action.createdBy);
       return {
         body: {
           operation: "board.topic.create",
-          topic: action.topic,
+          topic,
           createdBy: action.createdBy,
         },
       };
@@ -3835,10 +3944,50 @@ const resultForCommand = (
           `topic "${action.post.topicId}" is archived`,
         );
       }
+      if (
+        writer.get<StateRow>(
+          `
+            SELECT 1 FROM work_board_posts
+            WHERE canvas_name = ? AND node_id = ? AND topic_id = ? AND post_id = ?
+          `,
+          [
+            command.item.sink.canvasName,
+            command.item.sink.nodeId,
+            action.post.topicId,
+            action.post.postId,
+          ],
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `post "${action.post.postId}" already exists`,
+        );
+      }
+      // Authority assigns position; command body may carry a client placeholder.
+      const maxPos = writer.get<StateRow & { readonly m: number | null }>(
+        `
+          SELECT MAX(position) AS m FROM work_board_posts
+          WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+        `,
+        [
+          command.item.sink.canvasName,
+          command.item.sink.nodeId,
+          action.post.topicId,
+        ],
+      );
+      const position =
+        typeof maxPos?.m === "number" && Number.isFinite(maxPos.m)
+          ? maxPos.m + 1
+          : 0;
+      const post = {
+        ...action.post,
+        author: action.createdBy,
+        position,
+      };
       return {
         body: {
           operation: "board.post.append",
-          post: action.post,
+          post,
           createdBy: action.createdBy,
         },
       };
@@ -4499,7 +4648,10 @@ const assertCorrelatedCommandFact = (
     case "board.topic.create":
       if (
         fact.body.operation !== "board.topic.create" ||
-        canonicalJson(action.topic) !== canonicalJson(fact.body.topic)
+        !sameBoardAuthor(action.createdBy, fact.body.createdBy) ||
+        // Fact topic may rewrite seed authors to createdBy; compare after bind.
+        canonicalJson(topicWithBoundAuthors(action.topic, action.createdBy)) !==
+          canonicalJson(fact.body.topic)
       ) {
         throw authorityError(
           "causal-conflict",
@@ -4510,7 +4662,14 @@ const assertCorrelatedCommandFact = (
     case "board.post.append":
       if (
         fact.body.operation !== "board.post.append" ||
-        canonicalJson(action.post) !== canonicalJson(fact.body.post)
+        !sameBoardAuthor(action.createdBy, fact.body.createdBy) ||
+        // Position is assigned at apply time; match post identity + body without
+        // requiring the command's client placeholder position.
+        action.post.postId !== fact.body.post.postId ||
+        action.post.topicId !== fact.body.post.topicId ||
+        canonicalJson(action.post.parts) !==
+          canonicalJson(fact.body.post.parts) ||
+        !sameBoardAuthor(action.createdBy, fact.body.post.author)
       ) {
         throw authorityError(
           "causal-conflict",
@@ -5034,10 +5193,92 @@ const validateIncomingFact = (
       }
       return;
     }
-    case "board.topic.create":
-    case "board.post.append":
-      // Append-only bulletin facts; materializeFact applies identity checks.
+    case "board.topic.create": {
+      if (
+        writer.get<StateRow>(
+          `
+            SELECT 1 FROM work_board_topics
+            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+          `,
+          [
+            fact.item.sink.canvasName,
+            fact.item.sink.nodeId,
+            fact.body.topic.topicId,
+          ],
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `topic "${fact.body.topic.topicId}" already exists`,
+        );
+      }
+      for (const post of fact.body.topic.posts ?? []) {
+        if (!sameBoardAuthor(post.author, fact.body.createdBy)) {
+          throw authorityError(
+            "causal-conflict",
+            "board topic seed post author must equal createdBy",
+          );
+        }
+        if (post.topicId !== fact.body.topic.topicId) {
+          throw authorityError(
+            "target-mismatch",
+            "board topic seed post topicId must match the topic",
+          );
+        }
+      }
       return;
+    }
+    case "board.post.append": {
+      const topic = writer.get<StateRow & { readonly state: string }>(
+        `
+          SELECT state FROM work_board_topics
+          WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+        `,
+        [
+          fact.item.sink.canvasName,
+          fact.item.sink.nodeId,
+          fact.body.post.topicId,
+        ],
+      );
+      if (topic === undefined) {
+        throw authorityError(
+          "missing-entity",
+          `topic "${fact.body.post.topicId}" does not exist`,
+        );
+      }
+      if (topic.state === "archived") {
+        throw authorityError(
+          "invalid-transition",
+          `topic "${fact.body.post.topicId}" is archived`,
+        );
+      }
+      if (
+        writer.get<StateRow>(
+          `
+            SELECT 1 FROM work_board_posts
+            WHERE canvas_name = ? AND node_id = ? AND topic_id = ? AND post_id = ?
+          `,
+          [
+            fact.item.sink.canvasName,
+            fact.item.sink.nodeId,
+            fact.body.post.topicId,
+            fact.body.post.postId,
+          ],
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `post "${fact.body.post.postId}" already exists`,
+        );
+      }
+      if (!sameBoardAuthor(fact.body.post.author, fact.body.createdBy)) {
+        throw authorityError(
+          "causal-conflict",
+          "board post author must equal createdBy",
+        );
+      }
+      return;
+    }
   }
 };
 
@@ -6076,10 +6317,11 @@ export const WorkRepositoryLive = Layer.effect(
     ): Effect.Effect<LocalFactResult<BoardTopicValue>, RepositoryFailure> => {
       const originAt = timestamp(input.originAt);
       const receivedAt = timestamp(input.receivedAt);
-      const topic = Schema.decodeUnknownSync(BoardTopic, strictDecode)(
-        input.topic,
-      );
       const createdBy = input.createdBy;
+      const topic = topicWithBoundAuthors(
+        Schema.decodeUnknownSync(BoardTopic, strictDecode)(input.topic),
+        createdBy,
+      );
       return transaction("work.board.topic.create", input.sink, (writer) => {
         const authority = canonicalLocalWorkAuthority(writer);
         if (authority.role !== "command-center") {
@@ -6164,11 +6406,30 @@ export const WorkRepositoryLive = Layer.effect(
           `,
           [input.sink.canvasName, input.sink.nodeId, post.topicId],
         );
+        if (
+          writer.get<StateRow>(
+            `
+              SELECT 1 FROM work_board_posts
+              WHERE canvas_name = ? AND node_id = ? AND topic_id = ? AND post_id = ?
+            `,
+            [
+              input.sink.canvasName,
+              input.sink.nodeId,
+              post.topicId,
+              post.postId,
+            ],
+          ) !== undefined
+        ) {
+          throw authorityError(
+            "identity-conflict",
+            `post "${post.postId}" already exists`,
+          );
+        }
         const position =
           typeof maxPos?.m === "number" && Number.isFinite(maxPos.m)
             ? maxPos.m + 1
             : 0;
-        const stored = { ...post, position };
+        const stored = { ...post, author: createdBy, position };
         return commitLocalFact(writer, {
           localInstallationId: authority.installationId,
           sink: input.sink,

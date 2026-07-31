@@ -159,6 +159,62 @@ describe("work pure transforms", () => {
     expect(claimed.task.state).toBe("working");
   });
 
+  it("carries media, dependsOn, and finishCriteria through propose → approve", () => {
+    const worker = actorRef("1", "worker-1");
+    const seed = workTaskCreate(
+      { nodes: [emptyTaskNode()], edges: [] },
+      "alpha",
+      "tasks",
+      "prerequisite",
+      undefined,
+      ids,
+    );
+    const media = [
+      {
+        kind: "raw" as const,
+        bytesBase64: Buffer.from("png").toString("base64"),
+        mediaType: "image/png",
+      },
+    ];
+    const proposed = workTaskPropose(
+      seed.doc,
+      "alpha",
+      "tasks",
+      "ship with proof",
+      { title: "Ship with proof" },
+      ids,
+      worker,
+      undefined,
+      media,
+      [seed.task.id],
+      { description: "PR green", git: { minCommits: 1 } },
+    );
+    expect(proposed.proposal.dependsOn).toEqual([seed.task.id]);
+    expect(proposed.proposal.finishCriteria).toEqual({
+      description: "PR green",
+      git: { minCommits: 1 },
+    });
+    expect(proposed.proposal.brief.parts.some((part) => part.kind === "raw")).toBe(
+      true,
+    );
+
+    const approved = workTaskApproveProposal(
+      proposed.doc,
+      "alpha",
+      "tasks",
+      proposed.proposal.id,
+      ids,
+    );
+    expect(approved.task.dependsOn).toEqual([seed.task.id]);
+    expect(approved.task.finishCriteria).toEqual({
+      description: "PR green",
+      git: { minCommits: 1 },
+    });
+    expect(approved.task.history[0]?.parts.some((part) => part.kind === "raw")).toBe(
+      true,
+    );
+  });
+
   it("create → claim → transition, with contextId from canvas name", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", undefined, ids);

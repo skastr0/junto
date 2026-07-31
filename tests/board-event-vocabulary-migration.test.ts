@@ -192,7 +192,7 @@ describe("board event vocabulary migration (9 → 10)", () => {
       // Without the outer FK-off window this throws FOREIGN KEY constraint failed.
       const result = migrateStateSchema(database);
 
-      expect(result.schemaVersion).toBe(10);
+      expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(9);
       expect(countTable(database, "work_events")).toBe(eventsBefore);
       expect(countTable(database, "work_commands")).toBe(commandsBefore);

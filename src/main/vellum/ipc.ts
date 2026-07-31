@@ -545,6 +545,9 @@ export const registerVellumIpc = (): void => {
       brief: string,
       metadata?: WorkMetadata,
       reason?: string,
+      media?: ReadonlyArray<Part>,
+      dependsOn?: ReadonlyArray<string>,
+      finishCriteria?: import("@shared/work-model").FinishCriteria,
     ) =>
       runRendererWorkAuthoring(
         "ipc.work.task-propose",
@@ -559,6 +562,9 @@ export const registerVellumIpc = (): void => {
               brief,
               metadata,
               reason,
+              media,
+              dependsOn,
+              finishCriteria,
             );
           }),
         ),

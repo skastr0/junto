@@ -21,6 +21,7 @@ import {
 } from "../license/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
+  WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
@@ -135,7 +136,19 @@ export const STATE_SCHEMA_V9_IDENTITY = {
     "00777be6fb3361c057a799d0f58c86d364518d24a1eb2d8a08b6f32c58d7bcef",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 10;
+/** Exact witness of schema version 10 (board event vocabulary; pre proposal planning). */
+export const STATE_SCHEMA_V10_IDENTITY = {
+  actualSchemaSha256:
+    "7844862b7ed357a60b4e78a336ae7229aab8dd812622862f0de56c916e12269e",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+/** Exact witness of schema version 11 (proposal planning arms). */
+export const STATE_SCHEMA_V11_IDENTITY = {
+  actualSchemaSha256:
+    "66e16dda9d6d938b107ec25b0edd58f1a964d40192fd1d9fe35793665d03e99f",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 11;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -271,6 +284,16 @@ export const STATE_SCHEMA_MIGRATIONS =
           DROP TABLE work_events__migrate_bak;
           DROP TABLE work_pending_commands__migrate_bak;
         `);
+      },
+    },
+    {
+      fromVersion: 10,
+      toVersion: 11,
+      name: "add-work-proposal-planning",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V10_IDENTITY,
+      migrate: (database) => {
+        database.exec(WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL);
       },
     },
 

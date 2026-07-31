@@ -607,13 +607,19 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     dependsOn?: ReadonlyArray<string>,
     finishCriteria?: FinishCriteria,
   ) => Promise<WorkOpResult<Task>>;
-  /** Operator planning proposal — pending until Approve to Queue. */
+  /**
+   * Operator planning proposal — same authoring contract as workTaskCreate;
+   * pending until Approve to Queue.
+   */
   readonly workTaskPropose: (
     canvas: string,
     nodeId: string,
     brief: string,
     metadata?: WorkMetadata,
     reason?: string,
+    media?: ReadonlyArray<Part>,
+    dependsOn?: ReadonlyArray<string>,
+    finishCriteria?: FinishCriteria,
   ) => Promise<WorkOpResult<TaskProposal>>;
   readonly workTaskApproveProposal: (
     canvas: string,

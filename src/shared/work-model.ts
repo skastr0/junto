@@ -203,8 +203,9 @@ export const TaskProposalState = Schema.Literal(
 export type TaskProposalState = typeof TaskProposalState.Type;
 
 /**
- * A proposal is not executable work. Only an operator-approved proposal may
- * mint a submitted Task, recorded by `approvedTaskId`.
+ * A proposal is not executable work. Same authoring contract as a task
+ * (brief/media, metadata, dependsOn, finishCriteria); only an operator
+ * approval mints a submitted Task (`approvedTaskId`).
  */
 export const TaskProposal = Schema.Struct({
   id: Schema.String,
@@ -212,6 +213,15 @@ export const TaskProposal = Schema.Struct({
   brief: Message,
   proposedBy: ActorRef,
   approvedTaskId: Schema.optionalWith(Schema.String, { exact: true }),
+  /**
+   * Same-sink hard prerequisites (task ids). Carried onto the minted task
+   * on approve. Empty / omitted = free once approved.
+   */
+  dependsOn: Schema.optionalWith(Schema.Array(Schema.String), {
+    exact: true,
+  }),
+  /** Operator done-definition; carried onto the minted task on approve. */
+  finishCriteria: Schema.optionalWith(FinishCriteria, { exact: true }),
   metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
   reason: Schema.optionalWith(Schema.String, { exact: true }),
 }).pipe(

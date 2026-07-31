@@ -961,7 +961,7 @@ function TaskCreateDialog({
       >
         <OverlayHeader
           eyebrow={isProposal ? "new proposal" : "new task"}
-          title={isProposal ? "Plan the work" : "Define the work"}
+          title="Define the work"
           actions={
             <IconButton
               aria-label={isProposal ? "Close proposal creator" : "Close task creator"}
@@ -979,10 +979,6 @@ function TaskCreateDialog({
             event.preventDefault();
             if (!title.trim()) return;
             setFormError("");
-            if (isProposal) {
-              onCreate(title.trim(), details.trim(), role.trim(), [], [], undefined);
-              return;
-            }
             const parts = mediaPartsFromDrafts(media);
             const validation = validateTaskMediaParts(parts);
             if (validation) {
@@ -1031,46 +1027,30 @@ function TaskCreateDialog({
             );
           }}
           onPaste={(event) => {
-            if (isProposal) return;
             void ingestClipboardOrFiles(event.clipboardData).then((handled) => {
               if (handled) event.preventDefault();
             });
           }}
         >
-          <div
-            className={[
-              "task-create-dialog__body",
-              isProposal ? "task-create-dialog__body--proposal" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
+          <div className="task-create-dialog__body">
             <div className="task-create-dialog__primary">
               <label>
                 <FieldCaption
                   label="Title"
-                  help={
-                    isProposal
-                      ? "Short planning outcome — becomes the task title when approved."
-                      : "Short outcome shown on the board card."
-                  }
+                  help="Short outcome shown on the board card."
                 />
                 <Input
                   autoFocus
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
-                  placeholder={isProposal ? "What are we planning?" : "What needs doing?"}
+                  placeholder="What needs doing?"
                   maxLength={180}
                 />
               </label>
               <label className="task-create-dialog__grow">
                 <FieldCaption
                   label="Description"
-                  help={
-                    isProposal
-                      ? "Planning notes, constraints, and intent. Workers only see this after you approve to Queue."
-                      : "Context, constraints, expected result, and any proof the worker should return."
-                  }
+                  help="Context, constraints, expected result, and any proof the worker should return."
                   action={
                     <IconButton
                       type="button"
@@ -1086,38 +1066,29 @@ function TaskCreateDialog({
                 <Textarea
                   value={details}
                   onChange={(event) => setDetails(event.target.value)}
-                  placeholder={
-                    isProposal
-                      ? "Intent, open questions, constraints…"
-                      : "Context, constraints, expected result…"
-                  }
+                  placeholder="Context, constraints, expected result…"
                   rows={12}
                 />
               </label>
-              {!isProposal ? (
-                <label className="task-create-dialog__grow task-create-dialog__grow--secondary">
-                  <FieldCaption
-                    label="Finish criteria"
-                    help="Soft north-star for the agent. Hard gates (artifacts, git) are set on the right."
-                  />
-                  <Textarea
-                    value={criteriaText}
-                    onChange={(event) => setCriteriaText(event.target.value)}
-                    placeholder="What must be true when this is done…"
-                    rows={6}
-                  />
-                </label>
-              ) : null}
+              <label className="task-create-dialog__grow task-create-dialog__grow--secondary">
+                <FieldCaption
+                  label="Finish criteria"
+                  help="Soft north-star for the agent. Hard gates (artifacts, git) are set on the right."
+                />
+                <Textarea
+                  value={criteriaText}
+                  onChange={(event) => setCriteriaText(event.target.value)}
+                  placeholder="What must be true when this is done…"
+                  rows={6}
+                />
+              </label>
             </div>
 
-            <aside
-              className="task-create-dialog__aside"
-              aria-label={isProposal ? "Proposal details" : "Task details and hard gates"}
-            >
+            <aside className="task-create-dialog__aside" aria-label="Details and hard gates">
               <label>
                 <FieldCaption
                   label="Role"
-                  help="Specialization this work should be routed to when it reaches Queue."
+                  help="Specialization this work should be routed to."
                 />
                 <Input
                   value={role}
@@ -1131,172 +1102,163 @@ function TaskCreateDialog({
                   ))}
                 </datalist>
               </label>
-              {isProposal ? (
-                <p className="task-create-dialog__aside-note">
-                  Proposals stay in planning until you Approve to Queue. Depends-on, media, and
-                  hard gates attach when you promote the work.
-                </p>
-              ) : (
-                <>
-                  <label>
-                    <FieldCaption
-                      label="Depends on"
-                      help="Hard prerequisite task ids. Empty means free to claim in parallel."
-                    />
-                    <Input
-                      value={dependsOnText}
-                      onChange={(event) => setDependsOnText(event.target.value)}
-                      placeholder="task ids…"
-                    />
-                  </label>
+              <label>
+                <FieldCaption
+                  label="Depends on"
+                  help="Hard prerequisite task ids. Empty means free to claim in parallel."
+                />
+                <Input
+                  value={dependsOnText}
+                  onChange={(event) => setDependsOnText(event.target.value)}
+                  placeholder="task ids…"
+                />
+              </label>
 
-                  <div className="task-create-dialog__gates">
-                    <div className="task-create-dialog__gates-heading">
+              <div className="task-create-dialog__gates">
+                <div className="task-create-dialog__gates-heading">
+                  <FieldCaption
+                    label="Hard finish gates"
+                    help="Deterministic complete requirements. Artifacts resolve to the canvas artifacts sink automatically."
+                  />
+                </div>
+                <label
+                  className={`task-create-dialog__check${
+                    !artifactsNodeId ? " is-disabled" : ""
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={requireArtifacts}
+                    disabled={!artifactsNodeId}
+                    title={
+                      artifactsNodeId
+                        ? undefined
+                        : "No artifacts sink on this canvas"
+                    }
+                    onChange={(event) => setRequireArtifacts(event.target.checked)}
+                  />
+                  <span>Require artifact(s)</span>
+                </label>
+                {requireArtifacts ? (
+                  <div className="task-create-dialog__gate-fields">
+                    <label>
                       <FieldCaption
-                        label="Hard finish gates"
-                        help="Deterministic complete requirements. Artifacts resolve to the canvas artifacts sink automatically."
+                        label="Instruction"
+                        help="What the agent should publish to the artifacts sink."
                       />
-                    </div>
-                    <label
-                      className={`task-create-dialog__check${
-                        !artifactsNodeId ? " is-disabled" : ""
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={requireArtifacts}
-                        disabled={!artifactsNodeId}
-                        title={
-                          artifactsNodeId
-                            ? undefined
-                            : "No artifacts sink on this canvas"
-                        }
-                        onChange={(event) => setRequireArtifacts(event.target.checked)}
+                      <Textarea
+                        value={artifactsInstruction}
+                        onChange={(event) => setArtifactsInstruction(event.target.value)}
+                        placeholder="What to publish…"
+                        rows={2}
                       />
-                      <span>Require artifact(s)</span>
                     </label>
-                    {requireArtifacts ? (
-                      <div className="task-create-dialog__gate-fields">
-                        <label>
-                          <FieldCaption
-                            label="Instruction"
-                            help="What the agent should publish to the artifacts sink."
-                          />
-                          <Textarea
-                            value={artifactsInstruction}
-                            onChange={(event) => setArtifactsInstruction(event.target.value)}
-                            placeholder="What to publish…"
-                            rows={2}
-                          />
-                        </label>
-                        <label>
-                          <FieldCaption
-                            label="Required names"
-                            help="Optional exact artifact names that must match on complete."
-                          />
-                          <Input
-                            value={artifactNamesText}
-                            onChange={(event) => setArtifactNamesText(event.target.value)}
-                            placeholder="exact names…"
-                          />
-                        </label>
-                      </div>
-                    ) : null}
-                    <label className="task-create-dialog__check">
-                      <input
-                        type="checkbox"
-                        checked={requireGit}
-                        onChange={(event) => setRequireGit(event.target.checked)}
+                    <label>
+                      <FieldCaption
+                        label="Required names"
+                        help="Optional exact artifact names that must match on complete."
                       />
-                      <span>Require at least one git commit</span>
+                      <Input
+                        value={artifactNamesText}
+                        onChange={(event) => setArtifactNamesText(event.target.value)}
+                        placeholder="exact names…"
+                      />
                     </label>
                   </div>
+                ) : null}
+                <label className="task-create-dialog__check">
+                  <input
+                    type="checkbox"
+                    checked={requireGit}
+                    onChange={(event) => setRequireGit(event.target.checked)}
+                  />
+                  <span>Require at least one git commit</span>
+                </label>
+              </div>
 
-                  <div
-                    className={`task-create-dialog__media${dragOver ? " is-dragover" : ""}`}
-                    onDragEnter={(event) => {
-                      event.preventDefault();
-                      setDragOver(true);
+              <div
+                className={`task-create-dialog__media${dragOver ? " is-dragover" : ""}`}
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={(event) => {
+                  if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                  setDragOver(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragOver(false);
+                  void ingestClipboardOrFiles(event.dataTransfer);
+                }}
+              >
+                <div className="task-create-dialog__media-heading">
+                  <FieldCaption
+                    label="Media"
+                    help="Paste, drop, or attach images. Stored as first-class raw parts and projected to remote claims (not host paths)."
+                  />
+                </div>
+                {media.length > 0 ? (
+                  <ul className="task-create-dialog__media-list">
+                    {media.map((item) => (
+                      <li key={item.id}>
+                        <img src={item.previewUrl} alt={item.label} />
+                        <div>
+                          <strong>{item.label}</strong>
+                          <span>{item.mediaType}</span>
+                        </div>
+                        <IconButton
+                          aria-label={`Remove ${item.label}`}
+                          title="Remove"
+                          disabled={pending}
+                          onClick={() =>
+                            setMedia((current) =>
+                              current.filter((entry) => entry.id !== item.id),
+                            )
+                          }
+                        >
+                          <X size={12} />
+                        </IconButton>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="task-create-dialog__media-empty">Paste or drop an image</p>
+                )}
+                <div className="task-create-dialog__media-actions">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
+                    multiple
+                    hidden
+                    onChange={(event) => {
+                      void ingestFileList(event.target.files);
+                      event.target.value = "";
                     }}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      setDragOver(true);
-                    }}
-                    onDragLeave={(event) => {
-                      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-                      setDragOver(false);
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      setDragOver(false);
-                      void ingestClipboardOrFiles(event.dataTransfer);
-                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="subtle"
+                    disabled={pending}
+                    onClick={() => fileInputRef.current?.click()}
                   >
-                    <div className="task-create-dialog__media-heading">
-                      <FieldCaption
-                        label="Media"
-                        help="Paste, drop, or attach images. Stored as first-class raw parts on the task and projected to remote claims (not host paths)."
-                      />
-                    </div>
-                    {media.length > 0 ? (
-                      <ul className="task-create-dialog__media-list">
-                        {media.map((item) => (
-                          <li key={item.id}>
-                            <img src={item.previewUrl} alt={item.label} />
-                            <div>
-                              <strong>{item.label}</strong>
-                              <span>{item.mediaType}</span>
-                            </div>
-                            <IconButton
-                              aria-label={`Remove ${item.label}`}
-                              title="Remove"
-                              disabled={pending}
-                              onClick={() =>
-                                setMedia((current) =>
-                                  current.filter((entry) => entry.id !== item.id),
-                                )
-                              }
-                            >
-                              <X size={12} />
-                            </IconButton>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="task-create-dialog__media-empty">Paste or drop an image</p>
-                    )}
-                    <div className="task-create-dialog__media-actions">
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
-                        multiple
-                        hidden
-                        onChange={(event) => {
-                          void ingestFileList(event.target.files);
-                          event.target.value = "";
-                        }}
-                      />
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="subtle"
-                        disabled={pending}
-                        onClick={() => fileInputRef.current?.click()}
-                      >
-                        <ImagePlus size={12} />
-                        Attach image
-                      </Button>
-                      {media.length > 0 ? <span>{media.length} attached</span> : null}
-                    </div>
-                    {mediaError ? (
-                      <p className="task-create-dialog__media-error" role="alert">
-                        {mediaError}
-                      </p>
-                    ) : null}
-                  </div>
-                </>
-              )}
+                    <ImagePlus size={12} />
+                    Attach image
+                  </Button>
+                  {media.length > 0 ? <span>{media.length} attached</span> : null}
+                </div>
+                {mediaError ? (
+                  <p className="task-create-dialog__media-error" role="alert">
+                    {mediaError}
+                  </p>
+                ) : null}
+              </div>
             </aside>
           </div>
 
@@ -1823,7 +1785,14 @@ export function TaskBoard({
     }
   };
 
-  const createProposal = async (title: string, details: string, role: string) => {
+  const createProposal = async (
+    title: string,
+    details: string,
+    role: string,
+    media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
+    dependsOn: ReadonlyArray<string> = [],
+    finishCriteria?: import("@shared/work-model").FinishCriteria,
+  ) => {
     if (!api || !title.trim()) return;
     setError("");
     setCreatingPending(true);
@@ -1834,7 +1803,16 @@ export function TaskBoard({
         ...(role.trim() ? { workRole: role.trim() } : {}),
       };
       const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskPropose(name, node.id, title.trim(), metadata),
+        api.workTaskPropose(
+          name,
+          node.id,
+          title.trim(),
+          metadata,
+          undefined,
+          media.length > 0 ? media : undefined,
+          dependsOn.length > 0 ? dependsOn : undefined,
+          finishCriteria,
+        ),
       );
       if (result === undefined) return;
       if (!result.ok) {
@@ -2107,7 +2085,14 @@ export function TaskBoard({
             }}
             onCreate={(title, details, role, media, dependsOn, finishCriteria) => {
               if (creating === "proposal") {
-                void createProposal(title, details, role);
+                void createProposal(
+                  title,
+                  details,
+                  role,
+                  media,
+                  dependsOn,
+                  finishCriteria,
+                );
                 return;
               }
               void createTask(title, details, role, media, dependsOn, finishCriteria);
