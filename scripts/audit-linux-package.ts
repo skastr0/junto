@@ -69,7 +69,10 @@ export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly run
     if ((metadata.mode & 0o7000) !== 0) throw new Error(`runtime has privileged mode bits: ${file}`);
     const header = await readFile(absolute).then((contents) => contents.subarray(0, 20));
     if (header[0] === 0x7f && header[1] === 0x45 && header[2] === 0x4c && header[3] === 0x46) {
-      validateElfX64(header, file); nativeObjects.push(file); requireLoadable(absolute, file);
+      validateElfX64(header, file); nativeObjects.push(file);
+      // ET_REL (.o) is not a loadable image; only ET_EXEC/ET_DYN need ldd.
+      const elfType = header[16] | (header[17]! << 8);
+      if (elfType === 2 || elfType === 3) requireLoadable(absolute, file);
     }
   }
   validateUserServiceTemplate(await readFile(path.join(root, "resources/systemd/vellum-remote.service.template"), "utf8"));
