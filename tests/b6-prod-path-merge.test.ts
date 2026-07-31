@@ -56,7 +56,7 @@ describe("mergePath", () => {
       home: HOME,
     });
     const dirs = split(merged);
-    // The two dirs that actually resolve tower/quasar/hermes/booth/codex/bun.
+    // The two dirs that actually resolve hermes/codex/bun tooling.
     expect(dirs).toContain("/home/tester/.local/bin");
     expect(dirs).toContain("/home/tester/.local/share/mise/shims");
     expect(dirs).toContain("/opt/homebrew/bin");

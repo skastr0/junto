@@ -38,4 +38,4 @@ Automated gates: `bun run typecheck` · `bun run test` (no live ssh required).
 - Cell-grid ANSI re-blit; multi-pane herdr chrome out of scope
 - One global control stream (opening another takes over)
 
-Record results in tower work submit notes when marking HN-011 done.
+Record results in the HN-011 submit notes when marking that item done.

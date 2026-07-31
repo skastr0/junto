@@ -25,7 +25,7 @@ export const seat = (
   role: FactoryRoleName,
   options?: {
     readonly label?: string;
-    /** Join key for glyph/wip criteria when role is sink (or other named seats). */
+    /** Entity name join key when role is sink (or other named seats). */
     readonly name?: string;
     readonly x?: number;
     readonly y?: number;

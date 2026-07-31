@@ -87,7 +87,7 @@ body {
 
 /* =============================================================================
    Focus surface — general centered single-subject overlay
-   (herdr terminal, future browser focus, tower/booth detail, …)
+   (herdr terminal, future browser focus, session detail, …)
    Width comes from measure tokens (see focus-measure.ts). The bet: one subject
    is more pleasant when measure-constrained + dimmed periphery than full-bleed.
    ============================================================================= */
@@ -1833,7 +1833,7 @@ path.vellum-edge-ripple {
 .vellum-picker-select:focus { border-color: rgba(232, 163, 61, 0.55); box-shadow: 0 0 0 3px rgba(232, 163, 61, 0.08); }
 .vellum-picker-select option { background: var(--color-raise); color: var(--color-ink); }
 
-/* A row (glyph/signal/session/dispatch) that opens the detail modal. The
+/* A row (signal/session/dispatch) that opens the detail modal. The
    class owns the full row layout — an unlayered class beats layered Tailwind
    utilities, so it must agree with them, never fight them. */
 .vellum-row-button {

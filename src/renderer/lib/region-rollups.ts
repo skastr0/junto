@@ -246,7 +246,7 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     setLive([]);
   }, [canvasName]);
 
-  // Fuse: live can win on glyph/graph; client always contributes herdr/chat.
+  // Fuse: live can win on graph severity; client always contributes herdr/chat.
   return useMemo(
     () => fuseRegionRollups(client, live, vacantSeatNodeIds),
     [client, live, vacantSeatNodeIds],

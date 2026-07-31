@@ -120,7 +120,7 @@ export const isValidStationHostId = (value: string): boolean =>
 // Product surface: settings.station.supervisedPreferred (StationRoleGate sets
 // true for Remote). Install surface: `bun run app:install:supervised` /
 // install-app.sh --supervised → install-launchd.sh. Doctor reports the gap;
-// full Remote deploy of the agent is a later glyph — not this module.
+// full Remote deploy of the agent is later work — not this module.
 // ---------------------------------------------------------------------------
 
 /** Whether the Vellum LaunchAgent is loaded for this user domain. */

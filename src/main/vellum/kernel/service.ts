@@ -1174,9 +1174,8 @@ const makeKernelService = (
     // never stalls hydration of the rest.
   };
 
-  // Bounded, like cycle.ts's own MAX_CONCURRENT_GLYPH_FETCHES batching — a
-  // station can accumulate many canvases; hydration must not fan out one
-  // unbounded Promise.all across all of them at once.
+  // Bounded concurrency — a station can accumulate many canvases; hydration
+  // must not fan out one unbounded Promise.all across all of them at once.
   const MAX_CONCURRENT_HYDRATIONS = 4;
 
   const hydrateAllDocs = async (generation: number): Promise<void> => {
