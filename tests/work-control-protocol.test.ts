@@ -104,6 +104,7 @@ describe("work-control wire schemas", () => {
       "doctor",
       "capabilities",
       "onboard",
+      "preamble",
       "tasks.list",
       "tasks.create",
       "tasks.claim",
