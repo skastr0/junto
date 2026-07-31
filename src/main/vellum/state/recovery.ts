@@ -199,8 +199,7 @@ const inspectBackup = (
           )?.fromIdentity;
     if (
       expected === undefined ||
-      recorded.actualSchemaSha256 !== expected.actualSchemaSha256 ||
-      recorded.sourceSchemaSha256 !== expected.sourceSchemaSha256
+      recorded.actualSchemaSha256 !== expected.actualSchemaSha256
     ) {
       throw new Error(
         `state backup schema is not a recognized Vellum version: ${file}`,

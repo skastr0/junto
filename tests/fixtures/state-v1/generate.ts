@@ -213,9 +213,7 @@ const stampVersionOne = (database: DatabaseSync): void => {
   const identity = expectedStateSchemaIdentity(STATE_SCHEMA_V1_SQL);
   if (
     identity.actualSchemaSha256 !==
-      STATE_SCHEMA_V1_IDENTITY.actualSchemaSha256 ||
-    identity.sourceSchemaSha256 !==
-      STATE_SCHEMA_V1_IDENTITY.sourceSchemaSha256
+      STATE_SCHEMA_V1_IDENTITY.actualSchemaSha256
   ) {
     throw new Error("exported schema v1 no longer matches its frozen witness");
   }
@@ -230,7 +228,7 @@ const stampVersionOne = (database: DatabaseSync): void => {
     `,
   ).run(
     identity.actualSchemaSha256,
-    identity.sourceSchemaSha256,
+    "0".repeat(64),
     CREATED_AT,
   );
   database.exec("PRAGMA user_version = 1");

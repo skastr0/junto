@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   chmod,
   lstat,
@@ -27,7 +26,10 @@ import {
   STATE_SCHEMA_V1_SQL,
 } from "../src/main/vellum/state/schema";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum/state/migrations";
-import { verifyAndStampStateSchema } from "../src/main/vellum/state/schema-identity";
+import {
+  RETIRED_SOURCE_SCHEMA_SHA256,
+  verifyAndStampStateSchema,
+} from "../src/main/vellum/state/schema-identity";
 import { USAGE_STATE_SCHEMA_SQL } from "../src/main/vellum/usage/state-schema";
 const makeTempDir = (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix)).then((root) => {
@@ -191,9 +193,7 @@ describe("StateEngine", () => {
       identity: {
         singleton: 1,
         actual_schema_sha256: info.schemaSha256,
-        source_schema_sha256: createHash("sha256")
-          .update(STATE_SCHEMA_SQL)
-          .digest("hex"),
+        source_schema_sha256: RETIRED_SOURCE_SCHEMA_SHA256,
       },
       userVersion: CURRENT_STATE_SCHEMA_VERSION,
     });

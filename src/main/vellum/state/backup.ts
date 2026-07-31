@@ -27,7 +27,6 @@ const STATE_BACKUP_PENDING_FILE =
 
 type BackupSchemaIdentity = {
   readonly actualSchemaSha256: string;
-  readonly sourceSchemaSha256: string;
 };
 
 type BackupFileIdentity = {
@@ -263,14 +262,13 @@ const readBackupWitness = (database: DatabaseSync): BackupWitness => {
     | undefined;
   const identity = database.prepare(
     `
-      SELECT actual_schema_sha256, source_schema_sha256
+      SELECT actual_schema_sha256
       FROM state_schema_identity
       WHERE singleton = 1
     `,
   ).get() as
     | {
         readonly actual_schema_sha256: SQLOutputValue;
-        readonly source_schema_sha256: SQLOutputValue;
       }
     | undefined;
   if (identity === undefined) {
@@ -295,7 +293,6 @@ const readBackupWitness = (database: DatabaseSync): BackupWitness => {
     userVersion: Number(version?.user_version),
     identity: {
       actualSchemaSha256: String(identity.actual_schema_sha256),
-      sourceSchemaSha256: String(identity.source_schema_sha256),
     },
     schema: schema.map((entry) => ({
       type: String(entry.type),

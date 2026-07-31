@@ -20,14 +20,9 @@ import {
 } from "../work/state-schema";
 
 /**
- * Exact proof of whichever recognized schema version is currently committed.
- * This is not a generic metadata bag: migrations verify the prior witness
- * before writing and stamp the current witness only after the full chain.
- */
-/**
- * `actual_schema_sha256` is the sole schema identity witness (live DDL shape).
- * `source_schema_sha256` is expand-only retained storage: never admitted on,
- * always stamped to a fixed retired sentinel by current code.
+ * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
+ * shape). `source_schema_sha256` is expand-only retained storage — never used
+ * for admission; current code stamps a fixed retired sentinel.
  */
 export const STATE_SCHEMA_IDENTITY_SQL = `
   CREATE TABLE IF NOT EXISTS state_schema_identity (

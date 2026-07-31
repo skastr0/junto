@@ -15,9 +15,12 @@ type SchemaObject = {
   readonly sql: string | null;
 };
 
+/**
+ * Schema identity is the fingerprint of the live SQLite shape (tables,
+ * indexes, views, triggers). Nothing else.
+ */
 export type VerifiedStateSchemaIdentity = {
   readonly actualSchemaSha256: string;
-  readonly sourceSchemaSha256: string;
 };
 
 export type RecordedStateSchemaIdentity =
@@ -25,11 +28,15 @@ export type RecordedStateSchemaIdentity =
     readonly verifiedAt: string;
   };
 
+/**
+ * Expand-only retained column on `state_schema_identity`. Historical releases
+ * wrote a source-SQL hash here; admission never uses it. New stamps write this
+ * fixed sentinel so the NOT NULL column stays satisfied without dual identity.
+ */
+export const RETIRED_SOURCE_SCHEMA_SHA256 = "0".repeat(64);
+
 const sha256 = (value: string): string =>
   createHash("sha256").update(value).digest("hex");
-
-export const stateSchemaSourceSha256 = (schemaSql: string): string =>
-  sha256(schemaSql);
 
 /**
  * Tokenize stored DDL so formatting and keyword case are not schema identity.
@@ -230,7 +237,6 @@ export const expectedStateSchemaIdentity = (
   actualSchemaSha256: schemaFingerprint(
     compileExpectedSchema(schemaSql),
   ),
-  sourceSchemaSha256: stateSchemaSourceSha256(schemaSql),
 });
 
 export const readRecordedStateSchemaIdentity = (
@@ -254,7 +260,6 @@ export const readRecordedStateSchemaIdentity = (
       `
         SELECT
           actual_schema_sha256,
-          source_schema_sha256,
           verified_at
         FROM state_schema_identity
         WHERE singleton = 1
@@ -263,7 +268,6 @@ export const readRecordedStateSchemaIdentity = (
     .get() as
       | {
           readonly actual_schema_sha256: SQLOutputValue;
-          readonly source_schema_sha256: SQLOutputValue;
           readonly verified_at: SQLOutputValue;
         }
       | undefined;
@@ -272,7 +276,6 @@ export const readRecordedStateSchemaIdentity = (
   }
   return {
     actualSchemaSha256: String(row.actual_schema_sha256),
-    sourceSchemaSha256: String(row.source_schema_sha256),
     verifiedAt: String(row.verified_at),
   };
 };
@@ -316,15 +319,15 @@ export const stampStateSchemaIdentity = (
     )
     .run(
       identity.actualSchemaSha256,
-      identity.sourceSchemaSha256,
+      RETIRED_SOURCE_SCHEMA_SHA256,
       new Date().toISOString(),
     );
 };
 
 /**
  * Prove that the live transaction contains exactly the current composed
- * schema, then stamp that proof. The expected connection is transient and
- * in-memory; it never reads or owns product state.
+ * schema. The expected connection is transient and in-memory; it never reads
+ * or owns product state.
  */
 export const verifyStateSchema = (
   database: DatabaseSync,
@@ -343,11 +346,7 @@ export const verifyStateSchema = (
     );
   }
 
-  const identity = {
-    actualSchemaSha256,
-    sourceSchemaSha256: stateSchemaSourceSha256(schemaSql),
-  };
-  return identity;
+  return { actualSchemaSha256 };
 };
 
 export const verifyAndStampStateSchema = (

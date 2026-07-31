@@ -98,7 +98,7 @@ const databaseWitness = (database: DatabaseSync) => ({
   identity: database
     .prepare(
       `
-        SELECT actual_schema_sha256, source_schema_sha256, verified_at
+        SELECT actual_schema_sha256, verified_at
         FROM state_schema_identity
         WHERE singleton = 1
       `,
@@ -249,7 +249,7 @@ describe("State schema migrations", () => {
         .prepare(
           `
             UPDATE state_schema_identity
-            SET source_schema_sha256 = ?
+            SET actual_schema_sha256 = ?
             WHERE singleton = 1
           `,
         )
@@ -265,8 +265,39 @@ describe("State schema migrations", () => {
             `);
           }),
         )
-      ).toThrow("not a recognized Vellum schema");
+      ).toThrow(
+        /state schema changed after its recorded identity was stamped|not a recognized Vellum schema/,
+      );
       expect(databaseWitness(database)).toEqual(before);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("admits migration when only the retired source column differs", () => {
+    const database = openDatabase();
+    try {
+      seedVersionOne(database, 1);
+      database
+        .prepare(
+          `
+            UPDATE state_schema_identity
+            SET source_schema_sha256 = ?
+            WHERE singleton = 1
+          `,
+        )
+        .run("f".repeat(64));
+      const result = migrateStateSchema(
+        database,
+        migrationPlan((connection) => {
+          connection.exec(`
+            ALTER TABLE migration_items
+            ADD COLUMN note TEXT NOT NULL DEFAULT 'migrated'
+          `);
+        }),
+      );
+      expect(result.schemaVersion).toBe(2);
+      expect(result.previousVersion).toBe(1);
     } finally {
       database.close();
     }
