@@ -85,6 +85,7 @@ import {
   setActorRefResolver,
   setDocs,
   setStationScope,
+  __setAutomationGateForTest,
   __setFlagWriterForTest,
   __setPhaseMirrorForTest,
   __setSnapshotsForTest,
@@ -590,60 +591,89 @@ const makeKernelService = (
       Effect.runPromise(
         scheduler.reconcileHome(homeStation, activeTimerKeys),
       ),
+    readIntervalState: (homeStation, timerKey) =>
+      Effect.runPromise(scheduler.readIntervalState(homeStation, timerKey)),
   });
 
   // Process-local effect receipts (at-most-once within this runtime).
-  // Catch-up coalesce already limits to one fire per wake; receipts cover
-  // retries of the same fireKey within the process.
   const effectReceipts = new Set<string>();
 
-  const setNodeFlag = (
+  /** Station role configured (not unset) + canvas playing → may consume fires. */
+  const canAutomateCanvas = (canvasName: string): boolean => {
+    // stationRole from cycle scope is mirrored here via live stations each cycle;
+    // use pause + a role snapshot refreshed in runCycle.
+    if (cachedStationRole === "") return false;
+    return pause.stateFor(canvasName).playing;
+  };
+
+  const canAuthorFlags = (): boolean => cachedStationRole === "command-center";
+
+  let cachedStationRole: "" | "command-center" | "remote" = "";
+
+  const setNodeFlag = async (
     canvasName: string,
     nodeId: string,
     flag: EtherFlag,
     enabled: boolean,
-  ): void => {
-    void Effect.runPromise(
-      canvases.mutate(canvasName, (doc) => {
-        const nodes = doc.nodes.map((node) => {
-          if (node.id !== nodeId) return node;
-          const flags = new Set(node.ether?.flags ?? []);
-          if (enabled) flags.add(flag);
-          else flags.delete(flag);
-          const nextFlags = [...flags] as ReadonlyArray<EtherFlag>;
-          const ether = { ...(node.ether ?? {}) };
-          if (nextFlags.length === 0) delete ether.flags;
-          else ether.flags = nextFlags as typeof ether.flags;
-          return Object.keys(ether).length > 0
-            ? { ...node, ether }
-            : (() => {
-                const { ether: _drop, ...rest } = node;
-                return rest;
-              })();
-        });
-        return { ...doc, nodes };
-      }),
-    ).catch((error) => {
-      console.error(`[kernel] setFlag failed for ${canvasName}/${nodeId}:`, error);
-    });
+  ): Promise<{ readonly ok: boolean; readonly message?: string }> => {
+    if (!pause.stateFor(canvasName).playing) {
+      return { ok: false, message: "canvas paused" };
+    }
+    if (cachedStationRole !== "command-center") {
+      return {
+        ok: false,
+        message:
+          "flag authoring requires Command Center (Remote cannot mutate authorial canvas)",
+      };
+    }
+    try {
+      await Effect.runPromise(
+        canvases.mutate(canvasName, (doc) => {
+          const nodes = doc.nodes.map((node) => {
+            if (node.id !== nodeId) return node;
+            const flags = new Set(node.ether?.flags ?? []);
+            if (enabled) flags.add(flag);
+            else flags.delete(flag);
+            const nextFlags = [...flags] as ReadonlyArray<EtherFlag>;
+            const ether = { ...(node.ether ?? {}) };
+            if (nextFlags.length === 0) delete ether.flags;
+            else ether.flags = nextFlags as typeof ether.flags;
+            return Object.keys(ether).length > 0
+              ? { ...node, ether }
+              : (() => {
+                  const { ether: _drop, ...rest } = node;
+                  return rest;
+                })();
+          });
+          return { ...doc, nodes };
+        }),
+      );
+      return { ok: true };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      console.error(
+        `[kernel] setFlag failed for ${canvasName}/${nodeId}: ${message}`,
+      );
+      return { ok: false, message };
+    }
   };
 
+  __setAutomationGateForTest({
+    canAutomateCanvas,
+    canAuthorFlags,
+  });
+
   setSchedulerEffectDeps({
-    effectsEnabled: () => {
-      // Suppress automation while every hydrated canvas is paused.
-      // Mixed play/pause: per-canvas check happens at apply via pause.stateFor.
-      for (const name of docs.keys()) {
-        if (pause.stateFor(name).playing) return true;
-      }
-      return docs.size === 0;
-    },
+    canAutomateCanvas,
+    canAuthorFlags,
     hasReceipt: (fireKey, edgeId) => effectReceipts.has(`${fireKey}::${edgeId}`),
     recordReceipt: (fireKey, edgeId) => {
       effectReceipts.add(`${fireKey}::${edgeId}`);
     },
     enqueueTask: async ({ canvasName, sinkNodeId, brief, reason }) => {
-      if (!pause.stateFor(canvasName).playing) {
-        return { ok: false, message: "canvas paused" };
+      if (!canAutomateCanvas(canvasName)) {
+        return { ok: false, message: "canvas paused or station role unset" };
       }
       const result = await Effect.runPromise(
         work.workTaskCreate(
@@ -665,10 +695,10 @@ const makeKernelService = (
     setFlag: setNodeFlag,
   });
 
-  // flagOnUnsatisfied + set_flag effects write via CanvasesService (CC authoring).
+  // flagOnUnsatisfied writes only when automation gate allows (CC + playing).
   __setFlagWriterForTest({
     setFlag: (canvasName, nodeId, flag, enabled) => {
-      setNodeFlag(canvasName, nodeId, flag as EtherFlag, enabled);
+      void setNodeFlag(canvasName, nodeId, flag as EtherFlag, enabled);
     },
   });
   // Edge phase mirror remains projection-only (no authorial writeback).
@@ -743,6 +773,10 @@ const makeKernelService = (
       () => generationIsActive(generation),
     );
     if (!generationIsActive(generation)) return;
+    cachedStationRole =
+      scope.role === "command-center" || scope.role === "remote"
+        ? scope.role
+        : "";
     const registry =
       scope.role === ""
         ? activeActorRegistry([])

@@ -55,7 +55,11 @@ const readNumericStat = (entity: Entity, key: string): number | undefined => {
   return Number.isFinite(value) ? value : undefined;
 };
 
-const evaluateStatThreshold = (watch: EtherWatch, snapshots: SnapshotState): WatcherEvaluation => {
+/** Pure status only — no rising-edge memory (for paused / non-automating canvases). */
+export const evaluateStatThreshold = (
+  watch: EtherWatch,
+  snapshots: SnapshotState,
+): WatcherEvaluation => {
   if (!watch.source || !watch.key || !watch.stat || !watch.op || watch.value === undefined) {
     return { status: "unknown", detail: "incomplete stat rule" };
   }
@@ -119,12 +123,28 @@ export function detectPulses(
   canvasName: string,
   doc: CanvasDoc,
   snapshots: SnapshotState,
+  opts?: { readonly consumeEdge?: boolean },
 ): ReadonlyArray<DetectedWatcher> {
+  const consumeEdge = opts?.consumeEdge !== false;
   const out: DetectedWatcher[] = [];
   for (const node of doc.nodes) {
     if (node.type !== "text") continue;
     const watch = node.ether?.watch;
     if (!watch) continue;
+    if (!consumeEdge) {
+      out.push({
+        nodeId: node.id,
+        watch,
+        result: {
+          state: evaluateStatThreshold(watch, snapshots),
+          fired: false,
+        },
+      });
+      // Hold rising edges across pause: track pending/baseline without
+      // consuming a satisfied transition until automation may fire.
+      holdWatcherLevel(canvasName, node.id, out[out.length - 1]!.result.state.status);
+      continue;
+    }
     const result = evaluateWatcher(canvasName, node.id, watch, snapshots);
     out.push({ nodeId: node.id, watch, result });
   }
@@ -132,14 +152,49 @@ export function detectPulses(
 }
 
 /**
+ * While automation is suspended: write pending (and baseline satisfied) into
+ * edge memory, but leave a pending→satisfied transition uncommitted so resume
+ * can still fire once.
+ */
+const holdWatcherLevel = (
+  canvasName: string,
+  nodeId: string,
+  status: WatcherStatus,
+): void => {
+  const memoryKey = `${canvasName}::${nodeId}`;
+  const previous = seenLevelStatus.get(memoryKey);
+  if (status === "unknown") return;
+  if (status === "pending") {
+    seenLevelStatus.set(memoryKey, "pending");
+    return;
+  }
+  // satisfied
+  if (previous === undefined) {
+    // Baseline while suspended — same as live baseline (never fires).
+    seenLevelStatus.set(memoryKey, "satisfied");
+    return;
+  }
+  if (previous === "satisfied") {
+    seenLevelStatus.set(memoryKey, "satisfied");
+  }
+  // previous === "pending" && satisfied: hold — do not write satisfied yet
+};
+
+/**
  * Rising-edge helper for non-hermes sensors (relay). Shares the same
  * seenLevelStatus map so first observation never fires.
+ * When consumeEdge is false: status only, no memory advance, never fires.
  */
 export function evaluateWatcherLevel(
   canvasName: string,
   nodeId: string,
   evaluation: WatcherEvaluation,
+  opts?: { readonly consumeEdge?: boolean },
 ): WatcherEvalResult {
+  if (opts?.consumeEdge === false) {
+    holdWatcherLevel(canvasName, nodeId, evaluation.status);
+    return { state: evaluation, fired: false };
+  }
   const memoryKey = `${canvasName}::${nodeId}`;
   const previous = seenLevelStatus.get(memoryKey);
   if (evaluation.status !== "unknown") {

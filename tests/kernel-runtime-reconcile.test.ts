@@ -4,6 +4,7 @@ import type { SnapshotState } from "../src/shared/entities";
 import { resetWatcherMemory } from "../src/main/vellum/kernel/evaluate";
 import {
   __resetKernelMemoryForTest,
+  __setAutomationGateForTest,
   __setSnapshotsForTest,
   __setStationScopeForTest,
   __setTimerSchedulerForTest,
@@ -63,11 +64,16 @@ beforeEach(() => {
   resetWatcherMemory();
   __setStationScopeForTest({ hostId: "local", role: "command-center" });
   __setTimerSchedulerForTest(makeInMemoryTimerScheduler());
+  __setAutomationGateForTest({
+    canAutomateCanvas: () => true,
+    canAuthorFlags: () => true,
+  });
   __setSnapshotsForTest(snapshotsWithStat("signals", 3)); // below threshold -> pending
 });
 
 afterEach(() => {
   __setTimerSchedulerForTest(undefined);
+  __setAutomationGateForTest(undefined);
 });
 
 describe("purgeCanvasMemory — drops derived watcher/timer state", () => {

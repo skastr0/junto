@@ -208,7 +208,11 @@ the factory claim tick — never via geometry broadcast.
 without `effect` still do nothing. Claim assignment stays the factory tick.
 
 **Scheduler laws**: (1) Sensor truth is derived. (2) Single-home evaluation.
-(3) Interval catch-up ≤1 due tick. (4) Effects suppressed when canvas paused.
+(3) Interval catch-up ≤1 due tick. (4) **Automate only when station role is
+configured and the canvas is playing** — otherwise project status/`nextFire`
+but do not consume rising-edge memory or durable cron firing slots.
+(5) **`set_flag` / `flagOnUnsatisfied` are Command Center only** (Remote refuses
+authorial canvas mutate; fail closed, no silent success).
 
 ## Sources (read-only adapters)
 

@@ -19,6 +19,8 @@ import type {
   SchedulerClaimInput,
   SchedulerClaimResult,
 } from "../scheduler/repository";
+import type { IntervalTimerState } from "@shared/scheduler-policy";
+import { evaluateIntervalTimer } from "@shared/scheduler-policy";
 import type { ActorRefResolver } from "@shared/attention";
 import {
   detectPulses,
@@ -93,6 +95,21 @@ export interface TimerSchedulerDeps {
     homeStation: string,
     activeTimerKeys: ReadonlyArray<string>,
   ) => Promise<number>;
+  /** Read-only cursor for paused / non-automating canvases (no fire claim). */
+  readonly readIntervalState: (
+    homeStation: string,
+    timerKey: string,
+  ) => Promise<IntervalTimerState | undefined>;
+}
+
+/**
+ * When false: sensors still project status/nextFire for UI, but must not
+ * consume rising-edge memory or durable cron firing slots, and must not apply
+ * effects. Wired from pause plane + station role.
+ */
+export interface AutomationGateDeps {
+  readonly canAutomateCanvas: (canvasName: string) => boolean;
+  readonly canAuthorFlags: () => boolean;
 }
 
 // --- module-level state ------------------------------------------------------
@@ -102,7 +119,14 @@ let snapshots: SnapshotState = { bundles: [] };
 let flagWriterDeps: FlagWriterDeps | undefined = undefined;
 let phaseMirrorDeps: PhaseMirrorDeps | undefined = undefined;
 let timerSchedulerDeps: TimerSchedulerDeps | undefined = undefined;
+let automationGateDeps: AutomationGateDeps | undefined = undefined;
 let resolveActorRef: ActorRefResolver = () => undefined;
+
+const canAutomateCanvas = (canvasName: string): boolean =>
+  automationGateDeps?.canAutomateCanvas(canvasName) ?? false;
+
+const canAuthorFlags = (): boolean =>
+  automationGateDeps?.canAuthorFlags() ?? false;
 
 export const __setDocsForTest = (docsMap: Map<string, CanvasDoc>): void => {
   docs = docsMap;
@@ -130,12 +154,19 @@ export const __setTimerSchedulerForTest = (
   timerSchedulerDeps = deps;
 };
 
+export const __setAutomationGateForTest = (
+  deps: AutomationGateDeps | undefined,
+): void => {
+  automationGateDeps = deps;
+};
+
 export const __resetKernelMemoryForTest = (): void => {
   docs = new Map();
   snapshots = { bundles: [] };
   flagWriterDeps = undefined;
   phaseMirrorDeps = undefined;
   timerSchedulerDeps = undefined;
+  automationGateDeps = undefined;
   resolveActorRef = () => undefined;
   nextFire.clear();
   executionByCanvas.clear();
@@ -299,7 +330,10 @@ export const runEvaluationCycle = async (): Promise<void> => {
         }
       }
 
-      for (const { nodeId, watch, result } of detectPulses(canvasName, doc, snapshots)) {
+      const automate = canAutomateCanvas(canvasName);
+      for (const { nodeId, watch, result } of detectPulses(canvasName, doc, snapshots, {
+        consumeEdge: automate,
+      })) {
         const source = doc.nodes.find((node) => node.id === nodeId);
         // Host-scoped: this station only runs executable nodes assigned to it.
         if (source !== undefined && !isNodeEligibleOnStation(source, stationHostId)) {
@@ -318,13 +352,16 @@ export const runEvaluationCycle = async (): Promise<void> => {
         };
         watchers.set(watcherKey, nextRuntime);
 
-        applyFlagOnUnsatisfied(
-          canvasName,
-          doc,
-          nodeId,
-          watch.flagOnUnsatisfied,
-          result.state.status,
-        );
+        // Document flag writes only when automating and role may author (CC).
+        if (automate && canAuthorFlags()) {
+          applyFlagOnUnsatisfied(
+            canvasName,
+            doc,
+            nodeId,
+            watch.flagOnUnsatisfied,
+            result.state.status,
+          );
+        }
         if (result.fired) {
           await applySchedulerFire(doc, {
             canvasName,
@@ -341,7 +378,9 @@ export const runEvaluationCycle = async (): Promise<void> => {
         if (node.type !== "text" || !node.ether?.relay) continue;
         if (!isNodeEligibleOnStation(node, stationHostId)) continue;
         const evaluation = evaluateRelay(doc, node.ether.relay);
-        const result = evaluateWatcherLevel(canvasName, node.id, evaluation);
+        const result = evaluateWatcherLevel(canvasName, node.id, evaluation, {
+          consumeEdge: automate,
+        });
         const watcherKey = `${canvasName}::${node.id}`;
         const previous = watchers.get(watcherKey);
         const nextRuntime: WatcherRuntimeState = {
@@ -438,13 +477,55 @@ export const checkTimers = async (
         continue;
       }
       try {
-        const decision = await timerSchedulerDeps.claimInterval({
+        const homeIds = [resolveNodeHostId(node)];
+        const claimInput = {
           timerKey,
           localStationId: stationHostId,
-          homeStationIds: [resolveNodeHostId(node)],
+          homeStationIds: homeIds,
           nowEpochMs,
           everyMinutes: timer.everyMinutes,
-        });
+        };
+
+        // Paused / unset role: project nextFire for UI without consuming a
+        // durable firing slot or applying effects.
+        if (!canAutomateCanvas(canvasName)) {
+          const state = await timerSchedulerDeps.readIntervalState(
+            stationHostId,
+            timerKey,
+          );
+          if (state === undefined) {
+            // First discovery: initialize cursor only (no fire on init).
+            const seeded = await timerSchedulerDeps.claimInterval(claimInput);
+            if (seeded._tag === "Initialized") {
+              nextFire.set(timerKey, seeded.state.nextDueAtEpochMs);
+            } else if (seeded._tag === "NotDue") {
+              nextFire.set(timerKey, seeded.state.nextDueAtEpochMs);
+            } else if (seeded._tag === "Firing") {
+              // Race: became due during init path — do not apply; show due.
+              nextFire.set(timerKey, seeded.scheduledForEpochMs);
+            } else {
+              nextFire.delete(timerKey);
+            }
+            continue;
+          }
+          const peeked = evaluateIntervalTimer({
+            ...claimInput,
+            state,
+          });
+          if (peeked._tag === "Ineligible") {
+            nextFire.delete(timerKey);
+            continue;
+          }
+          if (peeked._tag === "NotDue") {
+            nextFire.set(timerKey, peeked.state.nextDueAtEpochMs);
+            continue;
+          }
+          // Due but not consuming — keep countdown at scheduled due time.
+          nextFire.set(timerKey, peeked.scheduledForEpochMs);
+          continue;
+        }
+
+        const decision = await timerSchedulerDeps.claimInterval(claimInput);
         if (decision._tag === "Ineligible") {
           nextFire.delete(timerKey);
           console.error(

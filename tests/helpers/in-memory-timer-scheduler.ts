@@ -66,6 +66,8 @@ export const makeInMemoryTimerScheduler = (): TimerSchedulerDeps => {
 
   return {
     claimInterval,
+    readIntervalState: async (homeStation, timerKey) =>
+      states.get(`${homeStation}\u0000${timerKey}`),
     reconcileHome: async (homeStation, activeTimerKeys) => {
       const active = new Set(
         activeTimerKeys.map((timerKey) => `${homeStation}\u0000${timerKey}`),

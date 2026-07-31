@@ -24,7 +24,10 @@ export type SchedulerFireEvent = {
 };
 
 export type SchedulerEffectDeps = {
-  readonly effectsEnabled: () => boolean;
+  /** Per-canvas: playing + station role configured. */
+  readonly canAutomateCanvas: (canvasName: string) => boolean;
+  /** Document flag writes: Command Center only (Remote refuses authorial mutate). */
+  readonly canAuthorFlags: () => boolean;
   /** Return true if this fireKey+edgeId was already applied. */
   readonly hasReceipt: (fireKey: string, edgeId: string) => boolean;
   readonly recordReceipt: (fireKey: string, edgeId: string) => void;
@@ -39,7 +42,7 @@ export type SchedulerEffectDeps = {
     nodeId: string,
     flag: EtherFlag,
     enabled: boolean,
-  ) => void;
+  ) => Promise<{ readonly ok: boolean; readonly message?: string }>;
 };
 
 let effectDeps: SchedulerEffectDeps | undefined;
@@ -86,17 +89,30 @@ const applyOne = async (
     return;
   }
 
+  if (!deps.canAuthorFlags()) {
+    console.error(
+      `[kernel] set_flag skipped on ${binding.edge.id}: flag authoring requires Command Center (Remote cannot mutate authorial canvas)`,
+    );
+    return;
+  }
+
   const enabled = resolveMirrorFlagEnabled(
     binding.effect.enabled,
     fire.status ?? "satisfied",
   );
   if (enabled === undefined) return;
-  deps.setFlag(
+  const flagResult = await deps.setFlag(
     canvasName,
     binding.target.id,
     binding.effect.flag,
     enabled,
   );
+  if (!flagResult.ok) {
+    console.error(
+      `[kernel] set_flag failed on ${binding.edge.id}: ${flagResult.message ?? "unknown"}`,
+    );
+    return;
+  }
   deps.recordReceipt(fire.fireKey, binding.edge.id);
 };
 
@@ -104,7 +120,8 @@ export const applySchedulerFire = async (
   doc: CanvasDoc,
   fire: SchedulerFireEvent,
 ): Promise<void> => {
-  if (!effectDeps || !effectDeps.effectsEnabled()) return;
+  if (!effectDeps) return;
+  if (!effectDeps.canAutomateCanvas(fire.canvasName)) return;
   const bindings = collectEffectEdgesFrom(doc, fire.sourceNodeId);
   if (bindings.length === 0) return;
   for (const binding of bindings) {

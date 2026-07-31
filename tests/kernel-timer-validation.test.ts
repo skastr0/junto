@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   __resetKernelMemoryForTest,
+  __setAutomationGateForTest,
   __setDocsForTest,
   checkTimers,
   getNextFire,
@@ -67,10 +68,15 @@ describe("checkTimers — invalid everyMinutes degrades to a no-op", () => {
   beforeEach(() => {
     __resetKernelMemoryForTest();
     __setTimerSchedulerForTest(makeInMemoryTimerScheduler());
+    __setAutomationGateForTest({
+      canAutomateCanvas: () => true,
+      canAuthorFlags: () => true,
+    });
   });
 
   afterEach(() => {
     __setTimerSchedulerForTest(undefined);
+    __setAutomationGateForTest(undefined);
   });
 
   it("a zero interval never schedules a nextFire entry", async () => {

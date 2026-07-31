@@ -225,6 +225,7 @@ export type EdgeBatchCandidate = {
   readonly fromNode: string;
   readonly toNode: string;
   readonly criteria?: EdgeCriteria;
+  readonly effect?: EdgeEffect;
 };
 
 export type EdgeBatchPlan = {
@@ -283,10 +284,12 @@ export const planConnectToTarget = (
     }
     planned.add(key);
     const criteria = criteriaOverride ?? inferEdgeCriteria(source);
+    const effect = inferSchedulerEdgeEffect(source, target);
     toAdd.push({
       fromNode: sourceId,
       toNode: targetId,
       ...(criteria ? { criteria } : {}),
+      ...(effect ? { effect } : {}),
     });
   }
 
@@ -319,12 +322,21 @@ export const connectAllToTarget = (
     return plan;
   }
 
-  const newEdges: CanvasEdge[] = plan.toAdd.map((candidate) => ({
-    id: `edge-${ulid()}`,
-    fromNode: candidate.fromNode,
-    toNode: candidate.toNode,
-    ...(candidate.criteria ? { ether: { criteria: candidate.criteria } } : {}),
-  }));
+  const newEdges: CanvasEdge[] = plan.toAdd.map((candidate) => {
+    const ether =
+      candidate.criteria || candidate.effect
+        ? {
+            ...(candidate.criteria ? { criteria: candidate.criteria } : {}),
+            ...(candidate.effect ? { effect: candidate.effect } : {}),
+          }
+        : undefined;
+    return {
+      id: `edge-${ulid()}`,
+      fromNode: candidate.fromNode,
+      toNode: candidate.toNode,
+      ...(ether ? { ether } : {}),
+    };
+  });
 
   if (!options?.keepSelection) {
     state$.selectedNodeId.set("");
