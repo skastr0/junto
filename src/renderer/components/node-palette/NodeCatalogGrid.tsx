@@ -92,13 +92,6 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     connections: [{ target: "Agent", relationship: "shares bounded browser context", ports: ["browser.navigate", "browser.evaluate"] }],
   },
   {
-    id: "watcher", kind: "watcher", category: "schedule", label: "Watcher", subtitle: "condition over live data",
-    icon: Eye, accentClass: "text-cyan",
-    purpose: "A read-only condition over live Hermes data that makes changing operational state visible.",
-    attention: "Watcher truth is derived from live data and never becomes authored document state.",
-    connections: [{ target: "Agent", relationship: "surfaces live state beside connected work", ports: [] }],
-  },
-  {
     id: "timer", kind: "timer", category: "schedule", label: "Cron", subtitle: "schedule on an interval",
     icon: Clock3, accentClass: "text-violet",
     purpose: "A durable, home-scoped schedule that fires authored edge effects (enqueue tasks, set flags).",

@@ -169,6 +169,7 @@ export function AgentLaunchContext({
           <div
             role="dialog"
             aria-label="Choose starting folder"
+            data-node-palette-portal
             className="fixed z-[80] w-[min(420px,calc(100vw-24px))] rounded-[7px] border border-stroke bg-ground p-3 shadow-[0_18px_42px_rgba(0,0,0,.48)]"
             style={{ left: Math.max(12, Math.min(rect.left, window.innerWidth - 432)), bottom: window.innerHeight - rect.top + 8 }}
           >
