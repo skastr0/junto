@@ -3,6 +3,12 @@
  * Dense two-column insertion surface. The cards deliberately stay neutral:
  * kind is carried by the outlined icon, never a coloured slab or side stripe.
  */
+.focus-surface__panel.node-deck-focus-panel {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .node-deck {
   --deck-line: rgb(237 230 218 / 0.14);
   --deck-line-hi: rgb(237 230 218 / 0.28);
