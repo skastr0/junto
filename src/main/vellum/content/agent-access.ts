@@ -81,7 +81,15 @@ export const taskItemsForNode = (node: CanvasNode): ReadonlyArray<Task> => {
 
 /** Encode user-controlled scope identifiers into path-safe, non-ambiguous names. */
 const scopeSegment = (value: string): string =>
-  Buffer.from(value, "utf8").toString("hex").slice(0, 160) || "empty";
+  (() => {
+    const encoded = Buffer.from(value, "utf8").toString("hex");
+    if (encoded.length <= 160) return encoded || "empty";
+    // Keep the directory component bounded without allowing two long ids
+    // sharing a prefix to collapse onto the same task workspace.
+    return `${encoded.slice(0, 96)}-${createHash("sha256")
+      .update(value, "utf8")
+      .digest("hex")}`;
+  })();
 
 const assertInside = (root: string, candidate: string): void => {
   const rootResolved = resolve(root);
@@ -99,7 +107,11 @@ const assertInside = (root: string, candidate: string): void => {
   }
 };
 
-const safeFileName = (value: string | undefined, sha256: string): string => {
+const safeFileName = (
+  value: string | undefined,
+  sha256: string,
+  strict: boolean,
+): string => {
   const fallback = `content-${sha256.slice(0, 16)}`;
   if (value === undefined || value.trim().length === 0) return fallback;
   const trimmed = value.trim();
@@ -108,17 +120,24 @@ const safeFileName = (value: string | undefined, sha256: string): string => {
     trimmed === ".." ||
     trimmed.includes("/") ||
     trimmed.includes("\\") ||
+    trimmed.includes(":") ||
+    trimmed.endsWith(".") ||
+    trimmed.endsWith(" ") ||
     /[\u0000-\u001f\u007f]/u.test(trimmed)
   ) {
+    if (!strict) return fallback;
     throw new ContentStoreError(
       "invalid",
       "content materialization name must be a single path-safe filename",
     );
   }
-  if (trimmed.length > 255) {
+  // The digest prefix and separator are part of the filename, leaving 190
+  // bytes under the common 255-byte filesystem component limit.
+  if (Buffer.byteLength(trimmed, "utf8") > 190) {
+    if (!strict) return fallback;
     throw new ContentStoreError(
       "invalid",
-      "content materialization name must be at most 255 characters",
+      "content materialization name is too long for a digest-qualified path",
     );
   }
   return trimmed;
@@ -145,6 +164,7 @@ export const contentMaterializationPath = (input: {
   const fileName = `${input.ref.sha256}-${safeFileName(
     input.name ?? input.ref.displayName,
     input.ref.sha256,
+    input.name !== undefined,
   )}`;
   const path = join(directory, fileName);
   assertInside(root, path);
