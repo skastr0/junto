@@ -124,6 +124,70 @@ describe("collectAlertSignals", () => {
     expect(signals[0]?.nodeId).toBe("h1");
   });
 
+  it("collects managed-seat ready/complete as agent-done (herdr-done kind)", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        {
+          id: "agent-1",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 40,
+          text: "worker",
+          ether: {
+            entity: { kind: "agent", name: "local:worker" },
+            host: "local",
+            terminal: {
+              bindingId: "bind-ready",
+              harness: "codex",
+              label: "worker",
+              launch: { kind: "shell" },
+            },
+          },
+        },
+        {
+          id: "agent-2",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 40,
+          text: "quiet",
+          ether: {
+            entity: { kind: "agent", name: "local:quiet" },
+            host: "local",
+            terminal: {
+              bindingId: "bind-quiet",
+              harness: "codex",
+              label: "quiet",
+              launch: { kind: "shell" },
+            },
+          },
+        },
+      ],
+      edges: [],
+    };
+    const signals = collectAlertSignals({
+      doc,
+      rollups: [],
+      chat: {},
+      herdrMeta: {},
+      seatNeedsLook: {
+        "bind-ready": true,
+        "bind-quiet": false,
+      },
+      snapshots: { bundles: [] },
+      orphans: [],
+    });
+    expect(signals.map((s) => s.id)).toEqual([alertId.agentDone("agent-1")]);
+    expect(signals[0]).toMatchObject({
+      kind: "herdr-done",
+      nodeId: "agent-1",
+      label: "worker",
+    });
+  });
+
 
   it("collects orphans and resolves region id when present", () => {
     const doc: CanvasDoc = {

@@ -148,6 +148,23 @@ describe("terminalActivity", () => {
     });
   });
 
+  it("idle + needsLook is ready/complete (herdr done), not steel idle", () => {
+    expect(
+      terminalActivity({ seatState: "idle", needsLook: true }),
+    ).toMatchObject({
+      mode: "wave",
+      tone: "amber",
+      pattern: "ripple",
+      label: "ready — waiting for look",
+    });
+    // Seen idle stays quiet.
+    expect(terminalActivity({ seatState: "idle", needsLook: false })).toMatchObject({
+      mode: "static",
+      tone: "steel",
+      label: "idle",
+    });
+  });
+
   it("waves crimson when graph-blocked even if the seat is idle", () => {
     expect(
       terminalActivity({ seatState: "idle", graphBlocked: true }),

@@ -6,6 +6,8 @@ import {
   clueFromAgentSeat,
   decodeAgentSeatStateEvent,
   harnessFromSeatState,
+  markAgentSeatSeen,
+  presentationForSeat,
   resetAgentSeatState,
   subscribeAgentSeatState,
   terminalStatusByNodeIdFromSeats,
@@ -69,8 +71,15 @@ describe("harnessFromSeatState / clueFromAgentSeat", () => {
     expect(harnessFromSeatState("attention")).toBe("attention");
     expect(harnessFromSeatState("working")).toBe("working");
     expect(harnessFromSeatState("idle")).toBe("idle");
+    expect(harnessFromSeatState("idle", true)).toBe("attention");
     expect(harnessFromSeatState("unknown")).toBe("unknown");
     expect(harnessFromSeatState("gone")).toBe("unknown");
+  });
+
+  it("presentationForSeat derives done from idle + needsLook", () => {
+    expect(presentationForSeat("idle", true)).toBe("done");
+    expect(presentationForSeat("idle", false)).toBe("idle");
+    expect(presentationForSeat("working", true)).toBe("working");
   });
 
   it("builds an occupancy clue with process-bind presence", () => {
@@ -119,6 +128,45 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
   it("stores by bindingId", () => {
     applyAgentSeatStateEvent(event({ bindingId: "b1", state: "working" }));
     expect(agentSeat$.byBindingId.b1.peek()?.state).toBe("working");
+  });
+
+  it("arms needsLook on working→idle and clears on mark seen", () => {
+    applyAgentSeatStateEvent(event({ bindingId: "b1", state: "working", at: 1 }));
+    expect(agentSeat$.needsLookByBindingId.b1.peek()).toBe(false);
+
+    applyAgentSeatStateEvent(event({ bindingId: "b1", state: "idle", at: 2 }));
+    expect(agentSeat$.needsLookByBindingId.b1.peek()).toBe(true);
+    expect(presentationForSeat("idle", true)).toBe("done");
+    expect(workSurfaceFromSeat(event({ bindingId: "b1", state: "idle" }), true)).toEqual({
+      session: "running",
+      harness: "attention",
+      source: "native",
+    });
+
+    markAgentSeatSeen("b1");
+    expect(agentSeat$.needsLookByBindingId.b1.peek()).toBe(false);
+  });
+
+  it("does not arm needsLook on first idle without prior work", () => {
+    applyAgentSeatStateEvent(event({ bindingId: "b2", state: "idle", at: 1 }));
+    expect(agentSeat$.needsLookByBindingId.b2.peek()).toBe(false);
+  });
+
+  it("clears needsLook on gone / new epoch", () => {
+    applyAgentSeatStateEvent(event({ bindingId: "b3", state: "working", at: 1, epoch: "e1" }));
+    applyAgentSeatStateEvent(event({ bindingId: "b3", state: "idle", at: 2, epoch: "e1" }));
+    expect(agentSeat$.needsLookByBindingId.b3.peek()).toBe(true);
+
+    applyAgentSeatStateEvent(event({ bindingId: "b3", state: "gone", at: 3, epoch: "e1" }));
+    expect(agentSeat$.needsLookByBindingId.b3.peek()).toBe(false);
+
+    applyAgentSeatStateEvent(event({ bindingId: "b3", state: "working", at: 4, epoch: "e2" }));
+    applyAgentSeatStateEvent(event({ bindingId: "b3", state: "idle", at: 5, epoch: "e2" }));
+    expect(agentSeat$.needsLookByBindingId.b3.peek()).toBe(true);
+    applyAgentSeatStateEvent(
+      event({ bindingId: "b3", state: "working", at: 6, epoch: "e3" }),
+    );
+    expect(agentSeat$.needsLookByBindingId.b3.peek()).toBe(false);
   });
 
   it("does not let an older generation event replace a newer tombstone", () => {

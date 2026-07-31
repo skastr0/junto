@@ -21,10 +21,12 @@ import {
   type AlertQueue,
   type AlertSignal,
 } from "./alert-queue";
+import { agentSeat$ } from "./agent-seat-state";
 import { chatCoarse$ } from "./chat-state";
 import { herdr$ } from "./herdr-state";
 import { playAlert } from "./sfx";
 import { state$ } from "./state";
+import { resolveTerminalBinding } from "@shared/terminal";
 
 const TYPING_SURFACE_SELECTOR =
   "input, textarea, [contenteditable='true'], .xterm, .xterm-helper-textarea, .native-terminal-surface, .herdr-xterm, .herdr-terminal-panel, [data-terminal-surface]";
@@ -81,10 +83,15 @@ export const collectAlertSignals = (input: {
   readonly rollups: ReadonlyArray<RegionRollup>;
   readonly chat: Record<string, { pendingPermissionId?: string; pendingPermission?: { requestId?: string } } | undefined>;
   readonly herdrMeta: Record<string, { meta?: { agentStatus?: string } } | undefined>;
+  /**
+   * Managed-seat ready/complete: bindingId → needsLook (idle after work, unread).
+   * Absent map skips agent-done signals (tests / early boot).
+   */
+  readonly seatNeedsLook?: Record<string, boolean | undefined>;
   readonly snapshots: SnapshotState;
   readonly orphans: ReadonlyArray<string>;
 }): ReadonlyArray<AlertSignal> => {
-  const { doc, rollups, chat, herdrMeta, snapshots, orphans } = input;
+  const { doc, rollups, chat, herdrMeta, seatNeedsLook, snapshots, orphans } = input;
   const out: AlertSignal[] = [];
   const seen = new Set<string>();
 
@@ -131,6 +138,22 @@ export const collectAlertSignals = (input: {
       nodeId: nodeExists(doc, nodeId),
       label: nodeId,
     });
+  }
+
+  // agent-done: managed seat idle+needsLook (ready/complete, not idle steel)
+  if (seatNeedsLook) {
+    for (const node of doc.nodes) {
+      const native = resolveTerminalBinding(node);
+      if (native?.kind !== "native") continue;
+      if (seatNeedsLook[native.bindingId] !== true) continue;
+      push({
+        id: alertId.agentDone(node.id),
+        kind: "herdr-done",
+        subjectKey: node.id,
+        nodeId: node.id,
+        label: node.type === "text" ? node.text.split("\n")[0] || node.id : node.id,
+      });
+    }
   }
 
   // orphan: kernel orphaned arms
@@ -202,6 +225,10 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
           string,
           { meta?: { agentStatus?: string } } | undefined
         >,
+        seatNeedsLook: agentSeat$.needsLookByBindingId.peek() as Record<
+          string,
+          boolean | undefined
+        >,
         snapshots: state$.snapshots.peek(),
         orphans: [],
       });
@@ -213,6 +240,7 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
     const offs = [
       chatCoarse$.onChange(() => run()),
       herdr$.metaByNodeId.onChange(() => run()),
+      agentSeat$.needsLookByBindingId.onChange(() => run()),
       state$.snapshots.onChange(() => run()),
       state$.docVersion.onChange(() => run()),
     ];
@@ -236,6 +264,10 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
       herdrMeta: herdr$.metaByNodeId.peek() as Record<
         string,
         { meta?: { agentStatus?: string } } | undefined
+      >,
+      seatNeedsLook: agentSeat$.needsLookByBindingId.peek() as Record<
+        string,
+        boolean | undefined
       >,
       snapshots: state$.snapshots.peek(),
       orphans: [],

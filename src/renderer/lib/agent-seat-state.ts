@@ -8,6 +8,7 @@
  *   3. joins bindingId → canvas nodeId when known (document terminal bind
  *      or terminal inventory session.canvasName/nodeId)
  *   4. feeds occupancy / card chrome (attention amber, working cyan)
+ *   5. derives presentation "done" as idle + needsLook (herdr Idle+!seen)
  *
  * Never writes the canvas. Absent bridge degrades to a no-op subscribe.
  */
@@ -33,12 +34,62 @@ export type AgentSeatStore = {
    * Filled from events (via inventory) and document terminal binds on read.
    */
   readonly bindingIdByNodeId: Record<string, string | undefined>;
+  /**
+   * Idle after work, operator has not looked yet → present as done (not idle).
+   * Mirrors herdr's Idle+!seen. Cleared by markAgentSeatSeen (open path).
+   */
+  readonly needsLookByBindingId: Record<string, boolean | undefined>;
 };
 
 export const agentSeat$ = observable<AgentSeatStore>({
   byBindingId: {},
   bindingIdByNodeId: {},
+  needsLookByBindingId: {},
 });
+
+/** Product presentation: engine states plus derived ready/complete. */
+export type AgentSeatPresentation = AgentSeatState | "done";
+
+/** True when a native terminal surface is open for this binding. */
+export const isBindingSurfaceOpen = (bindingId: string): boolean => {
+  const open = terminal$.openByNodeId.peek();
+  for (const node of Object.values(open)) {
+    if (!node) continue;
+    const native = resolveTerminalBinding(node);
+    if (native?.kind === "native" && native.bindingId === bindingId) return true;
+  }
+  // Inventory join: nodeId → binding when surface was opened via node id key.
+  for (const [nodeId, openNode] of Object.entries(open)) {
+    if (!openNode) continue;
+    if (agentSeat$.bindingIdByNodeId[nodeId].peek() === bindingId) return true;
+  }
+  return false;
+};
+
+/** Idle + needsLook → done (ready/complete until the operator looks). */
+export const presentationForSeat = (
+  state: AgentSeatState | undefined,
+  needsLook: boolean | undefined,
+): AgentSeatPresentation | undefined => {
+  if (!state) return undefined;
+  if (state === "idle" && needsLook === true) return "done";
+  return state;
+};
+
+export const seatNeedsLook = (bindingId: string | undefined): boolean => {
+  if (!bindingId) return false;
+  return agentSeat$.needsLookByBindingId[bindingId].peek() === true;
+};
+
+/** Operator opened / looked at the seat — clear ready/complete chrome. */
+export const markAgentSeatSeen = (bindingId: string | undefined): void => {
+  if (!bindingId) return;
+  if (agentSeat$.needsLookByBindingId[bindingId].peek() !== true) return;
+  agentSeat$.needsLookByBindingId[bindingId].set(false);
+};
+
+const isActiveWorkState = (state: AgentSeatState | undefined): boolean =>
+  state === "working" || state === "attention";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -65,10 +116,17 @@ export const decodeAgentSeatStateEvent = (raw: unknown): AgentSeatStateEvent | u
   };
 };
 
-/** Map product seat state → occupancy harness vocabulary. */
-export const harnessFromSeatState = (state: AgentSeatState): OccupancyHarnessState => {
+/**
+ * Map product seat state → occupancy harness vocabulary.
+ * idle + needsLook presents as attention (herdr done → attention rollup).
+ */
+export const harnessFromSeatState = (
+  state: AgentSeatState,
+  needsLook = false,
+): OccupancyHarnessState => {
   if (state === "attention") return "attention";
   if (state === "working") return "working";
+  if (state === "idle" && needsLook) return "attention";
   if (state === "idle") return "idle";
   return "unknown";
 };
@@ -76,11 +134,12 @@ export const harnessFromSeatState = (state: AgentSeatState): OccupancyHarnessSta
 /** Pure: seat event → occupancy clue (process-bind presence + harness). */
 export const clueFromAgentSeat = (
   event: AgentSeatStateEvent | undefined,
+  needsLook = false,
 ): OccupancyClue | undefined => {
   if (!event) return undefined;
   return {
     hasOccupant: event.state !== "gone",
-    activity: { harness: harnessFromSeatState(event.state) },
+    activity: { harness: harnessFromSeatState(event.state, needsLook) },
     lastSeenAtMs: event.at,
   };
 };
@@ -88,11 +147,12 @@ export const clueFromAgentSeat = (
 /** WorkSurfaceActivity for region rollups / severity ladder. */
 export const workSurfaceFromSeat = (
   event: AgentSeatStateEvent | undefined,
+  needsLook = false,
 ): WorkSurfaceActivity | undefined => {
   if (!event) return undefined;
   return {
     session: event.state === "gone" ? "exited" : "running",
-    harness: harnessFromSeatState(event.state),
+    harness: harnessFromSeatState(event.state, needsLook),
     source: "native",
   };
 };
@@ -105,7 +165,22 @@ const rememberNodeJoin = (bindingId: string, nodeId: string | undefined): void =
 export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
   const current = agentSeat$.byBindingId[event.bindingId].peek();
   if (current && event.at < current.at) return;
+
+  const prevState = current?.state;
+  const epochChanged = current !== undefined && current.epoch !== event.epoch;
+  let needsLook = agentSeat$.needsLookByBindingId[event.bindingId].peek() === true;
+
+  if (epochChanged || event.state === "gone") {
+    // New generation / vacated seat: never inherit a stale ready/complete flag.
+    needsLook = false;
+  } else if (event.state === "idle" && isActiveWorkState(prevState)) {
+    // Finished a turn (working|attention → idle). If the operator is already
+    // looking, stay quiet; otherwise arm ready/complete chrome.
+    needsLook = !isBindingSurfaceOpen(event.bindingId);
+  }
+
   agentSeat$.byBindingId[event.bindingId].set(event);
+  agentSeat$.needsLookByBindingId[event.bindingId].set(needsLook);
   // Inventory join when the session is already cached with a canvas pin.
   const session = terminal$.sessionByBindingId[event.bindingId].peek();
   rememberNodeJoin(event.bindingId, session?.nodeId);
@@ -140,12 +215,16 @@ export const seatEventForBinding = (
 export const terminalStatusByNodeIdFromSeats = (
   nodes: ReadonlyArray<Pick<CanvasNode, "id" | "ether">>,
   seats: Readonly<Record<string, AgentSeatStateEvent | undefined>>,
+  needsLookByBindingId: Readonly<Record<string, boolean | undefined>> = {},
 ): Map<string, WorkSurfaceActivity> => {
   const out = new Map<string, WorkSurfaceActivity>();
   for (const node of nodes) {
     const native = resolveTerminalBinding(node as CanvasNode);
     if (native?.kind !== "native") continue;
-    const surface = workSurfaceFromSeat(seats[native.bindingId]);
+    const surface = workSurfaceFromSeat(
+      seats[native.bindingId],
+      needsLookByBindingId[native.bindingId] === true,
+    );
     if (surface) out.set(node.id, surface);
   }
   return out;
@@ -197,6 +276,7 @@ export const subscribeAgentSeatState = (): (() => void) => {
 export const resetAgentSeatState = (): void => {
   agentSeat$.byBindingId.set({});
   agentSeat$.bindingIdByNodeId.set({});
+  agentSeat$.needsLookByBindingId.set({});
   if (activeUnsubscribe) {
     activeUnsubscribe();
     activeUnsubscribe = undefined;

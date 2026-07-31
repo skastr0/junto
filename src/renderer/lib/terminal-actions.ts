@@ -4,6 +4,7 @@
  */
 import type { CanvasNode } from "@shared/canvas";
 import { resolveTerminalBinding } from "@shared/terminal";
+import { markAgentSeatSeen } from "./agent-seat-state";
 import { getVellumApi } from "./vellum-api";
 import { state$ } from "./state";
 import type { WorkZone } from "./surface-registry";
@@ -77,16 +78,20 @@ export const openTerminal = async (
   zone: WorkZone = "focus",
   options?: { readonly resume?: boolean },
 ): Promise<void> => {
+  const binding = resolveTerminalBinding(node);
   const result = await ensureTerminalRunning(node, options);
   if (!result.ok) {
     console.error("[terminal] open failed", result.message);
     // Still open the surface when a generation exists so the operator can
     // read the spawn journal (e.g. unexpanded cwd / missing shell). A total
     // unbound failure leaves the surface closed.
-    const binding = resolveTerminalBinding(node);
     if (binding?.kind !== "native") return;
     const session = terminal$.sessionByBindingId[binding.bindingId].peek();
     if (!session) return;
+  }
+  // Opening is "looking" — clear ready/complete (idle+unseen → idle), herdr-style.
+  if (binding?.kind === "native") {
+    markAgentSeatSeen(binding.bindingId);
   }
   openTerminalSurface(node, zone);
 };

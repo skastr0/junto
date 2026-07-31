@@ -4,7 +4,11 @@ import { SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
-import { agentSeat$, subscribeAgentSeatState } from "../../lib/agent-seat-state";
+import {
+  agentSeat$,
+  presentationForSeat,
+  subscribeAgentSeatState,
+} from "../../lib/agent-seat-state";
 import { terminalActivity } from "../../lib/activity";
 import { terminal$ } from "../../lib/terminal-state";
 import { getVellumApi } from "../../lib/vellum-api";
@@ -40,6 +44,11 @@ export function TerminalCard({
   const [session, setSession] = useState<TerminalSessionSummary>();
   const seatEvent = use$(
     agentSeat$.byBindingId[
+      native?.bindingId ?? "__vellum-terminal-no-binding__"
+    ],
+  );
+  const needsLook = use$(
+    agentSeat$.needsLookByBindingId[
       native?.bindingId ?? "__vellum-terminal-no-binding__"
     ],
   );
@@ -87,10 +96,12 @@ export function TerminalCard({
 
   const label = native.label ?? (node.type === "text" ? node.text : "terminal");
   const seatState = seatEvent?.state;
+  const presentation = presentationForSeat(seatState, needsLook === true);
   const exitReason = session?.exitReason;
   const exitMessage = session?.exitMessage;
   const activity = terminalActivity({
     seatState,
+    needsLook: needsLook === true,
     running: session?.status === "running",
     starting: session?.status === "starting",
     graphBlocked,
@@ -101,13 +112,14 @@ export function TerminalCard({
   const subtitle =
     (exitReason && exitMessage) ||
     (seatState === "attention" && seatEvent?.reason) ||
+    (presentation === "done" ? "ready — review response" : undefined) ||
     launchSummary(native.launch);
 
   return (
     <div
       className="group flex h-full w-full flex-col justify-between overflow-hidden"
       title="double-click to open"
-      data-seat-state={seatState}
+      data-seat-state={presentation ?? seatState}
       data-exit-reason={exitReason}
     >
       <div>

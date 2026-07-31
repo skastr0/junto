@@ -235,6 +235,8 @@ export const alertId = {
   blocked: (nodeId: string) => `blocked:${nodeId}`,
   permission: (agentKey: string) => `permission:${agentKey}`,
   herdrDone: (nodeId: string) => `herdr-done:${nodeId}`,
+  /** Managed seat ready/complete (idle+unseen) — same kind priority as herdr-done. */
+  agentDone: (nodeId: string) => `agent-done:${nodeId}`,
   orphan: (key: string) => `orphan:${key}`,
 } as const;
 

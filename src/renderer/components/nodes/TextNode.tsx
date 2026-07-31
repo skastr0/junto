@@ -219,6 +219,11 @@ function EntityCard({
   const seatEvent = use$(
     agentSeat$.byBindingId[bindingId ?? "__vellum-entity-card-no-binding__"],
   );
+  const needsLook = use$(
+    agentSeat$.needsLookByBindingId[
+      bindingId ?? "__vellum-entity-card-no-binding__"
+    ],
+  );
   const session = use$(
     terminal$.sessionByBindingId[
       bindingId ?? "__vellum-entity-card-no-binding__"
@@ -285,6 +290,7 @@ function EntityCard({
   const activity = managed
     ? terminalActivity({
         seatState: seatEvent?.state,
+        needsLook: needsLook === true,
         running: session?.status === "running",
         starting: session?.status === "starting",
         graphBlocked,

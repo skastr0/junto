@@ -195,6 +195,11 @@ export function herdrActivity(input: {
  */
 export function terminalActivity(input: {
   readonly seatState?: AgentSeatState | null;
+  /**
+   * Idle + needsLook → ready/complete (herdr "done"): finished turn, operator
+   * has not opened the seat yet. Never a physics state — presentation only.
+   */
+  readonly needsLook?: boolean;
   readonly running?: boolean;
   readonly starting?: boolean;
   /**
@@ -241,6 +246,15 @@ export function terminalActivity(input: {
       tone: SEVERITY_TONE.working,
       pattern: "diagonal",
       label: "starting",
+    };
+  }
+  // Ready/complete: idle after work, operator has not looked (herdr done).
+  if (input.seatState === "idle" && input.needsLook === true) {
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.attention,
+      pattern: "ripple",
+      label: "ready — waiting for look",
     };
   }
   if (input.seatState === "idle") {
