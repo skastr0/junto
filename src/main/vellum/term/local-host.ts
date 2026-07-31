@@ -60,7 +60,10 @@ import {
   isPinSessionHarness,
   launchArgvUsesResume,
 } from "./session-existence";
-import { planFreshPinSession } from "./managed-spawn-plan";
+import {
+  planFreshPinSession,
+  shouldAvoidSharedHarnessResume,
+} from "./managed-spawn-plan";
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
 import { buildManagedSeatInject } from "./templates/seat-env";
 
@@ -543,23 +546,73 @@ export class LocalSessionHost extends EventEmitter {
       !current.killed &&
       sessionStatusOf(current) !== "exited"
     ) {
-      // One binding owns one live actor generation. Create is an idempotent
-      // ensure at this boundary: renderer remounts, concurrent factory wake,
-      // or duplicate IPC must never turn into permission to signal and replace
-      // a healthy harness. Explicit kill followed by create remains restart.
-      return this.summaryOf(current);
+      // Isolated VELLUM_HOME (bun run dev) shares ~/.claude / ~/.grok with the
+      // production install. A generation started via shared --resume can stay
+      // "running" with a dead/black TUI. Prefer one fresh pin spawn when the
+      // live generation was a resume attempt (or the new plan still carries
+      // resume argv — should not happen after launchForManagedSpawn, but
+      // fail closed to pin rather than re-attach a poisoned seat).
+      const isolateShared = shouldAvoidSharedHarnessResume();
+      const pinHarness = isPinSessionHarness(input.harness);
+      const liveWasSharedResume = current.resumeAttempt === true;
+      const planStillResumes = launchArgvUsesResume(input.launch?.argv);
+      if (isolateShared && pinHarness && (liveWasSharedResume || planStillResumes)) {
+        this.killBinding(bindingId);
+        // Fall through to open a replacement generation.
+      } else {
+        // One binding owns one live actor generation. Create is an idempotent
+        // ensure at this boundary: renderer remounts, concurrent factory wake,
+        // or duplicate IPC must never turn into permission to signal and replace
+        // a healthy harness. Explicit kill followed by create remains restart.
+        return this.summaryOf(current);
+      }
+    }
+    // Under isolation, never spawn pin harnesses with resume argv even if a
+    // caller bypassed launchForManagedSpawn and handed us document -r.
+    let launch = input.launch;
+    let resumeAttempt = launchArgvUsesResume(launch?.argv);
+    if (
+      shouldAvoidSharedHarnessResume() &&
+      isPinSessionHarness(input.harness) &&
+      resumeAttempt
+    ) {
+      const freshId = randomUUID();
+      try {
+        launch = planFreshPinSession({
+          harness: input.harness,
+          documentLaunch: input.launch,
+          agentKey: input.agentKey,
+          cwd: input.launch?.cwd,
+          sessionId: freshId,
+        }).launch;
+        resumeAttempt = false;
+      } catch (err) {
+        console.error(
+          `[term] isolate fresh-pin plan failed for ${bindingId}; refusing shared resume:`,
+          err,
+        );
+        throw new Error(
+          `isolated VELLUM_HOME refuses shared harness resume for ${input.harness}`,
+        );
+      }
     }
     return this.open(
       {
         kind: "agent",
         harness: input.harness,
         agentKey: input.agentKey,
-        ...(input.launch ? { launch: input.launch } : {}),
+        ...(launch ? { launch } : {}),
       },
-      input,
       {
-        resumeAttempt: launchArgvUsesResume(input.launch?.argv),
-        failOpenSeed: input,
+        ...input,
+        ...(launch ? { launch } : {}),
+      },
+      {
+        resumeAttempt,
+        failOpenSeed: {
+          ...input,
+          ...(launch ? { launch } : {}),
+        },
       },
     );
   }

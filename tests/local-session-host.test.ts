@@ -456,6 +456,95 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(1);
   });
 
+  it("under VELLUM_HOME replaces a live shared-resume pin generation on create", () => {
+    const priorHome = process.env.VELLUM_HOME;
+    // Spawn the poisoned generation as production would (no VELLUM_HOME), then
+    // re-ensure under isolation — the live "running" resume must not stick.
+    delete process.env.VELLUM_HOME;
+    try {
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(42_460 + index),
+        exitOnSignal: false,
+      }));
+      const host = hostWith(fake);
+      const bindingId = "isolate-resume-seat";
+      const shared = "9b5fd124-24aa-465c-95be-1f05d97f0f77";
+      const initial = host.createAgentSeat({
+        bindingId,
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: {
+          kind: "harness",
+          argv: ["claude", "--resume", shared],
+        },
+        canvasName: "factory",
+        nodeId: "agent-node",
+      });
+      expect(initial.status).toBe("running");
+      expect(fake.controllers).toHaveLength(1);
+      expect(fake.controllers[0]?.spec.args).toEqual(
+        expect.arrayContaining(["--resume", shared]),
+      );
+
+      process.env.VELLUM_HOME = "/tmp/vellum-dev-isolate-create-agent-seat";
+      // Re-ensure with a fresh pin plan (what launchForManagedSpawn emits under
+      // isolation). Must replace the poisoned shared-resume generation rather
+      // than idempotently reattach to a black TUI.
+      const fresh = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+      const replaced = host.createAgentSeat({
+        bindingId,
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: {
+          kind: "harness",
+          argv: ["claude", "--session-id", fresh],
+        },
+        canvasName: "factory",
+        nodeId: "agent-node",
+      });
+      expect(replaced.epoch).not.toBe(initial.epoch);
+      expect(fake.controllers).toHaveLength(2);
+      expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
+      expect(fake.controllers[1]?.spec.args).toEqual(
+        expect.arrayContaining(["--session-id", fresh]),
+      );
+      expect(fake.controllers[1]?.spec.args).not.toContain("--resume");
+    } finally {
+      if (priorHome === undefined) delete process.env.VELLUM_HOME;
+      else process.env.VELLUM_HOME = priorHome;
+    }
+  });
+
+  it("under VELLUM_HOME strips shared resume argv even when create is first open", () => {
+    const priorHome = process.env.VELLUM_HOME;
+    process.env.VELLUM_HOME = "/tmp/vellum-dev-isolate-strip-resume";
+    try {
+      const fake = makeFakeTerminalProcessAuthority(() => ({
+        pid: trackSyntheticPid(42_470),
+        exitOnSignal: false,
+      }));
+      const host = hostWith(fake);
+      const shared = "0c813489-ff73-4f9d-af00-96adc0d63d94";
+      host.createAgentSeat({
+        bindingId: "strip-resume-seat",
+        harness: "grok",
+        agentKey: "local:grok",
+        launch: {
+          kind: "harness",
+          argv: ["grok", "-r", shared, "-m", "grok-4.5"],
+        },
+      });
+      expect(fake.controllers).toHaveLength(1);
+      const args = fake.controllers[0]?.spec.args ?? [];
+      expect(args).not.toContain("-r");
+      expect(args).not.toContain(shared);
+      expect(args).toEqual(expect.arrayContaining(["--session-id"]));
+    } finally {
+      if (priorHome === undefined) delete process.env.VELLUM_HOME;
+      else process.env.VELLUM_HOME = priorHome;
+    }
+  });
+
   it("lets explicit reopen replace a stopping actor generation immediately", () => {
     const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
       pid: trackSyntheticPid(42_450 + index),
