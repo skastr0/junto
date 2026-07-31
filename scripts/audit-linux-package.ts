@@ -2,6 +2,10 @@ import { spawnSync } from "node:child_process";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  auditPackagedLicenseBinding,
+  type LicenseBuildAuditReceipt,
+} from "./audit-license-build";
 import { linuxRuntimeArtifactName } from "./finalize-linux-package";
 
 export const LINUX_RUNTIME_REQUIRED_FILES = [
@@ -46,11 +50,14 @@ const requireLoadable = (file: string): void => {
   if (result.status !== 0 || /not found/u.test(`${result.stdout}\n${result.stderr}`)) throw new Error(`native runtime dependency is unavailable: ${file}`);
 };
 
-export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly runtimePath: string; readonly version: string }): Promise<{ readonly ok: true; readonly artifact: string; readonly nativeObjects: ReadonlyArray<string>; readonly chromeSandbox: "absent" }> => {
+export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly runtimePath: string; readonly version: string }): Promise<{ readonly ok: true; readonly artifact: string; readonly nativeObjects: ReadonlyArray<string>; readonly chromeSandbox: "absent"; readonly license: LicenseBuildAuditReceipt }> => {
   const root = path.resolve(runtimePath);
   if (path.basename(root) !== linuxRuntimeArtifactName({ version, arch: "x64" })) throw new Error("runtime artifact name mismatch");
   const files = await walk(root);
   for (const required of LINUX_RUNTIME_REQUIRED_FILES) if (!files.includes(required)) throw new Error(`runtime required file missing: ${required}`);
+  // Final packaged ASAR license binding — malformed binding must fail the audit.
+  const appAsarPath = path.join(root, "resources/app.asar");
+  const license = auditPackagedLicenseBinding(appAsarPath);
   for (const file of files) if (file.split("/").some((part) => FORBIDDEN_SEGMENTS.has(part)) || /(?:^|\/)(?:opt|usr|etc|var)(?:\/|$)/u.test(file)) throw new Error(`privileged packaging residue: ${file}`);
   const nativeObjects: string[] = [];
   for (const file of files) {
@@ -63,7 +70,7 @@ export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly run
     }
   }
   validateUserServiceTemplate(await readFile(path.join(root, "resources/systemd/vellum-remote.service.template"), "utf8"));
-  return { ok: true, artifact: path.basename(root), nativeObjects, chromeSandbox: "absent" };
+  return { ok: true, artifact: path.basename(root), nativeObjects, chromeSandbox: "absent", license };
 };
 
 if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
@@ -71,5 +78,11 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
   if (flag !== "--runtime" || runtimePath === undefined || process.argv.length !== 4) throw new Error("usage: audit-linux-package.ts --runtime <directory>");
   const version = path.basename(runtimePath).match(/^vellum-runtime-(.+)-linux-x64$/u)?.[1];
   if (version === undefined) throw new Error("runtime artifact name mismatch");
-  process.stdout.write(`${JSON.stringify(await auditLinuxRuntime({ runtimePath, version }))}\n`);
+  try {
+    process.stdout.write(`${JSON.stringify(await auditLinuxRuntime({ runtimePath, version }))}\n`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`vellum linux package audit failed: ${message}\n`);
+    process.exitCode = 1;
+  }
 }

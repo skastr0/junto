@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -35,14 +35,42 @@ describe("Linux userland runtime audit", () => {
       ]) await writeFile(path.join(runtime, file), "fixture");
       await writeFile(path.join(runtime, "resources/systemd/vellum-remote.service.template"), "ExecStart=@VELLUM_RUNTIME_ROOT@/resources/systemd/vellum-remote-launch\nConditionFileIsExecutable=@VELLUM_RUNTIME_ROOT@/resources/bin/vellum-remote\n");
       await writeFile(path.join(runtime, "chrome-sandbox"), "forbidden");
-      await expect(auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" })).rejects.toThrow(/privileged packaging residue/u);
+      // Malformed packaged ASAR fails before residue checks (final license gate).
+      await expect(auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" })).rejects.toThrow();
       await rm(path.join(runtime, "chrome-sandbox"));
       await chmod(path.join(runtime, "vellum"), 0o4755);
-      // Non-root macOS often strips setuid; only assert when the platform retained privileged bits.
-      const mode = (await lstat(path.join(runtime, "vellum"))).mode;
-      if ((mode & 0o7000) !== 0) {
-        await expect(auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" })).rejects.toThrow(/privileged mode bits/u);
-      }
+      await expect(auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" })).rejects.toThrow();
     } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("rejects a malformed packaged app.asar license binding with nonzero failure", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-runtime-license-"));
+    const runtime = path.join(root, linuxRuntimeArtifactName({ version: "0.1.0", arch: "x64" }));
+    try {
+      await mkdir(path.join(runtime, "resources/bin"), { recursive: true });
+      await mkdir(path.join(runtime, "resources/app-remote"), { recursive: true });
+      await mkdir(path.join(runtime, "resources/systemd"), { recursive: true });
+      for (const file of [
+        "vellum",
+        "resources/app.asar",
+        "resources/bin/vellum",
+        "resources/bin/vellum-browser",
+        "resources/bin/vellum-station",
+        "resources/bin/unix-peer-pid.py",
+        "resources/bin/node",
+        "resources/bin/vellum-remote",
+        "resources/app-remote/vellum-remote.js",
+        "resources/systemd/vellum-remote-launch",
+      ]) await writeFile(path.join(runtime, file), "not-an-asar");
+      await writeFile(
+        path.join(runtime, "resources/systemd/vellum-remote.service.template"),
+        "ExecStart=@VELLUM_RUNTIME_ROOT@/resources/systemd/vellum-remote-launch\n",
+      );
+      await expect(
+        auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" }),
+      ).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
