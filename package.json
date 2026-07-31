@@ -26,6 +26,7 @@
   "scripts": {
     "postinstall": "bun scripts/ensure-node-pty-perms.ts",
     "dev": "electron-vite dev",
+    "dev:isolated": "bash scripts/dev-isolated.sh",
     "build": "bash scripts/build-app.sh --fast",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
