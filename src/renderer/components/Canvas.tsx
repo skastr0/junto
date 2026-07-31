@@ -60,10 +60,8 @@ import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard } from "./terminal/TerminalWizard";
-import { type AgentConfigurationChoices } from "./terminal/AgentCascadeMenu";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
-import type { AgentLaunchContextValue } from "./node-palette/AgentLaunchContext";
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
 type CanvasFlow = {
@@ -971,11 +969,11 @@ function MultiSelectMenu({ at, onClose }: { readonly at: { x: number; y: number 
 
   return (
     <div className="node-palette node-palette--context" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 200), zIndex: 40 }}>
-      <div className="node-palette__menu">
-        <button aria-label="Create region from selection" onClick={() => run(createRegionFromSelection)}><span className="node-palette__icon" aria-hidden><SquareDashed size={14} /></span><span><strong>create region</strong><small>from selection</small></span></button>
-        <button aria-label="Flag blocker" onClick={() => run((ids) => setFlagForNodes(ids, "blocker"))}><span className="node-palette__icon" aria-hidden><Ban size={14} /></span><span><strong>flag blocker</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
-        <button aria-label="Clear flags" onClick={() => run((ids) => setFlagForNodes(ids, null))}><span className="node-palette__icon" aria-hidden><Ban size={14} /></span><span><strong>clear flags</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
-        <button aria-label={`Delete ${count} nodes`} onClick={() => run((ids) => deleteNodes(ids))}><span className="node-palette__icon" aria-hidden><Trash2 size={14} /></span><span><strong>delete {count} node{count === 1 ? "" : "s"}</strong></span></button>
+      <div className="canvas-action-menu">
+        <button aria-label="Create region from selection" onClick={() => run(createRegionFromSelection)}><span className="canvas-action-menu__icon" aria-hidden><SquareDashed size={14} /></span><span><strong>create region</strong><small>from selection</small></span></button>
+        <button aria-label="Flag blocker" onClick={() => run((ids) => setFlagForNodes(ids, "blocker"))}><span className="canvas-action-menu__icon" aria-hidden><Ban size={14} /></span><span><strong>flag blocker</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
+        <button aria-label="Clear flags" onClick={() => run((ids) => setFlagForNodes(ids, null))}><span className="canvas-action-menu__icon" aria-hidden><Ban size={14} /></span><span><strong>clear flags</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
+        <button aria-label={`Delete ${count} nodes`} onClick={() => run((ids) => deleteNodes(ids))}><span className="canvas-action-menu__icon" aria-hidden><Trash2 size={14} /></span><span><strong>delete {count} node{count === 1 ? "" : "s"}</strong></span></button>
       </div>
     </div>
   );
@@ -1002,7 +1000,7 @@ function TargetConnectMenu({
 
   return (
     <div className="node-palette node-palette--context" style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 120), zIndex: 40 }}>
-      <div className="node-palette__menu">
+      <div className="canvas-action-menu">
         <button
           aria-label={`${label}: ${count} source${count === 1 ? "" : "s"} to ${title}`}
           onClick={() => {
@@ -1010,7 +1008,7 @@ function TargetConnectMenu({
             onClose();
           }}
         >
-          <span className="node-palette__icon" aria-hidden><Link2 size={14} /></span>
+          <span className="canvas-action-menu__icon" aria-hidden><Link2 size={14} /></span>
           <span>
             <strong>{label}</strong>
             <small>{count} → {title}</small>
