@@ -25,7 +25,17 @@ export const linuxRuntimeArchiveName = (input: { readonly version: unknown; read
 
 export const linuxRuntimeTarArguments = (platform: NodeJS.Platform): ReadonlyArray<string> =>
   platform === "linux"
-    ? ["--sort=name", "--mtime=@0", "--format=gnu", "--numeric-owner", "--owner=1000", "--group=1000"]
+    ? [
+        "--sort=name",
+        "--mtime=@0",
+        "--format=gnu",
+        "--numeric-owner",
+        "--owner=1000",
+        "--group=1000",
+        // node-pty leaves hardlinks under build/Release; archives must be
+        // regular-file only so validation and rootless extract stay boring.
+        "--hard-dereference",
+      ]
     : [];
 
 export const validateLinuxRuntimeArchive = ({ archive, artifactName }: { readonly archive: string; readonly artifactName: string }): void => {
