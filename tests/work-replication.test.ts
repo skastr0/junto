@@ -1974,7 +1974,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       postCount: 0,
       lastActivityAt: observedAt,
     };
-    const command = await station.runtime.runPromise(
+    const topicCommand = await station.runtime.runPromise(
       station.repository.enqueueRemoteCommand({
         targetInstallationId: cc,
         sink,
@@ -1988,10 +1988,10 @@ describe("WorkRepository v2 report reconciliation", () => {
         receivedAt: observedAt,
       }),
     );
-    const accepted = await commandCenter.runtime.runPromise(
-      accept(commandCenter.repository, remote, [command]),
+    const topicAccepted = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [topicCommand]),
     );
-    expect(accepted.emitted.length).toBeGreaterThanOrEqual(2);
+    expect(topicAccepted.emitted.length).toBeGreaterThanOrEqual(2);
     expect(
       (
         await commandCenter.runtime.runPromise(
@@ -2000,10 +2000,10 @@ describe("WorkRepository v2 report reconciliation", () => {
       ).board.topics.map((t) => t.topicId),
     ).toContain(topic.topicId);
 
-    const returned = await station.runtime.runPromise(
-      accept(station.repository, cc, accepted.emitted),
+    const topicReturned = await station.runtime.runPromise(
+      accept(station.repository, cc, topicAccepted.emitted),
     );
-    expect(returned.accepted).toBeGreaterThan(0);
+    expect(topicReturned.accepted).toBeGreaterThan(0);
     expect(
       (
         await station.runtime.runPromise(
@@ -2012,22 +2012,76 @@ describe("WorkRepository v2 report reconciliation", () => {
       ).board.topics,
     ).toEqual([]);
     expect(
+      (await station.runtime.runPromise(station.repository.pendingCommands))[0],
+    ).toMatchObject({ resolution: { status: "applied" } });
+
+    // Post round-trip: validateIncomingFact must short-circuit on Remote
+    // (no local topic row) so disposition can apply — mailbox twin.
+    const post = {
+      postId: "fleet-post-1",
+      topicId: topic.topicId,
+      author: createdBy,
+      parts: [{ kind: "text" as const, text: "hello from remote" }],
+      position: 0,
+      createdAt: observedAt,
+    };
+    const postCommand = await station.runtime.runPromise(
+      station.repository.enqueueRemoteCommand({
+        targetInstallationId: cc,
+        sink,
+        item: { kind: "post", itemId: post.postId, sink },
+        action: {
+          operation: "board.post.append",
+          post,
+          createdBy,
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const postAccepted = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [postCommand]),
+    );
+    expect(postAccepted.emitted.length).toBeGreaterThanOrEqual(2);
+    const ccSnap = await commandCenter.runtime.runPromise(
+      commandCenter.repository.readSnapshot(sink.canvasName, sink.nodeId),
+    );
+    const ccTopic = ccSnap.board.topics.find((t) => t.topicId === topic.topicId);
+    expect(ccTopic?.postCount).toBe(1);
+    expect(ccTopic?.posts?.some((p) => p.postId === post.postId)).toBe(true);
+
+    const postReturned = await station.runtime.runPromise(
+      accept(station.repository, cc, postAccepted.emitted),
+    );
+    expect(postReturned.accepted).toBeGreaterThan(0);
+    expect(postReturned.rejected).toBe(0);
+    expect(
+      (await station.runtime.runPromise(station.repository.pendingCommands)).find(
+        (c) => c.command.item.itemId === post.postId,
+      ),
+    ).toMatchObject({ resolution: { status: "applied" } });
+    expect(
       await station.runtime.runPromise(
-        station.state.read("test.board-remote-no-material", (reader) =>
-          reader.get<{ readonly count: number }>(
+        station.state.read("test.board-remote-no-material", (reader) => ({
+          topics: reader.get<{ readonly count: number }>(
             `
               SELECT count(*) AS count
               FROM work_board_topics
-              WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+              WHERE canvas_name = ? AND node_id = ?
             `,
-            [sink.canvasName, sink.nodeId, topic.topicId],
+            [sink.canvasName, sink.nodeId],
           )!.count,
-        ),
+          posts: reader.get<{ readonly count: number }>(
+            `
+              SELECT count(*) AS count
+              FROM work_board_posts
+              WHERE canvas_name = ? AND node_id = ?
+            `,
+            [sink.canvasName, sink.nodeId],
+          )!.count,
+        })),
       ),
-    ).toBe(0);
-    expect(
-      (await station.runtime.runPromise(station.repository.pendingCommands))[0],
-    ).toMatchObject({ resolution: { status: "applied" } });
+    ).toEqual({ topics: 0, posts: 0 });
 
     await commandCenter.runtime.dispose();
     await station.runtime.dispose();

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type {
   CanvasNode,
@@ -6,6 +6,7 @@ import type {
   TaskState,
 } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
+import type { BoardPost, BoardTopic } from "@shared/work-model";
 import { isTerminalTaskState, taskBrief } from "@shared/task";
 import { sinkGlance, workRoleOf } from "@shared/attention";
 import { DIM, HUE, INK } from "../../lib/theme";
@@ -23,6 +24,16 @@ import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
 import "./work-ledger.css";
 
 const canvasName = (): string => state$.canvasName.peek() || "";
+
+const boardTextOf = (parts: ReadonlyArray<Part>): string =>
+  parts
+    .filter((part): part is Extract<Part, { kind: "text" }> => part.kind === "text")
+    .map((part) => part.text)
+    .join("\n");
+
+const boardAuthorLabel = (author: BoardPost["author"] | BoardTopic["openedBy"]): string =>
+  author.label ??
+  (author.kind === "operator" ? "operator" : (author.nodeId ?? author.kind));
 
 const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
   if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
@@ -224,7 +235,7 @@ export function ArtifactsDetail({
   return <ArtifactLibrary node={node} onClose={onClose} />;
 }
 
-/** Minimal bulletin surface — operator create topic + post + notify. */
+/** Operator bulletin: full topics + posts from workBoardList (not ether glance). */
 export function BoardDetail({
   node,
   onClose,
@@ -237,14 +248,46 @@ export function BoardDetail({
   const [selectedTopicId, setSelectedTopicId] = useState<string | undefined>();
   const [postText, setPostText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const topics = node.ether?.board?.topics ?? [];
-  const selected = topics.find((t) => t.topicId === selectedTopicId) ?? topics[0];
+  const [detailTopics, setDetailTopics] = useState<ReadonlyArray<BoardTopic>>(
+    [],
+  );
+  const [loading, setLoading] = useState(false);
+  /** Full topics from SQLite list; glance only used as empty-state labels. */
+  const topics = detailTopics;
+  const selected: BoardTopic | undefined =
+    topics.find((t) => t.topicId === selectedTopicId) ?? topics[0];
   const canvas = canvasName();
   const api = getVellumApi();
   const boardTitle =
     node.type === "text" && typeof node.text === "string" && node.text.trim()
       ? node.text.trim()
       : "Bulletin";
+
+  const refreshList = useCallback(async () => {
+    if (!api) return;
+    setLoading(true);
+    try {
+      // Full board (all topics + posts). Do not pass topicId — that collapses the list.
+      const r = await api.workBoardList(canvas, node.id);
+      if (!r.ok) {
+        setError(r.message);
+        return;
+      }
+      setDetailTopics(r.data.topics);
+      setSelectedTopicId((prev) => {
+        if (prev !== undefined && r.data.topics.some((t) => t.topicId === prev)) {
+          return prev;
+        }
+        return r.data.topics[0]?.topicId;
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [api, canvas, node.id]);
+
+  useEffect(() => {
+    void refreshList();
+  }, [refreshList]);
 
   const run = async <T,>(op: () => Promise<WorkOpResult<T>>) => {
     setError(null);
@@ -256,6 +299,8 @@ export function BoardDetail({
     if (result && !result.ok) setError(result.message);
     return result;
   };
+
+  const posts: ReadonlyArray<BoardPost> = selected?.posts ?? [];
 
   return (
     <FocusSurface
@@ -324,6 +369,7 @@ export function BoardDetail({
                       setTitle("");
                       setBody("");
                       setSelectedTopicId(r.data.topic.topicId);
+                      await refreshList();
                     }
                     return r;
                   })
@@ -361,11 +407,54 @@ export function BoardDetail({
                 <div className="border-b border-stroke/40 px-3 py-2">
                   <div className="text-[13px] font-medium">{selected.title}</div>
                   <div className="text-[10px]" style={{ color: DIM }}>
-                    {selected.authorLabel ?? "—"} · {selected.postCount} posts
+                    {boardAuthorLabel(selected.openedBy)} · {selected.postCount}{" "}
+                    posts
+                    {loading ? " · loading…" : ""}
                   </div>
                 </div>
-                <div className="min-h-0 flex-1 overflow-auto p-3 text-[11px]" style={{ color: DIM }}>
-                  Full posts via agent board.list. Glance shows titles only.
+                <div className="min-h-0 flex-1 overflow-auto p-3">
+                  {selected.parts && selected.parts.length > 0 ? (
+                    <div
+                      className="mb-3 rounded border border-stroke/30 px-2 py-2 text-[12px] leading-snug"
+                      style={{ color: INK }}
+                    >
+                      <div className="mb-1 text-[10px]" style={{ color: DIM }}>
+                        opening · {boardAuthorLabel(selected.openedBy)}
+                      </div>
+                      {boardTextOf(selected.parts)}
+                    </div>
+                  ) : null}
+                  {posts.length === 0 ? (
+                    <div className="text-[11px]" style={{ color: DIM }}>
+                      No posts yet.
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {[...posts]
+                        .sort((a, b) => a.position - b.position)
+                        .map((post) => (
+                          <div
+                            key={post.postId}
+                            className="rounded border border-stroke/25 px-2 py-2"
+                            data-testid="board-post"
+                          >
+                            <div
+                              className="mb-1 flex justify-between gap-2 text-[10px]"
+                              style={{ color: DIM }}
+                            >
+                              <span>{boardAuthorLabel(post.author)}</span>
+                              <span>{post.createdAt}</span>
+                            </div>
+                            <div
+                              className="whitespace-pre-wrap text-[12px] leading-snug"
+                              style={{ color: INK }}
+                            >
+                              {boardTextOf(post.parts) || "—"}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1 border-t border-stroke/40 p-2">
                   <Textarea
@@ -380,7 +469,11 @@ export function BoardDetail({
                       variant="subtle"
                       onClick={() =>
                         void run(() =>
-                          api!.workBoardMarkRead(canvas, node.id, selected.topicId),
+                          api!.workBoardMarkRead(
+                            canvas,
+                            node.id,
+                            selected.topicId,
+                          ),
                         )
                       }
                     >
@@ -398,7 +491,10 @@ export function BoardDetail({
                             selected.topicId,
                             postText.trim(),
                           );
-                          if (r.ok) setPostText("");
+                          if (r.ok) {
+                            setPostText("");
+                            await refreshList();
+                          }
                           return r;
                         })
                       }

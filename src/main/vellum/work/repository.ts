@@ -5194,6 +5194,18 @@ const validateIncomingFact = (
       return;
     }
     case "board.topic.create": {
+      // Mailbox twin: Remote keeps event/disposition only — no material parent
+      // checks (rows live solely on Command Center).
+      const authority = canonicalLocalWorkAuthority(writer);
+      if (authority.role === "remote") {
+        if (correlatedCommand?.body.operation !== "board.topic.create") {
+          throw authorityError(
+            "causal-conflict",
+            "Command Center board topic fact has no exact local pending command",
+          );
+        }
+        return;
+      }
       if (
         writer.get<StateRow>(
           `
@@ -5229,6 +5241,16 @@ const validateIncomingFact = (
       return;
     }
     case "board.post.append": {
+      const authority = canonicalLocalWorkAuthority(writer);
+      if (authority.role === "remote") {
+        if (correlatedCommand?.body.operation !== "board.post.append") {
+          throw authorityError(
+            "causal-conflict",
+            "Command Center board post fact has no exact local pending command",
+          );
+        }
+        return;
+      }
       const topic = writer.get<StateRow & { readonly state: string }>(
         `
           SELECT state FROM work_board_topics

@@ -525,6 +525,14 @@ const vellumApi: VellumApi = {
       responseText,
       disposition,
     ),
+  workBoardList: (canvas, nodeId, topicId) =>
+    invoke(
+      IPC_CHANNELS.workBoardList,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      topicId,
+    ),
   workBoardCreateTopic: (canvas, nodeId, title, body, notify) =>
     invoke(
       IPC_CHANNELS.workBoardCreateTopic,

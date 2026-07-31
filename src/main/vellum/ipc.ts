@@ -710,6 +710,24 @@ export const registerVellumIpc = (): void => {
   );
 
   privilegedIpc.handle(
+    IPC_CHANNELS.workBoardList,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      topicId?: string,
+    ) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const denied = yield* denyRemoteWork;
+          if (denied) return denied;
+          const work = yield* WorkService;
+          return yield* work.workBoardList(canvas, nodeId, topicId);
+        }),
+      ),
+  );
+
+  privilegedIpc.handle(
     IPC_CHANNELS.workBoardCreateTopic,
     (
       _event,
