@@ -39,8 +39,8 @@ const LINUX_FIXED_MODE_DIRECTORIES = [
 const LINUX_FIXED_MODE_FILES = new Map([
   ["resources/bin/unix-peer-pid.py", 0o755],
   ["resources/policy/electron-security-policy.json", 0o644],
-  ["resources/systemd/vellum-remote-launch-v1", 0o755],
-  ["resources/systemd/vellum-remote.service", 0o644],
+  ["resources/systemd/vellum-remote-launch", 0o755],
+  ["resources/systemd/vellum-remote.service.template", 0o644],
 ]);
 
 const libraryFuseNames = () =>
