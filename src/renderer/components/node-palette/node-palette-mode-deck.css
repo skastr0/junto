@@ -87,7 +87,7 @@
 .node-deck__agent-list {
   display: grid;
   flex: 0 1 auto;
-  max-height: calc(100% - 150px);
+  max-height: none;
   align-content: start;
   gap: 3px;
   padding: 2px;
