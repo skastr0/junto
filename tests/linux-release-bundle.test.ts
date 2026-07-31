@@ -18,12 +18,17 @@ import {
   LINUX_RELEASE_KEYRING,
   LINUX_RELEASE_MANIFEST,
   LINUX_RELEASE_SIGNATURE,
+  createLinuxQualificationCandidateManifest,
   createLinuxReleaseManifest,
   decodeLinuxReleaseKeyring,
   decodeLinuxReleaseManifest,
+  decodeLinuxQualificationCandidateManifest,
+  linuxQualificationCandidatePayloadFileNames,
   releaseKeyringSha256,
   releasePublicKeyFingerprint,
+  signLinuxQualificationCandidateMetadata,
   signLinuxReleaseMetadata,
+  verifyLinuxQualificationCandidateBundle,
   verifyLinuxReleaseBundle,
   type LinuxReleaseHostFacts,
   type LinuxReleaseKeyring,
@@ -45,6 +50,7 @@ const REVISION = "a".repeat(40);
 const NOW = Date.parse("2026-07-23T12:00:00.000Z");
 const CREATED_AT = "2026-07-23T11:55:00.000Z";
 const EXPIRES_AT = "2026-08-01T12:00:00.000Z";
+const QUALIFICATION_EXPIRES_AT = "2026-07-24T11:55:00.000Z";
 const KEY_ID = "vellum-linux-2026a";
 const PACKAGE = `Vellum Command-${VERSION}-x64-linux.deb`;
 const ciTarget = {
@@ -128,6 +134,8 @@ const createFixture = async (options: {
   readonly stationQualificationWitnessFile?: string;
   readonly stationQualificationWitnessMismatchIndex?: number;
   readonly omitStationQualification?: boolean;
+  readonly qualificationCandidate?: boolean;
+  readonly qualificationExpiresAt?: string;
 } = {}) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "vellum-linux-release-bundle-"),
@@ -323,6 +331,31 @@ const createFixture = async (options: {
     ciEvidenceManifest,
     { encoding: "utf8", mode: 0o644 },
   );
+  if (options.qualificationCandidate === true) {
+    await rm(path.join(directory, STATION_QUALIFICATION_EVIDENCE_FILE));
+    if (status !== "active") {
+      return { directory, keys, keyring };
+    }
+    await createLinuxQualificationCandidateManifest({
+      bundleDirectory: directory,
+      version: VERSION,
+      sourceRevision: REVISION,
+      createdAt: CREATED_AT,
+      expiresAt:
+        options.qualificationExpiresAt ?? QUALIFICATION_EXPIRES_AT,
+      keyId: KEY_ID,
+    });
+    await signLinuxQualificationCandidateMetadata({
+      bundleDirectory: directory,
+      keyId: KEY_ID,
+      privateKeyPem: keys.privateKey.export({
+        format: "pem",
+        type: "pkcs8",
+      }).toString(),
+      signedAt: "2026-07-23T11:58:00.000Z",
+    });
+    return { directory, keys, keyring };
+  }
   const qualificationWitness = () => {
     const file =
       options.stationQualificationWitnessFile ??
@@ -597,6 +630,133 @@ const verifyFixture = async (
     ...overrides,
   });
 };
+
+const verifyQualificationFixture = async (
+  directory: string,
+  overrides: Partial<
+    Parameters<typeof verifyLinuxQualificationCandidateBundle>[0]
+  > = {},
+) => {
+  const trustedKeyring = JSON.parse(
+    await readFile(path.join(directory, LINUX_RELEASE_KEYRING), "utf8"),
+  ) as LinuxReleaseKeyring;
+  const trustedKey = trustedKeyring.keys[0];
+  return verifyLinuxQualificationCandidateBundle({
+    bundleDirectory: directory,
+    host,
+    packageIdentity: {
+      packageName: "vellum",
+      version: VERSION,
+      architecture: "amd64",
+    },
+    peerStationProtocol: CURRENT_STATION_PROTOCOL_SUPPORT,
+    trustedKeyring,
+    trustedKeyringRevision: trustedKeyring.revision,
+    trustedKeyringSha256: releaseKeyringSha256(trustedKeyring),
+    trustedKeyId: trustedKey?.keyId ?? KEY_ID,
+    trustedKeyFingerprintSha256:
+      trustedKey?.fingerprintSha256 ?? "0".repeat(64),
+    now: NOW,
+    ...overrides,
+  });
+};
+
+describe("signed Linux qualification candidate", () => {
+  it("admits only the short-lived non-publishable pre-qualification inventory", async () => {
+    const fixture = await createFixture({ qualificationCandidate: true });
+    const manifest = decodeLinuxQualificationCandidateManifest(JSON.parse(
+      await readFile(
+        path.join(fixture.directory, LINUX_RELEASE_MANIFEST),
+        "utf8",
+      ),
+    ));
+    const receipt = await verifyQualificationFixture(fixture.directory);
+
+    expect(manifest).toMatchObject({
+      schema: "vellum/linux-qualification-candidate-manifest/v1",
+      purpose: "station-qualification-candidate",
+      publishable: false,
+      source: {
+        revision: REVISION,
+        ciEvidence: {
+          file: "ci-evidence-manifest.json",
+          sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        },
+      },
+      package: {
+        file: PACKAGE,
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      },
+    });
+    expect(manifest.files.map(({ file }) => file).sort()).toEqual(
+      [...linuxQualificationCandidatePayloadFileNames(VERSION)].sort(),
+    );
+    expect(manifest.files).toHaveLength(15);
+    expect(receipt).toMatchObject({
+      schema:
+        "vellum/linux-qualification-candidate-verification-receipt/v1",
+      ok: true,
+      purpose: "station-qualification-candidate",
+      publishable: false,
+      filesVerified: 15,
+      packageSha256: manifest.package.sha256,
+      ciEvidenceSha256: manifest.source.ciEvidence.sha256,
+    });
+    await expect(verifyFixture(fixture.directory)).rejects.toThrow(
+      /Linux release manifest/u,
+    );
+  });
+
+  it("keeps candidate signatures in a distinct purpose domain", async () => {
+    const candidate = await createFixture({
+      qualificationCandidate: true,
+    });
+    const stable = await createFixture();
+    await writeFile(
+      path.join(candidate.directory, LINUX_RELEASE_SIGNATURE),
+      await readFile(
+        path.join(stable.directory, LINUX_RELEASE_SIGNATURE),
+        "utf8",
+      ),
+    );
+
+    await expect(
+      verifyQualificationFixture(candidate.directory),
+    ).rejects.toThrow(/qualification candidate signature/u);
+  });
+
+  it("rejects post-qualification files and validity windows over 24 hours", async () => {
+    const fixture = await createFixture({ qualificationCandidate: true });
+    await writeFile(
+      path.join(fixture.directory, STATION_QUALIFICATION_EVIDENCE_FILE),
+      "not admitted before qualification\n",
+    );
+    await expect(
+      verifyQualificationFixture(fixture.directory),
+    ).rejects.toThrow(/missing or extra files/u);
+
+    await expect(
+      createFixture({
+        qualificationCandidate: true,
+        qualificationExpiresAt: "2026-07-24T11:55:00.001Z",
+      }),
+    ).rejects.toThrow(/validity window/u);
+  });
+
+  it("binds the same deb hash that the final v5 release admits", async () => {
+    const candidate = await createFixture({
+      qualificationCandidate: true,
+    });
+    const stable = await createFixture();
+    const [candidateReceipt, stableReceipt] = await Promise.all([
+      verifyQualificationFixture(candidate.directory),
+      verifyFixture(stable.directory),
+    ]);
+
+    expect(candidateReceipt.packageSha256).toBe(stableReceipt.packageSha256);
+    expect(candidateReceipt.packageBytes).toBe(stableReceipt.packageBytes);
+  });
+});
 
 describe("signed Linux release bundle", () => {
   it("verifies both detached signatures, every payload, target, and protocol", async () => {

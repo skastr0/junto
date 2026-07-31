@@ -65,6 +65,7 @@ import type { SshLease } from "../ssh/service";
 import {
   authorizeProductionLinuxDeployBundle,
   openVerifiedProductionLinuxDeployBundle,
+  verifyQualificationLinuxDeployBundle,
   verifyProductionLinuxDeployBundle,
   type ProductionLinuxDeployBundleAdmission,
 } from "./linux-release-admission";
@@ -372,8 +373,11 @@ export const makeProductionLinuxArtifactAuthority = (
       ) {
         throw new Error("Linux Remote release bundle is not owner-controlled");
       }
-      const candidate =
-        await verifyProductionLinuxDeployBundle({
+      const candidate = source === "qualification-candidate"
+        ? await verifyQualificationLinuxDeployBundle({
+          bundleDirectory: bundleRoot,
+        })
+        : await verifyProductionLinuxDeployBundle({
           bundleDirectory: bundleRoot,
         });
       const manifest = candidate.receipt.bundleFiles.find(

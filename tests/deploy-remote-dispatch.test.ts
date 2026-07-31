@@ -204,7 +204,7 @@ describe("Remote deployment dispatcher", () => {
     );
   });
 
-  it("defaults Linux deployment to the stable feed and threads an explicit verified cache", async () => {
+  it("threads only the three admitted Linux artifact sources", async () => {
     const linux = makeProvider("linux");
     const dispatcher = makeRemoteDeploymentDispatcher({
       commandCenterPlatform: "darwin",
@@ -225,6 +225,15 @@ describe("Remote deployment dispatcher", () => {
         "verified-cache",
       ),
     );
+    await Effect.runPromise(
+      dispatcher.deploy(
+        makeSsh("Linux\n"),
+        host,
+        { state: "managed-externally" },
+        undefined,
+        "qualification-candidate",
+      ),
+    );
 
     expect(linux.deploy).toHaveBeenNthCalledWith(
       1,
@@ -233,6 +242,12 @@ describe("Remote deployment dispatcher", () => {
     expect(linux.deploy).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ artifactSource: "verified-cache" }),
+    );
+    expect(linux.deploy).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        artifactSource: "qualification-candidate",
+      }),
     );
   });
 

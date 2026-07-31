@@ -14,6 +14,7 @@ import {
 } from "vitest";
 import {
   ensureLinuxReleaseCache,
+  linuxQualificationCandidateBundleRoot,
   linuxRemoteArtifactBundleRoot,
 } from "../src/main/vellum/hosts/linux-release-feed";
 import {
@@ -68,6 +69,55 @@ describe("Linux release cache selection", () => {
       }),
     ).rejects.toThrow(
       "verified Linux release cache is absent from the fixed cache path",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses only the fixed non-publishable qualification candidate path", async () => {
+    const home = temporaryHome();
+    const bundleRoot = linuxQualificationCandidateBundleRoot(home);
+    mkdirSync(bundleRoot, { recursive: true, mode: 0o700 });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ensureLinuxReleaseCache({
+        home,
+        source: "qualification-candidate",
+      }),
+    ).resolves.toEqual({
+      bundleRoot,
+      source: "local",
+    });
+    expect(bundleRoot).toBe(
+      join(
+        home,
+        ".vellum",
+        "releases",
+        "linux-x64-glibc",
+        "qualification",
+        "current",
+      ),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never substitutes the final cache for an absent qualification candidate", async () => {
+    const home = temporaryHome();
+    mkdirSync(linuxRemoteArtifactBundleRoot(home), {
+      recursive: true,
+      mode: 0o700,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ensureLinuxReleaseCache({
+        home,
+        source: "qualification-candidate",
+      }),
+    ).rejects.toThrow(
+      "Linux qualification candidate is absent from the fixed qualification path",
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });

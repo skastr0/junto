@@ -104,7 +104,11 @@ export type RemoteDeploymentDispatcher = {
 const decodeLinuxArtifactSource = (
   value: unknown,
 ): LinuxReleaseCacheSource | undefined =>
-  value === "stable-feed" || value === "verified-cache" ? value : undefined;
+  value === "stable-feed" ||
+    value === "verified-cache" ||
+    value === "qualification-candidate"
+    ? value
+    : undefined;
 
 export const makeRemoteDeploymentDispatcher = (input: {
   readonly commandCenterPlatform: NodeJS.Platform;

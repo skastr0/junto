@@ -10,9 +10,12 @@ import {
   LINUX_RELEASE_TARGET,
   decodeLinuxReleaseKeyring,
   decodeLinuxReleaseManifest,
+  decodeLinuxQualificationCandidateManifest,
   compareReleaseVersions,
   releaseKeyringSha256,
+  verifyLinuxQualificationCandidateBundle,
   verifyLinuxReleaseBundle,
+  type LinuxQualificationCandidateVerificationReceipt,
   type LinuxReleaseKeyring,
   type LinuxReleaseVerificationReceipt,
 } from "../../../../scripts/linux-release-bundle";
@@ -40,7 +43,7 @@ export interface ProductionLinuxDeployBundleCandidate {
   readonly bytes: number;
   readonly sha256: string;
   readonly version: string;
-  readonly receipt: LinuxReleaseVerificationReceipt;
+  readonly receipt: LinuxDeployVerificationReceipt;
 }
 
 export interface ProductionLinuxDeployBundleAdmission {
@@ -49,7 +52,7 @@ export interface ProductionLinuxDeployBundleAdmission {
   readonly sha256: string;
   readonly version: string;
   readonly remoteDebInspection: "required-before-mutation";
-  readonly receipt: LinuxReleaseVerificationReceipt;
+  readonly receipt: LinuxDeployVerificationReceipt;
 }
 
 export interface ProductionLinuxDeployAuthorizationInput {
@@ -87,9 +90,13 @@ interface EmbeddedProductionLinuxReleaseTrust {
   readonly trustedKeyFingerprintSha256: string;
 }
 
+type LinuxDeployVerificationReceipt =
+  | LinuxReleaseVerificationReceipt
+  | LinuxQualificationCandidateVerificationReceipt;
+
 interface ProductionLinuxDeployBundleState {
   readonly bundleDirectory: string;
-  readonly bundleFiles: LinuxReleaseVerificationReceipt["bundleFiles"];
+  readonly bundleFiles: LinuxDeployVerificationReceipt["bundleFiles"];
   readonly packageFile: string;
 }
 
@@ -208,6 +215,7 @@ const embeddedProductionLinuxReleaseTrust =
 
 const readCandidateManifestIdentity = async (
   bundleDirectory: string,
+  purpose: "stable-release" | "qualification-candidate",
 ): Promise<{
   readonly packageName: string;
   readonly version: string;
@@ -233,7 +241,9 @@ const readCandidateManifestIdentity = async (
     } catch {
       throw new Error("Linux deploy release manifest is not valid JSON");
     }
-    const manifest = decodeLinuxReleaseManifest(decoded);
+    const manifest = purpose === "qualification-candidate"
+      ? decodeLinuxQualificationCandidateManifest(decoded)
+      : decodeLinuxReleaseManifest(decoded);
     return {
       packageName: manifest.package.name,
       version: manifest.release.version,
@@ -258,8 +268,9 @@ const readCandidateManifestIdentity = async (
  * enforce the transmitted size/SHA-256 and inspect Package, Version, and
  * Architecture with dpkg-deb before any privileged mutation.
  */
-export const verifyProductionLinuxDeployBundle = async (
+const verifyLinuxDeployBundle = async (
   input: ProductionLinuxDeployBundleInput,
+  purpose: "stable-release" | "qualification-candidate",
 ): Promise<ProductionLinuxDeployBundleCandidate> => {
   const requestedBundleDirectory = path.resolve(input.bundleDirectory);
   const requestedMetadata = await lstat(requestedBundleDirectory);
@@ -282,8 +293,11 @@ export const verifyProductionLinuxDeployBundle = async (
     throw new Error("Linux deploy verification time is invalid");
   }
   const trust = embeddedProductionLinuxReleaseTrust(now);
-  const packageIdentity = await readCandidateManifestIdentity(bundleDirectory);
-  const receipt = await verifyLinuxReleaseBundle({
+  const packageIdentity = await readCandidateManifestIdentity(
+    bundleDirectory,
+    purpose,
+  );
+  const verificationInput = {
     bundleDirectory,
     host: {
       platform: LINUX_RELEASE_TARGET.os,
@@ -303,7 +317,10 @@ export const verifyProductionLinuxDeployBundle = async (
     trustedKeyFingerprintSha256:
       trust.trustedKeyFingerprintSha256,
     now,
-  });
+  };
+  const receipt = purpose === "qualification-candidate"
+    ? await verifyLinuxQualificationCandidateBundle(verificationInput)
+    : await verifyLinuxReleaseBundle(verificationInput);
   const candidate: ProductionLinuxDeployBundleCandidate = Object.freeze({
     [productionCandidateBrand]: true as const,
     bytes: receipt.packageBytes,
@@ -320,6 +337,16 @@ export const verifyProductionLinuxDeployBundle = async (
   }));
   return candidate;
 };
+
+export const verifyProductionLinuxDeployBundle = (
+  input: ProductionLinuxDeployBundleInput,
+): Promise<ProductionLinuxDeployBundleCandidate> =>
+  verifyLinuxDeployBundle(input, "stable-release");
+
+export const verifyQualificationLinuxDeployBundle = (
+  input: ProductionLinuxDeployBundleInput,
+): Promise<ProductionLinuxDeployBundleCandidate> =>
+  verifyLinuxDeployBundle(input, "qualification-candidate");
 
 /**
  * Converts a signed candidate into transfer authority only after the caller

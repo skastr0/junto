@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
+  createLinuxQualificationCandidateManifest,
   createLinuxReleaseManifest,
   releasePublicKeyFingerprint,
+  signLinuxQualificationCandidateMetadata,
   signLinuxReleaseMetadata,
 } from "./linux-release-bundle";
 
@@ -91,6 +93,43 @@ export const linuxReleaseToolMain = async (
     return;
   }
 
+  if (command === "create-qualification-candidate") {
+    const parsed = options(
+      rest,
+      new Set([
+        "--bundle",
+        "--version",
+        "--source-revision",
+        "--created-at",
+        "--expires-at",
+        "--key-id",
+      ]),
+    );
+    const manifest = await createLinuxQualificationCandidateManifest({
+      bundleDirectory: required(parsed, "--bundle"),
+      version: required(parsed, "--version"),
+      sourceRevision: required(parsed, "--source-revision"),
+      createdAt: required(parsed, "--created-at"),
+      expiresAt: required(parsed, "--expires-at"),
+      keyId: required(parsed, "--key-id"),
+    });
+    process.stdout.write(
+      `${JSON.stringify({
+        ok: true,
+        schema: manifest.schema,
+        purpose: manifest.purpose,
+        version: manifest.release.version,
+        sourceRevision: manifest.source.revision,
+        ciEvidenceSha256: manifest.source.ciEvidence.sha256,
+        packageSha256: manifest.package.sha256,
+        keyId: manifest.trust.keyId,
+        signed: false,
+        publishable: false,
+      })}\n`,
+    );
+    return;
+  }
+
   if (command === "sign") {
     const parsed = options(
       rest,
@@ -115,6 +154,31 @@ export const linuxReleaseToolMain = async (
     return;
   }
 
+  if (command === "sign-qualification-candidate") {
+    const parsed = options(
+      rest,
+      new Set(["--bundle", "--key-id", "--signed-at"]),
+    );
+    const signature = await signLinuxQualificationCandidateMetadata({
+      bundleDirectory: required(parsed, "--bundle"),
+      keyId: required(parsed, "--key-id"),
+      signedAt: required(parsed, "--signed-at"),
+      privateKeyPem: await readPrivateKeyFromStdin(),
+    });
+    process.stdout.write(
+      `${JSON.stringify({
+        ok: true,
+        schema: signature.schema,
+        purpose: signature.purpose,
+        keyId: signature.keyId,
+        signedAt: signature.signedAt,
+        publishable: false,
+        next: "run Station qualification; this candidate cannot be published",
+      })}\n`,
+    );
+    return;
+  }
+
   if (command === "fingerprint") {
     const parsed = options(rest, new Set(["--public-key"]));
     const publicKeyPem = await readFile(
@@ -131,7 +195,7 @@ export const linuxReleaseToolMain = async (
   }
 
   throw new Error(
-    "usage: linux-release-tool.ts create|sign|fingerprint [options]",
+    "usage: linux-release-tool.ts create|sign|create-qualification-candidate|sign-qualification-candidate|fingerprint [options]",
   );
 };
 

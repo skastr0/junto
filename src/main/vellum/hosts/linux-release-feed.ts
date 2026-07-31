@@ -31,6 +31,18 @@ export const LINUX_RELEASE_FEED_BASE =
 export const linuxRemoteArtifactBundleRoot = (home = resolveVellumHome()): string =>
   join(home, ".vellum", "releases", "linux-x64-glibc", "current");
 
+export const linuxQualificationCandidateBundleRoot = (
+  home = resolveVellumHome(),
+): string =>
+  join(
+    home,
+    ".vellum",
+    "releases",
+    "linux-x64-glibc",
+    "qualification",
+    "current",
+  );
+
 export const linuxStableChannelUrl = (
   base: string = LINUX_RELEASE_FEED_BASE,
 ): string => `${base.replace(/\/+$/u, "")}/linux/channels/stable.json`;
@@ -51,7 +63,8 @@ export type LinuxStableChannel = {
 
 export type LinuxReleaseCacheSource =
   | "stable-feed"
-  | "verified-cache";
+  | "verified-cache"
+  | "qualification-candidate";
 
 const SHA256 = /^[0-9a-f]{64}$/u;
 const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
@@ -274,8 +287,9 @@ const extractTarGz = (archive: Buffer, destination: string): void => {
  *
  * Production defaults to the stable feed and fails closed when that exact
  * release cannot be fetched. Qualification may explicitly select
- * `verified-cache`; that is the only mode that can use the already-seated fixed
- * cache, never contacts the feed, and fails closed when the cache is absent.
+ * `verified-cache` for the final v5 cache or `qualification-candidate` for the
+ * purpose-separated, non-publishable candidate root. Neither contacts the
+ * feed, and both fail closed when their exact fixed path is absent.
  * The production artifact authority still performs owner, signature, and hash
  * verification after this source selection.
  */
@@ -291,6 +305,15 @@ export const ensureLinuxReleaseCache = async (input?: {
   const home = input?.home ?? resolveVellumHome();
   const bundleRoot = linuxRemoteArtifactBundleRoot(home);
   const source: unknown = input?.source ?? "stable-feed";
+  if (source === "qualification-candidate") {
+    const qualificationRoot = linuxQualificationCandidateBundleRoot(home);
+    if (!existsSync(qualificationRoot)) {
+      throw new Error(
+        "Linux qualification candidate is absent from the fixed qualification path",
+      );
+    }
+    return { bundleRoot: qualificationRoot, source: "local" };
+  }
   if (source === "verified-cache") {
     if (!existsSync(bundleRoot)) {
       throw new Error(

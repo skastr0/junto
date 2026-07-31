@@ -37,6 +37,14 @@ export const LINUX_RELEASE_CHECKSUMS = "SHA256SUMS";
 export const LINUX_RELEASE_KEYRING = "release-keyring.json";
 export const LINUX_RELEASE_MAX_VALIDITY_MS = 31 * 24 * 60 * 60 * 1_000;
 export const LINUX_RELEASE_CLOCK_SKEW_MS = 5 * 60 * 1_000;
+export const LINUX_QUALIFICATION_CANDIDATE_SCHEMA =
+  "vellum/linux-qualification-candidate-manifest/v1" as const;
+export const LINUX_QUALIFICATION_CANDIDATE_SIGNATURE_SCHEMA =
+  "vellum/linux-qualification-candidate-signatures/v1" as const;
+export const LINUX_QUALIFICATION_CANDIDATE_PURPOSE =
+  "station-qualification-candidate" as const;
+export const LINUX_QUALIFICATION_CANDIDATE_MAX_VALIDITY_MS =
+  24 * 60 * 60 * 1_000;
 
 export const LINUX_RELEASE_TARGET = Object.freeze({
   os: "linux",
@@ -138,6 +146,61 @@ export interface LinuxReleaseSignature {
   };
 }
 
+export interface LinuxQualificationCandidateManifest {
+  readonly schema: typeof LINUX_QUALIFICATION_CANDIDATE_SCHEMA;
+  readonly purpose: typeof LINUX_QUALIFICATION_CANDIDATE_PURPOSE;
+  readonly publishable: false;
+  readonly release: {
+    readonly product: "Vellum Command";
+    readonly version: string;
+    readonly createdAt: string;
+    readonly expiresAt: string;
+  };
+  readonly source: {
+    readonly revision: string;
+    readonly revisionFile: "source-revision.json";
+    readonly ciEvidence: {
+      readonly file: "ci-evidence-manifest.json";
+      readonly sha256: string;
+    };
+  };
+  readonly target: typeof LINUX_RELEASE_TARGET;
+  readonly package: {
+    readonly name: "vellum";
+    readonly kind: "deb";
+    readonly file: string;
+    readonly bytes: number;
+    readonly sha256: string;
+  };
+  readonly stationProtocol: StationProtocolSupport;
+  readonly downgrade: { readonly policy: "forbid" };
+  readonly trust: {
+    readonly algorithm: "ed25519";
+    readonly keyId: string;
+    readonly minimumKeyringRevision: number;
+  };
+  readonly files: ReadonlyArray<LinuxReleaseFile>;
+}
+
+export interface LinuxQualificationCandidateSignature {
+  readonly schema: typeof LINUX_QUALIFICATION_CANDIDATE_SIGNATURE_SCHEMA;
+  readonly purpose: typeof LINUX_QUALIFICATION_CANDIDATE_PURPOSE;
+  readonly publishable: false;
+  readonly algorithm: "ed25519";
+  readonly keyId: string;
+  readonly signedAt: string;
+  readonly manifest: {
+    readonly file: typeof LINUX_RELEASE_MANIFEST;
+    readonly sha256: string;
+    readonly signature: string;
+  };
+  readonly checksums: {
+    readonly file: typeof LINUX_RELEASE_CHECKSUMS;
+    readonly sha256: string;
+    readonly signature: string;
+  };
+}
+
 export interface LinuxReleaseKey {
   readonly keyId: string;
   readonly algorithm: "ed25519";
@@ -207,6 +270,49 @@ export interface LinuxReleaseVerificationReceipt {
   readonly packageSha256: string;
 }
 
+export interface LinuxQualificationCandidateVerificationReceipt {
+  readonly schema: "vellum/linux-qualification-candidate-verification-receipt/v1";
+  readonly ok: true;
+  readonly purpose: typeof LINUX_QUALIFICATION_CANDIDATE_PURPOSE;
+  readonly publishable: false;
+  readonly version: string;
+  readonly sourceRevision: string;
+  readonly target: typeof LINUX_RELEASE_TARGET;
+  readonly keyId: string;
+  readonly keyringRevision: number;
+  readonly signedAt: string;
+  readonly expiresAt: string;
+  readonly filesVerified: number;
+  readonly bundleFiles: LinuxReleaseVerificationReceipt["bundleFiles"];
+  readonly packageFile: string;
+  readonly packageBytes: number;
+  readonly packageSha256: string;
+  readonly ciEvidenceSha256: string;
+}
+
+type LinuxEvidenceBundleManifest = {
+  readonly release: {
+    readonly version: string;
+    readonly createdAt: string;
+    readonly expiresAt: string;
+  };
+  readonly source: {
+    readonly revision: string;
+  };
+  readonly target: typeof LINUX_RELEASE_TARGET;
+  readonly package: LinuxReleaseManifest["package"];
+  readonly stationProtocol: StationProtocolSupport;
+  readonly trust: LinuxReleaseManifest["trust"];
+  readonly files: ReadonlyArray<LinuxReleaseFile>;
+};
+
+type LinuxMetadataSignature = {
+  readonly keyId: string;
+  readonly signedAt: string;
+  readonly manifest: LinuxReleaseSignature["manifest"];
+  readonly checksums: LinuxReleaseSignature["checksums"];
+};
+
 const FILE_KINDS = new Set<LinuxReleaseFileKind>([
   "package",
   "build-receipt",
@@ -252,6 +358,18 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["support-matrix", "SUPPORT.md"],
   ["offline-verifier", "vellum-linux-verify-x64"],
 ] as const satisfies ReadonlyArray<readonly [LinuxReleaseFileKind, string]>);
+
+const POST_QUALIFICATION_FILES = new Set([
+  STATION_QUALIFICATION_EVIDENCE_FILE,
+  STATION_QUALIFICATION_RECEIPT_FILE,
+  "release-promotion-receipt.json",
+]);
+
+const QUALIFICATION_REQUIRED_FIXED_FILES = Object.freeze(
+  REQUIRED_FIXED_FILES.filter(([, file]) =>
+    !POST_QUALIFICATION_FILES.has(file)
+  ),
+) as ReadonlyArray<readonly [LinuxReleaseFileKind, string]>;
 
 const METADATA_FILES = new Set([
   LINUX_RELEASE_MANIFEST,
@@ -464,6 +582,25 @@ const metadataSignatureEnvelope = (
   Buffer.from(
     canonicalJson({
       schema: "vellum/linux-release-signing-envelope/v1",
+      algorithm: "ed25519",
+      keyId,
+      signedAt,
+      file,
+      sha256: sha256Bytes(bytes),
+    }),
+    "utf8",
+  );
+
+const qualificationCandidateSignatureEnvelope = (
+  keyId: string,
+  signedAt: string,
+  file: typeof LINUX_RELEASE_MANIFEST | typeof LINUX_RELEASE_CHECKSUMS,
+  bytes: Buffer,
+): Buffer =>
+  Buffer.from(
+    canonicalJson({
+      schema: "vellum/linux-qualification-candidate-signing-envelope/v1",
+      purpose: LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
       algorithm: "ed25519",
       keyId,
       signedAt,
@@ -741,6 +878,36 @@ const validateExactPayloadInventory = (
   }
 };
 
+const validateExactQualificationCandidatePayloadInventory = (
+  version: string,
+  files: ReadonlyArray<LinuxReleaseFile>,
+): void => {
+  const expectedPackage = `Vellum Command-${version}-x64-linux.deb`;
+  const expected = new Map<string, LinuxReleaseFileKind>([
+    [expectedPackage, "package"],
+    ...QUALIFICATION_REQUIRED_FIXED_FILES.map(
+      ([kind, file]) => [file, kind] as const,
+    ),
+  ]);
+  if (files.length !== expected.size) {
+    throw new Error(
+      "Linux qualification candidate has an incomplete payload inventory",
+    );
+  }
+  const seen = new Set<string>();
+  for (const entry of files) {
+    if (seen.has(entry.file)) {
+      throw new Error("duplicate qualification candidate file entry");
+    }
+    seen.add(entry.file);
+    if (expected.get(entry.file) !== entry.kind) {
+      throw new Error(
+        `unexpected Linux qualification candidate payload: ${entry.file}`,
+      );
+    }
+  }
+};
+
 export const decodeLinuxReleaseManifest = (
   value: unknown,
 ): LinuxReleaseManifest => {
@@ -912,6 +1079,226 @@ export const decodeLinuxReleaseManifest = (
   };
 };
 
+export const decodeLinuxQualificationCandidateManifest = (
+  value: unknown,
+): LinuxQualificationCandidateManifest => {
+  const manifest = record(value, "Linux qualification candidate manifest");
+  exactKeys(
+    manifest,
+    [
+      "schema",
+      "purpose",
+      "publishable",
+      "release",
+      "source",
+      "target",
+      "package",
+      "stationProtocol",
+      "downgrade",
+      "trust",
+      "files",
+    ],
+    "Linux qualification candidate manifest",
+  );
+  if (
+    manifest.schema !== LINUX_QUALIFICATION_CANDIDATE_SCHEMA ||
+    manifest.purpose !== LINUX_QUALIFICATION_CANDIDATE_PURPOSE ||
+    manifest.publishable !== false
+  ) {
+    throw new Error("unsupported Linux qualification candidate manifest");
+  }
+
+  const release = record(
+    manifest.release,
+    "Linux qualification candidate identity",
+  );
+  exactKeys(
+    release,
+    ["product", "version", "createdAt", "expiresAt"],
+    "Linux qualification candidate identity",
+  );
+  if (release.product !== "Vellum Command") {
+    throw new Error("unsupported Linux qualification candidate product");
+  }
+  const version = requireSemver(
+    release.version,
+    "qualification candidate version",
+  );
+  const createdAt = requireIsoTimestamp(
+    release.createdAt,
+    "qualification candidate creation time",
+  );
+  const expiresAt = requireIsoTimestamp(
+    release.expiresAt,
+    "qualification candidate expiry time",
+  );
+  const validity = Date.parse(expiresAt) - Date.parse(createdAt);
+  if (
+    validity <= 0 ||
+    validity > LINUX_QUALIFICATION_CANDIDATE_MAX_VALIDITY_MS
+  ) {
+    throw new Error(
+      "Linux qualification candidate validity window is outside policy",
+    );
+  }
+
+  const source = record(
+    manifest.source,
+    "Linux qualification candidate source",
+  );
+  exactKeys(
+    source,
+    ["revision", "revisionFile", "ciEvidence"],
+    "Linux qualification candidate source",
+  );
+  const revision = requireSourceRevision(source.revision);
+  if (source.revisionFile !== "source-revision.json") {
+    throw new Error("Linux qualification candidate source revision mismatch");
+  }
+  const ciEvidence = record(
+    source.ciEvidence,
+    "Linux qualification candidate CI evidence",
+  );
+  exactKeys(
+    ciEvidence,
+    ["file", "sha256"],
+    "Linux qualification candidate CI evidence",
+  );
+  if (ciEvidence.file !== "ci-evidence-manifest.json") {
+    throw new Error("Linux qualification candidate CI evidence file mismatch");
+  }
+  const ciEvidenceSha256 = requireSha256(
+    ciEvidence.sha256,
+    "qualification candidate CI evidence SHA-256",
+  );
+
+  if (JSON.stringify(manifest.target) !== JSON.stringify(LINUX_RELEASE_TARGET)) {
+    throw new Error("Linux qualification candidate target mismatch");
+  }
+
+  const packageEntry = record(
+    manifest.package,
+    "Linux qualification candidate package",
+  );
+  exactKeys(
+    packageEntry,
+    ["name", "kind", "file", "bytes", "sha256"],
+    "Linux qualification candidate package",
+  );
+  const expectedPackage = `Vellum Command-${version}-x64-linux.deb`;
+  if (
+    packageEntry.name !== "vellum" ||
+    packageEntry.kind !== "deb" ||
+    packageEntry.file !== expectedPackage
+  ) {
+    throw new Error("Linux qualification candidate package identity mismatch");
+  }
+  const packageBytes = requireInteger(
+    packageEntry.bytes,
+    "qualification candidate package byte count",
+    1,
+    MAX_PACKAGE_BYTES,
+  );
+  const packageSha256 = requireSha256(
+    packageEntry.sha256,
+    "qualification candidate package SHA-256",
+  );
+
+  const stationProtocol = decodeStationProtocolSupport(
+    manifest.stationProtocol,
+    "qualification candidate Station protocol support",
+  );
+  const downgrade = record(
+    manifest.downgrade,
+    "qualification candidate downgrade policy",
+  );
+  exactKeys(
+    downgrade,
+    ["policy"],
+    "qualification candidate downgrade policy",
+  );
+  if (downgrade.policy !== "forbid") {
+    throw new Error("unsupported qualification candidate downgrade policy");
+  }
+
+  const trust = record(
+    manifest.trust,
+    "qualification candidate trust policy",
+  );
+  exactKeys(
+    trust,
+    ["algorithm", "keyId", "minimumKeyringRevision"],
+    "qualification candidate trust policy",
+  );
+  if (trust.algorithm !== "ed25519") {
+    throw new Error("unsupported qualification candidate signature algorithm");
+  }
+  const keyId = requireKeyId(trust.keyId);
+  const minimumKeyringRevision = requireInteger(
+    trust.minimumKeyringRevision,
+    "qualification candidate minimum keyring revision",
+    1,
+    Number.MAX_SAFE_INTEGER,
+  );
+
+  if (!Array.isArray(manifest.files)) {
+    throw new Error("malformed Linux qualification candidate file inventory");
+  }
+  const files = manifest.files.map(decodeReleaseFile).sort(compareFileNames);
+  validateExactQualificationCandidatePayloadInventory(version, files);
+  const packageFile = files.find((entry) => entry.kind === "package");
+  const ciEvidenceFile = files.find(
+    (entry) => entry.file === "ci-evidence-manifest.json",
+  );
+  if (
+    packageFile?.file !== expectedPackage ||
+    packageFile.bytes !== packageBytes ||
+    packageFile.sha256 !== packageSha256 ||
+    ciEvidenceFile?.kind !== "ci-evidence-manifest" ||
+    ciEvidenceFile.sha256 !== ciEvidenceSha256
+  ) {
+    throw new Error(
+      "Linux qualification candidate identity does not match its inventory",
+    );
+  }
+
+  return {
+    schema: LINUX_QUALIFICATION_CANDIDATE_SCHEMA,
+    purpose: LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
+    publishable: false,
+    release: {
+      product: "Vellum Command",
+      version,
+      createdAt,
+      expiresAt,
+    },
+    source: {
+      revision,
+      revisionFile: "source-revision.json",
+      ciEvidence: {
+        file: "ci-evidence-manifest.json",
+        sha256: ciEvidenceSha256,
+      },
+    },
+    target: LINUX_RELEASE_TARGET,
+    package: {
+      name: "vellum",
+      kind: "deb",
+      file: expectedPackage,
+      bytes: packageBytes,
+      sha256: packageSha256,
+    },
+    stationProtocol,
+    downgrade: { policy: "forbid" },
+    trust: {
+      algorithm: "ed25519",
+      keyId,
+      minimumKeyringRevision,
+    },
+    files,
+  };
+};
+
 const decodeSignedPart = (
   value: unknown,
   expectedFile: string,
@@ -971,6 +1358,58 @@ export const decodeLinuxReleaseSignature = (
       LINUX_RELEASE_CHECKSUMS,
       "checksum signature",
     ) as LinuxReleaseSignature["checksums"],
+  };
+};
+
+export const decodeLinuxQualificationCandidateSignature = (
+  value: unknown,
+): LinuxQualificationCandidateSignature => {
+  const signature = record(
+    value,
+    "Linux qualification candidate signature",
+  );
+  exactKeys(
+    signature,
+    [
+      "schema",
+      "purpose",
+      "publishable",
+      "algorithm",
+      "keyId",
+      "signedAt",
+      "manifest",
+      "checksums",
+    ],
+    "Linux qualification candidate signature",
+  );
+  if (
+    signature.schema !== LINUX_QUALIFICATION_CANDIDATE_SIGNATURE_SCHEMA ||
+    signature.purpose !== LINUX_QUALIFICATION_CANDIDATE_PURPOSE ||
+    signature.publishable !== false ||
+    signature.algorithm !== "ed25519"
+  ) {
+    throw new Error("unsupported Linux qualification candidate signature");
+  }
+  return {
+    schema: LINUX_QUALIFICATION_CANDIDATE_SIGNATURE_SCHEMA,
+    purpose: LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
+    publishable: false,
+    algorithm: "ed25519",
+    keyId: requireKeyId(signature.keyId),
+    signedAt: requireIsoTimestamp(
+      signature.signedAt,
+      "qualification candidate signing time",
+    ),
+    manifest: decodeSignedPart(
+      signature.manifest,
+      LINUX_RELEASE_MANIFEST,
+      "qualification candidate manifest signature",
+    ) as LinuxQualificationCandidateSignature["manifest"],
+    checksums: decodeSignedPart(
+      signature.checksums,
+      LINUX_RELEASE_CHECKSUMS,
+      "qualification candidate checksum signature",
+    ) as LinuxQualificationCandidateSignature["checksums"],
   };
 };
 
@@ -1356,7 +1795,7 @@ const requireSafeEvidencePath = (value: unknown): string => {
 };
 
 const signedFile = (
-  manifest: LinuxReleaseManifest,
+  manifest: LinuxEvidenceBundleManifest,
   file: string,
 ): LinuxReleaseFile => {
   const entry = manifest.files.find((candidate) => candidate.file === file);
@@ -1368,7 +1807,7 @@ const signedFile = (
 
 const validateCiEvidenceManifest = (
   receipt: Record<string, unknown>,
-  manifest: LinuxReleaseManifest,
+  manifest: LinuxEvidenceBundleManifest,
 ): void => {
   exactKeys(
     receipt,
@@ -1512,7 +1951,7 @@ const validateCiEvidenceManifest = (
 
 const validateStationQualificationReceipt = (
   receipt: Record<string, unknown>,
-  manifest: LinuxReleaseManifest,
+  manifest: LinuxEvidenceBundleManifest,
 ): void => {
   const decoded = decodeStationQualification(receipt);
   if (Either.isLeft(decoded) || decoded.right.ok !== true) {
@@ -1597,7 +2036,7 @@ const validateStationQualificationReceipt = (
 
 const validatePromotionReceipt = (
   receipt: Record<string, unknown>,
-  manifest: LinuxReleaseManifest,
+  manifest: LinuxEvidenceBundleManifest,
 ): void => {
   exactKeys(
     receipt,
@@ -1689,7 +2128,7 @@ const validatePromotionReceipt = (
 const validateEvidenceReceipt = (
   file: string,
   input: string,
-  manifest: LinuxReleaseManifest,
+  manifest: LinuxEvidenceBundleManifest,
 ): void => {
   const receipt = parseEvidenceJson(input, file);
   if (file === "ci-evidence-manifest.json") {
@@ -1813,7 +2252,7 @@ const validateEvidenceReceipt = (
 
 const validatePayloads = async (
   directory: string,
-  manifest: LinuxReleaseManifest,
+  manifest: LinuxEvidenceBundleManifest,
 ): Promise<void> => {
   let dependencyInventory: Record<string, unknown> | undefined;
   let sbom: Record<string, unknown> | undefined;
@@ -1920,7 +2359,7 @@ const compareDottedVersion = (left: string, right: string): number => {
 };
 
 const validateCompatibility = (
-  manifest: LinuxReleaseManifest,
+  manifest: LinuxEvidenceBundleManifest,
   input: LinuxReleaseVerificationInput,
 ): void => {
   validateHost(input.host);
@@ -1962,8 +2401,8 @@ const validateCompatibility = (
 
 const selectTrustedKey = (
   keyring: LinuxReleaseKeyring,
-  signature: LinuxReleaseSignature,
-  manifest: LinuxReleaseManifest,
+  signature: LinuxMetadataSignature,
+  manifest: LinuxEvidenceBundleManifest,
 ): LinuxReleaseKey => {
   if (
     keyring.revision < manifest.trust.minimumKeyringRevision ||
@@ -2027,6 +2466,51 @@ const verifyMetadataSignatures = (
     )
   ) {
     throw new Error("Linux release metadata signature is invalid");
+  }
+};
+
+const verifyQualificationCandidateMetadataSignatures = (
+  key: LinuxReleaseKey,
+  signature: LinuxQualificationCandidateSignature,
+  manifestBytes: Buffer,
+  checksumBytes: Buffer,
+): void => {
+  if (
+    sha256Bytes(manifestBytes) !== signature.manifest.sha256 ||
+    sha256Bytes(checksumBytes) !== signature.checksums.sha256
+  ) {
+    throw new Error(
+      "signed Linux qualification candidate metadata digest mismatch",
+    );
+  }
+  const publicKey = createPublicKey(key.publicKeyPem);
+  if (
+    !verify(
+      null,
+      qualificationCandidateSignatureEnvelope(
+        signature.keyId,
+        signature.signedAt,
+        LINUX_RELEASE_MANIFEST,
+        manifestBytes,
+      ),
+      publicKey,
+      Buffer.from(signature.manifest.signature, "base64url"),
+    ) ||
+    !verify(
+      null,
+      qualificationCandidateSignatureEnvelope(
+        signature.keyId,
+        signature.signedAt,
+        LINUX_RELEASE_CHECKSUMS,
+        checksumBytes,
+      ),
+      publicKey,
+      Buffer.from(signature.checksums.signature, "base64url"),
+    )
+  ) {
+    throw new Error(
+      "Linux qualification candidate metadata signature is invalid",
+    );
   }
 };
 
@@ -2166,6 +2650,295 @@ export const verifyLinuxReleaseBundle = async (
   };
 };
 
+export const verifyLinuxQualificationCandidateBundle = async (
+  input: LinuxReleaseVerificationInput,
+): Promise<LinuxQualificationCandidateVerificationReceipt> => {
+  const directory = path.resolve(input.bundleDirectory);
+  const [
+    manifestRaw,
+    signatureRaw,
+    checksumBytes,
+    bundledKeyring,
+  ] = await Promise.all([
+    readCanonicalFile<unknown>(
+      directory,
+      LINUX_RELEASE_MANIFEST,
+      "Linux qualification candidate manifest",
+    ),
+    readCanonicalFile<unknown>(
+      directory,
+      LINUX_RELEASE_SIGNATURE,
+      "Linux qualification candidate signature",
+    ),
+    readRegularFileBytes(
+      directory,
+      LINUX_RELEASE_CHECKSUMS,
+      MAX_METADATA_BYTES,
+    ),
+    readKeyring(directory),
+  ]);
+  const manifest = decodeLinuxQualificationCandidateManifest(
+    manifestRaw.value,
+  );
+  const signature = decodeLinuxQualificationCandidateSignature(
+    signatureRaw.value,
+  );
+  const keyring = decodeLinuxReleaseKeyring(input.trustedKeyring);
+  const trustedKeyringRevision = requireInteger(
+    input.trustedKeyringRevision,
+    "trusted keyring revision",
+    1,
+    Number.MAX_SAFE_INTEGER,
+  );
+  const trustedKeyringSha256 = requireSha256(
+    input.trustedKeyringSha256,
+    "trusted keyring SHA-256",
+  );
+  if (
+    keyring.revision !== trustedKeyringRevision ||
+    releaseKeyringSha256(keyring) !== trustedKeyringSha256
+  ) {
+    throw new Error(
+      "qualification candidate keyring does not match the independently pinned revision and digest",
+    );
+  }
+  if (keyring.revision < bundledKeyring.revision) {
+    throw new Error(
+      "trusted keyring is older than the qualification candidate keyring",
+    );
+  }
+  if (checksumBytes.toString("utf8") !== checksumText(manifest.files)) {
+    throw new Error("Linux qualification candidate checksum inventory mismatch");
+  }
+  const key = selectTrustedKey(keyring, signature, manifest);
+  if (
+    key.keyId !== requireKeyId(input.trustedKeyId) ||
+    key.fingerprintSha256 !== requireSha256(
+      input.trustedKeyFingerprintSha256,
+      "trusted release key fingerprint",
+    )
+  ) {
+    throw new Error(
+      "qualification candidate key does not match the independently pinned trust root",
+    );
+  }
+  verifyQualificationCandidateMetadataSignatures(
+    key,
+    signature,
+    manifestRaw.bytes,
+    checksumBytes,
+  );
+
+  const now = input.now ?? Date.now();
+  if (!Number.isSafeInteger(now) || now < 0) {
+    throw new Error("Linux qualification candidate verification time is invalid");
+  }
+  if (
+    Date.parse(manifest.release.createdAt) >
+      now + LINUX_RELEASE_CLOCK_SKEW_MS ||
+    Date.parse(signature.signedAt) >
+      now + LINUX_RELEASE_CLOCK_SKEW_MS ||
+    Date.parse(signature.signedAt) <
+      Date.parse(manifest.release.createdAt) - LINUX_RELEASE_CLOCK_SKEW_MS ||
+    Date.parse(signature.signedAt) > Date.parse(manifest.release.expiresAt) ||
+    Date.parse(manifest.release.expiresAt) < now
+  ) {
+    throw new Error(
+      "Linux qualification candidate metadata is not currently valid",
+    );
+  }
+
+  await requireExactDirectoryInventory(
+    directory,
+    manifest.files.map((entry) => entry.file),
+    "signed",
+  );
+  await validatePayloads(directory, manifest);
+  validateCompatibility(manifest, input);
+
+  const bundleFiles = [
+    ...manifest.files.map(({ file, bytes, sha256 }) => ({
+      file,
+      bytes,
+      sha256,
+    })),
+    {
+      file: LINUX_RELEASE_MANIFEST,
+      bytes: manifestRaw.bytes.length,
+      sha256: sha256Bytes(manifestRaw.bytes),
+    },
+    {
+      file: LINUX_RELEASE_SIGNATURE,
+      bytes: signatureRaw.bytes.length,
+      sha256: sha256Bytes(signatureRaw.bytes),
+    },
+    {
+      file: LINUX_RELEASE_CHECKSUMS,
+      bytes: checksumBytes.length,
+      sha256: sha256Bytes(checksumBytes),
+    },
+  ].sort(compareFileNames);
+  return {
+    schema:
+      "vellum/linux-qualification-candidate-verification-receipt/v1",
+    ok: true,
+    purpose: LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
+    publishable: false,
+    version: manifest.release.version,
+    sourceRevision: manifest.source.revision,
+    target: LINUX_RELEASE_TARGET,
+    keyId: key.keyId,
+    keyringRevision: keyring.revision,
+    signedAt: signature.signedAt,
+    expiresAt: manifest.release.expiresAt,
+    filesVerified: manifest.files.length,
+    bundleFiles,
+    packageFile: manifest.package.file,
+    packageBytes: manifest.package.bytes,
+    packageSha256: manifest.package.sha256,
+    ciEvidenceSha256: manifest.source.ciEvidence.sha256,
+  };
+};
+
+export const createLinuxQualificationCandidateManifest = async (input: {
+  readonly bundleDirectory: string;
+  readonly version: string;
+  readonly sourceRevision: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly keyId: string;
+}): Promise<LinuxQualificationCandidateManifest> => {
+  const directory = path.resolve(input.bundleDirectory);
+  const version = requireSemver(
+    input.version,
+    "qualification candidate version",
+  );
+  const sourceRevision = requireSourceRevision(input.sourceRevision);
+  const createdAt = requireIsoTimestamp(
+    input.createdAt,
+    "qualification candidate creation time",
+  );
+  const expiresAt = requireIsoTimestamp(
+    input.expiresAt,
+    "qualification candidate expiry time",
+  );
+  if (
+    Date.parse(expiresAt) <= Date.parse(createdAt) ||
+    Date.parse(expiresAt) - Date.parse(createdAt) >
+      LINUX_QUALIFICATION_CANDIDATE_MAX_VALIDITY_MS
+  ) {
+    throw new Error(
+      "Linux qualification candidate validity window is outside policy",
+    );
+  }
+  const keyId = requireKeyId(input.keyId);
+  const keyring = await readKeyring(directory);
+  const key = keyring.keys.find((candidate) => candidate.keyId === keyId);
+  if (key === undefined || key.status !== "active") {
+    throw new Error(
+      "qualification candidate creation requires an active release key",
+    );
+  }
+  const packageName = `Vellum Command-${version}-x64-linux.deb`;
+  const expected = [
+    { kind: "package" as const, file: packageName },
+    ...QUALIFICATION_REQUIRED_FIXED_FILES.map(([kind, file]) => ({
+      kind,
+      file,
+    })),
+  ];
+  await requireExactDirectoryInventory(
+    directory,
+    expected.map((entry) => entry.file),
+    "unsigned",
+  );
+
+  const files = await Promise.all(expected.map(async (entry) => {
+    const maximum =
+      entry.kind === "package"
+        ? MAX_PACKAGE_BYTES
+        : entry.kind === "offline-verifier"
+          ? MAX_VERIFIER_BYTES
+          : MAX_TEXT_EVIDENCE_BYTES;
+    const admitted = await openRegularFile(directory, entry.file, maximum);
+    try {
+      return {
+        kind: entry.kind,
+        file: entry.file,
+        bytes: admitted.bytes,
+        sha256: await hashOpenedRegularFile(admitted, entry.file),
+      };
+    } finally {
+      await admitted.handle.close();
+    }
+  }));
+  files.sort(compareFileNames);
+  const packageReceipt = files.find((entry) => entry.kind === "package");
+  const ciEvidence = files.find(
+    (entry) => entry.file === "ci-evidence-manifest.json",
+  );
+  if (
+    packageReceipt === undefined ||
+    ciEvidence?.kind !== "ci-evidence-manifest"
+  ) {
+    throw new Error(
+      "Linux qualification candidate is missing its deb or CI evidence",
+    );
+  }
+  const manifest: LinuxQualificationCandidateManifest = {
+    schema: LINUX_QUALIFICATION_CANDIDATE_SCHEMA,
+    purpose: LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
+    publishable: false,
+    release: {
+      product: "Vellum Command",
+      version,
+      createdAt,
+      expiresAt,
+    },
+    source: {
+      revision: sourceRevision,
+      revisionFile: "source-revision.json",
+      ciEvidence: {
+        file: "ci-evidence-manifest.json",
+        sha256: ciEvidence.sha256,
+      },
+    },
+    target: LINUX_RELEASE_TARGET,
+    package: {
+      name: "vellum",
+      kind: "deb",
+      file: packageReceipt.file,
+      bytes: packageReceipt.bytes,
+      sha256: packageReceipt.sha256,
+    },
+    stationProtocol: {
+      ...CURRENT_STATION_PROTOCOL_SUPPORT,
+    },
+    downgrade: { policy: "forbid" },
+    trust: {
+      algorithm: "ed25519",
+      keyId,
+      minimumKeyringRevision: keyring.revision,
+    },
+    files,
+  };
+  decodeLinuxQualificationCandidateManifest(manifest);
+  await validatePayloads(directory, manifest);
+  await Promise.all([
+    writeFile(
+      path.join(directory, LINUX_RELEASE_MANIFEST),
+      canonicalJson(manifest),
+      { encoding: "utf8", flag: "wx", mode: 0o644 },
+    ),
+    writeFile(
+      path.join(directory, LINUX_RELEASE_CHECKSUMS),
+      checksumText(files),
+      { encoding: "utf8", flag: "wx", mode: 0o644 },
+    ),
+  ]);
+  return manifest;
+};
+
 export const createLinuxReleaseManifest = async (input: {
   readonly bundleDirectory: string;
   readonly version: string;
@@ -2277,6 +3050,123 @@ export const createLinuxReleaseManifest = async (input: {
     ),
   ]);
   return manifest;
+};
+
+export const signLinuxQualificationCandidateMetadata = async (input: {
+  readonly bundleDirectory: string;
+  readonly keyId: string;
+  readonly privateKeyPem: string;
+  readonly signedAt: string;
+}): Promise<LinuxQualificationCandidateSignature> => {
+  const directory = path.resolve(input.bundleDirectory);
+  const [manifestRaw, checksumBytes, keyring] = await Promise.all([
+    readCanonicalFile<unknown>(
+      directory,
+      LINUX_RELEASE_MANIFEST,
+      "Linux qualification candidate manifest",
+    ),
+    readRegularFileBytes(
+      directory,
+      LINUX_RELEASE_CHECKSUMS,
+      MAX_METADATA_BYTES,
+    ),
+    readKeyring(directory),
+  ]);
+  const manifest = decodeLinuxQualificationCandidateManifest(
+    manifestRaw.value,
+  );
+  const keyId = requireKeyId(input.keyId);
+  const signedAt = requireIsoTimestamp(
+    input.signedAt,
+    "qualification candidate signing time",
+  );
+  if (
+    keyId !== manifest.trust.keyId ||
+    checksumBytes.toString("utf8") !== checksumText(manifest.files) ||
+    Date.parse(signedAt) <
+      Date.parse(manifest.release.createdAt) - LINUX_RELEASE_CLOCK_SKEW_MS ||
+    Date.parse(signedAt) > Date.parse(manifest.release.expiresAt)
+  ) {
+    throw new Error(
+      "qualification candidate metadata is outside its signing policy",
+    );
+  }
+  const key = keyring.keys.find((candidate) => candidate.keyId === keyId);
+  if (
+    keyring.revision < manifest.trust.minimumKeyringRevision ||
+    key === undefined ||
+    key.status !== "active" ||
+    Date.parse(signedAt) < Date.parse(key.validFrom) ||
+    (key.signingEndsAt !== undefined &&
+      Date.parse(signedAt) > Date.parse(key.signingEndsAt))
+  ) {
+    throw new Error(
+      "release key is not authorized to sign qualification metadata",
+    );
+  }
+  await requireExactDirectoryInventory(
+    directory,
+    manifest.files.map((entry) => entry.file),
+    "prepared",
+  );
+  await validatePayloads(directory, manifest);
+  let privateKey: KeyObject;
+  try {
+    privateKey = createPrivateKey(input.privateKeyPem);
+  } catch {
+    throw new Error("invalid release private key");
+  }
+  if (
+    privateKey.type !== "private" ||
+    privateKey.asymmetricKeyType !== "ed25519" ||
+    publicKeyFingerprint(createPublicKey(privateKey)) !==
+      key.fingerprintSha256
+  ) {
+    throw new Error("release private key does not match the pinned keyring");
+  }
+  const signature: LinuxQualificationCandidateSignature = {
+    schema: LINUX_QUALIFICATION_CANDIDATE_SIGNATURE_SCHEMA,
+    purpose: LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
+    publishable: false,
+    algorithm: "ed25519",
+    keyId,
+    signedAt,
+    manifest: {
+      file: LINUX_RELEASE_MANIFEST,
+      sha256: sha256Bytes(manifestRaw.bytes),
+      signature: sign(
+        null,
+        qualificationCandidateSignatureEnvelope(
+          keyId,
+          signedAt,
+          LINUX_RELEASE_MANIFEST,
+          manifestRaw.bytes,
+        ),
+        privateKey,
+      ).toString("base64url"),
+    },
+    checksums: {
+      file: LINUX_RELEASE_CHECKSUMS,
+      sha256: sha256Bytes(checksumBytes),
+      signature: sign(
+        null,
+        qualificationCandidateSignatureEnvelope(
+          keyId,
+          signedAt,
+          LINUX_RELEASE_CHECKSUMS,
+          checksumBytes,
+        ),
+        privateKey,
+      ).toString("base64url"),
+    },
+  };
+  decodeLinuxQualificationCandidateSignature(signature);
+  await writeFile(
+    path.join(directory, LINUX_RELEASE_SIGNATURE),
+    canonicalJson(signature),
+    { encoding: "utf8", flag: "wx", mode: 0o644 },
+  );
+  return signature;
 };
 
 export const signLinuxReleaseMetadata = async (input: {
@@ -2419,6 +3309,16 @@ export const linuxReleasePayloadFileNames = (
 ): ReadonlyArray<string> => [
   `Vellum Command-${requireSemver(version, "release version")}-x64-linux.deb`,
   ...REQUIRED_FIXED_FILES.map(([, file]) => file),
+];
+
+export const linuxQualificationCandidatePayloadFileNames = (
+  version: string,
+): ReadonlyArray<string> => [
+  `Vellum Command-${requireSemver(
+    version,
+    "qualification candidate version",
+  )}-x64-linux.deb`,
+  ...QUALIFICATION_REQUIRED_FIXED_FILES.map(([, file]) => file),
 ];
 
 export const linuxReleaseMetadataFileNames = (): ReadonlyArray<string> => [
