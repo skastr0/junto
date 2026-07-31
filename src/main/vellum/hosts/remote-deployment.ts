@@ -12,7 +12,14 @@ import type { LinuxAdministratorCredential } from "./linux-administrator-credent
 export type RemoteDeploymentProgress = readonly string[];
 
 export type RemoteDeploymentDisposition =
-  "not-started" | "ready" | "indeterminate";
+  | "not-started"
+  /**
+   * The exact package is present and its enrollment control plane can be
+   * configured, but full work-control readiness requires that configuration.
+   */
+  | "configuration-required"
+  | "ready"
+  | "indeterminate";
 
 export type RemoteTargetPlatform = "darwin" | "linux";
 

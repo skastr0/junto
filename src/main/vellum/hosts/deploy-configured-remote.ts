@@ -168,31 +168,6 @@ const configurationFailure = (
   };
 };
 
-/**
- * Linux first-boot chicken-egg:
- * - work control readiness requires durable station_configuration
- * - packaged headless without configuration only starts Station enrollment
- *   bootstrap (pair/configure admitted; workControl=false)
- * - sealed package readiness waits for work control
- *
- * So when the package is on disk but readiness failed, configure through
- * enrollment bootstrap once, then re-admit and re-run package activation.
- */
-const packagePresentWithoutReady = (
-  deployed: DeployRemoteResult,
-): boolean => {
-  if (deployed.disposition === "not-started") return false;
-  if (deployed.disposition === "ready" && deployed.ok) return false;
-  return (deployed.stages ?? []).some(
-    (stage) =>
-      /^first-install package .+ installed/u.test(stage) ||
-      /custody present/u.test(stage) ||
-      /^starting sealed adopt/u.test(stage) ||
-      /^root-owned transaction .+ committed/u.test(stage) ||
-      /signed artifact admitted/u.test(stage),
-  );
-};
-
 const finishWithConfiguration = (
   host: RemoteHost,
   deployed: DeployRemoteResult,
@@ -271,11 +246,10 @@ export const deployConfiguredRemoteHost = (
       options.authorization,
     );
 
-    // Break the first-boot readiness ↔ configuration deadlock once.
-    if (
-      (!deployed.ok || deployed.disposition !== "ready") &&
-      packagePresentWithoutReady(deployed)
-    ) {
+    // Break the first-boot readiness ↔ configuration deadlock once. The
+    // provider must prove this exact state structurally; progress text is
+    // operator evidence and never controls deployment.
+    if (deployed.disposition === "configuration-required") {
       const bootstrapConfigure = yield* operations
         .configure(ssh, host, options)
         .pipe(Effect.either);

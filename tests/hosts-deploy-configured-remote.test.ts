@@ -216,14 +216,10 @@ describe("configured Remote deploy", () => {
         if (packageCalls === 1) {
           return {
             ok: false,
-            detail: "release session failed: product control plane did not become ready",
+            detail: "Station configuration is required next",
             code: "conflict" as const,
-            stages: [
-              "first-install package 0.1.2 installed; custody present",
-              "starting sealed adopt for 0.1.2 (package already on host)",
-              "adopt/release session error: product control plane",
-            ],
-            disposition: "indeterminate" as const,
+            stages: ["opaque operator progress that carries no control state"],
+            disposition: "configuration-required" as const,
             version: "0.1.2",
           };
         }
@@ -277,6 +273,45 @@ describe("configured Remote deploy", () => {
     expect(result.stages?.some((s) => /enrollment bootstrap/u.test(s))).toBe(
       true,
     );
+  });
+
+  it("never infers the enrollment continuation from human-readable progress", async () => {
+    const configure = vi.fn(() =>
+      Effect.die("configure must not run"),
+    );
+    const deployPrepared = vi.fn(() =>
+      Effect.succeed({
+        ok: false,
+        detail: "package state could not be proven",
+        code: "conflict" as const,
+        stages: [
+          "signed artifact admitted version=0.1.2",
+          "first-install package 0.1.2 installed; custody present",
+          "starting sealed adopt for 0.1.2",
+          "root-owned transaction legacy committed",
+        ],
+        disposition: "indeterminate" as const,
+        version: "0.1.2",
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        options,
+        operations({ deployPrepared, configure }),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      outcome: "indeterminate",
+      packageState: "unknown",
+      role: "previous",
+    });
+    expect(configure).not.toHaveBeenCalled();
+    expect(deployPrepared).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a ready package and reports indeterminate when API configuration fails", async () => {
