@@ -26,8 +26,11 @@ describe("Claude managed startup recovery", () => {
 });
 
 describe("Claude compact acknowledgement", () => {
-  it("recognizes the fresh-session no-op response", () => {
-    expect(isClaudeCompactNoop("  └ Not enough messages to compact.")).toBe(true);
+  it.each([
+    "  └ Not enough messages to compact.",
+    "● Nothing to compact — this session has no prior conversation history.",
+  ])("recognizes a fresh-session no-op response: %s", (text) => {
+    expect(isClaudeCompactNoop(text)).toBe(true);
   });
 
   it("does not classify ordinary prompt text as a compact receipt", () => {

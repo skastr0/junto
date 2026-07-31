@@ -15,5 +15,11 @@ export const isClaudeResumeSummaryChoice = (text: string): boolean => {
 };
 
 /** Claude accepted `/compact`, but a fresh session had nothing to summarize. */
-export const isClaudeCompactNoop = (text: string): boolean =>
-  text.toLowerCase().includes("not enough messages to compact");
+export const isClaudeCompactNoop = (text: string): boolean => {
+  const normalized = text.toLowerCase();
+  return (
+    normalized.includes("not enough messages to compact") ||
+    (normalized.includes("nothing to compact") &&
+      normalized.includes("no prior conversation history"))
+  );
+};
