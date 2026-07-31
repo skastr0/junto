@@ -912,7 +912,7 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
       autoFocus
       type="text"
       className="node-palette__filter"
-      placeholder="filter kinds…"
+      placeholder="filter…"
       aria-label="Filter add menu"
       value={query}
       onChange={(event) => { setQuery(event.target.value); setHighlighted(0); }}
