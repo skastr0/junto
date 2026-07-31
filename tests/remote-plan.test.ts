@@ -80,6 +80,10 @@ describe("named deploy compilers", () => {
     expect(source).not.toContain('"$DEST/vellum"');
     expect(source).not.toContain('"$RELEASE/vellum"');
     expect(source).not.toMatch(/Xvfb|ozone-platform|--vellum-headless/u);
+    expect(source).not.toContain("rm -rf");
+    expect(source).toContain('/bin/rm -f -- "$ARCHIVE"');
+    expect(source).toContain('/bin/rmdir -- "$STAGE"');
+    expect(source).toContain('|| fail preflight');
   });
 
   it("admits a product Darwin deploy script and refuses free-form shell", () => {
