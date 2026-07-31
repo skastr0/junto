@@ -20,7 +20,13 @@ import {
   type CanvasQuiesceAndFlushResult,
   type NodeRefOpenedDelivery,
 } from "@shared/ipc";
+import { PRODUCT_NAME } from "@shared/product-name";
 import type { PreambleEvent } from "@shared/preamble";
+import {
+  resolveVellumHome,
+  shouldPinUnpackagedElectronUserData,
+  unpackagedElectronUserDataPath,
+} from "@shared/vellum-home";
 import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
@@ -171,6 +177,23 @@ app.commandLine.appendSwitch("no-proxy-server");
 // Defense in depth for every renderer, including future windows whose local
 // preferences might otherwise drift. This must run before app readiness.
 app.enableSandbox();
+// Official `bun run dev` sets VELLUM_HOME (~/.vellum-dev). Pin Electron
+// userData under that home *before* requestSingleInstanceLock so the
+// Chromium singleton does not fight the packaged production install.
+// Never override --user-data-dir (e2e/probes) or packaged installs.
+if (
+  shouldPinUnpackagedElectronUserData({
+    packaged: app.isPackaged,
+    vellumHomeEnv: process.env.VELLUM_HOME,
+    hasUserDataDirSwitch: app.commandLine.hasSwitch("user-data-dir"),
+  })
+) {
+  const isolatedUserData = unpackagedElectronUserDataPath(resolveVellumHome());
+  app.setPath("userData", isolatedUserData);
+  // Dock / menu bar: still PRODUCT_NAME first for brand lint; "Dev" marks the
+  // unpackaged process so it is visually distinct from production.
+  app.setName(`${PRODUCT_NAME} Dev`);
+}
 registerTrustedRendererScheme(protocol, [CONTENT_PROTOCOL_SCHEME_REGISTRATION]);
 
 // electron-vite (and some launchd/stdio handoffs) can close the parent pipe
@@ -804,8 +827,9 @@ const createWindow = () => {
     height: 900,
     minWidth: 960,
     minHeight: 680,
-    title: "Vellum Command",
+    title: app.isPackaged ? PRODUCT_NAME : `${PRODUCT_NAME} Dev`,
     backgroundColor: "#0c0b0a",
+
     // `hiddenInset` and traffic-light geometry are a macOS presentation
     // contract. Linux window managers receive Electron's native chrome.
     ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
