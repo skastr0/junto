@@ -435,9 +435,9 @@ export type OperatorQualificationWorkPrepareData =
 
 export const OperatorQualificationWorkProgressData = Schema.Struct({
   ...OperatorQualificationWorkIdentity,
-  before: Schema.Literal("working", "completed"),
+  before: Schema.Literal("working"),
   after: Schema.Literal("completed"),
-  disposition: Schema.Literal("applied", "idempotent"),
+  disposition: Schema.Literal("applied"),
 });
 export type OperatorQualificationWorkProgressData =
   typeof OperatorQualificationWorkProgressData.Type;

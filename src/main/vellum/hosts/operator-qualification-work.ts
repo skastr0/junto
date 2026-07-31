@@ -143,7 +143,7 @@ export const qualificationWorkDocument = (
         fromNode: QUALIFICATION_WORK_ACTOR_NODE_ID,
         toNode: QUALIFICATION_WORK_SINK_NODE_ID,
         ether: {
-          ports: ["tasks.list", "tasks.claim", "tasks.update"],
+          ports: ["tasks.claim"],
         },
       },
     ],
@@ -848,10 +848,8 @@ export const qualificationWorkProgressEffect = (
       );
     }
 
-    let before: "working" | "completed";
-    let disposition: "applied" | "idempotent";
     if (
-      taskMatchesWorking(
+      !taskMatchesWorking(
         view.task,
         actor,
         args.runId,
@@ -859,40 +857,26 @@ export const qualificationWorkProgressEffect = (
         canvasName,
       )
     ) {
-      before = "working";
-      const transitioned = yield* work.workTaskTransition(
-        canvasName,
-        QUALIFICATION_WORK_SINK_NODE_ID,
-        view.task.id,
-        "completed",
-        QUALIFICATION_WORK_COMPLETION_NOTE,
-      );
-      const admitted = yield* workResult(
-        transitioned,
-        "offline qualification transition",
-      );
-      if (admitted.disposition !== "applied") {
-        return yield* qualificationFailure(
-          "conflict",
-          "offline qualification transition did not apply locally",
-        );
-      }
-      disposition = "applied";
-    } else if (
-      taskMatchesCompleted(
-        view.task,
-        actor,
-        args.runId,
-        view.hostId,
-        canvasName,
-      )
-    ) {
-      before = "completed";
-      disposition = "idempotent";
-    } else {
       return yield* qualificationFailure(
         "conflict",
-        "offline qualification task is not exact working or completed work",
+        "offline qualification task is not exact working work",
+      );
+    }
+    const transitioned = yield* work.workTaskTransition(
+      canvasName,
+      QUALIFICATION_WORK_SINK_NODE_ID,
+      view.task.id,
+      "completed",
+      QUALIFICATION_WORK_COMPLETION_NOTE,
+    );
+    const admitted = yield* workResult(
+      transitioned,
+      "offline qualification transition",
+    );
+    if (admitted.disposition !== "applied") {
+      return yield* qualificationFailure(
+        "conflict",
+        "offline qualification transition did not apply locally",
       );
     }
 
@@ -951,9 +935,9 @@ export const qualificationWorkProgressEffect = (
       taskId: view.task.id,
       actor,
       receivedThrough,
-      before,
+      before: "working",
       after: "completed",
-      disposition,
+      disposition: "applied",
     };
   });
 
