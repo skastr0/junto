@@ -153,16 +153,19 @@ chmod 0644 "$UNIT_SOURCE"
 
 ensure_root_directory() {
   directory="$1"
-  expected_mode="$2"
+  create_mode="$2"
+  accepted_existing_mode="${3:-$create_mode}"
   if [ -L "$directory" ]; then
     printf 'vellum: refusing a root authority directory symlink: %s\n' "$directory" >&2
     exit 1
   fi
   if [ ! -e "$directory" ]; then
-    mkdir -m "$expected_mode" -- "$directory"
+    mkdir -m "$create_mode" -- "$directory"
   fi
+  directory_metadata="$(stat -c '%u:%g:%a' "$directory" 2>/dev/null || true)"
   if [ ! -d "$directory" ] ||
-     [ "$(stat -c '%u:%g:%a' "$directory" 2>/dev/null || true)" != "0:0:$expected_mode" ]; then
+     { [ "$directory_metadata" != "0:0:$create_mode" ] &&
+       [ "$directory_metadata" != "0:0:$accepted_existing_mode" ]; }; then
     printf 'vellum: root authority directory is unsafe: %s\n' "$directory" >&2
     exit 1
   fi
@@ -348,7 +351,9 @@ retire_legacy_sudoers_policy() {
 }
 
 ensure_root_directory /usr/libexec 755
-ensure_root_directory /etc/sudoers.d 750
+# Ubuntu ships this root-only-writable directory as 0755. Keep Vellum-created
+# directories at 0750 while accepting the stock-safe mode without host mutation.
+ensure_root_directory /etc/sudoers.d 750 755
 ensure_root_directory "$INSTALLER_STATE" 700
 ensure_package_bridge_stage_root
 INSTALLER_SOURCE_SHA="$(sha256_file "$RELEASE_INSTALLER_SOURCE")"

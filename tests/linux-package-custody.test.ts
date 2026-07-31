@@ -35,6 +35,7 @@ let fixtureRoot = "";
 let harness = "";
 let bridgeStageHarness = "";
 let retirementHarness = "";
+let rootDirectoryHarness = "";
 
 beforeAll(async () => {
   fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "vellum-custody-"));
@@ -61,6 +62,10 @@ beforeAll(async () => {
   await writeFile(
     fakeStat,
     `#!/bin/sh
+if [ -n "\${DIRECTORY_METADATA:-}" ] && [ "\${2:-}" = '%u:%g:%a' ]; then
+  printf '%s\\n' "$DIRECTORY_METADATA"
+  exit 0
+fi
 last=
 for argument do last="$argument"; done
 case "$last" in
@@ -120,6 +125,37 @@ remove_package_owned_bridge_stage_root
   await chmod(bridgeStageHarness, 0o755);
 
   const installSource = await readFile(afterInstallPath, "utf8");
+  const rootDirectoryStart = installSource.indexOf(
+    "ensure_root_directory() {",
+  );
+  const rootDirectoryTerminator = "\n}\n\nsha256_file";
+  const rootDirectoryEnd = installSource.indexOf(
+    rootDirectoryTerminator,
+    rootDirectoryStart,
+  );
+  if (rootDirectoryStart < 0 || rootDirectoryEnd < 0) {
+    throw new Error("root authority directory admission function is missing");
+  }
+  const rootDirectorySource = installSource.slice(
+    rootDirectoryStart,
+    rootDirectoryEnd + 2,
+  );
+  rootDirectoryHarness = path.join(
+    fixtureRoot,
+    "root-directory-admission-harness.sh",
+  );
+  await writeFile(
+    rootDirectoryHarness,
+    `#!/bin/sh
+set -eu
+set -f
+${rootDirectorySource}
+ensure_root_directory "$1" "$2" "$3"
+`,
+    { mode: 0o755 },
+  );
+  await chmod(rootDirectoryHarness, 0o755);
+
   const retirementStart = installSource.indexOf(
     "retire_legacy_sudoers_policy() {",
   );
@@ -199,6 +235,23 @@ const runLegacyRetirement = (
     },
   );
 
+const runRootDirectoryAdmission = (
+  directory: string,
+  metadata: string,
+) =>
+  spawnSync(
+    "/bin/sh",
+    [rootDirectoryHarness, directory, "750", "755"],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DIRECTORY_METADATA: metadata,
+        PATH: `${path.join(fixtureRoot, "bin")}:/usr/bin:/bin:/sbin`,
+      },
+    },
+  );
+
 const runBridgeStageRemoval = (
   root: string,
   marker: string,
@@ -239,6 +292,30 @@ const exists = async (file: string): Promise<boolean> =>
   lstat(file).then(() => true, () => false);
 
 describe("Linux package root-authority custody", () => {
+  it("accepts stock-safe sudoers directory modes and rejects writable or foreign ownership", async () => {
+    const directory = path.join(fixtureRoot, "sudoers.d");
+    await mkdir(directory);
+
+    for (const metadata of ["0:0:750", "0:0:755"]) {
+      const result = runRootDirectoryAdmission(directory, metadata);
+      expect(result.status, result.stderr).toBe(0);
+    }
+
+    for (const metadata of [
+      "1:0:755",
+      "0:1:755",
+      "0:0:775",
+      "0:0:757",
+      "0:0:777",
+    ]) {
+      const result = runRootDirectoryAdmission(directory, metadata);
+      expect(result.status, metadata).not.toBe(0);
+      expect(result.stderr).toContain(
+        "root authority directory is unsafe",
+      );
+    }
+  });
+
   it("publishes root commands through same-directory atomic rename", async () => {
     const source = await readFile(afterInstallPath, "utf8");
     expect(source).toContain(

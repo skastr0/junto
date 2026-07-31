@@ -333,7 +333,7 @@ describe("native package pipeline contract", () => {
     );
     expect(afterInstall).not.toContain("/usr/sbin/visudo");
     expect(afterInstall).toContain(
-      "ensure_root_directory /etc/sudoers.d 750",
+      "ensure_root_directory /etc/sudoers.d 750 755",
     );
     expect(afterInstall).toContain(
       "LEGACY_SUDOERS_SHA256='a6edc7952e89af7570f74c53390aeccb8b0fe61456248762330517c7031a2f72'",
