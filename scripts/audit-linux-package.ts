@@ -45,7 +45,10 @@ export const validateUserServiceTemplate = (input: string): void => {
   if (/^\s*(?:User|Group|CapabilityBoundingSet|AmbientCapabilities|NoNewPrivileges)=/mu.test(input)) throw new Error("user service contains privileged directives");
 };
 
-const requireLoadable = (file: string): void => {
+const requireLoadable = (file: string, relative: string): void => {
+  // electron-builder may ship dual musl/glibc optional natives; only the host
+  // ABI is loadable here. musl .node files must not fail a glibc package audit.
+  if (/(?:^|\/|\.)musl(?:\.|\/|$)/u.test(relative)) return;
   const result = spawnSync("/usr/bin/ldd", [file], { encoding: "utf8", shell: false });
   if (result.status !== 0 || /not found/u.test(`${result.stdout}\n${result.stderr}`)) throw new Error(`native runtime dependency is unavailable: ${file}`);
 };
@@ -66,7 +69,7 @@ export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly run
     if ((metadata.mode & 0o7000) !== 0) throw new Error(`runtime has privileged mode bits: ${file}`);
     const header = await readFile(absolute).then((contents) => contents.subarray(0, 20));
     if (header[0] === 0x7f && header[1] === 0x45 && header[2] === 0x4c && header[3] === 0x46) {
-      validateElfX64(header, file); nativeObjects.push(file); requireLoadable(absolute);
+      validateElfX64(header, file); nativeObjects.push(file); requireLoadable(absolute, file);
     }
   }
   validateUserServiceTemplate(await readFile(path.join(root, "resources/systemd/vellum-remote.service.template"), "utf8"));
