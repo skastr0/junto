@@ -24,10 +24,11 @@ export const taskBrief = (task: Task): string => {
   return task.id;
 };
 
+/** Settled for workers/dragging; completed has the separate QA requeue exit. */
 export const isTerminalTaskState = (state: TaskState): boolean =>
   state === "completed" || state === "canceled" || state === "failed" || state === "rejected";
 
-/** Legal outbound transitions. Terminal states have no exits. */
+/** Legal outbound transitions. Completed work has one operator-only QA exit. */
 const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
   submitted: new Set([
     "completed",
@@ -65,7 +66,10 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
     "failed",
     "input-required",
   ]),
-  completed: new Set(),
+  // A completed task can be rejected by QA and returned to the Queue. The
+  // work transition policy requires the accompanying review comment and
+  // stamps the rejection count before the task becomes claimable again.
+  completed: new Set(["submitted"]),
   canceled: new Set(),
   failed: new Set(),
   rejected: new Set(),
@@ -87,7 +91,22 @@ export const taskWithTransitionState = (
 ): Task => {
   if (state !== "submitted") return { ...task, state };
   const { claimedBy: _claimedBy, ...unclaimed } = task;
-  return { ...unclaimed, state };
+  if (task.state !== "completed") return { ...unclaimed, state };
+
+  const previousRejections =
+    typeof task.metadata?.rejectedTimes === "number" &&
+    Number.isSafeInteger(task.metadata.rejectedTimes) &&
+    task.metadata.rejectedTimes >= 0
+      ? task.metadata.rejectedTimes
+      : 0;
+  return {
+    ...unclaimed,
+    state,
+    metadata: {
+      ...(task.metadata ?? {}),
+      rejectedTimes: previousRejections + 1,
+    },
+  };
 };
 
 /** Tasks node text mirror: one brief line per item (human-readable offline). */

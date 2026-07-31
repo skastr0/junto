@@ -258,7 +258,7 @@ const LANES: ReadonlyArray<LaneDefinition> = [
     tone: "green",
     chipTone: "green",
     icon: CheckCircle2,
-    hint: "Completed and stopped work",
+    hint: "Completed and stopped work · open a completed task to QA-reject it",
   },
 ];
 
@@ -538,6 +538,7 @@ function TaskActionsMenu({
     (destination) =>
       destination.state &&
       destination.id !== lane.id &&
+      !(task.state === "completed" && destination.state === "submitted") &&
       canTransitionTaskState(task.state, destination.state),
   );
   const hardFinishGate =
@@ -756,7 +757,13 @@ function TaskCard({
         <span
           className="task-board-card__handle"
           aria-hidden
-          title={TERMINAL_STATES.has(task.state) ? "Closed tasks cannot move" : "Drag task"}
+          title={
+            task.state === "completed"
+              ? "Completed tasks return through QA review"
+              : TERMINAL_STATES.has(task.state)
+                ? "Closed tasks cannot move"
+                : "Drag task"
+          }
         >
           <GripVertical size={14} />
         </span>
@@ -1468,6 +1475,7 @@ function TaskDetailPanel({
   onClose,
   onSaveTitle,
   onRespond,
+  onReject,
   onMove,
   onApprove,
 }: {
@@ -1483,11 +1491,13 @@ function TaskDetailPanel({
     response: string,
     disposition: "working" | "rejected",
   ) => Promise<boolean>;
+  readonly onReject: (task: WorkTask, comment: string) => Promise<boolean>;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onApprove?: (task: WorkTask) => void;
 }) {
   const [title, setTitle] = useState(() => taskTitle(task));
   const [response, setResponse] = useState("");
+  const [rejectionComment, setRejectionComment] = useState("");
   const role = taskRole(task);
   const claim = claimedByOf(task);
   const details = taskDetails(task);
@@ -1499,11 +1509,19 @@ function TaskDetailPanel({
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
     task.finishCriteria?.git !== undefined;
+  const rejectedTimes =
+    typeof task.metadata?.rejectedTimes === "number" &&
+    Number.isSafeInteger(task.metadata.rejectedTimes) &&
+    task.metadata.rejectedTimes > 0
+      ? task.metadata.rejectedTimes
+      : undefined;
   const transitionOptions = isProposal
     ? []
     : [
         ...LANES.flatMap((lane) =>
-          lane.state && canTransitionTaskState(task.state, lane.state)
+          lane.state &&
+          !(task.state === "completed" && lane.state === "submitted") &&
+          canTransitionTaskState(task.state, lane.state)
             ? [{ value: lane.state, label: `Move to ${lane.label}` }]
             : [],
         ),
@@ -1557,7 +1575,10 @@ function TaskDetailPanel({
                 Approve to Queue
               </Button>
             ) : null}
-            {!isProposal && claim && canTransitionTaskState(task.state, "submitted") ? (
+            {!isProposal &&
+            task.state !== "completed" &&
+            claim &&
+            canTransitionTaskState(task.state, "submitted") ? (
               <Button
                 size="xs"
                 variant="subtle"
@@ -1584,6 +1605,11 @@ function TaskDetailPanel({
           {isProposal ? (proposedByLabel ?? "Proposed") : (claim ?? "Unclaimed")}
         </span>
         <span>{role ?? "No task role"}</span>
+        {rejectedTimes !== undefined ? (
+          <span title="Times returned to Queue after QA rejection">
+            QA rejects: {rejectedTimes}
+          </span>
+        ) : null}
       </div>
 
       <div className="task-detail-panel__scroll">
@@ -1770,6 +1796,55 @@ function TaskDetailPanel({
           </section>
         ) : null}
 
+        {!isProposal && task.state === "completed" ? (
+          <section
+            className="task-detail-panel__attention is-rejection"
+            aria-labelledby={`task-rejection-${task.id}`}
+          >
+            <div className="task-detail-panel__attention-heading">
+              <span className="task-detail-panel__attention-icon" aria-hidden>
+                <MessageSquareWarning size={15} />
+              </span>
+              <div>
+                <p>QA review</p>
+                <h3 id={`task-rejection-${task.id}`}>Reject and re-enqueue</h3>
+              </div>
+            </div>
+            <p className="task-detail-panel__description">
+              If the completed work does not prove the finish criteria, leave a
+              comment. The task will return to Queue and the comment will stay in
+              Activity for the next worker.
+            </p>
+            <label className="task-detail-panel__response-field">
+              <span>QA rejection comment</span>
+              <Textarea
+                aria-label="QA rejection comment"
+                value={rejectionComment}
+                onChange={(event) => setRejectionComment(event.target.value)}
+                placeholder="What still needs to be fixed or proven?"
+                rows={5}
+              />
+            </label>
+            <div className="task-detail-panel__response-actions">
+              <Button
+                size="sm"
+                variant="danger"
+                data-testid="task-reject-reenqueue"
+                aria-label="Reject and re-enqueue task"
+                disabled={pending || !rejectionComment.trim()}
+                onClick={async () => {
+                  if (await onReject(task, rejectionComment.trim())) {
+                    setRejectionComment("");
+                  }
+                }}
+              >
+                <RotateCcw size={13} />
+                Reject &amp; re-enqueue
+              </Button>
+            </div>
+          </section>
+        ) : null}
+
         <section className="task-detail-panel__section">
           <h3>
             <Activity size={13} aria-hidden />
@@ -1825,24 +1900,28 @@ function TaskDetailPanel({
             <div>
               <h3>{attentionRequired ? "Other status changes" : "Status"}</h3>
               <p>
-                {attentionRequired
+                {task.state === "completed"
+                  ? "Completed work can return to Queue only through the QA review above."
+                  : attentionRequired
                   ? "Use this only when the task should leave the response workflow without resuming."
                   : "Move this task to another valid stage in its lifecycle."}
               </p>
             </div>
-            <Dropdown
-              value=""
-              options={transitionOptions}
-              disabled={pending || transitionOptions.length === 0}
-              aria-label="Change task status"
-              placeholder={
-                transitionOptions.length > 0 ? "Choose a status…" : "No available transitions"
-              }
-              onChange={(state) => onMove(task, state as TaskState)}
-              className="task-detail-panel__status-menu"
-              triggerClassName="h-9 w-full rounded-[5px] border border-white/10 bg-white/[0.04] px-3 text-[10px] uppercase tracking-[0.08em]"
-              align="start"
-            />
+            {task.state === "completed" ? null : (
+              <Dropdown
+                value=""
+                options={transitionOptions}
+                disabled={pending || transitionOptions.length === 0}
+                aria-label="Change task status"
+                placeholder={
+                  transitionOptions.length > 0 ? "Choose a status…" : "No available transitions"
+                }
+                onChange={(state) => onMove(task, state as TaskState)}
+                className="task-detail-panel__status-menu"
+                triggerClassName="h-9 w-full rounded-[5px] border border-white/10 bg-white/[0.04] px-3 text-[10px] uppercase tracking-[0.08em]"
+                align="start"
+              />
+            )}
           </section>
         )}
       </div>
@@ -1954,28 +2033,46 @@ export function TaskBoard({
   const selectedIsProposal =
     selectedTask !== undefined && proposalById.has(selectedTask.id);
 
-  const transitionTask = async (task: WorkTask, state: TaskState) => {
-    if (!api || task.state === state) return;
+  const transitionTask = async (
+    task: WorkTask,
+    state: TaskState,
+    note?: string,
+  ): Promise<boolean> => {
+    if (!api || task.state === state) return false;
     setError("");
     setPendingTaskId(task.id);
     try {
       const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskTransition(name, node.id, task.id, state),
+        api.workTaskTransition(name, node.id, task.id, state, note),
       );
-      if (result === undefined) return;
+      if (result === undefined) return false;
       if (!result.ok) {
         setError(result.message);
         setAnnouncement(`Could not move ${taskTitle(task)}. ${result.message}`);
-        return;
+        return false;
       }
-      setAnnouncement(`Moved ${taskTitle(task)} to ${stateLabel(state)}.`);
+      if (task.state === "completed" && state === "submitted") {
+        setAnnouncement(`Rejected ${taskTitle(task)} and returned it to Queue.`);
+      } else {
+        setAnnouncement(`Moved ${taskTitle(task)} to ${stateLabel(state)}.`);
+      }
+      return true;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
       setAnnouncement(`Could not move ${taskTitle(task)}. ${message}`);
+      return false;
     } finally {
       setPendingTaskId(null);
     }
+  };
+
+  const rejectCompletedTask = async (
+    task: WorkTask,
+    comment: string,
+  ): Promise<boolean> => {
+    if (task.state !== "completed" || !comment.trim()) return false;
+    return transitionTask(task, "submitted", comment.trim());
   };
 
   const approveProposal = async (task: WorkTask) => {
@@ -2271,6 +2368,7 @@ export function TaskBoard({
               onClose={() => setSelectedTaskId(null)}
               onSaveTitle={(task, title) => void saveTaskTitle(task, title)}
               onRespond={respondToTask}
+              onReject={rejectCompletedTask}
               onMove={(task, state) => void transitionTask(task, state)}
               onApprove={
                 selectedIsProposal

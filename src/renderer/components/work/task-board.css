@@ -1044,6 +1044,23 @@
   box-shadow: inset 0 1px rgb(255 255 255 / 0.025);
 }
 
+.task-detail-panel__attention.is-rejection {
+  border-color: color-mix(in srgb, var(--color-crimson) 48%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-crimson) 9%, transparent), transparent 58%),
+    var(--color-inset);
+}
+
+.task-detail-panel__attention.is-rejection .task-detail-panel__attention-icon {
+  border-color: color-mix(in srgb, var(--color-crimson) 52%, transparent);
+  color: var(--color-crimson);
+  background: color-mix(in srgb, var(--color-crimson) 8%, transparent);
+}
+
+.task-detail-panel__attention.is-rejection .task-detail-panel__attention-heading p {
+  color: var(--color-crimson);
+}
+
 .task-detail-panel__attention-heading {
   display: flex;
   align-items: center;

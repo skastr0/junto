@@ -705,6 +705,89 @@ describe("WorkRepository v2 local authority", () => {
     expect(snapshot.tasks.items[0]?.claimedBy).toBeUndefined();
   });
 
+  it("requires a QA comment when completed work returns to Queue and persists the count", async () => {
+    const sink = { canvasName: "factory", nodeId: "tasks-qa-rejection" };
+    const created = await runtime.runPromise(
+      repository.createTask({
+        sink,
+        basis: authorialBasis,
+        task: {
+          id: "task-qa-rejection",
+          state: "submitted",
+          history: [
+            message("brief-qa-rejection", "user", "verify the release", "task-qa-rejection"),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await runtime.runPromise(
+      repository.claimLocalTask({
+        sink,
+        basis: authorialBasis,
+        taskId: created.value.id,
+        actor,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await runtime.runPromise(
+      repository.transitionTask({
+        sink,
+        basis: authorialBasis,
+        taskId: created.value.id,
+        state: "completed",
+        message: message("done-qa-rejection", "agent", "done", created.value.id),
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+
+    const missingComment = await runtime.runPromise(
+      repository
+        .transitionTask({
+          sink,
+          basis: authorialBasis,
+          taskId: created.value.id,
+          state: "submitted",
+          originAt: observedAt,
+          receivedAt: observedAt,
+        })
+        .pipe(Effect.either),
+    );
+    expect(missingComment).toMatchObject({
+      _tag: "Left",
+      left: { _tag: "WorkAuthorityError", reason: "invalid-transition" },
+    });
+
+    const rejected = await runtime.runPromise(
+      repository.transitionTask({
+        sink,
+        basis: authorialBasis,
+        taskId: created.value.id,
+        state: "submitted",
+        message: message(
+          "qa-rejection",
+          "user",
+          "The release receipt is missing.",
+          created.value.id,
+        ),
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(rejected.value).toMatchObject({
+      state: "submitted",
+      metadata: { rejectedTimes: 1 },
+    });
+    expect(rejected.value.claimedBy).toBeUndefined();
+    expect(rejected.value.completionEvidence).toBeUndefined();
+    expect(rejected.value.history.at(-1)).toMatchObject({
+      parts: [{ kind: "text", text: "The release receipt is missing." }],
+    });
+  });
+
   it("roundtrips the exact immutable intent basis on an emitted fact", async () => {
     const sink = { canvasName: "factory", nodeId: "basis-roundtrip" };
     const created = await runtime.runPromise(

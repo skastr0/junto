@@ -3738,6 +3738,16 @@ const resultForCommand = (
           `cannot transition task "${action.taskId}" from ${current!.task.state} to ${action.state}`,
         );
       }
+      if (
+        current!.task.state === "completed" &&
+        action.state === "submitted" &&
+        !hasNonEmptyTaskTransitionMessage(action.message)
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          "a QA rejection comment is required before returning a completed task to Queue",
+        );
+      }
       const evidence =
         action.state === "completed"
           ? normalizeCompletionEvidence(action.completionEvidence)
@@ -4762,6 +4772,13 @@ const taskWithoutTransitionFields = (task: TaskValue): unknown => {
   return rest;
 };
 
+const hasNonEmptyTaskTransitionMessage = (
+  message: MessageValue | undefined,
+): boolean =>
+  message?.parts.some(
+    (part) => part.kind === "text" && part.text.trim().length > 0,
+  ) ?? false;
+
 const historyIsSameOrOneAppend = (
   current: ReadonlyArray<MessageValue>,
   next: ReadonlyArray<MessageValue>,
@@ -5011,6 +5028,8 @@ const validateIncomingFact = (
         );
       }
       const next = fact.body.task;
+      const isQaRejection =
+        current!.task.state === "completed" && next.state === "submitted";
       const expectedClaimant =
         next.state === "submitted"
           ? undefined
@@ -5018,10 +5037,15 @@ const validateIncomingFact = (
       if (
         !canTransitionTaskState(current!.task.state, next.state) ||
         next.claimedBy !== expectedClaimant ||
+        (isQaRejection &&
+          (next.history.length !== current!.task.history.length + 1 ||
+            !hasNonEmptyTaskTransitionMessage(next.history.at(-1)))) ||
         canonicalJson(taskWithoutTransitionFields(next)) !==
           canonicalJson(
-            taskWithoutTransitionFields(current!.task),
-          ) ||
+            taskWithoutTransitionFields(
+              taskWithTransitionState(current!.task, next.state),
+            ),
+        ) ||
         next.response !== current!.task.response ||
         !historyIsSameOrOneAppend(current!.task.history, next.history)
       ) {
@@ -5030,9 +5054,18 @@ const validateIncomingFact = (
           "task.transition fact is not one legal state transition",
         );
       }
-      // completionEvidence may only change on → completed; otherwise sticky.
+      // Completion evidence is stamped on completion and cleared when QA
+      // rejects that completion back to Queue. Other transitions keep it
+      // unchanged for installed rows that predate this QA exit.
       if (next.state === "completed") {
         // Stamp or leave empty is legal; prior non-completed had no evidence.
+      } else if (isQaRejection) {
+        if (next.completionEvidence !== undefined) {
+          throw authorityError(
+            "invalid-transition",
+            "QA rejection must clear completionEvidence",
+          );
+        }
       } else if (
         canonicalJson(next.completionEvidence ?? null) !==
         canonicalJson(current!.task.completionEvidence ?? null)
@@ -5975,6 +6008,16 @@ export const WorkRepositoryLive = Layer.effect(
           throw authorityError(
             "invalid-transition",
             `cannot transition task "${input.taskId}" from ${current.task.state} to ${input.state}`,
+          );
+        }
+        if (
+          current.task.state === "completed" &&
+          input.state === "submitted" &&
+          !hasNonEmptyTaskTransitionMessage(message)
+        ) {
+          throw authorityError(
+            "invalid-transition",
+            "a QA rejection comment is required before returning a completed task to Queue",
           );
         }
         const evidence =

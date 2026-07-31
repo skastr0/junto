@@ -598,6 +598,12 @@ export const workTaskTransition = (
         `cannot transition task "${taskId}" from ${current.state} to ${state}`,
       );
     }
+    if (current.state === "completed" && state === "submitted" && !note?.trim()) {
+      throw new WorkError(
+        "invalid",
+        "a QA rejection comment is required before returning a completed task to Queue",
+      );
+    }
     if (state === "completed" && runFinishGate) {
       const gate = evaluateFinishCriteria({
         task: current,

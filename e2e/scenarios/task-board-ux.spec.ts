@@ -78,6 +78,12 @@ test("task board supports creation, operator responses, layered status, and body
             },
           ],
         },
+        {
+          ...taskItem("completed", "Completed task", "completed"),
+          metadata: {
+            details: "Review the worker's proof before accepting the completion.",
+          },
+        },
       ],
     }),
   ]);
@@ -164,6 +170,28 @@ test("task board supports creation, operator responses, layered status, and body
     await page.keyboard.press("Escape");
     await expect(statusList).toBeHidden();
     await inputDetails.getByRole("button", { name: "Close task details" }).click();
+
+    await board.getByLabel("Open details for Completed task").click();
+    const completedDetails = board.getByRole("complementary", {
+      name: "Details for Completed task",
+    });
+    await expect(
+      completedDetails.getByRole("heading", { name: "Reject and re-enqueue" }),
+    ).toBeVisible();
+    await completedDetails
+      .getByLabel("QA rejection comment")
+      .fill("The release receipt is missing from the completion evidence.");
+    await completedDetails
+      .getByRole("button", { name: "Reject and re-enqueue task" })
+      .click();
+    await expect(
+      board.getByTestId("task-lane-queue").getByText("Completed task", { exact: true }),
+    ).toBeVisible();
+    await expect(completedDetails).toContainText("QA rejects: 1");
+    await expect(completedDetails).toContainText(
+      "The release receipt is missing from the completion evidence.",
+    );
+    await completedDetails.getByRole("button", { name: "Close task details" }).click();
 
     const actionTrigger = board.getByRole("button", { name: "Actions for Queued task" });
     await actionTrigger.click();

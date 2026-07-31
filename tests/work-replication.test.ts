@@ -1363,6 +1363,40 @@ describe("WorkRepository v2 report reconciliation", () => {
         )
       ).tasks.items.find((task) => task.id === created.value.id)?.state,
     ).toBe("completed");
+
+    const qaRejected = await station.runtime.runPromise(
+      station.repository.transitionTask({
+        sink,
+        basis: station.basis,
+        taskId: created.value.id,
+        state: "submitted",
+        message: message(
+          "qa-reject-first-adoption",
+          "user",
+          "The completion receipt is missing.",
+          created.value.id,
+        ),
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [qaRejected.record]),
+    );
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(
+            sink.canvasName,
+            sink.nodeId,
+          ),
+        )
+      ).tasks.items.find((task) => task.id === created.value.id),
+    ).toMatchObject({
+      id: created.value.id,
+      state: "submitted",
+      metadata: { rejectedTimes: 1 },
+    });
   });
 
   it("replays the exact durable fact/disposition and commits rejections as outcomes", async () => {

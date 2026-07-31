@@ -348,6 +348,96 @@ describe("work pure transforms", () => {
     });
   });
 
+  it("rejects completed work with a QA comment, requeues it, and counts the rejection", () => {
+    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    const created = workTaskCreate(
+      doc,
+      "alpha",
+      "tasks",
+      "prove the release",
+      undefined,
+      ids,
+    );
+    const claimed = workTaskClaim(
+      created.doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      actorRef("1", "worker-1"),
+      ids,
+    );
+    const completed = workTaskTransition(
+      claimed.doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      "completed",
+      "shipped",
+      ids,
+    );
+
+    expect(() =>
+      workTaskTransition(
+        completed.doc,
+        "alpha",
+        "tasks",
+        created.task.id,
+        "submitted",
+        undefined,
+        ids,
+      ),
+    ).toThrow(/QA rejection comment is required/);
+
+    const rejected = workTaskTransition(
+      completed.doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      "submitted",
+      "The proof does not include the release receipt.",
+      ids,
+    );
+    expect(rejected.task.state).toBe("submitted");
+    expect(rejected.task.claimedBy).toBeUndefined();
+    expect(rejected.task.metadata?.rejectedTimes).toBe(1);
+    expect(rejected.task.completionEvidence).toBeUndefined();
+    expect(rejected.task.history.at(-1)).toMatchObject({
+      role: "user",
+      parts: [{ kind: "text", text: "The proof does not include the release receipt." }],
+      metadata: {
+        "vellum.taskRelease.actorSeatId": claimed.task.claimedBy,
+      },
+    });
+
+    const reclaimed = workTaskClaim(
+      rejected.doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      actorRef("2", "worker-2"),
+      ids,
+    );
+    const completedAgain = workTaskTransition(
+      reclaimed.doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      "completed",
+      "updated proof",
+      ids,
+    );
+    const rejectedAgain = workTaskTransition(
+      completedAgain.doc,
+      "alpha",
+      "tasks",
+      created.task.id,
+      "submitted",
+      "The updated proof still omits the receipt.",
+      ids,
+    );
+    expect(rejectedAgain.task.metadata?.rejectedTimes).toBe(2);
+  });
+
   it("respond atomically records one operator message and resolves attention", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "alpha", "tasks", "need direction", undefined, ids);
@@ -765,8 +855,9 @@ describe("work pure transforms", () => {
     ).toThrow(/artifact canvas/);
   });
 
-  it("state machine: terminal has no exits", () => {
+  it("state machine: completed work only exits through the QA Queue path", () => {
     expect(canTransitionTaskState("completed", "working")).toBe(false);
+    expect(canTransitionTaskState("completed", "submitted")).toBe(true);
     expect(canTransitionTaskState("submitted", "working")).toBe(false);
     expect(canTransitionTaskState("input-required", "rejected")).toBe(true);
     expect(canTransitionTaskState("input-required", "failed")).toBe(true);
