@@ -48,6 +48,12 @@ export type StateSchemaMigration = {
    * (CHECK-domain expand). Rows must be copy-forwarded; final column set must
    * match expand-only preservation. Prefer CREATE…AS SELECT backup → DROP →
    * CREATE exact DDL → INSERT → DROP backup.
+   *
+   * Presence of any `replacesTables` on the pending migration chain causes
+   * `migrateStateSchema` to set `PRAGMA foreign_keys=OFF` **before**
+   * `BEGIN IMMEDIATE` (SQLite treats in-transaction foreign_keys toggles as
+   * no-ops). Step SQL must not rely on in-txn FK pragmas. Enforcement is
+   * restored after COMMIT/ROLLBACK; `PRAGMA foreign_key_check` still gates.
    */
   readonly replacesTables?: ReadonlyArray<string>;
   /**
@@ -243,9 +249,9 @@ export const STATE_SCHEMA_MIGRATIONS =
         // Expand CHECK vocab for board topic/post kinds + board ops.
         // node:sqlite forbids writable_schema rewrites; expand-only allows an
         // authorized same-column rebuild with full row copy-forward.
+        // FK enforcement is disabled by migrateStateSchema *before* BEGIN
+        // (in-txn PRAGMA foreign_keys is a no-op — see replacesTables docs).
         database.exec(`
-          PRAGMA foreign_keys = OFF;
-
           CREATE TABLE work_events__migrate_bak AS SELECT * FROM work_events;
           CREATE TABLE work_pending_commands__migrate_bak AS
             SELECT * FROM work_pending_commands;
@@ -264,7 +270,6 @@ export const STATE_SCHEMA_MIGRATIONS =
             SELECT * FROM work_pending_commands__migrate_bak;
           DROP TABLE work_events__migrate_bak;
           DROP TABLE work_pending_commands__migrate_bak;
-          PRAGMA foreign_keys = ON;
         `);
       },
     },
@@ -644,6 +649,69 @@ const assertExpandOnlyMigrationSql = (sql: string): void => {
   }
 };
 
+/**
+ * Indexes and triggers owned by tables authorized for same-column rebuild.
+ * Includes sqlite_autoindex_* names (filtered from retainedObjects but still
+ * authorized on DROP TABLE cascades).
+ */
+const sideObjectsForReplacedTables = (
+  database: DatabaseSync,
+  replacesTables: ReadonlySet<string>,
+): {
+  readonly indexes: ReadonlySet<string>;
+  readonly triggers: ReadonlySet<string>;
+} => {
+  if (replacesTables.size === 0) {
+    return { indexes: new Set(), triggers: new Set() };
+  }
+  const tables = [...replacesTables];
+  const placeholders = tables.map(() => "?").join(", ");
+  const rows = database
+    .prepare(
+      `
+        SELECT type, name
+        FROM sqlite_schema
+        WHERE type IN ('index', 'trigger')
+          AND tbl_name IN (${placeholders})
+      `,
+    )
+    .all(...tables) as unknown as ReadonlyArray<{
+    readonly type: string;
+    readonly name: string;
+  }>;
+  const indexes = new Set<string>();
+  const triggers = new Set<string>();
+  for (const row of rows) {
+    if (row.type === "index") indexes.add(row.name);
+    else if (row.type === "trigger") triggers.add(row.name);
+  }
+  return { indexes, triggers };
+};
+
+/**
+ * True when advancing from the current user_version to plan.currentVersion
+ * will execute at least one step that rebuilds durable tables.
+ */
+const chainNeedsTableReplace = (
+  previousVersion: number,
+  fresh: boolean,
+  plan: StateSchemaMigrationPlan,
+  migrations: ReadonlyMap<number, StateSchemaMigration>,
+): boolean => {
+  if (fresh) return false;
+  if (previousVersion >= plan.currentVersion) return false;
+  let version =
+    previousVersion === 0 ? plan.baselineVersion : previousVersion;
+  if (version < plan.baselineVersion) return false;
+  while (version < plan.currentVersion) {
+    const migration = migrations.get(version);
+    if (migration === undefined) return false;
+    if ((migration.replacesTables?.length ?? 0) > 0) return true;
+    version = migration.toVersion;
+  }
+  return false;
+};
+
 const runMigrationStep = (
   database: DatabaseSync,
   migration: StateSchemaMigration,
@@ -651,6 +719,7 @@ const runMigrationStep = (
   const before = expandSchemaSnapshot(database);
   const replacesObjects = new Set<string>(migration.replacesObjects ?? []);
   const replacesTables = new Set<string>(migration.replacesTables ?? []);
+  const sideObjects = sideObjectsForReplacedTables(database, replacesTables);
   const connection: StateSchemaMigrationDatabase = {
     exec: (sql) => {
       assertExpandOnlyMigrationSql(sql);
@@ -668,6 +737,8 @@ const runMigrationStep = (
     const isReplacedTable = arg1 !== null && replacesTables.has(arg1);
     const isMigrateBackup =
       arg1 !== null && arg1.endsWith("__migrate_bak");
+    const isSideIndex = arg1 !== null && sideObjects.indexes.has(arg1);
+    const isSideTrigger = arg1 !== null && sideObjects.triggers.has(arg1);
 
     const deny =
       actionCode === constants.SQLITE_TRANSACTION ||
@@ -679,13 +750,16 @@ const runMigrationStep = (
           arg1 !== null &&
           (
             !before.retainedObjects.has(`index:${arg1}`) ||
-            replacesTables.size > 0
+            isSideIndex
           )
         ) &&
         !(
           actionCode === constants.SQLITE_DROP_TRIGGER &&
           arg1 !== null &&
-          replacesObjects.has(`trigger:${arg1}`)
+          (
+            replacesObjects.has(`trigger:${arg1}`) ||
+            isSideTrigger
+          )
         ) &&
         !(
           actionCode === constants.SQLITE_DELETE &&
@@ -706,11 +780,7 @@ const runMigrationStep = (
         ) &&
         !(
           actionCode === constants.SQLITE_DROP_INDEX &&
-          replacesTables.size > 0
-        ) &&
-        !(
-          actionCode === constants.SQLITE_DROP_TRIGGER &&
-          replacesTables.size > 0
+          isSideIndex
         )
       ) ||
       (
@@ -907,114 +977,139 @@ export const migrateStateSchema = (
   plan: StateSchemaMigrationPlan = STATE_SCHEMA_MIGRATION_PLAN,
 ): StateSchemaMigrationResult => {
   const migrations = validateStateSchemaMigrationPlan(plan);
-  database.exec("BEGIN IMMEDIATE");
+  const previousVersion = readUserVersion(database);
+  if (previousVersion > plan.currentVersion) {
+    throw new Error(
+      `state schema version ${previousVersion} is newer than supported version ${plan.currentVersion}`,
+    );
+  }
+  const fresh = isFreshStateSchema(database);
+  // SQLite ignores PRAGMA foreign_keys inside a transaction. Table-rebuild
+  // steps need enforcement off *before* BEGIN IMMEDIATE so DROP of a parent
+  // with ON DELETE RESTRICT children can copy-forward.
+  const needsForeignKeysOff = chainNeedsTableReplace(
+    previousVersion,
+    fresh,
+    plan,
+    migrations,
+  );
+
+  let disabledForeignKeys = false;
   try {
-    const previousVersion = readUserVersion(database);
-    if (previousVersion > plan.currentVersion) {
-      throw new Error(
-        `state schema version ${previousVersion} is newer than supported version ${plan.currentVersion}`,
-      );
+    if (needsForeignKeysOff) {
+      database.exec("PRAGMA foreign_keys = OFF");
+      disabledForeignKeys = true;
     }
-    const fresh = isFreshStateSchema(database);
-    let version = previousVersion;
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      let version = previousVersion;
 
-    if (fresh) {
-      if (version !== 0) {
-        throw new Error(
-          `fresh state database carries unexpected user_version ${version}`,
-        );
-      }
-      database.exec(plan.currentSchemaSql);
-      version = plan.currentVersion;
-    } else {
-      let recorded =
-        version === plan.currentVersion ||
-          (
-            version === 0 &&
-            plan.baselineVersion === plan.currentVersion
-          )
-          ? verifyRecordedCurrentSchema(
-              database,
-              plan.currentSchemaSql,
-            )
-          : verifyRecordedStateSchemaIdentity(database);
-      if (version === 0) {
-        requireIdentity(
-          "unversioned state schema baseline",
-          recorded,
-          plan.baselineIdentity,
-        );
-        version = plan.baselineVersion;
-        setUserVersion(database, version);
-      } else if (version < plan.baselineVersion) {
-        throw new Error(
-          `state schema version ${version} predates the supported baseline ${plan.baselineVersion}`,
-        );
-      }
-
-      while (version < plan.currentVersion) {
-        const migration = migrations.get(version);
-        if (migration === undefined) {
+      if (fresh) {
+        if (version !== 0) {
           throw new Error(
-            `missing state schema migration ${version} -> ${version + 1}`,
+            `fresh state database carries unexpected user_version ${version}`,
           );
         }
-        requireIdentity(
-          `state schema version ${version}`,
-          recorded,
-          migration.fromIdentity,
-        );
-        runMigrationStep(database, migration);
-        version = migration.toVersion;
-        setUserVersion(database, version);
-        if (version < plan.currentVersion) {
-          const next = migrations.get(version);
-          if (next === undefined) {
+        database.exec(plan.currentSchemaSql);
+        version = plan.currentVersion;
+      } else {
+        let recorded =
+          version === plan.currentVersion ||
+            (
+              version === 0 &&
+              plan.baselineVersion === plan.currentVersion
+            )
+            ? verifyRecordedCurrentSchema(
+                database,
+                plan.currentSchemaSql,
+              )
+            : verifyRecordedStateSchemaIdentity(database);
+        if (version === 0) {
+          requireIdentity(
+            "unversioned state schema baseline",
+            recorded,
+            plan.baselineIdentity,
+          );
+          version = plan.baselineVersion;
+          setUserVersion(database, version);
+        } else if (version < plan.baselineVersion) {
+          throw new Error(
+            `state schema version ${version} predates the supported baseline ${plan.baselineVersion}`,
+          );
+        }
+
+        while (version < plan.currentVersion) {
+          const migration = migrations.get(version);
+          if (migration === undefined) {
             throw new Error(
               `missing state schema migration ${version} -> ${version + 1}`,
             );
           }
-          const actualSchemaSha256 =
-            actualStateSchemaSha256(database);
           requireIdentity(
-            `migrated state schema version ${version}`,
-            { actualSchemaSha256 },
-            next.fromIdentity,
+            `state schema version ${version}`,
+            recorded,
+            migration.fromIdentity,
           );
-          stampStateSchemaIdentity(database, next.fromIdentity);
-          recorded = next.fromIdentity;
+          runMigrationStep(database, migration);
+          version = migration.toVersion;
+          setUserVersion(database, version);
+          if (version < plan.currentVersion) {
+            const next = migrations.get(version);
+            if (next === undefined) {
+              throw new Error(
+                `missing state schema migration ${version} -> ${version + 1}`,
+              );
+            }
+            const actualSchemaSha256 =
+              actualStateSchemaSha256(database);
+            requireIdentity(
+              `migrated state schema version ${version}`,
+              { actualSchemaSha256 },
+              next.fromIdentity,
+            );
+            stampStateSchemaIdentity(database, next.fromIdentity);
+            recorded = next.fromIdentity;
+          }
+        }
+
+        if (previousVersion === plan.currentVersion) {
+          requireIdentity(
+            `state schema version ${plan.currentVersion}`,
+            recorded,
+            expectedStateSchemaIdentity(plan.currentSchemaSql),
+          );
         }
       }
 
-      if (previousVersion === plan.currentVersion) {
-        requireIdentity(
-          `state schema version ${plan.currentVersion}`,
-          recorded,
-          expectedStateSchemaIdentity(plan.currentSchemaSql),
-        );
+      const identity = verifyAndStampStateSchema(
+        database,
+        plan.currentSchemaSql,
+      );
+      assertForeignKeys(database);
+      setUserVersion(database, plan.currentVersion);
+      database.exec("COMMIT");
+      return {
+        ...identity,
+        schemaVersion: plan.currentVersion,
+        previousVersion,
+        initialized: fresh,
+      };
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // Preserve the migration failure. A rollback failure keeps startup
+        // failed closed and the connection is closed by StateEngine.
+      }
+      throw error;
+    }
+  } finally {
+    if (disabledForeignKeys) {
+      try {
+        database.exec("PRAGMA foreign_keys = ON");
+      } catch {
+        // Connection may already be unusable after a hard failure.
       }
     }
-
-    const identity = verifyAndStampStateSchema(
-      database,
-      plan.currentSchemaSql,
-    );
-    assertForeignKeys(database);
-    setUserVersion(database, plan.currentVersion);
-    database.exec("COMMIT");
-    return {
-      ...identity,
-      schemaVersion: plan.currentVersion,
-      previousVersion,
-      initialized: fresh,
-    };
-  } catch (error) {
-    try {
-      database.exec("ROLLBACK");
-    } catch {
-      // Preserve the migration failure. A rollback failure keeps startup
-      // failed closed and the connection is closed by StateEngine.
-    }
-    throw error;
   }
 };
