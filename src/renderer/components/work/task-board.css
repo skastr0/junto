@@ -770,12 +770,22 @@
 }
 
 .task-create-dialog__media-list img,
-.task-detail-panel__media img {
+.task-detail-panel__media img,
+.task-detail-panel__media .content-media--image img {
   width: 48px;
   height: 48px;
   object-fit: cover;
   border-radius: 4px;
   background: var(--color-inset);
+}
+
+.task-detail-panel__media .content-media {
+  min-width: 0;
+  width: 100%;
+}
+
+.task-detail-panel__media .content-media--video video {
+  max-height: 220px;
 }
 
 .task-create-dialog__media-list strong {

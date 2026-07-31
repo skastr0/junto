@@ -30,6 +30,7 @@ import {
   artifactSearchText,
   artifactTaskReferenceLabel,
 } from "./artifact-reference";
+import { ContentMedia } from "./ContentMedia";
 import "./work-ledger.css";
 
 const canvasName = (): string => state$.canvasName.peek() || "";
@@ -220,13 +221,11 @@ function PartView({
   }
   if (part.kind === "content") {
     return (
-      <div className="work-ledger-part work-ledger-part--raw">
-        <FileBox size={18} />
-        <div>
-          <strong>{part.ref.mediaType}</strong>
-          <span>{formatBytes(part.ref.byteLength)}</span>
-          <small>Content unavailable in this projection</small>
-        </div>
+      <div className="work-ledger-part work-ledger-part--content">
+        <ContentMedia
+          contentRef={part.ref}
+          alt={part.ref.displayName ?? filename}
+        />
       </div>
     );
   }

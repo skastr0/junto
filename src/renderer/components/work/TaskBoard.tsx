@@ -36,9 +36,11 @@ import {
   canTransitionTaskState,
   claimedByOf,
   taskBrief,
+  taskContentParts,
   taskMediaParts,
   validateTaskMediaParts,
 } from "@shared/task";
+import { ContentMedia } from "./ContentMedia";
 import {
   taskDepStatus,
   taskIndexById,
@@ -702,7 +704,8 @@ function TaskCard({
   );
   const role = taskRole(task);
   const context = latestText(task);
-  const mediaCount = taskMediaParts(task).length;
+  const mediaCount =
+    taskMediaParts(task).length + taskContentParts(task).length;
   const depChip =
     task.state === "submitted" && !claim
       ? depGlance(taskDepStatus(task, taskIndexById(allTasks)))
@@ -1383,7 +1386,8 @@ function TaskDetailPanel({
   const role = taskRole(task);
   const claim = claimedByOf(task);
   const details = taskDetails(task);
-  const media = taskMediaParts(task);
+  const legacyMedia = taskMediaParts(task);
+  const contentMedia = taskContentParts(task);
   const attentionRequired =
     !isProposal && (task.state === "input-required" || task.state === "auth-required");
   const requestContext = latestText(task);
@@ -1633,15 +1637,23 @@ function TaskDetailPanel({
           </section>
         ) : null}
 
-        {media.length > 0 ? (
+        {contentMedia.length > 0 || legacyMedia.length > 0 ? (
           <section className="task-detail-panel__section">
             <h3>
               <Paperclip size={13} aria-hidden />
               Media
             </h3>
             <ul className="task-detail-panel__media">
-              {media.map((part, index) => (
-                <li key={`${part.mediaType ?? "raw"}-${index}`}>
+              {contentMedia.map((part, index) => (
+                <li key={`content-${part.ref.sha256}-${index}`}>
+                  <ContentMedia
+                    contentRef={part.ref}
+                    alt={`Task attachment ${index + 1}`}
+                  />
+                </li>
+              ))}
+              {legacyMedia.map((part, index) => (
+                <li key={`legacy-${part.mediaType ?? "raw"}-${index}`}>
                   <img
                     src={`data:${part.mediaType};base64,${part.bytesBase64}`}
                     alt={`Task attachment ${index + 1}`}

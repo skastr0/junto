@@ -122,6 +122,11 @@ import {
   registerTrustedRendererScheme,
 } from "./vellum/trusted-renderer-protocol";
 import {
+  CONTENT_PROTOCOL_SCHEME_REGISTRATION,
+  installContentProtocol,
+} from "./vellum/content/protocol";
+import { ContentService } from "./vellum/content/service";
+import {
   resolveTrustedRendererOrigin,
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
@@ -166,7 +171,7 @@ app.commandLine.appendSwitch("no-proxy-server");
 // Defense in depth for every renderer, including future windows whose local
 // preferences might otherwise drift. This must run before app readiness.
 app.enableSandbox();
-registerTrustedRendererScheme(protocol);
+registerTrustedRendererScheme(protocol, [CONTENT_PROTOCOL_SCHEME_REGISTRATION]);
 
 // electron-vite (and some launchd/stdio handoffs) can close the parent pipe
 // while main still logs. A bare console.* write then throws EPIPE as an
@@ -1502,6 +1507,25 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     registerIpcHandlers();
     registerDemoIpcHandlers();
     if (shutdownAdmissionClosed) return;
+
+    // Content stream protocol: renderer media loads ContentRefs without Base64.
+    // Handler resolves through ContentService (manifest + path); never opens DB
+    // from the renderer and never exposes host paths in the URL.
+    try {
+      installContentProtocol(session.defaultSession.protocol, async (ref) => {
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const content = yield* ContentService;
+            return yield* content.openForRead(ref);
+          }),
+        );
+        return result;
+      });
+    } catch (error) {
+      console.error("[content-protocol] failed to install:", error);
+      exitAfterDetach(1, "content-protocol-startup-failure");
+      return;
+    }
 
     // Work control socket: agent protocol surface over the work plane.
     // Independent of browser composition; owns ~/.vellum/work/{control.sock,token}.

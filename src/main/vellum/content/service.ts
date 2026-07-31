@@ -1,5 +1,9 @@
 import { Context, Effect, Layer } from "effect";
-import type { ContentAvailability, ContentRef } from "@shared/content";
+import type {
+  ContentAvailability,
+  ContentAvailabilityReason,
+  ContentRef,
+} from "@shared/content";
 import { resolveVellumHome } from "@shared/vellum-home";
 import {
   StateEngine,
@@ -23,6 +27,7 @@ import {
   type ContentByteSource,
   type ContentIngestResult,
 } from "./store";
+import type { ContentOpenResult } from "./protocol";
 
 export type ContentPutInput = {
   readonly source: ContentByteSource;
@@ -42,6 +47,8 @@ export type ContentServiceError =
   | ContentManifestError
   | StateEngineError;
 
+export type ContentOpenForRead = ContentOpenResult;
+
 type StateService = Context.Tag.Service<typeof StateEngine>;
 
 /**
@@ -58,6 +65,13 @@ export class ContentService extends Context.Tag("@vellum/ContentService")<
     readonly availability: (
       ref: ContentRef,
     ) => Effect.Effect<ContentAvailability, StateEngineError>;
+    /**
+     * Open for streaming reads. Checks manifest receipt + path/size without
+     * re-hashing the full object (so video range seeks stay cheap).
+     */
+    readonly openForRead: (
+      ref: ContentRef,
+    ) => Effect.Effect<ContentOpenForRead, StateEngineError>;
     readonly localPath: (
       ref: ContentRef,
     ) => Effect.Effect<ReturnType<typeof projectContentLocalPath>, never>;
@@ -118,6 +132,35 @@ const makeContentService = (
       const fromManifest = manifestAvailability(reader, ref);
       if (fromManifest.state !== "verified") return fromManifest;
       return verifyContentObjectFile(root, ref, fromManifest.verifiedAt);
+    }),
+
+  openForRead: (ref) =>
+    state.read("content.openForRead", (reader): ContentOpenForRead => {
+      const fromManifest = manifestAvailability(reader, ref);
+      if (fromManifest.state !== "verified") return fromManifest;
+      const projection = projectContentLocalPath(root, ref);
+      if ("kind" in projection && projection.kind === "local-path") {
+        return {
+          state: "verified",
+          path: projection.path,
+          byteLength: ref.byteLength,
+          mediaType: ref.mediaType,
+        };
+      }
+      if (
+        "state" in projection &&
+        (projection.state === "missing" ||
+          projection.state === "corrupt" ||
+          projection.state === "unavailable")
+      ) {
+        return projection;
+      }
+      return {
+        ref,
+        state: "unavailable",
+        reason:
+          "content object could not be opened for read" as ContentAvailabilityReason,
+      };
     }),
 
   localPath: (ref) => Effect.sync(() => projectContentLocalPath(root, ref)),

@@ -1,0 +1,95 @@
+.content-media {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
+  background: var(--color-raise-2);
+  color: var(--color-ink-2);
+  font-size: 11px;
+}
+
+.content-media > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.content-media strong {
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.content-media span,
+.content-media small {
+  color: var(--color-dim);
+  font-size: 9px;
+}
+
+.content-media--loading .content-media__spin {
+  animation: content-media-spin 0.9s linear infinite;
+  color: var(--color-amber);
+}
+
+.content-media--missing,
+.content-media--corrupt,
+.content-media--unavailable,
+.content-media--error {
+  border-color: rgb(229 72 77 / 0.34);
+  background: rgb(229 72 77 / 0.08);
+  color: var(--color-crimson);
+}
+
+.content-media--image {
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+}
+
+.content-media--image img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 4px;
+  background: var(--color-inset);
+  object-fit: contain;
+}
+
+.content-media--audio,
+.content-media--video {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.content-media--audio audio,
+.content-media--video video {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 4px;
+  background: var(--color-inset);
+}
+
+.content-media--video video {
+  max-height: 360px;
+}
+
+.content-media--binary a {
+  color: var(--color-cyan);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+@keyframes content-media-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content-media--loading .content-media__spin {
+    animation: none;
+  }
+}

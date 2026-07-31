@@ -122,22 +122,36 @@ const requestPath = (requestUrl: string): string | undefined => {
   return relativePath;
 };
 
-export const registerTrustedRendererScheme = (registry: Protocol): void => {
+export const TRUSTED_RENDERER_SCHEME_REGISTRATION = {
+  scheme: TRUSTED_RENDERER_SCHEME,
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    bypassCSP: false,
+    allowServiceWorkers: false,
+    corsEnabled: false,
+    stream: false,
+    codeCache: false,
+    allowExtensions: false,
+  },
+} as const;
+
+/**
+ * Register all privileged app schemes in one call (Electron allows only one
+ * `registerSchemesAsPrivileged` before ready). Includes the content stream
+ * scheme when `extra` is supplied by the boot path.
+ */
+export const registerTrustedRendererScheme = (
+  registry: Protocol,
+  extra: ReadonlyArray<{
+    readonly scheme: string;
+    readonly privileges: Readonly<Record<string, boolean>>;
+  }> = [],
+): void => {
   registry.registerSchemesAsPrivileged([
-    {
-      scheme: TRUSTED_RENDERER_SCHEME,
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: true,
-        bypassCSP: false,
-        allowServiceWorkers: false,
-        corsEnabled: false,
-        stream: false,
-        codeCache: false,
-        allowExtensions: false,
-      },
-    },
+    TRUSTED_RENDERER_SCHEME_REGISTRATION,
+    ...extra,
   ]);
 };
 
