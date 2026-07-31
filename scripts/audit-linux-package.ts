@@ -45,6 +45,41 @@ export const validateUserServiceTemplate = (input: string): void => {
   if (/^\s*(?:User|Group|CapabilityBoundingSet|AmbientCapabilities|NoNewPrivileges)=/mu.test(input)) throw new Error("user service contains privileged directives");
 };
 
+export const validatePackagedCliVersion = (
+  output: string,
+  expectedVersion: string,
+): string => {
+  const version = output.trim();
+  if (version !== expectedVersion) {
+    throw new Error(
+      `packaged vellum CLI version mismatch: expected ${expectedVersion}, got ${version || "<empty>"}`,
+    );
+  }
+  return version;
+};
+
+const auditPackagedCliVersion = (
+  executable: string,
+  expectedVersion: string,
+): string => {
+  const result = spawnSync(executable, ["--version"], {
+    encoding: "utf8",
+    shell: false,
+    timeout: 15_000,
+    maxBuffer: 64 * 1024,
+    env: {
+      HOME: "/nonexistent",
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      PATH: "/usr/bin:/bin",
+    },
+  });
+  if (result.error !== undefined || result.status !== 0) {
+    throw new Error("packaged vellum CLI did not execute for version audit");
+  }
+  return validatePackagedCliVersion(result.stdout ?? "", expectedVersion);
+};
+
 const requireLoadable = (file: string, relative: string): void => {
   // electron-builder may ship dual musl/glibc optional natives; only the host
   // ABI is loadable here. musl .node files must not fail a glibc package audit.
@@ -53,11 +88,15 @@ const requireLoadable = (file: string, relative: string): void => {
   if (result.status !== 0 || /not found/u.test(`${result.stdout}\n${result.stderr}`)) throw new Error(`native runtime dependency is unavailable: ${file}`);
 };
 
-export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly runtimePath: string; readonly version: string }): Promise<{ readonly ok: true; readonly artifact: string; readonly nativeObjects: ReadonlyArray<string>; readonly chromeSandbox: "absent"; readonly license: LicenseBuildAuditReceipt }> => {
+export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly runtimePath: string; readonly version: string }): Promise<{ readonly ok: true; readonly artifact: string; readonly cliVersion: string; readonly nativeObjects: ReadonlyArray<string>; readonly chromeSandbox: "absent"; readonly license: LicenseBuildAuditReceipt }> => {
   const root = path.resolve(runtimePath);
   if (path.basename(root) !== linuxRuntimeArtifactName({ version, arch: "x64" })) throw new Error("runtime artifact name mismatch");
   const files = await walk(root);
   for (const required of LINUX_RUNTIME_REQUIRED_FILES) if (!files.includes(required)) throw new Error(`runtime required file missing: ${required}`);
+  const cliVersion = auditPackagedCliVersion(
+    path.join(root, "resources/bin/vellum"),
+    version,
+  );
   // Final packaged ASAR license binding — malformed binding must fail the audit.
   const appAsarPath = path.join(root, "resources/app.asar");
   const license = auditPackagedLicenseBinding(appAsarPath);
@@ -76,7 +115,7 @@ export const auditLinuxRuntime = async ({ runtimePath, version }: { readonly run
     }
   }
   validateUserServiceTemplate(await readFile(path.join(root, "resources/systemd/vellum-remote.service.template"), "utf8"));
-  return { ok: true, artifact: path.basename(root), nativeObjects, chromeSandbox: "absent", license };
+  return { ok: true, artifact: path.basename(root), cliVersion, nativeObjects, chromeSandbox: "absent", license };
 };
 
 if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {

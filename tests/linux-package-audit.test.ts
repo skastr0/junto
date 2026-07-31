@@ -2,7 +2,12 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { auditLinuxRuntime, validateElfX64, validateUserServiceTemplate } from "../scripts/audit-linux-package";
+import {
+  auditLinuxRuntime,
+  validateElfX64,
+  validatePackagedCliVersion,
+  validateUserServiceTemplate,
+} from "../scripts/audit-linux-package";
 import { linuxRuntimeArtifactName } from "../scripts/finalize-linux-package";
 
 describe("Linux userland runtime audit", () => {
@@ -13,6 +18,12 @@ describe("Linux userland runtime audit", () => {
   it("requires a relocatable service placeholder and rejects privilege directives", () => {
     expect(() => validateUserServiceTemplate("ExecStart=@VELLUM_RUNTIME_ROOT@/resources/systemd/vellum-remote-launch\n")).not.toThrow();
     expect(() => validateUserServiceTemplate("User=root\nExecStart=@VELLUM_RUNTIME_ROOT@/resources/systemd/vellum-remote-launch\n")).toThrow(/privileged/u);
+  });
+  it("requires the packaged CLI to self-report the release version", () => {
+    expect(validatePackagedCliVersion("0.1.5\n", "0.1.5")).toBe("0.1.5");
+    expect(() =>
+      validatePackagedCliVersion("0.1.0\n", "0.1.5")
+    ).toThrow(/version mismatch/u);
   });
   it("fails closed on chrome sandbox and privileged mode residue", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "vellum-runtime-audit-"));

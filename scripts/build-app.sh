@@ -117,6 +117,13 @@ if [[ "$LICENSE_PREFLIGHT_ONLY" -eq 1 ]]; then
 fi
 
 cd "$REPO_ROOT"
+VELLUM_APP_VERSION_JSON="$(
+  "$BUN_EXECUTABLE" -e '
+    const value = JSON.parse(await Bun.file("package.json").text()).version;
+    if (typeof value !== "string" || value.length === 0) process.exit(1);
+    process.stdout.write(JSON.stringify(value));
+  '
+)"
 ELECTRON_INSTALLER="$REPO_ROOT/node_modules/electron/install.js"
 NODE_EXECUTABLE="$(type -P node || true)"
 if [[ -z "$NODE_EXECUTABLE" || ! -x "$NODE_EXECUTABLE" ]]; then
@@ -153,6 +160,7 @@ build_compiled_cli() {
   mkdir -p "$(dirname "$output")"
   bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig \
     --no-compile-autoload-tsconfig --no-compile-autoload-package-json \
+    "--define=APP_VERSION=$VELLUM_APP_VERSION_JSON" \
     --outfile "$stage" "$source"
   chmod 0755 "$stage"
   mv "$stage" "$output"

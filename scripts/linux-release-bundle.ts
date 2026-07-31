@@ -1948,6 +1948,7 @@ const validateEvidenceReceipt = (
     if (
       receipt.ok !== true ||
       receipt.artifact !== manifest.package.file ||
+      receipt.cliVersion !== manifest.release.version ||
       !Array.isArray(receipt.nativeObjects) ||
       receipt.chromeSandbox !== "absent" ||
       "chromeSandboxMode" in receipt

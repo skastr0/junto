@@ -19,6 +19,9 @@ describe("app build userland artifact contract", () => {
       { artifact: "vellum-browser", source: "scripts/browser-cli.ts" },
       { artifact: "vellum-station", source: "scripts/station-cli.ts" },
     ]);
+    expect(build).toContain(
+      '"--define=APP_VERSION=$VELLUM_APP_VERSION_JSON"',
+    );
     expect(build).not.toContain("vellum-release-installer");
     expect(build).not.toContain("linux-release-installer.ts");
     expect(build).not.toContain("vellum-release-bridge");

@@ -174,6 +174,45 @@ const runFixed = (
   return (result.stdout ?? "").trim();
 };
 
+export const validateExactCleanCheckout = (input: {
+  readonly expectedCommit: unknown;
+  readonly headCommit: unknown;
+  readonly porcelain: unknown;
+}): string => {
+  const expectedCommit = requireHexCommit(input.expectedCommit);
+  const headCommit = requireHexCommit(input.headCommit);
+  if (headCommit !== expectedCommit) {
+    throw new Error(
+      `Linux release evidence source commit mismatch: expected ${expectedCommit}, checkout is ${headCommit}`,
+    );
+  }
+  if (typeof input.porcelain !== "string" || input.porcelain.length > 0) {
+    throw new Error("Linux release evidence requires an exact clean checkout");
+  }
+  return headCommit;
+};
+
+const assertExactCleanCheckout = (expectedCommit: unknown): string =>
+  validateExactCleanCheckout({
+    expectedCommit,
+    headCommit: runFixed("/usr/bin/env", [
+      "git",
+      "-C",
+      packageRoot,
+      "rev-parse",
+      "--verify",
+      "HEAD^{commit}",
+    ]),
+    porcelain: runFixed("/usr/bin/env", [
+      "git",
+      "-C",
+      packageRoot,
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=all",
+    ]),
+  });
+
 export const parseUbuntuRelease = (input: string): "24.04" => {
   const fields = new Map<string, string>();
   for (const line of input.split(/\r?\n/u)) {
@@ -389,12 +428,14 @@ const validateLinuxCiReceipts = async (input: {
   ) as {
     readonly ok?: unknown;
     readonly artifact?: unknown;
+    readonly cliVersion?: unknown;
     readonly nativeObjects?: unknown;
     readonly chromeSandbox?: unknown;
   };
   if (
     packageAudit.ok !== true ||
     typeof packageAudit.artifact !== "string" ||
+    packageAudit.cliVersion !== (await readPackageIdentity()).version ||
     !Array.isArray(packageAudit.nativeObjects) ||
     packageAudit.chromeSandbox !== "absent"
   ) {
@@ -723,8 +764,9 @@ const main = async (): Promise<void> => {
   const [command, ...args] = process.argv.slice(2);
   const out = option(args, "--out");
   if (command === "inventory" && out !== undefined) {
+    const commit = assertExactCleanCheckout(process.env.GITHUB_SHA);
     await writeJson(out, await collectLinuxCiInventory({
-      commit: process.env.GITHUB_SHA,
+      commit,
       sourceDateEpoch: process.env.SOURCE_DATE_EPOCH,
     }));
     return;
@@ -762,10 +804,11 @@ const main = async (): Promise<void> => {
     const releaseDirectory = option(args, "--release-dir");
     const evidenceDirectory = option(args, "--evidence-dir");
     if (releaseDirectory !== undefined && evidenceDirectory !== undefined) {
+      const commit = assertExactCleanCheckout(process.env.GITHUB_SHA);
       const manifest = await createLinuxCiReleaseManifest({
         releaseDirectory,
         evidenceDirectory,
-        commit: process.env.GITHUB_SHA,
+        commit,
         sourceDateEpoch: process.env.SOURCE_DATE_EPOCH,
       });
       await writeJson(out, manifest);
@@ -786,11 +829,12 @@ const main = async (): Promise<void> => {
       releaseDirectory !== undefined &&
       evidenceDirectory !== undefined
     ) {
+      const commit = assertExactCleanCheckout(process.env.GITHUB_SHA);
       const manifest = await verifyLinuxCiReleaseManifest({
         manifest: JSON.parse(await readFile(manifestPath, "utf8")),
         releaseDirectory,
         evidenceDirectory,
-        expectedCommit: process.env.GITHUB_SHA,
+        expectedCommit: commit,
       });
       const checksums = await readFile(
         path.join(path.dirname(path.resolve(manifestPath)), "SHA256SUMS"),

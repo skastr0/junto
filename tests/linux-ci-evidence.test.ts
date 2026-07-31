@@ -16,6 +16,7 @@ import {
   linuxCiChecksumLines,
   parseUbuntuRelease,
   redactLinuxCiLog,
+  validateExactCleanCheckout,
   validateLinuxCiHost,
   validateLinuxReleaseArtifactNames,
   verifyLinuxCiReleaseManifest,
@@ -36,6 +37,29 @@ afterEach(async () => {
 });
 
 describe("Linux clean-CI target", () => {
+  it("binds evidence to the exact clean checkout", () => {
+    const commit = "a".repeat(40);
+    expect(validateExactCleanCheckout({
+      expectedCommit: commit,
+      headCommit: commit,
+      porcelain: "",
+    })).toBe(commit);
+    expect(() =>
+      validateExactCleanCheckout({
+        expectedCommit: commit,
+        headCommit: "b".repeat(40),
+        porcelain: "",
+      })
+    ).toThrow(/source commit mismatch/u);
+    expect(() =>
+      validateExactCleanCheckout({
+        expectedCommit: commit,
+        headCommit: commit,
+        porcelain: " M src/main/index.ts",
+      })
+    ).toThrow(/exact clean checkout/u);
+  });
+
   it("accepts only native Ubuntu 24.04 x64 glibc", () => {
     const osRelease = 'ID=ubuntu\nVERSION_ID="24.04"\n';
     expect(parseUbuntuRelease(osRelease)).toBe("24.04");
@@ -207,7 +231,13 @@ describe("Linux release artifact identity", () => {
     );
     await writeFile(
       path.join(evidence, "package-audit.json"),
-      JSON.stringify({ ok: true, artifact: archive, nativeObjects: [], chromeSandbox: "absent" }),
+      JSON.stringify({
+        ok: true,
+        artifact: archive,
+        cliVersion: packageVersion,
+        nativeObjects: [],
+        chromeSandbox: "absent",
+      }),
     );
     await writeFile(
       path.join(evidence, "packaged-pty-smoke.json"),

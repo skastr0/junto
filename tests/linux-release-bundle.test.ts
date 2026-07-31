@@ -186,6 +186,7 @@ const createFixture = async (options: {
     "package-audit.json": canonical({
       ok: true,
       artifact: PACKAGE,
+      cliVersion: VERSION,
       nativeObjects: [],
       chromeSandbox: options.chromeSandboxClaim ?? "absent",
       ...(options.includeRetiredChromeSandboxMode
