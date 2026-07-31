@@ -7,7 +7,7 @@ import {
   cascadeEnterKey,
   cascadeSideFor,
   type AgentConfigurationChoices,
-} from "../terminal/AgentCascadeMenu";
+} from "./AgentCascadeMenu";
 import { HarnessMark } from "../herdr/HarnessMark";
 import {
   AgentLaunchContext,

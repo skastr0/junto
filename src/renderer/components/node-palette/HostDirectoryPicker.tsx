@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -31,10 +32,12 @@ const isAbsoluteish = (path: string): boolean =>
 export function HostDirectoryPicker({
   hostId,
   initialPath,
+  resetKey,
   onSelect,
 }: {
   readonly hostId: string;
   readonly initialPath?: string;
+  readonly resetKey?: string;
   readonly onSelect: (path: string) => void;
 }) {
   const [draft, setDraft] = useState(initialPath?.trim() || "~");
@@ -44,30 +47,38 @@ export function HostDirectoryPicker({
   const [activePath, setActivePath] = useState<string>();
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestRange = useRef<readonly [number, number] | undefined>(undefined);
-  const requested = useRef("");
+  const loadSeq = useRef(0);
+  const syncKeyRef = useRef("");
 
-  const load = async (path: string) => {
-    requested.current = path.trim() || "~";
+  const load = useCallback(async (path: string) => {
+    const requestSeq = ++loadSeq.current;
+    const target = path.trim() || "~";
     const api = getVellumApi();
     if (!api?.hostDirectoryRead) {
-      setError("Host filesystem browser is unavailable.");
+      if (requestSeq === loadSeq.current) {
+        setSnapshot(undefined);
+        setError("Host filesystem browser is unavailable.");
+        setLoading(false);
+      }
       return;
     }
     setLoading(true);
     setError("");
     try {
-      const next = await api.hostDirectoryRead(hostId, path.trim() || "~");
+      const next = await api.hostDirectoryRead(hostId, target);
+      if (requestSeq !== loadSeq.current) return undefined;
       setSnapshot(next);
       setActivePath(undefined);
       return next;
     } catch (reason) {
+      if (requestSeq !== loadSeq.current) return undefined;
       setSnapshot(undefined);
       setError(reason instanceof Error ? reason.message : String(reason));
       return undefined;
     } finally {
-      setLoading(false);
+      if (requestSeq === loadSeq.current) setLoading(false);
     }
-  };
+  }, [hostId]);
 
   /** Move into a folder: the input follows the listing, not the other way. */
   const openDirectory = (path: string) => {
@@ -78,12 +89,18 @@ export function HostDirectoryPicker({
   };
 
   useEffect(() => {
-    void load(initialPath?.trim() || "~").then((next) => {
+    const seed = initialPath?.trim() || "~";
+    const nextSyncKey = `${hostId}\0${resetKey ?? ""}`;
+    if (syncKeyRef.current === nextSyncKey) return;
+    syncKeyRef.current = nextSyncKey;
+    setDraft(seed);
+    setSnapshot(undefined);
+    setActivePath(undefined);
+    setError("");
+    void load(seed).then((next) => {
       if (next) setDraft(asBrowsingDraft(next.root));
     });
-    // This component is keyed by host + inherited seed. Navigation is local.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hostId, initialPath, load, resetKey]);
 
   const { dir, query } = useMemo(() => parseDirectoryDraft(draft), [draft]);
   const selectedPath = directoryFromDraft(draft, snapshot);
@@ -103,13 +120,9 @@ export function HostDirectoryPicker({
     if (!isAbsoluteish(dir)) return;
     const target = trimTrailingSlash(dir);
     if (snapshot && target === snapshot.root) return;
-    if (requested.current === target) return;
     const timer = setTimeout(() => void load(target), NAVIGATE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-    // `load` is re-created every render and would restart the debounce on each
-    // keystroke's re-render; the typed directory is the only real trigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dir, snapshot?.root]);
+  }, [dir, snapshot, load]);
 
   /** Report only the canonical directory this page can currently vouch for. */
   useEffect(() => {

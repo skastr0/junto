@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   actorHostChoicesFromEnrollment,
   type AgentHostChoice,
-} from "../src/renderer/components/terminal/AgentCascadeMenu";
+} from "../src/renderer/components/node-palette/agent-launch-model";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 
 const configured: AgentHostChoice = {

@@ -11,8 +11,8 @@ import { getVellumApi } from "../../lib/vellum-api";
 import {
   actorHostChoicesFromEnrollment,
   type AgentHostChoice,
-} from "../terminal/AgentCascadeMenu";
-import { HostDirectoryPicker } from "../terminal/HostDirectoryPicker";
+} from "./agent-launch-model";
+import { HostDirectoryPicker } from "./HostDirectoryPicker";
 import { Button, IconButton, Select } from "../ui";
 
 const AGENT_SIZE = { width: 260, height: 110 } as const;
