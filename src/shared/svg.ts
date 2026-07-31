@@ -106,10 +106,20 @@ export const renderCanvasSvg = (
     const a = center(from);
     const b = center(to);
     const kind = graph.phaseByEdgeId.get(edge.id) as EtherEdgeKind | undefined;
-    const color = kind ? EDGE_COLOR[kind] : STEEL;
+    const fromKind = from.ether?.entity?.kind;
+    const toKind = to.ether?.entity?.kind;
+    const agentMsg =
+      kind !== "blocks" &&
+      fromKind === "agent" &&
+      toKind === "agent" &&
+      Array.isArray(edge.ether?.ports) &&
+      edge.ether.ports.includes("msg.send");
+    const color = kind === "blocks" ? CRIMSON : agentMsg ? AMBER : kind ? EDGE_COLOR[kind] : STEEL;
     const active = activeEdges.has(edge.id);
+    const strokeW = active ? 2 : agentMsg ? 1.6 : 1;
+    const opacity = active ? 0.9 : agentMsg ? 0.88 : 0.5;
     parts.push(
-      `<line x1="${Math.round(a.x)}" y1="${Math.round(a.y)}" x2="${Math.round(b.x)}" y2="${Math.round(b.y)}" stroke="${color}" stroke-width="${active ? 2 : 1}" opacity="${active ? 0.9 : 0.5}"${kind === "blocks" ? ' stroke-dasharray="6 4"' : ""}/>`,
+      `<line x1="${Math.round(a.x)}" y1="${Math.round(a.y)}" x2="${Math.round(b.x)}" y2="${Math.round(b.y)}" stroke="${color}" stroke-width="${strokeW}" opacity="${opacity}"${kind === "blocks" ? ' stroke-dasharray="6 4"' : ""}/>`,
     );
     const label = edge.label ?? kind;
     if (label) {

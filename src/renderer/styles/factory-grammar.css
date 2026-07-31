@@ -97,6 +97,11 @@ path.vellum-edge {
 }
 path.vellum-edge--soft-relation { stroke-dasharray: 1.5 5; }
 path.vellum-edge--artifact-flow { stroke-dasharray: 1 3; }
+/* Agent↔agent msg.send: solid medium stroke (not dotted soft-relation). */
+path.vellum-edge--agent-msg {
+  stroke-dasharray: none;
+  stroke-linecap: round;
+}
 .vellum-edge__signal {
   pointer-events: none;
   stroke-linecap: square;

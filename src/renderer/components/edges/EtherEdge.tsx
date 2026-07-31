@@ -98,8 +98,13 @@ export function EtherEdge({
       : undefined;
   // Pair kind lives in construction (rail, packets, provenance dots, ticks),
   // never in an always-hot hue. Color is reserved for live phase or an
-  // explicit operator-authored canvas color.
-  const color = authoredColor ?? EDGE_COLOR[phase];
+  // explicit operator-authored canvas color — except agent-msg collab links,
+  // which read as amber so operator can spot collaborating agents at a glance.
+  const color =
+    authoredColor ??
+    (visualRole === "agent-msg" && phase === "relates"
+      ? HUE.amber
+      : EDGE_COLOR[phase]);
 
   // Selection impact mode — only "in" is stamped (CSS dims the rest).
   const impactIn = data?.impact === "in";
@@ -153,8 +158,23 @@ export function EtherEdge({
   const labelX = routed?.labelX ?? fallbackLabelX;
   const labelY = routed?.labelY ?? fallbackLabelY;
 
-  const baseWidth = visualRole === "task-flow" ? 2.2 : visualRole === "artifact-flow" ? 0.85 : 1.2;
-  const baseOpacity = visualRole === "artifact-flow" ? 0.42 : visualRole === "soft-relation" && !hasCriteria ? 0.38 : 0.9;
+  // agent-msg: stronger than thin soft-relation dots, not task-flow thick.
+  const baseWidth =
+    visualRole === "task-flow"
+      ? 2.2
+      : visualRole === "agent-msg"
+        ? 1.55
+        : visualRole === "artifact-flow"
+          ? 0.85
+          : 1.2;
+  const baseOpacity =
+    visualRole === "artifact-flow"
+      ? 0.42
+      : visualRole === "agent-msg"
+        ? 0.88
+        : visualRole === "soft-relation" && !hasCriteria
+          ? 0.38
+          : 0.9;
   const className = [
     "vellum-edge",
     `vellum-edge--${visualRole}`,

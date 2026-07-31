@@ -20,6 +20,8 @@ export type EdgeVisualRole =
   | "request-flow"
   | "artifact-flow"
   | "scheduler-flow"
+  /** Agent↔agent with msg.send granted — collab link (amber, medium weight). */
+  | "agent-msg"
   | "soft-relation";
 
 export type EdgeData = {
@@ -65,6 +67,10 @@ export const createFlowIdentityCache = (): FlowIdentityCache => ({
 const entityKind = (node: CanvasNode | undefined): string | undefined =>
   node?.ether?.entity?.kind;
 
+/** True when the edge's authored port mask includes msg.send. */
+export const edgeHasMsgSend = (edge: CanvasEdge): boolean =>
+  Array.isArray(edge.ether?.ports) && edge.ether.ports.includes("msg.send");
+
 /**
  * Pair-aware visual projection. This is intentionally not a canvas contract:
  * drawing or deleting the same edge keeps exactly the same product authority.
@@ -83,6 +89,9 @@ export const edgeVisualRole = (
   if (connects("task", "agent")) return "task-flow";
   if (connects("agent", "requests")) return "request-flow";
   if (connects("agent", "artifacts")) return "artifact-flow";
+  // Agent↔agent with msg.send is a live collab link — amber presentation only
+  // when the port is actually enabled (discovery-only stays soft-relation).
+  if (connects("agent", "agent") && edgeHasMsgSend(edge)) return "agent-msg";
   if (
     edge.ether?.effect &&
     (from === "cron" || from === "timer" || from === "gauge" || from === "watcher" || from === "relay")

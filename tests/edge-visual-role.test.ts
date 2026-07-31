@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasEdge, CanvasNode } from "../src/shared/canvas";
-import { edgeVisualRole } from "../src/renderer/lib/convert";
+import { edgeHasMsgSend, edgeVisualRole } from "../src/renderer/lib/convert";
 
 const node = (id: string, kind: string): CanvasNode => ({
   id,
@@ -13,10 +13,15 @@ const node = (id: string, kind: string): CanvasNode => ({
   ether: { entity: { kind } },
 });
 
-const edge = (fromNode: string, toNode: string): CanvasEdge => ({
+const edge = (
+  fromNode: string,
+  toNode: string,
+  ports?: ReadonlyArray<"msg.list" | "msg.send">,
+): CanvasEdge => ({
   id: `${fromNode}-${toNode}`,
   fromNode,
   toNode,
+  ...(ports ? { ether: { ports: [...ports] } } : {}),
 });
 
 describe("edgeVisualRole", () => {
@@ -37,5 +42,24 @@ describe("edgeVisualRole", () => {
     expect(edgeVisualRole(edge("actor", "tasks"), actor, tasks)).toBe("task-flow");
     expect(edgeVisualRole(edge("requests", "actor"), requests, actor)).toBe("request-flow");
     expect(edgeVisualRole(edge("artifacts", "actor"), artifacts, actor)).toBe("artifact-flow");
+  });
+
+  it("agent↔agent with msg.send → agent-msg; discovery-only stays soft-relation", () => {
+    const a1 = node("a1", "agent");
+    const a2 = node("a2", "agent");
+    expect(edgeVisualRole(edge("a1", "a2"), a1, a2)).toBe("soft-relation");
+    expect(edgeVisualRole(edge("a1", "a2", ["msg.list"]), a1, a2)).toBe("soft-relation");
+    expect(edgeVisualRole(edge("a1", "a2", ["msg.send"]), a1, a2)).toBe("agent-msg");
+    expect(edgeVisualRole(edge("a1", "a2", ["msg.list", "msg.send"]), a1, a2)).toBe(
+      "agent-msg",
+    );
+    // Direction-stable
+    expect(edgeVisualRole(edge("a2", "a1", ["msg.send"]), a2, a1)).toBe("agent-msg");
+  });
+
+  it("edgeHasMsgSend reads authored ports only", () => {
+    expect(edgeHasMsgSend(edge("a", "b"))).toBe(false);
+    expect(edgeHasMsgSend(edge("a", "b", ["msg.list"]))).toBe(false);
+    expect(edgeHasMsgSend(edge("a", "b", ["msg.send"]))).toBe(true);
   });
 });
