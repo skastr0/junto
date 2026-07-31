@@ -143,7 +143,7 @@ export const qualificationWorkDocument = (
         fromNode: QUALIFICATION_WORK_ACTOR_NODE_ID,
         toNode: QUALIFICATION_WORK_SINK_NODE_ID,
         ether: {
-          ports: ["tasks.claim"],
+          ports: ["tasks.claim", "tasks.update"],
         },
       },
     ],
