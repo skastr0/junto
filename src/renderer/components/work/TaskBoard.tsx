@@ -160,6 +160,24 @@ const mediaPartsFromDrafts = (
 
 type Ether = NonNullable<CanvasNode["ether"]>;
 type WorkTask = NonNullable<Ether["tasks"]>["items"][number];
+type WorkProposal = NonNullable<NonNullable<Ether["tasks"]>["proposals"]>[number];
+
+/**
+ * Map a pending proposal onto the Task display shape so the board card + detail
+ * panel can show the same authoring fields (brief/media, metadata, dependsOn,
+ * finishCriteria, reason) without a second detail surface.
+ */
+export const proposalAsDisplayTask = (proposal: WorkProposal): WorkTask => ({
+  id: proposal.id,
+  state: "submitted",
+  history: [proposal.brief],
+  ...(proposal.metadata ? { metadata: proposal.metadata } : {}),
+  ...(proposal.reason ? { reason: proposal.reason } : {}),
+  ...(proposal.dependsOn && proposal.dependsOn.length > 0
+    ? { dependsOn: proposal.dependsOn }
+    : {}),
+  ...(proposal.finishCriteria ? { finishCriteria: proposal.finishCriteria } : {}),
+});
 
 type LaneId = "proposal" | "queue" | "working" | "input" | "closed";
 
@@ -813,7 +831,13 @@ function TaskCard({
       {!editing ? (
         <footer className="task-board-card__footer">
           <div className="task-board-card__status-chips">
-            <Chip tone={chipToneForState(task.state)}>{stateLabel(task.state)}</Chip>
+            <Chip
+              tone={
+                proposalBy !== undefined ? "violet" : chipToneForState(task.state)
+              }
+            >
+              {proposalBy !== undefined ? "Proposed" : stateLabel(task.state)}
+            </Chip>
             {depChip ? (
               <Chip
                 tone={depChip.tone}
@@ -1331,14 +1355,19 @@ function TaskDetailPanel({
   task,
   pending,
   claimantRetired,
+  isProposal,
+  proposedBy,
   onClose,
   onSaveTitle,
   onRespond,
   onMove,
+  onApprove,
 }: {
   readonly task: WorkTask;
   readonly pending: boolean;
   readonly claimantRetired: boolean;
+  readonly isProposal: boolean;
+  readonly proposedBy?: string;
   readonly onClose: () => void;
   readonly onSaveTitle: (task: WorkTask, title: string) => void;
   readonly onRespond: (
@@ -1347,6 +1376,7 @@ function TaskDetailPanel({
     disposition: "working" | "rejected",
   ) => Promise<boolean>;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
+  readonly onApprove?: (task: WorkTask) => void;
 }) {
   const [title, setTitle] = useState(() => taskTitle(task));
   const [response, setResponse] = useState("");
@@ -1354,39 +1384,50 @@ function TaskDetailPanel({
   const claim = claimedByOf(task);
   const details = taskDetails(task);
   const media = taskMediaParts(task);
-  const attentionRequired = task.state === "input-required" || task.state === "auth-required";
+  const attentionRequired =
+    !isProposal && (task.state === "input-required" || task.state === "auth-required");
   const requestContext = latestText(task);
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
     task.finishCriteria?.git !== undefined;
-  const transitionOptions = [
-    ...LANES.flatMap((lane) =>
-      lane.state && canTransitionTaskState(task.state, lane.state)
-        ? [{ value: lane.state, label: `Move to ${lane.label}` }]
-        : [],
-    ),
-    ...(
-      [
-        ["completed", "Complete task"],
-        ["failed", "Mark as failed"],
-        ["rejected", "Reject task"],
-        ["canceled", "Cancel task"],
-      ] as const
-    ).flatMap(([state, label]) =>
-      canTransitionTaskState(task.state, state) &&
-      !LANES.some((lane) => lane.state === state) &&
-      !(state === "completed" && hardFinishGate)
-        ? [{ value: state, label }]
-        : [],
-    ),
-  ];
+  const transitionOptions = isProposal
+    ? []
+    : [
+        ...LANES.flatMap((lane) =>
+          lane.state && canTransitionTaskState(task.state, lane.state)
+            ? [{ value: lane.state, label: `Move to ${lane.label}` }]
+            : [],
+        ),
+        ...(
+          [
+            ["completed", "Complete task"],
+            ["failed", "Mark as failed"],
+            ["rejected", "Reject task"],
+            ["canceled", "Cancel task"],
+          ] as const
+        ).flatMap(([state, label]) =>
+          canTransitionTaskState(task.state, state) &&
+          !LANES.some((lane) => lane.state === state) &&
+          !(state === "completed" && hardFinishGate)
+            ? [{ value: state, label }]
+            : [],
+        ),
+      ];
+  const proposedByLabel =
+    proposedBy === undefined
+      ? undefined
+      : proposedBy === "operator"
+        ? "Proposed by operator"
+        : `Proposed by ${proposedBy}`;
 
   return (
     <aside className="task-detail-panel" aria-label={`Details for ${taskTitle(task)}`}>
       <header className="task-detail-panel__header">
         <div>
           <div className="task-detail-panel__chips">
-            <Chip tone={chipToneForState(task.state)}>{stateLabel(task.state)}</Chip>
+            <Chip tone={isProposal ? "violet" : chipToneForState(task.state)}>
+              {isProposal ? "Proposed" : stateLabel(task.state)}
+            </Chip>
             {claimantRetired ? (
               <Chip
                 tone="crimson"
@@ -1395,7 +1436,19 @@ function TaskDetailPanel({
                 Stalled · retired seat
               </Chip>
             ) : null}
-            {claim && canTransitionTaskState(task.state, "submitted") ? (
+            {isProposal && onApprove ? (
+              <Button
+                size="xs"
+                variant="primary"
+                disabled={pending}
+                title="Approve this proposal into the Queue for workers"
+                onClick={() => onApprove(task)}
+              >
+                <CheckCircle2 size={12} />
+                Approve to Queue
+              </Button>
+            ) : null}
+            {!isProposal && claim && canTransitionTaskState(task.state, "submitted") ? (
               <Button
                 size="xs"
                 variant="subtle"
@@ -1416,10 +1469,10 @@ function TaskDetailPanel({
       </header>
 
       <div className="task-detail-panel__identity">
-        <span title="Task ID">#{task.id}</span>
-        <span className="task-detail-panel__claim" title={claim}>
+        <span title={isProposal ? "Proposal ID" : "Task ID"}>#{task.id}</span>
+        <span className="task-detail-panel__claim" title={isProposal ? proposedBy : claim}>
           <UserRound size={12} aria-hidden />
-          {claim ?? "Unclaimed"}
+          {isProposal ? (proposedByLabel ?? "Proposed") : (claim ?? "Unclaimed")}
         </span>
         <span>{role ?? "No task role"}</span>
       </div>
@@ -1477,23 +1530,27 @@ function TaskDetailPanel({
 
         <section className="task-detail-panel__section">
           <h3>Title</h3>
-          <form
-            className="task-detail-panel__title-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (title.trim() && title.trim() !== taskTitle(task)) onSaveTitle(task, title.trim());
-            }}
-          >
-            <Input value={title} onChange={(event) => setTitle(event.target.value)} />
-            <Button
-              type="submit"
-              size="xs"
-              variant="subtle"
-              disabled={pending || !title.trim() || title.trim() === taskTitle(task)}
+          {isProposal ? (
+            <p className="task-detail-panel__description">{taskTitle(task)}</p>
+          ) : (
+            <form
+              className="task-detail-panel__title-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (title.trim() && title.trim() !== taskTitle(task)) onSaveTitle(task, title.trim());
+              }}
             >
-              Save title
-            </Button>
-          </form>
+              <Input value={title} onChange={(event) => setTitle(event.target.value)} />
+              <Button
+                type="submit"
+                size="xs"
+                variant="subtle"
+                disabled={pending || !title.trim() || title.trim() === taskTitle(task)}
+              >
+                Save title
+              </Button>
+            </form>
+          )}
         </section>
 
         <section className="task-detail-panel__section">
@@ -1504,6 +1561,22 @@ function TaskDetailPanel({
             <p className="task-detail-panel__empty">No long-form description was provided.</p>
           )}
         </section>
+
+        {task.reason ? (
+          <section className="task-detail-panel__section">
+            <h3>Reason</h3>
+            <p className="task-detail-panel__description">{task.reason}</p>
+          </section>
+        ) : null}
+
+        {task.dependsOn && task.dependsOn.length > 0 ? (
+          <section className="task-detail-panel__section">
+            <h3>Depends on</h3>
+            <p className="task-detail-panel__description">
+              {task.dependsOn.join(", ")}
+            </p>
+          </section>
+        ) : null}
 
         {task.finishCriteria ? (
           <section className="task-detail-panel__section">
@@ -1609,29 +1682,52 @@ function TaskDetailPanel({
           </ol>
         </section>
 
-        <section className="task-detail-panel__section task-detail-panel__status">
-          <div>
-            <h3>{attentionRequired ? "Other status changes" : "Status"}</h3>
-            <p>
-              {attentionRequired
-                ? "Use this only when the task should leave the response workflow without resuming."
-                : "Move this task to another valid stage in its lifecycle."}
-            </p>
-          </div>
-          <Dropdown
-            value=""
-            options={transitionOptions}
-            disabled={pending || transitionOptions.length === 0}
-            aria-label="Change task status"
-            placeholder={
-              transitionOptions.length > 0 ? "Choose a status…" : "No available transitions"
-            }
-            onChange={(state) => onMove(task, state as TaskState)}
-            className="task-detail-panel__status-menu"
-            triggerClassName="h-9 w-full rounded-[5px] border border-white/10 bg-white/[0.04] px-3 text-[10px] uppercase tracking-[0.08em]"
-            align="start"
-          />
-        </section>
+        {isProposal ? (
+          <section className="task-detail-panel__section task-detail-panel__status">
+            <div>
+              <h3>Planning</h3>
+              <p>
+                Proposals are drafts. Approve to mint a queued task workers can claim, or
+                leave it here until the plan is ready.
+              </p>
+            </div>
+            {onApprove ? (
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={pending}
+                onClick={() => onApprove(task)}
+              >
+                <CheckCircle2 size={13} />
+                Approve to Queue
+              </Button>
+            ) : null}
+          </section>
+        ) : (
+          <section className="task-detail-panel__section task-detail-panel__status">
+            <div>
+              <h3>{attentionRequired ? "Other status changes" : "Status"}</h3>
+              <p>
+                {attentionRequired
+                  ? "Use this only when the task should leave the response workflow without resuming."
+                  : "Move this task to another valid stage in its lifecycle."}
+              </p>
+            </div>
+            <Dropdown
+              value=""
+              options={transitionOptions}
+              disabled={pending || transitionOptions.length === 0}
+              aria-label="Change task status"
+              placeholder={
+                transitionOptions.length > 0 ? "Choose a status…" : "No available transitions"
+              }
+              onChange={(state) => onMove(task, state as TaskState)}
+              className="task-detail-panel__status-menu"
+              triggerClassName="h-9 w-full rounded-[5px] border border-white/10 bg-white/[0.04] px-3 text-[10px] uppercase tracking-[0.08em]"
+              align="start"
+            />
+          </section>
+        )}
       </div>
     </aside>
   );
@@ -1653,15 +1749,7 @@ export function TaskBoard({
     () =>
       proposals
         .filter((proposal) => proposal.state === "pending")
-        .map(
-          (proposal): WorkTask => ({
-            id: proposal.id,
-            state: "submitted",
-            history: [proposal.brief],
-            ...(proposal.metadata ? { metadata: proposal.metadata } : {}),
-            ...(proposal.reason ? { reason: proposal.reason } : {}),
-          }),
-        ),
+        .map(proposalAsDisplayTask),
     [proposals],
   );
   const proposalById = useMemo(
@@ -1686,7 +1774,13 @@ export function TaskBoard({
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => {
-    if (initialItemId && items.some((task) => task.id === initialItemId)) {
+    if (
+      initialItemId &&
+      (items.some((task) => task.id === initialItemId) ||
+        proposals.some(
+          (proposal) => proposal.state === "pending" && proposal.id === initialItemId,
+        ))
+    ) {
       return initialItemId;
     }
     return null;
@@ -1736,9 +1830,14 @@ export function TaskBoard({
   }, [proposalTasks, query, visibleItems]);
 
   const activeTask = activeTaskId ? items.find((task) => task.id === activeTaskId) : undefined;
+  // Proposals are display-mapped WorkTasks (not in items) — resolve both lists so
+  // clicking a proposal opens the same detail panel as a normal task.
   const selectedTask = selectedTaskId
-    ? items.find((task) => task.id === selectedTaskId)
+    ? (items.find((task) => task.id === selectedTaskId) ??
+      proposalTasks.find((task) => task.id === selectedTaskId))
     : undefined;
+  const selectedIsProposal =
+    selectedTask !== undefined && proposalById.has(selectedTask.id);
   const knownRoles = workRolesInDoc(state$.doc.peek());
 
   const createTask = async (
@@ -2147,15 +2246,26 @@ export function TaskBoard({
               key={selectedTask.id}
               task={selectedTask}
               pending={pendingTaskId === selectedTask.id}
-              claimantRetired={isTaskClaimantRetired(
-                selectedTask.state,
-                claimedByOf(selectedTask),
-                activeActorSeatIds,
-              )}
+              claimantRetired={
+                selectedIsProposal
+                  ? false
+                  : isTaskClaimantRetired(
+                      selectedTask.state,
+                      claimedByOf(selectedTask),
+                      activeActorSeatIds,
+                    )
+              }
+              isProposal={selectedIsProposal}
+              proposedBy={proposalById.get(selectedTask.id)}
               onClose={() => setSelectedTaskId(null)}
               onSaveTitle={(task, title) => void saveTaskTitle(task, title)}
               onRespond={respondToTask}
               onMove={(task, state) => void transitionTask(task, state)}
+              onApprove={
+                selectedIsProposal
+                  ? (task) => void approveProposal(task)
+                  : undefined
+              }
             />
           ) : null}
         </div>
