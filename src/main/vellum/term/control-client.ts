@@ -355,6 +355,25 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
     return res.data as TerminalSessionSummary;
   }
 
+  async createProjectedAgent(input: {
+    canvasName: string;
+    nodeId: string;
+    cols?: number;
+    rows?: number;
+  }): Promise<TerminalSessionSummary> {
+    const res = await this.call({
+      v: 1,
+      id: this.nextId(),
+      op: "agent.create",
+      canvasName: input.canvasName,
+      nodeId: input.nodeId,
+      ...(input.cols === undefined ? {} : { cols: input.cols }),
+      ...(input.rows === undefined ? {} : { rows: input.rows }),
+    });
+    if (!res.ok) throw new Error(res.error);
+    return res.data as TerminalSessionSummary;
+  }
+
   async list(): Promise<readonly TerminalSessionSummary[]> {
     const res = await this.call({ v: 1, id: this.nextId(), op: "list" });
     if (!res.ok) throw new Error(res.error);

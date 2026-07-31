@@ -23,6 +23,7 @@ import {
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { performance } from "node:perf_hooks";
 import {
+  decodeTermProjectedAgentCreateRequest,
   decodeTermMaintenanceRequest,
   TERM_CONTROL_PROTOCOL,
   TERM_MAX_FRAME_BYTES,
@@ -35,7 +36,9 @@ import {
   type TermMaintenanceReleasePayload,
   type TermControlRequest,
   type TermControlResponse,
+  type TermProjectedAgentCreateRequest,
 } from "@shared/term-control";
+import type { TerminalSessionSummary } from "@shared/terminal";
 import type {
   ControlLease,
   LocalHostEvent,
@@ -87,6 +90,13 @@ export type TermControlServer = {
   /** Compatibility lifecycle entry point; rejects rather than hiding an unclean drain. */
   readonly close: () => Promise<void>;
 };
+
+export type ProjectedAgentSeatCreate = (
+  input: Pick<
+    TermProjectedAgentCreateRequest,
+    "canvasName" | "nodeId" | "cols" | "rows"
+  >,
+) => Promise<TerminalSessionSummary>;
 
 export interface TermControlServerRetainedCounts {
   readonly requests: number;
@@ -226,6 +236,11 @@ export const startTermControlServer = async (
     readonly maxActiveClients?: number;
     /** Test seam for the fixed root-owned Linux release fence. */
     readonly observeReleaseFence?: () => LinuxReleaseFenceObservation;
+    /**
+     * Remote-only actor resolver. It receives no launch or identity authority;
+     * the implementation must resolve the active installed projection.
+     */
+    readonly createProjectedAgentSeat?: ProjectedAgentSeatCreate;
   },
 ): Promise<TermControlServer> => {
   const home = options?.home;
@@ -243,6 +258,7 @@ export const startTermControlServer = async (
   const maxActiveClients = boundedRuntimeValue(options?.maxActiveClients, TERM_CONTROL_MAX_CLIENTS);
   const observeReleaseFence =
     options?.observeReleaseFence ?? observeLinuxReleaseFence;
+  const createProjectedAgentSeat = options?.createProjectedAgentSeat;
   prepareControlDirectory(dir);
 
   const token = randomBytes(32).toString("hex");
@@ -383,6 +399,32 @@ export const startTermControlServer = async (
             canvasName: req.canvasName,
             nodeId: req.nodeId,
             label: req.label,
+          });
+          return { v: 1, id, ok: true, data: summary };
+        }
+        case "agent.create": {
+          const decoded = decodeTermProjectedAgentCreateRequest(req);
+          if (decoded === undefined) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "invalid projected agent create request",
+            };
+          }
+          if (createProjectedAgentSeat === undefined) {
+            return {
+              v: 1,
+              id,
+              ok: false,
+              error: "projected agent creation is unavailable on this installation",
+            };
+          }
+          const summary = await createProjectedAgentSeat({
+            canvasName: decoded.canvasName,
+            nodeId: decoded.nodeId,
+            ...(decoded.cols === undefined ? {} : { cols: decoded.cols }),
+            ...(decoded.rows === undefined ? {} : { rows: decoded.rows }),
           });
           return { v: 1, id, ok: true, data: summary };
         }

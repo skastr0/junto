@@ -4,6 +4,7 @@ import { TerminalRouter } from "./router";
 import {
   startTermControlServer,
   TermControlStartupError,
+  type ProjectedAgentSeatCreate,
   type TermControlServer,
   type TermControlServerShutdownReceipt,
 } from "./control-server";
@@ -39,6 +40,11 @@ export interface TermPlaneStartOptions {
    * their own Electron-owned userData path.
    */
   readonly controlHome?: string;
+  /**
+   * Remote-only projection resolver for owner-local managed-agent starts.
+   * Electron Command Center omits this and therefore exposes no such request.
+   */
+  readonly createProjectedAgentSeat?: ProjectedAgentSeatCreate;
 }
 
 export interface TermProductAutomationSuspension {
@@ -164,6 +170,12 @@ export class TermPlane {
       try {
         const control = await startTermControlServer(this.host, {
           home: options?.controlHome,
+          ...(options?.createProjectedAgentSeat === undefined
+            ? {}
+            : {
+                createProjectedAgentSeat:
+                  options.createProjectedAgentSeat,
+              }),
         });
         this.control = control;
         if (this.shuttingDown || this.licenseRevoked) control.beginShutdown();

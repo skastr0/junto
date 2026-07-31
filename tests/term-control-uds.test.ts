@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConnection } from "node:net";
@@ -32,6 +32,7 @@ afterEach(async () => {
   }
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
+  delete process.env.VELLUM_REMOTE_BINARY;
 });
 
 const fakeAuthority = () => makeFakeTerminalProcessAuthority(() => ({
@@ -116,6 +117,87 @@ describe("term control UDS", () => {
     expect(killed).toBe(true);
     const after = await client.get("bind_a");
     expect(after?.status === "exited" || after === undefined).toBe(true);
+  });
+
+  it("starts a projected agent only through the injected managed-seat resolver", async () => {
+    const identities = makeProcessIdentityMap({
+      processAlive: () => true,
+      readProcessStartKey: () => "synthetic-9001",
+    });
+    setProcessIdentityMapForTests(identities);
+    const home = mkdtempSync(join(tmpdir(), "vellum-term-agent-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const releaseBin = join(home, "release", "resources", "bin");
+    mkdirSync(releaseBin, { recursive: true });
+    writeFileSync(join(releaseBin, "vellum"), "fixture");
+    writeFileSync(join(releaseBin, "vellum-remote"), "fixture");
+    process.env.VELLUM_REMOTE_BINARY = join(releaseBin, "vellum-remote");
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: 9001,
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = new LocalSessionHost(fake.authority);
+    cleanups.push(async () => {
+      await host.shutdownAll("test");
+    });
+    const observed: Array<Record<string, unknown>> = [];
+    const server = await startTermControlServer(host, {
+      home,
+      createProjectedAgentSeat: async (input) => {
+        observed.push(input);
+        return host.createAgentSeat({
+          bindingId: "projected-binding",
+          hostId: "box-a",
+          canvasName: input.canvasName,
+          nodeId: input.nodeId,
+          harness: "codex",
+          agentKey: "box-a:codex",
+          launch: { kind: "command", argv: ["/bin/sh"] },
+          ...(input.cols === undefined ? {} : { cols: input.cols }),
+          ...(input.rows === undefined ? {} : { rows: input.rows }),
+        });
+      },
+    });
+    cleanups.push(() => server.close());
+    const client = await TermControlClient.connect({
+      socketPath: server.socketPath,
+      token: server.token,
+      timeoutMs: 5_000,
+    });
+    cleanups.push(() => client.close());
+
+    const created = await client.createProjectedAgent({
+      canvasName: "factory",
+      nodeId: "agent-a",
+      cols: 90,
+      rows: 30,
+    });
+
+    expect(observed).toEqual([{
+      canvasName: "factory",
+      nodeId: "agent-a",
+      cols: 90,
+      rows: 30,
+    }]);
+    expect(created).toMatchObject({
+      bindingId: "projected-binding",
+      status: "running",
+      canvasName: "factory",
+      nodeId: "agent-a",
+    });
+    expect(identities.snapshot()).toEqual([
+      expect.objectContaining({
+        pid: 9001,
+        principal: {
+          agentKey: "box-a:codex",
+          canvasName: "factory",
+          nodeId: "agent-a",
+        },
+      }),
+    ]);
+    expect(fake.controllers[0]?.spec.env?.PATH?.split(":")).toContain(
+      releaseBin,
+    );
   });
 
   it("rejects bad token", async () => {

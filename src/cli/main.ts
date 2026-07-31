@@ -23,6 +23,7 @@ import {
   qualificationOperatorCommand,
   stationOperatorCommand,
 } from "./commands/operator";
+import { terminalCommand } from "./commands/terminal";
 import { runBrowserCli } from "../../scripts/browser-cli";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import {
@@ -32,6 +33,7 @@ import {
 } from "./core/output";
 import { OperatorSocketLive } from "./core/operator-socket";
 import { WorkSocketLive } from "./core/socket";
+import { TerminalSocketLive } from "./core/terminal-socket";
 
 export const rootCommand = Command.make(CLI_NAME).pipe(
   Command.withDescription(
@@ -52,6 +54,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     stationOperatorCommand,
     fleetOperatorCommand,
     qualificationOperatorCommand,
+    terminalCommand,
   ]),
 );
 
@@ -64,6 +67,7 @@ const runtimeLayer = Layer.mergeAll(
   BunContext.layer,
   WorkSocketLive,
   OperatorSocketLive,
+  TerminalSocketLive,
 );
 
 export const runCli = (args: ReadonlyArray<string>) =>

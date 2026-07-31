@@ -38,6 +38,20 @@ export type TermControlRequest =
       readonly nodeId?: string;
       readonly label?: string;
     }
+  | {
+      readonly v: 1;
+      readonly id: string;
+      /**
+       * Owner-local request to start one actor already present in the active
+       * Remote projection. The caller names only the projected node. The
+       * server resolves binding, harness, launch argv, installation, and host.
+       */
+      readonly op: "agent.create";
+      readonly canvasName: string;
+      readonly nodeId: string;
+      readonly cols?: number;
+      readonly rows?: number;
+    }
   | { readonly v: 1; readonly id: string; readonly op: "list" }
   | {
       readonly v: 1;
@@ -127,6 +141,11 @@ export type TermListPayload = {
 
 export type TermDirectoryPayload = HostDirectorySnapshot;
 
+export type TermProjectedAgentCreateRequest = Extract<
+  TermControlRequest,
+  { readonly op: "agent.create" }
+>;
+
 export type TermMaintenanceEvidence = {
   readonly activeTerminalSessions: number;
   readonly observationId: string;
@@ -197,6 +216,53 @@ export const decodeTermMaintenanceRequest = (
     return undefined;
   }
   return value as TermMaintenanceRequest;
+};
+
+const isBoundedCanonicalText = (
+  value: unknown,
+  maximumBytes: number,
+): value is string =>
+  typeof value === "string" &&
+  value.length > 0 &&
+  value === value.trim() &&
+  !/[\u0000-\u001f\u007f]/u.test(value) &&
+  Buffer.byteLength(value, "utf8") <= maximumBytes;
+
+const isOptionalIntegerInRange = (
+  value: unknown,
+  minimum: number,
+  maximum: number,
+): boolean =>
+  value === undefined ||
+  (typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= minimum &&
+    value <= maximum);
+
+/**
+ * Strict decoder for the only Term request that can mint an actor process.
+ * No argv, harness, binding, agent key, or identity claim is representable.
+ */
+export const decodeTermProjectedAgentCreateRequest = (
+  value: unknown,
+): TermProjectedAgentCreateRequest | undefined => {
+  if (!isRecord(value)) return undefined;
+  const expected = ["v", "id", "op", "canvasName", "nodeId"];
+  if (value.cols !== undefined) expected.push("cols");
+  if (value.rows !== undefined) expected.push("rows");
+  if (
+    !hasExactKeys(value, expected) ||
+    value.v !== TERM_CONTROL_PROTOCOL ||
+    value.op !== "agent.create" ||
+    !isBoundedCanonicalText(value.id, 128) ||
+    !isBoundedCanonicalText(value.canvasName, 128) ||
+    !isBoundedCanonicalText(value.nodeId, 512) ||
+    !isOptionalIntegerInRange(value.cols, 20, 300) ||
+    !isOptionalIntegerInRange(value.rows, 5, 120)
+  ) {
+    return undefined;
+  }
+  return value as TermProjectedAgentCreateRequest;
 };
 
 const decodeTermMaintenanceEvidence = (

@@ -5,7 +5,7 @@
  */
 import { existsSync } from "node:fs";
 import { resolveVellumHome } from "@shared/vellum-home";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 import {
   WORK_HOME_ENV,
   workControlDir,
@@ -26,6 +26,7 @@ export const vellumCliPathPrefixes = (
   resourcesPath: string | undefined = typeof process.resourcesPath === "string"
     ? process.resourcesPath
     : undefined,
+  remoteBinary: string | undefined = process.env.VELLUM_REMOTE_BINARY,
 ): readonly string[] => {
   const out: string[] = [];
   const dist = join(cwd, "dist");
@@ -34,7 +35,17 @@ export const vellumCliPathPrefixes = (
     const bin = join(resourcesPath, "bin");
     if (existsSync(bin)) out.push(bin);
   }
-  return out;
+  const packagedRemote = remoteBinary?.trim();
+  if (packagedRemote && isAbsolute(packagedRemote)) {
+    const bin = dirname(packagedRemote);
+    if (
+      packagedRemote === join(bin, "vellum-remote") &&
+      existsSync(join(bin, "vellum"))
+    ) {
+      out.push(bin);
+    }
+  }
+  return [...new Set(out)];
 };
 
 export const resolveWorkHomeForSeat = (

@@ -50,6 +50,7 @@ import { KernelService } from "./vellum/kernel/service";
 import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane } from "./vellum/term/plane";
+import { createProjectedAgentSeat } from "./vellum/term/projected-agent";
 import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
 import {
@@ -396,7 +397,13 @@ const runProductBoot = async (): Promise<void> => {
   }
 
   try {
-    await termPlane.start({ controlHome });
+    await termPlane.start({
+      controlHome,
+      createProjectedAgentSeat: (input) =>
+        RemoteRuntime.runPromise(
+          createProjectedAgentSeat(termPlane.host, input),
+        ),
+    });
   } catch (error) {
     console.error("[term] control socket failed to start:", error);
   }
