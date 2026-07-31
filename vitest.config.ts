@@ -14,7 +14,9 @@ export default defineConfig({
     // e2e/ specs use @playwright/test's own `test`/`expect` and launch a
     // real Electron app — vitest's default glob would otherwise pick up
     // every *.spec.ts under e2e/ and try to run it as a vitest test.
-    exclude: [...configDefaults.exclude, "e2e/**"],
+    // infra/ owns its own package, lockfile, dependencies, and deployment
+    // lifecycle. It is not part of the application test surface.
+    exclude: [...configDefaults.exclude, "e2e/**", "infra/**"],
   },
   resolve: {
     alias: {
