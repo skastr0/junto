@@ -151,7 +151,8 @@ const QualificationHealth = Schema.Struct({
 });
 export type StationQualificationHealth = typeof QualificationHealth.Type;
 
-export const StationQualificationSecurityResult = Schema.Struct({
+/** Trusted-renderer Command Center security observations. */
+export const StationQualificationCommandCenterSecurityResult = Schema.Struct({
   rendererSandbox: Schema.Literal("active"),
   rendererNoNewPrivileges: Schema.Literal(true),
   rendererSeccomp: Schema.Literal("filtering"),
@@ -159,12 +160,27 @@ export const StationQualificationSecurityResult = Schema.Struct({
   controlMaterialOwnerOnly: Schema.Literal(true),
   vellumTcpListeners: Schema.Literal(0),
 });
-export type StationQualificationSecurityResult =
-  typeof StationQualificationSecurityResult.Type;
+export type StationQualificationCommandCenterSecurityResult =
+  typeof StationQualificationCommandCenterSecurityResult.Type;
+
+/**
+ * Displayless Node Remote security observations.
+ * Zero Electron/Chromium/renderer/Xvfb/display env is a hard product contract.
+ */
+export const StationQualificationRemoteSecurityResult = Schema.Struct({
+  runtime: Schema.Literal("displayless-node"),
+  electronProcesses: Schema.Literal(0),
+  chromiumRendererProcesses: Schema.Literal(0),
+  displayEnvironment: Schema.Literal("unset"),
+  controlMaterialOwnerOnly: Schema.Literal(true),
+  vellumTcpListeners: Schema.Literal(0),
+});
+export type StationQualificationRemoteSecurityResult =
+  typeof StationQualificationRemoteSecurityResult.Type;
 
 const QualificationSecurity = Schema.Struct({
-  commandCenter: StationQualificationSecurityResult,
-  remote: StationQualificationSecurityResult,
+  commandCenter: StationQualificationCommandCenterSecurityResult,
+  remote: StationQualificationRemoteSecurityResult,
 });
 export type StationQualificationSecurity = typeof QualificationSecurity.Type;
 

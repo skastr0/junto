@@ -6,6 +6,16 @@
  * custody, packaged operator CLI invocation, and bounded observations. It does
  * not implement Station verbs, open product state, or mint a passing release
  * qualification receipt.
+ *
+ * Roles:
+ *   Command Center — Electron desktop (Xvfb allowed for headless lab).
+ *   Remote — displayless generation-pinned Node user service only
+ *            (`vellum-remote.service` → resources/bin/vellum-remote). Never
+ *            Electron, Chromium, renderer, CDP, Xvfb, or DISPLAY.
+ *
+ * Fresh VMs (when not cloning a pinned golden): 
+ *   orbctl create -a amd64 ubuntu:24.04
+ * Do not repair or reuse a failed guest as a substitute for a stock host.
  */
 
 import { spawn } from "node:child_process";
@@ -40,7 +50,6 @@ import {
   verifyProductionLinuxDeployBundle,
   verifyQualificationLinuxDeployBundle,
 } from "../src/main/vellum/hosts/linux-release-admission";
-import { renderUserlandLinuxService } from "../src/main/vellum/supervision/systemd-user";
 import {
   decodeStationQualification,
   STATION_QUALIFICATION_EVIDENCE_FILE,
@@ -1140,11 +1149,11 @@ const installPackage = async (
   if (sha256 !== artifact.archiveSha256) {
     throw new Error(`staged archive hash mismatch on ${machine.name}`);
   }
-  const unit = renderUserlandLinuxService({
-    releaseDirectory: `/home/${machine.username}/.vellum/runtime/releases/${release}`,
-  });
   const shellQuote = (value: string): string =>
     `'${value.replace(/'/g, `'\\''`)}'`;
+  // Extract the signed archive, then seal the generation-pinned unit through
+  // the product binary (`--install-user-service`). Remote runtime is never
+  // started via a runner-authored systemd-run/Electron/Xvfb path.
   const installScript = [
     "set -eu",
     "umask 077",
@@ -1158,11 +1167,13 @@ const installPackage = async (
     '/usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions',
     `TREE="$STAGE/vellum-runtime-${artifact.version}-linux-x64"`,
     'test -x "$TREE/vellum"',
+    'test -x "$TREE/resources/bin/vellum-remote"',
+    'test -x "$TREE/resources/systemd/vellum-remote-launch"',
     'mv "$TREE" "$DEST"',
     'rm -rf -- "$STAGE"',
     'ln -sfn "$DEST/resources/bin/vellum-station" "$HOME/.local/bin/vellum-station"',
     'ln -sfn "$DEST/resources/bin/vellum-browser" "$HOME/.local/bin/vellum-browser"',
-    `printf '%s\\n' ${shellQuote(unit)} > "$HOME/.config/systemd/user/vellum-remote.service"`,
+    '"$DEST/resources/bin/vellum-remote" --install-user-service',
     "/usr/bin/systemctl --user daemon-reload",
     "/usr/bin/systemctl --user enable --now vellum-remote.service || true",
     `printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`,
@@ -1211,8 +1222,8 @@ const startPackagedRuntime = async (
 const activationUnitName = (runId: string): string =>
   `vellum-qualification-activation-${requireRunId(runId)}.service`;
 
-const remoteQualificationUnitName = (runId: string): string =>
-  `vellum-qualification-remote-${requireRunId(runId)}.service`;
+/** Sole product Remote supervisor unit (generation-pinned Node, not Electron). */
+const REMOTE_USERLAND_UNIT = "vellum-remote.service" as const;
 
 const stopUserUnitAndProveInactive = async (
   executor: CommandExecutor,
@@ -1314,37 +1325,68 @@ const launchCommandCenterActivation = async (
   return unit;
 };
 
-const launchRemoteQualificationRuntime = async (
+/**
+ * Prove the generation-pinned product Remote unit and start it.
+ * Never launches Electron, Xvfb, ozone, or a runner-authored temp unit.
+ */
+const ensureRemoteUserlandService = async (
   executor: CommandExecutor,
   orbctlPath: string,
   machine: RunMachine,
-  runId: string,
-): Promise<string> => {
-  const unit = remoteQualificationUnitName(runId);
-  await stopUserUnitAndProveInactive(
+  artifact: ArtifactIdentity,
+): Promise<typeof REMOTE_USERLAND_UNIT> => {
+  const release = runtimeReleaseId(artifact);
+  await runGuest(
     executor,
     orbctlPath,
     machine,
-    "vellum-remote.service",
+    "prove generation-pinned displayless Remote unit",
+    "/bin/sh",
+    [
+      "-c",
+      [
+        "set -eu",
+        `RELEASE="$HOME/.vellum/runtime/releases/${release}"`,
+        'UNIT="$HOME/.config/systemd/user/vellum-remote.service"',
+        'test -x "$RELEASE/resources/bin/vellum-remote"',
+        'test ! -L "$RELEASE/resources/bin/vellum-remote"',
+        'test -x "$RELEASE/resources/systemd/vellum-remote-launch"',
+        'test ! -L "$RELEASE/resources/systemd/vellum-remote-launch"',
+        'test -f "$UNIT"',
+        'test ! -L "$UNIT"',
+        `/usr/bin/grep -F "ExecStart=" "$UNIT" | /usr/bin/grep -F "releases/${release}/resources/systemd/vellum-remote-launch" >/dev/null`,
+        `/usr/bin/grep -F "ConditionFileIsExecutable=" "$UNIT" | /usr/bin/grep -F "releases/${release}/resources/bin/vellum-remote" >/dev/null`,
+        '! /usr/bin/grep -E "xvfb|ozone-platform|--vellum-headless|ELECTRON_|chromium" "$UNIT" >/dev/null',
+      ].join("; "),
+    ],
   );
   await runGuest(
     executor,
     orbctlPath,
     machine,
-    "launch fixed Remote qualification runtime",
-    "/usr/bin/systemd-run",
+    "start product Remote userland service",
+    "/usr/bin/systemctl",
+    ["--user", "start", REMOTE_USERLAND_UNIT],
+  );
+  const shown = await runGuest(
+    executor,
+    orbctlPath,
+    machine,
+    "prove product Remote userland service active",
+    "/usr/bin/systemctl",
     [
       "--user",
-      `--unit=${unit.slice(0, -".service".length)}`,
-      "--property=Type=simple",
-      "--property=KillMode=control-group",
-      "--property=TimeoutStopSec=10s",
-      "/bin/sh",
-      "-c",
-      'set -eu; APP=$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --vellum-headless --ozone-platform=x11 --vellum-operator-control',
+      "show",
+      REMOTE_USERLAND_UNIT,
+      "--property=ActiveState",
+      "--property=SubState",
+      "--property=MainPID",
+      "--property=ControlGroup",
+      "--property=InvocationID",
     ],
   );
-  return unit;
+  parseServiceFields(shown.stdout, machine.name);
+  return REMOTE_USERLAND_UNIT;
 };
 
 export const managedBundleRelativeDestination = (
@@ -2299,6 +2341,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "station.configure-command-center",
       [
         "station",
@@ -2309,6 +2352,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "station.status",
       ["station", "status"],
       (data) => data.state === "ready",
@@ -2317,6 +2361,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "fleet.list",
       ["fleet", "list"],
     ).catch((error) => {
@@ -2364,6 +2409,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "fleet.add",
       [
         "fleet",
@@ -2384,6 +2430,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "fleet.enable-managed-installs",
       ["fleet", "enable-managed-installs"],
     );
@@ -2396,6 +2443,7 @@ const managedRun = async (
             dependencies.executor,
             orbctlPath,
             commandCenter,
+            state.artifact,
             "fleet.qualify",
             ["fleet", "qualify", remoteHostId],
             DEPLOY_COMMAND_TIMEOUT_MS,
@@ -2404,6 +2452,7 @@ const managedRun = async (
             dependencies.executor,
             orbctlPath,
             commandCenter,
+            state.artifact,
             "fleet.deploy",
             ["fleet", "deploy", remoteHostId, "--source", "cached"],
             DEPLOY_COMMAND_TIMEOUT_MS,
@@ -2432,6 +2481,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "fleet.test",
       ["fleet", "test", remoteHostId],
     );
@@ -2442,6 +2492,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "fleet.sync",
       ["fleet", "sync", "--id", remoteHostId],
       DEPLOY_COMMAND_TIMEOUT_MS,
@@ -2456,6 +2507,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "fleet.status",
       ["fleet", "status", "--id", remoteHostId],
     );
@@ -2472,7 +2524,7 @@ const managedRun = async (
       "/bin/sh",
       [
         "-c",
-        `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/vellum"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
+        `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-remote"; test -x "$RELEASE/resources/systemd/vellum-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
       ],
     );
     const [packageName, packageVersion, architecture] =
@@ -2506,6 +2558,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "qualification.work.prepare",
       [
         "qualification",
@@ -2541,19 +2594,20 @@ const managedRun = async (
       commandCenter,
       activationUnitName(runId),
     );
-    const remoteQualificationUnit = await launchRemoteQualificationRuntime(
+    const remoteQualificationUnit = await ensureRemoteUserlandService(
       dependencies.executor,
       orbctlPath,
       remote,
-      runId,
+      state.artifact,
     );
     const remoteOfflineStatus = await retryOperatorCommand(
       dependencies.executor,
       orbctlPath,
       remote,
+      state.artifact,
       "station.status",
       ["station", "status"],
-      (data) => {
+      (data: Record<string, unknown>) => {
         const configuration =
           typeof data.configuration === "object" &&
             data.configuration !== null &&
@@ -2580,6 +2634,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       remote,
+      state.artifact,
       "qualification.work.progress-offline",
       [
         "qualification",
@@ -2630,6 +2685,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "station.status",
       ["station", "status"],
       (data) =>
@@ -2640,6 +2696,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "qualification.work.verify",
       [
         "qualification",
@@ -2701,6 +2758,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "fleet.sync",
       ["fleet", "sync", "--id", remoteHostId],
       DEPLOY_COMMAND_TIMEOUT_MS,
@@ -2721,6 +2779,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "fleet.sync",
       ["fleet", "sync", "--id", remoteHostId],
       DEPLOY_COMMAND_TIMEOUT_MS,
@@ -2739,6 +2798,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
+      state.artifact,
       "fleet.status",
       ["fleet", "status", "--id", remoteHostId],
     );
@@ -2755,7 +2815,7 @@ const managedRun = async (
       "/bin/sh",
       [
         "-c",
-        `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/vellum"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
+        `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-remote"; test -x "$RELEASE/resources/systemd/vellum-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
       ],
     );
     if (
@@ -3027,13 +3087,8 @@ const parseServiceFields = (
   };
 };
 
-const observeRuntimeSecurity = async (
-  executor: CommandExecutor,
-  orbctlPath: string,
-  machine: RunMachine,
-  mainPid: number,
-  invocationId: string,
-): Promise<{
+type CommandCenterSecurityObservation = {
+  readonly kind: "command-center";
   readonly rendererSandbox: "active";
   readonly rendererNoNewPrivileges: true;
   readonly rendererSeccomp: "filtering";
@@ -3042,7 +3097,99 @@ const observeRuntimeSecurity = async (
   readonly controlMaterialOwnerOnly: true;
   readonly vellumTcpListeners: 0;
   readonly debugAuthority: false;
-}> => {
+};
+
+type RemoteSecurityObservation = {
+  readonly kind: "remote";
+  readonly runtime: "displayless-node";
+  readonly electronProcesses: 0;
+  readonly chromiumRendererProcesses: 0;
+  readonly displayEnvironment: "unset";
+  readonly controlMaterialOwnerOnly: true;
+  readonly vellumTcpListeners: 0;
+  readonly debugAuthority: false;
+};
+
+type RuntimeSecurityObservation =
+  | CommandCenterSecurityObservation
+  | RemoteSecurityObservation;
+
+const FORBIDDEN_REMOTE_PROCESS =
+  /(?:^|\/)(?:electron|chrome|chromium|xvfb-run|Xvfb)(?:\s|$)|(?:^|\s)--type=renderer(?:=|\s|$)|(?:^|\s)--ozone-platform(?:=|\s|$)|(?:^|\s)--vellum-headless(?:=|\s|$)/iu;
+
+const FORBIDDEN_REMOTE_ENV =
+  /^(?:DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|ELECTRON_RUN_AS_NODE|ELECTRON_OZONE_PLATFORM_HINT|OZONE_PLATFORM|CHROME_WRAPPER)=/mu;
+
+const observeOwnerOnlyControlMaterial = async (
+  executor: CommandExecutor,
+  orbctlPath: string,
+  machine: RunMachine,
+  controlPaths: ReadonlyArray<readonly [string, string]>,
+): Promise<true> => {
+  const uidResult = await runGuest(
+    executor,
+    orbctlPath,
+    machine,
+    `observe station user identity on ${machine.name}`,
+    "/usr/bin/id",
+    ["-u"],
+  );
+  const uid = Number(uidResult.stdout.trim());
+  if (!Number.isSafeInteger(uid) || uid <= 0) {
+    throw new Error(`station user identity is invalid on ${machine.name}`);
+  }
+  const controlMaterial = await runGuest(
+    executor,
+    orbctlPath,
+    machine,
+    `observe owner-only control material on ${machine.name}`,
+    "/usr/bin/stat",
+    [
+      "--format=%n\t%u\t%a\t%F",
+      ...controlPaths.map(([candidate]) => candidate),
+    ],
+  );
+  const observedControl = new Map(
+    controlMaterial.stdout
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => {
+        const fields = line.split("\t");
+        if (fields.length !== 4) {
+          throw new Error(
+            `control material stat is malformed on ${machine.name}`,
+          );
+        }
+        return [fields[0], fields.slice(1)] as const;
+      }),
+  );
+  for (const [candidate, expectedType] of controlPaths) {
+    const fields = observedControl.get(candidate);
+    const mode = fields === undefined ? Number.NaN : Number(fields[1]);
+    if (
+      fields === undefined ||
+      Number(fields[0]) !== uid ||
+      !Number.isSafeInteger(mode) ||
+      mode < 0 ||
+      mode > 7777 ||
+      mode % 100 !== 0 ||
+      fields[2] !== expectedType
+    ) {
+      throw new Error(
+        `control material is not owner-only on ${machine.name}: ${path.posix.basename(candidate)}`,
+      );
+    }
+  }
+  return true;
+};
+
+const observeCommandCenterRuntimeSecurity = async (
+  executor: CommandExecutor,
+  orbctlPath: string,
+  machine: RunMachine,
+  mainPid: number,
+  invocationId: string,
+): Promise<CommandCenterSecurityObservation> => {
   const processes = await runGuest(
     executor,
     orbctlPath,
@@ -3127,7 +3274,7 @@ const observeRuntimeSecurity = async (
       "-nP",
       "-a",
       "-p",
-      descendants.map(({ pid }) => String(pid)).join(","),
+      [mainPid, ...descendants.map(({ pid }) => pid)].map(String).join(","),
       "-iTCP",
       "-sTCP:LISTEN",
     ],
@@ -3145,71 +3292,35 @@ const observeRuntimeSecurity = async (
   if (!Number.isSafeInteger(uid) || uid <= 0) {
     throw new Error(`station user identity is invalid on ${machine.name}`);
   }
-  const controlPaths = [
-    [path.posix.join(guestHome(machine), ".vellum/work"), "directory"],
-    [
-      path.posix.join(guestHome(machine), ".vellum/work/control.sock"),
-      "socket",
-    ],
-    [path.posix.join(guestHome(machine), ".vellum/work/token"), "regular file"],
-    [path.posix.join(guestHome(machine), ".vellum/station"), "directory"],
-    [
-      path.posix.join(guestHome(machine), ".vellum/station/control.sock"),
-      "socket",
-    ],
-    [path.posix.join(guestHome(machine), ".vellum/operator"), "directory"],
-    [
-      path.posix.join(guestHome(machine), ".vellum/operator/control.sock"),
-      "socket",
-    ],
-    [
-      `/run/user/${String(uid)}/vellum-remote/ready-${invocationId}`,
-      "regular file",
-    ],
-  ] as const;
-  const controlMaterial = await runGuest(
+  await observeOwnerOnlyControlMaterial(
     executor,
     orbctlPath,
     machine,
-    `observe owner-only control material on ${machine.name}`,
-    "/usr/bin/stat",
     [
-      "--format=%n\t%u\t%a\t%F",
-      ...controlPaths.map(([candidate]) => candidate),
+      [path.posix.join(guestHome(machine), ".vellum/work"), "directory"],
+      [
+        path.posix.join(guestHome(machine), ".vellum/work/control.sock"),
+        "socket",
+      ],
+      [path.posix.join(guestHome(machine), ".vellum/work/token"), "regular file"],
+      [path.posix.join(guestHome(machine), ".vellum/station"), "directory"],
+      [
+        path.posix.join(guestHome(machine), ".vellum/station/control.sock"),
+        "socket",
+      ],
+      [path.posix.join(guestHome(machine), ".vellum/operator"), "directory"],
+      [
+        path.posix.join(guestHome(machine), ".vellum/operator/control.sock"),
+        "socket",
+      ],
+      [
+        `/run/user/${String(uid)}/vellum-remote/ready-${invocationId}`,
+        "regular file",
+      ],
     ],
   );
-  const observedControl = new Map(
-    controlMaterial.stdout
-      .trim()
-      .split(/\r?\n/u)
-      .map((line) => {
-        const fields = line.split("\t");
-        if (fields.length !== 4) {
-          throw new Error(
-            `control material stat is malformed on ${machine.name}`,
-          );
-        }
-        return [fields[0], fields.slice(1)] as const;
-      }),
-  );
-  for (const [candidate, expectedType] of controlPaths) {
-    const fields = observedControl.get(candidate);
-    const mode = fields === undefined ? Number.NaN : Number(fields[1]);
-    if (
-      fields === undefined ||
-      Number(fields[0]) !== uid ||
-      !Number.isSafeInteger(mode) ||
-      mode < 0 ||
-      mode > 7777 ||
-      mode % 100 !== 0 ||
-      fields[2] !== expectedType
-    ) {
-      throw new Error(
-        `control material is not owner-only on ${machine.name}: ${path.posix.basename(candidate)}`,
-      );
-    }
-  }
   return {
+    kind: "command-center",
     rendererSandbox: "active",
     rendererNoNewPrivileges: true,
     rendererSeccomp: "filtering",
@@ -3221,6 +3332,141 @@ const observeRuntimeSecurity = async (
   };
 };
 
+const observeRemoteDisplaylessSecurity = async (
+  executor: CommandExecutor,
+  orbctlPath: string,
+  machine: RunMachine,
+  mainPid: number,
+  invocationId: string,
+): Promise<RemoteSecurityObservation> => {
+  const processes = await runGuest(
+    executor,
+    orbctlPath,
+    machine,
+    `observe displayless Remote process tree on ${machine.name}`,
+    "/bin/ps",
+    ["-eo", "pid=,ppid=,args="],
+  );
+  const rows = parseProcessRows(processes.stdout);
+  const descendants = descendantRows(mainPid, rows);
+  const tree = [
+    ...rows.filter((row) => row.pid === mainPid),
+    ...descendants,
+  ];
+  if (tree.length === 0) {
+    throw new Error(`displayless Remote process tree is empty on ${machine.name}`);
+  }
+  if (hasDebugAuthority(tree)) {
+    throw new Error(`displayless Remote exposed debug authority on ${machine.name}`);
+  }
+  if (tree.some((row) => FORBIDDEN_REMOTE_PROCESS.test(row.command))) {
+    throw new Error(
+      `displayless Remote process tree includes Electron/Chromium/Xvfb on ${machine.name}`,
+    );
+  }
+  const environ = await runGuest(
+    executor,
+    orbctlPath,
+    machine,
+    `observe Remote process environment on ${machine.name}`,
+    "/bin/sh",
+    [
+      "-c",
+      `set -eu; /usr/bin/tr '\\0' '\\n' < /proc/${String(mainPid)}/environ`,
+    ],
+  );
+  if (FORBIDDEN_REMOTE_ENV.test(environ.stdout)) {
+    throw new Error(
+      `displayless Remote inherited display/Electron environment on ${machine.name}`,
+    );
+  }
+  const listeners = await executor.run({
+    executable: orbctlPath,
+    args: [
+      "run",
+      "--machine",
+      machine.name,
+      "/usr/bin/lsof",
+      "-nP",
+      "-a",
+      "-p",
+      tree.map(({ pid }) => String(pid)).join(","),
+      "-iTCP",
+      "-sTCP:LISTEN",
+    ],
+  });
+  assertNoTcpListeners(listeners.exitCode, listeners.stdout);
+  const uidResult = await runGuest(
+    executor,
+    orbctlPath,
+    machine,
+    `observe Remote user identity on ${machine.name}`,
+    "/usr/bin/id",
+    ["-u"],
+  );
+  const uid = Number(uidResult.stdout.trim());
+  if (!Number.isSafeInteger(uid) || uid <= 0) {
+    throw new Error(`station user identity is invalid on ${machine.name}`);
+  }
+  // Remote is Node-only: work + station sockets. No operator/renderer surface.
+  await observeOwnerOnlyControlMaterial(
+    executor,
+    orbctlPath,
+    machine,
+    [
+      [path.posix.join(guestHome(machine), ".vellum/work"), "directory"],
+      [
+        path.posix.join(guestHome(machine), ".vellum/work/control.sock"),
+        "socket",
+      ],
+      [path.posix.join(guestHome(machine), ".vellum/work/token"), "regular file"],
+      [path.posix.join(guestHome(machine), ".vellum/station"), "directory"],
+      [
+        path.posix.join(guestHome(machine), ".vellum/station/control.sock"),
+        "socket",
+      ],
+      [
+        `/run/user/${String(uid)}/vellum-remote/ready-${invocationId}`,
+        "regular file",
+      ],
+    ],
+  );
+  return {
+    kind: "remote",
+    runtime: "displayless-node",
+    electronProcesses: 0,
+    chromiumRendererProcesses: 0,
+    displayEnvironment: "unset",
+    controlMaterialOwnerOnly: true,
+    vellumTcpListeners: 0,
+    debugAuthority: false,
+  };
+};
+
+const observeRuntimeSecurity = async (
+  executor: CommandExecutor,
+  orbctlPath: string,
+  machine: RunMachine,
+  mainPid: number,
+  invocationId: string,
+  role: "command-center" | "remote",
+): Promise<RuntimeSecurityObservation> =>
+  role === "remote"
+    ? observeRemoteDisplaylessSecurity(
+        executor,
+        orbctlPath,
+        machine,
+        mainPid,
+        invocationId,
+      )
+    : observeCommandCenterRuntimeSecurity(
+        executor,
+        orbctlPath,
+        machine,
+        mainPid,
+        invocationId,
+      );
+
 interface MachineObservation {
   readonly machine: { readonly id: string; readonly name: string };
   readonly package: {
@@ -3230,7 +3476,7 @@ interface MachineObservation {
   };
   readonly service: ReturnType<typeof parseServiceFields>;
   readonly station: Record<string, unknown>;
-  readonly security: Awaited<ReturnType<typeof observeRuntimeSecurity>>;
+  readonly security: RuntimeSecurityObservation;
 }
 
 const observeMachine = async (
@@ -3241,6 +3487,10 @@ const observeMachine = async (
   expectedRole: "command-center" | "remote",
 ): Promise<MachineObservation> => {
   const requestId = `qualification-${machine.name.endsWith("-cc") ? "cc" : "remote"}`;
+  const releaseProof =
+    expectedRole === "remote"
+      ? `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-remote"; test -x "$RELEASE/resources/systemd/vellum-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`
+      : `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/vellum"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`;
   const [packageIdentity, service, fixedStatus] = await Promise.all([
     runGuest(
       executor,
@@ -3248,10 +3498,7 @@ const observeMachine = async (
       machine,
       `observe userland runtime health on ${machine.name}`,
       "/bin/sh",
-      [
-        "-c",
-        `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/vellum"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`,
-      ],
+      ["-c", releaseProof],
     ),
     runGuest(
       executor,
@@ -3290,6 +3537,7 @@ const observeMachine = async (
     machine,
     Number(serviceFields.MainPID),
     serviceFields.InvocationID,
+    expectedRole,
   );
   return {
     machine: { id: machine.id, name: machine.name },
@@ -3362,16 +3610,14 @@ const observe = async (
     if (state.kind === "final-release") return observations;
 
     const evidenceSha256 = await sha256File(evidencePath(directory));
-    const securityResult = (
-      security: MachineObservation["security"],
-    ) => ({
-      rendererSandbox: security.rendererSandbox,
-      rendererNoNewPrivileges: security.rendererNoNewPrivileges,
-      rendererSeccomp: security.rendererSeccomp,
-      userNamespaceIsolation: security.userNamespaceIsolation,
-      controlMaterialOwnerOnly: security.controlMaterialOwnerOnly,
-      vellumTcpListeners: security.vellumTcpListeners,
-    });
+    const commandCenterSecurity = commandCenterObservation.security;
+    const remoteSecurity = remoteObservation.security;
+    if (commandCenterSecurity.kind !== "command-center") {
+      throw new Error("Command Center security observation is not trusted-renderer");
+    }
+    if (remoteSecurity.kind !== "remote") {
+      throw new Error("Remote security observation is not displayless-node");
+    }
     const completedAt = dependencies.now().toISOString();
     const receipt = {
       schema: STATION_QUALIFICATION_SCHEMA,
@@ -3425,8 +3671,27 @@ const observe = async (
         },
       },
       security: {
-        commandCenter: securityResult(commandCenterObservation.security),
-        remote: securityResult(remoteObservation.security),
+        commandCenter: {
+          rendererSandbox: commandCenterSecurity.rendererSandbox,
+          rendererNoNewPrivileges:
+            commandCenterSecurity.rendererNoNewPrivileges,
+          rendererSeccomp: commandCenterSecurity.rendererSeccomp,
+          userNamespaceIsolation:
+            commandCenterSecurity.userNamespaceIsolation,
+          controlMaterialOwnerOnly:
+            commandCenterSecurity.controlMaterialOwnerOnly,
+          vellumTcpListeners: commandCenterSecurity.vellumTcpListeners,
+        },
+        remote: {
+          runtime: remoteSecurity.runtime,
+          electronProcesses: remoteSecurity.electronProcesses,
+          chromiumRendererProcesses:
+            remoteSecurity.chromiumRendererProcesses,
+          displayEnvironment: remoteSecurity.displayEnvironment,
+          controlMaterialOwnerOnly:
+            remoteSecurity.controlMaterialOwnerOnly,
+          vellumTcpListeners: remoteSecurity.vellumTcpListeners,
+        },
       },
       evidence: {
         file: STATION_QUALIFICATION_EVIDENCE_FILE,

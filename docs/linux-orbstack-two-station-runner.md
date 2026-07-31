@@ -21,11 +21,16 @@ receipt.
 
 The replacement runner:
 
-- creates two disposable stock Ubuntu 24.04 x86-64 installations;
+- creates two disposable stock Ubuntu 24.04 x86-64 installations
+  (`orbctl create -a amd64 ubuntu:24.04` when not cloning a pinned golden;
+  never repair a failed guest into a stand-in stock host);
 - observes distribution and architecture from each guest rather than trusting
   image names;
 - invokes the signed payload's read-only host preflight as the intended
   ordinary users;
+- starts Remote only through the generation-pinned product unit
+  `vellum-remote.service` → `~/.vellum/runtime/releases/<ver>-<sha>/resources/bin/vellum-remote`
+  (no Electron, Chromium, renderer, CDP, Xvfb, or display env on Remote);
 - proves the packaged Node Remote starts without `DISPLAY`, `Xvfb`, `xauth`,
   or `mcookie`, while browser automation remains `unavailable` independently
   from core health;

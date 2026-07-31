@@ -28,11 +28,19 @@ const remoteHealth = () => ({
   service: "running" as const,
   station: "ready" as const,
 });
-const security = () => ({
+const commandCenterSecurity = () => ({
   rendererSandbox: "active" as const,
   rendererNoNewPrivileges: true as const,
   rendererSeccomp: "filtering" as const,
   userNamespaceIsolation: true as const,
+  controlMaterialOwnerOnly: true as const,
+  vellumTcpListeners: 0 as const,
+});
+const remoteSecurity = () => ({
+  runtime: "displayless-node" as const,
+  electronProcesses: 0 as const,
+  chromiumRendererProcesses: 0 as const,
+  displayEnvironment: "unset" as const,
   controlMaterialOwnerOnly: true as const,
   vellumTcpListeners: 0 as const,
 });
@@ -76,8 +84,8 @@ const qualified = () => ({
     remote: remoteHealth(),
   },
   security: {
-    commandCenter: security(),
-    remote: security(),
+    commandCenter: commandCenterSecurity(),
+    remote: remoteSecurity(),
   },
   evidence: {
     file: STATION_QUALIFICATION_EVIDENCE_FILE,
@@ -159,15 +167,23 @@ describe("two-installation Station qualification contract", () => {
     ).rendererSandbox = "disabled";
     expect(Either.isLeft(decodeStationQualification(unsandboxed))).toBe(true);
 
-    const ambientUserNamespace = qualified();
+    const electronRemote = qualified();
     (
-      ambientUserNamespace.security.remote as {
-        userNamespaceIsolation: boolean;
+      electronRemote.security.remote as {
+        electronProcesses: number;
       }
-    ).userNamespaceIsolation = false;
-    expect(
-      Either.isLeft(decodeStationQualification(ambientUserNamespace)),
-    ).toBe(true);
+    ).electronProcesses = 1;
+    expect(Either.isLeft(decodeStationQualification(electronRemote))).toBe(
+      true,
+    );
+
+    const displayRemote = qualified();
+    (
+      displayRemote.security.remote as {
+        displayEnvironment: string;
+      }
+    ).displayEnvironment = "set";
+    expect(Either.isLeft(decodeStationQualification(displayRemote))).toBe(true);
 
     const exposedControlMaterial = qualified();
     (

@@ -437,11 +437,19 @@ const createFixture = async (options: {
     service: "running",
     station: "ready",
   };
-  const qualificationSecurity = {
+  const commandCenterQualificationSecurity = {
     rendererSandbox: "active",
     rendererNoNewPrivileges: true,
     rendererSeccomp: "filtering",
     userNamespaceIsolation: true,
+    controlMaterialOwnerOnly: true,
+    vellumTcpListeners: 0,
+  };
+  const remoteQualificationSecurity = {
+    runtime: "displayless-node",
+    electronProcesses: 0,
+    chromiumRendererProcesses: 0,
+    displayEnvironment: "unset",
     controlMaterialOwnerOnly: true,
     vellumTcpListeners: 0,
   };
@@ -506,8 +514,8 @@ const createFixture = async (options: {
         remote: remoteHealth,
       },
       security: {
-        commandCenter: qualificationSecurity,
-        remote: qualificationSecurity,
+        commandCenter: commandCenterQualificationSecurity,
+        remote: remoteQualificationSecurity,
       },
       evidence: {
         file: STATION_QUALIFICATION_EVIDENCE_FILE,
