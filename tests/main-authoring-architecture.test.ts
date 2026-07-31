@@ -54,11 +54,12 @@ describe("main authoring architecture", () => {
       "ipc.canvas.delete",
       "ipc.canvas.portfolio",
       "ipc.canvas.write",
+      // Board sink: operator/renderer authoring over the work plane.
       "ipc.work.board-mark-read",
-        "ipc.work.board-notify",
-    "ipc.work.board-post",
-    "ipc.work.board-topic-create",
-    "ipc.work.request-resolve",
+      "ipc.work.board-notify",
+      "ipc.work.board-post",
+      "ipc.work.board-topic-create",
+      "ipc.work.request-resolve",
       "ipc.work.task-approve-proposal",
       "ipc.work.task-claim",
       "ipc.work.task-create",
@@ -84,6 +85,7 @@ describe("main authoring architecture", () => {
       .filter((path) => path !== "src/main/vellum/work/service.ts")
       .sort();
     expect(importers).toEqual([
+      // Operator qualification mints offline Remote Work through WorkService.
       "src/main/vellum/hosts/operator-qualification-work.ts",
       "src/main/vellum/ipc.ts",
       "src/main/vellum/kernel/service.ts",

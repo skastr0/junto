@@ -59,19 +59,11 @@ const runtimeBundleAuditObjectKeys = (source: string): ReadonlyArray<string> => 
   }).sort();
 };
 
-const linuxRuntimeBundleAuditObjectKeys = (source: string): ReadonlyArray<string> => {
-  const file = ts.createSourceFile("linux-package-audit.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const calls: ts.CallExpression[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "auditLinuxRetiredStateRuntimeBundle") calls.push(node);
-    ts.forEachChild(node, visit);
-  };
-  visit(file);
-  expect(calls).toHaveLength(1);
-  const argument = calls[0]?.arguments[0];
-  if (argument === undefined || !ts.isObjectLiteralExpression(argument)) return [];
-  return argument.properties.map((property) => ts.isPropertyAssignment(property) && ts.isIdentifier(property.name) ? property.name.text : "").sort();
-};
+/** Rootless Linux audit is a top-level auditLinuxRuntime({ runtimePath, version }). */
+const linuxRuntimeAuditPresent = (source: string): boolean =>
+  /\bexport const auditLinuxRuntime\b/u.test(source) &&
+  /resources\/bin\/vellum-remote/u.test(source) &&
+  /resources\/bin\/node/u.test(source);
 
 describe("macOS packaged runtime policy", () => {
   it("pins 27 Mach-O objects and only the four exact Electron JIT roles", () => {
@@ -406,8 +398,9 @@ describe("electron-builder role-specific signing", () => {
         "stationCliPath",
         "workCliPath",
     ]);
-    expect(linuxRuntimeBundleAuditObjectKeys(linuxAudit)).toEqual([
-      "asarPath", "bridgePath", "browserCliPath", "installerPath", "stationCliPath", "workCliPath",
-    ]);
+    expect(linuxRuntimeAuditPresent(linuxAudit)).toBe(true);
+    // Forbidden-segment denylist may name bridge/installer; product audit must
+    // not require those paths as inputs.
+    expect(linuxAudit).not.toMatch(/\bbridgePath\b|\binstallerPath\b/u);
   });
 });

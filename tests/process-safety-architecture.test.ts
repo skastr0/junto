@@ -478,6 +478,7 @@ describe("machine-safety architecture", () => {
       "@effect/platform-node/NodeFileSystem",
       "@effect/platform-node/NodeSink",
       "@effect/platform-node/NodeStream",
+      // live.ts resolves controlDir under the operator home; no second spawn plane.
       "@shared/vellum-home",
       "effect",
       "node:crypto",

@@ -57,16 +57,17 @@ describe("SSH architecture", () => {
     ];
     const allowedBinaryMentions = new Set([
       "scripts/packaged-runtime-smoke.ts",
+      // Qualification harness observes a fixed Station peer over host OpenSSH;
+      // product remote traffic still constructs ssh only inside the kernel.
+      "scripts/linux-orbstack-two-station-qualification.ts",
       // Doctor only checks executability of the OpenSSH client path; spawn stays in kernel.
       "src/main/vellum/hosts/doctor.ts",
       // Box invokes its fixed `ssh <id> true` preparation operation; ordinary
       // remote traffic remains inside the central OpenSSH transport.
       "src/main/vellum/box/cli.ts",
-      // Host Doctor fact schema names "ssh" as a missing-binary token only.
+      // Capability inventory names the OpenSSH binary; no process construction.
       "src/shared/linux-host-capabilities.ts",
       "src/shared/linux-host-capability-doctor.ts",
-      // Qualification runner shells product paths; OpenSSH spawn stays in kernel.
-      "scripts/linux-orbstack-two-station-qualification.ts",
     ]);
     const violations = files.flatMap((path) => {
       const name = display(path);
