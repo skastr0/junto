@@ -106,7 +106,7 @@ export const resetSeatBlocks = (): void => {
 };
 
 /**
- * True when the request still holds the seat (input-required / auth-required).
+ * True when the request still holds the seat (input-required; residual auth-required).
  * Missing target or missing request → treat as still blocked (fail closed)
  * only if we cannot prove resolution; if request is terminal, clear.
  */

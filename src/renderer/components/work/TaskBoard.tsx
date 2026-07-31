@@ -7,7 +7,6 @@ import {
   Filter,
   GripVertical,
   ImagePlus,
-  KeyRound,
   LoaderCircle,
   MessageSquareWarning,
   MoreHorizontal,
@@ -17,8 +16,6 @@ import {
   Reply,
   RotateCcw,
   Search,
-  ShieldCheck,
-  ShieldX,
   UserRound,
   X,
 } from "lucide-react";
@@ -110,7 +107,7 @@ const mediaPartsFromDrafts = (
 type Ether = NonNullable<CanvasNode["ether"]>;
 type WorkTask = NonNullable<Ether["tasks"]>["items"][number];
 
-type LaneId = "proposal" | "queue" | "working" | "input" | "authorization" | "closed";
+type LaneId = "proposal" | "queue" | "working" | "input" | "closed";
 
 type TaskDragData = {
   readonly kind: "task";
@@ -181,15 +178,6 @@ const LANES: ReadonlyArray<LaneDefinition> = [
     hint: "Waiting for operator context",
   },
   {
-    id: "authorization",
-    label: "Needs authorization",
-    state: "auth-required",
-    tone: "amber",
-    chipTone: "amber",
-    icon: KeyRound,
-    hint: "Waiting for operator authority",
-  },
-  {
     id: "closed",
     label: "Closed",
     tone: "green",
@@ -214,8 +202,9 @@ const laneForTask = (task: WorkTask): LaneId => {
   if (TERMINAL_STATES.has(task.state)) return "closed";
   if (task.state === "submitted") return "queue";
   if (task.state === "working") return "working";
-  if (task.state === "input-required") return "input";
-  return "authorization";
+  // input-required and residual durable auth-required share one attention lane
+  if (task.state === "input-required" || task.state === "auth-required") return "input";
+  return "queue";
 };
 
 const stateLabel = (state: TaskState): string => {
@@ -225,9 +214,8 @@ const stateLabel = (state: TaskState): string => {
     case "working":
       return "Working";
     case "input-required":
-      return "Input needed";
     case "auth-required":
-      return "Authorization needed";
+      return "Input needed";
     case "completed":
       return "Completed";
     case "canceled":
@@ -372,7 +360,7 @@ function TaskLane({
       className={[
         "task-board-lane",
         isTarget ? "task-board-lane--target" : "",
-        lane.id === "input" || lane.id === "authorization" ? "task-board-lane--attention" : "",
+        lane.id === "input" ? "task-board-lane--attention" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -1201,7 +1189,6 @@ function TaskDetailPanel({
   const details = taskDetails(task);
   const media = taskMediaParts(task);
   const attentionRequired = task.state === "input-required" || task.state === "auth-required";
-  const authorizationRequired = task.state === "auth-required";
   const requestContext = latestText(task);
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
@@ -1274,90 +1261,49 @@ function TaskDetailPanel({
       <div className="task-detail-panel__scroll">
         {attentionRequired ? (
           <section
-            className={`task-detail-panel__attention ${
-              authorizationRequired ? "is-authorization" : "is-input"
-            }`}
+            className="task-detail-panel__attention is-input"
             aria-labelledby={`task-response-${task.id}`}
           >
             <div className="task-detail-panel__attention-heading">
               <span className="task-detail-panel__attention-icon" aria-hidden>
-                {authorizationRequired ? (
-                  <KeyRound size={15} />
-                ) : (
-                  <MessageSquareWarning size={15} />
-                )}
+                <MessageSquareWarning size={15} />
               </span>
               <div>
-                <p>{authorizationRequired ? "Operator decision" : "Operator response"}</p>
-                <h3 id={`task-response-${task.id}`}>
-                  {authorizationRequired ? "Authorization required" : "Input required"}
-                </h3>
+                <p>Operator response</p>
+                <h3 id={`task-response-${task.id}`}>Input required</h3>
               </div>
             </div>
 
             <div className="task-detail-panel__request-context">
-              <span>{authorizationRequired ? "Requested action" : "Worker is waiting on"}</span>
+              <span>Worker is waiting on</span>
               <p>
                 {requestContext ??
-                  (authorizationRequired
-                    ? "The worker needs your approval to proceed."
-                    : "The worker asked for more context before continuing.")}
+                  "The worker asked for more context before continuing."}
               </p>
             </div>
 
             <label className="task-detail-panel__response-field">
-              <span>{authorizationRequired ? "Decision note" : "Your response"}</span>
+              <span>Your response</span>
               <Textarea
                 value={response}
                 onChange={(event) => setResponse(event.target.value)}
-                placeholder={
-                  authorizationRequired
-                    ? "Record constraints, scope, or the reason for this decision…"
-                    : "Give the worker the context, decision, or answer needed to continue…"
-                }
+                placeholder="Give the worker the context, decision, or answer needed to continue…"
                 rows={5}
               />
             </label>
 
             <div className="task-detail-panel__response-actions">
-              {authorizationRequired ? (
-                <>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    disabled={pending || !response.trim()}
-                    onClick={async () => {
-                      if (await onRespond(task, response.trim(), "rejected")) setResponse("");
-                    }}
-                  >
-                    <ShieldX size={13} />
-                    Deny request
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={pending || !response.trim()}
-                    onClick={async () => {
-                      if (await onRespond(task, response.trim(), "working")) setResponse("");
-                    }}
-                  >
-                    <ShieldCheck size={13} />
-                    Authorize &amp; resume
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={pending || !response.trim()}
-                  onClick={async () => {
-                    if (await onRespond(task, response.trim(), "working")) setResponse("");
-                  }}
-                >
-                  <Reply size={13} />
-                  Send input &amp; resume
-                </Button>
-              )}
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={pending || !response.trim()}
+                onClick={async () => {
+                  if (await onRespond(task, response.trim(), "working")) setResponse("");
+                }}
+              >
+                <Reply size={13} />
+                Send input &amp; resume
+              </Button>
             </div>
 
           </section>
@@ -1609,7 +1555,6 @@ export function TaskBoard({
       queue: [],
       working: [],
       input: [],
-      authorization: [],
       closed: [],
     };
     grouped.proposal.push(

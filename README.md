@@ -181,7 +181,7 @@ local station; quitting Vellum detaches its surfaces rather than deleting herdr.
 | Mode | Behavior |
 |---|---|
 | **No criteria** | Soft **relates** — never generates stoppage |
-| **`tasks`** | Attention only: `input-required` / `auth-required` on the source task or requests sink blocks its connected actor. `submitted` / `working` never block |
+| **`tasks`** | Attention only: `input-required` on the source task or requests sink blocks its connected actor. `submitted` / `working` never block |
 | **`proof`** | Blocks the connected actor until the matching runtime proof stamp exists |
 | **`approval`** | Blocks the connected actor until the matching human grant exists |
 
@@ -221,7 +221,7 @@ Build the CLI: `bun run cli:build` → `dist/vellum`.
 
 **Process-bind:** the principal is the live ACP/herdr child PID — no freeform nodeRef identity claim. Draw edges from the agent to targets so authorization is spatial and honest.
 
-**Task states:** `submitted` · `working` · `input-required` · `completed` · `canceled` · `failed` · `rejected` · `auth-required` — legal transitions enforced.
+**Task states:** `submitted` · `working` · `input-required` · `completed` · `canceled` · `failed` · `rejected` — legal transitions enforced.
 
 ---
 

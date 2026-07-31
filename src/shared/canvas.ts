@@ -302,7 +302,7 @@ export type EtherTimer = typeof EtherTimer.Type;
 
 // Edge criteria. Absence → soft relates (capability only; never stoppage).
 // glyphs/wip and depends are retired and fail decode. No dependency cascade.
-// - tasks:    attention (input-required | auth-required) generates blocks on actors
+// - tasks:    attention (input-required) generates blocks on actors
 // - proof:    holds until a matching runtime stamp on the source sink
 // - approval: holds until a human grant (external principal; never a node)
 export const EdgeCriteriaTasks = Schema.Struct({

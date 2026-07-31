@@ -66,6 +66,11 @@ export const Message = Schema.Struct({
 });
 export type Message = typeof Message.Type;
 
+/**
+ * Work task states. `auth-required` is residual durable-only: no producer may
+ * enter it; decode + heal exits remain for installed rows and event history.
+ * Operator escalation is `input-required` or a request.
+ */
 export const TaskState = Schema.Literal(
   "submitted",
   "working",

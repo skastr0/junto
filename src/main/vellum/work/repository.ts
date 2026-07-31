@@ -5408,13 +5408,12 @@ export const WorkRepositoryLive = Layer.effect(
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
         if (
-          (request.state !== "input-required" &&
-            request.state !== "auth-required") ||
+          request.state !== "input-required" ||
           request.claimedBy !== input.raisedBy.seatId
         ) {
           throw authorityError(
             "authority-mismatch",
-            "request must be attention-state work claimed by its exact raiser",
+            "request must be input-required work claimed by its exact raiser",
           );
         }
         if (

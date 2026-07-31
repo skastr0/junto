@@ -185,9 +185,9 @@ const nodes: CanvasNode[] = [
       auditTask(
         "t-4",
         "Enable remote session capture",
-        "auth-required",
+        "input-required",
         "remote-a:profile-06",
-        "Operator authorization is required before opening the remote capability.",
+        "Confirm scope before opening the remote capability.",
       ),
       auditTask("t-5", "Rotate service key material", "completed", "remote-a:profile-06"),
       auditTask(
@@ -489,13 +489,13 @@ test("capture every surface for design review", async () => {
     await expect(tasksNodeCard).toBeVisible({ timeout: 15_000 });
     await tasksNodeCard.screenshot({ path: join(SHOTS, "06-node-tasks.png") });
 
-    // Task flow: the full five-lane board, including attention and terminal
-    // variants. Double-click is the work-surface affordance on canvas nodes.
+    // Task flow: attention + terminal variants. Double-click is the work-surface
+    // affordance on canvas nodes.
     await tasksNodeCard.getByTestId("tasks-card").dispatchEvent("dblclick");
     const taskFlow = page.getByRole("dialog", { name: "Task flow" });
     await expect(taskFlow).toBeVisible({ timeout: 10_000 });
     await expect(taskFlow.getByTestId("task-board")).toBeVisible();
-    await expect(taskFlow.getByText("Needs authorization", { exact: true })).toBeVisible();
+    await expect(taskFlow.getByText("Needs input", { exact: true })).toBeVisible();
     await shot(page, "06b-task-flow-kanban");
     await taskFlow.getByLabel("Open details for Clarify claim tick rules").click();
     await expect(

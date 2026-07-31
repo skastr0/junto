@@ -548,7 +548,7 @@ test("still 03 — five region factory map", async () => {
       status: "blocked",
       workLabel: "health",
       taskBrief: "station probe",
-      taskState: "auth-required",
+      taskState: "input-required",
       col: 1,
       row: 1,
     },
@@ -897,7 +897,7 @@ test("still 05 — five regions agent square", async () => {
       items: [
         richTask("t-1", "ship design tokens", "working", "Builder", "local:builder"),
         richTask("t-2", "wire founder checkout", "submitted", "Builder"),
-        richTask("t-3", "authorize signing", "auth-required", "Security", "local:security"),
+        richTask("t-3", "authorize signing", "input-required", "Security", "local:security"),
         richTask("t-4", "green e2e stills", "working", "Reviewer", "remote-a:review"),
       ],
     }),
@@ -1061,7 +1061,7 @@ test("still 06 — work UI grid", async () => {
         auditTask(
           "t-4",
           "Enable remote session capture",
-          "auth-required",
+          "input-required",
           "Security Agent",
           "local:security",
           "Operator authorization is required before opening the remote capability.",

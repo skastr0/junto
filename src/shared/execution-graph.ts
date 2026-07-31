@@ -27,7 +27,7 @@ import {
 //
 // Authorial edge model — criteria only:
 //   - no criteria → soft "relates" (never generates stoppage)
-//   - criteria tasks → a CLAIMED attention item (input-required | auth-required)
+//   - criteria tasks → a CLAIMED attention item (input-required; residual auth-required)
 //     generates blocks on the claimant toNode actor only. Tasks are claimed
 //     by the pulling actor; requests are claimed by their raiser at creation.
 //     An unresolved toNode actor identity never substitutes its canvas node ID.

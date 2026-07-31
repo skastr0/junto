@@ -203,10 +203,12 @@ export const writeFixtureCanvas = async (
               },
             });
 
+            // auth-required is residual-only; fixture seeds collapse to input-required.
+            const effectiveState =
+              targetState === "auth-required" ? "input-required" : targetState;
             const requiresClaim =
-              targetState === "working" ||
-              targetState === "input-required" ||
-              targetState === "auth-required" ||
+              effectiveState === "working" ||
+              effectiveState === "input-required" ||
               targetClaimant !== undefined;
             if (requiresClaim) {
               yield* workRepository.claimLocalTask({
@@ -217,14 +219,14 @@ export const writeFixtureCanvas = async (
               });
             }
             if (
-              targetState !== "submitted" &&
-              targetState !== "working"
+              effectiveState !== "submitted" &&
+              effectiveState !== "working"
             ) {
               yield* workRepository.transitionTask({
                 sink,
                 basis,
                 taskId: task.id,
-                state: targetState,
+                state: effectiveState,
               });
             }
           }
@@ -252,10 +254,8 @@ export const writeFixtureCanvas = async (
               basis,
               request: {
                 ...requestBody,
-                state:
-                  targetState === "auth-required"
-                    ? "auth-required"
-                    : "input-required",
+                // Retired auth-required seeds collapse to input-required.
+                state: "input-required",
                 claimedBy: actor.seatId,
               },
               raisedBy: actor,

@@ -436,12 +436,14 @@ The canonical task states remain:
 submitted
 working
 input-required
-auth-required
 completed
 canceled
 failed
 rejected
 ```
+
+`auth-required` is residual durable-only (decode + heal exits). No producer
+enters it. Operator escalation uses `input-required` or a request.
 
 Terminal states are:
 
@@ -497,8 +499,8 @@ evidence when present). Command↔fact correlation for complete requires
 evidence on the fact to match the command after normalize.
 
 
-A task in `working`, `input-required`, or `auth-required` is active work owned
-by exactly one actor.
+A task in `working` or `input-required` is active work owned by exactly one
+actor.
 
 ### Claim is start
 
@@ -517,8 +519,8 @@ across its seat. A second claim fails with contention.
 
 Only `task.claim` may perform the first `submitted → working` transition.
 A generic task update cannot enter `working` from `submitted` or stamp the
-first claimant. Resuming the same claimed task from `input-required` or
-`auth-required` to `working` remains a normal owner-home transition.
+first claimant. Resuming the same claimed task from `input-required` to
+`working` remains a normal owner-home transition.
 
 The transport may expose a pending command during a live claim round trip or
 while recovering its uncertain result after a connection loss. That is
@@ -642,7 +644,6 @@ through:
 
 ```text
 working ↔ input-required
-working ↔ auth-required
 working → terminal
 ```
 
@@ -705,7 +706,7 @@ Creation is local and offline-capable:
 2. the Remote writes the request in its local database;
 3. the request is homed on that actor's authority installation;
 4. the raising actor is its claimant from creation;
-5. its initial attention state is `input-required` or `auth-required`;
+5. its initial attention state is `input-required`;
 6. a later `report` sends the fact to Command Center.
 
 Command Center resolution is a command to the request's authority home. If the

@@ -162,8 +162,7 @@
   color: var(--color-cyan);
 }
 
-.task-board-lane[data-lane="input"] .task-board-lane__title-wrap,
-.task-board-lane[data-lane="authorization"] .task-board-lane__title-wrap {
+.task-board-lane[data-lane="input"] .task-board-lane__title-wrap {
   color: var(--color-amber);
 }
 
@@ -267,8 +266,7 @@
   border-color: rgb(57 198 214 / 0.34);
 }
 
-.task-board-card--input,
-.task-board-card--authorization {
+.task-board-card--input {
   border-color: rgb(232 163 61 / 0.36);
   background: #18140e;
 }
@@ -806,13 +804,6 @@
   box-shadow: inset 0 1px rgb(255 255 255 / 0.025);
 }
 
-.task-detail-panel__attention.is-authorization {
-  border-color: color-mix(in srgb, var(--color-amber) 48%, transparent);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--color-amber) 9%, transparent), transparent 58%),
-    var(--color-inset);
-}
-
 .task-detail-panel__attention-heading {
   display: flex;
   align-items: center;
@@ -831,12 +822,6 @@
   background: color-mix(in srgb, var(--color-cyan) 7%, transparent);
 }
 
-.task-detail-panel__attention.is-authorization .task-detail-panel__attention-icon {
-  border-color: color-mix(in srgb, var(--color-amber) 52%, transparent);
-  color: var(--color-amber);
-  background: color-mix(in srgb, var(--color-amber) 8%, transparent);
-}
-
 .task-detail-panel__attention-heading p,
 .task-detail-panel__attention-heading h3,
 .task-detail-panel__request-context p,
@@ -850,10 +835,6 @@
   font-size: 8px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-}
-
-.task-detail-panel__attention.is-authorization .task-detail-panel__attention-heading p {
-  color: var(--color-amber);
 }
 
 .task-detail-panel__attention-heading h3 {

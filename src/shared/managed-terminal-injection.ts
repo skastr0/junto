@@ -69,8 +69,6 @@ Tasks are a **pull queue**. The factory (edges + live state) decides what is ava
 - stop thrashing alternatives
 - wait for the human / approval path
 
-\`auth-required\` is also attention-grade stoppage.
-
 ### Artifacts never block
 
 Publishing artifacts is non-blocking product delivery. Ship intermediate and final outputs freely; they do not stop other seats.

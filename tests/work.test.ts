@@ -713,8 +713,10 @@ describe("work pure transforms", () => {
     expect(canTransitionTaskState("completed", "working")).toBe(false);
     expect(canTransitionTaskState("submitted", "working")).toBe(false);
     expect(canTransitionTaskState("input-required", "rejected")).toBe(true);
-    // Attention states are symmetric: both can fail, complete, or swap.
     expect(canTransitionTaskState("input-required", "failed")).toBe(true);
+    // No producer may enter auth-required; residual rows may still heal out.
+    expect(canTransitionTaskState("working", "auth-required")).toBe(false);
+    expect(canTransitionTaskState("input-required", "auth-required")).toBe(false);
     expect(canTransitionTaskState("auth-required", "completed")).toBe(true);
     expect(canTransitionTaskState("auth-required", "input-required")).toBe(true);
   });

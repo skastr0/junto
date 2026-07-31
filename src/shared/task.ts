@@ -42,7 +42,6 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
     "canceled",
     "failed",
     "rejected",
-    "auth-required",
   ]),
   "input-required": new Set([
     "submitted",
@@ -51,8 +50,11 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
     "canceled",
     "rejected",
     "failed",
-    "auth-required",
   ]),
+  /**
+   * Residual durable value only — no producer may enter this state.
+   * Exits remain so installed rows can heal via normal facts.
+   */
   "auth-required": new Set([
     "submitted",
     "working",

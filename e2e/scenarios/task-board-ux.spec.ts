@@ -78,31 +78,6 @@ test("task board supports creation, operator responses, layered status, and body
             },
           ],
         },
-        {
-          ...taskItem("authorization", "Authorize production signing", "auth-required"),
-          metadata: {
-            claimedBy: "local:security",
-            workRole: "Security Agent",
-          },
-          history: [
-            ...taskItem(
-              "authorization",
-              "Authorize production signing",
-              "auth-required",
-            ).history,
-            {
-              messageId: "authorization-request",
-              role: "agent",
-              parts: [
-                {
-                  kind: "text",
-                  text: "Grant one-time authority to use the protected signing key.",
-                },
-              ],
-              taskId: "authorization",
-            },
-          ],
-        },
       ],
     }),
   ]);
@@ -172,27 +147,6 @@ test("task board supports creation, operator responses, layered status, and body
     await page.keyboard.press("Escape");
     await expect(statusList).toBeHidden();
     await inputDetails.getByRole("button", { name: "Close task details" }).click();
-
-    await board.getByLabel("Open details for Authorize production signing").click();
-    const authorizationDetails = board.getByRole("complementary", {
-      name: "Details for Authorize production signing",
-    });
-    await expect(
-      authorizationDetails.getByText("Authorization required", { exact: true }),
-    ).toBeVisible();
-    await authorizationDetails
-      .getByLabel("Decision note")
-      .fill("Approved once for this release; do not persist signing authority.");
-    await authorizationDetails.getByRole("button", { name: "Authorize & resume" }).click();
-    await expect(
-      board
-        .getByTestId("task-lane-working")
-        .getByText("Authorize production signing", { exact: true }),
-    ).toBeVisible();
-    await expect(authorizationDetails).toContainText(
-      "Approved once for this release; do not persist signing authority.",
-    );
-    await authorizationDetails.getByRole("button", { name: "Close task details" }).click();
 
     const actionTrigger = board.getByRole("button", { name: "Actions for Queued task" });
     await actionTrigger.click();

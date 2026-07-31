@@ -293,10 +293,9 @@ export const RequestCreateAction = Schema.Struct({
 }).pipe(
   Schema.filter(
     ({ request, raisedBy }) =>
-      ((request.state === "input-required" ||
-        request.state === "auth-required") &&
+      (request.state === "input-required" &&
         request.claimedBy === raisedBy.seatId) ||
-      "request.create requires an attention-state request claimed by its raiser",
+      "request.create requires an input-required request claimed by its raiser",
   ),
 );
 export type RequestCreateAction = typeof RequestCreateAction.Type;
@@ -454,10 +453,9 @@ export const RequestResult = Schema.Struct({
   Schema.filter((result) => {
     if (result.operation === "request.create") {
       return (
-        ((result.request.state === "input-required" ||
-          result.request.state === "auth-required") &&
+        (result.request.state === "input-required" &&
           result.request.claimedBy !== undefined) ||
-        "request.create result requires an attention-state request with a claimant"
+        "request.create result requires an input-required request with a claimant"
       );
     }
     return (

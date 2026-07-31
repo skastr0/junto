@@ -12,7 +12,7 @@ import {
 /**
  * Fire / ice attention language — glance layer over the factory board.
  *
- * - fire: needs human / input-required / auth-required / blocked actor with cause
+ * - fire: needs human / input-required / residual auth-required / blocked actor with cause
  * - ice: calm capacity (actor free, no open attention on edged work)
  * - idle: present but nothing to do
  * - empty: no occupancy / no items (sink empty)
