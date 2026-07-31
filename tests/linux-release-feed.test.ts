@@ -90,7 +90,7 @@ describe("Linux release cache selection", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("preserves stable-feed-first production fallback to an existing seated cache", async () => {
+  it("never substitutes an existing cache when the stable feed fails", async () => {
     const home = temporaryHome();
     const bundleRoot = linuxRemoteArtifactBundleRoot(home);
     mkdirSync(bundleRoot, { recursive: true, mode: 0o700 });
@@ -102,10 +102,7 @@ describe("Linux release cache selection", () => {
 
     await expect(
       ensureLinuxReleaseCache({ home }),
-    ).resolves.toEqual({
-      bundleRoot,
-      source: "local",
-    });
+    ).rejects.toThrow("feed unavailable");
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 

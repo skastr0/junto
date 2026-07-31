@@ -24,6 +24,7 @@ import {
 } from "./deploy-remote";
 import {
   deployConfiguredRemoteHost,
+  type ConfiguredRemoteDeployOptions,
   type ConfiguredRemoteDeployResult,
 } from "./deploy-configured-remote";
 import {
@@ -86,8 +87,7 @@ export class HostsService extends Context.Tag("@vellum/HostsService")<
     /** Configure + deploy under one per-host compensating transaction. */
     readonly deployConfiguredRemote: (
       id: string,
-      options: ConfigureRemoteOptions & {
-        readonly authorization?: RemoteDeploymentAuthorization;
+      options: ConfiguredRemoteDeployOptions & {
         /**
          * Durable admission barrier run after registry resolution and before
          * any remote mutation. A failure prevents the deployment from starting.

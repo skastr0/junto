@@ -272,11 +272,12 @@ const extractTarGz = (archive: Buffer, destination: string): void => {
 /**
  * Ensure the fixed local cache exists.
  *
- * Production defaults to the stable feed and retains its existing seated-cache
- * fallback when that feed is unavailable. Qualification may explicitly select
- * `verified-cache`; that mode never contacts the feed and fails closed when the
- * fixed cache is absent. The production artifact authority still performs the
- * owner, signature, and hash verification after this source selection.
+ * Production defaults to the stable feed and fails closed when that exact
+ * release cannot be fetched. Qualification may explicitly select
+ * `verified-cache`; that is the only mode that can use the already-seated fixed
+ * cache, never contacts the feed, and fails closed when the cache is absent.
+ * The production artifact authority still performs owner, signature, and hash
+ * verification after this source selection.
  */
 export const ensureLinuxReleaseCache = async (input?: {
   readonly home?: string;
@@ -301,22 +302,13 @@ export const ensureLinuxReleaseCache = async (input?: {
   if (source !== "stable-feed") {
     throw new Error("Linux release cache source is unrecognized");
   }
-  try {
-    const seated = await seatLinuxReleaseCacheFromFeed({
-      home,
-      feedBase: input?.feedBase,
-    });
-    return {
-      bundleRoot: seated.bundleRoot,
-      source: "feed",
-      channel: seated.channel,
-    };
-  } catch (feedError) {
-    if (existsSync(bundleRoot)) {
-      return { bundleRoot, source: "local" };
-    }
-    throw feedError instanceof Error
-      ? feedError
-      : new Error(String(feedError));
-  }
+  const seated = await seatLinuxReleaseCacheFromFeed({
+    home,
+    feedBase: input?.feedBase,
+  });
+  return {
+    bundleRoot: seated.bundleRoot,
+    source: "feed",
+    channel: seated.channel,
+  };
 };

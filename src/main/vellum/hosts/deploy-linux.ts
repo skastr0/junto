@@ -1897,6 +1897,9 @@ const sessionFailure = (
 
 export const makeLinuxRemoteDeploymentProvider = (input: {
   readonly artifactAuthority: LinuxRemoteArtifactAuthority;
+  readonly artifactAuthorityBySource?: (
+    source: LinuxReleaseCacheSource,
+  ) => LinuxRemoteArtifactAuthority;
   readonly liveWorkAuthority: LinuxRemoteLiveWorkAuthority;
 }): RemoteDeploymentProvider => ({
   platform: "linux",
@@ -1927,7 +1930,12 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
         }
 
         const resolved = yield* Effect.tryPromise({
-          try: () => input.artifactAuthority.resolve(),
+          try: () =>
+            (
+              input.artifactAuthorityBySource?.(
+                providerInput.artifactSource,
+              ) ?? input.artifactAuthority
+            ).resolve(),
           catch: (error) =>
             error instanceof Error ? error : new Error(String(error)),
         }).pipe(Effect.either);
@@ -2488,5 +2496,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
 export const linuxRemoteDeploymentProvider: RemoteDeploymentProvider =
   makeLinuxRemoteDeploymentProvider({
     artifactAuthority: makeProductionLinuxArtifactAuthority(),
+    artifactAuthorityBySource: (source) =>
+      makeProductionLinuxArtifactAuthority({ source }),
     liveWorkAuthority: makeProductionLinuxLiveWorkAuthority(),
   });

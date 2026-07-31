@@ -18,6 +18,7 @@ import {
   resolveRemoteDeploymentTarget,
   unsupportedRemoteTargetResult,
 } from "./remote-platform";
+import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
 
@@ -89,14 +90,21 @@ export type RemoteDeploymentDispatcher = {
     ssh: Ssh,
     stationConfiguration: RemoteDeploymentStationConfiguration,
     authorization?: RemoteDeploymentAuthorization,
+    artifactSource?: LinuxReleaseCacheSource,
   ) => Effect.Effect<DeployRemoteResult, never>;
   readonly deploy: (
     ssh: Ssh,
     host: RemoteHost,
     stationConfiguration: RemoteDeploymentStationConfiguration,
     authorization?: RemoteDeploymentAuthorization,
+    artifactSource?: LinuxReleaseCacheSource,
   ) => Effect.Effect<DeployRemoteResult, never>;
 };
+
+const decodeLinuxArtifactSource = (
+  value: unknown,
+): LinuxReleaseCacheSource | undefined =>
+  value === "stable-feed" || value === "verified-cache" ? value : undefined;
 
 export const makeRemoteDeploymentDispatcher = (input: {
   readonly commandCenterPlatform: NodeJS.Platform;
@@ -217,6 +225,7 @@ export const makeRemoteDeploymentDispatcher = (input: {
     ssh,
     stationConfiguration,
     authorization,
+    artifactSource,
   ) =>
     Effect.suspend(() => {
       const provider = admittedProviders.get(target);
@@ -230,6 +239,33 @@ export const makeRemoteDeploymentDispatcher = (input: {
       }
       // An admission witnesses one execution attempt; it is not a replayable grant.
       admittedProviders.delete(target);
+      const selectedArtifactSource = decodeLinuxArtifactSource(
+        artifactSource ?? "stable-feed",
+      );
+      if (selectedArtifactSource === undefined) {
+        return Effect.succeed(
+          remoteDeploymentFailure(
+            `${target.host.label}: Linux release source is invalid`,
+            {
+              code: "validation",
+              message: "invalid Linux release source",
+              stages: target.progress,
+            },
+          ),
+        );
+      }
+      if (provider.platform !== "linux" && artifactSource !== undefined) {
+        return Effect.succeed(
+          remoteDeploymentFailure(
+            `${target.host.label}: Linux release source cannot select a ${provider.platform} deployment`,
+            {
+              code: "validation",
+              message: "Linux release source requires a Linux target",
+              stages: target.progress,
+            },
+          ),
+        );
+      }
       if (provider.platform !== target.platform.platform) {
         return Effect.succeed(
           unsupportedRemoteTargetResult(
@@ -248,6 +284,7 @@ export const makeRemoteDeploymentDispatcher = (input: {
         ssh,
         target,
         stationConfiguration,
+        artifactSource: selectedArtifactSource,
         ...(provider.platform !== "linux" || authorization === undefined
           ? {}
           : { authorization }),
@@ -259,6 +296,7 @@ export const makeRemoteDeploymentDispatcher = (input: {
     host,
     stationConfiguration,
     authorization,
+    artifactSource,
   ) =>
     prepare(ssh, host).pipe(
       Effect.flatMap((preparation) =>
@@ -268,6 +306,7 @@ export const makeRemoteDeploymentDispatcher = (input: {
               ssh,
               stationConfiguration,
               authorization,
+              artifactSource,
             )
           : Effect.succeed(preparation.result),
       ),

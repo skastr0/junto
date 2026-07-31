@@ -204,6 +204,81 @@ describe("Remote deployment dispatcher", () => {
     );
   });
 
+  it("defaults Linux deployment to the stable feed and threads an explicit verified cache", async () => {
+    const linux = makeProvider("linux");
+    const dispatcher = makeRemoteDeploymentDispatcher({
+      commandCenterPlatform: "darwin",
+      providers: [linux],
+    });
+
+    await Effect.runPromise(
+      dispatcher.deploy(makeSsh("Linux\n"), host, {
+        state: "managed-externally",
+      }),
+    );
+    await Effect.runPromise(
+      dispatcher.deploy(
+        makeSsh("Linux\n"),
+        host,
+        { state: "managed-externally" },
+        undefined,
+        "verified-cache",
+      ),
+    );
+
+    expect(linux.deploy).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ artifactSource: "stable-feed" }),
+    );
+    expect(linux.deploy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ artifactSource: "verified-cache" }),
+    );
+  });
+
+  it("fails closed on an invalid or non-Linux release source", async () => {
+    const darwin = makeProvider("darwin");
+    const linux = makeProvider("linux");
+    const dispatcher = makeRemoteDeploymentDispatcher({
+      commandCenterPlatform: "darwin",
+      providers: [darwin, linux],
+    });
+
+    const invalid = await Effect.runPromise(
+      dispatcher.deploy(
+        makeSsh("Linux\n"),
+        host,
+        { state: "managed-externally" },
+        undefined,
+        "caller-path" as never,
+      ),
+    );
+    const wrongPlatform = await Effect.runPromise(
+      dispatcher.deploy(
+        makeSsh("Darwin\n"),
+        host,
+        { state: "managed-externally" },
+        undefined,
+        "verified-cache",
+      ),
+    );
+
+    expect(invalid).toMatchObject({
+      ok: false,
+      code: "validation",
+      disposition: "not-started",
+      message: "invalid Linux release source",
+    });
+    expect(wrongPlatform).toMatchObject({
+      ok: false,
+      code: "validation",
+      disposition: "not-started",
+      message: "Linux release source requires a Linux target",
+    });
+    expect(linux.deploy).not.toHaveBeenCalled();
+    expect(darwin.deploy).not.toHaveBeenCalled();
+  });
+
   it("rejects a declared browser capability the selected provider cannot satisfy", async () => {
     const terminalOnly = makeProvider("darwin", false);
     const dispatcher = makeRemoteDeploymentDispatcher({

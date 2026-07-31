@@ -20,7 +20,10 @@ vi.mock("@shared/release-capabilities", () => ({
 
 import { makeHostsService } from "../src/main/vellum/hosts/service";
 import type { HostsRegistry } from "../src/main/vellum/hosts/registry";
-import type { ConfiguredRemoteDeployResult } from "../src/main/vellum/hosts/deploy-configured-remote";
+import type {
+  ConfiguredRemoteDeployOptions,
+  ConfiguredRemoteDeployResult,
+} from "../src/main/vellum/hosts/deploy-configured-remote";
 import { StationFleetPropagation } from "../src/main/vellum/station/fleet-propagation";
 
 const remote = (id: string, endpoint = "shared-box"): RemoteHost => ({
@@ -69,10 +72,13 @@ describe("HostsService configured deploy admission", () => {
   it("runs the durable admission barrier before any remote mutation", async () => {
     const host = remote("studio");
     let admitted = false;
-    const mutation = vi.fn((_ssh, target: RemoteHost) => {
-      expect(admitted).toBe(true);
-      return Effect.succeed(failedResult(target));
-    });
+    const mutation = vi.fn(
+      (_ssh, target: RemoteHost, received: ConfiguredRemoteDeployOptions) => {
+        expect(admitted).toBe(true);
+        expect(received.artifactSource).toBe("verified-cache");
+        return Effect.succeed(failedResult(target));
+      },
+    );
     const service = makeHostsService(
       registryFor([host]),
       {} as never,
@@ -87,6 +93,7 @@ describe("HostsService configured deploy admission", () => {
     await Effect.runPromise(
       service.deployConfiguredRemote("studio", {
         ...configureOptions,
+        artifactSource: "verified-cache",
         onAdmitted: () =>
           Effect.sync(() => {
             admitted = true;

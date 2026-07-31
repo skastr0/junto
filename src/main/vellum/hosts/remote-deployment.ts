@@ -8,6 +8,7 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import type { SshEndpoint, SshTarget } from "../ssh";
 import type { SshTransport } from "../ssh";
 import type { LinuxAdministratorCredential } from "./linux-administrator-credential";
+import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
 export type RemoteDeploymentProgress = readonly string[];
 
@@ -106,6 +107,8 @@ export type RemoteDeploymentProviderInput = {
   readonly ssh: Context.Tag.Service<typeof SshTransport>;
   readonly target: RemoteDeploymentTarget;
   readonly stationConfiguration: RemoteDeploymentStationConfiguration;
+  /** Exact release authority selected for this one Linux deployment attempt. */
+  readonly artifactSource: LinuxReleaseCacheSource;
   readonly authorization?: RemoteDeploymentAuthorization;
 };
 

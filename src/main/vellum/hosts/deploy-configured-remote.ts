@@ -17,6 +17,7 @@ import {
   type RemoteDeploymentPreparation,
   type RemoteDeploymentTarget,
 } from "./deploy-remote";
+import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
 type Ssh = Context.Tag.Service<typeof SshTransport>;
 
@@ -47,6 +48,12 @@ export type ConfiguredRemoteDeployResult = DeployRemoteResult & {
   };
 };
 
+export type ConfiguredRemoteDeployOptions = ConfigureRemoteOptions & {
+  readonly authorization?: RemoteDeploymentAuthorization;
+  /** Defaults to the stable feed; qualification may explicitly use the cache. */
+  readonly artifactSource?: LinuxReleaseCacheSource;
+};
+
 export type ConfiguredRemoteDeployOperations = {
   /** Admit the registered target and its one platform provider. */
   readonly prepare: (
@@ -62,6 +69,7 @@ export type ConfiguredRemoteDeployOperations = {
       readonly remoteHostId: string;
     },
     authorization?: RemoteDeploymentAuthorization,
+    artifactSource?: LinuxReleaseCacheSource,
   ) => Effect.Effect<DeployRemoteResult, never>;
   /** Configure durable station state through the app-owned Station API. */
   readonly configure: (
@@ -78,12 +86,14 @@ const defaultOperations: ConfiguredRemoteDeployOperations = {
     target,
     stationConfiguration,
     authorization,
+    artifactSource,
   ) =>
     dispatchRemoteDeployment(
       target,
       ssh,
       stationConfiguration,
       authorization,
+      artifactSource,
     ),
   configure: configureRemoteHost,
 };
@@ -211,9 +221,7 @@ const finishWithConfiguration = (
 export const deployConfiguredRemoteHost = (
   ssh: Ssh,
   host: RemoteHost,
-  options: ConfigureRemoteOptions & {
-    readonly authorization?: RemoteDeploymentAuthorization;
-  },
+  options: ConfiguredRemoteDeployOptions,
   operations: ConfiguredRemoteDeployOperations = defaultOperations,
 ): Effect.Effect<ConfiguredRemoteDeployResult, never> =>
   Effect.gen(function* () {
@@ -244,6 +252,7 @@ export const deployConfiguredRemoteHost = (
         remoteHostId: host.id,
       },
       options.authorization,
+      options.artifactSource,
     );
 
     // Break the first-boot readiness ↔ configuration deadlock once. The
@@ -269,6 +278,7 @@ export const deployConfiguredRemoteHost = (
               remoteHostId: host.id,
             },
             options.authorization,
+            options.artifactSource,
           );
           deployed = {
             ...retried,

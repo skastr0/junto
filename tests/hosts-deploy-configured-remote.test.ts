@@ -209,28 +209,30 @@ describe("configured Remote deploy", () => {
   it("configures via enrollment bootstrap then retries activation when package is present without ready", async () => {
     const sequence: string[] = [];
     let packageCalls = 0;
-    const deployPrepared = vi.fn(() =>
-      Effect.sync(() => {
-        packageCalls += 1;
-        sequence.push(`package-${packageCalls}`);
-        if (packageCalls === 1) {
+    const deployPrepared = vi.fn(
+      (_ssh, _target, _stationConfiguration, _authorization, artifactSource) =>
+        Effect.sync(() => {
+          expect(artifactSource).toBe("verified-cache");
+          packageCalls += 1;
+          sequence.push(`package-${packageCalls}`);
+          if (packageCalls === 1) {
+            return {
+              ok: false,
+              detail: "Station configuration is required next",
+              code: "conflict" as const,
+              stages: ["opaque operator progress that carries no control state"],
+              disposition: "configuration-required" as const,
+              version: "0.1.2",
+            };
+          }
           return {
-            ok: false,
-            detail: "Station configuration is required next",
-            code: "conflict" as const,
-            stages: ["opaque operator progress that carries no control state"],
-            disposition: "configuration-required" as const,
+            ok: true,
+            detail: "package ready after configuration",
+            stages: ["systemd generation ready"],
+            disposition: "ready" as const,
             version: "0.1.2",
           };
-        }
-        return {
-          ok: true,
-          detail: "package ready after configuration",
-          stages: ["systemd generation ready"],
-          disposition: "ready" as const,
-          version: "0.1.2",
-        };
-      }),
+        }),
     );
     const configure = vi.fn(() =>
       Effect.sync(() => {
@@ -249,7 +251,7 @@ describe("configured Remote deploy", () => {
       deployConfiguredRemoteHost(
         unusedSsh,
         host,
-        options,
+        { ...options, artifactSource: "verified-cache" },
         operations({ prepare, deployPrepared, configure }),
       ),
     );

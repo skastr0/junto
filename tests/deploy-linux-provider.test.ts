@@ -39,6 +39,7 @@ import {
   type LinuxAdministratorCredential,
   type LinuxAdministratorCredentialBinding,
 } from "../src/main/vellum/hosts/linux-administrator-credential";
+import type { LinuxReleaseCacheSource } from "../src/main/vellum/hosts/linux-release-feed";
 import type {
   RemoteDeploymentProvider,
   RemoteDeploymentProviderInput,
@@ -201,6 +202,7 @@ const credential = (
 const providerInput = (
   ssh: RemoteDeploymentProviderInput["ssh"],
   authorization?: LinuxAdministratorCredential,
+  artifactSource: LinuxReleaseCacheSource = "stable-feed",
 ): RemoteDeploymentProviderInput => ({
   ssh,
   target: {
@@ -217,6 +219,7 @@ const providerInput = (
     state: "applied",
     remoteHostId: host.id,
   },
+  artifactSource,
   ...(authorization === undefined
     ? {}
     : {
@@ -974,6 +977,33 @@ describe("Linux Remote privileged deployment", () => {
     });
     expect(harness.transactCalls).toHaveLength(0);
     expect(route.acquire).not.toHaveBeenCalled();
+  });
+
+  it("resolves an explicitly selected verified cache through its production authority seam", async () => {
+    const harness = makeTranscriptHarness(preflight());
+    const route = heldRouteCut();
+    const stableResolve = vi.fn(async () => makeCandidate());
+    const cachedResolve = vi.fn(async () => makeCandidate());
+    const artifactAuthorityBySource = vi.fn(
+      (_source: LinuxReleaseCacheSource) => ({ resolve: cachedResolve }),
+    );
+    const provider = makeLinuxRemoteDeploymentProvider({
+      artifactAuthority: { resolve: stableResolve },
+      artifactAuthorityBySource,
+      liveWorkAuthority: route.authority,
+    });
+
+    await Effect.runPromise(
+      provider.deploy(
+        providerInput(harness.ssh, undefined, "verified-cache"),
+      ),
+    );
+
+    expect(artifactAuthorityBySource).toHaveBeenCalledExactlyOnceWith(
+      "verified-cache",
+    );
+    expect(cachedResolve).toHaveBeenCalledOnce();
+    expect(stableResolve).not.toHaveBeenCalled();
   });
 
   it("returns a typed validation failure for an authority-injected malformed inventory", async () => {
