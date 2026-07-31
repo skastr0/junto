@@ -623,33 +623,43 @@ test("capture every surface for design review", async () => {
     const addItem = page.getByRole("button", { name: "Add canvas item" });
     if (await addItem.isVisible().catch(() => false)) {
       await addItem.click();
+      const deck = page.getByRole("region", { name: "Add canvas item" });
+      await expect(deck).toBeVisible();
       await shot(page, "20-node-palette");
-      const claudeAgent = page.getByRole("button", {
-        name: /Claude Code agent/,
+      const claudeAgent = deck.getByRole("button", {
+        name: "Add Claude Code agent",
       });
       if (await claudeAgent.isVisible().catch(() => false)) {
         await claudeAgent.hover();
         const models = page.getByRole("menu", { name: "Claude Code models" });
         await models.waitFor({ state: "visible" });
         await shot(page, "20b-agent-cascade");
-        await models.getByRole("menuitem").first().click();
-        const location = page.getByRole("dialog", {
-          name: "Choose agent location",
+        const launchContext = deck.getByRole("region", {
+          name: "Launch context",
         });
-        await expect(location).toBeVisible();
-        await expect(location.getByLabel("Agent working directory")).toHaveValue(
+        await launchContext
+          .getByRole("button", { name: "Choose starting folder" })
+          .click();
+        const folder = page.getByRole("dialog", {
+          name: "Choose starting folder",
+        });
+        await expect(folder).toBeVisible();
+        await expect(folder.getByLabel("Agent working directory")).toHaveValue(
           /^\//,
           { timeout: 10_000 },
         );
         await expect(
-          location.getByRole("button", { name: "create agent" }),
+          folder.getByRole("checkbox", {
+            name: /use this folder as region default for this host/i,
+          }),
         ).toBeVisible();
-        await shot(page, "20c-agent-location");
-        await location.getByRole("button", { name: "cancel" }).click();
+        await shot(page, "20c-agent-folder");
+        await folder
+          .getByRole("button", { name: "Close folder picker" })
+          .click();
       }
-      await addItem.click();
-      const termWiz = page.getByRole("button", {
-        name: "Add native terminal work surface",
+      const termWiz = deck.getByRole("button", {
+        name: /Terminal/,
       });
       if (await termWiz.isVisible().catch(() => false)) {
         await termWiz.click();
@@ -659,8 +669,9 @@ test("capture every surface for design review", async () => {
         await page.waitForTimeout(300);
       }
       await addItem.click();
-      const herdrWiz = page.getByRole("button", {
-        name: "Add legacy herdr work surface",
+      const reopenedDeck = page.getByRole("region", { name: "Add canvas item" });
+      const herdrWiz = reopenedDeck.getByRole("button", {
+        name: /Herdr/,
       });
       if (await herdrWiz.isVisible().catch(() => false)) {
         await herdrWiz.click();

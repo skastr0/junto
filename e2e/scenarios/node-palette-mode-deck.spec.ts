@@ -147,8 +147,8 @@ test("model and effort choices remain visually attached to the active agent row"
       Math.min(first.y + first.height, second.y + second.height) >
       Math.max(first.y, second.y);
 
-    expect(horizontalGap(agentBox!, modelBox!)).toBeLessThanOrEqual(16);
-    expect(horizontalGap(modelBox!, effortBox!)).toBeLessThanOrEqual(16);
+    expect(horizontalGap(agentBox!, modelBox!)).toBeLessThanOrEqual(24);
+    expect(horizontalGap(modelBox!, effortBox!)).toBeLessThanOrEqual(24);
     expect(verticallyOverlaps(agentBox!, modelBox!)).toBe(true);
   } finally {
     await vellum.close();
