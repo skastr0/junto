@@ -90,6 +90,7 @@ export function AgentLaunchContext({
   const [hosts, setHosts] = useState<ReadonlyArray<AgentHostChoice>>([configured]);
   const [hostId, setHostId] = useState(initialHostId || configured.id);
   const [cwd, setCwd] = useState("");
+  const [folderSeed, setFolderSeed] = useState("~");
   const [folderOpen, setFolderOpen] = useState(false);
 
   const center = centerOf(position);
@@ -118,6 +119,7 @@ export function AgentLaunchContext({
   // A new placement or host starts from the innermost region's per-host path.
   useEffect(() => {
     setCwd(regionPath ?? "");
+    setFolderSeed(regionPath ?? "~");
     setUseRegionDefault(Boolean(regionDefaultPath));
   }, [hostId, region?.id, regionPath, regionDefaultPath]);
 
@@ -173,7 +175,7 @@ export function AgentLaunchContext({
           <div
             role="dialog"
             aria-label="Choose starting folder"
-            data-node-palette-portal
+            data-canvas-menu-surface
             className="fixed z-[80] w-[min(420px,calc(100vw-24px))] rounded-[7px] border border-stroke bg-ground p-3 shadow-[0_18px_42px_rgba(0,0,0,.48)]"
             style={{ left: Math.max(12, Math.min(rect.left, window.innerWidth - 432)), bottom: window.innerHeight - rect.top + 8 }}
           >
@@ -187,9 +189,8 @@ export function AgentLaunchContext({
               </IconButton>
             </div>
             <HostDirectoryPicker
-              key={`${hostId}\0${region?.id ?? "no-region"}`}
               hostId={hostId}
-              initialPath={cwd || regionPath || "~"}
+              initialPath={folderSeed}
               onSelect={saveSelectedFolder}
             />
             <label
