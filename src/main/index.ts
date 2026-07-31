@@ -59,6 +59,7 @@ import {
 } from "./vellum/work/control";
 import {
   startStationControlServer,
+  stationControlReadiness,
   type StationControlServer,
 } from "./vellum/station/control-server";
 import {
@@ -1335,6 +1336,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             simulation: kernelService !== undefined,
             session: stationControl?.ready() ?? false,
           }),
+          sessionReady: () => stationControlReadiness.sessionReady(),
         });
         operatorControl = await startOperatorControlServer({
           home: termControlHome,

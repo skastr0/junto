@@ -483,3 +483,96 @@ export const fleetOperatorCommand = Command.make("fleet").pipe(
     fleetStatusCommand,
   ]),
 );
+
+const qualificationRunId = Options.text("run-id").pipe(
+  Options.withDescription("Short qualification run id"),
+);
+
+const qualificationHostId = Options.text("host-id").pipe(
+  Options.withDescription("Exact enrolled Remote host id"),
+);
+
+const qualificationWorkPrepareCommand = Command.make(
+  "prepare",
+  {
+    runId: qualificationRunId,
+    hostId: qualificationHostId,
+  },
+  ({ runId, hostId }) =>
+    executeJsonCommand(
+      "qualification work prepare",
+      Effect.gen(function* () {
+        const socket = yield* OperatorSocket;
+        return yield* socket.call(
+          "qualification.work.prepare",
+          { runId, hostId },
+          OPERATOR_SYNC_TIMEOUT_MS,
+        );
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Create, claim, and synchronize the fixed qualification task",
+  ),
+);
+
+const qualificationWorkProgressOfflineCommand = Command.make(
+  "progress-offline",
+  { runId: qualificationRunId },
+  ({ runId }) =>
+    executeJsonCommand(
+      "qualification work progress-offline",
+      Effect.gen(function* () {
+        const socket = yield* OperatorSocket;
+        return yield* socket.call(
+          "qualification.work.progress-offline",
+          { runId },
+          OPERATOR_SYNC_TIMEOUT_MS,
+        );
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Complete the fixed qualification task while the Command Center session is absent",
+  ),
+);
+
+const qualificationWorkVerifyCommand = Command.make(
+  "verify",
+  {
+    runId: qualificationRunId,
+    hostId: qualificationHostId,
+  },
+  ({ runId, hostId }) =>
+    executeJsonCommand(
+      "qualification work verify",
+      Effect.gen(function* () {
+        const socket = yield* OperatorSocket;
+        return yield* socket.call(
+          "qualification.work.verify",
+          { runId, hostId },
+          OPERATOR_SYNC_TIMEOUT_MS,
+        );
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Reconcile and verify the fixed qualification task on Command Center",
+  ),
+);
+
+export const qualificationWorkOperatorCommand = Command.make("work").pipe(
+  Command.withDescription("Closed two-installation work qualification"),
+  Command.withSubcommands([
+    qualificationWorkPrepareCommand,
+    qualificationWorkProgressOfflineCommand,
+    qualificationWorkVerifyCommand,
+  ]),
+);
+
+export const qualificationOperatorCommand = Command.make(
+  "qualification",
+).pipe(
+  Command.withDescription("Direct operator release qualification controls"),
+  Command.withSubcommands([qualificationWorkOperatorCommand]),
+);

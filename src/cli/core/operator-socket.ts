@@ -29,7 +29,14 @@ export const defaultOperatorTimeout = (op: OperatorOpName): number => {
   if (op === "fleet.deploy" || op === "fleet.qualify") {
     return OPERATOR_DEPLOY_TIMEOUT_MS;
   }
-  if (op === "fleet.sync") return OPERATOR_SYNC_TIMEOUT_MS;
+  if (
+    op === "fleet.sync" ||
+    op === "qualification.work.prepare" ||
+    op === "qualification.work.progress-offline" ||
+    op === "qualification.work.verify"
+  ) {
+    return OPERATOR_SYNC_TIMEOUT_MS;
+  }
   return OPERATOR_DEFAULT_TIMEOUT_MS;
 };
 

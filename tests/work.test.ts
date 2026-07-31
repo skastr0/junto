@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   workArtifactPublish,
@@ -772,6 +772,39 @@ afterAll(async () => {
 });
 
 describe("WorkService — concurrent ops", () => {
+  it("reads task home through the app-owned WorkService seam", async () => {
+    const name = "work-task-home";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [emptyTaskNode()],
+        edges: [],
+      }),
+    );
+    const created = await workRuntime.runPromise(
+      work.workTaskCreate(name, "tasks", "prove the task home"),
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const station = await workRuntime.runPromise(StationRepository);
+    const localInstallationId = await workRuntime.runPromise(
+      station.installationId,
+    );
+    await expect(
+      workRuntime.runPromise(
+        work.workTaskHome(name, "tasks", created.data.id),
+      ),
+    ).resolves.toBe(localInstallationId);
+
+    const missing = await workRuntime.runPromise(
+      work.workTaskHome(name, "tasks", "missing-task").pipe(Effect.either),
+    );
+    expect(missing._tag).toBe("Left");
+    if (missing._tag === "Left") {
+      expect(missing.left.code).toBe("task_not_found");
+    }
+  });
+
   it("serializes concurrent claims; second actor loses with claim_contention", async () => {
     const name = "work-race";
     await workRuntime.runPromise(

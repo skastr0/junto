@@ -19,6 +19,7 @@ import {
 } from "./commands/work";
 import {
   fleetOperatorCommand,
+  qualificationOperatorCommand,
   stationOperatorCommand,
 } from "./commands/operator";
 import { runBrowserCli } from "../../scripts/browser-cli";
@@ -48,6 +49,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     artifactCommand,
     stationOperatorCommand,
     fleetOperatorCommand,
+    qualificationOperatorCommand,
   ]),
 );
 

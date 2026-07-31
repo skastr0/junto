@@ -12,6 +12,12 @@ import {
   StationProjectionReference,
   StatusResponse,
 } from "./station-api";
+import { LogicalSequence } from "./work-protocol";
+import {
+  ActorRef,
+  BoundedWorkId,
+  WorkCanvasName,
+} from "./work-reference";
 import {
   StationAppVersion,
   StationProtocolSupport,
@@ -76,6 +82,9 @@ export const OperatorOpName = Schema.Literal(
   "fleet.qualify",
   "fleet.sync",
   "fleet.status",
+  "qualification.work.prepare",
+  "qualification.work.progress-offline",
+  "qualification.work.verify",
 );
 export type OperatorOpName = typeof OperatorOpName.Type;
 
@@ -109,6 +118,27 @@ export const OperatorFleetSelectionArgs = Schema.Struct({
 });
 export type OperatorFleetSelectionArgs =
   typeof OperatorFleetSelectionArgs.Type;
+
+export const OperatorQualificationRunId = Schema.String.pipe(
+  Schema.minLength(3),
+  Schema.maxLength(32),
+  Schema.pattern(/^[a-z0-9][a-z0-9-]{2,31}$/u),
+);
+export type OperatorQualificationRunId =
+  typeof OperatorQualificationRunId.Type;
+
+export const OperatorQualificationWorkTargetArgs = Schema.Struct({
+  runId: OperatorQualificationRunId,
+  hostId: HostId,
+});
+export type OperatorQualificationWorkTargetArgs =
+  typeof OperatorQualificationWorkTargetArgs.Type;
+
+export const OperatorQualificationWorkRunArgs = Schema.Struct({
+  runId: OperatorQualificationRunId,
+});
+export type OperatorQualificationWorkRunArgs =
+  typeof OperatorQualificationWorkRunArgs.Type;
 
 export const OperatorDeploySource = Schema.Literal("stable", "cached");
 export type OperatorDeploySource = typeof OperatorDeploySource.Type;
@@ -385,6 +415,40 @@ export const OperatorFleetStatusData = Schema.Struct({
 });
 export type OperatorFleetStatusData = typeof OperatorFleetStatusData.Type;
 
+const OperatorQualificationWorkIdentity = {
+  runId: OperatorQualificationRunId,
+  canvasName: WorkCanvasName,
+  hostId: HostId,
+  stationInstallationId: InstallationId,
+  taskId: BoundedWorkId,
+  actor: ActorRef,
+  receivedThrough: LogicalSequence,
+} as const;
+
+export const OperatorQualificationWorkPrepareData = Schema.Struct({
+  ...OperatorQualificationWorkIdentity,
+  state: Schema.Literal("working"),
+  disposition: Schema.Literal("prepared", "idempotent"),
+});
+export type OperatorQualificationWorkPrepareData =
+  typeof OperatorQualificationWorkPrepareData.Type;
+
+export const OperatorQualificationWorkProgressData = Schema.Struct({
+  ...OperatorQualificationWorkIdentity,
+  before: Schema.Literal("working", "completed"),
+  after: Schema.Literal("completed"),
+  disposition: Schema.Literal("applied", "idempotent"),
+});
+export type OperatorQualificationWorkProgressData =
+  typeof OperatorQualificationWorkProgressData.Type;
+
+export const OperatorQualificationWorkVerifyData = Schema.Struct({
+  ...OperatorQualificationWorkIdentity,
+  state: Schema.Literal("completed"),
+});
+export type OperatorQualificationWorkVerifyData =
+  typeof OperatorQualificationWorkVerifyData.Type;
+
 const request = <
   Op extends OperatorOpName,
   S extends Schema.Schema.AnyNoContext,
@@ -439,6 +503,18 @@ export const OperatorFleetStatusRequest = request(
   "fleet.status",
   OperatorFleetSelectionArgs,
 );
+export const OperatorQualificationWorkPrepareRequest = request(
+  "qualification.work.prepare",
+  OperatorQualificationWorkTargetArgs,
+);
+export const OperatorQualificationWorkProgressRequest = request(
+  "qualification.work.progress-offline",
+  OperatorQualificationWorkRunArgs,
+);
+export const OperatorQualificationWorkVerifyRequest = request(
+  "qualification.work.verify",
+  OperatorQualificationWorkTargetArgs,
+);
 
 export const OperatorRequestEnvelope = Schema.Union(
   OperatorStationStatusRequest,
@@ -451,6 +527,9 @@ export const OperatorRequestEnvelope = Schema.Union(
   OperatorFleetQualifyRequest,
   OperatorFleetSyncRequest,
   OperatorFleetStatusRequest,
+  OperatorQualificationWorkPrepareRequest,
+  OperatorQualificationWorkProgressRequest,
+  OperatorQualificationWorkVerifyRequest,
 );
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
@@ -509,6 +588,18 @@ export const OperatorFleetStatusResponse = response(
   "fleet.status",
   OperatorFleetStatusData,
 );
+export const OperatorQualificationWorkPrepareResponse = response(
+  "qualification.work.prepare",
+  OperatorQualificationWorkPrepareData,
+);
+export const OperatorQualificationWorkProgressResponse = response(
+  "qualification.work.progress-offline",
+  OperatorQualificationWorkProgressData,
+);
+export const OperatorQualificationWorkVerifyResponse = response(
+  "qualification.work.verify",
+  OperatorQualificationWorkVerifyData,
+);
 
 export const OperatorErrorType = Schema.Literal(
   "validation",
@@ -564,6 +655,9 @@ export const OperatorResponseEnvelope = Schema.Union(
   OperatorFleetQualifyResponse,
   OperatorFleetSyncResponse,
   OperatorFleetStatusResponse,
+  OperatorQualificationWorkPrepareResponse,
+  OperatorQualificationWorkProgressResponse,
+  OperatorQualificationWorkVerifyResponse,
   OperatorErrorResponse,
 );
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
@@ -579,6 +673,9 @@ export interface OperatorArgsByOp {
   readonly "fleet.qualify": OperatorFleetQualifyArgs;
   readonly "fleet.sync": OperatorFleetSelectionArgs;
   readonly "fleet.status": OperatorFleetSelectionArgs;
+  readonly "qualification.work.prepare": OperatorQualificationWorkTargetArgs;
+  readonly "qualification.work.progress-offline": OperatorQualificationWorkRunArgs;
+  readonly "qualification.work.verify": OperatorQualificationWorkTargetArgs;
 }
 
 export interface OperatorDataByOp {
@@ -592,6 +689,9 @@ export interface OperatorDataByOp {
   readonly "fleet.qualify": OperatorFleetDeployData;
   readonly "fleet.sync": OperatorFleetSyncData;
   readonly "fleet.status": OperatorFleetStatusData;
+  readonly "qualification.work.prepare": OperatorQualificationWorkPrepareData;
+  readonly "qualification.work.progress-offline": OperatorQualificationWorkProgressData;
+  readonly "qualification.work.verify": OperatorQualificationWorkVerifyData;
 }
 
 export const decodeOperatorRequest = Schema.decodeUnknownEither(

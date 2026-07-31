@@ -222,6 +222,7 @@ const makeKernelRuntime = (
     Layer.succeed(
       WorkService,
       WorkService.of({
+        workTaskHome: () => Effect.dieMessage("unused work service"),
         workTaskCreate: () => Effect.dieMessage("unused work service"),
         workTaskPropose: () => Effect.dieMessage("unused work service"),
         workTaskApproveProposal: () => Effect.dieMessage("unused work service"),

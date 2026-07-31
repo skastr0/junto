@@ -156,6 +156,7 @@ describe("operator deployment coordinator", () => {
         simulation: false,
         session: false,
       }),
+      sessionReady: () => false,
     });
     const response = await coordinator.dispatch({
       protocol: OPERATOR_PROTOCOL_VERSION,

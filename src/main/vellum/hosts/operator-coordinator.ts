@@ -68,6 +68,12 @@ import type {
   StationFleetPropagationResult,
 } from "../station/fleet-propagation";
 import { StationFleetPropagation } from "../station/fleet-propagation";
+import {
+  OperatorQualificationWorkError,
+  qualificationWorkPrepareEffect,
+  qualificationWorkProgressEffect,
+  qualificationWorkVerifyEffect,
+} from "./operator-qualification-work";
 
 type Hosts = Context.Tag.Service<typeof HostsService>;
 
@@ -941,6 +947,7 @@ export const projectOperatorDeployResult = (
 export interface OperatorCoordinatorOptions {
   readonly fleetReady: () => boolean;
   readonly readiness: () => StationReadiness;
+  readonly sessionReady: () => boolean;
   readonly hosts?: HostsOperatorCoordinator;
 }
 
@@ -997,6 +1004,30 @@ export const makeOperatorCoordinator = (
         "runtime_down",
         "fleet operations are unavailable until licensed product startup completes",
       );
+    }
+
+    if (request.op === "qualification.work.prepare") {
+      const data = await AppRuntime.runPromise(
+        qualificationWorkPrepareEffect(request.args),
+      );
+      return operatorSuccess(request, data);
+    }
+
+    if (request.op === "qualification.work.progress-offline") {
+      const data = await AppRuntime.runPromise(
+        qualificationWorkProgressEffect(
+          request.args,
+          options.sessionReady,
+        ),
+      );
+      return operatorSuccess(request, data);
+    }
+
+    if (request.op === "qualification.work.verify") {
+      const data = await AppRuntime.runPromise(
+        qualificationWorkVerifyEffect(request.args),
+      );
+      return operatorSuccess(request, data);
     }
 
     if (request.op === "fleet.list") {
@@ -1128,6 +1159,9 @@ export const makeOperatorCoordinator = (
         return await run(request);
       } catch (error) {
         if (error instanceof OperatorCoordinatorError) {
+          return operatorErrorResponse(request, error.type, error.message);
+        }
+        if (error instanceof OperatorQualificationWorkError) {
           return operatorErrorResponse(request, error.type, error.message);
         }
         if (error instanceof RemoteHostsError) {

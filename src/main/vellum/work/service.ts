@@ -226,6 +226,12 @@ const nodeById = (
 export class WorkService extends Context.Tag("@vellum/WorkService")<
   WorkService,
   {
+    /** Read the canonical single home of one task through the app-owned seam. */
+    readonly workTaskHome: (
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+    ) => Effect.Effect<InstallationIdValue, WorkServiceError>;
     readonly workTaskCreate: (
       canvas: string,
       nodeId: string,
@@ -672,6 +678,8 @@ export const WorkLive = Layer.effect(
     );
 
     return WorkService.of({
+      workTaskHome: (canvas, nodeId, taskId) =>
+        itemHome("task", canvas, nodeId, taskId),
       workTaskCreate: (canvas, nodeId, brief, metadata, reason, media) =>
         asResult(
           Effect.gen(function* () {
