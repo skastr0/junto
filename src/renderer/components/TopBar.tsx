@@ -391,7 +391,7 @@ export function TopBar({
           <Radar size={15} />
         </button>
         <button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => setHelpOpen((open) => !open)}>
-          <CircleHelp size={14} />
+          <CircleHelp size={15} />
         </button>
         {helpOpen ? <CanvasInteractionMap onClose={() => setHelpOpen(false)} /> : null}
         <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "rgba(237,230,218,0.16)", color: HUE.steel }} title="settings" onClick={() => { setHelpOpen(false); openSettings(); }}>

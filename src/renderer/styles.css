@@ -725,8 +725,9 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .station-icon-button { display: grid; height: 34px; width: 34px; place-items: center; border-radius: 7px; border: 1px solid; background: rgba(255,255,255,.02); transition: background .18s ease, border-color .18s ease, transform .18s ease; }
 .station-icon-button:hover { background: rgba(255,255,255,.07); border-color: rgba(232,163,61,.4) !important; transform: translateY(-1px); }
 .station-icon-button:disabled { cursor: wait; opacity: .62; }
-.station-help-trigger { display: grid; height: 30px; width: 30px; place-items: center; border: 1px solid rgba(143,163,176,.28); border-radius: 6px; color: var(--color-steel); background: rgba(143,163,176,.04); transition: background .18s ease, border-color .18s ease, color .18s ease; }
-.station-help-trigger:hover, .station-help-trigger[aria-expanded="true"] { background: rgba(57,198,214,.1); border-color: rgba(57,198,214,.52); color: var(--color-cyan); }
+/* Same box as .station-icon-button (34×34 / r7) so top-bar icons share one dimension. */
+.station-help-trigger { display: grid; height: 34px; width: 34px; place-items: center; border: 1px solid rgba(143,163,176,.28); border-radius: 7px; color: var(--color-steel); background: rgba(143,163,176,.04); transition: background .18s ease, border-color .18s ease, color .18s ease, transform .18s ease; }
+.station-help-trigger:hover, .station-help-trigger[aria-expanded="true"] { background: rgba(57,198,214,.1); border-color: rgba(57,198,214,.52); color: var(--color-cyan); transform: translateY(-1px); }
 
 /* HelpMap — design-system instrument map (ui/HelpMap.tsx, ui/Kbd.tsx).
    Compose shell + groups + keys/primer; placement via modifiers or caller class. */
