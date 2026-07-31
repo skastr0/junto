@@ -19,6 +19,7 @@ import type {
   FinishCriteria,
   CompletionEvidence,
   TaskProposal,
+  EtherFlag,
 } from "./canvas";
 import type {
   DemoCommand,
@@ -361,6 +362,9 @@ export interface KernelSnapshot {
       {
         readonly watchers: Record<string, WatcherRuntimeState>;
         readonly nextFire: Record<string, number>;
+        readonly flagOverrides: Readonly<
+          Record<string, Partial<Record<EtherFlag, boolean>>>
+        >;
         readonly execution?: ExecutionSnapshot;
       }
     >

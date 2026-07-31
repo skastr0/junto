@@ -4,6 +4,7 @@ import type { SnapshotState } from "../src/shared/entities";
 import { resetWatcherMemory } from "../src/main/vellum/kernel/evaluate";
 import {
   __setDocsForTest,
+  __setAutomationGateForTest,
   __setFlagWriterForTest,
   __setSnapshotsForTest,
   runEvaluationCycle,
@@ -61,11 +62,16 @@ describe("flag-mirror routing by (canvasName, nodeId)", () => {
       },
     };
     __setFlagWriterForTest(capture);
+    __setAutomationGateForTest({
+      canAutomateCanvas: () => true,
+      canApplyFlagEffects: () => true,
+    });
     __setSnapshotsForTest(snapshotsWithStat("signals", 3)); // below 10 -> pending
   });
 
   afterEach(() => {
     __setFlagWriterForTest(undefined);
+    __setAutomationGateForTest(undefined);
   });
 
   it("a node id shared across two canvases routes a flag write to EACH canvas — never dropped", async () => {

@@ -116,11 +116,11 @@ describe("scheduler automation gate", () => {
     const enqueues: string[] = [];
     __setAutomationGateForTest({
       canAutomateCanvas: () => false,
-      canAuthorFlags: () => true,
+      canApplyFlagEffects: () => true,
     });
     __setSchedulerEffectDepsForTest({
       canAutomateCanvas: () => false,
-      canAuthorFlags: () => true,
+      canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
       enqueueTask: async ({ brief }) => {
@@ -146,11 +146,11 @@ describe("scheduler automation gate", () => {
     // Resume automation — edge still available, fires once
     __setAutomationGateForTest({
       canAutomateCanvas: () => true,
-      canAuthorFlags: () => true,
+      canApplyFlagEffects: () => true,
     });
     __setSchedulerEffectDepsForTest({
       canAutomateCanvas: () => true,
-      canAuthorFlags: () => true,
+      canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
       enqueueTask: async ({ brief }) => {
@@ -166,7 +166,7 @@ describe("scheduler automation gate", () => {
   it("when paused, cron still projects nextFire without claiming fire", async () => {
     __setAutomationGateForTest({
       canAutomateCanvas: () => false,
-      canAuthorFlags: () => false,
+      canApplyFlagEffects: () => false,
     });
     __setDocsForTest(new Map([["board", gaugeAndTask()]]));
     const t0 = 1_700_000_000_000;

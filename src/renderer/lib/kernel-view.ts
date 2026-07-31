@@ -8,6 +8,7 @@ import type {
   KernelSnapshot,
   WatcherRuntimeState,
 } from "@shared/ipc";
+import type { EtherFlag } from "@shared/canvas";
 import { getVellumApi } from "./vellum-api";
 import { state$ } from "./state";
 
@@ -21,6 +22,8 @@ export type { WatcherRuntimeState, ExecutionSnapshot };
 export const kernel$ = observable<{
   watchers: Record<string, WatcherRuntimeState>;
   nextFire: Record<string, number>;
+  flagOverrides: Record<string, Partial<Record<EtherFlag, boolean>>>;
+  flagRev: number;
   execution: ExecutionSnapshot | null;
   // Monotonic stamp so React effects can depend on execution changes without
   // deep-comparing the snapshot object.
@@ -28,6 +31,8 @@ export const kernel$ = observable<{
 }>({
   watchers: {},
   nextFire: {},
+  flagOverrides: {},
+  flagRev: 0,
   execution: null,
   executionRev: 0,
 });
@@ -37,8 +42,12 @@ export const kernel$ = observable<{
 const EMPTY_CANVAS_ENTRY: {
   readonly watchers: Record<string, WatcherRuntimeState>;
   readonly nextFire: Record<string, number>;
+  readonly flagOverrides: Record<
+    string,
+    Partial<Record<EtherFlag, boolean>>
+  >;
   readonly execution?: ExecutionSnapshot;
-} = { watchers: {}, nextFire: {} };
+} = { watchers: {}, nextFire: {}, flagOverrides: {} };
 
 // The last snapshot pushed/hydrated from main, kept so a canvasName switch
 // can re-project without waiting for the next kernelChanged push.
@@ -75,6 +84,14 @@ const projectSnapshot = (snapshot: KernelSnapshot, canvasName: string): void => 
 
   if (!shallowRecordEqual(kernel$.nextFire.peek() as Record<string, number>, entry.nextFire)) {
     kernel$.nextFire.set(entry.nextFire);
+  }
+
+  const previousFlagOverrides = kernel$.flagOverrides.peek();
+  if (
+    JSON.stringify(previousFlagOverrides) !== JSON.stringify(entry.flagOverrides)
+  ) {
+    kernel$.flagOverrides.set(entry.flagOverrides);
+    kernel$.flagRev.set(kernel$.flagRev.peek() + 1);
   }
 
   const nextExecution = entry.execution ?? null;

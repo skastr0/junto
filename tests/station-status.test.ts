@@ -581,10 +581,12 @@ describe("station status doctor", () => {
           alpha: {
             watchers: {},
             nextFire: {},
+            flagOverrides: {},
           },
           beta: {
             watchers: {},
             nextFire: {},
+            flagOverrides: {},
           },
         },
       },

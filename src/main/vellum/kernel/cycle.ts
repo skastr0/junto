@@ -3,7 +3,7 @@
 // hooks live here. Region pulse inject is retired — effects are edge-authored
 // only (enqueue / set_flag), never geometry fan-out.
 
-import type { CanvasDoc, EdgePhase } from "@shared/canvas";
+import type { CanvasDoc, EdgePhase, EtherFlag } from "@shared/canvas";
 import {
   deriveExecutionGraph,
   type BlockedReason,
@@ -58,12 +58,18 @@ export interface KernelSnapshot {
     {
       watchers: Record<string, WatcherRuntimeState>;
       nextFire: Record<string, number>;
+      flagOverrides: RuntimeFlagOverrides;
       execution?: ExecutionSnapshot;
     }
   >;
 }
 
 // --- injectable seams --------------------------------------------------------
+
+export type RuntimeFlagOverrides = Record<
+  string,
+  Partial<Record<EtherFlag, boolean>>
+>;
 
 export interface FlagWriterDeps {
   // canvasName is threaded in (not resolved from a node->canvas index) because
@@ -109,7 +115,7 @@ export interface TimerSchedulerDeps {
  */
 export interface AutomationGateDeps {
   readonly canAutomateCanvas: (canvasName: string) => boolean;
-  readonly canAuthorFlags: () => boolean;
+  readonly canApplyFlagEffects: () => boolean;
 }
 
 // --- module-level state ------------------------------------------------------
@@ -121,15 +127,20 @@ let phaseMirrorDeps: PhaseMirrorDeps | undefined = undefined;
 let timerSchedulerDeps: TimerSchedulerDeps | undefined = undefined;
 let automationGateDeps: AutomationGateDeps | undefined = undefined;
 let resolveActorRef: ActorRefResolver = () => undefined;
+const runtimeFlagOverrides = new Map<
+  string,
+  Map<string, Map<EtherFlag, boolean>>
+>();
 
 const canAutomateCanvas = (canvasName: string): boolean =>
   automationGateDeps?.canAutomateCanvas(canvasName) ?? false;
 
-const canAuthorFlags = (): boolean =>
-  automationGateDeps?.canAuthorFlags() ?? false;
+const canApplyFlagEffects = (): boolean =>
+  automationGateDeps?.canApplyFlagEffects() ?? false;
 
 export const __setDocsForTest = (docsMap: Map<string, CanvasDoc>): void => {
   docs = docsMap;
+  reconcileRuntimeFlagOverrides(docsMap);
 };
 
 export const __setSnapshotsForTest = (state: SnapshotState): void => {
@@ -168,9 +179,97 @@ export const __resetKernelMemoryForTest = (): void => {
   timerSchedulerDeps = undefined;
   automationGateDeps = undefined;
   resolveActorRef = () => undefined;
+  runtimeFlagOverrides.clear();
   nextFire.clear();
   executionByCanvas.clear();
   resetWatcherMemory();
+};
+
+const flagsWithOverrides = (
+  authored: ReadonlyArray<EtherFlag>,
+  overrides: ReadonlyMap<EtherFlag, boolean> | undefined,
+): ReadonlyArray<EtherFlag> => {
+  if (overrides === undefined || overrides.size === 0) return authored;
+  const effective = new Set(authored);
+  for (const [flag, enabled] of overrides) {
+    if (enabled) effective.add(flag);
+    else effective.delete(flag);
+  }
+  return [...effective];
+};
+
+/** Runtime scheduler state projected over authorial intent, never persisted. */
+export const projectRuntimeFlags = (
+  canvasName: string,
+  doc: CanvasDoc,
+): CanvasDoc => {
+  const byNode = runtimeFlagOverrides.get(canvasName);
+  if (byNode === undefined || byNode.size === 0) return doc;
+  return {
+    ...doc,
+    nodes: doc.nodes.map((node) => {
+      const overrides = byNode.get(node.id);
+      if (overrides === undefined || overrides.size === 0) return node;
+      const flags = flagsWithOverrides(node.ether?.flags ?? [], overrides);
+      const ether = { ...(node.ether ?? {}) };
+      if (flags.length === 0) delete ether.flags;
+      else ether.flags = flags;
+      if (Object.keys(ether).length > 0) return { ...node, ether };
+      const { ether: _drop, ...withoutEther } = node;
+      return withoutEther;
+    }),
+  };
+};
+
+export const setRuntimeFlag = (
+  canvasName: string,
+  nodeId: string,
+  flag: EtherFlag,
+  enabled: boolean,
+): boolean => {
+  const doc = docs.get(canvasName);
+  if (doc === undefined || !doc.nodes.some((node) => node.id === nodeId)) {
+    return false;
+  }
+  let byNode = runtimeFlagOverrides.get(canvasName);
+  if (byNode === undefined) {
+    byNode = new Map();
+    runtimeFlagOverrides.set(canvasName, byNode);
+  }
+  let overrides = byNode.get(nodeId);
+  if (overrides === undefined) {
+    overrides = new Map();
+    byNode.set(nodeId, overrides);
+  }
+  overrides.set(flag, enabled);
+  return true;
+};
+
+export const getRuntimeFlagOverrides = (
+  canvasName: string,
+): RuntimeFlagOverrides => {
+  const result: RuntimeFlagOverrides = {};
+  for (const [nodeId, overrides] of runtimeFlagOverrides.get(canvasName) ?? []) {
+    result[nodeId] = Object.fromEntries(overrides);
+  }
+  return result;
+};
+
+const reconcileRuntimeFlagOverrides = (
+  documents: ReadonlyMap<string, CanvasDoc>,
+): void => {
+  for (const [canvasName, byNode] of runtimeFlagOverrides) {
+    const doc = documents.get(canvasName);
+    if (doc === undefined) {
+      runtimeFlagOverrides.delete(canvasName);
+      continue;
+    }
+    const nodeIds = new Set(doc.nodes.map((node) => node.id));
+    for (const nodeId of byNode.keys()) {
+      if (!nodeIds.has(nodeId)) byNode.delete(nodeId);
+    }
+    if (byNode.size === 0) runtimeFlagOverrides.delete(canvasName);
+  }
 };
 
 /** True when any criteria edge's mirrored kind/color differs from derived phase. */
@@ -196,6 +295,7 @@ export const getKernelSnapshot = (): KernelSnapshot => {
     {
       watchers: Record<string, WatcherRuntimeState>;
       nextFire: Record<string, number>;
+      flagOverrides: RuntimeFlagOverrides;
     }
   > = {};
   return { canvases };
@@ -316,7 +416,8 @@ export const runEvaluationCycle = async (): Promise<void> => {
   // snapshots already held in module state (setSnapshots / adapter poll).
   for (const [canvasName, doc] of docs.entries()) {
     try {
-      const execution = snapshotFromGraph(canvasName, doc);
+      const effectiveDoc = projectRuntimeFlags(canvasName, doc);
+      const execution = snapshotFromGraph(canvasName, effectiveDoc);
       executionByCanvas.set(canvasName, execution);
 
       // Mirror derived phase into stored kind for criteria edges (offline
@@ -325,16 +426,16 @@ export const runEvaluationCycle = async (): Promise<void> => {
         const phaseMap = new Map(
           Object.entries(execution.phaseByEdgeId) as Array<[string, EdgePhase]>,
         );
-        if (criteriaPhasesNeedMirror(doc, phaseMap)) {
+        if (criteriaPhasesNeedMirror(effectiveDoc, phaseMap)) {
           phaseMirrorDeps.mirrorPhases(canvasName, phaseMap);
         }
       }
 
       const automate = canAutomateCanvas(canvasName);
-      for (const { nodeId, watch, result } of detectPulses(canvasName, doc, snapshots, {
+      for (const { nodeId, watch, result } of detectPulses(canvasName, effectiveDoc, snapshots, {
         consumeEdge: automate,
       })) {
-        const source = doc.nodes.find((node) => node.id === nodeId);
+        const source = effectiveDoc.nodes.find((node) => node.id === nodeId);
         // Host-scoped: this station only runs executable nodes assigned to it.
         if (source !== undefined && !isNodeEligibleOnStation(source, stationHostId)) {
           continue;
@@ -352,18 +453,18 @@ export const runEvaluationCycle = async (): Promise<void> => {
         };
         watchers.set(watcherKey, nextRuntime);
 
-        // Document flag writes only when automating and role may author (CC).
-        if (automate && canAuthorFlags()) {
+        // Runtime flag effects remain CC-only and respect the automation gate.
+        if (automate && canApplyFlagEffects()) {
           applyFlagOnUnsatisfied(
             canvasName,
-            doc,
+            effectiveDoc,
             nodeId,
             watch.flagOnUnsatisfied,
             result.state.status,
           );
         }
         if (result.fired) {
-          await applySchedulerFire(doc, {
+          await applySchedulerFire(effectiveDoc, {
             canvasName,
             sourceNodeId: nodeId,
             kind: "gauge",
@@ -374,10 +475,10 @@ export const runEvaluationCycle = async (): Promise<void> => {
       }
 
       // Relay nodes: watch another node's projection; rising edge → effects.
-      for (const node of doc.nodes) {
+      for (const node of effectiveDoc.nodes) {
         if (node.type !== "text" || !node.ether?.relay) continue;
         if (!isNodeEligibleOnStation(node, stationHostId)) continue;
-        const evaluation = evaluateRelay(doc, node.ether.relay);
+        const evaluation = evaluateRelay(effectiveDoc, node.ether.relay);
         const result = evaluateWatcherLevel(canvasName, node.id, evaluation, {
           consumeEdge: automate,
         });
@@ -394,7 +495,7 @@ export const runEvaluationCycle = async (): Promise<void> => {
         };
         watchers.set(watcherKey, nextRuntime);
         if (result.fired) {
-          await applySchedulerFire(doc, {
+          await applySchedulerFire(effectiveDoc, {
             canvasName,
             sourceNodeId: node.id,
             kind: "relay",
@@ -567,6 +668,7 @@ export const checkTimers = async (
 
 export const setDocs = (docsMap: Map<string, CanvasDoc>): void => {
   docs = docsMap;
+  reconcileRuntimeFlagOverrides(docsMap);
 };
 
 export const getWatchers = (): Map<string, WatcherRuntimeState> => {
@@ -585,6 +687,7 @@ export const purgeCanvasMemory = (canvasName: string): void => {
   for (const key of watchers.keys()) if (key.startsWith(prefix)) watchers.delete(key);
   for (const key of nextFire.keys()) if (key.startsWith(prefix)) nextFire.delete(key);
   executionByCanvas.delete(canvasName);
+  runtimeFlagOverrides.delete(canvasName);
   // evaluate.ts's edge-detection memory (seenLevelStatus) is namespaced the
   // same way and grows unbounded across the app's lifetime otherwise —
   // purge it here too so a deleted canvas's baselines don't outlive the canvas.
@@ -602,6 +705,7 @@ const splitNamespacedKey = (key: string): readonly [canvasName: string, id: stri
 // Per-cycle reconcile for canvases that STILL exist but whose gauge/cron/relay
 // nodes changed underneath us. Drops stale `${canvasName}::${nodeId}` entries.
 export const reconcileLiveCanvasMemory = (): void => {
+  reconcileRuntimeFlagOverrides(docs);
   const hasSensor = (canvasName: string, nodeId: string): boolean => {
     const doc = docs.get(canvasName);
     if (!doc) return false;

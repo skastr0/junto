@@ -26,8 +26,8 @@ export type SchedulerFireEvent = {
 export type SchedulerEffectDeps = {
   /** Per-canvas: playing + station role configured. */
   readonly canAutomateCanvas: (canvasName: string) => boolean;
-  /** Document flag writes: Command Center only (Remote refuses authorial mutate). */
-  readonly canAuthorFlags: () => boolean;
+  /** Runtime flag effects remain Command Center-only. */
+  readonly canApplyFlagEffects: () => boolean;
   /** Return true if this fireKey+edgeId was already applied. */
   readonly hasReceipt: (fireKey: string, edgeId: string) => boolean;
   readonly recordReceipt: (fireKey: string, edgeId: string) => void;
@@ -89,9 +89,9 @@ const applyOne = async (
     return;
   }
 
-  if (!deps.canAuthorFlags()) {
+  if (!deps.canApplyFlagEffects()) {
     console.error(
-      `[kernel] set_flag skipped on ${binding.edge.id}: flag authoring requires Command Center (Remote cannot mutate authorial canvas)`,
+      `[kernel] set_flag skipped on ${binding.edge.id}: flag effects require Command Center`,
     );
     return;
   }

@@ -17,7 +17,7 @@ import {
 } from "@xyflow/react";
 import type { Connection, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
-import type { EtherEdgeKind, EtherFlag } from "@shared/canvas";
+import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { Ban, Boxes, Expand, Link2, Plus, ScanLine, SquareDashed, Trash2 } from "lucide-react";
 import { state$ } from "../lib/state";
@@ -103,6 +103,32 @@ const currentExecutionGraphContext = () =>
     state$.actorRefs.peek(),
   );
 
+const projectRuntimeFlagOverrides = (
+  doc: CanvasDoc,
+  overrides: Readonly<
+    Record<string, Partial<Record<EtherFlag, boolean>>>
+  >,
+): CanvasDoc => ({
+  ...doc,
+  nodes: doc.nodes.map((node) => {
+    const nodeOverrides = overrides[node.id];
+    if (nodeOverrides === undefined) return node;
+    const flags = new Set(node.ether?.flags ?? []);
+    for (const [flag, enabled] of Object.entries(nodeOverrides) as Array<
+      [EtherFlag, boolean | undefined]
+    >) {
+      if (enabled) flags.add(flag);
+      else flags.delete(flag);
+    }
+    const ether = { ...(node.ether ?? {}) };
+    if (flags.size === 0) delete ether.flags;
+    else ether.flags = [...flags];
+    if (Object.keys(ether).length > 0) return { ...node, ether };
+    const { ether: _drop, ...withoutEther } = node;
+    return withoutEther;
+  }),
+});
+
 function stampImpactShell(
   nodes: FlowNode[],
   edges: FlowEdge[],
@@ -156,8 +182,12 @@ function applyStructuralRebuild(
   edgeFilter: EtherEdgeKind | "",
   flagFilter: EtherFlag | "",
 ): void {
-  const built = toFlow(
+  const projectedDoc = projectRuntimeFlagOverrides(
     state$.doc.peek(),
+    kernel$.flagOverrides.peek(),
+  );
+  const built = toFlow(
+    projectedDoc,
     currentExecutionGraphContext(),
     kernel$.execution.peek(),
     flowCache,
@@ -255,6 +285,7 @@ function useCanvasDocument(
     const offs = [
       state$.docVersion.onChange(() => rebuild()),
       state$.actorRefs.onChange(() => rebuild()),
+      kernel$.flagRev.onChange(() => rebuild()),
       kernel$.executionRev.onChange(() => rebuild()),
     ];
     return () => {

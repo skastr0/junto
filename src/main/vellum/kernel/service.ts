@@ -78,12 +78,14 @@ import {
   checkTimers,
   getExecutionByCanvas,
   getNextFire,
+  getRuntimeFlagOverrides,
   getWatchers,
   purgeCanvasMemory,
   reconcileLiveCanvasMemory,
   runEvaluationCycle,
   setActorRefResolver,
   setDocs,
+  setRuntimeFlag,
   setStationScope,
   __setAutomationGateForTest,
   __setFlagWriterForTest,
@@ -548,11 +550,16 @@ const makeKernelService = (
       {
         watchers: Record<string, WatcherRuntimeState>;
         nextFire: Record<string, number>;
+        flagOverrides: ReturnType<typeof getRuntimeFlagOverrides>;
         execution?: import("./cycle").ExecutionSnapshot;
       }
     > = {};
     const entryFor = (name: string) =>
-      (canvasesOut[name] ??= { watchers: {}, nextFire: {} });
+      (canvasesOut[name] ??= {
+        watchers: {},
+        nextFire: {},
+        flagOverrides: getRuntimeFlagOverrides(name),
+      });
     for (const name of docs.keys()) {
       const entry = entryFor(name);
       const execution = getExecutionByCanvas().get(name);
@@ -606,7 +613,7 @@ const makeKernelService = (
     return pause.stateFor(canvasName).playing;
   };
 
-  const canAuthorFlags = (): boolean => cachedStationRole === "command-center";
+  const canApplyFlagEffects = (): boolean => cachedStationRole === "command-center";
 
   let cachedStationRole: "" | "command-center" | "remote" = "";
 
@@ -622,51 +629,22 @@ const makeKernelService = (
     if (cachedStationRole !== "command-center") {
       return {
         ok: false,
-        message:
-          "flag authoring requires Command Center (Remote cannot mutate authorial canvas)",
+        message: "flag effects require Command Center",
       };
     }
-    try {
-      await Effect.runPromise(
-        canvases.mutate(canvasName, (doc) => {
-          const nodes = doc.nodes.map((node) => {
-            if (node.id !== nodeId) return node;
-            const flags = new Set(node.ether?.flags ?? []);
-            if (enabled) flags.add(flag);
-            else flags.delete(flag);
-            const nextFlags = [...flags] as ReadonlyArray<EtherFlag>;
-            const ether = { ...(node.ether ?? {}) };
-            if (nextFlags.length === 0) delete ether.flags;
-            else ether.flags = nextFlags as typeof ether.flags;
-            return Object.keys(ether).length > 0
-              ? { ...node, ether }
-              : (() => {
-                  const { ether: _drop, ...rest } = node;
-                  return rest;
-                })();
-          });
-          return { ...doc, nodes };
-        }),
-      );
-      return { ok: true };
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error);
-      console.error(
-        `[kernel] setFlag failed for ${canvasName}/${nodeId}: ${message}`,
-      );
-      return { ok: false, message };
-    }
+    return setRuntimeFlag(canvasName, nodeId, flag, enabled)
+      ? { ok: true }
+      : { ok: false, message: "canvas or node is not in the live projection" };
   };
 
   __setAutomationGateForTest({
     canAutomateCanvas,
-    canAuthorFlags,
+    canApplyFlagEffects,
   });
 
   setSchedulerEffectDeps({
     canAutomateCanvas,
-    canAuthorFlags,
+    canApplyFlagEffects,
     hasReceipt: (fireKey, edgeId) => effectReceipts.has(`${fireKey}::${edgeId}`),
     recordReceipt: (fireKey, edgeId) => {
       effectReceipts.add(`${fireKey}::${edgeId}`);
