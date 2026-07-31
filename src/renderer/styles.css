@@ -46,6 +46,7 @@
 
 /* Deep-field ground: never pure black, monospace-leaning type. */
 :root {
+  --layer-popover: 12000;
   --layer-tooltip: 20000;
   color-scheme: dark;
   font-family: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
@@ -118,6 +119,7 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
 }
 .focus-surface--layer-work { z-index: 10000; }
 .focus-surface--layer-detail { z-index: 60; }
+.focus-surface-popover { z-index: var(--layer-popover); }
 .focus-surface.focus-surface--contain-parent.focus-surface--layer-work {
   z-index: 40;
 }
