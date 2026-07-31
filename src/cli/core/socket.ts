@@ -38,8 +38,8 @@ const readToken = (tokenPath: string) =>
     try: async () => (await readFile(tokenPath, "utf8")).trim(),
     catch: () =>
       new RuntimeDown({
-        message: "work control token unavailable — is Vellum running?",
-        next_step: "launch Vellum, then `vellum doctor`",
+        message: "work control token unavailable — is Vellum Command running?",
+        next_step: "launch Vellum Command, then `vellum doctor`",
       }),
   });
 
@@ -88,7 +88,7 @@ const ndjsonCall = (
           new RuntimeDown({
             message:
               error instanceof Error ? error.message : "failed to open work control socket",
-            next_step: "launch Vellum, then `vellum doctor`",
+            next_step: "launch Vellum Command, then `vellum doctor`",
           }),
         ),
       );
@@ -158,7 +158,7 @@ const ndjsonCall = (
           Effect.fail(
             new RuntimeDown({
               message: "vellum app is not running (work socket down)",
-              next_step: "launch Vellum, then `vellum doctor`",
+              next_step: "launch Vellum Command, then `vellum doctor`",
             }),
           ),
         );
@@ -198,8 +198,8 @@ export const WorkSocketLive = Layer.succeed(
         if (!token) {
           return yield* Effect.fail(
             new RuntimeDown({
-              message: "work control token empty — is Vellum running?",
-              next_step: "launch Vellum, then `vellum doctor`",
+              message: "work control token empty — is Vellum Command running?",
+              next_step: "launch Vellum Command, then `vellum doctor`",
             }),
           );
         }

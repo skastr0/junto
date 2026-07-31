@@ -1,6 +1,6 @@
 # Local control trust boundary
 
-Vellum control transports are owner-local Unix-domain sockets. Their directories are
+Vellum Command control transports are owner-local Unix-domain sockets. Their directories are
 0700; live socket paths and rotating bearer-token files are 0600. Startup fails
 closed when those modes cannot be established, a path is a symlink/non-socket, or
 the pre-bind socket has a live or ambiguous listener. Stale cleanup is limited to

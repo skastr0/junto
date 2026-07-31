@@ -6,7 +6,7 @@ qualified under this contract
 **Scope:** Ubuntu 24.04 LTS x86_64 only. ARM64 and other distributions are out
 of v1.
 
-Vellum Linux production means one signed rootless Station payload, installed
+Vellum Command Linux production means one signed rootless Station payload, installed
 and updated by the Station user, with optional host-administrator preparation
 kept outside the product transaction.
 
@@ -60,7 +60,7 @@ Explicit exclusions:
 - Station-to-Station control;
 - multi-tenant or multi-operator RBAC;
 - SSH, Tailscale, provider, host-administrator, or harness credentials absorbed
-  into Vellum;
+  into Vellum Command;
 - app-managed `sudo`, administrator-password, system-package-manager, setuid,
   file-capability, polkit, privileged-daemon, or root-journal paths.
 
@@ -69,7 +69,7 @@ Explicit exclusions:
 The canonical transaction runs entirely as the intended Station user:
 
 1. Read-only preflight records the host, runtime dependencies, security
-   facilities, user service manager, installed Vellum payload, state schema,
+   facilities, user service manager, installed Vellum Command payload, state schema,
    and requested capability status.
 2. The exact signed candidate is staged in an owner-only user directory and
    admitted against independently trusted release metadata.
@@ -88,7 +88,7 @@ The canonical transaction runs entirely as the intended Station user:
 
 Command Center may initiate the same transaction on an enrolled Remote through
 the ordinary Station user's OpenSSH route. It transfers only the admitted
-payload and fixed userland protocol. Vellum never asks SSH, the app, or a helper
+payload and fixed userland protocol. Vellum Command never asks SSH, the app, or a helper
 to obtain administrator authority.
 
 The release must define its exact owner-local installation layout, activation
@@ -103,7 +103,7 @@ is [Linux host preparation](linux-host-preparation.md).
 User lingering and missing core operating-system packages are separate facts
 and separate optional host actions. AppArmor, user namespaces, display
 tooling, and secret storage are relevant only to a future browser sidecar.
-Vellum may show reviewed commands but never executes them or collects their
+Vellum Command may show reviewed commands but never executes them or collects their
 credentials.
 
 Troubleshooting sequence for host-boundary failures is always:
@@ -157,7 +157,7 @@ Linux v1 has no operator restore or downgrade path.
 Boot readiness is structural and belongs to one current user-service
 generation:
 
-1. the Vellum user service is active for its current invocation;
+1. the Vellum Command user service is active for its current invocation;
 2. the fixed userland launcher is the supervised main process;
 3. fresh owner-only work and Station control sockets are listening;
 4. the app reports SQLite readiness;
@@ -175,13 +175,13 @@ remains explicitly `unavailable` for the first Beta. Unknown remains unknown.
 ## Fleet contract
 
 OpenSSH is the authenticated Command Center-to-Remote transport. Command Center
-invokes only fixed Vellum Station operations and exchanges the five bounded
+invokes only fixed Vellum Command Station operations and exchanges the five bounded
 verbs: `pair`, `configure`, `project`, `report`, and `status`.
 
 No fleet request accepts a remote path, shell body, administrator credential,
 or privilege instruction. A Remote never opens a callback route to Command
 Center or another Remote. Tailscale may provide reachability; it grants no
-Vellum authority. Browser and actor control remain host-local.
+Vellum Command authority. Browser and actor control remain host-local.
 
 Installed version skew uses the one Station protocol descriptor. Current
 policy is protocol 3 with `3/3/3`. No overlap means `update required`; it does
@@ -195,7 +195,7 @@ revision prove:
 
 - first install, same-version adoption, update, interrupted update, and
   forward repair through the ordinary-user lane;
-- no Vellum process invokes or retains host-administrator authority;
+- no Vellum Command process invokes or retains host-administrator authority;
 - a stock supported Ubuntu host can reach a truthful preflight result without
   a custom image;
 - the packaged Node Remote starts with `DISPLAY` unset and no `Xvfb`, `xauth`,

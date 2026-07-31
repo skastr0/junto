@@ -98,7 +98,7 @@ export type ArgvSpec = {
  * - launching from inside a Claude session silently disables the child's
  *   transcript persistence and excludes it from `--resume`;
  * - agent/tooling parents commonly export NO_COLOR for their own logs, which
- *   disables the managed harness TUI even though Vellum provides a truecolor
+ *   disables the managed harness TUI even though Vellum Command provides a truecolor
  *   xterm PTY.
  */
 export const SPAWN_ENV_SCRUB: readonly string[] = [

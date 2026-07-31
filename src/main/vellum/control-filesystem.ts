@@ -446,7 +446,7 @@ export const removeOwnedControlSocketPath = (
 /**
  * Retire a pre-existing socket while holding the exclusive listener lease.
  *
- * The lease excludes conforming Vellum startups, while the bounded connect
+ * The lease excludes conforming Vellum Command startups, while the bounded connect
  * probes prove that a same-user foreign listener is not currently accepting
  * connections. Only fresh definitive inactive results authorize quarantine;
  * timeout, successful connect, and every other error fail closed.

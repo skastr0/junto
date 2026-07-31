@@ -1,12 +1,12 @@
-# Vellum security doctrine
+# Vellum Command security doctrine
 
 **Status:** normative product doctrine
 
 **Scope:** product trust, operator intent, agents, canvases, stations, fleet
-topology, and Vellum-owned control paths
+topology, and Vellum Command-owned control paths
 
-This document is the governing security doctrine for Vellum. It defines the
-product Vellum is becoming and the claims a production release must be able to
+This document is the governing security doctrine for Vellum Command. It defines the
+product Vellum Command is becoming and the claims a production release must be able to
 prove.
 
 When another document, backlog item, review, test, or implementation conflicts
@@ -29,14 +29,14 @@ capability-specific degradation must satisfy that contract.
 
 ## Product position
 
-Vellum is unapologetically a **one-person business factory**.
+Vellum Command is unapologetically a **one-person business factory**.
 
 One operator may own many machines, accounts, regions, projects, agents, and
 business assets. Those resources still express one sovereign intent and one
-factory workstream. Vellum is not a collaboration canvas for independent
+factory workstream. Vellum Command is not a collaboration canvas for independent
 people performing separately authorized work.
 
-Vellum v1 does not attempt to provide:
+Vellum Command v1 does not attempt to provide:
 
 - multi-tenant isolation;
 - team roles or employee RBAC;
@@ -44,28 +44,28 @@ Vellum v1 does not attempt to provide:
 - enterprise identity governance;
 - security boundaries between multiple human operators in one factory.
 
-A Vellum installation belongs to one operator and one factory. A competent
+A Vellum Command installation belongs to one operator and one factory. A competent
 operator may run separate installations under separate operating-system
-accounts. Vellum does not add a machine-global tenancy system to coordinate
+accounts. Vellum Command does not add a machine-global tenancy system to coordinate
 those accounts.
 
 ## Security objective
 
-Vellum makes the operator's existing power **explicit, legible, scoped, and
+Vellum Command makes the operator's existing power **explicit, legible, scoped, and
 recoverable**. It must not silently enlarge that power or create routes the
 operator did not choose.
 
 No powerful fleet application can truthfully promise that compromise or data
-loss is impossible. Vellum instead makes concrete, testable promises:
+loss is impossible. Vellum Command instead makes concrete, testable promises:
 
-1. Vellum does not secretly create authority.
-2. Vellum enforces operator intent throughout every Vellum-owned control path.
-3. A boundary Vellum advertises is a boundary Vellum actually enforces.
-4. Vellum does not silently create lateral fleet reach.
-5. Vellum exposes loss of reach or control honestly and immediately.
-6. Vellum preserves operating-system, root, web-content, package, and physical
+1. Vellum Command does not secretly create authority.
+2. Vellum Command enforces operator intent throughout every Vellum Command-owned control path.
+3. A boundary Vellum Command advertises is a boundary Vellum Command actually enforces.
+4. Vellum Command does not silently create lateral fleet reach.
+5. Vellum Command exposes loss of reach or control honestly and immediately.
+6. Vellum Command preserves operating-system, root, web-content, package, and physical
    machine boundaries rather than pretending to replace them.
-7. Vellum minimizes the authority and sensitive data placed on each resource.
+7. Vellum Command minimizes the authority and sensitive data placed on each resource.
 8. Safety controls protect the user's machine from mistakes without treating
    the trusted factory as an adversary.
 
@@ -77,22 +77,22 @@ loss is impossible. Vellum instead makes concrete, testable promises:
 - Machines and accounts the operator explicitly enrolls.
 - Agents the operator intentionally attaches to the factory.
 - Provider resources the operator explicitly enrolls.
-- Vellum processes and owner-local control transports on an enrolled station.
+- Vellum Command processes and owner-local control transports on an enrolled station.
 
 Attached agents are trusted participants, but they are not assumed to be
-perfect. They may be eager, mistaken, unaware of Vellum's topology, operating
+perfect. They may be eager, mistaken, unaware of Vellum Command's topology, operating
 on stale context, influenced by prompt injection, or affected by a harness or
-tool bug. Vellum therefore enforces operator-authored edges and ports on every
-Vellum-owned action.
+tool bug. Vellum Command therefore enforces operator-authored edges and ports on every
+Vellum Command-owned action.
 
 This is protection of operator intent and protection of agents from mistakes.
 It is not an attempt to contain a malicious process that already has arbitrary
 shell access as the operator's operating-system account.
 
-An **external actor** is external to a Vellum runtime, not external to operator
-ownership or trust. Vellum does not add warnings or repeated disclosure
+An **external actor** is external to a Vellum Command runtime, not external to operator
+ownership or trust. Vellum Command does not add warnings or repeated disclosure
 ceremonies merely because an operator-owned actor uses a harness, provider, or
-managed resource outside the local Vellum process.
+managed resource outside the local Vellum Command process.
 
 ### Untrusted boundaries and inputs
 
@@ -112,10 +112,10 @@ adversarial tenant.
 
 ### Explicit non-claim
 
-Vellum does not claim to isolate mutually hostile processes running as the same
+Vellum Command does not claim to isolate mutually hostile processes running as the same
 operating-system user. Such a process may already be able to inspect files,
 invoke binaries, automate applications, or use the user's credentials outside
-Vellum.
+Vellum Command.
 
 Controls whose only purpose is defeating an arbitrary malicious same-user
 process require an explicit change to this doctrine. They must not quietly
@@ -131,10 +131,10 @@ settings, topology, or station roles.
 
 ### 2. No surprising authority
 
-Vellum never creates, discovers-and-uses, broadens, transfers, or retains
+Vellum Command never creates, discovers-and-uses, broadens, transfers, or retains
 authority without a corresponding operator-visible action.
 
-In particular, Vellum must not silently:
+In particular, Vellum Command must not silently:
 
 - open a port;
 - enroll or connect a host;
@@ -150,7 +150,7 @@ Discovery may produce a visible suggestion. It never produces authority.
 ### 3. Operator intent is sacred
 
 The canvas and protected settings are executable operator intent. Every
-Vellum-owned path must use the current intent available to that runtime.
+Vellum Command-owned path must use the current intent available to that runtime.
 
 A control path that bypasses an edge, port, installation assignment, actor
 seat, or role boundary is a product security failure even when the attached
@@ -162,7 +162,7 @@ An edge, port, actor-seat locality, host assignment, profile boundary, role,
 revocation, or termination state must not be advisory when the UI presents it
 as protective.
 
-Vellum may state an external limit honestly. It must not display a stronger
+Vellum Command may state an external limit honestly. It must not display a stronger
 guarantee than the runtime can enforce.
 
 ### 5. Explicit enrollment
@@ -171,7 +171,7 @@ Every host and external resource begins outside the execution graph.
 Enrollment is always an operator action.
 
 Defaults are strict and deny new reach. The operator may deliberately broaden
-the factory. Vellum then enables that chosen power without repetitive approval
+the factory. Vellum Command then enables that chosen power without repetitive approval
 ceremonies.
 
 Configuration must remain small enough to understand. Prefer a predictable set
@@ -180,7 +180,7 @@ settings swamp.
 
 ### 6. No Station-to-Station control plane
 
-Vellum guarantees Command Center-to-Station communication. It does not create a
+Vellum Command guarantees Command Center-to-Station communication. It does not create a
 Station-to-Station control plane.
 
 Any future cross-station action must route through Command Center and remain
@@ -231,12 +231,12 @@ arrived. It must:
 - offer visible, safe diagnostic tools;
 - leave remediation and fleet/network decisions with the operator.
 
-The unreachable Remote continues under its last received intent. Vellum does
+The unreachable Remote continues under its last received intent. Vellum Command does
 not attempt to solve a network or machine the operator cannot reach.
 
 ### 8. Honest operator tools
 
-Vellum may provide Doctor, connectivity tests, SSH or network inspection, safe
+Vellum Command may provide Doctor, connectivity tests, SSH or network inspection, safe
 scans, and exact remediation guidance.
 
 These tools remain visible to the operator. Read-only diagnosis may run
@@ -244,9 +244,9 @@ automatically when disclosed by the UI. Active remediation, topology changes,
 new connectivity, installation, or privilege escalation requires an explicit
 operator action.
 
-On Linux, Vellum's own Station install and update transaction is an
+On Linux, Vellum Command's own Station install and update transaction is an
 ordinary-user operation. A host-administrator action is separate from that
-transaction: Vellum may document it and later verify its effect, but it does
+transaction: Vellum Command may document it and later verify its effect, but it does
 not invoke the privileged command, collect its password or input, or retain a
 grant. A missing optional host facility degrades only the capability that
 needs it when safe; a missing security property fails the affected boundary
@@ -273,7 +273,7 @@ product requirement.
 
 ### Canonical canvas
 
-The canonical canvas is a protected Vellum document authored only through the
+The canonical canvas is a protected Vellum Command document authored only through the
 operator interface.
 
 The target product contract is:
@@ -281,7 +281,7 @@ The target product contract is:
 - canvas and protected settings have one app-owned authoring path;
 - only direct operator actions in Command Center author intent;
 - agents never write the canonical canvas;
-- agents consume read-only compiled projections and Vellum tools;
+- agents consume read-only compiled projections and Vellum Command tools;
 - automatic history records operator changes without adding authoring chores;
 - undo, recovery, and "what authority changed?" remain operator facilities.
 
@@ -411,10 +411,10 @@ explicit new operator destination as portability and forensic evidence.
 Inventory verifies owner-only regular files, SQLite integrity, foreign keys,
 schema version, and schema identity. Export refuses overwrite and verifies the
 copy. It never replaces `vellum.db`, launches an older binary, restores a
-retired schema, or authorizes downgrade. Vellum currently has no restore path.
+retired schema, or authorizes downgrade. Vellum Command currently has no restore path.
 
 Canvas confidentiality follows the operator's operating-system account, disk,
-backup, and export choices. Vellum does not become a general secret-management
+backup, and export choices. Vellum Command does not become a general secret-management
 or key-management system merely because the canvas is authoritative.
 
 ### Agent surface
@@ -462,17 +462,17 @@ runtime requirement, so actor and page must share one installation.
 
 JSON Canvas files, digests, SVG renders, screenshots, diagnostic bundles, and
 other derivatives are explicit export and interoperability surfaces. They keep
-the operator from being locked into Vellum.
+the operator from being locked into Vellum Command.
 
 An exported derivative:
 
 - does not become canonical operator intent;
 - carries no live authority over a running factory;
 - may be consumed by the operator or an attached agent through an authorized
-  Vellum tool;
+  Vellum Command tool;
 - remains an ordinary operator-owned file when deliberately persisted.
 
-Vellum must not silently treat an exported derivative as authorial input or
+Vellum Command must not silently treat an exported derivative as authorial input or
 live factory state. This protects the canonical authoring boundary without
 turning deliberate operator portability into a warning ceremony.
 
@@ -499,7 +499,7 @@ fleet topology, but role-bearing text and code use exactly `Command Center` or
 
 ### One Command Center per factory
 
-There is exactly one Command Center for one Vellum factory.
+There is exactly one Command Center for one Vellum Command factory.
 
 Many independent Command Centers may exist on the same physical network when
 they belong to different factories. Network discovery never establishes
@@ -511,7 +511,7 @@ A new installation may:
 - explicitly join an existing factory as a Remote;
 - remain an unenrolled local installation or facility.
 
-One Vellum installation belongs to at most one factory and has one role in that
+One Vellum Command installation belongs to at most one factory and has one role in that
 factory.
 
 ### Command Center transfer
@@ -521,24 +521,24 @@ an agent tool, a canvas edit, or a settings mutation.
 
 Command Center transfer is a catastrophic operator workflow. The current
 Command Center must deliberately yield, and the operator must directly open
-Vellum on the target installation to accept its new role. Exact transfer and
+Vellum Command on the target installation to accept its new role. Exact transfer and
 permanent-loss recovery mechanics remain open decisions.
 
 ### Actor locality and admission
 
-Every executable Vellum actor is one compiled `ActorSeatId` homed on exactly
+Every executable Vellum Command actor is one compiled `ActorSeatId` homed on exactly
 one installation:
 
 - a Command Center actor executes in the Command Center runtime;
 - a Remote actor executes in that Remote runtime.
 
-The seat acts through a process bound by its host-local Vellum runtime. Its
+The seat acts through a process bound by its host-local Vellum Command runtime. Its
 current edges and ports determine which projected sinks it may use.
 `ActorSeatId`, placement, and an edge are routing or authorization facts; none
 is a network credential.
 
-A provider resource or machine without a local Vellum runtime is a facility or
-integration target, not an ambient Vellum actor. It cannot become an actor by
+A provider resource or machine without a local Vellum Command runtime is a facility or
+integration target, not an ambient Vellum Command actor. It cannot become an actor by
 holding a node ID, environment variable, Station route, generic MCP endpoint,
 or CLI address. A future provider adapter may expose a specifically typed
 principal only after defining an honest attribution and revocation boundary.
@@ -551,17 +551,17 @@ visible on the canvas and in inspection surfaces.
 
 ## Edges, ports, and enforcement
 
-An edge is an enforceable delegation within Vellum. It is not a claim that the
+An edge is an enforceable delegation within Vellum Command. It is not a claim that the
 operating system confines a trusted shell process.
 
-For every protected Vellum action:
+For every protected Vellum Command action:
 
-- the actor is attributed to its real Vellum seat;
+- the actor is attributed to its real Vellum Command seat;
 - the target belongs to the expected runtime and host;
 - a current edge connects actor and target;
 - the requested operation matches the edge's ports;
 - the actor seat is locally homed and process-bound for the route;
-- every Vellum-owned relay repeats the relevant checks.
+- every Vellum Command-owned relay repeats the relevant checks.
 
 Process binding is automatic attribution of a live process to a seat. It must
 not grow into a user-facing enable ceremony or be described as same-user
@@ -570,13 +570,13 @@ malware containment.
 ### Revocation and deletion
 
 On every reachable runtime, edge deletion or restriction affects the next
-Vellum action immediately. New actions are denied and queued actions are
+Vellum Command action immediately. New actions are denied and queued actions are
 canceled.
 
-When a page is deleted or moved to another Station, Vellum does everything
+When a page is deleted or moved to another Station, Vellum Command does everything
 available at that actor tier to close its page, session, and owned
-connections. When an actor node is deleted, Vellum does everything available
-at that tier to stop the actor's Vellum-owned process and revoke its tools.
+connections. When an actor node is deleted, Vellum Command does everything available
+at that tier to stop the actor's Vellum Command-owned process and revoke its tools.
 Deletion retires the actor seat; it does not erase immutable attribution,
 artifacts, receipts, or completed history.
 
@@ -588,7 +588,7 @@ atomic authority transition. Until that contract exists, preservation and
 honest stoppage are safer than invented progress.
 
 Actions already completed in an external system cannot be reversed. Failure to
-terminate a resource must be visible; Vellum must not manufacture a successful
+terminate a resource must be visible; Vellum Command must not manufacture a successful
 revocation receipt.
 
 An unreachable Station necessarily continues under its last received intent.
@@ -599,7 +599,7 @@ reached it.
 
 Host enrollment is always explicit.
 
-Vellum may discover SSH, Tailscale, harness-owned, Vouch-managed, or other
+Vellum Command may discover SSH, Tailscale, harness-owned, Vouch-managed, or other
 resources and offer onboarding. Discovery alone does not:
 
 - connect the resource;
@@ -610,16 +610,16 @@ resources and offer onboarding. Discovery alone does not:
 - add a Station;
 - add an execution edge.
 
-Vellum starts with the strictest useful defaults. The operator may enable a
+Vellum Command starts with the strictest useful defaults. The operator may enable a
 small, comprehensible set of atomic host capabilities. Existing operator-owned
 connectivity may be used only after the operator enrolls the resource and
-selects the relevant Vellum capabilities.
+selects the relevant Vellum Command capabilities.
 
 External and provider-managed resources are first-class factory facilities,
-but Vellum presents the guarantees it actually owns. It must not display a
-provider-controlled resource as though it were a Vellum-managed Station.
+but Vellum Command presents the guarantees it actually owns. It must not display a
+provider-controlled resource as though it were a Vellum Command-managed Station.
 Runtime placement and provider capability remain legible because they affect
-available ports and termination guarantees, not because Vellum requires a
+available ports and termination guarantees, not because Vellum Command requires a
 special disclosure ceremony for an operator-owned resource.
 
 ### Command Center-to-Station protocol
@@ -647,7 +647,7 @@ and authorizes each frame and owns every database transaction. SSH never writes
 settings, projections, acknowledgements, status, or database files.
 
 Tailscale (or other mesh/VPN) may supply network reachability to the enrolled
-SSH endpoint. It is optional connectivity, not Vellum authority and not a
+SSH endpoint. It is optional connectivity, not Vellum Command authority and not a
 Station credential plane.
 
 A future public transport, if shipped, is HTTPS with mutual TLS, never plain
@@ -674,10 +674,10 @@ HTTPS adapter may pass real mTLS peer evidence only when its termination and
 handoff genuinely preserve that evidence.
 
 OpenSSH's authenticated operator account is the authority for the current
-network route; no second Vellum bearer credential exists. Wire-version
+network route; no second Vellum Command bearer credential exists. Wire-version
 compatibility does not create another credential or weaken route admission.
 
-Installed Station version skew is an unavoidable runtime boundary. Vellum
+Installed Station version skew is an unavoidable runtime boundary. Vellum Command
 tracks three facts without turning them into a version soup: app release,
 local SQLite schema version, and one Station protocol integer. App and schema
 versions are diagnostic only. Each release declares Station support as
@@ -731,7 +731,7 @@ only while an enrolled Station or unreconciled durable route proves the
 obligation; elapsed time or a new app release is not evidence either way.
 
 Installation, host, factory, actor, resource, event-home, and entity-home
-identifiers on this protocol are routing facts, not credentials. Vellum has
+identifiers on this protocol are routing facts, not credentials. Vellum Command has
 one `InstallationId` concept; aliases such as `originStationId` and
 `originInstallationId` must not survive beside canonical `eventHome`.
 
@@ -805,15 +805,15 @@ part of its contract before it can ship.
 
 ## Credential ownership
 
-Vellum is not a KMS and does not become the owner of credentials belonging to
+Vellum Command is not a KMS and does not become the owner of credentials belonging to
 the operator's operating system, network, harness, or provider.
 
 - SSH configuration, private keys, known-host decisions, and agent state remain
-  OpenSSH and operator-machine concerns. Vellum may invoke the operator's
+  OpenSSH and operator-machine concerns. Vellum Command may invoke the operator's
   configured SSH client after explicit host enrollment; it does not import,
   copy, escrow, or reissue SSH private keys.
 - Harness and provider credentials remain in their native harness or provider
-  configuration. Vellum integrates with the authenticated tool; it does not
+  configuration. Vellum Command integrates with the authenticated tool; it does not
   absorb the provider's secrets.
 - Tailscale identity and credentials remain owned by Tailscale and the
   operator's installation.
@@ -822,12 +822,12 @@ the operator's operating system, network, harness, or provider.
   does not copy or migrate that profile.
 - The Linux Station lane never accepts, forwards, pipes, caches, retries,
   logs, or persists an administrator password or other privilege input. Linux
-  host-administrator preparation is performed separately outside Vellum and
+  host-administrator preparation is performed separately outside Vellum Command and
   verified afterward through read-only preflight or Doctor.
 
-Vellum may mint only credentials intrinsic to a Vellum-owned protocol, such as
+Vellum Command may mint only credentials intrinsic to a Vellum Command-owned protocol, such as
 owner-local control tokens or future mTLS material for the HTTPS Station
-adapter. Those credentials are narrowly scoped to Vellum; they never substitute
+adapter. Those credentials are narrowly scoped to Vellum Command; they never substitute
 for general SSH, provider, operating-system, browser, or root credentials.
 
 Transport credentials and logical pairing are separate:
@@ -842,7 +842,7 @@ Transport credentials and logical pairing are separate:
 - `InstallationId`, `HostId`, factory, actor, resource, route URL, and pairing
   rows do not authenticate or authorize by themselves.
 
-Before introducing a Vellum-specific credential, the design must show that it:
+Before introducing a Vellum Command-specific credential, the design must show that it:
 
 1. establishes a real boundary not already supplied by SSH, Tailscale, the
    operating system, or the provider;
@@ -851,7 +851,7 @@ Before introducing a Vellum-specific credential, the design must show that it:
 4. does not duplicate an existing authentication step or create a ceremonial
    proof that the underlying system does not enforce.
 
-If those conditions are not met, Vellum reuses the native authenticated
+If those conditions are not met, Vellum Command reuses the native authenticated
 transport and adds no credential. Future mTLS design must explicitly define
 bootstrap, private-key custody, rotation, revocation, replacement, and recovery
 before implementation. Retired browser signing or pinning is not a template
@@ -862,9 +862,9 @@ for fleet transport.
 Root or administrator authority is a real boundary.
 
 - Host-administrator mutation is a separate operator transaction outside
-  Vellum. The app may document and later verify it; the app does not execute
+  Vellum Command. The app may document and later verify it; the app does not execute
   it.
-- Vellum does not accept or transport an administrator password or other
+- Vellum Command does not accept or transport an administrator password or other
   privilege input and does not retain ambient privilege.
 - Installation and update inputs are verified before the ordinary-user
   product transaction mutates installed bytes.
@@ -876,9 +876,9 @@ Root or administrator authority is a real boundary.
   advance the recovery fence: the unchanged database may resume under its
   prior binary.
 - Once a candidate commits a schema-version advance or candidate-authored
-  durable work, recovery is forward-only: Vellum retains or repairs that
+  durable work, recovery is forward-only: Vellum Command retains or repairs that
   candidate and never launches an older bundle against advanced state.
-- Host-destructive APIs accept Vellum-owned resources or tightly bounded
+- Host-destructive APIs accept Vellum Command-owned resources or tightly bounded
   targets rather than arbitrary paths or PIDs.
 
 These controls prevent catastrophic mistakes and corrupted input. They do not
@@ -888,7 +888,7 @@ exist to simulate isolation from the trusted operator account.
 
 Linux has one canonical Station installation and update lane:
 
-- the signed Vellum payload is installed, activated, updated, and repaired
+- the signed Vellum Command payload is installed, activated, updated, and repaired
   inside the Station user's account;
 - first install and update use the same userland transaction and the same
   sealed state-preflight boundary;
@@ -918,11 +918,11 @@ Beta admission requires the core userland path to be fully tested. Optional
 capabilities may degrade independently when safe; security-sensitive features
 remain fail-closed.
 
-Vellum must not install a `sudoers` rule, setuid helper, file capability,
+Vellum Command must not install a `sudoers` rule, setuid helper, file capability,
 polkit rule, privileged daemon, root-owned update journal, or ambient package
 mutation bridge for this lane. It must not ask the app to accept or transport
 administrator input. Exact optional preparation, its consequence,
-verification, and removal remain operator-visible and outside the Vellum
+verification, and removal remain operator-visible and outside the Vellum Command
 transaction.
 
 The Linux `.deb`/`/opt` artifact contract and any remaining privileged
@@ -956,7 +956,7 @@ only by actors and tools on that Remote.
 
 Browser pages must remain isolated from Electron, Node, filesystem, shell,
 canvas, fleet credentials, and other profiles except through explicit
-Vellum-owned operations allowed by current intent.
+Vellum Command-owned operations allowed by current intent.
 
 An edge to a page grants the connected actor the represented operations on
 that specific page node and session. The page may navigate or otherwise change
@@ -964,32 +964,32 @@ through ordinary use; the grant continues to follow that page. It does not
 implicitly grant a full browser, profile administration, sibling pages, or
 newly created pages.
 
-Vellum should not add repeated confirmations after the operator deliberately
+Vellum Command should not add repeated confirmations after the operator deliberately
 grants that page capability.
 
-Vellum can promise:
+Vellum Command can promise:
 
 > No agent lacking the required current edge on the same installation may
-> control that browser surface through a Vellum API, CLI, socket, or
+> control that browser surface through a Vellum Command API, CLI, socket, or
 > automation surface.
 
-Vellum cannot promise that arbitrary malicious same-user code, an operating
+Vellum Command cannot promise that arbitrary malicious same-user code, an operating
 system compromise, or an unknown browser or kernel vulnerability cannot reach
-the user's data by means outside Vellum.
+the user's data by means outside Vellum Command.
 
 ## Termination promises by ownership
 
-- **Vellum-owned host-local process:** revoke admission, request graceful
+- **Vellum Command-owned host-local process:** revoke admission, request graceful
   termination, escalate within a bounded window when safe, and verify exit.
-- **Externally attached host-local process:** revoke every Vellum capability
+- **Externally attached host-local process:** revoke every Vellum Command capability
   and request termination; report honestly when lifecycle ownership is
   external.
 - **Provider-managed operation:** revoke the typed adapter capability, request
   provider or harness cancellation where supported, and report its result.
-- **Facility without a Vellum runtime:** no Vellum actor or execution
+- **Facility without a Vellum Command runtime:** no Vellum Command actor or execution
   authority exists.
 
-Vellum claims only the termination strength supported by the resource's real
+Vellum Command claims only the termination strength supported by the resource's real
 ownership boundary.
 
 ## Security review discipline
@@ -1015,7 +1015,7 @@ Security reviews must distinguish:
 - accidental or confused trusted-agent behavior;
 - ordinary reliability failure;
 - compromised physical machine;
-- limits Vellum cannot enforce.
+- limits Vellum Command cannot enforce.
 
 Review severity follows reachability and impact inside this threat model, not
 the most adversarial imaginable model.
@@ -1030,7 +1030,7 @@ the most adversarial imaginable model.
 - Inferring compromise merely because a Station is unreachable.
 - Automatically repairing operator networking or fleet topology.
 - Approval ceremonies that do not establish a real boundary.
-- Claiming control over provider infrastructure Vellum does not operate.
+- Claiming control over provider infrastructure Vellum Command does not operate.
 - Claiming revocation reached an unreachable physical machine.
 
 ## Forbidden architectural residue
@@ -1101,7 +1101,7 @@ general distributed system or a stricter threat model.
 A production security claim is acceptable only when:
 
 - the claim names the boundary it covers;
-- executable code enforces it on every Vellum-owned path;
+- executable code enforces it on every Vellum Command-owned path;
 - tests exercise allowed, denied, revoked, stale, unreachable, and failure
   behavior proportionately;
 - packaged artifacts prove the same behavior as source tests;

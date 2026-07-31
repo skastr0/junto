@@ -274,7 +274,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             }
             {...activateOnPointerUp(() => void runAction("deploy"))}
           >
-            {deployInFlight ? "deploying…" : "Deploy Vellum Remote"}
+            {deployInFlight ? "deploying…" : "Deploy Vellum Command Remote"}
           </Button>
           {!deployEnabled && deployDetail ? (
             <p className="fleet-detail__note">{deployDetail}</p>

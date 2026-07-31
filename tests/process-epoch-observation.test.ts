@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 describe("full process epoch snapshots", () => {
-  it("uses one locale-fixed full ps table and requires Vellum's pid witness", () => {
+  it("uses one locale-fixed full ps table and requires Vellum Command's pid witness", () => {
     let request: ProcessEpochPsRequest | undefined;
     const snapshot = readFullProcessEpochSnapshot(
       (next) => {

@@ -101,7 +101,7 @@ const prepare = (json: Record<string, any>, binary: Buffer): Buffer => {
 
   json.materials = [
     {
-      name: "Vellum dither clay",
+      name: "Vellum Command dither clay",
       pbrMetallicRoughness: {
         baseColorFactor: [0.86, 0.76, 0.61, 1],
         metallicFactor: 0.12,

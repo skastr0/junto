@@ -1,4 +1,4 @@
-// Vellum-owned terminal contracts.
+// Vellum Command-owned terminal contracts.
 // Canvas stores stable bindings; runtime owns epochs/PTYs/presentation.
 // Never put PIDs, sockets, tokens, scrollback, or engine handles in the document.
 

@@ -33,7 +33,7 @@ Please redact tokens, personal data, private endpoints, and unrelated secrets fr
 
 In scope:
 
-- Vellum desktop app (Electron main, preload, renderer)
+- Vellum Command desktop app (Electron main, preload, renderer)
 - Packaged release artifacts published via official GitHub Releases
 - Local control sockets, capability grants, browser/herdr/hermes integration as shipped
 
@@ -42,7 +42,7 @@ Out of scope:
 - Unsupported versions or forks
 - Social engineering
 - Denial-of-service against maintainer infrastructure
-- Findings that require an already-compromised local machine unless Vellum materially increases impact
+- Findings that require an already-compromised local machine unless Vellum Command materially increases impact
 - Third-party CLIs/services the app may call (report those upstream)
 
 ## Disclosure

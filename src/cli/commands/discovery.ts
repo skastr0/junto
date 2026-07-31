@@ -123,7 +123,7 @@ export const doctorCommand = Command.make(
               ok: false,
               details: {
                 error: live.left.message,
-                hint: "CLI must run under a live Vellum agent process (process-bind)",
+                hint: "CLI must run under a live Vellum Command agent process (process-bind)",
               },
             });
           }

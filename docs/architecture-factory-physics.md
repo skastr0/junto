@@ -4,8 +4,8 @@
 
 > **Governing trust model:** read
 > [`security-doctrine.md`](security-doctrine.md) first. Factory Physics enforces
-> operator intent throughout Vellum-owned tooling. It is not a claim that
-> Vellum confines a malicious process already running as the operator. If this
+> operator intent throughout Vellum Command-owned tooling. It is not a claim that
+> Vellum Command confines a malicious process already running as the operator. If this
 > document admits a stricter interpretation, the security doctrine wins.
 
 Authority, work phase, and operator attention are three distinct planes. Edges
@@ -14,7 +14,7 @@ state of a seat, never authored as a permanent grant.
 
 This document is the north star for agent authz, work control, region geography,
 and any surface that lets a process act on host-adjacent resources through
-Vellum.
+Vellum Command.
 
 Companion: machine safety ([`architecture-machine-safety.md`](architecture-machine-safety.md))
 seals *how* host power is held. Factory physics seals *who may wield a seat*
@@ -72,7 +72,7 @@ process on that installation to exercise host-adjacent ops.
 
 | Role | Typical kinds | Factory function |
 |------|---------------|------------------|
-| **Actor** | `agent` only | Vellum-spawned template terminal; occupies one host-local seat and wields outbound edges under process-bind |
+| **Actor** | `agent` only | Vellum Command-spawned template terminal; occupies one host-local seat and wields outbound edges under process-bind |
 | **Sink** | `task`, `requests`, `artifacts`, `page` | Receives ops; target of inbound capability |
 | **Scheduler** | `watcher`/`gauge`, `timer`/`cron`, `relay` | Sensors/clocks that fire **edge effects** (enqueue/set_flag); no seats, no region inject |
 | **Region** | group + `ether.region` | Geography + optional briefing text |
@@ -147,7 +147,7 @@ substitute for process-bind identity.
 
 - **Seat** — stable `agent` node where one host-local process may bind. Survives
   occupant restarts; authored by humans and compiled to one installation.
-- **Occupant** — live Vellum-spawned agent process and its registered
+- **Occupant** — live Vellum Command-spawned agent process and its registered
   descendants in that seat. Ephemeral; process-bind admits it.
 
 Occupancy spectrum (live, derived — not stored as permanent document truth):
@@ -294,7 +294,7 @@ they are not degraded through a compatibility rewrite. Unknown
 
 ## Product promise
 
-Vellum is a **premium station**. The factory floor is legible:
+Vellum Command is a **premium station**. The factory floor is legible:
 
 - what an agent can do is **what you drew**
 - what is stuck is **what criteria + live data say**
@@ -318,7 +318,7 @@ Each row was real code once; none of it is representable now.
 | an actor that silently becomes a shell | an unresolvable launch fell back to a login shell, so a dead agent looked like a working terminal. It is an error state; the shell is a different variant. |
 | a decoder that rewrites the document | `sanitizeActorSurfacePorts` deleted an actor's entity to satisfy a cross-kind rule. The document is the product: it is decoded, never corrected. |
 | geography with a seat, ports, an inbox, or a work claim | herdr held message offers while being hidden behind a `legacy-surfaces` flag. Re-kind, never hide. **Display is exempt** — a geography node may show agent state. |
-| a second admission path | route tokens minted seat identity for callers with no local Vellum. One path: the work-file token proves reach, process-bind proves who. |
+| a second admission path | route tokens minted seat identity for callers with no local Vellum Command. One path: the work-file token proves reach, process-bind proves who. |
 | a port gated by a tier number | `PORT_TIER_FLOOR` crossed a 1–4 scale with each port. Placement is data; admission is role-pair law × kind offers × authorial mask. |
 | a principal that resolves to nothing | three principal kinds × three optional ids, one of which matched no node. One shape, at least one anchor, canvas-pinned when it has no agent key. |
 | ACP as a kind | ACP is a **transport**. It was wired into physics — an ACP child PID bound as an actor seat — which is what made it look like a kind. The chat surface and transport are kept, hidden, and severed; ACP will later carry the `worker` node. |

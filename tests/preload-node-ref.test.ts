@@ -52,7 +52,7 @@ const delivery = (nodeId: string, deliveryId: string): NodeRefOpenedDelivery => 
 const loadPreload = async (): Promise<VellumApi> => {
   await import("../src/preload/index");
   const api = electron.exposed.get("vellum") as VellumApi | undefined;
-  if (api === undefined) throw new Error("preload did not expose Vellum API");
+  if (api === undefined) throw new Error("preload did not expose Vellum Command API");
   return api;
 };
 

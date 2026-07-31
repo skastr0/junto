@@ -1,4 +1,4 @@
-# Vellum Linux operator runbook
+# Vellum Command Linux operator runbook
 
 **Status:** target Linux Station Beta operator contract; implementation and
 qualification are in progress, with no supported Linux install/update release
@@ -8,11 +8,11 @@ This runbook defines the operator flow the canonical Linux release must make
 real. It does not claim the current repository's privileged `.deb` path is
 supported.
 
-Vellum's Linux Station install and update lane runs entirely as the intended
-ordinary user. Vellum performs read-only host preflight, installs one exact
+Vellum Command's Linux Station install and update lane runs entirely as the intended
+ordinary user. Vellum Command performs read-only host preflight, installs one exact
 signed payload in owner-local storage, runs sealed state preflight, and
 activates the candidate. Any host-administrator preparation is a separate
-operator decision performed outside Vellum.
+operator decision performed outside Vellum Command.
 
 The canonical userland Linux Station is labeled **Beta**. The Beta release
 must fully test this core userland path. Doctor may report independent limits
@@ -40,7 +40,7 @@ Read:
   invariants;
 - [Linux qualification](linux-package-qualification.md) for required proof.
 
-No custom image is required by the product contract. A hosted Vellum machine
+No custom image is required by the product contract. A hosted Vellum Command machine
 may arrive with optional preparation complete, but it uses the same payload,
 preflight, state, user service, and update transaction as any supported host.
 
@@ -60,12 +60,12 @@ The final release must provide one exact, copyable entry point for these steps:
 6. Review every `degraded`, `requires-admin`, `unavailable`, `unsupported`,
    or `unknown` finding.
 7. If desired, have the host administrator perform only a reviewed optional
-   action outside Vellum; then rerun preflight.
+   action outside Vellum Command; then rerun preflight.
 8. Continue only when the host is **ready** or **ready with limits** that match
    the intended workload.
 
 Signature, target, ownership, state, or security failure is a stop condition.
-Vellum does not offer a privileged bypass.
+Vellum Command does not offer a privileged bypass.
 
 The eventual signed release must supply exact rootless verifier and installer
 commands. Those commands run as the Station user and do not collect
@@ -80,13 +80,13 @@ Handle host findings independently:
 |---|---|---|
 | Missing `DISPLAY`, `Xvfb`, `xauth`, or `mcookie` | No action is required for the packaged Node Remote. | Core Remote remains available; Linux Remote browser automation remains unavailable for the first Beta. |
 | AppArmor, user-namespace, or secret-storage preparation | No action is required for the first-Beta core Remote. Apply only a future browser-sidecar release's exact reviewed instruction. | Core Remote remains available; a future browser capability stays blocked without its qualified security boundary. |
-| User lingering | Optionally enable outside Vellum when a Remote must return without login. | Remote service follows the normal user-manager login lifetime. |
-| Missing optional OS package | Optionally install the exact reviewed package outside Vellum. | Only the named capability remains degraded. |
-| Missing core runtime library | Prepare the host outside Vellum and rerun preflight. | Install/update remains not ready. |
+| User lingering | Optionally enable outside Vellum Command when a Remote must return without login. | Remote service follows the normal user-manager login lifetime. |
+| Missing optional OS package | Optionally install the exact reviewed package outside Vellum Command. | Only the named capability remains degraded. |
+| Missing core runtime library | Prepare the host outside Vellum Command and rerun preflight. | Install/update remains not ready. |
 | Unsupported platform or architecture | Use a supported host. | Install/update is refused without mutation. |
 | Unknown security fact | Diagnose until it is observed. | The affected security boundary remains blocked. |
 
-Vellum must not open a privileged prompt, accept a password, pipe input to a
+Vellum Command must not open a privileged prompt, accept a password, pipe input to a
 shell, call the package manager, or remember authorization for the next
 attempt.
 
@@ -112,7 +112,7 @@ The canonical first install:
 5. starts no privileged service and creates no system-owned application state;
 6. reports its exact installed version and activation identity.
 
-Open Vellum as the same ordinary user and choose Command Center or Remote
+Open Vellum Command as the same ordinary user and choose Command Center or Remote
 explicitly. Role and host identity are operator intent; they are never inferred
 from hardware, an open window, or whether the user service exists.
 
@@ -142,11 +142,11 @@ The release must provide exact ordinary-user commands to:
 - start and enable the Remote;
 - show its invocation, main process, and restart status;
 - stop and disable it;
-- remove only Vellum-owned userland release files.
+- remove only Vellum Command-owned userland release files.
 
 Without lingering, the service follows the user's normal login lifetime. If
 the operator wants logout/reboot persistence, follow the separate
-[user lingering](linux-host-preparation.md#user-lingering) host action. Vellum
+[user lingering](linux-host-preparation.md#user-lingering) host action. Vellum Command
 does not change lingering itself.
 
 ## Readiness and Doctor
@@ -155,7 +155,7 @@ Boot readiness and capability health are different.
 
 Boot readiness proves only the current Station generation:
 
-- the owner-local Vellum service or desktop process is the intended signed
+- the owner-local Vellum Command service or desktop process is the intended signed
   release;
 - the exact current invocation owns the supervised main process;
 - the canonical SQLite connection is ready;
@@ -181,7 +181,7 @@ When an install, configure, or update step fails:
 2. run Doctor and map every `requires-admin`, `unavailable`, or `unknown`
    finding to its remediation entry in
    [linux-host-preparation](linux-host-preparation.md);
-3. execute optional host preparation outside Vellum as a separate admin/host
+3. execute optional host preparation outside Vellum Command as a separate admin/host
    action;
 4. rerun preflight and Doctor and verify the exact affected capability status
    changed;
@@ -202,7 +202,7 @@ After rootless installation and Remote role selection:
 5. confirm the intended capability limits in Doctor.
 
 OpenSSH authenticates the host and Station user. It does not grant root and
-Vellum does not add a second administrator credential.
+Vellum Command does not add a second administrator credential.
 
 ## Upgrade
 
@@ -248,12 +248,12 @@ It does not improvise privileged commands or revive the retired `.deb` lane.
 
 The canonical removal flow must run as the Station user:
 
-1. stop and disable the owner-local Vellum user service;
-2. remove only the selected Vellum userland release and its activation
+1. stop and disable the owner-local Vellum Command user service;
+2. remove only the selected Vellum Command userland release and its activation
    metadata;
 3. preserve `~/.vellum/state/vellum.db` and browser profiles unless an explicit
    app-owned data-removal workflow separately says otherwise;
-4. rerun Doctor or inventory to confirm no Vellum process or control socket
+4. rerun Doctor or inventory to confirm no Vellum Command process or control socket
    remains.
 
 Optional host preparation is removed separately by the administrator who
@@ -284,13 +284,13 @@ invent a filesystem restore.
 
 Do not:
 
-- run Vellum as root;
+- run Vellum Command as root;
 - use the current privileged `.deb` deployment as a supported operation;
 - add a `sudoers` rule, setuid helper, file capability, polkit rule,
   privileged daemon, root transaction journal, or package bridge;
 - disable AppArmor, weaken global user-namespace policy, add
   `--no-sandbox`, or treat a broken security path as graceful degradation;
-- enable lingering or install OS packages from inside Vellum;
+- enable lingering or install OS packages from inside Vellum Command;
 - expose owner-local control over TCP or forward raw control sockets;
 - erase `~/.vellum` to make installation, update, or Doctor pass;
 - require a custom image where a stock supported host plus explicit optional

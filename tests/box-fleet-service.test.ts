@@ -32,7 +32,7 @@ const machine = (
   ip: string | null = "203.0.113.8",
 ): BoxMachineType => ({
   id: "bx_c79mgja6" as BoxMachineType["id"],
-  name: "Vellum Box",
+  name: "Vellum Command Box",
   ip,
   state,
   createdAt: "2026-07-27T00:00:00.000Z",
@@ -254,7 +254,7 @@ describe("Box Fleet service ownership", () => {
     );
   });
 
-  it("refuses lifecycle access to every Box absent from Vellum ownership state", async () => {
+  it("refuses lifecycle access to every Box absent from Vellum Command ownership state", async () => {
     const { repository } = await fixture();
     const stop = vi.fn(() => Effect.succeed(machine("stopped")));
     const cli = BoxCli.of({
@@ -390,7 +390,7 @@ describe("Box Fleet service ownership", () => {
     ).toBe("user@203.0.113.99");
   });
 
-  it("does not query Box for a host absent from Vellum ownership", async () => {
+  it("does not query Box for a host absent from Vellum Command ownership", async () => {
     const { repository } = await fixture();
     const info = vi.fn(() => Effect.succeed(machine()));
     const cli = BoxCli.of({

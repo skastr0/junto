@@ -5,7 +5,7 @@
  * feed facts. Status labels match the product surface copy.
  *
  * Idle for managed install is **terminal-session idle only** (see
- * `term/router.acquireRemoteHostMaintenance`). Vellum never force-closes an
+ * `term/router.acquireRemoteHostMaintenance`). Vellum Command never force-closes an
  * active Remote terminal to install an update.
  */
 
@@ -13,7 +13,7 @@ import { Either, Schema } from "effect";
 
 /** Product copy for busy-Remote deferred installs. */
 export const REMOTE_UPDATE_IDLE_PRODUCT_COPY =
-  "Vellum never force-closes an active Remote terminal to install an update. Busy Remotes wait until their terminal sessions have ended.";
+  "Vellum Command never force-closes an active Remote terminal to install an update. Busy Remotes wait until their terminal sessions have ended.";
 
 const AppVersion = Schema.String.pipe(
   Schema.minLength(1),

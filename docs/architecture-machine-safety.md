@@ -1,6 +1,6 @@
 # Architecture north star: machine safety
 
-**Vellum must never threaten the user's machine.**
+**Vellum Command must never threaten the user's machine.**
 
 > **Governing trust model:** read
 > [`security-doctrine.md`](security-doctrine.md) first. This document protects
@@ -12,7 +12,7 @@
 Not as a guideline. Not as “be careful in tests.” As a physical property of the
 architecture: the type system, Effect services, and domain boundaries make
 host-destructive operations **unrepresentable** or **unreachable** without a
-capability that only Vellum can mint when it owns the resource.
+capability that only Vellum Command can mint when it owns the resource.
 
 This document is the north star for process control, file mutation, and any
 future surface that can affect the host OS outside the app sandbox.
@@ -162,16 +162,16 @@ exit
 **There is no raw-pid admission API, positive terminating `process.kill(pid)`,
 or caller-supplied group-ownership boolean.** This is an application boundary,
 not a claim that the operating-system kernel makes all process signaling
-impossible: Vellum's own code cannot mint the authority without owning the
+impossible: Vellum Command's own code cannot mint the authority without owning the
 spawn path.
 
 On macOS, process-table observation and the subsequent child or group signal
-are not one atomic kernel operation. Vellum therefore requires the original
+are not one atomic kernel operation. Vellum Command therefore requires the original
 numeric child (and, for a group, its leader) to remain live with the captured
 start epoch and fails closed when it cannot prove that identity. It deliberately
 accepts a possible orphan over signaling a numeric pid or leaderless process
 group that may have been recycled. The remaining `ps`-to-signal interval is an
-operating-system TOCTOU limit; macOS does not offer Vellum a pidfd-style atomic
+operating-system TOCTOU limit; macOS does not offer Vellum Command a pidfd-style atomic
 process-group signal primitive.
 
 ## Current enforced posture
@@ -200,11 +200,11 @@ process-group signal primitive.
 
 These are not represented as solved guarantees:
 
-- POSIX group signaling is still intentional for Vellum-created detached
+- POSIX group signaling is still intentional for Vellum Command-created detached
   groups. Identity is revalidated immediately before signaling, but the final
   process-table-observation-to-signal interval is not atomic on macOS.
 - SQLite state is protected by owner-only directory/file modes and one
-  main-process connection. Vellum does not claim containment from arbitrary
+  main-process connection. Vellum Command does not claim containment from arbitrary
   hostile code already running as the same operating-system user.
 - Explicit host removal/edit may close a concurrently shared SSH master by
   design. Ordinary operation and app shutdown do not issue `-O exit`.
@@ -249,7 +249,7 @@ Code review question for every PR:
 
 ## Product promise
 
-Vellum is a **premium station**. Polished means:
+Vellum Command is a **premium station**. Polished means:
 
 - the user’s machine is treated as sacred
 - host power is held behind domain types

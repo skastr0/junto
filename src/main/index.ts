@@ -158,7 +158,7 @@ configureTerminalRouterLayeredRunner((effect) =>
 );
 
 // Browser sessions must resolve and connect directly. An inherited system
-// proxy can perform independent DNS resolution and bypass Vellum's URL/DNS
+// proxy can perform independent DNS resolution and bypass Vellum Command's URL/DNS
 // preflight on fleet machines.
 app.commandLine.appendSwitch("no-proxy-server");
 // Defense in depth for every renderer, including future windows whose local
@@ -1055,7 +1055,7 @@ const createRendererFailureWindow = (): BrowserWindow => {
   failureWindow.on("closed", () => {
     if (rendererFailureWindow === failureWindow) rendererFailureWindow = undefined;
   });
-  const html = `<!doctype html><meta charset="utf-8"><title>Vellum recovery</title><style>html{color-scheme:dark;background:#0c0b0a;color:#ede6da;font:15px system-ui}body{max-width:52ch;margin:72px auto;padding:0 28px}h1{font-size:22px}p{line-height:1.55;color:#bdb5a8}</style><h1>Vellum could not render its workspace.</h1><p>A trusted workspace could not be restored safely. Quit and reopen Vellum; your canvas documents and local sessions were not deleted.</p>`;
+  const html = `<!doctype html><meta charset="utf-8"><title>Vellum Command recovery</title><style>html{color-scheme:dark;background:#0c0b0a;color:#ede6da;font:15px system-ui}body{max-width:52ch;margin:72px auto;padding:0 28px}h1{font-size:22px}p{line-height:1.55;color:#bdb5a8}</style><h1>Vellum Command could not render its workspace.</h1><p>A trusted workspace could not be restored safely. Quit and reopen Vellum Command; your canvas documents and local sessions were not deleted.</p>`;
   void failureWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   if (!e2eIsolateFocus) {
     failureWindow.show();

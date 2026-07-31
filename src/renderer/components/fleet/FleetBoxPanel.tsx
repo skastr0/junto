@@ -181,7 +181,7 @@ export function FleetBoxPanel({
         invalidateOwnedBoxes();
         await refreshOwnedBoxes();
         await refreshFleetView();
-        setMessage("Detached from Vellum. Provider Box is unchanged.");
+        setMessage("Detached from Vellum Command. Provider Box is unchanged.");
         return;
       }
       if (result.box) {
@@ -222,7 +222,7 @@ export function FleetBoxPanel({
             <div className="fleet-box-panel__eyebrow">optional provider</div>
             <h2>Box CLI</h2>
             <p>
-              Your Box account, credentials, and billing stay with Box. Vellum
+              Your Box account, credentials, and billing stay with Box. Vellum Command
               controls only machines it creates and records locally.
             </p>
           </div>
@@ -282,18 +282,18 @@ export function FleetBoxPanel({
         {!availability?.available ? (
           <div className="fleet-box-panel__notice">
             Install Box using its official installer, then reopen this panel.
-            Vellum also checks the official <code>~/.ascii/bin/box</code> path.
+            Vellum Command also checks the official <code>~/.ascii/bin/box</code> path.
           </div>
         ) : !availability.authenticated ? (
           <div className="fleet-box-panel__notice">
-            Authenticate in your terminal with <code>box login</code>. Vellum
+            Authenticate in your terminal with <code>box login</code>. Vellum Command
             does not receive or store the credential.
           </div>
         ) : null}
 
         <div className="fleet-box-panel__toolbar">
           <div>
-            <strong>Vellum-created Boxes</strong>
+            <strong>Vellum Command-created Boxes</strong>
             <span>{boxes.length} locally owned</span>
           </div>
           <Button
@@ -309,7 +309,7 @@ export function FleetBoxPanel({
         <div className="fleet-box-panel__list">
           {boxes.length === 0 ? (
             <div className="fleet-box-panel__empty">
-              No Vellum-created Boxes. Existing machines in your Box account
+              No Vellum Command-created Boxes. Existing machines in your Box account
               are intentionally invisible here.
             </div>
           ) : (
@@ -383,7 +383,7 @@ export function FleetBoxPanel({
                       size="xs"
                       variant="danger"
                       disabled={boxBusy}
-                      title="Remove from Vellum only — does not delete the Box account machine"
+                      title="Remove from Vellum Command only — does not delete the Box account machine"
                       onClick={() => void operate("detach", box.boxId)}
                     >
                       Detach
@@ -398,11 +398,11 @@ export function FleetBoxPanel({
         <footer className="fleet-box-panel__footer">
           <span>
             New Boxes use your Box account defaults and secrets. Active work
-            keeps its Box available; when the Box has no active work, Vellum
+            keeps its Box available; when the Box has no active work, Vellum Command
             arms Box&apos;s 10-minute automatic stop.
           </span>
           <span>
-            Detach drops Vellum ownership + fleet only. Destroy machines in the
+            Detach drops Vellum Command ownership + fleet only. Destroy machines in the
             Box dashboard.
           </span>
         </footer>

@@ -164,7 +164,7 @@ describe("Linux v1 operator documentation", () => {
       "The `.deb`/`/opt` contract and any remaining privileged types, tests, scripts, receipts, or instructions are migration residue",
     );
     expect(host).toContain(
-      "Vellum never invokes `sudo`, accepts an administrator password",
+      "Vellum Command never invokes `sudo`, accepts an administrator password",
     );
     expect(host).toContain(
       "write application releases under `/opt`, `/usr`, `/var/lib`, or another system-owned location as part of the canonical lane",

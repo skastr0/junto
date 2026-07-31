@@ -27,7 +27,7 @@ export interface StationControlLocalHandoffAuthority {
  * socket. The control server calls `capture` only after it has verified that
  * its leased listener path still names an owner-only Unix socket.
  *
- * The same-user boundary is deliberate: Vellum does not claim to isolate an
+ * The same-user boundary is deliberate: Vellum Command does not claim to isolate an
  * arbitrary malicious process already running as the operator account.
  */
 export const makeOwnerLocalStationControlHandoffAuthority =

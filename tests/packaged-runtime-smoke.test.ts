@@ -132,12 +132,12 @@ afterEach(async () => {
 });
 
 const processFixture = `
-  900 1 /release/Vellum.app/Contents/MacOS/Vellum --user-data-dir=/tmp/isolated
-  904 900 /release/Vellum.app/Contents/Frameworks/Vellum Helper.app/Contents/MacOS/Vellum Helper --type=utility
-  902 900 /release/Vellum.app/Contents/Frameworks/Vellum Helper.app/Contents/MacOS/Vellum Helper --type=gpu-process
+  900 1 /release/Vellum Command.app/Contents/MacOS/Vellum Command --user-data-dir=/tmp/isolated
+  904 900 /release/Vellum Command.app/Contents/Frameworks/Vellum Command Helper.app/Contents/MacOS/Vellum Command Helper --type=utility
+  902 900 /release/Vellum Command.app/Contents/Frameworks/Vellum Command Helper.app/Contents/MacOS/Vellum Command Helper --type=gpu-process
   906 1 /usr/bin/unrelated
-  903 900 /release/Vellum.app/Contents/Frameworks/Vellum Helper (Renderer).app/Contents/MacOS/Vellum Helper (Renderer) --type=renderer
-  905 904 /release/Vellum.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler
+  903 900 /release/Vellum Command.app/Contents/Frameworks/Vellum Command Helper (Renderer).app/Contents/MacOS/Vellum Command Helper (Renderer) --type=renderer
+  905 904 /release/Vellum Command.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler
 `;
 
 describe("packaged runtime smoke process qualification", () => {
@@ -171,9 +171,9 @@ describe("packaged runtime smoke process qualification", () => {
     ).toBe("codexbar");
   });
 
-  it("rejects live Vellum and debugger/CDP authority", () => {
+  it("rejects live Vellum Command and debugger/CDP authority", () => {
     expect(() =>
-      assertNoLiveVellumRuntime(parseProcessRows(processFixture), ["/release/Vellum.app"]),
+      assertNoLiveVellumRuntime(parseProcessRows(processFixture), ["/release/Vellum Command.app"]),
     ).toThrow(/already running/u);
     expect(() =>
       assertNoLiveVellumRuntime([
@@ -185,17 +185,17 @@ describe("packaged runtime smoke process qualification", () => {
         {
           pid: 2,
           ppid: 1,
-          command: "/usr/bin/codesign -d /Applications/Vellum.app/Contents/MacOS/Vellum",
+          command: "/usr/bin/codesign -d /Applications/Vellum Command.app/Contents/MacOS/Vellum Command",
         },
       ]),
     ).not.toThrow();
     expect(
       hasDebugAuthority([
-        { pid: 1, ppid: 0, command: "Vellum --remote-debugging-port=9222" },
+        { pid: 1, ppid: 0, command: "Vellum Command --remote-debugging-port=9222" },
       ]),
     ).toBe(true);
     expect(
-      hasDebugAuthority([{ pid: 1, ppid: 0, command: "Vellum --inspect-brk=0" }]),
+      hasDebugAuthority([{ pid: 1, ppid: 0, command: "Vellum Command --inspect-brk=0" }]),
     ).toBe(true);
     expect(hasDebugAuthority(parseProcessRows(processFixture))).toBe(false);
   });

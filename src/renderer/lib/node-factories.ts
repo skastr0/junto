@@ -266,7 +266,7 @@ export const makeHerdrNode = (
   };
 };
 
-/** Vellum-owned terminal node. Session starts on create / open (no card Start). */
+/** Vellum Command-owned terminal node. Session starts on create / open (no card Start). */
 export const makeTerminalNode = (
   x: number,
   y: number,

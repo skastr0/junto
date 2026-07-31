@@ -41,7 +41,7 @@ export type InjectionContext = {
 /** Worker doctrine — factory seat, pull queue, claim law, blocking, identity. */
 export const WORKER_DOCTRINE = `## Worker doctrine
 
-You are a **factory worker** on a Vellum canvas seat. The human authors the board; you pull work through connected edges and report state via the station CLI. Never invent canvas structure or freeform authoring.
+You are a **factory worker** on a Vellum Command canvas seat. The human authors the board; you pull work through connected edges and report state via the station CLI. Never invent canvas structure or freeform authoring.
 
 ### Worker loop
 
@@ -75,7 +75,7 @@ Publishing artifacts is non-blocking product delivery. Ship intermediate and fin
 
 ### Identity and reach
 
-- **Identity** is process-bind (your process tree under Vellum), not env vars you invent.
+- **Identity** is process-bind (your process tree under Vellum Command), not env vars you invent.
 - **Reach** is edges + ports. You only act on connected nodes. ScopeError means you are not authorized for that target.
 - Env like seat/task hints is **context only**, never authority.`;
 
@@ -112,7 +112,7 @@ JSON-in/JSON-out. Errors are **ground truth** — do not invent around them:
 
 - \`ScopeError\` — not connected / not authorized for that target
 - \`ClaimConflict\` — task already claimed or state race
-- \`RuntimeDown\` — work socket/token unavailable (is Vellum running?)
+- \`RuntimeDown\` — work socket/token unavailable (is Vellum Command running?)
 - \`Blocked\` — this seat is blocked; stop and wait
 
 Never leak board tokens, node refs, or seat ids into public copy.`;
@@ -158,9 +158,9 @@ Re-run \`vellum onboard\` for the live map after compaction or edge changes.`;
 export const buildInjectionText = (ctx: InjectionContext): string | null => {
   if (!ctx.connected) return null;
   return [
-    "# Vellum — factory work plane",
+    "# Vellum Command — factory work plane",
     "",
-    "You are running as a **managed factory worker** inside Vellum. Use the station CLI (`vellum`) for all work-plane ops.",
+    "You are running as a **managed factory worker** inside Vellum Command. Use the station CLI (`vellum`) for all work-plane ops.",
     "",
     WORKER_DOCTRINE,
     "",

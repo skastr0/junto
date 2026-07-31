@@ -634,7 +634,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
   });
 
   it.each([
-    ["VELLUM_PRODUCT_NAME", 'Vellum"; touch pwned'],
+    ["VELLUM_PRODUCT_NAME", 'Vellum Command"; touch pwned'],
     ["VELLUM_LAUNCHD_LABEL", "../../LaunchAgents/evil"],
     ["VELLUM_APP_ID", ""],
   ])("refuses the ambient identity override %s", (variable, value) => {
@@ -765,7 +765,7 @@ cat "$RETIRED_APP/marker"`,
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("foreign");
     expect(result.stderr).toContain(
-      "retiring app is not the exact admitted Vellum generation",
+      "retiring app is not the exact admitted Vellum Command generation",
     );
   });
 
@@ -792,7 +792,7 @@ cat "$RETIRED_PLIST"`,
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("foreign");
     expect(result.stderr).toContain(
-      "retiring LaunchAgent plist is not the exact admitted Vellum plist",
+      "retiring LaunchAgent plist is not the exact admitted Vellum Command plist",
     );
   });
 
@@ -910,7 +910,7 @@ cat "$APP_DST/marker"`,
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("0\nretained");
     expect(result.stderr).toContain(
-      "current app is not an owned Vellum bundle",
+      "current app is not an owned Vellum Command bundle",
     );
   });
 
@@ -959,7 +959,7 @@ cat "$PLIST"`,
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("foreign");
     expect(result.stderr).toContain(
-      "existing LaunchAgent plist is not owned by Vellum",
+      "existing LaunchAgent plist is not owned by Vellum Command",
     );
   });
 

@@ -1,11 +1,11 @@
-# Vellum protocol
+# Vellum Command protocol
 
 **Status:** normative contract; foundation implemented, package and
 multi-installation qualification in progress
 
 **Last revised:** 2026-07-28
 
-**Audience:** Vellum contributors, reviewers, and operators qualifying
+**Audience:** Vellum Command contributors, reviewers, and operators qualifying
 Command Center-to-Remote behavior
 
 **Governs:** installation identity, intent projection, work ownership,
@@ -21,7 +21,7 @@ adapters, and convergence
 
 ## Summary
 
-Vellum is one operator-owned factory with one Command Center and any number of
+Vellum Command is one operator-owned factory with one Command Center and any number of
 Remotes. Command Center is the sole author of factory intent. Each Remote keeps
 one complete replace-only projection of that intent and independently executes
 the actors, schedulers, physical resources, and work items whose authority is
@@ -51,7 +51,7 @@ remain the authority for production claims.
 
 ## Version axes
 
-Vellum exposes exactly three version facts:
+Vellum Command exposes exactly three version facts:
 
 1. **App release** identifies the shipped application bundle.
 2. **SQLite schema version** identifies the local durable shape selected by
@@ -187,12 +187,12 @@ or substitute Station synchronization channel.
 
 ### Factory
 
-One operator's Vellum system: one sovereign intent, one Command Center, and
+One operator's Vellum Command system: one sovereign intent, one Command Center, and
 zero or more enrolled Remotes.
 
 ### Installation
 
-One installed Vellum app with one local database and one durable
+One installed Vellum Command app with one local database and one durable
 `InstallationId`. Installation identity survives ordinary app restarts. It is
 a routing and continuity fact, not a credential.
 
@@ -407,7 +407,7 @@ The sink's home still matters:
 ### Page is the deliberate exception
 
 A browser page is a sink with a physical runtime requirement. It is always
-host-local. Vellum never relays page operations through Command Center or the
+host-local. Vellum Command never relays page operations through Command Center or the
 Station API.
 
 ## Work authority laws
@@ -578,7 +578,7 @@ If Command Center or the target Remote is unavailable before step 3, no claim
 attempt exists and nothing is queued for a future actor. This is the precise
 meaning of synchronous claim arbitration: Command Center must be live, must
 select the actor, and must create the durable attempt while an active session
-exists. Vellum does not pretend the two SQLite transactions are one distributed
+exists. Vellum Command does not pretend the two SQLite transactions are one distributed
 transaction.
 
 If the connection is lost after step 3, including after commit but before the
@@ -659,14 +659,14 @@ There is no automatic:
 - return to submitted;
 - speculative second executor.
 
-If the actor or Remote is stalled, Vellum reports that fact. A future explicit
+If the actor or Remote is stalled, Vellum Command reports that fact. A future explicit
 operator recovery operation must define one atomic authority cutover before it
 can re-home active work.
 
-Deleting an actor retires its stable seat and stops its Vellum-owned runtime;
+Deleting an actor retires its stable seat and stops its Vellum Command-owned runtime;
 it never deletes attribution, artifacts, receipts, or completed history. An
 active task claimed by that seat stays claimed and single-home and is surfaced
-as stalled/orphaned lifecycle state. Vellum does not silently turn actor
+as stalled/orphaned lifecycle state. Vellum Command does not silently turn actor
 deletion into unclaim, requeue, steal, or reassignment.
 
 ### Starting the managed actor process
@@ -678,7 +678,7 @@ but not distinct assignment states:
 2. a durable delivery record identifies the exact task/actor/revision prompt;
 3. the local runtime ensures that actor seat is running;
 4. it delivers the prompt at the managed actor's turn boundary;
-5. after the managed transport accepts the prompt, Vellum commits an accepted
+5. after the managed transport accepts the prompt, Vellum Command commits an accepted
    delivery receipt under the stable delivery ID;
 6. a failed delivery retries without creating another claim.
 
@@ -688,7 +688,7 @@ process-local `Set` is not product durability.
 
 The transport send and SQLite receipt cannot be one atomic transaction. A
 crash after transport acceptance but before receipt commit may therefore
-redeliver the same stable delivery ID. Vellum must never write the receipt
+redeliver the same stable delivery ID. Vellum Command must never write the receipt
 before transport acceptance, because that would turn the same crash into
 permanent prompt loss. Exact-once injection would require the managed actor
 transport itself to accept and durably deduplicate the delivery ID; until that
@@ -881,7 +881,7 @@ not delete, rewrite, or merge:
 - owned processes or runtime recovery records.
 
 After replacement, the runtime reevaluates local eligibility against the new
-projection. If a local resource is no longer authorized, Vellum performs the
+projection. If a local resource is no longer authorized, Vellum Command performs the
 strongest honest revocation available on that reachable Remote.
 
 ## Work events
@@ -1550,7 +1550,7 @@ The update path must quiesce the incumbent and pass the signed packaged
 candidate preflight against a retained backup and disposable migrated clone;
 failure leaves the incumbent and its canonical state intact.
 
-Before Vellum ships its second installed release, release qualification must
+Before Vellum Command ships its second installed release, release qualification must
 exercise real packaged skew in both directions:
 
 1. candidate Command Center against the previous installed Remote;
@@ -1626,7 +1626,7 @@ The helper:
 - exits when the SSH session or Remote app disappears.
 
 OpenSSH owns SSH private keys, host-key verification, known hosts, and account
-authentication. Vellum does not copy or reissue those credentials.
+authentication. Vellum Command does not copy or reissue those credentials.
 
 The security boundary is stated narrowly:
 
@@ -1640,7 +1640,7 @@ The security boundary is stated narrowly:
   through process ancestry or the local socket.
 
 The fixed command removes arbitrary shell arguments and narrows the reachable
-surface. It is not a second credential or channel binding. Under Vellum's
+surface. It is not a second credential or channel binding. Under Vellum Command's
 single-operator threat model, an arbitrary malicious process already running
 as that same Remote account is outside the promised isolation boundary.
 Remote main still strict-decodes every frame and validates pairing, target,
@@ -1654,7 +1654,7 @@ authority.
 
 ## Future HTTPS adapter
 
-Vellum must not be architected so SSH endpoints are embedded in domain
+Vellum Command must not be architected so SSH endpoints are embedded in domain
 identity or work contracts.
 
 A future public-network adapter must use HTTPS with mutual authentication.

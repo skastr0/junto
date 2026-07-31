@@ -289,8 +289,8 @@ export const writeChunked = (
  *      or close the exact remote SSH Effect scope with a bounded receipt
  *
  * It NEVER runs `pane close`, `tab close`, `workspace close`, or `session stop`.
- * Herdr panes and agents keep running on the host when Vellum exits. Rebuilding
- * or quitting Vellum must be a non-event for the fleet.
+ * Herdr panes and agents keep running on the host when Vellum Command exits. Rebuilding
+ * or quitting Vellum Command must be a non-event for the fleet.
  */
 export class HerdrStreamManager {
   /** streamId → active control stream */
@@ -571,7 +571,7 @@ export class HerdrStreamManager {
 
 
   /**
-   * Vellum-owned image paste (stock herdr only):
+   * Vellum Command-owned image paste (stock herdr only):
    *   1. stage bytes as a temp file on the stream's host (local FS or ssh write)
    *   2. paste the absolute path via stock `terminal.input` (bracketed paste)
    * No herdr protocol extensions.
@@ -746,7 +746,7 @@ export class HerdrStreamManager {
 
   /**
    * App/launchd shutdown: detach every control stream. Idempotent.
-   * Product lock: quitting Vellum must not mass-kill herdr sessions.
+   * Product lock: quitting Vellum Command must not mass-kill herdr sessions.
    */
   beginShutdown(): void {
     this.shutDown = true;

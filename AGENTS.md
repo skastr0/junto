@@ -1,17 +1,51 @@
-# AGENTS.md — vellum
+# AGENTS.md — Vellum Command
 
-vellum is a desktop station (Electron + Effect + React) that renders a **portfolio canvas**: agents, work surfaces, notes, and regions as spatial nodes; dependencies/blockers/relationships as edges; named regions as geography. The current canvas serialization is a [JSON Canvas 1.0](https://jsoncanvas.org) document extended with a namespaced `ether` key.
+**Vellum Command** is a desktop station (Electron + Effect + React) that
+renders a **portfolio canvas**: agents, work surfaces, notes, and regions as
+spatial nodes; dependencies/blockers/relationships as edges; named regions as
+geography. The current canvas serialization is a
+[JSON Canvas 1.0](https://jsoncanvas.org) document extended with a namespaced
+`ether` key.
+
+## Product brand — hard invariant
+
+**The product name is Vellum Command. Never bare "Vellum Command".**
+
+There is another product called Vellum Command. This app, brand, and every public or
+user-facing string is **Vellum Command** only.
+
+| Surface | Rule |
+|---|---|
+| UI, dialogs, toasts, recovery HTML | `Vellum Command` |
+| CLI hints, doctor, next_step copy | `Vellum Command` |
+| README, PRODUCT, marketing, store | `Vellum Command` |
+| Agent docs (this file, CLAUDE.md) | `Vellum Command` |
+| macOS app / executable | `Vellum Command.app` |
+| Release artifacts | `Vellum-Command-…` |
+| Code identifiers / paths / bins | unchanged — not brand |
+
+**Not brand (keep as-is):** `VellumApi`, `resolveVellumHome`, `~/.vellum/`,
+`vellum.db`, `dist/vellum`, `vellum://`, `VELLUM_*` env keys, npm package name,
+appId.
+
+**Enforcement:** `bun run lint:product-name` — capital-V word `Vellum Command` not
+followed by ` Command` or `-Command` is a lint error. Wired into `bun run verify`.
+Constant: `src/shared/product-name.ts` (`PRODUCT_NAME`).
+
+**PR test:** would a stranger reading only this string think the product is
+called "Vellum Command"? If yes, rewrite to **Vellum Command**.
 
 ## Security doctrine — read first
 
 [`docs/security-doctrine.md`](docs/security-doctrine.md) is the governing
-product trust model. It defines Vellum as a single-operator factory, attached
-agents as trusted but fallible, edges as enforceable operator intent inside
-Vellum, and Stations as single-home executors of Command Center intent. If a
-review, backlog item, test, or older architecture note conflicts with it, the
-conflict is migration work. Compatibility exists only at the two proven
-external boundaries: installed SQLite state and independently updated Station
-wire peers. It must not preserve an obsolete internal domain or file store.
+product trust model. It defines Vellum Command as a single-operator factory,
+attached agents as trusted but fallible, edges as enforceable operator intent
+inside Vellum Command, and Stations as single-home executors of Command Center
+intent. If a review, backlog item, test, or older architecture note conflicts
+with it, the conflict is migration work. Compatibility exists only at the two
+proven external boundaries: installed SQLite state and independently updated
+Station wire peers. It must not preserve an obsolete internal domain or file
+store.
 
 [`docs/vellum-protocol.md`](docs/vellum-protocol.md) is the canonical
 multi-installation contract: identity, complete intent projection, sink/item
@@ -80,7 +114,7 @@ reconciled.
 
 ## The agent surface (headless — no GUI needed)
 
-**Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum tools.
+**Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum Command tools.
 
 Headless CLIs reach `CanvasesService` through the running app's owner-local
 canvas control socket. They do not open `vellum.db`. Agents remain strictly
@@ -96,17 +130,17 @@ To **read the board as an agent**: `bun run digest` (text) or `bun run render` t
 
 ### Work plane (agent mutations)
 
-While Vellum is running, agents talk to the **local** work control socket, not
+While Vellum Command is running, agents talk to the **local** work control socket, not
 to an exported document or the database:
 
 | surface | detail |
 |---|---|
 | CLI | `dist/vellum` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops |
 | Socket | `~/.vellum/work/control.sock` + bearer token `~/.vellum/work/token` |
-| Identity | **process-bind** — CLI must run as a descendant of a live Vellum agent (ACP) or herdr pane process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_NODE_REF` identity claim. |
+| Identity | **process-bind** — CLI must run as a descendant of a live Vellum Command agent (ACP) or herdr pane process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_NODE_REF` identity claim. |
 | Authz | **edges** — agent only acts on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`) |
 
-**How to use:** open the agent chat (or refresh local herdr pane meta) in Vellum so the process is registered, then run `dist/vellum` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
+**How to use:** open the agent chat (or refresh local herdr pane meta) in Vellum Command so the process is registered, then run `dist/vellum` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
 Browser control (`vellum browser`, with `vellum-browser` / `bun run browser`
 as compatibility and repo-dev entrypoints) uses the same process-bind identity
@@ -223,9 +257,9 @@ The **E2E design-audit loop** (`e2e/scenarios/design-audit.spec.ts`) drives ever
 
 ## Machine safety (architecture north star)
 
-**Vellum must never threaten the user's machine.** Host-destructive power is not
+**Vellum Command must never threaten the user's machine.** Host-destructive power is not
 “handled carefully in tests” — it is made **unrepresentable** without a capability
-Vellum mints when it owns the resource.
+Vellum Command mints when it owns the resource.
 
 - **Law:** no ambient `kill(pid)` / open host wipe APIs. Domain types + Effect
   Schema + branded handles only.
@@ -245,7 +279,7 @@ seat. Roles derive from entity kind — never authorial `ether.role`. Capability
 phase, and attention/occupancy are separate planes.
 
 - **The law:** four roles, and **exactly one actor kind — `agent`**, the
-  Vellum-spawned template terminal. A raw user-opened terminal is
+  Vellum Command-spawned template terminal. A raw user-opened terminal is
   `geography/"terminal"`; `worker` is reserved for a future native agent UI and
   must not appear as a kind. Geography holds no seat, no ports, no inbox, and no
   work claim — but it *may* display agent state, because display is not a factory

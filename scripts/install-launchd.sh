@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Vellum as a crash-supervised LaunchAgent (KeepAlive only on non-zero exit).
+# Install Vellum Command as a crash-supervised LaunchAgent (KeepAlive only on non-zero exit).
 #
 #   scripts/install-launchd.sh              build, install to /Applications, load agent
 #   scripts/install-launchd.sh --skip-build reuse existing release app / already-installed
@@ -13,7 +13,7 @@
 # (true for Remote). This script is the apply surface — it does not read
 # application state. Doctor surfaces preferred vs loaded.
 #
-# Herdr: reload/unload soft-quits Vellum → control streams detach; panes keep running.
+# Herdr: reload/unload soft-quits Vellum Command → control streams detach; panes keep running.
 # Never mass-kills herdr sessions.
 set -euo pipefail
 
@@ -49,7 +49,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     bind_launchd_retirement_root
     /bin/mv -n "$PLIST" "$PLIST_RETIREMENT_ROOT/"
     if [[ -L "$RETIRED_PLIST" || "$(path_identity "$RETIRED_PLIST" 2>/dev/null)" != "$UNINSTALL_PLIST_ID" ]]; then
-      err "retiring LaunchAgent plist identity does not match the admitted Vellum plist"
+      err "retiring LaunchAgent plist identity does not match the admitted Vellum Command plist"
       exit 1
     fi
     RETIRED_PLIST_ID="$UNINSTALL_PLIST_ID"
@@ -245,7 +245,7 @@ if [[ -n "$CURRENT_PLIST_ID" ]]; then
   RETIRING_PLIST_ID="$CURRENT_PLIST_ID"
   /bin/mv -n "$PLIST" "$PLIST_RETIREMENT_ROOT/"
   if [[ -L "$RETIRED_PLIST" || "$(path_identity "$RETIRED_PLIST" 2>/dev/null)" != "$RETIRING_PLIST_ID" ]]; then
-    err "retiring LaunchAgent plist identity does not match the admitted Vellum plist"
+    err "retiring LaunchAgent plist identity does not match the admitted Vellum Command plist"
     exit 1
   fi
   RETIRED_PLIST_ID="$RETIRING_PLIST_ID"

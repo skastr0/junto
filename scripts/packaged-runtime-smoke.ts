@@ -211,7 +211,7 @@ export const assertNoTcpListeners = (
   stdout: string,
 ): void => {
   if (status !== 1 || stdout.trim().length !== 0) {
-    throw new Error("packaged Vellum descendants exposed a TCP listener");
+    throw new Error("packaged Vellum Command descendants exposed a TCP listener");
   }
 };
 
@@ -422,7 +422,7 @@ const preflightRuntime = (requestedAppPath: string): void => {
     `gui/${String(currentUid())}/skastr0.vellumcommand`,
   ]);
   if (launchAgent.status === 0) {
-    throw new Error("the Vellum LaunchAgent is loaded; unload it before packaged smoke");
+    throw new Error("the Vellum Command LaunchAgent is loaded; unload it before packaged smoke");
   }
 };
 
@@ -565,7 +565,7 @@ export const observeSpawnedRuntimeLease = (
     if (observedTerminal !== undefined) return Promise.resolve(observedTerminal);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        reject(new Error("packaged Vellum did not close inside the shutdown bound"));
+        reject(new Error("packaged Vellum Command did not close inside the shutdown bound"));
       }, timeoutMs);
       void lease.io.closed.then(({ code, signal }) => {
         clearTimeout(timer);
@@ -597,7 +597,7 @@ export const terminateSpawnedRuntime = async (
         await lifecycle.waitForClose(shutdownTimeoutMs);
         return;
       } catch {
-        throw new Error("packaged Vellum cleanup could not signal its owned process");
+        throw new Error("packaged Vellum Command cleanup could not signal its owned process");
       }
     }
   }
@@ -609,8 +609,8 @@ export const terminateSpawnedRuntime = async (
     if (!forced.attempted || forced.via !== expectedVia) {
       throw new Error(
         lease.mode === "group"
-          ? "packaged Vellum cleanup refused an unverified forced group signal"
-          : "packaged Vellum cleanup could not force its exact child handle",
+          ? "packaged Vellum Command cleanup refused an unverified forced group signal"
+          : "packaged Vellum Command cleanup could not force its exact child handle",
       );
     }
     await lifecycle.waitForClose(shutdownTimeoutMs);
@@ -840,7 +840,7 @@ export const smokePackagedRuntime = async (
   try {
     const launched = processPlane.spawnGroup({
       source: "packaged-runtime-smoke",
-      purpose: "verify packaged Vellum runtime",
+      purpose: "verify packaged Vellum Command runtime",
       command: executable,
       args: [`--user-data-dir=${userData}`],
       cwd: tempRoot,
@@ -870,7 +870,7 @@ export const smokePackagedRuntime = async (
     }, SMOKE_TIMEOUT_MS);
     const output = drainBounded(launched.io);
     const rootPid = launched.io.pidForDiagnostics;
-    if (rootPid === undefined) throw new Error("packaged Vellum did not produce a process id");
+    if (rootPid === undefined) throw new Error("packaged Vellum Command did not produce a process id");
     const controlHome = isolatedHome;
 
     await waitUntil("control startup", STARTUP_TIMEOUT_MS, async () => {
@@ -881,7 +881,7 @@ export const smokePackagedRuntime = async (
           pathExists(controlSocketPath(controlHome)),
         ]);
         throw new Error(
-          `packaged Vellum closed before control startup (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"}, phase=${output.startupMarker()}, token=${String(tokenCreated)}, socket=${String(socketCreated)})`,
+          `packaged Vellum Command closed before control startup (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"}, phase=${output.startupMarker()}, token=${String(tokenCreated)}, socket=${String(socketCreated)})`,
         );
       }
       try {
@@ -966,7 +966,7 @@ export const smokePackagedRuntime = async (
       const terminal = lifecycle.terminal();
       if (terminal !== undefined) {
         throw new Error(
-          `packaged Vellum closed before process roles (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"})`,
+          `packaged Vellum Command closed before process roles (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"})`,
         );
       }
       runtimeRows = descendantRows(rootPid, currentProcessRows());
@@ -974,7 +974,7 @@ export const smokePackagedRuntime = async (
       return REQUIRED_PROCESS_ROLES.every((role) => roles.includes(role));
     });
     if (hasDebugAuthority(runtimeRows)) {
-      throw new Error("packaged Vellum descendants exposed debugger authority");
+      throw new Error("packaged Vellum Command descendants exposed debugger authority");
     }
     knownRows = runtimeRows;
     const knownPids = knownRows.map((row) => row.pid);
@@ -989,7 +989,7 @@ export const smokePackagedRuntime = async (
     ]);
     assertNoTcpListeners(listeners.status, listeners.stdout);
     if (output.overflowed()) {
-      throw new Error("packaged Vellum exceeded the bounded smoke output budget");
+      throw new Error("packaged Vellum Command exceeded the bounded smoke output budget");
     }
 
     if (watchdogFailure !== undefined) throw new Error(watchdogFailure);
@@ -998,15 +998,15 @@ export const smokePackagedRuntime = async (
       "packaged-smoke-normal-shutdown",
     );
     if (!shutdownSignal.attempted || shutdownSignal.via !== "child.kill") {
-      throw new Error("packaged Vellum normal shutdown lost exact leader authority");
+      throw new Error("packaged Vellum Command normal shutdown lost exact leader authority");
     }
     const exited = await lifecycle.waitForClose(SHUTDOWN_TIMEOUT_MS);
     if (exited.error !== undefined) {
-      throw new Error(`packaged Vellum reported a child lifecycle error: ${exited.error.message}`);
+      throw new Error(`packaged Vellum Command reported a child lifecycle error: ${exited.error.message}`);
     }
     if (exited.code !== 0 || exited.signal !== null) {
       throw new Error(
-        `packaged Vellum did not complete its normal SIGTERM contract (code=${String(exited.code)}, signal=${String(exited.signal)})`,
+        `packaged Vellum Command did not complete its normal SIGTERM contract (code=${String(exited.code)}, signal=${String(exited.signal)})`,
       );
     }
     let shutdownSocketGone = false;
@@ -1052,7 +1052,7 @@ export const smokePackagedRuntime = async (
       realRootEvents !== 0 ||
       beforeSnapshots.some((snapshot, index) => !sameSnapshot(snapshot, afterSnapshots[index]))
     ) {
-      throw new Error("packaged runtime smoke changed a real Vellum root");
+      throw new Error("packaged runtime smoke changed a real Vellum Command root");
     }
 
     success = {

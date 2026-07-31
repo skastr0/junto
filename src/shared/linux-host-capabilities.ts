@@ -14,7 +14,7 @@ const NonNegativeInteger = Schema.Number.pipe(
 );
 
 /**
- * Product-facing capability state. These values describe what Vellum can
+ * Product-facing capability state. These values describe what Vellum Command can
  * safely do now; they are not aliases for shell exit codes.
  */
 export const LinuxHostCapabilityStatus = Schema.Literal(

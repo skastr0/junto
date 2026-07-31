@@ -31,7 +31,7 @@ const box = (
 ): BoxFleetResource => ({
   boxId: "bx_c79mgja6",
   hostId: "box-c79mgja6",
-  name: "Vellum Box",
+  name: "Vellum Command Box",
   ip,
   state,
   createdAt: "2026-07-29T00:00:00.000Z",

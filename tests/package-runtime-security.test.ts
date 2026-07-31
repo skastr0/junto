@@ -199,7 +199,7 @@ Load command 8
           parseMachOSliceMinimumSystemVersion(legacy, "x86_64"),
         ],
         "13.0",
-        "Contents/Frameworks/Vellum Helper (Renderer).app/Contents/MacOS/Vellum Helper (Renderer)",
+        "Contents/Frameworks/Vellum Command Helper (Renderer).app/Contents/MacOS/Vellum Command Helper (Renderer)",
       ),
     ).toBe("13.0");
   });
@@ -252,7 +252,7 @@ Load command 9
 
   it("queries every fat slice independently using fixed lipo and otool argv", () => {
     const helperPath =
-      "/tmp/Vellum.app/Contents/Frameworks/Vellum Helper (Renderer).app/Contents/MacOS/Vellum Helper (Renderer)";
+      "/tmp/Vellum Command.app/Contents/Frameworks/Vellum Command Helper (Renderer).app/Contents/MacOS/Vellum Command Helper (Renderer)";
     const calls: Array<{
       readonly executable: string;
       readonly args: ReadonlyArray<string>;
@@ -292,7 +292,7 @@ Load command 9
 });
 
 describe("electron-builder role-specific signing", () => {
-  const appPath = "/tmp/release/Vellum.app";
+  const appPath = "/tmp/release/Vellum Command.app";
 
   it("selects JIT for exact main/helper bundles and executables only", () => {
     expect(signingProfileForPath(appPath, appPath, MACOS_RUNTIME_POLICY)).toBe("jit");
@@ -326,14 +326,14 @@ describe("electron-builder role-specific signing", () => {
         appPath,
         path.join(
           appPath,
-          "Contents/Frameworks/Vellum Helper (Plugin).app/Contents/MacOS/Vellum Helper (Plugin)",
+          "Contents/Frameworks/Vellum Command Helper (Plugin).app/Contents/MacOS/Vellum Command Helper (Plugin)",
         ),
         MACOS_RUNTIME_POLICY,
       ),
     ).toBe("none");
     expect(() =>
       signingProfileForPath(appPath, "/tmp/outside", MACOS_RUNTIME_POLICY),
-    ).toThrow(/outside (?:Vellum\.app|the app bundle)/u);
+    ).toThrow(/outside (?:Vellum Command\.app|the app bundle)/u);
   });
 
   it("wires the custom signer, explicit profiles, audit, and verify-only smoke", async () => {

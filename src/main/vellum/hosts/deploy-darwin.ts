@@ -439,7 +439,7 @@ export const darwinLiveWorkRefusalResult = (input: {
       ok: false,
       detail:
         `${input.hostLabel}: package activation deferred — ` +
-        `${input.refusal.evidence.activeTerminalSessions} Vellum terminal session(s) active. ` +
+        `${input.refusal.evidence.activeTerminalSessions} Vellum Command terminal session(s) active. ` +
         REMOTE_UPDATE_IDLE_PRODUCT_COPY,
       code: "conflict",
       message: REMOTE_UPDATE_IDLE_PRODUCT_COPY,
@@ -494,10 +494,10 @@ export const validateLocalBundleProvenance = (input: {
     throw new Error(`local bundle must be named ${APP_BUNDLE_NAME}`);
   }
   if (input.bundleIdentifier.trim() !== LABEL) {
-    throw new Error("local bundle identifier does not match Vellum");
+    throw new Error("local bundle identifier does not match Vellum Command");
   }
   if (input.bundleExecutable.trim() !== PRODUCT_NAME) {
-    throw new Error("local bundle executable identity does not match Vellum");
+    throw new Error("local bundle executable identity does not match Vellum Command");
   }
   const bundleVersion = input.bundleVersion.trim();
   if (!/^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$/u.test(bundleVersion)) {
@@ -510,13 +510,13 @@ export const validateLocalBundleProvenance = (input: {
     throw new Error("code signature executable path does not match the bundle");
   }
   if (singleCodesignValue(input.codesignMetadata, "Identifier") !== LABEL) {
-    throw new Error("code signature identifier does not match Vellum");
+    throw new Error("code signature identifier does not match Vellum Command");
   }
   if (
     singleCodesignValue(input.codesignMetadata, "TeamIdentifier") !==
     TEAM_IDENTIFIER
   ) {
-    throw new Error("code signature team does not match Vellum");
+    throw new Error("code signature team does not match Vellum Command");
   }
   const codeDirectories = input.codesignMetadata
     .split(/\r?\n/u)
@@ -533,7 +533,7 @@ export const validateLocalBundleProvenance = (input: {
     .filter((line) => line.startsWith("Authority="))
     .map((line) => line.slice("Authority=".length).trim());
   if (authorities[0] !== SIGNING_AUTHORITY) {
-    throw new Error("code signature authority does not match Vellum policy");
+    throw new Error("code signature authority does not match Vellum Command policy");
   }
   const signatureSize = singleCodesignValue(
     input.codesignMetadata,
@@ -986,7 +986,7 @@ const buildRemoteDeployScriptWithRuntime = (
   const plistB64 = Buffer.from(plistBody, "utf8").toString("base64");
 
   // Every interpolated path is a shell-safe literal. APP/IN/EXE are compile-
-  // time product paths; remoteHome only scopes Vellum's own plist/log/sockets.
+  // time product paths; remoteHome only scopes Vellum Command's own plist/log/sockets.
   return `
 set -euo pipefail
 umask 022

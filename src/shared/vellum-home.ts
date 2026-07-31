@@ -2,15 +2,15 @@ import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 
 /**
- * Vellum-specific home directory.
+ * Vellum Command-specific home directory.
  *
- * Vellum's state, control sockets, and internal caches live under this
+ * Vellum Command's state, control sockets, and internal caches live under this
  * directory (`<home>/.vellum/...`). By default it is the OS user home, but the
  * `VELLUM_HOME` environment variable overrides it. This lets a dev build run
  * with an isolated `.vellum` tree while leaving `HOME` (and therefore the shell
  * home seen by child terminals/tools) unchanged.
  *
- * Only Vellum-owned paths should use this helper. External tool caches
+ * Only Vellum Command-owned paths should use this helper. External tool caches
  * (`~/.codex`, `~/.hermes`, `~/.claude.json`, etc.) and the shell's `~`
  * resolution intentionally stay on the real `HOME` for predictable behavior.
  */
@@ -35,7 +35,7 @@ export const resolveVellumHome = (): string => {
   return cachedVellumHome;
 };
 
-/** Test hook: clear the memoized Vellum home. */
+/** Test hook: clear the memoized Vellum Command home. */
 export const __resetVellumHomeCache = (): void => {
   cachedVellumHome = undefined;
 };

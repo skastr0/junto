@@ -1,6 +1,6 @@
 # Factory Familiars
 
-Factory Familiars are Vellum's optional stock avatar library: twelve tiny
+Factory Familiars are Vellum Command's optional stock avatar library: twelve tiny
 workshop automata with distinct silhouettes and quiet behavioral cues. They are
 a deliberate exception to Ether's normal refusal of robot imagery. The
 exception stays bounded to agent identity at avatar scale; it does not add
@@ -21,7 +21,7 @@ The portraits share a strict production frame:
 
 - square source, safe for a circular crop;
 - subject occupies roughly 72% of the frame;
-- creature silhouette, gaze, and paired optical eyes remain legible at Vellum's
+- creature silhouette, gaze, and paired optical eyes remain legible at Vellum Command's
   20px card size;
 - no text, logos, humanoid anatomy, literal animals, glossy plastic, franchise-animation look,
   circuit-board pattern, or steampunk clutter;

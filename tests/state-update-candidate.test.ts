@@ -164,10 +164,10 @@ describe("state update candidate", () => {
       "backups",
       "vellum-backup-55555555-5555-5555-8555-555555555555.db.pending",
     );
-    await writeFile(versionOneLookalike, "not minted by Vellum", {
+    await writeFile(versionOneLookalike, "not minted by Vellum Command", {
       mode: 0o600,
     });
-    await writeFile(versionFiveLookalike, "not minted by Vellum", {
+    await writeFile(versionFiveLookalike, "not minted by Vellum Command", {
       mode: 0o600,
     });
 
@@ -196,7 +196,7 @@ describe("state update candidate", () => {
     const unrelated = join(candidatesRoot, "operator-note");
     await mkdir(unrelated);
     const witness = join(unrelated, "must-survive");
-    await writeFile(witness, "not a Vellum candidate");
+    await writeFile(witness, "not a Vellum Command candidate");
     const versionOneCandidate = join(
       candidatesRoot,
       "11111111-1111-1111-8111-111111111111",
@@ -217,12 +217,12 @@ describe("state update candidate", () => {
     expect(existsSync(pendingBackup)).toBe(false);
     expect(existsSync(orphan)).toBe(false);
     expect(await readFile(retainedBackup)).toEqual(retainedBytes);
-    expect(await readFile(witness, "utf8")).toBe("not a Vellum candidate");
+    expect(await readFile(witness, "utf8")).toBe("not a Vellum Command candidate");
     expect(await readFile(versionOneLookalike, "utf8")).toBe(
-      "not minted by Vellum",
+      "not minted by Vellum Command",
     );
     expect(await readFile(versionFiveLookalike, "utf8")).toBe(
-      "not minted by Vellum",
+      "not minted by Vellum Command",
     );
     expect(await readFile(versionOneWitness, "utf8")).toBe(
       "not a minted candidate",

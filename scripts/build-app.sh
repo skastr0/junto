@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile Vellum and package for one explicit native target.
+# Compile Vellum Command and package for one explicit native target.
 #
 #   scripts/build-app.sh --target mac|linux [--channel beta|production] [--fast] [--verify] [--notarize]
 #   scripts/build-app.sh --compile-only [--channel beta|production]

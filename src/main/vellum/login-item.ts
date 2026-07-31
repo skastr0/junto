@@ -1,4 +1,4 @@
-// Login-item surface: opt-in "Start Vellum at login" via Electron's
+// Login-item surface: opt-in "Start Vellum Command at login" via Electron's
 // app.setLoginItemSettings / getLoginItemSettings. Never silent enrollment —
 // only explicit toggle. The OS is the source of truth.
 

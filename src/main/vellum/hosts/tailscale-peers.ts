@@ -43,7 +43,7 @@ export class TailscalePeerCache {
   }
 
   /**
-   * Resolve MagicDNS/IPv4 for a Vellum host id. Uses cache when fresh;
+   * Resolve MagicDNS/IPv4 for a Vellum Command host id. Uses cache when fresh;
    * refreshes in background when stale (returns last good immediately).
    */
   resolveHost(hostId: string): string | undefined {

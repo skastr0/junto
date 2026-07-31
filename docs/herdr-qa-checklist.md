@@ -12,10 +12,10 @@ Automated gates: `bun run typecheck` · `bun run test` (no live ssh required).
 
 ### Quit / reinstall smoke
 
-1. Attach a live agent pane in Vellum; leave it working in herdr
-2. Quit Vellum (Cmd-Q) or `bun run app:install:fast`
+1. Attach a live agent pane in Vellum Command; leave it working in herdr
+2. Quit Vellum Command (Cmd-Q) or `bun run app:install:fast`
 3. `herdr pane list` still shows the pane; agent still running
-4. Re-open Vellum and re-attach — same pane, work preserved
+4. Re-open Vellum Command and re-attach — same pane, work preserved
 
 ## Manual local
 

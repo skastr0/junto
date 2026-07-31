@@ -6,7 +6,7 @@
 
 - [Managed terminal plan](managed-terminal-plan.md)
 - [Factory physics](architecture-factory-physics.md)
-- [Vellum protocol](vellum-protocol.md)
+- [Vellum Command protocol](vellum-protocol.md)
 - [Security doctrine](security-doctrine.md)
 
 This path is retained so older research notes have a stable target. It is not a
@@ -16,8 +16,8 @@ second architecture and must not be used as implementation guidance.
 
 An earlier proposal split harness integration into tiers:
 
-- a Vellum-local, process-bound actor;
-- a plugin without a local Vellum installation that called a network-reachable
+- a Vellum Command-local, process-bound actor;
+- a plugin without a local Vellum Command installation that called a network-reachable
   work endpoint using a bearer credential;
 - ACP or headless workers as the primary autonomous runtime.
 
@@ -30,18 +30,18 @@ They do not survive as dormant release flags, future scaffolding, or a fallback.
 
 ## Current contract
 
-Vellum has one v1 actor runtime and one agent work path:
+Vellum Command has one v1 actor runtime and one agent work path:
 
 1. The operator authors an `agent` node with a managed-terminal template.
-2. Vellum spawns and owns the terminal process on its placed installation.
+2. Vellum Command spawns and owns the terminal process on its placed installation.
 3. The process tree is bound to the compiled `ActorSeatId`.
 4. The descendant CLI reaches the owner-local work control socket.
 5. Main resolves the peer process, current projection, edge, port, and sink
    before calling `WorkService`.
 
 Environment variables may provide context, but never identity or authority.
-A raw OS terminal, external harness process, or plugin without a local Vellum
-runtime has no Vellum seat and no remote work-control route.
+A raw OS terminal, external harness process, or plugin without a local Vellum Command
+runtime has no Vellum Command seat and no remote work-control route.
 
 The Station API is separate. Its five verbs synchronize Command Center intent
 and single-home work facts with an enrolled Remote. It is not an agent tool

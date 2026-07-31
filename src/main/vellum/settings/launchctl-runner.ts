@@ -18,7 +18,7 @@ const VellumLaunchAgentTargetTypeId: unique symbol = Symbol(
   "@vellum/VellumLaunchAgentTarget",
 );
 
-/** Opaque authority to address only this user's Vellum LaunchAgent. */
+/** Opaque authority to address only this user's Vellum Command LaunchAgent. */
 export interface VellumLaunchAgentTarget {
   readonly [VellumLaunchAgentTargetTypeId]:
     typeof VellumLaunchAgentTargetTypeId;

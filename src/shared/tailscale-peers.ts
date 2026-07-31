@@ -141,7 +141,7 @@ const peerScore = (peer: TailscalePeer, tokens: ReadonlyArray<string>): number =
 };
 
 /**
- * Pick the best Tailscale peer for a Vellum host id / SSH endpoint.
+ * Pick the best Tailscale peer for a Vellum Command host id / SSH endpoint.
  * Returns MagicDNS or IPv4 for URL composition; undefined if no confident match.
  */
 export const matchTailscalePeer = (

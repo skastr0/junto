@@ -2,7 +2,7 @@ import type { BoxId, BoxMachine } from "./domain";
 
 declare const OwnedBoxTypeId: unique symbol;
 
-/** Opaque authority proving that this exact Box is recorded in Vellum state. */
+/** Opaque authority proving that this exact Box is recorded in Vellum Command state. */
 export interface OwnedBox {
   readonly [OwnedBoxTypeId]: typeof OwnedBoxTypeId;
 }

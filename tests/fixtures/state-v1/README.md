@@ -1,6 +1,6 @@
 # Frozen state schema v1 fixtures
 
-These databases are immutable compatibility evidence for Vellum's released
+These databases are immutable compatibility evidence for Vellum Command's released
 SQLite schema version 1. Tests must open them read-only, copy them to a
 disposable directory, and migrate only the copy.
 

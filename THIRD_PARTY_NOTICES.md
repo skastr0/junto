@@ -2,7 +2,7 @@
 
 ## Canvas UI — Dithered Object
 
-The Vellum fleet renderer contains an adapted implementation of the Canvas UI
+The Vellum Command fleet renderer contains an adapted implementation of the Canvas UI
 `DitheredObject` component.
 
 Copyright (c) 2026 David Haz.

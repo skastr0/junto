@@ -69,7 +69,7 @@ per-capability finding. Prove:
   or **not ready** result;
 - every `requires-admin` finding names one reviewed, minimal action,
   consequence, verification, and removal path;
-- Vellum does not execute that action or collect administrator input;
+- Vellum Command does not execute that action or collect administrator input;
 - rerunning preflight after a host action observes the expected change;
 - declining an optional action degrades only its named capability;
 - an absent security prerequisite blocks its affected boundary.
@@ -114,11 +114,11 @@ Run as the intended ordinary Station user. Prove:
 11. removal of only userland release bytes while preserving app-owned state;
 12. no second Linux installer or recovery path in source or payload.
 
-Snapshot the Station user's Vellum state before each release operation.
+Snapshot the Station user's Vellum Command state before each release operation.
 Package activity must not copy, replace, archive, or synthesize
 `vellum.db`, its WAL, or its shared-memory file.
 
-No Vellum process may open a privileged prompt or receive an administrator
+No Vellum Command process may open a privileged prompt or receive an administrator
 credential during the run. Checking that no password was persisted is
 insufficient; the input path itself must be absent.
 
@@ -139,7 +139,7 @@ For desktop Command Center and Remote user-service paths, prove:
 - owner-only work and Station controls;
 - SQLite database readiness;
 - native PTY behavior and capability-owned shutdown;
-- no Vellum TCP or Chrome DevTools listener;
+- no Vellum Command TCP or Chrome DevTools listener;
 - Linux Remote browser automation projected as `unavailable` for the first
   Beta without affecting core health;
 - capability-specific Doctor status that matches the retained preflight facts;
@@ -226,7 +226,7 @@ Fail the candidate when any run finds:
   allowed to determine core health;
 - an insecure Chromium fallback;
 - global AppArmor or user-namespace weakening;
-- lingering or OS-package mutation performed by Vellum;
+- lingering or OS-package mutation performed by Vellum Command;
 - capability status collapsed into generic healthy/unhealthy;
 - SSH exit zero, stale receipt, or image metadata treated as readiness;
 - direct helper/database access, file-store compatibility, or a second

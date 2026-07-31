@@ -33,8 +33,8 @@ const metadata: StationSupervisorMetadata = Object.freeze({
   displayName: "LaunchAgent",
   serviceLabel: VELLUM_LAUNCHD_LABEL,
   recovery: Object.freeze({
-    title: "Repair Vellum LaunchAgent supervision",
-    detail: "Reinstall Vellum with supervised startup enabled.",
+    title: "Repair Vellum Command LaunchAgent supervision",
+    detail: "Reinstall Vellum Command with supervised startup enabled.",
   }),
 });
 
@@ -146,7 +146,7 @@ const parseLaunchdPid = (
 const targetUnavailable = (): StationSupervisorFailure =>
   stationSupervisorFailure(
     "target-unavailable",
-    "The current user's Vellum LaunchAgent target could not be established.",
+    "The current user's Vellum Command LaunchAgent target could not be established.",
   );
 
 const observeLaunchAgent = async (

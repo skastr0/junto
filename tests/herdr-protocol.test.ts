@@ -63,7 +63,7 @@ describe("herdr control protocol field names", () => {
   it("terminal.release maps to stock detach (never pane/session kill commands)", () => {
     expect(domainSrc).toMatch(/terminal\.release/);
     expect(streamSrc).toMatch(/herdrRelease/);
-    // herdr client: Release {} => ClientMessage::Detach — Vellum must not
+    // herdr client: Release {} => ClientMessage::Detach — Vellum Command must not
     // invent workspace/tab/pane close over the control NDJSON channel.
     expect(streamSrc).not.toMatch(/type:\s*["']pane\.close["']/);
     expect(streamSrc).not.toMatch(/type:\s*["']session\.stop["']/);

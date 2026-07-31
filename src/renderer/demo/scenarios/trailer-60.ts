@@ -1,4 +1,4 @@
-// Trailer scenario for the Vellum demo engine — active ONLY under
+// Trailer scenario for the Vellum Command demo engine — active ONLY under
 // --vellum-demo / VELLUM_DEMO=1 (see @shared/demo). This file is a pure data
 // builder: fixed deterministic ids, no ulid, no Math.random, no runtime
 // framework. It must not import anything beyond @shared/demo + @shared/canvas.

@@ -1,6 +1,6 @@
 # RTS UI SFX pack
 
-Short static UI sounds for Vellum's RTS attention machine. **Offline pack only**
+Short static UI sounds for Vellum Command's RTS attention machine. **Offline pack only**
 — never generate at runtime.
 
 ## Catalog

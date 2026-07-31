@@ -35,7 +35,7 @@ import { WorkSocketLive } from "./core/socket";
 
 export const rootCommand = Command.make(CLI_NAME).pipe(
   Command.withDescription(
-    "Vellum agent and direct-operator protocol surfaces (JSON only)",
+    "Vellum Command agent and direct-operator protocol surfaces (JSON only)",
   ),
   Command.withSubcommands([
     pingCommand,

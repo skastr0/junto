@@ -211,8 +211,8 @@ describe("runStartupSchemaRecovery", () => {
     expect(boxes).toHaveLength(1);
     const box = boxes[0]!;
     expect(box.title).toBe("Update required");
-    expect(box.message).toBe("A newer version of Vellum is required");
-    expect(box.detail).toMatch(/newer version of Vellum/i);
+    expect(box.message).toBe("A newer version of Vellum Command is required");
+    expect(box.detail).toMatch(/newer version of Vellum Command/i);
     expect(box.detail).not.toMatch(
       /schema|user_version|binary|Development builds|packaged|43\.2\.0|v4|v3/i,
     );
@@ -239,7 +239,7 @@ describe("runStartupSchemaRecovery", () => {
       },
     });
     expect(boxes[0]?.title).toBe("Update required");
-    expect(boxes[0]?.message).toBe("A newer version of Vellum is required");
+    expect(boxes[0]?.message).toBe("A newer version of Vellum Command is required");
     expect(boxes[0]?.detail).not.toMatch(/schema|user_version|binary/i);
   });
 });

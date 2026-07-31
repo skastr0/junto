@@ -90,7 +90,7 @@ const parseSafeInteger = (value: string, minimum: number): number | undefined =>
 /**
  * Read and validate one complete process table. Any ambiguity fails closed:
  * non-zero ps, stderr, one malformed nonblank row, duplicate pids, or a table
- * without Vellum's own pid witness all make the snapshot unavailable.
+ * without Vellum Command's own pid witness all make the snapshot unavailable.
  */
 export const readFullProcessEpochSnapshot = (
   runPs: ProcessEpochPsRunner = systemPsRunner,

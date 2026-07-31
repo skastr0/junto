@@ -61,7 +61,7 @@ Managing agents is overwhelming.
 - **Hermes multi-agent presence** — who is up, blocked, waiting, or done, live on the board
 - **Multi-host / multi-fleet over SSH** — without a second remote tool to babysit
 - **A2A work plane** — tasks, requests, input-required, messages, and artifacts with protocol, not chat chaos
-- **Vellum CLI** — control surface agents use so work happens without freeform canvas thrash
+- **Vellum Command CLI** — control surface agents use so work happens without freeform canvas thrash
 - **Browser pages as first-class nodes** — same plane as agents and terminals
 - **Regions and watchers** — operational geography; the document is the product (portable JSON Canvas)
 
@@ -101,7 +101,7 @@ bun run app:build:production
 1. Download and open **Vellum Command** from the [latest Release](https://github.com/skastr0/vellum/releases/latest).
 2. Pick a **station role** (Command Center or Remote) on first run.
 3. Author the board — drop agents, herdr panes, pages, tasks, regions.
-4. Open an agent or herdr surface; drive work via the **Vellum CLI** or in-app chat.
+4. Open an agent or herdr surface; drive work via the **Vellum Command CLI** or in-app chat.
 
 ---
 
@@ -140,7 +140,7 @@ Derived state (blocked seats, region membership, binding health, live phase) is 
 | Kind | Base | What it is | Why it matters |
 |---|---|---|---|
 | **agent** | text | Hermes profile card; key `<host>:<profile>`; ACP chat | Live agent presence and managed-terminal seat |
-| **terminal** | text | Native Vellum PTY session (`ether.terminal`) | Default local terminal work surface |
+| **terminal** | text | Native Vellum Command PTY session (`ether.terminal`) | Default local terminal work surface |
 | **herdr** | text | Optional legacy bound PTY pane | Compatibility with existing herdr fleets |
 | **page** | link | Bound browser page + profile name | Browser as a first-class fleet surface |
 | **task** | text | Address for a normalized SQLite task sink | Protocol tasks, not chat chaos |
@@ -167,12 +167,12 @@ nodes can receive stoppage.
 
 ### Native terminals
 
-Native `terminal` nodes are the default terminal path. Vellum owns their local
+Native `terminal` nodes are the default terminal path. Vellum Command owns their local
 processes through the app-scoped TermPlane and presents them with xterm. Quitting
-Vellum kills every local native terminal session; detached local sessions do not
+Vellum Command kills every local native terminal session; detached local sessions do not
 survive quit. Put durable work on a **Remote** station instead. Herdr remains
 available as **Herdr (legacy)** for existing panes and is optional for a healthy
-local station; quitting Vellum detaches its surfaces rather than deleting herdr.
+local station; quitting Vellum Command detaches its surfaces rather than deleting herdr.
 
 ---
 
@@ -202,7 +202,7 @@ While Vellum Command is running, agents talk to the **local** work control socke
 | Protocol | `vellum-work/v1` (NDJSON) |
 | Authz | **Edges** — an agent only acts on connected nodes |
 
-### Vellum CLI
+### Vellum Command CLI
 
 ```bash
 vellum ping              # is the station up?
@@ -667,7 +667,7 @@ Proprietary — © 2026 Guilherme Castro, all rights reserved. See [`LICENSE`](L
 
 ## Security
 
-Vellum's governing product trust model is documented in
+Vellum Command's governing product trust model is documented in
 [`docs/security-doctrine.md`](docs/security-doctrine.md). Report security issues
 privately. See [`SECURITY.md`](SECURITY.md).
 

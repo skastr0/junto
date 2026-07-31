@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Notarize + staple a packaged Vellum macOS release (repeatable ship step).
+# Notarize + staple a packaged Vellum Command macOS release (repeatable ship step).
 #
 #   scripts/notarize-app.sh
 #   scripts/notarize-app.sh --zip PATH --app PATH
@@ -134,7 +134,7 @@ assert_release_zip_capability() {
   # Accept both legacy spaced names (PRODUCT_NAME) and locked production
   # artifactName (package.json / Cloudflare: Vellum-Command-*-mac.zip).
   [[ "$base" == "${PRODUCT_NAME}-"*-mac.zip || "$base" == "Vellum-Command-"*-mac.zip ]] || {
-    err "zip must be a Vellum macOS release artifact"
+    err "zip must be a Vellum Command macOS release artifact"
     return 1
   }
 }
@@ -494,7 +494,7 @@ xcrun stapler validate "$STAGED_APP"
 
 log "re-zipping stapled app into exclusive staging …"
 # Zip cannot hold a staple; ship the ticket inside a fresh archive of the stapled .app.
-# Parent of .app is the directory to zip from so the archive root is Vellum.app.
+# Parent of .app is the directory to zip from so the archive root is Vellum Command.app.
 app_parent="$STAGING_DIR"
 app_base="$(basename "$STAGED_APP")"
 (

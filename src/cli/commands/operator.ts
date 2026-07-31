@@ -13,7 +13,7 @@ const toUndefined = <A>(value: Option.Option<A>): A | undefined =>
   Option.isSome(value) ? value.value : undefined;
 
 const hostIdArg = Args.text({ name: "id" }).pipe(
-  Args.withDescription("Enrolled Vellum host id"),
+  Args.withDescription("Enrolled Vellum Command host id"),
 );
 
 const optionalHostId = Options.text("id").pipe(

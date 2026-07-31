@@ -6,7 +6,7 @@
  * remote-plan.ts / hermes-remote-plan.ts. Free-form executable+args (including
  * `/bin/sh -c …`) is unrepresentable here — that is the seal.
  *
- * Doctrine: brand means “safe product operation,” not merely “created by Vellum.”
+ * Doctrine: brand means “safe product operation,” not merely “created by Vellum Command.”
  */
 
 import type { Context } from "effect";
@@ -131,7 +131,7 @@ const decodeRemotePackagedPlatform = (
       endpoint,
       reason: canonicalUnsupported ? "unsupported" : "malformed",
       message: canonicalUnsupported
-        ? "remote platform does not have the Vellum Remote package installed"
+        ? "remote platform does not have the Vellum Command Remote package installed"
         : "remote platform probe did not return one canonical uname record",
     }),
   );

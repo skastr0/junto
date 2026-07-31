@@ -64,9 +64,9 @@ export const QUALIFICATION_WORK_ACTOR_BINDING_ID =
 export const QUALIFICATION_WORK_EDGE_ID =
   "qualification-remote-to-work" as const;
 export const QUALIFICATION_WORK_BRIEF =
-  "Complete this Vellum Station qualification task while Command Center is offline." as const;
+  "Complete this Vellum Command Station qualification task while Command Center is offline." as const;
 export const QUALIFICATION_WORK_COMPLETION_NOTE =
-  "Completed the Vellum Station qualification task while Command Center was offline." as const;
+  "Completed the Vellum Command Station qualification task while Command Center was offline." as const;
 
 export class OperatorQualificationWorkError extends Error {
   constructor(

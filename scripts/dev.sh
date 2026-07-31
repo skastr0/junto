@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Official Vellum dev entry.
+# Official Vellum Command dev entry.
 #
 # Always runs against an isolated VELLUM_HOME (~/.vellum-dev) so schema work
 # never touches production ~/.vellum. When production already matches this

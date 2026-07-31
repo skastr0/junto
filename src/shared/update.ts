@@ -4,7 +4,7 @@ import { Schema } from "effect";
  * Command Center auto-update surface.
  *
  * electron-updater owns feed check / download / cache / quitAndInstall.
- * Vellum owns the readiness gate only: hash the exact ZIP, expand to a
+ * Vellum Command owns the readiness gate only: hash the exact ZIP, expand to a
  * proof-only staging dir, run the candidate with `--vellum-state-preflight`,
  * bind the receipt to the ZIP digest, then permit install. Installation is
  * explicit "Restart to update" only — never auto on quit.

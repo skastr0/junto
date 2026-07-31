@@ -40,7 +40,7 @@ usage:
   bun run browser <command> [args] [--json]
 
 auth:
-  process-bind only — run as a child of a live Vellum agent (ACP) or herdr pane
+  process-bind only — run as a child of a live Vellum Command agent (ACP) or herdr pane
   doctor needs only the owner-local transport token
 
 commands:
@@ -232,7 +232,7 @@ const parseArgs = (
   const json = commandArgv.includes("--json");
   commandArgv = commandArgv.filter((value) => value !== "--json");
   if (commandArgv.includes("--path")) {
-    return { error: "shot does not accept --path; Vellum owns screenshot destinations" };
+    return { error: "shot does not accept --path; Vellum Command owns screenshot destinations" };
   }
   // Retired remote Station-browser surface: exit before token/socket/network.
   if (

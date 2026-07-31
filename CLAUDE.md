@@ -2,6 +2,17 @@
 
 Read `AGENTS.md` — it is the canonical project guide for this repository.
 
+## Product brand — hard invariant
+
+**The product is Vellum Command. Never bare "Vellum Command".**
+
+Another product is named Vellum Command. Every public / user-facing string in this
+repo must say **Vellum Command**. Code identifiers and paths (`VellumApi`,
+`~/.vellum/`, `vellum.db`, CLI bin `vellum`) are not brand — leave them.
+
+Gate: `bun run lint:product-name` (also in `bun run verify`).
+Constant: `src/shared/product-name.ts`.
+
 ## Multi-agent tree (for builders)
 
 At any time, multiple agents are working this codebase concurrently — the

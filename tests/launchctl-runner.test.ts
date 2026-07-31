@@ -118,7 +118,7 @@ afterEach(() => {
 });
 
 describe("launchctl runner target boundary", () => {
-  it("mints only the current user's fixed Vellum target", async () => {
+  it("mints only the current user's fixed Vellum Command target", async () => {
     const harness = makeLeaseHarness();
     const processPlane = makeProcessPlane(harness);
     const runner = createTestRunner(processPlane);

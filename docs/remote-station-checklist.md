@@ -17,7 +17,7 @@ implementation is migration evidence only and cannot close this checklist.
 
 ## Evidence source
 
-Run `vellum doctor` from an attached Vellum agent/tooling process so
+Run `vellum doctor` from an attached Vellum Command agent/tooling process so
 process-bind admission is real. Fleet identity and synchronization truth come
 from the live Remote `status` response, not a file read.
 
@@ -52,7 +52,7 @@ be shown as last acknowledged truth, but never as live health.
 1. On a stock supported host, run the read-only
    [Linux host preflight](linux-host-preparation.md), record every capability
    finding and separately performed optional host action, then install and
-   start the same exact signed rootless Vellum payload on the disposable
+   start the same exact signed rootless Vellum Command payload on the disposable
    Remote. Leave `DISPLAY` unset and prove the packaged Node Remote starts
    without `Xvfb`, `xauth`, or `mcookie`. Confirm Doctor can report core ready
    while Linux Remote browser automation is independently `unavailable`, and

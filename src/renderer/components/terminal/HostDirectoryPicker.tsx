@@ -111,7 +111,7 @@ export function HostDirectoryPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dir, snapshot?.root]);
 
-  /** Whatever the input names is what "create agent" gets — or nothing. */
+  /** Report only the canonical directory this page can currently vouch for. */
   useEffect(() => {
     onSelect(selectedPath ?? "");
     // Reporting is keyed to the selection alone: an `onSelect` the parent

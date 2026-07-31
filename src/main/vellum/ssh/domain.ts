@@ -216,7 +216,7 @@ const remoteCommandBytes = (executable: string, args: ReadonlyArray<string>): nu
  * Low-level mint: bounds check + WeakMap brand only.
  *
  * **@internal** — not a product safety boundary and **not** on the public
- * `ssh` barrel (`ssh/index.ts`). Brand means “created inside Vellum’s SSH
+ * `ssh` barrel (`ssh/index.ts`). Brand means “created inside Vellum Command’s SSH
  * kernel,” not “safe product operation.” Only:
  * - `ssh/remote-plan.ts` / `ssh/hermes-remote-plan.ts` (named plan compilers)
  * - `ssh/read-commands.ts` (closed allowlisted read constructors)

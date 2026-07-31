@@ -1,7 +1,7 @@
 import { textNode, canvasDoc } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const FIXTURE_TEXT = "Hello Vellum e2e";
+const FIXTURE_TEXT = "Hello Vellum Command e2e";
 
 const rendererCanvasCount = async (): Promise<number> => {
   const runtime = globalThis as unknown as {

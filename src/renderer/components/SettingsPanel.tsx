@@ -271,7 +271,7 @@ function BrowserSection() {
         kind: "success",
         message: result.data.recovery === "complete"
           ? `Profile ${result.data.profileId} wiped. Storage removal is complete.`
-          : `Profile ${result.data.profileId} is isolated. Restart Vellum to finish disk removal.`,
+          : `Profile ${result.data.profileId} is isolated. Restart Vellum Command to finish disk removal.`,
       });
       setSelectedProfile(undefined);
       setConfirmation("");
@@ -646,7 +646,7 @@ function UpdatesSection() {
         </p>
       ) : null}
       <p className="settings-note">
-        Packaged installs contact the Vellum release server. Dev builds cannot
+        Packaged installs contact the Vellum Command release server. Dev builds cannot
         self-update. No update telemetry is sent. Full install provenance is
         under Advanced.
       </p>
@@ -721,7 +721,7 @@ function StateRecoveryControls() {
       setSelectedId(undefined);
       setNotice({
         kind: "error",
-        message: "Vellum could not read verified state backups.",
+        message: "Vellum Command could not read verified state backups.",
       });
     } finally {
       setLoading(false);
@@ -762,7 +762,7 @@ function StateRecoveryControls() {
     } catch {
       setNotice({
         kind: "error",
-        message: "Vellum could not export the verified state backup.",
+        message: "Vellum Command could not export the verified state backup.",
       });
     } finally {
       setExporting(false);
@@ -1076,7 +1076,7 @@ function HostsSection() {
     <div className="settings-section">
       <FieldRow
         label="Allow remote managed installs"
-        hint="Fleet kill-switch for deploying Vellum to enrolled Remotes. Off by default; main re-gates every invoke."
+        hint="Fleet kill-switch for deploying Vellum Command to enrolled Remotes. Off by default; main re-gates every invoke."
       >
         <input
           type="checkbox"

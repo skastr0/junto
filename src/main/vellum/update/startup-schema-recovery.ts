@@ -152,12 +152,12 @@ export const feedVersionUnbricks = (
 
 /** Operator-facing copy only — no schema versions, binaries, or feed jargon. */
 const SCHEMA_TOO_NEW_TITLE = "Update required";
-const SCHEMA_TOO_NEW_MESSAGE = "A newer version of Vellum is required";
+const SCHEMA_TOO_NEW_MESSAGE = "A newer version of Vellum Command is required";
 const SCHEMA_TOO_NEW_DETAIL = [
-  "Your data was last saved by a newer version of Vellum.",
+  "Your data was last saved by a newer version of Vellum Command.",
   "This version cannot open it.",
   "",
-  "Update to the latest Vellum, then open the app again.",
+  "Update to the latest Vellum Command, then open the app again.",
 ].join("\n");
 
 const diagnosticDetail = (
@@ -259,7 +259,7 @@ export const runStartupSchemaRecovery = async (input: {
         title: "Could not update",
         message: "No newer version is available yet",
         detail: [
-          "Your data still needs a newer Vellum.",
+          "Your data still needs a newer Vellum Command.",
           "Download the latest release from the website, then open that version.",
         ].join("\n"),
       });
@@ -281,7 +281,7 @@ export const runStartupSchemaRecovery = async (input: {
       title: "Could not update",
       message: "The update could not be installed",
       detail:
-        "Check your network connection and try again, or download the latest Vellum from the website.",
+        "Check your network connection and try again, or download the latest Vellum Command from the website.",
     });
     return { action: "quit", reason: `update-failed:${message}` };
   }

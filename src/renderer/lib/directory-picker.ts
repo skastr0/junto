@@ -11,7 +11,7 @@ import type {
  * a separate mode. Everything here is pure over one directory page so the
  * behaviour is testable without a rendered tree.
  *
- * Hosts Vellum spawns on are macOS/Linux, so paths are posix.
+ * Hosts Vellum Command spawns on are macOS/Linux, so paths are posix.
  */
 
 /** Join a host path segment without collapsing the filesystem root. */

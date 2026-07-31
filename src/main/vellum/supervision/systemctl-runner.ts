@@ -12,14 +12,14 @@ export const SYSTEMCTL_PATH = "/usr/bin/systemctl";
 export const SYSTEMCTL_DEADLINE_MS = 3_000;
 export const SYSTEMCTL_STDOUT_CAP_BYTES = 16 * 1024;
 export const SYSTEMCTL_STDERR_CAP_BYTES = 16 * 1024;
-/** The systemd provider owns one fixed Vellum user-service name. */
+/** The systemd provider owns one fixed Vellum Command user-service name. */
 export const VELLUM_SYSTEMD_USER_UNIT = "vellum-remote.service";
 
 const VellumSystemdUserUnitTargetTypeId: unique symbol = Symbol(
   "@vellum/VellumSystemdUserUnitTarget",
 );
 
-/** Opaque authority to address only Vellum's fixed systemd user unit. */
+/** Opaque authority to address only Vellum Command's fixed systemd user unit. */
 export interface VellumSystemdUserUnitTarget {
   readonly [VellumSystemdUserUnitTargetTypeId]:
     typeof VellumSystemdUserUnitTargetTypeId;
@@ -294,7 +294,7 @@ export const createSystemctlRunner = (
     try {
       lease = processPlane.spawnChild({
         source: "supervision.systemctl-runner",
-        purpose: `${action} Vellum systemd user unit`,
+        purpose: `${action} Vellum Command systemd user unit`,
         command: SYSTEMCTL_PATH,
         args: actionArgs(action, unit),
         env: systemctlEnvironment(),

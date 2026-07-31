@@ -20,7 +20,7 @@ security-sensitive features fail closed.
 | Install/update | One exact signed owner-local payload; same ordinary-user transaction for first install and update | Candidate implementation landed; full gates and fresh-host proof pending |
 | Custom image | Not required; stock supported host plus explicit optional preparation | Not yet qualified |
 | Host preflight | Read-only, per-capability, no mutation or privilege input | Implemented candidate; not yet qualified |
-| Host preparation | Optional, explicit administrator action outside Vellum | Contract defined |
+| Host preparation | Optional, explicit administrator action outside Vellum Command | Contract defined |
 | Core Remote runtime | Packaged Node process; no Electron, Chromium, `DISPLAY`, Xvfb, xauth, or mcookie dependency | Candidate implemented; native signed qualification pending |
 | Command Center display | X11 or Wayland/XWayland desktop session | Target |
 | Remote supervision | Station-user service manager; no root-owned launcher | Candidate implemented; lifecycle qualification pending |
@@ -28,7 +28,7 @@ security-sensitive features fail closed.
 | Login persistence | Optional administrator-approved user lingering | Target; never app-managed |
 | AppArmor/user namespaces | Future browser-sidecar facts only; not core Remote prerequisites | Browser unavailable in first Beta |
 | Browser secret storage | Future browser-sidecar fact only; not a core Remote prerequisite | Browser unavailable in first Beta |
-| Missing OS packages | Exact release-declared optional host actions | Target; never installed by Vellum |
+| Missing OS packages | Exact release-declared optional host actions | Target; never installed by Vellum Command |
 | Station API | five verbs only; OpenSSH transport | Implemented surfaces require rootless end-to-end requalification |
 | Browser automation | Optional future Linux Remote sidecar; host-local when introduced | Intentionally unavailable in first Beta; does not affect core health |
 | Work control | `vellum-work/v1`, owner-local Unix socket with process-bind | Implemented surfaces require exact rootless payload proof |

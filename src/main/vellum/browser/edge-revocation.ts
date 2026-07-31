@@ -5,7 +5,7 @@
  * invalidateCanvas on the same document-commit tick as canvas write/mutate.
  *
  * Law: teardown is keyed by (caller, target) pair — never by caller alone.
- * Honesty: an unreachable host never gets a success receipt Vellum cannot prove.
+ * Honesty: an unreachable host never gets a success receipt Vellum Command cannot prove.
  */
 
 import type { CanvasDoc } from "@shared/canvas";

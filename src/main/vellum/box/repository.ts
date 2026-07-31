@@ -148,7 +148,7 @@ export class BoxOwnershipRepository extends Context.Tag(
     ) => Effect.Effect<OwnedBox, BoxOwnershipError>;
     /**
      * Resolve only the deterministic host identity of a resource already
-     * present in Vellum ownership state. Account inventory is never queried.
+     * present in Vellum Command ownership state. Account inventory is never queried.
      */
     readonly findOwnedByHostId: (
       hostId: string,
@@ -170,7 +170,7 @@ export class BoxOwnershipRepository extends Context.Tag(
     ) => Effect.Effect<OwnedBox, BoxOwnershipPersistenceError>;
     /**
      * Drop local ownership + fleet host placement. Does not stop or destroy
-     * the provider Box — only detaches it from Vellum.
+     * the provider Box — only detaches it from Vellum Command.
      */
     readonly detach: (
       box: OwnedBox,
@@ -244,7 +244,7 @@ export const BoxOwnershipRepositoryLive = Layer.effect(
           return yield* BoxOwnershipNotFoundError.make({
             boxId,
             detail:
-              `Box ${JSON.stringify(boxId)} is not recorded as Vellum-created; lifecycle access refused`,
+              `Box ${JSON.stringify(boxId)} is not recorded as Vellum Command-created; lifecycle access refused`,
           });
         }
         return admitOwnedBox(record satisfies OwnedBoxRecord);

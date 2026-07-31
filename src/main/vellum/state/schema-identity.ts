@@ -166,7 +166,7 @@ export const actualStateSchemaSha256 = (
 /**
  * A database is fresh only when the authority schema has no application-owned
  * objects. SQLite's own implementation objects are deliberately ignored: they
- * are not Vellum state and their presence must not turn bootstrap into a
+ * are not Vellum Command state and their presence must not turn bootstrap into a
  * migration or repair path.
  */
 export const isFreshStateSchema = (database: DatabaseSync): boolean =>
@@ -282,7 +282,7 @@ export const readRecordedStateSchemaIdentity = (
 
 /**
  * Before a migration writes anything, prove that the live schema is exactly
- * the schema that the prior Vellum release stamped. Version-specific
+ * the schema that the prior Vellum Command release stamped. Version-specific
  * migration witnesses are checked by the migration runner after this.
  */
 export const verifyRecordedStateSchemaIdentity = (

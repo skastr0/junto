@@ -221,7 +221,7 @@ export type WorkIdentityAdmission =
 /**
  * Pure work identity admission. One path: the local work-file token proves the
  * caller reached us, and process-bind proves which seat it is. There is no
- * second admission — a caller with no live Vellum process has no identity.
+ * second admission — a caller with no live Vellum Command process has no identity.
  */
 export const admitWorkIdentity = (input: {
   readonly localToken: string;
@@ -1484,7 +1484,7 @@ export const startWorkControlServer = async (
                   message: "live canvas authority is unavailable",
                   details: {
                     retryable: true,
-                    next_step: "open Vellum and ensure canvases are loaded",
+                    next_step: "open Vellum Command and ensure canvases are loaded",
                   },
                 });
               }
@@ -1550,7 +1550,7 @@ export const startWorkControlServer = async (
               error.message,
               {
                 retryable: false,
-                next_step: "wait for Vellum shutdown to finish or restart Vellum",
+                next_step: "wait for Vellum Command shutdown to finish or restart Vellum Command",
               },
               req.op,
               req.id,

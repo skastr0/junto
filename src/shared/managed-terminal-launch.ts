@@ -70,7 +70,7 @@ export type ManagedLaunchChoices = {
 // ── Env scrub ──────────────────────────────────────────────────────────────
 
 /**
- * Strip ambient Claude nested-session markers so a Vellum launched from inside
+ * Strip ambient Claude nested-session markers so a Vellum Command launched from inside
  * Claude does not disable the child's transcript / resume.
  */
 export const scrubSpawnEnv = (

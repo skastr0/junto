@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared paths/constants for Vellum packaging scripts. Source only — not executable alone.
+# Shared paths/constants for Vellum Command packaging scripts. Source only — not executable alone.
 # shellcheck shell=bash
 
 read_config_value() {
@@ -27,7 +27,7 @@ APP_SIGNING_REQUIREMENT='=anchor apple generic and identifier "skastr0.vellumcom
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
 # electron-builder macOS pack output (arm64 Mac primary). Zip lives beside this
-# under release/Vellum-*-mac.zip — see package.json artifactName.
+# under release/Vellum Command-*-mac.zip — see package.json artifactName.
 # Override with VELLUM_APP_SRC if packaging a different arch artifact.
 detect_macos_app_src() {
   local candidates=(
@@ -261,7 +261,7 @@ assert_installer_path_capabilities() {
     test_temp_root="$(current_user_test_temp_root)" || return 1
     sandbox_name="${INSTALL_SANDBOX_ROOT##*/}"
     if [[ "${INSTALL_SANDBOX_ROOT%/*}" != "$test_temp_root" || ! "$sandbox_name" =~ ^vellum-install-test\.[A-Za-z0-9]{6,}$ ]]; then
-      err "installer sandbox must be a dedicated Vellum directory under the OS user temporary root"
+      err "installer sandbox must be a dedicated Vellum Command directory under the OS user temporary root"
       return 1
     fi
     if [[ "$(path_owner_uid "$INSTALL_SANDBOX_ROOT")" != "$(id -u)" || "$(path_mode "$INSTALL_SANDBOX_ROOT")" != "700" ]]; then
@@ -342,7 +342,7 @@ assert_owned_launchd_plist() {
   plist_label="$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST" 2>/dev/null || true)"
   plist_program="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$PLIST" 2>/dev/null || true)"
   if [[ "$plist_label" != "$LABEL" || "$plist_program" != "$APP_DST/Contents/MacOS/${PRODUCT_NAME}" ]]; then
-    err "existing LaunchAgent plist is not owned by Vellum"
+    err "existing LaunchAgent plist is not owned by Vellum Command"
     return 1
   fi
   if /usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$PLIST" >/dev/null 2>&1; then
@@ -391,7 +391,7 @@ safe_remove_launchd_retirement() {
   assert_launchd_retirement_root || return 1
   if [[ -e "$PLIST_RETIREMENT_ROOT" || -L "$PLIST_RETIREMENT_ROOT" ]]; then
     if [[ -z "${PLIST_RETIREMENT_ROOT_ID:-}" || -L "$PLIST_RETIREMENT_ROOT" || "$(path_identity "$PLIST_RETIREMENT_ROOT" 2>/dev/null)" != "$PLIST_RETIREMENT_ROOT_ID" ]]; then
-      err "retiring LaunchAgent root is not the directory Vellum created"
+      err "retiring LaunchAgent root is not the directory Vellum Command created"
       return 1
     fi
     if [[ -e "$RETIRED_PLIST" || -L "$RETIRED_PLIST" ]]; then
@@ -401,7 +401,7 @@ safe_remove_launchd_retirement() {
         -L "$RETIRED_PLIST" ||
         "$(path_identity "$RETIRED_PLIST" 2>/dev/null)" != "$RETIRED_PLIST_ID"
       ]]; then
-        err "retiring LaunchAgent plist is not the exact admitted Vellum plist"
+        err "retiring LaunchAgent plist is not the exact admitted Vellum Command plist"
         return 1
       fi
       /bin/rm -f "$RETIRED_PLIST"
@@ -580,7 +580,7 @@ assert_bound_install_stage() {
     return 0
   fi
   if [[ -z "${STAGE_ROOT_ID:-}" || -L "$STAGE_ROOT" || "$(path_identity "$STAGE_ROOT" 2>/dev/null)" != "$STAGE_ROOT_ID" ]]; then
-    err "install stage root is not the transaction directory Vellum created"
+    err "install stage root is not the transaction directory Vellum Command created"
     return 1
   fi
 }
@@ -590,7 +590,7 @@ assert_bound_app_retirement() {
     return 0
   fi
   if [[ -z "${APP_RETIREMENT_ROOT_ID:-}" || -L "$APP_RETIREMENT_ROOT" || "$(path_identity "$APP_RETIREMENT_ROOT" 2>/dev/null)" != "$APP_RETIREMENT_ROOT_ID" ]]; then
-    err "retiring app root is not the directory Vellum created"
+    err "retiring app root is not the directory Vellum Command created"
     return 1
   fi
 }
@@ -643,7 +643,7 @@ safe_remove_app_retirement() {
         -L "$RETIRED_APP" ||
         "$(path_identity "$RETIRED_APP" 2>/dev/null)" != "$RETIRED_APP_ID"
       ]]; then
-        err "retiring app is not the exact admitted Vellum generation"
+        err "retiring app is not the exact admitted Vellum Command generation"
         return 1
       fi
       /bin/rm -rf -- "$RETIRED_APP"
@@ -672,7 +672,7 @@ assert_owned_current_app() {
     return 1
   fi
   if [[ ! -d "$APP_DST" || -L "$APP_DST" ]]; then
-    err "current app is not an owned Vellum bundle"
+    err "current app is not an owned Vellum Command bundle"
     return 1
   fi
   observed_identity="$(path_identity "$APP_DST")" || return 1
@@ -681,16 +681,16 @@ assert_owned_current_app() {
     return 1
   fi
   assert_app_bundle "$APP_DST" || {
-    err "current app is not an owned Vellum bundle"
+    err "current app is not an owned Vellum Command bundle"
     return 1
   }
   plist_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_DST/Contents/Info.plist" 2>/dev/null || true)"
   if [[ "$plist_executable" != "$PRODUCT_NAME" ]]; then
-    err "current app executable identity does not match Vellum"
+    err "current app executable identity does not match Vellum Command"
     return 1
   fi
   if ! /usr/bin/codesign --verify --deep --strict --verbose=2 -R "$APP_SIGNING_REQUIREMENT" "$APP_DST" >/dev/null 2>&1; then
-    err "current app does not satisfy the accepted Vellum signing requirement"
+    err "current app does not satisfy the accepted Vellum Command signing requirement"
     return 1
   fi
   if [[ "$(path_identity "$APP_DST" 2>/dev/null)" != "$expected_identity" ]]; then
@@ -733,7 +733,7 @@ begin_one_way_app_cutover() {
   RETIRED_APP_ID="$expected_identity"
   /bin/mv -n "$APP_DST" "$APP_RETIREMENT_ROOT/"
   if [[ -L "$RETIRED_APP" || "$(path_identity "$RETIRED_APP" 2>/dev/null)" != "$RETIRED_APP_ID" ]]; then
-    err "retiring app identity does not match the admitted Vellum generation"
+    err "retiring app identity does not match the admitted Vellum Command generation"
     return 1
   fi
   APP_RETIREMENT_DISPOSABLE=1

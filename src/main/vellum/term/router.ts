@@ -3,7 +3,7 @@
  * - local → LocalSessionHost (this process)
  * - remote hostId → TermControlClient via SSH unix-forward of ~/.vellum/term/control.sock
  *
- * Remote sessions are owned by the remote Vellum station; CC quit does not kill them.
+ * Remote sessions are owned by the remote Vellum Command station; CC quit does not kill them.
  */
 
 import { EventEmitter } from "node:events";
@@ -1144,7 +1144,7 @@ export class TerminalRouter extends EventEmitter {
           if (!token) {
             return yield* Effect.fail(
               new Error(
-                `no term control on ${hostId} — Vellum is not running there (open app or Settings → Deploy Remote)`,
+                `no term control on ${hostId} — Vellum Command is not running there (open app or Settings → Deploy Remote)`,
               ),
             );
           }

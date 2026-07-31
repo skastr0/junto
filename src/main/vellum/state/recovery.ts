@@ -202,7 +202,7 @@ const inspectBackup = (
       recorded.actualSchemaSha256 !== expected.actualSchemaSha256
     ) {
       throw new Error(
-        `state backup schema is not a recognized Vellum version: ${file}`,
+        `state backup schema is not a recognized Vellum Command version: ${file}`,
       );
     }
     return decodeStateBackupInventoryEntry({

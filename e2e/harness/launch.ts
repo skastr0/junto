@@ -329,8 +329,8 @@ export const cleanupVellumHarness = async (
     throw new AggregateError(
       errors,
       sandboxPreserved
-        ? `Vellum e2e harness cleanup failed; sandbox preserved at ${input.sandbox.root}`
-        : "Vellum e2e harness cleanup failed",
+        ? `Vellum Command e2e harness cleanup failed; sandbox preserved at ${input.sandbox.root}`
+        : "Vellum Command e2e harness cleanup failed",
     );
   }
 };
@@ -560,8 +560,8 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
       throw new AggregateError(
         [asError(launchError), ...cleanupErrors],
         preservedSandbox
-          ? `Vellum e2e launch failed; sandbox preserved at ${sandbox.root}`
-          : "Vellum e2e launch failed and teardown reported failures",
+          ? `Vellum Command e2e launch failed; sandbox preserved at ${sandbox.root}`
+          : "Vellum Command e2e launch failed and teardown reported failures",
       );
     }
     throw launchError;

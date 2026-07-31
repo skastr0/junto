@@ -5,7 +5,7 @@ Evidence: [`managed-terminal-verification.md`](managed-terminal-verification.md)
 Supersedes for v1: the retired ACP-first and remote-client proposal preserved at
 [`factory-harness-integration.md`](factory-harness-integration.md). The current
 factory model has one actor runtime and one work admission path: a
-Vellum-spawned managed terminal using owner-local process-bind.
+Vellum Command-spawned managed terminal using owner-local process-bind.
 
 ---
 
@@ -34,7 +34,7 @@ Nothing ships as beta until this loop runs on all four v1 harnesses (with per-ha
 
 | ruling | consequence |
 |---|---|
-| **Managed terminal is the only v1 agent surface** — full interactive TUI in a Vellum-owned PTY | no headless worker drive (`claude -p`, `codex exec`) — that would be "a different UI leveraging their harness", which the operator's ToS line forbids |
+| **Managed terminal is the only v1 agent surface** — full interactive TUI in a Vellum Command-owned PTY | no headless worker drive (`claude -p`, `codex exec`) — that would be "a different UI leveraging their harness", which the operator's ToS line forbids |
 | **The terminal node IS the actor — there is exactly one actor kind.** | a terminal is not something a node *has*; it is what the node *is*. One way to build a worker: variation lives in the node's *properties* (harness/profile/model/effort/permission mode), never in a second actor kind and never in *modes* of the action. An **unbound** terminal (no binding yet) is geography, not a second kind. Corrected 2026-07-26: an earlier revision of this row said "Actor = command template. Terminal = geography," which inverted the labels and read as licence for an `agent` kind distinct from `terminal`. See [`factory-consolidation-plan.md`](factory-consolidation-plan.md). |
 | **Zero writes to the user's harness config, ever** | injection is flags + env + project-local files + typed input only |
 | **Synthetic homes (`CODEX_HOME`/`HERMES_HOME`) VETOED** | no symlinked auth, no shadow config trees |
@@ -44,7 +44,7 @@ Nothing ships as beta until this loop runs on all four v1 harnesses (with per-ha
 | **ACP is hidden, not removed** | dormant code, revives with the embedded-Worker/native-chat timeline (§14) |
 | **v1 harnesses: Claude Code, Codex, Grok, Hermes. OpenClaw out.** | OpenClaw's agent runs in a Gateway daemon, not the PTY tree — process-bind, interrupt, and injection all break by construction |
 | **Herdr is a GEOGRAPHY node** (ruling 2026-07-26 — not "legacy", not deleted; just Herdr). Learn from, never fork/vendor. | it keeps its agent-state display for people who want panes without the factory. It holds no seat, no ports, no inbox, and no effort will be made to make it participate. Its detection design is portable; its config-writing installer is not |
-| **No tiers — a node is an ACTOR or it is GEOGRAPHY** (ruling 2026-07-26, supersedes Tier 1/2/3) | actor = a Vellum-spawned template terminal, the four harnesses, full stop. Everything else — raw terminals the user opens, herdr, pages, regions, notes — is geography. **Kind is fixed at node creation and never derived from what process happens to be running.** If answering "is this an actor?" would require runtime inspection, the design is wrong |
+| **No tiers — a node is an ACTOR or it is GEOGRAPHY** (ruling 2026-07-26, supersedes Tier 1/2/3) | actor = a Vellum Command-spawned template terminal, the four harnesses, full stop. Everything else — raw terminals the user opens, herdr, pages, regions, notes — is geography. **Kind is fixed at node creation and never derived from what process happens to be running.** If answering "is this an actor?" would require runtime inspection, the design is wrong |
 | **A dead agent process never degrades to a clean shell** | an actor terminal whose harness exits goes to an explicit error/restart state. Otherwise an actor silently becomes geography — the exact ambiguity the no-tiers ruling removes. Process is mortal; kind is permanent |
 
 ## 4 · What already exists (verified by code read, 2026-07-26)
@@ -78,7 +78,7 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
 
 - Add `@xterm/headless` (currently absent; only `xterm` + `addon-fit` are present).
 - New `src/main/vellum/term/observer/`: one headless terminal per live session, fed from `observeData:698` (the single insertion point — every byte already flows through it with a seq).
-- Register the handlers Vellum currently discards (zero OSC/CSI handlers exist in `src/` today):
+- Register the handlers Vellum Command currently discards (zero OSC/CSI handlers exist in `src/` today):
   - **OSC 0/2** title — the primary state feed on all four harnesses.
   - **OSC 9** — Claude's `9;4;3`/`9;4;0` working flag, Codex's `]9;<msg>` turn-complete, Grok's `9;4` binary.
   - **CSI ?2004** bracketed-paste mode — protocol-level "a readline input box is live"; the truest typing gate.
@@ -131,7 +131,7 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
   - Codex: **`codex debug models`** (models + per-model effort lists).
   - Grok: `~/.grok/models_cache.json` (or ACP init); efforts = high/medium/low.
   - Hermes: `hermes profile list` (~1s, parseable, no `--json`) + `~/.hermes/profiles/*/config.yaml`; models from `provider_models_cache.json` — **validate, staleness is proven** (exit 0 with an HTTP 404 body); effort has no flag → typed `/reasoning` (verify session-scoped) or omitted in v1.
-- **Spawn env scrubbing (mandatory):** strip `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` — otherwise a Vellum launched from inside a Claude session silently disables the child's transcript persistence and excludes it from `--resume`.
+- **Spawn env scrubbing (mandatory):** strip `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` — otherwise a Vellum Command launched from inside a Claude session silently disables the child's transcript persistence and excludes it from `--resume`.
 - Inject `PATH` so `dist/vellum` resolves, including its canonical `vellum browser` dispatcher; inject seat/socket/token env (verified to reach agent shell subprocesses on all four).
 - Session id: pin where possible (Claude `--session-id`, Grok `--session-id`), capture otherwise (Codex: SessionStart hook > `CODEX_THREAD_ID` > notify > rollout; Hermes: `HERMES_SESSION_ID` env). Store on the seat for cold wake.
 - Per-harness spawn traps: Grok **requires a git cwd** (else a modal swallows the prompt); Hermes needs **`chat --tui -q`** (`-z` is headless); Codex resume **does not inherit flags** — re-pass everything.
@@ -149,7 +149,7 @@ This is the piece the operator flagged as needing to be strong. **Two tiers, bec
   2. The CLI contract — call **`vellum onboard`** at session start and after compaction; the work op table plus `vellum browser` for `browser.automate`; errors (`ScopeError`, `ClaimConflict`, `RuntimeDown`, `Blocked`) are ground truth.
   3. Seat context — seat ref, connected targets.
 - **Then the task arrives as a typed prompt** carrying the task assignment. `vellum onboard` returns seat + role + connected targets + claimed task metadata — which is loop step 6 exactly.
-- **Plugin: DROPPED entirely** (operator ruling 2026-07-26 — supersedes the earlier "prune to an opt-in tier"). There is no user-installed tool surface in anyone's harness config. `packages/vellum-plugin/` goes away; the doctrine *text* becomes the injected payload and `tools/shared/work-client.ts` folds into whatever needs the socket. Reason: an opt-in tier re-introduces the ambiguity the no-tiers ruling exists to kill — "this terminal has the integration, so is it an actor?" is a question with no good answer. Injection happens **only** through a Vellum-spawned template.
+- **Plugin: DROPPED entirely** (operator ruling 2026-07-26 — supersedes the earlier "prune to an opt-in tier"). There is no user-installed tool surface in anyone's harness config. `packages/vellum-plugin/` goes away; the doctrine *text* becomes the injected payload and `tools/shared/work-client.ts` folds into whatever needs the socket. Reason: an opt-in tier re-introduces the ambiguity the no-tiers ruling exists to kill — "this terminal has the integration, so is it an actor?" is a question with no good answer. Injection happens **only** through a Vellum Command-spawned template.
 
 **Acceptance:** loop steps 2 and 6. Unconnected agent → nothing injected, nothing typed. Connected agent → onboard called by the agent itself, task metadata in its context, visible in the TUI.
 
@@ -185,7 +185,7 @@ Replaces the Codex Bar dependency; per-station, cross-account, and Linux-viable.
 
 Every row below is backed by harness probes — see
 [`managed-terminal-verification.md`](managed-terminal-verification.md) for
-receipts. This is not a current Vellum implementation matrix. Release truth
+receipts. This is not a current Vellum Command implementation matrix. Release truth
 lives in `src/shared/managed-terminal-templates.ts`: hooks are currently off
 for all four harnesses, and Codex/Hermes cold wake is unavailable.
 

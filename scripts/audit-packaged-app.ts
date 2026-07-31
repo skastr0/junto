@@ -229,7 +229,7 @@ export const validatePackageSecurityPolicy = (
     expectedNames.some((name, index) => name !== FUSE_NAMES[index])
   ) {
     throw new Error(
-      `@electron/fuses and the Vellum policy disagree on the complete fuse set: library=${expectedNames.join(",")} expected=${FUSE_NAMES.join(",")}`,
+      `@electron/fuses and the Vellum Command policy disagree on the complete fuse set: library=${expectedNames.join(",")} expected=${FUSE_NAMES.join(",")}`,
     );
   }
   if (

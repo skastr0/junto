@@ -32,7 +32,7 @@ const listError = (): StateRecoveryListResult =>
   decodeStateRecoveryListResult({
     outcome: "error",
     code: "inventory-failed",
-    message: "Vellum could not verify retained state backups.",
+    message: "Vellum Command could not verify retained state backups.",
   });
 
 const exportError = (
@@ -92,7 +92,7 @@ export const createStateRecoveryIpcHandlers = (
     } catch {
       return exportError(
         "dialog-failed",
-        "Vellum could not open the backup export chooser.",
+        "Vellum Command could not open the backup export chooser.",
       );
     }
     if (choice.outcome === "canceled") {

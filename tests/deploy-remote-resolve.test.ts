@@ -175,7 +175,7 @@ describe("buildRemoteDeployScript", () => {
     TEST_CDHASH,
   );
 
-  it("keeps every destructive remote target fixed to Vellum paths", () => {
+  it("keeps every destructive remote target fixed to Vellum Command paths", () => {
     expect(script).toContain("APP='/Applications/Vellum Command.app'");
     expect(script).toContain("IN='/Applications/Vellum Command.app.incoming'");
     expect(script).toContain(

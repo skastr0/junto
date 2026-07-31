@@ -556,7 +556,7 @@ export const registerHostsIpc = (
                   message:
                     detached.left instanceof Error
                       ? detached.left.message
-                      : "Box could not be detached from Vellum",
+                      : "Box could not be detached from Vellum Command",
                 } satisfies HostsOpResult;
               }
               // detach already removed host_registry; reload list for caller.
@@ -629,7 +629,7 @@ export const registerHostsIpc = (
     ),
   );
 
-  // Install / configure Vellum Remote on a registered host over existing SSH.
+  // Install / configure Vellum Command Remote on a registered host over existing SSH.
   // Only the Command Center may push remote station stamps (no reverse RPC).
   ipcMain.handle(IPC_CHANNELS.hostsConfigureRemote, (_event, id: unknown) =>
     operatorCoordinator.configureRemote(typeof id === "string" ? id : ""),

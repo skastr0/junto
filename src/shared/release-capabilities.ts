@@ -30,7 +30,7 @@ export const DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL =
   "Darwin Remote full-app deployment is disabled in this release.";
 
 export const REMOTE_INSTALLS_OPERATOR_DISABLED_DETAIL =
-  "Remote installs are turned off in Settings → Fleet. Enable “Allow remote managed installs” to deploy Vellum to enrolled Remotes.";
+  "Remote installs are turned off in Settings → Fleet. Enable “Allow remote managed installs” to deploy Vellum Command to enrolled Remotes.";
 
 export const NOT_COMMAND_CENTER_DETAIL =
   "Only the Command Center may configure Remotes or deploy packages.";

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-/** Stable identity of one Vellum database installation. */
+/** Stable identity of one Vellum Command database installation. */
 export const InstallationId = Schema.String.pipe(
   Schema.minLength(1),
   Schema.maxLength(128),

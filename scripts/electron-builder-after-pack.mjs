@@ -641,7 +641,7 @@ export default async function afterPack(context) {
     );
   }
   if (platform !== "darwin" && platform !== "linux") {
-    throw new Error(`unsupported Vellum package platform: ${platform}`);
+    throw new Error(`unsupported Vellum Command package platform: ${platform}`);
   }
   if (
     platform === "linux" &&

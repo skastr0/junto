@@ -29,7 +29,7 @@ describe("operator control peer admission", () => {
     ).toEqual({ ok: false, reason: "peer-pid-unavailable" });
   });
 
-  it("rejects a peer or ancestor registered to a Vellum process", () => {
+  it("rejects a peer or ancestor registered to a Vellum Command process", () => {
     const parents = new Map([
       [410, 320],
       [320, 20],

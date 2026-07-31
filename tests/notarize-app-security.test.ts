@@ -142,11 +142,11 @@ describe("notarization path capabilities", () => {
       writeFileSync(hyphenZip, "fixture-hyphen\n");
       return ["--app", fixture.app, "--zip", hyphenZip];
     });
-    // Must pass the name check (not "zip must be a Vellum macOS release artifact").
+    // Must pass the name check (not "zip must be a Vellum Command macOS release artifact").
     // Full notarize may still fail later (codesign/asc mocks) — only name gate matters.
-    expect(result.stderr).not.toContain("zip must be a Vellum macOS release artifact");
+    expect(result.stderr).not.toContain("zip must be a Vellum Command macOS release artifact");
     if (result.status !== 0) {
-      expect(result.stderr).not.toMatch(/zip must be a Vellum macOS release artifact/);
+      expect(result.stderr).not.toMatch(/zip must be a Vellum Command macOS release artifact/);
     }
   });
 
@@ -157,7 +157,7 @@ describe("notarization path capabilities", () => {
       return ["--app", fixture.app, "--zip", evil];
     });
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("zip must be a Vellum macOS release artifact");
+    expect(result.stderr).toContain("zip must be a Vellum Command macOS release artifact");
   });
 
   it("applies the same release-root confinement to ambient source selectors", () => {

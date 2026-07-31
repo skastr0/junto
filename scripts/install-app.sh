@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install a built Vellum.app into the fixed /Applications product path.
+# Install a built Vellum Command.app into the fixed /Applications product path.
 #
 #   scripts/install-app.sh                 build then install
 #   scripts/install-app.sh --skip-build    install existing release/*.app
@@ -9,14 +9,14 @@
 #   scripts/install-app.sh --supervised    also (re)load LaunchAgent (crash-only KeepAlive)
 #
 # Station preference (settings.station.supervisedPreferred):
-#   Product intent only — this script never opens Vellum's SQLite state.
+#   Product intent only — this script never opens Vellum Command's SQLite state.
 #   StationRoleGate sets supervisedPreferred=true when role=remote. The install
 #   surface for that preference is --supervised (or bun run app:install:supervised).
 #   Settings doctor metadata reports preferred vs LaunchAgent-loaded so Remote
 #   deploy (later) can decide to pass --supervised. No third binary.
 #
 # Installs `vellum …`, `vellum-browser …`, and `vellum-station` as atomic
-# symlinks under ~/.local/bin. Existing non-Vellum commands are
+# symlinks under ~/.local/bin. Existing unrelated commands are
 # never overwritten.
 #
 # Safety:
@@ -27,7 +27,7 @@
 #   - Retains the current candidate for forward repair after that boundary
 #   - Never runs herdr pane close / session stop
 #
-# Herdr: quitting Vellum detaches control streams only — your herdr sessions survive.
+# Herdr: quitting Vellum Command detaches control streams only — your herdr sessions survive.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -208,7 +208,7 @@ preflight_cli_link() {
     local existing
     existing="$(readlink "$target")"
     if [[ "$existing" != "$helper" ]]; then
-      err "refusing to replace non-Vellum symlink: $target -> $existing"
+      err "refusing to replace foreign symlink (not a Vellum Command helper): $target -> $existing"
       return 1
     fi
   fi
@@ -241,7 +241,7 @@ install_cli_tools() {
     ! -x "$browser_helper" ||
     ! -x "$station_helper"
   ]]; then
-    err "installed Vellum CLI helper missing or not executable"
+    err "installed Vellum Command CLI helper missing or not executable"
     return 1
   fi
   ensure_scoped_directory "CLI directory" "$BIN_DIR"
@@ -379,7 +379,7 @@ run_staged_state_update_preflight() {
   # line and extra output. The supervisor streams rather than accumulates
   # candidate output, caps it at the receipt limit, rejects any stderr, and
   # owns a detached process group that it terminates and reaps on every
-  # failure. A clean environment denies Node/Electron/Bun loader and Vellum
+  # failure. A clean environment denies Node/Electron/Bun loader and Vellum Command
   # test/demo controls; HOME and TMPDIR are re-derived from fixed OS facts.
   framed="$(
     set +e
@@ -749,7 +749,7 @@ bind_unsupervised_incumbent
 unload_launchd
 quit_running_app
 if launchd_loaded || vellum_processes_running; then
-  err "Vellum did not quiesce; refusing to replace the app"
+  err "Vellum Command did not quiesce; refusing to replace the app"
   exit 1
 fi
 # Brief settle so control clients exit and release PTYs.
@@ -761,7 +761,7 @@ if ! run_staged_state_update_preflight; then
   exit 1
 fi
 if launchd_loaded || vellum_processes_running; then
-  err "Vellum resumed during state update preflight; activation remains unstarted"
+  err "Vellum Command resumed during state update preflight; activation remains unstarted"
   exit 1
 fi
 assert_install_transaction_capabilities
@@ -775,7 +775,7 @@ if [[ -e "$APP_DST" ]]; then
   assert_owned_current_app "$CURRENT_APP_ID"
 fi
 
-# This call revalidates the bound Vellum identity, crosses the one-way boundary,
+# This call revalidates the bound Vellum Command identity, crosses the one-way boundary,
 # and directly removes that generation without caching it.
 assert_state_update_source_unchanged
 begin_one_way_app_cutover "$CURRENT_APP_ID"

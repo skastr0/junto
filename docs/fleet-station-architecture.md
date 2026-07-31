@@ -154,15 +154,15 @@ explicit stale/catch-up policy.
 
 ## Capability and revocation
 
-Edges and ports remain the Vellum capability plane. Placement chooses where a
+Edges and ports remain the Vellum Command capability plane. Placement chooses where a
 node runs; it does not grant a capability.
 
-- A missing edge or port denies the next Vellum action.
+- A missing edge or port denies the next Vellum Command action.
 - Deleting a Station-homed resource updates Command Center intent; the
   reachable Station applies the next complete projection.
 - An unreachable Station necessarily continues its last projection. Command
   Center reports that limit and never fabricates a revocation receipt.
-- Process termination still accepts only Vellum-owned process capabilities.
+- Process termination still accepts only Vellum Command-owned process capabilities.
 
 ## Non-goals
 

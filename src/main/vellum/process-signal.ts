@@ -202,7 +202,7 @@ export const signalOwned = (process: OwnedProcess, signal: TerminatingSignal): S
     return { attempted: false, decision: { ok: false, reason: "group-epoch-mismatch" }, via: "none" };
   }
   try {
-    // Sole terminating process.kill in Vellum: negative verified group leader only.
+    // Sole terminating process.kill in Vellum Command: negative verified group leader only.
     globalThis.process.kill(-rec.pid, signal);
     return { attempted: true, decision: { ok: true, mode: "group" }, via: "process.kill-group" };
   } catch {

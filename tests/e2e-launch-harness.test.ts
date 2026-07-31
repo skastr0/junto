@@ -93,7 +93,7 @@ const aggregateMessages = (error: unknown): readonly string[] => {
   );
 };
 
-describe("Vellum e2e harness cleanup", () => {
+describe("Vellum Command e2e harness cleanup", () => {
   it("keeps teardown free of bare pid discovery, process signalling, and suppressed close failures", async () => {
     const source = await readFile(
       new URL("../e2e/harness/launch.ts", import.meta.url),
