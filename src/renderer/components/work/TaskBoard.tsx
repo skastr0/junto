@@ -1794,6 +1794,12 @@ export function TaskBoard({
     finishCriteria?: import("@shared/work-model").FinishCriteria,
   ) => {
     if (!api || !title.trim()) return;
+    if (typeof api.workTaskPropose !== "function") {
+      setError(
+        "Proposal authoring is unavailable in this process — fully restart Vellum (preload is stale).",
+      );
+      return;
+    }
     setError("");
     setCreatingPending(true);
     try {
