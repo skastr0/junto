@@ -97,14 +97,15 @@ prefers. `compatibleFrom` is the oldest exact codec it will accept.
 peer's threshold remains compatible but produces an operator-visible upgrade
 warning.
 
-The current baseline is Station protocol **2**, with support policy:
+The current baseline is Station protocol **3**, with support policy:
 
 ```text
-{ preferred: 2, compatibleFrom: 2, warnBelow: 2 }
+{ preferred: 3, compatibleFrom: 3, warnBelow: 3 }
 ```
 
-This negotiation work does not invent protocol 3. A new Station protocol
-number exists only when the actual closed wire bundle changes.
+Protocol 3 is the sole live closed wire bundle. Protocol 2 is retired because
+no deployed Station obligation requires it; a future protocol number exists
+only when the actual closed wire bundle changes.
 
 One negotiated integer selects the complete strict bundle: session framing,
 control envelope, five Station API operations, Work records, projection
@@ -125,9 +126,9 @@ preflight receipt is local to one package update and never enters Station API.
 The canonical implementation has:
 
 1. one `~/.vellum/state/vellum.db` per installation;
-2. one normal-runtime Electron-main `StateEngine` connection per database,
-   plus the exact quiesced packaged-candidate read-only preflight described
-   below;
+2. one normal-runtime `StateEngine` owner per database—Electron main on
+   Command Center or packaged Node on Remote—plus the exact quiesced
+   packaged-candidate read-only preflight described below;
 3. one role-independent schema per app version, migrated locally on each
    installation without requiring fleet-wide lockstep;
 4. one Command Center authoring canvas and protected topology;
