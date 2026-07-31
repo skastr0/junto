@@ -12,6 +12,8 @@ import { describe, expect, it } from "vitest";
 import { LINUX_RUNTIME_REQUIRED_FILES } from "../scripts/audit-linux-package";
 import {
   DEFAULT_NODE_REMOTE_VERSION,
+  PINNED_NODE_LINUX_X64_ARCHIVE_SHA256,
+  pinnedNodeLinuxX64ArchiveSha256,
   LINUX_REMOTE_RUNTIME_REQUIRED_FILES,
   REMOTE_ENTRY_RELATIVE,
   REMOTE_ENTRY_SOURCE_RELATIVE,
@@ -44,6 +46,16 @@ describe("Linux remote displayless packaging helpers", () => {
     expect(resolveNodeRemoteVersion({})).toBe(DEFAULT_NODE_REMOTE_VERSION);
     expect(resolveNodeRemoteVersion({ NODE_REMOTE_VERSION: "22.17.1" })).toBe(
       "22.17.1",
+    );
+  });
+
+  it("refuses Node archives without the reviewed linux-x64 digest pin", () => {
+    expect(pinnedNodeLinuxX64ArchiveSha256("22.18.0")).toBe(
+      PINNED_NODE_LINUX_X64_ARCHIVE_SHA256["22.18.0"],
+    );
+    expect(pinnedNodeLinuxX64ArchiveSha256("22.18.0")).toMatch(/^[0-9a-f]{64}$/u);
+    expect(() => pinnedNodeLinuxX64ArchiveSha256("22.17.1")).toThrow(
+      /no reviewed Node linux-x64 archive digest/u,
     );
   });
 

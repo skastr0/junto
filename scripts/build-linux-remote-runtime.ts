@@ -30,6 +30,31 @@ import { fileURLToPath } from "node:url";
 /** Pinned Node for the product Remote. Override with NODE_REMOTE_VERSION. */
 export const DEFAULT_NODE_REMOTE_VERSION = "22.18.0";
 
+/**
+ * Reviewed official Node linux-x64 tarball digests keyed by exact version.
+ * Source: https://nodejs.org/dist/v{version}/SHASUMS256.txt
+ * Refuse download or cache when the computed digest differs.
+ */
+export const PINNED_NODE_LINUX_X64_ARCHIVE_SHA256: Readonly<
+  Record<string, string>
+> = Object.freeze({
+  "22.18.0":
+    "a2e703725d8683be86bb5da967bf8272f4518bdaf10f21389e2b2c9eaeae8c8a",
+});
+
+export const pinnedNodeLinuxX64ArchiveSha256 = (
+  version: string,
+): string => {
+  const resolved = requireNodeRemoteVersion(version);
+  const digest = PINNED_NODE_LINUX_X64_ARCHIVE_SHA256[resolved];
+  if (digest === undefined || !/^[0-9a-f]{64}$/u.test(digest)) {
+    throw new Error(
+      `no reviewed Node linux-x64 archive digest is pinned for ${resolved}`,
+    );
+  }
+  return digest;
+};
+
 export const REMOTE_NODE_RELATIVE = "resources/bin/node";
 export const REMOTE_WRAPPER_RELATIVE = "resources/bin/vellum-remote";
 export const REMOTE_APP_DIR_RELATIVE = "resources/app-remote";
@@ -281,6 +306,7 @@ export const stageOfficialNodeBinary = async (input: {
   });
   await mkdir(cache, { recursive: true, mode: 0o755 });
   const archive = path.join(cache, nodeLinuxX64ArchiveName(version));
+  const expectedSha256 = pinnedNodeLinuxX64ArchiveSha256(version);
   if (!(await isNonSymlinkFile(archive))) {
     const url = nodeLinuxX64ArchiveUrl(version);
     const partial = `${archive}.partial`;
@@ -288,9 +314,22 @@ export const stageOfficialNodeBinary = async (input: {
     const download = input.download ?? downloadToFile;
     await download(url, partial);
     await chmod(partial, 0o644);
+    const partialDigest = await sha256File(partial);
+    if (partialDigest !== expectedSha256) {
+      await rm(partial, { force: true });
+      throw new Error(
+        `Node linux-x64 archive digest mismatch for ${version}: expected ${expectedSha256}, got ${partialDigest}`,
+      );
+    }
     run("/usr/bin/mv", ["-f", partial, archive]);
   }
   const archiveSha256 = await sha256File(archive);
+  if (archiveSha256 !== expectedSha256) {
+    await rm(archive, { force: true });
+    throw new Error(
+      `cached Node linux-x64 archive digest mismatch for ${version}: expected ${expectedSha256}, got ${archiveSha256}`,
+    );
+  }
   const nodePath = path.join(input.runtimeRoot, REMOTE_NODE_RELATIVE);
   await mkdir(path.dirname(nodePath), { recursive: true, mode: 0o755 });
   extractNodeBinaryFromArchive({ archive, destinationNode: nodePath, version });
