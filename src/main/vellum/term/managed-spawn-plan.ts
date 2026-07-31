@@ -4,6 +4,7 @@
  * Tier A flags / arms Tier B firstTyped when edges connect the seat.
  */
 
+import { randomUUID } from "node:crypto";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import {
   resolveManagedLaunchPlan,
@@ -16,9 +17,22 @@ import {
   type HarnessId,
 } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
+import { usableVellumHome } from "@shared/vellum-home";
 import {
+  isPinSessionHarness,
   shouldResumeHarnessSession,
 } from "./session-existence";
+
+/**
+ * Official `bun run dev` sets `VELLUM_HOME` (e.g. ~/.vellum-dev) while leaving
+ * `HOME` alone so harness state still lives under ~/.grok / ~/.claude.
+ * Seeded canvases therefore carry production session pins that may already be
+ * owned by a live production seat. Resuming them in the isolated process
+ * yields a dead/black TUI — refuse shared resume and pin a fresh id instead.
+ */
+export const shouldAvoidSharedHarnessResume = (
+  vellumHomeEnv: string | undefined = process.env.VELLUM_HOME,
+): boolean => usableVellumHome(vellumHomeEnv) !== undefined;
 
 // Capability sinks that make an actor seat operational. Browser automation is
 // a factory tool even though it uses the browser-control socket rather than the
@@ -267,14 +281,33 @@ export const launchForManagedSpawn = (
       sessionId = stored;
     }
   }
+
+  // Isolated VELLUM_HOME (dev) shares harness homes with production. Never
+  // resume a pin session that production may still own; mint a fresh pin so
+  // the agent TUI actually comes up.
+  const isolateShared = shouldAvoidSharedHarnessResume();
+  if (isolateShared) {
+    resume = false;
+    const harnessRaw = input.harness?.trim();
+    if (harnessRaw && isPinSessionHarness(harnessRaw)) {
+      sessionId = randomUUID();
+    }
+  }
+
   const plan = planManagedSpawn({ ...input, sessionId, resume });
   if (!plan) {
+    // Never fall through to a document launch that still carries -r / a
+    // production session pin when we are isolating shared harness sessions.
+    if (isolateShared) {
+      return { launch: undefined, plan: undefined };
+    }
     return { launch: input.documentLaunch, plan: undefined };
   }
   // Unconnected but may still need session pin/resume on argv.
   if (!plan.injection.inject) {
-    // Prefer planned launch when session/resume flags were applied.
-    if (sessionId) return { launch: plan.launch, plan };
+    // Prefer planned launch when session/resume flags were applied, or when
+    // isolation forced a fresh pin (document argv may still embed -r).
+    if (sessionId || isolateShared) return { launch: plan.launch, plan };
     return {
       launch: input.documentLaunch ?? plan.launch,
       plan,
