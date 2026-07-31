@@ -1,13 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
-  __resetDeliveryQueueForTest,
+  __resetKernelMemoryForTest,
   __setDocsForTest,
   checkTimers,
   getNextFire,
-  getPulseLog,
   isValidTimerInterval,
-  __resetPulseLogForTest,
   __setTimerSchedulerForTest,
 } from "../src/main/vellum/kernel/cycle";
 import { makeInMemoryTimerScheduler } from "./helpers/in-memory-timer-scheduler";
@@ -16,7 +14,7 @@ import { makeInMemoryTimerScheduler } from "./helpers/in-memory-timer-scheduler"
 // negative, NaN, or non-finite must degrade to an unknown-style no-op, never
 // a tight loop or a fire storm. Every test below uses a canvas/node id
 // unique to that test: cycle.ts's nextFire/watchers maps are module-level
-// with no reset seam, and this file's tests all run in one module instance.
+// with no per-test isolation beyond __resetKernelMemoryForTest.
 
 // --- isValidTimerInterval — pure boundary check ------------------------------
 
@@ -67,16 +65,15 @@ const timerDoc = (nodeId: string, everyMinutes: number): CanvasDoc =>
 
 describe("checkTimers — invalid everyMinutes degrades to a no-op", () => {
   beforeEach(() => {
+    __resetKernelMemoryForTest();
     __setTimerSchedulerForTest(makeInMemoryTimerScheduler());
   });
 
   afterEach(() => {
-    __resetDeliveryQueueForTest();
-    __resetPulseLogForTest();
     __setTimerSchedulerForTest(undefined);
   });
 
-  it("a zero interval never schedules a nextFire entry and logs a note instead of firing", async () => {
+  it("a zero interval never schedules a nextFire entry", async () => {
     const canvasName = "timer-canvas-zero";
     const nodeId = "timer-zero";
     __setDocsForTest(new Map([[canvasName, timerDoc(nodeId, 0)]]));
@@ -85,47 +82,39 @@ describe("checkTimers — invalid everyMinutes degrades to a no-op", () => {
     await checkTimers();
 
     expect(getNextFire().has(`${canvasName}::${nodeId}`)).toBe(false);
-    expect(getPulseLog().filter((record) => record.canvasName === canvasName)).toEqual([]);
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`${canvasName}::${nodeId}`));
     errorSpy.mockRestore();
   });
 
-  it("a negative interval never schedules and never fires, even across repeated cycle passes (no tight loop)", async () => {
+  it("a negative interval never schedules, even across repeated cycle passes (no tight loop)", async () => {
     const canvasName = "timer-canvas-negative";
     const nodeId = "timer-negative";
     __setDocsForTest(new Map([[canvasName, timerDoc(nodeId, -30)]]));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    // Simulate several evaluation passes back-to-back — the old code would
-    // compute a `due` in the past every time and fire on every single one.
     await checkTimers();
     await checkTimers();
     await checkTimers();
 
     expect(getNextFire().has(`${canvasName}::${nodeId}`)).toBe(false);
-    expect(getPulseLog().filter((record) => record.canvasName === canvasName)).toEqual([]);
     vi.restoreAllMocks();
   });
 
-  it("a NaN interval never schedules and never fires, even across repeated cycle passes (no fire storm)", async () => {
+  it("a NaN interval never schedules, even across repeated cycle passes (no fire storm)", async () => {
     const canvasName = "timer-canvas-nan";
     const nodeId = "timer-nan";
     __setDocsForTest(new Map([[canvasName, timerDoc(nodeId, NaN)]]));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    // NaN is the sharpest case: `now < NaN` is always false, so the old
-    // skip-guard (`due === undefined || now < due`) never engaged and this
-    // fired on every pass.
     await checkTimers();
     await checkTimers();
     await checkTimers();
 
     expect(getNextFire().has(`${canvasName}::${nodeId}`)).toBe(false);
-    expect(getPulseLog().filter((record) => record.canvasName === canvasName)).toEqual([]);
     vi.restoreAllMocks();
   });
 
-  it("an Infinity interval never schedules and never fires", async () => {
+  it("an Infinity interval never schedules", async () => {
     const canvasName = "timer-canvas-infinity";
     const nodeId = "timer-infinity";
     __setDocsForTest(new Map([[canvasName, timerDoc(nodeId, Infinity)]]));
@@ -134,11 +123,10 @@ describe("checkTimers — invalid everyMinutes degrades to a no-op", () => {
     await checkTimers();
 
     expect(getNextFire().has(`${canvasName}::${nodeId}`)).toBe(false);
-    expect(getPulseLog().filter((record) => record.canvasName === canvasName)).toEqual([]);
     vi.restoreAllMocks();
   });
 
-  it("a valid interval still schedules one interval out and does not fire on discovery (unaffected by the guard)", async () => {
+  it("a valid interval still schedules one interval out and does not fire on discovery", async () => {
     const canvasName = "timer-canvas-valid";
     const nodeId = "timer-valid";
     __setDocsForTest(new Map([[canvasName, timerDoc(nodeId, 30)]]));
@@ -148,7 +136,6 @@ describe("checkTimers — invalid everyMinutes degrades to a no-op", () => {
     const due = getNextFire().get(`${canvasName}::${nodeId}`);
     expect(due).toBeDefined();
     expect(due!).toBeGreaterThan(Date.now()); // scheduled out, not immediately due
-    expect(getPulseLog().filter((record) => record.canvasName === canvasName)).toEqual([]);
   });
 
   it("an edited-to-invalid timer clears its stale schedule instead of leaving a phantom countdown", async () => {
@@ -167,27 +154,22 @@ describe("checkTimers — invalid everyMinutes degrades to a no-op", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses the durable policy decision to coalesce a late timer into one pulse", async () => {
+  it("uses the durable policy decision to coalesce a late timer into one nextFire advance", async () => {
     const canvasName = "timer-canvas-coalesced";
     const nodeId = "timer-coalesced";
-    __setDocsForTest(
-      new Map([[canvasName, timerDoc(nodeId, 1)]]),
-    );
+    const timerKey = `${canvasName}::${nodeId}`;
+    __setDocsForTest(new Map([[canvasName, timerDoc(nodeId, 1)]]));
 
+    // Discovery: schedule one interval out (1_000_000 + 60_000).
     await checkTimers(1_000_000);
-    await checkTimers(1_250_000);
-    await checkTimers(1_250_000);
-    await Promise.resolve();
+    expect(getNextFire().get(timerKey)).toBe(1_060_000);
 
-    const records = getPulseLog().filter(
-      (record) => record.canvasName === canvasName,
-    );
-    expect(records).toHaveLength(1);
-    expect(records[0]?.summary).toContain(
-      "3 missed interval(s) coalesced",
-    );
-    expect(getNextFire().get(`${canvasName}::${nodeId}`)).toBe(
-      1_300_000,
-    );
+    // Late wall clock: coalesce missed slots into one claim; advance nextFire.
+    await checkTimers(1_250_000);
+    expect(getNextFire().get(timerKey)).toBe(1_300_000);
+
+    // Same instant again: NotDue — nextFire stays put (no inject, no double-advance).
+    await checkTimers(1_250_000);
+    expect(getNextFire().get(timerKey)).toBe(1_300_000);
   });
 });

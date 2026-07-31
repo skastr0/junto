@@ -24,6 +24,7 @@ import {
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import { state$ } from "../../lib/state";
+import { kernel$ } from "../../lib/kernel-view";
 import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
 import { resolveNodeConnections } from "../../../shared/connections";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";

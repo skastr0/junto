@@ -1,7 +1,6 @@
 // The kernel is now a headless loop in the MAIN process (src/main/vellum/kernel/)
 // — this module is a pure PROJECTION of it over IPC. Renderer surface for
-// watcher status + execution phase only. Operator arm/pulse UI is retired;
-// main still owns arming + delivery if any residual IPC remains.
+// watcher status + execution phase only. Region pulse / arming product is gone.
 
 import { observable, observe } from "@legendapp/state";
 import type {
@@ -19,10 +18,6 @@ export type { WatcherRuntimeState, ExecutionSnapshot };
 // `execution` is the open canvas's live edge phase + blocked closure from the
 // kernel cycle. Canvas toFlow consumes it so criteria edges use the same
 // derived snapshot as phase mirroring.
-//
-// `fault` is a global durable-intent surface (e.g. persisted-arming load
-// failure). KernelStatus still mounts it; keep projecting until that banner
-// is retired separately.
 export const kernel$ = observable<{
   watchers: Record<string, WatcherRuntimeState>;
   nextFire: Record<string, number>;
@@ -30,13 +25,11 @@ export const kernel$ = observable<{
   // Monotonic stamp so React effects can depend on execution changes without
   // deep-comparing the snapshot object.
   executionRev: number;
-  fault: string;
 }>({
   watchers: {},
   nextFire: {},
   execution: null,
   executionRev: 0,
-  fault: "",
 });
 
 // --- projection: KernelSnapshot (all canvases) -> kernel$ (open canvas only) --
@@ -49,7 +42,7 @@ const EMPTY_CANVAS_ENTRY: {
 
 // The last snapshot pushed/hydrated from main, kept so a canvasName switch
 // can re-project without waiting for the next kernelChanged push.
-let latestSnapshot: KernelSnapshot = { canvases: {}, pulseLog: [] };
+let latestSnapshot: KernelSnapshot = { canvases: {} };
 
 const shallowRecordEqual = <T>(
   prev: Record<string, T> | undefined,
@@ -94,9 +87,6 @@ const projectSnapshot = (snapshot: KernelSnapshot, canvasName: string): void => 
     kernel$.execution.set(nextExecution);
     kernel$.executionRev.set(kernel$.executionRev.peek() + 1);
   }
-
-  const nextFault = snapshot.fault ?? "";
-  if (kernel$.fault.peek() !== nextFault) kernel$.fault.set(nextFault);
 };
 
 const shallowWatcherEqual = (a: WatcherRuntimeState, b: WatcherRuntimeState): boolean => {

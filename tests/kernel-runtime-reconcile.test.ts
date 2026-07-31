@@ -4,29 +4,21 @@ import type { SnapshotState } from "../src/shared/entities";
 import { resetWatcherMemory } from "../src/main/vellum/kernel/evaluate";
 import {
   __resetKernelMemoryForTest,
-  __resetPulseLogForTest,
-  __setDeliveryDepsForTest,
   __setSnapshotsForTest,
   __setStationScopeForTest,
   __setTimerSchedulerForTest,
   checkTimers,
-  deliverPulse,
-  getArmed,
   getNextFire,
-  getPulseLog,
   getWatchers,
   purgeCanvasMemory,
   reconcileLiveCanvasMemory,
   runEvaluationCycle,
-  setArmed,
   setDocs,
-  type PulseDeliverDeps,
 } from "../src/main/vellum/kernel/cycle";
 import { makeInMemoryTimerScheduler } from "./helpers/in-memory-timer-scheduler";
 
-// sdk-kernel-build fix 3 (arming is operator intent, survives canvas deletion
-// in-session) and fix 7 (stale watcher/timer entries on a STILL-LIVE canvas are
-// swept, arming is never touched).
+// purgeCanvasMemory / reconcileLiveCanvasMemory: derived watcher/timer state
+// is swept; region-pulse arming product is retired.
 
 const snapshotsWithStat = (stat: string, value: number): SnapshotState => ({
   bundles: [
@@ -68,91 +60,39 @@ const plainNode = (id: string) => ({ id, type: "text" as const, text: "note", x:
 
 beforeEach(() => {
   __resetKernelMemoryForTest();
-  __resetPulseLogForTest();
   resetWatcherMemory();
-  // Fail-closed default is role "unset" (no fire). Delivery tests need CC scope.
   __setStationScopeForTest({ hostId: "local", role: "command-center" });
   __setTimerSchedulerForTest(makeInMemoryTimerScheduler());
   __setSnapshotsForTest(snapshotsWithStat("signals", 3)); // below threshold -> pending
 });
 
 afterEach(() => {
-  __setDeliveryDepsForTest(undefined);
   __setTimerSchedulerForTest(undefined);
 });
 
-describe("fix 3 — arming survives canvas deletion; derived state does not", () => {
-  it("purgeCanvasMemory drops watchers/nextFire but preserves the armed intent", async () => {
+describe("purgeCanvasMemory — drops derived watcher/timer state", () => {
+  it("purgeCanvasMemory drops watchers and nextFire for the canvas", async () => {
     const doc: CanvasDoc = { nodes: [watcherNode("f3-w1"), timerNode("f3-t1")], edges: [] };
     setDocs(new Map([["f3-canvas", doc]]));
     await runEvaluationCycle(); // populates watchers["f3-canvas::f3-w1"]
     await checkTimers(); // populates nextFire["f3-canvas::f3-t1"]
-    setArmed("f3-canvas::f3-r1", true);
 
     expect(getWatchers().has("f3-canvas::f3-w1")).toBe(true);
     expect(getNextFire().has("f3-canvas::f3-t1")).toBe(true);
 
     purgeCanvasMemory("f3-canvas");
 
-    // Derived state gone; operator intent kept (was previously armed.delete'd).
     expect(getWatchers().has("f3-canvas::f3-w1")).toBe(false);
     expect(getNextFire().has("f3-canvas::f3-t1")).toBe(false);
-    expect(getArmed().get("f3-canvas::f3-r1")).toBe(true);
-  });
-
-  it("a delete+recreate under the same name resumes armed — a live delivery, not dry", async () => {
-    setArmed("f3-resume::region1", true);
-    purgeCanvasMemory("f3-resume"); // canvas deleted; arming preserved
-
-    // Canvas recreated under the same name, same region node id, an agent inside.
-    const recreated: CanvasDoc = {
-      nodes: [
-        { id: "region1", type: "group", x: 0, y: 0, width: 400, height: 400 },
-        {
-          id: "agent-a",
-          type: "text",
-          text: "agent",
-          x: 40,
-          y: 40,
-          width: 100,
-          height: 50,
-          ether: {
-          entity: { kind: "agent", name: "remote-a:vega" },
-          terminal: {
-            bindingId: "bind-remote-a-vega",
-            harness: "claude",
-            launch: { kind: "harness", argv: ["claude"] },
-          },
-        },
-        },
-      ],
-      edges: [],
-    };
-    setDocs(new Map([["f3-resume", recreated]]));
-
-    const calls: string[] = [];
-    const deps: PulseDeliverDeps = {
-      sendManagedTerminal: async (bindingId) => {
-        calls.push(`send:${bindingId}`);
-        return true;
-      },
-    };
-    await deliverPulse({ canvasName: "f3-resume", sourceNodeId: "region1", kind: "manual", regionId: "region1", summary: "resumed", deps });
-
-    const record = getPulseLog()[0];
-    expect(record?.dry).toBe(false); // armed intent resumed automatically
-    expect(record?.delivered).toEqual(["remote-a:vega"]);
-    expect(calls.some((c) => c.includes("bind-remote-a-vega"))).toBe(true);
   });
 });
 
-describe("fix 7 — reconcile sweeps removed watchers/timers on a live canvas", () => {
-  it("drops entries whose node/watch/timer is gone, keeps live ones, never touches arming", async () => {
+describe("reconcileLiveCanvasMemory — sweeps removed watchers/timers on a live canvas", () => {
+  it("drops entries whose node/watch/timer is gone, keeps live ones", async () => {
     const before: CanvasDoc = { nodes: [watcherNode("f7-w1"), watcherNode("f7-w2"), timerNode("f7-t1")], edges: [] };
     setDocs(new Map([["f7-canvas", before]]));
     await runEvaluationCycle();
     await checkTimers();
-    setArmed("f7-canvas::f7-r1", true);
 
     expect(getWatchers().has("f7-canvas::f7-w1")).toBe(true);
     expect(getWatchers().has("f7-canvas::f7-w2")).toBe(true);
@@ -167,7 +107,6 @@ describe("fix 7 — reconcile sweeps removed watchers/timers on a live canvas", 
     expect(getWatchers().has("f7-canvas::f7-w1")).toBe(true); // still present -> kept
     expect(getWatchers().has("f7-canvas::f7-w2")).toBe(false); // node gone -> swept
     expect(getNextFire().has("f7-canvas::f7-t1")).toBe(false); // timer removed -> swept
-    expect(getArmed().get("f7-canvas::f7-r1")).toBe(true); // arming untouched
   });
 
   it("leaves entries for a NOT-hydrated canvas alone (that is purgeCanvasMemory's job)", async () => {

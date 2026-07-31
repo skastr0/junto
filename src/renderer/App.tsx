@@ -34,7 +34,6 @@ import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
-import { KernelStatus } from "./components/KernelStatus";
 
 import { SettingsPanel } from "./components/SettingsPanel";
 // Fleet pulls three.js + GLBs. Keep it out of the main chunk until open.
@@ -445,7 +444,6 @@ export function App() {
           <DemoCameraBridge />
         </ReactFlowProvider>
         <CanvasChrome />
-        <KernelStatus />
         {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
 
         <SettingsPanel />

@@ -66,6 +66,7 @@ import {
 import { playAlert } from "../../lib/sfx";
 import { HUE, withAlpha } from "../../lib/theme";
 import { useAlertAttention } from "../../lib/alert-attention";
+import { kernel$ } from "../../lib/kernel-view";
 import { specOf } from "../../lib/node-spec";
 import { roleOf } from "@shared/physics";
 import { openWorkDetail } from "../../lib/work-detail-open";

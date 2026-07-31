@@ -1,10 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import {
-  agentKeysForWatcher,
-} from "../src/shared/station";
+import { agentKeysForWatcher } from "../src/shared/station";
 import {
   buildPortfolioDoc,
   hermesAgentsFromSnapshots,
@@ -16,13 +14,6 @@ import {
   parseAgentKey,
   resolveHermesStationIdentity,
 } from "../src/main/vellum/hermes/domain";
-import {
-  __resetKernelMemoryForTest,
-  __setDocsForTest,
-  __setStationScopeForTest,
-  deliverPulse,
-  setArmed,
-} from "../src/main/vellum/kernel/cycle";
 
 const station = resolveHermesStationIdentity({
   role: "remote",
@@ -79,10 +70,6 @@ const routedDoc = (
     },
   ],
   edges: [{ id: "route", fromNode: "watcher", toNode: "agent" }],
-});
-
-beforeEach(() => {
-  __resetKernelMemoryForTest();
 });
 
 describe("canonical Hermes station identity", () => {
@@ -154,59 +141,19 @@ describe("canonical Hermes station identity", () => {
       .toMatchObject({ stale: false });
   });
 
-  it("delivers a Remote watcher to its canonical same-host agent locally", async () => {
+  it("routes a Remote watcher only to its canonical same-host agent", () => {
     const doc = routedDoc("studio", "studio", "fleet-studio:default");
-    const sendManaged = vi.fn(async () => true);
-    __setDocsForTest(new Map([["work", doc]]));
-    __setStationScopeForTest({ hostId: "studio", role: "remote" });
-    setArmed("work::region", true);
-
-    await deliverPulse({
-      canvasName: "work",
-      sourceNodeId: "watcher",
-      kind: "watcher",
-      regionId: "region",
-      summary: "same host",
-      deps: {
-        sendManagedTerminal: sendManaged,
-      },
-    });
-
     expect(agentKeysForWatcher(doc, "watcher", "remote", "studio"))
       .toEqual(["fleet-studio:default"]);
-    expect(sendManaged).toHaveBeenCalledWith(
-      expect.stringContaining("bind-"),
-      expect.stringContaining("same host"),
-    );
     const parsed = parseAgentKey("fleet-studio:default");
     expect(parsed && isLocalHermesHost(parsed.host, station)).toBe(true);
     expect(isLocalHermesHost("local", station)).toBe(false);
   });
 
-  it("keeps Command Center cross-host delivery on the non-local fleet route", async () => {
+  it("keeps Command Center cross-host route keys on the non-local fleet agent", () => {
     const doc = routedDoc("local", "render", "fleet-render:default");
-    const sendManaged = vi.fn(async () => true);
-    __setDocsForTest(new Map([["work", doc]]));
-    __setStationScopeForTest({ hostId: "local", role: "command-center" });
-    setArmed("work::region", true);
-
-    await deliverPulse({
-      canvasName: "work",
-      sourceNodeId: "watcher",
-      kind: "watcher",
-      regionId: "region",
-      summary: "cross host",
-      deps: {
-        sendManagedTerminal: sendManaged,
-      },
-    });
-
     expect(agentKeysForWatcher(doc, "watcher", "command-center", "local"))
       .toEqual(["fleet-render:default"]);
-    expect(sendManaged).toHaveBeenCalledWith(
-      expect.stringContaining("bind-"),
-      expect.stringContaining("cross host"),
-    );
     const parsed = parseAgentKey("fleet-render:default");
     expect(parsed && isLocalHermesHost(parsed.host, station)).toBe(false);
   });

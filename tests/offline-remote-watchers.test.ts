@@ -2,16 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
 import {
-  __resetDeliveryQueueForTest,
   __resetKernelMemoryForTest,
-  __setDeliveryDepsForTest,
   __setDocsForTest,
   __setSnapshotsForTest,
   __setStationScopeForTest,
   getWatchers,
   runEvaluationCycle,
-  setArmed,
-  type PulseDeliverDeps,
 } from "../src/main/vellum/kernel/cycle";
 
 const stationHostId = "studio";
@@ -120,33 +116,19 @@ const freshFleetSnapshot = (remoteRunning: number, at: string): SnapshotState =>
 });
 
 describe("offline Remote watcher island", () => {
-  const delivered: string[] = [];
-  const delivery: PulseDeliverDeps = {
-    sendManagedTerminal: async (bindingId) => {
-      // Map binding back to agent key for assertions that still check keys
-      delivered.push(bindingId);
-      return true;
-    },
-  };
-
   beforeEach(() => {
-    delivered.length = 0;
     __resetKernelMemoryForTest();
-    __resetDeliveryQueueForTest();
-    __setDeliveryDepsForTest(delivery);
     __setStationScopeForTest({ role: "remote", hostId: stationHostId });
   });
 
   afterEach(() => {
-    __resetDeliveryQueueForTest();
     __resetKernelMemoryForTest();
     __setStationScopeForTest({ role: "command-center", hostId: "local" });
     vi.restoreAllMocks();
   });
 
-  it("fires a local fresh 0→1 predicate to a same-host agent while fleet state is blind", async () => {
+  it("evaluates a local fresh 0→1 predicate while fleet state is blind", async () => {
     const canvasName = "offline-local-island";
-    setArmed(`${canvasName}::${regionId}`, true);
     __setDocsForTest(new Map([[canvasName, watcherDocument(localAgentKey)]]));
 
     __setSnapshotsForTest(partialSnapshot(0, 1, "2026-07-23T10:00:00.000Z"));
@@ -157,18 +139,15 @@ describe("offline Remote watcher island", () => {
 
     __setSnapshotsForTest(partialSnapshot(1, 1, "2026-07-23T10:01:00.000Z"));
     await runEvaluationCycle();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+    // Rising edge is evaluation-only now — no pulse inject / lastFiredAt stamp.
     expect(getWatchers().get(`${canvasName}::gateway-watch`)).toMatchObject({
       status: "satisfied",
-      lastFiredAt: expect.any(Number),
     });
-    expect(delivered).toEqual(["bind-local-agent"]);
   });
 
-  it("does not fire a fleet predicate from a retained stale Command Center fact", async () => {
+  it("does not satisfy a fleet predicate from a retained stale Command Center fact", async () => {
     const canvasName = "offline-fleet-island";
-    setArmed(`${canvasName}::${regionId}`, true);
     __setDocsForTest(new Map([[canvasName, watcherDocument(commandCenterAgentKey)]]));
 
     __setSnapshotsForTest(freshFleetSnapshot(0, "2026-07-23T10:00:00.000Z"));
@@ -179,12 +158,10 @@ describe("offline Remote watcher island", () => {
 
     __setSnapshotsForTest(partialSnapshot(1, 1, "2026-07-23T10:01:00.000Z"));
     await runEvaluationCycle();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     expect(getWatchers().get(`${canvasName}::gateway-watch`)).toEqual({
       status: "unknown",
       detail: "hermes:command-center:agent unavailable or stale",
     });
-    expect(delivered).toEqual([]);
   });
 });
