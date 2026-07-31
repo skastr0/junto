@@ -196,7 +196,8 @@ export function AgentLaunchContext({
   return (
     <section
       className={["grid gap-3 border-t border-stroke bg-well/40 px-3 py-3", className].filter(Boolean).join(" ")}
-      aria-label="Launch context for next agent"
+      role="region"
+      aria-label="Launch context"
     >
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink">Launch context</span>
@@ -222,6 +223,7 @@ export function AgentLaunchContext({
               className="min-w-0 flex-1 justify-between normal-case tracking-normal"
               aria-haspopup="dialog"
               aria-expanded={folderOpen}
+              aria-label="Choose starting folder"
               onClick={() => setFolderOpen((open) => !open)}
             >
               <span className="min-w-0 truncate font-mono text-[11px]">{cwd || "choose folder"}</span>
