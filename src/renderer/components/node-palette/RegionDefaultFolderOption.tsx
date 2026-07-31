@@ -1,4 +1,3 @@
-import { Check } from "lucide-react";
 import type { EtherRegionDefaults } from "@shared/canvas";
 import { stripEmptyRegionPaths } from "@shared/region-defaults";
 import { setRegionDefaults } from "../../lib/mutations";
@@ -46,20 +45,11 @@ export function RegionDefaultFolderOption({
     >
       <input
         type="checkbox"
-        className="sr-only"
+        className="mt-px h-4 w-4 shrink-0 accent-amber"
         checked={checked}
         disabled={disabled}
         onChange={(event) => onToggle(event.target.checked)}
       />
-      <span
-        aria-hidden="true"
-        className={[
-          "mt-px grid h-4 w-4 shrink-0 place-items-center rounded-[3px] border",
-          checked && !disabled ? "border-amber bg-amber/15 text-amber" : "border-stroke bg-inset text-transparent",
-        ].join(" ")}
-      >
-        <Check size={11} strokeWidth={2.6} />
-      </span>
       <span>
         <span className="block text-ink">Use this folder as region default for this host</span>
         {showRegionHint ? (

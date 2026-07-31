@@ -86,14 +86,11 @@
 
 .node-deck__agent-list {
   display: grid;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+  max-height: calc(100% - 150px);
   align-content: start;
   gap: 3px;
   padding: 2px;
-}
-
-.node-deck__launch-slot {
-  margin-top: auto;
 }
 
 .node-deck__launch-slot {
