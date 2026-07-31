@@ -185,6 +185,8 @@ const makeKernelRuntime = (
         itemHome: () => Effect.dieMessage("unused work repository"),
         hasAcceptedDelivery: () =>
           Effect.dieMessage("unused work repository"),
+        acceptedDeliveryAt: () =>
+          Effect.dieMessage("unused work repository"),
         createTask: () => Effect.dieMessage("unused work repository"),
         createProposal: () => Effect.dieMessage("unused work repository"),
         approveProposal: () => Effect.dieMessage("unused work repository"),

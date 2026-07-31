@@ -743,7 +743,9 @@ const dispatchOp = (
     if (op === "msg.read") {
       const decoded = decodeArgs(MsgReadArgs, args);
       if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
-      // Own mailbox only — self is always connected, but refuse foreign inboxes.
+      // Own mailbox only — process-bind is the authority (not edge OptIn ports).
+      // Actor↔actor is OptIn; a seat reading its own inbox must not require a
+      // self-loop edge with msg.list.
       if (decoded.right.target !== caller.nodeId) {
         return yield* Effect.fail({
           type: "ScopeError" as const,
@@ -756,8 +758,14 @@ const dispatchOp = (
           },
         });
       }
-      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
+      const own = findNode(board, caller.nodeId);
+      if (!own) {
+        return yield* Effect.fail({
+          type: "UnknownTarget" as const,
+          message: `target "${caller.nodeId}" not found`,
+          details: { target: caller.nodeId, retryable: false },
+        });
+      }
       const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Either.isLeft(reader)) return yield* Effect.fail(reader.left);
       const result = yield* work.workMessageMarkRead(

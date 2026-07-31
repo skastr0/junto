@@ -747,6 +747,62 @@ describe("work control transport", () => {
     expect(claimAfter.data.disposition).toBe("applied");
   });
 
+  it("creates attributed proposals that require operator approval before claim", async () => {
+    const server = servers[0]!;
+    const actor = await projectedProcessActor();
+    const created = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.create",
+      args: {
+        target: "tasks",
+        brief: "add keyboard navigation",
+        metadata: { title: "Keyboard navigation" },
+      },
+    })) as {
+      ok: true;
+      data: {
+        id: string;
+        proposedBy: { seatId: string; nodeId: string };
+      };
+    };
+    expect(created.ok).toBe(true);
+    expect(created.data.proposedBy).toMatchObject({
+      seatId: actor.seatId,
+      nodeId: actor.nodeId,
+    });
+
+    const proposalId = created.data.id;
+    const denied = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.claim",
+      args: { target: "tasks", task: proposalId },
+    })) as { ok: false; error: { type: string; message: string } };
+    expect(denied.ok).toBe(false);
+    expect(denied.error.type).toBe("UnknownTarget");
+
+    const actorUpdate = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.update",
+      args: { target: "tasks", task: proposalId, state: "rejected" },
+    })) as { ok: false; error: { type: string; message: string } };
+    expect(actorUpdate.ok).toBe(false);
+    expect(actorUpdate.error.type).toBe("UnknownTarget");
+
+    const work = await runtimes[runtimes.length - 1]!.runPromise(WorkService);
+    const approved = await runtimes[runtimes.length - 1]!.runPromise(
+      work.workTaskApproveProposal("work-cli", "tasks", proposalId),
+    );
+    expect(approved.ok).toBe(true);
+    if (!approved.ok) throw new Error(approved.message);
+
+    const claimed = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.claim",
+      args: { target: "tasks", task: approved.data.id },
+    })) as { ok: true };
+    expect(claimed.ok).toBe(true);
+  });
+
   it("keeps reads available while returning typed RuntimeDown for authorial ops", async () => {
     const server = servers[0]!;
     const gate = authoringGates[0]!;
@@ -923,6 +979,21 @@ describe("work control transport", () => {
     expect(res.ok).toBe(false);
     expect(res.error.type).toBe("ScopeError");
     expect(res.error.message).toMatch(/edge|connect/i);
+  });
+
+  it("msg.read refuses a foreign mailbox (own seat only)", async () => {
+    const server = servers[0]!;
+    const res = (await call(server.socketPath, {
+      token: token(),
+      op: "msg.read",
+      args: { target: "tasks", messageId: "m-not-mine" },
+    })) as {
+      ok: false;
+      error: { type: string; message: string; details?: { next_step?: string } };
+    };
+    expect(res.ok).toBe(false);
+    expect(res.error.type).toBe("ScopeError");
+    expect(res.error.message).toMatch(/own mailbox/i);
   });
 
   it("claims a connected task", async () => {

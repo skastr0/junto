@@ -438,6 +438,20 @@ export const WorkLive = Layer.effect(
           }),
         );
       }
+      // Own-mailbox read is process-bind + seat ownership, not edge OptIn.
+      // Actor↔actor grant law is OptIn; requiring msg.list on a self-loop would
+      // make mark-read impossible without authoring a nonsense self-edge.
+      if (op === "msg.read" && actor.nodeId === targetNodeId) {
+        const actorNode = nodeById(read.doc, actor.nodeId);
+        return actorNode === undefined
+          ? Effect.fail(
+            new WorkServiceError({
+              code: "node_not_found",
+              message: `node "${actor.nodeId}" not found`,
+            }),
+          )
+          : Effect.succeed(actorNode);
+      }
       const admitted = admitWorkTarget(
         read.doc,
         actor.nodeId,
@@ -1175,18 +1189,20 @@ export const WorkLive = Layer.effect(
             }
             const sink = sinkRef(canvas, nodeId);
             const deliveryId = mailboxMessageReadId(canvas, nodeId, trimmed);
-            const acceptedAt = new Date().toISOString();
-            const already = yield* repository
-              .hasAcceptedDelivery(sink, deliveryId)
+            const existingAt = yield* repository
+              .acceptedDeliveryAt(sink, deliveryId)
               .pipe(Effect.mapError(toWorkServiceError));
-            if (already) {
+            if (existingAt !== undefined) {
               return yield* complete(canvas, {
                 disposition: "applied" as const,
-                value: { messageId: trimmed, readAt: acceptedAt },
+                value: { messageId: trimmed, readAt: existingAt },
               });
             }
-            const outcome = yield* local(
-              repository.acceptDelivery({
+            const acceptedAt = new Date().toISOString();
+            // Race-safe: concurrent markRead may win the insert between the
+            // lookup above and acceptDelivery; identity-conflict is applied.
+            const outcome = yield* repository
+              .acceptDelivery({
                 sink,
                 basis: intentBasis(context, read.intentWitness),
                 receipt: {
@@ -1199,12 +1215,42 @@ export const WorkLive = Layer.effect(
                   actor: reader,
                   acceptedAt,
                 },
-              }).pipe(
-                Effect.map(() => ({
-                  value: { messageId: trimmed, readAt: acceptedAt },
+              })
+              .pipe(
+                Effect.map((result) => ({
+                  value: {
+                    messageId: trimmed,
+                    readAt: result.value.acceptedAt,
+                  },
                 })),
-              ),
-            );
+                Effect.catchIf(
+                  (error): error is WorkAuthorityError =>
+                    error instanceof WorkAuthorityError &&
+                    error.reason === "identity-conflict",
+                  () =>
+                    repository.acceptedDeliveryAt(sink, deliveryId).pipe(
+                      Effect.mapError(toWorkServiceError),
+                      Effect.flatMap((at) =>
+                        at === undefined
+                          ? Effect.fail(
+                            new WorkServiceError({
+                              code: "invalid",
+                              message:
+                                `read receipt "${deliveryId}" conflicted but is missing`,
+                            }),
+                          )
+                          : Effect.succeed({
+                            value: { messageId: trimmed, readAt: at },
+                          }),
+                      ),
+                    ),
+                ),
+                Effect.mapError(toWorkServiceError),
+                Effect.map(({ value }) => ({
+                  value,
+                  disposition: "applied" as const,
+                })),
+              );
             return yield* complete(canvas, outcome);
           }),
         ),

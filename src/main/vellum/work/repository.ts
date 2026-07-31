@@ -4344,6 +4344,14 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
       sink: SinkRefValue,
       deliveryId: string,
     ) => Effect.Effect<boolean, WorkRepositoryError>;
+    /**
+     * Durable receipt timestamp when present. Used for idempotent mark-read
+     * so re-acks return the original acceptedAt, not a fabricated now().
+     */
+    readonly acceptedDeliveryAt: (
+      sink: SinkRefValue,
+      deliveryId: string,
+    ) => Effect.Effect<string | undefined, WorkRepositoryError>;
     readonly createTask: (
       input: CreateTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
@@ -4487,24 +4495,34 @@ export const WorkRepositoryLive = Layer.effect(
       sink: SinkRefValue,
       deliveryId: string,
     ): Effect.Effect<boolean, WorkRepositoryError> =>
+      acceptedDeliveryAt(sink, deliveryId).pipe(
+        Effect.map((at) => at !== undefined),
+      );
+
+    const acceptedDeliveryAt = (
+      sink: SinkRefValue,
+      deliveryId: string,
+    ): Effect.Effect<string | undefined, WorkRepositoryError> =>
       state
         .read(
-          "work.hasAcceptedDelivery",
-          (reader) =>
-            reader.get<StateRow>(
+          "work.acceptedDeliveryAt",
+          (reader) => {
+            const row = reader.get<StateRow & { readonly accepted_at: string }>(
               `
-                SELECT 1
+                SELECT accepted_at
                 FROM work_delivery_receipts
                 WHERE delivered_canvas_name = ?
                   AND delivered_node_id = ?
                   AND delivery_id = ?
               `,
               [sink.canvasName, sink.nodeId, deliveryId],
-            ) !== undefined,
+            );
+            return row?.accepted_at;
+          },
         )
         .pipe(
           Effect.mapError((error) =>
-            toRepositoryError("work.hasAcceptedDelivery", error),
+            toRepositoryError("work.acceptedDeliveryAt", error),
           ),
         );
 
@@ -5815,6 +5833,7 @@ export const WorkRepositoryLive = Layer.effect(
       snapshotsForCanvas: readSnapshotsForCanvas,
       itemHome,
       hasAcceptedDelivery,
+      acceptedDeliveryAt,
       createTask,
       createProposal,
       approveProposal,
