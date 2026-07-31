@@ -5,7 +5,6 @@ import {
   templateFor,
   type HarnessId,
 } from "@shared/managed-terminal-templates";
-import { HUE } from "../../lib/theme";
 import {
   AgentCascadeMenu,
   cascadeEnterKey,
@@ -50,13 +49,6 @@ const CATEGORIES: ReadonlyArray<{ readonly id: NodeCatalogCategory | "all"; read
   { id: "schedule", label: "Schedule" },
   { id: "canvas", label: "Canvas" },
 ];
-
-const AGENT_ACCENTS: Readonly<Record<HarnessId, string>> = {
-  claude: "#D97757",
-  codex: HUE.cyan,
-  grok: HUE.gold,
-  hermes: HUE.violet,
-};
 
 const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void => {
   switch (entry.id) {
@@ -205,7 +197,6 @@ export function NodePaletteModeDeck({
                     size={28}
                     title={false}
                     treatment="neutral"
-                    hue={AGENT_ACCENTS[template.harness]}
                   />
                   <strong>{template.displayName}</strong>
                 </button>

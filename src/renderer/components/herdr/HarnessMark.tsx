@@ -14,7 +14,6 @@ export function HarnessMark({
   size,
   focused = false,
   treatment = "tile",
-  hue: hueOverride,
   // Native title fights group hover panels (UsageHud). Opt out with false.
   title: titleProp,
   marks: service = marks,
@@ -24,13 +23,11 @@ export function HarnessMark({
   readonly focused?: boolean;
   /** Neutral keeps the official glyph while removing the tinted tile fill. */
   readonly treatment?: "tile" | "neutral";
-  /** Palette-only accent override for monochrome official marks. */
-  readonly hue?: string;
   readonly title?: string | false;
   readonly marks?: MarksService;
 }) {
   const tile = markTileFor(agent, service);
-  const hue = hueOverride ?? tile.hue;
+  const hue = tile.hue;
   const inner = Math.round((size * 15) / 28);
   const title =
     titleProp === false

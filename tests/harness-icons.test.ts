@@ -57,9 +57,9 @@ describe("repository coverage", () => {
   });
 
   it("keeps the curated overrides ahead of generated data", () => {
-    // claude exists in the generated table too — the curated mark (brand
-    // color, simple-icons art) wins the key.
-    expect(GLYPHS.claude.hex).toBe("#D97757");
+    // Claude exists in the generated table too — Anthropic's curated
+    // monochrome mark wins the key.
+    expect(GLYPHS.claude.hex).toBe("#000000");
     expect(GLYPHS.claude.d).not.toEqual(PROVIDER_MARKS.claude.paths);
     expect(GLYPHS.googlegemini.hex).toBe("#8E75B2");
     expect(GLYPHS.openai.viewBox).toBe("0 0 20 20");
@@ -180,8 +180,13 @@ describe("harnessDisplayName", () => {
 });
 
 describe("harnessHue", () => {
-  it("keeps real brand colors", () => {
-    expect(harnessHue("claude")).toBe("#D97757");
+  it("keeps official monochrome agent marks consistent across harness aliases", () => {
+    for (const agent of ["claude", "codex", "chatgpt", "grok", "hermes"]) {
+      expect(harnessHue(agent), agent).toBe(INK);
+    }
+  });
+
+  it("keeps published colors for providers with colored marks", () => {
     expect(harnessHue("gemini cli")).toBe("#8E75B2");
   });
 
@@ -195,6 +200,7 @@ describe("harnessHue", () => {
       "grok",
       "codex",
       "chatgpt",
+      "hermes",
       "amp",
       "devin",
       // monochrome generated marks remap the same way
@@ -224,7 +230,7 @@ describe("MarksService contract", () => {
   it("exposes the repository through the sync accessor React uses", () => {
     expect(marks.glyphFor("claude")).toBe(GLYPHS.claude);
     expect(marks.displayNameFor("gemini")).toBe("Gemini");
-    expect(marks.hueFor("claude")).toBe("#D97757");
+    expect(marks.hueFor("claude")).toBe(INK);
     expect(marks.glyphFor("unknown-xyz")).toBeUndefined();
   });
 
@@ -271,7 +277,7 @@ describe("markTileFor (HarnessMark resolve step)", () => {
   it("resolves a known brand agent against the house repository by default", () => {
     const tile = markTileFor("claude");
     expect(tile.glyph).toBe(GLYPHS.claude);
-    expect(tile.hue).toBe("#D97757");
+    expect(tile.hue).toBe(INK);
     expect(tile.displayName).toBe("Claude");
     expect(tile.paths).toEqual([GLYPHS.claude.d]);
     expect(tile.viewBox).toBe("0 0 24 24"); // default grid
