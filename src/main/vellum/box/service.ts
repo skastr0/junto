@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { homedir } from "node:os";
+import { resolveVellumHome } from "@shared/vellum-home";
 import { join } from "node:path";
 import {
   BoxCli,
@@ -454,7 +454,7 @@ export const BoxFleetServiceLive = Layer.effect(
             }),
       ),
     );
-    const identityFile = join(homedir(), ".ssh", "ascii_box_ed25519");
+    const identityFile = join(resolveVellumHome(), ".ssh", "ascii_box_ed25519");
     return makeBoxFleetService(cli, ownership, authorizeMutation, {
       identityFile,
       verify: (machine) =>

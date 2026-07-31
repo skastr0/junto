@@ -19,7 +19,7 @@ import {
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import type { Socket } from "node:net";
-import { homedir } from "node:os";
+import { resolveVellumHome } from "@shared/vellum-home";
 import { dirname, join, resolve } from "node:path";
 import { Either, Schema } from "effect";
 import { formatNodeRef } from "@shared/node-ref";
@@ -1327,7 +1327,7 @@ export const startBrowserControlServer = async (
   },
   runtime: BrowserControlRuntime = defaultControlRuntime,
 ): Promise<BrowserControlServer> => {
-  const home = options.home ?? homedir();
+  const home = options.home ?? resolveVellumHome();
   const dir = controlDir(home);
   prepareControlDirectory(dir);
   await ensureScreenshotDirectory(controlShotsDir(home));

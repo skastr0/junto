@@ -4,7 +4,7 @@
  * Zero writes to harness configs.
  */
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { resolveVellumHome } from "@shared/vellum-home";
 import { delimiter, join } from "node:path";
 import {
   WORK_HOME_ENV,
@@ -39,7 +39,7 @@ export const vellumCliPathPrefixes = (
 
 export const resolveWorkHomeForSeat = (
   env: NodeJS.ProcessEnv = process.env,
-  home: string = homedir(),
+  home: string = resolveVellumHome(),
 ): string => {
   const override = env[WORK_HOME_ENV]?.trim();
   if (override) return override;

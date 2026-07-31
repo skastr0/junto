@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, rename, rm } from "node:fs/promises";
-import { homedir } from "node:os";
+import { resolveVellumHome } from "@shared/vellum-home";
 import { basename, dirname, join, resolve } from "node:path";
 import { canvasControlNameFrom } from "./protocol";
 
@@ -11,7 +11,7 @@ export type CanvasProjectionSuffix =
 const canvasProjectionRoot = (): string =>
   resolve(
     process.env.VELLUM_CANVASES_DIR ??
-      join(homedir(), ".vellum", "canvases"),
+      join(resolveVellumHome(), ".vellum", "canvases"),
   );
 
 const canvasProjectionSuffixFrom = (

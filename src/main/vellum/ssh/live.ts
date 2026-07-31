@@ -1,6 +1,6 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Layer } from "effect";
-import { homedir } from "node:os";
+import { resolveVellumHome } from "@shared/vellum-home";
 import { join } from "node:path";
 import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/exec";
 import { ProcessSpawnerLive } from "./process-spawner";
@@ -35,7 +35,7 @@ const SshConfigLive = Layer.effect(
   Effect.tryPromise(() => resolvedSpawnEnv()).pipe(
     Effect.orElseSucceed(() => resolvedSpawnEnvSync()),
     Effect.map((environment) => ({
-      controlDir: join(homedir(), ".vellum", "ssh"),
+      controlDir: join(resolveVellumHome(), ".vellum", "ssh"),
       envExecutable: "/usr/bin/env",
       sshExecutable: OPENSSH_CLIENT_EXECUTABLE,
       environment: allowedSshEnvironment(environment),

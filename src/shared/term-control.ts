@@ -2,8 +2,8 @@
 // Every Vellum station (CC or Remote) listens; CC reaches remote stations by
 // SSH-forwarding this socket (same pattern as herdr mirror forward).
 
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveVellumHome } from "./vellum-home";
 import {
   decodeLinuxReleaseFence,
   type LinuxReleaseFence,
@@ -16,10 +16,10 @@ export const TERM_MAX_FRAME_BYTES = 2 * 1024 * 1024;
 export const TERM_MAINTENANCE_OBSERVATION_BYTES = 8;
 export const TERM_MAINTENANCE_MAX_ACTIVE_SESSIONS = 1_000_000;
 
-export const termControlDir = (home = homedir()): string => join(home, ".vellum", "term");
-export const termControlSocketPath = (home = homedir()): string =>
+export const termControlDir = (home = resolveVellumHome()): string => join(home, ".vellum", "term");
+export const termControlSocketPath = (home = resolveVellumHome()): string =>
   join(termControlDir(home), "control.sock");
-export const termControlTokenPath = (home = homedir()): string =>
+export const termControlTokenPath = (home = resolveVellumHome()): string =>
   join(termControlDir(home), "token");
 /** Relative to remote $HOME — used for SSH unix forward. */
 export const TERM_REMOTE_SOCK_REL = ".vellum/term/control.sock";

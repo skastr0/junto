@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { homedir } from "node:os";
+import { resolveVellumHome } from "@shared/vellum-home";
 import { join } from "node:path";
 import { Effect, Either, Schema } from "effect";
 import { ulid } from "ulid";
@@ -141,7 +141,7 @@ export const resolveWorkHome = (home?: string, workHome?: string): string => {
   if (workHome && workHome.trim().length > 0) return workHome.trim();
   const env = process.env.VELLUM_WORK_HOME?.trim();
   if (env) return env;
-  return workControlDir(home ?? homedir());
+  return workControlDir(home ?? resolveVellumHome());
 };
 
 export const rotateWorkToken = (tokenPath: string): string => {

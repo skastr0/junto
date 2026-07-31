@@ -9,7 +9,7 @@ import {
   realpath,
   rmdir,
 } from "node:fs/promises";
-import { homedir } from "node:os";
+import { resolveVellumHome } from "@shared/vellum-home";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
@@ -246,7 +246,7 @@ type PendingWipeRow = {
 
 export const browserRootDir = (): string =>
   process.env.VELLUM_BROWSER_DIR ||
-  join(homedir(), ".vellum", "browser");
+  join(resolveVellumHome(), ".vellum", "browser");
 
 const profilesDir = (root: string) => join(root, "profiles");
 const profileDir = (root: string, id: string) =>

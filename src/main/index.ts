@@ -1291,10 +1291,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       headless,
       packaged: app.isPackaged,
     } as const;
-    const termControlHome = resolveControlHome(controlHomeInput);
+    const termControlHome = resolveControlHome({
+      ...controlHomeInput,
+      explicitHome: process.env.VELLUM_HOME,
+    });
     const browserControlHome = resolveControlHome({
       ...controlHomeInput,
-      explicitHome: process.env.VELLUM_BROWSER_HOME,
+      explicitHome: process.env.VELLUM_BROWSER_HOME ?? process.env.VELLUM_HOME,
     });
 
     const stations = await AppRuntime.runPromise(StationRepository);

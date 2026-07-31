@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
-import { homedir } from "node:os";
+import { resolveVellumHome } from "@shared/vellum-home";
 import { Context, Effect, Layer, Schema } from "effect";
 import {
   WORK_DEFAULT_TIMEOUT_MS,
@@ -19,7 +19,7 @@ import { AuthError, RuntimeDown, WireError } from "./errors";
 export const resolveWorkHome = (): string => {
   const env = process.env[WORK_HOME_ENV]?.trim();
   if (env) return env;
-  return workControlDir(homedir());
+  return workControlDir(resolveVellumHome());
 };
 
 export class WorkSocket extends Context.Tag("@vellum/cli/WorkSocket")<

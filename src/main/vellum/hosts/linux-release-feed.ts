@@ -21,14 +21,14 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { resolveVellumHome } from "@shared/vellum-home";
 import { join } from "node:path";
 
 /** Same Worker host as Mac arm64 feed; Linux channel lives under /linux/. */
 export const LINUX_RELEASE_FEED_BASE =
   "https://vellumreleasedistribution-rele2p3h3apcupwjim2zajqqmhyd.skastr052.workers.dev" as const;
 
-export const linuxRemoteArtifactBundleRoot = (home = homedir()): string =>
+export const linuxRemoteArtifactBundleRoot = (home = resolveVellumHome()): string =>
   join(home, ".vellum", "releases", "linux-x64-glibc", "current");
 
 export const linuxStableChannelUrl = (
@@ -157,7 +157,7 @@ export const seatLinuxReleaseCacheFromFeed = async (input?: {
   readonly bundleRoot: string;
   readonly channel: LinuxStableChannel;
 }> => {
-  const home = input?.home ?? homedir();
+  const home = input?.home ?? resolveVellumHome();
   const feedBase = input?.feedBase ?? LINUX_RELEASE_FEED_BASE;
   const channel = await fetchLinuxStableChannel(feedBase);
   const response = await fetch(channel.downloadLocator, {
@@ -278,7 +278,7 @@ export const ensureLinuxReleaseCache = async (input?: {
   readonly source: "feed" | "local";
   readonly channel?: LinuxStableChannel;
 }> => {
-  const home = input?.home ?? homedir();
+  const home = input?.home ?? resolveVellumHome();
   const bundleRoot = linuxRemoteArtifactBundleRoot(home);
   if (input?.preferLocal && existsSync(bundleRoot)) {
     return { bundleRoot, source: "local" };

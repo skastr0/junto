@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
+import { resolveVellumHome } from "@shared/vellum-home";
 import { dirname, join } from "node:path";
 import type { AgentIdentity } from "@shared/ipc";
 import {
@@ -198,7 +199,7 @@ const fetchRemoteIdentityBatch = async (
 // ---------------------------------------------------------------------------
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const AVATAR_CACHE_DIR = join(homedir(), ".vellum", "cache", "avatars");
+const AVATAR_CACHE_DIR = join(resolveVellumHome(), ".vellum", "cache", "avatars");
 // Disk entries accelerate repeat reads within one app process only. A fresh
 // namespace on restart prevents an undeletable pre-removal avatar from ever
 // becoming authoritative when the same route is later re-added.
