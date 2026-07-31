@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EdgeProps, EdgeTypes } from "@xyflow/react";
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useStore } from "@xyflow/react";
+import { use$ } from "@legendapp/state/react";
 import type { FlowEdge } from "../../lib/convert";
+import { edgeSparks$ } from "../../lib/edge-sparks";
 import { state$ } from "../../lib/state";
-import { accentColor, EDGE_COLOR } from "../../lib/theme";
+import { accentColor, EDGE_COLOR, HUE } from "../../lib/theme";
 import { nodeBounds, routeWire, type WireRect } from "../../lib/wire-route";
 
 /** Minimal node fields needed for obstacle bounds (xyflow InternalNode shape). */
@@ -77,6 +79,7 @@ export function EtherEdge({
   const blocked = phase === "blocks" || rippling;
   const previousBlockedRef = useRef(blocked);
   const [blockArrival, setBlockArrival] = useState(false);
+  const spark = use$(edgeSparks$[id]);
   useEffect(() => {
     const wasBlocked = previousBlockedRef.current;
     previousBlockedRef.current = blocked;
@@ -214,6 +217,39 @@ export function EtherEdge({
             r={3}
             className="vellum-edge__arrival-ring"
           />
+        </g>
+      ) : null}
+      {spark ? (
+        <g
+          key={`spark-${spark.token}`}
+          className="vellum-edge__spark"
+          aria-hidden="true"
+        >
+          <path
+            d={path}
+            fill="none"
+            stroke={HUE.amber}
+            className={
+              spark.fromNodeId === target
+                ? "vellum-edge__spark-flare vellum-edge__spark-flare--rev"
+                : "vellum-edge__spark-flare"
+            }
+            pathLength={100}
+          />
+          <circle
+            r={2.4}
+            fill={HUE.amber}
+            className="vellum-edge__spark-core"
+          >
+            <animateMotion
+              dur="780ms"
+              fill="freeze"
+              path={path}
+              keyPoints={spark.fromNodeId === target ? "1;0" : "0;1"}
+              keyTimes="0;1"
+              calcMode="linear"
+            />
+          </circle>
         </g>
       ) : null}
       <EdgeLabelRenderer>

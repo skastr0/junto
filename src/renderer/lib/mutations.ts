@@ -15,6 +15,7 @@ import type { BindingHint } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { DEFAULT_STATION_HOST_ID, isValidStationHostId } from "@shared/station";
+import { noteWorkDocChange } from "./edge-sparks";
 import { licenseCustody } from "./license-custody";
 import { state$ } from "./state";
 
@@ -375,6 +376,9 @@ export const applyWorkCanvasWrite = (
   const selectedEdgeId = state$.selectedEdgeId.peek();
   const focusNodeId = state$.focusNodeId.peek();
   const editNodeId = state$.editNodeId.peek();
+
+  // Spark before commit so the edge still maps against the live graph.
+  noteWorkDocChange(local, merged, state$.actorRefs.peek());
 
   state$.doc.set(merged);
   state$.docVersion.set(state$.docVersion.peek() + 1);
