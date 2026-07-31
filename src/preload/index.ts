@@ -703,8 +703,6 @@ const terminalApi: VellumTerminalApi = {
     invoke(IPC_CHANNELS.agentSeatStateSnapshot, IPC_TIMEOUT_MS),
   onAgentSeatStateChanged: (listener) =>
     subscribe(IPC_CHANNELS.agentSeatStateChanged, listener),
-  onTerminalTailChanged: (listener) =>
-    subscribe(IPC_CHANNELS.terminalTailChanged, listener),
 };
 
 const demoApi: VellumDemoApi = {

@@ -7,7 +7,6 @@ import { resolveTerminalBinding } from "@shared/terminal";
 import { agentSeat$, subscribeAgentSeatState } from "../../lib/agent-seat-state";
 import { terminalActivity } from "../../lib/activity";
 import { terminal$ } from "../../lib/terminal-state";
-import { terminalTail$, subscribeTerminalTail } from "../../lib/terminal-tail";
 import { getVellumApi } from "../../lib/vellum-api";
 import { claimedTaskForActorNode } from "../../lib/claimed-task";
 import { state$ } from "../../lib/state";
@@ -15,19 +14,6 @@ import { releaseTaskToQueue } from "../../lib/work-actions";
 import { taskBrief } from "@shared/task";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
 import { Button } from "../ui";
-
-/** Header + subtitle + hostId row, in px — space the tail preview must not eat. */
-const TAIL_CHROME_RESERVED_PX = 60;
-const TAIL_LINE_HEIGHT_PX = 14;
-/** Never more than this many lines, no matter how tall the card grows. */
-const TAIL_MAX_LINES = 8;
-
-/** How many trailing lines fit a card of this height — 0 when there's no room. */
-const tailLineBudget = (nodeHeight: number): number => {
-  const available = nodeHeight - TAIL_CHROME_RESERVED_PX;
-  if (available < TAIL_LINE_HEIGHT_PX * 2) return 0;
-  return Math.min(TAIL_MAX_LINES, Math.floor(available / TAIL_LINE_HEIGHT_PX));
-};
 
 const launchSummary = (
   launch:
@@ -67,11 +53,6 @@ export function TerminalCard({
       native?.bindingId ?? "__vellum-terminal-no-binding__"
     ],
   );
-  const tailEvent = use$(
-    terminalTail$.byBindingId[
-      native?.bindingId ?? "__vellum-terminal-no-binding__"
-    ],
-  );
 
   const refresh = () =>
     native &&
@@ -91,7 +72,6 @@ export function TerminalCard({
 
   useEffect(() => {
     subscribeAgentSeatState();
-    subscribeTerminalTail();
     void refresh();
     const api = getVellumApi();
     const off = api?.onTerminalEvent?.((raw) => {
@@ -124,11 +104,6 @@ export function TerminalCard({
     graphBlocked,
   });
 
-  const tailBudget = tailLineBudget(node.height);
-  const tailLines =
-    running && tailBudget > 0 && tailEvent?.lines.length
-      ? tailEvent.lines.slice(-tailBudget)
-      : undefined;
   const releaseClaim = async (): Promise<void> => {
     if (!claimedTask || releasePending) return;
     setReleasePending(true);
@@ -149,7 +124,7 @@ export function TerminalCard({
 
   return (
     <div
-      className="group flex h-full w-full flex-col overflow-hidden"
+      className="group flex h-full w-full flex-col justify-between overflow-hidden"
       title="double-click to open"
       data-seat-state={seatState}
     >
@@ -191,22 +166,6 @@ export function TerminalCard({
           >
             {releasePending ? "…" : "Unclaim"}
           </Button>
-        </div>
-      ) : null}
-      {tailLines ? (
-        <div
-          className="terminal-card__tail mt-1.5 min-h-0 flex-1 overflow-hidden font-mono text-[10px] leading-snug text-dim/70"
-          style={{
-            maskImage: "linear-gradient(to bottom, transparent, black 28px)",
-            WebkitMaskImage: "linear-gradient(to bottom, transparent, black 28px)",
-          }}
-          aria-hidden="true"
-        >
-          {tailLines.map((line, i) => (
-            <div key={i} className="truncate whitespace-pre">
-              {line || " "}
-            </div>
-          ))}
         </div>
       ) : null}
     </div>
