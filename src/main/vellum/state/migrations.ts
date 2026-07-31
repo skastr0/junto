@@ -19,6 +19,7 @@ import {
   LICENSE_STATE_V1_SCHEMA_SQL,
   LICENSE_STATE_V2_SCHEMA_SQL,
 } from "../license/state-schema";
+import { CONTENT_STATE_SCHEMA_SQL } from "../content/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
@@ -148,7 +149,13 @@ export const STATE_SCHEMA_V11_IDENTITY = {
     "66e16dda9d6d938b107ec25b0edd58f1a964d40192fd1d9fe35793665d03e99f",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 11;
+/** Exact witness of schema version 12 (content objects/refs/receipts/transfers). */
+export const STATE_SCHEMA_V12_IDENTITY = {
+  actualSchemaSha256:
+    "a4bf3db00027fc2a52b5b73592d3d33b1f7d739c5ec7f32cdde41e3d95d5d53e",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 12;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -294,6 +301,16 @@ export const STATE_SCHEMA_MIGRATIONS =
       fromIdentity: STATE_SCHEMA_V10_IDENTITY,
       migrate: (database) => {
         database.exec(WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL);
+      },
+    },
+    {
+      fromVersion: 11,
+      toVersion: 12,
+      name: "add-content-manifest",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V11_IDENTITY,
+      migrate: (database) => {
+        database.exec(CONTENT_STATE_SCHEMA_SQL);
       },
     },
 

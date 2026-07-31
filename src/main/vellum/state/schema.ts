@@ -13,6 +13,7 @@ import { SCHEDULER_STATE_SCHEMA_SQL } from "../scheduler/state-schema";
 import { STATION_STATE_SCHEMA_SQL } from "../station/state-schema";
 import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema";
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
+import { CONTENT_STATE_SCHEMA_SQL } from "../content/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
@@ -174,10 +175,18 @@ export const STATE_SCHEMA_V10_FRAGMENTS = STATE_SCHEMA_V9_FRAGMENTS.map(
 
 export const STATE_SCHEMA_V10_SQL = STATE_SCHEMA_V10_FRAGMENTS.join("\n");
 
-/** Current: v10 + proposal planning arms (dependsOn / finishCriteria). */
-export const STATE_SCHEMA_FRAGMENTS = [
+/** Schema at version 11: proposal planning arms (dependsOn / finishCriteria). */
+export const STATE_SCHEMA_V11_FRAGMENTS = [
   ...STATE_SCHEMA_V10_FRAGMENTS,
   WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
+] as const;
+
+export const STATE_SCHEMA_V11_SQL = STATE_SCHEMA_V11_FRAGMENTS.join("\n");
+
+/** Current: v11 + local content-object manifest tables. */
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V11_FRAGMENTS,
+  CONTENT_STATE_SCHEMA_SQL,
 ] as const;
 
 /**
