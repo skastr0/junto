@@ -40,6 +40,11 @@ import {
   taskMediaParts,
   validateTaskMediaParts,
 } from "@shared/task";
+import {
+  taskDepStatus,
+  taskIndexById,
+  type TaskDepStatus,
+} from "@shared/task-deps";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
 import { Chip, type ChipTone } from "../ui/Chip";
@@ -261,6 +266,30 @@ const taskDetails = (task: WorkTask): string | undefined =>
 const taskRole = (task: WorkTask): string | undefined =>
   metadataText(task.metadata, "workRole");
 
+const depGlance = (
+  status: TaskDepStatus,
+): { readonly label: string; readonly tone: ChipTone } | undefined => {
+  switch (status.kind) {
+    case "ready":
+      return undefined;
+    case "waiting":
+      return {
+        label: `Waiting · ${status.frontier.join(", ")}`,
+        tone: "amber",
+      };
+    case "blocked":
+      return {
+        label: `Blocked · ${status.roots.join(", ")}`,
+        tone: "crimson",
+      };
+    case "orphan":
+      return {
+        label: `Missing · ${status.missing.join(", ")}`,
+        tone: "crimson",
+      };
+  }
+};
+
 const latestText = (task: WorkTask): string | undefined => {
   for (let messageIndex = task.history.length - 1; messageIndex >= 1; messageIndex -= 1) {
     const message = task.history[messageIndex];
@@ -294,6 +323,7 @@ const destinationState = (laneId: LaneId): TaskState | undefined =>
 function TaskLane({
   lane,
   tasks,
+  allTasks,
   searchActive,
   activeLane,
   pendingTaskId,
@@ -311,6 +341,7 @@ function TaskLane({
 }: {
   readonly lane: LaneDefinition;
   readonly tasks: ReadonlyArray<WorkTask>;
+  readonly allTasks: ReadonlyArray<WorkTask>;
   readonly searchActive: boolean;
   readonly activeLane: LaneId | null;
   readonly pendingTaskId: string | null;
@@ -378,6 +409,7 @@ function TaskLane({
           <TaskCard
             key={task.id}
             task={task}
+            allTasks={allTasks}
             lane={lane}
             index={index}
             pending={pendingTaskId === task.id}
@@ -537,6 +569,7 @@ function TaskActionsMenu({
 
 function TaskCard({
   task,
+  allTasks,
   lane,
   index,
   pending,
@@ -552,6 +585,7 @@ function TaskCard({
   onSaveEdit,
 }: {
   readonly task: WorkTask;
+  readonly allTasks: ReadonlyArray<WorkTask>;
   readonly lane: LaneDefinition;
   readonly index: number;
   readonly pending: boolean;
@@ -591,6 +625,10 @@ function TaskCard({
   const role = taskRole(task);
   const context = latestText(task);
   const mediaCount = taskMediaParts(task).length;
+  const depChip =
+    task.state === "submitted" && !claim
+      ? depGlance(taskDepStatus(task, taskIndexById(allTasks)))
+      : undefined;
 
   return (
     <article
@@ -714,6 +752,18 @@ function TaskCard({
         <footer className="task-board-card__footer">
           <div className="task-board-card__status-chips">
             <Chip tone={chipToneForState(task.state)}>{stateLabel(task.state)}</Chip>
+            {depChip ? (
+              <Chip
+                tone={depChip.tone}
+                title={
+                  task.dependsOn && task.dependsOn.length > 0
+                    ? `dependsOn: ${task.dependsOn.join(", ")}`
+                    : undefined
+                }
+              >
+                {depChip.label}
+              </Chip>
+            ) : null}
             {claimantRetired ? (
               <Chip
                 tone="crimson"
@@ -769,6 +819,7 @@ function TaskCreateDialog({
     details: string,
     role: string,
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
+    dependsOn: ReadonlyArray<string>,
   ) => void;
 }) {
   const roleListId = `task-role-options-${useId().replaceAll(":", "")}`;
@@ -776,6 +827,7 @@ function TaskCreateDialog({
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
   const [role, setRole] = useState("");
+  const [dependsOnText, setDependsOnText] = useState("");
   const [media, setMedia] = useState<TaskMediaDraft[]>([]);
   const [mediaError, setMediaError] = useState("");
   const [dragOver, setDragOver] = useState(false);
@@ -849,7 +901,11 @@ function TaskCreateDialog({
             setMediaError(validation);
             return;
           }
-          onCreate(title.trim(), details.trim(), role.trim(), parts);
+          const dependsOn = dependsOnText
+            .split(/[,\s]+/)
+            .map((id) => id.trim())
+            .filter(Boolean);
+          onCreate(title.trim(), details.trim(), role.trim(), parts, dependsOn);
         }}
         onPaste={(event) => {
           void ingestClipboardOrFiles(event.clipboardData).then((handled) => {
@@ -867,6 +923,17 @@ function TaskCreateDialog({
             maxLength={180}
           />
           <small>A concise outcome that stays readable on the board.</small>
+        </label>
+        <label>
+          <span>Depends on (optional)</span>
+          <Input
+            value={dependsOnText}
+            onChange={(event) => setDependsOnText(event.target.value)}
+            placeholder="task ids, space or comma separated"
+          />
+          <small>
+            Hard prerequisites on this sink. Empty means free to claim in parallel.
+          </small>
         </label>
         <label>
           <span>Task role</span>
@@ -1398,6 +1465,7 @@ export function TaskBoard({
     details: string,
     role: string,
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
+    dependsOn: ReadonlyArray<string> = [],
   ) => {
     if (!api || !title.trim()) return;
     setError("");
@@ -1416,6 +1484,7 @@ export function TaskBoard({
           metadata,
           undefined,
           media.length > 0 ? media : undefined,
+          dependsOn.length > 0 ? dependsOn : undefined,
         ),
       );
       if (result === undefined) return;
@@ -1681,8 +1750,8 @@ export function TaskBoard({
             onClose={() => {
               if (!creatingPending) setCreating(false);
             }}
-            onCreate={(title, details, role, media) =>
-              void createTask(title, details, role, media)
+            onCreate={(title, details, role, media, dependsOn) =>
+              void createTask(title, details, role, media, dependsOn)
             }
           />
         ) : null}
@@ -1709,6 +1778,7 @@ export function TaskBoard({
                 key={lane.id}
                 lane={lane}
                 tasks={tasksByLane[lane.id]}
+                allTasks={items}
                 searchActive={Boolean(query.trim())}
                 activeLane={activeLane}
                 pendingTaskId={pendingTaskId}
