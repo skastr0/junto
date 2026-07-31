@@ -216,10 +216,8 @@
       "preAutoEntitlements": false
     },
     "linux": {
-      "artifactName": "${productName}-${version}-${arch}-linux.${ext}",
       "target": [
-        "dir",
-        "deb"
+        "dir"
       ],
       "executableName": "vellum",
       "category": "Development",
@@ -234,24 +232,12 @@
       ],
       "extraResources": [
         {
-          "from": "build/linux/apparmor-profile",
-          "to": "apparmor-profile"
+          "from": "build/linux/vellum-remote-launch",
+          "to": "systemd/vellum-remote-launch"
         },
         {
-          "from": "build/linux/vellum-remote-launch-v1",
-          "to": "systemd/vellum-remote-launch-v1"
-        },
-        {
-          "from": "build/linux/vellum-remote.service",
-          "to": "systemd/vellum-remote.service"
-        },
-        {
-          "from": "dist/vellum-release-installer",
-          "to": "bin/vellum-release-installer"
-        },
-        {
-          "from": "dist/vellum-release-bridge",
-          "to": "bin/vellum-release-bridge"
+          "from": "build/linux/vellum-remote.service.template",
+          "to": "systemd/vellum-remote.service.template"
         }
       ],
       "desktop": {
@@ -260,55 +246,6 @@
           "Comment": "Spatial command station for multi-agent fleets"
         }
       }
-    },
-    "deb": {
-      "artifactName": "${productName}-${version}-${arch}-linux.${ext}",
-      "packageName": "vellum",
-      "maintainer": "Guilherme Castro <skastr052@gmail.com>",
-      "vendor": "Vellum",
-      "packageCategory": "devel",
-      "priority": "optional",
-      "compression": "xz",
-      "depends": [
-        "apparmor",
-        "libasound2t64",
-        "libatspi2.0-0t64",
-        "libdrm2",
-        "libgbm1",
-        "libgtk-3-0t64",
-        "libnotify4",
-        "libnspr4",
-        "libnss3",
-        "libsecret-1-0",
-        "libuuid1",
-        "libx11-6",
-        "libxcb1",
-        "libxcomposite1",
-        "libxdamage1",
-        "libxext6",
-        "libxfixes3",
-        "libxkbcommon0",
-        "libxrandr2",
-        "libxss1",
-        "libxtst6",
-        "openssh-client",
-        "procps",
-        "python3",
-        "sudo",
-        "xauth",
-        "xdg-utils",
-        "xvfb"
-      ],
-      "recommends": [],
-      "fpm": [
-        "--before-install=build/linux/before-install.sh",
-        "--before-remove=build/linux/before-remove.sh",
-        "--deb-user=root",
-        "--deb-group=root"
-      ],
-      "afterInstall": "build/linux/after-install.sh",
-      "afterRemove": "build/linux/after-remove.sh",
-      "appArmorProfile": "build/linux/apparmor-profile"
     },
     "dmg": {
       "background": "build/dmg-background.png",

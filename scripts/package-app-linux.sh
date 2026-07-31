@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Native Ubuntu 24.04 x64 package seam. It emits the diagnostic unpacked tree
-# and the canonical deb from the same target-native Electron rebuild.
+# Native Ubuntu x64 userland runtime seam. It emits a relocatable tree and
+# archive; extracting it never requires package-manager or root authority.
 set -euo pipefail
 umask 0022
 
@@ -75,15 +75,15 @@ if [[ -x "node_modules/electron/dist/electron" ]]; then
   ELECTRON_DIST_ARGS+=(--config.electronDist=node_modules/electron/dist)
 fi
 
-bunx --no-install electron-builder --linux dir deb --x64 \
+bunx --no-install electron-builder --linux dir --x64 \
   --config.npmRebuild=false \
   "${ELECTRON_DIST_ARGS[@]}" \
   --config.linux.icon="$PACKAGE_ICON"
 finalized="$(bun "$SCRIPT_DIR/finalize-linux-package.ts" --release-dir "$SCRIPT_DIR/../release")"
-unpacked="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.artifact !== "string") process.exit(1); process.stdout.write(value.artifact)')"
-deb="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.deb !== "string") process.exit(1); process.stdout.write(value.deb)')"
-bun "$SCRIPT_DIR/audit-linux-package.ts" --unpacked "$unpacked" --deb "$deb"
+runtime="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.artifact !== "string") process.exit(1); process.stdout.write(value.artifact)')"
+archive="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.archive !== "string") process.exit(1); process.stdout.write(value.archive)')"
+bun "$SCRIPT_DIR/audit-linux-package.ts" --runtime "$runtime"
 if [[ "$VERIFY" -eq 1 ]]; then
   printf 'vellum: source/package audit passed; installed sandbox and PTY qualification still require the disposable Ubuntu gate.\n'
 fi
-printf 'vellum: built %s and %s\n' "$unpacked" "$deb"
+printf 'vellum: built relocatable runtime %s and %s\n' "$runtime" "$archive"
