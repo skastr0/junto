@@ -227,6 +227,10 @@ export const buildRemoteEntryBundle = async (input: {
     "node",
     "--format",
     "cjs",
+    // Bundle every pure-JS dependency into the entry. node-pty stays external
+    // because the Linux runtime stages its Node-ABI native module beside the
+    // entry; electron is forbidden in the displayless Remote process.
+    "--packages=bundle",
     "--external",
     "node-pty",
     "--external",
@@ -416,21 +420,55 @@ export const stageNodePtyForBundledNode = async (input: {
   return { nodePtyRoot: destPty, nativeModule };
 };
 
+/** Pure-JS modules the CJS remote entry still resolves at runtime. */
+const REMOTE_RUNTIME_JS_PACKAGES = [
+  "@xterm/headless",
+  "@xterm/addon-serialize",
+] as const;
+
+const stageRemoteJsPackage = async (
+  repoRoot: string,
+  runtimeRoot: string,
+  packageName: string,
+): Promise<void> => {
+  const source = path.join(repoRoot, "node_modules", ...packageName.split("/"));
+  if (!(await isNonSymlinkDirectory(source))) {
+    throw new Error(
+      `remote runtime package missing from builder node_modules: ${packageName}`,
+    );
+  }
+  const destination = path.join(
+    runtimeRoot,
+    "resources/app-remote/node_modules",
+    ...packageName.split("/"),
+  );
+  await mkdir(path.dirname(destination), { recursive: true, mode: 0o755 });
+  // Recursive copy without preserving builder symlinks.
+  const { cp } = await import("node:fs/promises");
+  await cp(source, destination, {
+    recursive: true,
+    force: true,
+    dereference: true,
+  });
+};
+
 export const stageRemoteEntry = async (input: {
   readonly repoRoot: string;
   readonly runtimeRoot: string;
   readonly entrySourceRelative?: string;
-  /** When true, run --entry-only bundle if out/remote is missing. */
+  /** When true, rebuild out/remote then stage it (always rebuilds when set). */
   readonly buildIfMissing?: boolean;
 }): Promise<{ readonly entryPath: string }> => {
   const sourceRelative =
     input.entrySourceRelative ?? REMOTE_ENTRY_SOURCE_RELATIVE;
   let source = path.join(input.repoRoot, sourceRelative);
-  if (!(await isNonSymlinkFile(source))) {
-    if (input.buildIfMissing === true && sourceRelative === REMOTE_ENTRY_SOURCE_RELATIVE) {
-      await buildRemoteEntryBundle({ repoRoot: input.repoRoot });
-      source = path.join(input.repoRoot, REMOTE_ENTRY_SOURCE_RELATIVE);
-    }
+  if (
+    input.buildIfMissing === true &&
+    sourceRelative === REMOTE_ENTRY_SOURCE_RELATIVE
+  ) {
+    // Always rebuild so packaging cannot ship a stale pre-existing out/remote.
+    await buildRemoteEntryBundle({ repoRoot: input.repoRoot });
+    source = path.join(input.repoRoot, REMOTE_ENTRY_SOURCE_RELATIVE);
   }
   if (!(await isNonSymlinkFile(source))) {
     throw new Error(remoteEntryMissingMessage(sourceRelative));
@@ -439,6 +477,9 @@ export const stageRemoteEntry = async (input: {
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o755 });
   await copyFile(source, destination);
   await chmod(destination, 0o644);
+  for (const packageName of REMOTE_RUNTIME_JS_PACKAGES) {
+    await stageRemoteJsPackage(input.repoRoot, input.runtimeRoot, packageName);
+  }
   // CJS entry can resolve node-pty via NODE_PATH; package.json documents the surface.
   await writeFile(
     path.join(input.runtimeRoot, REMOTE_APP_PACKAGE_RELATIVE),
