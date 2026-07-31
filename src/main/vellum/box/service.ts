@@ -2,6 +2,10 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { resolveVellumHome } from "@shared/vellum-home";
 import { join } from "node:path";
 import {
+  BOX_FLEET_DISABLED_DETAIL,
+  RELEASE_CAPABILITIES,
+} from "@shared/release-capabilities";
+import {
   BoxCli,
   type BoxAutoStopPolicy,
 } from "./cli";
@@ -295,8 +299,10 @@ export const makeBoxFleetService = (
 
   const ensureHostAvailable = (
     hostId: string,
-  ): Effect.Effect<BoxResource | undefined, BoxFleetError> =>
-    activationLock(hostId).withPermits(1)(
+  ): Effect.Effect<BoxResource | undefined, BoxFleetError> => {
+    // Disabled release surface: never touch the provider (no resume / SSH prep).
+    if (!RELEASE_CAPABILITIES.boxFleet) return Effect.succeed(undefined);
+    return activationLock(hostId).withPermits(1)(
       ownership.findOwnedByHostId(hostId).pipe(
         Effect.flatMap((candidate) => {
           if (candidate === undefined) return Effect.succeed(undefined);
@@ -336,12 +342,33 @@ export const makeBoxFleetService = (
         }),
       ),
     );
+  };
+
+  /** Release surface off → no Box CLI side effects (create/resume/stop/…). */
+  const requireBoxFleet = (): Effect.Effect<void, BoxFleetValidationError> =>
+    RELEASE_CAPABILITIES.boxFleet
+      ? Effect.void
+      : Effect.fail(
+          BoxFleetValidationError.make({ detail: BOX_FLEET_DISABLED_DETAIL }),
+        );
+
+  const boxFleetUnavailableAvailability: BoxCliAvailability = {
+    available: false,
+    authenticated: false,
+    healthy: false,
+    detail: BOX_FLEET_DISABLED_DETAIL,
+  };
 
   return BoxFleetService.of({
-    availability: cli.availability,
+    availability: RELEASE_CAPABILITIES.boxFleet
+      ? cli.availability
+      : Effect.succeed(boxFleetUnavailableAvailability),
+    // Read-only inventory stays available so previously owned boxes remain
+    // visible; mutations and provider calls are gated below.
     list: ownership.list,
     create: (options = {}) =>
-      authorizeMutation.pipe(
+      requireBoxFleet().pipe(
+        Effect.andThen(authorizeMutation),
         Effect.andThen(
           Effect.suspend(() =>
             cli
@@ -370,32 +397,46 @@ export const makeBoxFleetService = (
         ),
       ),
     refresh: (boxId) =>
-      persistOwned(boxId, (box) => cli.info(box)).pipe(
-        Effect.flatMap((updated) => {
-          const record = inspectOwnedBox(updated);
-          // Re-warm / re-enroll so host_registry tracks provider IP churn.
-          if (sshUsable(record.machine)) return prepareOwned(updated);
-          return Effect.succeed(record);
-        }),
+      requireBoxFleet().pipe(
+        Effect.andThen(
+          persistOwned(boxId, (box) => cli.info(box)).pipe(
+            Effect.flatMap((updated) => {
+              const record = inspectOwnedBox(updated);
+              // Re-warm / re-enroll so host_registry tracks provider IP churn.
+              if (sshUsable(record.machine)) return prepareOwned(updated);
+              return Effect.succeed(record);
+            }),
+          ),
+        ),
       ),
     stop: (boxId) =>
-      persistOwned(boxId, (box) => cli.stop(box)).pipe(
-        Effect.map(inspectOwnedBox),
+      requireBoxFleet().pipe(
+        Effect.andThen(
+          persistOwned(boxId, (box) => cli.stop(box)).pipe(
+            Effect.map(inspectOwnedBox),
+          ),
+        ),
       ),
     resume: (boxId) =>
-      persistOwned(boxId, (box) => cli.resume(box)).pipe(
-        // Wait through provider restore, then always re-bind OpenSSH route
-        // (IPs change on every stop/resume).
-        Effect.flatMap((resumed) => awaitSshUsable(resumed)),
-        Effect.flatMap((ready) => prepareOwned(ready)),
+      requireBoxFleet().pipe(
+        Effect.andThen(
+          persistOwned(boxId, (box) => cli.resume(box)).pipe(
+            // Wait through provider restore, then always re-bind OpenSSH route
+            // (IPs change on every stop/resume).
+            Effect.flatMap((resumed) => awaitSshUsable(resumed)),
+            Effect.flatMap((ready) => prepareOwned(ready)),
+          ),
+        ),
       ),
     prepareSsh: (boxId) =>
-      authorizeMutation.pipe(
+      requireBoxFleet().pipe(
+        Effect.andThen(authorizeMutation),
         Effect.andThen(owned(boxId)),
         Effect.flatMap(prepareOwned),
       ),
     detach: (boxId) =>
-      authorizeMutation.pipe(
+      requireBoxFleet().pipe(
+        Effect.andThen(authorizeMutation),
         Effect.andThen(owned(boxId)),
         Effect.flatMap((box) => {
           const machineId = inspectOwnedBox(box).machine.id;
@@ -414,7 +455,8 @@ export const makeBoxFleetService = (
         }),
       ),
     setActivityDemand: (boxId, demanded) =>
-      authorizeMutation.pipe(
+      requireBoxFleet().pipe(
+        Effect.andThen(authorizeMutation),
         Effect.andThen(owned(boxId)),
         Effect.flatMap((box) =>
           cli.setAutoStop(box, activityPolicy(demanded)).pipe(

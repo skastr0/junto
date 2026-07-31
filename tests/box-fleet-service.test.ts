@@ -3,6 +3,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Box unit tests exercise the service body; production freezes Box for the
+// macOS-only release surface — open the gate for this suite only.
+vi.mock("@shared/release-capabilities", () => ({
+  RELEASE_CAPABILITIES: Object.freeze({
+    freshRemoteEnrollment: true,
+    managedRemoteDeploy: true,
+    darwinRemoteDeploy: true,
+    linuxRemoteDeploy: true,
+    boxFleet: true,
+    commandCenterTransfer: true,
+  }),
+  BOX_FLEET_DISABLED_DETAIL: "box fleet disabled (test mock)",
+}));
+
 import {
   BoxOwnershipRepositoryLive,
   type BoxMachineType,

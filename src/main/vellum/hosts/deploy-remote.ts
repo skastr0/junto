@@ -44,6 +44,11 @@ const productionProviderLoaders: RemoteDeploymentProviderLoaders =
       return darwinRemoteDeploymentProvider;
     },
     linux: async () => {
+      const { RELEASE_CAPABILITIES, LINUX_REMOTE_DEPLOY_DISABLED_DETAIL } =
+        await import("@shared/release-capabilities");
+      if (!RELEASE_CAPABILITIES.linuxRemoteDeploy) {
+        throw new Error(LINUX_REMOTE_DEPLOY_DISABLED_DETAIL);
+      }
       const { linuxRemoteDeploymentProvider } = await import("./deploy-linux");
       return linuxRemoteDeploymentProvider;
     },

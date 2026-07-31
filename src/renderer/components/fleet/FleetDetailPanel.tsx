@@ -12,6 +12,10 @@ import type {
   HostsDeployRemoteResult,
 } from "@shared/ipc";
 import type { HostsDeployCapabilities } from "@shared/deploy-capabilities";
+import {
+  LINUX_HOST_UNAVAILABLE_IN_RELEASE_LABEL,
+  LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
+} from "@shared/release-capabilities";
 import type { RemoteHost } from "@shared/remote-hosts";
 import {
   deriveRemoteUpdateStatus,
@@ -183,8 +187,17 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   }, [loadCaps, host.id, remoteManagedInstalls, stationRole]);
 
   // Fail-closed when capabilities unknown: gated actions stay disabled.
-  const deployEnabled = caps?.effective.deployRemote === true;
-  const deployDetail = caps?.detail.deployRemote;
+  // Linux hosts stay enrolled/read-only when managed Linux deploy is off.
+  const knownLinuxHost =
+    probe?.linuxCapabilities !== undefined &&
+    probe.linuxCapabilities.facts.platform === "linux";
+  const linuxManagedOff = caps?.release.linuxRemoteDeploy === false;
+  const linuxReleaseBlocked = knownLinuxHost && linuxManagedOff;
+  const deployEnabled =
+    caps?.effective.deployRemote === true && !linuxReleaseBlocked;
+  const deployDetail = linuxReleaseBlocked
+    ? LINUX_REMOTE_DEPLOY_DISABLED_DETAIL
+    : caps?.detail.deployRemote;
 
   const saveAppearance = (appearance: { color?: string; glyph?: string }) => {
     setActionLine("");
@@ -380,7 +393,17 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
 
       {probe?.linuxCapabilities ? (
         <section className="fleet-detail__section">
-          <div className="fleet-detail__section-label">Linux host</div>
+          <div className="fleet-detail__section-label">
+            Linux host
+            {linuxReleaseBlocked
+              ? ` · ${LINUX_HOST_UNAVAILABLE_IN_RELEASE_LABEL}`
+              : ""}
+          </div>
+          {linuxReleaseBlocked ? (
+            <p className="fleet-detail__note">
+              {LINUX_REMOTE_DEPLOY_DISABLED_DETAIL}
+            </p>
+          ) : null}
           <LinuxHostCapabilities observation={probe.linuxCapabilities} />
         </section>
       ) : null}

@@ -8,6 +8,21 @@ const providerEvaluations = {
   linux: 0,
 };
 
+// Default open surface so provider-branch tests still prove lazy selection.
+// Production freezes linuxRemoteDeploy — covered by a dedicated refusal case.
+vi.mock("@shared/release-capabilities", () => ({
+  RELEASE_CAPABILITIES: Object.freeze({
+    freshRemoteEnrollment: true,
+    managedRemoteDeploy: true,
+    darwinRemoteDeploy: true,
+    linuxRemoteDeploy: true,
+    boxFleet: true,
+    commandCenterTransfer: true,
+  }),
+  DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL: "darwin deploy disabled (test mock)",
+  LINUX_REMOTE_DEPLOY_DISABLED_DETAIL: "linux deploy disabled (test mock)",
+}));
+
 vi.mock("../src/main/vellum/hosts/deploy-darwin", async () => {
   providerEvaluations.darwin += 1;
   const { Effect: MockEffect } = await import("effect");

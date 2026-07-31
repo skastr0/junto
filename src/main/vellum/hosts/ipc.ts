@@ -644,8 +644,8 @@ export const registerHostsIpc = (
           Effect.gen(function* () {
             const settingsSvc = yield* SettingsService;
             const doc = yield* settingsSvc.get;
-            // No Command Center process.platform here: managed Linux package
-            // deploy must not require darwinRemoteDeploy on a Mac CC.
+            // Global Fleet surface (no target platform yet). Per-target Linux
+            // / Darwin freezes apply when deploy resolves remote uname.
             return computeDeployCapabilities({
               stationRole: doc.station.role,
               remoteManagedInstalls: doc.fleet.remoteManagedInstalls,

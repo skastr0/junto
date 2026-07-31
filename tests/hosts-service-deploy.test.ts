@@ -12,10 +12,14 @@ vi.mock("@shared/release-capabilities", () => ({
     freshRemoteEnrollment: true,
     managedRemoteDeploy: true,
     darwinRemoteDeploy: false,
+    linuxRemoteDeploy: true,
+    boxFleet: true,
     commandCenterTransfer: false,
   }),
   MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL: "managed deploy disabled (test mock)",
   DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL: "darwin deploy disabled (test mock)",
+  LINUX_REMOTE_DEPLOY_DISABLED_DETAIL: "linux deploy disabled (test mock)",
+  BOX_FLEET_DISABLED_DETAIL: "box fleet disabled (test mock)",
 }));
 
 import { makeHostsService } from "../src/main/vellum/hosts/service";

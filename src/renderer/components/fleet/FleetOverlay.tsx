@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { CloudCog, Plus, RefreshCw } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
+import type { HostsDeployCapabilities } from "@shared/deploy-capabilities";
 import { useRunningDeployJobs } from "../../lib/deploy-job-state";
 import { type FleetDitherLevel } from "../../lib/fleet-layout";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
@@ -27,6 +28,7 @@ function FleetOverlayInner() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(null);
   const [boxPanelOpen, setBoxPanelOpen] = useState(false);
+  const [boxFleetEnabled, setBoxFleetEnabled] = useState(false);
   const [ccHostId, setCcHostId] = useState("");
   const ditherLevel = use$(state$.settings.fleet.ditherLevel);
   const runningDeploys = useRunningDeployJobs();
@@ -58,6 +60,30 @@ function FleetOverlayInner() {
         if (!cancelled && result.ok && result.settings) setCcHostId(result.settings.station.hostId);
       })
       .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const api = getVellumApi();
+    if (!api?.hostsDeployCapabilities) {
+      setBoxFleetEnabled(false);
+      return;
+    }
+    void api
+      .hostsDeployCapabilities()
+      .then((result) => {
+        if (cancelled) return;
+        const caps = result as HostsDeployCapabilities | { ok: false };
+        setBoxFleetEnabled(
+          caps.ok === true && caps.effective.boxFleet === true,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setBoxFleetEnabled(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -108,14 +134,16 @@ function FleetOverlayInner() {
         }`}
         actions={
           <>
-            <Button
-              size="sm"
-              variant="subtle"
-              {...activateOnPointerUp(() => setBoxPanelOpen(true))}
-            >
-              <CloudCog size={12} />
-              Box
-            </Button>
+            {boxFleetEnabled ? (
+              <Button
+                size="sm"
+                variant="subtle"
+                {...activateOnPointerUp(() => setBoxPanelOpen(true))}
+              >
+                <CloudCog size={12} />
+                Box
+              </Button>
+            ) : null}
             <Button
               size="sm"
               variant="subtle"
@@ -186,7 +214,7 @@ function FleetOverlayInner() {
         ) : null}
       </div>
       {form ? <FleetHostForm initialLabel={form.label} initialEndpoint={form.endpoint} onClose={() => setForm(null)} /> : null}
-      {boxPanelOpen ? (
+      {boxFleetEnabled && boxPanelOpen ? (
         <FleetBoxPanel
           onClose={() => setBoxPanelOpen(false)}
           onFleetChanged={refreshFleet}
