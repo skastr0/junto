@@ -368,7 +368,9 @@
   font-size: 9px;
 }
 
-.task-board-card__meta > span:last-child {
+.task-board-card__claimant {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

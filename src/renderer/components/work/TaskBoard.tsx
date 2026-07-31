@@ -636,7 +636,9 @@ function TaskCard({
                   tone={claimantRetired ? "crimson" : toneForState(task.state)}
                   pulse={!claimantRetired && task.state === "working"}
                 />
-                <span title={claim}>{claim ?? "Unclaimed"}</span>
+                <span className="task-board-card__claimant" title={claim}>
+                  {claim ?? "Unclaimed"}
+                </span>
                 {role ? <span className="task-board-card__role">{role}</span> : null}
                 {mediaCount > 0 ? (
                   <span
@@ -701,7 +703,9 @@ function DragCardPreview({ task }: { readonly task: WorkTask }) {
           <h3 className="task-board-card__title">{taskTitle(task)}</h3>
           <div className="task-board-card__meta">
             <StatusDot tone={toneForState(task.state)} />
-            <span>{claimedByOf(task) ?? "Unclaimed"}</span>
+            <span className="task-board-card__claimant">
+              {claimedByOf(task) ?? "Unclaimed"}
+            </span>
           </div>
         </div>
       </div>
