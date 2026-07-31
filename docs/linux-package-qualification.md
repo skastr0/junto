@@ -181,7 +181,8 @@ Remote user unit):
    OrbStack Ubuntu 24.04), package installation must have proved a non-root
    user can create a user namespace. An AppArmor interface that is present but
    disabled, incomplete, or unable to load the exact profile is a failure—not
-   a fallback. `chrome-sandbox` is root-owned mode `0755`, not setuid.
+   a fallback. The package must not contain `chrome-sandbox`; any regular or
+   setuid helper is a failure.
 3. Confirm a real renderer starts with Chromium sandboxing active. Every
    sandbox-disabling switch must terminate packaged startup before Vellum owns
    a renderer, socket, document, or child process.
@@ -279,8 +280,8 @@ two-installation receipt is supplied.
 ## Disposable-host discipline
 
 Do not weaken `kernel.unprivileged_userns_clone`, disable an available AppArmor
-stack, add sandbox-disabling switches, make `chrome-sandbox` setuid, run
-Vellum itself as root, or use a real operator home/profile to make
+stack, add sandbox-disabling switches, reintroduce `chrome-sandbox`, run Vellum
+itself as root, or use a real operator home/profile to make
 qualification pass. OrbStack qualification is only the no-AppArmor-kernel path:
 the package's non-root userns probe and the packaged renderer's
 `NoNewPrivs=1` plus filtered seccomp proof must both pass. A present but broken
