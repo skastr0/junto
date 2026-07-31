@@ -16,7 +16,7 @@ describe("Linux userland runtime package contract", () => {
     expect(script).toContain("audit-linux-package.ts\" --runtime");
     // Product remote is staged as bundled Node inside the same dir archive — never a second .deb path.
     expect(script).toContain("build-linux-remote-runtime.ts");
-    expect(script).not.toMatch(/ELECTRON_RUN_AS_NODE/u);
+    expect(script).not.toMatch(/ELECTRON_RUN_AS_NODE\s*=/u);
     expect(script).not.toMatch(/--linux\s+deb\b|target.*deb/iu);
   });
 

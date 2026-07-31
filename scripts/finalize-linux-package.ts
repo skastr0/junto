@@ -70,7 +70,12 @@ const normalizeModes = async (root: string, relative = ""): Promise<void> => {
       await chmod(child, 0o755);
       await normalizeModes(root, childRelative);
     } else if (metadata.isFile()) {
-      await chmod(child, executableNames.has(childRelative) || childRelative.endsWith(".node") ? 0o755 : 0o644);
+      const executable =
+        executableNames.has(childRelative) ||
+        childRelative.endsWith(".node") ||
+        childRelative.endsWith("/spawn-helper") ||
+        childRelative === "spawn-helper";
+      await chmod(child, executable ? 0o755 : 0o644);
     } else {
       throw new Error(`runtime tree contains unsupported entry: ${childRelative}`);
     }

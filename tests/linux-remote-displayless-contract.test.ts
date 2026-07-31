@@ -1,11 +1,9 @@
 /**
  * Displayless Linux Remote product contract.
  *
- * Packaging must ship bundled Node + resources/bin/vellum-remote + app-remote
- * entry, rebuild node-pty for that Node ABI, and never use ELECTRON_RUN_AS_NODE
- * or Bun-compile for the product remote. Launcher consolidation onto
- * vellum-remote (dropping Xvfb) may land in a sibling change — soft-assert
- * launcher until that path is present.
+ * Packaging ships bundled Node + resources/bin/vellum-remote + app-remote
+ * entry, rebuilds node-pty for that Node ABI, and never uses
+ * ELECTRON_RUN_AS_NODE or Bun --compile for the product remote.
  */
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -52,7 +50,7 @@ describe("Linux remote displayless packaging helpers", () => {
   it("wrapper execs bundled node on app-remote entry without ELECTRON_RUN_AS_NODE", () => {
     const script = vellumRemoteWrapperScript();
     expect(script.startsWith("#!/bin/sh\n")).toBe(true);
-    expect(script).toContain(`resources/bin/vellum-remote`);
+    expect(script).toContain("resources/bin/vellum-remote");
     expect(script).toContain(REMOTE_NODE_RELATIVE);
     expect(script).toContain(REMOTE_ENTRY_RELATIVE);
     expect(script).toContain('exec "$node" "$entry" "$@"');
@@ -71,6 +69,7 @@ describe("Linux remote displayless packaging helpers", () => {
           repoRoot: root,
           runtimeRoot: runtime,
           requireEntry: true,
+          buildIfMissing: false,
           skipNativeRebuild: true,
         }),
       ).rejects.toThrow(/out\/remote\/vellum-remote\.js/u);
@@ -135,18 +134,20 @@ describe("Linux remote displayless product contracts", () => {
     const packageScript = await readRepo("scripts/package-app-linux.sh");
     expect(packageScript).toContain("build-linux-remote-runtime.ts");
     expect(packageScript).toContain("linux-unpacked");
-    expect(packageScript).not.toMatch(/ELECTRON_RUN_AS_NODE=1/u);
-    expect(packageScript).toMatch(/Never ELECTRON_RUN_AS_NODE|never ELECTRON_RUN_AS_NODE/u);
+    // Comments may name the forbidden flag; assignment/export is the product foul.
+    expect(packageScript).not.toMatch(/ELECTRON_RUN_AS_NODE\s*=/u);
     expect(packageScript).not.toMatch(/\bdeb\b|dpkg/u);
 
     const finalize = await readRepo("scripts/finalize-linux-package.ts");
     expect(finalize).toContain('"resources/bin/node"');
     expect(finalize).toContain('"resources/bin/vellum-remote"');
+    expect(finalize).toContain("spawn-helper");
 
     const buildRemote = await readRepo("scripts/build-linux-remote-runtime.ts");
     expect(buildRemote).toContain("nodejs.org/dist");
     expect(buildRemote).toContain("node-gyp");
     expect(buildRemote).toContain("npm_config_build_from_source");
+    expect(buildRemote).toContain("--entry-only");
     expect(buildRemote).not.toMatch(/ELECTRON_RUN_AS_NODE\s*=\s*["']?1/u);
     expect(buildRemote).not.toMatch(/bun build --compile/u);
   });
@@ -161,38 +162,31 @@ describe("Linux remote displayless product contracts", () => {
     expect(JSON.stringify(pkg.build.linux)).not.toMatch(/"deb"/u);
     expect(packageScript).toContain("electron-builder --linux dir --x64");
     expect(packageScript).not.toMatch(/electron-builder[^\n]*\bdeb\b/u);
-    // Release/CI scripts may mention historical .deb residue in comments or
-    // migration paths — product package-app-linux must not emit one.
     for (const name of Object.keys(pkg.scripts)) {
-      if (name.startsWith("app:build") || name === "app:build:linux") {
+      if (name.startsWith("app:build")) {
         expect(pkg.scripts[name] ?? "").not.toMatch(/\bdeb\b/u);
       }
     }
   });
 
-  it("user service template stays free of Xvfb and privilege directives", async () => {
+  it("user service template is displayless and pinned to vellum-remote", async () => {
     const unit = await readRepo("build/linux/vellum-remote.service.template");
     expect(unit).toContain(
       "ExecStart=@VELLUM_RUNTIME_ROOT@/resources/systemd/vellum-remote-launch",
+    );
+    expect(unit).toContain(
+      "ConditionFileIsExecutable=@VELLUM_RUNTIME_ROOT@/resources/bin/vellum-remote",
     );
     expect(unit).not.toMatch(/Xvfb|xauth|mcookie/u);
     expect(unit).not.toMatch(/User=|Group=|Capability|\/opt\//u);
   });
 
-  it("launcher references vellum-remote without Xvfb when consolidated", async () => {
+  it("launcher invokes resources/bin/vellum-remote without Xvfb", async () => {
     const launcher = await readRepo("build/linux/vellum-remote-launch");
-    const displayless =
-      launcher.includes("resources/bin/vellum-remote") &&
-      !/Xvfb|xauth|mcookie/u.test(launcher);
-    if (!displayless) {
-      // Soft gap: packaging ships the displayless runtime; launcher still on
-      // Electron+Xvfb until the launcher consolidation lands.
-      expect(launcher).toContain("vellum-remote");
-      expect(launcher).toMatch(/Xvfb|vellum/u);
-      return;
-    }
     expect(launcher).toContain("resources/bin/vellum-remote");
+    expect(launcher).toContain("unset DISPLAY WAYLAND_DISPLAY XAUTHORITY");
+    expect(launcher).toContain("displayless vellum-remote payload is unavailable");
     expect(launcher).not.toMatch(/Xvfb|xauth|mcookie/u);
-    expect(launcher).not.toMatch(/ELECTRON_RUN_AS_NODE/u);
+    expect(launcher).not.toMatch(/--ozone-platform|--vellum-headless|ELECTRON_RUN_AS_NODE/u);
   });
 });

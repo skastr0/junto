@@ -6,26 +6,22 @@
  *   resources/bin/vellum-remote     — wrapper that exec's bundled node on the entry
  *   resources/app-remote/…          — remote JS entry + node-pty rebuilt for Node ABI
  *
- * Product remote is Node, never ELECTRON_RUN_AS_NODE and never Bun-compile.
- * Full download + node-pty rebuild only runs on Linux x64; pure helpers are
- * unit-tested on any host.
+ * Product remote is Node, never ELECTRON_RUN_AS_NODE and never Bun --compile.
+ * Full download + node-pty rebuild only runs on Linux x64; pure helpers and
+ * --entry-only JS bundle are OS-portable.
  */
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import {
-  access,
   chmod,
   copyFile,
   cp,
   lstat,
   mkdir,
-  mkdtemp,
   readFile,
-  readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { spawnSync } from "node:child_process";
@@ -40,9 +36,12 @@ export const REMOTE_APP_DIR_RELATIVE = "resources/app-remote";
 export const REMOTE_ENTRY_RELATIVE = "resources/app-remote/vellum-remote.js";
 export const REMOTE_NODE_PTY_RELATIVE =
   "resources/app-remote/node_modules/node-pty";
+export const REMOTE_APP_PACKAGE_RELATIVE = "resources/app-remote/package.json";
 
 /** Repo-side build output copied into the runtime when present. */
 export const REMOTE_ENTRY_SOURCE_RELATIVE = "out/remote/vellum-remote.js";
+/** TypeScript product entry compiled by --entry-only. */
+export const REMOTE_ENTRY_TS_RELATIVE = "src/main/vellum-remote.ts";
 
 const SEMVER =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
@@ -98,6 +97,8 @@ entry="$release/${REMOTE_ENTRY_RELATIVE}"
 [ -f "$entry" ] || fail 'remote entry is missing: ${REMOTE_ENTRY_RELATIVE}'
 # Prefer release-local node_modules so node-pty resolves to the Node-ABI rebuild.
 export NODE_PATH="$release/${REMOTE_APP_DIR_RELATIVE}/node_modules\${NODE_PATH:+:$NODE_PATH}"
+# Preserve the generation-pinned wrapper path after exec replaces argv0 with node.
+export VELLUM_REMOTE_BINARY="$release/${REMOTE_WRAPPER_RELATIVE}"
 unset ELECTRON_RUN_AS_NODE
 exec "$node" "$entry" "$@"
 `;
@@ -106,7 +107,7 @@ export const remoteEntryMissingMessage = (entrySource: string): string =>
   [
     "Linux remote runtime requires a displayless Node entry before packaging.",
     `Missing: ${entrySource}`,
-    "Build out/remote/vellum-remote.js (product remote JS).",
+    `Build with: bun scripts/build-linux-remote-runtime.ts --entry-only`,
     "Forbidden product paths: Bun --compile remote, ELECTRON_RUN_AS_NODE, system Node.",
   ].join(" ");
 
@@ -172,6 +173,50 @@ const sha256File = async (file: string): Promise<string> => {
   return hash.digest("hex");
 };
 
+/**
+ * Bundle src/main/vellum-remote.ts → out/remote/vellum-remote.js (CJS, Node target).
+ * Not Bun --compile — product remote loads under the official Node binary.
+ */
+export const buildRemoteEntryBundle = async (input: {
+  readonly repoRoot: string;
+}): Promise<{ readonly entryPath: string; readonly bytes: number }> => {
+  const repoRoot = path.resolve(input.repoRoot);
+  const source = path.join(repoRoot, REMOTE_ENTRY_TS_RELATIVE);
+  const outfile = path.join(repoRoot, REMOTE_ENTRY_SOURCE_RELATIVE);
+  if (!(await isNonSymlinkFile(source))) {
+    throw new Error(
+      remoteEntryMissingMessage(
+        `${REMOTE_ENTRY_TS_RELATIVE} (TypeScript product remote entry)`,
+      ),
+    );
+  }
+  await mkdir(path.dirname(outfile), { recursive: true, mode: 0o755 });
+  // bun build (transpile/bundle only — never --compile) so the official Node
+  // binary owns the product Remote ABI.
+  run("bun", [
+    "build",
+    source,
+    "--outfile",
+    outfile,
+    "--target",
+    "node",
+    "--format",
+    "cjs",
+    "--external",
+    "node-pty",
+    "--external",
+    "electron",
+  ], { cwd: repoRoot });
+  if (!(await isNonSymlinkFile(outfile))) {
+    throw new Error(`remote entry bundle was not written: ${REMOTE_ENTRY_SOURCE_RELATIVE}`);
+  }
+  const bytes = (await readFile(outfile)).byteLength;
+  if (bytes < 1024) {
+    throw new Error(`remote entry bundle is implausibly small (${String(bytes)} bytes)`);
+  }
+  return { entryPath: outfile, bytes };
+};
+
 export const extractNodeBinaryFromArchive = ({
   archive,
   destinationNode,
@@ -181,10 +226,8 @@ export const extractNodeBinaryFromArchive = ({
   readonly destinationNode: string;
   readonly version: string;
 }): void => {
-  const archiveName = nodeLinuxX64ArchiveName(version);
   const member = `node-v${requireNodeRemoteVersion(version)}-linux-x64/bin/node`;
   const stagingParent = path.dirname(destinationNode);
-  // Extract only bin/node into a temp dir under the destination parent, then move.
   const extractRoot = path.join(
     stagingParent,
     `.node-extract-${requireNodeRemoteVersion(version)}`,
@@ -208,13 +251,11 @@ export const extractNodeBinaryFromArchive = ({
   } finally {
     run("/usr/bin/rm", ["-rf", extractRoot]);
   }
-  // Silence unused name (kept for error context / future checksum table).
-  void archiveName;
 };
 
 /**
  * Resolve where to cache official Node tarballs. Prefer an explicit cache root,
- * else <repo>/release/.cache/node, else OS temp.
+ * else <repo>/release/.cache/node.
  */
 export const resolveNodeDownloadCache = (input: {
   readonly repoRoot: string;
@@ -231,7 +272,6 @@ export const stageOfficialNodeBinary = async (input: {
   readonly runtimeRoot: string;
   readonly version: string;
   readonly cacheRoot?: string;
-  /** Inject download for tests; production uses fetch. */
   readonly download?: (url: string, destination: string) => Promise<void>;
 }): Promise<{ readonly nodePath: string; readonly version: string; readonly archiveSha256: string }> => {
   const version = requireNodeRemoteVersion(input.version);
@@ -248,7 +288,6 @@ export const stageOfficialNodeBinary = async (input: {
     const download = input.download ?? downloadToFile;
     await download(url, partial);
     await chmod(partial, 0o644);
-    // Atomic-ish publish into cache.
     run("/usr/bin/mv", ["-f", partial, archive]);
   }
   const archiveSha256 = await sha256File(archive);
@@ -256,25 +295,6 @@ export const stageOfficialNodeBinary = async (input: {
   await mkdir(path.dirname(nodePath), { recursive: true, mode: 0o755 });
   extractNodeBinaryFromArchive({ archive, destinationNode: nodePath, version });
   return { nodePath, version, archiveSha256 };
-};
-
-const walkFiles = async (root: string, relative = ""): Promise<string[]> => {
-  const result: string[] = [];
-  const directory = path.join(root, relative);
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const childRelative = path.posix.join(relative, entry.name);
-    const absolute = path.join(root, childRelative);
-    const metadata = await lstat(absolute);
-    if (metadata.isSymbolicLink()) {
-      throw new Error(`node-pty stage contains symlink: ${childRelative}`);
-    }
-    if (metadata.isDirectory()) {
-      result.push(...(await walkFiles(root, childRelative)));
-    } else if (metadata.isFile()) {
-      result.push(childRelative);
-    }
-  }
-  return result;
 };
 
 /**
@@ -295,7 +315,6 @@ export const stageNodePtyForBundledNode = async (input: {
   const destPty = path.join(input.runtimeRoot, REMOTE_NODE_PTY_RELATIVE);
   await rm(destPty, { recursive: true, force: true });
   await mkdir(path.dirname(destPty), { recursive: true, mode: 0o755 });
-  // Copy package without host build/ and foreign prebuilds; rebuild clean.
   await cp(sourcePty, destPty, {
     recursive: true,
     filter: (source) => {
@@ -317,7 +336,6 @@ export const stageNodePtyForBundledNode = async (input: {
     throw new Error("node-gyp missing — expected via @electron/rebuild dependency tree");
   }
   const version = requireNodeRemoteVersion(input.nodeVersion);
-  // Rebuild against official Node headers for the bundled runtime ABI.
   run(
     input.bundledNode,
     [
@@ -332,7 +350,6 @@ export const stageNodePtyForBundledNode = async (input: {
       env: {
         ...process.env,
         npm_config_build_from_source: "true",
-        // Keep the child on a minimal, non-Electron identity.
         ELECTRON_RUN_AS_NODE: "",
       },
     },
@@ -357,20 +374,6 @@ export const stageNodePtyForBundledNode = async (input: {
     await chmod(spawnHelper, 0o755);
   }
   await chmod(nativeModule, 0o755);
-  // Drop anything that is not needed at runtime to keep the archive lean.
-  for (const relative of await walkFiles(destPty)) {
-    if (
-      relative.endsWith(".ts") ||
-      relative.endsWith(".map") ||
-      relative.startsWith("src/") ||
-      relative.startsWith("deps/") ||
-      relative.startsWith("third_party/")
-    ) {
-      // Keep binding.gyp-adjacent sources only if present; runtime loads lib/ + native.
-      // Source tree can stay — size is secondary to correctness. No-op strip for v1.
-      void relative;
-    }
-  }
   return { nodePtyRoot: destPty, nativeModule };
 };
 
@@ -378,10 +381,18 @@ export const stageRemoteEntry = async (input: {
   readonly repoRoot: string;
   readonly runtimeRoot: string;
   readonly entrySourceRelative?: string;
+  /** When true, run --entry-only bundle if out/remote is missing. */
+  readonly buildIfMissing?: boolean;
 }): Promise<{ readonly entryPath: string }> => {
   const sourceRelative =
     input.entrySourceRelative ?? REMOTE_ENTRY_SOURCE_RELATIVE;
-  const source = path.join(input.repoRoot, sourceRelative);
+  let source = path.join(input.repoRoot, sourceRelative);
+  if (!(await isNonSymlinkFile(source))) {
+    if (input.buildIfMissing === true && sourceRelative === REMOTE_ENTRY_SOURCE_RELATIVE) {
+      await buildRemoteEntryBundle({ repoRoot: input.repoRoot });
+      source = path.join(input.repoRoot, REMOTE_ENTRY_SOURCE_RELATIVE);
+    }
+  }
   if (!(await isNonSymlinkFile(source))) {
     throw new Error(remoteEntryMissingMessage(sourceRelative));
   }
@@ -389,6 +400,12 @@ export const stageRemoteEntry = async (input: {
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o755 });
   await copyFile(source, destination);
   await chmod(destination, 0o644);
+  // CJS entry can resolve node-pty via NODE_PATH; package.json documents the surface.
+  await writeFile(
+    path.join(input.runtimeRoot, REMOTE_APP_PACKAGE_RELATIVE),
+    `${JSON.stringify({ name: "vellum-app-remote", private: true, main: "vellum-remote.js" }, null, 2)}\n`,
+    { encoding: "utf8", mode: 0o644 },
+  );
   return { entryPath: destination };
 };
 
@@ -418,7 +435,7 @@ export type LinuxRemoteRuntimeReceipt = {
 
 /**
  * Full stage into an existing linux-unpacked / runtime root.
- * Fails closed when the remote JS entry is missing.
+ * Fails closed when the remote JS entry is missing (unless buildIfMissing).
  */
 export const installLinuxRemoteRuntime = async (input: {
   readonly repoRoot: string;
@@ -426,8 +443,8 @@ export const installLinuxRemoteRuntime = async (input: {
   readonly nodeVersion?: string;
   readonly cacheRoot?: string;
   readonly entrySourceRelative?: string;
-  /** When true (default), require out/remote entry. Set false only for helper tests. */
   readonly requireEntry?: boolean;
+  readonly buildIfMissing?: boolean;
   readonly download?: (url: string, destination: string) => Promise<void>;
   /** Skip native rebuild — only for pure-layout unit tests, never packaging. */
   readonly skipNativeRebuild?: boolean;
@@ -450,12 +467,12 @@ export const installLinuxRemoteRuntime = async (input: {
       repoRoot,
       runtimeRoot,
       entrySourceRelative: input.entrySourceRelative,
+      buildIfMissing: input.buildIfMissing,
     }));
   } else {
     await mkdir(path.dirname(entryPath), { recursive: true, mode: 0o755 });
   }
 
-  // Node binary + node-pty native rebuild only on Linux packaging hosts.
   if (process.platform !== "linux" || process.arch !== "x64") {
     if (input.skipNativeRebuild === true) {
       return {
@@ -535,10 +552,21 @@ export const LINUX_REMOTE_RUNTIME_REQUIRED_FILES = [
 
 if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
   const args = process.argv.slice(2);
+  if (args.length === 1 && args[0] === "--entry-only") {
+    const repoRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+    );
+    const receipt = await buildRemoteEntryBundle({ repoRoot });
+    process.stdout.write(`${JSON.stringify({ ok: true, mode: "entry-only", ...receipt })}\n`);
+    process.exit(0);
+  }
+
   let runtimeRoot: string | undefined;
   let repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   let cacheRoot: string | undefined;
   let entrySource: string | undefined;
+  let buildIfMissing = true;
   for (let index = 0; index < args.length; index += 1) {
     const flag = args[index];
     const value = args[index + 1];
@@ -554,26 +582,25 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
     } else if (flag === "--entry" && value !== undefined) {
       entrySource = value;
       index += 1;
+    } else if (flag === "--no-build-entry") {
+      buildIfMissing = false;
     } else {
       throw new Error(
-        "usage: build-linux-remote-runtime.ts --runtime <linux-unpacked> [--repo <root>] [--cache <dir>] [--entry <relative>]",
+        "usage: build-linux-remote-runtime.ts --entry-only | --runtime <linux-unpacked> [--repo <root>] [--cache <dir>] [--entry <relative>] [--no-build-entry]",
       );
     }
   }
   if (runtimeRoot === undefined) {
     throw new Error(
-      "usage: build-linux-remote-runtime.ts --runtime <linux-unpacked> [--repo <root>] [--cache <dir>] [--entry <relative>]",
+      "usage: build-linux-remote-runtime.ts --entry-only | --runtime <linux-unpacked> [--repo <root>] [--cache <dir>] [--entry <relative>] [--no-build-entry]",
     );
   }
-  // mkdtemp keeps the import tree green when accidentally imported without side effects.
-  void mkdtemp;
-  void access;
-  void tmpdir;
   const receipt = await installLinuxRemoteRuntime({
     repoRoot,
     runtimeRoot,
     cacheRoot,
     entrySourceRelative: entrySource,
+    buildIfMissing,
   });
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
 }
