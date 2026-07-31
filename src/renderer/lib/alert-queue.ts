@@ -9,35 +9,25 @@
  * - An alert enters the queue only on a rising edge after baseline.
  * - Active (non-risen) signals still re-enter quietly so Space can land on them.
  * - Cycle wraps; empty queue is a no-op.
- * - focusNodeId comes from the alert's nodeId (wire resolves agents/projects).
+ * - Every alert is anchored to an actionable canvas node.
  */
 
-export const ALERT_KINDS = [
-  "blocked",
-  "permission",
-  "herdr-done",
-  "orphan",
-] as const;
+export const ALERT_KINDS = ["attention", "blocked"] as const;
 
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
 /**
  * Cycle order priority — lower first.
- * Permission/blocked need you now; herdr-done is "waiting on review";
- * orphans are structural.
+ * Blocked needs attention before attention.
  */
 export const ALERT_KIND_PRIORITY: Readonly<Record<AlertKind, number>> = {
-  permission: 0,
-  blocked: 1,
-  "herdr-done": 2,
-  orphan: 4,
+  blocked: 0,
+  attention: 1,
 };
 
 export const ALERT_KIND_LABEL: Readonly<Record<AlertKind, string>> = {
-  permission: "permission",
+  attention: "attention",
   blocked: "blocked",
-  "herdr-done": "herdr done",
-  orphan: "orphan",
 };
 
 const compareAlertItems = (a: AlertItem, b: AlertItem): number => {
@@ -48,7 +38,7 @@ const compareAlertItems = (a: AlertItem, b: AlertItem): number => {
   return a.id.localeCompare(b.id);
 };
 
-/** Stable queue entry — one per subject (member, agent, project, orphan key). */
+/** Stable queue entry — one per actionable node. */
 export interface AlertItem {
   readonly id: string;
   readonly kind: AlertKind;
@@ -62,8 +52,8 @@ export interface AlertItem {
 }
 
 /**
- * Live presence signal — not yet an edge. Wire builds these each frame from
- * rollups / chat / herdr / snapshots / kernel orphans.
+ * Live presence signal — not yet an edge. Wire builds these from region
+ * rollup members.
  */
 export interface AlertSignal {
   readonly id: string;
@@ -223,7 +213,7 @@ export const cycleNext = (
   return { queue, item: undefined };
 };
 
-/** Focus target for camera/selection — wire may enrich nodeId before enqueue. */
+/** Focus target for camera/selection. */
 export const resolveFocusNodeId = (item: AlertItem | undefined): string | undefined => {
   if (!item) return undefined;
   const id = item.nodeId?.trim();
@@ -232,20 +222,5 @@ export const resolveFocusNodeId = (item: AlertItem | undefined): string | undefi
 
 /** Stable id helpers for the wire layer. */
 export const alertId = {
-  blocked: (nodeId: string) => `blocked:${nodeId}`,
-  permission: (agentKey: string) => `permission:${agentKey}`,
-  herdrDone: (nodeId: string) => `herdr-done:${nodeId}`,
-  /** Managed seat ready/complete (idle+unseen) — same kind priority as herdr-done. */
-  agentDone: (nodeId: string) => `agent-done:${nodeId}`,
-  orphan: (key: string) => `orphan:${key}`,
+  node: (nodeId: string) => `node:${nodeId}`,
 } as const;
-
-/**
- * Parse `canvas::regionId` orphan key → regionId (may be missing on canvas).
- */
-export const regionIdFromOrphanKey = (key: string): string | undefined => {
-  const idx = key.indexOf("::");
-  if (idx < 0) return undefined;
-  const regionId = key.slice(idx + 2).trim();
-  return regionId || undefined;
-};

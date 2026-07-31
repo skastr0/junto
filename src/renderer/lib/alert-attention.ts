@@ -1,32 +1,24 @@
 /**
  * Wire: rising-edge alert queue → SFX + Space/` cycle → focusNodeId.
  *
- * Pure model lives in alert-queue.ts. This module collects live signals from
- * region rollups, chat permissions, and herdr done; observes the queue; plays
- * playAlert on rise; and cycles focus.
+ * Pure model lives in alert-queue.ts. This module collects actionable region
+ * member signals, observes the queue, plays SFX on rise, and cycles focus.
  */
 
 import { useEffect, useRef } from "react";
-import type { CanvasDoc } from "@shared/canvas";
-import type { SnapshotState } from "@shared/entities";
 import type { RegionRollup } from "@shared/region-rollup";
 import {
   alertId,
   cycleNext,
   emptyAlertQueue,
   observeSignals,
-  regionIdFromOrphanKey,
   resolveFocusNodeId,
   type AlertItem,
   type AlertQueue,
   type AlertSignal,
 } from "./alert-queue";
-import { agentSeat$ } from "./agent-seat-state";
-import { chatCoarse$ } from "./chat-state";
-import { herdr$ } from "./herdr-state";
 import { playAlert } from "./sfx";
 import { state$ } from "./state";
-import { resolveTerminalBinding } from "@shared/terminal";
 
 const TYPING_SURFACE_SELECTOR =
   "input, textarea, [contenteditable='true'], .xterm, .xterm-helper-textarea, .native-terminal-surface, .herdr-xterm, .herdr-terminal-panel, [data-terminal-surface]";
@@ -63,112 +55,35 @@ export const shouldCycleAlertOnKey = (
   return true;
 };
 
-const agentNodeId = (doc: CanvasDoc, agentKey: string): string | undefined => {
-  for (const node of doc.nodes) {
-    if (node.ether?.entity?.kind === "agent" && node.ether.entity.name === agentKey) {
-      return node.id;
-    }
-  }
-  return undefined;
-};
-
-const nodeExists = (doc: CanvasDoc, nodeId: string | undefined): string | undefined => {
-  if (!nodeId) return undefined;
-  return doc.nodes.some((n) => n.id === nodeId) ? nodeId : undefined;
-};
-
-/** Build the current signal set from live planes (pure given inputs). */
-export const collectAlertSignals = (input: {
-  readonly doc: CanvasDoc;
-  readonly rollups: ReadonlyArray<RegionRollup>;
-  readonly chat: Record<string, { pendingPermissionId?: string; pendingPermission?: { requestId?: string } } | undefined>;
-  readonly herdrMeta: Record<string, { meta?: { agentStatus?: string } } | undefined>;
-  /**
-   * Managed-seat ready/complete: bindingId → needsLook (idle after work, unread).
-   * Absent map skips agent-done signals (tests / early boot).
-   */
-  readonly seatNeedsLook?: Record<string, boolean | undefined>;
-  readonly snapshots: SnapshotState;
-  readonly orphans: ReadonlyArray<string>;
-}): ReadonlyArray<AlertSignal> => {
-  const { doc, rollups, chat, herdrMeta, seatNeedsLook, snapshots, orphans } = input;
-  const out: AlertSignal[] = [];
-  const seen = new Set<string>();
+/** Build one stable, actionable signal per non-idle region member. */
+export const collectAlertSignals = (
+  rollups: ReadonlyArray<RegionRollup>,
+): ReadonlyArray<AlertSignal> => {
+  const byId = new Map<string, AlertSignal>();
 
   const push = (signal: AlertSignal): void => {
-    if (seen.has(signal.id)) return;
-    seen.add(signal.id);
-    out.push(signal);
+    const previous = byId.get(signal.id);
+    if (previous !== undefined && (previous.level ?? 0) >= (signal.level ?? 0)) return;
+    byId.set(signal.id, signal);
   };
 
-  // blocked: region member severity becomes blocked
+  // A node can be a member of overlapping regions. Its highest severity wins.
   for (const rollup of rollups) {
     for (const member of rollup.members) {
-      if (member.severity !== "blocked") continue;
+      const level = member.severity === "blocked" ? 2 : member.severity === "attention" ? 1 : 0;
+      if (level === 0) continue;
       push({
-        id: alertId.blocked(member.nodeId),
-        kind: "blocked",
+        id: alertId.node(member.nodeId),
+        kind: level === 2 ? "blocked" : "attention",
         subjectKey: member.nodeId,
         nodeId: member.nodeId,
         label: member.label,
+        level,
       });
     }
   }
 
-  // permission: chat pendingPermission appears (coarse projection preferred)
-  for (const [agentKey, slot] of Object.entries(chat)) {
-    if (!slot?.pendingPermissionId && !slot?.pendingPermission) continue;
-    push({
-      id: alertId.permission(agentKey),
-      kind: "permission",
-      subjectKey: agentKey,
-      nodeId: agentNodeId(doc, agentKey),
-      label: agentKey,
-    });
-  }
-
-  // herdr-done: agentStatus becomes "done"
-  for (const [nodeId, cache] of Object.entries(herdrMeta)) {
-    const status = cache?.meta?.agentStatus?.toLowerCase();
-    if (status !== "done") continue;
-    push({
-      id: alertId.herdrDone(nodeId),
-      kind: "herdr-done",
-      subjectKey: nodeId,
-      nodeId: nodeExists(doc, nodeId),
-      label: nodeId,
-    });
-  }
-
-  // agent-done: managed seat idle+needsLook (ready/complete, not idle steel)
-  if (seatNeedsLook) {
-    for (const node of doc.nodes) {
-      const native = resolveTerminalBinding(node);
-      if (native?.kind !== "native") continue;
-      if (seatNeedsLook[native.bindingId] !== true) continue;
-      push({
-        id: alertId.agentDone(node.id),
-        kind: "herdr-done",
-        subjectKey: node.id,
-        nodeId: node.id,
-        label: node.type === "text" ? node.text.split("\n")[0] || node.id : node.id,
-      });
-    }
-  }
-
-  // orphan: kernel orphaned arms
-  for (const key of orphans) {
-    const regionId = regionIdFromOrphanKey(key);
-    push({
-      id: alertId.orphan(key),
-      kind: "orphan",
-      subjectKey: key,
-      nodeId: nodeExists(doc, regionId),
-      label: key,
-    });
-  }
-
-  return out;
+  return [...byId.values()];
 };
 
 let queue: AlertQueue = emptyAlertQueue();
@@ -193,7 +108,7 @@ export const observeAlertSignals = (signals: ReadonlyArray<AlertSignal>): void =
   const result = observeSignals(queue, signals);
   queue = result.queue;
   for (const item of result.risen) {
-    playAlert(item.kind);
+    playAlert(item.kind === "blocked" ? "blocked" : "permission");
   }
 };
 
@@ -216,37 +131,9 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
   rollupsRef.current = rollups;
 
   useEffect(() => {
-    const run = (): void => {
-      const signals = collectAlertSignals({
-        doc: state$.doc.peek(),
-        rollups: rollupsRef.current,
-        chat: chatCoarse$.peek() as Record<string, { pendingPermissionId?: string } | undefined>,
-        herdrMeta: herdr$.metaByNodeId.peek() as Record<
-          string,
-          { meta?: { agentStatus?: string } } | undefined
-        >,
-        seatNeedsLook: agentSeat$.needsLookByBindingId.peek() as Record<
-          string,
-          boolean | undefined
-        >,
-        snapshots: state$.snapshots.peek(),
-        orphans: [],
-      });
-      observeAlertSignals(signals);
-    };
-
-    run();
-
-    const offs = [
-      chatCoarse$.onChange(() => run()),
-      herdr$.metaByNodeId.onChange(() => run()),
-      agentSeat$.needsLookByBindingId.onChange(() => run()),
-      state$.snapshots.onChange(() => run()),
-      state$.docVersion.onChange(() => run()),
-    ];
+    observeAlertSignals(collectAlertSignals(rollupsRef.current));
 
     return () => {
-      for (const off of offs) off();
       // Full unmount of RTS chrome only. Must NOT run when `rollups` identity
       // changes — parent re-creates the array every fuse and a wipe re-baselines
       // the queue so Space goes dead after the rise you just heard.
@@ -257,22 +144,7 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
 
   // Re-observe when rollups change without tearing down subscriptions/baseline.
   useEffect(() => {
-    const signals = collectAlertSignals({
-      doc: state$.doc.peek(),
-      rollups: rollupsRef.current,
-      chat: chatCoarse$.peek() as Record<string, { pendingPermissionId?: string } | undefined>,
-      herdrMeta: herdr$.metaByNodeId.peek() as Record<
-        string,
-        { meta?: { agentStatus?: string } } | undefined
-      >,
-      seatNeedsLook: agentSeat$.needsLookByBindingId.peek() as Record<
-        string,
-        boolean | undefined
-      >,
-      snapshots: state$.snapshots.peek(),
-      orphans: [],
-    });
-    observeAlertSignals(signals);
+    observeAlertSignals(collectAlertSignals(rollupsRef.current));
   }, [rollups]);
 
   // Hotkey: Space or backtick. Capture phase so Space isn't eaten by focused
