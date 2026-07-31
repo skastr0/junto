@@ -12,12 +12,14 @@ import {
 } from "../src/shared/station-qualification";
 
 const hash = (character: string) => character.repeat(64);
-const nativePlatform = () => ({
+const nativePlatform = (
+  virtualization: "orbstack" | "box" = "orbstack",
+) => ({
   os: "linux" as const,
   distribution: "ubuntu" as const,
   version: "24.04" as const,
   architecture: "x64" as const,
-  virtualization: "orbstack" as const,
+  virtualization,
 });
 const commandCenterHealth = () => ({
   appProcess: "running" as const,
@@ -45,7 +47,9 @@ const remoteSecurity = () => ({
   vellumTcpListeners: 0 as const,
 });
 
-const qualified = () => ({
+const qualified = (
+  virtualization: "orbstack" | "box" = "orbstack",
+) => ({
   schema: STATION_QUALIFICATION_SCHEMA,
   ok: true as const,
   sourceCommit: "a".repeat(40),
@@ -63,12 +67,12 @@ const qualified = () => ({
     commandCenter: {
       installationId: "cc-01",
       appVersion: "0.1.5",
-      nativePlatform: nativePlatform(),
+      nativePlatform: nativePlatform(virtualization),
     },
     remote: {
       installationId: "remote-01",
       appVersion: "0.1.5",
-      nativePlatform: nativePlatform(),
+      nativePlatform: nativePlatform(virtualization),
     },
   },
   phases: {
@@ -229,7 +233,10 @@ describe("two-installation Station qualification contract", () => {
     expect(Either.isLeft(decodeStationQualification(versionSkew))).toBe(true);
   });
 
-  it("accepts only Ubuntu 24.04 x64 OrbStack guests", () => {
+  it("accepts Ubuntu 24.04 x64 guests from either qualified VM provider", () => {
+    const boxReceipt = qualified("box");
+    expect(Either.isRight(decodeStationQualification(boxReceipt))).toBe(true);
+
     for (const [field, value] of [
       ["os", "darwin"],
       ["distribution", "debian"],

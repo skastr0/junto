@@ -8,7 +8,7 @@ import { DisplayTimestamp } from "./work-protocol";
 
 /**
  * Release evidence for one exact Linux package exercised by one Command Center
- * and one Remote on real OrbStack guests.
+ * and one Remote on real, disposable Linux VM guests.
  *
  * The receipt summarizes one root evidence log. Detailed observations belong
  * in that log, not in repeated per-phase witness wrappers.
@@ -82,7 +82,7 @@ export const StationQualificationNativePlatform = Schema.Struct({
   distribution: Schema.Literal("ubuntu"),
   version: Schema.Literal("24.04"),
   architecture: Schema.Literal("x64"),
-  virtualization: Schema.Literal("orbstack"),
+  virtualization: Schema.Literal("orbstack", "box"),
 });
 export type StationQualificationNativePlatform =
   typeof StationQualificationNativePlatform.Type;
