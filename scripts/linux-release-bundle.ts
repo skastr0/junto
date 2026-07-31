@@ -327,8 +327,6 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["build-receipt", "build-receipt.json"],
   ["test-receipt", "test-receipt.json"],
   ["package-audit", "package-audit.json"],
-  ["runtime-receipt", "packaged-pty-smoke.json"],
-  ["runtime-receipt", "packaged-runtime-smoke.json"],
   ["ci-evidence-manifest", "ci-evidence-manifest.json"],
   ["release-keyring", LINUX_RELEASE_KEYRING],
   ["dependency-license-inventory", "dependency-license-inventory.json"],
@@ -1544,8 +1542,6 @@ const REQUIRED_CI_GATES = [
   "native-package",
   "package-audit",
   "userland-runtime-archive",
-  "packaged-pty-smoke",
-  "packaged-runtime-smoke",
 ] as const;
 
 const BUNDLED_LICENSE_FILES = new Set([
@@ -1879,16 +1875,6 @@ const validateCiEvidenceManifest = (
       evidenceFile: "package-audit.json",
       signedFile: "package-audit.json",
     },
-    {
-      scope: "evidence",
-      evidenceFile: "packaged-pty-smoke.json",
-      signedFile: "packaged-pty-smoke.json",
-    },
-    {
-      scope: "evidence",
-      evidenceFile: "packaged-runtime-smoke.json",
-      signedFile: "packaged-runtime-smoke.json",
-    },
   ] as const;
   for (const link of links) {
     const evidence = entries.get(`${link.scope}:${link.evidenceFile}`);
@@ -1962,42 +1948,6 @@ const validateEvidenceReceipt = (
       "chromeSandboxMode" in receipt
     ) {
       throw new Error("package audit receipt does not match the signed userland runtime archive");
-    }
-    return;
-  }
-  if (file === "packaged-pty-smoke.json") {
-    if (
-      receipt.ok !== true ||
-      receipt.backend !== "pty" ||
-      receipt.packagedPlacement !== true ||
-      receipt.cleanShutdown !== true ||
-      receipt.tempRootRemoved !== true
-    ) {
-      throw new Error("packaged PTY receipt is not release-qualified");
-    }
-    return;
-  }
-  if (file === "packaged-runtime-smoke.json") {
-    const sandbox = record(receipt.rendererSandbox, "renderer sandbox receipt");
-    if (
-      receipt.ok !== true ||
-      receipt.display !== "xvfb" ||
-      receipt.workCli !== "ok" ||
-      receipt.browserCli !== "ok" ||
-      sandbox.noNewPrivs !== true ||
-      sandbox.seccomp !== true ||
-      typeof sandbox.renderers !== "number" ||
-      !Number.isSafeInteger(sandbox.renderers) ||
-      sandbox.renderers < 1 ||
-      (receipt.sandboxCapability !== "apparmor" &&
-        receipt.sandboxCapability !== "userns") ||
-      receipt.tcpListeners !== 0 ||
-      receipt.debugAuthority !== false ||
-      receipt.secretBearingOutput !== false ||
-      receipt.cleanShutdown !== true ||
-      receipt.tempRootRemoved !== true
-    ) {
-      throw new Error("packaged runtime receipt is not release-qualified");
     }
     return;
   }

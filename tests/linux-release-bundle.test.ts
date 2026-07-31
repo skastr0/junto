@@ -111,8 +111,6 @@ const ciGates = [
   "native-package",
   "package-audit",
   "userland-runtime-archive",
-  "packaged-pty-smoke",
-  "packaged-runtime-smoke",
 ];
 
 const host: LinuxReleaseHostFacts = {
@@ -245,30 +243,6 @@ const createFixture = async (options: {
         ? { chromeSandboxMode: "0755" }
         : {}),
     }),
-    "packaged-pty-smoke.json": canonical({
-      ok: true,
-      backend: "pty",
-      packagedPlacement: true,
-      cleanShutdown: true,
-      tempRootRemoved: true,
-    }),
-    "packaged-runtime-smoke.json": canonical({
-      ok: true,
-      display: "xvfb",
-      workCli: "ok",
-      browserCli: "ok",
-      rendererSandbox: {
-        renderers: 1,
-        noNewPrivs: true,
-        seccomp: true,
-      },
-      sandboxCapability: "apparmor",
-      tcpListeners: 0,
-      debugAuthority: false,
-      secretBearingOutput: false,
-      cleanShutdown: true,
-      tempRootRemoved: true,
-    }),
     [STATION_QUALIFICATION_EVIDENCE_FILE]:
       "Human/operator attestation for one real two-installation Station qualification.\n",
     "dependency-license-inventory.json": canonical({
@@ -347,8 +321,6 @@ const createFixture = async (options: {
         ["inventory.json", "build-receipt.json"],
         ["test-receipt.json", "test-receipt.json"],
         ["package-audit.json", "package-audit.json"],
-        ["packaged-pty-smoke.json", "packaged-pty-smoke.json"],
-        ["packaged-runtime-smoke.json", "packaged-runtime-smoke.json"],
       ].map(([evidenceFile, signedFile]) => ({
         scope: "evidence",
         file: evidenceFile,
@@ -760,14 +732,14 @@ describe("signed Linux qualification candidate", () => {
     expect(manifest.files.map(({ file }) => file).sort()).toEqual(
       [...linuxQualificationCandidatePayloadFileNames(VERSION)].sort(),
     );
-    expect(manifest.files).toHaveLength(15);
+    expect(manifest.files).toHaveLength(13);
     expect(receipt).toMatchObject({
       schema:
         "vellum/linux-qualification-candidate-verification-receipt/v1",
       ok: true,
       purpose: "station-qualification-candidate",
       publishable: false,
-      filesVerified: 15,
+      filesVerified: 13,
       packageSha256: manifest.package.sha256,
       ciEvidenceSha256: manifest.source.ciEvidence.sha256,
     });
@@ -867,7 +839,7 @@ describe("signed Linux release bundle", () => {
       keyringRevision: 7,
       signedAt: "2026-07-23T11:58:00.000Z",
       expiresAt: EXPIRES_AT,
-      filesVerified: 15,
+      filesVerified: 13,
       bundleFiles: expect.arrayContaining([
         expect.objectContaining({
           file: PACKAGE,

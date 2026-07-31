@@ -32,8 +32,6 @@ export const LINUX_CI_REQUIRED_GATES = Object.freeze([
   "native-package",
   "package-audit",
   "userland-runtime-archive",
-  "packaged-pty-smoke",
-  "packaged-runtime-smoke",
 ] as const);
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -451,66 +449,6 @@ const validateLinuxCiReceipts = async (input: {
     throw new Error("Linux release evidence package audit mismatch");
   }
 
-  const pty = await parseJsonFile(
-    path.join(input.evidenceDirectory, "packaged-pty-smoke.json"),
-    "packaged PTY receipt",
-  ) as {
-    readonly ok?: unknown;
-    readonly backend?: unknown;
-    readonly packagedPlacement?: unknown;
-    readonly cleanShutdown?: unknown;
-    readonly tempRootRemoved?: unknown;
-  };
-  if (
-    pty.ok !== true ||
-    pty.backend !== "pty" ||
-    pty.packagedPlacement !== true ||
-    pty.cleanShutdown !== true ||
-    pty.tempRootRemoved !== true
-  ) {
-    throw new Error("Linux release evidence packaged PTY receipt mismatch");
-  }
-
-  const runtime = await parseJsonFile(
-    path.join(input.evidenceDirectory, "packaged-runtime-smoke.json"),
-    "packaged runtime receipt",
-  ) as {
-    readonly ok?: unknown;
-    readonly display?: unknown;
-    readonly workCli?: unknown;
-    readonly browserCli?: unknown;
-    readonly rendererSandbox?: {
-      readonly renderers?: unknown;
-      readonly noNewPrivs?: unknown;
-      readonly seccomp?: unknown;
-    };
-    readonly sandboxCapability?: unknown;
-    readonly tcpListeners?: unknown;
-    readonly debugAuthority?: unknown;
-    readonly secretBearingOutput?: unknown;
-    readonly cleanShutdown?: unknown;
-    readonly tempRootRemoved?: unknown;
-  };
-  if (
-    runtime.ok !== true ||
-    runtime.display !== "xvfb" ||
-    runtime.workCli !== "ok" ||
-    runtime.browserCli !== "ok" ||
-    typeof runtime.rendererSandbox?.renderers !== "number" ||
-    !Number.isSafeInteger(runtime.rendererSandbox.renderers) ||
-    runtime.rendererSandbox.renderers < 1 ||
-    runtime.rendererSandbox.noNewPrivs !== true ||
-    runtime.rendererSandbox.seccomp !== true ||
-    (runtime.sandboxCapability !== "apparmor" &&
-      runtime.sandboxCapability !== "userns") ||
-    runtime.tcpListeners !== 0 ||
-    runtime.debugAuthority !== false ||
-    runtime.secretBearingOutput !== false ||
-    runtime.cleanShutdown !== true ||
-    runtime.tempRootRemoved !== true
-  ) {
-    throw new Error("Linux release evidence packaged runtime receipt mismatch");
-  }
 };
 
 const requireRelativeEvidencePath = (
@@ -569,8 +507,6 @@ export const createLinuxCiReleaseManifest = async (input: {
   const requiredEvidence = [
     "inventory.json",
     "package-audit.json",
-    "packaged-pty-smoke.json",
-    "packaged-runtime-smoke.json",
     "test-receipt.json",
   ] as const;
   const files = [

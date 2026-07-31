@@ -243,36 +243,6 @@ describe("Linux release artifact identity", () => {
       JSON.stringify(packageAudit),
     );
     await writeFile(
-      path.join(evidence, "packaged-pty-smoke.json"),
-      JSON.stringify({
-        ok: true,
-        backend: "pty",
-        packagedPlacement: true,
-        cleanShutdown: true,
-        tempRootRemoved: true,
-      }),
-    );
-    await writeFile(
-      path.join(evidence, "packaged-runtime-smoke.json"),
-      JSON.stringify({
-        ok: true,
-        display: "xvfb",
-        workCli: "ok",
-        browserCli: "ok",
-        rendererSandbox: {
-          renderers: 1,
-          noNewPrivs: true,
-          seccomp: true,
-        },
-        sandboxCapability: "apparmor",
-        tcpListeners: 0,
-        debugAuthority: false,
-        secretBearingOutput: false,
-        cleanShutdown: true,
-        tempRootRemoved: true,
-      }),
-    );
-    await writeFile(
       path.join(evidence, "test-receipt.json"),
       JSON.stringify(createLinuxCiTestReceipt([...LINUX_CI_REQUIRED_GATES])),
     );
@@ -301,7 +271,7 @@ describe("Linux release artifact identity", () => {
     });
 
     expect(manifest.publishable).toEqual({ format: "userland-runtime-archive", file: archive });
-    expect(manifest.evidence).toHaveLength(7);
+    expect(manifest.evidence).toHaveLength(5);
     expect(manifest.evidence.every((entry) =>
       (entry.scope === "release" || entry.scope === "evidence") &&
       !entry.file.startsWith("/") &&
