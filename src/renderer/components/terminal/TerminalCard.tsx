@@ -11,6 +11,7 @@ import {
 } from "../../lib/agent-seat-state";
 import { terminalActivity } from "../../lib/activity";
 import { terminal$ } from "../../lib/terminal-state";
+import { onTerminalEvent } from "../../lib/terminal-events";
 import { getVellumApi } from "../../lib/vellum-api";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
@@ -72,21 +73,20 @@ export function TerminalCard({
   useEffect(() => {
     subscribeAgentSeatState();
     void refresh();
-    const api = getVellumApi();
-    const off = api?.onTerminalEvent?.((raw) => {
+    const off = onTerminalEvent((raw) => {
       if ((raw as { bindingId?: string }).bindingId === native?.bindingId)
         void refresh();
     });
     // Poll only while running — lease-scoped events don't reach cards without
     // an open surface.
     if (!running) {
-      return () => off?.();
+      return off;
     }
     const timer = window.setInterval(() => {
       void refresh();
     }, 2500);
     return () => {
-      off?.();
+      off();
       window.clearInterval(timer);
     };
   }, [native?.bindingId, native?.hostId, running]);

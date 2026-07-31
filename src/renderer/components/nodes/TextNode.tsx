@@ -26,6 +26,7 @@ import { openHerdrTerminal } from "../../lib/herdr-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentChatSurface } from "../../lib/dock-state";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
+import { onTerminalEvent } from "../../lib/terminal-events";
 import { terminal$ } from "../../lib/terminal-state";
 import { getVellumApi } from "../../lib/vellum-api";
 import { ActivityMarkFromSpec } from "../ActivityMark";
@@ -231,12 +232,12 @@ function EntityCard({
         })
         .catch(() => undefined);
     void refresh();
-    const off = getVellumApi()?.onTerminalEvent?.((raw) => {
+    const off = onTerminalEvent((raw) => {
       if ((raw as { bindingId?: string }).bindingId === bindingId) {
         void refresh();
       }
     });
-    return () => off?.();
+    return off;
   }, [bindingId, hostId]);
   const managed = managedHarness !== undefined && isHarnessId(managedHarness);
   const exitReason = session?.exitReason;

@@ -2442,6 +2442,7 @@ ol.note-md__list > .note-md__li::before {
 .native-terminal-surface__stage {
   position: relative;
   display: flex;
+  flex-direction: column;
   flex: 1 1 0;
   min-height: 0;
   min-width: 0;

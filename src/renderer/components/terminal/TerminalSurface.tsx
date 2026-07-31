@@ -39,6 +39,7 @@ import {
   terminalSurfaceEyebrow,
 } from "../../lib/terminal-kill-ux";
 import { ensureTerminalRunning } from "../../lib/terminal-actions";
+import { onTerminalEvent } from "../../lib/terminal-events";
 import { releaseTaskToQueue } from "../../lib/work-actions";
 import { ActivityMark } from "../ActivityMark";
 import { Button, Eyebrow, OverlayHeader } from "../ui";
@@ -385,7 +386,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
 
     // Do NOT wire term.onResize → PTY. pushResize is the only path.
 
-    const offEvent = api.onTerminalEvent((raw) => {
+    const offEvent = onTerminalEvent((raw) => {
       const event = raw as LiveEvent;
       if (event.bindingId !== bindingId) return;
       if (!attachDone) {
