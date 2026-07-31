@@ -41,9 +41,11 @@ export function TerminalInventory() {
                     size="xs"
                     variant="danger"
                     className="row-span-2"
+                    title="Stop process (ends PTY; view may stay open elsewhere)"
+                    aria-label="Stop process"
                     onClick={() => void getVellumApi()?.terminalKill?.(session.bindingId).then(refresh)}
                   >
-                    Kill
+                    Stop
                   </Button>
                   <small className="truncate text-[10px] text-faint">{session.cwd}</small>
                 </div>

@@ -1,23 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 import { Pin, SquareTerminal, SquareX } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
+import { resolveTerminalBinding } from "@shared/terminal";
 import { killTerminal, openTerminal } from "../../lib/terminal-actions";
+import {
+  isAgentTerminalSeat,
+  killActionCopy,
+  KILL_ARM_MS,
+} from "../../lib/terminal-kill-ux";
 import { HUE } from "../../lib/theme";
 import { IconButton } from "../ui";
 
-const ARM_MS = 3000;
-
 /**
  * Selection-toolbar actions for native terminal nodes.
- * Open is one-click; open-pinned lands in the side dock; kill is two-click arm
+ * Open is one-click; open-pinned lands in the side dock; stop is two-click arm
  * (same pattern as HerdrToolbarActions). Never on the card body.
  *
  * Icons share the toolbar steel chrome (IconButton default) — no per-action
- * accent colors. Crimson is reserved for the armed kill confirm only.
+ * accent colors. Crimson is reserved for the armed stop confirm only.
  */
 export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) {
   const [armed, setArmed] = useState(false);
   const armTimer = useRef<number | null>(null);
+  const binding = resolveTerminalBinding(node);
+  const agentSeat =
+    binding?.kind === "native" ? isAgentTerminalSeat(binding) : false;
+  const stopCopy = killActionCopy({
+    phase: armed ? "armed" : "idle",
+    agentSeat,
+  });
 
   useEffect(() => {
     return () => {
@@ -33,14 +44,14 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
     setArmed(false);
   };
 
-  const fireKill = () => {
+  const fireStop = () => {
     if (!armed) {
       if (armTimer.current !== null) window.clearTimeout(armTimer.current);
       setArmed(true);
       armTimer.current = window.setTimeout(() => {
         armTimer.current = null;
         setArmed(false);
-      }, ARM_MS);
+      }, KILL_ARM_MS);
       return;
     }
     disarm();
@@ -75,13 +86,13 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
       </IconButton>
       <IconButton
         className="nodrag nopan"
-        aria-label={armed ? "confirm kill session" : "kill session"}
-        title={armed ? "confirm kill session" : "kill session"}
+        aria-label={stopCopy.ariaLabel}
+        title={stopCopy.title}
         style={armed ? { color: HUE.crimson } : undefined}
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          fireKill();
+          fireStop();
         }}
       >
         <SquareX size={14} />

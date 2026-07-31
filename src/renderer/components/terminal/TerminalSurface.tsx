@@ -30,11 +30,18 @@ import {
 } from "../../lib/terminal-viewport";
 import { claimedTaskForActorNode } from "../../lib/claimed-task";
 import { state$ } from "../../lib/state";
+import {
+  deadStateCopy,
+  isAgentTerminalSeat,
+  killActionCopy,
+  KILL_ARM_MS,
+  type KillUxPhase,
+  terminalSurfaceEyebrow,
+} from "../../lib/terminal-kill-ux";
+import { ensureTerminalRunning } from "../../lib/terminal-actions";
 import { releaseTaskToQueue } from "../../lib/work-actions";
 import { ActivityMark } from "../ActivityMark";
-import { Button, OverlayHeader } from "../ui";
-
-const KILL_ARM_MS = 3000;
+import { Button, Eyebrow, OverlayHeader } from "../ui";
 
 type AttachResult = {
   readonly ok: boolean;
@@ -159,6 +166,11 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
   const [geomLabel, setGeomLabel] = useState("");
   const [releasePending, setReleasePending] = useState(false);
   const [releaseError, setReleaseError] = useState("");
+  /** Bump to re-run attach after Stop → Reopen (same bindingId). */
+  const [attachKey, setAttachKey] = useState(0);
+  const [killPhase, setKillPhase] = useState<KillUxPhase>("idle");
+  const [reopenPending, setReopenPending] = useState(false);
+  const killArmTimer = useRef<number | null>(null);
   const canvasName = use$(state$.canvasName);
   const doc = use$(state$.doc);
   const actorRefs = use$(state$.actorRefs);
@@ -385,7 +397,10 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       }
       if (event.epoch !== epochRef.current) return;
       if (event.type === "output" && event.data) term.write(event.data);
-      if (event.type === "exit") setStatus("exited");
+      if (event.type === "exit") {
+        setStatus("exited");
+        setKillPhase("stopped");
+      }
     });
 
     void api
@@ -429,6 +444,7 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           // Retained exited generations may expose their final raw journal.
           // Never paint those as a live control lease.
           setStatus(sawExit ? "exited" : "control");
+          setKillPhase(sawExit ? "stopped" : "idle");
           // Repaint through layout settle; only a real cols×rows transition is
           // forwarded to the child PTY.
           requestAnimationFrame(() => {
@@ -499,15 +515,15 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       epochRef.current = undefined;
       if (lease) void api.terminalRelease(lease);
     };
-  }, [bindingId, hostId]);
+  }, [bindingId, hostId, attachKey]);
 
   const label = node.type === "text" ? node.text : "terminal";
   const surfaceId = terminalSurfaceId(node.id);
   const registry = use$(dock$.registry);
   const surface = surfaceById(registry, surfaceId);
   const pinned = surface?.zone === "pinned";
-  const [killArmed, setKillArmed] = useState(false);
-  const killArmTimer = useRef<number | null>(null);
+  const agentSeat =
+    binding?.kind === "native" ? isAgentTerminalSeat(binding) : false;
   const closeSurface = () => closeWorkbenchSurface(surfaceId);
   const togglePin = () => {
     if (pinned) unpinWorkbenchSurface(surfaceId);
@@ -518,24 +534,71 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
       window.clearTimeout(killArmTimer.current);
       killArmTimer.current = null;
     }
-    setKillArmed(false);
+    setKillPhase((phase) => (phase === "armed" ? "idle" : phase));
   };
   const fireKill = () => {
-    if (!killArmed) {
+    if (killPhase === "stopping" || killPhase === "stopped") return;
+    if (killPhase !== "armed") {
       if (killArmTimer.current !== null) window.clearTimeout(killArmTimer.current);
-      setKillArmed(true);
+      setKillPhase("armed");
       killArmTimer.current = window.setTimeout(() => {
         killArmTimer.current = null;
-        setKillArmed(false);
+        setKillPhase((phase) => (phase === "armed" ? "idle" : phase));
       }, KILL_ARM_MS);
       return;
     }
-    disarmKill();
+    if (killArmTimer.current !== null) {
+      window.clearTimeout(killArmTimer.current);
+      killArmTimer.current = null;
+    }
+    setKillPhase("stopping");
+    setStatus("stopping…");
     void getVellumApi()
       ?.terminalKill?.(bindingId, hostId)
-      .then(() => setStatus("exited"));
+      .then(() => {
+        setKillPhase("stopped");
+        setStatus("exited");
+      })
+      .catch((error: unknown) => {
+        setKillPhase("idle");
+        setStatus(error instanceof Error ? error.message : String(error));
+      });
+  };
+  const reopenProcess = async (): Promise<void> => {
+    if (reopenPending) return;
+    setReopenPending(true);
+    setStatus("starting…");
+    try {
+      const result = await ensureTerminalRunning(node, {
+        resume: agentSeat,
+      });
+      if (!result.ok) {
+        setStatus(result.message);
+        setKillPhase("stopped");
+        return;
+      }
+      setKillPhase("idle");
+      setStatus("attaching…");
+      setAttachKey((key) => key + 1);
+    } finally {
+      setReopenPending(false);
+    }
   };
   const attached = status === "control";
+  const processDead = status === "exited" || killPhase === "stopped";
+  const processStopping = killPhase === "stopping" || status === "stopping…";
+  const showDeadOverlay = processDead || processStopping;
+  const killCopy = killActionCopy({
+    phase: processDead
+      ? "stopped"
+      : processStopping
+        ? "stopping"
+        : killPhase === "armed"
+          ? "armed"
+          : "idle",
+    agentSeat,
+  });
+  const deadCopy = deadStateCopy({ agentSeat });
   const releaseClaim = async (): Promise<void> => {
     if (!claimedTask || releasePending) return;
     setReleasePending(true);
@@ -564,19 +627,28 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
     if (!attached) disarmKill();
   }, [attached]);
 
+  useEffect(() => {
+    if (status === "exited") setKillPhase("stopped");
+  }, [status]);
+
   return (
     <div
       ref={rootRef}
-      className="native-terminal-surface"
+      className={[
+        "native-terminal-surface",
+        showDeadOverlay ? "native-terminal-surface--dead" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <OverlayHeader
-        eyebrow={`terminal · ${hostId} · close detaches (session keeps running)`}
+        eyebrow={terminalSurfaceEyebrow(hostId)}
         title={label}
         status={
           <span className="native-terminal-surface__status inline-flex items-center gap-1.5">
             <ActivityMark
               mode={attached ? "static" : "wave"}
-              tone={status === "exited" ? "crimson" : "amber"}
+              tone={processDead || processStopping ? "crimson" : "amber"}
               size="inline"
               label={status}
             />
@@ -598,16 +670,23 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
               <Button
                 size="xs"
                 variant="danger"
-                title={killArmed ? "click again to kill session" : "arm kill session (3s)"}
-                aria-label={killArmed ? "Confirm kill session" : "Kill session"}
-                className={killArmed ? "ring-1 ring-crimson/60" : undefined}
+                title={killCopy.title}
+                aria-label={killCopy.ariaLabel}
+                disabled={killCopy.disabled}
+                className={killPhase === "armed" ? "ring-1 ring-crimson/60" : undefined}
                 onClick={fireKill}
               >
-                {killArmed ? "Confirm" : "Kill"}
+                {killCopy.label}
               </Button>
             ) : null}
-            <Button size="xs" variant="primary" onClick={closeSurface}>
-              Close
+            <Button
+              size="xs"
+              variant="primary"
+              title="Close view — process keeps running"
+              aria-label="Detach view"
+              onClick={closeSurface}
+            >
+              Detach
             </Button>
           </>
         }
@@ -638,7 +717,59 @@ export function TerminalSurface({ node }: { readonly node: CanvasNode }) {
           </Button>
         </div>
       ) : null}
-      <div ref={hostRef} className="native-terminal-surface__xterm" />
+      <div className="native-terminal-surface__stage">
+        <div
+          ref={hostRef}
+          className={[
+            "native-terminal-surface__xterm",
+            showDeadOverlay ? "native-terminal-surface__xterm--dim" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          aria-hidden={showDeadOverlay || undefined}
+        />
+        {showDeadOverlay ? (
+          <div
+            className="native-terminal-surface__dead"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="native-terminal-surface__dead-card">
+              <Eyebrow tone="amber">
+                {processStopping ? "stopping" : "ended"}
+              </Eyebrow>
+              <strong className="native-terminal-surface__dead-title">
+                {processStopping ? "Stopping process…" : deadCopy.headline}
+              </strong>
+              <p className="native-terminal-surface__dead-detail">
+                {processStopping
+                  ? "Revoking work identity, then terminating the PTY."
+                  : deadCopy.detail}
+              </p>
+              {!processStopping ? (
+                <div className="native-terminal-surface__dead-actions">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={reopenPending}
+                    onClick={() => void reopenProcess()}
+                  >
+                    {reopenPending ? "Opening…" : deadCopy.reopenLabel}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="chrome"
+                    title="Close view only"
+                    onClick={closeSurface}
+                  >
+                    {deadCopy.closeViewLabel}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
