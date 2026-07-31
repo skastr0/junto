@@ -925,12 +925,9 @@ const withoutKey = <T extends object, K extends keyof T>(value: T, key: K): Omit
   return rest;
 };
 
-// The region's pulse briefing text is document data (unlike ARM, which is
-// app-state only — see canvas.ts). This writes ether.region.instruction
-// directly via commitDoc rather than a lib/mutations.ts export: the watcher
-// and timer mutations are this lane's only grant into that file, so the
-// third document write this section needs stays local, following the same
-// strip pattern as setRegionHold.
+// Region briefing text is document furniture (ether.region.instruction).
+// Writes via commitDoc rather than a lib/mutations.ts export — same strip
+// pattern as setRegionHold.
 const commitRegionInstruction = (node: CanvasNode, instruction: string): void => {
   const trimmed = instruction.trim();
   const doc = state$.doc.peek();
@@ -950,7 +947,7 @@ const commitRegionInstruction = (node: CanvasNode, instruction: string): void =>
 };
 
 /**
- * Pulse briefing only — arm / pulse / dry-pulse live on the command card.
+ * Region briefing only — document furniture; not wired to operator pulse UI.
  * Kind-strip "briefing" key opens this alone.
  */
 export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
@@ -968,12 +965,12 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">pulse briefing</div>
+      <div className="inspector-section__label">region briefing</div>
       <label className="inspector-editor">
-        <span>every agent inside receives this</span>
+        <span>context for agents inside this region</span>
         <textarea
-          aria-label="Region pulse briefing"
-          placeholder="what should agents inside this region do when it pulses?"
+          aria-label="Region briefing"
+          placeholder="what should agents inside this region know?"
           value={instructionDraft}
           onChange={(event) => setInstructionDraft(event.target.value)}
           onBlur={commitInstruction}
@@ -985,9 +982,6 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
           }}
         />
       </label>
-      <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.6) }}>
-        arm + pulse keys live on the command card · armed pulses spend real agent turns
-      </div>
     </div>
   );
 }

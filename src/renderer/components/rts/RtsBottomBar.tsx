@@ -16,7 +16,6 @@ import {
   Crosshair,
   ExternalLink,
   Eye,
-  FlaskConical,
   HardHat,
   Hash,
   Link2,
@@ -25,9 +24,7 @@ import {
   LockOpen,
   PauseCircle,
   Pencil,
-  Shield,
   Trash2,
-  Zap,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
@@ -68,7 +65,6 @@ import {
 } from "../../lib/command-card";
 import { playAlert } from "../../lib/sfx";
 import { HUE, withAlpha } from "../../lib/theme";
-import { armRegion, disarmOrphan, kernel$, pulseRegion } from "../../lib/kernel-view";
 import { useAlertAttention } from "../../lib/alert-attention";
 import { specOf } from "../../lib/node-spec";
 import { roleOf } from "@shared/physics";
@@ -76,7 +72,6 @@ import { openWorkDetail } from "../../lib/work-detail-open";
 import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause";
 import { executionGraphForImpact } from "../../lib/impact-mode";
 import { ConnectEditor } from "../InspectorFields";
-import { PulseTray } from "../PulseTray";
 import { StoppageRank } from "./StoppageRank";
 import { EdgeCommandCard, PauseScopeKey } from "./RtsControls";
 import { ensurePauseState, pause$, regionPausedIn } from "../../lib/pause-state";
@@ -249,59 +244,14 @@ function RegionCommandCard({
   const members = regionRollup.members;
   const visible = members.slice(0, ROLLCALL_VISIBLE);
   const extra = members.length - visible.length;
-  const armed = Boolean(use$(kernel$.armed[node.id]));
   const hold = Boolean(node.ether?.region?.hold);
   const slotOrder = use$(state$.regionSlotOrder);
   const slot = slotIndexOf(slotOrder, node.id);
-  const [armBusy, setArmBusy] = useState(false);
 
   const primary = primaryCommandActions("region");
 
-  const toggleArm = () => {
-    if (armBusy) return;
-    setArmBusy(true);
-    void armRegion(node.id, !armed)
-      .catch(() => undefined)
-      .finally(() => setArmBusy(false));
-  };
-
-  const runPulse = (dry = false) => {
-    void pulseRegion(node.id, dry ? { dry: true } : undefined).catch(() => undefined);
-  };
-
   const primaryKey = (action: PrimaryCommandAction) => {
     switch (action) {
-      case "arm-region":
-        return (
-          <CmdKey
-            key={action}
-            label={armed ? "Disarm region" : "Arm region"}
-            title={armed ? "armed — click to disarm" : "disarmed — click to arm (real agent turns)"}
-            active={armed}
-            style={{ color: armed ? HUE.amber : undefined }}
-            disabled={armBusy}
-            onClick={toggleArm}
-          >
-            <Shield size={ICON} />
-          </CmdKey>
-        );
-      case "pulse-region":
-        return (
-          <CmdKey key={action} label="Pulse region" title="pulse now · spends turns when armed" onClick={() => runPulse(false)}>
-            <Zap size={ICON} />
-          </CmdKey>
-        );
-      case "dry-pulse-region":
-        return (
-          <CmdKey
-            key={action}
-            label="Dry pulse"
-            title="dry pulse · briefing only, no agent turns"
-            onClick={() => runPulse(true)}
-          >
-            <FlaskConical size={ICON} />
-          </CmdKey>
-        );
       case "hold-region":
         return (
           <CmdKey
@@ -352,17 +302,14 @@ function RegionCommandCard({
       <span key="w" style={{ color: HUE.cyan }}> · {regionRollup.counts.working}w</span>,
     );
   }
-  if (armed) {
-    metaBits.push(<span key="armed" style={{ color: HUE.amber }}> · armed</span>);
-  }
   if (hold) {
     metaBits.push(<span key="hold" style={{ color: HUE.amber }}> · hold</span>);
   }
   // Slot lives on the Hash key only — meta used to print `1 · #1` which
   // looked like a duplicated index.
 
-  // Keys: pause + 5 primary + rename + delete = 8 → 2×4 grid (fits 120px panel).
-  // Focus is free via the region hotbar chip; field forms live on the kind strip.
+  // Keys: pause + hold/slot + rename + delete. Focus is free via the region
+  // hotbar chip; field forms live on the kind strip.
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__label">
@@ -995,26 +942,8 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
   );
 }
 
-function OrphanNotices() {
-  const orphaned = use$(kernel$.orphaned) as ReadonlyArray<string> | undefined;
-  const orphans = orphaned ?? [];
-  if (orphans.length === 0) return null;
-  return (
-    <div className="rts-notify-strip__group" aria-label="Orphaned arming">
-      {orphans.map((key) => (
-        <div key={key} className="rts-orphan" title={key}>
-          <span className="rts-orphan__key">{key}</span>
-          <button type="button" onClick={() => void disarmOrphan(key)}>
-            disarm
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /**
- * Thin strip above the minimap only — stoppage / orphans / pulse.
+ * Thin strip above the minimap only — stoppage rank.
  * Parallel to the region strip (ops left+mid); keeps the minimap full-height.
  */
 function NotifyStrip() {
@@ -1024,11 +953,7 @@ function NotifyStrip() {
         <span className="rts-notify-strip__label">notify</span>
       </div>
       <div className="rts-notify-strip__body">
-        <OrphanNotices />
         <StoppageRank />
-        <div className="rts-notify-strip__pulse">
-          <PulseTray embedded />
-        </div>
       </div>
     </div>
   );

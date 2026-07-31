@@ -58,13 +58,7 @@ describe("primaryCommandActions", () => {
 
 
   it("region / link / default include slot-cue", () => {
-    expect(primaryCommandActions("region")).toEqual([
-      "arm-region",
-      "pulse-region",
-      "dry-pulse-region",
-      "hold-region",
-      "slot-cue",
-    ]);
+    expect(primaryCommandActions("region")).toEqual(["hold-region", "slot-cue"]);
     expect(primaryCommandActions("link")).toEqual(["open-link", "slot-cue"]);
     expect(primaryCommandActions("default")).toEqual(["slot-cue"]);
   });

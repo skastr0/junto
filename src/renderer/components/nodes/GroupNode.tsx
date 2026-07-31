@@ -7,7 +7,6 @@ import type { FlowNode } from "../../lib/convert";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { resizeNode } from "../../lib/geometry";
 import { state$ } from "../../lib/state";
-import { kernel$ } from "../../lib/kernel-view";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
 import { RegionPathsModal } from "../RegionPathsModal";
 import { IconButton, ToolbarPill } from "../ui";
@@ -85,7 +84,6 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const [draft, setDraft] = useState(label);
   const inputRef = useRef<HTMLInputElement>(null);
-  const armed = Boolean(use$(kernel$.armed[node.id]));
   const instruction = node.ether?.region?.instruction;
   const pathMap = node.type === "group" ? node.ether?.region?.defaults?.paths : undefined;
   const hasPaths = Boolean(
@@ -123,8 +121,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} />
       {node.ether?.region?.hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
       {hasPaths ? <span title="Region has host folder paths" style={{ display: "inline-flex", flexShrink: 0 }}><FolderOpen aria-label="Region has folder paths" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
-      {instruction ? <span title={instruction} style={{ display: "inline-flex", flexShrink: 0 }}><ScrollText aria-label="Region has a pulse briefing" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
-      {armed ? <span className="vellum-armed-dot" title="armed — pulses spend real agent turns" style={{ background: HUE.amber }} /> : null}
+      {instruction ? <span title={instruction} style={{ display: "inline-flex", flexShrink: 0 }}><ScrollText aria-label="Region has a briefing" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
     </div>
     {pathsOpen ? <RegionPathsModal nodeId={node.id} onClose={() => setPathsOpen(false)} /> : null}
   </div>;

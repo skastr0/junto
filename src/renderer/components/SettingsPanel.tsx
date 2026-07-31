@@ -55,7 +55,7 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
   { key: "hosts", label: "Hosts", blurb: "fleet + network services" },
   { key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" },
   { key: "license", label: "License", blurb: "access, billing, and this installation" },
-  { key: "kernel", label: "Kernel", blurb: "pulse retention and debug" },
+  { key: "kernel", label: "Kernel", blurb: "debug verbosity" },
   { key: "browser", label: "Browser", blurb: "surface and warm-session limits" },
   { key: "advanced", label: "Advanced", blurb: "startup and recovery prefs" },
 ];
@@ -196,20 +196,6 @@ function KernelSection() {
   const kernel = use$(state$.settings.kernel);
   return (
     <div className="settings-section">
-      <FieldRow label="Pulse log retention" hint="entries kept in kernel debug dump (5–500)">
-        <input
-          type="number"
-          min={5}
-          max={500}
-          value={kernel.pulseLogRetention}
-          aria-label="Pulse log retention"
-          onChange={(event) => {
-            const value = Number(event.target.value);
-            if (!Number.isFinite(value)) return;
-            void patchSettings({ kernel: { pulseLogRetention: Math.floor(value) } });
-          }}
-        />
-      </FieldRow>
       <FieldRow label="Verbose debug" hint="extra kernel detail in doctor/debug paths">
         <input
           type="checkbox"

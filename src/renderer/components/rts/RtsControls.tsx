@@ -14,13 +14,12 @@ import {
   SquareX,
   Terminal,
   Trash2,
-  Zap,
 } from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
-import { regionsContaining, type PauseScope } from "@shared/pause";
+import { type PauseScope } from "@shared/pause";
 import { HUE } from "../../lib/theme";
 import { state$ } from "../../lib/state";
-import { kernel$, pulseRegion } from "../../lib/kernel-view";
+import { kernel$ } from "../../lib/kernel-view";
 import {
   ensurePauseState,
   nodePausedIn,
@@ -385,30 +384,6 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
-  const doc = use$(state$.doc);
-  const regionId = regionsContaining(doc, node.id)[0];
-  return (
-    <KindKey
-      label="Pulse now"
-      title={
-        regionId
-          ? "manual pulse of the containing region"
-          : "place inside a region to pulse"
-      }
-      disabled={!regionId}
-      onClick={() => {
-        if (!regionId) return;
-        void pulseRegion(regionId, {
-          summary: `manual pulse · ${nodeTitle(node)}`,
-        }).catch(() => undefined);
-      }}
-    >
-      <Zap size={ICON} />
-    </KindKey>
-  );
-}
-
 /** Kind-specific action keys (agent/herdr/terminal/task/…). */
 export function KindActions({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
@@ -454,7 +429,8 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
       );
     case "watcher":
     case "timer":
-      return <SchedulerKindKeys node={node} />;
+      // Region pulse product is dead — no manual pulse keys.
+      return null;
     default:
       // Unknown / geography kinds: silence is semantic.
       return null;

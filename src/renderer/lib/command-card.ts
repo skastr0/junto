@@ -16,9 +16,6 @@ export type PrimaryCommandAction =
   | "open-terminal"
   | "mark-seen"
   | "kill-pane"
-  | "arm-region"
-  | "pulse-region"
-  | "dry-pulse-region"
   | "hold-region"
   | "slot-cue"
   | "open-link";
@@ -61,7 +58,7 @@ export function primaryCommandActions(
     case "region":
       // Ops only — dense field editors (briefing/defaults/background/paths)
       // live as individual kind-strip keys, not this card.
-      return ["arm-region", "pulse-region", "dry-pulse-region", "hold-region", "slot-cue"];
+      return ["hold-region", "slot-cue"];
     case "link":
       return ["open-link", "slot-cue"];
     case "default":

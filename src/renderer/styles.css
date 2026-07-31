@@ -1028,16 +1028,6 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   .vellum-herdr-working-dot { animation: none; }
 }
 
-/* Region ARM indicator: a small live dot on the label row whenever the
-   region is armed. Arming spends real agent turns on the next pulse, so it
-   must never be silent — slower and steadier than the status dot above,
-   read as "standing by" rather than "loading". */
-@keyframes vellum-armed-pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(232,163,61,.45); }
-  50% { opacity: .55; box-shadow: 0 0 6px 2px rgba(232,163,61,.3); }
-}
-.vellum-armed-dot { display: inline-block; width: 6px; height: 6px; border-radius: 999px; flex-shrink: 0; animation: vellum-armed-pulse 2.2s ease-in-out infinite; }
-
 /* Every card advertises its dots while a connection drag is live. */
 .react-flow.is-connecting .vellum-handle--source { opacity: 1; }
 
@@ -1121,8 +1111,7 @@ html[data-surface-motion="paused"] *::after {
 .react-flow.is-viewport-busy .vellum-edge-ripple .react-flow__edge-path,
 .react-flow.is-viewport-busy path.vellum-edge-ripple,
 .react-flow.is-viewport-busy .vellum-dot--pulse,
-.react-flow.is-viewport-busy .vellum-herdr-working-dot,
-.react-flow.is-viewport-busy .vellum-armed-dot {
+.react-flow.is-viewport-busy .vellum-herdr-working-dot {
   animation: none !important;
 }
 .react-flow.is-viewport-busy .react-flow__node:hover .vellum-node {
@@ -1664,8 +1653,7 @@ html[data-surface-motion="paused"] .vellum-node__flag--blocked-live,
 html[data-surface-motion="paused"] .vellum-edge-ripple .react-flow__edge-path,
 html[data-surface-motion="paused"] path.vellum-edge-ripple,
 html[data-surface-motion="paused"] .vellum-dot--pulse,
-html[data-surface-motion="paused"] .vellum-herdr-working-dot,
-html[data-surface-motion="paused"] .vellum-armed-dot {
+html[data-surface-motion="paused"] .vellum-herdr-working-dot {
   animation: none !important;
 }
 

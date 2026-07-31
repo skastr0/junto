@@ -5,9 +5,9 @@
  * editors open in a FocusSurface form (not a sidebar). Reuses pristine
  * InspectorFields editors as-is; this file is glue only.
  *
- * Regions: ops (arm/pulse/hold/slot) live on the command card. This strip is
- * individual field keys — briefing, defaults, paths, background, placement —
- * each opening a small form, not the kitchen-sink inspector modal.
+ * Regions: ops (hold/slot) live on the command card. This strip is individual
+ * field keys — briefing, defaults, paths, background, placement — each opening
+ * a small form, not the kitchen-sink inspector modal.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -24,7 +24,6 @@ import {
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
 import type { AgentIdentity } from "@shared/ipc";
 import { state$ } from "../../lib/state";
-import { kernel$ } from "../../lib/kernel-view";
 import { getAgentAvatar, getAgentIdentity } from "../../lib/agent";
 import { resolveNodeConnections } from "../../../shared/connections";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
@@ -337,8 +336,8 @@ function RegionFieldFocus({
 }) {
   const copy: Record<RegionFormKey, { readonly title: string; readonly status: string; readonly body: ReactNode }> = {
     briefing: {
-      title: "pulse briefing",
-      status: "agents inside receive this on pulse",
+      title: "region briefing",
+      status: "context for agents inside this region",
       body: <RegionBriefingEditor node={node} />,
     },
     defaults: {
@@ -386,12 +385,11 @@ function RegionFieldFocus({
 
 /**
  * Region kind strip — individual field keys instead of one mega inspector.
- * Ops (arm/pulse/hold/slot) are on the left command card.
+ * Ops (hold/slot) are on the left command card.
  */
 function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
   const [form, setForm] = useState<RegionFormKey | null>(null);
   const [pathsOpen, setPathsOpen] = useState(false);
-  const armed = Boolean(use$(kernel$.armed[node.id]));
   const hold = Boolean(node.ether?.region?.hold);
   const instruction = Boolean(node.ether?.region?.instruction?.trim());
   const defaults = node.ether?.region?.defaults;
@@ -418,7 +416,6 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
   };
 
   const glanceBits: string[] = [];
-  if (armed) glanceBits.push("armed");
   if (hold) glanceBits.push("hold");
   if (instruction) glanceBits.push("briefing");
   if (hasDefaults) glanceBits.push("defaults");
@@ -441,8 +438,8 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
       <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
         <span className="rts-kind-strip__label">region</span>
         <KindKey
-          label={form === "briefing" ? "Close briefing" : "Pulse briefing"}
-          title="pulse briefing · text agents receive"
+          label={form === "briefing" ? "Close briefing" : "Region briefing"}
+          title="region briefing · context for agents inside"
           active={form === "briefing" || instruction}
           style={form === "briefing" || instruction ? { color: HUE.amber } : undefined}
           onClick={() => toggleForm("briefing")}

@@ -2,8 +2,8 @@
  * Wire: rising-edge alert queue → SFX + Space/` cycle → focusNodeId.
  *
  * Pure model lives in alert-queue.ts. This module collects live signals from
- * region rollups, chat permissions, herdr done, and kernel
- * orphans; observes the queue; plays playAlert on rise; and cycles focus.
+ * region rollups, chat permissions, and herdr done; observes the queue; plays
+ * playAlert on rise; and cycles focus.
  */
 
 import { useEffect, useRef } from "react";
@@ -23,7 +23,6 @@ import {
 } from "./alert-queue";
 import { chatCoarse$ } from "./chat-state";
 import { herdr$ } from "./herdr-state";
-import { kernel$ } from "./kernel-view";
 import { playAlert } from "./sfx";
 import { state$ } from "./state";
 
@@ -204,7 +203,7 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
           { meta?: { agentStatus?: string } } | undefined
         >,
         snapshots: state$.snapshots.peek(),
-        orphans: (kernel$.orphaned.peek() as ReadonlyArray<string> | undefined) ?? [],
+        orphans: [],
       });
       observeAlertSignals(signals);
     };
@@ -214,7 +213,6 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
     const offs = [
       chatCoarse$.onChange(() => run()),
       herdr$.metaByNodeId.onChange(() => run()),
-      kernel$.orphaned.onChange(() => run()),
       state$.snapshots.onChange(() => run()),
       state$.docVersion.onChange(() => run()),
     ];
@@ -240,7 +238,7 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
         { meta?: { agentStatus?: string } } | undefined
       >,
       snapshots: state$.snapshots.peek(),
-      orphans: (kernel$.orphaned.peek() as ReadonlyArray<string> | undefined) ?? [],
+      orphans: [],
     });
     observeAlertSignals(signals);
   }, [rollups]);

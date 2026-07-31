@@ -1,21 +1,12 @@
 // The kernel is now a headless loop in the MAIN process (src/main/vellum/kernel/)
-// — this module is a pure PROJECTION of it over IPC. This file is the FROZEN
-// interface the UI lane builds against — WatcherRuntimeState, PulseRecord,
-// kernel$, startKernelBridge, armRegion, and pulseRegion below must keep their
-// exact shapes (same contract lib/kernel-state.ts used to serve). Everything
-// else here is this lane's own implementation detail.
-//
-// LAWS (src/shared/canvas.ts): watcher runtime state is derived, never
-// written to the document. ARMING lives only in the running app (main-process
-// typed kernel state repository, kernel-design.md §3), never an export. A disarmed pulse is a
-// DRY pulse — logged, no agent turns.
+// — this module is a pure PROJECTION of it over IPC. Renderer surface for
+// watcher status + execution phase only. Operator arm/pulse UI is retired;
+// main still owns arming + delivery if any residual IPC remains.
 
 import { observable, observe } from "@legendapp/state";
 import type {
-  ArmRegionResult,
   ExecutionSnapshot,
   KernelSnapshot,
-  PulseRecord,
   WatcherRuntimeState,
 } from "@shared/ipc";
 import { getVellumApi } from "./vellum-api";
@@ -23,54 +14,38 @@ import { state$ } from "./state";
 
 // --- frozen interface --------------------------------------------------------
 
-export type { WatcherRuntimeState, PulseRecord, ExecutionSnapshot };
+export type { WatcherRuntimeState, ExecutionSnapshot };
 
-// fault + orphaned are snapshot-GLOBAL (not per-canvas): a persisted-arming
-// load failure, and the armed `canvas::region` keys whose canvas/region no
-// longer exists in any hydrated document. Both are durable-intent surfacing —
-// the kernel refuses to silently disarm, so the renderer must show them.
-//
 // `execution` is the open canvas's live edge phase + blocked closure from the
 // kernel cycle. Canvas toFlow consumes it so criteria edges use the same
-// derived snapshot as pulse context and phase mirroring.
+// derived snapshot as phase mirroring.
+//
+// `fault` is a global durable-intent surface (e.g. persisted-arming load
+// failure). KernelStatus still mounts it; keep projecting until that banner
+// is retired separately.
 export const kernel$ = observable<{
   watchers: Record<string, WatcherRuntimeState>;
-  armed: Record<string, boolean>;
   nextFire: Record<string, number>;
   execution: ExecutionSnapshot | null;
   // Monotonic stamp so React effects can depend on execution changes without
   // deep-comparing the snapshot object.
   executionRev: number;
-  pulseLog: PulseRecord[];
   fault: string;
-  orphaned: string[];
 }>({
   watchers: {},
-  armed: {},
   nextFire: {},
   execution: null,
   executionRev: 0,
-  pulseLog: [],
   fault: "",
-  orphaned: [],
 });
-
-// composePulseMessage does NOT live here: the renderer no longer composes
-// pulse messages at all — delivery moved to main (src/main/vellum/kernel/
-// cycle.ts, which owns and exports it). It was never part of the frozen UI
-// interface (kernel-state.ts's own header comment scoped that to
-// WatcherRuntimeState/PulseRecord/kernel$/startKernel/armRegion/pulseRegion);
-// it was just co-located pure logic for the renderer's own deliverPulse,
-// which no longer exists here.
 
 // --- projection: KernelSnapshot (all canvases) -> kernel$ (open canvas only) --
 
 const EMPTY_CANVAS_ENTRY: {
   readonly watchers: Record<string, WatcherRuntimeState>;
-  readonly armed: Record<string, boolean>;
   readonly nextFire: Record<string, number>;
   readonly execution?: ExecutionSnapshot;
-} = { watchers: {}, armed: {}, nextFire: {} };
+} = { watchers: {}, nextFire: {} };
 
 // The last snapshot pushed/hydrated from main, kept so a canvasName switch
 // can re-project without waiting for the next kernelChanged push.
@@ -90,39 +65,11 @@ const shallowRecordEqual = <T>(
   return true;
 };
 
-const pulseLogEqual = (
-  prev: ReadonlyArray<PulseRecord> | undefined,
-  next: ReadonlyArray<PulseRecord>,
-): boolean => {
-  if (!prev) return next.length === 0;
-  if (prev.length !== next.length) return false;
-  for (let i = 0; i < next.length; i += 1) {
-    if (prev[i] !== next[i] && prev[i]?.id !== next[i]?.id) return false;
-  }
-  // Same length + same ids in order is enough for the tray; content rarely mutates in place.
-  for (let i = 0; i < next.length; i += 1) {
-    if (prev[i]?.id !== next[i]?.id) return false;
-  }
-  return true;
-};
-
-const stringArrayEqual = (
-  prev: ReadonlyArray<string> | undefined,
-  next: ReadonlyArray<string>,
-): boolean => {
-  if (!prev) return next.length === 0;
-  if (prev.length !== next.length) return false;
-  for (let i = 0; i < next.length; i += 1) {
-    if (prev[i] !== next[i]) return false;
-  }
-  return true;
-};
-
 const projectSnapshot = (snapshot: KernelSnapshot, canvasName: string): void => {
   const entry = snapshot.canvases[canvasName] ?? EMPTY_CANVAS_ENTRY;
 
-  // Keep existing leaves for unchanged entries so WatcherCards / PulseTray
-  // do not re-render on every ~3s kernel push with identical data.
+  // Keep existing leaves for unchanged entries so watcher cards do not
+  // re-render on every ~3s kernel push with identical data.
   const prevWatchers = kernel$.watchers.peek() as Record<string, WatcherRuntimeState>;
   if (!shallowRecordEqual(prevWatchers, entry.watchers)) {
     const merged: Record<string, WatcherRuntimeState> = {};
@@ -133,9 +80,6 @@ const projectSnapshot = (snapshot: KernelSnapshot, canvasName: string): void => 
     kernel$.watchers.set(merged);
   }
 
-  if (!shallowRecordEqual(kernel$.armed.peek() as Record<string, boolean>, entry.armed)) {
-    kernel$.armed.set(entry.armed);
-  }
   if (!shallowRecordEqual(kernel$.nextFire.peek() as Record<string, number>, entry.nextFire)) {
     kernel$.nextFire.set(entry.nextFire);
   }
@@ -151,18 +95,8 @@ const projectSnapshot = (snapshot: KernelSnapshot, canvasName: string): void => 
     kernel$.executionRev.set(kernel$.executionRev.peek() + 1);
   }
 
-  const nextPulseLog = snapshot.pulseLog.filter((record) => record.canvasName === canvasName);
-  if (!pulseLogEqual(kernel$.pulseLog.peek() as PulseRecord[] | undefined, nextPulseLog)) {
-    kernel$.pulseLog.set(nextPulseLog);
-  }
-
-  // Global surfaces — independent of the open canvas.
   const nextFault = snapshot.fault ?? "";
   if (kernel$.fault.peek() !== nextFault) kernel$.fault.set(nextFault);
-  const nextOrphans = [...(snapshot.orphanedArming ?? [])];
-  if (!stringArrayEqual(kernel$.orphaned.peek() as string[] | undefined, nextOrphans)) {
-    kernel$.orphaned.set(nextOrphans);
-  }
 };
 
 const shallowWatcherEqual = (a: WatcherRuntimeState, b: WatcherRuntimeState): boolean => {
@@ -176,34 +110,6 @@ const shallowWatcherEqual = (a: WatcherRuntimeState, b: WatcherRuntimeState): bo
   return true;
 };
 
-// --- arming + manual pulse (IPC invokes, closing over the open canvas) -------
-
-// Returns the transactional result so the caller can surface a failed persist
-// inline instead of the old fire-and-forget that discarded the rejection.
-export function armRegion(regionId: string, armed: boolean): Promise<ArmRegionResult> {
-  const api = getVellumApi();
-  const canvasName = state$.canvasName.peek();
-  if (!api || !canvasName) return Promise.resolve({ ok: false, error: "no canvas is open" });
-  return api.armRegion(canvasName, regionId, armed);
-}
-
-// Disarm an orphaned arm-intent, addressed by its full `canvas::region` key —
-// its canvas may not be the open one (it can be a deleted canvas). Disarm stays
-// an explicit operator act; this is that act for an orphan.
-export function disarmOrphan(key: string): Promise<ArmRegionResult> {
-  const api = getVellumApi();
-  const idx = key.indexOf("::");
-  if (!api || idx < 0) return Promise.resolve({ ok: false, error: "malformed key" });
-  return api.armRegion(key.slice(0, idx), key.slice(idx + 2), false);
-}
-
-export async function pulseRegion(regionId: string, opts?: { dry?: boolean; summary?: string }): Promise<void> {
-  const api = getVellumApi();
-  const canvasName = state$.canvasName.peek();
-  if (!api || !canvasName) return;
-  await api.pulseRegion(canvasName, regionId, opts);
-}
-
 // --- bridge lifecycle ----------------------------------------------------------
 
 let started = false;
@@ -215,9 +121,8 @@ const stopKernelBridge = (): void => {
   started = false;
 };
 
-// Idempotent singleton, matching the old startKernel()'s contract: repeated
-// calls (StrictMode remount, a second mounting consumer) return the same
-// stop handle rather than re-subscribing.
+// Idempotent singleton: repeated calls (StrictMode remount, a second mounting
+// consumer) return the same stop handle rather than re-subscribing.
 export function startKernelBridge(): () => void {
   if (started) return stopKernelBridge;
   started = true;
@@ -230,8 +135,7 @@ export function startKernelBridge(): () => void {
     projectSnapshot(snapshot, state$.canvasName.peek());
   });
 
-  // Initial hydrate — don't wait on the first kernelChanged push, which may
-  // be seconds away (cycle end or the 3s pulse-log poll).
+  // Initial hydrate — don't wait on the first kernelChanged push.
   void api.getKernelState().then((snapshot) => {
     latestSnapshot = snapshot;
     projectSnapshot(snapshot, state$.canvasName.peek());
