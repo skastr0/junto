@@ -605,8 +605,8 @@ export const makeStationWorkAdmission = (
         command.body.operation === "board.topic.create" ||
         command.body.operation === "board.post.append"
       ) {
-        // Multi-reader bulletin is CC-homed; Remote agents enqueue actor-authored
-        // writes. Operator megaphone stays CC-local (IPC denyRemote).
+        // Board is a CC-homed global sink (mailbox residency). Remote agents
+        // enqueue actor-authored writes; operator authoring stays CC-local.
         // Ports stay distinct: create_topic vs post (attenuation must hold).
         const author = command.body.createdBy;
         if (
@@ -745,10 +745,9 @@ export const makeStationWorkAdmission = (
             "msg.send",
           );
       }
-      // Board multi-reader material state is CC-homed. Remotes only accept
-      // command-correlated board facts (self-echo of their own enqueues).
-      // Full fleet board read is Command Center-local; CC does not broadcast
-      // its (CC,CC) fact lane (selectStationReportRoutes.facts is unset).
+      // Remote accepts only command-correlated facts from CC (applied
+      // disposition path). CC-homed board/mailbox material rows are not
+      // rematerialized on Remote — see WorkRepository acceptRecords.
       return fact.basis.kind === "command"
         ? admitted()
         : rejected(

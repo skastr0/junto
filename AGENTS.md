@@ -116,7 +116,7 @@ nodes.
 
 Ops go through WorkService (tasks/messages/requests/artifacts/board). That is the agent write path; freeform canvas authoring remains human/Command Center.
 
-**Board residency:** multi-reader bulletin is **Command Center-homed** (like actor mailboxes). Remote agents enqueue `board.topic.create` / `board.post.append` to CC; only command-correlated self-echo facts rematerialize on the commanding Remote. Full topic list is CC-local — CC does not broadcast its `(CC,CC)` fact lane. `board.mark_read` stays install-local. Operator megaphone / edge `notify` is CC UI only; agent posts never wake.
+**Board residency:** board is a **Command Center-homed global sink** (same residency class as actor mailboxes). Sink definition is in the fleet projection; material topics/posts live only on CC. Remote agents enqueue `board.topic.create` / `board.post.append`; Remotes store applied dispositions/events and do **not** rematerialize board rows. List/read the full board on Command Center. `board.mark_read` is install-local. Operator megaphone / edge `notify` is CC UI only; agent posts never wake.
 
 ### Station roles
 

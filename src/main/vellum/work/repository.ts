@@ -5457,7 +5457,7 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
     readonly acceptDelivery: (
       input: AcceptDeliveryInput,
     ) => Effect.Effect<LocalFactResult<DeliveryReceipt>, RepositoryFailure>;
-    /** CC-homed bulletin board mutations (work_events facts for fleet report). */
+    /** Command Center-homed board mutations (global sink; work_events facts). */
     readonly createBoardTopic: (
       input: CreateBoardTopicInput,
     ) => Effect.Effect<LocalFactResult<BoardTopicValue>, RepositoryFailure>;
@@ -7032,9 +7032,18 @@ export const WorkRepositoryLive = Layer.effect(
                   }
                 }
               } else if (record.recordType === "fact") {
+                // Command Center-homed residencies (mailbox messages; board
+                // topics/posts) materialize only on CC. A Remote keeps
+                // correlated command/disposition state and must not grow a
+                // second material replica — same law as vellum-protocol
+                // mailbox residency.
                 const materializesHere = !(
                   localAuthority.role === "remote" &&
-                  record.body.operation === "message.append"
+                  (
+                    record.body.operation === "message.append" ||
+                    record.body.operation === "board.topic.create" ||
+                    record.body.operation === "board.post.append"
+                  )
                 );
                 if (materializesHere) {
                   materializeFact(writer, record, observedAt);

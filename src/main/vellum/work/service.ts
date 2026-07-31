@@ -1591,8 +1591,8 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      // Full multi-reader board is CC-local materialization. On Remote this
-      // returns only locally materialised rows (self-echo of applied enqueues).
+      // Board material rows are Command Center-homed (global sink). List reads
+      // local SQLite only — same as mailbox projection: full board on CC.
       workBoardList: (canvas, nodeId, topicId) =>
         asResult(
           Effect.gen(function* () {

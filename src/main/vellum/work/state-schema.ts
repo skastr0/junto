@@ -1664,10 +1664,10 @@ export const WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL = `
 `;
 
 /**
- * Bulletin board sink (expand-only). CC multi-reader tables — not mailbox.
- * Writes mint work_events (`board.topic.create` / `board.post.append`); Remotes
- * enqueue to CC and materialize only command-correlated self-echo. Full list
- * is Command Center-local (CC does not broadcast its (CC,CC) fact lane).
+ * Bulletin board sink (expand-only). Command Center-homed global sink —
+ * mailbox residency: material rows only on CC; Remotes enqueue
+ * board.topic.create / board.post.append and keep event/disposition only
+ * (no second material replica).
  */
 export const WORK_BOARD_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS work_board_topics (

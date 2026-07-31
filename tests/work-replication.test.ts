@@ -1948,4 +1948,88 @@ describe("WorkRepository v2 report reconciliation", () => {
       ))[0],
     ).toMatchObject({ resolution: { status: "applied" } });
   });
+
+  it("keeps board material on Command Center only (mailbox residency)", async () => {
+    const cc = installation("cc-board-home");
+    const remote = installation("remote-board-home");
+    const commandCenter = await openInstallation(
+      cc,
+      [remote],
+      "command-center",
+    );
+    const station = await openInstallation(remote, [cc], "remote");
+    const sink = { canvasName: "factory", nodeId: "board" };
+    const createdBy = {
+      kind: "actor" as const,
+      seatId: actor("b", "remote-board-agent").seatId,
+      nodeId: "remote-board-agent",
+      label: "remote-board-agent",
+    };
+    const topic = {
+      topicId: "fleet-topic-1",
+      title: "CC-homed board",
+      state: "open" as const,
+      openedBy: createdBy,
+      openedAt: observedAt,
+      postCount: 0,
+      lastActivityAt: observedAt,
+    };
+    const command = await station.runtime.runPromise(
+      station.repository.enqueueRemoteCommand({
+        targetInstallationId: cc,
+        sink,
+        item: { kind: "topic", itemId: topic.topicId, sink },
+        action: {
+          operation: "board.topic.create",
+          topic,
+          createdBy,
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const accepted = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [command]),
+    );
+    expect(accepted.emitted.length).toBeGreaterThanOrEqual(2);
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(sink.canvasName, sink.nodeId),
+        )
+      ).board.topics.map((t) => t.topicId),
+    ).toContain(topic.topicId);
+
+    const returned = await station.runtime.runPromise(
+      accept(station.repository, cc, accepted.emitted),
+    );
+    expect(returned.accepted).toBeGreaterThan(0);
+    expect(
+      (
+        await station.runtime.runPromise(
+          station.repository.readSnapshot(sink.canvasName, sink.nodeId),
+        )
+      ).board.topics,
+    ).toEqual([]);
+    expect(
+      await station.runtime.runPromise(
+        station.state.read("test.board-remote-no-material", (reader) =>
+          reader.get<{ readonly count: number }>(
+            `
+              SELECT count(*) AS count
+              FROM work_board_topics
+              WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+            `,
+            [sink.canvasName, sink.nodeId, topic.topicId],
+          )!.count,
+        ),
+      ),
+    ).toBe(0);
+    expect(
+      (await station.runtime.runPromise(station.repository.pendingCommands))[0],
+    ).toMatchObject({ resolution: { status: "applied" } });
+
+    await commandCenter.runtime.dispose();
+    await station.runtime.dispose();
+  });
 });
