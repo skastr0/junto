@@ -86,9 +86,9 @@ STAGE="$ROOT/staging/$VERSION-$SHA-$$"
 ARCHIVE="$STAGE/runtime.tar.gz"
 mkdir "$STAGE" || fail stage
 chmod 700 "$STAGE"
-/usr/bin/head -c "$BYTES" > "$ARCHIVE" || { rm -rf -- "$STAGE"; fail stream; }
-[ "$(/usr/bin/stat -c '%s' "$ARCHIVE")" = "$BYTES" ] || { rm -rf -- "$STAGE"; fail size; }
-[ "$(/usr/bin/sha256sum "$ARCHIVE" | /usr/bin/awk '{print $1}')" = "$SHA" ] || { rm -rf -- "$STAGE"; fail hash; }
+/usr/bin/head -c "$BYTES" > "$ARCHIVE" || fail stream
+[ "$(/usr/bin/stat -c '%s' "$ARCHIVE")" = "$BYTES" ] || fail size
+[ "$(/usr/bin/sha256sum "$ARCHIVE" | /usr/bin/awk '{print $1}')" = "$SHA" ] || fail hash
 /usr/bin/tar -tvzf "$ARCHIVE" | /usr/bin/awk '
   BEGIN { ok=1; root=""; remote=0; launch=0 }
   {
@@ -99,19 +99,19 @@ chmod 700 "$STAGE"
     if ($NF ~ /\/resources\/systemd\/vellum-remote-launch$/ && $1 ~ /^-/) launch=1
   }
   END { exit (ok && remote && launch) ? 0 : 1 }
-' || { rm -rf -- "$STAGE"; fail members; }
-/usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions || { rm -rf -- "$STAGE"; fail extract; }
+' || fail members
+/usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions || fail extract
 RELEASE="$STAGE/vellum-runtime-$VERSION-linux-x64"
 CANDIDATE_REMOTE="$RELEASE/resources/bin/vellum-remote"
-[ -d "$RELEASE" ] && [ ! -L "$RELEASE" ] && [ -x "$CANDIDATE_REMOTE" ] && [ ! -L "$CANDIDATE_REMOTE" ] || { rm -rf -- "$STAGE"; fail candidate; }
-[ -x "$RELEASE/resources/systemd/vellum-remote-launch" ] && [ ! -L "$RELEASE/resources/systemd/vellum-remote-launch" ] || { rm -rf -- "$STAGE"; fail candidate; }
-"$CANDIDATE_REMOTE" --vellum-state-preflight >/dev/null 2>&1 || { rm -rf -- "$STAGE"; fail preflight; }
+[ -d "$RELEASE" ] && [ ! -L "$RELEASE" ] && [ -x "$CANDIDATE_REMOTE" ] && [ ! -L "$CANDIDATE_REMOTE" ] || fail candidate
+[ -x "$RELEASE/resources/systemd/vellum-remote-launch" ] && [ ! -L "$RELEASE/resources/systemd/vellum-remote-launch" ] || fail candidate
+"$CANDIDATE_REMOTE" --vellum-state-preflight >/dev/null 2>&1 || fail preflight
 if [ -e "$DEST" ] || [ -L "$DEST" ]; then
-  rm -rf -- "$STAGE"
   fail install
 fi
-mv "$RELEASE" "$DEST" || { rm -rf -- "$STAGE"; fail install; }
-rm -rf -- "$STAGE"
+mv "$RELEASE" "$DEST" || fail install
+/bin/rm -f -- "$ARCHIVE" || fail cleanup
+/bin/rmdir -- "$STAGE" || fail cleanup
 [ -x "$REMOTE_BIN" ] && [ ! -L "$REMOTE_BIN" ] || fail candidate
 "$REMOTE_BIN" --install-user-service >/dev/null 2>&1 || fail service
 unit_pins_generation || fail service
