@@ -79,20 +79,21 @@
 
 .node-deck__pane-label { display: flex; flex: none; align-items: baseline; padding: 0 2px 8px; color: var(--color-faint); font-size: 9px; font-weight: 650; letter-spacing: .13em; text-transform: uppercase; }
 
+/*
+ * Agent list absorbs leftover column height so free space sits in the scroll
+ * region — never as empty well under the host / path launch controls.
+ */
 .node-deck__agent-list {
+  display: grid;
+  flex: 1 1 0;
+  align-content: start;
+  gap: 3px;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  padding: 2px;
   scrollbar-color: rgb(237 230 218 / 0.2) transparent;
   scrollbar-width: thin;
-}
-
-.node-deck__agent-list {
-  display: grid;
-  flex: 0 1 auto;
-  align-content: start;
-  gap: 3px;
-  padding: 2px;
 }
 
 .node-deck__launch-slot {
