@@ -31,12 +31,28 @@ export interface LinuxAdministratorCredential {
   readonly [LinuxAdministratorCredentialTypeId]: typeof LinuxAdministratorCredentialTypeId;
 }
 
+/**
+ * One-use, main-process-only authority to resume unit activation after the
+ * exact first-install package has been configured. It never contains a
+ * password and cannot authorize another package transaction.
+ */
+declare const LinuxFirstInstallActivationContinuationTypeId: unique symbol;
+
+export interface LinuxFirstInstallActivationContinuation {
+  readonly [LinuxFirstInstallActivationContinuationTypeId]: typeof LinuxFirstInstallActivationContinuationTypeId;
+}
+
 interface CredentialState {
   readonly binding: LinuxAdministratorCredentialBinding;
   readonly passwordLine: Buffer;
 }
 
 const credentials = new WeakMap<LinuxAdministratorCredential, CredentialState>();
+
+const activationContinuations = new WeakMap<
+  LinuxFirstInstallActivationContinuation,
+  LinuxAdministratorCredentialBinding
+>();
 
 const validBinding = (binding: LinuxAdministratorCredentialBinding): boolean =>
   HOST_ID.test(binding.hostId) &&
@@ -127,6 +143,52 @@ export const linuxAdministratorCredentialMatches = (
     state !== undefined &&
     validBinding(binding) &&
     bindingsEqual(state.binding, binding)
+  );
+};
+
+/**
+ * Minted only after first install has proved the exact package is present.
+ * This is deliberately distinct from the administrator credential: it can
+ * resume unprivileged unit activation once, but cannot expose or replay sudo.
+ */
+export const mintLinuxFirstInstallActivationContinuation = (
+  binding: LinuxAdministratorCredentialBinding,
+): LinuxFirstInstallActivationContinuation => {
+  if (!validBinding(binding)) {
+    throw new Error("Linux first-install activation binding is invalid");
+  }
+  const continuation = Object.freeze({}) as LinuxFirstInstallActivationContinuation;
+  activationContinuations.set(continuation, Object.freeze({ ...binding }));
+  return continuation;
+};
+
+export const linuxFirstInstallActivationContinuationMatches = (
+  continuation: LinuxFirstInstallActivationContinuation | undefined,
+  binding: LinuxAdministratorCredentialBinding,
+): boolean => {
+  const stored =
+    continuation === undefined ? undefined : activationContinuations.get(continuation);
+  return (
+    stored !== undefined &&
+    validBinding(binding) &&
+    bindingsEqual(stored, binding)
+  );
+};
+
+/**
+ * Consume the continuation immediately before activation. A mismatched token
+ * is destroyed, so an attempted cross-target use cannot be retried.
+ */
+export const takeLinuxFirstInstallActivationContinuation = (
+  continuation: LinuxFirstInstallActivationContinuation,
+  binding: LinuxAdministratorCredentialBinding,
+): boolean => {
+  const stored = activationContinuations.get(continuation);
+  activationContinuations.delete(continuation);
+  return (
+    stored !== undefined &&
+    validBinding(binding) &&
+    bindingsEqual(stored, binding)
   );
 };
 

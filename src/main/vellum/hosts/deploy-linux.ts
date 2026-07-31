@@ -70,11 +70,16 @@ import {
   type ProductionLinuxDeployBundleAdmission,
 } from "./linux-release-admission";
 import {
+  linuxFirstInstallActivationContinuationMatches,
   linuxAdministratorCredentialMatches,
+  mintLinuxFirstInstallActivationContinuation,
+  takeLinuxFirstInstallActivationContinuation,
   takeLinuxAdministratorPasswordLine,
   type LinuxAdministratorCredentialBinding,
+  type LinuxFirstInstallActivationContinuation,
 } from "./linux-administrator-credential";
 import {
+  attachLinuxFirstInstallActivationContinuation,
   type DeployRemoteResult,
   type RemoteDeploymentProvider,
   type RemoteDeploymentProviderInput,
@@ -710,6 +715,7 @@ const activateInstalledPackage = (
   version: string,
   /** Pre-activate linger: after first activation linger is on → longer ready wait. */
   lingerAlreadyEnabled: boolean,
+  continuation?: LinuxFirstInstallActivationContinuation,
 ): Effect.Effect<DeployRemoteResult, never> =>
   Effect.gen(function* () {
     appendStage(stages, `package ${version} already on host — unit activation path`);
@@ -767,7 +773,7 @@ const activateInstalledPackage = (
         ? "readiness poll timed out after prior activation"
         : "unit up — work control not ready yet (outer path will configure then retry)",
     );
-    return deployFailure(
+    const result = deployFailure(
       input,
       stages,
       lingerAlreadyEnabled
@@ -788,6 +794,9 @@ const activateInstalledPackage = (
           : {}),
       },
     );
+    return continuation === undefined || result.disposition !== "configuration-required"
+      ? result
+      : attachLinuxFirstInstallActivationContinuation(result, continuation);
   });
 
 class LinuxDeploymentProtocolError extends Error {
@@ -2090,12 +2099,31 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             "linux-administrator-password"
             ? providerInput.authorization.credential
             : undefined;
+        const activationContinuation =
+          providerInput.authorization?.kind === "linux-first-install-activation"
+            ? providerInput.authorization.continuation
+            : undefined;
         const passwordlessSudo = preflight.passwordlessSudo;
         const hasPassword = linuxAdministratorCredentialMatches(
           credential,
           attempt.binding,
         );
-        if (!passwordlessSudo && !hasPassword) {
+        const hasActivationContinuation =
+          linuxFirstInstallActivationContinuationMatches(
+            activationContinuation,
+            attempt.binding,
+          );
+        if (
+          activationContinuation !== undefined &&
+          !hasActivationContinuation
+        ) {
+          // A cross-target or stale continuation is never retryable.
+          takeLinuxFirstInstallActivationContinuation(
+            activationContinuation,
+            attempt.binding,
+          );
+        }
+        if (!passwordlessSudo && !hasPassword && !hasActivationContinuation) {
           const authorizationRequest = {
             kind: "linux-administrator-password" as const,
             ...attempt.binding,
@@ -2118,6 +2146,18 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             authorizationRequest,
           };
         }
+        if (firstInstallHost && hasActivationContinuation) {
+          return deployFailure(
+            providerInput,
+            stages,
+            "a first-install activation continuation cannot authorize package bootstrap",
+            {
+              code: "validation",
+              disposition: "not-started",
+              version: admission.version,
+            },
+          );
+        }
         appendStage(
           stages,
           firstInstallHost
@@ -2127,10 +2167,10 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
 
         // Prefer passwordless (Box). Else take the one-shot password.
         // First-install may zero its copy; adopt keeps a retained copy.
-        let passwordLine: Buffer;
+        let passwordLine: Buffer | undefined;
         if (passwordlessSudo) {
           passwordLine = Buffer.from(PASSWORDLESS_SUDO_LINE);
-        } else {
+        } else if (hasPassword) {
           const passwordTaken = yield* protocolStep(() =>
             takeLinuxAdministratorPasswordLine(
               credential!,
@@ -2151,9 +2191,12 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           }
           passwordLine = passwordTaken.right;
         }
-        const adoptPasswordLine = firstInstallHost
-          ? Buffer.from(passwordLine)
-          : passwordLine;
+        const adoptPasswordLine =
+          passwordLine === undefined
+            ? undefined
+            : firstInstallHost
+              ? Buffer.from(passwordLine)
+              : passwordLine;
 
         const proveBootstrapCut = async (): Promise<
           LinuxRemoteBootstrapCutReceipt | null
@@ -2290,13 +2333,25 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
 
         let adoptPreflight = preflight;
         if (firstInstallHost) {
+          if (passwordLine === undefined) {
+            return deployFailure(
+              providerInput,
+              stages,
+              "first-install package bootstrap requires fresh administrator authorization",
+              {
+                code: "auth_required",
+                disposition: "not-started",
+                version: admission.version,
+              },
+            );
+          }
           const firstInstall = yield* runFirstInstallSession(
             providerInput,
             admission,
             passwordLine,
           ).pipe(Effect.either);
           if (firstInstall._tag === "Left") {
-            adoptPasswordLine.fill(0);
+            adoptPasswordLine?.fill(0);
             appendStage(
               stages,
               `first-install session error: ${
@@ -2314,7 +2369,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           }
           const firstOutcome = firstInstall.right;
           if (firstOutcome.kind === "authorization-failed") {
-            adoptPasswordLine.fill(0);
+            adoptPasswordLine?.fill(0);
             return deployFailure(
               providerInput,
               stages,
@@ -2327,7 +2382,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             );
           }
           if (firstOutcome.kind === "refused") {
-            adoptPasswordLine.fill(0);
+            adoptPasswordLine?.fill(0);
             return deployFailure(
               providerInput,
               stages,
@@ -2345,7 +2400,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             );
           }
           if (firstOutcome.kind === "failed") {
-            adoptPasswordLine.fill(0);
+            adoptPasswordLine?.fill(0);
             // Mutation may have started (apt); treat as indeterminate.
             return deployFailure(
               providerInput,
@@ -2377,7 +2432,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             !hasLinuxReleaseCustody(postInstall.right) ||
             postInstall.right.installedVersion !== admission.version
           ) {
-            adoptPasswordLine.fill(0);
+            adoptPasswordLine?.fill(0);
             return deployFailure(
               providerInput,
               stages,
@@ -2401,7 +2456,25 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           adoptPreflight.installedVersion === admission.version &&
           hasLinuxReleaseCustody(adoptPreflight);
         if (packageExact) {
-          adoptPasswordLine.fill(0);
+          adoptPasswordLine?.fill(0);
+          if (
+            activationContinuation !== undefined &&
+            !takeLinuxFirstInstallActivationContinuation(
+              activationContinuation,
+              attempt.binding,
+            )
+          ) {
+            return deployFailure(
+              providerInput,
+              stages,
+              "first-install activation continuation no longer matches the admitted package",
+              {
+                code: "validation",
+                disposition: "not-started",
+                version: admission.version,
+              },
+            );
+          }
           if (adoptPreflight.currentReady) {
             appendStage(
               stages,
@@ -2421,6 +2494,23 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
             stages,
             admission.version,
             adoptPreflight.lingerEnabled,
+            firstInstallHost
+              ? mintLinuxFirstInstallActivationContinuation(attempt.binding)
+              : undefined,
+          );
+        }
+
+        if (activationContinuation !== undefined) {
+          return deployFailure(
+            providerInput,
+            stages,
+            "first-install activation continuation cannot authorize package mutation",
+            {
+              code: "conflict",
+              disposition: "indeterminate",
+              version: admission.version,
+              recoveryAction: { kind: "repair-linux-release-transaction" },
+            },
           );
         }
 
@@ -2439,7 +2529,7 @@ export const makeLinuxRemoteDeploymentProvider = (input: {
           adoptPasswordLine,
         ).pipe(Effect.either);
         if (installed._tag === "Left") {
-          adoptPasswordLine.fill(0);
+          adoptPasswordLine?.fill(0);
           appendStage(
             stages,
             `adopt/release session error: ${

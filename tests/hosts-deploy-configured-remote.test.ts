@@ -9,6 +9,13 @@ import {
   deployConfiguredRemoteHost,
   type ConfiguredRemoteDeployOperations,
 } from "../src/main/vellum/hosts/deploy-configured-remote";
+import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
+import {
+  mintLinuxFirstInstallActivationContinuation,
+} from "../src/main/vellum/hosts/linux-administrator-credential";
+import {
+  attachLinuxFirstInstallActivationContinuation,
+} from "../src/main/vellum/hosts/remote-deployment";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const commandCenterInstallationId = installationId("cc-installation");
@@ -39,6 +46,16 @@ const target = {
   platform: { platform: "darwin", kernelName: "Darwin" },
   progress: ["target admitted"],
 } as const;
+
+const activationContinuation = () =>
+  mintLinuxFirstInstallActivationContinuation({
+    hostId: host.id,
+    endpoint: Effect.runSync(parseSshEndpoint("studio-box")),
+    version: "0.1.2",
+    manifestSha256: "a".repeat(64),
+    debSha256: "b".repeat(64),
+    inventorySha256: "c".repeat(64),
+  });
 
 const successfulConfiguration = {
   ok: true,
@@ -210,21 +227,22 @@ describe("configured Remote deploy", () => {
     const sequence: string[] = [];
     let packageCalls = 0;
     const deployPrepared = vi.fn(
-      (_ssh, _target, _stationConfiguration, _authorization, artifactSource) =>
+      (_ssh, _target, _stationConfiguration, authorization, artifactSource) =>
         Effect.sync(() => {
           expect(artifactSource).toBe("verified-cache");
           packageCalls += 1;
           sequence.push(`package-${packageCalls}`);
           if (packageCalls === 1) {
-            return {
+            return attachLinuxFirstInstallActivationContinuation({
               ok: false,
               detail: "Station configuration is required next",
               code: "conflict" as const,
               stages: ["opaque operator progress that carries no control state"],
               disposition: "configuration-required" as const,
               version: "0.1.2",
-            };
+            }, activationContinuation());
           }
+          expect(authorization?.kind).toBe("linux-first-install-activation");
           return {
             ok: true,
             detail: "package ready after configuration",
@@ -312,6 +330,43 @@ describe("configured Remote deploy", () => {
       packageState: "unknown",
       role: "previous",
     });
+    expect(configure).not.toHaveBeenCalled();
+    expect(deployPrepared).toHaveBeenCalledTimes(1);
+  });
+
+  it("never configures or retries an unsealed configuration-required result", async () => {
+    const configure = vi.fn(() =>
+      Effect.die("configure must not run"),
+    );
+    const deployPrepared = vi.fn(() =>
+      Effect.succeed({
+        ok: false,
+        detail: "Station configuration is required next",
+        code: "conflict" as const,
+        stages: ["operator-readable but untrusted"],
+        disposition: "configuration-required" as const,
+        version: "0.1.2",
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      deployConfiguredRemoteHost(
+        unusedSsh,
+        host,
+        options,
+        operations({ deployPrepared, configure }),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      outcome: "indeterminate",
+      packageState: "unknown",
+      role: "previous",
+    });
+    expect(result.stages).toContain(
+      "first-install activation continuation was not retained",
+    );
     expect(configure).not.toHaveBeenCalled();
     expect(deployPrepared).toHaveBeenCalledTimes(1);
   });

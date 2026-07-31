@@ -44,6 +44,7 @@ import type {
   RemoteDeploymentProvider,
   RemoteDeploymentProviderInput,
 } from "../src/main/vellum/hosts/remote-deployment";
+import { takeLinuxFirstInstallActivationContinuation as takeRemoteDeploymentActivationContinuation } from "../src/main/vellum/hosts/remote-deployment";
 import {
   SshExitError,
   SshIoError,
@@ -880,6 +881,54 @@ const makeActivationSsh = (input: {
   };
 };
 
+const makeCleanFirstInstallActivationSsh = (): {
+  readonly ssh: RemoteDeploymentProviderInput["ssh"];
+  readonly run: ReturnType<typeof vi.fn>;
+  readonly transact: ReturnType<typeof vi.fn>;
+  readonly sensitiveWrites: ReadonlyArray<Buffer>;
+} => {
+  let invocation = 0;
+  const sensitiveWrites: Buffer[] = [];
+  const run = vi.fn(() => {
+    invocation += 1;
+    return Effect.succeed({
+      stdout:
+        invocation === 1
+          ? preflight({ helper: 0, bridge: 0, installerState: 0, linger: 0 })
+          : invocation === 2
+            ? preflight({ current: "1.2.3", linger: 0, unit: "present" })
+            : invocation === 3
+              ? "LINUX_REMOTE_UNIT_ACTIVATE_V1 ok=1 active=active\n"
+              : preflight({ current: "1.2.3", linger: 0, unit: "present" }),
+      stderr: "",
+    });
+  });
+  const lease: SshLease = {
+    write: () => Effect.void,
+    writeSensitive: (input) =>
+      Effect.sync(() => {
+        sensitiveWrites.push(Buffer.from(input));
+      }),
+    closeInput: Effect.void,
+    stdout: Stream.fromIterable([
+      Buffer.from(
+        `LINUX_FIRST_INSTALL_ARMED_V1 version=1.2.3 debSha256=${debSha256} debBytes=${deb.byteLength}\nLINUX_FIRST_INSTALL_OK_V1 version=1.2.3\n`,
+        "utf8",
+      ),
+    ]),
+    stderr: Stream.empty,
+    exitCode: Effect.succeed(0),
+    close: Effect.void,
+  };
+  const transact = vi.fn((_program, use) => use(lease));
+  return {
+    ssh: { run, transact } as unknown as RemoteDeploymentProviderInput["ssh"],
+    run,
+    transact,
+    sensitiveWrites,
+  };
+};
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -1230,6 +1279,67 @@ describe("Linux Remote privileged deployment", () => {
     );
     expect(activation.run.mock.calls.length).toBeGreaterThan(2);
     expect(route.release).toHaveBeenCalledOnce();
+  });
+
+  it("resumes clean first-install activation without replaying the administrator credential", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-31T00:00:00Z"));
+    const first = makeCleanFirstInstallActivationSsh();
+    const route = heldRouteCut();
+    const provider = makeProvider(route.authority);
+
+    const initialPending = Effect.runPromise(
+      provider.deploy(providerInput(first.ssh, credential())),
+    );
+    await vi.runAllTimersAsync();
+    const initial = await initialPending;
+
+    expect(initial).toMatchObject({
+      ok: false,
+      disposition: "configuration-required",
+      version: "1.2.3",
+    });
+    expect(first.transact).toHaveBeenCalledOnce();
+    expect(first.sensitiveWrites).toHaveLength(1);
+    const activationAuthorization =
+      takeRemoteDeploymentActivationContinuation(initial);
+    expect(activationAuthorization?.kind).toBe("linux-first-install-activation");
+    if (activationAuthorization === undefined) {
+      throw new Error("first-install activation continuation was not retained");
+    }
+
+    const retry = makeActivationSsh({
+      initial: preflight({ current: "1.2.3", linger: 1, unit: "present" }),
+      probe: preflight({
+        current: "1.2.3",
+        linger: 1,
+        ready: 1,
+        unit: "present",
+      }),
+    });
+    const resumed = await Effect.runPromise(
+      provider.deploy({
+        ...providerInput(retry.ssh),
+        authorization: activationAuthorization,
+      }),
+    );
+
+    expect(resumed).toMatchObject({ ok: true, disposition: "ready" });
+    expect(retry.run).toHaveBeenCalledTimes(3);
+    expect(first.transact).toHaveBeenCalledOnce();
+    expect(first.sensitiveWrites).toHaveLength(1);
+
+    const reused = await Effect.runPromise(
+      provider.deploy({
+        ...providerInput(retry.ssh),
+        authorization: activationAuthorization,
+      }),
+    );
+    expect(reused).toMatchObject({
+      ok: false,
+      code: "auth_required",
+      disposition: "not-started",
+    });
   });
 
   it("keeps prior-activation readiness timeout indeterminate", async () => {

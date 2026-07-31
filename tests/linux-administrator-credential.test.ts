@@ -3,8 +3,11 @@ import { Effect } from "effect";
 import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
 import {
   destroyLinuxAdministratorCredential,
+  linuxFirstInstallActivationContinuationMatches,
   linuxAdministratorCredentialMatches,
+  mintLinuxFirstInstallActivationContinuation,
   mintLinuxAdministratorCredential,
+  takeLinuxFirstInstallActivationContinuation,
   takeLinuxAdministratorPasswordLine,
   type LinuxAdministratorCredentialBinding,
 } from "../src/main/vellum/hosts/linux-administrator-credential";
@@ -94,5 +97,43 @@ describe("Linux administrator credential", () => {
     const unused = mintLinuxAdministratorCredential("also-secret", expected);
     destroyLinuxAdministratorCredential(unused);
     expect(linuxAdministratorCredentialMatches(unused, expected)).toBe(false);
+  });
+
+  it("binds first-install activation continuation exactly and consumes it once", async () => {
+    const expected = await binding();
+    const continuation = mintLinuxFirstInstallActivationContinuation(expected);
+
+    expect(Object.keys(continuation)).toEqual([]);
+    expect(JSON.stringify(continuation)).toBe("{}");
+    expect(
+      linuxFirstInstallActivationContinuationMatches(continuation, expected),
+    ).toBe(true);
+    expect(
+      linuxFirstInstallActivationContinuationMatches(
+        continuation,
+        await binding({ debSha256: "d".repeat(64) }),
+      ),
+    ).toBe(false);
+    expect(
+      takeLinuxFirstInstallActivationContinuation(continuation, expected),
+    ).toBe(true);
+    expect(
+      linuxFirstInstallActivationContinuationMatches(continuation, expected),
+    ).toBe(false);
+  });
+
+  it("destroys a first-install continuation after a mismatched use", async () => {
+    const expected = await binding();
+    const continuation = mintLinuxFirstInstallActivationContinuation(expected);
+
+    expect(
+      takeLinuxFirstInstallActivationContinuation(
+        continuation,
+        await binding({ inventorySha256: "d".repeat(64) }),
+      ),
+    ).toBe(false);
+    expect(
+      takeLinuxFirstInstallActivationContinuation(continuation, expected),
+    ).toBe(false);
   });
 });

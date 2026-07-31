@@ -7,7 +7,10 @@ import type {
 import type { RemoteHost } from "@shared/remote-hosts";
 import type { SshEndpoint, SshTarget } from "../ssh";
 import type { SshTransport } from "../ssh";
-import type { LinuxAdministratorCredential } from "./linux-administrator-credential";
+import type {
+  LinuxAdministratorCredential,
+  LinuxFirstInstallActivationContinuation,
+} from "./linux-administrator-credential";
 import type { LinuxReleaseCacheSource } from "./linux-release-feed";
 
 export type RemoteDeploymentProgress = readonly string[];
@@ -98,9 +101,45 @@ export type RemoteDeploymentPreparation =
  * The renderer can serialize an authorization request and password, never this
  * opaque capability.
  */
-export type RemoteDeploymentAuthorization = {
-  readonly kind: "linux-administrator-password";
-  readonly credential: LinuxAdministratorCredential;
+export type RemoteDeploymentAuthorization =
+  | {
+      readonly kind: "linux-administrator-password";
+      readonly credential: LinuxAdministratorCredential;
+    }
+  | {
+      /** Main-process-only hand-off after exact first-install package custody. */
+      readonly kind: "linux-first-install-activation";
+      readonly continuation: LinuxFirstInstallActivationContinuation;
+    };
+
+const activationContinuations = new WeakMap<
+  DeployRemoteResult,
+  LinuxFirstInstallActivationContinuation
+>();
+
+/**
+ * Keep the continuation off every serialized result surface. Object identity
+ * confines it to the one in-process configured-deploy flow.
+ */
+export const attachLinuxFirstInstallActivationContinuation = (
+  result: DeployRemoteResult,
+  continuation: LinuxFirstInstallActivationContinuation,
+): DeployRemoteResult => {
+  activationContinuations.set(result, continuation);
+  return result;
+};
+
+export const takeLinuxFirstInstallActivationContinuation = (
+  result: DeployRemoteResult,
+): RemoteDeploymentAuthorization | undefined => {
+  const continuation = activationContinuations.get(result);
+  activationContinuations.delete(result);
+  return continuation === undefined
+    ? undefined
+    : Object.freeze({
+        kind: "linux-first-install-activation" as const,
+        continuation,
+      });
 };
 
 export type RemoteDeploymentProviderInput = {
