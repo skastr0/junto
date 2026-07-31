@@ -198,7 +198,14 @@ export const TasksUpdateArgs = Schema.Struct({
   state: TaskState,
   note: Schema.optionalWith(Schema.String, { exact: true }),
   completionEvidence: Schema.optionalWith(CompletionEvidence, { exact: true }),
-}).annotations({
+}).pipe(
+  Schema.filter(
+    ({ state, completionEvidence }) =>
+      completionEvidence === undefined ||
+      state === "completed" ||
+      "completionEvidence is only allowed when state is completed",
+  ),
+).annotations({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksUpdateArgs = typeof TasksUpdateArgs.Type;

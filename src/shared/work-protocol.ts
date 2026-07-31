@@ -240,7 +240,14 @@ export const TaskTransitionAction = Schema.Struct({
   message: Schema.optionalWith(Message, { exact: true }),
   /** Set on → completed when finish criteria require proof. */
   completionEvidence: Schema.optionalWith(CompletionEvidence, { exact: true }),
-});
+}).pipe(
+  Schema.filter(
+    ({ state, completionEvidence }) =>
+      completionEvidence === undefined ||
+      state === "completed" ||
+      "completionEvidence is only allowed when state is completed",
+  ),
+);
 export type TaskTransitionAction = typeof TaskTransitionAction.Type;
 
 /**

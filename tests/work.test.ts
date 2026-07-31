@@ -426,6 +426,57 @@ describe("work pure transforms", () => {
     );
   });
 
+  it("finish criteria gate blocks complete without evidence; skip when off-home", () => {
+    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    const created = workTaskCreate(
+      doc,
+      "c",
+      "tasks",
+      "gated",
+      undefined,
+      ids,
+      undefined,
+      undefined,
+      undefined,
+      { git: { minCommits: 1 } },
+    );
+    expect(created.task.finishCriteria?.git?.minCommits).toBe(1);
+    expect(() =>
+      workTaskTransition(
+        created.doc,
+        "c",
+        "tasks",
+        created.task.id,
+        "completed",
+        undefined,
+        ids,
+      ),
+    ).toThrow(/finish criteria unsatisfied/);
+    const skipped = workTaskTransition(
+      created.doc,
+      "c",
+      "tasks",
+      created.task.id,
+      "completed",
+      undefined,
+      ids,
+      undefined,
+      { evaluateFinishCriteria: false },
+    );
+    expect(skipped.task.state).toBe("completed");
+    const withEvidence = workTaskTransition(
+      created.doc,
+      "c",
+      "tasks",
+      created.task.id,
+      "completed",
+      undefined,
+      ids,
+      { artifacts: [], git: { commits: ["abc"] } },
+    );
+    expect(withEvidence.task.completionEvidence?.git?.commits).toEqual(["abc"]);
+  });
+
   it("rejects the retired metadata claimant instead of tolerating a dual shape", () => {
     const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     expect(() =>

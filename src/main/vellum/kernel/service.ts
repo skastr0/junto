@@ -1076,6 +1076,37 @@ const makeKernelService = (
                   `This task includes ${media.length} first-class media attachment${media.length === 1 ? "" : "s"} (${media.map((part) => part.mediaType ?? "raw").join(", ")}) on history[0] as raw parts.`,
                   "Inspect them via `vellum tasks list` (bytesBase64 + mediaType travel with the projected claim — no host path).",
                 ];
+          const criteria = task.finishCriteria;
+          const criteriaNote =
+            criteria === undefined
+              ? []
+              : [
+                  "",
+                  "Finish criteria (hard gate on complete):",
+                  ...(criteria.description
+                    ? [`- description: ${criteria.description}`]
+                    : []),
+                  ...(criteria.artifacts
+                    ? [
+                        `- artifacts required on node "${criteria.artifacts.nodeId}"` +
+                          (criteria.artifacts.instruction
+                            ? ` — ${criteria.artifacts.instruction}`
+                            : "") +
+                          (criteria.artifacts.names &&
+                          criteria.artifacts.names.length > 0
+                            ? ` (exact names: ${criteria.artifacts.names.join(", ")})`
+                            : ""),
+                        "  Publish with task linkage, then complete with completionEvidence.artifacts: [{ artifactId, nodeId }].",
+                      ]
+                    : []),
+                  ...(criteria.git
+                    ? [
+                        `- git: at least ${criteria.git.minCommits} commit(s)`,
+                        '  Complete with completionEvidence.git.commits: ["<sha>", ...].',
+                      ]
+                    : []),
+                  "Full task JSON (incl. finishCriteria) is on `vellum tasks list`.",
+                ];
           const accepted = await managedPulseDeliver(
             surface.bindingId,
             [
@@ -1085,6 +1116,7 @@ const makeKernelService = (
               "Run `vellum onboard`, do the work, and update it with `vellum tasks update`.",
               "If blocked on a human, use `vellum escalate`.",
               ...mediaNote,
+              ...criteriaNote,
             ].join("\n"),
           );
           if (!accepted) continue;

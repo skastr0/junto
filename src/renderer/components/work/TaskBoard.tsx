@@ -467,6 +467,9 @@ function TaskActionsMenu({
       destination.id !== lane.id &&
       canTransitionTaskState(task.state, destination.state),
   );
+  const hardFinishGate =
+    task.finishCriteria?.artifacts !== undefined ||
+    task.finishCriteria?.git !== undefined;
   const terminalActions = (
     [
       ["completed", "Complete task"],
@@ -474,7 +477,12 @@ function TaskActionsMenu({
       ["rejected", "Reject task"],
       ["canceled", "Cancel task"],
     ] as const
-  ).filter(([state]) => canTransitionTaskState(task.state, state));
+  ).filter(([state]) => {
+    if (!canTransitionTaskState(task.state, state)) return false;
+    // Hard finish criteria require completionEvidence (CLI/agent only for now).
+    if (state === "completed" && hardFinishGate) return false;
+    return true;
+  });
 
   const show = (trigger: HTMLButtonElement) => {
     const menu = menuRef.current;
@@ -1195,6 +1203,9 @@ function TaskDetailPanel({
   const attentionRequired = task.state === "input-required" || task.state === "auth-required";
   const authorizationRequired = task.state === "auth-required";
   const requestContext = latestText(task);
+  const hardFinishGate =
+    task.finishCriteria?.artifacts !== undefined ||
+    task.finishCriteria?.git !== undefined;
   const transitionOptions = [
     ...LANES.flatMap((lane) =>
       lane.state && canTransitionTaskState(task.state, lane.state)
@@ -1210,7 +1221,8 @@ function TaskDetailPanel({
       ] as const
     ).flatMap(([state, label]) =>
       canTransitionTaskState(task.state, state) &&
-      !LANES.some((lane) => lane.state === state)
+      !LANES.some((lane) => lane.state === state) &&
+      !(state === "completed" && hardFinishGate)
         ? [{ value: state, label }]
         : [],
     ),
@@ -1403,6 +1415,14 @@ function TaskDetailPanel({
             {task.finishCriteria.git ? (
               <p className="task-detail-panel__description">
                 Git: ≥ {task.finishCriteria.git.minCommits} commit(s)
+              </p>
+            ) : null}
+            {(task.finishCriteria.artifacts || task.finishCriteria.git) &&
+            task.state !== "completed" ? (
+              <p className="task-detail-panel__empty">
+                Complete via agent/CLI with{" "}
+                <code>completionEvidence</code> (artifacts and/or git commits).
+                Board Complete is disabled while hard criteria are set.
               </p>
             ) : null}
           </section>

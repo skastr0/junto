@@ -886,6 +886,10 @@ export const WorkLive = Layer.effect(
             ]);
             const before = nodeById(read.doc, nodeId)?.ether?.tasks?.items
               .find((task) => task.id === taskId);
+            // Finish-criteria gate is home-local only. Off-home callers enqueue
+            // a command; the executor re-runs the gate against its SQLite shelf.
+            const evaluateFinish =
+              home === context.localInstallationId;
             const policy = yield* runPolicy(() =>
               workTaskTransition(
                 read.doc,
@@ -896,6 +900,7 @@ export const WorkLive = Layer.effect(
                 note,
                 ids,
                 completionEvidence,
+                { evaluateFinishCriteria: evaluateFinish },
               )
             );
             const message =

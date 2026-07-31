@@ -153,7 +153,7 @@ export const Task = Schema.Struct({
   /** The operator's answer (first-class, stamped on resolve). */
   response: Schema.optionalWith(Schema.String, { exact: true }),
 }).pipe(
-  Schema.filter(({ id, state, claimedBy, metadata, dependsOn }) => {
+  Schema.filter(({ id, state, claimedBy, metadata, dependsOn, completionEvidence }) => {
     if (
       metadata !== undefined &&
       Object.prototype.hasOwnProperty.call(metadata, "claimedBy")
@@ -170,6 +170,9 @@ export const Task = Schema.Struct({
       claimedBy === undefined
     ) {
       return `${state} tasks require claimedBy`;
+    }
+    if (completionEvidence !== undefined && state !== "completed") {
+      return "completionEvidence is only valid on completed tasks";
     }
     if (dependsOn !== undefined) {
       const seen = new Set<string>();

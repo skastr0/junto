@@ -278,12 +278,16 @@ const mapWorkCode = (
     }
     case "illegal_transition": {
       const m = message.match(/from (\S+) to (\S+)/);
+      const missing = message.match(/\[([^\]]+)\]/)?.[1];
+      const nextStep = message.match(/\(next: ([^)]+)\)/)?.[1];
       return {
         type: "InvalidTransition",
         message,
         details: {
           from: m?.[1],
           to: m?.[2],
+          ...(missing !== undefined ? { missing } : {}),
+          ...(nextStep !== undefined ? { next_step: nextStep } : {}),
           retryable: false,
         },
       };

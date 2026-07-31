@@ -130,4 +130,35 @@ describe("finish criteria", () => {
     });
     expect(fail?.missing).toBe("git.commits");
   });
+
+  it("description-only criteria never hard-gates", () => {
+    expect(
+      evaluateFinishCriteria({
+        task: baseTask({
+          finishCriteria: { description: "looks good" },
+        }),
+        taskNodeId: "tasks",
+        canvasName: "board",
+        evidence: undefined,
+        artifactsByNode: new Map(),
+      }),
+    ).toBeUndefined();
+  });
+
+  it("rejects exact name case mismatch", () => {
+    const fail = evaluateFinishCriteria({
+      task: baseTask({
+        finishCriteria: {
+          artifacts: { nodeId: "art1", names: ["Report"] },
+        },
+      }),
+      taskNodeId: "tasks",
+      canvasName: "board",
+      evidence: {
+        artifacts: [{ artifactId: "a1", nodeId: "art1" }],
+      },
+      artifactsByNode: new Map([["art1", [artifact({ name: "report" })]]]),
+    });
+    expect(fail?.missing).toBe("artifacts.names");
+  });
 });

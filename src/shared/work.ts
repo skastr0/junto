@@ -521,6 +521,14 @@ export const workTaskDescribe = (
   return { doc: withTasks(doc, nodeId, nextItems), task };
 };
 
+export type WorkTaskTransitionOptions = {
+  /**
+   * When false, skip evaluateFinishCriteria (caller is not the entity home;
+   * the home repository/command path is the sole gate). Default true.
+   */
+  readonly evaluateFinishCriteria?: boolean;
+};
+
 export const workTaskTransition = (
   doc: CanvasDoc,
   canvasName: string,
@@ -530,11 +538,13 @@ export const workTaskTransition = (
   note: string | undefined,
   ids: WorkIds,
   completionEvidence?: CompletionEvidence,
+  options?: WorkTaskTransitionOptions,
 ): WorkTaskResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
   const items = node.ether?.tasks?.items ?? [];
   const contextId = regionContextId(doc, nodeId, canvasName);
+  const runFinishGate = options?.evaluateFinishCriteria !== false;
   const evidence =
     state === "completed"
       ? normalizeCompletionEvidence(completionEvidence)
@@ -546,7 +556,7 @@ export const workTaskTransition = (
         `cannot transition task "${taskId}" from ${current.state} to ${state}`,
       );
     }
-    if (state === "completed") {
+    if (state === "completed" && runFinishGate) {
       const gate = evaluateFinishCriteria({
         task: current,
         taskNodeId: nodeId,
@@ -555,7 +565,10 @@ export const workTaskTransition = (
         artifactsByNode: artifactsByNodeFromDoc(doc.nodes),
       });
       if (gate !== undefined) {
-        throw new WorkError("illegal_transition", gate.message);
+        throw new WorkError(
+          "illegal_transition",
+          `finish criteria unsatisfied [${gate.missing}]: ${gate.message} (next: ${gate.next_step})`,
+        );
       }
     }
     let history = current.history;

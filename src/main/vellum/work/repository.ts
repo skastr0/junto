@@ -3272,6 +3272,14 @@ const resultForCommand = (
         command.predecessor,
         `task "${action.taskId}"`,
       );
+      const { installationId: localInstallationId } =
+        canonicalLocalWorkAuthority(writer);
+      if (current!.row.entity_home !== localInstallationId) {
+        throw authorityError(
+          "authority-mismatch",
+          "local installation does not own this task",
+        );
+      }
       if (!canTransitionTaskState(current!.task.state, action.state)) {
         throw authorityError(
           "invalid-transition",
@@ -3294,24 +3302,37 @@ const resultForCommand = (
           ),
         });
         if (gate !== undefined) {
-          throw authorityError("invalid-transition", gate.message);
+          throw authorityError(
+            "invalid-transition",
+            `finish criteria unsatisfied [${gate.missing}]: ${gate.message} (next: ${gate.next_step})`,
+          );
         }
       }
-      return {
-        body: {
-          operation: "task.transition",
-          task: {
-            ...taskWithTransitionState(current!.task, action.state),
-            history:
-              action.message === undefined
-                ? current!.task.history
-                : [...current!.task.history, action.message],
-            ...(action.state === "completed" && evidence !== undefined
-              ? { completionEvidence: evidence }
-              : {}),
+      {
+        const base = taskWithTransitionState(current!.task, action.state);
+        const withoutEvidence =
+          action.state === "completed"
+            ? base
+            : (() => {
+                const { completionEvidence: _c, ...rest } = base;
+                return rest;
+              })();
+        return {
+          body: {
+            operation: "task.transition",
+            task: {
+              ...withoutEvidence,
+              history:
+                action.message === undefined
+                  ? current!.task.history
+                  : [...current!.task.history, action.message],
+              ...(action.state === "completed" && evidence !== undefined
+                ? { completionEvidence: evidence }
+                : {}),
+            },
           },
-        },
-      };
+        };
+      }
     }
     case "task.claim": {
       if (
@@ -4019,6 +4040,26 @@ const assertCorrelatedCommandFact = (
           "task transition fact omits the exact commanded message",
         );
       }
+      if (action.state === "completed") {
+        const expectedEvidence = normalizeCompletionEvidence(
+          action.completionEvidence,
+        );
+        const actualEvidence = fact.body.task.completionEvidence;
+        if (
+          canonicalJson(expectedEvidence ?? null) !==
+          canonicalJson(actualEvidence ?? null)
+        ) {
+          throw authorityError(
+            "causal-conflict",
+            "task transition fact completionEvidence differs from the exact pending command",
+          );
+        }
+      } else if (fact.body.task.completionEvidence !== undefined) {
+        throw authorityError(
+          "causal-conflict",
+          "task transition fact stamped completionEvidence without completed state",
+        );
+      }
       return;
     }
     case "task.claim":
@@ -4411,6 +4452,18 @@ const validateIncomingFact = (
           "task.transition fact is not one legal state transition",
         );
       }
+      // completionEvidence may only change on → completed; otherwise sticky.
+      if (next.state === "completed") {
+        // Stamp or leave empty is legal; prior non-completed had no evidence.
+      } else if (
+        canonicalJson(next.completionEvidence ?? null) !==
+        canonicalJson(current!.task.completionEvidence ?? null)
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          "completionEvidence may only change when transitioning to completed",
+        );
+      }
       if (
         correlatedCommand?.body.operation === "task.transition"
       ) {
@@ -4429,6 +4482,20 @@ const validateIncomingFact = (
             "causal-conflict",
             "task transition fact history differs from the exact pending command",
           );
+        }
+        if (correlatedCommand.body.state === "completed") {
+          const expectedEvidence = normalizeCompletionEvidence(
+            correlatedCommand.body.completionEvidence,
+          );
+          if (
+            canonicalJson(expectedEvidence ?? null) !==
+            canonicalJson(next.completionEvidence ?? null)
+          ) {
+            throw authorityError(
+              "causal-conflict",
+              "task transition fact completionEvidence differs from the exact pending command",
+            );
+          }
         }
       }
       return;
@@ -5220,11 +5287,22 @@ export const WorkRepositoryLive = Layer.effect(
             artifactsByNode,
           });
           if (gate !== undefined) {
-            throw authorityError("invalid-transition", gate.message);
+            throw authorityError(
+              "invalid-transition",
+              `finish criteria unsatisfied [${gate.missing}]: ${gate.message} (next: ${gate.next_step})`,
+            );
           }
         }
+        const base = taskWithTransitionState(current.task, input.state);
+        const withoutEvidence =
+          input.state === "completed"
+            ? base
+            : (() => {
+                const { completionEvidence: _c, ...rest } = base;
+                return rest;
+              })();
         const task = Schema.decodeUnknownSync(Task, strictDecode)({
-          ...taskWithTransitionState(current.task, input.state),
+          ...withoutEvidence,
           history:
             message === undefined
               ? current.task.history

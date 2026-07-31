@@ -449,6 +449,54 @@ Terminal states are:
 completed | canceled | failed | rejected
 ```
 
+### Finish criteria and completion evidence
+
+Optional first-class fields on `Task` (see `src/shared/work-model.ts`):
+
+```text
+FinishCriteria {
+  description?: string              // soft north star; not machine-checked
+  artifacts?: {
+    nodeId: string                  // artifacts sink (same canvas ambient)
+    instruction?: string
+    names?: string[]                // exact match, all required when set
+  }
+  git?: { minCommits: number }      // ≥ 1
+}
+
+CompletionEvidence {
+  artifacts: Array<{ artifactId: string; nodeId: string }>
+  git?: { commits: string[] }       // free-form hashes for now
+}
+```
+
+Laws:
+
+1. `finishCriteria` is operator-authored (typically at create). It is
+   immutable across `task.transition` facts (preserved on the material Task).
+2. `completionEvidence` is stamped only on a successful transition to
+   `completed`. It is forbidden on any other state.
+3. Hard arms (`artifacts` / `git`) are gated **only at the task entity home**
+   against that installation's SQLite artifact shelf and the commanded
+   evidence. Soft `description` alone never blocks complete.
+4. Artifact citations must exist on the required sink node, be linked via
+   `Artifact.task` to this exact task, and match required names when set.
+5. Publish does **not** auto-append task associations; the agent supplies
+   `completionEvidence.artifacts` on complete.
+6. The local control command is:
+
+```text
+task.transition {
+  taskId, state, message?,
+  completionEvidence?   // only when state === "completed"
+}
+```
+
+Facts still carry the full resulting `Task` snapshot (including criteria and
+evidence when present). Command↔fact correlation for complete requires
+evidence on the fact to match the command after normalize.
+
+
 A task in `working`, `input-required`, or `auth-required` is active work owned
 by exactly one actor.
 
@@ -927,7 +975,8 @@ WorkAction =
   | { operation: "task.create", task: Task }
   | { operation: "task.describe", taskId: string, message: Message }
   | { operation: "task.transition", taskId: string,
-      state: TaskState, message?: Message }
+      state: TaskState, message?: Message,
+      completionEvidence?: CompletionEvidence }
   | TaskClaimAction
   | { operation: "request.create", request: Task, raisedBy: ActorRef }
   | { operation: "request.resolve", requestId: string, response: string,
@@ -939,8 +988,11 @@ WorkAction =
   | { operation: "delivery.accepted", receipt: DeliveryReceipt }
 ```
 
-`Task`, `TaskState`, `Message`, and `Artifact` are the strict shared domain
-schemas in `src/shared/work-model.ts`; the wire never defines looser copies.
+`Task` may carry optional `finishCriteria` and (only when `state ===
+"completed"`) `completionEvidence`. `Task`, `TaskState`, `Message`,
+`Artifact`, `FinishCriteria`, and `CompletionEvidence` are the strict shared
+domain schemas in `src/shared/work-model.ts`; the wire never defines looser
+copies.
 `Artifact.task`, when present, is exactly `TaskRef`; there is no artifact
 `taskId` compatibility field. `MessageAppendDestination` is the closed
 mailbox/task/request sum above.
