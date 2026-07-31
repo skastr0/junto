@@ -1,7 +1,12 @@
-import { useId, useMemo, useState, type FocusEvent, type MouseEvent } from "react";
+import { useId, useMemo, useState } from "react";
 import type { Port } from "@shared/physics/schema";
+import attentionPlate from "../../assets/node-palette/attention-plate.png";
+import capabilityPlate from "../../assets/node-palette/capability-plate.png";
+import effectPlate from "../../assets/node-palette/effect-plate.png";
 import {
   Archive,
+  ArrowLeftRight,
+  ArrowRight,
   Blocks,
   Braces,
   Clock3,
@@ -69,26 +74,38 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     icon: Blocks, accentClass: "text-gold",
     purpose: "A durable work sink where connected agents inspect, claim, and submit discrete tasks.",
     attention: "Submitted and working tasks do not block anyone. Only an input-required task stops its connected actor.",
-    connections: [{ source: "Agent", target: "Tasks", direction: "directed", relationship: "agent reads, claims, and completes work", mode: "capability", ports: ["tasks.list", "tasks.claim", "tasks.update"] }],
+    connections: [
+      { source: "Agent", target: "Tasks", direction: "directed", relationship: "reads, claims, and completes work", mode: "capability", ports: ["tasks.list", "tasks.claim", "tasks.update"] },
+      { source: "Scheduler", target: "Tasks", direction: "directed", relationship: "enqueues work when its condition fires", mode: "effect", ports: [] },
+    ],
   },
   {
     id: "requests", category: "sinks", label: "Requests", subtitle: "operator input required",
     icon: Inbox, accentClass: "text-orange",
     purpose: "An operator-facing inbox for decisions and missing information surfaced by connected work.",
     attention: "Input-required requests create visible attention; connect them to the actor that needs the answer.",
-    connections: [{ source: "Agent", target: "Requests", direction: "directed", relationship: "surfaces an answerable operator request", mode: "capability", ports: ["request.escalate", "msg.list", "msg.send"] }],
+    connections: [
+      { source: "Agent", target: "Requests", direction: "directed", relationship: "surfaces an answerable operator request", mode: "capability", ports: ["request.escalate", "msg.list", "msg.send"] },
+      { source: "Scheduler", target: "Requests", direction: "directed", relationship: "projects a runtime flag when its condition fires", mode: "effect", ports: [] },
+    ],
   },
   {
     id: "artifacts", category: "sinks", label: "Artifacts", subtitle: "published parts shelf",
     icon: Archive, accentClass: "text-green",
     purpose: "A durable shelf for named outputs produced as work becomes real.",
-    connections: [{ source: "Agent", target: "Artifacts", direction: "directed", relationship: "records produced files and proof", mode: "capability", ports: ["artifact.publish"] }],
+    connections: [
+      { source: "Agent", target: "Artifacts", direction: "directed", relationship: "records produced files and proof", mode: "capability", ports: ["artifact.publish"] },
+      { source: "Scheduler", target: "Artifacts", direction: "directed", relationship: "projects a runtime flag when its condition fires", mode: "effect", ports: [] },
+    ],
   },
   {
     id: "board", category: "sinks", label: "Board", subtitle: "topics and posts",
     icon: Braces, accentClass: "text-amber",
     purpose: "A shared Command Center discussion surface for durable topics, updates, and decisions.",
-    connections: [{ source: "Agent", target: "Board", direction: "directed", relationship: "creates topics and posts updates", mode: "capability", ports: ["board.create_topic", "board.post"] }],
+    connections: [
+      { source: "Agent", target: "Board", direction: "directed", relationship: "creates topics and posts updates", mode: "capability", ports: ["board.create_topic", "board.post"] },
+      { source: "Scheduler", target: "Board", direction: "directed", relationship: "projects a runtime flag when its condition fires", mode: "effect", ports: [] },
+    ],
   },
   {
     id: "page", category: "canvas", label: "Page", subtitle: "browser work surface",
@@ -101,21 +118,32 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     icon: Clock3, accentClass: "text-violet",
     purpose: "A durable, home-scoped schedule that fires authored edge effects (enqueue tasks, set flags).",
     attention: "Connect cron → task with an effect edge to mint work. Actors still pull via the claim tick.",
-    connections: [{ source: "Cron", target: "Task", direction: "directed", relationship: "enqueues work on fire", mode: "effect", ports: [] }],
+    connections: [
+      { source: "Cron", target: "Tasks", direction: "directed", relationship: "enqueues work when the interval is due", mode: "effect", ports: [] },
+      { source: "Cron", target: "Any node", direction: "directed", relationship: "projects a runtime flag on fire", mode: "effect", ports: [] },
+    ],
   },
   {
     id: "gauge", category: "schedule", label: "Gauge", subtitle: "live data condition",
     icon: Eye, accentClass: "text-violet",
     purpose: "A hermes roster predicate (e.g. running). Rising edge can fire the same edge effects as cron.",
     attention: "Hermes roster stats are thin today (running 0/1). Effects need an outbound edge.",
-    connections: [{ source: "Gauge", target: "Task", direction: "directed", relationship: "enqueues work when condition trips", mode: "effect", ports: [] }],
+    connections: [
+      { source: "Hermes stats", target: "Gauge", direction: "directed", relationship: "supplies the live value evaluated by the predicate", mode: "context", ports: [] },
+      { source: "Gauge", target: "Tasks", direction: "directed", relationship: "enqueues work on a rising match", mode: "effect", ports: [] },
+      { source: "Gauge", target: "Any node", direction: "directed", relationship: "projects a runtime flag on a rising match", mode: "effect", ports: [] },
+    ],
   },
   {
     id: "relay", category: "schedule", label: "Relay", subtitle: "watch a node projection",
     icon: Workflow, accentClass: "text-cyan",
     purpose: "A scheduler that watches another node's typed projection and fires edge effects on a rising match.",
     attention: "Choose the source node and predicate in the inspector, then connect Relay to the effect target.",
-    connections: [{ source: "Relay", target: "Task", direction: "directed", relationship: "enqueues work when the watched projection matches", mode: "effect", ports: [] }],
+    connections: [
+      { source: "Watched node", target: "Relay", direction: "directed", relationship: "supplies the typed projection evaluated by the predicate", mode: "context", ports: [] },
+      { source: "Relay", target: "Tasks", direction: "directed", relationship: "enqueues work on a rising match", mode: "effect", ports: [] },
+      { source: "Relay", target: "Any node", direction: "directed", relationship: "projects a runtime flag on a rising match", mode: "effect", ports: [] },
+    ],
   },
   {
     id: "note", category: "canvas", label: "Note", subtitle: "freeform text",
@@ -165,63 +193,54 @@ export function NodeCatalogGrid({
   onSelect,
   className = "",
 }: NodeCatalogGridProps) {
-  const [openId, setOpenId] = useState<string>();
+  const [activeId, setActiveId] = useState<string>();
   const descriptionId = useId();
   const visibleEntries = useMemo(
     () => entries.filter((entry) => (category === "all" || entry.category === category) && matchesQuery(entry, query)),
     [category, entries, query],
   );
 
-  const dismissIfLeaving = (entryId: string, event: MouseEvent<HTMLButtonElement> | FocusEvent<HTMLButtonElement>) => {
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-    setOpenId((current) => current === entryId ? undefined : current);
-  };
+  const activeEntry = visibleEntries.find((entry) => entry.id === activeId) ?? visibleEntries[0];
+  const detailId = activeEntry ? `${descriptionId}-${activeEntry.id}` : undefined;
 
   return (
     <section
       aria-label="Node catalog"
-      className={`node-deck-catalog min-h-0 overflow-y-auto overflow-x-hidden pr-1 ${className}`}
+      className={`node-deck-catalog min-h-0 ${className}`}
     >
       {visibleEntries.length > 0 ? (
-        <ul className="node-deck-catalog__grid grid grid-cols-1 gap-3 p-1 sm:grid-cols-2" role="list">
-          {visibleEntries.map((entry) => {
-            const Icon = entry.icon;
-            const isOpen = openId === entry.id;
-            const popoverId = `${descriptionId}-${entry.id}`;
-            return (
-              <li key={entry.id} className="node-deck-catalog__item relative min-w-0">
-                <button
-                  type="button"
-                  className="node-deck-catalog__card group relative flex min-h-[112px] w-full items-start gap-3 rounded-[7px] border border-stroke bg-raise px-4 py-3 text-left shadow-[inset_0_1px_0_rgb(237_230_218_/_0.025)] outline-none transition-[border-color,transform] duration-150 hover:border-stroke-hi focus-visible:border-amber focus-visible:ring-1 focus-visible:ring-amber/60"
-                  aria-describedby={isOpen ? popoverId : undefined}
-                  aria-expanded={isOpen}
-                  onClick={() => onSelect(entry)}
-                  onMouseEnter={() => setOpenId(entry.id)}
-                  onMouseLeave={(event) => dismissIfLeaving(entry.id, event)}
-                  onFocus={() => setOpenId(entry.id)}
-                  onBlur={(event) => dismissIfLeaving(entry.id, event)}
-                >
-                  <Icon aria-hidden="true" size={25} strokeWidth={1.7} className={`node-deck-catalog__icon mt-0.5 shrink-0 ${entry.accentClass}`} />
-                  <span className="node-deck-catalog__summary min-w-0">
-                    <span className="node-deck-catalog__label block font-display text-[17px] font-semibold uppercase leading-none tracking-wide text-ink">
-                      {entry.label}
+        <>
+          <ul className="node-deck-catalog__grid grid grid-cols-1 gap-2 p-1 sm:grid-cols-2" role="list">
+            {visibleEntries.map((entry) => {
+              const Icon = entry.icon;
+              const isActive = activeEntry?.id === entry.id;
+              return (
+                <li key={entry.id} className="node-deck-catalog__item min-w-0">
+                  <button
+                    type="button"
+                    className="node-deck-catalog__card group flex min-h-[76px] w-full items-start gap-3 rounded-[7px] border border-stroke px-3 py-3 text-left outline-none transition-[border-color,background-color] duration-150 hover:border-stroke-hi focus-visible:border-amber focus-visible:ring-1 focus-visible:ring-amber/60"
+                    data-active={isActive || undefined}
+                    aria-describedby={isActive ? detailId : undefined}
+                    onClick={() => onSelect(entry)}
+                    onMouseEnter={() => setActiveId(entry.id)}
+                    onFocus={() => setActiveId(entry.id)}
+                  >
+                    <Icon aria-hidden="true" size={23} strokeWidth={1.7} className={`node-deck-catalog__icon mt-0.5 shrink-0 ${entry.accentClass}`} />
+                    <span className="node-deck-catalog__summary min-w-0">
+                      <span className="node-deck-catalog__label block font-display text-[16px] font-semibold uppercase leading-none tracking-wide text-ink">
+                        {entry.label}
+                      </span>
+                      <span className="node-deck-catalog__subtitle mt-1.5 block truncate font-mono text-[10px] leading-4 text-dim">
+                        {entry.subtitle}
+                      </span>
                     </span>
-                    <span className="node-deck-catalog__subtitle mt-2 block truncate font-mono text-[11px] text-dim">
-                      {entry.subtitle}
-                    </span>
-                    <span className="node-deck-catalog__hint mt-3 block font-mono text-[9px] uppercase tracking-[0.16em] text-faint group-hover:text-ink-2 group-focus-visible:text-ink-2">
-                      inspect · click to add
-                    </span>
-                  </span>
-
-                  {isOpen ? (
-                    <CatalogExplanation entry={entry} id={popoverId} />
-                  ) : null}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {activeEntry && detailId ? <CatalogDetail entry={activeEntry} id={detailId} /> : null}
+        </>
       ) : (
         <div className="node-deck-catalog__empty border border-dashed border-stroke px-4 py-10 text-center font-mono text-[11px] text-dim">
           No catalog entries match this view.
@@ -231,61 +250,91 @@ export function NodeCatalogGrid({
   );
 }
 
-function CatalogExplanation({ entry, id }: { readonly entry: NodeCatalogEntry; readonly id: string }) {
-  const Icon = entry.icon;
+function ConnectionArrow({
+  direction,
+}: {
+  readonly direction: NodeCatalogConnection["direction"];
+}) {
+  const Arrow = direction === "directed" ? ArrowRight : ArrowLeftRight;
+  return <Arrow aria-hidden="true" size={18} strokeWidth={1.7} />;
+}
+
+function ConnectionMap({
+  connection,
+  accentClass,
+}: {
+  readonly connection: NodeCatalogConnection;
+  readonly accentClass: string;
+}) {
   return (
-    <span
+    <span className="node-deck-catalog__connection-map flex min-w-0 items-center gap-2 font-display text-[12px] uppercase tracking-wide text-ink">
+      <span className="node-deck-catalog__endpoint truncate">{connection.source}</span>
+      <span aria-hidden="true" className={`node-deck-catalog__arrow shrink-0 ${accentClass}`}>
+        <ConnectionArrow direction={connection.direction} />
+      </span>
+      <span className="node-deck-catalog__endpoint truncate">{connection.target}</span>
+    </span>
+  );
+}
+
+function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readonly id: string }) {
+  const Icon = entry.icon;
+  const [primaryConnection, ...secondaryConnections] = entry.connections;
+  const detailPlate = entry.attention
+    ? attentionPlate
+    : entry.connections.some((connection) => connection.mode === "effect")
+      ? effectPlate
+      : capabilityPlate;
+  return (
+    <aside
       id={id}
-      role="tooltip"
-      className="node-deck-catalog__popover absolute inset-x-2 top-[calc(100%_-_9px)] z-30 grid gap-4 rounded-[8px] border border-stroke-hi bg-ground p-4 text-left shadow-[0_18px_52px_rgb(0_0_0_/_0.56)]"
+      aria-label={`${entry.label} details`}
+      className="node-deck-catalog__detail"
     >
-      <span className="node-deck-catalog__popover-head flex items-start gap-3 border-b border-stroke pb-3">
-        <span className={`node-deck-catalog__popover-icon shrink-0 ${entry.accentClass}`} aria-hidden="true">
+      <div className="node-deck-catalog__detail-copy">
+        <span className={`node-deck-catalog__detail-icon shrink-0 ${entry.accentClass}`} aria-hidden="true">
           <Icon size={21} strokeWidth={1.7} />
         </span>
-        <span className="min-w-0">
-          <span className="block font-mono text-[9px] uppercase tracking-[0.16em] text-faint">Node description</span>
-          <span className="block font-display text-[17px] font-semibold uppercase tracking-wide text-ink">{entry.label}</span>
-          <span className="mt-1 block font-mono text-[11px] leading-5 text-ink-2">{entry.purpose}</span>
-        </span>
-      </span>
+        <div className="min-w-0">
+          <strong className="block font-display text-[14px] font-semibold uppercase tracking-wide text-ink">{entry.label}</strong>
+          <p className="node-deck-catalog__purpose">{entry.purpose}</p>
+          {entry.attention ? <p className="node-deck-catalog__attention"><span>Attention:</span> {entry.attention}</p> : null}
+        </div>
+      </div>
 
-      {entry.attention ? (
-        <span className="node-deck-catalog__attention grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 font-mono text-[10px] leading-4 text-dim">
-          <span className="text-amber">consequence</span>
-          <span>{entry.attention}</span>
-        </span>
-      ) : null}
-
-      <span className="node-deck-catalog__connections grid gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-faint">Connects to</span>
-        {entry.connections.map((connection) => (
-          <span key={`${entry.id}-${connection.target}`} className="node-deck-catalog__connection grid gap-2 border-l border-stroke-hi pl-3">
-            <span className="node-deck-catalog__connection-map flex items-center gap-2 font-display text-[13px] uppercase tracking-wide text-ink">
-              <span className="rounded-[3px] border border-stroke px-1.5 py-1">{connection.source}</span>
-              <span aria-hidden="true" className={`flex items-center gap-1 text-base leading-none ${entry.accentClass}`}>
-                <span className="h-px w-4 bg-current opacity-70" />
-                {connection.direction === "directed" ? "→" : "↔"}
-              </span>
-              <span className="rounded-[3px] border border-stroke px-1.5 py-1">{connection.target}</span>
-            </span>
-            <span className="font-mono text-[10px] leading-4 text-dim">{connection.relationship}</span>
-            {connection.ports.length > 0 ? (
-              <span className="flex flex-wrap gap-1.5">
-                {connection.ports.map((port) => (
-                  <span key={port} className="node-deck-catalog__port rounded-[3px] border border-stroke px-1.5 py-0.5 font-mono text-[9px] text-ink-2">
-                    {port}
-                  </span>
+      {primaryConnection ? (
+        <div className="node-deck-catalog__relationships">
+          <img
+            aria-hidden="true"
+            alt=""
+            className="node-deck-catalog__plate"
+            src={detailPlate}
+          />
+          <div className="node-deck-catalog__connection node-deck-catalog__connection--primary">
+            <ConnectionMap connection={primaryConnection} accentClass={entry.accentClass} />
+            <span className="node-deck-catalog__relationship">{primaryConnection.relationship}</span>
+            {primaryConnection.ports.length > 0 ? (
+              <span className="node-deck-catalog__ports">
+                {primaryConnection.ports.map((port) => (
+                  <span key={port} className="node-deck-catalog__port">{port}</span>
                 ))}
               </span>
             ) : (
-              <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-faint">
-                {connection.mode} edge
-              </span>
+              <span className="node-deck-catalog__edge-mode">{primaryConnection.mode} edge</span>
             )}
-          </span>
-        ))}
-      </span>
-    </span>
+          </div>
+          {secondaryConnections.length > 0 ? (
+            <div className="node-deck-catalog__secondary-list" aria-label="Other useful connections">
+              {secondaryConnections.map((connection) => (
+                <div key={`${connection.source}-${connection.target}-${connection.relationship}`} className="node-deck-catalog__connection node-deck-catalog__connection--secondary">
+                  <ConnectionMap connection={connection} accentClass={entry.accentClass} />
+                  <span className="node-deck-catalog__relationship">{connection.relationship}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </aside>
   );
 }

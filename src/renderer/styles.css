@@ -1314,25 +1314,34 @@ html[data-surface-motion="paused"] *::after {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  border: 1px solid transparent;
   border-radius: 5px;
+  background: transparent;
   color: var(--color-dim);
-  padding: 7px 8px;
+  padding: 6px 8px;
+  font: inherit;
   text-align: left;
-  transition: background 160ms ease, color 160ms ease;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
 }
-.agent-cascade__column button:hover,
-.agent-cascade__column button:focus-visible {
+.agent-cascade__column button:hover {
+  border-color: rgba(237,230,218,.16);
   background: rgba(255,255,255,.07);
   color: var(--color-ink);
-  outline: none;
+}
+.agent-cascade__column button:focus-visible {
+  border-color: rgba(57,198,214,.7);
+  background: rgba(57,198,214,.07);
+  color: var(--color-ink);
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 1px;
 }
 /* The row the next column came from stays lit in amber after the pointer has
    moved on, so the whole harness → model → effort path is readable at once
    instead of only the column the cursor happens to be over. */
 .agent-cascade__column button[aria-expanded="true"] {
+  border-color: rgba(232,163,61,.34);
   background: rgba(232,163,61,.12);
   color: var(--color-amber-hi);
-  box-shadow: inset 2px 0 0 var(--color-amber);
 }
 .agent-cascade__column button[aria-expanded="true"] > svg { color: var(--color-amber); }
 /* Names the choice the column is making, qualified by the step that opened it —

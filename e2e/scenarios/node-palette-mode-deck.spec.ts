@@ -93,18 +93,37 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
       await expect(row).toBeVisible();
       await expect(row.locator("svg.lucide-plus")).toHaveCount(0);
       await expect(row.getByRole("button")).toHaveCount(0);
+      await expect(row).not.toContainText("template defaults");
     }
 
+    const wiring = agentPane.getByRole("region", {
+      name: "Agent connection summary",
+    });
+    await expect(wiring).toContainText("Tasks");
+    for (const port of ["tasks.list", "tasks.claim", "tasks.update"]) {
+      await expect(wiring.locator("code").filter({ hasText: port })).toBeVisible();
+    }
+    await expect(wiring).toContainText("Requests and Artifacts");
+    await expect(wiring).toContainText("Schedulers enqueue at Tasks");
+
     const lastAgentBox = await agentRows.at(-1)!.boundingBox();
+    const wiringBox = await wiring.boundingBox();
     const launchBox = await launchContext.boundingBox();
     expect(lastAgentBox).not.toBeNull();
+    expect(wiringBox).not.toBeNull();
     expect(launchBox).not.toBeNull();
-    expect(launchBox!.y).toBeGreaterThanOrEqual(
+    expect(wiringBox!.y).toBeGreaterThanOrEqual(
       lastAgentBox!.y + lastAgentBox!.height,
     );
     expect(
-      launchBox!.y - (lastAgentBox!.y + lastAgentBox!.height),
-    ).toBeLessThanOrEqual(48);
+      wiringBox!.y - (lastAgentBox!.y + lastAgentBox!.height),
+    ).toBeLessThanOrEqual(24);
+    expect(launchBox!.y).toBeGreaterThanOrEqual(
+      wiringBox!.y + wiringBox!.height,
+    );
+    expect(
+      launchBox!.y - (wiringBox!.y + wiringBox!.height),
+    ).toBeLessThanOrEqual(24);
   } finally {
     await vellum.close();
   }
@@ -125,6 +144,22 @@ test("model and effort choices remain visually attached to the active agent row"
     await expect(models).toBeVisible();
     const model = models.getByRole("menuitem").first();
     await model.hover();
+    await expect(model).toHaveCSS("box-shadow", "none");
+    const modelBorders = await model.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        top: style.borderTopWidth,
+        right: style.borderRightWidth,
+        bottom: style.borderBottomWidth,
+        left: style.borderLeftWidth,
+      };
+    });
+    expect(modelBorders).toEqual({
+      top: "1px",
+      right: "1px",
+      bottom: "1px",
+      left: "1px",
+    });
 
     const efforts = page.getByRole("menu", { name: /effort$/ });
     await expect(efforts).toBeVisible();
@@ -274,7 +309,7 @@ test("one agent-row click creates exactly one configured agent without a legacy 
   }
 });
 
-test("node hover detail explains purpose and makes connection behavior scannable", async () => {
+test("node detail rail preserves navigation while explaining primary and secondary connections", async () => {
   const vellum = await launchVellum();
 
   try {
@@ -285,13 +320,36 @@ test("node hover detail explains purpose and makes connection behavior scannable
     });
     await terminal.hover();
 
-    const detail = page
-      .getByRole("tooltip")
-      .filter({ hasText: "Connects to" });
+    const detail = deck.getByRole("complementary", {
+      name: "Terminal details",
+    });
     await expect(detail).toBeVisible();
     await expect(detail).toContainText(/managed shell/i);
-    await expect(detail).toContainText(/connects to/i);
     await expect(detail.locator(".node-deck-catalog__connection-map"))
+      .not.toHaveCount(0);
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await expect(deck).not.toContainText(/inspect · click to add/i);
+
+    const tasks = deck.locator(".node-deck-catalog__card").filter({
+      hasText: "Tasks",
+    });
+    const terminalBox = await terminal.boundingBox();
+    await tasks.focus();
+    const tasksBox = await tasks.boundingBox();
+    expect(terminalBox).not.toBeNull();
+    expect(tasksBox).not.toBeNull();
+    expect(tasksBox!.height).toBeLessThanOrEqual(84);
+
+    const taskDetail = deck.getByRole("complementary", {
+      name: "Tasks details",
+    });
+    await expect(taskDetail).toBeVisible();
+    await expect(taskDetail).toContainText("Agent");
+    await expect(taskDetail).toContainText("Scheduler");
+    await expect(taskDetail).toContainText("tasks.claim");
+    await expect(taskDetail.locator(".node-deck-catalog__connection--primary"))
+      .toHaveCount(1);
+    await expect(taskDetail.locator(".node-deck-catalog__connection--secondary"))
       .not.toHaveCount(0);
   } finally {
     await vellum.close();

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Search } from "lucide-react";
-import { allTemplates, type HarnessId } from "@shared/managed-terminal-templates";
+import { ArrowRight, Search, Zap } from "lucide-react";
+import {
+  allTemplates,
+  templateFor,
+  type HarnessId,
+} from "@shared/managed-terminal-templates";
 import { HUE } from "../../lib/theme";
 import {
   AgentCascadeMenu,
@@ -142,6 +146,9 @@ export function NodePaletteModeDeck({
   const matchingTemplates = allTemplates().filter((template) =>
     !query.trim() || template.displayName.toLowerCase().includes(query.trim().toLowerCase()),
   );
+  const activeAgentName = agentCascade
+    ? templateFor(agentCascade.harness).displayName
+    : "Agent";
 
   return (
     <section className="node-deck" aria-label="Add canvas item" onWheel={(event) => event.stopPropagation()}>
@@ -170,7 +177,7 @@ export function NodePaletteModeDeck({
       </div>
       <div className="node-deck__body">
         <aside className="node-deck__agents" aria-label="Agents">
-          <div className="node-deck__pane-label"><span>Agents</span><span>configure</span></div>
+          <div className="node-deck__pane-label"><span>Agents</span></div>
           <div className="node-deck__agent-list" role="list">
             {matchingTemplates.map((template) => {
               const selected = agentCascade?.harness === template.harness;
@@ -201,12 +208,32 @@ export function NodePaletteModeDeck({
                     treatment="neutral"
                     hue={AGENT_ACCENTS[template.harness]}
                   />
-                  <span><strong>{template.displayName}</strong><small>template defaults</small></span>
+                  <strong>{template.displayName}</strong>
                 </button>
                 </div>
               );
             })}
           </div>
+          <section
+            className="node-deck__agent-wiring"
+            aria-label={`${activeAgentName} connection summary`}
+          >
+            <div className="node-deck__agent-route">
+              <span>{activeAgentName}</span>
+              <ArrowRight size={13} aria-hidden />
+              <strong>Tasks</strong>
+              <small>claim and submit</small>
+            </div>
+            <div className="node-deck__agent-ports" aria-label="Task capability ports">
+              <code>tasks.list</code>
+              <code>tasks.claim</code>
+              <code>tasks.update</code>
+            </div>
+            <div className="node-deck__agent-secondary">
+              <span>Also connects to Requests and Artifacts.</span>
+              <span><Zap size={11} aria-hidden /> Schedulers enqueue at Tasks or flag the actor.</span>
+            </div>
+          </section>
           <div className="node-deck__launch-slot">
             <AgentLaunchContext
               position={agentPosition}
@@ -216,7 +243,7 @@ export function NodePaletteModeDeck({
           </div>
         </aside>
         <div className="node-deck__catalog">
-          <div className="node-deck__pane-label"><span>Node catalog</span><span>click to add</span></div>
+          <div className="node-deck__pane-label"><span>Node catalog</span></div>
           {category === "agents" ? (
             <div className="node-deck__catalog-empty">Choose an agent from the adjacent list.</div>
           ) : (
