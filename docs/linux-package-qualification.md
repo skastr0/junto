@@ -94,6 +94,12 @@ Scope: prove one desktop Command Center install and one headless Remote
 end-to-end on **native Ubuntu 24.04 x86_64** using the generation-receipt boot
 contract. Do not invent new readiness infrastructure.
 
+The thin [OrbStack two-station runner](linux-orbstack-two-station-runner.md)
+can provision two exact disposable Ubuntu installations, exercise the
+packaged operator CLI and managed deploy path, and retain bounded
+observations. Only a complete signed-candidate run may write the strict
+passing qualification receipt; partial runs retain evidence and fail closed.
+
 ### What this machine (macOS / non-Ubuntu) can prove
 
 - Source + unit gates that do not require Linux package install

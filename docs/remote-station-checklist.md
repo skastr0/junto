@@ -6,6 +6,10 @@ This is the operator proof for Command Center and Remote behavior on Linux and
 macOS. It tests the canonical SQLite and Station API contract, including
 offline and interrupted states. The checklist defines evidence to collect; its
 presence in the repository is not evidence that any packaged pair has passed.
+For two disposable Ubuntu 24.04 x86-64 installations, the
+[OrbStack two-station runner](linux-orbstack-two-station-runner.md) automates
+VM custody, the packaged fleet CLI path, the offline Work round trip, runtime
+health, and bounded observations.
 
 ## Evidence source
 
