@@ -14,6 +14,7 @@ import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { CanvasesService } from "./canvases";
+import { CanvasEntityRepository } from "./entities/repository";
 import { BoxActivityPolicy } from "./box";
 
 import { registerChatIpc } from "./chat/ipc";
@@ -355,14 +356,23 @@ export const registerVellumIpc = (): void => {
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
             const canvases = yield* CanvasesService;
+            const entities = yield* CanvasEntityRepository;
             const snapshots = yield* SnapshotsService;
             // Fresh full-corpus pull (no hints = base project lists from each source).
             const state = yield* snapshots.refresh([]);
+            const suppressEntityIds = yield* entities.listSuppressedEntityIds(
+              name,
+            );
             // mergePortfolioInto is idempotent. Run it through the retrying
             // document mutation boundary so a direct-file edit during refresh
             // is merged into, never overwritten by a stale pre-refresh read.
+            // Suppress archived/soft_deleted entity ids so hermes cannot
+            // re-mint a deleted agent card via deterministic agent-${slug}.
             yield* canvases.mutate(name, (doc) =>
-              mergePortfolioInto(doc, state, { all: options?.all ?? false }),
+              mergePortfolioInto(doc, state, {
+                all: options?.all ?? false,
+                suppressEntityIds,
+              }),
             );
             return yield* canvases.read(name);
           }),

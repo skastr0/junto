@@ -755,8 +755,41 @@ export const CanvasesLive = Layer.effect(
       }
       // Clean cutover: an empty database is a fresh installation. Derivative
       // projection outputs are deliberately never consulted or imported.
+      return;
     }
 
+    // Heal registry gaps when active membership diverges from the head doc
+    // (incomplete v5→v6 backfill, wiped rows). Skip when already aligned so
+    // every launch does not rewrite entity rows. Remote has no authorial
+    // registry duty — projection is membership.
+    yield* state
+      .transaction("canvas.entity-reconcile", (writer) => {
+        if (readLocalStationRole(writer) === "remote") return;
+        const now = new Date().toISOString();
+        const snapshot = readStoredAuthority(writer);
+        for (const [name, entry] of snapshot.documents) {
+          const activeIds = new Set(
+            writer
+              .all<{ readonly entity_id: string }>(
+                `
+                  SELECT entity_id
+                  FROM canvas_entities
+                  WHERE canvas_name = ?
+                    AND lifecycle = 'active'
+                `,
+                [name],
+              )
+              .map((row) => row.entity_id),
+          );
+          const nodeIds = entry.doc.nodes.map((node) => node.id);
+          const aligned =
+            activeIds.size === nodeIds.length &&
+            nodeIds.every((id) => activeIds.has(id));
+          if (aligned) continue;
+          syncCanvasEntities(writer, name, entry.doc, now);
+        }
+      })
+      .pipe(Effect.mapError(toCanvasError));
   });
 
   const ensureReady: Effect.Effect<void, CanvasError> = Effect.tryPromise({

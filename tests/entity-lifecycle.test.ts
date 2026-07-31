@@ -433,4 +433,297 @@ describe("canvas entity registry", () => {
       expect(result.left._tag).toBe("CanvasEntityNotArchivedError");
     }
   });
+
+  it("reactivates soft_deleted entity when node returns to the canvas", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-entity-soft-reactivate-"));
+    roots.push(root);
+    const stateDirectory = join(root, "state");
+    const path = join(stateDirectory, "vellum.db");
+    await mkdir(stateDirectory);
+
+    const runtime = openEngine(path);
+    const canvases = await runtime.runPromise(CanvasesService);
+    const entities = await runtime.runPromise(CanvasEntityRepository);
+
+    const node = {
+      id: "n1",
+      type: "text" as const,
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      text: "x",
+    };
+    await runtime.runPromise(canvases.create("board"));
+    await runtime.runPromise(
+      canvases.write("board", { nodes: [node], edges: [] }),
+    );
+    await runtime.runPromise(canvases.write("board", { nodes: [], edges: [] }));
+    await runtime.runPromise(entities.softDelete("board", "n1"));
+    await runtime.runPromise(
+      canvases.write("board", { nodes: [node], edges: [] }),
+    );
+
+    const row = await runtime.runPromise(entities.get("board", "n1"));
+    expect(row?.lifecycle).toBe("active");
+    expect(row?.softDeletedAt).toBeNull();
+  });
+
+  it("keeps same entity_id independent across canvases", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-entity-multi-canvas-"));
+    roots.push(root);
+    const stateDirectory = join(root, "state");
+    const path = join(stateDirectory, "vellum.db");
+    await mkdir(stateDirectory);
+
+    const runtime = openEngine(path);
+    const canvases = await runtime.runPromise(CanvasesService);
+    const entities = await runtime.runPromise(CanvasEntityRepository);
+
+    const node = {
+      id: "shared-id",
+      type: "text" as const,
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      text: "x",
+    };
+    await runtime.runPromise(canvases.create("alpha"));
+    await runtime.runPromise(canvases.create("beta"));
+    await runtime.runPromise(
+      canvases.write("alpha", { nodes: [node], edges: [] }),
+    );
+    await runtime.runPromise(
+      canvases.write("beta", { nodes: [node], edges: [] }),
+    );
+    await runtime.runPromise(canvases.write("alpha", { nodes: [], edges: [] }));
+
+    const a = await runtime.runPromise(entities.get("alpha", "shared-id"));
+    const b = await runtime.runPromise(entities.get("beta", "shared-id"));
+    expect(a?.lifecycle).toBe("archived");
+    expect(b?.lifecycle).toBe("active");
+    expect(a?.key).not.toEqual(b?.key);
+  });
+
+  it("swaps bindings among co-active nodes in one write", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-entity-bind-swap-"));
+    roots.push(root);
+    const stateDirectory = join(root, "state");
+    const path = join(stateDirectory, "vellum.db");
+    await mkdir(stateDirectory);
+
+    const runtime = openEngine(path);
+    const canvases = await runtime.runPromise(CanvasesService);
+    const entities = await runtime.runPromise(CanvasEntityRepository);
+
+    const a1 = {
+      id: "a",
+      type: "text" as const,
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      text: "a",
+      ether: {
+        entity: { kind: "agent" as const, name: "local:a" },
+        terminal: { bindingId: "bind-1" },
+      },
+    };
+    const b1 = {
+      id: "b",
+      type: "text" as const,
+      x: 10,
+      y: 0,
+      width: 40,
+      height: 40,
+      text: "b",
+      ether: {
+        entity: { kind: "agent" as const, name: "local:b" },
+        terminal: { bindingId: "bind-2" },
+      },
+    };
+    const a2 = {
+      ...a1,
+      ether: {
+        entity: { kind: "agent" as const, name: "local:a" },
+        terminal: { bindingId: "bind-2" },
+      },
+    };
+    const b2 = {
+      ...b1,
+      ether: {
+        entity: { kind: "agent" as const, name: "local:b" },
+        terminal: { bindingId: "bind-1" },
+      },
+    };
+
+    await runtime.runPromise(canvases.create("board"));
+    await runtime.runPromise(
+      canvases.write("board", { nodes: [a1, b1], edges: [] }),
+    );
+    await runtime.runPromise(
+      canvases.write("board", { nodes: [a2, b2], edges: [] }),
+    );
+
+    const a = await runtime.runPromise(entities.get("board", "a"));
+    const b = await runtime.runPromise(entities.get("board", "b"));
+    expect(a?.lifecycle).toBe("active");
+    expect(b?.lifecycle).toBe("active");
+    expect(a?.bindingId).toBe("bind-2");
+    expect(b?.bindingId).toBe("bind-1");
+  });
+
+  it("backfills duplicate active bindings without bricking migrate", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-entity-dup-bind-migrate-"));
+    roots.push(root);
+    const stateDirectory = join(root, "state");
+    const path = join(stateDirectory, "vellum.db");
+    await mkdir(stateDirectory);
+
+    const body = JSON.stringify({
+      nodes: [
+        {
+          id: "agent-a",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 40,
+          height: 40,
+          text: "a",
+          ether: {
+            entity: { kind: "agent", name: "local:a" },
+            terminal: { bindingId: "dup" },
+          },
+        },
+        {
+          id: "agent-b",
+          type: "text",
+          x: 10,
+          y: 0,
+          width: 40,
+          height: 40,
+          text: "b",
+          ether: {
+            entity: { kind: "agent", name: "local:b" },
+            terminal: { bindingId: "dup" },
+          },
+        },
+      ],
+      edges: [],
+    });
+    const v5 = new DatabaseSync(path);
+    try {
+      v5.exec(STATE_SCHEMA_V5_SQL);
+      v5.prepare(
+        `
+          INSERT INTO canvas_generations(
+            generation, created_at, cause, intent_sha256, document_count
+          ) VALUES (?, ?, ?, ?, ?)
+        `,
+      ).run("1", "2026-07-31T00:00:00.000Z", "seed", "a".repeat(64), 1);
+      v5.prepare(
+        `
+          INSERT INTO canvas_generation_documents(
+            generation, name, body, sha256, modified_at
+          ) VALUES (?, ?, ?, ?, ?)
+        `,
+      ).run(
+        "1",
+        "main",
+        body,
+        "b".repeat(64),
+        "2026-07-31T00:00:00.000Z",
+      );
+      v5.prepare(
+        "INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')",
+      ).run();
+      verifyAndStampStateSchema(v5, STATE_SCHEMA_V5_SQL);
+      v5.exec("PRAGMA user_version = 5");
+    } finally {
+      v5.close();
+    }
+
+    const runtime = openEngine(path);
+    const state = await runtime.runPromise(StateEngine);
+    expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
+
+    const rows = await runtime.runPromise(
+      state.read("entity.dup-bind", (reader) =>
+        reader.all<{
+          readonly entity_id: string;
+          readonly binding_id: string | null;
+          readonly lifecycle: string;
+        }>(
+          `
+            SELECT entity_id, binding_id, lifecycle
+            FROM canvas_entities
+            WHERE canvas_name = 'main'
+            ORDER BY entity_id
+          `,
+        ),
+      ),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.lifecycle === "active")).toBe(true);
+    const bindings = rows.map((r) => r.binding_id);
+    expect(bindings.filter((b) => b === "dup")).toHaveLength(1);
+    expect(bindings.filter((b) => b === null)).toHaveLength(1);
+  });
+
+  it("lists suppressed entity ids for portfolio merge", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-entity-suppress-"));
+    roots.push(root);
+    const stateDirectory = join(root, "state");
+    const path = join(stateDirectory, "vellum.db");
+    await mkdir(stateDirectory);
+
+    const runtime = openEngine(path);
+    const canvases = await runtime.runPromise(CanvasesService);
+    const entities = await runtime.runPromise(CanvasEntityRepository);
+
+    await runtime.runPromise(canvases.create("board"));
+    await runtime.runPromise(
+      canvases.write("board", {
+        nodes: [
+          {
+            id: "agent-local-worker",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 40,
+            text: "w",
+          },
+        ],
+        edges: [],
+      }),
+    );
+    await runtime.runPromise(
+      canvases.write("board", { nodes: [], edges: [] }),
+    );
+
+    const suppressed = await runtime.runPromise(
+      entities.listSuppressedEntityIds("board"),
+    );
+    expect([...suppressed]).toEqual(["agent-local-worker"]);
+  });
+
+  it("refuses soft-delete of missing entity", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-entity-soft-missing-"));
+    roots.push(root);
+    const stateDirectory = join(root, "state");
+    const path = join(stateDirectory, "vellum.db");
+    await mkdir(stateDirectory);
+
+    const runtime = openEngine(path);
+    const entities = await runtime.runPromise(CanvasEntityRepository);
+    const result = await runtime.runPromise(
+      entities.softDelete("board", "nope").pipe(Effect.either),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left._tag).toBe("CanvasEntityMissingError");
+    }
+  });
 });

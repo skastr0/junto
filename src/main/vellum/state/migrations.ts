@@ -206,6 +206,11 @@ export const STATE_SCHEMA_MIGRATIONS =
 /**
  * Seed the entity registry from the current authorial head so active nodes
  * already on disk become active entities without rewriting canvas bodies.
+ *
+ * Conflict policy (must not brick upgrade):
+ * - first wins for (canvas, entity_id)
+ * - first wins for active binding_id on a canvas; later copies store binding_id NULL
+ * - undecodable documents fail the step (fail closed) when body is non-empty
  */
 const backfillCanvasEntitiesFromHead = (
   database: StateSchemaMigrationDatabase,
@@ -249,11 +254,14 @@ const backfillCanvasEntitiesFromHead = (
   );
 
   for (const document of documents) {
+    if (document.body.length === 0) continue;
     let parsed: unknown;
     try {
       parsed = JSON.parse(document.body);
     } catch {
-      continue;
+      throw new Error(
+        `canvas entity backfill: document "${document.name}" is not valid JSON`,
+      );
     }
     if (
       parsed === null ||
@@ -261,8 +269,12 @@ const backfillCanvasEntitiesFromHead = (
       !("nodes" in parsed) ||
       !Array.isArray((parsed as { nodes: unknown }).nodes)
     ) {
-      continue;
+      throw new Error(
+        `canvas entity backfill: document "${document.name}" is not a canvas body with nodes[]`,
+      );
     }
+
+    const claimedBindings = new Set<string>();
     for (const node of (parsed as { nodes: ReadonlyArray<unknown> }).nodes) {
       if (
         node === null ||
@@ -270,10 +282,16 @@ const backfillCanvasEntitiesFromHead = (
         !("id" in node) ||
         typeof (node as { id: unknown }).id !== "string"
       ) {
-        continue;
+        throw new Error(
+          `canvas entity backfill: document "${document.name}" has a node without a string id`,
+        );
       }
       const entityId = (node as { id: string }).id;
-      if (entityId.length === 0 || entityId.length > 256) continue;
+      if (entityId.length === 0 || entityId.length > 256) {
+        throw new Error(
+          `canvas entity backfill: document "${document.name}" has an out-of-range entity id`,
+        );
+      }
 
       let kind: string | null = null;
       let bindingId: string | null = null;
@@ -300,8 +318,20 @@ const backfillCanvasEntitiesFromHead = (
       }
       if (kind === null) {
         const nodeType = (node as { type?: unknown }).type;
-        if (typeof nodeType === "string" && nodeType.length > 0 && nodeType.length <= 128) {
+        if (
+          typeof nodeType === "string" &&
+          nodeType.length > 0 &&
+          nodeType.length <= 128
+        ) {
           kind = nodeType;
+        }
+      }
+
+      if (bindingId !== null) {
+        if (claimedBindings.has(bindingId)) {
+          bindingId = null;
+        } else {
+          claimedBindings.add(bindingId);
         }
       }
 

@@ -45,6 +45,7 @@ const mergeEther = (
     ...(work?.requests !== undefined ? { requests: work.requests } : {}),
     ...(work?.artifacts !== undefined ? { artifacts: work.artifacts } : {}),
     ...(work?.messages !== undefined ? { messages: work.messages } : {}),
+    ...(work?.board !== undefined ? { board: work.board } : {}),
     // Preserve local entity when present; else take work entity so a tasks
     // node stays typed. Work ops never author flags/view/herdr/etc.
     ...(!local?.entity && work?.entity ? { entity: work.entity } : {}),
@@ -76,15 +77,15 @@ const mergeNode = (local: CanvasNode, work: CanvasNode | undefined): CanvasNode 
 
 /**
  * Overlay authoritative work-plane fields from `work` onto freeform `local`.
- * Local-only nodes/edges are kept; work-only nodes committed concurrently are appended.
+ * Local is structural authority for membership: work-only nodes are not
+ * re-appended (would undo operator delete before archive lands).
+ * Local-only nodes/edges are kept; work overlays stores on intersection ids.
  */
 export const mergeLocalCanvasWithWorkWrite = (local: CanvasDoc, work: CanvasDoc): CanvasDoc => {
   const workById = new Map(work.nodes.map((node) => [node.id, node] as const));
-  const localIds = new Set(local.nodes.map((node) => node.id));
   const mergedLocal = local.nodes.map((node) => mergeNode(node, workById.get(node.id)));
-  const workOnly = work.nodes.filter((node) => !localIds.has(node.id));
   return {
-    nodes: [...mergedLocal, ...workOnly],
+    nodes: mergedLocal,
     edges: local.edges,
   };
 };

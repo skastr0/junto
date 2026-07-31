@@ -692,10 +692,25 @@ export const projectWorkSnapshots = (
       delete ether.requests;
       delete ether.messages;
       delete ether.artifacts;
+      delete ether.board;
       const kind = node.ether?.entity?.kind;
       if (kind === "task") ether.tasks = snapshot.tasks;
       if (kind === "requests") ether.requests = snapshot.requests;
       if (kind === "artifacts") ether.artifacts = snapshot.artifacts;
+      if (kind === "board") {
+        ether.board = {
+          topics: snapshot.board.topics.map((topic) => ({
+            topicId: topic.topicId,
+            title: topic.title,
+            state: topic.state,
+            postCount: topic.postCount,
+            lastActivityAt: topic.lastActivityAt,
+            authorLabel:
+              topic.openedBy.label ??
+              (topic.openedBy.kind === "operator" ? "operator" : topic.openedBy.nodeId),
+          })),
+        };
+      }
       if (snapshot.messages.items.length > 0) {
         ether.messages = snapshot.messages;
       }
@@ -709,6 +724,17 @@ export const projectWorkSnapshots = (
           : {}),
         ...(node.type === "text" && kind === "artifacts"
           ? { text: mirrorArtifactsText(snapshot.artifacts.items) }
+          : {}),
+        ...(node.type === "text" && kind === "board"
+          ? {
+              text:
+                snapshot.board.topics.length === 0
+                  ? "quiet"
+                  : snapshot.board.topics
+                      .slice(0, 4)
+                      .map((t) => `· ${t.title}`)
+                      .join("\n"),
+            }
           : {}),
         ether,
       } as CanvasNode;
@@ -1290,6 +1316,15 @@ const loadArtifacts = (
       }),
     );
 
+/**
+ * Board lane loader. Full board materialization lands with board tables;
+ * until then empty topics keep WorkSnapshot decode and canvas projection live.
+ */
+const loadBoardTopics = (
+  _reader: StateReader,
+  _sink: SinkRefValue,
+): WorkSnapshotValue["board"]["topics"] => [];
+
 const loadSnapshot = (
   reader: StateReader,
   sink: SinkRefValue,
@@ -1303,6 +1338,7 @@ const loadSnapshot = (
     requests: { items: loadLaneTasks(reader, sink, "request") },
     messages: { items: loadInbox(reader, sink) },
     artifacts: { items: loadArtifacts(reader, sink) },
+    board: { topics: loadBoardTopics(reader, sink) },
   });
 
 export type CanvasWorkProjection = {

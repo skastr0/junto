@@ -4,7 +4,13 @@
  * - Every node present in the next doc is upserted as lifecycle=active.
  * - Every previously-active entity missing from the next doc is archived.
  * - soft_deleted rows are never reactivated by absence (only by re-membership).
- * - Re-adding a node id reactivates archived/soft_deleted → active.
+ * - Re-adding a node id reactivates archived/soft_deleted → active
+ *   (operator re-authorship; soft_delete is unindexed hide, not irreversible death).
+ *
+ * Order for active-only binding uniqueness:
+ * 1. clear bindings on active rows that remain (allows co-active swaps)
+ * 2. archive departures (frees bindings for replacements)
+ * 3. upsert arrivals with final binding_id
  */
 
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
@@ -48,8 +54,6 @@ export const syncCanvasEntities = (
 ): void => {
   const nextIds = new Set(nextDoc.nodes.map((node) => node.id));
 
-  // Archive departures first so active-only binding uniqueness can free a
-  // binding for a replacement node in the same write.
   const activeRows = writer.all<EntityRow>(
     `
       SELECT canvas_name, entity_id, lifecycle
@@ -59,6 +63,23 @@ export const syncCanvasEntities = (
     `,
     [canvasName],
   );
+
+  // Free active-only unique binding index for in-place swaps before upserts.
+  for (const row of activeRows) {
+    if (!nextIds.has(row.entity_id)) continue;
+    writer.run(
+      `
+        UPDATE canvas_entities
+        SET
+          binding_id = NULL,
+          updated_at = ?
+        WHERE canvas_name = ?
+          AND entity_id = ?
+          AND lifecycle = 'active'
+      `,
+      [now, canvasName, row.entity_id],
+    );
+  }
 
   for (const row of activeRows) {
     if (nextIds.has(row.entity_id)) continue;
@@ -78,9 +99,18 @@ export const syncCanvasEntities = (
     );
   }
 
+  // First-wins within one doc for duplicate binding_id among arrivals.
+  const claimedBindings = new Set<string>();
   for (const node of nextDoc.nodes) {
     const kind = nodeKind(node);
-    const bindingId = nodeBindingId(node);
+    let bindingId = nodeBindingId(node);
+    if (bindingId !== null) {
+      if (claimedBindings.has(bindingId)) {
+        bindingId = null;
+      } else {
+        claimedBindings.add(bindingId);
+      }
+    }
     writer.run(
       `
         INSERT INTO canvas_entities(

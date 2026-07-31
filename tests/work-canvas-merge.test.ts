@@ -94,4 +94,39 @@ describe("mergeLocalCanvasWithWorkWrite", () => {
     const merged = mergeLocalCanvasWithWorkWrite(local, work);
     expect(merged.nodes.some((n) => n.id === "new")).toBe(true);
   });
+
+  it("does not re-append work-only nodes (local membership authority)", () => {
+    const local: CanvasDoc = {
+      nodes: [
+        {
+          id: "note",
+          type: "text",
+          text: "only local",
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 40,
+        },
+      ],
+      edges: [],
+    };
+    const work: CanvasDoc = {
+      nodes: [
+        {
+          id: "tasks",
+          type: "text",
+          text: "ghost",
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 40,
+          ether: { entity: { kind: "task" }, tasks: { items: [] } },
+        },
+        ...local.nodes,
+      ],
+      edges: [],
+    };
+    const merged = mergeLocalCanvasWithWorkWrite(local, work);
+    expect(merged.nodes.map((n) => n.id)).toEqual(["note"]);
+  });
 });

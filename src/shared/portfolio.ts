@@ -15,6 +15,12 @@ export interface MergeOptions {
   // Retained for API stability (populate / generatePortfolio callers).
   // Project filtering is gone; agents are always merged.
   readonly all?: boolean;
+  /**
+   * Entity ids that must not be re-minted (archived or soft_deleted registry
+   * rows). Deterministic portfolio agent ids (`agent-${slug}`) that match are
+   * skipped so generatePortfolio cannot silently revive deleted cards.
+   */
+  readonly suppressEntityIds?: ReadonlySet<string>;
 }
 
 const NODE_W = 220;
@@ -67,11 +73,18 @@ const presentIdentities = (doc: CanvasDoc): Set<string> => {
 // Hermes fleet agents, one node per agent. The agent's identity IS its hermes
 // "<host>:<profile>" key — the label stays free-form (host suffix and all)
 // because identity never derives from the title.
-const agentNodes = (state: SnapshotState, present: Set<string>, originY: number): CanvasNode[] => {
+const agentNodes = (
+  state: SnapshotState,
+  present: Set<string>,
+  originY: number,
+  suppressEntityIds: ReadonlySet<string>,
+): CanvasNode[] => {
   const agents = hermesAgentsFromSnapshots(state)
     .filter((entity) => !present.has(normalizeName(entity.key)));
 
-  return agents.map((agent, index) => {
+  return agents.flatMap((agent, index) => {
+    const id = `agent-${slug(agent.key)}`;
+    if (suppressEntityIds.has(id)) return [];
     const col = index % COLUMNS;
     const row = Math.floor(index / COLUMNS);
     const statsHost = typeof agent.stats.host === "string" ? agent.stats.host : undefined;
@@ -79,19 +92,21 @@ const agentNodes = (state: SnapshotState, present: Set<string>, originY: number)
     const label = statsHost
       ? `${agent.title ?? agent.key} · ${statsHost}`
       : (agent.title ?? agent.key);
-    return {
-      id: `agent-${slug(agent.key)}`,
-      type: "text",
-      x: col * (NODE_W + GAP_X),
-      y: originY + row * (NODE_H + GAP_Y),
-      width: NODE_W,
-      height: NODE_H,
-      text: label,
-      ether: {
-        entity: { kind: "agent", name: agent.key },
-        host,
-      },
-    } as CanvasNode;
+    return [
+      {
+        id,
+        type: "text",
+        x: col * (NODE_W + GAP_X),
+        y: originY + row * (NODE_H + GAP_Y),
+        width: NODE_W,
+        height: NODE_H,
+        text: label,
+        ether: {
+          entity: { kind: "agent", name: agent.key },
+          host,
+        },
+      } as CanvasNode,
+    ];
   });
 };
 
@@ -100,16 +115,18 @@ const agentNodes = (state: SnapshotState, present: Set<string>, originY: number)
 export const mergePortfolioInto = (
   doc: CanvasDoc,
   state: SnapshotState,
-  _options: MergeOptions = {},
+  options: MergeOptions = {},
 ): CanvasDoc => {
   const present = presentIdentities(doc);
   const existingIds = new Set(doc.nodes.map((n) => n.id));
   const maxY = doc.nodes.reduce((m, n) => Math.max(m, n.y + n.height), 0);
   const originY = doc.nodes.length > 0 ? maxY + 120 : 0;
+  const suppressEntityIds = options.suppressEntityIds ?? new Set<string>();
 
   const added: CanvasNode[] = [];
-  for (const node of agentNodes(state, present, originY)) {
+  for (const node of agentNodes(state, present, originY, suppressEntityIds)) {
     if (existingIds.has(node.id)) continue;
+    if (suppressEntityIds.has(node.id)) continue;
     existingIds.add(node.id);
     added.push(node);
   }

@@ -4,7 +4,6 @@ import {
   type EntityKey,
   type EntityLifecycle as EntityLifecycleT,
   entityKeyOf,
-  isHistoricSearchable,
 } from "@shared/entity";
 import {
   StateEngine,
@@ -123,6 +122,13 @@ export class CanvasEntityRepository extends Context.Tag(
       CanvasEntityRepositoryError
     >;
     /**
+     * Entity ids that must not be re-minted by portfolio merge (archived or
+     * soft_deleted). Active ids are omitted — they already have membership.
+     */
+    readonly listSuppressedEntityIds: (
+      canvasName: string,
+    ) => Effect.Effect<ReadonlySet<string>, CanvasEntityRepositoryError>;
+    /**
      * Soft-delete from archive only. No hard-delete product path.
      * Soft-deleted entities are unindexed for historic search.
      */
@@ -234,11 +240,57 @@ export const CanvasEntityRepositoryLive: Layer.Layer<
       ReadonlyArray<CanvasEntityRecord>,
       CanvasEntityRepositoryError
     > =>
-      listByCanvas(canvasName).pipe(
-        Effect.map((rows) =>
-          rows.filter((row) => isHistoricSearchable(row.lifecycle)),
-        ),
-      );
+      state
+        .read("canvas-entity.list-historic", (reader) =>
+          reader
+            .all<EntitySqlRow>(
+              `
+                SELECT
+                  canvas_name,
+                  entity_id,
+                  kind,
+                  binding_id,
+                  lifecycle,
+                  created_at,
+                  updated_at,
+                  archived_at,
+                  soft_deleted_at
+                FROM canvas_entities
+                WHERE canvas_name = ?
+                  AND lifecycle IN ('active', 'archived')
+                ORDER BY lifecycle, updated_at, entity_id
+              `,
+              [canvasName],
+            )
+            .map(fromRow),
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            persistenceError("listHistoric", error),
+          ),
+        );
+
+    const listSuppressedEntityIds = (
+      canvasName: string,
+    ): Effect.Effect<ReadonlySet<string>, CanvasEntityRepositoryError> =>
+      state
+        .read("canvas-entity.list-suppressed", (reader) => {
+          const rows = reader.all<{ readonly entity_id: string }>(
+            `
+              SELECT entity_id
+              FROM canvas_entities
+              WHERE canvas_name = ?
+                AND lifecycle IN ('archived', 'soft_deleted')
+            `,
+            [canvasName],
+          );
+          return new Set(rows.map((row) => row.entity_id));
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            persistenceError("listSuppressed", error),
+          ),
+        );
 
     const softDelete = (
       canvasName: string,
@@ -326,6 +378,7 @@ export const CanvasEntityRepositoryLive: Layer.Layer<
       get,
       listByCanvas,
       listHistoric,
+      listSuppressedEntityIds,
       softDelete,
     });
   }),

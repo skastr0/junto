@@ -1,14 +1,20 @@
 /**
  * Canvas-scoped entity identity and lifecycle.
  *
- * Laws:
+ * Durable laws (SQLite registry + canvas sync):
  * - Entity := CanvasName × EntityId (never free-floating).
- * - ActiveEntity is only constructible with membership proof (on-canvas).
- * - Off-canvas + active is unrepresentable.
  * - Multi-canvas entity does not exist: identity always includes canvas.
  * - lifecycle: active → archived → soft_deleted (no product hard-delete).
- * - archive/soft_delete are hidden from the execution graph and actor tools.
- * - archived may appear in future historic search; soft_deleted does not.
+ * - Membership in the authorial canvas doc is the live gate for the execution
+ *   graph and actor tools: archived/soft_deleted nodes are not in the doc.
+ * - archived may appear in future historic search; soft_deleted must not
+ *   (listHistoric is the search surface).
+ *
+ * ActiveEntity is a mint helper, not an OwnedProcess-grade capability:
+ * `asActiveEntity` refuses off-canvas ids when given an honest membership set.
+ * Structural values remain TypeScript-forgeable; do not treat the type alone
+ * as unforgeable authority. Wire product gates through live doc membership
+ * (and eventually this mint) before trusting lifecycle helpers.
  */
 
 import { Schema } from "effect";
