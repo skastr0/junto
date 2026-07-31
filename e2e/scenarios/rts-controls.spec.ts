@@ -147,6 +147,13 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   ).toBeVisible();
   await expect(kindStrip.getByRole("button", { name: "Open task board" })).toBeVisible();
   await expect(kindStrip.getByRole("button", { name: "Add task" })).toBeVisible();
+  const taskToolbarEnqueue = page.getByTestId("node-toolbar-task-enqueue");
+  await expect(taskToolbarEnqueue).toBeVisible();
+  await taskToolbarEnqueue.click();
+  const quickEnqueue = page.getByTestId("task-enqueue-surface");
+  await expect(quickEnqueue).toBeVisible();
+  await quickEnqueue.getByRole("button", { name: "Close task enqueue" }).click();
+  await expect(quickEnqueue).toBeHidden();
   await page.screenshot({ path: join(SHOTS, "03-task-sink.png"), fullPage: false });
 
   // Add-task pop: submits through the work service; the sink card shows it.

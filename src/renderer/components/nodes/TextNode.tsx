@@ -47,6 +47,7 @@ import {
   TasksCard,
   TasksDetail,
 } from "../work/WorkSurfaces";
+import { TaskToolbarActions } from "../work/TaskToolbarActions";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import { NodeShell } from "./NodeShell";
@@ -521,6 +522,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           <TerminalToolbarActions node={node} />
         ) : isAgent && !ACP_CHAT_SURFACE_HIDDEN ? (
           <AgentChatToolbarActions node={node} />
+        ) : entityKind === "task" ? (
+          <TaskToolbarActions node={node} />
         ) : undefined
       }
     >
