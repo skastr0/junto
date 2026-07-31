@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { allTemplates, type HarnessId } from "@shared/managed-terminal-templates";
+import { LOCAL_HOST_ID } from "@shared/remote-hosts";
+import { HUE } from "../../lib/theme";
+import { state$ } from "../../lib/state";
 import {
   AgentCascadeMenu,
   cascadeEnterKey,
@@ -45,6 +48,13 @@ const CATEGORIES: ReadonlyArray<{ readonly id: NodeCatalogCategory | "all" | "ag
   { id: "canvas", label: "Canvas" },
 ];
 
+const AGENT_ACCENTS: Readonly<Record<HarnessId, string>> = {
+  claude: "#D97757",
+  codex: HUE.cyan,
+  grok: HUE.gold,
+  hermes: HUE.violet,
+};
+
 const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void => {
   switch (entry.id) {
     case "terminal": actions.addTerminal(); break;
@@ -54,7 +64,9 @@ const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void 
     case "artifacts": actions.addArtifacts(); break;
     case "board": actions.addBoard(); break;
     case "page": actions.addPage(); break;
+    case "watcher": actions.addWatcher(); break;
     case "timer": actions.addTimer(); break;
+    case "note": actions.create("text"); break;
     case "file": actions.create("file"); break;
     case "link": actions.create("link"); break;
     case "region": actions.create("group"); break;
@@ -119,11 +131,12 @@ export function NodePaletteModeDeck({
   }, [agentCascade?.anchor, closeCascade]);
 
   const configureAgent = useCallback((choices: AgentConfigurationChoices) => {
+    const configuredHost = state$.settings.station.hostId.peek() || LOCAL_HOST_ID;
     actions.addConfiguredAgent({
       ...choices,
       ...(launchContext ?? {
-        host: "local",
-        agentHost: "local",
+        host: configuredHost,
+        agentHost: state$.settings.station.agentHostId.peek() || configuredHost,
         cwd: "",
         useRegionDefault: false,
       }),
@@ -184,7 +197,13 @@ export function NodePaletteModeDeck({
                   }}
                   onClick={() => configureAgent({ harness: template.harness })}
                 >
-                  <HarnessMark agent={template.harness} size={22} title={false} />
+                  <HarnessMark
+                    agent={template.harness}
+                    size={28}
+                    title={false}
+                    treatment="neutral"
+                    hue={AGENT_ACCENTS[template.harness]}
+                  />
                   <span><strong>{template.displayName}</strong><small>template defaults</small></span>
                 </button>
                 </div>

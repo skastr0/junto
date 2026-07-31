@@ -13,6 +13,8 @@ export function HarnessMark({
   agent,
   size,
   focused = false,
+  treatment = "tile",
+  hue: hueOverride,
   // Native title fights group hover panels (UsageHud). Opt out with false.
   title: titleProp,
   marks: service = marks,
@@ -20,10 +22,15 @@ export function HarnessMark({
   readonly agent?: string;
   readonly size: number;
   readonly focused?: boolean;
+  /** Neutral keeps the official glyph while removing the tinted tile fill. */
+  readonly treatment?: "tile" | "neutral";
+  /** Palette-only accent override for monochrome official marks. */
+  readonly hue?: string;
   readonly title?: string | false;
   readonly marks?: MarksService;
 }) {
   const tile = markTileFor(agent, service);
+  const hue = hueOverride ?? tile.hue;
   const inner = Math.round((size * 15) / 28);
   const title =
     titleProp === false
@@ -37,8 +44,15 @@ export function HarnessMark({
         width: size,
         height: size,
         borderRadius: Math.round((size * 8) / 28),
-        background: withAlpha(tile.hue, tile.known ? 0.14 : 0.1),
-        border: `1px solid ${withAlpha(tile.hue, focused ? 0.6 : 0.28)}`,
+        background:
+          treatment === "neutral"
+            ? "transparent"
+            : withAlpha(hue, tile.known ? 0.14 : 0.1),
+        border: `1px solid ${
+          treatment === "neutral"
+            ? "rgba(237, 230, 218, 0.14)"
+            : withAlpha(hue, focused ? 0.6 : 0.28)
+        }`,
       }}
       {...(title !== undefined ? { title } : {})}
     >
@@ -47,7 +61,7 @@ export function HarnessMark({
           viewBox={tile.viewBox}
           width={inner}
           height={inner}
-          fill={tile.hue}
+          fill={hue}
           style={{ display: "block", flex: "none" }}
           aria-hidden
         >
@@ -60,7 +74,7 @@ export function HarnessMark({
           style={{
             display: "grid",
             placeItems: "center",
-            color: tile.hue,
+            color: hue,
             fontSize: Math.round((size * 11) / 28),
             fontWeight: 650,
             lineHeight: 1,
@@ -76,7 +90,7 @@ export function HarnessMark({
           width={inner}
           height={inner}
           fill="none"
-          stroke={tile.hue}
+          stroke={hue}
           strokeWidth={2.2}
           strokeLinecap="round"
           strokeLinejoin="round"

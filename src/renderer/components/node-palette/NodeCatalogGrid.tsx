@@ -2,9 +2,9 @@ import { useId, useMemo, useState, type FocusEvent, type MouseEvent } from "reac
 import {
   Archive,
   Blocks,
-  Bot,
   Braces,
   Clock3,
+  Eye,
   FileText,
   Folder,
   Globe2,
@@ -92,11 +92,24 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     connections: [{ target: "Agent", relationship: "shares bounded browser context", ports: ["browser.navigate", "browser.evaluate"] }],
   },
   {
+    id: "watcher", kind: "watcher", category: "schedule", label: "Watcher", subtitle: "condition over live data",
+    icon: Eye, accentClass: "text-cyan",
+    purpose: "A read-only condition over live Hermes data that makes changing operational state visible.",
+    attention: "Watcher truth is derived from live data and never becomes authored document state.",
+    connections: [{ target: "Agent", relationship: "surfaces live state beside connected work", ports: [] }],
+  },
+  {
     id: "timer", kind: "timer", category: "schedule", label: "Timer", subtitle: "pulse on an interval",
     icon: Clock3, accentClass: "text-violet",
     purpose: "A durable, home-scoped interval marker that projects its next due time.",
     attention: "A timer is schedule metadata only. It never injects prompts or wakes an agent seat.",
     connections: [{ target: "Region", relationship: "lives alongside the operating geography", ports: [] }],
+  },
+  {
+    id: "note", kind: "text", category: "canvas", label: "Note", subtitle: "freeform text",
+    icon: FileText, accentClass: "text-gold",
+    purpose: "Freeform operator-authored context placed directly beside the work it explains.",
+    connections: [{ target: "Any node", relationship: "adds human-readable context to the map", ports: [] }],
   },
   {
     id: "file", kind: "file", category: "canvas", label: "File", subtitle: "workspace path",

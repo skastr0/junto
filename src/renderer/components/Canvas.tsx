@@ -588,6 +588,8 @@ function useCanvasInteractions(
 
 interface AddActions extends ModeDeckActions {
   readonly create: (kind: "text" | "file" | "link" | "group") => void;
+  /** Legacy compact-menu path; the Mode Deck always uses addConfiguredAgent. */
+  readonly addAgent: (choices: AgentConfigurationChoices) => void;
   readonly addWatcher: () => void;
   readonly addTimer: () => void;
   readonly addTasks: () => void;
