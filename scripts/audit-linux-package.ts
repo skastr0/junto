@@ -10,6 +10,7 @@ export const LINUX_RUNTIME_REQUIRED_FILES = [
   "resources/bin/vellum",
   "resources/bin/vellum-browser",
   "resources/bin/vellum-station",
+  "resources/bin/vellum-content",
   "resources/bin/vellum-remote",
   "resources/bin/node",
   "resources/bin/unix-peer-pid.py",

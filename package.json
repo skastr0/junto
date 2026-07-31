@@ -1,7 +1,7 @@
 {
   "name": "@skastr0/vellum",
   "version": "0.1.6",
-  "description": "Vellum Command — the deep-field station for multi-agent fleets.",
+  "description": "Vellum Command \u2014 the deep-field station for multi-agent fleets.",
   "author": {
     "name": "Guilherme Castro",
     "email": "skastr052@gmail.com"
@@ -79,7 +79,9 @@
     "cli:build": "bun build --compile --outfile dist/vellum src/cli/main.ts",
     "station:build": "bun build --compile --outfile dist/vellum-station scripts/station-cli.ts",
     "remote:build": "bun scripts/build-vellum-remote.ts",
-    "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts"
+    "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts",
+    "content": "bun scripts/content-cli.ts",
+    "content:build": "bun build --compile --outfile dist/vellum-content scripts/content-cli.ts"
   },
   "dependencies": {
     "@dnd-kit/helpers": "^0.5.0",
@@ -172,6 +174,10 @@
       {
         "from": "dist/vellum-station",
         "to": "bin/vellum-station"
+      },
+      {
+        "from": "dist/vellum-content",
+        "to": "bin/vellum-content"
       },
       {
         "from": "scripts/unix-peer-pid.py",

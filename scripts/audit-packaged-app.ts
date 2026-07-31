@@ -308,6 +308,7 @@ export const validateMacOSRuntimePolicy = (
     "Contents/Resources/bin/vellum",
     "Contents/Resources/bin/vellum-browser",
     "Contents/Resources/bin/vellum-station",
+    "Contents/Resources/bin/vellum-content",
   ] as const) {
     const cli = value.machO.find(
       (entry) => isRecord(entry) && entry.path === cliPath,

@@ -31,6 +31,8 @@ export const DARWIN_PACKAGED_STATION_EXECUTABLE =
   "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-station";
 export const DARWIN_PACKAGED_BROWSER_EXECUTABLE =
   "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-browser";
+export const DARWIN_PACKAGED_CONTENT_EXECUTABLE =
+  "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-content";
 export { STATION_PROTOCOL_NEGOTIATION_ARG };
 
 const SAFE_REMOTE_HOME = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*[^/\u0000-\u001f\u007f]+$/u;
@@ -775,3 +777,118 @@ export const resolveRemoteStationHelper = (
       mode === "negotiation" ? [STATION_PROTOCOL_NEGOTIATION_ARG] : [],
     );
   }).pipe(Effect.withSpan("ssh.remote-station-helper"));
+
+const CONTENT_HELPER_MODE = new Set(["receive", "send", "stat"]);
+const CONTENT_HELPER_SHA256 = /^[a-f0-9]{64}$/u;
+const CONTENT_HELPER_UINT = /^(0|[1-9][0-9]{0,15})$/u;
+
+/**
+ * Admit only the closed content-helper argv surface.  Free-form paths and
+ * shell tokens are unrepresentable here.
+ */
+const assertContentHelperArgs = (
+  args: ReadonlyArray<string>,
+): Effect.Effect<ReadonlyArray<string>, SshInputError> => {
+  if (args.length < 1 || !CONTENT_HELPER_MODE.has(args[0]!)) {
+    return Effect.fail(
+      new SshInputError({ message: "content helper mode is not admitted" }),
+    );
+  }
+  if (args.length < 3 || args.length > 4) {
+    return Effect.fail(
+      new SshInputError({ message: "content helper argv arity is invalid" }),
+    );
+  }
+  if (!CONTENT_HELPER_SHA256.test(args[1]!) || !CONTENT_HELPER_UINT.test(args[2]!)) {
+    return Effect.fail(
+      new SshInputError({ message: "content helper identity tokens are invalid" }),
+    );
+  }
+  if (args.length === 4 && !CONTENT_HELPER_UINT.test(args[3]!)) {
+    return Effect.fail(
+      new SshInputError({ message: "content helper offset is invalid" }),
+    );
+  }
+  if (args[0] === "stat" && args.length !== 3) {
+    return Effect.fail(
+      new SshInputError({ message: "content helper stat arity is invalid" }),
+    );
+  }
+  return Effect.succeed(args);
+};
+
+const remoteVellumContentCommand = (
+  platform: RemotePackagedPlatform,
+  args: ReadonlyArray<string>,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  const observed = remotePackagedPlatforms.get(platform);
+  if (observed === undefined) {
+    return Effect.fail(
+      new SshInputError({
+        message: "remote packaged platform witness is invalid",
+      }),
+    );
+  }
+  if (observed !== "darwin") {
+    return Effect.fail(
+      new SshInputError({
+        message: "Linux content helpers require owner-home userland authority",
+      }),
+    );
+  }
+  return Effect.gen(function* () {
+    const safeArgs = yield* assertContentHelperArgs(args);
+    return yield* makeRemoteCommand(DARWIN_PACKAGED_CONTENT_EXECUTABLE, [
+      ...safeArgs,
+    ]);
+  });
+};
+
+const remoteLinuxUserlandContentCommand = (
+  userland: RemoteLinuxUserland,
+  args: ReadonlyArray<string>,
+): Effect.Effect<RemoteCommand, SshInputError> => {
+  const home = remoteLinuxUserlands.get(userland);
+  if (home === undefined) {
+    return Effect.fail(
+      new SshInputError({
+        message: "remote Linux userland witness is invalid",
+      }),
+    );
+  }
+  return Effect.gen(function* () {
+    const safeArgs = yield* assertContentHelperArgs(args);
+    return yield* makeRemoteCommand(`${home}/.local/bin/vellum-content`, [
+      ...safeArgs,
+    ]);
+  });
+};
+
+/**
+ * Resolve the fixed packaged content helper for an observed platform.
+ * Callers supply only the closed content-helper argv (receive/send/stat);
+ * they never supply an executable path.
+ */
+export const resolveRemoteContentHelper = (
+  ssh: Ssh,
+  target: SshTarget,
+  platform: RemotePackagedPlatform,
+  args: ReadonlyArray<string>,
+): Effect.Effect<RemoteCommand, SshError | SshInputError> =>
+  Effect.gen(function* () {
+    const observed = remotePackagedPlatforms.get(platform);
+    if (observed === "darwin") {
+      return yield* remoteVellumContentCommand(platform, args);
+    }
+    if (observed !== "linux") {
+      return yield* Effect.fail(
+        new SshInputError({
+          message: "remote packaged platform witness is invalid",
+        }),
+      );
+    }
+    const homeResult = yield* ssh.run(homeDirectoryLookup(target));
+    const homeDirectory = yield* decodeObservedRemoteHome(homeResult.stdout);
+    const userland = yield* bindLinuxRemoteUserland(platform, homeDirectory);
+    return yield* remoteLinuxUserlandContentCommand(userland, args);
+  }).pipe(Effect.withSpan("ssh.remote-content-helper"));

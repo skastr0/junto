@@ -195,7 +195,8 @@ preflight_cli_link() {
   if [[
     "$name" != "vellum" &&
     "$name" != "vellum-browser" &&
-    "$name" != "vellum-station"
+    "$name" != "vellum-station" &&
+    "$name" != "vellum-content"
   ]]; then
     err "refusing unexpected CLI link name: $name"
     return 1
@@ -236,10 +237,12 @@ install_cli_tools() {
   local work_helper="$APP_DST/Contents/Resources/bin/vellum"
   local browser_helper="$APP_DST/Contents/Resources/bin/vellum-browser"
   local station_helper="$APP_DST/Contents/Resources/bin/vellum-station"
+  local content_helper="$APP_DST/Contents/Resources/bin/vellum-content"
   if [[
     ! -x "$work_helper" ||
     ! -x "$browser_helper" ||
-    ! -x "$station_helper"
+    ! -x "$station_helper" ||
+    ! -x "$content_helper"
   ]]; then
     err "installed Vellum Command CLI helper missing or not executable"
     return 1
@@ -248,10 +251,12 @@ install_cli_tools() {
   preflight_cli_link "$BIN_DIR/vellum" "$work_helper"
   preflight_cli_link "$BIN_DIR/vellum-browser" "$browser_helper"
   preflight_cli_link "$BIN_DIR/vellum-station" "$station_helper"
+  preflight_cli_link "$BIN_DIR/vellum-content" "$content_helper"
   install_cli_link "vellum" "$work_helper"
   install_cli_link "vellum-browser" "$browser_helper"
   install_cli_link "vellum-station" "$station_helper"
-  log "commands → $BIN_DIR/{vellum,vellum-browser,vellum-station}"
+  install_cli_link "vellum-content" "$content_helper"
+  log "commands → $BIN_DIR/{vellum,vellum-browser,vellum-station,vellum-content}"
 }
 
 audit_app_bundle() {
@@ -644,9 +649,11 @@ CANDIDATE_CDHASH="$(app_cdhash "$APP_SRC")"
 WORK_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum"
 BROWSER_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-browser"
 STATION_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-station"
+CONTENT_HELPER_TARGET="$APP_DST/Contents/Resources/bin/vellum-content"
 preflight_cli_link "$BIN_DIR/vellum" "$WORK_HELPER_TARGET"
 preflight_cli_link "$BIN_DIR/vellum-browser" "$BROWSER_HELPER_TARGET"
 preflight_cli_link "$BIN_DIR/vellum-station" "$STATION_HELPER_TARGET"
+preflight_cli_link "$BIN_DIR/vellum-content" "$CONTENT_HELPER_TARGET"
 
 derive_install_transaction_paths "$$"
 ACTIVATION_STARTED=0

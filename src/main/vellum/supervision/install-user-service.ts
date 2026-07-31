@@ -5,6 +5,7 @@
  * no caller-supplied paths. Writes only:
  *   ~/.config/systemd/user/vellum-remote.service
  *   ~/.local/bin/vellum-station
+ *   ~/.local/bin/vellum-content
  */
 import {
   chmodSync,
@@ -30,7 +31,9 @@ const RELEASE_WRAPPER_MARKER = "/resources/bin/vellum-remote" as const;
 /** Bundled Node entry (wrapper execs node on this path). */
 const RELEASE_ENTRY_MARKER = "/resources/app-remote/vellum-remote.js" as const;
 const STATION_RELATIVE = "resources/bin/vellum-station" as const;
+const CONTENT_RELATIVE = "resources/bin/vellum-content" as const;
 const HELPER_RELATIVE = ".local/bin/vellum-station" as const;
+const CONTENT_HELPER_RELATIVE = ".local/bin/vellum-content" as const;
 
 /** Active immutable generation: ~/.vellum/runtime/releases/<semver>-<sha64>. */
 const RELEASE_DIRECTORY =
@@ -171,12 +174,18 @@ const atomicWriteFile = (path: string, body: string, mode: number): void => {
   }
 };
 
-const installStationHelper = (release: string, home: string): void => {
-  const source = join(release, STATION_RELATIVE);
+const installOwnedHelper = (
+  release: string,
+  home: string,
+  relativeSource: string,
+  relativeDestination: string,
+  label: string,
+): void => {
+  const source = join(release, relativeSource);
   if (!isOwnedNonLinkFile(source, true)) {
-    throw new Error("release vellum-station helper is missing or not executable");
+    throw new Error(`release ${label} helper is missing or not executable`);
   }
-  const destination = join(home, HELPER_RELATIVE);
+  const destination = join(home, relativeDestination);
   const directory = dirname(destination);
   mkdirSync(directory, { recursive: true, mode: 0o755 });
   if (!isOwnedNonLinkDir(directory)) {
@@ -196,8 +205,25 @@ const installStationHelper = (release: string, home: string): void => {
     throw error;
   }
   if (!isOwnedNonLinkFile(destination, true)) {
-    throw new Error("station helper install did not produce an owned executable");
+    throw new Error(`${label} helper install did not produce an owned executable`);
   }
+};
+
+const installStationHelper = (release: string, home: string): void => {
+  installOwnedHelper(
+    release,
+    home,
+    STATION_RELATIVE,
+    HELPER_RELATIVE,
+    "vellum-station",
+  );
+  installOwnedHelper(
+    release,
+    home,
+    CONTENT_RELATIVE,
+    CONTENT_HELPER_RELATIVE,
+    "vellum-content",
+  );
 };
 
 const enableUserService = (): void => {
