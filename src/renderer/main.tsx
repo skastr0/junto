@@ -5,16 +5,6 @@ import { App } from "./App";
 import { LicenseGate } from "./components/license";
 import "./styles.css";
 
-// Dev-only render highlighter (https://github.com/aidenybai/react-scan).
-// Import before createRoot so the scanner can instrument React.
-// Off by default (heavy on React Flow canvases) — opt in per machine with:
-//   localStorage.setItem("vellum:react-scan", "on")
-if (import.meta.env.DEV && localStorage.getItem("vellum:react-scan") === "on") {
-  void import("react-scan").then(({ scan }) => {
-    scan({ enabled: true, showToolbar: true, animationSpeed: "fast" });
-  });
-}
-
 const root = document.getElementById("root");
 
 if (!root) {

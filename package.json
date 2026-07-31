@@ -124,7 +124,6 @@
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "playwright-core": "^1.61.1",
-    "react-scan": "^0.5.7",
     "spdx-expression-parse": "^5.0.0",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
