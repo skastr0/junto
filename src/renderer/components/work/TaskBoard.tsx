@@ -874,7 +874,7 @@ function TaskCreateDialog({
 
   return (
     <FocusSurface
-      measure="form"
+      measure="document"
       height="fit"
       layer="work"
       label="Create task"
@@ -956,198 +956,212 @@ function TaskCreateDialog({
           });
         }}
       >
-        <label>
-          <span>Title</span>
-          <Input
-            autoFocus
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="What needs doing?"
-            maxLength={180}
-          />
-          <small>A concise outcome that stays readable on the board.</small>
-        </label>
-        <label>
-          <span>Depends on (optional)</span>
-          <Input
-            value={dependsOnText}
-            onChange={(event) => setDependsOnText(event.target.value)}
-            placeholder="task ids, space or comma separated"
-          />
-          <small>
-            Hard prerequisites on this sink. Empty means free to claim in parallel.
-          </small>
-        </label>
-        <label>
-          <span>Task role</span>
-          <Input
-            value={role}
-            onChange={(event) => setRole(event.target.value)}
-            placeholder="e.g. Security Agent"
-            list={roleListId}
-          />
-          <datalist id={roleListId}>
-            {roles.map((knownRole) => (
-              <option key={knownRole} value={knownRole} />
-            ))}
-          </datalist>
-          <small>The specialization this task should be routed to.</small>
-        </label>
-        <label>
-          <span>Description</span>
-          <Textarea
-            value={details}
-            onChange={(event) => setDetails(event.target.value)}
-            placeholder="Describe the context, constraints, expected result, and any proof the worker should return…"
-            rows={6}
-          />
-          <small>Long-form is welcome. Line breaks and detailed acceptance notes are preserved.</small>
-        </label>
-        <label>
-          <span>Finish criteria (optional)</span>
-          <Textarea
-            value={criteriaText}
-            onChange={(event) => setCriteriaText(event.target.value)}
-            placeholder="North star: what must be true for this task to be complete…"
-            rows={3}
-          />
-          <small>Soft guidance for the agent. Hard gates are the checkboxes below.</small>
-        </label>
-        <label className="task-create-dialog__check">
-          <input
-            type="checkbox"
-            checked={requireArtifacts}
-            onChange={(event) => setRequireArtifacts(event.target.checked)}
-          />
-          <span>Require artifact(s)</span>
-        </label>
-        {requireArtifacts ? (
-          <>
+        <div className="task-create-dialog__body">
+          <div className="task-create-dialog__primary">
             <label>
-              <span>Artifacts node id</span>
+              <span>Title</span>
               <Input
-                value={artifactsNodeId}
-                onChange={(event) => setArtifactsNodeId(event.target.value)}
-                placeholder="artifacts sink node id"
+                autoFocus
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="What needs doing?"
+                maxLength={180}
               />
+              <small>A concise outcome that stays readable on the board.</small>
             </label>
-            <label>
-              <span>Artifact instruction</span>
+            <label className="task-create-dialog__grow">
+              <span>Description</span>
               <Textarea
-                value={artifactsInstruction}
-                onChange={(event) => setArtifactsInstruction(event.target.value)}
-                placeholder="What artifacts should the agent publish…"
-                rows={2}
+                value={details}
+                onChange={(event) => setDetails(event.target.value)}
+                placeholder="Describe the context, constraints, expected result, and any proof the worker should return…"
+                rows={12}
               />
+              <small>Long-form is welcome. Line breaks and detailed acceptance notes are preserved.</small>
+            </label>
+            <label className="task-create-dialog__grow task-create-dialog__grow--secondary">
+              <span>Finish criteria (optional)</span>
+              <Textarea
+                value={criteriaText}
+                onChange={(event) => setCriteriaText(event.target.value)}
+                placeholder="North star: what must be true for this task to be complete…"
+                rows={6}
+              />
+              <small>Soft guidance for the agent. Hard gates live on the right.</small>
+            </label>
+          </div>
+
+          <aside className="task-create-dialog__aside" aria-label="Task details and hard gates">
+            <label>
+              <span>Task role</span>
+              <Input
+                value={role}
+                onChange={(event) => setRole(event.target.value)}
+                placeholder="e.g. Security Agent"
+                list={roleListId}
+              />
+              <datalist id={roleListId}>
+                {roles.map((knownRole) => (
+                  <option key={knownRole} value={knownRole} />
+                ))}
+              </datalist>
+              <small>Specialization this task should be routed to.</small>
             </label>
             <label>
-              <span>Required artifact names (optional)</span>
+              <span>Depends on (optional)</span>
               <Input
-                value={artifactNamesText}
-                onChange={(event) => setArtifactNamesText(event.target.value)}
-                placeholder="exact names, comma or newline separated"
+                value={dependsOnText}
+                onChange={(event) => setDependsOnText(event.target.value)}
+                placeholder="task ids, space or comma separated"
               />
-              <small>When set, every name must match exactly on complete.</small>
+              <small>Hard prerequisites. Empty means free to claim in parallel.</small>
             </label>
-          </>
-        ) : null}
-        <label className="task-create-dialog__check">
-          <input
-            type="checkbox"
-            checked={requireGit}
-            onChange={(event) => setRequireGit(event.target.checked)}
-          />
-          <span>Require at least one git commit</span>
-        </label>
-        <div
-          className={`task-create-dialog__media${dragOver ? " is-dragover" : ""}`}
-          onDragEnter={(event) => {
-            event.preventDefault();
-            setDragOver(true);
-          }}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={(event) => {
-            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-            setDragOver(false);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            setDragOver(false);
-            void ingestClipboardOrFiles(event.dataTransfer);
-          }}
-        >
-          <div className="task-create-dialog__media-heading">
-            <span>
-              <Paperclip size={12} aria-hidden />
-              Media
-            </span>
-            <small>
-              Paste, drop, or attach images. Stored as first-class raw parts on the task — projected to remote claims, not host paths.
-            </small>
-          </div>
-          {media.length > 0 ? (
-            <ul className="task-create-dialog__media-list">
-              {media.map((item) => (
-                <li key={item.id}>
-                  <img src={item.previewUrl} alt={item.label} />
-                  <div>
-                    <strong>{item.label}</strong>
-                    <span>{item.mediaType}</span>
-                  </div>
-                  <IconButton
-                    aria-label={`Remove ${item.label}`}
-                    title="Remove"
-                    disabled={pending}
-                    onClick={() =>
-                      setMedia((current) => current.filter((entry) => entry.id !== item.id))
-                    }
-                  >
-                    <X size={12} />
-                  </IconButton>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="task-create-dialog__media-empty">
-              <ImagePlus size={14} aria-hidden />
-              No images yet — paste a screenshot or drop a file here.
-            </p>
-          )}
-          <div className="task-create-dialog__media-actions">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
-              multiple
-              hidden
-              onChange={(event) => {
-                void ingestFileList(event.target.files);
-                event.target.value = "";
+
+            <div className="task-create-dialog__gates">
+              <div className="task-create-dialog__gates-heading">
+                <span>Hard finish gates</span>
+                <small>Deterministic complete requirements.</small>
+              </div>
+              <label className="task-create-dialog__check">
+                <input
+                  type="checkbox"
+                  checked={requireArtifacts}
+                  onChange={(event) => setRequireArtifacts(event.target.checked)}
+                />
+                <span>Require artifact(s)</span>
+              </label>
+              {requireArtifacts ? (
+                <div className="task-create-dialog__gate-fields">
+                  <label>
+                    <span>Artifacts node id</span>
+                    <Input
+                      value={artifactsNodeId}
+                      onChange={(event) => setArtifactsNodeId(event.target.value)}
+                      placeholder="artifacts sink node id"
+                    />
+                  </label>
+                  <label>
+                    <span>Artifact instruction</span>
+                    <Textarea
+                      value={artifactsInstruction}
+                      onChange={(event) => setArtifactsInstruction(event.target.value)}
+                      placeholder="What artifacts should the agent publish…"
+                      rows={2}
+                    />
+                  </label>
+                  <label>
+                    <span>Required artifact names (optional)</span>
+                    <Input
+                      value={artifactNamesText}
+                      onChange={(event) => setArtifactNamesText(event.target.value)}
+                      placeholder="exact names, comma or newline separated"
+                    />
+                    <small>When set, every name must match exactly on complete.</small>
+                  </label>
+                </div>
+              ) : null}
+              <label className="task-create-dialog__check">
+                <input
+                  type="checkbox"
+                  checked={requireGit}
+                  onChange={(event) => setRequireGit(event.target.checked)}
+                />
+                <span>Require at least one git commit</span>
+              </label>
+            </div>
+
+            <div
+              className={`task-create-dialog__media${dragOver ? " is-dragover" : ""}`}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                setDragOver(true);
               }}
-            />
-            <Button
-              type="button"
-              size="xs"
-              variant="subtle"
-              disabled={pending}
-              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                setDragOver(false);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragOver(false);
+                void ingestClipboardOrFiles(event.dataTransfer);
+              }}
             >
-              <ImagePlus size={12} />
-              Attach image
-            </Button>
-            {media.length > 0 ? (
-              <span>{media.length} attached</span>
-            ) : null}
-          </div>
-          {mediaError ? (
-            <p className="task-create-dialog__media-error" role="alert">
-              {mediaError}
-            </p>
-          ) : null}
+              <div className="task-create-dialog__media-heading">
+                <span>
+                  <Paperclip size={12} aria-hidden />
+                  Media
+                </span>
+                <small>
+                  Paste, drop, or attach images. Stored as first-class raw parts on the task — projected to remote claims, not host paths.
+                </small>
+              </div>
+              {media.length > 0 ? (
+                <ul className="task-create-dialog__media-list">
+                  {media.map((item) => (
+                    <li key={item.id}>
+                      <img src={item.previewUrl} alt={item.label} />
+                      <div>
+                        <strong>{item.label}</strong>
+                        <span>{item.mediaType}</span>
+                      </div>
+                      <IconButton
+                        aria-label={`Remove ${item.label}`}
+                        title="Remove"
+                        disabled={pending}
+                        onClick={() =>
+                          setMedia((current) => current.filter((entry) => entry.id !== item.id))
+                        }
+                      >
+                        <X size={12} />
+                      </IconButton>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="task-create-dialog__media-empty">
+                  <ImagePlus size={14} aria-hidden />
+                  No images yet — paste a screenshot or drop a file here.
+                </p>
+              )}
+              <div className="task-create-dialog__media-actions">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
+                  multiple
+                  hidden
+                  onChange={(event) => {
+                    void ingestFileList(event.target.files);
+                    event.target.value = "";
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="subtle"
+                  disabled={pending}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <ImagePlus size={12} />
+                  Attach image
+                </Button>
+                {media.length > 0 ? (
+                  <span>{media.length} attached</span>
+                ) : null}
+              </div>
+              {mediaError ? (
+                <p className="task-create-dialog__media-error" role="alert">
+                  {mediaError}
+                </p>
+              ) : null}
+            </div>
+          </aside>
         </div>
+
         <footer>
           <Button type="button" variant="subtle" onClick={onClose} disabled={pending}>
             Cancel
