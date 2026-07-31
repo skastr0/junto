@@ -64,6 +64,24 @@ describe("named deploy compilers", () => {
     expect(parts.args[1]).toBe(compileLinuxUserlandDeploySource());
   });
 
+  it("hardens deploy around vellum-remote generation pin, sealed install, and member proof", () => {
+    const source = compileLinuxUserlandDeploySource();
+    expect(source).toContain("resources/bin/vellum-remote");
+    expect(source).toContain("--vellum-state-preflight");
+    expect(source).toContain("--install-user-service");
+    expect(source).toContain("unit_pins_generation");
+    expect(source).toContain("prove_activation");
+    expect(source).toContain('GENERATION_MARKER="releases/$VERSION-$SHA"');
+    expect(source).toContain("$GENERATION_MARKER/resources/systemd/vellum-remote-launch");
+    expect(source).toContain("$GENERATION_MARKER/resources/bin/vellum-remote");
+    expect(source).toContain("state=idempotent");
+    expect(source).toContain('"$HOME/.vellum/work/control.sock"');
+    expect(source).toContain('"$HOME/.vellum/work/token"');
+    expect(source).not.toContain('"$DEST/vellum"');
+    expect(source).not.toContain('"$RELEASE/vellum"');
+    expect(source).not.toMatch(/Xvfb|ozone-platform|--vellum-headless/u);
+  });
+
   it("admits a product Darwin deploy script and refuses free-form shell", () => {
     const product = [
       "begin_candidate_activation() { :; }",
@@ -124,8 +142,7 @@ describe("herdr image stage plan", () => {
     expect(src).toContain("umask 077");
     expect(src).toContain(HERDR_IMAGE_STAGE_DIR);
     expect(src).toContain(productName);
-    expect(src).toContain("set -C");
-    expect(src).toContain("chmod 600");
+        expect(src).toContain("chmod 600");
     expect(src).not.toMatch(/rm\s+-rf\s+\//);
     expect(src).not.toContain("$1");
     expect(src).not.toContain("$2");

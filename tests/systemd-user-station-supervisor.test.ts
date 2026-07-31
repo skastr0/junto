@@ -83,13 +83,19 @@ describe("userland Linux service rendering", () => {
     expect(USERLAND_LINUX_SERVICE_PATH).toBe(
       ".config/systemd/user/vellum-remote.service",
     );
-    expect(service).toContain(`ConditionFileIsExecutable=${release}/vellum`);
+    expect(service).toContain(
+      `ConditionFileIsExecutable=${release}/resources/bin/vellum-remote`,
+    );
     expect(service).toContain(
       `ExecStart=${release}/resources/systemd/vellum-remote-launch`,
     );
     expect(service).toContain("Type=notify");
     expect(service).toContain("RuntimeDirectoryMode=0700");
     expect(service).not.toMatch(/\/opt\/|current|\/bin\/sh|User=|loginctl|linger/u);
+    expect(service).not.toMatch(/^Environment=ELECTRON_OZONE/mu);
+    expect(service).not.toMatch(/^Environment=OZONE_PLATFORM=/mu);
+    expect(service).not.toMatch(/^Environment=XDG_SESSION_TYPE=/mu);
+    expect(service).not.toMatch(/^ConditionFileIsExecutable=.*\/vellum$/mu);
   });
 
   it("escapes a safe home path and rejects paths outside the immutable layout", () => {

@@ -3,7 +3,6 @@ import { Effect } from "effect";
 import { makeRemoteCommand, type RemoteCommand, SshInputError } from "./domain";
 
 const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
-const SAFE_ARCHIVE = /^[0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]{64}$/u;
 
 /** Owner-only, capability-independent preflight. */
 export const compileLinuxUserlandPreflightSource = (): string => String.raw`
@@ -28,7 +27,8 @@ export const compileLinuxUserlandPreflight = (): Effect.Effect<RemoteCommand, Ss
  * One owner-home archive transaction. Header is fixed by the provider:
  * `LINUX_USERLAND_DEPLOY_V1 version=<semver> sha256=<hex> bytes=<n>\n`.
  * The runtime archive itself is the candidate; paths/modes are rejected by tar
- * before extraction, and activation happens only after staged preflight.
+ * before extraction, and activation happens only after staged preflight and
+ * sealed --install-user-service.
  */
 export const compileLinuxUserlandDeploySource = (): string => String.raw`
 set -eu
@@ -49,10 +49,37 @@ mkdir -p "$ROOT/releases" "$ROOT/staging" || fail stage
 chmod 700 "$ROOT" "$ROOT/releases" "$ROOT/staging" || fail stage
 DEST="$ROOT/releases/$VERSION-$SHA"
 case "$DEST" in "$ROOT"/releases/*) ;; *) fail path;; esac
-if [ -d "$DEST" ] && [ ! -L "$DEST" ] && [ -x "$DEST/vellum" ]; then
-  /usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || fail service
-  /usr/bin/systemctl --user restart vellum-remote.service >/dev/null 2>&1 || fail service
-  printf 'LINUX_USERLAND_DEPLOY_V1 ok=1 state=idempotent release=%s\n' "$VERSION-$SHA"
+UNIT="$HOME/.config/systemd/user/vellum-remote.service"
+REMOTE_BIN="$DEST/resources/bin/vellum-remote"
+LAUNCHER="$DEST/resources/systemd/vellum-remote-launch"
+GENERATION_MARKER="releases/$VERSION-$SHA"
+unit_pins_generation() {
+  [ -f "$UNIT" ] && [ ! -L "$UNIT" ] || return 1
+  /usr/bin/grep -F "ExecStart=" "$UNIT" | /usr/bin/grep -F "$GENERATION_MARKER/resources/systemd/vellum-remote-launch" >/dev/null 2>&1 || return 1
+  /usr/bin/grep -F "ConditionFileIsExecutable=" "$UNIT" | /usr/bin/grep -F "$GENERATION_MARKER/resources/bin/vellum-remote" >/dev/null 2>&1 || return 1
+  return 0
+}
+prove_activation() {
+  /usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || return 1
+  /usr/bin/systemctl --user restart vellum-remote.service >/dev/null 2>&1 || return 1
+  /usr/bin/systemctl --user is-active --quiet vellum-remote.service || return 1
+  [ -S "$HOME/.vellum/work/control.sock" ] && [ ! -L "$HOME/.vellum/work/control.sock" ] || return 1
+  [ -f "$HOME/.vellum/work/token" ] && [ ! -L "$HOME/.vellum/work/token" ] || return 1
+  [ "$(/usr/bin/stat -c '%a' "$HOME/.vellum/work/control.sock" 2>/dev/null || true)" = 600 ] || return 1
+  [ "$(/usr/bin/stat -c '%a' "$HOME/.vellum/work/token" 2>/dev/null || true)" = 600 ] || return 1
+  return 0
+}
+if [ -d "$DEST" ] && [ ! -L "$DEST" ] && [ -x "$REMOTE_BIN" ] && [ ! -L "$REMOTE_BIN" ] && [ -x "$LAUNCHER" ] && [ ! -L "$LAUNCHER" ]; then
+  if unit_pins_generation; then
+    prove_activation || fail readiness
+    printf 'LINUX_USERLAND_DEPLOY_V1 ok=1 state=idempotent release=%s\n' "$VERSION-$SHA"
+    exit 0
+  fi
+  # Generation directory exists but unit does not pin it — sealed reinstall of unit only.
+  "$REMOTE_BIN" --install-user-service >/dev/null 2>&1 || fail service
+  unit_pins_generation || fail service
+  prove_activation || fail readiness
+  printf 'LINUX_USERLAND_DEPLOY_V1 ok=1 state=ready release=%s\n' "$VERSION-$SHA"
   exit 0
 fi
 STAGE="$ROOT/staging/$VERSION-$SHA-$$"
@@ -62,16 +89,33 @@ chmod 700 "$STAGE"
 /usr/bin/head -c "$BYTES" > "$ARCHIVE" || { rm -rf -- "$STAGE"; fail stream; }
 [ "$(/usr/bin/stat -c '%s' "$ARCHIVE")" = "$BYTES" ] || { rm -rf -- "$STAGE"; fail size; }
 [ "$(/usr/bin/sha256sum "$ARCHIVE" | /usr/bin/awk '{print $1}')" = "$SHA" ] || { rm -rf -- "$STAGE"; fail hash; }
-/usr/bin/tar -tvzf "$ARCHIVE" | /usr/bin/awk 'BEGIN{ok=1} $1 !~ /^[-d]/ || $0 ~ / -> / || $0 ~ / link to / || $NF ~ /^\// || $NF ~ /(^|\/)\.\.($|\/)/ || $NF !~ /^vellum-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64\// {ok=0} END{exit ok?0:1}' || { rm -rf -- "$STAGE"; fail members; }
+/usr/bin/tar -tvzf "$ARCHIVE" | /usr/bin/awk '
+  BEGIN { ok=1; root=""; remote=0; launch=0 }
+  {
+    if ($1 !~ /^[-d]/ || $0 ~ / -> / || $0 ~ / link to / || $NF ~ /^\// || $NF ~ /(^|\/)\.\.($|\/)/) { ok=0; next }
+    if ($NF !~ /^vellum-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64(\/|$)/) { ok=0; next }
+    if (root == "" && $1 ~ /^d/ && $NF ~ /^vellum-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64\/?$/) root=$NF
+    if ($NF ~ /\/resources\/bin\/vellum-remote$/ && $1 ~ /^-/) remote=1
+    if ($NF ~ /\/resources\/systemd\/vellum-remote-launch$/ && $1 ~ /^-/) launch=1
+  }
+  END { exit (ok && remote && launch) ? 0 : 1 }
+' || { rm -rf -- "$STAGE"; fail members; }
 /usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions || { rm -rf -- "$STAGE"; fail extract; }
 RELEASE="$STAGE/vellum-runtime-$VERSION-linux-x64"
-[ -d "$RELEASE" ] && [ ! -L "$RELEASE" ] && [ -x "$RELEASE/vellum" ] && [ ! -L "$RELEASE/vellum" ] || { rm -rf -- "$STAGE"; fail candidate; }
-"$RELEASE/vellum" --vellum-state-preflight >/dev/null 2>&1 || { rm -rf -- "$STAGE"; fail preflight; }
+CANDIDATE_REMOTE="$RELEASE/resources/bin/vellum-remote"
+[ -d "$RELEASE" ] && [ ! -L "$RELEASE" ] && [ -x "$CANDIDATE_REMOTE" ] && [ ! -L "$CANDIDATE_REMOTE" ] || { rm -rf -- "$STAGE"; fail candidate; }
+[ -x "$RELEASE/resources/systemd/vellum-remote-launch" ] && [ ! -L "$RELEASE/resources/systemd/vellum-remote-launch" ] || { rm -rf -- "$STAGE"; fail candidate; }
+"$CANDIDATE_REMOTE" --vellum-state-preflight >/dev/null 2>&1 || { rm -rf -- "$STAGE"; fail preflight; }
+if [ -e "$DEST" ] || [ -L "$DEST" ]; then
+  rm -rf -- "$STAGE"
+  fail install
+fi
 mv "$RELEASE" "$DEST" || { rm -rf -- "$STAGE"; fail install; }
 rm -rf -- "$STAGE"
-/usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || fail service
-/usr/bin/systemctl --user restart vellum-remote.service >/dev/null 2>&1 || fail service
-/usr/bin/systemctl --user is-active --quiet vellum-remote.service || fail readiness
+[ -x "$REMOTE_BIN" ] && [ ! -L "$REMOTE_BIN" ] || fail candidate
+"$REMOTE_BIN" --install-user-service >/dev/null 2>&1 || fail service
+unit_pins_generation || fail service
+prove_activation || fail readiness
 printf 'LINUX_USERLAND_DEPLOY_V1 ok=1 state=ready release=%s\n' "$VERSION-$SHA"
 `.trim();
 

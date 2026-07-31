@@ -31,10 +31,6 @@ export const DARWIN_PACKAGED_STATION_EXECUTABLE =
   "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-station";
 export const DARWIN_PACKAGED_BROWSER_EXECUTABLE =
   "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-browser";
-export const LINUX_PACKAGED_STATION_EXECUTABLE =
-  "/opt/Vellum Command/resources/bin/vellum-station";
-export const LINUX_PACKAGED_BROWSER_EXECUTABLE =
-  "/opt/Vellum Command/resources/bin/vellum-browser";
 export { STATION_PROTOCOL_NEGOTIATION_ARG };
 
 const SAFE_REMOTE_HOME = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*[^/\u0000-\u001f\u007f]+$/u;
@@ -664,12 +660,15 @@ const remoteVellumStationCommand = (
       }),
     );
   }
-  return makeRemoteCommand(
-    observed === "darwin"
-      ? DARWIN_PACKAGED_STATION_EXECUTABLE
-      : LINUX_PACKAGED_STATION_EXECUTABLE,
-    args,
-  );
+  if (observed !== "darwin") {
+    return Effect.fail(
+      new SshInputError({
+        message:
+          "Linux Station helpers require owner-home userland authority",
+      }),
+    );
+  }
+  return makeRemoteCommand(DARWIN_PACKAGED_STATION_EXECUTABLE, args);
 };
 
 const remoteLinuxUserlandStationCommand = (

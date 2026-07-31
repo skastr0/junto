@@ -247,7 +247,7 @@ const readCandidateManifestIdentity = async (
     return {
       packageName: manifest.package.name,
       version: manifest.release.version,
-      architecture: manifest.target.debArchitecture,
+      architecture: manifest.target.architecture,
     };
   } finally {
     await handle.close();
@@ -260,13 +260,12 @@ const readCandidateManifestIdentity = async (
  * Trust is compiled into the independently installed application and cannot
  * be supplied by the mutable release candidate. The candidate supplies no
  * trusted version, hash, or package path. The small pre-read only derives the
- * deb identity needed by the general verifier; all returned authority comes
+ * package identity needed by the general verifier; all returned authority comes
  * from the subsequently verified signed manifest.
  *
  * The opaque result must be opened through
- * openVerifiedProductionLinuxDeployPackage. Remote deployment must then
- * enforce the transmitted size/SHA-256 and inspect Package, Version, and
- * Architecture with dpkg-deb before any privileged mutation.
+ * openVerifiedProductionLinuxDeployPackage. Remote deployment then enforces the
+ * transmitted size/SHA-256 against the owner-home userland runtime archive.
  */
 const verifyLinuxDeployBundle = async (
   input: ProductionLinuxDeployBundleInput,

@@ -20,8 +20,8 @@ describe("Linux userland runtime audit", () => {
     try {
       await mkdir(path.join(runtime, "resources/bin"), { recursive: true });
       await mkdir(path.join(runtime, "resources/systemd"), { recursive: true });
-      for (const file of ["vellum", "resources/app.asar", "resources/bin/vellum", "resources/bin/vellum-browser", "resources/bin/vellum-station", "resources/bin/unix-peer-pid.py", "resources/systemd/vellum-remote-launch"]) await writeFile(path.join(runtime, file), "fixture");
-      await writeFile(path.join(runtime, "resources/systemd/vellum-remote.service.template"), "ExecStart=@VELLUM_RUNTIME_ROOT@/resources/systemd/vellum-remote-launch\n");
+      for (const file of ["vellum", "resources/app.asar", "resources/bin/vellum", "resources/bin/vellum-browser", "resources/bin/vellum-station", "resources/bin/vellum-remote", "resources/bin/unix-peer-pid.py", "resources/systemd/vellum-remote-launch"]) await writeFile(path.join(runtime, file), "fixture");
+      await writeFile(path.join(runtime, "resources/systemd/vellum-remote.service.template"), "ExecStart=@VELLUM_RUNTIME_ROOT@/resources/systemd/vellum-remote-launch\nConditionFileIsExecutable=@VELLUM_RUNTIME_ROOT@/resources/bin/vellum-remote\n");
       await writeFile(path.join(runtime, "chrome-sandbox"), "forbidden");
       await expect(auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" })).rejects.toThrow(/privileged packaging residue/u);
       await rm(path.join(runtime, "chrome-sandbox"));

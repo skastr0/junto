@@ -1,0 +1,238 @@
+/**
+ * Sealed owner-home install of the Linux Remote user service + station helper.
+ *
+ * Derives the immutable release root from this binary's absolute path only —
+ * no caller-supplied paths. Writes only:
+ *   ~/.config/systemd/user/vellum-remote.service
+ *   ~/.local/bin/vellum-station
+ */
+import {
+  chmodSync,
+  copyFileSync,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import {
+  renderUserlandLinuxService,
+  USERLAND_LINUX_SERVICE_PATH,
+} from "./systemd-user";
+
+export const INSTALL_USER_SERVICE_SWITCH = "--install-user-service" as const;
+
+const RELEASE_MARKER = "/resources/bin/vellum-remote" as const;
+const STATION_RELATIVE = "resources/bin/vellum-station" as const;
+const HELPER_RELATIVE = ".local/bin/vellum-station" as const;
+
+/** Active immutable generation: ~/.vellum/runtime/releases/<semver>-<sha64>. */
+const RELEASE_DIRECTORY =
+  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum\/runtime\/releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}$/u;
+
+/**
+ * Candidate tree under userland runtime (releases or staging extract).
+ * Staging holds `vellum-runtime-<semver>-linux-x64` before activation.
+ */
+const CANDIDATE_RUNTIME_ROOT =
+  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum\/runtime\/(?:releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}|staging\/[^/\u0000-\u001f\u007f]+\/vellum-runtime-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-linux-x64)$/u;
+
+const isOwnedNonLinkFile = (path: string, executable = false): boolean => {
+  try {
+    const info = lstatSync(path);
+    if (!info.isFile() || info.isSymbolicLink()) return false;
+    if (process.getuid !== undefined && info.uid !== process.getuid()) {
+      return false;
+    }
+    if (executable && (info.mode & 0o111) === 0) return false;
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const isOwnedNonLinkDir = (path: string): boolean => {
+  try {
+    const info = lstatSync(path);
+    if (!info.isDirectory() || info.isSymbolicLink()) return false;
+    if (process.getuid !== undefined && info.uid !== process.getuid()) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const resolveRemoteBinaryRoot = (
+  binaryPath: string,
+  admit: (root: string) => boolean,
+  label: string,
+): string => {
+  if (!binaryPath.startsWith("/")) {
+    throw new Error("vellum-remote binary path must be absolute");
+  }
+  let real: string;
+  try {
+    real = realpathSync(binaryPath);
+  } catch {
+    throw new Error("vellum-remote binary path is not resolvable");
+  }
+  if (!isOwnedNonLinkFile(real, true)) {
+    throw new Error("vellum-remote binary must be an owned non-symlink executable");
+  }
+  if (!real.endsWith(RELEASE_MARKER)) {
+    throw new Error("vellum-remote is not at resources/bin/vellum-remote under a release");
+  }
+  const root = real.slice(0, -RELEASE_MARKER.length);
+  if (!admit(root)) {
+    throw new Error(`${label} is not under the owner-local userland runtime layout`);
+  }
+  if (!isOwnedNonLinkDir(root)) {
+    throw new Error("runtime root must be an owned non-symlink directory");
+  }
+  return root;
+};
+
+/**
+ * Resolve a candidate runtime root (releases generation or staging extract)
+ * for sealed preflight before activation.
+ */
+export const resolveCandidateRuntimeRootFromRemoteBinary = (
+  binaryPath: string,
+): string =>
+  resolveRemoteBinaryRoot(
+    binaryPath,
+    (root) => CANDIDATE_RUNTIME_ROOT.test(root),
+    "candidate runtime root",
+  );
+
+/**
+ * Resolve the generation-pinned release root from the absolute path of this
+ * `vellum-remote` binary. Rejects anything outside the immutable userland layout.
+ */
+export const resolveReleaseDirectoryFromRemoteBinary = (
+  binaryPath: string,
+): string =>
+  resolveRemoteBinaryRoot(
+    binaryPath,
+    (root) => RELEASE_DIRECTORY.test(root),
+    "release directory",
+  );
+
+const requireHome = (): string => {
+  const home = process.env.HOME?.trim();
+  if (home === undefined || home === "" || !home.startsWith("/")) {
+    throw new Error("HOME must be an absolute path");
+  }
+  if (!isOwnedNonLinkDir(home)) {
+    throw new Error("HOME must be an owned non-symlink directory");
+  }
+  return home;
+};
+
+const atomicWriteFile = (path: string, body: string, mode: number): void => {
+  const directory = dirname(path);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  if (!isOwnedNonLinkDir(directory)) {
+    throw new Error(`install destination parent is not owner-controlled: ${directory}`);
+  }
+  const staging = `${path}.tmp-${process.pid}`;
+  try {
+    writeFileSync(staging, body, { encoding: "utf8", mode, flag: "wx" });
+    renameSync(staging, path);
+  } catch (error) {
+    try {
+      unlinkSync(staging);
+    } catch {
+      // best-effort cleanup
+    }
+    throw error;
+  }
+  chmodSync(path, mode);
+  if (!isOwnedNonLinkFile(path)) {
+    throw new Error(`install did not produce an owned regular file: ${path}`);
+  }
+};
+
+const installStationHelper = (release: string, home: string): void => {
+  const source = join(release, STATION_RELATIVE);
+  if (!isOwnedNonLinkFile(source, true)) {
+    throw new Error("release vellum-station helper is missing or not executable");
+  }
+  const destination = join(home, HELPER_RELATIVE);
+  const directory = dirname(destination);
+  mkdirSync(directory, { recursive: true, mode: 0o755 });
+  if (!isOwnedNonLinkDir(directory)) {
+    throw new Error("helper destination parent is not owner-controlled");
+  }
+  const staging = `${destination}.tmp-${process.pid}`;
+  try {
+    copyFileSync(source, staging);
+    chmodSync(staging, 0o755);
+    renameSync(staging, destination);
+  } catch (error) {
+    try {
+      unlinkSync(staging);
+    } catch {
+      // best-effort cleanup
+    }
+    throw error;
+  }
+  if (!isOwnedNonLinkFile(destination, true)) {
+    throw new Error("station helper install did not produce an owned executable");
+  }
+};
+
+const enableUserService = (): void => {
+  const reload = spawnSync(
+    "/usr/bin/systemctl",
+    ["--user", "daemon-reload"],
+    { encoding: "utf8", shell: false },
+  );
+  if (reload.status !== 0) {
+    throw new Error(
+      `systemctl --user daemon-reload failed: ${reload.stderr.trim() || reload.stdout.trim() || "unknown"}`,
+    );
+  }
+  const enable = spawnSync(
+    "/usr/bin/systemctl",
+    ["--user", "enable", "vellum-remote.service"],
+    { encoding: "utf8", shell: false },
+  );
+  if (enable.status !== 0) {
+    throw new Error(
+      `systemctl --user enable failed: ${enable.stderr.trim() || enable.stdout.trim() || "unknown"}`,
+    );
+  }
+};
+
+/**
+ * Sealed install: write the generation-pinned unit and owner-local station helper.
+ * `binaryPath` must be the absolute path of this process's vellum-remote binary.
+ */
+export const installUserlandLinuxRemoteService = (
+  binaryPath: string = process.execPath,
+): {
+  readonly releaseDirectory: string;
+  readonly unitPath: string;
+  readonly helperPath: string;
+} => {
+  const home = requireHome();
+  const releaseDirectory = resolveReleaseDirectoryFromRemoteBinary(
+    resolve(binaryPath),
+  );
+  const unitPath = join(home, USERLAND_LINUX_SERVICE_PATH);
+  const unitBody = renderUserlandLinuxService({ releaseDirectory });
+  atomicWriteFile(unitPath, unitBody, 0o600);
+  installStationHelper(releaseDirectory, home);
+  enableUserService();
+  return Object.freeze({
+    releaseDirectory,
+    unitPath,
+    helperPath: join(home, HELPER_RELATIVE),
+  });
+};

@@ -5,9 +5,17 @@ import { fileURLToPath } from "node:url";
 import { linuxRuntimeArtifactName } from "./finalize-linux-package";
 
 export const LINUX_RUNTIME_REQUIRED_FILES = [
-  "vellum", "resources/app.asar", "resources/bin/vellum", "resources/bin/vellum-browser",
-  "resources/bin/vellum-station", "resources/bin/unix-peer-pid.py",
-  "resources/systemd/vellum-remote-launch", "resources/systemd/vellum-remote.service.template",
+  "vellum",
+  "resources/app.asar",
+  "resources/bin/vellum",
+  "resources/bin/vellum-browser",
+  "resources/bin/vellum-station",
+  "resources/bin/vellum-remote",
+  "resources/bin/node",
+  "resources/bin/unix-peer-pid.py",
+  "resources/app-remote/vellum-remote.js",
+  "resources/systemd/vellum-remote-launch",
+  "resources/systemd/vellum-remote.service.template",
 ] as const;
 const FORBIDDEN_SEGMENTS = new Set(["chrome-sandbox", "apparmor-profile", "vellum-release-installer", "vellum-release-bridge", "sudoers", "before-install.sh", "after-install.sh", "before-remove.sh", "after-remove.sh"]);
 

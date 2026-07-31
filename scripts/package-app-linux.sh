@@ -79,6 +79,15 @@ bunx --no-install electron-builder --linux dir --x64 \
   --config.npmRebuild=false \
   "${ELECTRON_DIST_ARGS[@]}" \
   --config.linux.icon="$PACKAGE_ICON"
+
+# Displayless product Remote: official Node linux-x64 + node-pty for that ABI +
+# resources/bin/vellum-remote. Never ELECTRON_RUN_AS_NODE; never Bun-compile remote.
+# Fails closed when out/remote/vellum-remote.js is missing.
+printf 'vellum: staging Linux remote runtime (bundled Node + node-pty Node ABI) …\n'
+bun "$SCRIPT_DIR/build-linux-remote-runtime.ts" \
+  --runtime "$SCRIPT_DIR/../release/linux-unpacked" \
+  --repo "$SCRIPT_DIR/.."
+
 finalized="$(bun "$SCRIPT_DIR/finalize-linux-package.ts" --release-dir "$SCRIPT_DIR/../release")"
 runtime="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.artifact !== "string") process.exit(1); process.stdout.write(value.artifact)')"
 archive="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.archive !== "string") process.exit(1); process.stdout.write(value.archive)')"

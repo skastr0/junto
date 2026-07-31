@@ -53,6 +53,8 @@ const executableNames = new Set([
   "resources/bin/vellum",
   "resources/bin/vellum-browser",
   "resources/bin/vellum-station",
+  "resources/bin/vellum-remote",
+  "resources/bin/node",
   "resources/bin/unix-peer-pid.py",
   "resources/systemd/vellum-remote-launch",
 ]);
