@@ -251,11 +251,11 @@ describe("Station session v2 frame contract", () => {
       ),
     ).toBe(true);
 
-    expect(STATION_SESSION_PROTOCOL).toBe("vellum/station-session/v2");
-    expect(STATION_CONTROL_PROTOCOL).toBe("vellum/station-control/v2");
+    expect(STATION_SESSION_PROTOCOL).toBe("vellum/station-session/v3");
+    expect(STATION_CONTROL_PROTOCOL).toBe("vellum/station-control/v3");
   });
 
-  it("keeps the protocol preface outside the frozen v2 session frame", () => {
+  it("keeps the protocol preface outside the frozen v3 session frame", () => {
     const preface = StationProtocolOffer.make({
       protocol: STATION_PROTOCOL_PREFACE,
       frame: "offer",

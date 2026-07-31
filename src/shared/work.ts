@@ -9,6 +9,7 @@ import type {
   Artifact,
   Message,
   Part,
+  TaskProposal,
   TaskState,
 } from "./work-model";
 import type { ActorRef } from "./work-protocol";
@@ -143,6 +144,7 @@ const withTasks = (
   doc: CanvasDoc,
   nodeId: string,
   items: ReadonlyArray<Task>,
+  proposals?: ReadonlyArray<TaskProposal>,
 ): CanvasDoc => ({
   ...doc,
   nodes: doc.nodes.map((n) => {
@@ -157,7 +159,10 @@ const withTasks = (
       ether: {
         ...(n.ether ?? {}),
         entity: n.ether?.entity ?? { kind: "task" },
-        tasks: { items: [...items] },
+        tasks: {
+          items: [...items],
+          proposals: [...(proposals ?? n.ether?.tasks?.proposals ?? [])],
+        },
       },
     } as CanvasNode;
   }),
@@ -254,6 +259,13 @@ const rejectRetiredClaimMetadata = (
 
 export type WorkTaskCreateResult = { readonly doc: CanvasDoc; readonly task: Task };
 export type WorkTaskResult = { readonly doc: CanvasDoc; readonly task: Task };
+export type WorkProposalResult = {
+  readonly doc: CanvasDoc;
+  readonly proposal: TaskProposal;
+};
+export type WorkProposalApprovalResult = WorkProposalResult & {
+  readonly task: Task;
+};
 export type WorkTaskClaimResult = WorkTaskResult & {
   readonly claimedBy: ActorRef;
 };
@@ -301,6 +313,102 @@ export const workTaskCreate = (
   };
   const items = [...(node.ether?.tasks?.items ?? []), task];
   return { doc: withTasks(doc, nodeId, items), task };
+};
+
+export const workTaskPropose = (
+  doc: CanvasDoc,
+  canvasName: string,
+  nodeId: string,
+  brief: string,
+  metadata: WorkMetadata | undefined,
+  ids: WorkIds,
+  proposedBy: ActorRef,
+  reason?: string,
+): WorkProposalResult => {
+  const node = requireNode(doc, nodeId);
+  requireSink(node, ["task"]);
+  const trimmed = brief.trim();
+  if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
+  rejectRetiredClaimMetadata(metadata);
+  const proposalId = ids.id();
+  const contextId = regionContextId(doc, nodeId, canvasName);
+  const proposal: TaskProposal = {
+    id: proposalId,
+    state: "pending",
+    brief: makeUserMessage({
+      messageId: ids.messageId(),
+      text: trimmed,
+      contextId,
+      taskId: proposalId,
+    }),
+    proposedBy,
+    ...(metadata ? { metadata } : {}),
+    ...(reason?.trim() ? { reason: reason.trim() } : {}),
+  };
+  return {
+    doc: withTasks(
+      doc,
+      nodeId,
+      node.ether?.tasks?.items ?? [],
+      [...(node.ether?.tasks?.proposals ?? []), proposal],
+    ),
+    proposal,
+  };
+};
+
+export const workTaskApproveProposal = (
+  doc: CanvasDoc,
+  canvasName: string,
+  nodeId: string,
+  proposalId: string,
+  ids: WorkIds,
+): WorkProposalApprovalResult => {
+  const node = requireNode(doc, nodeId);
+  requireSink(node, ["task"]);
+  const items = node.ether?.tasks?.items ?? [];
+  const proposals = node.ether?.tasks?.proposals ?? [];
+  const index = proposals.findIndex((proposal) => proposal.id === proposalId);
+  if (index < 0) {
+    throw new WorkError(
+      "task_not_found",
+      `proposal "${proposalId}" not found`,
+    );
+  }
+  const current = proposals[index]!;
+  if (current.state !== "pending") {
+    throw new WorkError(
+      "illegal_transition",
+      `proposal "${proposalId}" is not pending`,
+    );
+  }
+  const taskId = ids.id();
+  const task: Task = {
+    id: taskId,
+    state: "submitted",
+    history: [{
+      ...current.brief,
+      messageId: ids.messageId(),
+      taskId,
+      contextId:
+        current.brief.contextId ??
+        regionContextId(doc, nodeId, canvasName),
+    }],
+    ...(current.metadata ? { metadata: current.metadata } : {}),
+    ...(current.reason ? { reason: current.reason } : {}),
+  };
+  const proposal: TaskProposal = {
+    ...current,
+    state: "approved",
+    approvedTaskId: taskId,
+  };
+  const nextProposals = proposals.map((candidate, proposalIndex) =>
+    proposalIndex === index ? proposal : candidate
+  );
+  return {
+    doc: withTasks(doc, nodeId, [...items, task], nextProposals),
+    proposal,
+    task,
+  };
 };
 
 export const workTaskDescribe = (

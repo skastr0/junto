@@ -223,17 +223,12 @@ const probeSshHost = (
       parts.push(
         protocol.compatibility === "update-required"
           ? "protocol update required"
-          : `protocol ${protocol.negotiatedProtocol} ${protocol.compatibility}${protocol.legacy ? " · legacy preface" : ""}`,
+          : `protocol ${protocol.negotiatedProtocol} ${protocol.compatibility}`,
       );
-      if (
-        protocol.compatibility === "deprecated" ||
-        (protocol.compatibility !== "update-required" && protocol.legacy)
-      ) {
+      if (protocol.compatibility === "deprecated") {
         raise(
           "warning",
-          protocol.legacy
-            ? "Station uses the legacy v2 connection preface"
-            : `Station protocol ${protocol.negotiatedProtocol} is deprecated`,
+          `Station protocol ${protocol.negotiatedProtocol} is deprecated`,
         );
       }
     }

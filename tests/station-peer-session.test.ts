@@ -40,6 +40,7 @@ import {
 } from "../src/shared/station-session";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
+  STATION_PROTOCOL_BASELINE,
   StationAppVersion,
   StationStateSchemaVersion,
 } from "../src/shared/station-protocol";
@@ -64,7 +65,7 @@ const protocolDiagnostics = {
   support: CURRENT_STATION_PROTOCOL_SUPPORT,
 };
 const protocolBinding = bindNegotiatedStationProtocol({
-  negotiatedProtocol: 2,
+  negotiatedProtocol: STATION_PROTOCOL_BASELINE,
   local: protocolDiagnostics,
   peer: protocolDiagnostics,
 });
@@ -239,7 +240,7 @@ describe("persistent Station peer session", () => {
 
           expect(session.protocol).toMatchObject({
             _tag: "negotiated",
-            negotiatedProtocol: 2,
+            negotiatedProtocol: STATION_PROTOCOL_BASELINE,
             compatibility: "compatible",
           });
           expect(Object.isFrozen(session.protocol)).toBe(true);

@@ -377,20 +377,12 @@ const unavailableFromAttempt = (
 const protocolObservationFromBinding = (
   binding: StationPeerProtocolBinding,
 ): StationProtocolObservation =>
-  binding._tag === "legacy-v2"
-    ? {
-        compatibility: "compatible",
-        negotiatedProtocol: binding.negotiatedProtocol,
-        legacy: true,
-        local: binding.local,
-      }
-    : {
-        compatibility: binding.compatibility,
-        negotiatedProtocol: binding.negotiatedProtocol,
-        legacy: false,
-        local: binding.local,
-        peer: binding.peer,
-      };
+  ({
+    compatibility: binding.compatibility,
+    negotiatedProtocol: binding.negotiatedProtocol,
+    local: binding.local,
+    peer: binding.peer,
+  });
 
 const protocolObservationFromAttempt = (
   error: AttemptError,

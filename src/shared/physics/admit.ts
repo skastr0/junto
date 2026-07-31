@@ -46,6 +46,7 @@ export class Granted extends Schema.Class<Granted>("Granted")({
   target: Schema.String.pipe(Schema.brand("NodeId")),
   port: Schema.Literal(
     "tasks.list",
+    "tasks.create",
     "tasks.claim",
     "tasks.update",
     "msg.list",

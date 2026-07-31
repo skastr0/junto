@@ -55,6 +55,7 @@ describe("main authoring architecture", () => {
       "ipc.canvas.portfolio",
       "ipc.canvas.write",
       "ipc.work.request-resolve",
+      "ipc.work.task-approve-proposal",
       "ipc.work.task-claim",
       "ipc.work.task-create",
       "ipc.work.task-describe",

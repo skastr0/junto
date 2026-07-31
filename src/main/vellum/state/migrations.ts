@@ -19,6 +19,7 @@ import {
   LICENSE_STATE_V1_SCHEMA_SQL,
   LICENSE_STATE_V2_SCHEMA_SQL,
 } from "../license/state-schema";
+import { WORK_PROPOSAL_STATE_SCHEMA_SQL } from "../work/state-schema";
 
 export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
@@ -85,7 +86,14 @@ export const STATE_SCHEMA_V3_IDENTITY = {
     "8592d391d2a11d0602e853dfb9969cfead60e655ac96a2c893faaa81dd841114",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 4;
+export const STATE_SCHEMA_V4_IDENTITY = {
+  actualSchemaSha256:
+    "8870c6e4b932ee4a2895bfc9926e2be97f0baa3c538bdfa1e9e8cca5eb354d7f",
+  sourceSchemaSha256:
+    "949256a2cbfb7b07a360a772605bd3fa2ea85e70bdcbfed505611b820474a41a",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 5;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -135,6 +143,16 @@ export const STATE_SCHEMA_MIGRATIONS =
             );
           END;
         `);
+      },
+    },
+    {
+      fromVersion: 4,
+      toVersion: 5,
+      name: "add-task-proposals",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V4_IDENTITY,
+      migrate: (database) => {
+        database.exec(WORK_PROPOSAL_STATE_SCHEMA_SQL);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
@@ -398,6 +416,11 @@ const runMigrationStep = (
       actionCode === constants.SQLITE_SAVEPOINT ||
       (
         destructiveMigrationActions.has(actionCode) &&
+        !(
+          actionCode === constants.SQLITE_REINDEX &&
+          arg1 !== null &&
+          !before.retainedObjects.has(`index:${arg1}`)
+        ) &&
         !(
           actionCode === constants.SQLITE_DROP_TRIGGER &&
           arg1 !== null &&

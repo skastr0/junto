@@ -50,7 +50,6 @@ import {
   type SshLease,
 } from "../ssh/service";
 import {
-  remoteVellumStation,
   remoteVellumStationNegotiation,
   type RemotePackagedPlatform,
 } from "../ssh/read-commands";
@@ -64,7 +63,6 @@ import {
 } from "./peer-exchange";
 import {
   StationSessionTransportError,
-  bindLegacyStationProtocolV2,
   bindNegotiatedStationProtocol,
   makeStationPeerSession,
   type StationPeerProtocolBinding,
@@ -728,7 +726,14 @@ const openError = (
   error: unknown,
   localProtocol: StationPeerProtocolDiagnostics,
 ): StationPeerExchangeError => {
-  if (error instanceof StationPeerExchangeError) return error;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "_tag" in error &&
+    error._tag === "StationPeerExchangeError"
+  ) {
+    return error as StationPeerExchangeError;
+  }
   if (
     error instanceof StationSessionTransportError &&
     (
@@ -918,37 +923,10 @@ export const makeOpenSshStationPeerExchange = (
         if (Either.isRight(negotiatedAttempt)) {
           return negotiatedAttempt.right;
         }
-
-        const negotiationFailure = negotiatedAttempt.left;
-        const legacyWitness =
-          negotiationFailure instanceof SshExitError &&
-          negotiationFailure.operation === "stream" &&
-          negotiationFailure.code === 64;
-        if (!legacyWitness) {
-          return yield* openError(
-            route.peerInstallationId,
-            negotiationFailure,
-            localProtocol,
-          );
-        }
-
-        const legacyCommand = yield* remoteVellumStation(details.platform);
-        const legacyProtocol = bindLegacyStationProtocolV2(localProtocol);
-        return yield* ssh.connect(
-          sharedStream(details.target, legacyCommand, "agent"),
-          (lease, confirm) =>
-            Effect.gen(function* () {
-              const transport =
-                yield* makeOpenSshStationFrameTransport(lease);
-              const session = yield* makeVerifiedCommandCenterSession(
-                commandCenterInstallationId,
-                route.peerInstallationId,
-                legacyProtocol,
-                transport,
-                onRemoteReport,
-              );
-              return confirm(session);
-            }),
+        return yield* openError(
+          route.peerInstallationId,
+          negotiatedAttempt.left,
+          localProtocol,
         );
       }).pipe(
         Effect.mapError((error) =>

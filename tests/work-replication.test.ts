@@ -305,6 +305,270 @@ const reseal = (
 };
 
 describe("WorkRepository v2 report reconciliation", () => {
+  it("keeps a Remote actor proposal non-executable until CC approval mints a task", async () => {
+    const cc = installation("cc-proposal");
+    const remote = installation("remote-proposal");
+    const commandCenter = await openInstallation(
+      cc,
+      [remote],
+      "command-center",
+    );
+    const station = await openInstallation(remote, [cc], "remote");
+    const sink = { canvasName: "factory", nodeId: "tasks" };
+    const proposedBy = actor("7", "remote-agent");
+    const proposal = {
+      id: "proposal-1",
+      state: "pending" as const,
+      brief: message("proposal-brief", "user", "Add keyboard navigation", "proposal-1"),
+      proposedBy,
+    };
+    const command = await station.runtime.runPromise(
+      station.repository.enqueueRemoteCommand({
+        targetInstallationId: cc,
+        sink,
+        item: { kind: "proposal", itemId: proposal.id, sink },
+        action: { operation: "proposal.create", proposal },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const accepted = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [command]),
+    );
+    expect(accepted.emitted).toHaveLength(2);
+    const returned = await station.runtime.runPromise(
+      accept(station.repository, cc, accepted.emitted),
+    );
+    expect(returned.accepted).toBe(2);
+    expect(returned.acknowledge).toEqual([
+      {
+        eventHome: cc,
+        entityHome: cc,
+        through: accepted.emitted.at(-1)!.id.seq,
+      },
+    ]);
+    expect(
+      (await station.runtime.runPromise(
+        station.repository.pendingCommands,
+      ))[0],
+    ).toMatchObject({ resolution: { status: "applied" } });
+    expect(
+      (
+        await station.runtime.runPromise(
+          station.repository.readSnapshot("factory", "tasks"),
+        )
+      ).tasks.proposals,
+    ).toEqual([
+      expect.objectContaining({
+        id: proposal.id,
+        state: "pending",
+        proposedBy,
+      }),
+    ]);
+
+    const replayed = await station.runtime.runPromise(
+      accept(station.repository, cc, accepted.emitted),
+    );
+    expect(replayed).toMatchObject({
+      accepted: 0,
+      idempotent: 2,
+      rejected: 0,
+    });
+
+    await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [], {
+        peerAcknowledgements: returned.acknowledge,
+      }),
+    );
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.state.read(
+          "test.proposal-peer-ack",
+          (reader) =>
+            reader.get<{ readonly through_sequence: string }>(
+              `
+                SELECT through_sequence
+                FROM station_peer_ack_cursors
+                WHERE peer_installation_id = ?
+                  AND event_home = ?
+                  AND entity_home = ?
+              `,
+              [remote, cc, cc],
+            )?.through_sequence,
+        ),
+      ),
+    ).toBe(accepted.emitted.at(-1)!.id.seq);
+
+    const beforeApproval = await commandCenter.runtime.runPromise(
+      commandCenter.repository.readSnapshot("factory", "tasks"),
+    );
+    expect(beforeApproval.tasks.items).toEqual([]);
+    expect(beforeApproval.tasks.proposals).toEqual([
+      expect.objectContaining({
+        id: proposal.id,
+        state: "pending",
+        proposedBy,
+      }),
+    ]);
+
+    const approved = await commandCenter.runtime.runPromise(
+      commandCenter.repository.approveProposal({
+        sink,
+        basis: commandCenter.basis,
+        proposalId: proposal.id,
+        task: {
+          id: "approved-task",
+          state: "submitted",
+          history: [
+            message(
+              "approved-task-brief",
+              "user",
+              "Add keyboard navigation",
+              "approved-task",
+            ),
+          ],
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(approved.value.proposal).toMatchObject({
+      state: "approved",
+      approvedTaskId: "approved-task",
+    });
+    expect(approved.snapshot.tasks.items).toEqual([
+      expect.objectContaining({ id: "approved-task", state: "submitted" }),
+    ]);
+  });
+
+  it("promotes a Remote-home proposal through one correlated approval command", async () => {
+    const cc = installation("cc-remote-proposal");
+    const remote = installation("remote-home-proposal");
+    const commandCenter = await openInstallation(
+      cc,
+      [remote],
+      "command-center",
+    );
+    const station = await openInstallation(remote, [cc], "remote");
+    const sink = { canvasName: "factory", nodeId: "remote-tasks" };
+    const proposal = {
+      id: "remote-proposal",
+      state: "pending" as const,
+      brief: message(
+        "remote-proposal-brief",
+        "user",
+        "Keep the worker online",
+        "remote-proposal",
+      ),
+      proposedBy: actor("8", "remote-agent"),
+    };
+    const created = await station.runtime.runPromise(
+      station.repository.createProposal({
+        sink,
+        basis: station.basis,
+        proposal,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [created.record]),
+    );
+    const task = {
+      id: "remote-approved-task",
+      state: "submitted" as const,
+      history: [
+        message(
+          "remote-approved-brief",
+          "user",
+          "Keep the worker online",
+          "remote-approved-task",
+        ),
+      ],
+    };
+    await commandCenter.runtime.runPromise(
+      commandCenter.repository.enqueueRemoteProposalApproval({
+        targetInstallationId: remote,
+        sink,
+        item: { kind: "proposal", itemId: proposal.id, sink },
+        action: {
+          operation: "proposal.approve",
+          proposalId: proposal.id,
+          task,
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const outbound = await commandCenter.runtime.runPromise(
+      commandCenter.repository.recordsAfter({
+        route: { eventHome: cc, entityHome: remote },
+      }),
+    );
+    const applied = await station.runtime.runPromise(
+      accept(station.repository, cc, outbound),
+    );
+    expect(applied.emitted.map((record) => record.operation)).toEqual([
+      "proposal.approve",
+      "proposal.approve",
+      "task.create",
+      "task.create",
+    ]);
+    const approvalFact = applied.emitted.find(
+      (record) =>
+        record.recordType === "fact" &&
+        record.operation === "proposal.approve",
+    );
+    if (approvalFact === undefined) {
+      throw new Error("proposal approval fact was not emitted");
+    }
+    const duplicateApprovalFact = reseal({
+      ...approvalFact,
+      id: {
+        ...approvalFact.id,
+        seq: String(BigInt(approvalFact.id.seq) + 1n) as typeof approvalFact.id.seq,
+      },
+    });
+    const duplicate = await commandCenter.runtime.runPromise(
+      accept(
+        commandCenter.repository,
+        remote,
+        [approvalFact, duplicateApprovalFact],
+      ).pipe(Effect.either),
+    );
+    expect(Either.isLeft(duplicate)).toBe(true);
+    if (Either.isLeft(duplicate)) {
+      expect(duplicate.left).toMatchObject({ reason: "causal-conflict" });
+    }
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.repository.readSnapshot(
+            sink.canvasName,
+            sink.nodeId,
+          ),
+        )
+      ).tasks.proposals?.[0]?.state,
+    ).toBe("pending");
+
+    await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, applied.emitted),
+    );
+    const snapshot = await commandCenter.runtime.runPromise(
+      commandCenter.repository.readSnapshot("factory", "remote-tasks"),
+    );
+    expect(snapshot.tasks.proposals).toEqual([
+      expect.objectContaining({
+        id: proposal.id,
+        state: "approved",
+        approvedTaskId: task.id,
+      }),
+    ]);
+    expect(snapshot.tasks.items).toEqual([
+      expect.objectContaining({ id: task.id, state: "submitted" }),
+    ]);
+  });
+
   it("commits peer acknowledgement only with the inbound records it accepts", async () => {
     const cc = installation("cc-atomic-inbound");
     const remote = installation("remote-atomic-inbound");

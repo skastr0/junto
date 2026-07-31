@@ -161,7 +161,7 @@ const makeSsh = (
                       appVersion: "0.1.0",
                       stateSchemaVersion: 1,
                       support: CURRENT_STATION_PROTOCOL_SUPPORT,
-                      selected: 2,
+                      selected: 3,
                     }),
                   )}\n`,
                 ),

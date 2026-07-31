@@ -574,7 +574,7 @@ describe("OpenSSH Station peer exchange", () => {
       ),
     ).pipe(Effect.either);
 
-  it("negotiates v2 on the persistent connection before domain traffic", async () => {
+  it("negotiates v3 on the persistent connection before domain traffic", async () => {
     const scripted = await liveLease((frame, stdout) => {
       const record = frame as Record<string, unknown>;
       if (record.frame === "offer") {
@@ -582,7 +582,7 @@ describe("OpenSSH Station peer exchange", () => {
           protocol: STATION_PROTOCOL_PREFACE,
           frame: "accept",
           ...peerDiagnostics,
-          selected: 2,
+          selected: 3,
         });
         return Queue.offer(
           stdout,
@@ -609,7 +609,7 @@ describe("OpenSSH Station peer exchange", () => {
           );
           expect(session.protocol).toMatchObject({
             _tag: "negotiated",
-            negotiatedProtocol: 2,
+            negotiatedProtocol: 3,
             compatibility: "compatible",
             peer: peerDiagnostics,
           });
@@ -653,7 +653,7 @@ describe("OpenSSH Station peer exchange", () => {
           protocol: STATION_PROTOCOL_PREFACE,
           frame: "accept",
           ...peerDiagnostics,
-          selected: 2,
+          selected: 3,
         });
         return Effect.forEach(
           [accept, reportFrame],
@@ -770,7 +770,7 @@ describe("OpenSSH Station peer exchange", () => {
           protocol: STATION_PROTOCOL_PREFACE,
           frame: "accept",
           ...peerDiagnostics,
-          selected: 2,
+          selected: 3,
         });
         return Effect.forEach(
           [accept, reportFrame],
@@ -825,43 +825,19 @@ describe("OpenSSH Station peer exchange", () => {
     expect(harness.connectCalls()).toBe(1);
   });
 
-  it("reconnects once as exact legacy v2 only after sealed code-64 rejection", async () => {
+  it("does not reconnect after a pre-negotiation helper rejection", async () => {
     const firstWritten: unknown[] = [];
-    const legacy = await liveLease(respondToStatus);
     const harness = await makeExchange([
       endedLease(64, firstWritten),
-      legacy.lease,
     ]);
 
     const result = await Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const session = yield* harness.exchange.open(
-            harness.route,
-            () =>
-              Effect.succeed(
-                stationControlErr(
-                  "authorization_denied",
-                  "unexpected report",
-                  false,
-                ),
-              ),
-          );
-          expect(session.protocol).toMatchObject({
-            _tag: "legacy-v2",
-            negotiatedProtocol: 2,
-            compatibility: "legacy-v2",
-            peer: undefined,
-          });
-          return yield* session.request(statusRequest);
-        }),
-      ),
+      openFailure(harness.exchange, harness.route),
     );
 
-    expect(result).toEqual(statusResponse);
-    expect(harness.connectCalls()).toBe(2);
+    expect(Either.isLeft(result)).toBe(true);
+    expect(harness.connectCalls()).toBe(1);
     expect((firstWritten[0] as StationProtocolOffer).frame).toBe("offer");
-    expect((legacy.written[0] as StationSessionFrame).frame).toBe("request");
   });
 
   it("does not fall back after another helper exit code", async () => {
@@ -923,9 +899,9 @@ describe("OpenSSH Station peer exchange", () => {
         appVersion: peerDiagnostics.appVersion,
         stateSchemaVersion: peerDiagnostics.stateSchemaVersion,
         support: {
-          preferred: 3,
-          compatibleFrom: 3,
-          warnBelow: 3,
+          preferred: 4,
+          compatibleFrom: 4,
+          warnBelow: 4,
         },
         reason: "no-common-version",
         retryable: false,
@@ -948,7 +924,7 @@ describe("OpenSSH Station peer exchange", () => {
         localProtocol: localDiagnostics,
         peerProtocol: {
           appVersion: peerDiagnostics.appVersion,
-          support: { compatibleFrom: 3, preferred: 3 },
+          support: { compatibleFrom: 4, preferred: 4 },
         },
       });
     }
@@ -967,7 +943,7 @@ describe("OpenSSH Station peer exchange", () => {
           compatibleFrom: 2,
           warnBelow: 2,
         },
-        selected: 3,
+        selected: 2,
       });
       return Queue.offer(
         stdout,

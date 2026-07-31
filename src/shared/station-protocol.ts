@@ -7,7 +7,7 @@ import { Either, Schema } from "effect";
  * schema versions. A peer advertises one contiguous supported range, then a
  * connection selects one exact wire version from the overlap.
  */
-export const STATION_PROTOCOL_BASELINE = 2 as const;
+export const STATION_PROTOCOL_BASELINE = 3 as const;
 
 export const StationProtocolVersion = Schema.Int.pipe(
   Schema.positive(),
@@ -212,7 +212,7 @@ export const stationProtocolReject = (
     retryable: false,
   });
 
-/** The exact v2 codec remains frozen until a future version adds another entry. */
+/** Only the exact current codec is admitted; incompatible peers update first. */
 export const selectStationProtocolCodec = (
   version: StationProtocolVersion,
 ): Either.Either<typeof STATION_PROTOCOL_BASELINE, "unsupported-station-protocol"> =>

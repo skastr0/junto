@@ -121,6 +121,19 @@ const document = (connected: boolean) =>
         },
       },
       {
+        id: "other-remote-tasks",
+        type: "text",
+        x: 320,
+        y: -140,
+        width: 240,
+        height: 100,
+        text: "Other Remote tasks",
+        ether: {
+          entity: { kind: "task" },
+          host: "other-remote",
+        },
+      },
+      {
         id: "artifacts",
         type: "text",
         x: 600,
@@ -220,6 +233,7 @@ const topology = (
   installationByHostId: new Map([
     ["local", cc],
     ["remote", remote],
+    ["other-remote", otherRemote],
   ]),
 });
 
@@ -284,6 +298,68 @@ const messageFact = (): WorkFactValue =>
       message,
       sentBy: remoteActor,
       destination: { kind: "mailbox" },
+    },
+  });
+
+const proposal = {
+  id: "proposal-1",
+  state: "pending" as const,
+  brief: {
+    messageId: "proposal-brief",
+    role: "user" as const,
+    parts: [{ kind: "text" as const, text: "Create operator-reviewed work" }],
+    taskId: "proposal-1",
+    contextId: "factory",
+  },
+  proposedBy: remoteActor,
+};
+
+const proposalCommand = (
+  sinkNodeId = "tasks",
+): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: remote, entityHome: cc },
+      seq: "1",
+    },
+    recordType: "command",
+    item: {
+      kind: "proposal",
+      itemId: proposal.id,
+      sink: { canvasName: "factory", nodeId: sinkNodeId },
+    },
+    operation: "proposal.create",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "proposal.create",
+      proposal,
+    },
+  });
+
+const proposalFact = (): WorkFactValue =>
+  Schema.decodeUnknownSync(WorkFact, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: cc, entityHome: cc },
+      seq: "1",
+    },
+    recordType: "fact",
+    basis: {
+      kind: "command",
+      command: proposalCommand().id,
+      commandSha256: proposalCommand().contentSha256,
+    },
+    item: proposalCommand().item,
+    operation: "proposal.create",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "proposal.create",
+      proposal,
     },
   });
 
@@ -596,6 +672,31 @@ describe("Station API v2 work routing", () => {
     ).toMatchObject({
       _tag: "rejected",
       reason: "capability-denied",
+    });
+  });
+
+  it("admits proposal commands only for the Command Center-homed queue", () => {
+    const commandCenter = makeStationWorkAdmission(
+      topology("command-center"),
+    );
+    expect(
+      commandCenter.authorizeCommand(proposalCommand()),
+    ).toEqual({ _tag: "admitted" });
+    expect(
+      commandCenter.authorizeCommand(
+        proposalCommand("other-remote-tasks"),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "locality-mismatch",
+    });
+  });
+
+  it("admits the correlated Command Center proposal fact back to its Remote", () => {
+    const station = makeStationWorkAdmission(topology("remote"));
+
+    expect(station.authorizeFact(proposalFact())).toEqual({
+      _tag: "admitted",
     });
   });
 

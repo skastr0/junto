@@ -33,12 +33,12 @@ const offer = (peerSupport = CURRENT_STATION_PROTOCOL_SUPPORT) =>
   });
 
 describe("Station protocol compatibility contract", () => {
-  it("starts with one exact v2 protocol and selects the highest intersection", () => {
-    expect(STATION_PROTOCOL_BASELINE).toBe(2);
+  it("starts with one exact v3 protocol and selects the highest intersection", () => {
+    expect(STATION_PROTOCOL_BASELINE).toBe(3);
     expect(CURRENT_STATION_PROTOCOL_SUPPORT).toEqual({
-      preferred: 2,
-      compatibleFrom: 2,
-      warnBelow: 2,
+      preferred: 3,
+      compatibleFrom: 3,
+      warnBelow: 3,
     });
     expect(negotiateStationProtocol(support(4, 2, 3), support(3, 1, 2))).toEqual({
       _tag: "selected",
@@ -110,12 +110,12 @@ describe("Station protocol compatibility contract", () => {
       Either.isLeft(decodeStationProtocolPreface({ ...rejected, retryable: true })),
     ).toBe(true);
     expect(decideStationProtocolPreface(offer(), rejected)).toEqual({
-      _tag: "invalid-reject",
+      _tag: "no-common",
     });
   });
 
   it("selects only an installed exact codec", () => {
-    expect(selectStationProtocolCodec(2)).toEqual(Either.right(2));
-    expect(selectStationProtocolCodec(3)).toEqual(Either.left("unsupported-station-protocol"));
+    expect(selectStationProtocolCodec(2)).toEqual(Either.left("unsupported-station-protocol"));
+    expect(selectStationProtocolCodec(3)).toEqual(Either.right(3));
   });
 });

@@ -10,14 +10,18 @@ import {
   workRequestCreate,
   workRequestResolve,
   workTaskClaim,
+  workTaskApproveProposal,
   workTaskCreate,
   workTaskDescribe,
   workTaskRespond,
+  workTaskPropose,
   workTaskTransition,
   WorkError,
 } from "../src/shared/work";
 import type { Artifact, CanvasDoc, Message } from "../src/shared/canvas";
-import { canTransitionTaskState } from "../src/shared/task";
+import {
+  canTransitionTaskState,
+} from "../src/shared/task";
 import {
   ActorRef,
   IntentFactBasis,
@@ -103,6 +107,58 @@ const agentNode = (
 });
 
 describe("work pure transforms", () => {
+  it("keeps actor proposals outside the executable task queue until approval", () => {
+    const worker = actorRef("1", "worker-1");
+    const initial: CanvasDoc = {
+      nodes: [emptyTaskNode()],
+      edges: [{ id: "edge", fromNode: "worker-1", toNode: "tasks" }],
+    };
+    const proposed = workTaskPropose(
+      initial,
+      "alpha",
+      "tasks",
+      "add keyboard navigation",
+      { title: "Keyboard navigation" },
+      ids,
+      worker,
+      "accessibility gap",
+    );
+
+    expect(proposed.proposal.state).toBe("pending");
+    expect(proposed.proposal.proposedBy).toEqual(worker);
+    expect(proposed.doc.nodes[0]?.ether?.tasks?.items).toEqual([]);
+    expect(proposed.doc.nodes[0]?.ether?.tasks?.proposals).toHaveLength(1);
+    expect(() =>
+      workTaskClaim(
+        proposed.doc,
+        "alpha",
+        "tasks",
+        proposed.proposal.id,
+        worker,
+        ids,
+      )
+    ).toThrow(/not found/);
+
+    const approved = workTaskApproveProposal(
+      proposed.doc,
+      "alpha",
+      "tasks",
+      proposed.proposal.id,
+      ids,
+    );
+    expect(approved.proposal.state).toBe("approved");
+    expect(approved.proposal.approvedTaskId).toBe(approved.task.id);
+    const claimed = workTaskClaim(
+      approved.doc,
+      "alpha",
+      "tasks",
+      approved.task.id,
+      worker,
+      ids,
+    );
+    expect(claimed.task.state).toBe("working");
+  });
+
   it("create → claim → transition, with contextId from canvas name", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", undefined, ids);

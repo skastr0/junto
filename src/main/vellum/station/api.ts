@@ -264,6 +264,8 @@ const expectedSinkKind = (
   kind: WorkRecord["item"]["kind"],
 ): string | undefined => {
   switch (kind) {
+    case "proposal":
+      return "task";
     case "task":
       return "task";
     case "request":
@@ -284,6 +286,10 @@ const operationForActor = (
   deliveredKind?: WorkRecord["item"]["kind"],
 ): WorkOpName | undefined => {
   switch (operation) {
+    case "proposal.create":
+      return "tasks.create";
+    case "proposal.approve":
+      return undefined;
     case "task.claim":
       return "tasks.claim";
     case "task.describe":
@@ -486,6 +492,10 @@ const actorFromFact = (
   fact: WorkFact,
 ): ActorRef | undefined => {
   switch (fact.body.operation) {
+    case "proposal.create":
+      return fact.body.proposal.proposedBy;
+    case "proposal.approve":
+      return undefined;
     case "task.claim":
       return fact.body.claimedBy;
     case "task.describe":
@@ -569,6 +579,19 @@ export const makeStationWorkAdmission = (
             command.item.sink,
             "msg.send",
           )
+        : command.body.operation === "proposal.create"
+          ? sinkAuthority(topology, sink) !== topology.localInstallationId
+            ? rejected(
+                "locality-mismatch",
+                "proposal command targets a queue not homed on Command Center",
+              )
+            : authorizeActor(
+                topology,
+                command.body.proposal.proposedBy,
+                topology.peerInstallationId,
+                command.item.sink,
+                "tasks.create",
+              )
         : rejected(
             "authority-mismatch",
             `${command.body.operation} is Command Center intent and cannot be commanded by a Remote`,
@@ -576,6 +599,13 @@ export const makeStationWorkAdmission = (
     }
 
     switch (command.body.operation) {
+      case "proposal.approve":
+        return admitted();
+      case "proposal.create":
+        return rejected(
+          "authority-mismatch",
+          "a Remote cannot command another Remote to create a proposal",
+        );
       case "task.claim": {
         if (
           command.body.targetHome !== topology.localInstallationId ||
@@ -663,18 +693,21 @@ export const makeStationWorkAdmission = (
     const sender = fact.id.route.eventHome;
 
     if (topology.localRole === "remote") {
-      return fact.body.operation === "message.append"
-        ? authorizeActor(
+      if (fact.body.operation === "message.append") {
+        return authorizeActor(
             topology,
             fact.body.sentBy,
             topology.localInstallationId,
             fact.item.sink,
             "msg.send",
-          )
-        : rejected(
-            "authority-mismatch",
-            `Command Center may return only correlated message facts to a Remote, not ${fact.body.operation}`,
           );
+      }
+      return fact.basis.kind === "command"
+        ? admitted()
+        : rejected(
+          "authority-mismatch",
+          `Command Center may return only command-correlated facts to a Remote, not ${fact.body.operation}`,
+        );
     }
 
     if (fact.body.operation === "message.append") {
@@ -801,13 +834,7 @@ const historicalFactAuthorization = (
     if (route._tag === "rejected") return route;
     switch (fact.basis.kind) {
       case "command":
-        return current.localRole === "remote" &&
-            fact.body.operation !== "message.append"
-          ? rejected(
-              "authority-mismatch",
-              `Command Center may return only correlated message facts to a Remote, not ${fact.body.operation}`,
-            )
-          : admitted();
+        return admitted();
       case "authorial-intent":
         return rejected(
           "authority-mismatch",

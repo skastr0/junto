@@ -330,10 +330,12 @@ version witness fails closed without mutation.
 
 Version 1 is the frozen post-consolidation baseline. The current chain is
 `1 → 2` (`add-license-activation`) followed by `2 → 3`
-(`bind-license-entitlement-to-dodo-product`); schema version 3 is current. The
-second step adds the seller/product-bound entitlement representation beside
-the retained version-2 license table rather than reinterpreting or deleting
-its bytes.
+(`bind-license-entitlement-to-dodo-product`), `3 → 4`
+(`allow-atomic-task-release`), and `4 → 5` (`add-task-proposals`); schema
+version 5 is current. Each step preserves the prior representation. The last
+step adds proposal event, pending-command, and material tables beside the
+frozen task tables rather than widening their released checks or deleting
+their bytes.
 
 An unversioned non-empty database is adopted only when both its live schema and
 recorded identity match the exact version-1 baseline. This is not a general
@@ -671,20 +673,23 @@ in the overlap of their support intervals and bind that one protocol before
 domain traffic. Selection below either warning threshold remains operational
 with an explicit upgrade warning.
 
-The current baseline and installed floor is Station protocol 2 with policy
-`{ preferred: 2, compatibleFrom: 2, warnBelow: 2 }`. One Station protocol
+The current baseline and installed floor is Station protocol 3 with policy
+`{ preferred: 3, compatibleFrom: 3, warnBelow: 3 }`. Protocol 3 adds typed
+task proposals and operator promotion; a protocol-2 peer cannot represent
+that authority boundary and therefore has no compatibility overlap. One Station protocol
 number selects one complete closed bundle: framing, control envelope, the five
 verbs, Work records, projection encoding, bounds, and failure semantics. The
-exact v2 discriminators inside that bundle are not separately negotiated
+exact discriminators inside that bundle are not separately negotiated
 versions. There are no session/API/Work/projection version arrays, capability
 arrays, or fallback-protocol number. Negotiation itself does not invent
-protocol 3.
+down-conversion for protocol 2.
 
-A newer Command Center must retain the exact older wire codec while an
-enrolled, non-retired Station still needs it or has unreconciled records under
-it. A newer Remote likewise accepts the currently supported older Command
-Center codec. Compatibility lives only at the transport/domain boundary and
-normalizes immediately into the one current internal model.
+A release retains an older codec only while an enrolled, non-retired Station
+or unreconciled route proves that compatibility obligation. This protocol-3
+cut has no deployed Station obligation, so protocol 2 is deliberately retired
+instead of becoming a permanent fallback. Compatibility lives only at the
+transport/domain boundary and normalizes immediately into the one current
+internal model.
 
 If no compatible Station protocol exists:
 
@@ -697,25 +702,19 @@ If no compatible Station protocol exists:
 - Command Center reports `running locally — update required`, not generic
   unavailability or healthy synchronization.
 
-A pre-negotiation v2 peer is the only temporary fallback boundary. A new
-Command Center may retry one fresh authenticated exact-v2 connection only
-when the sealed compatibility-mode SSH-helper invocation observes zero peer
-stdout bytes and exits with the old helper's reserved pre-relay code `64`.
-The offer may race with that immediate rejection and is not part of the
-fallback proof.
-Any byte, explicit reject, malformed frame, timeout, authentication, setup,
-write, identity, authorization, integrity, relay, or domain failure, or any
-other exit code, forbids fallback. A new Remote may bind v2 when the first
-frame is an exact v2 domain frame and its support interval includes 2.
+No-common is a coordination lockdown, not a host-process kill. The Remote
+continues already-homed work under its last complete projection, but accepts
+no new projection, task claim, proposal approval, command, or acknowledgement
+until it updates. The signed candidate preflight must verify the retained
+backup and disposable-clone migration before the incumbent is replaced; a
+failed preflight leaves the incumbent and its 24/7 local work intact.
 
-The canonical end state is that every connection begins with the
-compatibility preface. The fleet protocol owner removes the legacy-v2 entry
-path after every enrolled Station has successfully negotiated or been
-explicitly retired and no enrolled route remains recorded as legacy-v2. A
-Station codec itself may retire only after every enrolled Station selecting
-it has upgraded or been explicitly retired and all durable records in that
-codec have been reconciled. Elapsed time or a new app release satisfies
-neither trigger.
+Every connection begins with the compatibility preface. There is no
+pre-negotiation protocol-2 entry path or code-64 reconnect: an old helper
+rejection, old domain frame, malformed frame, timeout, or other negotiation
+failure closes that attempt without fallback. A Station codec may be retained
+only while an enrolled Station or unreconciled durable route proves the
+obligation; elapsed time or a new app release is not evidence either way.
 
 Installation, host, factory, actor, resource, event-home, and entity-home
 identifiers on this protocol are routing facts, not credentials. Vellum has

@@ -13,7 +13,10 @@ import {
 import {
   CURRENT_STATE_SCHEMA_VERSION,
 } from "../src/main/vellum/state/migrations";
-import { STATE_SCHEMA_V1_SQL } from "../src/main/vellum/state/schema";
+import {
+  STATE_SCHEMA_SQL,
+  STATE_SCHEMA_V1_SQL,
+} from "../src/main/vellum/state/schema";
 import { verifyAndStampStateSchema } from "../src/main/vellum/state/schema-identity";
 import {
   withStateUpdateCandidate,
@@ -215,6 +218,86 @@ describe("state candidate readiness", () => {
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isRight(result)) {
       throw new Error("corrupt historical Work record passed preflight");
+    }
+    expect(result.left).toMatchObject({
+      operation: "readiness",
+    });
+  });
+
+  it("rejects corrupt proposal-only history during candidate preflight", async () => {
+    const path = await makeDatabasePath();
+    const database = new DatabaseSync(path);
+    try {
+      database.exec(STATE_SCHEMA_SQL);
+      database.prepare(
+        `
+          INSERT INTO station_known_installations(
+            installation_id,
+            registered_at
+          ) VALUES ('proposal-home', '2026-07-28T00:00:00.000Z')
+        `,
+      ).run();
+      database.prepare(
+        `
+          INSERT INTO work_event_sequences(
+            event_home,
+            entity_home,
+            last_seq
+          ) VALUES ('proposal-home', 'proposal-home', '1')
+        `,
+      ).run();
+      database.prepare(
+        `
+          INSERT INTO work_proposal_events(
+            event_home,
+            entity_home,
+            seq,
+            record_type,
+            canvas_name,
+            node_id,
+            proposal_id,
+            operation,
+            content_sha256,
+            record_json,
+            origin_at,
+            received_at
+          ) VALUES (
+            'proposal-home',
+            'proposal-home',
+            '1',
+            'fact',
+            'factory',
+            'tasks',
+            'malformed-proposal',
+            'proposal.create',
+            ?,
+            '{}',
+            '2026-07-28T00:00:00.000Z',
+            '2026-07-28T00:00:00.000Z'
+          )
+        `,
+      ).run("a".repeat(64));
+      verifyAndStampStateSchema(database, STATE_SCHEMA_SQL);
+      database.exec(
+        `PRAGMA user_version = ${CURRENT_STATE_SCHEMA_VERSION}`,
+      );
+    } finally {
+      database.close();
+    }
+    candidateSource.path = path;
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        withStateUpdateCandidate(
+          inspectStateUpdateCandidate,
+        ),
+      ),
+    );
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isRight(result)) {
+      throw new Error(
+        "corrupt proposal-only Work history passed preflight",
+      );
     }
     expect(result.left).toMatchObject({
       operation: "readiness",

@@ -33,7 +33,7 @@ const qualified = () => ({
   ok: true as const,
   sourceCommit: "a".repeat(40),
   package: { file: "vellum.deb", sha256: hash("b") },
-  stationProtocol: 2,
+  stationProtocol: 3,
   installations: {
     commandCenter: {
       installationId: "cc-01",
@@ -166,13 +166,13 @@ describe("two-installation Station qualification contract", () => {
     expect(Either.isRight(decodeStationQualification(crossHome))).toBe(true);
   });
 
-  it("requires distinct installations, protocol v2, and a labelled synthetic no-overlap", () => {
+  it("requires distinct installations, protocol v3, and a labelled synthetic no-overlap", () => {
     const sameInstallation = qualified();
     sameInstallation.installations.remote.installationId = "cc-01";
     expect(Either.isLeft(decodeStationQualification(sameInstallation))).toBe(true);
 
     const wrongProtocol = qualified();
-    wrongProtocol.stationProtocol = 3;
+    wrongProtocol.stationProtocol = 2;
     expect(Either.isLeft(decodeStationQualification(wrongProtocol))).toBe(true);
 
     const overlap = qualified();

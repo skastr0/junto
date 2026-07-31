@@ -109,7 +109,7 @@ number exists only when the actual closed wire bundle changes.
 One negotiated integer selects the complete strict bundle: session framing,
 control envelope, five Station API operations, Work records, projection
 encoding, bounds, and failure semantics. Their current `.../v2` discriminators
-are members of Station protocol 2, not independently negotiated versions.
+are members of Station protocol 3, not independently negotiated versions.
 There is no session-version array, Station-API-version array,
 Work-version array, projection-version array, fallback-protocol number, or
 capability array.
@@ -1174,7 +1174,7 @@ ReportBatch {
 }
 
 ReportRequest {
-  protocol: "vellum/station-api/v2"
+  protocol: "vellum/station-api/v3"
   op: "report"
   senderInstallationId: InstallationId
   targetInstallationId: InstallationId
@@ -1182,7 +1182,7 @@ ReportRequest {
 }
 
 ReportResponse {
-  protocol: "vellum/station-api/v2"
+  protocol: "vellum/station-api/v3"
   op: "report"
   senderInstallationId: InstallationId
   targetInstallationId: InstallationId
@@ -1299,10 +1299,10 @@ Status includes:
 Cached status must be labelled last-observed. An unreachable Remote is
 `unknown/unreachable`, never optimistically healthy.
 
-These compatibility facts belong to the session supervisor and operator
-status surfaces. They do not widen the frozen Station protocol 2
-`StatusResponse`; a legacy v2 peer proves its version through the narrowly
-bounded compatibility path below.
+These compatibility facts belong to the protocol-3 `StatusResponse`, session
+supervisor, and operator status surfaces. They do not widen any retired codec:
+a protocol-2 peer has no installed decoder and fails compatibility before
+domain traffic.
 
 ## Closed protocol surface
 
@@ -1398,14 +1398,17 @@ Command Center and Remotes are installed applications and cannot be updated
 atomically. That is a proven runtime-skew constraint, not speculative backward
 compatibility.
 
-The exact Station protocol 2 bundle is the first installed compatibility
-floor. Its session, Station API, control, Work, and projection codecs are
-immutable and are never widened in place.
+The exact Station protocol 3 bundle is the installed compatibility floor. Its
+session, Station API, control, Work, and projection codecs are closed and are
+never widened in place. Protocol 3 adds typed task proposals and operator
+promotion. Protocol 2 cannot represent that authority boundary and is retired
+because no deployed Station or unreconciled route establishes an obligation
+to retain it.
 
-The committed protocol-2 golden corpus freezes accepted and rejected preface,
-session, five-verb, projection, Work, disposition, ACK, and status shapes.
-Changing a v2 decoder so that this corpus changes is a protocol change, not an
-internal refactor.
+The committed protocol-2 corpus is rejection evidence: a current installation
+must fail closed before interpreting those legacy domain frames. A future
+retained codec must instead keep its own accepted and rejected golden corpus
+immutable until its objective fleet-retirement trigger is satisfied.
 
 Every negotiation-aware connection begins with one frozen compatibility
 preface before domain traffic:
@@ -1479,40 +1482,20 @@ Rules:
 9. No-common-protocol is a typed, non-retryable software state, not network
    unavailability.
 
-#### Narrow pre-negotiation v2 boundary
+#### Retired protocol-2 boundary
 
-Protocol 2 shipped before the compatibility preface. Independently updated
-installed Stations make one temporary boundary unavoidable:
+There is no pre-negotiation protocol-2 fallback in the protocol-3 cut. A
+protocol-2 preface or domain frame is rejected before interpretation, no
+fresh compatibility-mode connection is opened, and no mutation or
+acknowledgement is attempted. Coordination resumes only after the incompatible
+installation updates into the protocol-3 support interval.
 
-- A negotiation-aware Remote that receives a strict protocol 2 domain frame
-  as the first frame may bind protocol 2 and process that same frame, but only
-  when its support interval includes 2.
-- A negotiation-aware Command Center uses one sealed compatibility-mode
-  invocation of the packaged SSH helper and sends the compatibility offer
-  first. It may open exactly one fresh authenticated protocol 2 connection
-  only when that fixed invocation observes zero peer stdout bytes and exits
-  with reserved code `64`. The offer may race with this immediate rejection
-  and is not part of the proof. The old helper uses that code when it rejects
-  the unknown fixed argument before reaching the owner-local relay; this
-  complete witness is the only evidence of a pre-negotiation-v2 peer.
-- Any peer byte, explicit rejection, malformed frame, timeout, authentication,
-  setup, write, identity, authorization, integrity, relay, or domain failure,
-  or any exit code other than `64`, forbids fallback.
-- Successful exact protocol 2 identity/status exchange binds the expected
-  enrolled installation before any mutation.
-
-This is a bounded runtime-skew exception, not a second permanent session
-design. Its canonical end state is that every connection uses the
-compatibility preface. The **fleet protocol owner** owns deletion. The
-objective retirement trigger is: every enrolled Station has successfully used
-the compatibility preface at least once or has been explicitly retired, and
-no enrolled route remains recorded as legacy-v2. Elapsed time or a new app
-release is not evidence.
-
-The exact protocol 2 codec has its own later retirement trigger. It may be
-removed only after every enrolled Station selecting 2 has upgraded or been
-explicitly retired and every durable protocol-2 record has been reconciled.
-The fleet protocol owner owns that retirement too.
+This is an intentional coordination lockdown, not a request to stop the
+Remote's host-local factory. The Remote continues already-homed work under its
+last complete projection while the Command Center marks it update-required.
+The update path must quiesce the incumbent and pass the signed packaged
+candidate preflight against a retained backup and disposable migrated clone;
+failure leaves the incumbent and its canonical state intact.
 
 Before Vellum ships its second installed release, release qualification must
 exercise real packaged skew in both directions:
@@ -1520,8 +1503,10 @@ exercise real packaged skew in both directions:
 1. candidate Command Center against the previous installed Remote;
 2. previous installed Command Center against the candidate Remote.
 
-Both runs must select their highest common exact Station protocol and preserve
-offline Remote work plus ordered reconciliation. Local SQLite schema versions
+Both runs must either select their highest common exact Station protocol or
+enter the typed no-common coordination lockdown. Qualification must preserve
+offline Remote work, prove safe in-place update, and then prove ordered
+reconciliation after compatibility is restored. Local SQLite schema versions
 may differ and remain diagnostic only. This gate does not justify a new
 Station protocol number: that number changes only when the closed wire bundle
 changes.
@@ -1946,10 +1931,12 @@ The canonical protocol blocks release while any live path preserves:
 
 ## Implementation status
 
-Station protocol 2 is the sole live Station contract in source. Its
+Station protocol 3 is the sole live Station contract in source. Its
 implementation cut is closed:
 
 - the wire has exactly `pair | configure | project | report | status`;
+- task proposals are typed, non-executable Work entities; only a correlated
+  Command Center approval may mint a submitted task;
 - every request, response, Work record, handshake, frame, cursor, and
   disposition is strictly decoded with bounded Effect schemas;
 - negotiation selects the highest common exact Station protocol from declared

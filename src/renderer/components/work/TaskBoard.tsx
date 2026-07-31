@@ -105,7 +105,7 @@ const mediaPartsFromDrafts = (
 type Ether = NonNullable<CanvasNode["ether"]>;
 type WorkTask = NonNullable<Ether["tasks"]>["items"][number];
 
-type LaneId = "queue" | "working" | "input" | "authorization" | "closed";
+type LaneId = "proposal" | "queue" | "working" | "input" | "authorization" | "closed";
 
 type TaskDragData = {
   readonly kind: "task";
@@ -140,6 +140,14 @@ type LaneDefinition = {
 };
 
 const LANES: ReadonlyArray<LaneDefinition> = [
+  {
+    id: "proposal",
+    label: "Proposals",
+    tone: "violet",
+    chipTone: "violet",
+    icon: UserRound,
+    hint: "Agent-created work awaiting review",
+  },
   {
     id: "queue",
     label: "Queue",
@@ -197,11 +205,11 @@ export const isTaskClaimantRetired = (
   && !TERMINAL_STATES.has(state)
   && !activeActorSeatIds.has(claimedBy);
 
-const laneForState = (state: TaskState): LaneId => {
-  if (TERMINAL_STATES.has(state)) return "closed";
-  if (state === "submitted") return "queue";
-  if (state === "working") return "working";
-  if (state === "input-required") return "input";
+const laneForTask = (task: WorkTask): LaneId => {
+  if (TERMINAL_STATES.has(task.state)) return "closed";
+  if (task.state === "submitted") return "queue";
+  if (task.state === "working") return "working";
+  if (task.state === "input-required") return "input";
   return "authorization";
 };
 
@@ -292,7 +300,9 @@ function TaskLane({
   editingTaskId,
   selectedTaskId,
   activeActorSeatIds,
+  proposalById,
   onCreate,
+  onApprove,
   onSelect,
   onMove,
   onEdit,
@@ -307,7 +317,9 @@ function TaskLane({
   readonly editingTaskId: string | null;
   readonly selectedTaskId: string | null;
   readonly activeActorSeatIds: ReadonlySet<string>;
+  readonly proposalById: ReadonlyMap<string, string>;
   readonly onCreate: () => void;
+  readonly onApprove: (task: WorkTask) => void;
   readonly onSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onEdit: (task: WorkTask) => void;
@@ -372,8 +384,10 @@ function TaskLane({
             editing={editingTaskId === task.id}
             selected={selectedTaskId === task.id}
             activeActorSeatIds={activeActorSeatIds}
+            proposalBy={proposalById.get(task.id)}
             onSelect={onSelect}
             onMove={onMove}
+            onApprove={onApprove}
             onEdit={onEdit}
             onCancelEdit={onCancelEdit}
             onSaveEdit={onSaveEdit}
@@ -398,14 +412,18 @@ function TaskActionsMenu({
   task,
   lane,
   pending,
+  isProposal,
   onEdit,
   onMove,
+  onApprove,
 }: {
   readonly task: WorkTask;
   readonly lane: LaneDefinition;
   readonly pending: boolean;
+  readonly isProposal: boolean;
   readonly onEdit: (task: WorkTask) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
+  readonly onApprove: (task: WorkTask) => void;
 }) {
   const menuId = `task-actions-${useId().replaceAll(":", "")}`;
   const menuRef = useRef<HTMLDivElement>(null);
@@ -467,9 +485,21 @@ function TaskActionsMenu({
         onClick={(event) => event.stopPropagation()}
         onToggle={(event) => setOpen(event.currentTarget.matches(":popover-open"))}
       >
-        <button type="button" role="menuitem" onClick={() => commit(() => onEdit(task))}>
-          Edit title
-        </button>
+        {isProposal ? (
+          <button
+            type="button"
+            role="menuitem"
+            disabled={pending}
+            onClick={() => commit(() => onApprove(task))}
+          >
+            Approve to Queue
+          </button>
+        ) : null}
+        {!isProposal ? (
+          <button type="button" role="menuitem" onClick={() => commit(() => onEdit(task))}>
+            Edit title
+          </button>
+        ) : null}
         {availableMoves.map((destination) => (
           <button
             key={destination.id}
@@ -513,8 +543,10 @@ function TaskCard({
   editing,
   selected,
   activeActorSeatIds,
+  proposalBy,
   onSelect,
   onMove,
+  onApprove,
   onEdit,
   onCancelEdit,
   onSaveEdit,
@@ -526,8 +558,10 @@ function TaskCard({
   readonly editing: boolean;
   readonly selected: boolean;
   readonly activeActorSeatIds: ReadonlySet<string>;
+  readonly proposalBy?: string;
   readonly onSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
+  readonly onApprove: (task: WorkTask) => void;
   readonly onEdit: (task: WorkTask) => void;
   readonly onCancelEdit: () => void;
   readonly onSaveEdit: (task: WorkTask, brief: string) => void;
@@ -540,7 +574,7 @@ function TaskCard({
     type: "task",
     accept: "task",
     data: { kind: "task", taskId: task.id, laneId: lane.id },
-    disabled: TERMINAL_STATES.has(task.state) || pending,
+    disabled: TERMINAL_STATES.has(task.state) || proposalBy !== undefined || pending,
     transition: {
       duration: 180,
       easing: "cubic-bezier(0.22, 1, 0.36, 1)",
@@ -573,7 +607,11 @@ function TaskCard({
         .filter(Boolean)
         .join(" ")}
       data-state={task.state}
-      data-draggable={TERMINAL_STATES.has(task.state) || pending ? "false" : "true"}
+      data-draggable={
+        TERMINAL_STATES.has(task.state) || proposalBy !== undefined || pending
+          ? "false"
+          : "true"
+      }
       data-testid="task-board-card"
       role="listitem"
       tabIndex={0}
@@ -637,7 +675,9 @@ function TaskCard({
                   pulse={!claimantRetired && task.state === "working"}
                 />
                 <span className="task-board-card__claimant" title={claim}>
-                  {claim ?? "Unclaimed"}
+                  {proposalBy
+                    ? `Proposed by ${proposalBy}`
+                    : claim ?? "Unclaimed"}
                 </span>
                 {role ? <span className="task-board-card__role">{role}</span> : null}
                 {mediaCount > 0 ? (
@@ -662,8 +702,10 @@ function TaskCard({
             task={task}
             lane={lane}
             pending={pending}
+            isProposal={proposalBy !== undefined}
             onEdit={onEdit}
             onMove={onMove}
+            onApprove={onApprove}
           />
         ) : null}
       </div>
@@ -1257,6 +1299,32 @@ export function TaskBoard({
   readonly initialItemId?: string;
 }) {
   const items = node.ether?.tasks?.items ?? [];
+  const proposals = node.ether?.tasks?.proposals ?? [];
+  const proposalTasks = useMemo(
+    () =>
+      proposals
+        .filter((proposal) => proposal.state === "pending")
+        .map(
+          (proposal): WorkTask => ({
+            id: proposal.id,
+            state: "submitted",
+            history: [proposal.brief],
+            ...(proposal.metadata ? { metadata: proposal.metadata } : {}),
+            ...(proposal.reason ? { reason: proposal.reason } : {}),
+          }),
+        ),
+    [proposals],
+  );
+  const proposalById = useMemo(
+    () =>
+      new Map(
+        proposals.map((proposal) => [
+          proposal.id,
+          proposal.proposedBy.nodeId,
+        ]),
+      ),
+    [proposals],
+  );
   const glance = sinkGlance(items);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -1300,15 +1368,24 @@ export function TaskBoard({
 
   const tasksByLane = useMemo(() => {
     const grouped: Record<LaneId, WorkTask[]> = {
+      proposal: [],
       queue: [],
       working: [],
       input: [],
       authorization: [],
       closed: [],
     };
-    for (const task of visibleItems) grouped[laneForState(task.state)].push(task);
+    grouped.proposal.push(
+      ...proposalTasks.filter((task) => {
+        const normalized = query.trim().toLowerCase();
+        return !normalized ||
+          taskTitle(task).toLowerCase().includes(normalized) ||
+          Boolean(taskDetails(task)?.toLowerCase().includes(normalized));
+      }),
+    );
+    for (const task of visibleItems) grouped[laneForTask(task)].push(task);
     return grouped;
-  }, [visibleItems]);
+  }, [proposalTasks, query, visibleItems]);
 
   const activeTask = activeTaskId ? items.find((task) => task.id === activeTaskId) : undefined;
   const selectedTask = selectedTaskId
@@ -1375,6 +1452,30 @@ export function TaskBoard({
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
       setAnnouncement(`Could not move ${taskTitle(task)}. ${message}`);
+    } finally {
+      setPendingTaskId(null);
+    }
+  };
+
+  const approveProposal = async (task: WorkTask) => {
+    if (!api) return;
+    setError("");
+    setPendingTaskId(task.id);
+    try {
+      const result = await runWorkCanvasMutation(name, () =>
+        api.workTaskApproveProposal(name, node.id, task.id),
+      );
+      if (result === undefined) return;
+      if (!result.ok) {
+        setError(result.message);
+        setAnnouncement(`Could not approve ${taskTitle(task)}. ${result.message}`);
+        return;
+      }
+      setAnnouncement(`Approved ${taskTitle(task)} to Queue.`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      setAnnouncement(`Could not approve ${taskTitle(task)}. ${message}`);
     } finally {
       setPendingTaskId(null);
     }
@@ -1614,9 +1715,11 @@ export function TaskBoard({
                 editingTaskId={editingTaskId}
                 selectedTaskId={selectedTaskId}
                 activeActorSeatIds={activeActorSeatIds}
+                proposalById={proposalById}
                 onCreate={() => setCreating(true)}
                 onSelect={setSelectedTaskId}
                 onMove={(task, state) => void transitionTask(task, state)}
+                onApprove={(task) => void approveProposal(task)}
                 onEdit={(task) => setEditingTaskId(task.id)}
                 onCancelEdit={() => setEditingTaskId(null)}
                 onSaveEdit={(task, nextBrief) => void saveTaskTitle(task, nextBrief)}

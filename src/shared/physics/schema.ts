@@ -32,6 +32,7 @@ export type FactoryRole = typeof FactoryRole.Type;
 
 export const Port = Schema.Literal(
   "tasks.list",
+  "tasks.create",
   "tasks.claim",
   "tasks.update",
   "msg.list",
@@ -44,6 +45,7 @@ export type Port = typeof Port.Type;
 
 export const ALL_PORTS: ReadonlyArray<Port> = [
   "tasks.list",
+  "tasks.create",
   "tasks.claim",
   "tasks.update",
   "msg.list",

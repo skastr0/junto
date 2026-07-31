@@ -156,21 +156,13 @@ export interface StationPeerProtocolDiagnostics {
   readonly support: StationProtocolSupport;
 }
 
-export type StationPeerProtocolBinding =
-  | {
-      readonly _tag: "negotiated";
-      readonly negotiatedProtocol: typeof STATION_PROTOCOL_BASELINE;
-      readonly compatibility: "compatible" | "deprecated";
-      readonly local: StationPeerProtocolDiagnostics;
-      readonly peer: StationPeerProtocolDiagnostics;
-    }
-  | {
-      readonly _tag: "legacy-v2";
-      readonly negotiatedProtocol: typeof STATION_PROTOCOL_BASELINE;
-      readonly compatibility: "legacy-v2";
-      readonly local: StationPeerProtocolDiagnostics;
-      readonly peer: undefined;
-    };
+export type StationPeerProtocolBinding = {
+  readonly _tag: "negotiated";
+  readonly negotiatedProtocol: typeof STATION_PROTOCOL_BASELINE;
+  readonly compatibility: "compatible" | "deprecated";
+  readonly local: StationPeerProtocolDiagnostics;
+  readonly peer: StationPeerProtocolDiagnostics;
+};
 
 const freezeProtocolDiagnostics = (
   diagnostics: StationPeerProtocolDiagnostics,
@@ -183,7 +175,7 @@ const freezeProtocolDiagnostics = (
 
 /**
  * Bind a successful preface decision to the one exact session codec it
- * selected. Protocol 2 is currently the only compiled codec.
+ * selected. Protocol 3 is currently the only compiled codec.
  */
 export const bindNegotiatedStationProtocol = (input: {
   readonly negotiatedProtocol: StationProtocolVersion;
@@ -207,30 +199,6 @@ export const bindNegotiatedStationProtocol = (input: {
     compatibility,
     local: freezeProtocolDiagnostics(input.local),
     peer: freezeProtocolDiagnostics(input.peer),
-  });
-};
-
-/**
- * Bind the bounded legacy exception after the fixed helper proves it has no
- * compatibility preface. This constructor fails once v2 leaves local support.
- */
-export const bindLegacyStationProtocolV2 = (
-  local: StationPeerProtocolDiagnostics,
-): StationPeerProtocolBinding => {
-  if (
-    local.support.compatibleFrom > STATION_PROTOCOL_BASELINE ||
-    local.support.preferred < STATION_PROTOCOL_BASELINE
-  ) {
-    throw new TypeError(
-      "Legacy Station protocol v2 is outside local support",
-    );
-  }
-  return Object.freeze({
-    _tag: "legacy-v2",
-    negotiatedProtocol: STATION_PROTOCOL_BASELINE,
-    compatibility: "legacy-v2",
-    local: freezeProtocolDiagnostics(local),
-    peer: undefined,
   });
 };
 
@@ -393,14 +361,11 @@ export const makeStationPeerSession = (
   options: StationPeerSessionOptions,
 ): Effect.Effect<StationPeerSession, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const protocol =
-      options.protocol._tag === "negotiated"
-        ? bindNegotiatedStationProtocol({
-            negotiatedProtocol: options.protocol.negotiatedProtocol,
-            local: options.protocol.local,
-            peer: options.protocol.peer,
-          })
-        : bindLegacyStationProtocolV2(options.protocol.local);
+    const protocol = bindNegotiatedStationProtocol({
+      negotiatedProtocol: options.protocol.negotiatedProtocol,
+      local: options.protocol.local,
+      peer: options.protocol.peer,
+    });
     const maxPendingRequests =
       options.maxPendingRequests ?? STATION_PEER_MAX_PENDING_REQUESTS;
     const maxInboundRequests =

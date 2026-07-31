@@ -543,7 +543,7 @@ describe("persistent Station control stream", () => {
     expect(socket.destroyed).toBe(false);
   });
 
-  it("binds a legacy exact-v2 first frame and processes that same frame", async () => {
+  it("rejects a domain frame before protocol negotiation", async () => {
     const authority = makeOwnerLocalStationControlHandoffAuthority();
     let handoffChecks = 0;
     const fixture = await makeServer({
@@ -556,44 +556,20 @@ describe("persistent Station control stream", () => {
       },
     });
     const socket = await connect(fixture.server.socketPath);
-    const reader = makeFrameReader(socket);
     const first = statusFrame("status-1");
     const second = statusFrame("status-2");
+    const closed = waitForClose(socket);
 
     socket.write(
       encodeStationControlFrame(first) +
         encodeStationControlFrame(second),
     );
 
-    const firstResponse = await withTimeout(
-      reader.next(),
-      "first response timed out",
-    );
-    const secondResponse = await withTimeout(
-      reader.next(),
-      "second response timed out",
-    );
-    expect(firstResponse).toMatchObject({
-      frame: "response",
-      requestId: first.requestId,
-      envelope: {
-        ok: true,
-        response: {
-          op: "status",
-          readiness: { session: true },
-        },
-      },
-    });
-    expect(secondResponse).toMatchObject({
-      frame: "response",
-      requestId: second.requestId,
-    });
-    expect(fixture.handled()).toBe(2);
-    expect(fixture.observedReadiness()).toMatchObject({ session: true });
-    expect(fixture.server.sessionReady()).toBe(true);
-    expect(stationControlReadiness.sessionReady()).toBe(true);
-    expect(handoffChecks).toBeGreaterThanOrEqual(8);
-    expect(socket.destroyed).toBe(false);
+    await withTimeout(closed, "unnegotiated domain frames were not rejected");
+    expect(fixture.handled()).toBe(0);
+    expect(fixture.server.sessionReady()).toBe(false);
+    expect(stationControlReadiness.sessionReady()).toBe(false);
+    expect(handoffChecks).toBeGreaterThanOrEqual(1);
   });
 
   it("publishes exact session readiness transitions for reconciliation wakeups", async () => {
@@ -631,8 +607,8 @@ describe("persistent Station control stream", () => {
           stateSchemaVersion: 4,
           support: StationProtocolSupport.make({
             preferred: 4,
-            compatibleFrom: 3,
-            warnBelow: 3,
+            compatibleFrom: 4,
+            warnBelow: 4,
           }),
         }),
       ),
@@ -659,6 +635,7 @@ describe("persistent Station control stream", () => {
 
     const recoverySocket = await connect(fixture.server.socketPath);
     const recoveryReader = makeFrameReader(recoverySocket);
+    await bindNegotiatedSession(recoverySocket, recoveryReader);
     const request = statusFrame("recovery-status");
     recoverySocket.write(encodeStationControlFrame(request));
     await expect(
@@ -746,19 +723,21 @@ describe("persistent Station control stream", () => {
         isCurrent: (socket, handoff) => {
           handoffChecks += 1;
           return (
-            handoffChecks === 1 &&
+            handoffChecks <= 2 &&
             authority.isCurrent(socket, handoff)
           );
         },
       },
     });
     const changedSocket = await connect(changed.server.socketPath);
+    const changedReader = makeFrameReader(changedSocket);
+    await bindNegotiatedSession(changedSocket, changedReader);
     changedSocket.write(encodeStationControlFrame(statusFrame("changed")));
     await withTimeout(
       waitForClose(changedSocket),
       "stale-handoff session stayed open",
     );
-    expect(handoffChecks).toBe(2);
+    expect(handoffChecks).toBe(3);
     expect(changed.handled()).toBe(0);
   });
 

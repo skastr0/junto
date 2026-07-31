@@ -81,7 +81,7 @@ const PROTOCOL_DIAGNOSTICS = {
   support: CURRENT_STATION_PROTOCOL_SUPPORT,
 };
 const PROTOCOL = bindNegotiatedStationProtocol({
-  negotiatedProtocol: 2,
+  negotiatedProtocol: 3,
   local: PROTOCOL_DIAGNOSTICS,
   peer: PROTOCOL_DIAGNOSTICS,
 });
@@ -89,20 +89,20 @@ const INCOMPATIBLE_PEER_DIAGNOSTICS = {
   appVersion: StationAppVersion.make("future-remote"),
   stateSchemaVersion: StationStateSchemaVersion.make(3),
   support: StationProtocolSupport.make({
-    preferred: 3,
-    compatibleFrom: 3,
-    warnBelow: 3,
+    preferred: 4,
+    compatibleFrom: 4,
+    warnBelow: 4,
   }),
 };
 const DEPRECATED_PROTOCOL = bindNegotiatedStationProtocol({
-  negotiatedProtocol: 2,
+  negotiatedProtocol: 3,
   local: {
     appVersion: StationAppVersion.make("future-command-center"),
     stateSchemaVersion: StationStateSchemaVersion.make(3),
     support: StationProtocolSupport.make({
-      preferred: 3,
+      preferred: 4,
       compatibleFrom: 2,
-      warnBelow: 3,
+      warnBelow: 4,
     }),
   },
   peer: PROTOCOL_DIAGNOSTICS,
@@ -615,8 +615,7 @@ describe("StationFleetPropagation persistent supervisor", () => {
           sessionOpen: true,
           protocol: {
             compatibility: "deprecated",
-            negotiatedProtocol: 2,
-            legacy: false,
+            negotiatedProtocol: 3,
           },
         });
       }

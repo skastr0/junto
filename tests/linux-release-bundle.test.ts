@@ -465,7 +465,7 @@ const createFixture = async (options: {
           options.stationQualificationPackageSha256 ??
             sha256(payloads[PACKAGE]),
       },
-      stationProtocol: 2,
+      stationProtocol: 3,
     }
     : {
       schema: STATION_QUALIFICATION_SCHEMA,
@@ -477,7 +477,7 @@ const createFixture = async (options: {
           options.stationQualificationPackageSha256 ??
             sha256(payloads[PACKAGE]),
       },
-      stationProtocol: 2,
+      stationProtocol: 3,
       installations: {
         commandCenter: {
           installationId: "fixture-command-center",
@@ -609,9 +609,9 @@ describe("signed Linux release bundle", () => {
     ));
     expect(manifest.schema).toBe("vellum/linux-release-manifest/v5");
     expect(manifest.stationProtocol).toEqual({
-      preferred: 2,
-      compatibleFrom: 2,
-      warnBelow: 2,
+      preferred: 3,
+      compatibleFrom: 3,
+      warnBelow: 3,
     });
     await expect(verifyFixture(fixture.directory)).resolves.toEqual({
       schema: "vellum/linux-release-verification-receipt/v1",
@@ -797,7 +797,7 @@ describe("signed Linux release bundle", () => {
           preferred: 2,
           compatibleFrom: 2,
           warnBelow: 2,
-          stationApi: "vellum/station-api/v2",
+          stationApi: "vellum/station-api/v3",
         } as unknown as StationProtocolSupport,
       },
       { trustedKeyId: "vellum-linux-other" },
@@ -817,9 +817,9 @@ describe("signed Linux release bundle", () => {
     await expect(
       verifyFixture(fixture.directory, {
         peerStationProtocol: {
-          preferred: 3,
+          preferred: 4,
           compatibleFrom: 2,
-          warnBelow: 3,
+          warnBelow: 4,
         },
       }),
     ).resolves.toMatchObject({ ok: true, version: VERSION });
@@ -839,7 +839,7 @@ describe("signed Linux release bundle", () => {
         ...withoutStationProtocol,
         schema: "vellum/linux-release-manifest/v3",
         protocols: {
-          stationApi: "vellum/station-api/v2",
+          stationApi: "vellum/station-api/v3",
           workControl: "vellum-work/v1",
           minimumPeerVersion: VERSION,
         },

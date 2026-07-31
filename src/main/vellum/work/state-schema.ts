@@ -1,3 +1,175 @@
+export const WORK_PROPOSAL_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS work_proposal_events (
+    event_home TEXT NOT NULL,
+    entity_home TEXT NOT NULL,
+    seq TEXT NOT NULL
+      CHECK (
+        length(seq) BETWEEN 1 AND 32
+        AND seq NOT GLOB '*[^0-9]*'
+        AND substr(seq, 1, 1) <> '0'
+      ),
+    record_type TEXT NOT NULL
+      CHECK (record_type IN ('command', 'fact', 'disposition')),
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    proposal_id TEXT NOT NULL CHECK (length(proposal_id) BETWEEN 1 AND 256),
+    operation TEXT NOT NULL
+      CHECK (operation IN ('proposal.create', 'proposal.approve')),
+    content_sha256 TEXT NOT NULL
+      CHECK (
+        length(content_sha256) = 64
+        AND content_sha256 NOT GLOB '*[^a-f0-9]*'
+      ),
+    record_json TEXT NOT NULL
+      CHECK (
+        length(record_json) BETWEEN 2 AND 262144
+        AND json_valid(record_json)
+      ),
+    origin_at TEXT NOT NULL CHECK (length(origin_at) BETWEEN 1 AND 64),
+    received_at TEXT NOT NULL CHECK (length(received_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (event_home, entity_home, seq),
+    UNIQUE (event_home, entity_home, seq, content_sha256),
+    FOREIGN KEY (event_home, entity_home)
+      REFERENCES work_event_sequences(event_home, entity_home)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT,
+    FOREIGN KEY (event_home)
+      REFERENCES station_known_installations(installation_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT,
+    FOREIGN KEY (entity_home)
+      REFERENCES station_known_installations(installation_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_pending_proposal_commands (
+    event_home TEXT NOT NULL,
+    entity_home TEXT NOT NULL,
+    seq TEXT NOT NULL,
+    canvas_name TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    proposal_id TEXT NOT NULL,
+    operation TEXT NOT NULL
+      CHECK (operation IN ('proposal.create', 'proposal.approve')),
+    resolution_status TEXT
+      CHECK (
+        resolution_status IS NULL
+        OR resolution_status IN ('applied', 'rejected')
+      ),
+    resolution_event_home TEXT,
+    resolution_entity_home TEXT,
+    resolution_seq TEXT,
+    created_at TEXT NOT NULL CHECK (length(created_at) BETWEEN 1 AND 64),
+    resolved_at TEXT,
+    PRIMARY KEY (event_home, entity_home, seq),
+    CHECK (
+      (
+        resolution_status IS NULL
+        AND resolution_event_home IS NULL
+        AND resolution_entity_home IS NULL
+        AND resolution_seq IS NULL
+        AND resolved_at IS NULL
+      )
+      OR
+      (
+        resolution_status IS NOT NULL
+        AND resolution_event_home IS NOT NULL
+        AND resolution_entity_home IS NOT NULL
+        AND resolution_seq IS NOT NULL
+        AND resolved_at IS NOT NULL
+      )
+    ),
+    FOREIGN KEY (event_home, entity_home, seq)
+      REFERENCES work_proposal_events(event_home, entity_home, seq)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_task_proposals (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    proposal_id TEXT NOT NULL CHECK (length(proposal_id) BETWEEN 1 AND 256),
+    entity_home TEXT NOT NULL,
+    fact_event_home TEXT NOT NULL,
+    fact_entity_home TEXT NOT NULL,
+    fact_seq TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'approved', 'rejected')),
+    brief_json TEXT NOT NULL CHECK (json_valid(brief_json)),
+    proposer_seat_id TEXT NOT NULL
+      CHECK (
+        length(proposer_seat_id) = 69
+        AND substr(proposer_seat_id, 1, 5) = 'seat_'
+        AND substr(proposer_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+      ),
+    proposer_canvas_name TEXT NOT NULL
+      CHECK (length(proposer_canvas_name) BETWEEN 1 AND 256),
+    proposer_node_id TEXT NOT NULL
+      CHECK (length(proposer_node_id) BETWEEN 1 AND 256),
+    approved_task_id TEXT,
+    metadata_json TEXT CHECK (metadata_json IS NULL OR json_valid(metadata_json)),
+    reason TEXT,
+    created_at TEXT NOT NULL CHECK (length(created_at) BETWEEN 1 AND 64),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
+    origin_at TEXT NOT NULL CHECK (length(origin_at) BETWEEN 1 AND 64),
+    received_at TEXT NOT NULL CHECK (length(received_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, node_id, proposal_id),
+    UNIQUE (fact_event_home, fact_entity_home, fact_seq),
+    CHECK (entity_home = fact_entity_home),
+    CHECK (fact_event_home = fact_entity_home),
+    CHECK (
+      (state = 'approved' AND approved_task_id IS NOT NULL)
+      OR (state <> 'approved' AND approved_task_id IS NULL)
+    ),
+    FOREIGN KEY (entity_home)
+      REFERENCES station_known_installations(installation_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT,
+    FOREIGN KEY (fact_event_home, fact_entity_home, fact_seq)
+      REFERENCES work_proposal_events(event_home, entity_home, seq)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE INDEX IF NOT EXISTS work_task_proposals_node
+    ON work_task_proposals(canvas_name, node_id, created_at, proposal_id);
+  CREATE INDEX IF NOT EXISTS work_pending_proposal_commands_route
+    ON work_pending_proposal_commands(
+      event_home,
+      entity_home,
+      length(seq),
+      seq
+    )
+    WHERE resolution_event_home IS NULL;
+
+  CREATE TRIGGER IF NOT EXISTS work_proposal_events_immutable_update
+  BEFORE UPDATE ON work_proposal_events
+  BEGIN
+    SELECT RAISE(ABORT, 'proposal records are immutable');
+  END;
+  CREATE TRIGGER IF NOT EXISTS work_proposal_events_immutable_delete
+  BEFORE DELETE ON work_proposal_events
+  BEGIN
+    SELECT RAISE(ABORT, 'proposal records are immutable');
+  END;
+  CREATE TRIGGER IF NOT EXISTS work_task_proposals_home_immutable
+  BEFORE UPDATE OF entity_home ON work_task_proposals
+  WHEN OLD.entity_home <> NEW.entity_home
+  BEGIN
+    SELECT RAISE(ABORT, 'task proposal home is immutable');
+  END;
+  CREATE TRIGGER IF NOT EXISTS work_task_proposals_proposer_immutable
+  BEFORE UPDATE OF proposer_seat_id, proposer_canvas_name, proposer_node_id
+  ON work_task_proposals
+  WHEN
+    OLD.proposer_seat_id <> NEW.proposer_seat_id
+    OR OLD.proposer_canvas_name <> NEW.proposer_canvas_name
+    OR OLD.proposer_node_id <> NEW.proposer_node_id
+  BEGIN
+    SELECT RAISE(ABORT, 'task proposal author is immutable');
+  END;
+`;
+
 /**
  * Exact-current durable Work v2 schema.
  *
@@ -1418,6 +1590,7 @@ export const WORK_STATE_SCHEMA_SQL = `
   BEGIN
     SELECT RAISE(ABORT, 'work delivery receipt home is immutable');
   END;
+  ${WORK_PROPOSAL_STATE_SCHEMA_SQL}
 `;
 
 /**
@@ -1425,7 +1598,9 @@ export const WORK_STATE_SCHEMA_SQL = `
  * Kept as an exact forward-migration witness; fresh installs use the current
  * trigger above. This avoids duplicating the rest of the large Work schema.
  */
-export const WORK_STATE_SCHEMA_V3_SQL = WORK_STATE_SCHEMA_SQL.replace(
+export const WORK_STATE_SCHEMA_V3_SQL = WORK_STATE_SCHEMA_SQL
+  .replace(`  ${WORK_PROPOSAL_STATE_SCHEMA_SQL}\n`, "")
+  .replace(
   `  CREATE TRIGGER IF NOT EXISTS work_tasks_actor_immutable
   BEFORE UPDATE OF actor_seat_id ON work_tasks
   WHEN
@@ -1449,4 +1624,4 @@ export const WORK_STATE_SCHEMA_V3_SQL = WORK_STATE_SCHEMA_SQL.replace(
   BEGIN
     SELECT RAISE(ABORT, 'work task actor seat is immutable after first claim');
   END;`,
-);
+  );

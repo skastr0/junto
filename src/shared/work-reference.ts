@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ActorSeatId } from "./actor-seat";
 
 /**
  * Canonical work identity references shared by the durable domain model and
@@ -34,8 +35,16 @@ export type SinkRef = typeof SinkRef.Type;
 export const WorkNodeRef = SinkRef;
 export type WorkNodeRef = typeof WorkNodeRef.Type;
 
+export const ActorRef = Schema.Struct({
+  seatId: ActorSeatId,
+  canvasName: WorkCanvasName,
+  nodeId: WorkNodeId,
+});
+export type ActorRef = typeof ActorRef.Type;
+
 export const WorkItemKind = Schema.Literal(
   "task",
+  "proposal",
   "request",
   "message",
   "artifact",

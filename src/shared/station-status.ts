@@ -110,18 +110,15 @@ export type StationProtocolPeerObservation = {
 /**
  * Ephemeral compatibility truth for one CC-opened Station connection.
  *
- * This is deliberately not part of the v2 Station API response or the
- * durable status document. The compatibility preface owns these diagnostics;
- * Doctor and Fleet merely project them for the operator.
+ * The compatibility preface owns these diagnostics; Doctor and Fleet merely
+ * project them for the operator.
  */
 export type StationProtocolObservation =
   | {
       readonly compatibility: "compatible" | "deprecated";
       readonly negotiatedProtocol: StationProtocolVersion;
-      /** True only for the bounded pre-preface v2 compatibility path. */
-      readonly legacy: boolean;
       readonly local: StationProtocolPeerObservation;
-      readonly peer?: StationProtocolPeerObservation;
+      readonly peer: StationProtocolPeerObservation;
     }
   | {
       readonly compatibility: "update-required";
@@ -494,10 +491,6 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         problems.push(
           `Station protocol ${protocol.negotiatedProtocol} deprecated`,
         );
-      } else if (protocol?.legacy) {
-        problems.push(
-          `Station protocol ${protocol.negotiatedProtocol} uses legacy preface`,
-        );
       }
       if (
         station.configuration?.role !== "remote" ||
@@ -551,7 +544,7 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
           : `protocol ${protocol.compatibility}${
             protocol.compatibility === "update-required"
               ? ""
-              : `/${protocol.negotiatedProtocol}${protocol.legacy ? "/legacy" : ""}`
+              : `/${protocol.negotiatedProtocol}`
           } · `) +
         `projection ${station?.projection?.generation ?? "absent"} · ` +
         `received ${station?.receivedThrough.length ?? 0} · ` +
@@ -568,12 +561,6 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
             protocol.compatibility !== "update-required"
             ? String(protocol.negotiatedProtocol)
             : "",
-        [`${prefix}protocolLegacy`]:
-          protocol !== undefined &&
-            protocol.compatibility !== "update-required" &&
-            protocol.legacy
-            ? "true"
-            : "false",
         [`${prefix}localAppVersion`]:
           protocol?.local.appVersion ?? "",
         [`${prefix}localStateSchemaVersion`]:

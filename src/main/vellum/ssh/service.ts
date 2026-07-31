@@ -124,12 +124,12 @@ export class SshTransport extends Context.Tag("@vellum/SshTransport")<
       ) => Effect.Effect<SshReady<A>, E, R>,
     ) => Effect.Effect<A, SshError | E, R | Scope.Scope>;
     /**
-     * Station compatibility-only readiness path.
+     * Station negotiation readiness path.
      *
      * Unlike `connect`, the transport does not race child exit against the
-     * callback. The callback owns exit observation so it can drain stdout to
-     * EOF before classifying a zero-byte legacy witness. A confirmed live
-     * connection is still checked exactly like `connect`.
+     * callback. The callback owns exit observation so it can distinguish a
+     * peer response from helper exit after draining stdout to EOF. A
+     * confirmed live connection is still checked exactly like `connect`.
      */
     readonly connectWithExitObservation: <A, E, R>(
       program: ScopedStreamProgram,

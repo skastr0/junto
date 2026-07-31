@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
-import { TaskRef } from "./work-reference";
+import { ActorRef, TaskRef } from "./work-reference";
 
 /**
  * Durable work-domain contracts.
@@ -119,6 +119,33 @@ export const Task = Schema.Struct({
 );
 export type Task = typeof Task.Type;
 
+export const TaskProposalState = Schema.Literal(
+  "pending",
+  "approved",
+  "rejected",
+);
+export type TaskProposalState = typeof TaskProposalState.Type;
+
+/**
+ * A proposal is not executable work. Only an operator-approved proposal may
+ * mint a submitted Task, recorded by `approvedTaskId`.
+ */
+export const TaskProposal = Schema.Struct({
+  id: Schema.String,
+  state: TaskProposalState,
+  brief: Message,
+  proposedBy: ActorRef,
+  approvedTaskId: Schema.optionalWith(Schema.String, { exact: true }),
+  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
+  reason: Schema.optionalWith(Schema.String, { exact: true }),
+}).pipe(
+  Schema.filter(({ state, approvedTaskId }) =>
+    (state === "approved") === (approvedTaskId !== undefined) ||
+    "approved proposals require approvedTaskId; other proposal states forbid it"
+  ),
+);
+export type TaskProposal = typeof TaskProposal.Type;
+
 export const Artifact = Schema.Struct({
   artifactId: Schema.String,
   name: Schema.optionalWith(Schema.String, { exact: true }),
@@ -131,6 +158,9 @@ export type Artifact = typeof Artifact.Type;
 /** Tasks sink contents. */
 export const WorkTasks = Schema.Struct({
   items: Schema.Array(Task),
+  proposals: Schema.optionalWith(Schema.Array(TaskProposal), {
+    exact: true,
+  }),
 });
 export type WorkTasks = typeof WorkTasks.Type;
 

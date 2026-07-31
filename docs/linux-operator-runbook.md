@@ -64,7 +64,7 @@ not qualified in v1.
    undeclared files, missing files, and changed bytes in this protected copy.
 4. From the Command Center, record its one Station protocol support descriptor:
    `preferred`, `compatibleFrom`, and `warnBelow`. The current policy is
-   `2/2/2`. App release and local Work-control versions are not peer
+   `3/3/3`. App release and local Work-control versions are not peer
    compatibility gates.
 5. Check the verifier against the independently authenticated hash, then run
    it as the ordinary station user with the independently authenticated trust
@@ -81,9 +81,9 @@ not qualified in v1.
      --trusted-keyring-sha256 AUTHENTICATED_KEYRING_SHA256 \
      --trusted-key-id AUTHENTICATED_KEY_ID \
      --trusted-key-fingerprint-sha256 AUTHENTICATED_KEY_FINGERPRINT \
-     --peer-station-protocol-preferred 2 \
-     --peer-station-protocol-compatible-from 2 \
-     --peer-station-protocol-warn-below 2
+     --peer-station-protocol-preferred 3 \
+     --peer-station-protocol-compatible-from 3 \
+     --peer-station-protocol-warn-below 3
    ```
 
 Run the staged verifier as the ordinary station user, never with `sudo`. It

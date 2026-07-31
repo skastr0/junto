@@ -1,8 +1,15 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
-import { Artifact, Message, Task, TaskState } from "./work-model";
 import {
+  Artifact,
+  Message,
+  Task,
+  TaskProposal,
+  TaskState,
+} from "./work-model";
+import {
+  ActorRef,
   BoundedWorkId,
   SinkRef,
   WorkCanvasName,
@@ -14,10 +21,10 @@ import {
   WORK_PROTOCOL_MAX_ID_CHARS,
   WORK_PROTOCOL_MAX_NODE_ID_CHARS,
 } from "./work-reference";
-import { STATION_PROTOCOL_BASELINE } from "./station-protocol";
 
 export { ActorSeatId };
 export {
+  ActorRef,
   SinkRef,
   TaskRef,
   WorkItemKind,
@@ -35,8 +42,12 @@ export {
  * reports, and SQLite repositories. It deliberately contains no ReportBatch,
  * SSH, socket, database, or wall-clock orchestration concerns.
  */
-export const WORK_PROTOCOL =
-  `vellum/work/v${STATION_PROTOCOL_BASELINE}` as const;
+/**
+ * Existing task/request/message records retain their frozen v2 envelope.
+ * Station protocol 3 adds proposal records but does not rewrite prior Work
+ * history or its durable representation.
+ */
+export const WORK_PROTOCOL = "vellum/work/v2" as const;
 
 /** Intrinsic limits for one work record, independent of report batching. */
 export const WORK_PROTOCOL_MAX_RECORD_BYTES = 256 * 1024;
@@ -154,14 +165,9 @@ export const RouteCursor = Schema.Struct({
 });
 export type RouteCursor = typeof RouteCursor.Type;
 
-export const ActorRef = Schema.Struct({
-  seatId: ActorSeatId,
-  canvasName: WorkCanvasName,
-  nodeId: WorkNodeId,
-});
-export type ActorRef = typeof ActorRef.Type;
-
 export const WorkOperation = Schema.Literal(
+  "proposal.create",
+  "proposal.approve",
   "task.create",
   "task.describe",
   "task.transition",
@@ -173,6 +179,31 @@ export const WorkOperation = Schema.Literal(
   "delivery.accepted",
 );
 export type WorkOperation = typeof WorkOperation.Type;
+
+export const ProposalCreateAction = Schema.Struct({
+  operation: Schema.Literal("proposal.create"),
+  proposal: TaskProposal,
+}).pipe(
+  Schema.filter(
+    ({ proposal }) =>
+      proposal.state === "pending" ||
+      "proposal.create requires a pending proposal",
+  ),
+);
+export type ProposalCreateAction = typeof ProposalCreateAction.Type;
+
+export const ProposalApproveAction = Schema.Struct({
+  operation: Schema.Literal("proposal.approve"),
+  proposalId: BoundedWorkId,
+  task: Task,
+}).pipe(
+  Schema.filter(
+    ({ task }) =>
+      (task.state === "submitted" && task.claimedBy === undefined) ||
+      "proposal.approve requires a submitted unclaimed task",
+  ),
+);
+export type ProposalApproveAction = typeof ProposalApproveAction.Type;
 
 export const DeliveryReceipt = Schema.Struct({
   deliveryId: BoundedWorkId,
@@ -328,6 +359,8 @@ export const DeliveryAcceptedAction = Schema.Struct({
 export type DeliveryAcceptedAction = typeof DeliveryAcceptedAction.Type;
 
 export const WorkAction = Schema.Union(
+  ProposalCreateAction,
+  ProposalApproveAction,
   TaskCreateAction,
   TaskDescribeAction,
   TaskTransitionAction,
@@ -339,6 +372,34 @@ export const WorkAction = Schema.Union(
   DeliveryAcceptedAction,
 );
 export type WorkAction = typeof WorkAction.Type;
+
+export const ProposalCreateResult = Schema.Struct({
+  operation: Schema.Literal("proposal.create"),
+  proposal: TaskProposal,
+}).pipe(
+  Schema.filter(
+    ({ proposal }) =>
+      proposal.state === "pending" ||
+      "proposal.create result requires a pending proposal",
+  ),
+);
+export type ProposalCreateResult = typeof ProposalCreateResult.Type;
+
+export const ProposalApproveResult = Schema.Struct({
+  operation: Schema.Literal("proposal.approve"),
+  proposal: TaskProposal,
+  task: Task,
+}).pipe(
+  Schema.filter(
+    ({ proposal, task }) =>
+      (proposal.state === "approved" &&
+        proposal.approvedTaskId === task.id &&
+        task.state === "submitted" &&
+        task.claimedBy === undefined) ||
+      "proposal.approve result must bind the approved proposal to its submitted task",
+  ),
+);
+export type ProposalApproveResult = typeof ProposalApproveResult.Type;
 
 export const TaskCreateResult = Schema.Struct({
   operation: Schema.Literal("task.create"),
@@ -419,6 +480,8 @@ export const DeliveryAcceptedResult = Schema.Struct({
 export type DeliveryAcceptedResult = typeof DeliveryAcceptedResult.Type;
 
 export const WorkResult = Schema.Union(
+  ProposalCreateResult,
+  ProposalApproveResult,
   TaskCreateResult,
   TaskMutationResult,
   TaskClaimResult,
@@ -497,6 +560,10 @@ const itemMatchesAction = (
   action: WorkAction,
 ): boolean => {
   switch (action.operation) {
+    case "proposal.create":
+      return item.kind === "proposal" && item.itemId === action.proposal.id;
+    case "proposal.approve":
+      return item.kind === "proposal" && item.itemId === action.proposalId;
     case "task.create":
       return item.kind === "task" && item.itemId === action.task.id;
     case "task.describe":
@@ -535,6 +602,9 @@ const itemMatchesResult = (
   result: WorkResult,
 ): boolean => {
   switch (result.operation) {
+    case "proposal.create":
+    case "proposal.approve":
+      return item.kind === "proposal" && item.itemId === result.proposal.id;
     case "task.create":
     case "task.describe":
     case "task.transition":
@@ -562,6 +632,7 @@ const itemMatchesResult = (
 };
 
 const noPriorMaterialFact = (operation: WorkOperation): boolean =>
+  operation === "proposal.create" ||
   operation === "task.create" ||
   operation === "task.claim" ||
   operation === "request.create" ||

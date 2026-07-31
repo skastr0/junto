@@ -807,21 +807,11 @@ export const startStationControlServer = async (
         return;
       }
 
-      // Compatibility exception: an older Command Center starts directly
-      // with the frozen exact-v2 session. Bind v2 and process this same frame.
-      const legacy = decodeStationSessionFrame(raw);
-      if (
-        Either.isRight(legacy) &&
-        bindProtocol(session, STATION_PROTOCOL_BASELINE)
-      ) {
-        await processSessionFrame(session, legacy.right);
-        return;
-      }
       terminateSession(
         session,
         new StationControlReportError(
           "protocol-error",
-          "station first frame matches neither negotiation nor exact v2",
+          "station first frame must be a compatible protocol offer",
         ),
       );
       return;

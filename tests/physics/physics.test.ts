@@ -568,6 +568,7 @@ describe("physics mask union (I7 — multi-edge masks combine as union)", () => 
     (
       [
         "tasks.list",
+        "tasks.create",
         "tasks.claim",
         "tasks.update",
         "msg.list",
@@ -585,7 +586,7 @@ describe("physics mask union (I7 — multi-edge masks combine as union)", () => 
     const view = canvasDocToCapabilityView(doc);
     expect(HashMap.size(view.edgePortMask)).toBe(0);
     expect(admittedPorts(view).sort()).toEqual(
-      ["msg.list", "msg.send", "tasks.claim", "tasks.list", "tasks.update"].sort(),
+      ["msg.list", "msg.send", "tasks.claim", "tasks.create", "tasks.list", "tasks.update"].sort(),
     );
   });
 
@@ -628,7 +629,7 @@ describe("physics mask union (I7 — multi-edge masks combine as union)", () => 
       const view = canvasDocToCapabilityView(doc);
       expect(HashMap.size(view.edgePortMask)).toBe(0);
       expect(admittedPorts(view).sort()).toEqual(
-        ["msg.list", "msg.send", "tasks.claim", "tasks.list", "tasks.update"].sort(),
+        ["msg.list", "msg.send", "tasks.claim", "tasks.create", "tasks.list", "tasks.update"].sort(),
       );
     }
   });

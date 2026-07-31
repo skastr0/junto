@@ -40,7 +40,7 @@ const PROTOCOL_DIAGNOSTICS = {
   support: CURRENT_STATION_PROTOCOL_SUPPORT,
 };
 const PROTOCOL = bindNegotiatedStationProtocol({
-  negotiatedProtocol: 2,
+  negotiatedProtocol: 3,
   local: PROTOCOL_DIAGNOSTICS,
   peer: PROTOCOL_DIAGNOSTICS,
 });

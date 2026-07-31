@@ -148,13 +148,8 @@ const probePipTitle = (probe?: FleetProbeState): string => {
   if (protocol?.compatibility === "update-required") {
     return "reachable — Station update required";
   }
-  if (
-    protocol !== undefined &&
-    (protocol.compatibility === "deprecated" || protocol.legacy)
-  ) {
-    return `reachable — protocol ${protocol.negotiatedProtocol} ${
-      protocol.legacy ? "legacy" : "deprecated"
-    }`;
+  if (protocol?.compatibility === "deprecated") {
+    return `reachable — protocol ${protocol.negotiatedProtocol} deprecated`;
   }
   switch (probe?.status) {
     case "probing":
@@ -175,13 +170,8 @@ const probeLabel = (probe?: FleetProbeState): string => {
   if (protocol?.compatibility === "update-required") {
     return "update required";
   }
-  if (
-    protocol !== undefined &&
-    (protocol.compatibility === "deprecated" || protocol.legacy)
-  ) {
-    return protocol.legacy
-      ? `protocol ${protocol.negotiatedProtocol} legacy`
-      : `protocol ${protocol.negotiatedProtocol} deprecated`;
+  if (protocol?.compatibility === "deprecated") {
+    return `protocol ${protocol.negotiatedProtocol} deprecated`;
   }
   switch (probe?.status) {
     case "probing":

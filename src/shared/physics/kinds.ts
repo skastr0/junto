@@ -34,6 +34,7 @@ export const ACTOR_ACTOR_INBOX_PORTS: ReadonlyArray<Port> = [
 const msgOffers = portSet(...ACTOR_ACTOR_INBOX_PORTS);
 const taskOffers = portSet(
   "tasks.list",
+  "tasks.create",
   "tasks.claim",
   "tasks.update",
   "msg.list",

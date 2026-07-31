@@ -188,8 +188,11 @@ export const inspectStateUpdateCandidate = (
         (reader) =>
           reader.all<WorkRouteKey>(
             `
-              SELECT DISTINCT event_home, entity_home
+              SELECT event_home, entity_home
               FROM work_events
+              UNION
+              SELECT event_home, entity_home
+              FROM work_proposal_events
               ORDER BY event_home, entity_home
             `,
           ),

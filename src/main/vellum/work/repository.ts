@@ -1396,6 +1396,30 @@ const eventRow = (
     ],
   );
 
+const durableRecordHash = (
+  reader: StateReader,
+  identity: WorkRecordId,
+): string | undefined =>
+  reader.get<{ readonly content_sha256: string }>(
+    `
+      SELECT content_sha256
+      FROM (
+        SELECT event_home, entity_home, seq, content_sha256
+        FROM work_events
+        UNION ALL
+        SELECT event_home, entity_home, seq, content_sha256
+        FROM work_proposal_events
+      )
+      WHERE event_home = ? AND entity_home = ? AND seq = ?
+      LIMIT 1
+    `,
+    [
+      identity.route.eventHome,
+      identity.route.entityHome,
+      identity.seq,
+    ],
+  )?.content_sha256;
+
 const predecessorFromRow = (
   row: VariantRow,
 ): WorkRecordId | null =>
@@ -3395,21 +3419,16 @@ const advancePeerAcknowledgements = (
         proposed.through,
       );
     }
-    const emitted = writer.get<StateRow>(
-      `
-        SELECT event_home
-        FROM work_events
-        WHERE event_home = ?
-          AND entity_home = ?
-          AND seq = ?
-      `,
-      [
-        proposed.eventHome,
-        proposed.entityHome,
-        proposed.through,
-      ],
-    );
-    if (emitted === undefined) {
+    if (
+      durableRecordHash(
+        writer,
+        recordId(
+          proposed.eventHome,
+          proposed.entityHome,
+          proposed.through,
+        ),
+      ) === undefined
+    ) {
       throw replicationError(
         peerInstallationId,
         "cursor-regression",
@@ -5614,18 +5633,18 @@ export const WorkRepositoryLive = Layer.effect(
                 record,
               );
               const seqValue = BigInt(record.id.seq);
-              const existing = eventRow(writer, record.id);
+              const existingHash = durableRecordHash(writer, record.id);
               if (seqValue <= through) {
                 if (
-                  existing === undefined ||
-                  existing.content_sha256 !== record.contentSha256
+                  existingHash === undefined ||
+                  existingHash !== record.contentSha256
                 ) {
                   throw replicationError(
                     input.senderInstallationId,
-                    existing === undefined
+                    existingHash === undefined
                       ? "cursor-regression"
                       : "identity-conflict",
-                    existing === undefined
+                    existingHash === undefined
                       ? "receive cursor has no corresponding durable record"
                       : "record identity was reused with different content",
                     record.id.seq,
@@ -5646,7 +5665,7 @@ export const WorkRepositoryLive = Layer.effect(
                   record.id.seq,
                 );
               }
-              if (existing !== undefined) {
+              if (existingHash !== undefined) {
                 throw replicationError(
                   input.senderInstallationId,
                   "identity-conflict",

@@ -88,6 +88,7 @@ export const IPC_CHANNELS = {
   regionRollups: "vellum:region-rollups",
   // work plane (serialized canvas mutations)
   workTaskCreate: "vellum:work-task-create",
+  workTaskApproveProposal: "vellum:work-task-approve-proposal",
   workTaskDescribe: "vellum:work-task-describe",
   workTaskTransition: "vellum:work-task-transition",
   workTaskRespond: "vellum:work-task-respond",
@@ -594,6 +595,11 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     reason?: string,
     /** First-class task media (raw image parts) projected into remote claims. */
     media?: ReadonlyArray<Part>,
+  ) => Promise<WorkOpResult<Task>>;
+  readonly workTaskApproveProposal: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
   ) => Promise<WorkOpResult<Task>>;
   readonly workTaskDescribe: (
     canvas: string,

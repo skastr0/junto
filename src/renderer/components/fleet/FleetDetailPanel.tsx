@@ -74,15 +74,9 @@ function reachabilityLine(probe?: FleetProbeState): {
           color: HUE.amber,
         };
       }
-      if (
-        probe.protocol?.compatibility === "deprecated" ||
-        probe.protocol?.legacy
-      ) {
+      if (probe.protocol?.compatibility === "deprecated") {
         return {
-          text:
-            `reachable · protocol ${probe.protocol.negotiatedProtocol} ${
-              probe.protocol.legacy ? "legacy" : "deprecated"
-            }`,
+          text: `reachable · protocol ${probe.protocol.negotiatedProtocol} deprecated`,
           detail: probe.detail,
           color: HUE.amber,
         };
@@ -412,7 +406,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <span>
               {probe.protocol.compatibility === "update-required"
                 ? "update required"
-                : `${probe.protocol.negotiatedProtocol} · ${probe.protocol.compatibility}${probe.protocol.legacy ? " · legacy" : ""}`}
+                : `${probe.protocol.negotiatedProtocol} · ${probe.protocol.compatibility}`}
             </span>
             <span>local app / schema</span>
             <span>
@@ -429,13 +423,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <span>
               {probe.protocol.peer
                 ? `${probe.protocol.peer.appVersion} / ${probe.protocol.peer.stateSchemaVersion}`
-                : "legacy peer · diagnostics unavailable"}
+                : "diagnostics unavailable"}
             </span>
             <span>Remote support</span>
             <span>
               {probe.protocol.peer
                 ? `${probe.protocol.peer.support.compatibleFrom}–${probe.protocol.peer.support.preferred} · warn below ${probe.protocol.peer.support.warnBelow}`
-                : "protocol 2 inferred"}
+                : "unknown"}
             </span>
           </div>
         ) : null}

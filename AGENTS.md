@@ -42,8 +42,8 @@ migrates and decodes only a disposable clone, starts no product runtime plane,
 and accepts no database-path redirect. It is an update proof, not a second
 store or general helper access path.
 
-**SQLite evolution law:** version 1 is the frozen durable baseline; version 3
-is current through immutable `1 → 2` and `2 → 3` steps.
+**SQLite evolution law:** version 1 is the frozen durable baseline; version 5
+is current through immutable `1 → 2`, `2 → 3`, `3 → 4`, and `4 → 5` steps.
 `PRAGMA user_version` selects a contiguous forward-only migration chain, and
 `state_schema_identity` proves the exact shape expected at each step. Every
 schema edit must increment the current version, append an atomic `N → N+1`
