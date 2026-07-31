@@ -17,6 +17,10 @@ import {
   msgCommand,
   tasksCommand,
 } from "./commands/work";
+import {
+  fleetOperatorCommand,
+  stationOperatorCommand,
+} from "./commands/operator";
 import { runBrowserCli } from "../../scripts/browser-cli";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import {
@@ -24,11 +28,12 @@ import {
   writeCauseEnvelope,
   writeFailureEnvelope,
 } from "./core/output";
+import { OperatorSocketLive } from "./core/operator-socket";
 import { WorkSocketLive } from "./core/socket";
 
 export const rootCommand = Command.make(CLI_NAME).pipe(
   Command.withDescription(
-    "Agent protocol surface over the Vellum work plane (JSON only, daemon-first)",
+    "Vellum agent and direct-operator protocol surfaces (JSON only)",
   ),
   Command.withSubcommands([
     pingCommand,
@@ -41,6 +46,8 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     msgCommand,
     escalateCommand,
     artifactCommand,
+    stationOperatorCommand,
+    fleetOperatorCommand,
   ]),
 );
 
@@ -49,7 +56,11 @@ const cli = Command.run(rootCommand, {
   version: CLI_VERSION,
 });
 
-const runtimeLayer = Layer.mergeAll(BunContext.layer, WorkSocketLive);
+const runtimeLayer = Layer.mergeAll(
+  BunContext.layer,
+  WorkSocketLive,
+  OperatorSocketLive,
+);
 
 export const runCli = (args: ReadonlyArray<string>) =>
   Effect.suspend(() => cli(args)).pipe(
@@ -62,13 +73,25 @@ export const runCli = (args: ReadonlyArray<string>) =>
     Effect.provide(runtimeLayer),
   );
 
+export const browserCliArgsFromArgv = (
+  argv: ReadonlyArray<string>,
+): ReadonlyArray<string> | undefined => {
+  const sourceEntrypoint = argv[1]?.replaceAll("\\", "/");
+  const commandIndex =
+    sourceEntrypoint?.endsWith("/src/cli/main.ts") === true ? 2 : 1;
+  return argv[commandIndex] === "browser"
+    ? argv.slice(commandIndex + 1)
+    : undefined;
+};
+
 // When executed as the CLI entrypoint (bun / compiled binary).
 if (import.meta.main) {
-  const browserIndex = Bun.argv.findIndex(
-    (argument, index) => index > 0 && argument === "browser",
-  );
-  if (browserIndex >= 0) {
-    await runBrowserCli(Bun.argv.slice(browserIndex + 1));
+  // Source execution has [bun, script, ...args]; the compiled executable has
+  // [vellum, ...args]. Only the top-level command dispatches Browser. A later
+  // `browser` value (for example `--capability browser`) remains CLI data.
+  const browserArgs = browserCliArgsFromArgv(Bun.argv);
+  if (browserArgs !== undefined) {
+    await runBrowserCli(browserArgs);
   } else {
     runCli(Bun.argv).pipe(BunRuntime.runMain);
   }

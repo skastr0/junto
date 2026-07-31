@@ -64,7 +64,6 @@ const Version = Schema.String.pipe(
 );
 const Sha256 = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
 const NonNegativeInt = Schema.Int.pipe(Schema.nonNegative());
-const PositiveInt = Schema.Int.pipe(Schema.positive());
 
 export const OperatorOpName = Schema.Literal(
   "station.status",
@@ -347,7 +346,7 @@ export const OperatorFleetPeerStatus = Schema.Struct({
     "stopped",
   ),
   sessionOpen: Schema.Boolean,
-  attempt: PositiveInt,
+  attempt: NonNegativeInt,
   updatedAt: DisplayTimestamp,
   nextRetryAt: Schema.optionalWith(DisplayTimestamp, { exact: true }),
   protocol: Schema.optionalWith(OperatorProtocolObservation, { exact: true }),
