@@ -22,20 +22,25 @@ export const ensureTerminalRunning = async (
   if (!api?.terminalCreate) {
     return { ok: false, message: "terminal API unavailable — restart Vellum Command" };
   }
-  // Renderer state is a display cache, not process authority. In particular,
-  // a kill issued from the focused surface used to leave a cached "running"
-  // row here, so every reopen attached to the already-revoked generation.
-  try {
-    const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
-    if (
-      !live?.stopping &&
-      (live?.status === "running" || live?.status === "starting")
-    ) {
-      terminal$.sessionByBindingId[binding.bindingId].set(live);
-      return { ok: true };
+  // Always go through terminalCreate for harness seats. Create is the
+  // ensure boundary (idempotent for healthy lives) and is where isolated
+  // VELLUM_HOME can replace a shared-resume generation that is still
+  // "running" but paints a dead/black TUI beside production.
+  // Geography shells may short-circuit on a live generation — they never
+  // share pin/resume state with another Vellum Command process.
+  if (!binding.harness) {
+    try {
+      const live = await api.terminalGet?.(binding.bindingId, binding.hostId);
+      if (
+        !live?.stopping &&
+        (live?.status === "running" || live?.status === "starting")
+      ) {
+        terminal$.sessionByBindingId[binding.bindingId].set(live);
+        return { ok: true };
+      }
+    } catch {
+      // fall through to create
     }
-  } catch {
-    // fall through to create
   }
   try {
     const next = await api.terminalCreate({
