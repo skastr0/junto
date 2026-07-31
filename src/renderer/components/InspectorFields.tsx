@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Flag, SlidersHorizontal } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { HashMap, HashSet, Option, Schema } from "effect";
-import type { CanvasDoc, CanvasEdge, CanvasNode, EdgeCriteria, EtherFlag, EtherRegionDefaults, EtherView, EtherWatch } from "@shared/canvas";
+import type { CanvasDoc, CanvasEdge, CanvasNode, EdgeCriteria, EtherFlag, EtherRegionDefaults, EtherWatch } from "@shared/canvas";
 import { isGroup } from "@shared/graph";
 import { workRolesInDoc } from "@shared/attention";
 import {
@@ -29,7 +29,7 @@ import {
   setEdgePorts,
 } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
-import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeView, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editFileDetails, editGroupBackground, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeWatch, setNodeWorkRole, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { resolveNodeHostId } from "@shared/station";
@@ -347,13 +347,6 @@ export function NodePlacementSection({ node }: { readonly node: CanvasNode }) {
     </div>
   );
 }
-
-// Watcher vocabulary (schema strings) — no live browse.
-const GLYPH_STATES = ["backlog", "exploring", "committed", "building", "reviewing", "done", "abandoned"] as const;
-const ORBIT_BASE = ["forge", "beacon", "survey", "scribe", "oracle", "atelier", "manual", "showcase", "cartography"] as const;
-const orbitOptions = (_stats?: Readonly<Record<string, string | number>>): ReadonlyArray<string> =>
-  [...ORBIT_BASE];
-const glyphStateHue = (_state: string): string => DIM;
 
 const FLAG_OPTIONS: ReadonlyArray<{ readonly flag: EtherFlag; readonly hue: string }> = [
   { flag: "blocker", hue: HUE.crimson },
@@ -1004,12 +997,6 @@ function RegionPulseControl({ node }: { readonly node: CanvasNode }) {
   return <RegionBriefingEditor node={node} />;
 }
 
-const WATCH_KIND_OPTIONS: ReadonlyArray<{ readonly value: EtherWatch["kind"]; readonly label: string }> = [
-  { value: "glyphs_done", label: "all glyphs done" },
-  { value: "glyphs_entered_state", label: "on glyphs entering state" },
-  { value: "stat_threshold", label: "stat threshold" },
-];
-
 const STAT_SOURCE_OPTIONS: ReadonlyArray<NonNullable<EtherWatch["source"]>> = ["hermes"];
 
 const STAT_OP_OPTIONS: ReadonlyArray<{ readonly value: NonNullable<EtherWatch["op"]>; readonly label: string }> = [
@@ -1026,36 +1013,7 @@ const commitOnEnter = (onCommit: () => void) => (event: React.KeyboardEvent<HTML
   event.currentTarget.blur();
 };
 
-// The glyph-rule scope (glyphs_done, glyphs_entered_state): project + orbit
-// + an explicit glyphIds allowlist. Empty glyphIds means every glyph in scope.
-function GlyphScopeFields({ project, orbit, glyphIdsText, projectKey, onProject, onOrbit, onGlyphIds, onCommit }: {
-  readonly project: string;
-  readonly orbit: string;
-  readonly glyphIdsText: string;
-  readonly projectKey: string | undefined;
-  readonly onProject: (value: string) => void;
-  readonly onOrbit: (value: string) => void;
-  readonly onGlyphIds: (value: string) => void;
-  readonly onCommit: () => void;
-}) {
-  const onEnter = commitOnEnter(onCommit);
-  return <>
-    <label className="inspector-editor">
-      <span>project</span>
-      <input aria-label="Watcher project" value={project} placeholder={projectKey ?? "project key"} onChange={(event) => onProject(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
-    </label>
-    <label className="inspector-editor">
-      <span>orbit</span>
-      <input aria-label="Watcher orbit" value={orbit} placeholder="all orbits" onChange={(event) => onOrbit(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
-    </label>
-    <label className="inspector-editor">
-      <span>glyph ids</span>
-      <input aria-label="Watcher glyph ids" value={glyphIdsText} placeholder="comma-separated · empty = every glyph in scope" onChange={(event) => onGlyphIds(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
-    </label>
-  </>;
-}
-
-// The stat_threshold rule: a numeric comparison on a bound entity's stat.
+// stat_threshold: numeric comparison on a bound hermes entity's stat.
 // Selects commit immediately (onSourceChange/onOpChange carry the override
 // into the same commit call — React state from setSource/setOp wouldn't be
 // flushed yet if commit() read it directly); text fields commit on blur.
@@ -1072,8 +1030,6 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
   readonly onValue: (value: string) => void;
   readonly onCommit: () => void;
 }) {
-  // Unconfigured sources drop out of the picker; an authored value stays
-  // visible regardless so existing documents never render a blank select.
   const onEnter = commitOnEnter(onCommit);
   return <>
     <label className="inspector-editor">
@@ -1092,7 +1048,7 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
     </label>
     <label className="inspector-editor">
       <span>stat</span>
-      <input aria-label="Watcher stat name" value={stat} placeholder="e.g. glyphs_active" onChange={(event) => onStat(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
+      <input aria-label="Watcher stat name" value={stat} placeholder="e.g. signals" onChange={(event) => onStat(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
     </label>
     <label className="inspector-editor">
       <span>op</span>
@@ -1113,14 +1069,8 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
 
 // Every watch field's draft state, reset together whenever the inspected
 // node changes — split out of WatcherEditor so the component body reads as
-// "options + commit", not a wall of useState declarations.
-function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, projectKey: string | undefined) {
-  // Fresh watchers default to hermes (live plane); authored values always win.
-  const [kind, setKind] = useState<EtherWatch["kind"]>(watch?.kind ?? "stat_threshold");
-  const [project, setProject] = useState(watch?.project ?? projectKey ?? "");
-  const [orbit, setOrbit] = useState(watch?.orbit ?? "");
-  const [glyphIdsText, setGlyphIdsText] = useState((watch?.glyphIds ?? []).join(", "));
-  const [stateName, setStateName] = useState(watch?.state ?? "committed");
+// "fields + commit", not a wall of useState declarations.
+function useWatchDraft(nodeId: string, watch: EtherWatch | undefined) {
   const [source, setSource] = useState<NonNullable<EtherWatch["source"]>>(watch?.source ?? "hermes");
   const [key, setKey] = useState(watch?.key ?? "");
   const [stat, setStat] = useState(watch?.stat ?? "");
@@ -1129,11 +1079,6 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, projectKey
   const [flagOnUnsatisfied, setFlagOnUnsatisfied] = useState(Boolean(watch?.flagOnUnsatisfied));
 
   useEffect(() => {
-    setKind(watch?.kind ?? "stat_threshold");
-    setProject(watch?.project ?? projectKey ?? "");
-    setOrbit(watch?.orbit ?? "");
-    setGlyphIdsText((watch?.glyphIds ?? []).join(", "));
-    setStateName(watch?.state ?? "committed");
     setSource(watch?.source ?? "hermes");
     setKey(watch?.key ?? "");
     setStat(watch?.stat ?? "");
@@ -1144,135 +1089,67 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined, projectKey
   }, [nodeId]);
 
   return {
-    kind, setKind, project, setProject, orbit, setOrbit, glyphIdsText, setGlyphIdsText,
-    stateName, setStateName, source, setSource, key, setKey, stat, setStat, op, setOp,
+    source, setSource, key, setKey, stat, setStat, op, setOp,
     valueText, setValueText, flagOnUnsatisfied, setFlagOnUnsatisfied,
   };
 }
 
-// Watcher editor: kind picks which shape of predicate this node evaluates;
-// fields below narrow by kind. flagOnUnsatisfied only applies to the level
-// rules (glyphs_done, stat_threshold) — glyphs_entered_state is an edge rule
-// with no persistent "unsatisfied" state to mirror (see canvas.ts).
+// Watcher editor: sole live kind is hermes stat_threshold.
 function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   const watch = node.ether?.watch;
-  const projectKey = entityNameOf(node);
-  // Glyph-rule kinds use document project identity; stat_threshold is hermes-only.
   const {
-    kind, setKind, project, setProject, orbit, setOrbit, glyphIdsText, setGlyphIdsText,
-    stateName, setStateName, source, setSource, key, setKey, stat, setStat, op, setOp,
+    source, setSource, key, setKey, stat, setStat, op, setOp,
     valueText, setValueText, flagOnUnsatisfied, setFlagOnUnsatisfied,
-  } = useWatchDraft(node.id, watch, projectKey);
+  } = useWatchDraft(node.id, watch);
 
   type Overrides = Partial<{
-    readonly kind: EtherWatch["kind"];
-    readonly state: string;
     readonly source: NonNullable<EtherWatch["source"]>;
     readonly op: NonNullable<EtherWatch["op"]>;
     readonly flagOnUnsatisfied: boolean;
   }>;
 
   const commit = (overrides: Overrides = {}) => {
-    const nextKind = overrides.kind ?? kind;
-    const nextState = overrides.state ?? stateName;
     const nextSource = overrides.source ?? source;
     const nextOp = overrides.op ?? op;
     const nextFlag = overrides.flagOnUnsatisfied ?? flagOnUnsatisfied;
     const parsedValue = valueText.trim() === "" ? undefined : Number(valueText);
     const nextWatch: EtherWatch = {
-      kind: nextKind,
-      ...(project.trim() ? { project: project.trim() } : {}),
-      ...(orbit.trim() ? { orbit: orbit.trim() } : {}),
-      ...(glyphIdsText.trim() ? { glyphIds: glyphIdsText.split(",").map((s) => s.trim()).filter(Boolean) } : {}),
-      ...(nextKind === "glyphs_entered_state" ? { state: nextState.trim() || "committed" } : {}),
-      ...(nextKind === "stat_threshold" ? {
-        source: nextSource,
-        ...(key.trim() ? { key: key.trim() } : {}),
-        ...(stat.trim() ? { stat: stat.trim() } : {}),
-        op: nextOp,
-        ...(parsedValue !== undefined && Number.isFinite(parsedValue) ? { value: parsedValue } : {}),
-      } : {}),
-      ...(nextKind !== "glyphs_entered_state" ? { flagOnUnsatisfied: nextFlag } : {}),
+      kind: "stat_threshold",
+      source: nextSource,
+      ...(key.trim() ? { key: key.trim() } : {}),
+      ...(stat.trim() ? { stat: stat.trim() } : {}),
+      op: nextOp,
+      ...(parsedValue !== undefined && Number.isFinite(parsedValue) ? { value: parsedValue } : {}),
+      ...(nextFlag ? { flagOnUnsatisfied: true } : {}),
     };
     setNodeWatch(node.id, nextWatch);
   };
 
   return <div className="inspector-section">
-    <div className="inspector-section__label">watcher</div>
-    <label className="inspector-editor">
-      <span>kind</span>
-      <Select
-        dense
-        aria-label="Watcher kind"
-        value={kind}
-        options={WATCH_KIND_OPTIONS.filter(
-          (option) =>
-            option.value === kind ||
-            option.value === "stat_threshold" ||
-            option.value === "glyphs_done" ||
-            option.value === "glyphs_entered_state",
-        ).map((option) => ({ value: option.value, label: option.label }))}
-        onChange={(value) => {
-          const next = value as EtherWatch["kind"];
-          setKind(next);
-          commit({ kind: next });
-        }}
-      />
-    </label>
-    {kind !== "stat_threshold" ? (
-      <GlyphScopeFields
-        project={project}
-        orbit={orbit}
-        glyphIdsText={glyphIdsText}
-        projectKey={projectKey}
-        onProject={setProject}
-        onOrbit={setOrbit}
-        onGlyphIds={setGlyphIdsText}
-        onCommit={() => commit()}
-      />
-    ) : null}
-    {kind === "glyphs_entered_state" ? (
-      <label className="inspector-editor">
-        <span>entered state</span>
-        <Select
-          dense
-          aria-label="Watcher target state"
-          value={stateName}
-          options={GLYPH_STATES.map((s) => ({ value: s, label: s }))}
-          onChange={(value) => {
-            setStateName(value);
-            commit({ state: value });
-          }}
-        />
-      </label>
-    ) : null}
-    {kind === "stat_threshold" ? (
-      <StatThresholdFields
-        source={source}
-        entityKey={key}
-        stat={stat}
-        op={op}
-        valueText={valueText}
-        onSourceChange={(next) => { setSource(next); commit({ source: next }); }}
-        onKey={setKey}
-        onStat={setStat}
-        onOpChange={(next) => { setOp(next); commit({ op: next }); }}
-        onValue={setValueText}
-        onCommit={() => commit()}
-      />
-    ) : null}
-    {kind !== "glyphs_entered_state" ? (
-      <div className="inspector-flags mt-2">
-        <button
-          type="button"
-          className="inspector-flag-toggle"
-          aria-label="Flag when unsatisfied"
-          aria-pressed={flagOnUnsatisfied}
-          style={{ color: flagOnUnsatisfied ? HUE.crimson : "#68604a", borderColor: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.5) : "rgba(237,230,218,.12)", background: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.1) : "rgba(255,255,255,.02)" }}
-          onClick={() => { const next = !flagOnUnsatisfied; setFlagOnUnsatisfied(next); commit({ flagOnUnsatisfied: next }); }}
-        >flag when unsatisfied</button>
-      </div>
-    ) : null}
+    <div className="inspector-section__label">watcher · stat threshold</div>
+    <StatThresholdFields
+      source={source}
+      entityKey={key}
+      stat={stat}
+      op={op}
+      valueText={valueText}
+      onSourceChange={(next) => { setSource(next); commit({ source: next }); }}
+      onKey={setKey}
+      onStat={setStat}
+      onOpChange={(next) => { setOp(next); commit({ op: next }); }}
+      onValue={setValueText}
+      onCommit={() => commit()}
+    />
+    <div className="inspector-flags mt-2">
+      <button
+        type="button"
+        className="inspector-flag-toggle"
+        aria-label="Flag when unsatisfied"
+        aria-pressed={flagOnUnsatisfied}
+        style={{ color: flagOnUnsatisfied ? HUE.crimson : "#68604a", borderColor: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.5) : "rgba(237,230,218,.12)", background: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.1) : "rgba(255,255,255,.02)" }}
+        onClick={() => { const next = !flagOnUnsatisfied; setFlagOnUnsatisfied(next); commit({ flagOnUnsatisfied: next }); }}
+      >flag when unsatisfied</button>
+    </div>
   </div>;
 }
 

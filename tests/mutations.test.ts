@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Either } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setNodeColor, setNodeHost, setNodeView, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editFileDetails, editGroupBackground, editLink, editText, loadDoc, promoteLinkToPage, redo, renameGroup, setNodeColor, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, inferEdgeCriteria, planConnectToTarget, setEdgeColor, setEdgeCriteria, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -981,43 +981,6 @@ describe("renderer graph mutations", () => {
     editFileDetails("file", "docs/readme.md", "");
     expect(state$.doc.peek().nodes[0]).toMatchObject({ file: "docs/readme.md" });
     expect(Object.hasOwn(state$.doc.peek().nodes[0] ?? {}, "subpath")).toBe(false);
-  });
-
-  it("writes a project slice view and strips empty fields off it", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc(doc);
-
-    setNodeView("source", { orbit: "forge", glyphQuery: "  bug  ", states: ["building", "  ", "reviewing"] });
-    expect(state$.doc.peek().nodes[0]?.ether?.view).toEqual({
-      orbit: "forge",
-      glyphQuery: "bug",
-      states: ["building", "reviewing"],
-    });
-
-    // A blank orbit/glyphQuery and an all-blank states array all collapse to
-    // "field absent" — never a field present-but-empty.
-    setNodeView("source", { orbit: "  ", glyphQuery: "", states: ["  "] });
-    expect(state$.doc.peek().nodes[0]?.ether?.view).toBeUndefined();
-    expect(Object.hasOwn(state$.doc.peek().nodes[0]?.ether ?? {}, "view")).toBe(false);
-  });
-
-  it("clears the view key entirely, and drops ether itself once nothing is left", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc(doc);
-
-    setNodeView("source", { orbit: "beacon" });
-    expect(state$.doc.peek().nodes[0]?.ether?.view).toEqual({ orbit: "beacon" });
-
-    setNodeView("source", undefined);
-    expect(Object.hasOwn(state$.doc.peek().nodes[0] ?? {}, "ether")).toBe(false);
-
-    // With a sibling ether field present, clearing the view keeps ether but
-    // drops just the view key — same degradation toggleFlag relies on.
-    toggleFlag("source", "attention");
-    setNodeView("source", { orbit: "beacon" });
-    setNodeView("source", undefined);
-    expect(state$.doc.peek().nodes[0]?.ether?.flags).toEqual(["attention"]);
-    expect(Object.hasOwn(state$.doc.peek().nodes[0]?.ether ?? {}, "view")).toBe(false);
   });
 
   it("edits text, link, and region content through the shared mutation plane", () => {

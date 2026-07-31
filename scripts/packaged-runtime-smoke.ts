@@ -127,8 +127,6 @@ export const boundedProcessKind = (command: string): string => {
     "bash",
     "ssh",
     "launchctl",
-    "tower",
-    "quasar",
     "prism",
     "bun",
     "node",

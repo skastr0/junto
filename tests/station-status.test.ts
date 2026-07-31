@@ -687,7 +687,7 @@ describe("foundation smoke — host scope + edges still compose", () => {
           ether: {
             entity: { kind: "watcher" },
             host: DEFAULT_STATION_HOST_ID,
-            watch: { kind: "glyphs_done" },
+            watch: { kind: "stat_threshold", source: "hermes" },
           },
         },
         {
@@ -728,7 +728,7 @@ describe("foundation smoke — host scope + edges still compose", () => {
           ether: {
             entity: { kind: "watcher" },
             host: "remote-a",
-            watch: { kind: "glyphs_done" },
+            watch: { kind: "stat_threshold", source: "hermes" },
           },
         },
         {

@@ -3,13 +3,13 @@ import type { CSSProperties } from "react";
 /**
  * Focus measures — width targets for single-subject "focused" surfaces.
  *
- * The product bet: one agent / one glyph / one draft is more pleasant when
- * the surface is *centered and measure-constrained* rather than full-bleed
- * or stage-split. Full width and dock-split remain available; focus is the
- * default for deep interaction.
+ * The product bet: one agent / one draft is more pleasant when the surface
+ * is *centered and measure-constrained* rather than full-bleed or stage-split.
+ * Full width and dock-split remain available; focus is the default for deep
+ * interaction.
  *
  * Units:
- * - `ch` — width of the "0" glyph. For proportional UI text ≈ average char;
+ * - `ch` — width of the "0" character. For proportional UI text ≈ average char;
  *   for monospace (terminals) ≈ one cell.
  * - terminal math uses the same cell estimate xterm falls back to
  *   (`fontSize * monoCellRatio`, currently 13 × 0.6 = 7.8px).
@@ -66,7 +66,7 @@ export function terminalFocusWidthPx(
 
 /** Default CSS pixel widths for non-ch measures (document / workspace). */
 export const FOCUS_WIDTH_PX = {
-  /** Glyph / signal / session / booth review detail — existing vellum-modal. */
+  /** Session / signal / dispatch detail — existing vellum-modal. */
   document: 760,
   /** Browser / multi-pane work that still wants a frame, not full bleed. */
   workspace: 1280,

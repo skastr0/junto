@@ -163,6 +163,58 @@ describe("canvas contract", () => {
     },
   );
 
+  it.each(["glyphs_done", "glyphs_entered_state"] as const)(
+    "rejects retired watch kind %s",
+    (kind) => {
+      const legacy = {
+        nodes: [
+          {
+            id: "watch",
+            type: "text",
+            text: "legacy watch",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 80,
+            ether: {
+              entity: { kind: "watcher" },
+              watch: {
+                kind,
+                project: "demo",
+              },
+            },
+          },
+        ],
+        edges: [],
+      };
+
+      expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+    },
+  );
+
+  it("rejects retired ether.view project slice", () => {
+    const legacy = {
+      nodes: [
+        {
+          id: "project",
+          type: "text",
+          text: "legacy project",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: {
+            entity: { kind: "project", name: "demo" },
+            view: { orbit: "forge", glyphQuery: "bug" },
+          },
+        },
+      ],
+      edges: [],
+    };
+
+    expect(Either.isLeft(decodeCanvasDoc(legacy))).toBe(true);
+  });
+
   it.each(["glyphs", "wip"] as const)(
     "rejects retired edge criteria mode %s",
     (mode) => {

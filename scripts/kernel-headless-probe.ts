@@ -16,11 +16,11 @@
 //   2. DISARMED — same fixture, armed:false from boot. Asserts the resulting
 //      PulseRecord is dry (delivered: [], dry: true) — no agent turn spent.
 //
-// A TIMER (not a stat_threshold/glyphs_* watcher) is the deterministic
-// trigger on purpose: it has no live tower/quasar/booth dependency, so this
-// probe proves headless delivery with zero windows through the same executable
-// entity + human-edge router used by watcher fire. Region membership supplies
-// arming and instruction context only.
+// A TIMER (not a stat_threshold watcher) is the deterministic trigger on
+// purpose: it needs no live hermes snapshot, so this probe proves headless
+// delivery with zero windows through the same executable entity + human-edge
+// router used by watcher fire. Region membership supplies arming and
+// instruction context only.
 //
 // Observation is the child process's bounded stdout stream. The probe never
 // reopens the live database, and no document file participates in authority.

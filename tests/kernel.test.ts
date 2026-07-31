@@ -1,13 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc, EtherWatch } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
-import type { TowerGlyphRow } from "../src/shared/ipc";
 import { groupMembers } from "../src/shared/graph";
 import {
   detectPulses,
   evaluateWatcher,
   resetWatcherMemory,
-  type GlyphIndex,
 } from "../src/main/vellum/kernel/evaluate";
 import {
   composePulseMessage,
@@ -26,15 +24,6 @@ import {
 // --- fixtures ----------------------------------------------------------------
 
 const EMPTY_SNAPSHOTS: SnapshotState = { bundles: [] };
-
-const glyphRow = (overrides: Partial<TowerGlyphRow> & { glyphId: string; state: string }): TowerGlyphRow => ({
-  orbit: "forge",
-  title: "ship it",
-  updatedAt: Date.now(),
-  ...overrides,
-});
-
-const glyphIndexOf = (project: string, rows: ReadonlyArray<TowerGlyphRow>): GlyphIndex => new Map([[project, rows]]);
 
 const snapshotsWithStat = (stat: string, value: number | string): SnapshotState => ({
   bundles: [
@@ -55,125 +44,37 @@ const snapshotsWithStat = (stat: string, value: number | string): SnapshotState 
   ],
 });
 
+const STAT_WATCH: EtherWatch = {
+  kind: "stat_threshold",
+  source: "hermes",
+  key: "proj",
+  stat: "signals",
+  op: "gt",
+  value: 10,
+};
+
 afterEach(() => {
   resetWatcherMemory();
-});
-
-// --- glyphs_done ---------------------------------------------------------------
-
-describe("evaluateWatcher — glyphs_done", () => {
-  const watch: EtherWatch = { kind: "glyphs_done", project: "proj" };
-  const canvasName = "test-canvas";
-
-  it("is unknown when the project isn't in the glyph index (cache miss)", () => {
-    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, new Map());
-    expect(result.state).toEqual({ status: "unknown", detail: "glyph data unavailable" });
-  });
-
-  it("is unknown, not vacuously satisfied, when scope resolves to zero glyphs", () => {
-    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", []));
-    expect(result.state.status).toBe("unknown");
-  });
-
-  it("is pending with an N/M detail when some scoped glyphs aren't done", () => {
-    const rows = [
-      glyphRow({ glyphId: "g1", state: "done" }),
-      glyphRow({ glyphId: "g2", state: "done" }),
-      glyphRow({ glyphId: "g3", state: "building" }),
-    ];
-    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", rows));
-    expect(result.state).toEqual({ status: "pending", detail: "2/3 done" });
-  });
-
-  it("is satisfied only when every scoped glyph is done — abandoned counts as not-done", () => {
-    const allDone = [glyphRow({ glyphId: "g1", state: "done" }), glyphRow({ glyphId: "g2", state: "done" })];
-    expect(evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", allDone)).state).toEqual({
-      status: "satisfied",
-      detail: "2/2 done",
-    });
-
-    const withAbandoned = [
-      glyphRow({ glyphId: "g1", state: "done" }),
-      glyphRow({ glyphId: "g2", state: "abandoned" }),
-    ];
-    const abandonedResult = evaluateWatcher(canvasName, "w2", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", withAbandoned));
-    expect(abandonedResult.state.status).toBe("pending");
-    expect(abandonedResult.state.detail).toBe("1/2 done (1 abandoned)");
-  });
 });
 
 // --- stat_threshold --------------------------------------------------------------
 
 describe("evaluateWatcher — stat_threshold", () => {
-  const watch: EtherWatch = { kind: "stat_threshold", source: "hermes", key: "proj", stat: "signals", op: "gt", value: 10 };
   const canvasName = "test-canvas";
 
   it("is unknown when the bound entity is missing", () => {
-    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, new Map());
+    const result = evaluateWatcher(canvasName, "w1", STAT_WATCH, EMPTY_SNAPSHOTS);
     expect(result.state.status).toBe("unknown");
   });
 
   it("is satisfied when the stat crosses the threshold, with a readable detail", () => {
-    const result = evaluateWatcher(canvasName, "w1", watch, snapshotsWithStat("signals", 34), new Map());
+    const result = evaluateWatcher(canvasName, "w1", STAT_WATCH, snapshotsWithStat("signals", 34));
     expect(result.state).toEqual({ status: "satisfied", detail: "signals 34 > 10" });
   });
 
   it("is pending when the stat hasn't crossed the threshold", () => {
-    const result = evaluateWatcher(canvasName, "w1", watch, snapshotsWithStat("signals", 3), new Map());
+    const result = evaluateWatcher(canvasName, "w1", STAT_WATCH, snapshotsWithStat("signals", 3));
     expect(result.state).toEqual({ status: "pending", detail: "signals 3 > 10" });
-  });
-});
-
-// --- glyphs_entered_state (edge rule) ---------------------------------------------
-
-describe("evaluateWatcher — glyphs_entered_state (edge rule)", () => {
-  const watch: EtherWatch = { kind: "glyphs_entered_state", project: "proj", state: "committed" };
-  const canvasName = "test-canvas";
-
-  it("never fires on the first observation of a glyph — baseline only", () => {
-    const rows = [glyphRow({ glyphId: "g1", state: "committed" })];
-    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", rows));
-    expect(result.fired).toBe(false);
-    expect(result.firedGlyphIds).toEqual([]);
-  });
-
-  it("fires when a scoped glyph transitions into the target state on a later pass", () => {
-    evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "exploring" })])); // baseline
-    const result = evaluateWatcher(
-      canvasName,
-      "w1",
-      watch,
-      EMPTY_SNAPSHOTS,
-      glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "committed" })]),
-    );
-    expect(result.fired).toBe(true);
-    expect(result.firedGlyphIds).toEqual(["g1"]);
-    expect(result.state.status).toBe("satisfied");
-  });
-
-  it("does not re-fire on the next pass once the glyph stays in the target state", () => {
-    evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "exploring" })])); // baseline
-    evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "committed" })])); // fires
-    const stillCommitted = evaluateWatcher(
-      canvasName,
-      "w1",
-      watch,
-      EMPTY_SNAPSHOTS,
-      glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "committed" })]),
-    );
-    expect(stillCommitted.fired).toBe(false);
-  });
-
-  it("keys edge memory per watcher node, so two watchers on the same glyph don't interfere", () => {
-    const baseline = glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "exploring" })]);
-    evaluateWatcher(canvasName, "watcher-a", watch, EMPTY_SNAPSHOTS, baseline);
-    evaluateWatcher(canvasName, "watcher-b", watch, EMPTY_SNAPSHOTS, baseline);
-
-    const entered = glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "committed" })]);
-    const resultA = evaluateWatcher(canvasName, "watcher-a", watch, EMPTY_SNAPSHOTS, entered);
-    const resultB = evaluateWatcher(canvasName, "watcher-b", watch, EMPTY_SNAPSHOTS, entered);
-    expect(resultA.fired).toBe(true);
-    expect(resultB.fired).toBe(true);
   });
 });
 
@@ -183,17 +84,14 @@ describe("evaluateWatcher — level rules only fire on a rising edge into satisf
   const canvasName = "test-canvas";
 
   it("never fires on a watcher's first evaluation, even if already satisfied", () => {
-    const watch: EtherWatch = { kind: "glyphs_done", project: "proj" };
-    const done = glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "done" })]);
-    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, done);
+    const result = evaluateWatcher(canvasName, "w1", STAT_WATCH, snapshotsWithStat("signals", 34));
     expect(result.state.status).toBe("satisfied");
     expect(result.fired).toBe(false);
   });
 
   it("fires when status transitions from pending to satisfied on a later pass", () => {
-    const watch: EtherWatch = { kind: "glyphs_done", project: "proj" };
-    evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "building" })]));
-    const result = evaluateWatcher(canvasName, "w1", watch, EMPTY_SNAPSHOTS, glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "done" })]));
+    evaluateWatcher(canvasName, "w1", STAT_WATCH, snapshotsWithStat("signals", 3));
+    const result = evaluateWatcher(canvasName, "w1", STAT_WATCH, snapshotsWithStat("signals", 34));
     expect(result.fired).toBe(true);
   });
 });
@@ -208,14 +106,13 @@ describe("detectPulses", () => {
       nodes: [
         {
           id: "watcher-1", type: "text", text: "watcher", x: 0, y: 0, width: 100, height: 40,
-          ether: { entity: { kind: "watcher" }, watch: { kind: "glyphs_done", project: "proj" } },
+          ether: { entity: { kind: "watcher" }, watch: STAT_WATCH },
         },
         { id: "plain-note", type: "text", text: "just a note", x: 200, y: 0, width: 100, height: 40 },
       ],
       edges: [],
     };
-    const glyphIndex = glyphIndexOf("proj", [glyphRow({ glyphId: "g1", state: "done" })]);
-    const results = detectPulses(canvasName, doc, EMPTY_SNAPSHOTS, glyphIndex);
+    const results = detectPulses(canvasName, doc, snapshotsWithStat("signals", 34));
     expect(results).toHaveLength(1);
     expect(results[0]?.nodeId).toBe("watcher-1");
     expect(results[0]?.result.state.status).toBe("satisfied");

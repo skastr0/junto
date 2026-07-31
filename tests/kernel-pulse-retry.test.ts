@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import type { TowerGlyphRow } from "../src/shared/ipc";
 import {
   __getPendingPulseDeliveryCountForTest,
   __resetDeliveryQueueForTest,
   __resetKernelMemoryForTest,
   __setDeliveryDepsForTest,
   __setDocsForTest,
-  __setGlyphFetcherForTest,
+  __setSnapshotsForTest,
   __setStationScopeForTest,
   __setTimerSchedulerForTest,
   checkTimers,
@@ -55,14 +54,6 @@ const agent = {
   },
 };
 
-const glyphRow = (state: string): TowerGlyphRow => ({
-  glyphId: "release",
-  orbit: "forge",
-  title: "Release",
-  state,
-  updatedAt: Date.now(),
-});
-
 const timerDocument = (timerId: string): CanvasDoc => ({
   nodes: [
     region,
@@ -107,9 +98,12 @@ const watcherDocument = (
       ether: {
         entity: { kind: "watcher" },
         watch: {
-          kind: "glyphs_entered_state",
-          project: "vellum",
-          state: "committed",
+          kind: "stat_threshold",
+          source: "hermes",
+          key: "proj",
+          stat: "signals",
+          op: "gt",
+          value: 10,
         },
       },
     },
@@ -176,17 +170,44 @@ describe("scheduled pulse retry after a managed seat is unavailable", () => {
     setPausedLookup(() => false);
   });
 
-  it("retains a glyph-entered-state pulse until a later cycle can drive it once", async () => {
+  it("retains a stat-threshold pulse until a later cycle can drive it once", async () => {
     const watcherId = "release-entered";
     __setDocsForTest(
       new Map([[canvasName, watcherDocument(watcherId)]]),
     );
 
-    let glyphState = "building";
-    __setGlyphFetcherForTest(async () => [glyphRow(glyphState)]);
+    const pendingSnap = {
+      bundles: [{
+        source: "hermes" as const,
+        fetchedAt: new Date().toISOString(),
+        ok: true,
+        entities: [{
+          source: "hermes" as const,
+          key: "proj",
+          kind: "project",
+          stats: { signals: 3 },
+          updatedAt: new Date().toISOString(),
+        }],
+      }],
+    };
+    const satisfiedSnap = {
+      bundles: [{
+        source: "hermes" as const,
+        fetchedAt: new Date().toISOString(),
+        ok: true,
+        entities: [{
+          source: "hermes" as const,
+          key: "proj",
+          kind: "project",
+          stats: { signals: 34 },
+          updatedAt: new Date().toISOString(),
+        }],
+      }],
+    };
 
+    __setSnapshotsForTest(pendingSnap);
     await runEvaluationCycle();
-    glyphState = "committed";
+    __setSnapshotsForTest(satisfiedSnap);
     await runEvaluationCycle();
     await flushDelivery();
 
@@ -228,10 +249,38 @@ describe("scheduled pulse retry after a managed seat is unavailable", () => {
       new Map([[canvasName, watcherDocument(watcherId, false)]]),
     );
 
-    let glyphState = "building";
-    __setGlyphFetcherForTest(async () => [glyphRow(glyphState)]);
+    const pendingSnap = {
+      bundles: [{
+        source: "hermes" as const,
+        fetchedAt: new Date().toISOString(),
+        ok: true,
+        entities: [{
+          source: "hermes" as const,
+          key: "proj",
+          kind: "project",
+          stats: { signals: 3 },
+          updatedAt: new Date().toISOString(),
+        }],
+      }],
+    };
+    const satisfiedSnap = {
+      bundles: [{
+        source: "hermes" as const,
+        fetchedAt: new Date().toISOString(),
+        ok: true,
+        entities: [{
+          source: "hermes" as const,
+          key: "proj",
+          kind: "project",
+          stats: { signals: 34 },
+          updatedAt: new Date().toISOString(),
+        }],
+      }],
+    };
+
+    __setSnapshotsForTest(pendingSnap);
     await runEvaluationCycle();
-    glyphState = "committed";
+    __setSnapshotsForTest(satisfiedSnap);
     await runEvaluationCycle();
     await flushDelivery();
 

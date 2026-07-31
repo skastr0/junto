@@ -1,7 +1,7 @@
 // The kernel loop + delivery cycle. This handles evaluation over multiple
 // canvases with per-canvas isolation and injectable dependencies for
-// testability. All side-effects (glyph fetching, pulse delivery, document
-// writes) are behind injectable seams.
+// testability. All side-effects (pulse delivery, document writes) are behind
+// injectable seams.
 
 import { ulid } from "ulid";
 import { applyPhaseMirror, type CanvasDoc, type EdgePhase, type GroupNode } from "@shared/canvas";
@@ -12,7 +12,6 @@ import {
 } from "@shared/execution-graph";
 import { groupMembers, isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
-import type { TowerGlyphRow } from "@shared/ipc";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import {
   agentKeysForExecutableSource,
@@ -29,10 +28,8 @@ import type {
 import type { ActorRefResolver } from "@shared/attention";
 import {
   detectPulses,
-  evaluateWatcher,
   purgeCanvasEdgeMemory,
   resetWatcherMemory,
-  type GlyphIndex,
   type WatcherStatus,
 } from "./evaluate";
 import { liveSeatBlocksForCanvas } from "../work/blocked-seat";
@@ -200,7 +197,6 @@ let pausedLookup: ((canvasName: string, sourceNodeId: string) => boolean) | unde
 let flagWriterDeps: FlagWriterDeps | undefined = undefined;
 let phaseMirrorDeps: PhaseMirrorDeps | undefined = undefined;
 let timerSchedulerDeps: TimerSchedulerDeps | undefined = undefined;
-let glyphFetcher: ((project: string) => Promise<ReadonlyArray<TowerGlyphRow> | undefined>) | undefined = undefined;
 let resolveActorRef: ActorRefResolver = () => undefined;
 
 // Test seams
@@ -244,10 +240,6 @@ export const __setTimerSchedulerForTest = (
   timerSchedulerDeps = deps;
 };
 
-export const __setGlyphFetcherForTest = (fetcher: ((project: string) => Promise<ReadonlyArray<TowerGlyphRow> | undefined>) | undefined): void => {
-  glyphFetcher = fetcher;
-};
-
 export const __resetKernelMemoryForTest = (): void => {
   docs = new Map();
   snapshots = { bundles: [] };
@@ -259,7 +251,6 @@ export const __resetKernelMemoryForTest = (): void => {
   flagWriterDeps = undefined;
   phaseMirrorDeps = undefined;
   timerSchedulerDeps = undefined;
-  glyphFetcher = undefined;
   resolveActorRef = () => undefined;
   nextFire.clear();
   executionByCanvas.clear();
@@ -783,14 +774,6 @@ const applyFlagOnUnsatisfied = (canvasName: string, doc: CanvasDoc, nodeId: stri
   }
 };
 
-// --- watcher glyph index (bridges its pure evaluator to the browse cache) ----
-// Only fetches for projects a watcher in the current doc actually scopes to
-// — never every bound project. A slow/hung fetch is bounded so a cycle
-// never stalls the loop; the abandoned request still warms the cache
-// in the background, so the next pass (interval or doc/snapshot
-// change) tends to land it.
-const GLYPH_FETCH_TIMEOUT_MS = 2_000;
-
 // Per-canvas derived execution graphs (recomputed each evaluation cycle).
 const executionByCanvas = new Map<string, ExecutionSnapshot>();
 
@@ -820,32 +803,6 @@ const snapshotFromGraph = (
   };
 };
 
-const relevantWatcherProjects = (doc: CanvasDoc): ReadonlySet<string> => {
-  const projects = new Set<string>();
-  for (const node of doc.nodes) {
-    if (node.type !== "text") continue;
-    const watch = node.ether?.watch;
-    if (!watch?.project) continue;
-    if (watch.kind === "glyphs_done" || watch.kind === "glyphs_entered_state") projects.add(watch.project);
-  }
-  return projects;
-};
-
-const fetchGlyphsBounded = async (project: string): Promise<ReadonlyArray<TowerGlyphRow> | undefined> => {
-  if (!glyphFetcher) return undefined;
-  const result = await Promise.race([
-    glyphFetcher(project),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), GLYPH_FETCH_TIMEOUT_MS)),
-  ]);
-  return result ?? undefined;
-};
-
-// A canvas is expected to bind a handful of distinct projects, but nothing
-// stops a pathological one from binding many — cap in-flight glyph fetches
-// per cycle rather than fanning out unbounded Promise.all over every
-// project a watcher scopes to.
-const MAX_CONCURRENT_GLYPH_FETCHES = 4;
-
 // --- evaluation cycle (multi-canvas with per-canvas isolation) ---------------
 
 // Watcher runtime state tracking (keyed by canvasName::nodeId)
@@ -856,25 +813,8 @@ const nextFire = new Map<string, number>();
 // Exported for tests: lets a test drive exactly one evaluation pass and assert
 // it completes even while a delivery pends.
 export const runEvaluationCycle = async (): Promise<void> => {
-  // Union of watcher-scoped projects across all canvases.
-  const allProjects = new Set<string>();
-  for (const doc of docs.values()) {
-    for (const project of relevantWatcherProjects(doc)) allProjects.add(project);
-  }
-
-  const index = new Map<string, ReadonlyArray<TowerGlyphRow>>();
-  const projects = Array.from(allProjects);
-  for (let i = 0; i < projects.length; i += MAX_CONCURRENT_GLYPH_FETCHES) {
-    const batch = projects.slice(i, i + MAX_CONCURRENT_GLYPH_FETCHES);
-    await Promise.all(
-      batch.map(async (project) => {
-        const glyphRows = await fetchGlyphsBounded(project);
-        if (glyphRows !== undefined) index.set(project, glyphRows);
-      }),
-    );
-  }
-
-  // Evaluate each canvas with per-canvas isolation
+  // Evaluate each canvas with per-canvas isolation. Watchers read hermes
+  // snapshots already held in module state (setSnapshots / adapter poll).
   for (const [canvasName, doc] of docs.entries()) {
     try {
       const execution = snapshotFromGraph(canvasName, doc);
@@ -891,7 +831,7 @@ export const runEvaluationCycle = async (): Promise<void> => {
         }
       }
 
-      for (const { nodeId, watch, result } of detectPulses(canvasName, doc, snapshots, index)) {
+      for (const { nodeId, watch, result } of detectPulses(canvasName, doc, snapshots)) {
         const source = doc.nodes.find((node) => node.id === nodeId);
         // Host-scoped: this station only runs executable nodes assigned to it.
         if (source !== undefined && !isNodeEligibleOnStation(source, stationHostId)) {
@@ -908,9 +848,7 @@ export const runEvaluationCycle = async (): Promise<void> => {
         };
         watchers.set(watcherKey, nextRuntime);
 
-        if (watch.kind !== "glyphs_entered_state") {
-          applyFlagOnUnsatisfied(canvasName, doc, nodeId, watch.flagOnUnsatisfied, result.state.status);
-        }
+        applyFlagOnUnsatisfied(canvasName, doc, nodeId, watch.flagOnUnsatisfied, result.state.status);
 
         if (result.fired) {
           firePulseForNode(canvasName, doc, nodeId, "watcher", result.state.detail);
@@ -1107,10 +1045,9 @@ export const purgeCanvasMemory = (canvasName: string): void => {
     if (key !== undefined) queuedPulseDeliveryKeys.delete(key);
   }
   executionByCanvas.delete(canvasName);
-  // evaluate.ts's edge-detection memory (seenLevelStatus/seenGlyphState) is
-  // namespaced the same way and grows unbounded across the app's lifetime
-  // otherwise — purge it here too so a deleted canvas's baselines don't
-  // outlive the canvas.
+  // evaluate.ts's edge-detection memory (seenLevelStatus) is namespaced the
+  // same way and grows unbounded across the app's lifetime otherwise —
+  // purge it here too so a deleted canvas's baselines don't outlive the canvas.
   purgeCanvasEdgeMemory(canvasName);
 };
 

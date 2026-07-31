@@ -148,7 +148,7 @@ describe("deliverPulse — live-pulse spacing holds past 200 mixed-region record
         height: 40,
         ether: {
           entity: { kind: "watcher" },
-          watch: { kind: "glyphs_done" },
+          watch: { kind: "stat_threshold", source: "hermes" },
         },
       },
       {
@@ -161,7 +161,7 @@ describe("deliverPulse — live-pulse spacing holds past 200 mixed-region record
         height: 40,
         ether: {
           entity: { kind: "watcher" },
-          watch: { kind: "glyphs_done" },
+          watch: { kind: "stat_threshold", source: "hermes" },
         },
       },
       {
@@ -262,7 +262,7 @@ describe("deliverPulse — pause gates the target seat, not only the source", ()
         height: 40,
         ether: {
           entity: { kind: "watcher" },
-          watch: { kind: "glyphs_done" },
+          watch: { kind: "stat_threshold", source: "hermes" },
         },
       },
       {

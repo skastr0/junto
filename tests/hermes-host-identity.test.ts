@@ -56,7 +56,7 @@ const routedDoc = (
       ether: {
         entity: { kind: "watcher" },
         host: watcherHost,
-        watch: { kind: "glyphs_done" },
+        watch: { kind: "stat_threshold", source: "hermes" },
       },
     },
     {

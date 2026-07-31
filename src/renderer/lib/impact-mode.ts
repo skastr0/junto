@@ -1,6 +1,6 @@
 // Selection impact mode: project pure stoppage cones onto the canvas UI.
 // Prefers the live kernel ExecutionSnapshot (phase/blocked/reasons); reconstructs
-// edgeEval + seedNodeIds so impactCone can run without a second glyph fetch.
+// edgeEval + seedNodeIds so impactCone can run without a second graph pass.
 
 import { observable } from "@legendapp/state";
 import type { CanvasDoc, EdgePhase } from "@shared/canvas";

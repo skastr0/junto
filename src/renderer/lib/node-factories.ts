@@ -334,7 +334,7 @@ export const makeWatcherNode = (
   ether: {
     entity: { kind: "watcher" },
     host,
-    watch: { kind: "glyphs_done" },
+    watch: { kind: "stat_threshold", source: "hermes" },
   },
 });
 

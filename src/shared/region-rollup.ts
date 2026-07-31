@@ -183,7 +183,7 @@ const deriveMember = (
   const attention =
     flags.includes("attention") || activity?.permissionPending === true || surface.attention;
 
-  // working: explicit harness activity only (glyph WIP retired).
+  // working: explicit harness activity only.
   if (surface.reason === "activity:working") reasons.push(surface.reason);
   const working = surface.working;
 

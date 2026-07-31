@@ -191,19 +191,6 @@ export const EtherEntity = Schema.Struct({
 });
 export type EtherEntity = typeof EtherEntity.Type;
 
-// A view slice: an optional per-node lens over a bound project's live data.
-// Several nodes may bind the SAME project with different slices — "prism ·
-// forge" in one region, "prism · beacon" in another — so a canvas can hold
-// many cuts of one project. Purely presentational: it narrows what the card
-// readout and the inspector browser show, never what exists.
-export const EtherView = Schema.Struct({
-  orbit: Schema.optionalWith(Schema.String, { exact: true }),
-  // Substring or /regex/ matched against glyph id + title.
-  glyphQuery: Schema.optionalWith(Schema.String, { exact: true }),
-  states: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
-});
-export type EtherView = typeof EtherView.Type;
-
 // Authorial host stamp for executable nodes (agent, herdr, page, watcher, timer).
 // Same alphabet as remote-hosts HostId. Absence means "local" at resolve time
 // (see shared/station resolveNodeHostId) so existing canvases stay valid.
@@ -270,28 +257,23 @@ export const EtherRegion = Schema.Struct({
 });
 export type EtherRegion = typeof EtherRegion.Type;
 
-// A watcher is a PREDICATE node — an assertion over live source data,
+// A watcher is a PREDICATE node — an assertion over live hermes data,
 // evaluated by the app's poll loop; its runtime state is derived, never
-// stored. Level rules (glyphs_done, stat_threshold) describe a condition;
-// the edge rule (glyphs_entered_state) fires when a watched glyph newly
-// enters `state` between two evaluations.
-export const WatchKind = Schema.Literal("glyphs_done", "glyphs_entered_state", "stat_threshold");
+// stored. Live kind is only stat_threshold (numeric comparison on a hermes
+// entity). Retired glyph kinds (glyphs_done / glyphs_entered_state) and
+// private-source watchers fail strict decode.
+export const WatchKind = Schema.Literal("stat_threshold");
 export type WatchKind = typeof WatchKind.Type;
 
 export const EtherWatch = Schema.Struct({
   kind: WatchKind,
-  // glyph rules: project+orbit scope; empty/absent glyphIds = every glyph in scope
-  project: Schema.optionalWith(Schema.String, { exact: true }),
-  orbit: Schema.optionalWith(Schema.String, { exact: true }),
-  glyphIds: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
-  state: Schema.optionalWith(Schema.String, { exact: true }), // entered-state target; default "committed"
-  // stat rule: a numeric stat on a bound hermes entity
+  // Numeric comparison on a bound hermes entity
   source: Schema.optionalWith(Schema.Literal("hermes"), { exact: true }),
   key: Schema.optionalWith(Schema.String, { exact: true }),
   stat: Schema.optionalWith(Schema.String, { exact: true }),
   op: Schema.optionalWith(Schema.Literal("gt", "lt", "eq"), { exact: true }),
   value: Schema.optionalWith(Schema.Number, { exact: true }),
-  // level watchers may mirror their unsatisfied state into the blocker flag
+  // Level watchers may mirror their unsatisfied state into the blocker flag
   flagOnUnsatisfied: Schema.optionalWith(Schema.Boolean, { exact: true }),
 });
 export type EtherWatch = typeof EtherWatch.Type;
@@ -310,7 +292,7 @@ export type EtherTimer = typeof EtherTimer.Type;
 // reject them. Old checklist {id,text,done} is dead and fails decode.
 
 // Edge criteria. Absence → soft relates (capability only; never stoppage).
-// glyphs/wip and depends are retired and fail decode. No dependency cascade.
+// Retired modes (glyphs/wip criteria, depends phase) fail decode. No dependency cascade.
 // - tasks:    attention (input-required) generates blocks on actors
 // - proof:    holds until a matching runtime stamp on the source sink
 // - approval: holds until a human grant (external principal; never a node)
@@ -359,7 +341,6 @@ export type WorkRole = typeof WorkRole.Type;
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalWith(EtherEntity, { exact: true }),
   flags: Schema.optionalWith(Schema.Array(EtherFlag), { exact: true }),
-  view: Schema.optionalWith(EtherView, { exact: true }),
   region: Schema.optionalWith(EtherRegion, { exact: true }),
   watch: Schema.optionalWith(EtherWatch, { exact: true }),
   timer: Schema.optionalWith(EtherTimer, { exact: true }),

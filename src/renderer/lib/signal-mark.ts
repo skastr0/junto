@@ -25,7 +25,7 @@ export interface SignalMark {
   readonly kind: SignalKind;
   readonly tone: ActivityTone | "violet";
   readonly hue: string;
-  /** Single-glyph status mark — chips/minimap read, never prose. */
+  /** Single-character status mark — chips/minimap read, never prose. */
   readonly symbol: string;
   readonly label: string;
   readonly mode: ActivityMode;
@@ -90,7 +90,6 @@ export const signalMarkForMember = (member: Pick<MemberStatus, "severity" | "rea
   if (reason === "herdr:working") return { ...base, label: "herdr working" };
   if (reason === "herdr:blocked") return { ...base, label: "herdr blocked" };
   if (reason === "herdr:done") return { ...base, label: "herdr done" };
-  if (reason.startsWith("glyph:wip:")) return { ...base, label: `glyph ${reason.slice("glyph:wip:".length)}` };
   if (reason.startsWith("flag:")) return { ...base, label: reason.slice("flag:".length) };
   if (reason.startsWith("edge:")) return { ...base, label: reason.slice("edge:".length) };
   if (reason === "relay") return { ...base, label: "relayed block" };

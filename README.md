@@ -155,7 +155,7 @@ Derived state (blocked seats, region membership, binding health, live phase) is 
 | Stamp | What |
 |---|---|
 | **Flags** | `blocker` · `parked` · `attention` — visual + graph seed |
-| **View slice** | `ether.view` — orbit / glyphQuery / states filter |
+| **View slice** | retired — project slice lens removed |
 | **Host stamp** | `ether.host` — multi-fleet execution locality |
 | **Region defaults** | Create-time defaults for herdr/page inside a region |
 | **Region hold / instruction** | Structural container + briefing context; not an automatic delivery route |
@@ -281,7 +281,7 @@ Connection states: connected · degraded · lost · failed · reconnect. Clipboa
 |---|---|
 | **Region** | Group node + `ether.region` — operational geography |
 | **Membership** | Center-in-rect geometry (flat; no nested groups) — derived, never stored |
-| **Watcher** | Predicate → pulse (`glyphs_done` · `glyphs_entered_state` · `stat_threshold`) |
+| **Watcher** | Predicate → pulse (`stat_threshold`) |
 | **Timer** | `everyMinutes` pulse |
 | **Arming** | Per canvas::region switch in app-owned SQLite runtime state — **not in the document** |
 | **Pulse** | Watcher/timer → edge-connected eligible agents; manual region pulse may target eligible members |
@@ -402,7 +402,7 @@ Quit detaches control streams only. Hosts are enrolled through Settings.
 |---|---|
 | **Region** | Group + operational geography |
 | **Membership** | Center-in-rect geometry (flat) — derived |
-| **Watcher** | `glyphs_done` · `glyphs_entered_state` · `stat_threshold` → pulse |
+| **Watcher** | `stat_threshold` → pulse |
 | **Timer** | `everyMinutes` pulse |
 | **Arming** | Per region switch in the app — **not stored in the document** |
 | **Pulse** | Watcher/timer → edge-connected eligible agents; manual region pulse may target eligible members |
@@ -507,7 +507,7 @@ only. Hosts are enrolled through Settings.
 |---|---|
 | **Region** | Operational geography |
 | **Membership** | Center-in-rect (flat) — derived |
-| **Watcher** | `glyphs_done` · `glyphs_entered_state` · `stat_threshold` → pulse |
+| **Watcher** | `stat_threshold` → pulse |
 | **Timer** | `everyMinutes` pulse |
 | **Arming** | App-owned SQLite runtime-state switch — **not in the document** |
 | **Pulse** | Edge-routed watcher/timer delivery; manual region pulse may target eligible members |
@@ -580,7 +580,7 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 | **task** | A2A task list |
 | **requests** | Input-required shelf |
 | **artifacts** | Published artifact shelf |
-| **watcher** | `glyphs_done` · `glyphs_entered_state` · `stat_threshold` |
+| **watcher** | `stat_threshold` |
 | **timer** | `everyMinutes` pulse |
 | **project / orbit / plugin / station / skill** | Document vocabulary labels |
 

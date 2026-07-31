@@ -2,7 +2,7 @@ import { X } from "lucide-react";
 import { FocusSurface } from "./FocusSurface";
 
 /**
- * Browse-row detail shell (glyph / signal / session / dispatch / booth).
+ * Browse-row detail shell (session / signal / dispatch).
  * Thin adapter over FocusSurface with the document measure + resizable height
  * and a shared close control. Callers keep at most one instance mounted via a
  * single "active detail" state slot.

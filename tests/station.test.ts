@@ -180,7 +180,7 @@ describe("watcher to agent edge routing", () => {
         y: 0,
         width: 100,
         height: 80,
-        ether: { entity: { kind: "watcher" }, host: "local", watch: { kind: "glyphs_done" } },
+        ether: { entity: { kind: "watcher" }, host: "local", watch: { kind: "stat_threshold", source: "hermes" } },
       },
       {
         id: "a1",

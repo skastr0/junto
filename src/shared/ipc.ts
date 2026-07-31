@@ -412,17 +412,6 @@ export type WorkOpResult<T> =
     }
   | { readonly ok: false; readonly code: WorkErrorCode; readonly message: string };
 
-// --- glyph rows for kernel watchers / criteria (no live private browse) -----
-
-export interface TowerGlyphRow {
-  readonly glyphId: string;
-  readonly orbit: string;
-  readonly title: string;
-  readonly state: string; // backlog|exploring|committed|building|reviewing|done|abandoned
-  readonly updatedAt: number; // epoch ms
-}
-
-
 // --- hermes agent identity + messaging -------------------------------------
 
 // Enriched, non-secret identity for one fleet agent. Tokens and device ids

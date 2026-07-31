@@ -144,7 +144,7 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "criteria"?: EdgeCriteria, "por
 - No `criteria` → soft **relates** (capability/ocap only; never generates stoppage).
 - `criteria.mode: "tasks"` → **blocking is worker-state, not a queue cascade.** `submitted`/`working` never block — an open queue is a factory humming. Stoppage is attention only: `input-required` on the source task/requests sink generates **blocks** on the **connected actor** (`toNode`). No fan-out, no actor→actor relay, no multi-hop cascade. (Blockability is `role === "actor"` only — see [`architecture-factory-physics.md`](docs/architecture-factory-physics.md) §2a.)
 - `criteria.mode: "proof"` / `"approval"` → blocks until matching runtime stamp / human grant (trust plane).
-- **Retired (rejected by strict decode):** `glyphs`, `wip` criteria modes; `depends` phase; dependency cascade/relay. `project` is no longer well-known, though the open `entity.kind` vocabulary still permits it as inert furniture.
+- **Retired (rejected by strict decode):** `glyphs`/`wip` criteria modes; glyph watcher kinds (`glyphs_done`/`glyphs_entered_state`); private-source watchers; `ether.view` project slices; `depends` phase; dependency cascade/relay. `project` is no longer well-known, though the open `entity.kind` vocabulary still permits it as inert furniture.
 - Live **phase** is only `blocks` | `relates` (derived). Optional `ether.kind` is a phase mirror for offline JSON Canvas readers — never authorial input.
 
 **Two invariants** (enforced on every app/CLI write):
@@ -162,7 +162,7 @@ than being rewritten.
 
 Region activation gated by three structures (`src/shared/canvas.ts`):
 
-**EtherWatch** (102–118): `{ kind, project, orbit, glyphIds, state, source, key, stat, op, value, flagOnUnsatisfied }`. Predicate on live data. Kinds: `glyphs_done` | `glyphs_entered_state` | `stat_threshold`. Edge-detection fires when a glyph enters `state` between polls.
+**EtherWatch**: `{ kind: "stat_threshold", source, key, stat, op, value, flagOnUnsatisfied }`. Predicate on live hermes data only. Rising edge into `satisfied` fires a pulse; first observation is always baseline.
 
 **EtherTimer** (123–126): `{ everyMinutes }`. Bare pulse on interval.
 
@@ -195,7 +195,7 @@ bridge for existing panes and must not be required for local health.
 | measure | width intent | use |
 |---|---|---|
 | `prose` | ~65ch reading line | long copy |
-| `document` | ~760px, resizable | glyph/session-shaped readers when present |
+| `document` | ~760px, resizable | session-shaped readers when present |
 | `terminal` | ~140 mono cells @ 13px (~1100px) | herdr agent PTY |
 | `workspace` | ~1280px immersive | focused browser / multi-pane still framed |
 | `form` | ~448px fit | wizards |

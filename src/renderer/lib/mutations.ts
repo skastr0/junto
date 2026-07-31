@@ -4,7 +4,6 @@ import type {
   EtherFlag,
   EtherRegionDefaults,
   EtherTimer,
-  EtherView,
   EtherWatch,
   NodeSide,
 } from "@shared/canvas";
@@ -1047,42 +1046,6 @@ export const setRegionDefaults = (id: string, defaults: EtherRegionDefaults | un
   });
 };
 
-// Empty fields never survive into the document: a blank orbit/glyphQuery and
-// an empty states array all collapse to "field absent" rather than "field
-// present but empty" — one canonical way to say "no slice here".
-const stripEmptyView = (view: EtherView): EtherView | undefined => {
-  const orbit = view.orbit?.trim();
-  const glyphQuery = view.glyphQuery?.trim();
-  const states = view.states?.filter((s) => s.trim().length > 0);
-  const out: EtherView = {
-    ...(orbit ? { orbit } : {}),
-    ...(glyphQuery ? { glyphQuery } : {}),
-    ...(states && states.length > 0 ? { states } : {}),
-  };
-  return Object.keys(out).length > 0 ? out : undefined;
-};
-
-// Writes/clears a node's ether.view (project slice lens). Follows the
-// toggleFlag pattern: strip empty fields, drop the `view` key entirely once
-// every field is empty, and degrade `ether` itself away when it would
-// otherwise be left holding nothing.
-export const setNodeView = (id: string, view: EtherView | undefined): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id) return n;
-      const cleaned = view ? stripEmptyView(view) : undefined;
-      if (cleaned) {
-        return { ...n, ether: { ...(n.ether ?? {}), view: cleaned } };
-      }
-      if (!n.ether) return n;
-      const nextEther = without(n.ether, "view");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-    }),
-  });
-};
-
 /** Operator-assigned claim-routing role (not physics FactoryRole). */
 export const setNodeWorkRole = (id: string, workRole: string | undefined): void => {
   const doc = state$.doc.peek();
@@ -1106,23 +1069,14 @@ export const setNodeWorkRole = (id: string, workRole: string | undefined): void 
 // tick would bypass the pause plane.
 
 // Watcher/timer definitions are document data (the kernel's runtime state
-// derived from them is not — that lives only in kernel-state.ts / app
-// memory, per the frozen contract). Empty optional fields never survive:
-// blank project/orbit/state/source/key/stat strings and an empty glyphIds
-// array all collapse to "field absent", same discipline as stripEmptyView.
+// derived from them is not — that lives only in kernel app memory, per the
+// frozen contract). Empty optional fields never survive: blank source/key/stat
+// strings collapse to "field absent".
 const stripEmptyWatch = (watch: EtherWatch): EtherWatch => {
-  const project = watch.project?.trim();
-  const orbit = watch.orbit?.trim();
-  const glyphIds = watch.glyphIds?.filter((g) => g.trim().length > 0);
-  const state = watch.state?.trim();
   const key = watch.key?.trim();
   const stat = watch.stat?.trim();
   return {
     kind: watch.kind,
-    ...(project ? { project } : {}),
-    ...(orbit ? { orbit } : {}),
-    ...(glyphIds && glyphIds.length > 0 ? { glyphIds } : {}),
-    ...(state ? { state } : {}),
     ...(watch.source ? { source: watch.source } : {}),
     ...(key ? { key } : {}),
     ...(stat ? { stat } : {}),

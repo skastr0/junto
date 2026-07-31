@@ -609,7 +609,7 @@ const makeWatcherNode = (x: number, y: number): TextNode => ({
   ether: {
     entity: { kind: "watcher" },
     host: "local",
-    watch: { kind: "glyphs_done" },
+    watch: { kind: "stat_threshold", source: "hermes" },
   },
 });
 
@@ -667,7 +667,7 @@ const makeAddActions = (
       ether: {
         entity: { kind: "watcher" as const },
         host: stationHost,
-        watch: { kind: "glyphs_done" as const },
+        watch: { kind: "stat_threshold" as const, source: "hermes" as const },
       },
     };
     addNode(node, { edit: false });

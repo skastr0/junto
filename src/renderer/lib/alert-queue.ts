@@ -57,7 +57,7 @@ export interface AlertItem {
   readonly nodeId?: string;
   readonly label?: string;
   readonly at: number;
-  /** Level for intensity-aware kinds (booth pending count). */
+  /** Level for intensity-aware kinds. */
   readonly level?: number;
 }
 

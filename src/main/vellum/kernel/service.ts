@@ -96,7 +96,6 @@ import {
   setStationScope,
   __setDeliveryDepsForTest,
   __setFlagWriterForTest,
-  __setGlyphFetcherForTest,
   __setPhaseMirrorForTest,
   __setSnapshotsForTest,
   __setTimerSchedulerForTest,
@@ -683,10 +682,6 @@ const makeKernelService = (
       );
     }
   };
-
-  // Glyph rows for watchers/criteria: tests inject via __setGlyphFetcherForTest.
-  // No production private-source fetch — leave unset (undefined → unavailable).
-  __setGlyphFetcherForTest(undefined);
 
   // --- delivery: managed terminal seats, the one delivery path ----------------
   __setDeliveryDepsForTest({
