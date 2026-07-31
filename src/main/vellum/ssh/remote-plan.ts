@@ -1,671 +1,93 @@
-/**
- * Named SSH programs for Vellum-owned remote runtime capabilities.
- *
- * This module deliberately has no generic remote filesystem plan. Durable
- * station state moves through the Station API into the app-owned SQLite
- * database; SSH remains only a bootstrap/deployment transport plus the
- * confined Herdr image handoff.
- */
-
+/** Closed SSH programs for deployment and confined Herdr transfers. */
 import { Effect } from "effect";
 import { makeRemoteCommand, type RemoteCommand, SshInputError } from "./domain";
 
-const SAFE_ABS_PATH = /^\/(?:[A-Za-z0-9._+-]+\/)*[A-Za-z0-9._+-]+$/u;
+const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
+const SAFE_ARCHIVE = /^[0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]{64}$/u;
 
-const isSafeAbsPath = (value: string): boolean =>
-  SAFE_ABS_PATH.test(value) &&
-  !value.includes("..") &&
-  !value.includes("\0") &&
-  Buffer.byteLength(value, "utf8") <= 512;
-
-const shellSingleQuote = (value: string): string =>
-  `'${value.replace(/'/g, `'\\''`)}'`;
-
-// ---------------------------------------------------------------------------
-// Linux remote preflight (fixed V3 product program)
-// ---------------------------------------------------------------------------
-//
-// Named compiler: no free path/command args from callers. Stdin supplies
-// bundle bytes + version + package hashes; stdout is exactly one
-// LINUX_REMOTE_PREFLIGHT_V4 (or REFUSED_V4) line. Generation readiness is a
-// plain `${INVOCATION}\n` receipt under ready-$INVOCATION (exact 33 bytes via
-// wc + cmp against printf) plus work sock/token — never deep JSON, never term/browser.
-
-/** Product paths for release helper/bridge — never caller-controlled. */
-const LINUX_RELEASE_INSTALLER_PATH = "/usr/libexec/vellum-release-installer";
-const LINUX_RELEASE_BRIDGE_PATH = "/usr/libexec/vellum-release-bridge";
-/** Root custody tree created by package postinst / installer journals. */
-const LINUX_RELEASE_INSTALLER_STATE = "/var/lib/vellum-release-installer";
-/** Root-held first-install stage (product path only). */
-const LINUX_FIRST_INSTALL_STAGE_ROOT = "/var/lib/vellum-release-stage/first-install";
-
-/**
- * Pure compile of the fixed Ubuntu Remote preflight shell source.
- * Source of truth for the V4 protocol body; deploy-linux must not re-author it.
- */
-export const compileLinuxRemotePreflightSource = (): string => {
-  // Local names only for String.raw path interpolation — product constants.
-  const HELPER = LINUX_RELEASE_INSTALLER_PATH;
-  const BRIDGE = LINUX_RELEASE_BRIDGE_PATH;
-  const INSTALLER_STATE = LINUX_RELEASE_INSTALLER_STATE;
-  // `${"$"}` escapes shell `${…}` so TypeScript does not consume `$`.
-  return String.raw`
+/** Owner-only, capability-independent preflight. */
+export const compileLinuxUserlandPreflightSource = (): string => String.raw`
 set -eu
 umask 077
-refuse() {
-  echo "LINUX_REMOTE_PREFLIGHT_REFUSED_V4 reason=$1"
-  exit 0
-}
-private_file() {
-  [ -f "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] &&
-    [ "$(/usr/bin/stat -c '%a' "$1" 2>/dev/null || true)" = 600 ]
-}
-private_socket() {
-  [ -S "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] &&
-    [ "$(/usr/bin/stat -c '%a' "$1" 2>/dev/null || true)" = 600 ]
-}
-exact_field() {
-  echo "$1" | /usr/bin/awk -F= -v wanted="$2" '
-    $1 == wanted { count += 1; value = substr($0, length(wanted) + 2) }
-    END { if (count == 1 && length(value) > 0) print value; else exit 1 }
-  '
-}
-IFS= read -r BUNDLE_BYTES || refuse disk
-IFS= read -r EXPECTED_VERSION || refuse version
-IFS= read -r EXPECTED_DEB_SHA || refuse package
-IFS= read -r EXPECTED_MANIFEST_SHA || refuse package
-case "$BUNDLE_BYTES" in ""|*[!0-9]*) refuse disk ;; esac
-[ "$BUNDLE_BYTES" -gt 0 ] && [ "$BUNDLE_BYTES" -le 3221225472 ] || refuse disk
-case "$EXPECTED_VERSION" in
-  0|*[!0-9.]*|.*|*.) refuse version ;;
-esac
-echo "$EXPECTED_VERSION" | /usr/bin/awk -F. '
-  NF == 3 && $1 ~ /^(0|[1-9][0-9]*)$/ &&
-  $2 ~ /^(0|[1-9][0-9]*)$/ &&
-  $3 ~ /^(0|[1-9][0-9]*)$/ { ok = 1 }
-  END { exit(ok ? 0 : 1) }
-' || refuse version
-case "$EXPECTED_DEB_SHA:$EXPECTED_MANIFEST_SHA" in
-  *[!0-9a-f:]*|*:*:* ) refuse package ;;
-esac
-[ "${"$"}{#EXPECTED_DEB_SHA}" -eq 64 ] || refuse package
-[ "${"$"}{#EXPECTED_MANIFEST_SHA}" -eq 64 ] || refuse package
-for REQUIRED_COMMAND in \
-  /bin/hostname \
-  /usr/bin/awk \
-  /usr/bin/cat \
-  /usr/bin/cmp \
-  /usr/bin/df \
-  /usr/bin/dpkg \
-  /usr/bin/dpkg-query \
-  /usr/bin/getconf \
-  /usr/bin/grep \
-  /usr/bin/id \
-  /usr/bin/loginctl \
-  /usr/bin/stat \
-  /usr/bin/sudo \
-  /usr/bin/systemctl \
-  /usr/bin/tr \
-  /usr/bin/uname \
-  /usr/bin/wc
-do
-  [ -x "$REQUIRED_COMMAND" ] || refuse commands
-done
-OS_ID=$(/usr/bin/awk -F= '$1 == "ID" { gsub(/^"|"$/, "", $2); print $2 }' /etc/os-release)
-OS_RELEASE=$(/usr/bin/awk -F= '$1 == "VERSION_ID" { gsub(/^"|"$/, "", $2); print $2 }' /etc/os-release)
-[ "$OS_ID" = ubuntu ] || refuse os
-[ "$OS_RELEASE" = 24.04 ] || refuse release
-[ "$(/usr/bin/uname -m)" = x86_64 ] || refuse architecture
-GLIBC_FACT=$(/usr/bin/getconf GNU_LIBC_VERSION 2>/dev/null || true)
-case "$GLIBC_FACT" in "glibc "[0-9]*.[0-9]*) ;; *) refuse libc ;; esac
-LIBC_VERSION=${"$"}{GLIBC_FACT#glibc }
-LIBC_VERSION=$(/usr/bin/awk -F. '{ print $1 "." $2 }' <<EOF
-$LIBC_VERSION
-EOF
-)
-LIBC_MAJOR=${"$"}{LIBC_VERSION%%.*}
-LIBC_MINOR=${"$"}{LIBC_VERSION#*.}
-case "$LIBC_MAJOR:$LIBC_MINOR" in *[!0-9:]*) refuse libc ;; esac
-if [ "$LIBC_MAJOR" -lt 2 ] ||
-   { [ "$LIBC_MAJOR" -eq 2 ] && [ "$LIBC_MINOR" -lt 39 ]; }; then
-  refuse libc
-fi
-UID_VALUE=$(/usr/bin/id -u)
-GID_VALUE=$(/usr/bin/id -g)
-HOST_VALUE=$(/bin/hostname)
-case "$UID_VALUE:$GID_VALUE" in
-  0:*|*:0|*[!0-9:]*) refuse identity ;;
-esac
-case "$HOST_VALUE" in
-  ""|*[!a-z0-9.-]*|.*|*.) refuse identity ;;
-esac
-[ "${"$"}{#HOST_VALUE}" -le 253 ] || refuse identity
-/usr/bin/systemctl --user show-environment >/dev/null 2>&1 || refuse systemd-user
-AVAILABLE_BYTES=$(
-  /usr/bin/df -PB1 /var /opt "$HOME" |
-    /usr/bin/awk 'NR > 1 && $4 ~ /^[0-9]+$/ {
-      if (minimum == "" || $4 < minimum) minimum = $4
-    } END { print minimum }'
-)
-case "$AVAILABLE_BYTES" in ""|*[!0-9]*) refuse disk ;; esac
-REQUIRED_BYTES=$((BUNDLE_BYTES * 3 + 536870912))
-[ "$AVAILABLE_BYTES" -ge "$REQUIRED_BYTES" ] || refuse disk
-PACKAGE_STATE=$(/usr/bin/dpkg-query -W -f='${"$"}{Status}\t${"$"}{Version}\n' vellum 2>/dev/null || true)
-if [ -z "$PACKAGE_STATE" ]; then
-  CURRENT_VERSION=none
-else
-  CURRENT_VERSION=$(echo "$PACKAGE_STATE" | /usr/bin/awk -F '\t' '$1 == "install ok installed" && NF == 2 { print $2 }')
-  if [ -n "$CURRENT_VERSION" ]; then
-    echo "$CURRENT_VERSION" | /usr/bin/awk -F. '
-      NF == 3 && $1 ~ /^(0|[1-9][0-9]*)$/ &&
-      $2 ~ /^(0|[1-9][0-9]*)$/ &&
-      $3 ~ /^(0|[1-9][0-9]*)$/ { ok = 1 }
-      END { exit(ok ? 0 : 1) }
-    ' || refuse package
-  elif echo "$PACKAGE_STATE" | /usr/bin/awk -F '\t' '
-    $1 == "deinstall ok config-files" && NF == 2 { found = 1 }
-    END { exit(found ? 0 : 1) }
-  '; then
-    CURRENT_VERSION=none
-  else
-    refuse package
-  fi
-fi
-ENABLE_STATE=$(/usr/bin/systemctl --user is-enabled vellum-remote.service 2>/dev/null || true)
-ACTIVE_STATE=$(/usr/bin/systemctl --user is-active vellum-remote.service 2>/dev/null || true)
-if [ "$CURRENT_VERSION" = none ]; then
-  # No package: unit must not be installed. "inactive" covers a missing unit
-  # (systemctl is-active prints inactive and exits non-zero).
-  [ "$ENABLE_STATE" = not-found ] || refuse systemd-user
-  [ "$ACTIVE_STATE" = inactive ] || refuse systemd-user
-  ENABLED=0
-  ACTIVE=0
-  UNIT_STATE=not-found
-else
-  # Package present: enabled|disabled are normal. is-enabled may also print
-  # enabled-runtime / static on some images — treat as enabled for preflight.
-  case "$ENABLE_STATE" in
-    enabled|enabled-runtime|static) ENABLED=1 ;;
-    disabled|masked) ENABLED=0 ;;
-    *) refuse systemd-user ;;
-  esac
-  # Crash-loop and start races report activating/failed/deactivating — that is
-  # "not ready", not a malformed user manager. Only refuse unknown strings.
-  case "$ACTIVE_STATE" in
-    active) ACTIVE=1 ;;
-    inactive|failed|activating|deactivating|reloading) ACTIVE=0 ;;
-    *) refuse systemd-user ;;
-  esac
-  UNIT_STATE=present
-fi
-LINGER_VALUE=$(/usr/bin/loginctl show-user "$UID_VALUE" -p Linger --value 2>/dev/null || true)
-case "$LINGER_VALUE" in yes) LINGER=1 ;; no) LINGER=0 ;; *) refuse linger ;; esac
-HELPER_READY=0
-if [ -f "${HELPER}" ] && [ ! -L "${HELPER}" ] &&
-   [ "$(/usr/bin/stat -c '%u:%g:%a:%h' "${HELPER}" 2>/dev/null || true)" = "0:0:755:1" ]; then
-  HELPER_READY=1
-fi
-BRIDGE_READY=0
-if [ -f "${BRIDGE}" ] && [ ! -L "${BRIDGE}" ] &&
-   [ "$(/usr/bin/stat -c '%u:%g:%a:%h' "${BRIDGE}" 2>/dev/null || true)" = "0:0:755:1" ]; then
-  BRIDGE_READY=1
-fi
-INSTALLER_STATE_PRESENT=0
-if [ -e "${INSTALLER_STATE}" ] || [ -L "${INSTALLER_STATE}" ]; then
-  INSTALLER_STATE_PRESENT=1
-fi
-# Passwordless elevation (e.g. Box fleet user). Prefer this over a typed password.
-PASSWORDLESS_SUDO=0
-if /usr/bin/sudo -n true >/dev/null 2>&1; then
-  PASSWORDLESS_SUDO=1
-fi
-CURRENT_READY=0
-CURRENT_GENERATION=none
-if [ "$ENABLED" = 1 ] && [ "$ACTIVE" = 1 ]; then
-  SHOW=$(/usr/bin/systemctl --user show vellum-remote.service -p ActiveState -p SubState -p MainPID -p InvocationID 2>/dev/null || true)
-  ACTIVE_DETAIL=$(exact_field "$SHOW" ActiveState 2>/dev/null || true)
-  SUB_STATE=$(exact_field "$SHOW" SubState 2>/dev/null || true)
-  MAIN_PID=$(exact_field "$SHOW" MainPID 2>/dev/null || true)
-  INVOCATION=$(exact_field "$SHOW" InvocationID 2>/dev/null || true)
-  case "$MAIN_PID" in ""|*[!0-9]*) MAIN_PID=0 ;; esac
-  case "$INVOCATION" in *[!0-9a-f]*|"") INVOCATION=invalid ;; esac
-  READY_RECEIPT="/run/user/$UID_VALUE/vellum-remote/ready-$INVOCATION"
-  PACKAGE_VERIFY=
-  if PACKAGE_VERIFY=$(/usr/bin/dpkg --verify vellum 2>/dev/null); then
-    PACKAGE_VERIFY_OK=1
-  else
-    PACKAGE_VERIFY_OK=0
-  fi
-  if [ "$ACTIVE_DETAIL" = active ] && [ "$SUB_STATE" = running ] &&
-     [ "$MAIN_PID" -gt 1 ] && [ "${"$"}{#INVOCATION}" -eq 32 ] &&
-     [ "$PACKAGE_VERIFY_OK" = 1 ] && [ -z "$PACKAGE_VERIFY" ] &&
-     private_file "$READY_RECEIPT" &&
-     [ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d ' ')" = 33 ] &&
-     /usr/bin/printf '%s\n' "$INVOCATION" | /usr/bin/cmp -s - "$READY_RECEIPT" &&
-     /usr/bin/tr '\0' '\n' < "/proc/$MAIN_PID/cmdline" |
-       /usr/bin/grep -Fqx '/opt/Vellum Command/resources/systemd/vellum-remote-launch-v1' &&
-     private_socket "$HOME/.vellum/work/control.sock" &&
-     private_file "$HOME/.vellum/work/token"; then
-    CURRENT_READY=1
-    CURRENT_GENERATION="$INVOCATION"
-  fi
-fi
-echo "LINUX_REMOTE_PREFLIGHT_V4 disk=$AVAILABLE_BYTES current=$CURRENT_VERSION enabled=$ENABLED active=$ACTIVE linger=$LINGER helper=$HELPER_READY bridge=$BRIDGE_READY installerState=$INSTALLER_STATE_PRESENT passwordlessSudo=$PASSWORDLESS_SUDO ready=$CURRENT_READY generation=$CURRENT_GENERATION uid=$UID_VALUE gid=$GID_VALUE host=$HOST_VALUE libc=$LIBC_VERSION unit=$UNIT_STATE"
+fail() { printf 'LINUX_USERLAND_PREFLIGHT_V1 ok=0 reason=%s\n' "$1"; exit 0; }
+UID_VALUE=$(/usr/bin/id -u) || fail identity
+case "$UID_VALUE" in ''|0|*[!0-9]*) fail identity;; esac
+/usr/bin/systemctl --user show-environment >/dev/null 2>&1 || fail systemd-user
+[ ! -L "$HOME/.vellum" ] || fail home-link
+mkdir -p "$HOME/.vellum/runtime/releases" "$HOME/.vellum/runtime/staging" || fail runtime
+chmod 700 "$HOME/.vellum" "$HOME/.vellum/runtime" "$HOME/.vellum/runtime/releases" "$HOME/.vellum/runtime/staging" || fail runtime
+FREE=$(/usr/bin/df -PB1 "$HOME" | /usr/bin/awk 'NR == 2 { print $4 }')
+case "$FREE" in ''|*[!0-9]*) fail disk;; esac
+printf 'LINUX_USERLAND_PREFLIGHT_V1 ok=1 uid=%s free=%s\n' "$UID_VALUE" "$FREE"
 `.trim();
-};
+
+export const compileLinuxUserlandPreflight = (): Effect.Effect<RemoteCommand, SshInputError> =>
+  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandPreflightSource(), "vellum-plan:linux-userland-preflight"]);
 
 /**
- * Compile the fixed Ubuntu Remote preflight into a branded RemoteCommand.
- * No free path/command injection — product constants only.
+ * One owner-home archive transaction. Header is fixed by the provider:
+ * `LINUX_USERLAND_DEPLOY_V1 version=<semver> sha256=<hex> bytes=<n>\n`.
+ * The runtime archive itself is the candidate; paths/modes are rejected by tar
+ * before extraction, and activation happens only after staged preflight.
  */
-export const compileLinuxRemotePreflight = (): Effect.Effect<
-  RemoteCommand,
-  SshInputError
-> => {
-  try {
-    const source = compileLinuxRemotePreflightSource();
-    return makeRemoteCommand("/bin/sh", [
-      "-c",
-      source,
-      "vellum-plan:linux-remote-preflight",
-    ]);
-  } catch (error) {
-    return Effect.fail(
-      new SshInputError({
-        message:
-          error instanceof Error
-            ? error.message
-            : "linux remote preflight compile failed",
-      }),
-    );
-  }
-};
+export const compileLinuxUserlandDeploySource = (): string => String.raw`
+set -eu
+umask 077
+fail() { printf 'LINUX_USERLAND_DEPLOY_V1 ok=0 state=%s\n' "$1"; exit 0; }
+IFS= read -r HEADER || fail header
+case "$HEADER" in LINUX_USERLAND_DEPLOY_V1\ version=*\ sha256=*\ bytes=*) ;; *) fail header;; esac
+VERSION=$(printf '%s\n' "$HEADER" | /usr/bin/awk '{split($2,a,"="); print a[2]}')
+SHA=$(printf '%s\n' "$HEADER" | /usr/bin/awk '{split($3,a,"="); print a[2]}')
+BYTES=$(printf '%s\n' "$HEADER" | /usr/bin/awk '{split($4,a,"="); print a[2]}')
+case "$VERSION:$SHA:$BYTES" in *[!0-9.a-f:]*|*..*|:*|*:) fail header;; esac
+case "$SHA" in ????????????????????????????????????????????????????????????????) ;; *) fail header;; esac
+case "$BYTES" in ''|0|*[!0-9]*) fail header;; esac
+[ "$BYTES" -le 3221225472 ] || fail header
+ROOT="$HOME/.vellum/runtime"
+[ ! -L "$HOME/.vellum" ] && [ ! -L "$ROOT" ] || fail home-link
+mkdir -p "$ROOT/releases" "$ROOT/staging" || fail stage
+chmod 700 "$ROOT" "$ROOT/releases" "$ROOT/staging" || fail stage
+DEST="$ROOT/releases/$VERSION-$SHA"
+case "$DEST" in "$ROOT"/releases/*) ;; *) fail path;; esac
+if [ -d "$DEST" ] && [ ! -L "$DEST" ] && [ -x "$DEST/vellum" ]; then
+  /usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || fail service
+  /usr/bin/systemctl --user restart vellum-remote.service >/dev/null 2>&1 || fail service
+  printf 'LINUX_USERLAND_DEPLOY_V1 ok=1 state=idempotent release=%s\n' "$VERSION-$SHA"
+  exit 0
+fi
+STAGE="$ROOT/staging/$VERSION-$SHA-$$"
+ARCHIVE="$STAGE/runtime.tar.gz"
+mkdir "$STAGE" || fail stage
+chmod 700 "$STAGE"
+/usr/bin/head -c "$BYTES" > "$ARCHIVE" || { rm -rf -- "$STAGE"; fail stream; }
+[ "$(/usr/bin/stat -c '%s' "$ARCHIVE")" = "$BYTES" ] || { rm -rf -- "$STAGE"; fail size; }
+[ "$(/usr/bin/sha256sum "$ARCHIVE" | /usr/bin/awk '{print $1}')" = "$SHA" ] || { rm -rf -- "$STAGE"; fail hash; }
+/usr/bin/tar -tzf "$ARCHIVE" | /usr/bin/awk 'BEGIN{ok=1} $0 ~ /^\// || $0 ~ /(^|\/)\.\.($|\/)/ || $0 !~ /^vellum-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64\// {ok=0} END{exit ok?0:1}' || { rm -rf -- "$STAGE"; fail members; }
+/usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions || { rm -rf -- "$STAGE"; fail extract; }
+RELEASE="$STAGE/vellum-runtime-$VERSION-linux-x64"
+[ -d "$RELEASE" ] && [ ! -L "$RELEASE" ] && [ -x "$RELEASE/vellum" ] || { rm -rf -- "$STAGE"; fail candidate; }
+"$RELEASE/vellum" --vellum-state-preflight >/dev/null 2>&1 || { rm -rf -- "$STAGE"; fail preflight; }
+mv "$RELEASE" "$DEST" || { rm -rf -- "$STAGE"; fail install; }
+rm -rf -- "$STAGE"
+/usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || fail service
+/usr/bin/systemctl --user restart vellum-remote.service >/dev/null 2>&1 || fail service
+/usr/bin/systemctl --user is-active --quiet vellum-remote.service || fail readiness
+printf 'LINUX_USERLAND_DEPLOY_V1 ok=1 state=ready release=%s\n' "$VERSION-$SHA"
+`.trim();
 
-// ---------------------------------------------------------------------------
-// Herdr clipboard-image staging (product path under /tmp/vellum-herdr-images)
-// ---------------------------------------------------------------------------
+export const compileLinuxUserlandDeploy = (): Effect.Effect<RemoteCommand, SshInputError> =>
+  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandDeploySource(), "vellum-plan:linux-userland-deploy"]);
 
-/** Fixed remote staging root for herdr clipboard images — never caller-supplied. */
 export const HERDR_IMAGE_STAGE_DIR = "/tmp/vellum-herdr-images" as const;
+const HERDR_NAME = /^vellum-clip-[a-z0-9]{1,24}-[a-f0-9]{8}\.(png|jpg|gif|webp|bmp)$/u;
+export const confineHerdrStagePath = (name: string): Effect.Effect<string, SshInputError> =>
+  typeof name === "string" && HERDR_NAME.test(name) && !name.includes("..")
+    ? Effect.succeed(`${HERDR_IMAGE_STAGE_DIR}/${name}`)
+    : Effect.fail(new SshInputError({ message: "herdr stage basename is not a product token" }));
+export const compileHerdrImageStage = (name: string): Effect.Effect<{ readonly command: RemoteCommand; readonly path: string }, SshInputError> =>
+  confineHerdrStagePath(name).pipe(Effect.flatMap((path) => makeRemoteCommand("/bin/sh", ["-c", `set -eu; umask 077; mkdir -p ${quote(HERDR_IMAGE_STAGE_DIR)}; cat > ${quote(path)}; chmod 600 ${quote(path)}`, "vellum-plan:herdr-image-stage"]).pipe(Effect.map((command) => ({ command, path })))));
 
-/**
- * Product basenames only (`vellum-clip-<ts36>-<8hex>.<ext>` from stage-image.ts).
- * No slashes, no shell metacharacters, no free-form names.
- */
-const HERDR_STAGE_BASENAME =
-  /^vellum-clip-[a-z0-9]{1,24}-[a-f0-9]{8}\.(png|jpg|gif|webp|bmp)$/u;
-
-/**
- * Admit a product herdr stage basename and return the confined absolute path.
- */
-export const confineHerdrStagePath = (
-  remoteName: string,
-): Effect.Effect<string, SshInputError> => {
-  if (
-    typeof remoteName !== "string" ||
-    remoteName.length === 0 ||
-    remoteName.length > 96 ||
-    !HERDR_STAGE_BASENAME.test(remoteName) ||
-    remoteName.includes("/") ||
-    remoteName.includes("\\") ||
-    remoteName.includes("\0") ||
-    remoteName.includes("..")
-  ) {
-    return Effect.fail(
-      new SshInputError({
-        message: "herdr stage basename is not a product token",
-      }),
-    );
-  }
-  const path = `${HERDR_IMAGE_STAGE_DIR}/${remoteName}`;
-  if (!isSafeAbsPath(path) || !path.startsWith(`${HERDR_IMAGE_STAGE_DIR}/`)) {
-    return Effect.fail(
-      new SshInputError({ message: "herdr stage path is not confining" }),
-    );
-  }
-  return Effect.succeed(path);
-};
-
-/**
- * Compile the sole remote shell for herdr image staging:
- * umask → ensure stage dir → exclusive stdin write → mode 0600.
- *
- * Paths are product-confined; transport must not hand-author shell strings.
- */
-export const compileHerdrImageStage = (
-  remoteName: string,
-): Effect.Effect<
-  { readonly command: RemoteCommand; readonly path: string },
-  SshInputError
-> =>
-  confineHerdrStagePath(remoteName).pipe(
-    Effect.flatMap((path) => {
-      const dir = shellSingleQuote(HERDR_IMAGE_STAGE_DIR);
-      const file = shellSingleQuote(path);
-      const source = [
-        "set -eu",
-        "umask 077",
-        `if [ -L ${dir} ]; then printf '%s\\n' 'vellum-remote-plan: stage dir is a symlink' >&2; exit 73; fi`,
-        `/bin/mkdir -p -- ${dir}`,
-        `if [ -L ${dir} ] || [ ! -d ${dir} ]; then printf '%s\\n' 'vellum-remote-plan: stage dir unsafe' >&2; exit 73; fi`,
-        `if [ -L ${file} ]; then printf '%s\\n' 'vellum-remote-plan: stage path is a symlink' >&2; exit 73; fi`,
-        `if [ -e ${file} ]; then printf '%s\\n' 'vellum-remote-plan: stage path already exists' >&2; exit 73; fi`,
-        // noclobber exclusive create — refuse clobber on name collision.
-        "set -C",
-        `cat > ${file} || { set +C; /bin/rm -f -- ${file}; exit 73; }`,
-        "set +C",
-        `/bin/chmod 600 -- ${file}`,
-        "",
-      ].join("\n");
-      return makeRemoteCommand("/bin/sh", [
-        "-c",
-        source,
-        "vellum-plan:herdr-image-stage",
-      ]).pipe(Effect.map((command) => ({ command, path })));
-    }),
-  );
-
-// ---------------------------------------------------------------------------
-// Named product compilers for host deploy (mutating / privileged remotes)
-// ---------------------------------------------------------------------------
-
-/**
- * Fixed Ubuntu release-bridge executable — no caller argv, no free path.
- * Managed upgrade/adopt mutation surface for Linux Remote deploy streams.
- */
-export const compileLinuxReleaseBridge = (): Effect.Effect<
-  RemoteCommand,
-  SshInputError
-> => makeRemoteCommand(LINUX_RELEASE_BRIDGE_PATH, []);
-
-/**
- * Fixed unit activation for a package that is already on disk.
- * Enables linger (so user units survive SSH disconnect), enables and restarts
- * vellum-remote, prints one machine-readable line. No free-form argv.
- */
-export const compileLinuxRemoteUnitActivateSource = (): string =>
-  String.raw`
-set -eu
-umask 077
-fail() {
-  echo "LINUX_REMOTE_UNIT_ACTIVATE_V1 ok=0 reason=$1"
-  exit 0
-}
-UID_VALUE=$(/usr/bin/id -u)
-case "$UID_VALUE" in ""|*[!0-9]*|0) fail identity ;; esac
-# Box and similar images ship Linger=no; user units die when the SSH session ends.
-if ! /usr/bin/loginctl show-user "$UID_VALUE" -p Linger --value 2>/dev/null | /usr/bin/grep -qx yes; then
-  /usr/bin/sudo -n /usr/bin/loginctl enable-linger "$UID_VALUE" >/dev/null 2>&1 || fail linger
-fi
-/usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || fail systemd-user
-/usr/bin/systemctl --user enable vellum-remote.service >/dev/null 2>&1 || fail enable
-/usr/bin/systemctl --user reset-failed vellum-remote.service >/dev/null 2>&1 || true
-/usr/bin/systemctl --user restart vellum-remote.service >/dev/null 2>&1 || fail restart
-ACTIVE=$(/usr/bin/systemctl --user is-active vellum-remote.service 2>/dev/null || true)
-case "$ACTIVE" in
-  active|activating) ;;
-  *) fail "active-$ACTIVE" ;;
-esac
-echo "LINUX_REMOTE_UNIT_ACTIVATE_V1 ok=1 active=$ACTIVE"
-`.trim();
-
-export const compileLinuxRemoteUnitActivate = (): Effect.Effect<
-  RemoteCommand,
-  SshInputError
-> =>
-  Effect.gen(function* () {
-    const source = compileLinuxRemoteUnitActivateSource();
-    return yield* makeRemoteCommand("/bin/bash", ["-c", source]);
-  });
-
-/**
- * Pure compile of the fixed first-install program.
- *
- * Protocol (duplex stdin/stdout over dedicated SSH):
- * 1. CC → `LINUX_FIRST_INSTALL_V1 version=… debSha256=… debBytes=…\n`
- * 2. CC → exact deb bytes
- * 3. Remote → `LINUX_FIRST_INSTALL_ARMED_V1 …` after owner stage + hash
- * 4. CC → one password line (writeSensitive)
- * 5. Remote → root-held re-stage, re-hash, noninteractive apt-get install,
- *    then `LINUX_FIRST_INSTALL_OK_V1 version=…` or AUTH_FAILED / REFUSED / FAILED
- *
- * Only for hosts with no package, no helper/bridge, and no installer state dir.
- */
-export const compileLinuxFirstInstallSource = (): string => {
-  const HELPER = LINUX_RELEASE_INSTALLER_PATH;
-  const BRIDGE = LINUX_RELEASE_BRIDGE_PATH;
-  const INSTALLER_STATE = LINUX_RELEASE_INSTALLER_STATE;
-  const ROOT_STAGE = LINUX_FIRST_INSTALL_STAGE_ROOT;
-  return String.raw`
-set -eu
-umask 077
-refuse() {
-  echo "LINUX_FIRST_INSTALL_REFUSED_V1 reason=$1"
-  exit 0
-}
-fail() {
-  echo "LINUX_FIRST_INSTALL_FAILED_V1 reason=$1"
-  exit 0
-}
-auth_failed() {
-  echo "LINUX_FIRST_INSTALL_AUTH_FAILED_V1"
-  exit 0
-}
-for REQUIRED_COMMAND in \
-  /bin/mkdir \
-  /bin/rm \
-  /bin/chmod \
-  /bin/sync \
-  /usr/bin/apt-get \
-  /usr/bin/dpkg-query \
-  /usr/bin/sha256sum \
-  /usr/bin/stat \
-  /usr/bin/sudo \
-  /usr/bin/install \
-  /usr/bin/head \
-  /usr/bin/tr \
-  /usr/bin/awk
-do
-  [ -x "$REQUIRED_COMMAND" ] || refuse commands
-done
-if [ -e "${INSTALLER_STATE}" ] || [ -L "${INSTALLER_STATE}" ]; then
-  refuse not-first-install
-fi
-if [ -f "${HELPER}" ] || [ -L "${HELPER}" ] ||
-   [ -f "${BRIDGE}" ] || [ -L "${BRIDGE}" ]; then
-  refuse not-first-install
-fi
-PACKAGE_STATE=$(/usr/bin/dpkg-query -W -f='${"$"}{Status}\n' vellum 2>/dev/null || true)
-if [ -n "$PACKAGE_STATE" ]; then
-  if echo "$PACKAGE_STATE" | /usr/bin/awk '
-    $0 == "install ok installed" { found = 1 }
-    END { exit(found ? 0 : 1) }
-  '; then
-    refuse not-first-install
-  fi
-fi
-IFS= read -r HEADER || refuse header
-case "$HEADER" in
-  LINUX_FIRST_INSTALL_V1\ version=*) ;;
-  *) refuse header ;;
-esac
-VERSION=$(echo "$HEADER" | /usr/bin/awk '{
-  for (i = 1; i <= NF; i++) {
-    if ($i ~ /^version=/) { sub(/^version=/, "", $i); print $i; exit }
-  }
-  exit 1
-}')
-DEB_SHA=$(echo "$HEADER" | /usr/bin/awk '{
-  for (i = 1; i <= NF; i++) {
-    if ($i ~ /^debSha256=/) { sub(/^debSha256=/, "", $i); print $i; exit }
-  }
-  exit 1
-}')
-DEB_BYTES=$(echo "$HEADER" | /usr/bin/awk '{
-  for (i = 1; i <= NF; i++) {
-    if ($i ~ /^debBytes=/) { sub(/^debBytes=/, "", $i); print $i; exit }
-  }
-  exit 1
-}')
-echo "$VERSION" | /usr/bin/awk -F. '
-  NF == 3 && $1 ~ /^(0|[1-9][0-9]*)$/ &&
-  $2 ~ /^(0|[1-9][0-9]*)$/ &&
-  $3 ~ /^(0|[1-9][0-9]*)$/ { ok = 1 }
-  END { exit(ok ? 0 : 1) }
-' || refuse version
-case "$DEB_SHA" in *[!0-9a-f]*|"") refuse package ;; esac
-[ "${"$"}{#DEB_SHA}" -eq 64 ] || refuse package
-case "$DEB_BYTES" in ""|*[!0-9]*) refuse package ;; esac
-[ "$DEB_BYTES" -gt 0 ] && [ "$DEB_BYTES" -le 3221225472 ] || refuse package
-OWNER_STAGE="$HOME/.vellum/release-stage"
-OWNER_DEB="$OWNER_STAGE/first-install.deb"
-if [ -L "$HOME/.vellum" ]; then refuse stage; fi
-/bin/mkdir -p -- "$HOME/.vellum"
-/bin/mkdir -p -- "$OWNER_STAGE"
-if [ -L "$OWNER_STAGE" ] || [ ! -d "$OWNER_STAGE" ]; then refuse stage; fi
-if [ -e "$OWNER_DEB" ] || [ -L "$OWNER_DEB" ]; then
-  /bin/rm -f -- "$OWNER_DEB" || true
-fi
-set -C
-/usr/bin/head -c "$DEB_BYTES" > "$OWNER_DEB" || { set +C; /bin/rm -f -- "$OWNER_DEB"; fail stage-write; }
-set +C
-/bin/chmod 600 -- "$OWNER_DEB"
-ACTUAL_BYTES=$(/usr/bin/stat -c '%s' "$OWNER_DEB" 2>/dev/null || true)
-[ "$ACTUAL_BYTES" = "$DEB_BYTES" ] || { /bin/rm -f -- "$OWNER_DEB"; fail size; }
-ACTUAL_SHA=$(/usr/bin/sha256sum -- "$OWNER_DEB" | /usr/bin/awk '{ print $1 }')
-[ "$ACTUAL_SHA" = "$DEB_SHA" ] || { /bin/rm -f -- "$OWNER_DEB"; fail hash; }
-echo "LINUX_FIRST_INSTALL_ARMED_V1 version=$VERSION debSha256=$DEB_SHA debBytes=$DEB_BYTES"
-# One line: empty (passwordless / sudo -n path) or administrator password.
-IFS= read -r PASSWORD_LINE || { /bin/rm -f -- "$OWNER_DEB"; auth_failed; }
-export DEBIAN_FRONTEND=noninteractive
-ROOT_DEB="${ROOT_STAGE}/Vellum-Command.deb"
-SUDO_SCRIPT=$(/usr/bin/cat <<EOF
-set -eu
-umask 077
-if [ -e "${INSTALLER_STATE}" ] || [ -L "${INSTALLER_STATE}" ]; then
-  echo refuse-not-first-install
-  exit 11
-fi
-/bin/mkdir -p -- "${ROOT_STAGE}"
-/bin/chmod 700 -- "${ROOT_STAGE}"
-/usr/bin/install -o root -g root -m 600 -- "$OWNER_DEB" "$ROOT_DEB"
-ROOT_SHA=\$(/usr/bin/sha256sum -- "$ROOT_DEB" | /usr/bin/awk '{ print \$1 }')
-ROOT_BYTES=\$(/usr/bin/stat -c '%s' "$ROOT_DEB")
-if [ "\$ROOT_SHA" != "$DEB_SHA" ] || [ "\$ROOT_BYTES" != "$DEB_BYTES" ]; then
-  /bin/rm -f -- "$ROOT_DEB"
-  echo refuse-hash
-  exit 12
-fi
-/usr/bin/apt-get install -y -- "$ROOT_DEB"
-/bin/rm -f -- "$ROOT_DEB"
-/bin/sync
-echo install-ok
-EOF
-)
-set +e
-if [ -z "$PASSWORD_LINE" ]; then
-  # Passwordless sudo (e.g. Box fleet user): never prompt.
-  SUDO_OUT=$(/usr/bin/sudo -n /bin/sh -c "$SUDO_SCRIPT" 2>/dev/null)
-  SUDO_STATUS=$?
-else
-  SUDO_OUT=$(printf '%s\n' "$PASSWORD_LINE" | /usr/bin/sudo -S -k -p '' /bin/sh -c "$SUDO_SCRIPT" 2>/dev/null)
-  SUDO_STATUS=$?
-fi
-set -e
-PASSWORD_LINE=""
-/bin/rm -f -- "$OWNER_DEB" || true
-case "$SUDO_STATUS:$SUDO_OUT" in
-  0:*install-ok*) ;;
-  11:*|*:refuse-not-first-install*) refuse not-first-install ;;
-  12:*|*:refuse-hash*) fail hash ;;
-  1:*|*)
-    # sudo authentication failure is typically exit 1 with empty/no install-ok.
-    if [ "$SUDO_STATUS" -eq 1 ] && [ -z "$SUDO_OUT" ]; then
-      auth_failed
-    fi
-    fail apt
-    ;;
-esac
-if [ ! -f "${HELPER}" ] || [ -L "${HELPER}" ] ||
-   [ "$(/usr/bin/stat -c '%u:%g:%a:%h' "${HELPER}" 2>/dev/null || true)" != "0:0:755:1" ]; then
-  fail helper
-fi
-if [ ! -f "${BRIDGE}" ] || [ -L "${BRIDGE}" ] ||
-   [ "$(/usr/bin/stat -c '%u:%g:%a:%h' "${BRIDGE}" 2>/dev/null || true)" != "0:0:755:1" ]; then
-  fail bridge
-fi
-PACKAGE_VERSION=$(/usr/bin/dpkg-query -W -f='${"$"}{Version}' vellum 2>/dev/null || true)
-[ "$PACKAGE_VERSION" = "$VERSION" ] || fail package
-echo "LINUX_FIRST_INSTALL_OK_V1 version=$VERSION"
-`.trim();
-};
-
-/**
- * Fixed first-install product program — no free argv, no free paths.
- */
-export const compileLinuxFirstInstall = (): Effect.Effect<
-  RemoteCommand,
-  SshInputError
-> => {
-  try {
-    const source = compileLinuxFirstInstallSource();
-    return makeRemoteCommand("/bin/sh", [
-      "-c",
-      source,
-      "vellum-plan:linux-first-install",
-    ]);
-  } catch (error) {
-    return Effect.fail(
-      new SshInputError({
-        message:
-          error instanceof Error
-            ? error.message
-            : "linux first-install compile failed",
-      }),
-    );
-  }
-};
-
-/**
- * Darwin app stream receiver: product deploy script as `/bin/bash -lc <source>`.
- *
- * **Beta residual (Cut 3):** not on the public `ssh` barrel. Product load of
- * the Darwin provider is refused first via `RELEASE_CAPABILITIES.darwinRemoteDeploy`
- * (see `hosts/deploy-remote.ts` + `deploy-darwin.ts` entry gate). This compiler
- * remains for dormant Darwin code + unit tests; free-form shell is refused by
- * product markers. Single WeakMap mint (`makeRemoteCommand`) — no parallel
- * command brands for bash vs argv recipes.
- *
- * Source must be the Vellum Darwin deploy program (product markers required).
- * Free-form shell — including `rm -rf -- /` — is not a product deploy script.
- */
-export const compileDarwinRemoteDeployScript = (
-  remoteScript: string,
-): Effect.Effect<RemoteCommand, SshInputError> => {
-  if (
-    typeof remoteScript !== "string" ||
-    remoteScript.length === 0 ||
-    Buffer.byteLength(remoteScript, "utf8") > 256 * 1024
-  ) {
-    return Effect.fail(
-      new SshInputError({
-        message: "darwin deploy script exceeds product bounds",
-      }),
-    );
-  }
-  // Product markers from buildRemoteDeployScript — refuse arbitrary shell.
-  if (
-    !remoteScript.includes("begin_candidate_activation()") ||
-    !remoteScript.includes("UNBOUND_DEPLOY_PATH_PRESENT") ||
-    !remoteScript.includes("IN_STATION_EXE=") ||
-    !remoteScript.includes("STATION_READY") ||
-    !remoteScript.includes("CONTROL_SOCKET_TIMEOUT")
-  ) {
-    return Effect.fail(
-      new SshInputError({
-        message: "darwin deploy script is not a product stream program",
-      }),
-    );
-  }
-  return makeRemoteCommand("/bin/bash", ["-lc", remoteScript]);
-};
+export const compileDarwinRemoteDeployScript = (script: string): Effect.Effect<RemoteCommand, SshInputError> =>
+  typeof script === "string" && script.includes("begin_candidate_activation()") && script.includes("STATION_READY")
+    ? makeRemoteCommand("/bin/bash", ["-lc", script])
+    : Effect.fail(new SshInputError({ message: "darwin deploy script is not a product stream program" }));
