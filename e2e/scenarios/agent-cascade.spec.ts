@@ -147,16 +147,31 @@ test("agent cascade is fully keyboard navigable", async () => {
     await expect(filter).toBeFocused();
 
     await filter.fill("grok");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("ArrowRight");
+    // Enter opens the cascade with focus regardless of mirrored side.
+    await page.keyboard.press("Enter");
 
     const models = page.getByRole("menu", { name: "Grok models" });
     await expect(models).toBeVisible();
     const firstModel = models.getByRole("menuitem").first();
     await expect(firstModel).toBeFocused({ timeout: 10_000 });
 
-    // Enter commits the model (opens location). ArrowRight would go to effort
-    // when the model exposes one — either path is keyboard-only.
+    // Horizontal arrows follow cascade side (→ = visual right). Deeper column
+    // may sit left when the menu is mirrored — probe with the model row's
+    // aria-haspopup path, then commit.
+    const hasSubmenu = (await firstModel.getAttribute("aria-haspopup")) === "menu";
+    if (hasSubmenu) {
+      const cascade = page.locator(".agent-cascade");
+      const opensLeft =
+        (await cascade.evaluate((el) => getComputedStyle(el).flexDirection)) ===
+        "row-reverse";
+      await page.keyboard.press(opensLeft ? "ArrowLeft" : "ArrowRight");
+      const effort = page.getByRole("menu", { name: /effort$/ });
+      await expect(effort).toBeVisible();
+      await expect(effort.getByRole("menuitem").first()).toBeFocused();
+      // Retreat toward the model column (visual direction, not logical depth).
+      await page.keyboard.press(opensLeft ? "ArrowRight" : "ArrowLeft");
+      await expect(firstModel).toBeFocused();
+    }
     await page.keyboard.press("Enter");
     const location = page.getByRole("dialog", { name: "Choose agent location" });
     await expect(location).toBeVisible({ timeout: 10_000 });

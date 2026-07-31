@@ -64,6 +64,8 @@ import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard } from "./terminal/TerminalWizard";
 import {
   AgentCascadeMenu,
+  cascadeEnterKey,
+  cascadeSideFor,
   type AgentConfigurationChoices,
 } from "./terminal/AgentCascadeMenu";
 import {
@@ -966,7 +968,16 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       setHighlighted((value) => Math.max(value - 1, 0));
-    } else if (event.key === "ArrowRight") {
+    } else if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      // Horizontal entry follows cascade side: mirrored menus open leftward,
+      // so ← (not →) steps into the first column.
+      const entry = filtered[activeIndex];
+      if (!entry?.harness) return;
+      const anchor = document.querySelector<HTMLButtonElement>(
+        `[data-palette-entry="${entry.key}"]`,
+      );
+      if (!anchor) return;
+      if (event.key !== cascadeEnterKey(cascadeSideFor(anchor))) return;
       if (enterCascadeFromHighlight()) {
         event.preventDefault();
       }
@@ -1065,13 +1076,27 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
                           ?.focus();
                         return;
                       }
-                      if (event.key === "ArrowLeft") {
+                      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                        if (!entry.harness) {
+                          if (event.key === "ArrowLeft") {
+                            event.preventDefault();
+                            inputRef.current?.focus();
+                          }
+                          return;
+                        }
+                        const side = cascadeSideFor(event.currentTarget);
+                        if (event.key === cascadeEnterKey(side)) {
+                          event.preventDefault();
+                          openCascade(entry.harness, event.currentTarget, true);
+                          return;
+                        }
+                        // Retreat key on the actor row returns to the filter.
                         event.preventDefault();
                         inputRef.current?.focus();
                         return;
                       }
                       if (!entry.harness) return;
-                      if (event.key === "ArrowRight" || event.key === "Enter") {
+                      if (event.key === "Enter") {
                         event.preventDefault();
                         openCascade(entry.harness, event.currentTarget, true);
                       }

@@ -111,6 +111,22 @@ const sideFor = (anchor: HTMLElement, reserveColumns: number): CascadeSide => {
   return roomEnd >= cascadeWidth(reserveColumns) ? "end" : "start";
 };
 
+/**
+ * Which horizontal side the cascade will occupy relative to the palette row.
+ * Keyboard arrows follow this side so → always moves visually right, never
+ * "deeper" against the layout when the menu is mirrored.
+ */
+export const cascadeSideFor = (anchor: HTMLElement): CascadeSide =>
+  sideFor(anchor, MAX_CASCADE_COLUMNS);
+
+/** Arrow key that steps deeper into the cascade (toward nested columns). */
+export const cascadeEnterKey = (side: CascadeSide): "ArrowRight" | "ArrowLeft" =>
+  side === "end" ? "ArrowRight" : "ArrowLeft";
+
+/** Arrow key that retreats toward the palette / parent column. */
+export const cascadeRetreatKey = (side: CascadeSide): "ArrowRight" | "ArrowLeft" =>
+  side === "end" ? "ArrowLeft" : "ArrowRight";
+
 const positionFor = (
   anchor: HTMLElement,
   side: CascadeSide,
@@ -388,6 +404,45 @@ export function AgentCascadeMenu({
       items[next]?.focus();
     };
 
+    // Horizontal arrows follow visual layout: when the cascade mirrors to the
+    // start side (row-reverse), deeper columns sit to the LEFT of the parent.
+    const side = sideRef.current ?? "end";
+    const enterKey = cascadeEnterKey(side);
+    const retreatKey = cascadeRetreatKey(side);
+
+    const enterDeeper = (): void => {
+      const item = items[index];
+      if (!item || item.getAttribute("aria-haspopup") !== "menu") return;
+      event.preventDefault();
+      event.stopPropagation();
+      // Focus already expanded the branch via onFocus; enter the next column
+      // once React paints it (pendingEnterStepRef + layout effect).
+      const step = stepOf(column);
+      const nextStep: CascadeStep | null =
+        step === "profile" ? "model" : step === "model" ? "effort" : null;
+      if (!nextStep) return;
+      pendingEnterStepRef.current = nextStep;
+      if (focusFirstInColumn(columnByStep(nextStep))) {
+        pendingEnterStepRef.current = null;
+      }
+    };
+
+    const retreat = (): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      const step = stepOf(column);
+      if (step === "effort") {
+        requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("model")));
+        return;
+      }
+      if (step === "model" && harness === "hermes") {
+        setActiveModel(null);
+        requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("profile")));
+        return;
+      }
+      exitCascade();
+    };
+
     switch (event.key) {
       case "ArrowDown":
         focusAt(Math.min(index + 1, items.length - 1));
@@ -401,37 +456,16 @@ export function AgentCascadeMenu({
       case "End":
         focusAt(items.length - 1);
         return;
-      case "ArrowRight": {
-        const item = items[index];
-        if (!item || item.getAttribute("aria-haspopup") !== "menu") return;
-        event.preventDefault();
-        event.stopPropagation();
-        // Focus already expanded the branch via onFocus; enter the next column
-        // once React paints it (pendingEnterStepRef + layout effect).
-        const step = stepOf(column);
-        const nextStep: CascadeStep | null =
-          step === "profile" ? "model" : step === "model" ? "effort" : null;
-        if (!nextStep) return;
-        pendingEnterStepRef.current = nextStep;
-        if (focusFirstInColumn(columnByStep(nextStep))) {
-          pendingEnterStepRef.current = null;
-        }
-        return;
-      }
+      case "ArrowRight":
       case "ArrowLeft": {
-        event.preventDefault();
-        event.stopPropagation();
-        const step = stepOf(column);
-        if (step === "effort") {
-          requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("model")));
+        if (event.key === enterKey) {
+          enterDeeper();
           return;
         }
-        if (step === "model" && harness === "hermes") {
-          setActiveModel(null);
-          requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("profile")));
+        if (event.key === retreatKey) {
+          retreat();
           return;
         }
-        exitCascade();
         return;
       }
       case "Escape": {
