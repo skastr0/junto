@@ -76,6 +76,17 @@ describe("renderCanvasSvg", () => {
     expect(renderCanvasSvg(doc)).toContain("<line");
   });
 
+  it("renders an unmasked actor↔actor edge as an amber collaboration link", () => {
+    const svg = renderCanvasSvg({
+      nodes: [
+        { id: "a1", type: "text", x: 0, y: 0, width: 120, height: 48, text: "Alpha", ether: { entity: { kind: "agent" } } },
+        { id: "a2", type: "text", x: 200, y: 0, width: 120, height: 48, text: "Beta", ether: { entity: { kind: "agent" } } },
+      ],
+      edges: [{ id: "a2a", fromNode: "a1", toNode: "a2" }],
+    });
+    expect(svg).toContain('stroke="#E8A33D"');
+  });
+
   it("escapes special characters in titles", () => {
     const svg = renderCanvasSvg({
       nodes: [{ id: "x", type: "text", x: 0, y: 0, width: 100, height: 40, text: "a & b <c>" }],

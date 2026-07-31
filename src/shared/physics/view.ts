@@ -42,6 +42,15 @@ const readEdgePorts = (
   return any ? set : undefined;
 };
 
+/**
+ * Whether an authored edge mask leaves a port available. An absent, empty, or
+ * all-invalid mask is the unattenuated default, matching capability admission.
+ */
+export const edgeMaskAllows = (edge: CanvasEdge, port: Port): boolean => {
+  const mask = readEdgePorts(edge);
+  return mask === undefined || HashSet.has(mask, port);
+};
+
 export type CapabilityViewOptions = {
   /**
    * Fleet topology for placement resolve (I18). Default treats `local` as

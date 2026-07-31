@@ -23,7 +23,7 @@ const GRANTLESS_LABEL = "reach + phase only — no ports offered";
  * Live would-be-grant preview for a candidate edge, before it is drawn.
  * Derived strictly from `grantLawForRoles` + no-mask `selectGrant` + target
  * `offersOf` — the same inputs `admit` uses for a fresh unported edge.
- * Actor→actor is OptIn (discovery): no ports until the edge declares them.
+ * Actor↔actor therefore previews the target actor's mailbox ports by default.
  */
 export const describeConnectPreview = (
   fromNode: CanvasNode | undefined,

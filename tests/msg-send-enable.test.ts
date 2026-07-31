@@ -24,7 +24,7 @@ const edge = (
   id: string,
   from: string,
   to: string,
-  ports?: ReadonlyArray<"msg.send">,
+  ports?: ReadonlyArray<"msg.list" | "msg.send">,
 ): CanvasEdge => ({
   id,
   fromNode: from,
@@ -41,12 +41,15 @@ const doc = (
 });
 
 describe("msg-send enable notices", () => {
-  it("lists no grants for discovery-only agent edges (OptIn, no ports)", () => {
+  it("lists default grants for unmasked agent edges", () => {
     const canvas = doc(
       [agent("a1", "Alpha"), agent("a2", "Beta")],
       [edge("e1", "a1", "a2")],
     );
-    expect(listMsgSendGrants(canvas).size).toBe(0);
+    const grants = listMsgSendGrants(canvas);
+    expect(grants.size).toBe(2);
+    expect(grants.get("a1\0a2")).toEqual({ peerId: "a2", peerTitle: "Beta" });
+    expect(grants.get("a2\0a1")).toEqual({ peerId: "a1", peerTitle: "Alpha" });
   });
 
   it("lists directed grants when ports include msg.send", () => {
@@ -90,10 +93,10 @@ describe("msg-send enable notices", () => {
     ]);
   });
 
-  it("treats port upgrade discovery→msg.send as enable", () => {
+  it("treats a masked port upgrade to msg.send as enable", () => {
     const a1 = agent("a1", "Alpha");
     const a2 = agent("a2", "Beta");
-    const previous = doc([a1, a2], [edge("e1", "a1", "a2")]);
+    const previous = doc([a1, a2], [edge("e1", "a1", "a2", ["msg.list"])]);
     const next = doc([a1, a2], [edge("e1", "a1", "a2", ["msg.send"])]);
     expect(planMsgSendEnableNotices(previous, next)).toHaveLength(2);
   });

@@ -23,12 +23,12 @@ const regionNode: GroupNode = {
 };
 
 describe("describeConnectPreview", () => {
-  it("actor(agent) -> actor(agent): OptIn discovery — no ports until edge declares them", () => {
+  it("actor(agent) -> actor(agent): default mailbox ports", () => {
     const preview = describeConnectPreview(textNode("agent"), textNode("agent"));
     expect(preview.fromRole).toBe("actor");
     expect(preview.toRole).toBe("actor");
-    expect(preview.ports).toEqual([]);
-    expect(preview.label).toBe("reach + phase only — no ports offered");
+    expect(preview.ports).toEqual(["msg.list", "msg.send"]);
+    expect(preview.label).toBe("will grant: msg.list, msg.send");
   });
 
   it("actor(agent) -> sink(page): full grant, target's browser port", () => {

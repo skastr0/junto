@@ -58,14 +58,18 @@ export const canonicalRolePair = (
 };
 
 /**
- * Role-pair grant law (I8: actor→actor is OptIn / discovery-only).
- * ActorSink stays Full; scheduler/geography/denied stay None.
+ * Role-pair grant law for an ordered caller/target pair.
+ *
+ * Actor↔actor edges use the same Full default as actor→sink edges. The target
+ * actor's offered ports still bound the concrete grant, so an unmasked edge
+ * grants that actor's mailbox ports while an authored edge mask can attenuate
+ * them. Scheduler/geography/denied pairs stay None.
  */
 export const grantLawBetween = (pair: RolePair): GrantLaw =>
   Match.value(pair).pipe(
     Match.tagsExhaustive({
       ActorSink: () => GrantLaw.Full(),
-      ActorActor: () => GrantLaw.OptIn(),
+      ActorActor: () => GrantLaw.Full(),
       ActorScheduler: () => GrantLaw.None(),
       ActorGeography: () => GrantLaw.None(),
       Denied: () => GrantLaw.None(),
@@ -104,4 +108,3 @@ export const selectGrantFromOption = (
   mask: Option.Option<HashSet.HashSet<Port>>,
 ): PortGrant =>
   selectGrant(law, Option.isSome(mask) ? mask.value : undefined);
-

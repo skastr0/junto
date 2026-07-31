@@ -56,7 +56,8 @@ const grantKey = (callerId: string, peerId: string): string =>
 
 /**
  * Every directed actor→actor msg.send grant currently admitted by physics.
- * OptIn without ports yields no entries (discovery-only connect).
+ * An unmasked actor edge yields an entry through the Full default; an authored
+ * port mask can attenuate the grant back to discovery-only or another subset.
  */
 export const listMsgSendGrants = (
   doc: CanvasDoc,

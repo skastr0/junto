@@ -158,17 +158,17 @@ describe("physics phase membership", () => {
   });
 });
 
-describe("physics GrantLaw (I8 — actor→actor OptIn)", () => {
-  it("ActorSink is Full; ActorActor is OptIn; others None", () => {
+describe("physics GrantLaw (actor↔actor mailbox defaults)", () => {
+  it("ActorSink and ActorActor are Full; others None", () => {
     expect(grantLawBetween(canonicalRolePair("actor", "sink"))._tag).toBe("Full");
-    expect(grantLawBetween(canonicalRolePair("actor", "actor"))._tag).toBe("OptIn");
+    expect(grantLawBetween(canonicalRolePair("actor", "actor"))._tag).toBe("Full");
     expect(grantLawForRoles("actor", "scheduler")._tag).toBe("None");
     expect(grantLawForRoles("actor", "geography")._tag).toBe("None");
     expect(grantLawForRoles("sink", "actor")._tag).toBe("None");
     expect(grantLawForRoles("geography", "sink")._tag).toBe("None");
   });
 
-  it("selectGrant: Full attenuates by mask; OptIn requires mask; None is empty", () => {
+  it("selectGrant: Full attenuates by mask; OptIn remains explicit; None is empty", () => {
     const mask = portSet("msg.send");
     expect(selectGrant(GrantLaw.Full(), undefined).isFull()).toBe(true);
     expect(HashSet.has(selectGrant(GrantLaw.Full(), mask).ports, "msg.send")).toBe(true);
@@ -201,8 +201,8 @@ describe("physics GrantLaw (I8 — actor→actor OptIn)", () => {
 
   it("no-mask materialization of laws", () => {
     expect(selectGrant(grantLawBetween(canonicalRolePair("actor", "sink")), undefined).isFull()).toBe(true);
-    // OptIn without mask → empty (discovery); never Full
-    expect(selectGrant(grantLawBetween(canonicalRolePair("actor", "actor")), undefined).isEmpty()).toBe(true);
+    // Actor↔actor now uses the unmasked Full default.
+    expect(selectGrant(grantLawBetween(canonicalRolePair("actor", "actor")), undefined).isFull()).toBe(true);
     expect(selectGrant(grantLawForRoles("actor", "sink"), undefined).isFull()).toBe(true);
     expect(selectGrant(grantLawForRoles("actor", "geography"), undefined).isEmpty()).toBe(true);
   });
@@ -490,7 +490,7 @@ describe("physics admitPure", () => {
     expect(Either.isRight(admitted)).toBe(true);
   });
 
-  it("fresh actor↔actor, no ports → msg.send denied no_port (discovery still connected)", () => {
+  it("fresh actor↔actor, no ports → both mailbox ports are admitted by default", () => {
     const doc: CanvasDoc = {
       nodes: [
         textNode("a1", "agent"),
@@ -505,15 +505,9 @@ describe("physics admitPure", () => {
     if (Option.isSome(neighbors)) {
       expect(HashSet.has(neighbors.value, asNodeId("a2"))).toBe(true);
     }
-    const denied = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.send");
-    expect(Either.isLeft(denied)).toBe(true);
-    if (Either.isLeft(denied)) {
-      expect(denied.left.reason).toBe("no_port");
-    }
-    const listDenied = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.list");
-    expect(Either.isLeft(listDenied)).toBe(true);
-    if (Either.isLeft(listDenied)) {
-      expect(listDenied.left.reason).toBe("no_port");
+    for (const port of ["msg.send", "msg.list"] as const) {
+      const admitted = admitPure(view, asNodeId("a1"), asNodeId("a2"), port);
+      expect(Either.isRight(admitted), port).toBe(true);
     }
   });
 

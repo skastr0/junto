@@ -44,10 +44,10 @@ describe("edgeVisualRole", () => {
     expect(edgeVisualRole(edge("artifacts", "actor"), artifacts, actor)).toBe("artifact-flow");
   });
 
-  it("agent↔agent with msg.send → agent-msg; discovery-only stays soft-relation", () => {
+  it("agent↔agent defaults to msg.send; explicit masks can attenuate", () => {
     const a1 = node("a1", "agent");
     const a2 = node("a2", "agent");
-    expect(edgeVisualRole(edge("a1", "a2"), a1, a2)).toBe("soft-relation");
+    expect(edgeVisualRole(edge("a1", "a2"), a1, a2)).toBe("agent-msg");
     expect(edgeVisualRole(edge("a1", "a2", ["msg.list"]), a1, a2)).toBe("soft-relation");
     expect(edgeVisualRole(edge("a1", "a2", ["msg.send"]), a1, a2)).toBe("agent-msg");
     expect(edgeVisualRole(edge("a1", "a2", ["msg.list", "msg.send"]), a1, a2)).toBe(
@@ -57,8 +57,8 @@ describe("edgeVisualRole", () => {
     expect(edgeVisualRole(edge("a2", "a1", ["msg.send"]), a2, a1)).toBe("agent-msg");
   });
 
-  it("edgeHasMsgSend reads authored ports only", () => {
-    expect(edgeHasMsgSend(edge("a", "b"))).toBe(false);
+  it("edgeHasMsgSend reads effective mask semantics", () => {
+    expect(edgeHasMsgSend(edge("a", "b"))).toBe(true);
     expect(edgeHasMsgSend(edge("a", "b", ["msg.list"]))).toBe(false);
     expect(edgeHasMsgSend(edge("a", "b", ["msg.send"]))).toBe(true);
   });

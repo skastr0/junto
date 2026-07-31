@@ -4,6 +4,7 @@ import {
   type ExecutionGraphContext,
 } from "./execution-graph";
 import { isGroup } from "./graph";
+import { edgeMaskAllows } from "./physics";
 
 // Headless deep-field render of a canvas to SVG — the "screenshot for agents"
 // half of the agent surface (the text half is digest.ts). Pure and
@@ -112,8 +113,7 @@ export const renderCanvasSvg = (
       kind !== "blocks" &&
       fromKind === "agent" &&
       toKind === "agent" &&
-      Array.isArray(edge.ether?.ports) &&
-      edge.ether.ports.includes("msg.send");
+      edgeMaskAllows(edge, "msg.send");
     const color = kind === "blocks" ? CRIMSON : agentMsg ? AMBER : kind ? EDGE_COLOR[kind] : STEEL;
     const active = activeEdges.has(edge.id);
     const strokeW = active ? 2 : agentMsg ? 1.6 : 1;

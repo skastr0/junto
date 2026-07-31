@@ -115,5 +115,5 @@ export {
 } from "./work-ports";
 export type { TargetWorkOpName } from "./work-ports";
 
-export { canvasDocToCapabilityView } from "./view";
+export { canvasDocToCapabilityView, edgeMaskAllows } from "./view";
 export type { CapabilityViewOptions } from "./view";

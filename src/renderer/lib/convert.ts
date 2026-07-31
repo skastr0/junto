@@ -6,6 +6,7 @@ import {
   type ExecutionGraphContext,
 } from "@shared/execution-graph";
 import type { ExecutionSnapshot } from "@shared/ipc";
+import { edgeMaskAllows } from "@shared/physics";
 import { AGENT_NODE_SIZE } from "./node-geometry";
 import { isLabelNode, nodeTitle, searchText } from "./presentation";
 
@@ -67,9 +68,9 @@ export const createFlowIdentityCache = (): FlowIdentityCache => ({
 const entityKind = (node: CanvasNode | undefined): string | undefined =>
   node?.ether?.entity?.kind;
 
-/** True when the edge's authored port mask includes msg.send. */
+/** True when the effective edge mask leaves msg.send available. */
 export const edgeHasMsgSend = (edge: CanvasEdge): boolean =>
-  Array.isArray(edge.ether?.ports) && edge.ether.ports.includes("msg.send");
+  edgeMaskAllows(edge, "msg.send");
 
 /**
  * Pair-aware visual projection. This is intentionally not a canvas contract:
@@ -90,7 +91,7 @@ export const edgeVisualRole = (
   if (connects("agent", "requests")) return "request-flow";
   if (connects("agent", "artifacts")) return "artifact-flow";
   // Agent↔agent with msg.send is a live collab link — amber presentation only
-  // when the port is actually enabled (discovery-only stays soft-relation).
+  // when the effective port is enabled (an explicit mask may attenuate it).
   if (connects("agent", "agent") && edgeHasMsgSend(edge)) return "agent-msg";
   if (
     edge.ether?.effect &&
