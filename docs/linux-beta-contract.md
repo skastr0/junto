@@ -1,134 +1,130 @@
 # Linux beta contract
 
-This is the narrow fleet surface allowed to ship as the first Linux beta. It
-does not weaken [linux-production-contract.md](linux-production-contract.md) or
-[security-doctrine.md](security-doctrine.md).
+**Status:** canonical Linux Station Beta contract; no Linux artifact is
+currently Beta-qualified
 
-## Supported
+The first Linux beta uses the same rootless/userland installation and update
+lane required for production. Beta narrows product capability and evidence
+scope; it does not authorize a privileged installer, a custom-image
+prerequisite, or a second package path.
 
-| Surface | Contract |
+The shipped maturity label is **Beta**. Admission requires the core userland
+path to be fully tested. Optional capabilities may degrade independently when
+safe; every security-sensitive feature fails closed.
+
+This contract cannot weaken
+[Linux production](linux-production-contract.md),
+[Linux host preparation](linux-host-preparation.md), or
+[security doctrine](security-doctrine.md).
+
+## Current status
+
+The current `.deb`/`/opt` artifact contract and any remaining privileged
+bridge/installer/journal/administrator-credential types, tests, scripts,
+receipts, or instructions are migration residue. Active privileged executables
+and password UI have been removed, but the rootless replacement is not yet
+shipped or qualified. Therefore:
+
+- the current `.deb` is not the Linux beta install path;
+- a passing `.deb` build, install, or OrbStack run cannot label a candidate
+  beta-ready;
+- there is no manual privileged fallback for beta;
+- beta qualification begins only after the canonical rootless lane replaces
+  those product paths.
+
+## Narrow beta surface
+
+| Surface | Beta contract |
 |---|---|
 | Platform | Ubuntu 24.04 LTS x86_64 |
-| Command Center | One Linux desktop installation of the same `.deb` |
-| Remote | Manual `.deb` installation, user systemd unit, Xvfb launcher |
+| Command Center | One Linux desktop installation of the signed userland payload |
+| Remote | Same signed userland payload under the Station user's service manager; host-provided `Xvfb`, `xauth`, and `mcookie` are core |
+| Install/update | One ordinary-user transaction for first install and later update |
+| Host preparation | Read-only preflight; optional administrator actions remain outside Vellum |
 | Connectivity | Operator-enrolled OpenSSH route, Command Center to Remote |
 | Durable state | One `~/.vellum/state/vellum.db` per installation |
-| Fleet control | Fixed `vellum-station`; `pair`, `configure`, `project`, `report`, `status` |
+| Fleet control | Fixed Station surface; `pair`, `configure`, `project`, `report`, `status` |
 | Projection | One complete replace-only Command Center projection |
-| Station events | Per-home logical sequences and cumulative ACK cursors |
-| Local runtimes | Host-local agents, native terminals, browser pages, watchers, and timers |
-| Logical sinks | Stable projected task/request/artifact identity with single-home mutable rows |
+| Local runtimes | Host-local agents, terminals, browser pages, watchers, and timers |
 
 Command Center and Remote use the same schema. Role changes row residency and
-execution, not the storage implementation.
+execution, not storage implementation or installation authority.
 
-## Explicitly disabled
+## Beta operator sequence
 
-| Capability | Contract |
-|---|---|
-| Managed Remote package deployment | `managedRemoteDeploy` remains false |
-| Darwin Remote deploy | `darwinRemoteDeploy` remains false |
-| Command Center transfer | `commandCenterTransfer` remains false |
-| In-app administrator-password deploy | No entry point |
-| Station-to-Station control | No protocol or route |
+Once the rootless implementation exists, the shortest valid sequence is:
 
-Manual `.deb` installation is the only beta package path.
+1. Run read-only host preflight as the intended Station user.
+2. Review each capability finding and decide whether to perform any optional
+   host-administrator action outside Vellum.
+3. Rerun preflight; accept **ready with limits** only when the missing
+   capabilities are optional for the intended workload.
+4. Verify and install the exact signed payload as the Station user.
+5. Start the desktop Command Center or owner-local Remote user service.
+6. Enroll the Remote's ordinary-user SSH endpoint.
+7. Configure through `status → pair → configure`.
+8. Confirm live identity, state, work-control, simulation, projection, and
+   per-capability Doctor status.
+9. Exercise update through the same rootless transaction.
 
-## Operator sequence
+These steps describe the beta contract, not a currently available command
+surface. Release documentation must replace them with exact, proof-backed
+commands before beta qualification.
 
-```text
-1. Install the exact signed beta .deb on the target.
-2. Enable and start vellum-remote.service.
-3. Enroll the target's SSH endpoint in Command Center.
-4. Configure as Remote: status → pair → configure.
-5. Confirm status reports the expected installation identity and database,
-   work-control, and simulation readiness.
-6. Let Command Center project the complete canvas and exchange logical events.
-```
+## Fail-closed boundaries
 
-SSH exit zero alone is neither configuration nor synchronization. Command
-Center accepts success only from a decoded Station API response whose
-installation identity matches the enrolled target.
+- Signature, target, ownership, state preflight, or activation ambiguity
+  blocks install/update.
+- A missing Chromium sandbox path blocks Chromium-dependent capabilities; no
+  sandbox-disabling fallback exists.
+- Declining lingering disables unattended logout/reboot persistence only.
+- Missing optional OS packages degrade only their named capabilities.
+- A missing core runtime library blocks install/update until the operator
+  prepares the host separately.
+- Missing `Xvfb`, `xauth`, or `mcookie` makes the core Remote
+  `requires-admin` or `unavailable`; there is no secure display-less fallback.
+- SSH success alone is neither configuration nor synchronization.
+- Unknown or unreachable fleet state remains unknown or stale.
 
-## One-way state contract
+## Disabled and excluded
 
-The beta has no file-store compatibility:
+The beta does not include:
 
-- no `.canvas` pull or watched canvas directory;
-- no `settings.json`, `hosts.json`, or `station-status.json` state;
-- no content-addressed projection store, manifest, or pointer file;
-- no topology/hosts key or seal;
-- no `incoming.frame`, `applied.ack`, staging directory, or bridge substitute
-  for Station API product state; the packaged release bridge exists only for
-  signed package transport and remains inactive while managed deployment is
-  disabled;
-- no SSH file write/read for configuration, projection, report, or status;
-- no direct database open by `vellum-station` or another helper;
-- no importer, dual read/write, feature flag, or rollback to those paths.
+- Command Center transfer;
+- Station-to-Station control;
+- app-managed administrator passwords or privilege input;
+- `sudo`, system package manager, `.deb`, `/opt`, root helper/bridge/journal,
+  setuid, file capability, polkit, or privileged daemon product paths;
+- custom images as the supported installation route;
+- parallel manual/offline and managed install implementations;
+- file-store compatibility, direct helper database access, or rollback to a
+  retired store.
 
-Finding any such product path blocks the beta.
-
-## Projection and report behavior
-
-Projection installation compares logical generation and content hash:
-
-- newer installs;
-- same generation and hash is idempotent;
-- older is stale;
-- same generation with different hash is a conflict.
-
-Report exchanges send bounded pages after the peer's last cumulative ACK.
-Contiguous sequence admission and durable cursors make interruption and retry
-idempotent. Origin and received timestamps are display metadata, never ordering
-keys.
-
-Remote ticks execute only Remote-homed state. Command Center and Remote ticks
-need no phase alignment. Current interval timers coalesce missed intervals into
-at most one firing.
-
-Actors and physical runtimes are host-local. Sink placement never forms a
-capability tier and a projected sink does not become multi-writer:
-
-- a Command Center-home task may start on a Remote actor only through a live
-  synchronous Command Center-opened claim exchange;
-- claim is the exact `submitted → working` start, never assignment or actor
-  backlog reservation;
-- after acceptance, that task advances on the Remote while Command Center is
-  closed;
-- a Remote-home task may be claimed locally by an eligible Remote actor;
-- permitted requests and artifacts may be created locally at the actor's
-  installation;
-- browser page control requires actor and page on the same installation.
-
-Command Center owns every OpenSSH fleet connection and reconnect. The duplex
-session carries only the five Station verbs; a Remote never needs a callback
-route and never opens a peer route to another Remote. Tailscale is optional
-reachability, not authority.
-
-## Doctrine alignment
-
-- one trusted operator and one Command Center per factory;
-- role is operator-selected, never hardware-inferred;
-- edges, ports, and process-bind remain the agent capability plane;
-- OpenSSH remains the transport authority; Vellum does not absorb SSH keys;
-- a Remote applies complete intent and never authors or merges it;
-- a Remote continues its latest projection while Command Center is closed;
-- unreachable is reported as unknown/stale, never inferred healthy.
+Air-gapped installation, when later supported, must consume the same signed
+userland payload and rootless transaction. It is a transport variation, not a
+second installer.
 
 ## Beta release gates
 
 Do not label an artifact beta-ready until native Ubuntu evidence proves:
 
-- fresh Command Center and Remote boot the same SQLite schema;
-- Station API configure and status succeed through the packaged helper;
-- full projection survives Remote restart;
-- interrupted projection and multi-page report reconverge;
-- Remote local simulation continues with Command Center closed;
-- only single-home work, watchers, and timers execute;
-- no retired state path is present in source or the package;
-- signed package and readiness qualification pass for the exact artifact.
+- the complete core userland install, update, state, service, control, and
+  Station path is fully tested;
+- stock-host read-only preflight and exact per-capability status;
+- core Remote refusal when `Xvfb`, `xauth`, or `mcookie` is missing and
+  successful supervised startup after separate host preparation;
+- rootless fresh install, update, interruption handling, removal, and forward
+  repair with no Vellum-owned privilege path;
+- optional host preparation is separate, explicit, verifiable, and removable;
+- declined optional preparation produces the documented graceful degradation;
+- desktop Command Center and Remote user service boot the same SQLite schema;
+- Station configure/status, projection restart, report retry, and
+  Command Center-offline Remote work pass;
+- Chromium-dependent surfaces fail closed when their sandbox gate is absent;
+- no privileged Linux install/update residue or retired state path remains in
+  source or the signed payload;
+- the exact source revision and payload digest are bound to the operator
+  qualification receipt.
 
-This repository contract and CI package smoke do not themselves prove that
-two-installation run. The operator qualification must be recorded against the
-exact source commit and `deb` SHA-256; absent that receipt, the candidate
-remains unqualified.
+Repository contracts and CI smoke do not prove these gates. Until the rootless
+lane and two-installation receipt exist, the candidate is unqualified.

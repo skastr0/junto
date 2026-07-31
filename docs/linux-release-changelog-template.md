@@ -1,6 +1,6 @@
-# Vellum Command Linux release candidate
+# Vellum Command Linux Station Beta candidate
 
-STATUS: RELEASE CANDIDATE TEMPLATE — NOT AUTHORIZED FOR PUBLICATION.
+STATUS: BETA CANDIDATE TEMPLATE — NOT AUTHORIZED FOR PUBLICATION.
 
 Before signing, the human release authority replaces this file with exact
 versioned changes, compatibility notes, known limitations, migration impact,

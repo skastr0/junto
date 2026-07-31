@@ -1,180 +1,216 @@
 # Linux production contract
 
-**Status:** normative release contract
+**Status:** normative Beta-to-production graduation contract; Linux is not yet
+qualified under this contract
 
 **Scope:** Ubuntu 24.04 LTS x86_64 only. ARM64 and other distributions are out
 of v1.
 
-This document freezes the production meaning of ready, durable, and secure for
-the Linux path. It derives from
+Vellum Linux production means one signed rootless Station payload, installed
+and updated by the Station user, with optional host-administrator preparation
+kept outside the product transaction.
+
+Host preparation and remediation are optional, external, and documented.
+
+The canonical userland Linux Station first ships as **Beta**. Its core userland
+path must be fully tested before Beta admission. Optional capabilities degrade
+independently when safe; security-sensitive features fail closed. Production
+requires the same lane plus every graduation gate in this document, never a
+second installer.
+
+This contract derives from
 [security-doctrine.md](security-doctrine.md),
+[linux-host-preparation.md](linux-host-preparation.md),
 [state-architecture.md](state-architecture.md), and
 [fleet-station-architecture.md](fleet-station-architecture.md).
 
+## Current implementation status
+
+The canonical rootless install/update lane is in progress and is the only
+permitted target path. Signed artifact, user-service, deployment, and removal
+pieces have landed, and active privileged executables/password UI have been
+removed. The `.deb`/`/opt` contract and any remaining privileged types, tests,
+scripts, receipts, or instructions are migration residue. No current Linux
+artifact is supported, qualified, or publishable.
+
+There is no supported privileged fallback. Consolidation is complete only when
+the rootless lane owns first install, update, forward repair, and removal and
+the privileged product lane is deleted.
+
 ## Production scope
 
-One `.deb` supports:
+One signed Linux release payload supports:
 
 - Linux Command Center with desktop parity;
-- Linux Remote running unattended under user systemd and Xvfb;
+- Linux Remote running under the Station user's service manager and
+  release-owned display composition backed by host-provided `Xvfb`, `xauth`,
+  and `mcookie`;
 - macOS Command Center to Linux Remote;
-- Linux Command Center to Linux Remote.
+- Linux Command Center to Linux Remote;
+- first install and later update through the same ordinary-user transaction.
 
 Explicit exclusions:
 
 - ARM64 and non-Ubuntu distributions;
+- custom images as an ordinary install prerequisite;
 - Station-to-Station control;
 - multi-tenant or multi-operator RBAC;
-- Command Center transfer;
-- SSH, Tailscale, provider, or harness credentials absorbed into Vellum.
+- SSH, Tailscale, provider, host-administrator, or harness credentials absorbed
+  into Vellum;
+- app-managed `sudo`, administrator-password, system-package-manager, setuid,
+  file-capability, polkit, privileged-daemon, or root-journal paths.
+
+## Rootless release transaction
+
+The canonical transaction runs entirely as the intended Station user:
+
+1. Read-only preflight records the host, runtime dependencies, security
+   facilities, user service manager, installed Vellum payload, state schema,
+   and requested capability status.
+2. The exact signed candidate is staged in an owner-only user directory and
+   admitted against independently trusted release metadata.
+3. The incumbent is quiesced and proved to have released the canonical
+   database.
+4. The exact candidate runs sealed `--vellum-state-preflight`: it opens the
+   fixed canonical database read-only only long enough to mint a verified
+   retained backup, migrates and decodes a disposable clone, starts no runtime
+   plane, and accepts no database redirect.
+5. A passing receipt permits one-way activation of the owner-local candidate.
+6. The candidate starts through the user service or desktop path and publishes
+   current-generation readiness.
+7. Failure before activation leaves installed bytes and live state unchanged.
+   After schema or candidate-authored durable state advances, repair is
+   forward-only with a newer signed release.
+
+Command Center may initiate the same transaction on an enrolled Remote through
+the ordinary Station user's OpenSSH route. It transfers only the admitted
+payload and fixed userland protocol. Vellum never asks SSH, the app, or a helper
+to obtain administrator authority.
+
+The release must define its exact owner-local installation layout, activation
+record, mutation bounds, and cleanup behavior before qualification. The release
+artifact becomes the authoritative implementation reference for those details.
+
+## Host preparation and graceful degradation
+
+Preflight and Doctor are read-only. Their exact status and remediation contract
+is [Linux host preparation](linux-host-preparation.md).
+
+AppArmor/user-namespace readiness, user lingering, and missing
+operating-system packages are separate facts and separate optional host
+actions. Vellum may show reviewed commands but never executes them or collects
+their credentials.
+
+Troubleshooting sequence for host-boundary failures is always:
+
+1. read-only preflight;
+2. Doctor verification;
+3. external preparation;
+4. rerun preflight + Doctor and verify capability convergence.
+
+One missing optional facility degrades only its named capability when safe.
+For example, declining lingering limits unattended persistence; it does not
+invalidate owner-local Station state. A missing Chromium sandbox path blocks
+the Chromium-dependent surface rather than adding `--no-sandbox`. A missing
+library required by the core payload blocks install/update until the operator
+prepares the host.
+
+`Xvfb`, `xauth`, and `mcookie` are core Remote runtime prerequisites for
+Electron 43.2 / Chromium 150. There is no supported secure display-less Remote
+fallback. If any is missing, Doctor reports `requires-admin` or `unavailable`
+and the Remote does not start. Vellum never installs them itself.
 
 ## Durable state
 
 Every installation uses `~/.vellum/state/vellum.db`, mode `0600`, inside an
 owner-only state directory. The Electron main process owns the one Effect
 `StateEngine` connection. All services share that connection; renderers, CLIs,
-packaged helpers, and SSH callers reach main through typed control surfaces.
+helpers, and SSH callers reach main through typed control surfaces.
 
 The same schema boots for Command Center and Remote. Command Center persists
 authorial canvas generations, fleet enrollment, and Command Center-homed work.
-A Remote persists its configuration, one complete projection, local work,
-events, receipts, and cursors. Logical sink identities may appear in every
-projection, but each mutable work entity and event has one authoritative
-installation home. Actor mailbox messages remain Command Center-homed;
-task/request thread messages share their exact parent row's home.
+A Remote persists its configuration, complete active projection, local work,
+events, receipts, and cursors. Each mutable work row and event has one
+authoritative installation home.
 
-The following are release blockers:
+Release blockers include:
 
 - JSON or content-addressed directories used as live product state;
-- settings, hosts, status, manifest, frame, ACK, pointer, or seal files used
-  for coordination;
-- SSH reading or writing durable Vellum state;
-- more than one production process or more than one connection opening the
-  database;
-- dual read/write, legacy import, or rollback to a retired store.
+- settings, hosts, status, frame, ACK, pointer, or seal files used for
+  coordination;
+- install/update scripts copying, replacing, or archiving `vellum.db`, its WAL,
+  or its shared-memory file;
+- more than one normal product process opening the database;
+- dual read/write, legacy import, restore, or rollback to a retired store.
 
-The coherent backup mechanism is `StateEngine`'s `VACUUM INTO`. Settings →
-Advanced lists verified retained backups and can export one to a new
-operator-selected file without overwriting it. Export is portability/evidence,
-not restore: Linux v1 has no operation that replaces `vellum.db`, activates an
-older binary, or downgrades product state. Forward repair uses a newer signed
-release.
+Verified `VACUUM INTO` backups remain portability and forensic evidence.
+Linux v1 has no operator restore or downgrade path.
 
-## Boot ready
+## Boot readiness and Doctor
 
-Boot ready is structural and true only for the current systemd unit generation:
+Boot readiness is structural and belongs to one current user-service
+generation:
 
-1. `vellum-remote.service` is active with a 32-hex `InvocationID`.
-2. Work control publishes the private readiness receipt
-   `$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID` with body
-   `${INVOCATION_ID}\n`.
-3. Fresh owner-only work and Station control sockets are listening.
-4. The packaged launcher owns the MainPID and notifies systemd only after
-   observing readiness.
-5. The app reports SQLite database readiness.
+1. the Vellum user service is active for its current invocation;
+2. the fixed userland launcher is the supervised main process;
+3. fresh owner-only work and Station control sockets are listening;
+4. the app reports SQLite readiness;
+5. one private, invocation-bound runtime receipt proves that exact generation.
 
-The readiness receipt is transport for one boot transaction, not durable
-product state.
+The final rootless implementation must bind launcher, updater, and deploy
+preflight to one exact receipt contract. A stale file, SSH exit zero, package
+manager result, desktop process, or custom-image label is never readiness.
 
-Boot ready gates:
-
-- systemd unit start success;
-- managed install/update activation;
-- deploy preflight `ready=1`.
-
-## Doctor observation
-
-Terminal control, browser composition, canvas projection, scheduler simulation,
-display, sandbox, and capability probes are Doctor observations. They may warn
-or fail release qualification but do not become filesystem boot receipts.
-
-Remote identity, configuration, projection generation, logical ACK cursors, and
-database/work/simulation readiness come from the live `status` Station API
-operation. Unknown or unreachable remains unknown; it is never converted into
-success from a stale status file.
+Terminal, browser, projection, display, sandbox, persistence, and capability
+probes are Doctor observations. A red security probe blocks its affected
+capability. A red optional probe may leave the Station **ready with limits**.
+Unknown remains unknown.
 
 ## Fleet contract
 
 OpenSSH is the authenticated Command Center-to-Remote transport. Command Center
-invokes only the fixed `vellum-station` command and exchanges bounded, typed
-requests with the running Remote app.
+invokes only fixed Vellum Station operations and exchanges the five bounded
+verbs: `pair`, `configure`, `project`, `report`, and `status`.
 
-- `pair` binds installation identities.
-- `configure` commits role-specific topology.
-- `project` replaces the complete projection transactionally.
-- `report` exchanges route-local canonical Work events, dispositions, and
-  cumulative ACKs.
-- `status` observes identity, projection, cursors, and readiness.
+No fleet request accepts a remote path, shell body, administrator credential,
+or privilege instruction. A Remote never opens a callback route to Command
+Center or another Remote. Tailscale may provide reachability; it grants no
+Vellum authority. Browser and actor control remain host-local.
 
-No fleet request accepts a remote path or shell body. The helper never opens
-the database. No settings stamp, canvas pull, drop file, or status-file read is
-part of the contract.
+Installed version skew uses the one Station protocol descriptor. Current
+policy is protocol 3 with `3/3/3`. No overlap means `update required`; it does
+not authorize a privileged fallback or partial down-conversion.
 
-Command Center owns the OpenSSH connection and every reconnect. A configured
-Remote may send bounded `report` traffic over that already authenticated
-duplex session, but it never opens a callback route to Command Center and never
-connects to another Remote. Tailscale may provide reachability to SSH; it is
-optional and grants no Vellum authority. Browser and actor control are
-host-local and never become Station API verbs.
+## Production exit gates
 
-Each executable actor, physical runtime, work entity, work event, watcher, and
-timer has one installation home. A Command Center-home task may start on a
-Remote actor only through a live synchronous claim exchange. Claim is
-`submitted → working`, not assignment or backlog reservation; after acceptance
-that exact task advances on the Remote while Command Center is closed.
-Remote-home tasks may be claimed locally, and permitted requests/artifacts may
-be created locally. Each installation's tick operates only its local home.
-Cross-machine tick alignment affects latency, not correctness.
-`everyMinutes` timers coalesce missed intervals into at most one firing.
+Linux Station Beta is eligible to graduate to production only when one exact
+signed payload and source
+revision prove:
 
-## Secure
-
-A boundary Vellum advertises is a boundary Vellum enforces:
-
-- edges, ports, and process-bind form the agent capability plane;
-- no ambient host-destructive API accepts a bare PID or broad path;
-- credentials remain owned by the operator, operating system, or provider;
-- a Remote never authors, merges, negotiates, or vetoes Command Center intent;
-- no Station-to-Station route exists;
-- an unreachable Remote is reported honestly under its last installed
-  projection.
-
-## Package and readiness receipt
-
-The one permitted filesystem readiness receipt is:
-
-```text
-path   := $XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID
-body   := <32 hex INVOCATION_ID> + "\n"
-mode   := 0600 regular file, owner-only, no symlink
-writer := work-control after token rotation + listener bind
-delete := RuntimeDirectory teardown on unit stop
-```
-
-Launcher, deploy preflight, and privileged installer must agree on this exact
-receipt. `/run/user/$UID/vellum/station-ready.json` and deep JSON readiness
-files are forbidden.
-
-## Exit gates
-
-Linux is production-ready only when:
-
-- the same qualified artifact runs as desktop Command Center and unattended
-  Remote on native Ubuntu 24.04 x86_64;
-- package install/update complete without readiness timeout;
+- first install, same-version adoption, update, interrupted update, and
+  forward repair through the ordinary-user lane;
+- no Vellum process invokes or retains host-administrator authority;
+- a stock supported Ubuntu host can reach a truthful preflight result without
+  a custom image;
+- the Remote starts only with qualified host-provided `Xvfb`, `xauth`, and
+  `mcookie`, and missing display prerequisites produce
+  `requires-admin`/`unavailable` rather than display-less fallback;
+- every optional host action is separate, minimal, documented, verifiable, and
+  removable;
+- declined optional actions produce capability-specific limits, while every
+  security gate fails closed;
+- the same payload runs as desktop Command Center and unattended Remote;
 - fresh install creates only the canonical SQLite state architecture;
-- pair/configure/project/report/status pass over the fixed command;
-- interrupted projection and report exchanges converge idempotently;
-- Remote restart resumes its projection and host-local work;
-- Remote simulation continues while Command Center is closed;
-- each Station fires only single-home watchers and timers;
-- agents exercise only current edge/port capabilities;
-- no retired state or SSH file protocol exists in the packaged tree;
-- UI and Doctor report reachability, projection, cursors, and residual limits
-  truthfully.
+- pair/configure/project/report/status pass over the fixed Station route;
+- interruption, retry, Remote restart, and Command Center-offline work
+  converge through the single-home protocol;
+- no retired state, privileged `.deb` installer, release bridge, root journal,
+  administrator-credential flow, or alternate Linux product lane exists in
+  source or the signed artifact;
+- UI, preflight, Doctor, support guidance, and qualification receipts report
+  host limits and implementation maturity truthfully.
 
-CI package construction and single-installation smoke are necessary evidence,
-but do not satisfy these exit gates. Production qualification requires a real
-two-installation Command Center/Remote run bound to the exact source commit and
-`deb` SHA-256. Until that operator receipt exists, the artifact is explicitly
-unqualified rather than implicitly passed.
+CI construction and single-installation smoke are necessary evidence, not
+production proof. A real two-installation qualification receipt must bind the
+exact source revision and signed rootless payload. Until the canonical lane is
+implemented and that receipt exists, Linux remains unqualified.

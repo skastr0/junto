@@ -1,30 +1,43 @@
 # Linux v1 support matrix
 
-The matrix is exact. “Unsupported” means unqualified for Linux v1, not
-necessarily impossible in a future release.
+**Status:** target Linux Station Beta support envelope; Linux is not yet
+Beta-qualified
 
-| Surface | Linux v1 status | Contract |
+“Target” names the contract the implementation and evidence must satisfy. It
+does not mean the current privileged `.deb` artifact is supported. The
+canonical rootless install/update lane is not yet shipped, so every Linux v1
+support claim remains unqualified.
+
+The release label is **Beta**. Beta admission requires a fully tested core
+userland path; optional capabilities may degrade independently, while
+security-sensitive features fail closed.
+
+| Surface | V1 target | Current status |
 |---|---|---|
-| Distribution | Supported | Ubuntu 24.04 LTS |
-| CPU / Debian architecture | Supported | x86-64 / `amd64` only |
-| C library | Supported | glibc 2.39 or newer on Ubuntu 24.04 |
-| Install artifact | Supported | exact signed `deb` from the release bundle |
-| Remote display | Supported | package-owned X11/Xvfb, TCP disabled |
-| Command Center display | Supported | normal X11 or Wayland/XWayland desktop session |
-| Remote supervision | Supported | packaged systemd user service (`Type=notify`) |
-| Remote boot ready | Supported | private generation receipt `$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID` + work control (not Doctor planes; not `station-ready.json`) |
-| Login persistence | Optional | explicit administrator-approved user lingering |
-| Station API | Supported | five verbs only (`pair`, `configure`, `project`, `report`, `status`); OpenSSH transport |
-| Browser automation | Supported | host-local (Tier 2); actor and page on the same installation; never Station API |
-| Work-control protocol | Supported | `vellum-work/v1`, owner-local Unix socket |
-| Linux arm64 / aarch64 | Unsupported | no v1 artifact or qualification |
-| musl / Alpine | Unsupported | glibc is required |
-| AppImage | Unsupported | not a v1 release unit |
-| RPM | Unsupported | not a v1 release unit |
-| Snap | Unsupported | not a v1 release unit |
-| Flatpak | Unsupported | not a v1 release unit |
-| Container-only host | Unsupported | does not substitute for the host-kernel qualification |
+| Distribution | Ubuntu 24.04 LTS | Target; rootless lane unimplemented |
+| CPU / Debian architecture name | x86-64 / `amd64` only | Target; release payload unqualified |
+| C library | glibc 2.39 or newer on Ubuntu 24.04 | Target |
+| Install/update | One exact signed owner-local payload; same ordinary-user transaction for first install and update | Not implemented |
+| Custom image | Not required; stock supported host plus explicit optional preparation | Not yet qualified |
+| Host preflight | Read-only, per-capability, no mutation or privilege input | Contract defined; implementation not yet qualified |
+| Host preparation | Optional, explicit administrator action outside Vellum | Contract defined |
+| Remote display | X11/Xvfb with host-provided `Xvfb`, `xauth`, and `mcookie`; TCP disabled | Core prerequisite; missing means `requires-admin` or `unavailable`, never display-less fallback |
+| Command Center display | X11 or Wayland/XWayland desktop session | Target |
+| Remote supervision | Station-user service manager; no root-owned launcher | Target; rootless service layout unimplemented |
+| Remote boot readiness | Current invocation + owner-local control + SQLite readiness | Target; exact rootless receipt pending |
+| Login persistence | Optional administrator-approved user lingering | Target; never app-managed |
+| AppArmor/user namespaces | Separate host facts; Chromium capability requires one qualified sandbox path | Target; fail closed |
+| Missing OS packages | Exact release-declared optional host actions | Target; never installed by Vellum |
+| Station API | five verbs only; OpenSSH transport | Implemented surfaces require rootless end-to-end requalification |
+| Browser automation | Host-local; actor and page on the same installation | Capability blocked when sandbox gate fails |
+| Work control | `vellum-work/v1`, owner-local Unix socket with process-bind | Implemented surfaces require exact rootless payload proof |
+| Linux arm64 / aarch64 | Outside v1 | Unsupported |
+| musl / Alpine | Outside v1 | Unsupported |
+| AppImage, RPM, Snap, Flatpak | Not v1 release units | Unsupported |
+| Container-only host | Does not substitute for host-kernel qualification | Unsupported as production proof |
+| Privileged `.deb`, `/opt`, release bridge/installer, root journal, administrator credential flow | Noncanonical migration residue | Must be removed; never fallback support |
 
-The support claim applies only to the exact package hash, source revision,
-manifest, key ID, and evidence inventory admitted by the shipped verifier. A
-locally rebuilt package or expired/revoked manifest is not the same release.
+Per-capability statuses and consequences are defined in
+[Linux host preparation](linux-host-preparation.md#how-are-host-findings-reported).
+Qualification is governed by
+[Linux package qualification](linux-package-qualification.md).

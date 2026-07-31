@@ -22,6 +22,11 @@ The exact multi-installation contract is
 mechanics, but it cannot weaken the trust boundaries or forbidden residue
 defined here.
 
+The exact Linux host boundary is
+[`linux-host-preparation.md`](linux-host-preparation.md). Linux installation,
+update, host inspection, optional administrator preparation, and
+capability-specific degradation must satisfy that contract.
+
 ## Product position
 
 Vellum is unapologetically a **one-person business factory**.
@@ -238,6 +243,14 @@ These tools remain visible to the operator. Read-only diagnosis may run
 automatically when disclosed by the UI. Active remediation, topology changes,
 new connectivity, installation, or privilege escalation requires an explicit
 operator action.
+
+On Linux, Vellum's own Station install and update transaction is an
+ordinary-user operation. A host-administrator action is separate from that
+transaction: Vellum may document it and later verify its effect, but it does
+not invoke the privileged command, collect its password or input, or retain a
+grant. A missing optional host facility degrades only the capability that
+needs it when safe; a missing security property fails the affected boundary
+closed.
 
 ### 9. Safety without autoimmunity
 
@@ -806,9 +819,10 @@ the operator's operating system, network, harness, or provider.
 - Browser cookies and authenticated session data remain in the browser profile
   on the installation that hosts the page. Moving or recreating a page elsewhere
   does not copy or migrate that profile.
-- Administrator passwords may cross Vellum only for one explicit privileged
-  transaction, remain memory-bounded, and are never retained as fleet
-  credentials.
+- The Linux Station lane never accepts, forwards, pipes, caches, retries,
+  logs, or persists an administrator password or other privilege input. Linux
+  host-administrator preparation is performed separately outside Vellum and
+  verified afterward through read-only preflight or Doctor.
 
 Vellum may mint only credentials intrinsic to a Vellum-owned protocol, such as
 owner-local control tokens or future mTLS material for the HTTPS Station
@@ -846,9 +860,13 @@ for fleet transport.
 
 Root or administrator authority is a real boundary.
 
-- Privileged mutation is bounded to an exact operator-requested transaction.
-- Vellum does not retain an administrator password as ambient fleet authority.
-- Installation and update inputs are verified before privileged mutation.
+- Host-administrator mutation is a separate operator transaction outside
+  Vellum. The app may document and later verify it; the app does not execute
+  it.
+- Vellum does not accept or transport an administrator password or other
+  privilege input and does not retain ambient privilege.
+- Installation and update inputs are verified before the ordinary-user
+  product transaction mutates installed bytes.
 - Partial installs and updates are recoverable and honestly reported.
 - Staging and audit do not touch installed state. After exclusive incumbent
   quiescence, the sealed packaged candidate may perform the exact read-only
@@ -864,6 +882,49 @@ Root or administrator authority is a real boundary.
 
 These controls prevent catastrophic mistakes and corrupted input. They do not
 exist to simulate isolation from the trusted operator account.
+
+### Linux rootless installation and host preparation
+
+Linux has one canonical Station installation and update lane:
+
+- the signed Vellum payload is installed, activated, updated, and repaired
+  inside the Station user's account;
+- first install and update use the same userland transaction and the same
+  sealed state-preflight boundary;
+- Command Center may drive that userland transaction over the
+  operator-enrolled ordinary-user SSH route, but neither side invokes
+  `sudo`, `su`, `pkexec`, a system package manager, or a privileged helper;
+- host preflight and Doctor are read-only and report per-capability facts;
+- Electron 43.2 / Chromium 150 has no supported secure display-less Remote
+  path; `Xvfb`, `xauth`, and `mcookie` are core Remote prerequisites, and a
+  missing prerequisite makes Remote `requires-admin` or `unavailable`;
+- AppArmor/user-namespace preparation, user lingering, and missing
+  operating-system packages are separate, explicit host-administrator actions;
+- declining an optional host action degrades only the affected capability when
+  that does not weaken a security boundary;
+- a sandbox, signature, state, ownership, or equivalent security gate fails
+  closed without an insecure fallback;
+- a custom machine image is never the ordinary prerequisite. Hosted machines
+  may arrive prepared, but they follow the same product contract.
+
+The userland Linux Station ships with the explicit maturity label **Beta**.
+Beta admission requires the core userland path to be fully tested. Optional
+capabilities may degrade independently when safe; security-sensitive features
+remain fail-closed.
+
+Vellum must not install a `sudoers` rule, setuid helper, file capability,
+polkit rule, privileged daemon, root-owned update journal, or ambient package
+mutation bridge for this lane. It must not ask the app to accept or transport
+administrator input. Exact optional preparation, its consequence,
+verification, and removal remain operator-visible and outside the Vellum
+transaction.
+
+The Linux `.deb`/`/opt` artifact contract and any remaining privileged
+release-installer, release-bridge, root-journal, or administrator-credential
+types, tests, scripts, receipts, and instructions are noncanonical migration
+residue. They do not constitute a legacy, offline, fallback, beta, or
+enterprise product path. They must be removed as the rootless lane lands; a
+release cannot preserve both.
 
 Remote machines are physical blast-radius boundaries. Enrollment of one Remote
 must not silently provide it reusable credentials or direct routes to other
@@ -990,7 +1051,14 @@ A release is blocked while any product path preserves:
 - Station merging, negotiating, electing, or vetoing Command Center intent;
 - security requirements derived solely from a hostile same-user model;
 - readiness or deployment ceremonies whose only protection is against a
-  trusted same-user process.
+  trusted same-user process;
+- a Linux product install, update, repair, or removal path that invokes
+  `sudo`, accepts administrator input, mutates a system package manager,
+  writes the active release into a system-owned location, or retains a
+  privileged helper, bridge, daemon, policy, or root transaction journal;
+- parallel rootless and privileged Linux product lanes, including a privileged
+  path relabelled as legacy, offline, fallback, beta, enterprise, or recovery
+  support.
 
 There is no supported pre-SQLite state to protect or recover. If obsolete
 storage code is found, it is deleted in the same change that exposes it.

@@ -1,179 +1,135 @@
-# OrbStack Linux two-station qualification
+# OrbStack Linux Station Beta two-station qualification
 
-This runner takes one exact Linux package through the product's real
-two-installation path on native Ubuntu 24.04 x86-64 OrbStack VMs:
+**Status:** runner migration required; current privileged `.deb` run cannot
+qualify Linux
 
-- one licensed, packaged Command Center;
-- one pristine Remote installed by Command Center's managed-deploy surface.
+OrbStack may host disposable Ubuntu 24.04 x86-64 machines for
+two-installation evidence. It is a test-lab convenience, not a product
+prerequisite and not a substitute for stock-host qualification.
 
-It is a thin host driver. It owns exact VM and artifact custody, invokes only
-fixed packaged CLI operations, records bounded observations, and performs
-explicit cleanup. It does not open SQLite, reproduce Station verbs, expose an
-arbitrary guest-command hook, or accept secrets.
+The qualifying product is explicitly **Beta**. The runner must exercise the
+fully tested core userland path, independent optional-capability degradation,
+and fail-closed security-sensitive features.
 
-## Prerequisites
+The current runner assumes a prepared golden VM, installs a `.deb`, and uses
+passwordless `sudo` for managed deployment. Those assumptions belong to the
+retired privileged lane. A current run may retain bounded Station, Work, PTY,
+and Chromium observations, but it must not write a passing Linux release
+receipt.
 
-The host needs OrbStack and one stopped `ubuntu:noble` / `amd64` golden VM.
-Pin its opaque ID instead of trusting its mutable name:
+## Canonical runner contract
 
-```sh
-orbctl info vellum-ubuntu-x64-golden --format json
-```
+The replacement runner:
 
-The golden must not contain Vellum. The runner rechecks its name, ID, image,
-architecture, and stopped state before cloning, then proves the guests are
-Ubuntu 24.04 / `x86_64`.
+- creates two disposable stock Ubuntu 24.04 x86-64 installations;
+- observes distribution and architecture from each guest rather than trusting
+  image names;
+- invokes the signed payload's read-only host preflight as the intended
+  ordinary users;
+- proves the Remote is `requires-admin` or `unavailable` without `Xvfb`,
+  `xauth`, and `mcookie`, then prepares those core prerequisites externally;
+- records optional host preparation as a separate external lab action;
+- installs and updates Vellum through the exact rootless product transaction;
+- drives only fixed packaged Station and qualification operations;
+- never opens SQLite, reproduces Station verbs, accepts an arbitrary guest
+  command, or transports an administrator password;
+- records bounded observations and performs explicit identity-bound cleanup.
 
-Qualification also needs the exact signed, non-publishable candidate bundle.
-The runner cryptographically verifies the bundle before mutating OrbStack and
-requires its source revision, version, package filename, byte count, SHA-256,
-and Station protocol to agree with the supplied `deb`.
+A pre-prepared lab image may be used for speed only in an additional run. It
+cannot replace the required stock-host path, and its preparation inventory must
+match the same actions a normal operator could review and remove.
 
-Use a private absolute evidence directory outside the repository:
+## Required preparation evidence
 
-```sh
-export VELLUM_QUAL_EVIDENCE="$PWD/../vellum-qualification/release-015"
-```
+For each guest, retain:
 
-## First run and license checkpoint
+- opaque VM identity and observed platform facts;
+- pre-action host-preflight findings;
+- each optional lab administrator action, why it was taken, and what it
+  changed;
+- post-action read-only verification;
+- the consequence of declining that action in a separate negative run;
+- removal/revocation verification where applicable.
 
-Prepare a fresh Command Center and Remote:
+AppArmor/user namespaces, user lingering, and missing OS packages remain
+separate actions. The runner must not globally weaken AppArmor or
+user-namespace policy, add a sandbox-disabling switch, or hide preparation
+inside the golden image.
 
-```sh
-bun run linux:qualify:orbstack -- prepare \
-  --run-id release-015 \
-  --evidence-dir "$VELLUM_QUAL_EVIDENCE" \
-  --golden-vm vellum-ubuntu-x64-golden \
-  --golden-id 01EXACTORBSTACKMACHINEID \
-  --kind qualification-candidate \
-  --deb "/absolute/path/Vellum Command-0.1.5-x64-linux.deb" \
-  --bundle /absolute/path/to/signed-qualification-candidate \
-  --source-commit 0123456789abcdef0123456789abcdef01234567
-```
+## Rootless product flow
 
-`prepare` verifies the candidate and golden, creates exact
-`vellum-q-<run-id>-cc` and `vellum-q-<run-id>-remote` clones, proves the Remote
-package-clean, installs the package only on Command Center, and opens the
-normal packaged renderer with owner-local operator control enabled.
-
-Activate that Command Center in its renderer. Do not pass a license through
-arguments, environment variables, files, evidence, or logs. Leave the
-renderer running and continue with the same VMs:
-
-```sh
-bun run linux:qualify:orbstack -- run \
-  --run-id release-015 \
-  --evidence-dir "$VELLUM_QUAL_EVIDENCE"
-```
-
-If activation is incomplete, `run` fails at its first licensed fleet read and
-preserves both machines. Activate and rerun; do not prepare replacements.
-
-## What the managed run proves
-
-The fixed packaged CLI path performs:
+The future fixed runner exercises:
 
 ```text
-vellum station configure-command-center
-vellum station status
-vellum fleet list
-vellum fleet add …
-vellum fleet enable-managed-installs
-vellum fleet qualify <remote>
-vellum fleet test <remote>
-vellum fleet sync --id <remote>
-vellum fleet status --id <remote>
-vellum qualification work prepare --run-id <run> --host-id <remote>
-[stop Command Center]
-vellum qualification work progress-offline --run-id <run>
-[restart Command Center]
-vellum qualification work verify --run-id <run> --host-id <remote>
-[restart Remote and sync]
-[redeploy the same candidate and sync]
+verify exact signed rootless payload
+preflight stock Command Center user
+preflight stock Remote user
+install Command Center as its ordinary user
+install Remote as its ordinary user
+configure Command Center
+enroll ordinary-user SSH route
+status → pair → configure
+project → report → status
+prepare one claimed cross-home task
+stop Command Center
+progress already-claimed and Remote-home work
+restart Command Center
+reconcile projection, dispositions, and cursors
+restart Remote
+update Remote through the same rootless transaction
+observe runtime and security state
 ```
 
-This proves the Remote was installed through Vellum's managed candidate lane,
-the two installations synchronized, real Work survived Command Center
-offline, the Remote retained identity across restart, and redeploying the
-exact artifact was idempotent. Work qualification is a closed product
-operation backed by the normal Work and Station services; the runner never
-opens product state directly.
+Exact CLI commands must not be documented until the rootless product surface
+exists and has been proved. The current `.deb` runner commands are migration
+tools, not operator instructions.
 
-The candidate is seated only at
-`~/.vellum/releases/linux-x64-glibc/qualification/current`. It cannot fall
-back to the production cache. The runner accepts no administrator password;
-the disposable OrbStack lane requires passwordless sudo and records
-`authorization-required` as failure.
+## Runtime observation
 
-## Runtime observation and receipt
+Observation on both installations must prove:
 
-After `run` succeeds:
-
-```sh
-bun run linux:qualify:orbstack -- observe \
-  --run-id release-015 \
-  --evidence-dir "$VELLUM_QUAL_EVIDENCE"
-```
-
-Observation proves on both installations:
-
-- exact `dpkg-query` version and architecture;
-- live packaged systemd service and generation;
-- role-correct Station readiness through the fixed `vellum-station` protocol;
-- Chromium sandbox, `NoNewPrivs`, seccomp, and user-namespace isolation;
+- exact signed payload and activation identity;
+- host-provided `Xvfb`, `xauth`, and `mcookie` plus the supervised display
+  witness; no display-less Remote path;
+- ordinary-user ownership of release, service, and runtime material;
+- role-correct Station readiness;
+- canonical SQLite readiness;
+- Chromium sandbox, `NoNewPrivs`, seccomp, and the qualified
+  AppArmor/user-namespace path;
+- native PTY behavior;
 - owner-only control material;
-- zero Vellum TCP listeners and no debug authority.
+- zero Vellum TCP/debug listeners;
+- per-capability Doctor status consistent with host-preflight facts;
+- no privileged product process, helper, bridge, journal, password path, or
+  system-owned active release.
 
-The directory contains a bounded, redacted
-`station-qualification-observations.jsonl`. A signed-candidate run writes
-`station-qualification-receipt.json` only after every required phase and
-runtime/security assertion passes. The strict receipt binds the exact source,
-signed manifest, package bytes and hash, distinct installation IDs, evidence
-hash, and completion time. Partial runs write no receipt.
+The evidence directory contains bounded, redacted observations. A passing
+receipt is emitted only after every rootless, host-preparation, Station, Work,
+runtime, and security phase passes and binds the exact source revision and
+payload SHA-256. Partial runs write no receipt.
 
-A `final-release` run is only a post-signing smoke and never creates a second
-qualification receipt.
+## Failure semantics
 
-## Reuse the licensed Command Center
+Failures preserve both guests and their exact identities for inspection.
+Evidence must not be edited to make a retry pass.
 
-License activation belongs to one retained Command Center. Cleanup stops and
-preserves it while deleting the disposable Remote. For a later run, pin that
-stopped Command Center explicitly and clone only a new Remote:
+The runner reports:
 
-```sh
-bun run linux:qualify:orbstack -- prepare \
-  --run-id release-015-final \
-  --evidence-dir "$PWD/../vellum-qualification/release-015-final" \
-  --golden-vm vellum-ubuntu-x64-golden \
-  --golden-id 01EXACTORBSTACKMACHINEID \
-  --command-center-vm vellum-q-release-015-cc \
-  --command-center-id 01EXACTRETAINEDCOMMANDCENTERID \
-  --kind final-release \
-  --deb "/absolute/path/Vellum Command-0.1.5-x64-linux.deb" \
-  --bundle /absolute/path/to/final-signed-v6 \
-  --source-commit 0123456789abcdef0123456789abcdef01234567
-```
-
-The retained Command Center must already contain the exact package version.
-When the version changes, update that installation through the product update
-lane before reuse. The final smoke uses
-`vellum fleet deploy <remote> --source cached`.
+- missing optional capability as the exact degraded or
+  `requires-admin` finding;
+- missing security prerequisite as a blocked affected capability;
+- unsupported host facts as refusal without mutation;
+- any attempt to invoke the privileged `.deb` lane as
+  `noncanonical-installer`;
+- a custom-image-only success as insufficient qualification.
 
 ## Guarded cleanup
 
-Cleanup is never automatic:
+Cleanup is explicit and bound to the recorded run and opaque guest identities.
+It refuses broad targets and the source image, preserves frozen passing
+evidence, and deletes only the exact disposable guests authorized by the
+operator.
 
-```sh
-bun run linux:qualify:orbstack -- cleanup \
-  --evidence-dir "$VELLUM_QUAL_EVIDENCE" \
-  --confirm-run-id release-015
-```
-
-Cleanup rereads the evidence and fresh OrbStack records, requires the exact
-run confirmation plus matching names and opaque IDs, refuses the golden and
-broad targets, stops the licensed Command Center, and deletes only the exact
-disposable Remote. Passing candidate evidence is frozen after its receipt is
-hashed; cleanup never changes that evidence.
-
-Failures preserve both machines and their exact identities for inspection.
-Never edit the evidence to make qualification or cleanup pass.
+Optional host preparation is removed by the lab administrator before a guest
+is reused outside the run. See
+[verification and removal](linux-host-preparation.md#how-are-preparation-changes-verified-and-removed).

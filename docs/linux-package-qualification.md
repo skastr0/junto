@@ -1,288 +1,255 @@
-# Linux package qualification
+# Linux Station Beta qualification
 
-**Status:** required evidence contract; no two-installation pass is implied by
-this document or by CI
+**Status:** required evidence contract; no current Linux artifact passes it
 
-Vellum Linux v1 supports one release target: Ubuntu 24.04 LTS, glibc, x86-64.
-The release unit is a versioned `deb`; the matching `.unpacked` directory is a
-diagnostic artifact, not an installer. AppImage, Snap, Flatpak, RPM, musl, and
-Linux arm64 are outside this support contract.
+Linux v1 qualification applies to one exact signed rootless payload, one source
+revision, and one two-installation run. It does not qualify a packaging idea,
+an unsigned archive, or a privileged `.deb` lane.
 
-Authoritative boot and vocabulary: [`linux-production-contract.md`](./linux-production-contract.md).
-Phase 1 repaired preflight and the privileged installer to the generation
-receipt. This document is the Phase 2 qualification surface for package audit
-expectations and operator proof on real Ubuntu hardware.
+The release maturity label is **Beta**. Qualification must fully test the core
+userland path. Optional capabilities may degrade independently when the
+retained evidence names the limit; security-sensitive features fail closed.
 
-## Boot ready vs Doctor (do not collapse)
+The governing contracts are
+[Linux production](linux-production-contract.md),
+[Linux host preparation](linux-host-preparation.md), and
+[security doctrine](security-doctrine.md).
 
-| Plane | Gate | Evidence |
-|---|---|---|
-| **Boot ready** | unit start, managed install/update, deploy preflight `ready=1` | `vellum-remote.service` active; private generation receipt `$XDG_RUNTIME_DIR/vellum-remote/ready-$INVOCATION_ID` with body `${INVOCATION_ID}\n`; fresh `~/.vellum/work/` socket + token; launcher notified systemd (`Type=notify`) |
-| **Doctor observation** | release qualification / day-to-day ops | terminal, browser, canvas, display, sandbox, capability probes |
+## Current evidence boundary
 
-Orphan contracts (must not reappear):
+The repository's current Linux build and CI surfaces produce and inspect a
+`.deb` installed under `/opt`, together with privileged installer/bridge,
+root-journal, and administrator-credential deployment code. That is
+noncanonical migration residue.
 
-- `/run/user/$UID/vellum/station-ready.json`
-- Deep JSON multi-component ready file on the boot path
-- `python3` as a boot-path gate (package dependency is for `unix-peer-pid.py` identity only)
+Existing tests and native runs remain evidence for bounded components such as
+x86-64 native modules, PTY behavior, Chromium sandbox observation, Station
+protocol, SQLite state preflight, interruption semantics, and two-installation
+work convergence. They are not proof of the canonical install/update
+transaction. No current `.deb`, CI artifact, OrbStack receipt, or manual run
+may be promoted as beta or production qualification.
 
-Static package audit (`scripts/audit-linux-package.ts`) pins the packaged
-launcher and unit to the generation-receipt notify path. It does not invent a
-second readiness plane.
+Qualification resumes only against the rootless replacement. The old lane is
+deleted, not retained as a fallback matrix.
 
-## Build and static audit
+## What must the release bind?
 
-Run the native build on a clean Ubuntu 24.04 x86-64 worker:
+The passing evidence set binds:
 
-```sh
-bun install --frozen-lockfile
-bun run app:build:linux -- --verify
-```
+- full source revision;
+- signed release manifest and trusted key identity;
+- exact rootless payload filename, size, and SHA-256;
+- exact userland installer/updater executable identity;
+- supported Ubuntu release, architecture, and libc;
+- external runtime dependency declaration;
+- Station protocol descriptor;
+- Command Center and Remote installation identities;
+- host-preflight findings and any separately performed host actions;
+- activation and state-preflight receipts;
+- two-installation Station and Work witnesses;
+- human promotion decision.
 
-The build worker needs Bun plus Node 22.12.0 or newer; Node is the declared
-runtime for `@electron/rebuild` and its node-gyp subprocess. The package lane
-uses only locally installed, lockfile-resolved tools. It rebuilds only
-`node-pty`, sequentially, for the target Electron ABI and disables
-electron-builder's broader native-dependency rebuild pass.
+A passing receipt for one payload does not qualify a rebuild, another host
+contract, or the retired `.deb`.
 
-The build emits both artifacts and runs `scripts/audit-linux-package.ts`. That
-audit fails closed on the deb identity/dependency inventory, archive ownership
-and modes, desktop metadata, the exact userns-only AppArmor policy, x86-64 ELF objects, unresolved
-Electron or `node-pty` shared libraries, ASAR unpack placement, executable
-modes, the complete Electron fuse wire, and the Remote launcher/unit
-generation-receipt contract (`Type=notify`, `RuntimeDirectory=vellum-remote`,
-plain `ready-$GENERATION` body, work-control socket/token, no
-`station-ready.json`).
+## Stock-host and host-preparation proof
 
-Portable unit tests for the receipt shape run on any host
-(`tests/linux-generation-readiness-contract.test.ts`). Full `deb` install and
-GUI smoke require native Linux x64.
+Start from a stock supported Ubuntu 24.04 x86-64 installation. A custom golden
+image may accelerate a test lab, but it is not evidence that ordinary host
+preparation works.
 
-## Headless Remote user service
+Before mutation, run the product's read-only preflight and retain every
+per-capability finding. Prove:
 
-The deb installs the immutable versioned
-`resources/systemd/vellum-remote-launch-v1` launcher and registers its
-`resources/systemd/vellum-remote.service` unit at
-`/usr/lib/systemd/user/vellum-remote.service` as a qualified symlink. It does
-not automatically enable the unit. Activation is an operator or deployment
-action for the intended station user; the package never selects a role, host
-ID, or user on its own:
+- supported platform facts are observed rather than inferred from an image
+  name;
+- a clean Station user can reach a truthful **ready**, **ready with limits**,
+  or **not ready** result;
+- every `requires-admin` finding names one reviewed, minimal action,
+  consequence, verification, and removal path;
+- Vellum does not execute that action or collect administrator input;
+- rerunning preflight after a host action observes the expected change;
+- declining an optional action degrades only its named capability;
+- an absent security prerequisite blocks its affected boundary.
 
-```sh
-systemctl --user daemon-reload
-systemctl --user enable --now vellum-remote.service
-```
+Exercise AppArmor/user namespaces, user lingering, and missing OS packages as
+separate findings. At least one run must decline each optional action and prove
+the documented limit. At least one run must remove previously applied optional
+preparation and prove the host returns to the expected limited state.
 
-The unit starts one package-owned Xvfb on the first free display in the
-qualified range (`:89`–`:96`) with an Xauthority file under the unit
-`RuntimeDirectory`, then starts the fixed headless Electron invocation on the
-explicit X11/Ozone path. It never unlinks an existing X11 socket or signals an
-unowned process.
+Separately remove `Xvfb`, `xauth`, and `mcookie` from a disposable Remote host.
+Prove preflight/Doctor reports `requires-admin` or `unavailable`, and that the
+core Remote does not start. Restore them through the recorded external host
+action and prove the supervised Remote path. Electron 43.2 / Chromium 150 has
+no qualified secure display-less fallback.
 
-Boot success is **only** the generation receipt + work control plane above.
-Terminal/browser/canvas health never block unit start.
+## Rootless install and update proof
 
-The package does not enable user lingering. If the Remote must survive reboot
-without a login, an administrator must explicitly approve and run
-`loginctl enable-linger <station-user>`. After that approval, rerun the three
-`systemctl --user` commands above; they are idempotent. Without linger, the
-unit runs for the user manager's normal login lifetime.
+Run as the intended ordinary Station user. Prove:
 
-## Phase 2 qualification checklist
+1. exact signed payload admission;
+2. owner-only staging and activation entirely outside system-owned
+   application locations;
+3. fresh install with no `sudo`, `su`, `pkexec`, system package manager,
+   administrator prompt, setuid/file-capability/polkit path, privileged daemon,
+   release bridge, or root journal;
+4. exact installed version and activation identity;
+5. same-version idempotence;
+6. update through the same transaction;
+7. interrupted staging before activation leaves incumbent bytes and canonical
+   state unchanged;
+8. sealed candidate state preflight against a disposable clone;
+9. one-way activation and forward-only repair after schema or
+   candidate-authored state advances;
+10. downgrade only as a rejection: no older build may activate;
+11. removal of only userland release bytes while preserving app-owned state;
+12. no second Linux installer or recovery path in source or payload.
 
-Scope: prove one desktop Command Center install and one headless Remote
-end-to-end on **native Ubuntu 24.04 x86_64** using the generation-receipt boot
-contract. Do not invent new readiness infrastructure.
+Snapshot the Station user's Vellum state before each release operation.
+Package activity must not copy, replace, archive, or synthesize
+`vellum.db`, its WAL, or its shared-memory file.
 
-The thin [OrbStack two-station runner](linux-orbstack-two-station-runner.md)
-can provision two exact disposable Ubuntu installations, exercise the
-packaged operator CLI and managed deploy path, and retain bounded
-observations. Only a complete signed-candidate run may write the strict
-passing qualification receipt; partial runs retain evidence and fail closed.
+No Vellum process may open a privileged prompt or receive an administrator
+credential during the run. Checking that no password was persisted is
+insufficient; the input path itself must be absent.
 
-### What this machine (macOS / non-Ubuntu) can prove
+Every core userland branch—success, denied input, interruption, retry,
+same-version, update, forward-repair admission, and removal—must be covered by
+automated tests and a native packaged run. A partial happy-path proof cannot
+admit the Beta.
 
-- Source + unit gates that do not require Linux package install
-- Generation-receipt contract tests
-- Launcher/unit string audits when run as part of the suite
-- Documentation and audit expectation alignment
+## Runtime and security proof
 
-### What requires native Ubuntu x86_64 (operator-run)
+For desktop Command Center and Remote user-service paths, prove:
 
-Everything below. Cross-build, container-as-host-kernel, and remote SSH-only
-smoke without a real install do **not** close Phase 2.
+- exact current-generation boot readiness;
+- supervised `Xvfb` display creation using host-provided `Xvfb`, `xauth`, and
+  `mcookie`, with TCP disabled;
+- owner-only work and Station controls;
+- SQLite database readiness;
+- native PTY behavior and capability-owned shutdown;
+- no Vellum TCP or Chrome DevTools listener;
+- Chromium renderer `NoNewPrivs`, seccomp, and the qualified
+  AppArmor/user-namespace path;
+- fail-closed refusal of every sandbox-disabling switch;
+- capability-specific Doctor status that matches the retained preflight facts;
+- only the affected capability degrades when an optional prerequisite is
+  absent.
 
-### Required two-installation receipt
+Boot readiness must not absorb terminal, browser, display, persistence, or
+other Doctor observations. A user service may be structurally ready while an
+optional capability is degraded. A missing security gate blocks the affected
+surface, not the whole host by convenience and not a warning-only fallback.
 
-The operator-run fleet proof produces bounded, redacted human/operator
-attestation in `station-qualification-evidence.txt` and
-`station-qualification-receipt.json` with schema
-`vellum/station-two-installation-qualification/v1`. This is retained evidence
-from a real two-installation run, not a self-proving automation receipt. The
-receipt binds the proof to one source commit, the exact `deb` filename and
-SHA-256, the selected Station protocol, and the observed Command Center and
-Remote installation identities and app versions. Each installation records
-one closed `nativePlatform` fact with `os`, `distribution`, `version`, and
-`architecture`. The Remote must be exactly `linux` / `ubuntu` / `24.04` /
-`x64`, because it is the installation bound to the exact `deb`. The Command
-Center may match that Linux target or be an explicitly recorded macOS peer:
-`darwin` / `macos`, a nonempty native version, and `arm64` or `x64`. Arbitrary
-third platforms do not qualify the release. Package and witness filenames are
-safe basenames; path-bearing claims fail decode.
+## User-service lifecycle proof
 
-The receipt has one strict structured `phases` object:
+As the Station user, exercise:
 
-- every witness carries an evidence-file basename, that file's SHA-256, and an
-  observation timestamp. Multiple phases may cite the same bounded, redacted
-  operator evidence file;
-- `pair`, `configure`, `project`, and `status` each carry one such witness;
-- `report` carries its witness plus matching positive full-route cursors in
-  both directions. Remote-originated cursors name the exact Remote as
-  `eventHome`; Command-Center-originated cursors name the exact Command Center.
-  `entityHome` may be either of those two installations, preserving
-  cross-home work after claim;
-- `commandCenterOfflineClaimedTask` names one already-claimed task that
-  completed while Command Center was unavailable;
-- `projectResponseRetry` proves an interrupted project response retried
-  idempotently;
-- `reportResponseRetry` proves an interrupted report response converged to
-  the same bidirectional cursors under those same outer-identity rules;
-- `doctor` carries successful Command Center and Remote Doctor witnesses;
-- `syntheticNoOverlap` is explicitly labelled synthetic and proves two
-  non-overlapping protocol ranges produce `update-required`.
+- service definition install/refresh;
+- start, restart, duplicate start, stop, disable, and removal;
+- crash restart and stale runtime artifact handling;
+- logout/login without lingering;
+- reboot persistence only after a separately recorded administrator action
+  enables lingering;
+- revocation of lingering followed by the expected login-lifetime behavior;
+- no stop or cleanup action signals an unowned process or unlinks an unowned
+  socket.
 
-`ok: true` is valid only when every structured phase decodes against those
-exact installations and package bytes. During release assembly, every nested
-witness filename and SHA-256 must match an exact
-`station-qualification-evidence` entry in the signed release manifest. An
-arbitrary hex digest cannot qualify a phase. An `ok: false` receipt means only
-`operator-run-required` and is never release evidence. CI creates neither
-operator evidence nor either receipt variant. The final release promotion gate
-separately hashes and binds the passed receipt in
-`release-promotion-receipt.json`; neither filename may be synthesized from
-package-smoke success.
+The service, launcher, release bytes, and runtime receipts remain owner-local.
+There is no system service or root-owned lifecycle helper.
 
-One passed receipt therefore qualifies one exact Linux Remote with either a
-Linux or macOS Command Center. Only the Remote platform is bound to the deb
-target; both peers remain bound to the source commit, app version, protocol,
-outer installation identities, and their recorded witnesses.
+## Two-installation Station proof
 
-### A. Native x86_64 Ubuntu Command Center proof
+One passed receipt qualifies:
 
-Run as an ordinary desktop user after a root `deb` install (not under the
-Remote user unit):
+- one exact Linux Remote with a Linux or supported macOS Command Center;
+- five-verb `pair`, `configure`, `project`, `report`, and `status` exchange;
+- distinct installation identities and the exact protocol 3 bundle;
+- complete replace-only projection and restart persistence;
+- bidirectional logical cursor convergence;
+- interrupted project/report retry;
+- one already-claimed Command Center-home task progressing while Command
+  Center is offline;
+- Remote-home task/request/artifact work while offline;
+- rejection of a new disconnected Command Center-home claim;
+- no Remote callback or Remote-to-Remote control route;
+- Doctor witnesses for both installations;
+- synthetic no-overlap producing `update required`.
 
-1. Install the exact release `deb` as root; launch Vellum from the desktop
-   entry or `/opt/Vellum Command/vellum` under a normal X11 or Wayland/XWayland
-   session.
-2. Confirm the package chose one qualified capability path. With AppArmor
-   enabled, it must label `/opt/Vellum Command/vellum` with the packaged
-   userns-only profile. With no AppArmor kernel interface (including qualified
-   OrbStack Ubuntu 24.04), package installation must have proved a non-root
-   user can create a user namespace. An AppArmor interface that is present but
-   disabled, incomplete, or unable to load the exact profile is a failure—not
-   a fallback. The package must not contain `chrome-sandbox`; any regular or
-   setuid helper is a failure.
-3. Confirm a real renderer starts with Chromium sandboxing active. Every
-   sandbox-disabling switch must terminate packaged startup before Vellum owns
-   a renderer, socket, document, or child process.
-4. Run the packaged native-PTY gate: interactive echo, UTF-8, resize,
-   `TERM`/`COLORTERM`, login-shell behavior, exit status, and bounded shutdown
-   through sealed process authority. A pipe fallback is a failure.
-5. Configure role `command-center`, open a test canvas, attach a local agent,
-   and prove work-control CLIs only from a process-bound agent tree.
-6. Record Doctor observations (station, work, terminal, browser) for
-   qualification. Red Doctor components fail **release qualification**, not
-   desktop process start.
-7. Desktop sessions must **not** publish
-   `$XDG_RUNTIME_DIR/vellum-remote/ready-*` unless this process is the
-   systemd-managed Remote generation (ambient `XDG_RUNTIME_DIR` alone is not
-   Remote readiness authority).
+The receipt remains bounded, redacted operator evidence. It is not
+self-proving automation and it may not be synthesized from single-host smoke.
 
-### B. Headless Remote proof
+The structured receipt retains the established
+`vellum/station-two-installation-qualification/v1` shape:
 
-On a disposable Ubuntu 24.04 x86_64 host (or disposable VM with host kernel):
+- each installation records a closed `nativePlatform`;
+- Remote is `linux` / `ubuntu` / `24.04` / `x64`;
+- Command Center is either the same Linux target or supported
+  `darwin` / `macos`;
+- `commandCenterOfflineClaimedTask`, `reportResponseRetry`, and
+  `syntheticNoOverlap` name their exact witnessed phases;
+- bidirectional cursors retain both `eventHome` and `entityHome`;
+- `station-qualification-evidence.txt` contains bounded human/operator
+  attestation;
+- every witness digest resolves to the exact
+  `station-qualification-evidence` entry in the signed release manifest.
 
-1. Install the same `deb` as root. Enable the packaged user service for the
-   intended station user only:
+Only the Remote platform is bound to the exact Linux rootless payload. Both
+installations remain bound to the source revision, protocol, identities, and
+their evidence. References to a `deb` in the current schema/tooling are
+migration fields that must be replaced before Beta qualification.
 
-   ```sh
-   systemctl --user daemon-reload
-   systemctl --user enable --now vellum-remote.service
-   ```
+## Required negative qualification
 
-2. Boot gate (must all hold for the current `InvocationID`):
+Fail the candidate when any run finds:
 
-   ```sh
-   systemctl --user show vellum-remote.service \
-     --property=ActiveState,SubState,MainPID,InvocationID,Result,NRestarts
-   # replace $UID / $INVOCATION_ID from show:
-   stat -c '%a %F %U' /run/user/$UID/vellum-remote/ready-$INVOCATION_ID
-   cat /run/user/$UID/vellum-remote/ready-$INVOCATION_ID
-   # expect: mode 600, regular file, body is exactly the 32-hex InvocationID + newline
-   ```
+- app-managed administrator input or privilege;
+- a system-owned active release path such as `/opt`, `/usr`, or `/var/lib`;
+- `.deb`, `apt`, `dpkg`, privileged helper/bridge/journal, or persistent grant
+  on the product install/update path;
+- a custom-image-only prerequisite;
+- a display-less Remote claim or Remote startup without qualified `Xvfb`,
+  `xauth`, and `mcookie`;
+- an insecure Chromium fallback;
+- global AppArmor or user-namespace weakening;
+- lingering or OS-package mutation performed by Vellum;
+- capability status collapsed into generic healthy/unhealthy;
+- SSH exit zero, stale receipt, or image metadata treated as readiness;
+- direct helper/database access, file-store compatibility, or a second
+  installer;
+- support or recovery instructions that revive the privileged lane.
 
-3. Confirm fresh owner-only work control under `~/.vellum/work/`
-   (`control.sock` + `token`). Unit start must not wait on terminal or browser
-   sockets.
-4. Confirm no TCP/CDP listeners among Vellum descendants; control files remain
-   owner-only.
-5. Lifecycle: fresh start, crash restart, stop/disable, duplicate start, stale
-   X11 lock in range, logout/login, reboot (with linger only if
-   administrator-approved), upgrade, uninstall. Only the unit cgroup's
-   Vellum/Xvfb processes stop; existing ACP, Herdr, SSH, and other station
-   processes remain alive.
-6. Doctor observations (terminal/browser/canvas) for release qualification
-   only — never as the systemd ready gate.
-7. From a Command Center (macOS or Linux), managed deploy preflight reports
-   `ready=1` only when the same generation receipt + work plane hold.
+## CI evidence
 
-### C. Shared package integrity (both roles)
+The future canonical CI lane must build and smoke the exact rootless payload on
+native Ubuntu 24.04 x86-64 and upload:
 
-1. Exercise fresh install, managed same-version adoption, managed upgrade,
-   remove, and purge. Prove direct `apt`/`dpkg` upgrade and reinstall are
-   rejected before candidate unpack. Exercise a downgrade only as a rejection:
-   no older build may activate.
-   Snapshot the test user's `~/.vellum` tree before each package action and
-   prove it is byte-for-byte unchanged afterward.
-2. Inspect `/opt/Vellum Command` as root: every path remains root-owned; no
-   regular file or directory is group/world writable.
-3. Confirm the package does not ship sudoers policy or
-   `station-ready.json`.
+- source/tool inventory;
+- payload and verifier hashes;
+- dependency/license inventory and SBOM;
+- static ownership, mode, ELF, fuse, and protocol audit;
+- clean-user rootless install/update/removal receipts;
+- preflight status fixtures and negative security results;
+- native PTY and Chromium sandbox receipts;
+- explicit `unqualified` metadata until operator two-installation evidence and
+  human promotion exist.
 
-### D. Remains operator-run on real hardware
+The current `.github/workflows/linux-release.yml` is a legacy `.deb` evidence
+lane. Its output may be used only for bounded component evidence while
+migration proceeds. It is not the authoritative Linux release workflow under
+this contract and cannot emit a promotable candidate.
 
-The following cannot be closed from this macOS development machine or from
-CI-only package construction without a disposable Ubuntu desktop/Remote host:
+## Human Beta release gate
 
-- GUI Command Center install and interactive sandbox/PTY proof
-- Unattended Remote under real `systemd --user` + host kernel
-- Logout/login, linger, and reboot persistence decisions
-- Managed install/update against a live Remote with administrator
-  password ceremony
-- Cross-host fleet (macOS or Linux Command Center → Linux Remote) with live
-  Station API projection/report convergence and edge-routed pulse
-- Synchronous CC-home task start on a Remote actor, continued progress with
-  Command Center closed, and rejection of any new disconnected CC-home claim
-- Remote-home task claim plus permitted request/artifact creation while
-  offline, followed by cursor-based reconciliation without overwriting
-  Remote-owned state
-- Proof that neither Remote callbacks nor Remote-to-Remote control connections
-  are required
+The named release authority may record GO only after:
 
-CI (`.github/workflows/linux-release.yml`) records target-native package,
-installed PTY, and installed GUI/sandbox smoke under Xvfb when that workflow
-runs. CI evidence is necessary for promotion eligibility; it does not replace
-operator Phase 2 recording of Command Center desktop and Remote unit proofs
-above, and its output remains explicitly unqualified until the exact
-two-installation receipt is supplied.
+1. the canonical rootless lane is implemented;
+2. the privileged Linux product lane and its documentation are removed;
+3. the exact CI payload and source receipts pass;
+4. the stock-host, optional-preparation, runtime, lifecycle, and
+   two-installation evidence above pass;
+5. an independent reviewer confirms the support matrix matches observed
+   limits;
+6. the signed final bundle re-verifies without changing payload bytes.
 
-## Disposable-host discipline
-
-Do not weaken `kernel.unprivileged_userns_clone`, disable an available AppArmor
-stack, add sandbox-disabling switches, reintroduce `chrome-sandbox`, run Vellum
-itself as root, or use a real operator home/profile to make
-qualification pass. OrbStack qualification is only the no-AppArmor-kernel path:
-the package's non-root userns probe and the packaged renderer's
-`NoNewPrivs=1` plus filtered seccomp proof must both pass. A present but broken
-AppArmor stack is never an OrbStack fallback.
+Until then, Linux remains unqualified.

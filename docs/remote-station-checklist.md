@@ -1,15 +1,19 @@
 # Remote Station end-to-end checklist
 
-**Status:** required operator qualification; not yet a recorded two-host pass
+**Status:** required Linux Station Beta operator qualification; blocked on the
+canonical rootless install/update lane and not yet a recorded two-host pass
 
 This is the operator proof for Command Center and Remote behavior on Linux and
 macOS. It tests the canonical SQLite and Station API contract, including
 offline and interrupted states. The checklist defines evidence to collect; its
 presence in the repository is not evidence that any packaged pair has passed.
+Linux Station Beta admission requires this core userland path to be fully
+tested. Optional capability limits remain independent observations, while
+security-sensitive features fail closed.
 For two disposable Ubuntu 24.04 x86-64 installations, the
-[OrbStack two-station runner](linux-orbstack-two-station-runner.md) automates
-VM custody, the packaged fleet CLI path, the offline Work round trip, runtime
-health, and bounded observations.
+[OrbStack two-station runner](linux-orbstack-two-station-runner.md) defines the
+required future stock-host/rootless harness. Its current privileged `.deb`
+implementation is migration evidence only and cannot close this checklist.
 
 ## Evidence source
 
@@ -45,7 +49,14 @@ be shown as last acknowledged truth, but never as live health.
 
 ## 2. Pair and configure a Remote
 
-1. Install and start the same Vellum build on a disposable Remote.
+1. On a stock supported host, run the read-only
+   [Linux host preflight](linux-host-preparation.md), record every capability
+   finding and separately performed optional host action, then install and
+   start the same exact signed rootless Vellum payload on the disposable
+   Remote. Prove missing `Xvfb`, `xauth`, or `mcookie` reports
+   `requires-admin`/`unavailable` and prevents core Remote startup; there is no
+   supported secure display-less Electron path. This step is blocked until
+   that product lane exists.
 2. Enroll its SSH endpoint in Command Center.
 3. Configure it as Remote. Capture the `status → pair → configure` exchange.
 4. Confirm the response installation identity is bound to that exact fleet
@@ -176,7 +187,9 @@ live path creates or consumes:
 - topology/hosts keys or seals;
 - projection frames, ACK files, staging directories, or bridge binaries;
 - SSH settings/projection/status file operations;
-- a second production SQLite opener.
+- a second production SQLite opener;
+- a privileged Linux `.deb`, `/opt` release, administrator-credential prompt,
+  release installer/bridge, root journal, or second install/update lane.
 
 Explicit JSON Canvas exports, digest/SVG outputs, owner-local socket/token
 transport, Chromium profile data, and package metadata are not product stores.
