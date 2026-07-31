@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight } from "lucide-react";
@@ -86,6 +87,8 @@ type CascadePosition =
   | { readonly top: number; readonly left: number; readonly flexDirection: "row" }
   | { readonly top: number; readonly right: number; readonly flexDirection: "row-reverse" };
 
+type CascadeStep = "profile" | "model" | "effort";
+
 const MENU_WIDTH = 184;
 const MENU_GAP = 3;
 const MENU_MAX_HEIGHT = 288;
@@ -127,6 +130,28 @@ const positionFor = (
   };
 };
 
+const menuitemsIn = (column: Element): HTMLButtonElement[] =>
+  Array.from(column.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+
+const focusFirstInColumn = (column: Element | null | undefined): boolean => {
+  const first = column ? menuitemsIn(column)[0] : undefined;
+  if (!first) return false;
+  first.focus();
+  return true;
+};
+
+const focusExpandedOrFirst = (column: Element | null | undefined): boolean => {
+  if (!column) return false;
+  const expanded = column.querySelector<HTMLButtonElement>(
+    '[role="menuitem"][aria-expanded="true"]',
+  );
+  if (expanded) {
+    expanded.focus();
+    return true;
+  }
+  return focusFirstInColumn(column);
+};
+
 function LoadingRows() {
   return (
     <div className="agent-cascade__loading" aria-label="Loading options" role="status">
@@ -149,17 +174,22 @@ function MenuColumn({
   children,
 }: {
   readonly label: string;
-  readonly step: string;
+  readonly step: CascadeStep;
   readonly parent: string;
   readonly children: React.ReactNode;
 }) {
   return (
-    <div className="agent-cascade__column">
+    <div className="agent-cascade__column" data-cascade-step={step}>
       <div className="agent-cascade__caption" aria-hidden>
         <span className="agent-cascade__caption-parent">{parent}</span>
         <span className="agent-cascade__caption-step">{step}</span>
       </div>
-      <div className="agent-cascade__items" role="menu" aria-label={label} tabIndex={-1}>
+      <div
+        className="agent-cascade__items"
+        role="menu"
+        aria-label={label}
+        data-cascade-step={step}
+      >
         {children}
       </div>
     </div>
@@ -199,13 +229,23 @@ export function AgentCascadeMenu({
   onConfigure,
   onPointerEnter,
   onPointerLeave,
+  /** Keyboard entry: focus the first menuitem once the first column is ready. */
+  focusOnOpen = false,
+  /** Leave the cascade (ArrowLeft / Escape from the first column) — parent restores palette focus. */
+  onExit,
 }: {
   readonly harness: HarnessId;
   readonly anchor: HTMLElement;
   readonly onConfigure: (choices: AgentConfigurationChoices) => void;
   readonly onPointerEnter: () => void;
   readonly onPointerLeave: () => void;
+  readonly focusOnOpen?: boolean;
+  readonly onExit?: () => void;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pendingFocusRef = useRef(focusOnOpen);
+  /** ArrowRight may open a column that does not exist until the next render. */
+  const pendingEnterStepRef = useRef<CascadeStep | null>(null);
   const [models, setModels] = useState<readonly ManagedTerminalModelOption[] | null>(null);
   const [profiles, setProfiles] = useState<readonly ManagedTerminalProfileOption[] | null>(
     harness === "hermes" ? null : [],
@@ -220,6 +260,10 @@ export function AgentCascadeMenu({
     sideRef.current = side;
     return positionFor(anchor, side);
   });
+
+  useEffect(() => {
+    pendingFocusRef.current = focusOnOpen;
+  }, [focusOnOpen, harness]);
 
   useEffect(() => {
     let live = true;
@@ -260,7 +304,7 @@ export function AgentCascadeMenu({
   }, [activeModel, enumeratedEfforts, harness]);
 
   const showModelColumn =
-    harness !== "hermes" || (activeProfile !== null && (models === null || models.length > 0));
+    harness === "hermes" && activeProfile !== null && (models === null || models.length > 0);
   const showEffortColumn = activeModel !== null && efforts.length > 0;
 
   useLayoutEffect(() => {
@@ -296,12 +340,138 @@ export function AgentCascadeMenu({
     onConfigure(choices);
   };
 
+  // Keyboard entry waits for the first column to finish loading, then focuses
+  // the first menuitem. Pointer hover leaves focus on the palette filter.
+  useEffect(() => {
+    if (!pendingFocusRef.current || firstColumnIsLoading) return;
+    const focused = focusFirstInColumn(
+      rootRef.current?.querySelector(".agent-cascade__items"),
+    );
+    if (focused) pendingFocusRef.current = false;
+  }, [firstColumnIsLoading, profileChoices, modelChoices, focusOnOpen]);
+
+  const columnByStep = (step: CascadeStep): Element | null =>
+    rootRef.current?.querySelector(`.agent-cascade__items[data-cascade-step="${step}"]`) ??
+    null;
+
+  // Fulfill ArrowRight into a column that appeared after state expanded.
+  useLayoutEffect(() => {
+    const step = pendingEnterStepRef.current;
+    if (!step) return;
+    if (focusFirstInColumn(columnByStep(step))) {
+      pendingEnterStepRef.current = null;
+    }
+  }, [showModelColumn, showEffortColumn, activeModel, activeProfile, modelChoices, efforts]);
+
+  const stepOf = (column: Element): CascadeStep | null => {
+    const step = column.getAttribute("data-cascade-step");
+    return step === "profile" || step === "model" || step === "effort" ? step : null;
+  };
+
+  const exitCascade = (): void => {
+    onExit?.();
+  };
+
+  const onCascadeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const column = target.closest(".agent-cascade__items");
+    if (!(column instanceof Element)) return;
+
+    const items = menuitemsIn(column);
+    const index = items.indexOf(target as HTMLButtonElement);
+    if (index < 0) return;
+
+    const focusAt = (next: number): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      items[next]?.focus();
+    };
+
+    switch (event.key) {
+      case "ArrowDown":
+        focusAt(Math.min(index + 1, items.length - 1));
+        return;
+      case "ArrowUp":
+        focusAt(Math.max(index - 1, 0));
+        return;
+      case "Home":
+        focusAt(0);
+        return;
+      case "End":
+        focusAt(items.length - 1);
+        return;
+      case "ArrowRight": {
+        const item = items[index];
+        if (!item || item.getAttribute("aria-haspopup") !== "menu") return;
+        event.preventDefault();
+        event.stopPropagation();
+        // Focus already expanded the branch via onFocus; enter the next column
+        // once React paints it (pendingEnterStepRef + layout effect).
+        const step = stepOf(column);
+        const nextStep: CascadeStep | null =
+          step === "profile" ? "model" : step === "model" ? "effort" : null;
+        if (!nextStep) return;
+        pendingEnterStepRef.current = nextStep;
+        if (focusFirstInColumn(columnByStep(nextStep))) {
+          pendingEnterStepRef.current = null;
+        }
+        return;
+      }
+      case "ArrowLeft": {
+        event.preventDefault();
+        event.stopPropagation();
+        const step = stepOf(column);
+        if (step === "effort") {
+          requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("model")));
+          return;
+        }
+        if (step === "model" && harness === "hermes") {
+          setActiveModel(null);
+          requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("profile")));
+          return;
+        }
+        exitCascade();
+        return;
+      }
+      case "Escape": {
+        event.preventDefault();
+        event.stopPropagation();
+        const step = stepOf(column);
+        if (step === "effort") {
+          requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("model")));
+          return;
+        }
+        if (step === "model" && harness === "hermes" && activeProfile) {
+          setActiveModel(null);
+          requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("profile")));
+          return;
+        }
+        exitCascade();
+        return;
+      }
+      case "Enter":
+      case " ": {
+        // Enter/Space commit the focused leaf, or the defaults on an expandable
+        // row (same as click). ArrowRight is the path into sub-columns.
+        return;
+      }
+      default:
+        return;
+    }
+  };
+
   return createPortal(
     <div
+      ref={rootRef}
       className="agent-cascade node-palette"
       style={{ position: "fixed", zIndex: 70, ...position } as CSSProperties}
       onMouseEnter={onPointerEnter}
       onMouseLeave={onPointerLeave}
+      // Keyboard handoff: focus entering a menuitem must cancel the palette's
+      // blur→close timer the same way pointerenter does.
+      onFocusCapture={onPointerEnter}
+      onKeyDown={onCascadeKeyDown}
     >
       <MenuColumn
         label={
@@ -359,7 +529,7 @@ export function AgentCascadeMenu({
         )}
       </MenuColumn>
 
-      {showModelColumn && harness === "hermes" ? (
+      {showModelColumn ? (
         <MenuColumn
           label={`${activeProfile?.name ?? "Hermes"} models`}
           parent={activeProfile?.name ?? "Hermes"}

@@ -130,3 +130,43 @@ test("the cascade shows which harness and model the open column belongs to", asy
     await vellum.close();
   }
 });
+
+/**
+ * End-to-end keyboard path: filter → actor → model (→ effort) → location.
+ * Pointer hover must not be required for the cascade to be operable.
+ */
+test("agent cascade is fully keyboard navigable", async () => {
+  const vellum = await launchVellum();
+
+  try {
+    const { page } = vellum;
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+
+    await page.getByRole("button", { name: "Add canvas item" }).click();
+    const filter = page.getByRole("textbox", { name: "Filter add menu" });
+    await expect(filter).toBeFocused();
+
+    await filter.fill("grok");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowRight");
+
+    const models = page.getByRole("menu", { name: "Grok models" });
+    await expect(models).toBeVisible();
+    const firstModel = models.getByRole("menuitem").first();
+    await expect(firstModel).toBeFocused({ timeout: 10_000 });
+
+    // Enter commits the model (opens location). ArrowRight would go to effort
+    // when the model exposes one — either path is keyboard-only.
+    await page.keyboard.press("Enter");
+    const location = page.getByRole("dialog", { name: "Choose agent location" });
+    await expect(location).toBeVisible({ timeout: 10_000 });
+    await expect(location.getByLabel("Agent host")).toBeVisible();
+    await expect(location.getByLabel("Agent working directory")).toBeVisible();
+
+    // Form is tabbable; Escape closes the dialog without requiring the pointer.
+    await page.keyboard.press("Escape");
+    await expect(location).toHaveCount(0);
+  } finally {
+    await vellum.close();
+  }
+});

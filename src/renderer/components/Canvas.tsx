@@ -811,12 +811,15 @@ type MenuEntry =
 // Auto-focused filter + arrow/Enter selection. Typing narrows by label+sub;
 // Enter commits the highlighted row. Managed agents are direct rows whose
 // pointer/focus cascade progressively exposes model and effort overrides.
+// Keyboard path: ↑/↓ highlight → Enter/→ open cascade with focus → cascade
+// arrows/Enter → Esc steps back column-by-column then to the filter.
 function AddMenu({ actions }: { readonly actions: AddActions }) {
   const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState(0);
   const [agentCascade, setAgentCascade] = useState<{
     readonly harness: HarnessId;
     readonly anchor: HTMLButtonElement;
+    readonly focusOnOpen: boolean;
   } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cascadeCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -834,22 +837,60 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
     cascadeCloseTimer.current = null;
   }, []);
 
+  const closeCascade = useCallback(() => {
+    keepCascadeOpen();
+    setAgentCascade(null);
+  }, [keepCascadeOpen]);
+
   const closeCascadeSoon = useCallback(() => {
     keepCascadeOpen();
-    cascadeCloseTimer.current = setTimeout(() => setAgentCascade(null), 140);
+    // Pointer gap + keyboard focus handoff both race this timer. Keep the
+    // cascade if focus landed inside it (or the palette) before the delay.
+    cascadeCloseTimer.current = setTimeout(() => {
+      const active = document.activeElement;
+      if (
+        active instanceof Element &&
+        active.closest(".agent-cascade, .node-palette__menu")
+      ) {
+        return;
+      }
+      setAgentCascade(null);
+    }, 140);
   }, [keepCascadeOpen]);
 
   const openCascade = useCallback(
-    (harness: HarnessId, anchor: HTMLButtonElement) => {
+    (
+      harness: HarnessId,
+      anchor: HTMLButtonElement,
+      focusOnOpen = false,
+    ) => {
       keepCascadeOpen();
-      setAgentCascade((current) =>
-        current?.harness === harness && current.anchor === anchor
-          ? current
-          : { harness, anchor },
-      );
+      setAgentCascade((current) => {
+        if (
+          current?.harness === harness &&
+          current.anchor === anchor &&
+          current.focusOnOpen === focusOnOpen
+        ) {
+          return current;
+        }
+        return { harness, anchor, focusOnOpen };
+      });
     },
     [keepCascadeOpen],
   );
+
+  const exitCascadeToPalette = useCallback(() => {
+    const anchor = agentCascade?.anchor;
+    closeCascade();
+    // Prefer the agent row so → can re-enter; fall back to the filter.
+    requestAnimationFrame(() => {
+      if (anchor?.isConnected) {
+        anchor.focus();
+        return;
+      }
+      inputRef.current?.focus();
+    });
+  }, [agentCascade?.anchor, closeCascade]);
 
   // Grouped Actors / Sinks / Schedulers / Geography — group membership is
   // paletteGroupFor(kind, isGroup). Harnesses are first-class actor choices.
@@ -887,6 +928,7 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
   const activateEntry = (
     entry: MenuEntry,
     suppliedAnchor?: HTMLButtonElement,
+    opts: { readonly keyboard?: boolean } = {},
   ): void => {
     if (entry.harness) {
       const anchor =
@@ -895,11 +937,26 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
           `[data-palette-entry="${entry.key}"]`,
         );
       if (!anchor) return;
-      anchor.focus();
-      openCascade(entry.harness, anchor);
+      if (opts.keyboard) {
+        // Keyboard commit enters the cascade with focus; click keeps filter focus.
+        openCascade(entry.harness, anchor, true);
+        return;
+      }
+      openCascade(entry.harness, anchor, false);
       return;
     }
     entry.onSelect();
+  };
+
+  const enterCascadeFromHighlight = (): boolean => {
+    const entry = filtered[activeIndex];
+    if (!entry?.harness) return false;
+    const anchor = document.querySelector<HTMLButtonElement>(
+      `[data-palette-entry="${entry.key}"]`,
+    );
+    if (!anchor) return false;
+    openCascade(entry.harness, anchor, true);
+    return true;
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -909,10 +966,20 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       setHighlighted((value) => Math.max(value - 1, 0));
+    } else if (event.key === "ArrowRight") {
+      if (enterCascadeFromHighlight()) {
+        event.preventDefault();
+      }
     } else if (event.key === "Enter") {
       event.preventDefault();
       const entry = filtered[activeIndex];
-      if (entry) activateEntry(entry);
+      if (entry) activateEntry(entry, undefined, { keyboard: true });
+    } else if (event.key === "Escape" && agentCascade) {
+      // Cascade owns layered Escape when focus is inside it; when focus is still
+      // on the filter, the first Escape closes only the open cascade.
+      event.preventDefault();
+      event.stopPropagation();
+      closeCascade();
     }
   };
 
@@ -952,28 +1019,62 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
                       entry.harness ? "node-palette__agent-row" : "",
                     ].filter(Boolean).join(" ") || undefined}
                     onFocus={(event) => {
-                      if (entry.harness) openCascade(entry.harness, event.currentTarget);
+                      setHighlighted(index);
+                      if (entry.harness) {
+                        openCascade(entry.harness, event.currentTarget, false);
+                      }
                     }}
                     onBlur={() => {
                       if (entry.harness) closeCascadeSoon();
                     }}
                     onMouseEnter={(event) => {
                       setHighlighted(index);
-                      if (entry.harness) openCascade(entry.harness, event.currentTarget);
-                      else setAgentCascade(null);
+                      if (entry.harness) {
+                        openCascade(entry.harness, event.currentTarget, false);
+                      } else {
+                        setAgentCascade(null);
+                      }
                     }}
                     onMouseLeave={() => {
                       if (entry.harness) closeCascadeSoon();
                     }}
                     onKeyDown={(event) => {
-                      if (!entry.harness || event.key !== "ArrowRight") return;
-                      event.preventDefault();
-                      openCascade(entry.harness, event.currentTarget);
-                      requestAnimationFrame(() => {
+                      if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        const next = Math.min(index + 1, filtered.length - 1);
+                        setHighlighted(next);
                         document
-                          .querySelector<HTMLElement>(".agent-cascade__items")
+                          .querySelector<HTMLButtonElement>(
+                            `[data-palette-entry="${filtered[next]?.key}"]`,
+                          )
                           ?.focus();
-                      });
+                        return;
+                      }
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        if (index === 0) {
+                          inputRef.current?.focus();
+                          return;
+                        }
+                        const next = index - 1;
+                        setHighlighted(next);
+                        document
+                          .querySelector<HTMLButtonElement>(
+                            `[data-palette-entry="${filtered[next]?.key}"]`,
+                          )
+                          ?.focus();
+                        return;
+                      }
+                      if (event.key === "ArrowLeft") {
+                        event.preventDefault();
+                        inputRef.current?.focus();
+                        return;
+                      }
+                      if (!entry.harness) return;
+                      if (event.key === "ArrowRight" || event.key === "Enter") {
+                        event.preventDefault();
+                        openCascade(entry.harness, event.currentTarget, true);
+                      }
                     }}
                     onClick={(event) =>
                       activateEntry(entry, event.currentTarget)
@@ -991,9 +1092,11 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
         key={agentCascade.harness}
         harness={agentCascade.harness}
         anchor={agentCascade.anchor}
+        focusOnOpen={agentCascade.focusOnOpen}
         onConfigure={actions.addAgent}
         onPointerEnter={keepCascadeOpen}
         onPointerLeave={closeCascadeSoon}
+        onExit={exitCascadeToPalette}
       />
     ) : null}
   </div>;
