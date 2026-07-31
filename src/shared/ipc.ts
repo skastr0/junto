@@ -86,8 +86,6 @@ export const IPC_CHANNELS = {
   /** Factory pause plane — canvas-level switch state (born paused). */
   factoryPauseState: "vellum:factory-pause-state",
   factoryPauseSet: "vellum:factory-pause-set",
-  armRegion: "vellum:arm-region",
-  pulseRegion: "vellum:pulse-region",
   regionRollups: "vellum:region-rollups",
   // work plane (serialized canvas mutations)
   workTaskCreate: "vellum:work-task-create",
@@ -322,6 +320,10 @@ export interface WatcherRuntimeState {
   readonly lastFiredAt?: number;
 }
 
+/**
+ * Retired Region Pulse product shape. Kept for KernelStateRepository debug
+ * pulse-ring schema identity / tests only — not on the live kernel wire.
+ */
 export interface PulseRecord {
   readonly id: string;
   readonly at: number;
@@ -358,30 +360,11 @@ export interface KernelSnapshot {
       string,
       {
         readonly watchers: Record<string, WatcherRuntimeState>;
-        readonly armed: Record<string, boolean>;
         readonly nextFire: Record<string, number>;
         readonly execution?: ExecutionSnapshot;
       }
     >
   >;
-  readonly pulseLog: ReadonlyArray<PulseRecord>;
-  // Durable-intent surfacing (both additive). `fault` is set when persisted
-  // arming state could not be loaded — armed regions were NOT resumed and the
-  // operator must see that loudly, never infer it. `orphanedArming` lists
-  // armed `canvas::region` keys whose canvas/region no longer exists in any
-  // hydrated document — the arm-intent is preserved, surfaced, never dropped.
-  readonly fault?: string;
-  readonly orphanedArming?: ReadonlyArray<string>;
-}
-
-// armRegion is transactional: the typed SQLite write happens BEFORE in-memory
-// arming map mutates, so a failed persist leaves memory and disk in sync and
-// the caller learns the change did not stick. ok:false carries the reason
-// (SQLite write failure, or a boot-time arming fault) for the renderer to
-// surface inline near the arming control — never swallowed.
-export interface ArmRegionResult {
-  readonly ok: boolean;
-  readonly error?: string;
 }
 
 // factoryPauseSet is SQLite-first (pause-plane.ts persist): ok carries the
@@ -578,8 +561,6 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     scope: PauseScope,
     paused: boolean,
   ) => Promise<FactoryPauseSetResult>;
-  readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Promise<ArmRegionResult>;
-  readonly pulseRegion: (canvasName: string, regionId: string, opts?: unknown) => Promise<void>;
   // Region severity rollups for the bottom bar, derived live per call from
   // the document + snapshots + ACP chat activity (shared/region-rollup.ts).
   readonly regionRollups: (name: string) => Promise<ReadonlyArray<RegionRollup>>;

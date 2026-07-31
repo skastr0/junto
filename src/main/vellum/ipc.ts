@@ -21,7 +21,6 @@ import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
 import { HermesPlane } from "./hermes/plane";
 import { registerHerdrIpc } from "./herdr/ipc";
-import type { PulseRegionOptions } from "./kernel/service";
 import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
 import { registerHostsIpc } from "./hosts/ipc";
@@ -468,16 +467,6 @@ export const registerVellumIpc = (): void => {
           return { ok: true as const, state: pause.stateFor(canvas) };
         }),
       ),
-  );
-
-  privilegedIpc.handle(IPC_CHANNELS.armRegion, (_event, canvasName: string, regionId: string, armed: boolean) =>
-    AppRuntime.runPromise(Effect.flatMap(KernelService, (kernel) => kernel.armRegion(canvasName, regionId, armed))),
-  );
-
-  privilegedIpc.handle(
-    IPC_CHANNELS.pulseRegion,
-    (_event, canvasName: string, regionId: string, opts?: PulseRegionOptions) =>
-      AppRuntime.runPromise(Effect.flatMap(KernelService, (kernel) => kernel.pulseRegion(canvasName, regionId, opts))),
   );
 
   // Region rollups for the bottom bar: derived per call from the current

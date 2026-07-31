@@ -61,8 +61,10 @@ export const CanvasSettings = Schema.Struct({
 export type CanvasSettings = typeof CanvasSettings.Type;
 
 export const KernelSettings = Schema.Struct({
-  // How many pulse log entries to retain in kernel snapshots / debug dump.
-  pulseLogRetention: positiveInt(5, 500),
+  // Retired Region Pulse product field. Optional so installed preference rows
+  // that still carry the key decode under onExcessProperty:error; product
+  // ignores the value. Not on KernelPatch / not in defaultKernel.
+  pulseLogRetention: Schema.optionalWith(positiveInt(5, 500), { exact: true }),
   debugVerbose: Schema.Boolean,
 });
 export type KernelSettings = typeof KernelSettings.Type;
@@ -206,7 +208,6 @@ export const CanvasPatch = Schema.Struct({
 export type CanvasPatch = typeof CanvasPatch.Type;
 
 export const KernelPatch = Schema.Struct({
-  pulseLogRetention: Schema.optionalWith(positiveInt(5, 500), { exact: true }),
   debugVerbose: Schema.optionalWith(Schema.Boolean, { exact: true }),
 });
 export type KernelPatch = typeof KernelPatch.Type;
@@ -304,7 +305,6 @@ export const defaultCanvas = (): CanvasSettings => ({
 });
 
 export const defaultKernel = (): KernelSettings => ({
-  pulseLogRetention: 20,
   debugVerbose: false,
 });
 

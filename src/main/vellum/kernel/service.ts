@@ -1,15 +1,16 @@
 // KernelService — the Effect Tag + Live layer that runs kernel evaluation
 // continuously over EVERY hydrated canvas, window-optional. This module owns
-// lifecycle (hydration, doc resync, the 30s safety interval), binds cycle.ts's
-// injectable seams to concrete main-side collaborators (CanvasesService,
-// KernelStateRepository), and persists arming through normalized SQLite rows. See
-// kernel-design.md for the full design.
+// lifecycle (hydration, doc resync, the 30s safety interval) and binds
+// cycle.ts's injectable seams to concrete main-side collaborators
+// (CanvasesService, timer scheduler, factory claim delivery).
 //
-// cycle.ts/evaluate.ts are the pure loop + evaluator (ported verbatim from
-// the renderer in an earlier batch); this file is the only thing that binds
-// their `__*ForTest`-named seams to something real. Despite the name, those
-// setters ARE the production injection points — cycle.ts exposes no
-// separately-named "prod" variant, by design (kernel-design.md §2, §7).
+// Region Pulse delivery / arming product path is retired — repository arm/
+// debug-pulse methods remain for schema-identity tests only.
+//
+// cycle.ts/evaluate.ts are the pure loop + evaluator; this file is the only
+// thing that binds their `__*ForTest`-named seams to something real. Despite
+// the name, those setters ARE the production injection points — cycle.ts
+// exposes no separately-named "prod" variant, by design.
 
 import { createHash } from "node:crypto";
 import { Context, Effect, Layer, Schema } from "effect";
@@ -42,10 +43,7 @@ import {
   type SinkRef,
 } from "@shared/work-protocol";
 import type {
-  ArmRegionResult,
-  BindingHint,
   KernelSnapshot,
-  PulseRecord,
   WatcherRuntimeState,
 } from "@shared/ipc";
 import { CanvasesService } from "../canvases";
@@ -56,7 +54,6 @@ import { deriveActorSeatId } from "../station/actor-seat-compiler";
 import { StationFleetTargetRepository } from "../station/fleet-target-repository";
 import { StationRepository } from "../station/repository";
 import { StationLivePeerRegistry } from "../station/session-registry";
-import { KernelStateRepository } from "./repository";
 import {
   actorsNeedingWake,
   isClaimableTaskSink,
@@ -79,32 +76,20 @@ import { WorkRepository } from "../work/repository";
 import { subscribeSeatBlocks } from "../work/blocked-seat";
 import {
   checkTimers,
-  deliverPulse,
-  getArmed,
   getExecutionByCanvas,
   getNextFire,
-  getPulseLog,
   getWatchers,
   purgeCanvasMemory,
   reconcileLiveCanvasMemory,
-  retryPendingPulseDeliveries,
   runEvaluationCycle,
   setActorRefResolver,
-  setArmed,
   setDocs,
-  setPausedLookup,
   setStationScope,
-  __setDeliveryDepsForTest,
   __setFlagWriterForTest,
   __setPhaseMirrorForTest,
   __setSnapshotsForTest,
   __setTimerSchedulerForTest,
 } from "./cycle";
-
-export interface PulseRegionOptions {
-  readonly dry?: boolean;
-  readonly summary?: string;
-}
 
 export class KernelService extends Context.Tag("@vellum/KernelService")<
   KernelService,
@@ -115,33 +100,17 @@ export class KernelService extends Context.Tag("@vellum/KernelService")<
     readonly start: () => void;
     // Irreversibly stop admitting new kernel work. Existing terminal/agent
     // processes are deliberately untouched; work admitted before the cut may
-    // settle, but no later cycle, claim, seat start, pulse, or arming mutation
-    // may begin.
+    // settle, but no later cycle, claim, or seat start may begin.
     readonly suspend: () => void;
     // Synchronous read of the current wire snapshot — used for getKernelState's
     // initial-hydrate answer.
     readonly getSnapshot: () => KernelSnapshot;
-    readonly armRegion: (canvasName: string, regionId: string, armed: boolean) => Effect.Effect<ArmRegionResult>;
-    readonly pulseRegion: (
-      canvasName: string,
-      regionId: string,
-      opts?: PulseRegionOptions,
-    ) => Effect.Effect<void>;
-    // Pushed on cycle end + on arming/pulse changes — never per-watcher.
+    // Pushed on cycle end — never per-watcher.
     readonly subscribe: (listener: (snapshot: KernelSnapshot) => void) => () => void;
   }
 >() {}
 
 const SAFETY_INTERVAL_MS = 30_000;
-// Short poll purely for "did the off-cycle delivery queue append a record
-// since we last pushed" — deliverPulse's queue (cycle.ts) drains
-// fire-and-forget, off the evaluation cycle's critical path, with no
-// completion hook exposed. Without this, a watcher-fired (as opposed to
-// manual pulseRegion) delivery would only become visible to the renderer at
-// the next full cycle (worst case SAFETY_INTERVAL_MS later). Cheap: just an
-// array-length comparison, no evaluation work.
-const PULSE_LOG_POLL_MS = 3_000;
-export const KERNEL_OBSERVATION_PREFIX = "[vellum:kernel-observation] ";
 
 const SEAT_GENERATION_WAKE_REASONS = new Set([
   "generation_bound",
@@ -234,8 +203,6 @@ export const makeCoalescedKernelCycleScheduler = (
   return scheduleCycle;
 };
 
-const armedStoreKey = (canvasName: string, regionId: string): string => `${canvasName}::${regionId}`;
-
 // Splits a `${canvasName}::${id}` module-memory key back into its parts.
 // Canvas names are restricted to [a-z0-9-] (canvases.ts NAME_PATTERN) and
 // node/region ids never contain "::", so the first occurrence is always the
@@ -246,29 +213,8 @@ const splitNamespacedKey = (key: string): readonly [canvasName: string, id: stri
   return [key.slice(0, idx), key.slice(idx + 2)];
 };
 
-// Durable-intent invariant: an armed key whose canvas or region no longer
-// exists in any hydrated document is ORPHANED — the arm-intent stays in the
-// store and is surfaced in the snapshot; it is never silently dropped. With
-// zero docs hydrated (early startup) no judgment is possible, so none is made.
-export const computeOrphanedArming = (
-  docs: ReadonlyMap<string, CanvasDoc>,
-  armed: Iterable<readonly [string, boolean]>,
-): ReadonlyArray<string> => {
-  if (docs.size === 0) return [];
-  const orphaned: string[] = [];
-  for (const [key, value] of armed) {
-    if (!value) continue;
-    const split = splitNamespacedKey(key);
-    if (!split) continue;
-    const doc = docs.get(split[0]);
-    if (!doc || !doc.nodes.some((node) => node.id === split[1])) orphaned.push(key);
-  }
-  return orphaned;
-};
-
 type CanvasesShape = Context.Tag.Service<typeof CanvasesService>;
 type SnapshotsShape = Context.Tag.Service<typeof SnapshotsService>;
-type KernelStateShape = Context.Tag.Service<typeof KernelStateRepository>;
 type PauseShape = Context.Tag.Service<typeof PausePlane>;
 type SchedulerShape = Context.Tag.Service<typeof SchedulerRepository>;
 type FleetTargetsShape = Context.Tag.Service<
@@ -500,7 +446,6 @@ export const managedTaskCompactionDeliveryId = (
 const makeKernelService = (
   canvases: CanvasesShape,
   snapshots: SnapshotsShape,
-  kernelState: KernelStateShape,
   pause: PauseShape,
   scheduler: SchedulerShape,
   fleetTargets: FleetTargetsShape,
@@ -523,7 +468,6 @@ const makeKernelService = (
     !suspended && generation === lifecycleGeneration;
   let lifecycleCleanups: Array<() => void> = [];
   let safetyInterval: ReturnType<typeof setInterval> | undefined;
-  let pulseLogPollInterval: ReturnType<typeof setInterval> | undefined;
   const reclaimCooldowns = new Map<
     string,
     {
@@ -579,10 +523,6 @@ const makeKernelService = (
       clearInterval(safetyInterval);
       safetyInterval = undefined;
     }
-    if (pulseLogPollInterval !== undefined) {
-      clearInterval(pulseLogPollInterval);
-      pulseLogPollInterval = undefined;
-    }
     for (const cooldown of reclaimCooldowns.values()) {
       clearTimeout(cooldown.timer);
     }
@@ -597,30 +537,19 @@ const makeKernelService = (
     }
   };
 
-  // Pulse deliveries consult the pause plane per source seat; a canvas with
-  // no tracked doc falls back to the canvas-level switch (fail closed).
-  setPausedLookup((canvasName, sourceNodeId) => {
-    const state = pause.stateFor(canvasName);
-    if (!state.playing) return true;
-    const doc = docs.get(canvasName);
-    return doc ? seatPaused(state, doc, sourceNodeId) : true;
-  });
-
   let started = false;
-  let armingFault: string | undefined;
-  let lastPulseLogLength = 0;
 
   const composeSnapshot = (): KernelSnapshot => {
     const canvasesOut: Record<
       string,
       {
         watchers: Record<string, WatcherRuntimeState>;
-        armed: Record<string, boolean>;
         nextFire: Record<string, number>;
         execution?: import("./cycle").ExecutionSnapshot;
       }
     > = {};
-    const entryFor = (name: string) => (canvasesOut[name] ??= { watchers: {}, armed: {}, nextFire: {} });
+    const entryFor = (name: string) =>
+      (canvasesOut[name] ??= { watchers: {}, nextFire: {} });
     for (const name of docs.keys()) {
       const entry = entryFor(name);
       const execution = getExecutionByCanvas().get(name);
@@ -636,29 +565,11 @@ const makeKernelService = (
       if (!split) continue;
       entryFor(split[0]).nextFire[split[1]] = value;
     }
-    for (const [key, value] of getArmed()) {
-      if (!value) continue;
-      const split = splitNamespacedKey(key);
-      if (!split) continue;
-      // An armed key whose canvas is not hydrated (deleted in-session, but the
-      // arm-intent is deliberately preserved in memory — cycle.ts's
-      // purgeCanvasMemory no longer drops it) must NOT conjure a phantom
-      // healthy canvas entry here. It surfaces via orphanedArming instead.
-      if (!docs.has(split[0])) continue;
-      entryFor(split[0]).armed[split[1]] = value;
-    }
-    const orphanedArming = computeOrphanedArming(docs, getArmed());
-    return {
-      canvases: canvasesOut,
-      pulseLog: getPulseLog() as ReadonlyArray<PulseRecord>,
-      ...(armingFault !== undefined ? { fault: armingFault } : {}),
-      ...(orphanedArming.length > 0 ? { orphanedArming } : {}),
-    };
+    return { canvases: canvasesOut };
   };
 
   const emitSnapshot = (): void => {
     const snapshot = composeSnapshot();
-    lastPulseLogLength = snapshot.pulseLog.length;
     for (const listener of snapshotListeners) {
       try {
         listener(snapshot);
@@ -666,31 +577,10 @@ const makeKernelService = (
         console.error("[kernel] snapshot listener failed:", error);
       }
     }
-    // Durable debug state shares the app-owned SQLite connection. It is useful
-    // after restart, but external processes must never open the live database.
-    void Effect.runPromise(
-      kernelState.replaceDebugPulseRing(snapshot.pulseLog),
-    ).catch(() => undefined);
-    // The packaged headless probe observes the main process over its bounded
-    // stdout transport. This keeps the database single-owner even while the
-    // probe waits for a pulse.
-    if (process.env.VELLUM_KERNEL_OBSERVATIONS === "1") {
-      console.log(
-        `${KERNEL_OBSERVATION_PREFIX}${JSON.stringify({
-          pulseLog: snapshot.pulseLog.slice(-20),
-        })}`,
-      );
-    }
   };
 
-  // --- delivery: managed terminal seats, the one delivery path ----------------
-  __setDeliveryDepsForTest({
-    sendManagedTerminal: (bindingId, message) =>
-      suspended
-        ? Promise.resolve(false)
-        : managedPulseDeliver(bindingId, message),
-  });
-
+  // Timer claim/nextFire only (no inject on fire). Factory claims use
+  // managedPulseDeliver directly — not region-pulse delivery deps.
   __setTimerSchedulerForTest({
     claimInterval: (input) =>
       Effect.runPromise(scheduler.claimInterval(input)),
@@ -786,8 +676,6 @@ const makeKernelService = (
     if (!generationIsActive(generation)) return;
     __setSnapshotsForTest(currentSnapshots);
     startManagedSeats(scope, registry, generation);
-    if (!generationIsActive(generation)) return;
-    retryPendingPulseDeliveries();
     if (!generationIsActive(generation)) return;
     await Promise.all([runEvaluationCycle(), checkTimers()]);
     if (!generationIsActive(generation)) return;
@@ -1225,32 +1113,6 @@ const makeKernelService = (
   const refreshWithIdentityHints = () =>
     Effect.flatMap(snapshots.current, (state) => snapshots.refresh(identityHints(docs.values(), state)));
 
-  // --- arming: normalized SQLite rows, cycle.ts's in-memory map is the hot read
-
-  // Durable-intent invariant: state that cannot be READ must not boot the
-  // kernel silently disarmed — that is a silent disarm wearing an error's
-  // clothes. On load failure the fault is surfaced in every snapshot, armed
-  // regions are explicitly NOT resumed, and writes are refused. The kernel
-  // itself keeps running.
-  const hydrateArming = async (generation: number): Promise<void> => {
-    if (!generationIsActive(generation)) return;
-    const result = await Effect.runPromise(
-      Effect.either(kernelState.listArmedRegions),
-    );
-    if (!generationIsActive(generation)) return;
-    if (result._tag === "Left") {
-      armingFault =
-        `arming state unreadable (${result.left.message}) — armed regions were NOT resumed and arming ` +
-        `changes will fail until the SQLite state is repaired; nothing was overwritten`;
-      console.error(`[kernel] ${armingFault}`);
-      return;
-    }
-    for (const armed of result.right) {
-      if (!generationIsActive(generation)) return;
-      setArmed(armedStoreKey(armed.canvasName, armed.regionId), true);
-    }
-  };
-
   return KernelService.of({
     // Effect.sync, not Effect.succeed: the report reads docs.size at CALL
     // time, not at layer-build time (when it is always 0, before any
@@ -1268,8 +1130,6 @@ const makeKernelService = (
       const generation = activeGeneration();
       void (async () => {
         await Effect.runPromise(pause.start);
-        if (!generationIsActive(generation)) return;
-        await hydrateArming(generation);
         if (!generationIsActive(generation)) return;
         await hydrateAllDocs(generation);
         if (!generationIsActive(generation)) return;
@@ -1307,11 +1167,6 @@ const makeKernelService = (
           scheduleCycle,
           SAFETY_INTERVAL_MS,
         );
-        pulseLogPollInterval = setInterval(() => {
-          if (suspended) return;
-          const length = getPulseLog().length;
-          if (length !== lastPulseLogLength) emitSnapshot();
-        }, PULSE_LOG_POLL_MS);
 
         scheduleCycle();
       })().catch((err) => console.error("[kernel] start() failed:", err));
@@ -1326,59 +1181,6 @@ const makeKernelService = (
 
     getSnapshot: () => composeSnapshot(),
 
-    armRegion: (canvasName, regionId, armedValue) =>
-      Effect.gen(function* () {
-        const generation = activeGeneration();
-        if (!generationIsActive(generation)) {
-          return {
-            ok: false,
-            error: "kernel suspended — no new arming changes are admitted",
-          } as const;
-        }
-        // Fail fast under a boot-time arming fault: SQLite state could not be
-        // read, so armed regions were NOT resumed and no write may proceed
-        // (the corrupt rows must not be clobbered). The caller surfaces this.
-        if (armingFault !== undefined) {
-          return { ok: false, error: armingFault } as const;
-        }
-        const key = armedStoreKey(canvasName, regionId);
-        // Persist FIRST (memory untouched on failure), then mutate memory.
-        const stored = yield* Effect.either(
-          kernelState.setRegionArmed(canvasName, regionId, armedValue),
-        );
-        if (stored._tag === "Left") {
-          return {
-            ok: false,
-            error: `arming not saved (${stored.left.message}) — nothing changed; the region stays as it was`,
-          } as const;
-        }
-        // The durable mutation was admitted before the suspension cut. Let
-        // that in-flight operation settle into its matching hot-read state so
-        // memory cannot diverge from SQLite.
-        setArmed(key, armedValue);
-        emitSnapshot();
-        return { ok: true } as const;
-      }),
-
-    pulseRegion: (canvasName, regionId, opts) =>
-      Effect.gen(function* () {
-        const generation = activeGeneration();
-        if (!generationIsActive(generation)) return;
-        yield* Effect.promise(() =>
-          deliverPulse({
-            canvasName,
-            sourceNodeId: regionId,
-            kind: "manual",
-            regionId,
-            summary: opts?.summary ?? "manual pulse",
-            forceDry: opts?.dry,
-          }),
-        );
-        // Snapshot emission is observational; a pulse admitted before the cut
-        // may finish and report its terminal record afterward.
-        emitSnapshot();
-      }),
-
     subscribe: (listener) => {
       snapshotListeners.add(listener);
       return () => snapshotListeners.delete(listener);
@@ -1392,7 +1194,6 @@ export const KernelLive = Layer.effect(
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const snapshots = yield* SnapshotsService;
-    const kernelState = yield* KernelStateRepository;
     const pause = yield* PausePlane;
     const scheduler = yield* SchedulerRepository;
     const fleetTargets = yield* StationFleetTargetRepository;
@@ -1403,7 +1204,6 @@ export const KernelLive = Layer.effect(
     return makeKernelService(
       canvases,
       snapshots,
-      kernelState,
       pause,
       scheduler,
       fleetTargets,

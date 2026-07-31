@@ -1,8 +1,12 @@
 /**
  * Durable kernel operator intent and the bounded diagnostic pulse ring.
  *
- * Arming is normalized by canvas/region instead of hiding independently
- * addressable facts inside one JSON value. Debug pulses are diagnostic only;
+ * RETAINED SCHEMA BYTES — Region Pulse product (arming + debug pulse ring) is
+ * retired. Tables are not dropped (SQLite evolution law: no physical retirement
+ * in routine migrations). Product path no longer reads/writes these rows for
+ * delivery; repository methods remain for schema-identity tests.
+ *
+ * Arming was normalized by canvas/region. Debug pulses were diagnostic only;
  * the ring is capped at twenty positions and every field has a fixed domain
  * shape.
  */

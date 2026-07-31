@@ -112,7 +112,6 @@ import {
   hasLiveWork,
   QUIT_CONFIRM_ACCEPT_INDEX,
 } from "./vellum/quit-live-work";
-import { getArmed, getNextFire } from "./vellum/kernel/cycle";
 import { mainAuthoringGate } from "./vellum/main-authoring-gate";
 import { remoteLeaseState } from "./vellum/license/remote-lease-state";
 import {
@@ -2235,8 +2234,6 @@ const quiesceSignalRenderer = (generation: number): void => {
 
 const collectLiveWorkSnapshot = () =>
   assessLiveWork({
-    armed: getArmed(),
-    nextFireKeys: getNextFire().keys(),
     attachedHerdrStreamCount: herdrActiveControlCount(),
     localTerminalSessionCount: termPlane.router.runningCount(),
   });

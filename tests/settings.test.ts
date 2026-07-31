@@ -101,7 +101,7 @@ describe("settings contract", () => {
     expect(
       Either.isRight(
         applyAndValidatePatch(defaultSettings(), {
-          kernel: { pulseLogRetention: 40 },
+          kernel: { debugVerbose: true },
         }),
       ),
     ).toBe(true);

@@ -566,7 +566,7 @@ describe("station status doctor", () => {
     });
 
     expect(check.status).toBe("warning");
-    expect(check.detail).toMatch(/kernel armed 0 · last fire never · stale/u);
+    expect(check.detail).toMatch(/kernel observed · stale/u);
     expect(check.detail).not.toMatch(/pull/u);
     expect(check.metadata).toMatchObject({
       kernelObservedAt: staleKernelAt,
@@ -580,46 +580,23 @@ describe("station status doctor", () => {
         canvases: {
           alpha: {
             watchers: {},
-            armed: { one: true, two: false },
             nextFire: {},
           },
           beta: {
             watchers: {},
-            armed: { three: true },
             nextFire: {},
           },
         },
-        pulseLog: [
-          {
-            id: "pulse-secret",
-            at: Date.parse("2026-07-23T11:58:00.000Z"),
-            canvasName: "private-canvas",
-            sourceNodeId: "private-node",
-            regionId: "private-region",
-            kind: "watcher",
-            summary: "private instruction",
-            delivered: ["private:agent"],
-            dry: false,
-          },
-        ],
-        fault: "arming store unreadable",
-        orphanedArming: ["private-canvas::private-region"],
       },
       "2026-07-23T12:00:00.000Z",
     );
 
+    // Pulse/arming product retired — doctor fields stay zeroed.
     expect(record).toEqual({
       observedAt: "2026-07-23T12:00:00.000Z",
-      armedRegionCount: 2,
-      lastFireAt: "2026-07-23T11:58:00.000Z",
-      lastFireKind: "watcher",
-      lastFireDry: false,
-      fault: "arming store unreadable",
-      orphanedArmingCount: 1,
+      armedRegionCount: 0,
+      orphanedArmingCount: 0,
     });
-    expect(JSON.stringify(record)).not.toMatch(
-      /private-canvas|private-node|private-region|private:agent|private instruction/u,
-    );
   });
 
   it("fails closed on an indeterminate deploy receipt", () => {

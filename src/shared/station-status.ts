@@ -72,6 +72,8 @@ export const StationDeployRecord = Schema.Struct({
 });
 export type StationDeployRecord = typeof StationDeployRecord.Type;
 
+// Armed-region / pulse-log doctor fields retained as always-zero wire shape
+// so older status readers stay compile-clean; Region Pulse product is retired.
 export const StationKernelRecord = Schema.Struct({
   observedAt: DisplayTimestamp,
   armedRegionCount: NonNegativeInteger,
@@ -194,30 +196,15 @@ export const deployRecordFromResult = (input: {
  * enter the observation table.
  */
 export const kernelRecordFromSnapshot = (
-  snapshot: KernelSnapshot,
+  _snapshot: KernelSnapshot,
   observedAt = new Date().toISOString(),
 ): StationKernelRecord => {
-  let armedRegionCount = 0;
-  for (const canvas of Object.values(snapshot.canvases)) {
-    armedRegionCount += Object.values(canvas.armed).filter(Boolean).length;
-  }
-
-  const latest = [...snapshot.pulseLog]
-    .filter((pulse) => Number.isFinite(pulse.at))
-    .sort((left, right) => right.at - left.at)[0];
-
+  // Region Pulse delivery / arming product is retired — doctor fields stay
+  // present at zero so status documents remain shape-stable.
   return {
     observedAt,
-    armedRegionCount,
-    ...(latest
-      ? {
-          lastFireAt: new Date(latest.at).toISOString(),
-          lastFireKind: latest.kind,
-          lastFireDry: latest.dry,
-        }
-      : {}),
-    ...(snapshot.fault ? { fault: snapshot.fault.slice(0, 1_024) } : {}),
-    orphanedArmingCount: snapshot.orphanedArming?.length ?? 0,
+    armedRegionCount: 0,
+    orphanedArmingCount: 0,
   };
 };
 
@@ -352,18 +339,12 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       STATION_KERNEL_STALE_AFTER_MS,
     );
     lines.push(
-      `kernel armed ${localKernel.armedRegionCount} · last fire ${localKernel.lastFireAt ?? "never"}${stale ? " · stale" : ""}`,
+      `kernel observed${stale ? " · stale" : ""} · watchers/timers (no pulse product)`,
     );
     if (stale) raise("warning");
     if (localKernel.fault) {
       lines.push(`kernel fault ${boundedDiagnostic(localKernel.fault, "unknown")}`);
       raise("error");
-    }
-    if (localKernel.orphanedArmingCount > 0) {
-      lines.push(
-        `${localKernel.orphanedArmingCount} orphaned armed region(s)`,
-      );
-      raise("warning");
     }
   }
 

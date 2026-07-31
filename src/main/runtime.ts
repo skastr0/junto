@@ -368,7 +368,8 @@ export const assessCurrentStationReadiness = (
         supervisedPreferred: configuration?.supervisedPreferred ?? false,
         supervisedInstalled: yield* Effect.promise(() => probeSupervisedRuntime()),
       });
-    const simulationReady = kernel.getSnapshot().fault === undefined;
+    // Region Pulse arming fault retired; kernel snapshot is always simulation-ready.
+    const simulationReady = true;
     return yield* Effect.promise(() =>
       createStationReadinessCoordinator().assess({
         version: stationInfo.version,
