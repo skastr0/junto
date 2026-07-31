@@ -12,7 +12,6 @@ import {
   type ConfiguredRemoteDeployOperations,
 } from "../src/main/vellum/hosts/deploy-configured-remote";
 import type {
-  RemoteDeploymentAuthorization,
   RemoteDeploymentProvider,
   RemoteDeploymentProviderInput,
 } from "../src/main/vellum/hosts/remote-deployment";
@@ -167,24 +166,19 @@ describe("Remote deployment dispatcher", () => {
     );
   });
 
-  it("threads opaque Linux authority only into the admitted Linux provider", async () => {
+  it("never threads administrator credentials into either provider", async () => {
     const darwin = makeProvider("darwin");
     const linux = makeProvider("linux");
     const dispatcher = makeRemoteDeploymentDispatcher({
       commandCenterPlatform: "darwin",
       providers: [darwin, linux],
     });
-    const authorization = {
-      kind: "linux-administrator-password",
-      credential: Object.freeze({}),
-    } as RemoteDeploymentAuthorization;
 
     await Effect.runPromise(
       dispatcher.deploy(
         makeSsh("Linux\n"),
         host,
         { state: "managed-externally" },
-        authorization,
       ),
     );
     await Effect.runPromise(
@@ -192,15 +186,17 @@ describe("Remote deployment dispatcher", () => {
         makeSsh("Darwin\n"),
         host,
         { state: "managed-externally" },
-        authorization,
       ),
     );
 
     expect(linux.deploy).toHaveBeenCalledWith(
-      expect.objectContaining({ authorization }),
+      expect.not.objectContaining({ authorization: expect.anything() }),
     );
     expect(darwin.deploy).toHaveBeenCalledWith(
       expect.not.objectContaining({ authorization: expect.anything() }),
+    );
+    expect(JSON.stringify(linux.deploy.mock.calls)).not.toContain(
+      "linux-administrator-password",
     );
   });
 
@@ -221,7 +217,6 @@ describe("Remote deployment dispatcher", () => {
         makeSsh("Linux\n"),
         host,
         { state: "managed-externally" },
-        undefined,
         "verified-cache",
       ),
     );
@@ -230,7 +225,6 @@ describe("Remote deployment dispatcher", () => {
         makeSsh("Linux\n"),
         host,
         { state: "managed-externally" },
-        undefined,
         "qualification-candidate",
       ),
     );
@@ -264,7 +258,6 @@ describe("Remote deployment dispatcher", () => {
         makeSsh("Linux\n"),
         host,
         { state: "managed-externally" },
-        undefined,
         "caller-path" as never,
       ),
     );
@@ -273,7 +266,6 @@ describe("Remote deployment dispatcher", () => {
         makeSsh("Darwin\n"),
         host,
         { state: "managed-externally" },
-        undefined,
         "verified-cache",
       ),
     );

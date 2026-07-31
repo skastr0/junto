@@ -9,16 +9,6 @@ import {
   redactOperatorRequestForLog,
 } from "../src/shared/operator-control";
 
-const authorizationRequest = {
-  kind: "linux-administrator-password" as const,
-  hostId: "station-1",
-  endpoint: "vellum@station-1",
-  version: "0.1.5",
-  manifestSha256: "a".repeat(64),
-  debSha256: "b".repeat(64),
-  inventorySha256: "c".repeat(64),
-};
-
 describe("operator control contract", () => {
   it("uses a dedicated owner-local socket without a token path", () => {
     expect(operatorControlSocketPath("/home/operator")).toBe(
@@ -89,7 +79,7 @@ describe("operator control contract", () => {
     expect(Either.isLeft(deployWithoutSource)).toBe(true);
   });
 
-  it("binds and redacts the one-shot administrator retry", () => {
+  it("rejects retired administrator-password authorization payloads", () => {
     const decoded = decodeOperatorRequest({
       protocol: OPERATOR_PROTOCOL_VERSION,
       id: "qualify-2",
@@ -97,31 +87,21 @@ describe("operator control contract", () => {
       args: {
         id: "station-1",
         authorization: {
-          request: authorizationRequest,
+          request: {
+            kind: "linux-administrator-password",
+            hostId: "station-1",
+            endpoint: "vellum@station-1",
+            version: "0.1.5",
+            manifestSha256: "a".repeat(64),
+            debSha256: "b".repeat(64),
+            inventorySha256: "c".repeat(64),
+          },
           password: "one-shot-secret",
         },
       },
     });
-    expect(Either.isRight(decoded)).toBe(true);
-    if (Either.isLeft(decoded)) return;
-
-    expect(
-      JSON.stringify(redactOperatorRequestForLog(decoded.right)),
-    ).not.toContain("one-shot-secret");
-
-    const multiline = decodeOperatorRequest({
-      protocol: OPERATOR_PROTOCOL_VERSION,
-      id: "qualify-3",
-      op: "fleet.qualify",
-      args: {
-        id: "station-1",
-        authorization: {
-          request: authorizationRequest,
-          password: "line-one\nline-two",
-        },
-      },
-    });
-    expect(Either.isLeft(multiline)).toBe(true);
+    expect(Either.isLeft(decoded)).toBe(true);
+    expect(JSON.stringify(decoded)).not.toContain("one-shot-secret");
   });
 
   it("bounds encoded NDJSON requests", () => {

@@ -216,25 +216,13 @@ describe("operator control server", () => {
         args: {
           id: "station-1",
           source: "cached",
-          authorization: {
-            request: {
-              kind: "linux-administrator-password",
-              hostId: "station-1",
-              endpoint: "user@station",
-              version: "1.2.3",
-              manifestSha256: "a".repeat(64),
-              debSha256: "b".repeat(64),
-              inventorySha256: "c".repeat(64),
-            },
-            password: secret,
-          },
+          unexpectedSecret: secret,
         },
       })}\n`,
     );
     expect(raw).toContain('"type":"protocol_error"');
     expect(raw).toContain("invalid operator request");
     expect(raw).not.toContain(secret);
-    expect(raw).not.toContain("password");
   });
 
   it("retains an admitted dispatch after the client disconnects", async () => {

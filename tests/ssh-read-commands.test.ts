@@ -6,7 +6,6 @@ import {
 } from "../src/main/vellum/ssh/domain";
 import {
   DARWIN_PACKAGED_STATION_EXECUTABLE,
-  LINUX_PACKAGED_STATION_EXECUTABLE,
   RemotePlatformProbeError,
   STATION_PROTOCOL_NEGOTIATION_ARG,
   bindLinuxRemoteUserland,
@@ -127,16 +126,12 @@ describe("ssh read-commands product constructors", () => {
     expect(ts.executable).toBe("tailscale");
   });
 
-  it("mints only exact packaged Station wrappers from current host evidence", () => {
+  it("mints Darwin packaged Station wrappers and refuses fixed Linux /opt paths", () => {
     const darwin = observedPlatform("Darwin\n");
     const linux = observedPlatform("Linux\n");
 
     expect(inspectRemoteCommand(run(remoteVellumStation(darwin)))).toEqual({
       executable: DARWIN_PACKAGED_STATION_EXECUTABLE,
-      args: [],
-    });
-    expect(inspectRemoteCommand(run(remoteVellumStation(linux)))).toEqual({
-      executable: LINUX_PACKAGED_STATION_EXECUTABLE,
       args: [],
     });
     expect(
@@ -146,11 +141,13 @@ describe("ssh read-commands product constructors", () => {
       args: [STATION_PROTOCOL_NEGOTIATION_ARG],
     });
     expect(
-      inspectRemoteCommand(run(remoteVellumStationNegotiation(linux))),
-    ).toEqual({
-      executable: LINUX_PACKAGED_STATION_EXECUTABLE,
-      args: [STATION_PROTOCOL_NEGOTIATION_ARG],
-    });
+      Either.isLeft(Effect.runSync(Effect.either(remoteVellumStation(linux)))),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        Effect.runSync(Effect.either(remoteVellumStationNegotiation(linux))),
+      ),
+    ).toBe(true);
   });
 
   it("binds Linux helpers to an observed owner home, never a release pointer", () => {

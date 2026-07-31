@@ -137,29 +137,19 @@ describe("preload renderer surface readiness", () => {
 });
 
 describe("preload Remote deployment authorization", () => {
-  it("forwards the exact serialized request as one IPC argument", async () => {
+  it("forwards host id only — no administrator password payload", async () => {
     const api = await loadPreload();
-    const input = {
-      id: "studio",
-      authorization: {
-        request: {
-          kind: "linux-administrator-password" as const,
-          hostId: "studio",
-          endpoint: "vellum@studio-box",
-          version: "1.2.3",
-          manifestSha256: "a".repeat(64),
-          debSha256: "b".repeat(64),
-          inventorySha256: "c".repeat(64),
-        },
-        password: "one-attempt-secret",
-      },
-    };
+    const input = { id: "studio" };
 
     await api.hostsDeployRemote(input);
 
     expect(electron.invoked).toEqual([
       [IPC_CHANNELS.hostsDeployRemote, input],
     ]);
+    expect(JSON.stringify(electron.invoked)).not.toContain(
+      "linux-administrator-password",
+    );
+    expect(JSON.stringify(electron.invoked)).not.toContain("password");
   });
 });
 

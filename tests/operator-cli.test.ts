@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
 import {
@@ -15,7 +14,6 @@ import {
   OperatorSocketLive,
 } from "../src/cli/core/operator-socket";
 import {
-  readAdministratorPasswordLine,
   runOperatorDeployment,
 } from "../src/cli/commands/operator";
 import { browserCliArgsFromArgv } from "../src/cli/main";
@@ -123,24 +121,6 @@ describe("operator socket client", () => {
   });
 });
 
-const authorizationRequest = {
-  kind: "linux-administrator-password" as const,
-  hostId: "station-1",
-  endpoint: "vellum@station-1",
-  version: "0.1.5",
-  manifestSha256: "a".repeat(64),
-  debSha256: "b".repeat(64),
-  inventorySha256: "c".repeat(64),
-};
-
-const authorizationRequired: OperatorDataByOp["fleet.qualify"] = {
-  status: "authorization-required",
-  ok: false,
-  detail: "administrator authorization required",
-  stages: [],
-  authorizationRequest,
-};
-
 const ready: OperatorDataByOp["fleet.qualify"] = {
   status: "ready",
   ok: true,
@@ -151,73 +131,22 @@ const ready: OperatorDataByOp["fleet.qualify"] = {
   role: "remote",
 };
 
-describe("operator deploy password ingress", () => {
-  it("does not touch stdin when the first deploy is terminal", async () => {
-    const input = new PassThrough();
+describe("operator deploy (userland, no password ingress)", () => {
+  it("deploys through one operator call without stdin credentials", async () => {
     const service = OperatorSocket.of({
-      call: () => Effect.succeed(ready) as never,
+      call: (op, args) => {
+        expect(op).toBe("fleet.qualify");
+        expect(args).toEqual({ id: "station-1" });
+        return Effect.succeed(ready) as never;
+      },
     });
     const result = await Effect.runPromise(
       runOperatorDeployment({
         op: "fleet.qualify",
         id: "station-1",
-        passwordStdin: true,
-        passwordInput: input,
       }).pipe(Effect.provide(Layer.succeed(OperatorSocket, service))),
     );
     expect(result.status).toBe("ready");
-    expect(input.listenerCount("data")).toBe(0);
-  });
-
-  it("first deploys without auth, then reads and retries one exact binding", async () => {
-    const input = new PassThrough();
-    const sourceBytes = Buffer.from("one-shot-secret\n");
-    let calls = 0;
-    const service = OperatorSocket.of({
-      call: (op, args) => {
-        expect(op).toBe("fleet.qualify");
-        calls += 1;
-        if (calls === 1) {
-          expect(args).toEqual({ id: "station-1" });
-          return Effect.succeed(authorizationRequired) as never;
-        }
-        expect(args).toMatchObject({
-          id: "station-1",
-          authorization: {
-            request: authorizationRequest,
-            password: "one-shot-secret",
-          },
-        });
-        return Effect.succeed(ready) as never;
-      },
-    });
-    const running = Effect.runPromise(
-      runOperatorDeployment({
-        op: "fleet.qualify",
-        id: "station-1",
-        passwordStdin: true,
-        passwordInput: input,
-      }).pipe(Effect.provide(Layer.succeed(OperatorSocket, service))),
-    );
-    input.end(sourceBytes);
-    const result = await running;
-
-    expect(result.status).toBe("ready");
-    expect(calls).toBe(2);
-    expect(sourceBytes.every((byte) => byte === 0)).toBe(true);
-  });
-
-  it("rejects extra lines and zeroes the source Buffer", async () => {
-    const input = new PassThrough();
-    const sourceBytes = Buffer.from("first\nsecond\n");
-    const running = Effect.runPromise(
-      readAdministratorPasswordLine(input).pipe(Effect.either),
-    );
-    input.end(sourceBytes);
-    const result = await running;
-
-    expect(result._tag).toBe("Left");
-    expect(sourceBytes.every((byte) => byte === 0)).toBe(true);
   });
 });
 

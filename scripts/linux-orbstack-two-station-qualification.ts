@@ -40,6 +40,7 @@ import {
   verifyProductionLinuxDeployBundle,
   verifyQualificationLinuxDeployBundle,
 } from "../src/main/vellum/hosts/linux-release-admission";
+import { renderUserlandLinuxService } from "../src/main/vellum/supervision/systemd-user";
 import {
   decodeStationQualification,
   STATION_QUALIFICATION_EVIDENCE_FILE,
@@ -68,9 +69,9 @@ const repoRoot = path.resolve(
 );
 
 const OBSERVATION_SCHEMA =
-  "vellum/linux-orbstack-observation/v1" as const;
+  "vellum/linux-orbstack-observation/v2" as const;
 const RUN_STATE_SCHEMA =
-  "vellum/linux-orbstack-run-state/v2" as const;
+  "vellum/linux-orbstack-run-state/v3" as const;
 const EVIDENCE_FILE = STATION_QUALIFICATION_EVIDENCE_FILE;
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 const MAX_EVIDENCE_LINE_BYTES = 32 * 1024;
@@ -127,10 +128,11 @@ interface OrbMachineInfo {
 interface ArtifactIdentity {
   readonly version: string;
   readonly sourceCommit: string;
-  readonly debFile: string;
-  readonly debBytes: number;
-  readonly debSha256: string;
+  readonly archiveFile: string;
+  readonly archiveBytes: number;
+  readonly archiveSha256: string;
   readonly manifestSha256: string;
+  readonly ptyReceiptSha256: string;
   readonly stationProtocol: typeof STATION_PROTOCOL;
   readonly bundleFiles: ReadonlyArray<string>;
   readonly verification: {
@@ -197,7 +199,6 @@ export interface QualificationOptions {
   readonly goldenId?: string;
   readonly commandCenterName?: string;
   readonly commandCenterId?: string;
-  readonly debPath?: string;
   readonly bundleDirectory?: string;
   readonly sourceCommit?: string;
   readonly kind?: QualificationKind;
@@ -396,13 +397,12 @@ type VerifiedBundleReceipt =
   | LinuxQualificationCandidateVerificationReceipt;
 
 const inspectVerifiedBundle = async (input: {
-  readonly canonicalDebPath: string;
   readonly canonicalBundleDirectory: string;
   readonly sourceCommit: string;
   readonly receipt: VerifiedBundleReceipt;
   readonly expectedKind: "qualification-candidate" | "final-release";
 }): Promise<ArtifactIdentity & {
-  readonly canonicalDebPath: string;
+  readonly canonicalArchivePath: string;
   readonly canonicalBundleDirectory: string;
 }> => {
   const { receipt } = input;
@@ -424,14 +424,31 @@ const inspectVerifiedBundle = async (input: {
   ) {
     throw new Error("final release verification receipt is invalid");
   }
-  const debMetadata = await stat(input.canonicalDebPath);
-  const debSha256 = await sha256File(input.canonicalDebPath);
   if (
-    path.basename(input.canonicalDebPath) !== receipt.packageFile ||
-    debMetadata.size !== receipt.packageBytes ||
-    debSha256 !== receipt.packageSha256
+    path.basename(receipt.packageFile) !== receipt.packageFile ||
+    !SAFE_BASENAME.test(receipt.packageFile)
   ) {
-    throw new Error("release deb does not match the signed bundle manifest");
+    throw new Error("verified runtime archive name is unsafe");
+  }
+  const canonicalArchivePath = await requireRegularPath(
+    path.join(input.canonicalBundleDirectory, receipt.packageFile),
+    "verified runtime archive",
+  );
+  if (
+    path.dirname(canonicalArchivePath) !== input.canonicalBundleDirectory
+  ) {
+    throw new Error("verified runtime archive escapes its signed bundle");
+  }
+  const archiveMetadata = await stat(canonicalArchivePath);
+  const archiveSha256 = await sha256File(canonicalArchivePath);
+  if (
+    path.basename(canonicalArchivePath) !== receipt.packageFile ||
+    archiveMetadata.size !== receipt.packageBytes ||
+    archiveSha256 !== receipt.packageSha256
+  ) {
+    throw new Error(
+      "runtime archive does not match the signed bundle manifest",
+    );
   }
   const manifest = receipt.bundleFiles.find(
     (entry) => entry.file === LINUX_RELEASE_MANIFEST,
@@ -447,21 +464,27 @@ const inspectVerifiedBundle = async (input: {
     throw new Error("verified release bundle inventory is incomplete");
   }
   const bundleFiles = receipt.bundleFiles.map(({ file }) => file);
+  const ptyReceipt = receipt.bundleFiles.find(
+    (entry) => entry.file === "packaged-pty-smoke.json",
+  );
   if (
     new Set(bundleFiles).size !== bundleFiles.length ||
     bundleFiles.some(
       (file) => path.basename(file) !== file || !SAFE_BASENAME.test(file),
-    )
+    ) ||
+    ptyReceipt === undefined ||
+    !SHA256.test(ptyReceipt.sha256)
   ) {
     throw new Error("verified release bundle inventory is unsafe");
   }
   return {
     version: receipt.version,
     sourceCommit: input.sourceCommit,
-    debFile: receipt.packageFile,
-    debBytes: receipt.packageBytes,
-    debSha256,
+    archiveFile: receipt.packageFile,
+    archiveBytes: receipt.packageBytes,
+    archiveSha256,
     manifestSha256: manifest.sha256,
+    ptyReceiptSha256: ptyReceipt.sha256,
     stationProtocol: STATION_PROTOCOL,
     bundleFiles,
     verification: {
@@ -480,20 +503,18 @@ const inspectVerifiedBundle = async (input: {
           }
         : {}),
     },
-    canonicalDebPath: input.canonicalDebPath,
+    canonicalArchivePath,
     canonicalBundleDirectory: input.canonicalBundleDirectory,
   };
 };
 
 export const inspectManagedArtifact = async (input: {
-  readonly debPath: string;
   readonly bundleDirectory: string;
   readonly sourceCommit: string;
 }): Promise<ArtifactIdentity & {
-  readonly canonicalDebPath: string;
+  readonly canonicalArchivePath: string;
   readonly canonicalBundleDirectory: string;
 }> => {
-  const canonicalDebPath = await requireRegularPath(input.debPath, "release deb");
   const canonicalBundleDirectory = await requireBundleDirectory(
     input.bundleDirectory,
   );
@@ -502,7 +523,6 @@ export const inspectManagedArtifact = async (input: {
     bundleDirectory: canonicalBundleDirectory,
   });
   return inspectVerifiedBundle({
-    canonicalDebPath,
     canonicalBundleDirectory,
     sourceCommit,
     receipt: verified.receipt,
@@ -511,14 +531,12 @@ export const inspectManagedArtifact = async (input: {
 };
 
 export const inspectQualificationCandidateArtifact = async (input: {
-  readonly debPath: string;
   readonly bundleDirectory: string;
   readonly sourceCommit: string;
 }): Promise<ArtifactIdentity & {
-  readonly canonicalDebPath: string;
+  readonly canonicalArchivePath: string;
   readonly canonicalBundleDirectory: string;
 }> => {
-  const canonicalDebPath = await requireRegularPath(input.debPath, "candidate deb");
   const canonicalBundleDirectory = await requireBundleDirectory(
     input.bundleDirectory,
   );
@@ -527,7 +545,6 @@ export const inspectQualificationCandidateArtifact = async (input: {
     bundleDirectory: canonicalBundleDirectory,
   });
   return inspectVerifiedBundle({
-    canonicalDebPath,
     canonicalBundleDirectory,
     sourceCommit,
     receipt: verified.receipt,
@@ -625,6 +642,42 @@ const runOrb = (
 const guestHome = (machine: RunMachine): string =>
   `/home/${machine.username}`;
 
+const runtimeGenerationName = (artifact: ArtifactIdentity): string =>
+  `${artifact.version}-${artifact.archiveSha256}`;
+
+const runtimeReleaseDirectory = (
+  machine: RunMachine,
+  artifact: ArtifactIdentity,
+): string =>
+  path.posix.join(
+    guestHome(machine),
+    ".vellum/runtime/releases",
+    runtimeGenerationName(artifact),
+  );
+
+const runtimeExecutable = (
+  machine: RunMachine,
+  artifact: ArtifactIdentity,
+): string => path.posix.join(runtimeReleaseDirectory(machine, artifact), "vellum");
+
+const runtimeCli = (
+  machine: RunMachine,
+  artifact: ArtifactIdentity,
+): string =>
+  path.posix.join(
+    runtimeReleaseDirectory(machine, artifact),
+    "resources/bin/vellum",
+  );
+
+const runtimeStationCli = (
+  machine: RunMachine,
+  artifact: ArtifactIdentity,
+): string =>
+  path.posix.join(
+    runtimeReleaseDirectory(machine, artifact),
+    "resources/bin/vellum-station",
+  );
+
 const runGuest = (
   executor: CommandExecutor,
   orbctlPath: string,
@@ -681,6 +734,7 @@ const operatorCommand = async (
   executor: CommandExecutor,
   orbctlPath: string,
   machine: RunMachine,
+  artifact: ArtifactIdentity,
   command: string,
   args: ReadonlyArray<string>,
   timeoutMs?: number,
@@ -691,7 +745,7 @@ const operatorCommand = async (
     orbctlPath,
     machine,
     renderedCommand,
-    "/usr/bin/vellum",
+    runtimeCli(machine, artifact),
     args,
     { timeoutMs },
   );
@@ -705,6 +759,7 @@ const retryOperatorCommand = async (
   executor: CommandExecutor,
   orbctlPath: string,
   machine: RunMachine,
+  artifact: ArtifactIdentity,
   command: string,
   args: ReadonlyArray<string>,
   accept: (data: Record<string, unknown>) => boolean = () => true,
@@ -717,6 +772,7 @@ const retryOperatorCommand = async (
         executor,
         orbctlPath,
         machine,
+        artifact,
         command,
         args,
       );
@@ -852,19 +908,13 @@ const latestState = (
       state.kind !== "qualification-candidate" &&
       state.kind !== "final-release"
     ) ||
-    (
-      state.commandCenterMode !== "new-activation-checkpoint" &&
-      state.commandCenterMode !== "retained-licensed"
-    ) ||
-    !MACHINE_ID.test(state.golden.id) ||
-    !MACHINE_NAME.test(state.golden.name) ||
-    !USERNAME.test(state.golden.username) ||
     !SEMVER.test(state.artifact.version) ||
     !SOURCE_COMMIT.test(state.artifact.sourceCommit) ||
-    !SAFE_BASENAME.test(state.artifact.debFile) ||
-    !Number.isSafeInteger(state.artifact.debBytes) ||
-    state.artifact.debBytes <= 0 ||
-    !SHA256.test(state.artifact.debSha256) ||
+    !SAFE_BASENAME.test(state.artifact.archiveFile) ||
+    !Number.isSafeInteger(state.artifact.archiveBytes) ||
+    state.artifact.archiveBytes <= 0 ||
+    !SHA256.test(state.artifact.archiveSha256) ||
+    !SHA256.test(state.artifact.ptyReceiptSha256) ||
     state.artifact.stationProtocol !== STATION_PROTOCOL ||
     !SHA256.test(state.artifact.manifestSha256) ||
     state.artifact.bundleFiles.length < 4 ||
@@ -905,15 +955,10 @@ const latestState = (
   if (
     commandCenter !== undefined &&
     (
-      !MACHINE_NAME.test(commandCenter.name) ||
-      (
-        state.commandCenterMode === "new-activation-checkpoint" &&
-        commandCenter.name !== names.commandCenter
-      ) ||
+      commandCenter.name !== names.commandCenter ||
       commandCenter.name === names.remote ||
       !MACHINE_ID.test(commandCenter.id) ||
-      !USERNAME.test(commandCenter.username) ||
-      commandCenter.id === state.golden.id
+      !USERNAME.test(commandCenter.username)
     )
   ) {
     throw new Error("qualification evidence has malformed Command Center identity");
@@ -923,11 +968,10 @@ const latestState = (
     (
       remote.name !== names.remote ||
       !MACHINE_ID.test(remote.id) ||
-      !USERNAME.test(remote.username) ||
-      remote.id === state.golden.id
+      !USERNAME.test(remote.username)
     )
   ) {
-    throw new Error("qualification evidence has malformed Remote clone identity");
+    throw new Error("qualification evidence has malformed Remote identity");
   }
   if (
     state.machines.commandCenter !== undefined &&
@@ -1018,26 +1062,28 @@ const validateGuestFacts = async (
   };
 };
 
+const runtimeReleaseId = (artifact: ArtifactIdentity): string =>
+  `${artifact.version}-${artifact.archiveSha256}`;
+
 const verifyPackageAbsent = async (
   executor: CommandExecutor,
   orbctlPath: string,
   machine: RunMachine,
 ): Promise<void> => {
-  const result = await executor.run({
-    executable: orbctlPath,
-    args: [
-      "run",
-      "--machine",
-      machine.name,
-      "/usr/bin/dpkg-query",
-      "--show",
-      "--showformat=${Status}",
-      "vellum",
+  const result = await runGuest(
+    executor,
+    orbctlPath,
+    machine,
+    `prove no userland runtime on ${machine.name}`,
+    "/bin/sh",
+    [
+      "-c",
+      'if [ -d "$HOME/.vellum/runtime/releases" ] && [ "$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 1 -maxdepth 1 2>/dev/null | /usr/bin/wc -l)" != 0 ]; then exit 1; fi; if [ -x "$HOME/.local/bin/vellum-station" ]; then exit 1; fi; exit 0',
     ],
-  });
-  if (result.exitCode === 0 || result.stdout.includes("install ok installed")) {
+  );
+  if (result.exitCode !== 0) {
     throw new Error(
-      `${machine.name} is not pristine: a Vellum package is already installed`,
+      `${machine.name} is not pristine: a Vellum userland runtime is already present`,
     );
   }
 };
@@ -1048,16 +1094,16 @@ const observeInstalledPackage = async (
   machine: RunMachine,
   artifact: ArtifactIdentity,
 ): Promise<Record<string, unknown>> => {
+  const release = runtimeReleaseId(artifact);
   const result = await runGuest(
     executor,
     orbctlPath,
     machine,
-    `observe exact installed package on ${machine.name}`,
-    "/usr/bin/dpkg-query",
+    `observe exact userland runtime on ${machine.name}`,
+    "/bin/sh",
     [
-      "--show",
-      "--showformat=${Package}\\t${Version}\\t${Architecture}\\n",
-      "vellum",
+      "-c",
+      `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${release}"; test -x "$RELEASE/vellum"; test -x "$HOME/.local/bin/vellum-station"; printf 'vellum\t%s\tuserland\n' "${artifact.version}"`,
     ],
   );
   const [packageName, version, architecture] =
@@ -1065,73 +1111,78 @@ const observeInstalledPackage = async (
   if (
     packageName !== "vellum" ||
     version !== artifact.version ||
-    architecture !== "amd64"
+    architecture !== "userland"
   ) {
     throw new Error(
-      `retained Command Center does not run exact package ${artifact.version}; update it through the product update lane before reuse`,
+      `retained Command Center does not run exact userland runtime ${artifact.version}; update it through the product update lane before reuse`,
     );
   }
-  return { packageName, version, architecture };
+  return { packageName, version, architecture, release };
 };
 
 const installPackage = async (
   executor: CommandExecutor,
   orbctlPath: string,
   machine: RunMachine,
-  guestDebPath: string,
+  guestArchivePath: string,
   artifact: ArtifactIdentity,
 ): Promise<Record<string, unknown>> => {
+  const release = runtimeReleaseId(artifact);
+  const packageHash = await runGuest(
+    executor,
+    orbctlPath,
+    machine,
+    `observe staged runtime archive hash on ${machine.name}`,
+    "/usr/bin/sha256sum",
+    [guestArchivePath],
+  );
+  const sha256 = packageHash.stdout.trim().split(/\s+/u)[0];
+  if (sha256 !== artifact.archiveSha256) {
+    throw new Error(`staged archive hash mismatch on ${machine.name}`);
+  }
+  const unit = renderUserlandLinuxService({
+    releaseDirectory: `/home/${machine.username}/.vellum/runtime/releases/${release}`,
+  });
+  const shellQuote = (value: string): string =>
+    `'${value.replace(/'/g, `'\\''`)}'`;
+  const installScript = [
+    "set -eu",
+    "umask 077",
+    'ROOT="$HOME/.vellum/runtime"',
+    `RELEASE_ID="${release}"`,
+    'STAGE="$ROOT/staging/$RELEASE_ID-$$"',
+    'DEST="$ROOT/releases/$RELEASE_ID"',
+    `ARCHIVE=${shellQuote(guestArchivePath)}`,
+    'mkdir -p "$ROOT/releases" "$ROOT/staging" "$HOME/.local/bin" "$HOME/.config/systemd/user"',
+    'mkdir "$STAGE"',
+    '/usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions',
+    `TREE="$STAGE/vellum-runtime-${artifact.version}-linux-x64"`,
+    'test -x "$TREE/vellum"',
+    'mv "$TREE" "$DEST"',
+    'rm -rf -- "$STAGE"',
+    'ln -sfn "$DEST/resources/bin/vellum-station" "$HOME/.local/bin/vellum-station"',
+    'ln -sfn "$DEST/resources/bin/vellum-browser" "$HOME/.local/bin/vellum-browser"',
+    `printf '%s\\n' ${shellQuote(unit)} > "$HOME/.config/systemd/user/vellum-remote.service"`,
+    "/usr/bin/systemctl --user daemon-reload",
+    "/usr/bin/systemctl --user enable --now vellum-remote.service || true",
+    `printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`,
+  ].join("\n");
   await runGuest(
     executor,
     orbctlPath,
     machine,
-    `install exact Vellum package on ${machine.name}`,
-    "/usr/bin/sudo",
-    [
-      "-n",
-      "/usr/bin/apt-get",
-      "install",
-      "-y",
-      "--no-install-recommends",
-      "--",
-      guestDebPath,
-    ],
+    `install exact userland runtime on ${machine.name}`,
+    "/bin/sh",
+    ["-c", installScript],
     { timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS },
   );
-  const [packageIdentity, packageHash] = await Promise.all([
-    runGuest(
-      executor,
-      orbctlPath,
-      machine,
-      `observe package identity on ${machine.name}`,
-      "/usr/bin/dpkg-query",
-      [
-        "--show",
-        "--showformat=${Package}\\t${Version}\\t${Architecture}\\n",
-        "vellum",
-      ],
-    ),
-    runGuest(
-      executor,
-      orbctlPath,
-      machine,
-      `observe staged package hash on ${machine.name}`,
-      "/usr/bin/sha256sum",
-      [guestDebPath],
-    ),
-  ]);
-  const [packageName, version, architecture] =
-    packageIdentity.stdout.trim().split("\t");
-  const sha256 = packageHash.stdout.trim().split(/\s+/u)[0];
-  if (
-    packageName !== "vellum" ||
-    version !== artifact.version ||
-    architecture !== "amd64" ||
-    sha256 !== artifact.debSha256
-  ) {
-    throw new Error(`installed package identity mismatch on ${machine.name}`);
-  }
-  return { packageName, version, architecture, sha256 };
+  return {
+    packageName: "vellum",
+    version: artifact.version,
+    architecture: "userland",
+    sha256,
+    release,
+  };
 };
 
 const startPackagedRuntime = async (
@@ -1255,13 +1306,9 @@ const launchCommandCenterActivation = async (
       "--property=Type=simple",
       "--property=KillMode=control-group",
       "--property=TimeoutStopSec=10s",
-      "/usr/bin/xvfb-run",
-      "-a",
-      "-s",
-      "-screen 0 1280x1024x24 -nolisten tcp",
-      "/opt/Vellum Command/vellum",
-      "--ozone-platform=x11",
-      "--vellum-operator-control",
+      "/bin/sh",
+      "-c",
+      'set -eu; APP=$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --ozone-platform=x11 --vellum-operator-control',
     ],
   );
   return unit;
@@ -1292,14 +1339,9 @@ const launchRemoteQualificationRuntime = async (
       "--property=Type=simple",
       "--property=KillMode=control-group",
       "--property=TimeoutStopSec=10s",
-      "/usr/bin/xvfb-run",
-      "-a",
-      "-s",
-      "-screen 0 1280x1024x24 -nolisten tcp",
-      "/opt/Vellum Command/vellum",
-      "--vellum-headless",
-      "--ozone-platform=x11",
-      "--vellum-operator-control",
+      "/bin/sh",
+      "-c",
+      'set -eu; APP=$(/usr/bin/find "$HOME/.vellum/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --vellum-headless --ozone-platform=x11 --vellum-operator-control',
     ],
   );
   return unit;
@@ -1403,8 +1445,8 @@ const exactDirectoryEntries = async (
 interface ManagedBundleStagingArtifact {
   readonly canonicalBundleDirectory: string;
   readonly bundleFiles: ReadonlyArray<string>;
-  readonly debFile: string;
-  readonly debSha256: string;
+  readonly archiveFile: string;
+  readonly archiveSha256: string;
   readonly manifestSha256: string;
 }
 
@@ -1480,13 +1522,13 @@ const verifyGuestBundleDirectory = async (
       machine,
       "verify fixed-cache package hash",
       "/usr/bin/sha256sum",
-      [path.posix.join(directory, artifact.debFile)],
+      [path.posix.join(directory, artifact.archiveFile)],
     ),
   ]);
   if (
     manifestHash.stdout.trim().split(/\s+/u)[0] !==
       artifact.manifestSha256 ||
-    packageHash.stdout.trim().split(/\s+/u)[0] !== artifact.debSha256
+    packageHash.stdout.trim().split(/\s+/u)[0] !== artifact.archiveSha256
   ) {
     throw new Error("fixed release cache hashes do not match the verified bundle");
   }
@@ -1575,7 +1617,7 @@ export const stageManagedBundle = async (
         absoluteDestination,
         artifact,
       );
-      return path.posix.join(absoluteDestination, artifact.debFile);
+      return path.posix.join(absoluteDestination, artifact.archiveFile);
     }
   }
 
@@ -1695,7 +1737,7 @@ export const stageManagedBundle = async (
     }
     throw error;
   }
-  return path.posix.join(absoluteDestination, artifact.debFile);
+  return path.posix.join(absoluteDestination, artifact.archiveFile);
 };
 
 const prepare = async (
@@ -1730,7 +1772,6 @@ const prepare = async (
   const artifactWithPaths =
     kind === "qualification-candidate"
       ? await inspectQualificationCandidateArtifact({
-          debPath: requiredString(options.debPath, "deb path"),
           bundleDirectory: requiredString(
             options.bundleDirectory,
             "bundle directory",
@@ -1738,7 +1779,6 @@ const prepare = async (
           sourceCommit,
         })
       : await inspectManagedArtifact({
-          debPath: requiredString(options.debPath, "deb path"),
           bundleDirectory: requiredString(
             options.bundleDirectory,
             "bundle directory",
@@ -1746,19 +1786,19 @@ const prepare = async (
           sourceCommit,
         });
   const {
-    canonicalDebPath: _canonicalDebPath,
-    ...artifactWithoutDebPath
+    canonicalArchivePath: _canonicalArchivePath,
+    ...artifactWithoutArchivePath
   } = artifactWithPaths;
   const artifact: ArtifactIdentity = "canonicalBundleDirectory" in
-      artifactWithoutDebPath
+      artifactWithoutArchivePath
     ? (() => {
         const {
           canonicalBundleDirectory: _canonicalBundleDirectory,
           ...identity
-        } = artifactWithoutDebPath;
+        } = artifactWithoutArchivePath;
         return identity;
       })()
-    : artifactWithoutDebPath;
+    : artifactWithoutArchivePath;
   const goldenName = requiredString(
     options.goldenName,
     "golden VM name",
@@ -1984,10 +2024,10 @@ const prepare = async (
     }
 
     const managedArtifact = artifactWithPaths as ArtifactIdentity & {
-      readonly canonicalDebPath: string;
+      readonly canonicalArchivePath: string;
       readonly canonicalBundleDirectory: string;
     };
-    const commandCenterDeb = await stageManagedBundle(
+    const commandCenterArchive = await stageManagedBundle(
       dependencies.executor,
       orbctlPath,
       commandCenter,
@@ -2000,7 +2040,7 @@ const prepare = async (
             dependencies.executor,
             orbctlPath,
             commandCenter,
-            commandCenterDeb,
+            commandCenterArchive,
             artifact,
           )
         : await observeInstalledPackage(
@@ -2374,7 +2414,7 @@ const managedRun = async (
     ): void => {
       if (deploymentResult.status === "authorization-required") {
         throw new Error(
-          `${label} requested administrator authorization; OrbStack qualification requires disposable passwordless sudo`,
+          `${label} requested administrator authorization; userland deploy must not require elevation`,
         );
       }
       if (
@@ -2428,12 +2468,11 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       remote,
-      "observe managed Remote package identity",
-      "/usr/bin/dpkg-query",
+      "observe managed Remote userland runtime",
+      "/bin/sh",
       [
-        "--show",
-        "--showformat=${Package}\\t${Version}\\t${Architecture}\\n",
-        "vellum",
+        "-c",
+        `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/vellum"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
       ],
     );
     const [packageName, packageVersion, architecture] =
@@ -2441,9 +2480,9 @@ const managedRun = async (
     if (
       packageName !== "vellum" ||
       packageVersion !== state.artifact.version ||
-      architecture !== "amd64"
+      architecture !== "userland"
     ) {
-      throw new Error("managed Remote package does not match the candidate");
+      throw new Error("managed Remote userland runtime does not match the candidate");
     }
     const invocationBefore = await runGuest(
       dependencies.executor,
@@ -2712,19 +2751,18 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       remote,
-      "observe package after idempotent redeploy",
-      "/usr/bin/dpkg-query",
+      "observe userland runtime after idempotent redeploy",
+      "/bin/sh",
       [
-        "--show",
-        "--showformat=${Package}\\t${Version}\\t${Architecture}\\n",
-        "vellum",
+        "-c",
+        `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/vellum"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
       ],
     );
     if (
       packageAfterRedeploy.stdout.trim() !==
-        `vellum\t${state.artifact.version}\tamd64`
+        `vellum\t${state.artifact.version}\tuserland`
     ) {
-      throw new Error("idempotent redeploy changed the qualified package");
+      throw new Error("idempotent redeploy changed the qualified userland runtime");
     }
     const commandCenterQualificationStopped =
       await stopUserUnitAndProveInactive(
@@ -3208,12 +3246,11 @@ const observeMachine = async (
       executor,
       orbctlPath,
       machine,
-      `observe package health on ${machine.name}`,
-      "/usr/bin/dpkg-query",
+      `observe userland runtime health on ${machine.name}`,
+      "/bin/sh",
       [
-        "--show",
-        "--showformat=${Package}\\t${Version}\\t${Architecture}\\n",
-        "vellum",
+        "-c",
+        `set -eu; RELEASE="$HOME/.vellum/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/vellum"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`,
       ],
     ),
     runGuest(
@@ -3240,9 +3277,9 @@ const observeMachine = async (
   if (
     packageName !== "vellum" ||
     version !== artifact.version ||
-    architecture !== "amd64"
+    architecture !== "userland"
   ) {
-    throw new Error(`package health mismatch on ${machine.name}`);
+    throw new Error(`userland runtime health mismatch on ${machine.name}`);
   }
   const serviceFields = parseServiceFields(service.stdout, machine.name);
   const station = fixedStatus;
@@ -3345,9 +3382,9 @@ const observe = async (
         sha256: state.artifact.manifestSha256,
       },
       package: {
-        file: state.artifact.debFile,
-        bytes: state.artifact.debBytes,
-        sha256: state.artifact.debSha256,
+        file: state.artifact.archiveFile,
+        bytes: state.artifact.archiveBytes,
+        sha256: state.artifact.archiveSha256,
       },
       stationProtocol: STATION_PROTOCOL,
       installations: {
@@ -3565,7 +3602,7 @@ export const runQualification = async (
 
 const usage = (): string => [
   "Usage:",
-  "  bun run linux:qualify:orbstack -- prepare --run-id ID --evidence-dir DIR --golden-vm NAME --golden-id ID [--command-center-vm NAME --command-center-id ID] --kind qualification-candidate|final-release --deb FILE --bundle DIR --source-commit SHA",
+  "  bun run linux:qualify:orbstack -- prepare --run-id ID --evidence-dir DIR --golden-vm NAME --golden-id ID [--command-center-vm NAME --command-center-id ID] --kind qualification-candidate|final-release --bundle DIR --source-commit SHA",
   "  bun run linux:qualify:orbstack -- run --run-id ID --evidence-dir DIR",
   "  bun run linux:qualify:orbstack -- observe --run-id ID --evidence-dir DIR",
   "  bun run linux:qualify:orbstack -- cleanup --evidence-dir DIR --confirm-run-id ID",
@@ -3603,7 +3640,6 @@ export const parseQualificationArgs = (
     "--golden-id",
     "--command-center-vm",
     "--command-center-id",
-    "--deb",
     "--bundle",
     "--source-commit",
     "--kind",
@@ -3620,8 +3656,7 @@ export const parseQualificationArgs = (
           "--golden-id",
           "--command-center-vm",
           "--command-center-id",
-          "--deb",
-          "--bundle",
+                "--bundle",
           "--source-commit",
           "--kind",
         ]
@@ -3669,9 +3704,6 @@ export const parseQualificationArgs = (
     ...(values.get("--command-center-id") === undefined
       ? {}
       : { commandCenterId: values.get("--command-center-id") }),
-    ...(values.get("--deb") === undefined
-      ? {}
-      : { debPath: values.get("--deb") }),
     ...(values.get("--bundle") === undefined
       ? {}
       : { bundleDirectory: values.get("--bundle") }),
