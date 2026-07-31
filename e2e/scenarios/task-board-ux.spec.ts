@@ -100,7 +100,24 @@ test("task board supports creation, operator responses, layered status, and body
 
     await board.getByRole("button", { name: "New task" }).click();
     const creator = page.getByRole("dialog", { name: "Create task" });
-    await creator.getByPlaceholder("What needs doing?").fill("Audit release authority");
+    const titleInput = creator.getByPlaceholder("What needs doing?");
+    await expect(titleInput).toBeFocused();
+    await titleInput.pressSequentially("Audit");
+
+    // A work-plane write emits the same canvas projection notification that
+    // used to flush and blur the active task input. The caret must stay in the
+    // creator while the board receives that live update.
+    await page.evaluate(async () => {
+      const api = window.vellum!;
+      const canvas = (await api.listCanvases())[0];
+      if (!canvas) throw new Error("No canvas available for focus regression");
+      const result = await api.workTaskCreate(canvas.name, "tasks", "Background projection update");
+      if (!result.ok) throw new Error(result.message);
+    });
+    await expect(board.getByText("Background projection update", { exact: true })).toBeVisible();
+    await expect(titleInput).toBeFocused();
+    await expect(titleInput).toHaveValue("Audit");
+    await titleInput.pressSequentially(" release authority");
     await creator.getByPlaceholder("e.g. Security Agent").fill("Security Agent");
     await creator
       .getByPlaceholder(/Describe the context/)

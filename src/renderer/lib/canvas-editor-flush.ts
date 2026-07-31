@@ -9,6 +9,25 @@ export { runCanvasAuthoringOperation } from "./mutations";
 
 type DraftCommit = () => void;
 
+type ActiveElement = Pick<HTMLElement, "blur"> & {
+  /** Optional so the flush boundary remains unit-testable without a DOM. */
+  readonly closest?: (selectors: string) => unknown;
+};
+
+const FOCUS_SURFACE_SELECTOR = "[data-focus-surface='1']";
+
+/**
+ * External canvas notifications also flush local editors. Work surfaces are
+ * part of that notification path, but their inputs are not canvas editors:
+ * blurring one would move the caret every time a task or request projection
+ * changes underneath the open dialog.
+ */
+export const shouldBlurCanvasFlushTarget = (element: ActiveElement | null): boolean => {
+  if (!element) return false;
+  const closest = element.closest;
+  return typeof closest !== "function" || !closest.call(element, FOCUS_SURFACE_SELECTOR);
+};
+
 // Most canvas editors commit on blur. Editors that intentionally cannot do
 // that (for example a modal with an explicit discard action) register their
 // live commit boundary here so navigation and native quit can still make the
@@ -23,7 +42,7 @@ export const registerCanvasDraftCommit = (commit: DraftCommit): (() => void) => 
 };
 
 export const commitCanvasEditorDrafts = (
-  activeElement: Pick<HTMLElement, "blur"> | null =
+  activeElement: ActiveElement | null =
     typeof document === "undefined" ? null : document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null,
@@ -39,7 +58,9 @@ export const commitCanvasEditorDrafts = (
   }
 
   try {
-    activeElement?.blur();
+    if (activeElement && shouldBlurCanvasFlushTarget(activeElement)) {
+      activeElement.blur();
+    }
   } catch (error) {
     firstError ??= error;
   }

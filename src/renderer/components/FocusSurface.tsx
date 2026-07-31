@@ -94,6 +94,7 @@ export function FocusSurface({
   const root = (
     <div
       ref={rootRef}
+      data-focus-surface="1"
       className={[
         "focus-surface",
         `focus-surface--layer-${layer}`,
