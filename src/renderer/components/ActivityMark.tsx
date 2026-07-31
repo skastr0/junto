@@ -1,8 +1,7 @@
-import { GradientSpin, type SpinPattern } from "gradient-spin";
+import type { CSSProperties } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   ACTIVITY_TONE_HEX,
-  houseGradientStops,
   type ActivityMode,
   type ActivitySize,
   type ActivitySpec,
@@ -19,8 +18,16 @@ const SIZE: Record<
   inline: { rows: 3, cols: 3, cellSize: 3, cellGap: 2 },
 };
 
-// Package default. The 2.2s first ship made each phase a discrete pop.
-const WAVE_PERIOD_MS = 750;
+const CLOCKWISE_CELLS = [
+  [1, 1],
+  [1, 2],
+  [1, 3],
+  [2, 3],
+  [3, 3],
+  [3, 2],
+  [3, 1],
+  [2, 1],
+] as const;
 
 export type ActivityMarkProps = {
   readonly mode: ActivityMode;
@@ -29,8 +36,6 @@ export type ActivityMarkProps = {
   readonly label: string;
   readonly size?: ActivitySize;
   readonly className?: string;
-  /** Wavefront shape when mode=wave. Default "snake" (house established). */
-  readonly pattern?: SpinPattern;
   /** When false, never animate (caller may also pass mode=static). */
   readonly active?: boolean;
 };
@@ -49,7 +54,6 @@ export function ActivityMarkFromSpec({
     <ActivityMark
       mode={spec.mode}
       tone={spec.tone}
-      pattern={spec.pattern}
       label={spec.label}
       size={size}
       className={className}
@@ -59,14 +63,13 @@ export function ActivityMarkFromSpec({
 
 /**
  * Canvas activity indicator.
- * wave  → monochrome gradient-spin trail (pattern per spec, snake by default)
+ * wave  → deterministic clockwise perimeter trail
  * static → single filled dot of the same tone
  * No visible text — label is aria-only.
  *
- * First ship looked bad for config reasons, not snake itself:
- * - period 2200ms → discrete pops (demo is 750ms linear)
- * - colorBy "path" → each cell unique color + sequential light = strobe
- * - snake + colorBy "row" + 750ms = continuous trail like the demo
+ * Pattern remains in the activity contract for semantic compatibility, but
+ * the visible motion is deliberately invariant: clockwise always reads as
+ * activity instead of making operators decode several traversal grammars.
  */
 export function ActivityMark({
   mode,
@@ -74,7 +77,6 @@ export function ActivityMark({
   label,
   size = "node",
   className,
-  pattern = "snake",
   active = true,
 }: ActivityMarkProps) {
   const surfaceLive = use$(surfaceMotionLive$);
@@ -124,30 +126,37 @@ export function ActivityMark({
     );
   }
 
-  // Key remounts the spin when severity color or pattern changes so gradient
-  // cells never keep a previous tone (working cyan → attention amber must
-  // flip clean, not leave a muddy mid-trail).
   return (
     <span
+      role="status"
+      aria-label={label}
       className={className}
-      style={{ display: "inline-flex", flexShrink: 0, lineHeight: 0, verticalAlign: "middle" }}
+      style={{
+        display: "inline-grid",
+        gridTemplateColumns: `repeat(3, ${String(dims.cellSize)}px)`,
+        gridTemplateRows: `repeat(3, ${String(dims.cellSize)}px)`,
+        gap: dims.cellGap,
+        flexShrink: 0,
+        lineHeight: 0,
+        verticalAlign: "middle",
+      }}
       title={label}
     >
-      <GradientSpin
-        key={`${tone}:${pattern}`}
-        gradient={[...houseGradientStops(tone)]}
-        pattern={pattern}
-        rows={dims.rows}
-        cols={dims.cols}
-        cellSize={dims.cellSize}
-        cellGap={dims.cellGap}
-        cellRadius={1}
-        period={WAVE_PERIOD_MS}
-        dim={0}
-        colorBy="row"
-        label={label}
-        respectReducedMotion
-      />
+      {CLOCKWISE_CELLS.map(([row, column], step) => (
+        <span
+          key={`${String(row)}:${String(column)}`}
+          className="vellum-activity-clock-cell"
+          style={{
+            gridRow: row,
+            gridColumn: column,
+            width: dims.cellSize,
+            height: dims.cellSize,
+            borderRadius: 1,
+            backgroundColor: hex,
+            "--activity-clock-step": step,
+          } as CSSProperties}
+        />
+      ))}
     </span>
   );
 }

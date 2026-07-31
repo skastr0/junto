@@ -146,8 +146,12 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
   const everyMinutes = node.ether?.timer?.everyMinutes;
   const activity = timerActivity({ nextFire, now });
   return (
-    <div className="flex h-full w-full flex-col justify-between overflow-hidden">
-      <div>
+    <div className="factory-timer flex h-full w-full items-center gap-3 overflow-hidden">
+      <span className="factory-timer__dial" aria-hidden="true">
+        <span />
+      </span>
+      <div className="factory-timer__copy min-w-0 flex-1">
+        <div>
         <div className="flex items-center gap-2">
           <ActivityMarkFromSpec spec={activity} />
           <span
@@ -165,10 +169,10 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
           {rawName}
         </div>
       </div>
-      <div
-        className="text-[10px] leading-snug tabular-nums"
-        style={{ color: DIM }}
-      >
+        <div
+          className="mt-1 text-[10px] leading-snug tabular-nums"
+          style={{ color: DIM }}
+        >
         {/* Countdown numbers are content, not status labels. */}
         <div>{nextFire ? formatCountdown(nextFire, now) : "—"}</div>
         {everyMinutes ? (
@@ -176,6 +180,7 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
             every {everyMinutes}m
           </div>
         ) : null}
+        </div>
       </div>
     </div>
   );
@@ -308,7 +313,7 @@ function EntityCard({
 
   return (
     <div
-      className="flex h-full w-full flex-col justify-between overflow-hidden"
+      className="factory-agent-card flex h-full w-full flex-col justify-between overflow-hidden"
       data-exit-reason={managed ? exitReason : undefined}
     >
       <div>
@@ -569,6 +574,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       }
       onMaximize={isFreeNote ? openMaximized : undefined}
       inlineEdit={!isHerdr && !managedTerminal}
+      resizable={!isAgent}
       toolbarExtras={
         isHerdr ? (
           <HerdrToolbarActions node={node} />

@@ -33,11 +33,13 @@ import {
 } from "../lib/impact-mode";
 import { markViewportBusy, releaseViewportBusy, viewportBusy$ } from "../lib/viewport-busy";
 import { nodeTitle } from "../lib/presentation";
+import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
+import "../styles/factory-grammar.css";
 import {
   makeArtifactsNode,
   makeBoardNode,
@@ -821,7 +823,7 @@ function CanvasFieldTools() {
   // This position is shared with the persistent launch context while the deck
   // is open, so its region default describes the same next-agent placement.
   const agentPosition = useMemo(
-    () => nextPosition({ width: 260, height: 110 }),
+    () => nextPosition(AGENT_NODE_SIZE),
     // Recompute only when the deck opens; do not make folder/host interaction
     // shift the containing-region decision underneath the operator.
     [open],
@@ -863,7 +865,7 @@ function ContextModeDeck({ at, onClose }: { readonly at: { x: number; y: number 
     return { x: Math.round(point.x - size.width / 2), y: Math.round(point.y - size.height / 2) };
   };
   const actions = makeAddActions(positionFor, onClose);
-  const agentPosition = positionFor({ width: 260, height: 110 });
+  const agentPosition = positionFor(AGENT_NODE_SIZE);
   return <ModeDeckFocus actions={actions} agentPosition={agentPosition} onClose={onClose} />;
 }
 

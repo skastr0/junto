@@ -6,6 +6,7 @@ import {
   type ExecutionGraphContext,
 } from "@shared/execution-graph";
 import type { ExecutionSnapshot } from "@shared/ipc";
+import { AGENT_NODE_SIZE } from "./node-geometry";
 import { nodeTitle, searchText } from "./presentation";
 
 export type NodeData = {
@@ -13,11 +14,20 @@ export type NodeData = {
   blocked: boolean;
 };
 
+/** Renderer-only edge grammar. Durable edge meaning remains in CanvasEdge. */
+export type EdgeVisualRole =
+  | "task-flow"
+  | "request-flow"
+  | "artifact-flow"
+  | "scheduler-flow"
+  | "soft-relation";
+
 export type EdgeData = {
   edge: CanvasEdge;
   rippling: boolean;
   phase: EdgePhase;
   detail: string;
+  visualRole: EdgeVisualRole;
   /** Selection impact mode: in-cone only (outsiders stay unset; CSS dims). */
   impact?: "in";
 };
@@ -52,6 +62,36 @@ export const createFlowIdentityCache = (): FlowIdentityCache => ({
   edges: new Map(),
 });
 
+const entityKind = (node: CanvasNode | undefined): string | undefined =>
+  node?.ether?.entity?.kind;
+
+/**
+ * Pair-aware visual projection. This is intentionally not a canvas contract:
+ * drawing or deleting the same edge keeps exactly the same product authority.
+ */
+export const edgeVisualRole = (
+  edge: CanvasEdge,
+  source: CanvasNode | undefined,
+  target: CanvasNode | undefined,
+): EdgeVisualRole => {
+  const from = entityKind(source);
+  const to = entityKind(target);
+  const connects = (a: string, b: string): boolean =>
+    (from === a && to === b) || (from === b && to === a);
+  // Resting construction describes the connected pair, not authored
+  // direction. Direction remains meaningful for authority and event travel.
+  if (connects("task", "agent")) return "task-flow";
+  if (connects("agent", "requests")) return "request-flow";
+  if (connects("agent", "artifacts")) return "artifact-flow";
+  if (
+    edge.ether?.effect &&
+    (from === "cron" || from === "timer" || from === "gauge" || from === "watcher" || from === "relay")
+  ) {
+    return "scheduler-flow";
+  }
+  return "soft-relation";
+};
+
 // CanvasDoc -> React Flow. Optional kernel execution overlay carries the
 // main-process phase snapshot so the canvas does not re-derive it.
 // Optional identity cache reuses prior FlowNode/FlowEdge objects when the
@@ -63,6 +103,7 @@ export const toFlow = (
   execution?: ExecutionOverlay | null,
   cache?: FlowIdentityCache,
 ): { nodes: FlowNode[]; edges: FlowEdge[] } => {
+  const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
   // Lazy fallback: only derive offline graph when the live overlay is absent
   // (or incomplete for a given edge). Avoids walking the full graph on every
   // kernel tick that already supplies phase/blocked.
@@ -95,12 +136,15 @@ export const toFlow = (
       return cached;
     }
     const isGroup = node.type === "group";
+    const visualSize = entityKind(node) === "agent"
+      ? AGENT_NODE_SIZE
+      : { width: node.width, height: node.height };
     const flowNode: FlowNode = {
       id: node.id,
       type: node.type,
       position: { x: node.x, y: node.y },
       data: { node, blocked: isBlocked },
-      style: { width: node.width, height: node.height },
+      style: visualSize,
       zIndex: isGroup ? 0 : 1,
       connectable: !isGroup,
       ariaLabel: nodeTitle(node),
@@ -123,6 +167,11 @@ export const toFlow = (
     const phase = phaseOf(edge.id);
     const detail = detailOf(edge.id);
     const rippling = blockedEdgeIds.has(edge.id);
+    const visualRole = edgeVisualRole(
+      edge,
+      nodeById.get(edge.fromNode),
+      nodeById.get(edge.toNode),
+    );
     const cached = cache?.edges.get(edge.id);
     // Hit on *source* doc edge ref + live phase inputs — never compare against
     // the projected edge (which always remints ether/label).
@@ -131,7 +180,8 @@ export const toFlow = (
       cached.source === edge &&
       cached.flow.data?.phase === phase &&
       cached.flow.data?.detail === detail &&
-      cached.flow.data?.rippling === rippling
+      cached.flow.data?.rippling === rippling &&
+      cached.flow.data?.visualRole === visualRole
     ) {
       return cached.flow;
     }
@@ -155,6 +205,7 @@ export const toFlow = (
         rippling,
         phase,
         detail,
+        visualRole,
       },
       zIndex: 2,
     };

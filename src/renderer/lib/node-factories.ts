@@ -12,6 +12,7 @@ import type { HarnessId } from "@shared/managed-terminal-templates";
 import { templateFor } from "@shared/managed-terminal-templates";
 import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 import { isValidStationHostId } from "@shared/station";
+import { AGENT_NODE_SIZE } from "./node-geometry";
 
 const requireHostId = (value: string): string => {
   const host = value.trim();
@@ -150,8 +151,8 @@ export const makeManagedAgentNode = (
     text: label,
     x: Math.round(x),
     y: Math.round(y),
-    width: 260,
-    height: 110,
+    width: AGENT_NODE_SIZE.width,
+    height: AGENT_NODE_SIZE.height,
     ether: {
       entity: { kind: "agent", name: agentKey },
       host,

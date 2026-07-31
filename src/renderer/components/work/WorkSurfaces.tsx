@@ -61,8 +61,10 @@ export const stateHue = (state: TaskState): string => {
       return HUE.crimson;
     case "canceled":
       return DIM;
+    case "submitted":
+      return DIM;
     default:
-      return HUE.gold;
+      return DIM;
   }
 };
 
@@ -77,8 +79,8 @@ export function TasksCard({ node }: { readonly node: CanvasNode }) {
     (t) => t.state === "input-required" || t.state === "auth-required" || t.state === "working",
   );
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden" data-testid="tasks-card">
-      <div className="flex items-center justify-between gap-2">
+    <div className="factory-glance factory-glance--tasks flex h-full w-full flex-col overflow-hidden" data-testid="tasks-card">
+      <div className="factory-glance__header flex items-center justify-between gap-2">
         <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
           tasks{role ? ` · ${role}` : ""}
         </span>
@@ -91,14 +93,15 @@ export function TasksCard({ node }: { readonly node: CanvasNode }) {
           {needsInput > 0 ? ` · ${needsInput} need input` : ""}
         </span>
       </div>
-      <div className="mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
+      <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {(hotItems.length > 0 ? hotItems : items.filter((t) => !isTerminalTaskState(t.state)))
           .slice(0, 4)
           .map((item) => (
             <div
               key={item.id}
-              className="truncate text-[10px] leading-snug"
+              className="factory-glance__row factory-glance__row--task truncate text-[10px] leading-snug"
               style={{ color: INK }}
+              data-state={item.state}
               data-attention={
                 item.state === "input-required" || item.state === "auth-required" ? "fire" : "idle"
               }
@@ -107,7 +110,7 @@ export function TasksCard({ node }: { readonly node: CanvasNode }) {
             </div>
           ))}
         {items.length === 0 ? (
-          <div className="text-[9px]" style={{ color: DIM }}>
+          <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
             empty
           </div>
         ) : null}
@@ -120,8 +123,8 @@ export function RequestsCard({ node }: { readonly node: CanvasNode }) {
   const items = node.ether?.requests?.items ?? [];
   const pending = items.filter((t) => t.state === "input-required").length;
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden" data-testid="requests-card">
-      <div className="flex items-center justify-between gap-2">
+    <div className="factory-glance factory-glance--requests flex h-full w-full flex-col overflow-hidden" data-testid="requests-card">
+      <div className="factory-glance__header flex items-center justify-between gap-2">
         <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
           requests
         </span>
@@ -129,9 +132,9 @@ export function RequestsCard({ node }: { readonly node: CanvasNode }) {
           {pending} pending
         </span>
       </div>
-      <div className="mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
+      <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {items.slice(0, 4).map((item) => (
-          <div key={item.id} className="truncate text-[10px] leading-snug" style={{ color: INK }}>
+          <div key={item.id} className="factory-glance__row factory-glance__row--request truncate text-[10px] leading-snug" style={{ color: INK }} data-state={item.state}>
             <span style={{ color: stateHue(item.state) }}>●</span> {taskBrief(item)}
           </div>
         ))}
@@ -144,8 +147,8 @@ export function BoardCard({ node }: { readonly node: CanvasNode }) {
   const topics = node.ether?.board?.topics ?? [];
   const unread = node.ether?.board?.unread ?? 0;
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden" data-testid="board-card">
-      <div className="flex items-center justify-between gap-2">
+    <div className="factory-glance factory-glance--board flex h-full w-full flex-col overflow-hidden" data-testid="board-card">
+      <div className="factory-glance__header flex items-center justify-between gap-2">
         <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
           board
         </span>
@@ -158,14 +161,14 @@ export function BoardCard({ node }: { readonly node: CanvasNode }) {
           {unread > 0 ? ` · ${unread} new` : ""}
         </span>
       </div>
-      <div className="mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
+      <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {topics.slice(0, 4).map((topic) => (
-          <div key={topic.topicId} className="truncate text-[10px] leading-snug" style={{ color: INK }}>
-            · {topic.title}
+          <div key={topic.topicId} className="factory-glance__row factory-glance__row--topic truncate text-[10px] leading-snug" style={{ color: INK }}>
+            {topic.title}
           </div>
         ))}
         {topics.length === 0 ? (
-          <div className="text-[9px]" style={{ color: DIM }}>
+          <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
             quiet
           </div>
         ) : null}
@@ -177,8 +180,8 @@ export function BoardCard({ node }: { readonly node: CanvasNode }) {
 export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
   const items = node.ether?.artifacts?.items ?? [];
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden" data-testid="artifacts-card">
-      <div className="flex items-center justify-between gap-2">
+    <div className="factory-glance factory-glance--artifacts flex h-full w-full flex-col overflow-hidden" data-testid="artifacts-card">
+      <div className="factory-glance__header flex items-center justify-between gap-2">
         <span className="text-[8px] uppercase tracking-[0.18em]" style={{ color: "#68604a" }}>
           artifacts
         </span>
@@ -186,9 +189,9 @@ export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
           {items.length}
         </span>
       </div>
-      <div className="mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
+      <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {items.slice(0, 4).map((item) => (
-          <div key={item.artifactId} className="truncate text-[10px]" style={{ color: INK }}>
+          <div key={item.artifactId} className="factory-glance__row factory-glance__row--artifact truncate text-[10px]" style={{ color: INK }}>
             {item.name?.trim() || item.artifactId}
           </div>
         ))}

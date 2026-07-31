@@ -22,7 +22,7 @@ export type ActivitySize = "node" | "inline";
 export interface ActivitySpec {
   readonly mode: ActivityMode;
   readonly tone: ActivityTone;
-  /** Wavefront shape when mode is "wave" (gradient-spin). Default at the mark: "snake". */
+  /** Legacy semantic nuance; the mark now renders every active state clockwise. */
   readonly pattern?: SpinPattern;
   /** Accessible name only — never rendered as chrome text. */
   readonly label: string;

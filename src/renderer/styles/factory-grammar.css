@@ -1,0 +1,147 @@
+/* Implementation-near factory grammar. This module is imported only by the
+   canvas and never participates in durable canvas meaning.
+
+   Attention law:
+   - construction identifies kind;
+   - color identifies state;
+   - motion identifies activity or transition;
+   - decorative craft stays quiet enough to be discovered, never announced. */
+.vellum-node[data-node-kind="agent"] { border-radius: 7px 11px 11px 7px; }
+.factory-agent-card:not(:has([data-testid="claimed-task"])) {
+  justify-content: center;
+}
+.vellum-node[data-node-kind="task"] { border-radius: 8px 4px 4px 8px; }
+.vellum-node[data-node-kind="requests"] { border-radius: 4px 9px 9px 4px; }
+.vellum-node[data-node-kind="artifacts"] {
+  border-radius: 3px;
+  background: linear-gradient(135deg, rgba(25,23,20,.88), rgba(12,11,10,.96)) !important;
+}
+.vellum-node[data-node-kind="board"] { border-radius: 5px; }
+.vellum-node[data-node-kind="cron"], .vellum-node[data-node-kind="timer"] { border-radius: 7px 11px 11px 7px; }
+
+.factory-glance__header { min-height: 12px; }
+.factory-glance__list { position: relative; }
+.factory-glance__row {
+  position: relative;
+  min-height: 16px;
+  padding: 2px 0;
+}
+.factory-glance__row--artifact {
+  color: var(--color-ink-2) !important;
+  padding-left: 12px;
+}
+.factory-glance__row--artifact::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 6px;
+  height: 8px;
+  border: 1px solid rgba(200,192,176,.44);
+  border-radius: 1px;
+}
+.factory-glance__row--topic { padding-left: 10px; }
+.factory-glance__row--topic::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  width: 4px;
+  height: 4px;
+  border: 1px solid rgba(143,163,176,.3);
+  border-radius: 50%;
+}
+.factory-glance__empty { padding: 3px 0; }
+
+.factory-timer__dial {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border: 1px solid rgba(143,163,176,.2);
+  border-radius: 50%;
+  background:
+    repeating-conic-gradient(rgba(143,163,176,.2) 0 1deg, transparent 1deg 45deg),
+    rgba(143,163,176,.025);
+  box-shadow: inset 0 0 0 5px var(--color-raise-2);
+}
+.factory-timer__dial::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 1px solid rgba(237,230,218,.09);
+  border-radius: inherit;
+}
+.factory-timer__dial span {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  width: 1px;
+  height: 11px;
+  background: rgba(143,163,176,.46);
+  transform: rotate(108deg);
+  transform-origin: 50% 100%;
+}
+
+.vellum-edge__rail-bed {
+  opacity: .13;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+path.vellum-edge {
+  transition:
+    stroke 420ms cubic-bezier(.22,.61,.36,1),
+    opacity 240ms ease-out;
+}
+path.vellum-edge--soft-relation { stroke-dasharray: 1.5 5; }
+path.vellum-edge--artifact-flow { stroke-dasharray: 1 3; }
+.vellum-edge__signal {
+  pointer-events: none;
+  stroke-linecap: square;
+}
+.vellum-edge__signal--task-flow { stroke-width: 1.1; stroke-dasharray: 3 9; opacity: .5; }
+.vellum-edge__signal--request-flow { stroke-width: 3; stroke-dasharray: .65 10.45; opacity: .46; }
+.vellum-edge__signal--scheduler-flow { stroke-width: 2.2; stroke-dasharray: .7 8.3; opacity: .4; }
+.vellum-edge__interruption {
+  pointer-events: none;
+  stroke: var(--color-crimson);
+  stroke-width: 3;
+  stroke-linecap: square;
+  stroke-dasharray: 4 96;
+  stroke-dashoffset: -58;
+  filter: drop-shadow(0 0 3px rgba(229,72,77,.5));
+}
+.vellum-edge__flare {
+  pointer-events: none;
+  stroke: var(--color-crimson);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-dasharray: 1.6 98.4;
+  filter: drop-shadow(0 0 2px rgba(229,72,77,.64));
+  animation: factory-edge-arrival 760ms cubic-bezier(.22,.61,.36,1) both;
+}
+.vellum-edge__arrival-ring {
+  pointer-events: none;
+  fill: none;
+  stroke: var(--color-crimson);
+  stroke-width: 1;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: factory-edge-arrival-ring 300ms 610ms ease-out both;
+}
+@keyframes factory-edge-arrival {
+  0% { stroke-dashoffset: 0; opacity: 0; }
+  10% { opacity: .9; }
+  84% { opacity: .9; }
+  100% { stroke-dashoffset: -100; opacity: 0; }
+}
+@keyframes factory-edge-arrival-ring {
+  from { opacity: .72; transform: scale(.55); }
+  to { opacity: 0; transform: scale(2.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vellum-edge__arrival { display: none; }
+  path.vellum-edge { transition: none; }
+}

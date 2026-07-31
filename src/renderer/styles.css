@@ -1591,6 +1591,19 @@ html[data-surface-motion="paused"] *::after {
 }
 
 /* StatusDot live pulse — opacity only (never filter/box-shadow animation). */
+.vellum-activity-clock-cell {
+  opacity: .1;
+  transform: scale(.82);
+  animation: vellumActivityClock 720ms linear infinite;
+  animation-delay: calc(var(--activity-clock-step) * 90ms);
+}
+
+@keyframes vellumActivityClock {
+  0% { opacity: 1; transform: scale(1); }
+  14% { opacity: .48; transform: scale(.94); }
+  42%, 100% { opacity: .1; transform: scale(.82); }
+}
+
 .vellum-status-dot-pulse {
   animation: vellumStatusDotPulse 2.4s ease-in-out infinite;
 }

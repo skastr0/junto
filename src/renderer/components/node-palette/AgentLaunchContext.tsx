@@ -6,6 +6,7 @@ import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import { state$ } from "../../lib/state";
 import { getVellumApi } from "../../lib/vellum-api";
+import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import {
   actorHostChoicesFromEnrollment,
   type AgentHostChoice,
@@ -16,8 +17,6 @@ import {
   RegionDefaultFolderOption,
   savePathAsRegionDefault,
 } from "./RegionDefaultFolderOption";
-
-const AGENT_SIZE = { width: 260, height: 110 } as const;
 
 export type AgentLaunchContextValue = {
   readonly host: string;
@@ -53,8 +52,8 @@ const configuredHost = (): AgentHostChoice => {
 };
 
 const centerOf = (position: AgentLaunchContextProps["position"]) => ({
-  x: position.x + AGENT_SIZE.width / 2,
-  y: position.y + AGENT_SIZE.height / 2,
+  x: position.x + AGENT_NODE_SIZE.width / 2,
+  y: position.y + AGENT_NODE_SIZE.height / 2,
 });
 
 /**

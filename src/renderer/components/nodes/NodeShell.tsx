@@ -218,6 +218,7 @@ export function NodeShell({
   openTitle,
   toolbarExtras,
   inlineEdit = true,
+  resizable = true,
   children,
 }: {
   readonly node: CanvasNode;
@@ -233,6 +234,8 @@ export function NodeShell({
   // so the corner pencil can't collide with card chrome. The NodeActions
   // toolbar pencil still appears — it shares the same onEdit.
   readonly inlineEdit?: boolean;
+  /** Fixed-geometry instruments (actors) do not expose meaningless resizing. */
+  readonly resizable?: boolean;
   readonly children: ReactNode;
 }) {
   // Live herdr meta: agent_status blocked paints shell chrome without a doc flag.
@@ -328,6 +331,7 @@ export function NodeShell({
   return (
     <div
       className={`vellum-node group relative flex h-full w-full flex-col overflow-visible rounded-[10px] px-3.5 py-3 ${shellBlocked ? "vellum-blocker" : ""}`}
+      data-node-kind={node.ether?.entity?.kind ?? node.type}
       data-blocked={shellBlocked ? "true" : undefined}
       data-herdr-blocked={liveHerdrBlocked ? "true" : undefined}
       data-seat-attention={liveSeatAttention ? "true" : undefined}
@@ -339,15 +343,17 @@ export function NodeShell({
         boxShadow: shadow,
       }}
     >
-      <NodeResizer
-        isVisible={selected}
-        minWidth={170}
-        minHeight={72}
-        color={accent}
-        handleClassName="vellum-resize-handle"
-        lineClassName="vellum-resize-line"
-        onResizeEnd={(_event, params) => resizeNode(node.id, params)}
-      />
+      {resizable ? (
+        <NodeResizer
+          isVisible={selected}
+          minWidth={170}
+          minHeight={72}
+          color={accent}
+          handleClassName="vellum-resize-handle"
+          lineClassName="vellum-resize-line"
+          onResizeEnd={(_event, params) => resizeNode(node.id, params)}
+        />
+      ) : null}
       {onEdit && inlineEdit ? (
         <button
           className="vellum-node__edit nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-dim transition hover:bg-white/10 hover:text-ink"

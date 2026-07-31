@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import { use$ } from "@legendapp/state/react";
 import type { ActivitySpec } from "../../lib/activity";
+import { surfaceMotionLive$ } from "../../lib/surface-motion";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 
 /**
@@ -19,6 +21,8 @@ export function ExecutionCardHeader({
   readonly subtitle?: ReactNode;
   readonly activity: ActivitySpec;
 }) {
+  const surfaceLive = use$(surfaceMotionLive$);
+  const animated = activity.mode === "wave" && surfaceLive;
   return (
     <div className="flex items-center gap-2">
       {decal}
@@ -34,7 +38,16 @@ export function ExecutionCardHeader({
           <div className="truncate text-[11px] text-dim">{subtitle}</div>
         ) : null}
       </div>
-      <ActivityMarkFromSpec spec={activity} />
+      {animated ? (
+        <ActivityMarkFromSpec spec={activity} />
+      ) : (
+        <span
+          role="status"
+          aria-label={activity.label}
+          title={activity.label}
+          className="sr-only"
+        />
+      )}
     </div>
   );
 }
