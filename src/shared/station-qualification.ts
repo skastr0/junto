@@ -44,6 +44,15 @@ export const StationQualificationPackageFile = Schema.String.pipe(
 export type StationQualificationPackageFile =
   typeof StationQualificationPackageFile.Type;
 
+export const StationQualificationPackageBytes = Schema.Int.pipe(
+  Schema.positive(),
+  Schema.filter(Number.isSafeInteger, {
+    message: () => "package bytes must be a positive safe integer",
+  }),
+);
+export type StationQualificationPackageBytes =
+  typeof StationQualificationPackageBytes.Type;
+
 export const StationQualificationEvidenceFile = Schema.Literal(
   STATION_QUALIFICATION_EVIDENCE_FILE,
 );
@@ -59,6 +68,7 @@ export type StationQualificationSignedManifest =
 
 const PackageBinding = Schema.Struct({
   file: StationQualificationPackageFile,
+  bytes: StationQualificationPackageBytes,
   sha256: StationQualificationSha256,
 });
 export type StationQualificationPackage = typeof PackageBinding.Type;
@@ -122,17 +132,24 @@ const QualificationPhases = Schema.Struct({
 });
 export type StationQualificationPhases = typeof QualificationPhases.Type;
 
-export const StationQualificationHealthResult = Schema.Struct({
+export const StationQualificationCommandCenterHealthResult = Schema.Struct({
+  appProcess: Schema.Literal("running"),
+  station: Schema.Literal("ready"),
+});
+export type StationQualificationCommandCenterHealthResult =
+  typeof StationQualificationCommandCenterHealthResult.Type;
+
+export const StationQualificationRemoteHealthResult = Schema.Struct({
   package: Schema.Literal("installed"),
   service: Schema.Literal("running"),
   station: Schema.Literal("ready"),
 });
-export type StationQualificationHealthResult =
-  typeof StationQualificationHealthResult.Type;
+export type StationQualificationRemoteHealthResult =
+  typeof StationQualificationRemoteHealthResult.Type;
 
 const QualificationHealth = Schema.Struct({
-  commandCenter: StationQualificationHealthResult,
-  remote: StationQualificationHealthResult,
+  commandCenter: StationQualificationCommandCenterHealthResult,
+  remote: StationQualificationRemoteHealthResult,
 });
 export type StationQualificationHealth = typeof QualificationHealth.Type;
 
@@ -140,6 +157,8 @@ export const StationQualificationSecurityResult = Schema.Struct({
   rendererSandbox: Schema.Literal("active"),
   rendererNoNewPrivileges: Schema.Literal(true),
   rendererSeccomp: Schema.Literal("filtering"),
+  userNamespaceIsolation: Schema.Literal(true),
+  controlMaterialOwnerOnly: Schema.Literal(true),
   vellumTcpListeners: Schema.Literal(0),
 });
 export type StationQualificationSecurityResult =

@@ -19,7 +19,11 @@ const nativePlatform = () => ({
   architecture: "x64" as const,
   virtualization: "orbstack" as const,
 });
-const health = () => ({
+const commandCenterHealth = () => ({
+  appProcess: "running" as const,
+  station: "ready" as const,
+});
+const remoteHealth = () => ({
   package: "installed" as const,
   service: "running" as const,
   station: "ready" as const,
@@ -28,6 +32,8 @@ const security = () => ({
   rendererSandbox: "active" as const,
   rendererNoNewPrivileges: true as const,
   rendererSeccomp: "filtering" as const,
+  userNamespaceIsolation: true as const,
+  controlMaterialOwnerOnly: true as const,
   vellumTcpListeners: 0 as const,
 });
 
@@ -41,6 +47,7 @@ const qualified = () => ({
   },
   package: {
     file: "Vellum Command-0.1.5-x64-linux.deb",
+    bytes: 252_000_000,
     sha256: hash("2"),
   },
   stationProtocol: 3,
@@ -65,8 +72,8 @@ const qualified = () => ({
     idempotentRedeploy: "passed" as const,
   },
   health: {
-    commandCenter: health(),
-    remote: health(),
+    commandCenter: commandCenterHealth(),
+    remote: remoteHealth(),
   },
   security: {
     commandCenter: security(),
@@ -97,6 +104,7 @@ describe("two-installation Station qualification contract", () => {
         file: Schema.decodeUnknownSync(StationQualificationPackageFile)(
           "Vellum Command-0.1.5-x64-linux.deb",
         ),
+        bytes: 252_000_000,
         sha256: Schema.decodeUnknownSync(StationQualificationSha256)(hash("2")),
       },
     });
@@ -135,6 +143,14 @@ describe("two-installation Station qualification contract", () => {
     ).service = "failed";
     expect(Either.isLeft(decodeStationQualification(unhealthy))).toBe(true);
 
+    const commandCenterService = qualified();
+    (
+      commandCenterService.health.commandCenter as Record<string, unknown>
+    ).service = "running";
+    expect(
+      Either.isLeft(decodeStationQualification(commandCenterService)),
+    ).toBe(true);
+
     const unsandboxed = qualified();
     (
       unsandboxed.security.commandCenter as {
@@ -143,6 +159,26 @@ describe("two-installation Station qualification contract", () => {
     ).rendererSandbox = "disabled";
     expect(Either.isLeft(decodeStationQualification(unsandboxed))).toBe(true);
 
+    const ambientUserNamespace = qualified();
+    (
+      ambientUserNamespace.security.remote as {
+        userNamespaceIsolation: boolean;
+      }
+    ).userNamespaceIsolation = false;
+    expect(
+      Either.isLeft(decodeStationQualification(ambientUserNamespace)),
+    ).toBe(true);
+
+    const exposedControlMaterial = qualified();
+    (
+      exposedControlMaterial.security.commandCenter as {
+        controlMaterialOwnerOnly: boolean;
+      }
+    ).controlMaterialOwnerOnly = false;
+    expect(
+      Either.isLeft(decodeStationQualification(exposedControlMaterial)),
+    ).toBe(true);
+
     const listening = qualified();
     (
       listening.security.remote as {
@@ -150,6 +186,19 @@ describe("two-installation Station qualification contract", () => {
       }
     ).vellumTcpListeners = 1;
     expect(Either.isLeft(decodeStationQualification(listening))).toBe(true);
+  });
+
+  it("binds the exact positive safe-integer package size", () => {
+    for (const bytes of [
+      0,
+      -1,
+      1.5,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      const receipt = qualified();
+      receipt.package.bytes = bytes;
+      expect(Either.isLeft(decodeStationQualification(receipt))).toBe(true);
+    }
   });
 
   it("requires two distinct installations running the same app version", () => {
