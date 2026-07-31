@@ -1121,7 +1121,8 @@ html[data-surface-motion="paused"] *::after {
   transform: none;
 }
 /* Impact-mode filter/opacity transitions are especially expensive mid-pan. */
-.react-flow.is-viewport-busy.impact-mode .react-flow__node {
+.react-flow.is-viewport-busy.impact-mode .react-flow__node,
+.react-flow.is-viewport-busy.connection-focus-mode .react-flow__node {
   transition: none !important;
   filter: none;
 }
@@ -1129,17 +1130,20 @@ html[data-surface-motion="paused"] *::after {
   transition: none !important;
 }
 
-/* Selection impact mode — default-dim under .impact-mode; only in/lead stamped. */
-.react-flow.impact-mode .react-flow__node {
+/* Focus modes — default-dim outsiders; only in/lead members are stamped. */
+.react-flow.impact-mode .react-flow__node,
+.react-flow.connection-focus-mode .react-flow__node {
   opacity: 0.22;
   filter: saturate(0.35);
   transition: opacity 0.18s ease, filter 0.18s ease;
 }
-.react-flow.impact-mode .react-flow__node.impact-lead {
+.react-flow.impact-mode .react-flow__node.impact-lead,
+.react-flow.connection-focus-mode .react-flow__node.impact-lead {
   opacity: 0.72;
   filter: saturate(0.85);
 }
-.react-flow.impact-mode .react-flow__node.impact-in {
+.react-flow.impact-mode .react-flow__node.impact-in,
+.react-flow.connection-focus-mode .react-flow__node.impact-in {
   opacity: 1;
   filter: none;
 }
@@ -1149,20 +1153,34 @@ html[data-surface-motion="paused"] *::after {
     0 0 18px rgba(229, 72, 77, 0.22),
     0 12px 30px rgba(0, 0, 0, 0.22);
 }
+.react-flow.connection-focus-mode .react-flow__node.impact-root .vellum-node {
+  box-shadow:
+    0 0 0 1px rgba(57, 198, 214, 0.48),
+    0 0 18px rgba(57, 198, 214, 0.22),
+    0 12px 30px rgba(0, 0, 0, 0.22);
+}
 .react-flow.impact-mode .react-flow__node.impact-in:not(.impact-root) .vellum-node {
   box-shadow:
     0 0 0 1px rgba(229, 72, 77, 0.22),
     0 10px 28px rgba(0, 0, 0, 0.18);
 }
+.react-flow.connection-focus-mode .react-flow__node.impact-in:not(.impact-root) .vellum-node {
+  box-shadow:
+    0 0 0 1px rgba(57, 198, 214, 0.26),
+    0 10px 28px rgba(0, 0, 0, 0.18);
+}
 /* Inline edge opacity loses without !important; default-dim outsiders only. */
-.react-flow.impact-mode .react-flow__edge:not(.impact-edge-in) {
+.react-flow.impact-mode .react-flow__edge:not(.impact-edge-in),
+.react-flow.connection-focus-mode .react-flow__edge:not(.impact-edge-in) {
   opacity: 0.12 !important;
   pointer-events: none;
 }
-.react-flow.impact-mode .react-flow__edge.impact-edge-in {
+.react-flow.impact-mode .react-flow__edge.impact-edge-in,
+.react-flow.connection-focus-mode .react-flow__edge.impact-edge-in {
   opacity: 1;
 }
-.react-flow.impact-mode .vellum-edge-label:not(.vellum-edge-label--impact-in) {
+.react-flow.impact-mode .vellum-edge-label:not(.vellum-edge-label--impact-in),
+.react-flow.connection-focus-mode .vellum-edge-label:not(.vellum-edge-label--impact-in) {
   opacity: 0.2;
   pointer-events: none;
 }
@@ -1241,7 +1259,8 @@ html[data-surface-motion="paused"] *::after {
   white-space: nowrap;
 }
 @media (prefers-reduced-motion: reduce) {
-  .react-flow.impact-mode .react-flow__node {
+  .react-flow.impact-mode .react-flow__node,
+  .react-flow.connection-focus-mode .react-flow__node {
     transition: none;
   }
 }

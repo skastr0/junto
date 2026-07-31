@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { FolderOpen, Lock, Pencil, ScrollText, Trash2 } from "lucide-react";
+import { Crosshair, FolderOpen, Lock, Pencil, ScrollText, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { resizeNode } from "../../lib/geometry";
-import { state$ } from "../../lib/state";
+import { state$, toggleConnectionFocus } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
 import { RegionPathsModal } from "../RegionPathsModal";
 import { IconButton, ToolbarPill } from "../ui";
@@ -17,12 +17,16 @@ function RegionToolbar({
   onEdit,
   onPaths,
   hasPaths,
+  connectionFocused,
+  onToggleFocus,
 }: {
   readonly nodeId: string;
   readonly selected: boolean;
   readonly onEdit: () => void;
   readonly onPaths: () => void;
   readonly hasPaths: boolean;
+  readonly connectionFocused: boolean;
+  readonly onToggleFocus: () => void;
 }) {
   // pointerdown stopPropagation keeps RF from starting a drag; action on click
   // so Enter/Space on focused IconButton still fires (pointerdown-only is keyboard-dead).
@@ -48,6 +52,19 @@ function RegionToolbar({
         onClick={(event) => { stopDrag(event); onPaths(); }}
       >
         <FolderOpen size={14} />
+      </IconButton>
+      <IconButton
+        className="nodrag nopan"
+        aria-label={connectionFocused ? "Clear node focus" : "Focus node"}
+        aria-pressed={connectionFocused}
+        title={connectionFocused ? "clear connection focus" : "focus node connections"}
+        data-testid="node-toolbar-focus"
+        data-focused={connectionFocused ? "true" : "false"}
+        style={connectionFocused ? { color: HUE.cyan } : undefined}
+        onPointerDown={stopDrag}
+        onClick={(event) => { stopDrag(event); onToggleFocus(); }}
+      >
+        <Crosshair size={14} />
       </IconButton>
       <IconButton
         className="nodrag nopan"
@@ -88,6 +105,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const hasPaths = Boolean(
     pathMap && Object.values(pathMap).some((p) => typeof p === "string" && p.trim().length > 0),
   );
+  const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === node.id);
 
   useEffect(() => {
     if (!editing) return;
@@ -115,6 +133,8 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       onEdit={() => setEditing(true)}
       onPaths={() => setPathsOpen(true)}
       hasPaths={hasPaths}
+      connectionFocused={connectionFocused}
+      onToggleFocus={() => toggleConnectionFocus(node.id)}
     />
     <div className="absolute left-2 top-2 flex items-center gap-1">
       <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} />

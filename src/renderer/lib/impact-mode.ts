@@ -15,7 +15,7 @@ import {
 } from "@shared/execution-graph";
 import { impactCone, type ImpactCone } from "@shared/impact";
 
-/** True while the open canvas is painting a stoppage cone. CanvasGraph
+/** True while the open canvas is painting a stoppage or connection cone. CanvasGraph
  * subscribes to this boolean only — never to doc/execution — so kernel ticks
  * do not re-render React Flow just to keep `.impact-mode` in sync. */
 export const impactModeActive$ = observable(false);
@@ -115,6 +115,60 @@ export const selectionImpact = (
   const seedLabel = `${cone.nodeIds.size} in cone · ${primary}${extra}`;
 
   return { active: true, cone, seedLabel };
+};
+
+/**
+ * Derive a presentational focus cone for a node's immediate neighborhood.
+ *
+ * This deliberately ignores execution phase: the operator is asking which
+ * authored edges touch this node, not which work is currently blocked. The
+ * same shell classes and opacity treatment as stoppage impact are reused by
+ * the canvas so the two views read as one focus mechanism.
+ */
+export const connectionFocusSelection = (
+  doc: CanvasDoc,
+  rootNodeId: string,
+): ImpactSelection => {
+  if (!rootNodeId || !doc.nodes.some((node) => node.id === rootNodeId)) {
+    return {
+      active: false,
+      cone: {
+        rootId: rootNodeId,
+        seedReasons: [],
+        nodeIds: new Set(),
+        edgeIds: new Set(),
+        attentionLeadIds: new Set(),
+        pathToSeed: () => [],
+      },
+      seedLabel: "",
+    };
+  }
+
+  const nodeIds = new Set<string>([rootNodeId]);
+  const edgeIds = new Set<string>();
+  for (const edge of doc.edges) {
+    if (edge.fromNode !== rootNodeId && edge.toNode !== rootNodeId) continue;
+    edgeIds.add(edge.id);
+    nodeIds.add(edge.fromNode === rootNodeId ? edge.toNode : edge.fromNode);
+  }
+
+  const connectedCount = nodeIds.size - 1;
+  const edgeCount = edgeIds.size;
+  const connectedLabel = `${connectedCount} connected`;
+  const edgeLabel = `${edgeCount} edge${edgeCount === 1 ? "" : "s"}`;
+  const cone: ImpactCone = {
+    rootId: rootNodeId,
+    seedReasons: [],
+    nodeIds,
+    edgeIds,
+    attentionLeadIds: new Set(),
+    pathToSeed: () => [],
+  };
+  return {
+    active: true,
+    cone,
+    seedLabel: `${connectedLabel} · ${edgeLabel}`,
+  };
 };
 
 /**

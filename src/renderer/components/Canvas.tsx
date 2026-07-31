@@ -26,6 +26,7 @@ import { createFlowIdentityCache, searchText, toFlow } from "../lib/convert";
 import {
   edgeImpactClass,
   edgeImpactRole,
+  connectionFocusSelection,
   impactModeActive$,
   nodeImpactClass,
   selectionImpact,
@@ -106,6 +107,24 @@ const currentExecutionGraphContext = () =>
     state$.actorRefs.peek(),
   );
 
+const selectionForCanvas = (
+  selectedNodeId: string,
+  context: ReturnType<typeof currentExecutionGraphContext>,
+): ImpactSelection => {
+  const connectionFocusNodeId = state$.connectionFocusNodeId.peek();
+  if (connectionFocusNodeId) {
+    return connectionFocusSelection(state$.doc.peek(), connectionFocusNodeId);
+  }
+  return selectedNodeId
+    ? selectionImpact(
+        state$.doc.peek(),
+        selectedNodeId,
+        kernel$.execution.peek(),
+        context,
+      )
+    : selectionImpact(state$.doc.peek(), "", null, context);
+};
+
 const projectRuntimeFlagOverrides = (
   doc: CanvasDoc,
   overrides: Readonly<
@@ -139,14 +158,7 @@ function stampImpactShell(
   selectedEdgeId: string,
 ): { nodes: FlowNode[]; edges: FlowEdge[]; impact: ImpactSelection } {
   const context = currentExecutionGraphContext();
-  const impact = selectedNodeId
-    ? selectionImpact(
-        state$.doc.peek(),
-        selectedNodeId,
-        kernel$.execution.peek(),
-        context,
-      )
-    : selectionImpact(state$.doc.peek(), "", null, context);
+  const impact = selectionForCanvas(selectedNodeId, context);
   if (impactModeActive$.peek() !== impact.active) impactModeActive$.set(impact.active);
   return {
     impact,
@@ -318,14 +330,7 @@ function useCanvasDocument(
       const selectedNodeId = state$.selectedNodeId.peek();
       const selectedEdgeId = state$.selectedEdgeId.peek();
       const context = currentExecutionGraphContext();
-      const impact: ImpactSelection = selectedNodeId
-        ? selectionImpact(
-            state$.doc.peek(),
-            selectedNodeId,
-            kernel$.execution.peek(),
-            context,
-          )
-        : selectionImpact(state$.doc.peek(), "", null, context);
+      const impact: ImpactSelection = selectionForCanvas(selectedNodeId, context);
       if (impactModeActive$.peek() !== impact.active) impactModeActive$.set(impact.active);
 
       setNodes((nodes) => {
@@ -377,6 +382,7 @@ function useCanvasDocument(
     const offs = [
       state$.selectedNodeId.onChange(syncSelection),
       state$.selectedEdgeId.onChange(syncSelection),
+      state$.connectionFocusNodeId.onChange(syncSelection),
       viewportBusy$.onChange(() => {
         if (!viewportBusy$.peek() && pendingSelection) syncSelection();
       }),
@@ -583,6 +589,13 @@ function useCanvasInteractions(
     // click is the explicit deselection gesture; do not erase an inspector
     // selection from an internal remount event.
     if (selectedNodes.length === 0 && selectedEdges.length === 0) return;
+    const nextSelectedNodeId = selectedNodes.length === 1 ? selectedNodes[0]?.id ?? "" : "";
+    if (
+      state$.connectionFocusNodeId.peek() &&
+      state$.connectionFocusNodeId.peek() !== nextSelectedNodeId
+    ) {
+      state$.connectionFocusNodeId.set("");
+    }
     // Mirror the full RF set for Ctrl+N / command card multi-actions.
     state$.selectedNodeIds.set(selectedNodes.map((node) => node.id));
     // A rubber-band multi-selection has no single inspector subject; keep the
@@ -592,7 +605,7 @@ function useCanvasInteractions(
       state$.selectedEdgeId.set("");
       return;
     }
-    state$.selectedNodeId.set(selectedNodes[0]?.id ?? "");
+    state$.selectedNodeId.set(nextSelectedNodeId);
     state$.selectedEdgeId.set(selectedNodes.length === 0 ? selectedEdges[0]?.id ?? "" : "");
   }, []);
   const onPaneClick = useCallback((event: React.MouseEvent) => {
@@ -600,6 +613,7 @@ function useCanvasInteractions(
       state$.selectedNodeId.set("");
       state$.selectedNodeIds.set([]);
       state$.selectedEdgeId.set("");
+      state$.connectionFocusNodeId.set("");
       return;
     }
     if (event.detail !== 2) return;
@@ -1087,6 +1101,7 @@ function useCanvasGraph() {
 /** Isolated so selection/execution ticks do not re-render React Flow. */
 function ImpactSeedChip() {
   const selectedNodeId = use$(state$.selectedNodeId);
+  const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
   const docVersion = use$(state$.docVersion);
   const executionRev = use$(kernel$.executionRev);
   const canvasName = use$(state$.canvasName);
@@ -1096,21 +1111,19 @@ function ImpactSeedChip() {
       canvasName,
       actorRefs,
     );
-    return selectedNodeId
-      ? selectionImpact(
-          state$.doc.peek(),
-          selectedNodeId,
-          kernel$.execution.peek(),
-          context,
-        )
-      : selectionImpact(state$.doc.peek(), "", null, context);
-  }, [actorRefs, canvasName, selectedNodeId, docVersion, executionRev]);
+    return selectionForCanvas(selectedNodeId, context);
+  }, [actorRefs, canvasName, connectionFocusNodeId, selectedNodeId, docVersion, executionRev]);
   if (!impact.active) return null;
   return (
     <Panel position="top-left" className="impact-hud-panel">
-      <div className="impact-hud" role="status" aria-live="polite" title="Stoppage impact cone for selection">
+      <div
+        className="impact-hud"
+        role="status"
+        aria-live="polite"
+        title={connectionFocusNodeId ? "Focused node connections" : "Stoppage impact cone for selection"}
+      >
         <span className="impact-hud__mark" aria-hidden />
-        <span className="impact-hud__eyebrow">impact</span>
+        <span className="impact-hud__eyebrow">{connectionFocusNodeId ? "focus" : "impact"}</span>
         <span className="impact-hud__label">{impact.seedLabel}</span>
       </div>
     </Panel>
@@ -1232,6 +1245,7 @@ function CanvasGraph() {
   }, [interactions.onPaneClick, closeMenus]);
   // Boolean only — flips when a cone appears/clears, not on every kernel tick.
   const impactMode = use$(impactModeActive$);
+  const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
   // Viewport freeze: boolean flip at gesture edges only (never per-frame setState).
   // Does not unmount MiniMap/Background — chrome stays live.
   const viewportBusy = use$(viewportBusy$);
@@ -1252,7 +1266,7 @@ function CanvasGraph() {
     <ReactFlow
       className={[
         connecting ? "is-connecting" : "",
-        impactMode ? "impact-mode" : "",
+        impactMode ? (connectionFocusNodeId ? "connection-focus-mode" : "impact-mode") : "",
         viewportBusy ? "is-viewport-busy" : "",
       ].filter(Boolean).join(" ") || undefined}
       nodes={nodes}

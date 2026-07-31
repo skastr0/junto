@@ -3,6 +3,7 @@ import { Handle, NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import {
   Ban,
+  Crosshair,
   ExternalLink,
   LocateFixed,
   Maximize2,
@@ -17,7 +18,7 @@ import { isExecutableNode } from "@shared/station";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
 import { resizeNode } from "../../lib/geometry";
 import { deleteNode, toggleFlag } from "../../lib/mutations";
-import { state$ } from "../../lib/state";
+import { state$, toggleConnectionFocus } from "../../lib/state";
 import { ensurePauseState, nodePausedIn, pause$, setScopePaused } from "../../lib/pause-state";
 import { herdr$ } from "../../lib/herdr-state";
 import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-state";
@@ -68,6 +69,7 @@ function NodeActions({
   // Toolbar toggle only mutates the document flag. Live herdr blocked paints
   // crimson but clear still means "clear flag" (or no-op if flag absent).
   const chromeBlocker = flagBlocker || liveHerdrBlocked;
+  const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === node.id);
   const title = flagBlocker
     ? "clear blocker flag"
     : liveHerdrBlocked
@@ -131,6 +133,26 @@ function NodeActions({
           </IconButton>
         ) : null}
         {toolbarExtras}
+        <IconButton
+          className="nodrag nopan"
+          aria-label={connectionFocused ? "Clear node focus" : "Focus node"}
+          aria-pressed={connectionFocused}
+          title={connectionFocused ? "clear connection focus" : "focus node connections"}
+          data-testid="node-toolbar-focus"
+          data-focused={connectionFocused ? "true" : "false"}
+          style={connectionFocused ? { color: HUE.cyan } : undefined}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleConnectionFocus(node.id);
+          }}
+        >
+          <Crosshair size={14} />
+        </IconButton>
         {cause ? (
           <IconButton
             className="nodrag nopan"

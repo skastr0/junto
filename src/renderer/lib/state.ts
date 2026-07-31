@@ -29,6 +29,10 @@ export const state$ = observable({
   // command card can read it. Presentational; never persisted.
   selectedNodeIds: [] as ReadonlyArray<string>,
   selectedEdgeId: "",
+  // Presentational connection-focus target. Unlike focusNodeId (a one-shot
+  // camera request), this stays set while the operator inspects one node's
+  // neighborhood and is never persisted to the canvas document.
+  connectionFocusNodeId: "",
   focusNodeId: "",
   // Presentational hotbar order of any node ids for slots 1–9.
   // Fully controlled: empty until operator assigns (⌘1–9 / slot cue).
@@ -79,6 +83,7 @@ export const toggleFlagFilter = (flag: EtherFlag): void => {
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
+    state$.connectionFocusNodeId.set("");
   });
 };
 
@@ -89,6 +94,7 @@ export const clearGraphFilters = (): void => {
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
+    state$.connectionFocusNodeId.set("");
   });
 };
 
@@ -98,5 +104,13 @@ export const clearSelection = (): void => {
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
+    state$.connectionFocusNodeId.set("");
   });
+};
+
+/** Toggle the presentational focus cone for one node's direct connections. */
+export const toggleConnectionFocus = (nodeId: string): void => {
+  state$.connectionFocusNodeId.set(
+    state$.connectionFocusNodeId.peek() === nodeId ? "" : nodeId,
+  );
 };

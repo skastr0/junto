@@ -85,6 +85,7 @@ const resetCanvasView = (): void => {
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
+    state$.connectionFocusNodeId.set("");
     state$.focusNodeId.set("");
     state$.regionSlotOrder.set([]);
     state$.regionSeverityByNodeId.set({});
