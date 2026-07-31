@@ -150,6 +150,27 @@ export const feedVersionUnbricks = (
   return compareSemver(feedVersion, currentVersion) > 0;
 };
 
+/** Operator-facing copy only — no schema versions, binaries, or feed jargon. */
+const SCHEMA_TOO_NEW_TITLE = "Update required";
+const SCHEMA_TOO_NEW_MESSAGE = "A newer version of Vellum is required";
+const SCHEMA_TOO_NEW_DETAIL = [
+  "Your data was last saved by a newer version of Vellum.",
+  "This version cannot open it.",
+  "",
+  "Update to the latest Vellum, then open the app again.",
+].join("\n");
+
+const diagnosticDetail = (
+  compatibility: Extract<SchemaCompatibility, { readonly ok: false }>,
+  appVersion: string,
+): string =>
+  [
+    `schema user_version=${compatibility.userVersion}`,
+    `supported=${compatibility.supportedVersion}`,
+    `appVersion=${appVersion}`,
+    `path=${compatibility.path}`,
+  ].join(" ");
+
 export const runStartupSchemaRecovery = async (input: {
   readonly compatibility: Extract<
     SchemaCompatibility,
@@ -171,48 +192,38 @@ export const runStartupSchemaRecovery = async (input: {
     headless,
   } = input;
 
-  const detail = [
-    `Installed data schema: v${compatibility.userVersion}`,
-    `This app build supports up to: v${compatibility.supportedVersion}`,
-    `Running version: ${appVersion}`,
-    "",
-    "A newer Vellum already advanced your local database. This older binary cannot open it,",
-    "and normal auto-update never gets a chance to finish while startup crashes.",
-    "",
-    "Install the latest release from the update feed, then reopen Vellum.",
-  ].join("\n");
+  const diagnostic = diagnosticDetail(compatibility, appVersion);
 
   if (headless) {
-    console.error(`[startup] schema too new for this binary\n${detail}`);
+    console.error(`[startup] schema too new for this app (${diagnostic})`);
     return { action: "quit", reason: "schema-newer-than-supported-headless" };
   }
 
+  const ui = input.dialog ?? defaultDialog();
+
+  // Unpackaged builds cannot install from the update feed; same copy, Quit only.
   if (!isPackaged) {
-    console.error(`[startup] schema too new for this binary (dev)\n${detail}`);
-    const ui = input.dialog ?? defaultDialog();
+    console.error(`[startup] schema too new for this app (${diagnostic})`);
     await ui.showMessageBox({
       type: "error",
       buttons: ["Quit"],
       defaultId: 0,
       cancelId: 0,
-      title: "Vellum cannot open",
-      message: "Local data was written by a newer Vellum",
-      detail:
-        detail +
-        "\n\nDevelopment builds cannot self-update. Install/run a packaged build that matches the database.",
+      title: SCHEMA_TOO_NEW_TITLE,
+      message: SCHEMA_TOO_NEW_MESSAGE,
+      detail: SCHEMA_TOO_NEW_DETAIL,
     });
     return { action: "quit", reason: "schema-newer-than-supported-dev" };
   }
 
-  const ui = input.dialog ?? defaultDialog();
   const choice = await ui.showMessageBox({
     type: "error",
-    buttons: ["Install update and restart", "Open download page", "Quit"],
+    buttons: ["Update now", "Download latest", "Quit"],
     defaultId: 0,
     cancelId: 2,
-    title: "Vellum update required",
-    message: "This install is too old for your data",
-    detail,
+    title: SCHEMA_TOO_NEW_TITLE,
+    message: SCHEMA_TOO_NEW_MESSAGE,
+    detail: SCHEMA_TOO_NEW_DETAIL,
   });
 
   if (choice.response === 2) {
@@ -231,25 +242,25 @@ export const runStartupSchemaRecovery = async (input: {
     return { action: "quit", reason: "opened-download-page" };
   }
 
-  // Install update and restart
+  // Update now — download from feed and restart into the newer app.
   const updater = input.updater ?? defaultUpdater();
   try {
     updater.configureFeed(feed);
     const downloaded = await updater.checkForUpdates();
     if (!feedVersionUnbricks(appVersion, downloaded?.version)) {
+      console.error(
+        `[startup] no newer update on feed (${diagnostic} feed=${downloaded?.version ?? "none"})`,
+      );
       await ui.showMessageBox({
         type: "error",
         buttons: ["Quit"],
         defaultId: 0,
         cancelId: 0,
-        title: "No newer update on the feed",
-        message: "The update feed has nothing newer than this build",
+        title: "Could not update",
+        message: "No newer version is available yet",
         detail: [
-          `Running: ${appVersion}`,
-          `Feed reported: ${downloaded?.version ?? "(none)"}`,
-          "",
-          "Your database still needs a newer app. Reinstall from the latest",
-          "notarized build, or publish a higher version to the feed.",
+          "Your data still needs a newer Vellum.",
+          "Download the latest release from the website, then open that version.",
         ].join("\n"),
       });
       return { action: "quit", reason: "feed-has-no-newer-version" };
@@ -261,14 +272,16 @@ export const runStartupSchemaRecovery = async (input: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    console.error(`[startup] schema recovery update failed: ${message}`);
     await ui.showMessageBox({
       type: "error",
       buttons: ["Quit"],
       defaultId: 0,
       cancelId: 0,
-      title: "Update install failed",
-      message: "Could not download or install the update",
-      detail: message,
+      title: "Could not update",
+      message: "The update could not be installed",
+      detail:
+        "Check your network connection and try again, or download the latest Vellum from the website.",
     });
     return { action: "quit", reason: `update-failed:${message}` };
   }
