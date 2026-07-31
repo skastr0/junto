@@ -1,60 +1,32 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { FileTree, useFileTree } from "@pierre/trees/react";
-import { ArrowUp, RefreshCw } from "lucide-react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { ArrowUp, ChevronRight, Folder, RefreshCw } from "lucide-react";
 import type { HostDirectorySnapshot } from "@shared/host-directory";
+import {
+  bestDirectoryCompletion,
+  directoryFromDraft,
+  joinHostPath,
+  matchDirectoryEntries,
+  parseDirectoryDraft,
+  trimTrailingSlash,
+} from "../../lib/directory-picker";
 import { getVellumApi } from "../../lib/vellum-api";
 import { Button, IconButton, Input } from "../ui";
 
-const TREE_STYLE = {
-  height: "220px",
-  "--trees-bg-override": "#0d0e0d",
-  "--trees-bg-muted-override": "#171816",
-  "--trees-fg-override": "#d9d4c8",
-  "--trees-fg-muted-override": "#77736a",
-  "--trees-accent-override": "#39c6d6",
-  "--trees-border-color-override": "#30312d",
-  "--trees-selected-bg-override": "#27251f",
-  "--trees-font-family-override":
-    '"SFMono-Regular", "Cascadia Code", "Roboto Mono", monospace',
-  "--trees-font-size-override": "11px",
-  "--trees-density-override": "0.85",
-} as CSSProperties;
+/** Typing a path settles before the listing follows it. */
+const NAVIGATE_DEBOUNCE_MS = 180;
 
-function DirectoryPageTree({
-  snapshot,
-  onOpen,
-}: {
-  readonly snapshot: HostDirectorySnapshot;
-  readonly onOpen: (path: string) => void;
-}) {
-  const paths = snapshot.entries.map((entry) =>
-    `${entry.name}${entry.kind === "directory" ? "/" : ""}`
-  );
-  const { model } = useFileTree({
-    paths,
-    initialExpansion: "open",
-    onSelectionChange: (selectedPaths) => {
-      const selected = selectedPaths.at(-1);
-      if (!selected) return;
-      const entry = snapshot.entries.find((candidate) =>
-        candidate.name === selected
-      );
-      if (entry?.kind === "directory") onOpen(entry.path);
-    },
-    unsafeCSS: `
-      :host { color-scheme: dark; }
-      button[data-type='item'] { border-radius: 4px; }
-    `,
-  });
+/** Inside a folder the input ends in a separator, so nothing reads as a filter. */
+const asBrowsingDraft = (root: string): string =>
+  root.endsWith("/") ? root : `${root}/`;
 
-  return (
-    <FileTree
-      model={model}
-      aria-label={`Folders in ${snapshot.root}`}
-      style={TREE_STYLE}
-    />
-  );
-}
+const isAbsoluteish = (path: string): boolean =>
+  path.startsWith("/") || path.startsWith("~");
 
 export function HostDirectoryPicker({
   hostId,
@@ -69,8 +41,13 @@ export function HostDirectoryPicker({
   const [snapshot, setSnapshot] = useState<HostDirectorySnapshot>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [activePath, setActivePath] = useState<string>();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const suggestRange = useRef<readonly [number, number] | undefined>(undefined);
+  const requested = useRef("");
 
   const load = async (path: string) => {
+    requested.current = path.trim() || "~";
     const api = getVellumApi();
     if (!api?.hostDirectoryRead) {
       setError("Host filesystem browser is unavailable.");
@@ -81,21 +58,102 @@ export function HostDirectoryPicker({
     try {
       const next = await api.hostDirectoryRead(hostId, path.trim() || "~");
       setSnapshot(next);
-      setDraft(next.root);
-      onSelect(next.root);
+      setActivePath(undefined);
+      return next;
     } catch (reason) {
       setSnapshot(undefined);
       setError(reason instanceof Error ? reason.message : String(reason));
+      return undefined;
     } finally {
       setLoading(false);
     }
   };
 
+  /** Move into a folder: the input follows the listing, not the other way. */
+  const openDirectory = (path: string) => {
+    setDraft(asBrowsingDraft(path));
+    void load(path).then((next) => {
+      if (next) setDraft(asBrowsingDraft(next.root));
+    });
+  };
+
   useEffect(() => {
-    void load(initialPath?.trim() || "~");
+    void load(initialPath?.trim() || "~").then((next) => {
+      if (next) setDraft(asBrowsingDraft(next.root));
+    });
     // This component is keyed by host + inherited seed. Navigation is local.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const { dir, query } = useMemo(() => parseDirectoryDraft(draft), [draft]);
+  const selectedPath = directoryFromDraft(draft, snapshot);
+
+  /**
+   * A folder named outright is a selection, not a filter — the listing keeps
+   * its shape and highlights the row instead of collapsing to one line.
+   */
+  const filter = selectedPath && selectedPath !== snapshot?.root ? "" : query;
+  const rows = useMemo(
+    () => matchDirectoryEntries(snapshot?.entries ?? [], filter),
+    [snapshot, filter],
+  );
+
+  /** A typed path is followed once it settles; a typed word only filters. */
+  useEffect(() => {
+    if (!isAbsoluteish(dir)) return;
+    const target = trimTrailingSlash(dir);
+    if (snapshot && target === snapshot.root) return;
+    if (requested.current === target) return;
+    const timer = setTimeout(() => void load(target), NAVIGATE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+    // `load` is re-created every render and would restart the debounce on each
+    // keystroke's re-render; the typed directory is the only real trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dir, snapshot?.root]);
+
+  /** Whatever the input names is what "create agent" gets — or nothing. */
+  useEffect(() => {
+    onSelect(selectedPath ?? "");
+    // Reporting is keyed to the selection alone: an `onSelect` the parent
+    // re-creates must not re-announce a selection that never changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPath]);
+
+  useLayoutEffect(() => {
+    const range = suggestRange.current;
+    if (!range) return;
+    suggestRange.current = undefined;
+    inputRef.current?.setSelectionRange(range[0], range[1]);
+  });
+
+  /** Inline typeahead: complete the word, leave the completion selected. */
+  const suggest = (typed: string, caret: number) => {
+    if (!snapshot) return;
+    const parsed = parseDirectoryDraft(typed);
+    if (parsed.dir !== "" && trimTrailingSlash(parsed.dir) !== snapshot.root) {
+      return;
+    }
+    if (caret !== typed.length) return;
+    const match = bestDirectoryCompletion(snapshot.entries, parsed.query);
+    if (!match) return;
+    const completed = joinHostPath(parsed.dir || snapshot.root, match.name);
+    suggestRange.current = [typed.length, completed.length];
+    setDraft(completed);
+  };
+
+  const moveActive = (step: number) => {
+    if (rows.length === 0) return;
+    const current = rows.findIndex((entry) => entry.path === activePath);
+    const next = current < 0
+      ? (step > 0 ? 0 : rows.length - 1)
+      : (current + step + rows.length) % rows.length;
+    const entry = rows[next];
+    if (!entry) return;
+    setActivePath(entry.path);
+    setDraft(entry.path);
+  };
+
+  const highlighted = activePath ?? selectedPath;
 
   return (
     <div className="grid min-h-0 gap-2 normal-case tracking-normal">
@@ -103,16 +161,36 @@ export function HostDirectoryPicker({
         className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          void load(draft);
+          const target = selectedPath ?? draft;
+          openDirectory(trimTrailingSlash(target.trim()));
         }}
       >
         <Input
+          ref={inputRef}
           aria-label="Agent working directory"
           value={draft}
           spellCheck={false}
           autoComplete="off"
           placeholder="~/Projects/project"
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            const typed = event.target.value;
+            const caret = event.target.selectionStart ?? typed.length;
+            const inserting =
+              (event.nativeEvent as InputEvent).inputType?.startsWith("insert")
+                ?? typed.length > draft.length;
+            setActivePath(undefined);
+            setDraft(typed);
+            if (inserting) suggest(typed, caret);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              moveActive(1);
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              moveActive(-1);
+            }
+          }}
         />
         <IconButton
           type="button"
@@ -120,7 +198,7 @@ export function HostDirectoryPicker({
           title="Parent directory"
           disabled={loading || snapshot?.parent === undefined}
           onClick={() => {
-            if (snapshot?.parent) void load(snapshot.parent);
+            if (snapshot?.parent) openDirectory(snapshot.parent);
           }}
         >
           <ArrowUp size={14} />
@@ -146,27 +224,68 @@ export function HostDirectoryPicker({
             {error}
           </div>
         ) : null}
-        {snapshot ? (
-          <DirectoryPageTree
-            key={snapshot.root}
-            snapshot={snapshot}
-            onOpen={(path) => void load(path)}
-          />
+        {snapshot && !error ? (
+          <ul
+            aria-label={`Folders in ${snapshot.root}`}
+            className="grid max-h-[220px] gap-px overflow-y-auto p-1 font-mono text-[11px]"
+          >
+            {rows.map((entry) => (
+              <li key={entry.path}>
+                <div
+                  className={[
+                    "group flex items-center gap-1 rounded-[4px] pr-1",
+                    entry.path === highlighted
+                      ? "bg-raise text-ink"
+                      : "text-ink-2 hover:bg-raise/60",
+                  ].join(" ")}
+                >
+                  <button
+                    type="button"
+                    aria-label={`Select ${entry.name}`}
+                    aria-current={entry.path === selectedPath}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5 py-1 text-left"
+                    onClick={() => {
+                      setActivePath(entry.path);
+                      setDraft(entry.path);
+                    }}
+                    onDoubleClick={() => openDirectory(entry.path)}
+                  >
+                    <Folder size={11} className="shrink-0 opacity-60" />
+                    <span className="truncate">{entry.name}</span>
+                  </button>
+                  <IconButton
+                    type="button"
+                    aria-label={`Open ${entry.name}`}
+                    title="Open folder"
+                    onClick={() => openDirectory(entry.path)}
+                  >
+                    <ChevronRight size={12} />
+                  </IconButton>
+                </div>
+              </li>
+            ))}
+          </ul>
         ) : null}
-        {!loading && !error && snapshot?.entries.length === 0 ? (
-          <div className="px-3 py-6 text-center text-[11px] text-dim">Empty folder</div>
+        {snapshot && !loading && !error && rows.length === 0 ? (
+          <div className="px-3 py-6 text-center text-[11px] text-dim">
+            {filter ? `No folder matches “${filter}”` : "No subfolders"}
+          </div>
         ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-3 text-[10px] text-dim">
-        <span className="min-w-0 truncate font-mono">{snapshot?.root ?? draft}</span>
+        <span className="min-w-0 truncate font-mono">
+          {selectedPath ?? snapshot?.root ?? draft}
+        </span>
         <Button
           type="button"
           size="xs"
           variant="subtle"
           disabled={!snapshot || loading}
           onClick={() => {
-            if (snapshot) onSelect(snapshot.root);
+            if (!snapshot) return;
+            setActivePath(undefined);
+            setDraft(asBrowsingDraft(snapshot.root));
           }}
         >
           use this folder

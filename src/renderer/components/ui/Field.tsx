@@ -1,5 +1,5 @@
 import type {
-  InputHTMLAttributes,
+  ComponentPropsWithRef,
   ReactNode,
   TextareaHTMLAttributes,
 } from "react";
@@ -33,7 +33,7 @@ export const INSPECTOR_SELECT_TRIGGER_CLASS = [
 export function Input({
   className,
   ...rest
-}: InputHTMLAttributes<HTMLInputElement>) {
+}: ComponentPropsWithRef<"input">) {
   return <input className={[FIELD_CLASS, className ?? ""].filter(Boolean).join(" ")} {...rest} />;
 }
 
