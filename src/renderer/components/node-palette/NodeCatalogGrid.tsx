@@ -226,7 +226,7 @@ export function NodeCatalogGrid({
                   >
                     <Icon aria-hidden="true" size={23} strokeWidth={1.7} className={`node-deck-catalog__icon mt-0.5 shrink-0 ${entry.accentClass}`} />
                     <span className="node-deck-catalog__summary min-w-0">
-                      <span className="node-deck-catalog__label block font-display text-[16px] font-semibold uppercase leading-none tracking-wide text-ink">
+                      <span className="node-deck-catalog__label block font-display text-[16px] font-semibold leading-none text-ink">
                         {entry.label}
                       </span>
                       <span className="node-deck-catalog__subtitle mt-1.5 block truncate font-mono text-[10px] leading-4 text-dim">
@@ -266,7 +266,7 @@ function ConnectionMap({
   readonly accentClass: string;
 }) {
   return (
-    <span className="node-deck-catalog__connection-map flex min-w-0 items-center gap-2 font-display text-[12px] uppercase tracking-wide text-ink">
+    <span className="node-deck-catalog__connection-map flex min-w-0 items-center gap-2 font-display text-[12px] font-medium text-ink">
       <span className="node-deck-catalog__endpoint truncate">{connection.source}</span>
       <span aria-hidden="true" className={`node-deck-catalog__arrow shrink-0 ${accentClass}`}>
         <ConnectionArrow direction={connection.direction} />
@@ -290,7 +290,7 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
           <Icon size={21} strokeWidth={1.7} />
         </span>
         <div className="min-w-0">
-          <strong className="block font-display text-[14px] font-semibold uppercase tracking-wide text-ink">{entry.label}</strong>
+          <strong className="block font-display text-[14px] font-semibold text-ink">{entry.label}</strong>
           <p className="node-deck-catalog__purpose">{entry.purpose}</p>
           {entry.behavior ? <p className="node-deck-catalog__behavior"><span>Behavior:</span> {entry.behavior}</p> : null}
         </div>

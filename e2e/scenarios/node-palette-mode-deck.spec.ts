@@ -327,14 +327,19 @@ test("node detail rail preserves navigation while explaining primary and seconda
       hasText: "Terminal",
     });
     await terminal.hover();
+    await expect(terminal.locator(".node-deck-catalog__label"))
+      .toHaveCSS("text-transform", "none");
 
     const detail = deck.getByRole("complementary", {
       name: "Terminal details",
     });
     await expect(detail).toBeVisible();
     await expect(detail).toContainText(/managed shell/i);
-    await expect(detail.locator(".node-deck-catalog__connection-map"))
-      .not.toHaveCount(0);
+    await expect(detail.locator(".node-deck-catalog__detail-copy strong"))
+      .toHaveCSS("text-transform", "none");
+    const connectionMap = detail.locator(".node-deck-catalog__connection-map");
+    await expect(connectionMap).not.toHaveCount(0);
+    await expect(connectionMap).toHaveCSS("text-transform", "none");
     await expect(page.getByRole("tooltip")).toHaveCount(0);
     await expect(deck).not.toContainText(/inspect · click to add/i);
 
