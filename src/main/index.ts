@@ -52,7 +52,7 @@ import { termPlane, termPlaneBlocksAppExit } from "./vellum/term/plane";
 import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
 import { ChatServiceContext } from "./vellum/chat/service";
 import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
-import { developmentElectronSecurityPolicyPath, electronSecurityPolicyHealthy, packagedElectronObservationHighWaterPath, packagedElectronObservationPath, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
+import { developmentElectronSecurityPolicyPath, electronSecurityPolicyHealthy, packagedElectronSecurityPolicyPath } from "./vellum/electron-security-health";
 import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
 import {
   startWorkControlServer,
@@ -1772,8 +1772,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
               ? packagedElectronSecurityPolicyPath(process.resourcesPath)
               : developmentElectronSecurityPolicyPath(import.meta.url),
             electronVersion: process.versions.electron,
-            observationPath: app.isPackaged ? packagedElectronObservationPath(process.resourcesPath) : undefined,
-            observationHighWaterPath: app.isPackaged ? packagedElectronObservationHighWaterPath(process.resourcesPath) : undefined,
           }),
         },
       );
