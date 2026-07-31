@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { allTemplates, type HarnessId } from "@shared/managed-terminal-templates";
-import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { HUE } from "../../lib/theme";
-import { state$ } from "../../lib/state";
 import {
   AgentCascadeMenu,
   cascadeEnterKey,
@@ -13,6 +11,7 @@ import {
 import { HarnessMark } from "../herdr/HarnessMark";
 import {
   AgentLaunchContext,
+  defaultAgentLaunchContext,
   type AgentLaunchContextValue,
 } from "./AgentLaunchContext";
 import {
@@ -87,7 +86,9 @@ export function NodePaletteModeDeck({
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<NodeCatalogCategory | "all" | "agents">("all");
-  const [launchContext, setLaunchContext] = useState<AgentLaunchContextValue | null>(null);
+  const [launchContext, setLaunchContext] = useState<AgentLaunchContextValue>(
+    defaultAgentLaunchContext,
+  );
   const [agentCascade, setAgentCascade] = useState<{
     readonly harness: HarnessId;
     readonly anchor: HTMLButtonElement;
@@ -131,15 +132,9 @@ export function NodePaletteModeDeck({
   }, [agentCascade?.anchor, closeCascade]);
 
   const configureAgent = useCallback((choices: AgentConfigurationChoices) => {
-    const configuredHost = state$.settings.station.hostId.peek() || LOCAL_HOST_ID;
     actions.addConfiguredAgent({
       ...choices,
-      ...(launchContext ?? {
-        host: configuredHost,
-        agentHost: state$.settings.station.agentHostId.peek() || configuredHost,
-        cwd: "",
-        useRegionDefault: false,
-      }),
+      ...launchContext,
     }, agentPosition);
   }, [actions, agentPosition, launchContext]);
   const matchingTemplates = allTemplates().filter((template) =>

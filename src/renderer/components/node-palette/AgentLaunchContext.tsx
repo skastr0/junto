@@ -21,9 +21,15 @@ export type AgentLaunchContextValue = {
   readonly host: string;
   readonly agentHost: string;
   readonly cwd: string;
-  /** Innermost region under the pending agent, when there is one. */
-  readonly regionId?: string;
-  readonly useRegionDefault: boolean;
+};
+
+export const defaultAgentLaunchContext = (): AgentLaunchContextValue => {
+  const host = state$.settings.station.hostId.peek() || LOCAL_HOST_ID;
+  return {
+    host,
+    agentHost: state$.settings.station.agentHostId.peek() || host,
+    cwd: "",
+  };
 };
 
 export type AgentLaunchContextProps = {
@@ -36,11 +42,11 @@ export type AgentLaunchContextProps = {
 };
 
 const configuredHost = (): AgentHostChoice => {
-  const hostId = state$.settings.station.hostId.peek() || LOCAL_HOST_ID;
+  const context = defaultAgentLaunchContext();
   return {
-    id: hostId,
-    agentHost: state$.settings.station.agentHostId.peek() || hostId,
-    label: hostId === LOCAL_HOST_ID ? "this machine" : hostId,
+    id: context.host,
+    agentHost: context.agentHost,
+    label: context.host === LOCAL_HOST_ID ? "this machine" : context.host,
   };
 };
 
@@ -120,10 +126,8 @@ export function AgentLaunchContext({
       host: selectedHost.id,
       agentHost: selectedHost.agentHost,
       cwd,
-      ...(region ? { regionId: region.id } : {}),
-      useRegionDefault,
     });
-  }, [cwd, onChange, region, selectedHost.agentHost, selectedHost.id, useRegionDefault]);
+  }, [cwd, onChange, selectedHost.agentHost, selectedHost.id]);
 
   useEffect(() => {
     if (!folderOpen) return;
