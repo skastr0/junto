@@ -8,8 +8,17 @@ import {
 } from "./audit-license-build";
 import {
   DEFAULT_NODE_REMOTE_VERSION,
+  LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
   pinnedNodeLinuxX64ArchiveSha256,
-} from "./build-linux-remote-runtime";
+  type LinuxRemoteRuntimeAuditReceipt,
+  validateLinuxRemoteRuntimeAuditReceipt,
+} from "./linux-remote-runtime-contract";
+export {
+  LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
+  LINUX_REMOTE_RUNTIME_AUDIT_SCHEMA,
+  type LinuxRemoteRuntimeAuditReceipt,
+  validateLinuxRemoteRuntimeAuditReceipt,
+} from "./linux-remote-runtime-contract";
 import { linuxRuntimeArtifactName } from "./finalize-linux-package";
 
 export const LINUX_RUNTIME_REQUIRED_FILES = [
@@ -26,53 +35,6 @@ export const LINUX_RUNTIME_REQUIRED_FILES = [
   "resources/systemd/vellum-remote.service.template",
 ] as const;
 const FORBIDDEN_SEGMENTS = new Set(["chrome-sandbox", "apparmor-profile", "vellum-release-installer", "vellum-release-bridge", "sudoers", "before-install.sh", "after-install.sh", "before-remove.sh", "after-remove.sh"]);
-
-export const LINUX_REMOTE_RUNTIME_AUDIT_SCHEMA =
-  "vellum/linux-remote-runtime-audit/v1" as const;
-
-export const LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED = Object.freeze({
-  schema: LINUX_REMOTE_RUNTIME_AUDIT_SCHEMA,
-  nodeVersion: `v${DEFAULT_NODE_REMOTE_VERSION}`,
-  nodeArchiveSha256:
-    pinnedNodeLinuxX64ArchiveSha256(DEFAULT_NODE_REMOTE_VERSION),
-  nodeSqlite: "exercised",
-  sqliteAuthorizer: "exercised",
-  xtermHeadless: "exercised",
-  xtermSerialize: "exercised",
-} as const);
-
-export type LinuxRemoteRuntimeAuditReceipt =
-  typeof LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED;
-
-const record = (
-  value: unknown,
-): Readonly<Record<string, unknown>> | undefined =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Readonly<Record<string, unknown>>
-    : undefined;
-
-export const validateLinuxRemoteRuntimeAuditReceipt = (
-  value: unknown,
-): LinuxRemoteRuntimeAuditReceipt => {
-  const receipt = record(value);
-  if (
-    receipt === undefined ||
-    JSON.stringify(Object.keys(receipt).sort()) !==
-      JSON.stringify(Object.keys(LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED).sort())
-  ) {
-    throw new Error("packaged Remote runtime audit receipt is malformed");
-  }
-  for (const [key, expected] of Object.entries(
-    LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED,
-  )) {
-    if (receipt[key] !== expected) {
-      throw new Error(
-        `packaged Remote runtime audit mismatch: ${key}`,
-      );
-    }
-  }
-  return LINUX_REMOTE_RUNTIME_AUDIT_EXPECTED;
-};
 
 const REMOTE_RUNTIME_PROBE = String.raw`
 "use strict";

@@ -27,34 +27,17 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-
-/** Pinned Node for the product Remote. Override with NODE_REMOTE_VERSION. */
-export const DEFAULT_NODE_REMOTE_VERSION = "24.18.0";
-
-/**
- * Reviewed official Node linux-x64 tarball digests keyed by exact version.
- * Source: https://nodejs.org/dist/v{version}/SHASUMS256.txt
- * Refuse download or cache when the computed digest differs.
- */
-export const PINNED_NODE_LINUX_X64_ARCHIVE_SHA256: Readonly<
-  Record<string, string>
-> = Object.freeze({
-  "24.18.0":
-    "783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8",
-});
-
-export const pinnedNodeLinuxX64ArchiveSha256 = (
-  version: string,
-): string => {
-  const resolved = requireNodeRemoteVersion(version);
-  const digest = PINNED_NODE_LINUX_X64_ARCHIVE_SHA256[resolved];
-  if (digest === undefined || !/^[0-9a-f]{64}$/u.test(digest)) {
-    throw new Error(
-      `no reviewed Node linux-x64 archive digest is pinned for ${resolved}`,
-    );
-  }
-  return digest;
-};
+import {
+  DEFAULT_NODE_REMOTE_VERSION,
+  pinnedNodeLinuxX64ArchiveSha256,
+  requireNodeRemoteVersion,
+} from "./linux-remote-runtime-contract";
+export {
+  DEFAULT_NODE_REMOTE_VERSION,
+  PINNED_NODE_LINUX_X64_ARCHIVE_SHA256,
+  pinnedNodeLinuxX64ArchiveSha256,
+  requireNodeRemoteVersion,
+} from "./linux-remote-runtime-contract";
 
 export const REMOTE_NODE_RELATIVE = "resources/bin/node";
 export const REMOTE_WRAPPER_RELATIVE = "resources/bin/vellum-remote";
@@ -68,26 +51,6 @@ export const REMOTE_APP_PACKAGE_RELATIVE = "resources/app-remote/package.json";
 export const REMOTE_ENTRY_SOURCE_RELATIVE = "out/remote/vellum-remote.js";
 /** TypeScript product entry compiled by --entry-only. */
 export const REMOTE_ENTRY_TS_RELATIVE = "src/main/vellum-remote.ts";
-
-const SEMVER =
-  /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
-
-export const requireNodeRemoteVersion = (value: unknown): string => {
-  if (typeof value !== "string" || !SEMVER.test(value)) {
-    throw new Error(
-      `invalid NODE_REMOTE_VERSION (need semver x.y.z): ${String(value)}`,
-    );
-  }
-  const [majorText, minorText] = value.split(".");
-  const major = Number(majorText);
-  const minor = Number(minorText);
-  if (major !== 24 || minor < 10) {
-    throw new Error(
-      `NODE_REMOTE_VERSION must be Node 24 LTS >=24.10 (got ${value}); Remote requires DatabaseSync.setAuthorizer`,
-    );
-  }
-  return value;
-};
 
 export const resolveNodeRemoteVersion = (
   env: NodeJS.ProcessEnv = process.env,

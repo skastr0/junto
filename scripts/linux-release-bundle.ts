@@ -27,7 +27,7 @@ import {
   STATION_QUALIFICATION_EVIDENCE_FILE,
   STATION_QUALIFICATION_RECEIPT_FILE,
 } from "../src/shared/station-qualification";
-import { validateLinuxRemoteRuntimeAuditReceipt } from "./audit-linux-package";
+import { validateLinuxRemoteRuntimeAuditReceipt } from "./linux-remote-runtime-contract";
 import { isRecognizedSpdxExpression } from "./spdx-license";
 
 export const LINUX_RELEASE_MANIFEST = "release-manifest.json";
