@@ -37,9 +37,30 @@ interface BoundRecord {
   readonly startKey: string;
 }
 
+const ProcessIdentityBindingTypeId: unique symbol = Symbol(
+  "@vellum/ProcessIdentityBinding",
+);
+
+/**
+ * Exact authority to retire one PID/start-key/principal generation. A late
+ * terminal witness cannot use it to erase a replacement generation that
+ * reused the same numeric PID.
+ */
+export interface ProcessIdentityBinding {
+  readonly [ProcessIdentityBindingTypeId]: typeof ProcessIdentityBindingTypeId;
+  readonly pid: number;
+  readonly principal: ProcessPrincipal;
+  readonly startKey: string;
+}
+
 export interface ProcessIdentityMap {
   readonly bind: (pid: number, principal: ProcessPrincipal) => boolean;
+  readonly bindGeneration: (
+    pid: number,
+    principal: ProcessPrincipal,
+  ) => ProcessIdentityBinding | undefined;
   readonly unbind: (pid: number) => void;
+  readonly unbindGeneration: (binding: ProcessIdentityBinding) => boolean;
   readonly unbindPrincipal: (match: ProcessPrincipal) => void;
   /** Drop every bind for this agentKey (before rebinding a new ACP child). */
   readonly unbindAgentKey: (agentKey: string) => void;
@@ -47,7 +68,10 @@ export interface ProcessIdentityMap {
   readonly unbindTerminalBinding: (bindingId: string) => void;
   readonly resolve: (pid: number) => ProcessPrincipal | undefined;
   /** Walk pid → ppid … looking for a bound ancestor (inclusive). */
-  readonly resolveInTree: (pid: number, maxDepth?: number) => ProcessPrincipal | undefined;
+  readonly resolveInTree: (
+    pid: number,
+    maxDepth?: number,
+  ) => ProcessPrincipal | undefined;
   readonly clear: () => void;
   readonly size: () => number;
   readonly snapshot: () => ReadonlyArray<{
@@ -56,7 +80,9 @@ export interface ProcessIdentityMap {
     readonly startKey: string;
   }>;
   /** Main-owned lifecycle signal; callers never provide identity epochs. */
-  readonly subscribe: (listener: (principal: ProcessPrincipal) => void) => () => void;
+  readonly subscribe: (
+    listener: (principal: ProcessPrincipal) => void,
+  ) => () => void;
 }
 
 const samePrincipal = (a: ProcessPrincipal, b: ProcessPrincipal): boolean =>
@@ -94,9 +120,19 @@ export const processAlive = (pid: number): boolean => {
   }
 };
 
-export const makeProcessIdentityMap = (): ProcessIdentityMap => {
+export interface ProcessIdentityMapOptions {
+  readonly processAlive?: (pid: number) => boolean;
+  readonly readProcessStartKey?: (pid: number) => string | undefined;
+}
+
+export const makeProcessIdentityMap = (
+  options: ProcessIdentityMapOptions = {},
+): ProcessIdentityMap => {
   const byPid = new Map<number, BoundRecord>();
+  const bindings = new WeakMap<ProcessIdentityBinding, BoundRecord>();
   const listeners = new Set<(principal: ProcessPrincipal) => void>();
+  const isAlive = options.processAlive ?? processAlive;
+  const startKeyOf = options.readProcessStartKey ?? readProcessStartKey;
 
   const notify = (principal: ProcessPrincipal): void => {
     for (const listener of listeners) listener(principal);
@@ -109,19 +145,22 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
     notify(existing.principal);
   };
 
-  const bind = (pid: number, principal: ProcessPrincipal): boolean => {
-    if (!Number.isInteger(pid) || pid <= 0) return false;
+  const bindRecord = (
+    pid: number,
+    principal: ProcessPrincipal,
+  ): BoundRecord | undefined => {
+    if (!Number.isInteger(pid) || pid <= 0) return undefined;
     // At least one anchor, or the principal names nobody. A binding-only
     // principal must additionally be canvas-pinned: an agent key is unique to a
     // seat, a raw binding is not, so it needs the node to be unambiguous.
     if (!principal.agentKey) {
       if (!principal.bindingId || !principal.canvasName || !principal.nodeId) {
-        return false;
+        return undefined;
       }
     }
-    if (!processAlive(pid)) return false;
-    const startKey = readProcessStartKey(pid);
-    if (startKey === undefined) return false;
+    if (!isAlive(pid)) return undefined;
+    const startKey = startKeyOf(pid);
+    if (startKey === undefined) return undefined;
     const existing = byPid.get(pid);
     if (
       existing !== undefined &&
@@ -129,15 +168,42 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
       !samePrincipal(existing.principal, principal)
     ) {
       // Live PID already bound to a different principal — refuse overwrite.
-      return false;
+      return undefined;
     }
-    byPid.set(
+    const record = Object.freeze({
+      principal: Object.freeze({ ...principal }),
+      startKey,
+    });
+    byPid.set(pid, record);
+    return record;
+  };
+
+  const bind = (pid: number, principal: ProcessPrincipal): boolean =>
+    bindRecord(pid, principal) !== undefined;
+
+  const bindGeneration = (
+    pid: number,
+    principal: ProcessPrincipal,
+  ): ProcessIdentityBinding | undefined => {
+    const record = bindRecord(pid, principal);
+    if (record === undefined) return undefined;
+    const binding: ProcessIdentityBinding = {
+      [ProcessIdentityBindingTypeId]: ProcessIdentityBindingTypeId,
       pid,
-      Object.freeze({
-        principal: Object.freeze({ ...principal }),
-        startKey,
-      }),
-    );
+      principal: record.principal,
+      startKey: record.startKey,
+    };
+    Object.freeze(binding);
+    bindings.set(binding, record);
+    return binding;
+  };
+
+  const unbindGeneration = (binding: ProcessIdentityBinding): boolean => {
+    const record = bindings.get(binding);
+    if (record === undefined) return false;
+    bindings.delete(binding);
+    if (byPid.get(binding.pid) !== record) return false;
+    unbind(binding.pid);
     return true;
   };
 
@@ -166,11 +232,11 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
   const resolveLive = (pid: number): ProcessPrincipal | undefined => {
     const record = byPid.get(pid);
     if (record === undefined) return undefined;
-    if (!processAlive(pid)) {
+    if (!isAlive(pid)) {
       unbind(pid);
       return undefined;
     }
-    const startKey = readProcessStartKey(pid);
+    const startKey = startKeyOf(pid);
     if (startKey === undefined || startKey !== record.startKey) {
       unbind(pid);
       return undefined;
@@ -178,9 +244,16 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
     return record.principal;
   };
 
-  const resolveInTree = (pid: number, maxDepth = 8): ProcessPrincipal | undefined => {
+  const resolveInTree = (
+    pid: number,
+    maxDepth = 8,
+  ): ProcessPrincipal | undefined => {
     let current: number | undefined = pid;
-    for (let depth = 0; depth < maxDepth && current !== undefined && current > 0; depth += 1) {
+    for (
+      let depth = 0;
+      depth < maxDepth && current !== undefined && current > 0;
+      depth += 1
+    ) {
       const hit = resolveLive(current);
       if (hit !== undefined) return hit;
       current = readParentPid(current);
@@ -190,7 +263,9 @@ export const makeProcessIdentityMap = (): ProcessIdentityMap => {
 
   return {
     bind,
+    bindGeneration,
     unbind,
+    unbindGeneration,
     unbindPrincipal,
     unbindAgentKey,
     unbindTerminalBinding,
@@ -224,7 +299,9 @@ export const getProcessIdentityMap = (): ProcessIdentityMap => {
 };
 
 /** Test seam: replace the shared map (or pass undefined to reset). */
-export const setProcessIdentityMapForTests = (map: ProcessIdentityMap | undefined): void => {
+export const setProcessIdentityMapForTests = (
+  map: ProcessIdentityMap | undefined,
+): void => {
   sharedMap = map;
 };
 
@@ -266,11 +343,14 @@ export const configurePeerPidHelperRoots = (
   roots: ReadonlyArray<string>,
 ): void => {
   resourcesRoots = roots
-    .filter((root) => typeof root === "string" && root.length > 0 && isAbsolute(root))
+    .filter(
+      (root) => typeof root === "string" && root.length > 0 && isAbsolute(root),
+    )
     .map((root) => normalize(root));
 };
 
-export const peerPidHelperRootsForTests = (): ReadonlyArray<string> => resourcesRoots;
+export const peerPidHelperRootsForTests = (): ReadonlyArray<string> =>
+  resourcesRoots;
 
 const resolveHelper = (): string | undefined => {
   for (const root of resourcesRoots) {
@@ -286,7 +366,10 @@ const resolveHelper = (): string | undefined => {
   ];
   for (const candidate of devCandidates) {
     const absolute = resolve(candidate);
-    if (!absolute.endsWith(`/scripts/${HELPER_NAME}`) && !absolute.endsWith(`\\scripts\\${HELPER_NAME}`)) {
+    if (
+      !absolute.endsWith(`/scripts/${HELPER_NAME}`) &&
+      !absolute.endsWith(`\\scripts\\${HELPER_NAME}`)
+    ) {
       continue;
     }
     if (existsSync(absolute)) return absolute;
@@ -304,7 +387,9 @@ const resolveTrustedPython = (): string | undefined => {
 const socketFd = (socket: Socket): number | undefined => {
   const handle = (socket as unknown as { _handle?: { fd?: number } })._handle;
   const fd = handle?.fd;
-  return typeof fd === "number" && Number.isInteger(fd) && fd >= 0 ? fd : undefined;
+  return typeof fd === "number" && Number.isInteger(fd) && fd >= 0
+    ? fd
+    : undefined;
 };
 
 export type PeerPidReader = (socket: Socket) => number | undefined;
@@ -340,13 +425,19 @@ export const readUnixPeerPid: PeerPidReader = (socket) => {
 };
 
 export type ProcessIdentityDenial =
-  | "peer_pid_unavailable"
-  | "process_unbound"
-  | "wrong_kind";
+  "peer_pid_unavailable" | "process_unbound" | "wrong_kind";
 
 export type ProcessIdentityResult =
-  | { readonly ok: true; readonly peerPid: number; readonly principal: ProcessPrincipal }
-  | { readonly ok: false; readonly denial: ProcessIdentityDenial; readonly message: string };
+  | {
+      readonly ok: true;
+      readonly peerPid: number;
+      readonly principal: ProcessPrincipal;
+    }
+  | {
+      readonly ok: false;
+      readonly denial: ProcessIdentityDenial;
+      readonly message: string;
+    };
 
 export const admitProcessIdentity = (
   socket: Socket,

@@ -314,6 +314,10 @@ describe("native package pipeline contract", () => {
     expect(profile.match(/\buserns,/gu)).toHaveLength(1);
     expect(profile).not.toMatch(/network,|capability,|mount,|ptrace,|signal,/u);
     expect(afterInstall).toContain("chmod 0755 \"$CHROME_SANDBOX\"");
+    expect(afterInstall).toContain("detect_sandbox_capability()");
+    expect(afterInstall).toContain(
+      "/usr/sbin/runuser -u nobody -- /usr/bin/unshare --user --map-root-user /usr/bin/true",
+    );
     expect(afterInstall).toContain(
       'publish_root_file "$RELEASE_INSTALLER_SOURCE" "$INSTALLER_TARGET" 0755',
     );
@@ -377,7 +381,7 @@ describe("native package pipeline contract", () => {
       /retire_legacy_sudoers_policy[\s\S]*"\$LEGACY_SUDOERS_SHA256"[\s\S]*preserve/u,
     );
     expect(`${beforeInstall}\n${beforeRemove}\n${afterInstall}\n${afterRemove}`).not.toMatch(
-      /sysctl|disable.*apparmor|\/home\/|\$\{?HOME\}?|rm\s+-rf|\bsetcap\b|\bsetfattr\b|NOPASSWD/iu,
+      /sysctl|\b(?:aa-disable|systemctl\s+disable|modprobe\s+-r)\b|\/home\/|\$\{?HOME\}?|rm\s+-rf|\bsetcap\b|\bsetfattr\b|NOPASSWD/iu,
     );
   });
 

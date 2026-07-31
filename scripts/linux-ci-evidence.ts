@@ -440,7 +440,7 @@ const validateLinuxCiReceipts = async (input: {
       readonly noNewPrivs?: unknown;
       readonly seccomp?: unknown;
     };
-    readonly appArmor?: unknown;
+    readonly sandboxCapability?: unknown;
     readonly tcpListeners?: unknown;
     readonly debugAuthority?: unknown;
     readonly secretBearingOutput?: unknown;
@@ -457,7 +457,8 @@ const validateLinuxCiReceipts = async (input: {
     runtime.rendererSandbox.renderers < 1 ||
     runtime.rendererSandbox.noNewPrivs !== true ||
     runtime.rendererSandbox.seccomp !== true ||
-    runtime.appArmor !== "vellum" ||
+    (runtime.sandboxCapability !== "apparmor" &&
+      runtime.sandboxCapability !== "userns") ||
     runtime.tcpListeners !== 0 ||
     runtime.debugAuthority !== false ||
     runtime.secretBearingOutput !== false ||

@@ -137,13 +137,18 @@ aa-status
 ```
 
 The package installs `/opt/Vellum Command`, the `vellum` work CLI, its desktop
-entry, the narrow AppArmor profile, and a systemd user-unit definition. It also
-bootstraps the fixed root-owned release installer and the fixed root-owned
-unprivileged release bridge. It installs no `sudoers` policy, setuid binary, or
+entry, the narrow userns-only AppArmor profile, and a systemd user-unit
+definition. It also bootstraps the fixed root-owned release installer and the
+fixed root-owned unprivileged release bridge. It installs no `sudoers` policy,
+setuid binary, or
 file capability. Every managed attempt requires the administrator to enter a
 fresh password into Command Center for that exact host and signed release.
 The package does not select a station role, enable the user unit, or enable
-lingering.
+lingering. If the kernel exposes enabled AppArmor, installation loads the exact
+profile. If the kernel has no AppArmor interface (the qualified OrbStack Ubuntu
+24.04 case), installation instead proves that a non-root account can create a
+user namespace. A present but disabled or broken AppArmor installation fails;
+it is never treated as the fallback path.
 
 Open Vellum as the ordinary user. In Command Center, choose the station role
 explicitly. For a Remote, configure the exact stable host ID and Command
@@ -214,7 +219,9 @@ cat /run/user/$UID/vellum-remote/ready-$INVOCATION_ID
 For release qualification and day-to-day operations, also observe:
 
 - the service's `MainPID` and cgroup belong to the ordinary station user;
-- `/etc/apparmor.d/vellum` is loaded for the exact packaged executable;
+- an enabled AppArmor kernel has `/etc/apparmor.d/vellum` loaded for the exact
+  packaged executable; an AppArmor-free OrbStack kernel has the recorded
+  userns path plus renderer `NoNewPrivs` and seccomp proof;
 - no Vellum TCP or Chrome DevTools listener exists;
 - browser (and terminal) control surfaces are owner-only when those planes are
   expected for the workload;
@@ -439,8 +446,10 @@ rewrite authorial intent.
 
 ## Prohibited recovery shortcuts
 
-Vellum does not support disabling Chromium's sandbox, disabling AppArmor,
-changing the host's global user-namespace policy, running the application as
-root, exposing control over TCP, forwarding raw control sockets, or routinely
-erasing `~/.vellum`. Any procedure that asks for one of those shortcuts is
-outside the Linux v1 support contract.
+Vellum does not support disabling Chromium's sandbox, disabling an available
+AppArmor stack, changing the host's global user-namespace policy, running the
+application as root, exposing control over TCP, forwarding raw control
+sockets, or routinely erasing `~/.vellum`. An AppArmor-free OrbStack kernel is
+supported only through the package's userns capability probe and renderer
+seccomp proof. Any procedure that asks for a shortcut is outside the Linux v1
+support contract.

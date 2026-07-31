@@ -51,6 +51,30 @@ describe("process identity epoch", () => {
     map.clear();
   });
 
+  it("does not let a late generation witness erase a reused PID", () => {
+    let startKey = "epoch-1";
+    const map = makeProcessIdentityMap({
+      processAlive: () => true,
+      readProcessStartKey: () => startKey,
+    });
+    const prior = map.bindGeneration(42_101, {
+      agentKey: "local:prior",
+    });
+    expect(prior).toBeDefined();
+
+    startKey = "epoch-2";
+    const replacement = map.bindGeneration(42_101, {
+      agentKey: "local:replacement",
+    });
+    expect(replacement).toBeDefined();
+    expect(map.unbindGeneration(prior!)).toBe(false);
+    expect(map.resolve(42_101)).toEqual({
+      agentKey: "local:replacement",
+    });
+    expect(map.unbindGeneration(replacement!)).toBe(true);
+    expect(map.resolve(42_101)).toBeUndefined();
+  });
+
   it("binds and unbinds canvas-anchored terminal principals", () => {
     const map = makeProcessIdentityMap();
     const principal = {

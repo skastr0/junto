@@ -51,22 +51,99 @@ do
   require_regular_file "$packaged_file"
 done
 
-if [ ! -x /usr/sbin/apparmor_parser ]; then
-  printf 'vellum: AppArmor parser is required on Ubuntu 24.04\n' >&2
-  exit 1
-fi
-/usr/sbin/apparmor_parser --skip-kernel-load --debug "$PROFILE_SOURCE" >/dev/null
+APPARMOR_ENABLED='/sys/module/apparmor/parameters/enabled'
+APPARMOR_SECURITY='/sys/kernel/security/apparmor'
+USER_NAMESPACE_LIMIT='/proc/sys/user/max_user_namespaces'
+USER_NAMESPACE_SWITCH='/proc/sys/kernel/unprivileged_userns_clone'
+
+require_user_namespace_sandbox() {
+  if [ ! -r "$USER_NAMESPACE_LIMIT" ]; then
+    printf 'vellum: kernel AppArmor is unavailable and user namespace capacity cannot be read\n' >&2
+    exit 1
+  fi
+  user_namespace_limit="$(/bin/cat "$USER_NAMESPACE_LIMIT")"
+  case "$user_namespace_limit" in
+    ''|*[!0-9]*)
+      printf 'vellum: kernel AppArmor is unavailable and user namespace capacity is malformed\n' >&2
+      exit 1
+      ;;
+  esac
+  if [ "$user_namespace_limit" -eq 0 ]; then
+    printf 'vellum: kernel AppArmor is unavailable and unprivileged user namespaces are disabled\n' >&2
+    exit 1
+  fi
+  if [ -e "$USER_NAMESPACE_SWITCH" ]; then
+    if [ ! -r "$USER_NAMESPACE_SWITCH" ] ||
+       [ "$(/bin/cat "$USER_NAMESPACE_SWITCH")" != 1 ]; then
+      printf 'vellum: kernel AppArmor is unavailable and unprivileged user namespaces are disabled\n' >&2
+      exit 1
+    fi
+  fi
+  if [ ! -x /usr/sbin/runuser ] || [ ! -x /usr/bin/unshare ]; then
+    printf 'vellum: kernel AppArmor is unavailable and the user namespace probe is unavailable\n' >&2
+    exit 1
+  fi
+  # Reading kernel settings alone is insufficient: prove a non-root account can create
+  # the exact user namespace Chromium needs. This never changes host policy.
+  if ! /usr/sbin/runuser -u nobody -- /usr/bin/unshare --user --map-root-user /usr/bin/true; then
+    printf 'vellum: kernel AppArmor is unavailable and unprivileged user namespaces are unusable\n' >&2
+    exit 1
+  fi
+}
+
+detect_sandbox_capability() {
+  if [ -e "$APPARMOR_ENABLED" ]; then
+    if [ ! -r "$APPARMOR_ENABLED" ]; then
+      printf 'vellum: AppArmor kernel state is unreadable\n' >&2
+      exit 1
+    fi
+    case "$(/bin/cat "$APPARMOR_ENABLED")" in
+      Y)
+        if [ ! -x /usr/sbin/apparmor_parser ] ||
+           [ ! -x /usr/bin/aa-enabled ] ||
+           ! /usr/bin/aa-enabled; then
+          printf 'vellum: AppArmor is enabled but its required userspace is unavailable\n' >&2
+          exit 1
+        fi
+        /usr/sbin/apparmor_parser --skip-kernel-load --debug "$PROFILE_SOURCE" >/dev/null
+        printf '%s\n' apparmor
+        return
+        ;;
+      N)
+        printf 'vellum: AppArmor is present but disabled; refusing to bypass a broken sandbox installation\n' >&2
+        exit 1
+        ;;
+      *)
+        printf 'vellum: AppArmor kernel state is malformed\n' >&2
+        exit 1
+        ;;
+    esac
+  fi
+  if [ -e "$APPARMOR_SECURITY" ]; then
+    printf 'vellum: AppArmor kernel state is incomplete; refusing to bypass a broken sandbox installation\n' >&2
+    exit 1
+  fi
+  require_user_namespace_sandbox
+  printf '%s\n' userns
+}
 
 load_live_profile=1
+sandbox_capability=deferred
 if [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; then
   load_live_profile=0
-elif [ ! -x /usr/bin/aa-enabled ] || ! /usr/bin/aa-enabled; then
-  printf 'vellum: AppArmor must be enabled for the supported Chromium sandbox\n' >&2
-  exit 1
+  # Package-image construction validates the packaged profile but has no host
+  # kernel on which to exercise either runtime capability.
+  if [ ! -x /usr/sbin/apparmor_parser ]; then
+    printf 'vellum: AppArmor parser is required to validate the packaged profile\n' >&2
+    exit 1
+  fi
+  /usr/sbin/apparmor_parser --skip-kernel-load --debug "$PROFILE_SOURCE" >/dev/null
+else
+  sandbox_capability="$(detect_sandbox_capability)"
 fi
 
-# The supported sandbox path is AppArmor-qualified unprivileged userns. Keep
-# Chromium's setuid helper inert instead of silently falling back to setuid.
+# The qualified sandbox capability is either the exact enabled AppArmor profile
+# or the unavailable-only userns probe. Keep Chromium's setuid helper inert.
 chown root:root "$CHROME_SANDBOX"
 chmod 0755 "$CHROME_SANDBOX"
 chmod 0755 "$EXECUTABLE" "$WORK_CLI" "$BROWSER_CLI" "$STATION_CLI" "$PEER_PID_HELPER"
@@ -374,7 +451,7 @@ fi
 
 # A chroot/package-image build can validate but cannot load host policy. On a
 # real installation, live AppArmor replacement is the final fallible action.
-if [ "$load_live_profile" -eq 1 ]; then
+if [ "$load_live_profile" -eq 1 ] && [ "$sandbox_capability" = apparmor ]; then
   /usr/sbin/apparmor_parser --replace --write-cache --skip-read-cache "$PROFILE_SOURCE"
 fi
 

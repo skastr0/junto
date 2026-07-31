@@ -24,10 +24,8 @@ import {
   type HermesIdentityOperations,
 } from "../adapters/hermes-identity";
 import { appProcessPlane } from "../app-process-plane";
-import type {
-  AcpChildLike,
-  SpawnFn,
-} from "../chat/acp-client";
+import type { AppProcessLease, AppProcessPlane } from "../app-process-plane";
+import type { AcpChildLike, SpawnFn } from "../chat/acp-client";
 import {
   ChatService,
   ChatServiceContext,
@@ -35,10 +33,7 @@ import {
   type ChatCloseAllResult,
 } from "../chat/service";
 import type { AcpSpawnTarget } from "../chat/spawn";
-import {
-  makeScopedPromiseRunner,
-  type SshLease,
-} from "../ssh";
+import { makeScopedPromiseRunner, type SshLease } from "../ssh";
 import {
   isLocalHermesHost,
   isDefaultHermesProfile,
@@ -48,11 +43,61 @@ import {
 } from "./domain";
 import { HermesTransport } from "./transport";
 import { SettingsService } from "../settings/service";
+import {
+  getProcessIdentityMap,
+  type ProcessIdentityMap,
+} from "../process-identity";
 
 type RunPromise = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 
 const acpArgs = (profile: HermesProfileName): ReadonlyArray<string> =>
   isDefaultHermesProfile(profile) ? ["acp"] : ["-p", profile, "acp"];
+
+type LocalAcpProcessPlane = Pick<AppProcessPlane, "terminate">;
+
+/**
+ * Bind an attached local ACP generation before Chat receives the child. A
+ * missing PID/start-key is a closed admission failure: the exact app-owned
+ * child is terminated and never runs as an unregistered agent.
+ */
+export const bindLocalAcpProcessIdentity = (
+  lease: AppProcessLease,
+  agentKey: string,
+  processPlane: LocalAcpProcessPlane = appProcessPlane,
+  identities: ProcessIdentityMap = getProcessIdentityMap(),
+): void => {
+  const pid = lease.io.pidForDiagnostics;
+  const binding =
+    pid === undefined
+      ? undefined
+      : identities.bindGeneration(pid, { agentKey });
+  if (binding === undefined) {
+    try {
+      processPlane.terminate(
+        lease,
+        "local ACP process identity admission failed",
+      );
+    } finally {
+      throw new Error("local ACP process identity admission failed");
+    }
+  }
+
+  try {
+    lease.io.onClose(() => {
+      identities.unbindGeneration(binding);
+    });
+  } catch {
+    identities.unbindGeneration(binding);
+    try {
+      processPlane.terminate(
+        lease,
+        "local ACP process identity observer failed",
+      );
+    } finally {
+      throw new Error("local ACP process identity observer failed");
+    }
+  }
+};
 
 export class EffectAcpChild extends EventEmitter implements AcpChildLike {
   readonly stdout = new PassThrough();
@@ -87,7 +132,9 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
     private readonly profile: HermesProfileName,
   ) {
     super();
-    queueMicrotask(() => { void this.start(); });
+    queueMicrotask(() => {
+      void this.start();
+    });
   }
 
   close(): Promise<void> {
@@ -110,15 +157,15 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
       if (this.killed) return;
 
       await this.runPromise(
-        this.transport.connectAcp(
-          this.host,
-          this.profile,
-          (lease, confirm) =>
+        this.transport
+          .connectAcp(this.host, this.profile, (lease, confirm) =>
             Effect.gen(this, function* () {
               this.lease = lease;
               yield* Effect.forkIn(
                 Stream.runForEach(lease.stdout, (chunk) =>
-                  Effect.sync(() => { this.stdout.write(chunk); }),
+                  Effect.sync(() => {
+                    this.stdout.write(chunk);
+                  }),
                 ).pipe(
                   Effect.tapError((error) =>
                     Effect.sync(() => this.deferFailure(error)),
@@ -129,7 +176,9 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
               );
               yield* Effect.forkIn(
                 Stream.runForEach(lease.stderr, (chunk) =>
-                  Effect.sync(() => { this.stderr.write(chunk); }),
+                  Effect.sync(() => {
+                    this.stderr.write(chunk);
+                  }),
                 ).pipe(
                   Effect.tapError((error) =>
                     Effect.sync(() => this.deferFailure(error)),
@@ -149,7 +198,8 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
               );
               return confirm(undefined);
             }),
-        ).pipe(Scope.extend(scope)),
+          )
+          .pipe(Scope.extend(scope)),
       );
 
       const pending = this.pending;
@@ -227,8 +277,16 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
       if (this.settled) return;
       this.settled = true;
       this.pending = [];
-      try { this.stdout.end(); } catch { /* observer-only stream */ }
-      try { this.stderr.end(); } catch { /* observer-only stream */ }
+      try {
+        this.stdout.end();
+      } catch {
+        /* observer-only stream */
+      }
+      try {
+        this.stderr.end();
+      } catch {
+        /* observer-only stream */
+      }
       this.emitContained("exit", code);
       this.emitContained("close", code);
       this.terminalResolve();
@@ -243,7 +301,10 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
     );
   }
 
-  private emitContained(event: "error" | "exit" | "close", value: unknown): void {
+  private emitContained(
+    event: "error" | "exit" | "close",
+    value: unknown,
+  ): void {
     try {
       this.emit(event, value);
     } catch {
@@ -261,7 +322,10 @@ export class HermesPlane extends Context.Tag("@vellum/HermesPlane")<
     readonly fetchBundle: () => Promise<SnapshotBundle>;
     readonly fetchAgentIdentity: (key: string) => Promise<AgentIdentity | null>;
     readonly fetchAgentAvatar: (key: string) => Promise<string | null>;
-    readonly fetchAgentMessage: (key: string, text: string) => Promise<AgentReply>;
+    readonly fetchAgentMessage: (
+      key: string,
+      text: string,
+    ) => Promise<AgentReply>;
   }
 >() {}
 
@@ -352,13 +416,13 @@ export const HermesPlaneLive = Layer.scoped(
     const settings = yield* SettingsService;
     const owner = yield* Scope.Scope;
     const runtime = yield* Effect.runtime<never>();
-    const runPromise: RunPromise = (effect) => Runtime.runPromise(runtime)(effect);
+    const runPromise: RunPromise = (effect) =>
+      Runtime.runPromise(runtime)(effect);
     const runOwned = makeScopedPromiseRunner(runtime, owner);
     let observedIdentity: HermesStationIdentity | undefined;
     let observedUpdate = false;
     let applyStationIdentity:
-      | ((next: HermesStationIdentity) => void)
-      | undefined;
+      ((next: HermesStationIdentity) => void) | undefined;
     const unsubscribeSettings = settings.subscribe((next) => {
       const identity = resolveHermesStationIdentity(next.station);
       observedUpdate = true;
@@ -406,6 +470,7 @@ export const HermesPlaneLive = Layer.scoped(
         args: acpArgs(target.profile),
         env: resolvedSpawnEnvSync(),
       });
+      bindLocalAcpProcessIdentity(lease, `${target.host}:${target.profile}`);
       return {
         kind: "local-process",
         lease,
@@ -413,9 +478,8 @@ export const HermesPlaneLive = Layer.scoped(
       };
     };
 
-    const chat = new ChatService(
-      spawnAcp,
-      (host) => isLocalHermesHost(host, stationIdentity),
+    const chat = new ChatService(spawnAcp, (host) =>
+      isLocalHermesHost(host, stationIdentity),
     );
     applyStationIdentity = (nextIdentity) => {
       const previousIdentity = stationIdentity;
@@ -429,7 +493,8 @@ export const HermesPlaneLive = Layer.scoped(
       invalidateHermesIdentityHost(nextIdentity.agentHostId);
       stationIdentity = nextIdentity;
       chat.reconcileHostLocality((host) =>
-        isLocalHermesHost(host, previousIdentity));
+        isLocalHermesHost(host, previousIdentity),
+      );
     };
     const shutdown = makeHermesShutdownPort(chat);
     yield* Effect.addFinalizer(() => finalizeHermesShutdown(shutdown));
@@ -441,11 +506,7 @@ export const HermesPlaneLive = Layer.scoped(
       fetchAgentIdentity: (key) =>
         fetchAgentIdentity(operations, key, stationIdentity.agentHostId),
       fetchAgentAvatar: (key) =>
-        fetchAgentAvatar(
-          operations,
-          key,
-          stationIdentity.agentHostId,
-        ),
+        fetchAgentAvatar(operations, key, stationIdentity.agentHostId),
       fetchAgentMessage: (key, text) => chat.agentMessage(key, text),
     });
   }),

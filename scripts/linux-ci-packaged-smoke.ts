@@ -50,6 +50,8 @@ interface ProcSandboxStatus {
   readonly seccompFilters: number;
 }
 
+export type LinuxSandboxCapability = "apparmor" | "userns";
+
 export interface LinuxCiPackagedSmokeReceipt {
   readonly ok: true;
   readonly display: "xvfb";
@@ -63,7 +65,7 @@ export interface LinuxCiPackagedSmokeReceipt {
     readonly noNewPrivs: true;
     readonly seccomp: true;
   };
-  readonly appArmor: "vellum";
+  readonly sandboxCapability: LinuxSandboxCapability;
   readonly tcpListeners: 0;
   readonly debugAuthority: false;
   readonly secretBearingOutput: false;
@@ -166,17 +168,27 @@ export const auditSandboxedRenderers = async (
   };
 };
 
-export const validateAppArmorLabel = (
-  enabled: string,
-  current: string,
-): "vellum" => {
-  if (enabled.trim().toUpperCase() !== "Y") {
-    throw new Error("AppArmor is not enabled on the Linux release worker");
+export const validateLinuxSandboxCapability = (input: {
+  readonly appArmorEnabled: string | undefined;
+  readonly appArmorSecurityPresent: boolean;
+  readonly appArmorCurrent: string | undefined;
+}): LinuxSandboxCapability => {
+  if (input.appArmorEnabled !== undefined) {
+    if (input.appArmorEnabled.trim().toUpperCase() !== "Y") {
+      throw new Error("AppArmor is present but not enabled on the Linux release worker");
+    }
+    if (
+      input.appArmorCurrent === undefined ||
+      !/^vellum(?:\s|\(|$)/u.test(input.appArmorCurrent.trim())
+    ) {
+      throw new Error("packaged Vellum did not enter its installed AppArmor profile");
+    }
+    return "apparmor";
   }
-  if (!/^vellum(?:\s|\(|$)/u.test(current.trim())) {
-    throw new Error("packaged Vellum did not enter its installed AppArmor profile");
+  if (input.appArmorSecurityPresent) {
+    throw new Error("AppArmor kernel state is incomplete on the Linux release worker");
   }
-  return "vellum";
+  return "userns";
 };
 
 export const parseWorkCliSchemaReceipt = (input: string): void => {
@@ -256,6 +268,12 @@ const pathExists = async (candidate: string): Promise<boolean> =>
       throw error;
     },
   );
+
+const readOptionalFile = async (candidate: string): Promise<string | undefined> =>
+  readFile(candidate, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
 
 const boundedOutput = (lease: AppProcessLease): {
   readonly value: () => string;
@@ -406,10 +424,15 @@ export const smokeLinuxCiPackagedRuntime = async (
       runtimeRows,
       (pid) => readFile(`/proc/${String(pid)}/status`, "utf8"),
     );
-    const appArmor = validateAppArmorLabel(
-      await readFile("/sys/module/apparmor/parameters/enabled", "utf8"),
-      await readFile(`/proc/${String(rootPid)}/attr/current`, "utf8"),
-    );
+    const sandboxCapability = validateLinuxSandboxCapability({
+      appArmorEnabled: await readOptionalFile(
+        "/sys/module/apparmor/parameters/enabled",
+      ),
+      appArmorSecurityPresent: await pathExists("/sys/kernel/security/apparmor"),
+      appArmorCurrent: await readOptionalFile(
+        `/proc/${String(rootPid)}/attr/current`,
+      ),
+    });
 
     const work = runFixed(workCli, ["schema", "list"], environment);
     if (work.status !== 0) {
@@ -518,7 +541,7 @@ export const smokeLinuxCiPackagedRuntime = async (
       browserRemoteModes: "absent",
       processRoles: processRoles(rootPid, runtimeRows),
       rendererSandbox: sandbox,
-      appArmor,
+      sandboxCapability,
       tcpListeners: 0,
       debugAuthority: false,
       secretBearingOutput: false,

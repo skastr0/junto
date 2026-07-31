@@ -6,7 +6,7 @@ import {
   parseProcSandboxStatus,
   parseWorkCliSchemaReceipt,
   requireXvfbDisplay,
-  validateAppArmorLabel,
+  validateLinuxSandboxCapability,
 } from "../scripts/linux-ci-packaged-smoke";
 
 const sandboxStatus = `
@@ -80,16 +80,38 @@ describe("Linux packaged Xvfb smoke contract", () => {
     )).rejects.toThrow(/disabled/u);
   });
 
-  it("requires AppArmor enabled and the installed Vellum label", () => {
-    expect(validateAppArmorLabel("Y\n", "vellum (unconfined)\n")).toBe(
-      "vellum",
-    );
+  it("selects the exact AppArmor profile or a genuinely unavailable AppArmor kernel", () => {
+    expect(validateLinuxSandboxCapability({
+      appArmorEnabled: "Y\n",
+      appArmorSecurityPresent: true,
+      appArmorCurrent: "vellum (unconfined)\n",
+    })).toBe("apparmor");
+    expect(validateLinuxSandboxCapability({
+      appArmorEnabled: undefined,
+      appArmorSecurityPresent: false,
+      appArmorCurrent: "unconfined\n",
+    })).toBe("userns");
     expect(() =>
-      validateAppArmorLabel("N\n", "vellum (unconfined)\n"),
-    ).toThrow(/not enabled/u);
+      validateLinuxSandboxCapability({
+        appArmorEnabled: "N\n",
+        appArmorSecurityPresent: true,
+        appArmorCurrent: "vellum (unconfined)\n",
+      }),
+    ).toThrow(/present but not enabled/u);
     expect(() =>
-      validateAppArmorLabel("Y\n", "unconfined\n"),
+      validateLinuxSandboxCapability({
+        appArmorEnabled: "Y\n",
+        appArmorSecurityPresent: true,
+        appArmorCurrent: "unconfined\n",
+      }),
     ).toThrow(/installed AppArmor/u);
+    expect(() =>
+      validateLinuxSandboxCapability({
+        appArmorEnabled: undefined,
+        appArmorSecurityPresent: true,
+        appArmorCurrent: undefined,
+      }),
+    ).toThrow(/incomplete/u);
   });
 
   it("requires a live packaged work CLI schema envelope", () => {

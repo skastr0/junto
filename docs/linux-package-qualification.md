@@ -47,7 +47,7 @@ electron-builder's broader native-dependency rebuild pass.
 
 The build emits both artifacts and runs `scripts/audit-linux-package.ts`. That
 audit fails closed on the deb identity/dependency inventory, archive ownership
-and modes, desktop metadata, AppArmor policy, x86-64 ELF objects, unresolved
+and modes, desktop metadata, the exact userns-only AppArmor policy, x86-64 ELF objects, unresolved
 Electron or `node-pty` shared libraries, ASAR unpack placement, executable
 modes, the complete Electron fuse wire, and the Remote launcher/unit
 generation-receipt contract (`Type=notify`, `RuntimeDirectory=vellum-remote`,
@@ -169,9 +169,13 @@ Remote user unit):
 1. Install the exact release `deb` as root; launch Vellum from the desktop
    entry or `/opt/Vellum Command/vellum` under a normal X11 or Wayland/XWayland
    session.
-2. Confirm AppArmor labels the exact executable
-   `/opt/Vellum Command/vellum` with the packaged userns-only profile;
-   `chrome-sandbox` is root-owned mode `0755`, not setuid.
+2. Confirm the package chose one qualified capability path. With AppArmor
+   enabled, it must label `/opt/Vellum Command/vellum` with the packaged
+   userns-only profile. With no AppArmor kernel interface (including qualified
+   OrbStack Ubuntu 24.04), package installation must have proved a non-root
+   user can create a user namespace. An AppArmor interface that is present but
+   disabled, incomplete, or unable to load the exact profile is a failure—not
+   a fallback. `chrome-sandbox` is root-owned mode `0755`, not setuid.
 3. Confirm a real renderer starts with Chromium sandboxing active. Every
    sandbox-disabling switch must terminate packaged startup before Vellum owns
    a renderer, socket, document, or child process.
@@ -268,7 +272,10 @@ two-installation receipt is supplied.
 
 ## Disposable-host discipline
 
-Do not weaken `kernel.unprivileged_userns_clone`, disable AppArmor, add
-`--no-sandbox`, make `chrome-sandbox` setuid, run Vellum itself as root, or use
-a real operator home/profile to make qualification pass. A failed or
-unavailable host check remains an open release gate.
+Do not weaken `kernel.unprivileged_userns_clone`, disable an available AppArmor
+stack, add sandbox-disabling switches, make `chrome-sandbox` setuid, run
+Vellum itself as root, or use a real operator home/profile to make
+qualification pass. OrbStack qualification is only the no-AppArmor-kernel path:
+the package's non-root userns probe and the packaged renderer's
+`NoNewPrivs=1` plus filtered seccomp proof must both pass. A present but broken
+AppArmor stack is never an OrbStack fallback.
