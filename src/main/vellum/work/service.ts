@@ -13,6 +13,7 @@ import type {
   TaskState,
   WorkMetadata,
 } from "@shared/canvas";
+import type { TaskProposal } from "@shared/work-model";
 import type {
   CanvasReadResult,
   WorkOpResult,
@@ -32,7 +33,9 @@ import {
   workRequestCreate,
   workRequestResolve,
   workTaskCreate,
+  workTaskApproveProposal,
   workTaskDescribe,
+  workTaskPropose,
   workTaskRespond,
   workTaskTransition,
   type WorkIds,
@@ -58,6 +61,7 @@ import {
 } from "../station/session-registry";
 import { admitWorkTarget } from "./authz";
 import { clearSeatBlockedByRequest } from "./blocked-seat";
+import { mailboxMessageReadId } from "./mailbox-receipts";
 import { messageDelivery } from "./message-delivery";
 import {
   WorkAuthorityError,
@@ -230,6 +234,19 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       reason?: string,
       media?: ReadonlyArray<Part>,
     ) => Effect.Effect<WorkOpResult<Task>>;
+    readonly workTaskPropose: (
+      canvas: string,
+      nodeId: string,
+      brief: string,
+      metadata: WorkMetadata | undefined,
+      proposedBy: ActorRef,
+      reason?: string,
+    ) => Effect.Effect<WorkOpResult<TaskProposal>>;
+    readonly workTaskApproveProposal: (
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+    ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskDescribe: (
       canvas: string,
       nodeId: string,
@@ -263,6 +280,16 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       message: Message,
       sentBy: ActorRef,
     ) => Effect.Effect<WorkOpResult<Message>>;
+    /**
+     * Durable read-ack for one mailbox message (delivery.accepted with
+     * mailbox-message-read identity). Idempotent.
+     */
+    readonly workMessageMarkRead: (
+      canvas: string,
+      nodeId: string,
+      messageId: string,
+      reader: ActorRef,
+    ) => Effect.Effect<WorkOpResult<{ readonly messageId: string; readonly readAt: string }>>;
     readonly workRequestCreate: (
       canvas: string,
       nodeId: string,
@@ -390,8 +417,11 @@ export const WorkLive = Layer.effect(
       actor: ActorRef,
       targetNodeId: string,
       op:
+        | "tasks.create"
         | "tasks.claim"
         | "msg.send"
+        | "msg.read"
+        | "msg.reply"
         | "request.escalate"
         | "artifact.publish",
     ): Effect.Effect<CanvasNode, WorkServiceError> => {
@@ -469,7 +499,13 @@ export const WorkLive = Layer.effect(
       read: CanvasReadResult,
       actor: ActorRef,
       targetNodeId: string,
-      op: "msg.send" | "request.escalate" | "artifact.publish",
+      op:
+        | "tasks.create"
+        | "msg.send"
+        | "msg.read"
+        | "msg.reply"
+        | "request.escalate"
+        | "artifact.publish",
       context: StationContext,
     ): Effect.Effect<CanvasNode, WorkServiceError> =>
       requireActor(read, actor, targetNodeId, op).pipe(
@@ -574,7 +610,7 @@ export const WorkLive = Layer.effect(
       );
 
     const itemHome = (
-      lane: "task" | "request",
+      lane: "task" | "proposal" | "request",
       canvasName: string,
       nodeId: string,
       itemId: string,
@@ -589,7 +625,7 @@ export const WorkLive = Layer.effect(
                 message: `${lane} "${itemId}" not found`,
               }),
             )
-            : Effect.succeed(home)
+              : Effect.succeed(home)
         ),
       );
 
@@ -658,6 +694,113 @@ export const WorkLive = Layer.effect(
                 { operation: "task.create", task: policy.task },
                 policy.task,
               );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workTaskPropose: (canvas, nodeId, brief, metadata, proposedBy, reason) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            yield* requireLocalActor(
+              read,
+              proposedBy,
+              nodeId,
+              "tasks.create",
+              context,
+            );
+            const node = yield* requireNode(read.doc, nodeId);
+            const policy = yield* runPolicy(() =>
+              workTaskPropose(
+                read.doc,
+                canvas,
+                nodeId,
+                brief,
+                metadata,
+                ids,
+                proposedBy,
+                reason,
+              )
+            );
+            const home = yield* homeForNode(node, context);
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.createProposal({
+                  sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
+                  proposal: policy.proposal,
+                }),
+              )
+              : yield* enqueue(
+                context,
+                home,
+                workItem("proposal", policy.proposal.id, canvas, nodeId),
+                { operation: "proposal.create", proposal: policy.proposal },
+                policy.proposal,
+              );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workTaskApproveProposal: (canvas, nodeId, taskId) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read, home] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("proposal", canvas, nodeId, taskId),
+            ]);
+            const policy = yield* runPolicy(() =>
+              workTaskApproveProposal(
+                read.doc,
+                canvas,
+                nodeId,
+                taskId,
+                ids,
+              )
+            );
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.approveProposal({
+                  sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
+                  proposalId: taskId,
+                  task: policy.task,
+                }),
+              ).pipe(Effect.map((entry) => ({
+                ...entry,
+                value: entry.value.task,
+              })))
+              : yield* requireRoutableRemote(home, context).pipe(
+                  Effect.flatMap(() =>
+                    repository.enqueueRemoteProposalApproval({
+                      sink: sinkRef(canvas, nodeId),
+                      targetInstallationId: home,
+                      item: {
+                        ...workItem(
+                          "proposal",
+                          taskId,
+                          canvas,
+                          nodeId,
+                        ),
+                        kind: "proposal" as const,
+                      },
+                      action: {
+                        operation: "proposal.approve",
+                        proposalId: taskId,
+                        task: policy.task,
+                      },
+                    })
+                  ),
+                  Effect.mapError(toWorkServiceError),
+                  Effect.as({
+                    value: policy.task,
+                    disposition: "queued" as const,
+                  }),
+                );
             return yield* complete(canvas, outcome);
           }),
         ),
@@ -985,6 +1128,83 @@ export const WorkLive = Layer.effect(
                 outcome.value,
               );
             }
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workMessageMarkRead: (canvas, nodeId, messageId, reader) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            yield* requireLocalActor(
+              read,
+              reader,
+              nodeId,
+              "msg.read",
+              context,
+            );
+            if (reader.nodeId !== nodeId || reader.canvasName !== canvas) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "only the mailbox owner may mark a message read",
+                }),
+              );
+            }
+            const trimmed = messageId.trim();
+            if (!trimmed) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "messageId must be non-empty",
+                }),
+              );
+            }
+            const exists = (read.doc.nodes.find((n) => n.id === nodeId)?.ether
+              ?.messages?.items ?? []).some((m) => m.messageId === trimmed);
+            if (!exists) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "node_not_found",
+                  message: `message "${trimmed}" not found in mailbox`,
+                }),
+              );
+            }
+            const sink = sinkRef(canvas, nodeId);
+            const deliveryId = mailboxMessageReadId(canvas, nodeId, trimmed);
+            const acceptedAt = new Date().toISOString();
+            const already = yield* repository
+              .hasAcceptedDelivery(sink, deliveryId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            if (already) {
+              return yield* complete(canvas, {
+                disposition: "applied" as const,
+                value: { messageId: trimmed, readAt: acceptedAt },
+              });
+            }
+            const outcome = yield* local(
+              repository.acceptDelivery({
+                sink,
+                basis: intentBasis(context, read.intentWitness),
+                receipt: {
+                  deliveryId,
+                  deliveredItem: {
+                    kind: "message",
+                    itemId: trimmed,
+                    sink,
+                  },
+                  actor: reader,
+                  acceptedAt,
+                },
+              }).pipe(
+                Effect.map(() => ({
+                  value: { messageId: trimmed, readAt: acceptedAt },
+                })),
+              ),
+            );
             return yield* complete(canvas, outcome);
           }),
         ),

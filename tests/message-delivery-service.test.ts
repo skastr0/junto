@@ -54,33 +54,42 @@ const terminalDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
   edges: [],
 });
 
-const makeStore = (initial: Record<string, CanvasDoc>): MessageDeliveryStore => {
+const makeStore = (
+  initial: Record<string, CanvasDoc>,
+  options: { readonly acceptOk?: () => boolean; readonly now?: () => number } = {},
+): MessageDeliveryStore => {
   const docs = new Map(Object.entries(initial).map(([k, v]) => [k, structuredClone(v)]));
+  const accepted = new Set<string>();
+  const keyOf = (canvas: string, nodeId: string, messageId: string) =>
+    `${canvas}::${nodeId}::${messageId}`;
   return {
     listCanvasNames: async () => [...docs.keys()],
     readDoc: async (name) => docs.get(name),
-    stampDelivered: async (canvas, nodeId, messageId, deliveredAt) => {
+    hasAcceptedMessageDelivery: async (canvas, nodeId, messageId) =>
+      accepted.has(keyOf(canvas, nodeId, messageId)),
+    acceptMessageDelivery: async (canvas, nodeId, messageId) => {
+      if (options.acceptOk && !options.acceptOk()) return false;
+      const k = keyOf(canvas, nodeId, messageId);
+      accepted.add(k);
+      // Mirror projection enrichment so isPendingDelivery/tests see stop.
       const doc = docs.get(canvas);
-      if (!doc) return false;
+      if (!doc) return true;
+      const deliveredAt = options.now?.() ?? Date.now();
       const node = doc.nodes.find((n) => n.id === nodeId);
-      if (!node?.ether?.messages) return false;
+      if (!node?.ether?.messages) return true;
       const items = node.ether.messages.items.map((m) =>
         m.messageId === messageId
           ? { ...m, metadata: { ...(m.metadata ?? {}), deliveredAt } }
           : m,
       );
-      const next: CanvasDoc = {
+      docs.set(canvas, {
         ...doc,
         nodes: doc.nodes.map((n) =>
           n.id === nodeId
-            ? {
-                ...n,
-                ether: { ...(n.ether ?? {}), messages: { items } },
-              }
+            ? { ...n, ether: { ...(n.ether ?? {}), messages: { items } } }
             : n,
         ),
-      };
-      docs.set(canvas, next);
+      });
       return true;
     },
   };
@@ -159,9 +168,12 @@ describe("MessageDeliveryService", () => {
     expect(writes).toHaveLength(2);
   });
 
-  it("stamps deliveredAt through the store when managed terminal drive accepts", async () => {
+  it("accepts durable delivery when managed terminal drive accepts", async () => {
     const msg = userMsg("m1");
-    const store = makeStore({ c: agentDoc([msg]) });
+    const store = makeStore(
+      { c: agentDoc([msg]) },
+      { now: () => 1_111 },
+    );
     const payloads: string[] = [];
     const sendManagedTerminalPrompt = async (_bindingId: string, text: string) => {
       payloads.push(text);
@@ -177,11 +189,12 @@ describe("MessageDeliveryService", () => {
     });
 
     service.notifyAppended("c", "agent", msg);
-    await waitUntil(async () => {
-      const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
-      return live?.metadata?.deliveredAt === 1_111;
-    });
+    await waitUntil(async () =>
+      store.hasAcceptedMessageDelivery("c", "agent", "m1"),
+    );
     expect(payloads).toEqual(["[message · user] ping"]);
+    const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
+    expect(live?.metadata?.deliveredAt).toBe(1_111);
   });
 
   it("at-most-once under rapid append burst", async () => {
@@ -301,10 +314,7 @@ describe("MessageDeliveryService", () => {
 
     accepts = true;
     service.onTerminalAttached("bind-term");
-    await waitUntil(async () => {
-      doc = await store.readDoc("c");
-      return doc?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt === 9;
-    });
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "terminal", msg.messageId));
     expect(payloads.some((p) => p.includes("[message · user] wake"))).toBe(true);
     expect(payloads.at(-1)).not.toContain("\n");
   });
@@ -398,10 +408,7 @@ describe("MessageDeliveryService", () => {
     service.notifyAppended("c", "terminal", msg);
     await waitUntil(() => prompts.length === 1);
     expect(prompts[0]).toBe("[message · user] claim task");
-    await waitUntil(async () => {
-      const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
-      return live?.metadata?.deliveredAt === 42;
-    });
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "terminal", msg.messageId));
   });
 
   it("managed terminal idle gate leave pending until onManagedTerminalIdle", async () => {
@@ -445,16 +452,18 @@ describe("MessageDeliveryService", () => {
     service.onManagedTerminalIdle("bind-idle");
     await waitUntil(() => prompts.length === 1);
     expect(prompts[0]).toContain("wait");
-    await waitUntil(async () => {
-      const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
-      return live?.metadata?.deliveredAt === 7;
-    });
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "terminal", "idle-gate"),
+    );
   });
 
-  it("transport accept + stamp fail never re-sends on attach", async () => {
+  it("transport accept + receipt fail never re-sends on idle", async () => {
     const msg = userMsg("dup", "once only");
-    const store = makeStore({ c: agentDoc([msg]) });
-    let stampOk = false;
+    let acceptOk = false;
+    const store = makeStore(
+      { c: agentDoc([msg]) },
+      { acceptOk: () => acceptOk, now: () => 5 },
+    );
     let sendCount = 0;
     const service = new MessageDeliveryService();
     service.configure({
@@ -464,26 +473,17 @@ describe("MessageDeliveryService", () => {
           return true;
         },
       },
-      store: {
-        ...store,
-        stampDelivered: async (...args) => {
-          if (!stampOk) return false;
-          return store.stampDelivered(...args);
-        },
-      },
+      store,
       now: () => 5,
     });
     service.notifyAppended("c", "agent", msg);
     await waitUntil(() => sendCount === 1);
-    expect((await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt).toBeUndefined();
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "dup")).toBe(false);
 
-    // Idle re-drive: stamp only, no second transport hit
-    stampOk = true;
+    // Idle re-drive: receipt only, no second transport hit
+    acceptOk = true;
     service.onManagedTerminalIdle("bind-mira");
-    await waitUntil(async () => {
-      const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
-      return live?.metadata?.deliveredAt === 5;
-    });
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "dup"));
     expect(sendCount).toBe(1);
   });
 

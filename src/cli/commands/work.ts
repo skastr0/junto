@@ -3,9 +3,12 @@ import { Effect, Option, Schema } from "effect";
 import {
   ArtifactPublishCliArgs,
   MsgListArgs,
+  MsgReadArgs,
+  MsgReplyArgs,
   MsgSendArgs,
   RequestEscalateArgs,
   TasksClaimArgs,
+  TasksCreateArgs,
   TasksListArgs,
   TasksUpdateArgs,
   type WorkOpName,
@@ -77,6 +80,21 @@ const tasksClaimCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Claim one or more tasks (batch-capable)"));
 
+const tasksCreateCommand = Command.make(
+  "create",
+  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
+  ({ input, concurrency, timeout }) =>
+    executeJsonCommand(
+      "tasks create",
+      runMutationBatch({
+        input,
+        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+        itemSchema: TasksCreateArgs,
+        run: (item) => callDomain("tasks.create", item, toUndefined(timeout)),
+      }),
+    ),
+).pipe(Command.withDescription("Create one or more proposals for operator review"));
+
 const tasksUpdateCommand = Command.make(
   "update",
   { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
@@ -94,7 +112,12 @@ const tasksUpdateCommand = Command.make(
 
 export const tasksCommand = Command.make("tasks").pipe(
   Command.withDescription("Task work-plane ops"),
-  Command.withSubcommands([tasksListCommand, tasksClaimCommand, tasksUpdateCommand]),
+  Command.withSubcommands([
+    tasksListCommand,
+    tasksCreateCommand,
+    tasksClaimCommand,
+    tasksUpdateCommand,
+  ]),
 );
 
 // --- msg ---
@@ -127,9 +150,52 @@ const msgSendCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Send a message (batch-capable)"));
 
+const msgReadCommand = Command.make(
+  "read",
+  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
+  ({ input, concurrency, timeout }) =>
+    executeJsonCommand(
+      "msg read",
+      runMutationBatch({
+        input,
+        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+        itemSchema: MsgReadArgs,
+        run: (item) => callDomain("msg.read", item, toUndefined(timeout)),
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Mark a mailbox message read (own seat only; batch-capable)",
+  ),
+);
+
+const msgReplyCommand = Command.make(
+  "reply",
+  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
+  ({ input, concurrency, timeout }) =>
+    executeJsonCommand(
+      "msg reply",
+      runMutationBatch({
+        input,
+        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+        itemSchema: MsgReplyArgs,
+        run: (item) => callDomain("msg.reply", item, toUndefined(timeout)),
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Reply to factory mail and mark inReplyTo read (batch-capable)",
+  ),
+);
+
 export const msgCommand = Command.make("msg").pipe(
   Command.withDescription("Message ops"),
-  Command.withSubcommands([msgListCommand, msgSendCommand]),
+  Command.withSubcommands([
+    msgListCommand,
+    msgSendCommand,
+    msgReadCommand,
+    msgReplyCommand,
+  ]),
 );
 
 /**

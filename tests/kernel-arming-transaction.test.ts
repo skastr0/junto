@@ -186,6 +186,8 @@ const makeKernelRuntime = (
         hasAcceptedDelivery: () =>
           Effect.dieMessage("unused work repository"),
         createTask: () => Effect.dieMessage("unused work repository"),
+        createProposal: () => Effect.dieMessage("unused work repository"),
+        approveProposal: () => Effect.dieMessage("unused work repository"),
         describeTask: () => Effect.dieMessage("unused work repository"),
         transitionTask: () => Effect.dieMessage("unused work repository"),
         claimLocalTask: () => Effect.dieMessage("unused work repository"),
@@ -197,6 +199,8 @@ const makeKernelRuntime = (
         reserveRemoteTaskClaim: () =>
           Effect.dieMessage("unused work repository"),
         enqueueRemoteCommand: () =>
+          Effect.dieMessage("unused work repository"),
+        enqueueRemoteProposalApproval: () =>
           Effect.dieMessage("unused work repository"),
         recordsAfter: () => Effect.dieMessage("unused work repository"),
         pendingCommands: Effect.dieMessage("unused work repository"),
@@ -217,11 +221,14 @@ const makeKernelRuntime = (
       WorkService,
       WorkService.of({
         workTaskCreate: () => Effect.dieMessage("unused work service"),
+        workTaskPropose: () => Effect.dieMessage("unused work service"),
+        workTaskApproveProposal: () => Effect.dieMessage("unused work service"),
         workTaskDescribe: () => Effect.dieMessage("unused work service"),
         workTaskTransition: () => Effect.dieMessage("unused work service"),
         workTaskRespond: () => Effect.dieMessage("unused work service"),
         workTaskClaim: () => Effect.dieMessage("unused work service"),
         workMessageAppend: () => Effect.dieMessage("unused work service"),
+        workMessageMarkRead: () => Effect.dieMessage("unused work service"),
         workRequestCreate: () => Effect.dieMessage("unused work service"),
         workRequestResolve: () => Effect.dieMessage("unused work service"),
         workArtifactPublish: () => Effect.dieMessage("unused work service"),

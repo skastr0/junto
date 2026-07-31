@@ -356,10 +356,13 @@ describe("work-control main authoring classification", () => {
       capabilities: "read",
       onboard: "read",
       "tasks.list": "read",
+      "tasks.create": "authorial",
       "tasks.claim": "authorial",
       "tasks.update": "authorial",
       "msg.list": "read",
       "msg.send": "authorial",
+      "msg.read": "authorial",
+      "msg.reply": "authorial",
       "request.escalate": "authorial",
       "artifact.publish": "authorial",
     } as const satisfies Record<

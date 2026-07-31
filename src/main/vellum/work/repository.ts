@@ -13,10 +13,12 @@ import {
   Artifact,
   Message,
   Task,
+  TaskProposal,
   WorkSnapshot,
   type Artifact as ArtifactValue,
   type Message as MessageValue,
   type Task as TaskValue,
+  type TaskProposal as TaskProposalValue,
   type TaskState,
   type WorkSnapshot as WorkSnapshotValue,
 } from "@shared/work-model";
@@ -69,6 +71,10 @@ import {
   type StateRow,
   type StateWriter,
 } from "../state/service";
+import {
+  mailboxMessageDeliveryId,
+  mailboxMessageReadId,
+} from "./mailbox-receipts";
 
 const DEFAULT_RECORD_LIMIT = 256;
 const MAX_RECORD_LIMIT = 1_024;
@@ -247,6 +253,15 @@ export type CreateTaskInput = LocalWorkInput & {
   readonly task: TaskValue;
 };
 
+export type CreateProposalInput = LocalWorkInput & {
+  readonly proposal: TaskProposalValue;
+};
+
+export type ApproveProposalInput = LocalWorkInput & {
+  readonly proposalId: string;
+  readonly task: TaskValue;
+};
+
 export type DescribeTaskInput = LocalWorkInput & {
   readonly taskId: string;
   readonly message: MessageValue;
@@ -302,10 +317,24 @@ export type EnqueueRemoteCommandInput = WorkRepositoryInput & {
   readonly action: Exclude<WorkActionValue, { readonly operation: "task.claim" }>;
 };
 
+export type EnqueueRemoteProposalApprovalInput = WorkRepositoryInput & {
+  readonly targetInstallationId: InstallationId;
+  readonly item: WorkItemRef & { readonly kind: "proposal" };
+  readonly action: Extract<
+    WorkActionValue,
+    { readonly operation: "proposal.approve" }
+  >;
+};
+
 export type LocalFactResult<A> = {
   readonly value: A;
   readonly record: WorkFactValue;
   readonly snapshot: WorkSnapshotValue;
+};
+
+export type ProposalApprovalValue = {
+  readonly proposal: TaskProposalValue;
+  readonly task: TaskValue;
 };
 
 export type RecordsAfterInput = {
@@ -457,6 +486,18 @@ type TaskRow = StateRow & {
   readonly created_at: string;
 };
 
+type ProposalRow = StateRow & {
+  readonly proposal_id: string;
+  readonly state: TaskProposalValue["state"];
+  readonly brief_json: string;
+  readonly proposer_seat_id: string;
+  readonly proposer_canvas_name: string;
+  readonly proposer_node_id: string;
+  readonly approved_task_id: string | null;
+  readonly metadata_json: string | null;
+  readonly reason: string | null;
+};
+
 type MessageRow = StateRow & {
   readonly message_id: string;
   readonly role: MessageValue["role"];
@@ -485,6 +526,14 @@ type IdentityRow = StateRow & {
   readonly fact_entity_home: string;
   readonly fact_seq: string;
   readonly state: TaskState;
+};
+
+type ProposalIdentityRow = StateRow & {
+  readonly entity_home: string;
+  readonly fact_event_home: string;
+  readonly fact_entity_home: string;
+  readonly fact_seq: string;
+  readonly state: TaskProposalValue["state"];
 };
 
 type SequenceRow = StateRow & {
@@ -768,6 +817,69 @@ const loadLaneTasks = (
     .map((row) => taskFromRow(reader, sink, lane, row));
 };
 
+const loadProposals = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): ReadonlyArray<TaskProposalValue> =>
+  reader
+    .all<ProposalRow>(
+      `
+        SELECT
+          proposal_id,
+          state,
+          brief_json,
+          proposer_seat_id,
+          proposer_canvas_name,
+          proposer_node_id,
+          approved_task_id,
+          metadata_json,
+          reason
+        FROM work_task_proposals
+        WHERE canvas_name = ? AND node_id = ?
+        ORDER BY created_at, proposal_id
+      `,
+      [sink.canvasName, sink.nodeId],
+    )
+    .map((row) =>
+      Schema.decodeUnknownSync(TaskProposal, strictDecode)({
+        id: row.proposal_id,
+        state: row.state,
+        brief: parseJson(row.brief_json),
+        proposedBy: {
+          seatId: row.proposer_seat_id,
+          canvasName: row.proposer_canvas_name,
+          nodeId: row.proposer_node_id,
+        },
+        ...(row.approved_task_id === null
+          ? {}
+          : { approvedTaskId: row.approved_task_id }),
+        ...(row.metadata_json === null
+          ? {}
+          : { metadata: parseJson(row.metadata_json) }),
+        ...(row.reason === null ? {} : { reason: row.reason }),
+      }),
+    );
+
+const receiptAcceptedAtMs = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  deliveryId: string,
+): number | undefined => {
+  const row = reader.get<StateRow & { readonly accepted_at: string }>(
+    `
+      SELECT accepted_at
+      FROM work_delivery_receipts
+      WHERE delivered_canvas_name = ?
+        AND delivered_node_id = ?
+        AND delivery_id = ?
+    `,
+    [sink.canvasName, sink.nodeId, deliveryId],
+  );
+  if (row === undefined) return undefined;
+  const ms = Date.parse(row.accepted_at);
+  return Number.isFinite(ms) ? ms : undefined;
+};
+
 const loadInbox = (
   reader: StateReader,
   sink: SinkRefValue,
@@ -789,7 +901,28 @@ const loadInbox = (
       `,
       [sink.canvasName, sink.nodeId],
     )
-    .map((row) => messageFromRow(row));
+    .map((row) => {
+      const message = messageFromRow(row);
+      const deliveredAt = receiptAcceptedAtMs(
+        reader,
+        sink,
+        mailboxMessageDeliveryId(sink.canvasName, sink.nodeId, row.message_id),
+      );
+      const readAt = receiptAcceptedAtMs(
+        reader,
+        sink,
+        mailboxMessageReadId(sink.canvasName, sink.nodeId, row.message_id),
+      );
+      if (deliveredAt === undefined && readAt === undefined) return message;
+      return {
+        ...message,
+        metadata: {
+          ...(message.metadata ?? {}),
+          ...(deliveredAt !== undefined ? { deliveredAt } : {}),
+          ...(readAt !== undefined ? { readAt } : {}),
+        },
+      };
+    });
 
 const loadArtifacts = (
   reader: StateReader,
@@ -842,7 +975,10 @@ const loadSnapshot = (
 ): WorkSnapshotValue =>
   Schema.decodeUnknownSync(WorkSnapshot, strictDecode)({
     ...sink,
-    tasks: { items: loadLaneTasks(reader, sink, "task") },
+    tasks: {
+      items: loadLaneTasks(reader, sink, "task"),
+      proposals: loadProposals(reader, sink),
+    },
     requests: { items: loadLaneTasks(reader, sink, "request") },
     messages: { items: loadInbox(reader, sink) },
     artifacts: { items: loadArtifacts(reader, sink) },
@@ -867,6 +1003,8 @@ const snapshotsForCanvas = (
     `
       SELECT node_id FROM work_tasks WHERE canvas_name = ?
       UNION
+      SELECT node_id FROM work_task_proposals WHERE canvas_name = ?
+      UNION
       SELECT node_id FROM work_requests WHERE canvas_name = ?
       UNION
       SELECT node_id FROM work_messages WHERE canvas_name = ?
@@ -874,7 +1012,7 @@ const snapshotsForCanvas = (
       SELECT node_id FROM work_artifacts WHERE canvas_name = ?
       ORDER BY node_id
     `,
-    [canvasName, canvasName, canvasName, canvasName],
+    [canvasName, canvasName, canvasName, canvasName, canvasName],
   );
   return nodes.map(({ node_id }) =>
     loadSnapshot(reader, { canvasName, nodeId: node_id }),
@@ -894,8 +1032,12 @@ export const readCanvasWorkProjection = (
     reader.get<{ readonly work_revision: string }>(
       `
         SELECT CAST(count(*) AS TEXT) AS work_revision
-        FROM work_events
-        WHERE item_canvas_name = ?
+        FROM (
+          SELECT item_canvas_name AS canvas_name FROM work_events
+          UNION ALL
+          SELECT canvas_name FROM work_proposal_events
+        )
+        WHERE canvas_name = ?
       `,
       [canvasName],
     )?.work_revision ?? "0";
@@ -906,7 +1048,10 @@ export const readCanvasWorkProjection = (
 };
 
 const currentIdentity = (
-  row: IdentityRow,
+  row: Pick<
+    IdentityRow,
+    "fact_event_home" | "fact_entity_home" | "fact_seq"
+  >,
 ): WorkRecordId =>
   recordId(
     row.fact_event_home as InstallationId,
@@ -936,6 +1081,41 @@ const selectTaskIdentity = (
     `,
     [sink.canvasName, sink.nodeId, itemId],
   );
+};
+
+const selectProposalIdentity = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  proposalId: string,
+): ProposalIdentityRow | undefined =>
+  reader.get<ProposalIdentityRow>(
+    `
+      SELECT
+        entity_home,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
+        state
+      FROM work_task_proposals
+      WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
+    `,
+    [sink.canvasName, sink.nodeId, proposalId],
+  );
+
+const loadProposal = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  proposalId: string,
+): {
+  readonly row: ProposalIdentityRow;
+  readonly proposal: TaskProposalValue;
+} | undefined => {
+  const row = selectProposalIdentity(reader, sink, proposalId);
+  if (row === undefined) return undefined;
+  const proposal = loadProposals(reader, sink).find(
+    (candidate) => candidate.id === proposalId,
+  );
+  return proposal === undefined ? undefined : { row, proposal };
 };
 
 const loadTask = (
@@ -1259,6 +1439,23 @@ const loadRecord = (
   reader: StateReader,
   identity: WorkRecordId,
 ): WorkRecordValue | undefined => {
+  const proposal = reader.get<StateRow & { readonly record_json: string }>(
+    `
+      SELECT record_json
+      FROM work_proposal_events
+      WHERE event_home = ? AND entity_home = ? AND seq = ?
+    `,
+    [
+      identity.route.eventHome,
+      identity.route.entityHome,
+      identity.seq,
+    ],
+  );
+  if (proposal !== undefined) {
+    return Schema.decodeUnknownSync(WorkRecord, strictDecode)(
+      parseJson(proposal.record_json),
+    );
+  }
   const common = eventRow(reader, identity);
   if (common === undefined) return undefined;
   const base = {
@@ -1401,6 +1598,41 @@ const insertRecord = (
   record: WorkRecordValue,
   receivedAt: DisplayTimestampValue,
 ): void => {
+  if (record.item.kind === "proposal") {
+    writer.run(
+      `
+        INSERT INTO work_proposal_events(
+          event_home,
+          entity_home,
+          seq,
+          record_type,
+          canvas_name,
+          node_id,
+          proposal_id,
+          operation,
+          content_sha256,
+          record_json,
+          origin_at,
+          received_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        record.id.route.eventHome,
+        record.id.route.entityHome,
+        record.id.seq,
+        record.recordType,
+        record.item.sink.canvasName,
+        record.item.sink.nodeId,
+        record.item.itemId,
+        record.operation,
+        record.contentSha256,
+        canonicalJson(record),
+        record.originAt,
+        receivedAt,
+      ],
+    );
+    return;
+  }
   writer.run(
     `
       INSERT INTO work_events(
@@ -1566,6 +1798,33 @@ const insertPending = (
   command: WorkCommandValue,
   createdAt: DisplayTimestampValue,
 ): void => {
+  if (command.item.kind === "proposal") {
+    writer.run(
+      `
+        INSERT INTO work_pending_proposal_commands(
+          event_home,
+          entity_home,
+          seq,
+          operation,
+          canvas_name,
+          node_id,
+          proposal_id,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        command.id.route.eventHome,
+        command.id.route.entityHome,
+        command.id.seq,
+        command.operation,
+        command.item.sink.canvasName,
+        command.item.sink.nodeId,
+        command.item.itemId,
+        createdAt,
+      ],
+    );
+    return;
+  }
   writer.run(
     `
       INSERT INTO work_pending_commands(
@@ -2065,12 +2324,96 @@ const writeDelivery = (
   );
 };
 
+const writeProposal = (
+  writer: StateWriter,
+  sink: SinkRefValue,
+  proposal: TaskProposalValue,
+  fact: WorkFactValue,
+  receivedAt: DisplayTimestampValue,
+): void => {
+  writer.run(
+    `
+      INSERT INTO work_task_proposals(
+        canvas_name,
+        node_id,
+        proposal_id,
+        entity_home,
+        fact_event_home,
+        fact_entity_home,
+        fact_seq,
+        state,
+        brief_json,
+        proposer_seat_id,
+        proposer_canvas_name,
+        proposer_node_id,
+        approved_task_id,
+        metadata_json,
+        reason,
+        created_at,
+        updated_at,
+        origin_at,
+        received_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(canvas_name, node_id, proposal_id) DO UPDATE SET
+        fact_event_home = excluded.fact_event_home,
+        fact_entity_home = excluded.fact_entity_home,
+        fact_seq = excluded.fact_seq,
+        state = excluded.state,
+        approved_task_id = excluded.approved_task_id,
+        updated_at = excluded.updated_at,
+        origin_at = excluded.origin_at,
+        received_at = excluded.received_at
+    `,
+    [
+      sink.canvasName,
+      sink.nodeId,
+      proposal.id,
+      fact.id.route.entityHome,
+      fact.id.route.eventHome,
+      fact.id.route.entityHome,
+      fact.id.seq,
+      proposal.state,
+      canonicalJson(proposal.brief),
+      proposal.proposedBy.seatId,
+      proposal.proposedBy.canvasName,
+      proposal.proposedBy.nodeId,
+      proposal.approvedTaskId ?? null,
+      proposal.metadata === undefined
+        ? null
+        : canonicalJson(proposal.metadata),
+      proposal.reason ?? null,
+      fact.originAt,
+      fact.originAt,
+      fact.originAt,
+      receivedAt,
+    ],
+  );
+};
+
 const materializeFact = (
   writer: StateWriter,
   fact: WorkFactValue,
   receivedAt: DisplayTimestampValue,
 ): void => {
   switch (fact.body.operation) {
+    case "proposal.create":
+      writeProposal(
+        writer,
+        fact.item.sink,
+        fact.body.proposal,
+        fact,
+        receivedAt,
+      );
+      return;
+    case "proposal.approve":
+      writeProposal(
+        writer,
+        fact.item.sink,
+        fact.body.proposal,
+        fact,
+        receivedAt,
+      );
+      return;
     case "task.create":
     case "task.describe":
     case "task.transition":
@@ -2187,7 +2530,12 @@ const assertActorAvailable = (
 };
 
 const assertCurrentPredecessor = (
-  current: IdentityRow | undefined,
+  current:
+    | Pick<
+        IdentityRow,
+        "fact_event_home" | "fact_entity_home" | "fact_seq"
+      >
+    | undefined,
   predecessor: WorkRecordId | null,
   itemLabel: string,
 ): void => {
@@ -2373,12 +2721,27 @@ const predecessorForAction = (
   action: Exclude<WorkActionValue, { readonly operation: "task.claim" }>,
 ): WorkRecordId | null => {
   switch (action.operation) {
+    case "proposal.create":
     case "task.create":
     case "request.create":
     case "message.append":
     case "artifact.publish":
     case "delivery.accepted":
       return null;
+    case "proposal.approve": {
+      const current = selectProposalIdentity(
+        writer,
+        commandItem.sink,
+        commandItem.itemId,
+      );
+      if (current === undefined) {
+        throw authorityError(
+          "missing-entity",
+          `proposal "${commandItem.itemId}" does not exist`,
+        );
+      }
+      return currentIdentity(current);
+    }
     case "task.describe":
     case "task.transition": {
       const current = selectTaskIdentity(
@@ -2421,6 +2784,70 @@ const resultForCommand = (
 } => {
   const action = command.body;
   switch (action.operation) {
+    case "proposal.create": {
+      if (
+        selectProposalIdentity(
+          writer,
+          command.item.sink,
+          command.item.itemId,
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `proposal "${command.item.itemId}" already exists`,
+        );
+      }
+      return {
+        body: {
+          operation: "proposal.create",
+          proposal: action.proposal,
+        },
+      };
+    }
+    case "proposal.approve": {
+      const current = loadProposal(
+        writer,
+        command.item.sink,
+        action.proposalId,
+      );
+      assertCurrentPredecessor(
+        current?.row,
+        command.predecessor,
+        `proposal "${action.proposalId}"`,
+      );
+      if (current!.proposal.state !== "pending") {
+        throw authorityError(
+          "invalid-transition",
+          `proposal "${action.proposalId}" is not pending`,
+        );
+      }
+      if (
+        action.task.state !== "submitted" ||
+        action.task.claimedBy !== undefined ||
+        selectTaskIdentity(
+          writer,
+          "task",
+          command.item.sink,
+          action.task.id,
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          "proposal approval must mint one new submitted unclaimed task",
+        );
+      }
+      return {
+        body: {
+          operation: "proposal.approve",
+          proposal: {
+            ...current!.proposal,
+            state: "approved",
+            approvedTaskId: action.task.id,
+          },
+          task: action.task,
+        },
+      };
+    }
     case "task.create": {
       if (
         selectTaskIdentity(
@@ -2704,6 +3131,53 @@ const priorCommandOutcome = (
   reader: StateReader,
   command: WorkCommandValue,
 ): ReadonlyArray<WorkRecordValue> => {
+  if (command.item.kind === "proposal") {
+    const rows = reader
+      .all<StateRow & { readonly record_json: string }>(
+        `
+          SELECT record_json
+          FROM work_proposal_events
+          WHERE (
+            record_type = 'fact'
+            AND json_extract(
+              record_json,
+              '$.basis.command.route.eventHome'
+            ) = ?
+            AND json_extract(
+              record_json,
+              '$.basis.command.route.entityHome'
+            ) = ?
+            AND json_extract(record_json, '$.basis.command.seq') = ?
+          ) OR (
+            record_type = 'disposition'
+            AND json_extract(
+              record_json,
+              '$.body.command.route.eventHome'
+            ) = ?
+            AND json_extract(
+              record_json,
+              '$.body.command.route.entityHome'
+            ) = ?
+            AND json_extract(record_json, '$.body.command.seq') = ?
+          )
+          ORDER BY length(seq), seq
+        `,
+        [
+          command.id.route.eventHome,
+          command.id.route.entityHome,
+          command.id.seq,
+          command.id.route.eventHome,
+          command.id.route.entityHome,
+          command.id.seq,
+        ],
+      )
+      .map((entry) =>
+        Schema.decodeUnknownSync(WorkRecord, strictDecode)(
+          parseJson(entry.record_json),
+        )
+      );
+    return rows;
+  }
   const row = reader.get<
     StateRow & {
       readonly event_home: string;
@@ -2774,6 +3248,12 @@ const resolvePending = (
   disposition: WorkDispositionValue,
   receivedAt: DisplayTimestampValue,
 ): void => {
+  const command = loadRecord(writer, disposition.body.command);
+  const pendingTable =
+    command?.recordType === "command" &&
+    command.item.kind === "proposal"
+      ? "work_pending_proposal_commands"
+      : "work_pending_commands";
   const pending = writer.get<
     StateRow & {
       readonly resolution_status: string | null;
@@ -2788,7 +3268,7 @@ const resolvePending = (
         resolution_event_home,
         resolution_entity_home,
         resolution_seq
-      FROM work_pending_commands
+      FROM ${pendingTable}
       WHERE event_home = ? AND entity_home = ? AND seq = ?
     `,
     [
@@ -2819,7 +3299,7 @@ const resolvePending = (
   }
   writer.run(
     `
-      UPDATE work_pending_commands
+      UPDATE ${pendingTable}
       SET
         resolution_status = ?,
         resolution_event_home = ?,
@@ -3015,7 +3495,11 @@ const exactPendingCommandForFact = (
   >(
     `
       SELECT resolution_event_home
-      FROM work_pending_commands
+      FROM ${
+        command.item.kind === "proposal"
+          ? "work_pending_proposal_commands"
+          : "work_pending_commands"
+      }
       WHERE event_home = ?
         AND entity_home = ?
         AND seq = ?
@@ -3032,22 +3516,46 @@ const exactPendingCommandForFact = (
   ) {
     return undefined;
   }
-  const priorFact = reader.get<StateRow>(
-    `
-      SELECT 1
-      FROM work_facts
-      WHERE basis_kind = 'command'
-        AND basis_command_event_home = ?
-        AND basis_command_entity_home = ?
-        AND basis_command_seq = ?
-      LIMIT 1
-    `,
-    [
-      command.id.route.eventHome,
-      command.id.route.entityHome,
-      command.id.seq,
-    ],
-  );
+  const priorFact =
+    command.item.kind === "proposal"
+      ? reader.get<StateRow>(
+          `
+            SELECT 1
+            FROM work_proposal_events
+            WHERE record_type = 'fact'
+              AND json_extract(
+                record_json,
+                '$.basis.command.route.eventHome'
+              ) = ?
+              AND json_extract(
+                record_json,
+                '$.basis.command.route.entityHome'
+              ) = ?
+              AND json_extract(record_json, '$.basis.command.seq') = ?
+            LIMIT 1
+          `,
+          [
+            command.id.route.eventHome,
+            command.id.route.entityHome,
+            command.id.seq,
+          ],
+        )
+      : reader.get<StateRow>(
+          `
+            SELECT 1
+            FROM work_facts
+            WHERE basis_kind = 'command'
+              AND basis_command_event_home = ?
+              AND basis_command_entity_home = ?
+              AND basis_command_seq = ?
+            LIMIT 1
+          `,
+          [
+            command.id.route.eventHome,
+            command.id.route.entityHome,
+            command.id.seq,
+          ],
+        );
   return priorFact === undefined ? command : undefined;
 };
 
@@ -3067,6 +3575,32 @@ const assertCorrelatedCommandFact = (
   }
   const action = command.body;
   switch (action.operation) {
+    case "proposal.create":
+      if (
+        fact.body.operation !== "proposal.create" ||
+        canonicalJson(fact.body.proposal) !==
+          canonicalJson(action.proposal)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "proposal creation fact differs from the exact pending command",
+        );
+      }
+      return;
+    case "proposal.approve":
+      if (
+        fact.body.operation !== "proposal.approve" ||
+        fact.body.proposal.id !== action.proposalId ||
+        fact.body.proposal.state !== "approved" ||
+        fact.body.proposal.approvedTaskId !== action.task.id ||
+        canonicalJson(fact.body.task) !== canonicalJson(action.task)
+      ) {
+        throw authorityError(
+          "causal-conflict",
+          "proposal approval fact differs from the exact pending command",
+        );
+      }
+      return;
     case "task.create":
       if (
         fact.body.operation !== "task.create" ||
@@ -3257,6 +3791,56 @@ const validateIncomingFact = (
     assertCorrelatedCommandFact(correlatedCommand, fact);
   }
   switch (fact.body.operation) {
+    case "proposal.create": {
+      if (fact.body.proposal.state !== "pending") {
+        throw authorityError(
+          "invalid-transition",
+          "proposal.create fact must contain a pending proposal",
+        );
+      }
+      if (
+        selectProposalIdentity(
+          writer,
+          fact.item.sink,
+          fact.item.itemId,
+        ) !== undefined
+      ) {
+        throw authorityError(
+          "identity-conflict",
+          `proposal "${fact.item.itemId}" already exists`,
+        );
+      }
+      return;
+    }
+    case "proposal.approve": {
+      const current = loadProposal(
+        writer,
+        fact.item.sink,
+        fact.item.itemId,
+      );
+      assertCurrentPredecessor(
+        current?.row,
+        fact.predecessor,
+        `proposal "${fact.item.itemId}"`,
+      );
+      if (
+        current!.row.entity_home !== sender ||
+        current!.proposal.state !== "pending" ||
+        fact.body.proposal.state !== "approved" ||
+        fact.body.proposal.approvedTaskId !== fact.body.task.id ||
+        canonicalJson({
+          ...current!.proposal,
+          state: "approved",
+          approvedTaskId: fact.body.task.id,
+        }) !== canonicalJson(fact.body.proposal)
+      ) {
+        throw authorityError(
+          "invalid-transition",
+          "proposal approval fact must promote the exact pending proposal",
+        );
+      }
+      return;
+    }
     case "task.create": {
       if (
         fact.body.task.state !== "submitted" ||
@@ -3751,7 +4335,7 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
       canvasName: string,
     ) => Effect.Effect<ReadonlyArray<WorkSnapshotValue>, WorkRepositoryError>;
     readonly itemHome: (
-      lane: "task" | "request",
+      lane: "task" | "proposal" | "request",
       canvasName: string,
       nodeId: string,
       itemId: string,
@@ -3763,6 +4347,18 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
     readonly createTask: (
       input: CreateTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
+    readonly createProposal: (
+      input: CreateProposalInput,
+    ) => Effect.Effect<
+      LocalFactResult<TaskProposalValue>,
+      RepositoryFailure
+    >;
+    readonly approveProposal: (
+      input: ApproveProposalInput,
+    ) => Effect.Effect<
+      LocalFactResult<ProposalApprovalValue>,
+      RepositoryFailure
+    >;
     readonly describeTask: (
       input: DescribeTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
@@ -3792,6 +4388,9 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
     ) => Effect.Effect<WorkCommandValue, RepositoryFailure>;
     readonly enqueueRemoteCommand: (
       input: EnqueueRemoteCommandInput,
+    ) => Effect.Effect<WorkCommandValue, RepositoryFailure>;
+    readonly enqueueRemoteProposalApproval: (
+      input: EnqueueRemoteProposalApprovalInput,
     ) => Effect.Effect<WorkCommandValue, RepositoryFailure>;
     readonly recordsAfter: (
       input: RecordsAfterInput,
@@ -3858,19 +4457,25 @@ export const WorkRepositoryLive = Layer.effect(
         );
 
     const itemHome = (
-      lane: "task" | "request",
+      lane: "task" | "proposal" | "request",
       canvasName: string,
       nodeId: string,
       itemId: string,
     ): Effect.Effect<InstallationId | undefined, WorkRepositoryError> =>
       state
         .read("work.itemHome", (reader) =>
-          selectTaskIdentity(
-            reader,
-            lane,
-            { canvasName, nodeId },
-            itemId,
-          )?.entity_home as InstallationId | undefined,
+          (lane === "proposal"
+            ? selectProposalIdentity(
+                reader,
+                { canvasName, nodeId },
+                itemId,
+              )
+            : selectTaskIdentity(
+                reader,
+                lane,
+                { canvasName, nodeId },
+                itemId,
+              ))?.entity_home as InstallationId | undefined,
         )
         .pipe(
           Effect.mapError((error) =>
@@ -3959,6 +4564,132 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
+      });
+    };
+
+    const createProposal = (
+      input: CreateProposalInput,
+    ): Effect.Effect<
+      LocalFactResult<TaskProposalValue>,
+      RepositoryFailure
+    > => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const proposal = Schema.decodeUnknownSync(
+        TaskProposal,
+        strictDecode,
+      )(input.proposal);
+      return transaction("work.proposal.create", input.sink, (writer) => {
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
+        if (proposal.state !== "pending") {
+          throw authorityError(
+            "invalid-transition",
+            "proposal.create requires a pending proposal",
+          );
+        }
+        if (
+          selectProposalIdentity(writer, input.sink, proposal.id) !==
+            undefined
+        ) {
+          throw authorityError(
+            "identity-conflict",
+            `proposal "${proposal.id}" already exists`,
+          );
+        }
+        return commitLocalFact(writer, {
+          localInstallationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("proposal", proposal.id, input.sink),
+          operation: "proposal.create",
+          predecessor: null,
+          body: { operation: "proposal.create", proposal },
+          value: proposal,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const approveProposal = (
+      input: ApproveProposalInput,
+    ): Effect.Effect<
+      LocalFactResult<ProposalApprovalValue>,
+      RepositoryFailure
+    > => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const task = Schema.decodeUnknownSync(Task, strictDecode)(input.task);
+      return transaction("work.proposal.approve", input.sink, (writer) => {
+        const authority = canonicalLocalWorkAuthority(writer);
+        if (authority.role !== "command-center") {
+          throw authorityError(
+            "authority-mismatch",
+            "only the Command Center operator may approve proposals",
+          );
+        }
+        const current = loadProposal(writer, input.sink, input.proposalId);
+        if (current === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `proposal "${input.proposalId}" does not exist`,
+          );
+        }
+        if (
+          current.row.entity_home !== authority.installationId ||
+          current.proposal.state !== "pending"
+        ) {
+          throw authorityError(
+            "invalid-transition",
+            `proposal "${input.proposalId}" is not locally pending`,
+          );
+        }
+        if (
+          task.state !== "submitted" ||
+          task.claimedBy !== undefined ||
+          selectTaskIdentity(writer, "task", input.sink, task.id) !==
+            undefined
+        ) {
+          throw authorityError(
+            "invalid-transition",
+            "proposal approval must mint one new submitted unclaimed task",
+          );
+        }
+        const proposal: TaskProposalValue = {
+          ...current.proposal,
+          state: "approved",
+          approvedTaskId: task.id,
+        };
+        const proposalFact = commitLocalFact(writer, {
+          localInstallationId: authority.installationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("proposal", proposal.id, input.sink),
+          operation: "proposal.approve",
+          predecessor: currentIdentity(current.row),
+          body: { operation: "proposal.approve", proposal, task },
+          value: proposal,
+          originAt,
+          receivedAt,
+        });
+        commitLocalFact(writer, {
+          localInstallationId: authority.installationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("task", task.id, input.sink),
+          operation: "task.create",
+          predecessor: null,
+          body: { operation: "task.create", task },
+          value: task,
+          originAt,
+          receivedAt,
+        });
+        return {
+          value: { proposal, task },
+          record: proposalFact.record,
+          snapshot: loadSnapshot(writer, input.sink),
+        };
       });
     };
 
@@ -4568,6 +5299,79 @@ export const WorkRepositoryLive = Layer.effect(
       );
     };
 
+    const enqueueRemoteProposalApproval = (
+      input: EnqueueRemoteProposalApprovalInput,
+    ): Effect.Effect<WorkCommandValue, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      return transaction(
+        "work.proposal.approve.enqueue",
+        input.sink,
+        (writer) => {
+          const { installationId: localInstallationId } =
+            canonicalLocalWorkAuthority(writer);
+          if (input.targetInstallationId === localInstallationId) {
+            throw authorityError(
+              "target-mismatch",
+              "remote proposal approval target must differ from local installation",
+            );
+          }
+          const action = Schema.decodeUnknownSync(
+            WorkAction,
+            strictDecode,
+          )(input.action);
+          if (action.operation !== "proposal.approve") {
+            throw authorityError(
+              "target-mismatch",
+              "proposal approval enqueue requires proposal.approve",
+            );
+          }
+          const predecessor = predecessorForAction(
+            writer,
+            input.item,
+            action,
+          );
+          if (
+            predecessor === null ||
+            predecessor.route.entityHome !== input.targetInstallationId
+          ) {
+            throw authorityError(
+              "authority-mismatch",
+              "remote target does not own the pending proposal",
+            );
+          }
+          const approval = makeCommand(
+            writer,
+            localInstallationId,
+            input.targetInstallationId,
+            input.item,
+            predecessor,
+            action,
+            originAt,
+          );
+          insertRecord(writer, approval, receivedAt);
+          insertPending(writer, approval, receivedAt);
+
+          const creationAction = Schema.decodeUnknownSync(
+            WorkAction,
+            strictDecode,
+          )({ operation: "task.create", task: action.task });
+          const creation = makeCommand(
+            writer,
+            localInstallationId,
+            input.targetInstallationId,
+            item("task", action.task.id, input.sink),
+            null,
+            creationAction,
+            originAt,
+          );
+          insertRecord(writer, creation, receivedAt);
+          insertPending(writer, creation, receivedAt);
+          return approval;
+        },
+      );
+    };
+
     const recordsAfter = (
       input: RecordsAfterInput,
     ): Effect.Effect<ReadonlyArray<WorkRecordValue>, WorkRepositoryError> =>
@@ -4585,7 +5389,12 @@ export const WorkRepositoryLive = Layer.effect(
             .all<StateRow & { readonly seq: string }>(
               `
                 SELECT seq
-                FROM work_events
+                FROM (
+                  SELECT event_home, entity_home, seq FROM work_events
+                  UNION ALL
+                  SELECT event_home, entity_home, seq
+                  FROM work_proposal_events
+                )
                 WHERE event_home = ?
                   AND entity_home = ?
                   AND (
@@ -4650,7 +5459,29 @@ export const WorkRepositoryLive = Layer.effect(
                 resolution_entity_home,
                 resolution_seq,
                 resolved_at
-              FROM work_pending_commands
+              FROM (
+                SELECT
+                  event_home,
+                  entity_home,
+                  seq,
+                  resolution_status,
+                  resolution_event_home,
+                  resolution_entity_home,
+                  resolution_seq,
+                  resolved_at
+                FROM work_pending_commands
+                UNION ALL
+                SELECT
+                  event_home,
+                  entity_home,
+                  seq,
+                  resolution_status,
+                  resolution_event_home,
+                  resolution_entity_home,
+                  resolution_seq,
+                  resolved_at
+                FROM work_pending_proposal_commands
+              )
               ORDER BY
                 event_home,
                 entity_home,
@@ -4985,6 +5816,8 @@ export const WorkRepositoryLive = Layer.effect(
       itemHome,
       hasAcceptedDelivery,
       createTask,
+      createProposal,
+      approveProposal,
       describeTask,
       transitionTask,
       claimLocalTask,
@@ -4995,6 +5828,7 @@ export const WorkRepositoryLive = Layer.effect(
       acceptDelivery,
       reserveRemoteTaskClaim,
       enqueueRemoteCommand,
+      enqueueRemoteProposalApproval,
       recordsAfter,
       pendingCommands,
       acceptRecords,

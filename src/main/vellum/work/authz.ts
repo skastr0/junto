@@ -109,10 +109,13 @@ export const requiresConnection = (op: WorkOpName): boolean => {
     case "onboard":
       return false;
     case "tasks.list":
+    case "tasks.create":
     case "tasks.claim":
     case "tasks.update":
     case "msg.list":
     case "msg.send":
+    case "msg.read":
+    case "msg.reply":
     case "request.escalate":
     case "artifact.publish":
       return true;
@@ -120,7 +123,12 @@ export const requiresConnection = (op: WorkOpName): boolean => {
 };
 
 const NO_OPS: ReadonlyArray<WorkOpName> = [];
-const MSG_OPS: ReadonlyArray<WorkOpName> = ["msg.list", "msg.send"];
+const MSG_OPS: ReadonlyArray<WorkOpName> = [
+  "msg.list",
+  "msg.send",
+  "msg.read",
+  "msg.reply",
+];
 
 /**
  * Work-plane ops offered by a node, matched exhaustively on its NodeSpec.

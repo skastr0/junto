@@ -16,10 +16,14 @@ export type TargetWorkOpName = Exclude<
  */
 export const PortForWorkOp = {
   "tasks.list": "tasks.list",
+  "tasks.create": "tasks.create",
   "tasks.claim": "tasks.claim",
   "tasks.update": "tasks.update",
   "msg.list": "msg.list",
   "msg.send": "msg.send",
+  // Read/reply reuse list/send edge ports — no new capability surface.
+  "msg.read": "msg.list",
+  "msg.reply": "msg.send",
   "request.escalate": "request.escalate",
   "artifact.publish": "artifact.publish",
 } as const satisfies Record<TargetWorkOpName, Port>;
@@ -33,10 +37,13 @@ export const isTargetWorkOp = (op: WorkOpName): op is TargetWorkOpName =>
 
 export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "tasks.list",
+  "tasks.create",
   "tasks.claim",
   "tasks.update",
   "msg.list",
   "msg.send",
+  "msg.read",
+  "msg.reply",
   "request.escalate",
   "artifact.publish",
 ];
@@ -53,8 +60,23 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
  * driven by the browser plane, not a work-control call.
  */
 export const OPS_BY_SINK = {
-  task: ["tasks.list", "tasks.claim", "tasks.update", "msg.list", "msg.send"],
-  requests: ["request.escalate", "msg.list", "msg.send"],
+  task: [
+    "tasks.list",
+    "tasks.create",
+    "tasks.claim",
+    "tasks.update",
+    "msg.list",
+    "msg.send",
+    "msg.read",
+    "msg.reply",
+  ],
+  requests: [
+    "request.escalate",
+    "msg.list",
+    "msg.send",
+    "msg.read",
+    "msg.reply",
+  ],
   artifacts: ["artifact.publish"],
   page: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;

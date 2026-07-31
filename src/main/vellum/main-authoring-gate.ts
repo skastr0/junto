@@ -17,6 +17,7 @@ export const MAIN_AUTHORING_LABELS = [
   "kernel.claim-tick",
   "startup.canvas.ensure-seed",
   "ipc.work.task-create",
+  "ipc.work.task-approve-proposal",
   "ipc.work.task-describe",
   "ipc.work.task-transition",
   "ipc.work.task-respond",
@@ -26,6 +27,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.request-resolve",
   "ipc.work.artifact-publish",
   "control.work.tasks-claim",
+  "control.work.tasks-create",
   "control.work.tasks-update",
   "control.work.msg-send",
   "control.work.request-escalate",
@@ -51,10 +53,13 @@ const WORK_OPERATION_CLASSIFICATION = {
   capabilities: "read",
   onboard: "read",
   "tasks.list": "read",
+  "tasks.create": "authorial",
   "tasks.claim": "authorial",
   "tasks.update": "authorial",
   "msg.list": "read",
   "msg.send": "authorial",
+  "msg.read": "authorial",
+  "msg.reply": "authorial",
   "request.escalate": "authorial",
   "artifact.publish": "authorial",
 } as const satisfies Record<WorkOpName, MainAuthoringWorkClassification>;
@@ -64,17 +69,23 @@ export const classifyMainAuthoringWorkOperation = (
 ): MainAuthoringWorkClassification => WORK_OPERATION_CLASSIFICATION[operation];
 
 const WORK_AUTHORING_LABELS = {
+  "tasks.create": "control.work.tasks-create",
   "tasks.claim": "control.work.tasks-claim",
   "tasks.update": "control.work.tasks-update",
   "msg.send": "control.work.msg-send",
+  "msg.read": "control.work.msg-send",
+  "msg.reply": "control.work.msg-send",
   "request.escalate": "control.work.request-escalate",
   "artifact.publish": "control.work.artifact-publish",
 } as const satisfies Record<
   Extract<
     WorkOpName,
+    | "tasks.create"
     | "tasks.claim"
     | "tasks.update"
     | "msg.send"
+    | "msg.read"
+    | "msg.reply"
     | "request.escalate"
     | "artifact.publish"
   >,

@@ -11,9 +11,12 @@ import {
   ArtifactPublishCliArgs,
   EmptyArgs,
   MsgListArgs,
+  MsgReadArgs,
+  MsgReplyArgs,
   MsgSendArgs,
   RequestEscalateArgs,
   TasksClaimArgs,
+  TasksCreateArgs,
   TasksListArgs,
   TasksUpdateArgs,
 } from "../../shared/work-control";
@@ -131,6 +134,16 @@ export const tasksClaimSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
+export const tasksCreateSchema: CommandSchemaContract = {
+  command_id: "tasks.create",
+  command: "tasks create",
+  schema_id: "tasks.create.input/v1",
+  description: "Create a proposal on a connected task node for operator review.",
+  schema: TasksCreateArgs,
+  accepts_batch: true,
+  input_modes: inputModes,
+};
+
 export const tasksUpdateSchema: CommandSchemaContract = {
   command_id: "tasks.update",
   command: "tasks update",
@@ -156,6 +169,28 @@ export const msgSendSchema: CommandSchemaContract = {
   schema_id: "msg.send.input/v1",
   description: "Append a message to a connected node.",
   schema: MsgSendArgs,
+  accepts_batch: true,
+  input_modes: inputModes,
+};
+
+export const msgReadSchema: CommandSchemaContract = {
+  command_id: "msg.read",
+  command: "msg read",
+  schema_id: "msg.read.input/v1",
+  description:
+    "Mark a mailbox message as read (own seat only). Stops re-delivery pressure when PTY ack is enough but agent must self-heal.",
+  schema: MsgReadArgs,
+  accepts_batch: true,
+  input_modes: inputModes,
+};
+
+export const msgReplySchema: CommandSchemaContract = {
+  command_id: "msg.reply",
+  command: "msg reply",
+  schema_id: "msg.reply.input/v1",
+  description:
+    "Reply to factory mail: send text to target and mark inReplyTo read on own mailbox.",
+  schema: MsgReplyArgs,
   accepts_batch: true,
   input_modes: inputModes,
 };
@@ -240,10 +275,13 @@ export const browserStopSchema = browserSchema(
 
 export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   tasksListSchema,
+  tasksCreateSchema,
   tasksClaimSchema,
   tasksUpdateSchema,
   msgListSchema,
   msgSendSchema,
+  msgReadSchema,
+  msgReplySchema,
   requestEscalateSchema,
   artifactPublishSchema,
   browserPagesSchema,
@@ -256,6 +294,22 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
 ];
 
 export const allExamples: ReadonlyArray<CommandExample> = [
+  {
+    command_id: "tasks.create",
+    command: "tasks create",
+    name: "propose work",
+    description: "Create an attributed proposal for operator review.",
+    input: {
+      target: "n7",
+      brief: "Add keyboard navigation",
+      metadata: { title: "Keyboard navigation", details: "Cover the task board first." },
+    },
+    args: [
+      "tasks",
+      "create",
+      '{"target":"n7","brief":"Add keyboard navigation","metadata":{"title":"Keyboard navigation","details":"Cover the task board first."}}',
+    ],
+  },
   {
     command_id: "tasks.claim",
     command: "tasks claim",
@@ -292,6 +346,28 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     name: "note on task",
     input: { target: "n7", text: "working", taskId: "t1" },
     args: ["msg", "send", '{"target":"n7","text":"working","taskId":"t1"}'],
+  },
+  {
+    command_id: "msg.read",
+    command: "msg read",
+    name: "ack mailbox",
+    input: { target: "seat-a", messageId: "msg_01" },
+    args: ["msg", "read", '{"target":"seat-a","messageId":"msg_01"}'],
+  },
+  {
+    command_id: "msg.reply",
+    command: "msg reply",
+    name: "reply to mail",
+    input: {
+      target: "seat-b",
+      text: "ack, starting",
+      inReplyTo: "msg_01",
+    },
+    args: [
+      "msg",
+      "reply",
+      '{"target":"seat-b","text":"ack, starting","inReplyTo":"msg_01"}',
+    ],
   },
   {
     command_id: "request.escalate",
@@ -406,6 +482,19 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     examples: allExamples.filter((e) => e.command_id === "tasks.list"),
   },
   {
+    command_id: "tasks.create",
+    command: "tasks create",
+    category: "workflow",
+    description: "Create one or more proposals (batch-capable).",
+    schemas: [tasksCreateSchema],
+    examples: allExamples.filter((e) => e.command_id === "tasks.create"),
+    batch: {
+      accepts_batch: true,
+      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
+      supports_concurrency_option: true,
+    },
+  },
+  {
     command_id: "tasks.claim",
     command: "tasks claim",
     category: "workflow",
@@ -445,6 +534,32 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     description: "Send a message (batch-capable).",
     schemas: [msgSendSchema],
     examples: allExamples.filter((e) => e.command_id === "msg.send"),
+    batch: {
+      accepts_batch: true,
+      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
+      supports_concurrency_option: true,
+    },
+  },
+  {
+    command_id: "msg.read",
+    command: "msg read",
+    category: "workflow",
+    description: "Mark a mailbox message read (own seat; batch-capable).",
+    schemas: [msgReadSchema],
+    examples: allExamples.filter((e) => e.command_id === "msg.read"),
+    batch: {
+      accepts_batch: true,
+      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
+      supports_concurrency_option: true,
+    },
+  },
+  {
+    command_id: "msg.reply",
+    command: "msg reply",
+    category: "workflow",
+    description: "Reply to factory mail and mark parent read (batch-capable).",
+    schemas: [msgReplySchema],
+    examples: allExamples.filter((e) => e.command_id === "msg.reply"),
     batch: {
       accepts_batch: true,
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,

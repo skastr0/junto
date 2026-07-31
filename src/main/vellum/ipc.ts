@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, ipcMain } from "electron";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   IPC_CHANNELS,
   type BindingHint,
@@ -36,7 +36,8 @@ import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { messageDelivery } from "./work/message-delivery";
-import { stampMessageDelivered } from "@shared/message-delivery";
+import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
+import { WorkRepository } from "./work/repository";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
@@ -59,7 +60,7 @@ import { termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { licensedRendererIpc } from "./license/admission";
 import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
-import type { ActorRef } from "@shared/work-protocol";
+import { IntentFactBasis, type ActorRef } from "@shared/work-protocol";
 import {
   MainAuthoringRefused,
   MainAuthoringTransitionError,
@@ -515,6 +516,21 @@ export const registerVellumIpc = (): void => {
       ),
   );
   privilegedIpc.handle(
+    IPC_CHANNELS.workTaskApproveProposal,
+    (_event, canvas: string, nodeId: string, taskId: string) =>
+      runRendererWorkAuthoring(
+        "ipc.work.task-approve-proposal",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workTaskApproveProposal(canvas, nodeId, taskId);
+          }),
+        ),
+      ),
+  );
+  privilegedIpc.handle(
     IPC_CHANNELS.workTaskDescribe,
     (_event, canvas: string, nodeId: string, taskId: string, brief: string) =>
       runRendererWorkAuthoring(
@@ -877,26 +893,68 @@ export const registerVellumIpc = (): void => {
                 Effect.catchAll(() => Effect.succeed(undefined as CanvasDoc | undefined)),
               ),
             ),
-          stampDelivered: (canvas, nodeId, messageId, deliveredAt) =>
+          hasAcceptedMessageDelivery: (canvas, nodeId, messageId) =>
+            AppRuntime.runPromise(
+              Effect.gen(function* () {
+                const repo = yield* WorkRepository;
+                return yield* repo.hasAcceptedDelivery(
+                  { canvasName: canvas, nodeId },
+                  mailboxMessageDeliveryId(canvas, nodeId, messageId),
+                );
+              }).pipe(Effect.catchAll(() => Effect.succeed(false))),
+            ),
+          acceptMessageDelivery: (canvas, nodeId, messageId) =>
             runMainAuthoring("delivery.message-stamp", async () => {
-              for (let attempt = 0; attempt < 8; attempt += 1) {
-                const read = await AppRuntime.runPromise(
-                  canvases.read(canvas).pipe(Effect.either),
+              try {
+                return await AppRuntime.runPromise(
+                  Effect.gen(function* () {
+                    const repo = yield* WorkRepository;
+                    const sink = { canvasName: canvas, nodeId };
+                    const deliveryId = mailboxMessageDeliveryId(
+                      canvas,
+                      nodeId,
+                      messageId,
+                    );
+                    if (yield* repo.hasAcceptedDelivery(sink, deliveryId)) {
+                      return true;
+                    }
+                    const read = yield* canvases.read(canvas);
+                    const actor = read.actorRefs.find(
+                      (ref) =>
+                        ref.canvasName === canvas && ref.nodeId === nodeId,
+                    );
+                    if (actor === undefined) return false;
+                    const settings = yield* SettingsService;
+                    const current = yield* settings.get;
+                    const intentWitness = yield* canvases.activeIntentWitness();
+                    const basis = Schema.decodeUnknownSync(IntentFactBasis)({
+                      kind:
+                        current.station.role === "command-center"
+                          ? "authorial-intent"
+                          : "projected-intent",
+                      generation: intentWitness.generation,
+                      contentSha256: intentWitness.contentSha256,
+                    });
+                    yield* repo.acceptDelivery({
+                      sink,
+                      basis,
+                      receipt: {
+                        deliveryId,
+                        deliveredItem: {
+                          kind: "message",
+                          itemId: messageId,
+                          sink,
+                        },
+                        actor,
+                        acceptedAt: new Date().toISOString(),
+                      },
+                    });
+                    return true;
+                  }),
                 );
-                if (read._tag === "Left") return false;
-                const next = stampMessageDelivered(read.right.doc, nodeId, messageId, deliveredAt);
-                if (!next) return false; // already stamped or missing
-                const written = await AppRuntime.runPromise(
-                  canvases.write(canvas, next, read.right.revision).pipe(Effect.either),
-                );
-                if (written._tag === "Right") return true;
-                const msg =
-                  written.left instanceof Error ? written.left.message : String(written.left);
-                if (!msg.includes("revision conflict; reload before saving")) {
-                  return false;
-                }
+              } catch {
+                return false;
               }
-              return false;
             }),
         },
         // Pause law (@shared/pause): canvas paused OR node paused OR any

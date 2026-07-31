@@ -29,9 +29,12 @@ import {
   ArtifactPublishArgs,
   EmptyArgs,
   MsgListArgs,
+  MsgReadArgs,
+  MsgReplyArgs,
   MsgSendArgs,
   RequestEscalateArgs,
   TasksClaimArgs,
+  TasksCreateArgs,
   TasksListArgs,
   TasksUpdateArgs,
   WORK_MAX_FRAME_BYTES,
@@ -63,8 +66,11 @@ import { seatPaused } from "@shared/pause";
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
   "tasks.claim",
+  "tasks.create",
   "tasks.update",
   "msg.send",
+  "msg.read",
+  "msg.reply",
   "request.escalate",
   "artifact.publish",
 ]);
@@ -76,9 +82,12 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
 const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "tasks.list",
   "tasks.claim",
+  "tasks.create",
   "tasks.update",
   "msg.list",
   "msg.send",
+  "msg.read",
+  "msg.reply",
   "request.escalate",
   "artifact.publish",
 ]);
@@ -582,7 +591,28 @@ const dispatchOp = (
       const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const items = gate.node?.ether?.tasks?.items ?? [];
-      return { target: decoded.right.target, items };
+      const proposals = gate.node?.ether?.tasks?.proposals ?? [];
+      return { target: decoded.right.target, items, proposals };
+    }
+
+    if (op === "tasks.create") {
+      const decoded = decodeArgs(TasksCreateArgs, args);
+      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(actor)) return yield* Effect.fail(actor.left);
+      const result = yield* work.workTaskPropose(
+        caller.canvasName,
+        decoded.right.target,
+        decoded.right.brief,
+        decoded.right.metadata,
+        actor.right,
+        decoded.right.reason,
+      );
+      const mapped = fromWorkResult(result);
+      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      return exposeWorkMutation(mapped.right);
     }
 
     if (op === "tasks.claim") {
@@ -708,6 +738,96 @@ const dispatchOp = (
       const mapped = fromWorkResult(result);
       if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
       return exposeWorkMutation(mapped.right);
+    }
+
+    if (op === "msg.read") {
+      const decoded = decodeArgs(MsgReadArgs, args);
+      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      // Own mailbox only — self is always connected, but refuse foreign inboxes.
+      if (decoded.right.target !== caller.nodeId) {
+        return yield* Effect.fail({
+          type: "ScopeError" as const,
+          message: "msg.read only applies to this seat's own mailbox",
+          details: {
+            caller: caller.nodeId,
+            target: decoded.right.target,
+            next_step: `use target "${caller.nodeId}" (your seat) with the messageId`,
+            retryable: false,
+          },
+        });
+      }
+      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(reader)) return yield* Effect.fail(reader.left);
+      const result = yield* work.workMessageMarkRead(
+        caller.canvasName,
+        decoded.right.target,
+        decoded.right.messageId.trim(),
+        reader.right,
+      );
+      const mapped = fromWorkResult(result);
+      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      return exposeWorkMutation(mapped.right);
+    }
+
+    if (op === "msg.reply") {
+      const decoded = decodeArgs(MsgReplyArgs, args);
+      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const text = decoded.right.text.trim();
+      if (!text) {
+        return yield* Effect.fail({
+          type: "InputError" as const,
+          message: "text must be non-empty",
+          details: { path: "text", retryable: false },
+        });
+      }
+      const inReplyTo = decoded.right.inReplyTo.trim();
+      if (!inReplyTo) {
+        return yield* Effect.fail({
+          type: "InputError" as const,
+          message: "inReplyTo must be non-empty",
+          details: { path: "inReplyTo", retryable: false },
+        });
+      }
+      const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(sentBy)) return yield* Effect.fail(sentBy.left);
+      // Mark the parent mail read on own inbox first (idempotent).
+      const marked = yield* work.workMessageMarkRead(
+        caller.canvasName,
+        caller.nodeId,
+        inReplyTo,
+        sentBy.right,
+      );
+      const markedMapped = fromWorkResult(marked);
+      if (Either.isLeft(markedMapped)) return yield* Effect.fail(markedMapped.left);
+      const from = caller.nodeId.trim() || "seat";
+      const message: Message = makeUserMessage({
+        messageId: ulid(),
+        text: `[factory mail from ${from}] ${text}`,
+        contextId: caller.canvasName,
+        metadata: {
+          factoryMail: true,
+          fromSeat: from,
+          inReplyTo,
+        },
+      });
+      const result = yield* work.workMessageAppend(
+        caller.canvasName,
+        decoded.right.target,
+        null,
+        message,
+        sentBy.right,
+      );
+      const mapped = fromWorkResult(result);
+      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      return {
+        ...exposeWorkMutation(mapped.right),
+        inReplyTo,
+        read: exposeWorkMutation(markedMapped.right),
+      };
     }
 
     if (op === "request.escalate") {

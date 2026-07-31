@@ -94,9 +94,11 @@ Call **\`vellum onboard\`** at session start and after every compaction (or when
 | orient | \`vellum onboard\` |
 | live contract | \`vellum capabilities\` |
 | list queue | \`vellum tasks list --target <id>\` |
+| propose work | \`vellum tasks create '{"target":"<id>","brief":"..."}'\` |
 | claim | \`vellum tasks claim --target <id> --task <id>\` |
 | progress / settle / block task | \`vellum tasks update --target <id> --task <id> --state <state>\` |
-| read / write thread | \`vellum msg list\` · \`vellum msg send\` |
+| read / write thread | \`vellum msg list\` · \`vellum msg send\` · \`vellum msg read\` · \`vellum msg reply\` |
+| factory mail | on inject: \`msg list\` then \`msg reply\` (or \`msg read\` if no reply) — stops re-nudge pressure |
 | escalate to human | \`vellum escalate\` |
 | ship output | \`vellum artifact publish\` |
 | list granted pages | \`vellum browser pages --json\` |

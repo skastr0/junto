@@ -1,5 +1,5 @@
 import { Either, Schema } from "effect";
-import { TaskState } from "./canvas";
+import { TaskState, WorkMetadata } from "./canvas";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
 // socket at ~/.vellum/work/control.sock. Pure module — no Node imports — so
@@ -37,10 +37,13 @@ export const WorkOpName = Schema.Literal(
   "capabilities",
   "onboard",
   "tasks.list",
+  "tasks.create",
   "tasks.claim",
   "tasks.update",
   "msg.list",
   "msg.send",
+  "msg.read",
+  "msg.reply",
   "request.escalate",
   "artifact.publish",
 );
@@ -170,6 +173,16 @@ export const TasksListArgs = Schema.Struct({
 });
 export type TasksListArgs = typeof TasksListArgs.Type;
 
+export const TasksCreateArgs = Schema.Struct({
+  target: Schema.String,
+  brief: Schema.String,
+  reason: Schema.optionalWith(Schema.String, { exact: true }),
+  metadata: Schema.optionalWith(WorkMetadata, { exact: true }),
+}).annotations({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type TasksCreateArgs = typeof TasksCreateArgs.Type;
+
 export const TasksClaimArgs = Schema.Struct({
   target: Schema.String,
   task: Schema.String,
@@ -198,6 +211,24 @@ export const MsgSendArgs = Schema.Struct({
   taskId: Schema.optionalWith(Schema.String, { exact: true }),
 });
 export type MsgSendArgs = typeof MsgSendArgs.Type;
+
+/** Mark a mailbox message read. Target must be the caller's own seat. */
+export const MsgReadArgs = Schema.Struct({
+  target: Schema.String,
+  messageId: Schema.String,
+});
+export type MsgReadArgs = typeof MsgReadArgs.Type;
+
+/**
+ * Reply to a factory-mail message: send text to target and mark inReplyTo
+ * read on the caller's own mailbox.
+ */
+export const MsgReplyArgs = Schema.Struct({
+  target: Schema.String,
+  text: Schema.String,
+  inReplyTo: Schema.String,
+});
+export type MsgReplyArgs = typeof MsgReplyArgs.Type;
 
 export const RequestEscalateArgs = Schema.Struct({
   target: Schema.String,

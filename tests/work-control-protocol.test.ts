@@ -46,7 +46,7 @@ describe("work-control wire schemas", () => {
   it("rejects unknown ops", () => {
     const decoded = decodeWorkRequest({
       token: "t",
-      op: "tasks.create",
+      op: "tasks.delete",
     });
     expect(Either.isLeft(decoded)).toBe(true);
   });
@@ -105,10 +105,13 @@ describe("work-control wire schemas", () => {
       "capabilities",
       "onboard",
       "tasks.list",
+      "tasks.create",
       "tasks.claim",
       "tasks.update",
       "msg.list",
       "msg.send",
+      "msg.read",
+      "msg.reply",
       "request.escalate",
       "artifact.publish",
     ]);

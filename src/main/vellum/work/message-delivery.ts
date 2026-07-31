@@ -2,6 +2,9 @@
 // Actor targets come from kind-discriminated surfaces (managed terminal seats
 // and raw geography shells). Geography holds no inbox, so a herdr pane is not
 // a delivery target. No delivery daemon, no retry queue, no polling.
+//
+// Durable stop condition is work_delivery_receipts (delivery.accepted), not a
+// canvas metadata stamp — work overlays are stripped on authorial write.
 
 import type { CanvasDoc, Message } from "@shared/canvas";
 import {
@@ -10,7 +13,6 @@ import {
   isPendingDelivery,
   listPendingDeliveries,
   sanitizeDeliveryLine,
-  stampMessageDelivered,
 } from "@shared/message-delivery";
 import type { SurfaceDeliveryTarget } from "@shared/actor-surface";
 
@@ -28,14 +30,22 @@ export type MessageDeliveryStore = {
   readonly listCanvasNames: () => Promise<ReadonlyArray<string>>;
   readonly readDoc: (canvas: string) => Promise<CanvasDoc | undefined>;
   /**
-   * Serialized write path: apply stampMessageDelivered under the canvas mutex /
-   * revision retry. Returns true when the stamp landed.
+   * Durable stop: true when delivery.accepted exists for this mailbox message.
+   * (work_delivery_receipts — same plane as managed task claim delivery.)
    */
-  readonly stampDelivered: (
+  readonly hasAcceptedMessageDelivery: (
     canvas: string,
     nodeId: string,
     messageId: string,
-    deliveredAt: number,
+  ) => Promise<boolean>;
+  /**
+   * Record delivery.accepted after the PTY transport accepted the inject.
+   * Returns true when the receipt is durable (or already existed).
+   */
+  readonly acceptMessageDelivery: (
+    canvas: string,
+    nodeId: string,
+    messageId: string,
   ) => Promise<boolean>;
 };
 
@@ -274,7 +284,14 @@ export class MessageDeliveryService {
     this.inFlight.add(key);
 
     try {
-      // Re-read before send: another worker may have stamped already.
+      // Durable receipt is the stop condition (not canvas metadata.deliveredAt).
+      if (await store.hasAcceptedMessageDelivery(canvas, nodeId, message.messageId)) {
+        this.transportAccepted.delete(key);
+        return;
+      }
+      if (!this.active(generation)) return;
+
+      // Re-read before send: message may have been removed.
       const doc = await store.readDoc(canvas);
       if (!this.active(generation)) return;
       if (!doc) return;
@@ -285,8 +302,11 @@ export class MessageDeliveryService {
       const live = node.ether?.messages?.items.find((m) => m.messageId === message.messageId);
       if (!live) return;
       if (isPendingDelivery(live) === false) {
-        // Already stamped in authority — drop transportAccepted residue.
-        this.transportAccepted.delete(key);
+        // Projected metadata already shows delivered — still ensure durable receipt.
+        if (!this.transportAccepted.has(key)) {
+          const accepted = await store.acceptMessageDelivery(canvas, nodeId, live.messageId);
+          if (accepted) this.transportAccepted.delete(key);
+        }
         return;
       }
 
@@ -302,10 +322,9 @@ export class MessageDeliveryService {
         this.transportAccepted.add(key);
       }
 
-      const at = this.now();
-      const stamped = await store.stampDelivered(canvas, nodeId, live.messageId, at);
-      if (stamped) this.transportAccepted.delete(key);
-      // Stamp fail: keep transportAccepted so attach/idle only re-stamps.
+      const accepted = await store.acceptMessageDelivery(canvas, nodeId, live.messageId);
+      if (accepted) this.transportAccepted.delete(key);
+      // Accept fail: keep transportAccepted so attach/idle only re-receipts.
     } catch {
       // Best-effort: leave pending; inFlight cleared so idle/attach can retry.
     } finally {
@@ -330,5 +349,3 @@ export class MessageDeliveryService {
 /** Process-wide singleton — configured once at app boot; tests call resetForTest. */
 export const messageDelivery = new MessageDeliveryService();
 
-/** Pure re-export for stamp path used by WorkService wiring. */
-export { stampMessageDelivered };
