@@ -231,7 +231,8 @@ export function NodePaletteModeDeck({
             </div>
             <div className="node-deck__agent-secondary">
               <span>Also connects to Requests and Artifacts.</span>
-              <span><Zap size={11} aria-hidden /> Schedulers enqueue at Tasks or flag the actor.</span>
+              <span>Human-wait items block only their claimant actor.</span>
+              <span><Zap size={11} aria-hidden /> Schedulers enqueue at Tasks; Command Center can set an actor flag.</span>
             </div>
           </section>
           <div className="node-deck__launch-slot">

@@ -30,7 +30,7 @@ export type NodeCatalogConnection = {
   /** Plain-language summary of the collaboration over that edge. */
   readonly relationship: string;
   /** The edge plane this relationship uses. */
-  readonly mode: "capability" | "effect" | "context";
+  readonly mode: "capability" | "effect" | "criteria" | "context";
   /** Capability grants the edge can carry. */
   readonly ports: ReadonlyArray<Port>;
 };
@@ -48,8 +48,8 @@ export type NodeCatalogEntry = {
   /** A text utility, deliberately applied to the icon stroke only. */
   readonly accentClass: string;
   readonly purpose: string;
-  /** Omit for furniture that has no live attention or blocking semantics. */
-  readonly attention?: string;
+  /** Short operational constraint; never a re-derived live attention state. */
+  readonly behavior?: string;
   readonly connections: readonly NodeCatalogConnection[];
 };
 
@@ -70,9 +70,10 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "tasks", category: "sinks", label: "Tasks", subtitle: "shared claim queue",
     icon: Blocks, accentClass: "text-gold",
     purpose: "A durable work sink where connected agents inspect, claim, and submit discrete tasks.",
-    attention: "Submitted and working tasks do not block anyone. Only an input-required task stops its connected actor.",
+    behavior: "Submitted and working tasks stay calm. A tasks-criteria edge blocks only the claimant actor while a scoped item is input-required or auth-required.",
     connections: [
       { source: "Agent", target: "Tasks", direction: "directed", relationship: "reads, claims, and completes work", mode: "capability", ports: ["tasks.list", "tasks.claim", "tasks.update"] },
+      { source: "Tasks", target: "Actor", direction: "directed", relationship: "blocks only its claimant during a human wait", mode: "criteria", ports: [] },
       { source: "Scheduler", target: "Tasks", direction: "directed", relationship: "enqueues work when its condition fires", mode: "effect", ports: [] },
     ],
   },
@@ -80,10 +81,11 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "requests", category: "sinks", label: "Requests", subtitle: "operator input required",
     icon: Inbox, accentClass: "text-orange",
     purpose: "An operator-facing inbox for decisions and missing information surfaced by connected work.",
-    attention: "Input-required requests create visible attention; connect them to the actor that needs the answer.",
+    behavior: "A tasks-criteria edge blocks only the claimant actor while its request is input-required or auth-required.",
     connections: [
       { source: "Agent", target: "Requests", direction: "directed", relationship: "surfaces an answerable operator request", mode: "capability", ports: ["request.escalate", "msg.list", "msg.send"] },
-      { source: "Scheduler", target: "Requests", direction: "directed", relationship: "projects a runtime flag when its condition fires", mode: "effect", ports: [] },
+      { source: "Requests", target: "Actor", direction: "directed", relationship: "blocks only its claimant during a human wait", mode: "criteria", ports: [] },
+      { source: "Scheduler", target: "Requests", direction: "directed", relationship: "sets an authored flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
@@ -92,7 +94,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     purpose: "A durable shelf for named outputs produced as work becomes real.",
     connections: [
       { source: "Agent", target: "Artifacts", direction: "directed", relationship: "records produced files and proof", mode: "capability", ports: ["artifact.publish"] },
-      { source: "Scheduler", target: "Artifacts", direction: "directed", relationship: "projects a runtime flag when its condition fires", mode: "effect", ports: [] },
+      { source: "Scheduler", target: "Artifacts", direction: "directed", relationship: "sets an authored flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
@@ -101,7 +103,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     purpose: "A shared Command Center discussion surface for durable topics, updates, and decisions.",
     connections: [
       { source: "Agent", target: "Board", direction: "directed", relationship: "creates topics and posts updates", mode: "capability", ports: ["board.create_topic", "board.post"] },
-      { source: "Scheduler", target: "Board", direction: "directed", relationship: "projects a runtime flag when its condition fires", mode: "effect", ports: [] },
+      { source: "Scheduler", target: "Board", direction: "directed", relationship: "sets an authored flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
@@ -114,32 +116,32 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "cron", category: "schedule", label: "Cron", subtitle: "schedule on an interval",
     icon: Clock3, accentClass: "text-violet",
     purpose: "A durable, home-scoped schedule that fires authored edge effects (enqueue tasks, set flags).",
-    attention: "Connect cron → task with an effect edge to mint work. Actors still pull via the claim tick.",
+    behavior: "Automation runs only with a configured station role while this canvas is playing. Pausing preserves the next due firing.",
     connections: [
       { source: "Cron", target: "Tasks", direction: "directed", relationship: "enqueues work when the interval is due", mode: "effect", ports: [] },
-      { source: "Cron", target: "Any node", direction: "directed", relationship: "projects a runtime flag on fire", mode: "effect", ports: [] },
+      { source: "Cron", target: "Non-region node", direction: "directed", relationship: "sets or clears an authored flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
     id: "gauge", category: "schedule", label: "Gauge", subtitle: "live data condition",
     icon: Eye, accentClass: "text-violet",
     purpose: "A hermes roster predicate (e.g. running). Rising edge can fire the same edge effects as cron.",
-    attention: "Hermes roster stats are thin today (running 0/1). Effects need an outbound edge.",
+    behavior: "Rising-edge memory advances only while automation is enabled, so pausing cannot consume the next match.",
     connections: [
       { source: "Hermes stats", target: "Gauge", direction: "directed", relationship: "supplies the live value evaluated by the predicate", mode: "context", ports: [] },
       { source: "Gauge", target: "Tasks", direction: "directed", relationship: "enqueues work on a rising match", mode: "effect", ports: [] },
-      { source: "Gauge", target: "Any node", direction: "directed", relationship: "projects a runtime flag on a rising match", mode: "effect", ports: [] },
+      { source: "Gauge", target: "Non-region node", direction: "directed", relationship: "sets or clears an authored flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
     id: "relay", category: "schedule", label: "Relay", subtitle: "watch a node projection",
     icon: Workflow, accentClass: "text-cyan",
     purpose: "A scheduler that watches another node's typed projection and fires edge effects on a rising match.",
-    attention: "Choose the source node and predicate in the inspector, then connect Relay to the effect target.",
+    behavior: "Rising-edge memory advances only while automation is enabled, so pausing cannot consume the next match.",
     connections: [
       { source: "Watched node", target: "Relay", direction: "directed", relationship: "supplies the typed projection evaluated by the predicate", mode: "context", ports: [] },
       { source: "Relay", target: "Tasks", direction: "directed", relationship: "enqueues work on a rising match", mode: "effect", ports: [] },
-      { source: "Relay", target: "Any node", direction: "directed", relationship: "projects a runtime flag on a rising match", mode: "effect", ports: [] },
+      { source: "Relay", target: "Non-region node", direction: "directed", relationship: "sets or clears an authored flag on Command Center", mode: "effect", ports: [] },
     ],
   },
   {
@@ -290,7 +292,7 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
         <div className="min-w-0">
           <strong className="block font-display text-[14px] font-semibold uppercase tracking-wide text-ink">{entry.label}</strong>
           <p className="node-deck-catalog__purpose">{entry.purpose}</p>
-          {entry.attention ? <p className="node-deck-catalog__attention"><span>Attention:</span> {entry.attention}</p> : null}
+          {entry.behavior ? <p className="node-deck-catalog__attention"><span>Behavior:</span> {entry.behavior}</p> : null}
         </div>
       </div>
 
@@ -315,6 +317,15 @@ function CatalogDetail({ entry, id }: { readonly entry: NodeCatalogEntry; readon
                 <div key={`${connection.source}-${connection.target}-${connection.relationship}`} className="node-deck-catalog__connection node-deck-catalog__connection--secondary">
                   <ConnectionMap connection={connection} accentClass={entry.accentClass} />
                   <span className="node-deck-catalog__relationship">{connection.relationship}</span>
+                  {connection.ports.length > 0 ? (
+                    <span className="node-deck-catalog__ports">
+                      {connection.ports.map((port) => (
+                        <span key={port} className="node-deck-catalog__port">{port}</span>
+                      ))}
+                    </span>
+                  ) : connection.mode === "criteria" ? (
+                    <span className="node-deck-catalog__edge-mode">{connection.mode} edge</span>
+                  ) : null}
                 </div>
               ))}
             </div>

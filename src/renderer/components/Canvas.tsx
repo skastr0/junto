@@ -777,7 +777,7 @@ function ModeDeckFocus({
   return (
     <FocusSurface
       measure="workspace"
-      height="immersive"
+      height="fit"
       layer="work"
       label="Add canvas item"
       onClose={onClose}
