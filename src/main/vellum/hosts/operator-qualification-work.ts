@@ -644,6 +644,7 @@ export const qualificationWorkPrepareEffect = (
 
     const canvases = yield* CanvasesService;
     const work = yield* WorkService;
+    const stations = yield* StationRepository;
     const canvasName = qualificationCanvasName(args.runId);
     let read = yield* canvases.read(canvasName);
     const actor = yield* requireActor(
@@ -790,8 +791,10 @@ export const qualificationWorkPrepareEffect = (
         "claimed qualification task is not homed at the exact Remote",
       );
     }
+    void synchronized;
+    const facts = yield* stations.statusFacts;
     const receivedThrough = yield* remoteCursor(
-      synchronized.receipt.report.receivedThrough,
+      facts.receivedThrough,
       target.stationInstallationId,
     );
     return {
