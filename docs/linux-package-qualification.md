@@ -17,17 +17,19 @@ The governing contracts are
 
 ## Current evidence boundary
 
-The repository's current Linux build and CI surfaces produce and inspect a
-`.deb` installed under `/opt`, together with privileged installer/bridge,
-root-journal, and administrator-credential deployment code. That is
-noncanonical migration residue.
+The repository now contains a rootless userland payload, packaged Node Remote,
+user-service activation, and read-only host-capability Doctor as candidate
+implementation. The current CI release workflow and any remaining `.deb`,
+`/opt`, privileged installer/bridge, root-journal, or
+administrator-credential surfaces are noncanonical migration residue.
 
 Existing tests and native runs remain evidence for bounded components such as
-x86-64 native modules, PTY behavior, Chromium sandbox observation, Station
+the displayless Remote closure, x86-64 native modules, PTY behavior, Station
 protocol, SQLite state preflight, interruption semantics, and two-installation
-work convergence. They are not proof of the canonical install/update
-transaction. No current `.deb`, CI artifact, OrbStack receipt, or manual run
-may be promoted as beta or production qualification.
+work convergence. They are not the required fresh-host and signed-candidate
+proof of the complete install/update transaction. No current payload, `.deb`,
+CI artifact, OrbStack receipt, or manual run may be promoted as beta or
+production qualification.
 
 Qualification resumes only against the rootless replacement. The old lane is
 deleted, not retained as a fallback matrix.
@@ -77,11 +79,18 @@ separate findings. At least one run must decline each optional action and prove
 the documented limit. At least one run must remove previously applied optional
 preparation and prove the host returns to the expected limited state.
 
-Separately remove `Xvfb`, `xauth`, and `mcookie` from a disposable Remote host.
-Prove preflight/Doctor reports `requires-admin` or `unavailable`, and that the
-core Remote does not start. Restore them through the recorded external host
-action and prove the supervised Remote path. Electron 43.2 / Chromium 150 has
-no qualified secure display-less fallback.
+On a disposable Remote host, leave `DISPLAY` unset and remove `Xvfb`, `xauth`,
+and `mcookie`. Prove:
+
+- the packaged Node Remote starts under user-service supervision;
+- core Doctor status can be `ready` without display tooling;
+- Linux Remote browser automation remains explicitly `unavailable`;
+- AppArmor, user-namespace, display, and secret-storage findings do not change
+  core readiness;
+- no Electron, Chromium, renderer, or browser-composition dependency enters
+  the packaged Remote closure.
+
+Do not add host display packages to make this proof pass.
 
 ## Rootless install and update proof
 
@@ -123,23 +132,26 @@ admit the Beta.
 For desktop Command Center and Remote user-service paths, prove:
 
 - exact current-generation boot readiness;
-- supervised `Xvfb` display creation using host-provided `Xvfb`, `xauth`, and
-  `mcookie`, with TCP disabled;
+- supervised packaged Node Remote startup with `DISPLAY`, `WAYLAND_DISPLAY`,
+  and `XAUTHORITY` absent;
+- absence of Electron, Chromium, renderer, browser-composition, Xvfb, xauth,
+  and mcookie dependencies from the Remote runtime closure;
 - owner-only work and Station controls;
 - SQLite database readiness;
 - native PTY behavior and capability-owned shutdown;
 - no Vellum TCP or Chrome DevTools listener;
-- Chromium renderer `NoNewPrivs`, seccomp, and the qualified
-  AppArmor/user-namespace path;
-- fail-closed refusal of every sandbox-disabling switch;
+- Linux Remote browser automation projected as `unavailable` for the first
+  Beta without affecting core health;
 - capability-specific Doctor status that matches the retained preflight facts;
 - only the affected capability degrades when an optional prerequisite is
   absent.
 
-Boot readiness must not absorb terminal, browser, display, persistence, or
-other Doctor observations. A user service may be structurally ready while an
-optional capability is degraded. A missing security gate blocks the affected
-surface, not the whole host by convenience and not a warning-only fallback.
+Boot readiness must not absorb terminal, browser, display, sandbox,
+secret-storage, persistence, or other Doctor observations. A user service may
+be structurally ready while an optional capability is unavailable. A future
+browser sidecar must separately prove Chromium `NoNewPrivs`, seccomp,
+AppArmor/user-namespace, secret-storage, and sandbox-switch refusal before its
+capability may become available.
 
 ## User-service lifecycle proof
 
@@ -208,8 +220,10 @@ Fail the candidate when any run finds:
 - `.deb`, `apt`, `dpkg`, privileged helper/bridge/journal, or persistent grant
   on the product install/update path;
 - a custom-image-only prerequisite;
-- a display-less Remote claim or Remote startup without qualified `Xvfb`,
-  `xauth`, and `mcookie`;
+- a core Remote dependency on Electron, Chromium, a renderer, browser
+  composition, `DISPLAY`, Xvfb, xauth, or mcookie;
+- Linux Remote browser automation reported available in the first Beta or
+  allowed to determine core health;
 - an insecure Chromium fallback;
 - global AppArmor or user-namespace weakening;
 - lingering or OS-package mutation performed by Vellum;
@@ -230,7 +244,8 @@ native Ubuntu 24.04 x86-64 and upload:
 - static ownership, mode, ELF, fuse, and protocol audit;
 - clean-user rootless install/update/removal receipts;
 - preflight status fixtures and negative security results;
-- native PTY and Chromium sandbox receipts;
+- native PTY, displayless Node Remote, and first-Beta browser-unavailable
+  receipts;
 - explicit `unqualified` metadata until operator two-installation evidence and
   human promotion exist.
 

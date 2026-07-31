@@ -14,22 +14,23 @@ security-sensitive features fail closed.
 
 | Surface | V1 target | Current status |
 |---|---|---|
-| Distribution | Ubuntu 24.04 LTS | Target; rootless lane unimplemented |
+| Distribution | Ubuntu 24.04 LTS | Target; rootless candidate unqualified |
 | CPU / Debian architecture name | x86-64 / `amd64` only | Target; release payload unqualified |
 | C library | glibc 2.39 or newer on Ubuntu 24.04 | Target |
-| Install/update | One exact signed owner-local payload; same ordinary-user transaction for first install and update | Not implemented |
+| Install/update | One exact signed owner-local payload; same ordinary-user transaction for first install and update | Candidate implementation landed; full gates and fresh-host proof pending |
 | Custom image | Not required; stock supported host plus explicit optional preparation | Not yet qualified |
-| Host preflight | Read-only, per-capability, no mutation or privilege input | Contract defined; implementation not yet qualified |
+| Host preflight | Read-only, per-capability, no mutation or privilege input | Implemented candidate; not yet qualified |
 | Host preparation | Optional, explicit administrator action outside Vellum | Contract defined |
-| Remote display | X11/Xvfb with host-provided `Xvfb`, `xauth`, and `mcookie`; TCP disabled | Core prerequisite; missing means `requires-admin` or `unavailable`, never display-less fallback |
+| Core Remote runtime | Packaged Node process; no Electron, Chromium, `DISPLAY`, Xvfb, xauth, or mcookie dependency | Candidate implemented; native signed qualification pending |
 | Command Center display | X11 or Wayland/XWayland desktop session | Target |
-| Remote supervision | Station-user service manager; no root-owned launcher | Target; rootless service layout unimplemented |
-| Remote boot readiness | Current invocation + owner-local control + SQLite readiness | Target; exact rootless receipt pending |
+| Remote supervision | Station-user service manager; no root-owned launcher | Candidate implemented; lifecycle qualification pending |
+| Remote boot readiness | Current invocation + owner-local control + SQLite readiness | Candidate implemented; fresh-host receipt pending |
 | Login persistence | Optional administrator-approved user lingering | Target; never app-managed |
-| AppArmor/user namespaces | Separate host facts; Chromium capability requires one qualified sandbox path | Target; fail closed |
+| AppArmor/user namespaces | Future browser-sidecar facts only; not core Remote prerequisites | Browser unavailable in first Beta |
+| Browser secret storage | Future browser-sidecar fact only; not a core Remote prerequisite | Browser unavailable in first Beta |
 | Missing OS packages | Exact release-declared optional host actions | Target; never installed by Vellum |
 | Station API | five verbs only; OpenSSH transport | Implemented surfaces require rootless end-to-end requalification |
-| Browser automation | Host-local; actor and page on the same installation | Capability blocked when sandbox gate fails |
+| Browser automation | Optional future Linux Remote sidecar; host-local when introduced | Intentionally unavailable in first Beta; does not affect core health |
 | Work control | `vellum-work/v1`, owner-local Unix socket with process-bind | Implemented surfaces require exact rootless payload proof |
 | Linux arm64 / aarch64 | Outside v1 | Unsupported |
 | musl / Alpine | Outside v1 | Unsupported |

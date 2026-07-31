@@ -26,8 +26,9 @@ The replacement runner:
   image names;
 - invokes the signed payload's read-only host preflight as the intended
   ordinary users;
-- proves the Remote is `requires-admin` or `unavailable` without `Xvfb`,
-  `xauth`, and `mcookie`, then prepares those core prerequisites externally;
+- proves the packaged Node Remote starts without `DISPLAY`, `Xvfb`, `xauth`,
+  or `mcookie`, while browser automation remains `unavailable` independently
+  from core health;
 - records optional host preparation as a separate external lab action;
 - installs and updates Vellum through the exact rootless product transaction;
 - drives only fixed packaged Station and qualification operations;
@@ -51,8 +52,9 @@ For each guest, retain:
 - the consequence of declining that action in a separate negative run;
 - removal/revocation verification where applicable.
 
-AppArmor/user namespaces, user lingering, and missing OS packages remain
-separate actions. The runner must not globally weaken AppArmor or
+User lingering and missing core OS packages remain separate actions. Display,
+AppArmor/user-namespace, and secret-storage findings apply only to a future
+browser sidecar. The runner must not globally weaken AppArmor or
 user-namespace policy, add a sandbox-disabling switch, or hide preparation
 inside the golden image.
 
@@ -89,13 +91,15 @@ tools, not operator instructions.
 Observation on both installations must prove:
 
 - exact signed payload and activation identity;
-- host-provided `Xvfb`, `xauth`, and `mcookie` plus the supervised display
-  witness; no display-less Remote path;
+- supervised packaged Node Remote startup with `DISPLAY`, `WAYLAND_DISPLAY`,
+  and `XAUTHORITY` absent and no Xvfb, xauth, or mcookie dependency;
+- no Electron, Chromium, renderer, or browser-composition dependency in the
+  Remote closure;
 - ordinary-user ownership of release, service, and runtime material;
 - role-correct Station readiness;
 - canonical SQLite readiness;
-- Chromium sandbox, `NoNewPrivs`, seccomp, and the qualified
-  AppArmor/user-namespace path;
+- Linux Remote browser automation reported `unavailable` for the first Beta
+  without affecting core health;
 - native PTY behavior;
 - owner-only control material;
 - zero Vellum TCP/debug listeners;

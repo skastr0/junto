@@ -1,7 +1,7 @@
 # Linux host preparation
 
-**Status:** normative Linux Station Beta host-boundary contract; the canonical
-rootless install/update implementation is the only supported deployment lane
+**Status:** normative Linux Station Beta host-boundary contract; the rootless
+candidate is in progress and no Linux release is qualified or published
 
 **Audience:** operators, release engineers, support, and qualification
 reviewers
@@ -11,10 +11,10 @@ supported host does not need a custom image and Vellum does not become a host
 administrator. Vellum may inspect the host read-only, explain a missing
 capability, and verify the result after the operator changes the host.
 
-The canonical userland Linux Station ships with the explicit maturity label
-**Beta**. Beta admission requires the core userland path to be fully tested.
-Optional capabilities may degrade independently; security-sensitive features
-remain fail-closed.
+The first qualified userland Linux Station ships with the explicit maturity
+label **Beta**. Beta admission requires the core userland path to be fully
+tested. Optional capabilities may degrade independently; security-sensitive
+features remain fail-closed.
 
 The canonical contract is:
 
@@ -51,12 +51,13 @@ Host preflight and Doctor are read-only. They may observe:
   current login;
 - whether lingering is enabled, without changing it;
 - AppArmor presence, enablement, parser/profile state, and the effective
-  process label when relevant;
+  process label when evaluating a future browser sidecar;
 - the kernel and distribution facts that determine unprivileged user-namespace
-  availability;
+  availability for that future sidecar;
 - runtime shared libraries and fixed external programs required by a specific
   signed Vellum release;
-- display, Xvfb, terminal, browser, SSH, and owner-local socket readiness;
+- terminal, SSH, owner-local socket, and optional future browser-sidecar
+  readiness, including display facts when relevant;
 - the installed Vellum version, signed payload identity, state-preflight
   result, and Station protocol compatibility.
 
@@ -137,29 +138,30 @@ does not invent an administrative workaround.
 
 ### Remote display driver: Xvfb, xauth, and mcookie
 
-Electron 43.2 / Chromium 150 still requires a display driver for the headless
-Remote. Vellum has no supported secure display-less Electron path.
+The core Linux Remote is a packaged Node process. It does not import Electron
+or Chromium and does not require `DISPLAY`, Wayland, `Xvfb`, `xauth`, or
+`mcookie`. Missing display tooling cannot make core Remote readiness
+`requires-admin` or `unavailable`.
 
-`Xvfb`, `xauth`, and `mcookie` are therefore core Remote prerequisites, not
-optional browser enhancements. Preflight observes all three read-only:
+Browser automation is intentionally unavailable on Linux Remote for the first
+Beta. It is an optional capability and is not part of core health. Current
+Doctor may observe display tooling so the operator can understand the host,
+but that finding applies only to a future browser sidecar and cannot override
+a ready core Node Remote.
 
-- when present and proved through the supervised runtime, the Remote display
-  prerequisite is `available`;
-- when a reviewed host package action can supply one or more missing programs,
-  Doctor reports `requires-admin` and the overall Remote is **not ready**;
-- when the host cannot supply the qualified set, Remote is `unavailable` on
-  that host.
-
-Vellum does not install those packages, invoke the package manager, or request
-administrator input. The external preparation is optional only as a host
-choice: declining it means the core Remote cannot start. Vellum must not claim
-graceful Remote operation without a display driver or silently downgrade to a
-display-less or insecure Electron mode.
+Do not install `Xvfb`, `xauth`, or `mcookie` to make the current core Remote
+work. If a later release introduces a browser sidecar, that release must
+declare and qualify its exact display contract separately. Vellum still must
+not install host packages, invoke the package manager, or request
+administrator input.
 
 ### AppArmor and unprivileged user namespaces
 
-Chromium-dependent surfaces require a real sandbox path. AppArmor profile
-preparation and user-namespace availability are separate host facts:
+AppArmor and secret-storage preparation are not core Remote prerequisites.
+They apply only to a future browser sidecar. If that optional capability is
+introduced, Chromium-dependent surfaces require a real sandbox path and
+AppArmor profile preparation and user-namespace availability remain separate
+host facts:
 
 - when the qualified path uses an AppArmor profile, an administrator may
   install or load only the exact release-reviewed profile outside Vellum;
@@ -170,9 +172,10 @@ preparation and user-namespace availability are separate host facts:
 - Vellum never disables AppArmor, changes a host-wide user-namespace sysctl,
   installs a setuid sandbox, or adds `--no-sandbox`.
 
-If no qualified sandbox path is available, the Chromium-dependent capability
-is `unavailable`. Other Station capabilities may continue only when they do not
-cross or depend on that boundary.
+For the first Beta, Linux Remote browser automation remains `unavailable`
+regardless of these host facts. If a future sidecar has no qualified sandbox
+or secret-storage path, only that browser capability is `unavailable`; the
+core Node Remote continues.
 
 ### User lingering
 
@@ -243,8 +246,11 @@ to **ready with limits**.
 The Linux product and its support procedures must not:
 
 - require a custom VM or machine image as the ordinary install prerequisite;
-- claim a secure display-less Electron Remote or start a Remote without
-  qualified `Xvfb`, `xauth`, and `mcookie`;
+- add Electron, Chromium, `DISPLAY`, Xvfb, xauth, or mcookie as a core Remote
+  prerequisite;
+- present Linux Remote browser automation as available in the first Beta;
+- let display, AppArmor, user-namespace, or secret-storage findings override
+  healthy core Node Remote status;
 - keep both rootless and privileged product install/update paths;
 - run Vellum itself as root;
 - invoke `sudo`, `su`, `pkexec`, or a privileged package helper from the app;

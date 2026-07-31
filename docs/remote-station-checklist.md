@@ -53,10 +53,12 @@ be shown as last acknowledged truth, but never as live health.
    [Linux host preflight](linux-host-preparation.md), record every capability
    finding and separately performed optional host action, then install and
    start the same exact signed rootless Vellum payload on the disposable
-   Remote. Prove missing `Xvfb`, `xauth`, or `mcookie` reports
-   `requires-admin`/`unavailable` and prevents core Remote startup; there is no
-   supported secure display-less Electron path. This step is blocked until
-   that product lane exists.
+   Remote. Leave `DISPLAY` unset and prove the packaged Node Remote starts
+   without `Xvfb`, `xauth`, or `mcookie`. Confirm Doctor can report core ready
+   while Linux Remote browser automation is independently `unavailable`, and
+   confirm the Remote closure has no Electron, Chromium, renderer, or
+   browser-composition dependency. This step remains blocked until an exact
+   signed candidate passes the required fresh-host gate.
 2. Enroll its SSH endpoint in Command Center.
 3. Configure it as Remote. Capture the `status → pair → configure` exchange.
 4. Confirm the response installation identity is bound to that exact fleet

@@ -78,8 +78,8 @@ Handle host findings independently:
 
 | Finding | Operator decision | Consequence if declined |
 |---|---|---|
-| Missing `Xvfb`, `xauth`, or `mcookie` for a Remote | Ask an administrator to install the exact reviewed host packages outside Vellum, then rerun preflight. | Core Remote remains `unavailable`; there is no supported secure display-less path. |
-| AppArmor/user-namespace preparation | Ask an administrator to apply only the exact reviewed release instruction, then rerun preflight. | Chromium-dependent surfaces remain blocked; no `--no-sandbox` fallback. |
+| Missing `DISPLAY`, `Xvfb`, `xauth`, or `mcookie` | No action is required for the packaged Node Remote. | Core Remote remains available; Linux Remote browser automation remains unavailable for the first Beta. |
+| AppArmor, user-namespace, or secret-storage preparation | No action is required for the first-Beta core Remote. Apply only a future browser-sidecar release's exact reviewed instruction. | Core Remote remains available; a future browser capability stays blocked without its qualified security boundary. |
 | User lingering | Optionally enable outside Vellum when a Remote must return without login. | Remote service follows the normal user-manager login lifetime. |
 | Missing optional OS package | Optionally install the exact reviewed package outside Vellum. | Only the named capability remains degraded. |
 | Missing core runtime library | Prepare the host outside Vellum and rerun preflight. | Install/update remains not ready. |
@@ -120,15 +120,21 @@ The implementation must publish its exact userland layout, filesystem modes,
 activation mechanism, and uninstall command before this section becomes an
 actionable runbook.
 
-## Remote station, Xvfb, and user service
+## Remote station and user service
 
 A Remote uses the Station user's service manager and a release-owned,
 owner-local service definition. It must not need a system service or root-owned
 launcher.
 
-Electron 43.2 / Chromium 150 requires the host-provided `Xvfb`, `xauth`, and
-`mcookie` set. The Remote is `requires-admin` or `unavailable` without them and
-does not start. There is no supported secure display-less mode.
+The core Remote executable is a packaged Node process. It does not load
+Electron, Chromium, a renderer, or browser composition, and it does not require
+`DISPLAY`, Wayland, X authority, `Xvfb`, `xauth`, or `mcookie`. Do not install a
+display stack to make the core Remote start.
+
+Browser automation is intentionally unavailable on Linux Remote for the first
+Beta. Doctor reports it separately as an optional capability, so its display,
+sandbox, AppArmor, user-namespace, and secret-storage findings do not turn a
+ready core Remote into an unhealthy Station.
 
 The release must provide exact ordinary-user commands to:
 
@@ -156,11 +162,13 @@ Boot readiness proves only the current Station generation:
 - fresh owner-only work and Station control sockets are listening;
 - the exact invocation-bound readiness receipt is present.
 
-Doctor then reports terminal, browser, display, sandbox, projection,
-simulation, SSH, persistence, and other capability observations. A missing
-optional capability may leave the Station **ready with limits**. A failed
-security gate blocks its affected capability. Unknown is never converted to
-success from a stale receipt or SSH reachability.
+Doctor then reports terminal, browser, display, sandbox, secret storage,
+projection, simulation, SSH, persistence, and other capability observations.
+Browser remains `unavailable` on Linux Remote for the first Beta, while core
+readiness is independent from browser-side display and security findings. A
+missing optional capability may leave the Station **ready with limits**.
+Unknown is never converted to success from a stale receipt or SSH
+reachability.
 
 Use the in-app Doctor surface. A future packaged `vellum doctor` command is
 valid only through its documented owner-local/process-bound path.
@@ -253,10 +261,11 @@ owns it. Follow [verification and removal](linux-host-preparation.md#how-are-pre
 
 ## Browser profile lifecycle
 
-Browser profiles are host-local runtime data and never travel on the Station
-API. Closing a browser session does not erase its profile. Use Vellum's in-app
-profile wipe action once that rootless packaged surface is qualified; do not
-copy, archive, restore, or remove profile directories by hand.
+Linux Remote browser profiles are not part of the first Beta because browser
+automation is unavailable. If a future qualified browser sidecar introduces
+profiles, they remain host-local runtime data and never travel on the Station
+API. Its release documentation must define the supported profile-wipe action;
+do not copy, archive, restore, or remove profile directories by hand.
 
 ## Disaster recovery
 

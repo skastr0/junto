@@ -292,8 +292,9 @@ not grant the exported file live authority over a running factory.
 
 Canonical live and durable state is `~/.vellum/state/vellum.db`. During normal
 product operation it is an owner-only SQLite database opened by exactly one
-Electron-main `StateEngine`; renderers, CLIs, helpers, fleet callers, and other
-processes use IPC/control APIs and never open it. App-owned
+main-process `StateEngine`: Electron main on Command Center or packaged Node
+main on Remote. Renderers, CLIs, helpers, fleet callers, and other processes
+use IPC/control APIs and never open it. App-owned
 write/create/remove operations commit full-map `canvas_generations` and advance
 `canvas_head` transactionally. History is ordinary queryable database state,
 not a content-addressed directory or manifest tree.
@@ -380,7 +381,7 @@ Staging a package and changing installed state are separate phases:
    `vellum.db`.
 2. The installer fully quiesces the incumbent and proves that it released the
    canonical database.
-3. The exact staged packaged Electron executable enters its sealed
+3. The exact staged packaged product executable enters its sealed
    `--vellum-state-preflight` mode. For installed state it opens the canonical
    database read-only, creates and verifies a retained `VACUUM INTO` backup,
    copies that backup to one disposable candidate database, and closes the
@@ -895,11 +896,16 @@ Linux has one canonical Station installation and update lane:
   operator-enrolled ordinary-user SSH route, but neither side invokes
   `sudo`, `su`, `pkexec`, a system package manager, or a privileged helper;
 - host preflight and Doctor are read-only and report per-capability facts;
-- Electron 43.2 / Chromium 150 has no supported secure display-less Remote
-  path; `Xvfb`, `xauth`, and `mcookie` are core Remote prerequisites, and a
-  missing prerequisite makes Remote `requires-admin` or `unavailable`;
-- AppArmor/user-namespace preparation, user lingering, and missing
-  operating-system packages are separate, explicit host-administrator actions;
+- the core Remote is a packaged Node process with no Electron, Chromium,
+  renderer, browser-composition, `DISPLAY`, Xvfb, xauth, or mcookie
+  dependency;
+- Linux Remote browser automation is unavailable in the first Beta and its
+  display, AppArmor/user-namespace, and secret-storage findings cannot
+  determine core health;
+- user lingering and missing core operating-system packages are separate,
+  explicit host-administrator actions;
+- any future browser sidecar is optional and must qualify its AppArmor,
+  user-namespace, display, sandbox, and secret-storage boundaries separately;
 - declining an optional host action degrades only the affected capability when
   that does not weaken a security boundary;
 - a sandbox, signature, state, ownership, or equivalent security gate fails
@@ -939,9 +945,14 @@ share the same installation. The enrolled host capability `"browser"` means
 that installation may physically host browser pages and owner-local browser
 control; it is not a remote RPC grant and never appears on the Station API.
 
+Linux Remote browser automation is intentionally unavailable in the first
+Beta. The following Remote browser rules govern a future optional sidecar; its
+absence is not a core Remote health failure.
+
 There is no Station-browser protocol, browser PKI, projected browser trust,
 Command Center browser session handle, or cross-installation browser relay.
-A page on a Remote is driven only by actors and tools on that Remote.
+If a future Remote browser sidecar is qualified, a page on a Remote is driven
+only by actors and tools on that Remote.
 
 Browser pages must remain isolated from Electron, Node, filesystem, shell,
 canvas, fleet credentials, and other profiles except through explicit

@@ -27,11 +27,12 @@ This contract derives from
 ## Current implementation status
 
 The canonical rootless install/update lane is in progress and is the only
-permitted target path. Signed artifact, user-service, deployment, and removal
-pieces have landed, and active privileged executables/password UI have been
-removed. The `.deb`/`/opt` contract and any remaining privileged types, tests,
-scripts, receipts, or instructions are migration residue. No current Linux
-artifact is supported, qualified, or publishable.
+permitted target path. Signed artifact, user-service, displayless Node Remote,
+deployment, and removal pieces have landed as candidate implementation, and
+active privileged executables/password UI have been removed. The `.deb`/`/opt`
+contract and any remaining privileged types, tests, scripts, receipts, or
+instructions are migration residue. No current Linux artifact is supported,
+qualified, signed for publication, or publishable.
 
 There is no supported privileged fallback. Consolidation is complete only when
 the rootless lane owns first install, update, forward repair, and removal and
@@ -42,12 +43,15 @@ the privileged product lane is deleted.
 One signed Linux release payload supports:
 
 - Linux Command Center with desktop parity;
-- Linux Remote running under the Station user's service manager and
-  release-owned display composition backed by host-provided `Xvfb`, `xauth`,
-  and `mcookie`;
+- Linux Remote running as the packaged Node runtime under the Station user's
+  service manager, with no Electron, Chromium, or display-server dependency;
 - macOS Command Center to Linux Remote;
 - Linux Command Center to Linux Remote;
 - first install and later update through the same ordinary-user transaction.
+
+Linux Remote browser automation is unavailable for the first Beta. A future
+browser sidecar is optional and cannot become a core Remote health
+prerequisite.
 
 Explicit exclusions:
 
@@ -96,10 +100,11 @@ artifact becomes the authoritative implementation reference for those details.
 Preflight and Doctor are read-only. Their exact status and remediation contract
 is [Linux host preparation](linux-host-preparation.md).
 
-AppArmor/user-namespace readiness, user lingering, and missing
-operating-system packages are separate facts and separate optional host
-actions. Vellum may show reviewed commands but never executes them or collects
-their credentials.
+User lingering and missing core operating-system packages are separate facts
+and separate optional host actions. AppArmor, user namespaces, display
+tooling, and secret storage are relevant only to a future browser sidecar.
+Vellum may show reviewed commands but never executes them or collects their
+credentials.
 
 Troubleshooting sequence for host-boundary failures is always:
 
@@ -110,22 +115,23 @@ Troubleshooting sequence for host-boundary failures is always:
 
 One missing optional facility degrades only its named capability when safe.
 For example, declining lingering limits unattended persistence; it does not
-invalidate owner-local Station state. A missing Chromium sandbox path blocks
-the Chromium-dependent surface rather than adding `--no-sandbox`. A missing
-library required by the core payload blocks install/update until the operator
-prepares the host.
+invalidate owner-local Station state. A missing library required by the core
+Node payload blocks install/update until the operator prepares the host.
 
-`Xvfb`, `xauth`, and `mcookie` are core Remote runtime prerequisites for
-Electron 43.2 / Chromium 150. There is no supported secure display-less Remote
-fallback. If any is missing, Doctor reports `requires-admin` or `unavailable`
-and the Remote does not start. Vellum never installs them itself.
+The packaged Node Remote ignores `DISPLAY`, Wayland, and X authority. It starts
+without `Xvfb`, `xauth`, or `mcookie`, and Doctor summarizes core readiness
+without display, sandbox, or secret-storage findings. Linux Remote browser
+automation remains `unavailable` in the first Beta. Any future sidecar must
+fail closed on its own Chromium sandbox and secret-storage gates rather than
+adding `--no-sandbox` or weakening core health.
 
 ## Durable state
 
 Every installation uses `~/.vellum/state/vellum.db`, mode `0600`, inside an
-owner-only state directory. The Electron main process owns the one Effect
-`StateEngine` connection. All services share that connection; renderers, CLIs,
-helpers, and SSH callers reach main through typed control surfaces.
+owner-only state directory. The normal product main process—Electron on
+Command Center, packaged Node on Remote—owns the one Effect `StateEngine`
+connection. All services share that connection; renderers, CLIs, helpers, and
+SSH callers reach main through typed control surfaces.
 
 The same schema boots for Command Center and Remote. Command Center persists
 authorial canvas generations, fleet enrollment, and Command Center-homed work.
@@ -161,10 +167,10 @@ The final rootless implementation must bind launcher, updater, and deploy
 preflight to one exact receipt contract. A stale file, SSH exit zero, package
 manager result, desktop process, or custom-image label is never readiness.
 
-Terminal, browser, projection, display, sandbox, persistence, and capability
-probes are Doctor observations. A red security probe blocks its affected
-capability. A red optional probe may leave the Station **ready with limits**.
-Unknown remains unknown.
+Terminal, projection, persistence, and capability probes are Doctor
+observations. Browser, display, sandbox, and secret-storage observations are
+optional and cannot block core Node Remote readiness. Linux Remote browser
+remains explicitly `unavailable` for the first Beta. Unknown remains unknown.
 
 ## Fleet contract
 
@@ -192,9 +198,11 @@ revision prove:
 - no Vellum process invokes or retains host-administrator authority;
 - a stock supported Ubuntu host can reach a truthful preflight result without
   a custom image;
-- the Remote starts only with qualified host-provided `Xvfb`, `xauth`, and
-  `mcookie`, and missing display prerequisites produce
-  `requires-admin`/`unavailable` rather than display-less fallback;
+- the packaged Node Remote starts with `DISPLAY` unset and no `Xvfb`, `xauth`,
+  `mcookie`, Electron, Chromium, renderer, or browser-composition dependency;
+- Doctor keeps core Remote readiness independent from browser, display,
+  sandbox, and secret-storage findings, while the first-Beta browser
+  capability remains `unavailable`;
 - every optional host action is separate, minimal, documented, verifiable, and
   removable;
 - declined optional actions produce capability-specific limits, while every
