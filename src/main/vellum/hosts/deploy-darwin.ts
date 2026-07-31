@@ -167,8 +167,6 @@ export type DarwinRemoteLiveWorkAuthority = {
 };
 
 const SHA256_HEX = /^[0-9a-f]{64}$/u;
-const MAX_ACTIVE_TERMINAL_SESSIONS = 4_096;
-const OBSERVATION = /^[0-9A-Za-z][0-9A-Za-z._:-]{0,127}$/u;
 
 export {
   decodeRemoteHomeDirectoryOutput,
@@ -424,9 +422,6 @@ export const darwinLiveWorkRefusalResult = (input: {
     stages: [...input.stages],
     disposition: "not-started",
     ...(input.version !== undefined ? { version: input.version } : {}),
-    recoveryAction: {
-      kind: "restore-terminal-live-work-observation",
-    },
   };
 };
 
@@ -1825,13 +1820,17 @@ else
   fi
 fi
 
-# Ask both the app and launchd to retire the old generation. Neither command is
-# treated as proof; the bounded observation below is the destructive gate.
-INCUMBENT_STOP_REQUESTED=1
-"$OSASCRIPT" -e ${shellLiteral(`with timeout of 5 seconds
+# Ask both the app and launchd to retire an admitted old generation. A first
+# install has no incumbent and does not issue speculative quit/bootout calls.
+# Neither command is treated as proof; the bounded observation below is the
+# destructive gate.
+if [ "$OLD_JOB_WAS_LOADED" = "1" ]; then
+  INCUMBENT_STOP_REQUESTED=1
+  "$OSASCRIPT" -e ${shellLiteral(`with timeout of 5 seconds
   tell application "${PRODUCT_NAME}" to quit
 end timeout`)} >/dev/null 2>&1 || true
-"$LAUNCHCTL" bootout "$JOB" >/dev/null 2>&1 || true
+  "$LAUNCHCTL" bootout "$JOB" >/dev/null 2>&1 || true
+fi
 
 if ! wait_until_job_and_executable_gone 30; then
   CURRENT_EXE_PIDS="$(exact_exe_pids | /usr/bin/tr '\n' ',' || true)"
@@ -2289,8 +2288,8 @@ const streamArtifactToRemote = (
 export const makeDarwinRemoteDeploymentProvider = (deps: {
   readonly artifactAuthority: DarwinRemoteArtifactAuthority;
   readonly liveWorkAuthority: DarwinRemoteLiveWorkAuthority;
-  readonly streamArtifact?: typeof streamArtifactToRemote;
-  readonly localPlatform?: NodeJS.Platform;
+  readonly streamArtifact: typeof streamArtifactToRemote;
+  readonly localPlatform: NodeJS.Platform;
 }): RemoteDeploymentProvider => ({
   platform: "darwin",
   supportsBrowser: true,
@@ -2329,7 +2328,7 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
             },
           };
         }
-        if ((deps.localPlatform ?? process.platform) !== "darwin") {
+        if (deps.localPlatform !== "darwin") {
           return {
             ok: false,
             detail:
@@ -2458,36 +2457,9 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
               stages,
               disposition: "not-started" as const,
               version: admission.localApp.version,
-              recoveryAction: {
-                kind: "restore-terminal-live-work-observation" as const,
-              },
             };
           }
           const liveWork = maintenance.right;
-          if (
-            !Number.isSafeInteger(liveWork.evidence.activeTerminalSessions) ||
-            liveWork.evidence.activeTerminalSessions < 0 ||
-            liveWork.evidence.activeTerminalSessions >
-              MAX_ACTIVE_TERMINAL_SESSIONS ||
-            !OBSERVATION.test(liveWork.evidence.observationId) ||
-            (liveWork.acquired &&
-              liveWork.evidence.activeTerminalSessions !== 0) ||
-            (!liveWork.acquired &&
-              liveWork.reason === "active-terminal-sessions" &&
-              liveWork.evidence.activeTerminalSessions === 0)
-          ) {
-            return {
-              ok: false,
-              detail: `${host.label}: the Remote terminal maintenance receipt was malformed`,
-              code: "conflict" as const,
-              stages,
-              disposition: "not-started" as const,
-              version: admission.localApp.version,
-              recoveryAction: {
-                kind: "restore-terminal-live-work-observation" as const,
-              },
-            };
-          }
           if (!liveWork.acquired) {
             return darwinLiveWorkRefusalResult({
               hostLabel: host.label,
@@ -2504,7 +2476,7 @@ export const makeDarwinRemoteDeploymentProvider = (deps: {
           push(stages, "remote package absent; first install admitted");
         }
 
-        const streamed = yield* (deps.streamArtifact ?? streamArtifactToRemote)(
+        const streamed = yield* deps.streamArtifact(
           ssh,
           target.sshTarget,
           {
@@ -2554,4 +2526,6 @@ export const darwinRemoteDeploymentProvider: RemoteDeploymentProvider =
   makeDarwinRemoteDeploymentProvider({
     artifactAuthority: makeProductionDarwinArtifactAuthority(),
     liveWorkAuthority: makeProductionDarwinLiveWorkAuthority(),
+    streamArtifact: streamArtifactToRemote,
+    localPlatform: process.platform,
   });

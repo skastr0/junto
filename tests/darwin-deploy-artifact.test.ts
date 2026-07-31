@@ -195,9 +195,7 @@ describe("darwinLiveWorkRefusalResult", () => {
         },
       },
     });
-    expect(result.recoveryAction).toEqual({
-      kind: "restore-terminal-live-work-observation",
-    });
+    expect(result.recoveryAction).toBeUndefined();
     expect(result.detail).toContain("terminal route cut");
   });
 });
@@ -263,6 +261,39 @@ describe("Darwin deployment first-install boundary", () => {
     });
     expect(acquire).toHaveBeenCalledOnce();
     expect(streamArtifact).not.toHaveBeenCalled();
+  });
+
+  it("holds and releases update maintenance around a successful transfer", async () => {
+    const released = vi.fn();
+    const acquire = vi.fn(() =>
+      Effect.succeed({
+        acquired: true as const,
+        evidence: {
+          activeTerminalSessions: 0 as const,
+          observationId: "tm_existing_update",
+        },
+        release: Effect.sync(released),
+      }),
+    );
+    const { provider, streamArtifact } = providerWith({ acquire });
+    const run = vi
+      .fn()
+      .mockReturnValueOnce(
+        Effect.succeed({ stdout: "/Users/operator\n", stderr: "" }),
+      )
+      .mockReturnValueOnce(Effect.succeed({ stdout: "", stderr: "" }));
+
+    const result = await Effect.runPromise(
+      provider.deploy(deploymentInput(run)),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(acquire).toHaveBeenCalledOnce();
+    expect(streamArtifact).toHaveBeenCalledOnce();
+    expect(streamArtifact.mock.calls[0]?.[2]).toMatchObject({
+      expectedPackageState: "present",
+    });
+    expect(released).toHaveBeenCalledOnce();
   });
 
   it.each([

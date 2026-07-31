@@ -72,8 +72,6 @@ export const IPC_CHANNELS = {
   refreshSnapshots: "vellum:refresh-snapshots",
   getUsage: "vellum:get-usage",
   refreshUsage: "vellum:refresh-usage",
-  agentIdentity: "vellum:agent-identity",
-  agentAvatar: "vellum:agent-avatar",
   agentMessage: "vellum:agent-message",
   /** Main → renderer: one ephemeral agent preamble. */
   preamble: "vellum:preamble",
@@ -403,17 +401,7 @@ export type WorkOpResult<T> =
     }
   | { readonly ok: false; readonly code: WorkErrorCode; readonly message: string };
 
-// --- hermes agent identity + messaging -------------------------------------
-
-// Enriched, non-secret identity for one fleet agent. Tokens and device ids
-// NEVER cross this boundary.
-export interface AgentIdentity {
-  readonly key: string; // "<host>:<profile>"
-  readonly displayName?: string; // e.g. "PROFILE-13" from identity-brief.md
-  readonly matrixUserId?: string; // e.g. "@profile-13:remote-a...."
-  readonly homeRoomName?: string;
-  readonly hasAvatar: boolean;
-}
+// --- hermes agent messaging -------------------------------------------------
 
 export interface AgentReply {
   readonly ok: boolean;
@@ -553,10 +541,7 @@ export interface VellumApi extends LicenseApi, UpdateApi {
   // snapshots when the CLI is absent — renderer hides the HUD.
   readonly getUsage: () => Promise<UsageState>;
   readonly refreshUsage: () => Promise<UsageState>;
-  // Source browsing (read-only; feeds inspector detail views, never nodes).
-  // Hermes fleet: identity enrichment, lazy avatar (data: URI), and messaging.
-  readonly agentIdentity: (key: string) => Promise<AgentIdentity | null>;
-  readonly agentAvatar: (key: string) => Promise<string | null>;
+  // Hermes ACP messaging (legacy transport surface).
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;
@@ -875,11 +860,10 @@ export interface HostsConfigureRemoteResult {
 
 /** Fixed operator recovery for a deployment refusal; never carries a command or path. */
 export type HostsDeployRemoteRecoveryAction =
-  | {
-      readonly kind: "close-active-vellum-terminals";
-      readonly activeTerminalSessions: number;
-    }
-  | { readonly kind: "restore-terminal-live-work-observation" };
+  {
+    readonly kind: "close-active-vellum-terminals";
+    readonly activeTerminalSessions: number;
+  };
 
 export interface HostsDeployRemoteInput {
   readonly id: string;

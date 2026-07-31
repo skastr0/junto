@@ -488,7 +488,10 @@ describe("buildRemoteDeployScript", () => {
 });
 
 describe("remote deploy transaction behavior", () => {
-  const makeHarness = () => {
+  const makeHarness = (
+    expectedPackageState: "absent" | "present" = "present",
+    installedPackageState: "absent" | "present" = "present",
+  ) => {
     const root = mkdtempSync("/tmp/vellum-deploy-test-");
     const bin = join(root, "bin");
     const state = join(root, "state");
@@ -514,16 +517,19 @@ describe("remote deploy transaction behavior", () => {
     );
     mkdirSync(bin, { recursive: true });
     mkdirSync(state, { recursive: true });
-    mkdirSync(join(appPath, "Contents", "MacOS"), { recursive: true });
-    mkdirSync(join(appPath, "Contents", "Resources"), { recursive: true });
+    mkdirSync(dirname(appPath), { recursive: true });
     mkdirSync(join(remoteHome, "Library", "LaunchAgents"), {
       recursive: true,
     });
-    writeFileSync(executablePath, "old-generation", { mode: 0o755 });
-    writeFileSync(join(appPath, "Contents", "Info.plist"), "old-info");
-    writeFileSync(plistPath, "old-plist");
-    writeFileSync(join(state, "loaded"), "1");
-    writeFileSync(join(state, "pid"), "100\n");
+    if (installedPackageState === "present") {
+      mkdirSync(join(appPath, "Contents", "MacOS"), { recursive: true });
+      mkdirSync(join(appPath, "Contents", "Resources"), { recursive: true });
+      writeFileSync(executablePath, "old-generation", { mode: 0o755 });
+      writeFileSync(join(appPath, "Contents", "Info.plist"), "old-info");
+      writeFileSync(plistPath, "old-plist");
+      writeFileSync(join(state, "loaded"), "1");
+      writeFileSync(join(state, "pid"), "100\n");
+    }
 
     const executable = (name: string, body: string): string => {
       const path = join(bin, name);
@@ -739,7 +745,7 @@ describe("remote deploy transaction behavior", () => {
       remoteHome,
       TEST_CDHASH,
       runtime,
-      { kind: "app-tar", expectedPackageState: "present" },
+      { kind: "app-tar", expectedPackageState },
     );
     const run = (overrides: NodeJS.ProcessEnv = {}) =>
       spawnSync("/bin/bash", ["-lc", script], {
@@ -860,6 +866,58 @@ describe("remote deploy transaction behavior", () => {
           "old-generation",
         );
         expect(existsSync(join(harness.state, "loaded"))).toBe(true);
+      } finally {
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
+
+  it(
+    "rejects a first-install transaction if the package becomes present before deploy",
+    () => {
+      const harness = makeHarness("absent");
+      try {
+        const result = harness.run();
+        const launchctlLogPath = join(harness.state, "launchctl.log");
+        const launchctlLog = existsSync(launchctlLogPath)
+          ? readFileSync(launchctlLogPath, "utf8")
+          : "";
+        expect(result.status, result.stderr).toBe(12);
+        expect(result.stderr).toContain("PACKAGE_STATE_CHANGED_BEFORE_DEPLOY");
+        expect(launchctlLog).not.toContain("bootout");
+        expect(existsSync(join(harness.state, "tar-ran"))).toBe(false);
+        expect(existsSync(harness.runtime.lockPath)).toBe(false);
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "old-generation",
+        );
+      } finally {
+        harness.cleanup();
+      }
+    },
+    35_000,
+  );
+
+  it(
+    "executes a true first-install transaction without incumbent retirement",
+    () => {
+      const harness = makeHarness("absent", "absent");
+      try {
+        const result = harness.run();
+        const launchctlLogPath = join(harness.state, "launchctl.log");
+        const launchctlLog = existsSync(launchctlLogPath)
+          ? readFileSync(launchctlLogPath, "utf8")
+          : "";
+        expect(result.status, result.stderr).toBe(13);
+        expect(result.stderr).toContain("CONTROL_SOCKET_TIMEOUT");
+        expect(result.stderr).toContain("DEPLOY_FORWARD_REPAIR_REQUIRED");
+        expect(result.stderr).not.toContain("PACKAGE_STATE_CHANGED_BEFORE_DEPLOY");
+        expect(launchctlLog).not.toContain("bootout");
+        expect(existsSync(join(harness.state, "tar-ran"))).toBe(true);
+        expect(readFileSync(harness.executablePath, "utf8")).toBe(
+          "new-generation",
+        );
+        expect(existsSync(harness.runtime.lockPath)).toBe(false);
       } finally {
         harness.cleanup();
       }

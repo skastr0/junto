@@ -212,15 +212,10 @@ export const OperatorManagedInstallsData = Schema.Struct({
 export type OperatorManagedInstallsData =
   typeof OperatorManagedInstallsData.Type;
 
-export const OperatorDeployRecoveryAction = Schema.Union(
-  Schema.Struct({
-    kind: Schema.Literal("close-active-vellum-terminals"),
-    activeTerminalSessions: NonNegativeInt,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("restore-terminal-live-work-observation"),
-  }),
-);
+export const OperatorDeployRecoveryAction = Schema.Struct({
+  kind: Schema.Literal("close-active-vellum-terminals"),
+  activeTerminalSessions: NonNegativeInt,
+});
 export type OperatorDeployRecoveryAction =
   typeof OperatorDeployRecoveryAction.Type;
 
