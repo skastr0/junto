@@ -21,7 +21,7 @@ import {
   type SshError,
   SshInputError,
 } from "./domain";
-import { oneShot } from "./program";
+import { homeDirectoryLookup, oneShot } from "./program";
 import { SshTransport } from "./service";
 
 // Clean absolute POSIX path: no shell metacharacters, no `..`, no NULs.
@@ -714,3 +714,64 @@ export const remoteVellumStationNegotiation = (
   remoteVellumStationCommand(platform, [
     STATION_PROTOCOL_NEGOTIATION_ARG,
   ]);
+
+const decodeObservedRemoteHome = (
+  output: string,
+): Effect.Effect<string, SshInputError> => {
+  if (!output.endsWith("\n")) {
+    return Effect.fail(
+      new SshInputError({
+        message: "remote Linux home probe did not return one clean absolute path",
+      }),
+    );
+  }
+  const homeDirectory = output.slice(0, -1);
+  if (
+    homeDirectory.includes("\n") ||
+    homeDirectory.trim() !== homeDirectory ||
+    !SAFE_REMOTE_HOME.test(homeDirectory) ||
+    homeDirectory === "/"
+  ) {
+    return Effect.fail(
+      new SshInputError({
+        message: "remote Linux home probe did not return one clean absolute path",
+      }),
+    );
+  }
+  return Effect.succeed(homeDirectory);
+};
+
+/**
+ * Resolve the fixed Station helper for an observed platform. Darwin uses the
+ * packaged app path; Linux independently observes `$HOME` and binds the
+ * owner-local userland helper. Callers never supply an executable path.
+ */
+export const resolveRemoteStationHelper = (
+  ssh: Ssh,
+  target: SshTarget,
+  platform: RemotePackagedPlatform,
+  mode: "session" | "negotiation",
+): Effect.Effect<RemoteCommand, SshError | SshInputError> =>
+  Effect.gen(function* () {
+    const observed = remotePackagedPlatforms.get(platform);
+    if (observed === "darwin") {
+      return yield* remoteVellumStationCommand(
+        platform,
+        mode === "negotiation" ? [STATION_PROTOCOL_NEGOTIATION_ARG] : [],
+      );
+    }
+    if (observed !== "linux") {
+      return yield* Effect.fail(
+        new SshInputError({
+          message: "remote packaged platform witness is invalid",
+        }),
+      );
+    }
+    const homeResult = yield* ssh.run(homeDirectoryLookup(target));
+    const homeDirectory = yield* decodeObservedRemoteHome(homeResult.stdout);
+    const userland = yield* bindLinuxRemoteUserland(platform, homeDirectory);
+    return yield* remoteLinuxUserlandStationCommand(
+      userland,
+      mode === "negotiation" ? [STATION_PROTOCOL_NEGOTIATION_ARG] : [],
+    );
+  }).pipe(Effect.withSpan("ssh.remote-station-helper"));

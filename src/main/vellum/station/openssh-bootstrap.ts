@@ -16,7 +16,7 @@ import { STATION_CONTROL_REQUEST_TIMEOUT_MS } from "@shared/station-ssh-control"
 import type { SshError, SshTarget } from "../ssh/domain";
 import { sharedStream } from "../ssh/program";
 import {
-  remoteVellumStation,
+  resolveRemoteStationHelper,
   type RemotePackagedPlatform,
 } from "../ssh/read-commands";
 import {
@@ -155,7 +155,12 @@ export const bootstrapOpenSshStationStatus = (
   const maxFrameBytes = boundedFrameBytes(options.maxFrameBytes);
   return Effect.scoped(
     Effect.gen(function* () {
-      const command = yield* remoteVellumStation(platform);
+      const command = yield* resolveRemoteStationHelper(
+        ssh,
+        endpoint,
+        platform,
+        "session",
+      );
       const connection = yield* ssh.connect(
         sharedStream(endpoint, command, "agent"),
         (lease, confirm) =>

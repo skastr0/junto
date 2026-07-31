@@ -80,11 +80,17 @@ const makeBootstrapSsh = (
   readonly events: string[];
 } => {
   const events: string[] = [];
+  let platformProbes = 0;
   const ssh = {
     run: () =>
       Effect.sync(() => {
-        events.push("platform");
-        return { stdout: "Linux\n", stderr: "" };
+        platformProbes += 1;
+        if (platformProbes === 1) {
+          events.push("platform");
+          return { stdout: "Linux\n", stderr: "" };
+        }
+        events.push("home");
+        return { stdout: "/home/remote\n", stderr: "" };
       }),
     connect: (
       _program: unknown,
@@ -169,6 +175,7 @@ describe("OpenSSH Station status bootstrap", () => {
     }
     expect(fixture.events).toEqual([
       "platform",
+      "home",
       "open",
       "write",
       "close-input",

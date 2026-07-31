@@ -251,11 +251,18 @@ const makeSsh = (
       return (ready as { readonly value: unknown }).value;
     });
 
+  let platformProbes = 0;
   const ssh = {
     run: () =>
       Effect.sync(() => {
-        events.push("platform");
-        return { stdout: "Linux\n", stderr: "" };
+        platformProbes += 1;
+        // uname once for platform; $HOME for each Linux Station helper mint.
+        if (platformProbes === 1) {
+          events.push("platform");
+          return { stdout: "Linux\n", stderr: "" };
+        }
+        events.push("home");
+        return { stdout: "/home/remote\n", stderr: "" };
       }),
     connect,
     connectWithExitObservation: connect,
@@ -288,10 +295,12 @@ describe("configureRemoteHost", () => {
 
     expect(fixture.events).toEqual([
       "platform",
+      "home",
       "bootstrap-open",
       "bootstrap-status",
       "bootstrap-input-close",
       "bootstrap-close",
+      "home",
       "peer-open",
       "protocol-offer",
       "status",

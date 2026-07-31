@@ -50,7 +50,7 @@ import {
   type SshLease,
 } from "../ssh/service";
 import {
-  remoteVellumStationNegotiation,
+  resolveRemoteStationHelper,
   type RemotePackagedPlatform,
 } from "../ssh/read-commands";
 import {
@@ -820,10 +820,12 @@ export const makeOpenSshStationPeerExchange = (
       Effect.gen(function* () {
         const details = openSshRoutes.get(route);
         if (!isStationPeerRoute(route) || details === undefined) {
-          return yield* exchangeError(
-            route.peerInstallationId,
-            "unsupported-route",
-            "Station peer route was not admitted by the OpenSSH adapter",
+          return yield* Effect.fail(
+            exchangeError(
+              route.peerInstallationId,
+              "unsupported-route",
+              "Station peer route was not admitted by the OpenSSH adapter",
+            ),
           );
         }
 
@@ -832,8 +834,12 @@ export const makeOpenSshStationPeerExchange = (
           frame: "offer",
           ...localProtocol,
         });
-        const negotiationCommand =
-          yield* remoteVellumStationNegotiation(details.platform);
+        const negotiationCommand = yield* resolveRemoteStationHelper(
+          ssh,
+          details.target,
+          details.platform,
+          "negotiation",
+        );
         const negotiatedAttempt = yield* ssh
           .connectWithExitObservation(
             sharedStream(details.target, negotiationCommand, "agent"),
@@ -866,11 +872,13 @@ export const makeOpenSshStationPeerExchange = (
                   Either.isLeft(decoded) ||
                   decoded.right.frame === "offer"
                 ) {
-                  return yield* exchangeError(
-                    route.peerInstallationId,
-                    "protocol-negotiation",
-                    "Remote did not return one strict compatibility response",
-                    { localProtocol },
+                  return yield* Effect.fail(
+                    exchangeError(
+                      route.peerInstallationId,
+                      "protocol-negotiation",
+                      "Remote did not return one strict compatibility response",
+                      { localProtocol },
+                    ),
                   );
                 }
                 const response = decoded.right;
@@ -878,30 +886,36 @@ export const makeOpenSshStationPeerExchange = (
                 const decision = decideStationProtocolPreface(offer, response);
                 switch (decision._tag) {
                   case "no-common":
-                    return yield* exchangeError(
-                      route.peerInstallationId,
-                      "protocol-incompatible",
-                      "Command Center and Remote have no common Station protocol",
-                      { localProtocol, peerProtocol },
+                    return yield* Effect.fail(
+                      exchangeError(
+                        route.peerInstallationId,
+                        "protocol-incompatible",
+                        "Command Center and Remote have no common Station protocol",
+                        { localProtocol, peerProtocol },
+                      ),
                     );
                   case "invalid-accept":
                   case "invalid-reject":
-                    return yield* exchangeError(
-                      route.peerInstallationId,
-                      "protocol-negotiation",
-                      "Remote returned an inconsistent compatibility decision",
-                      { localProtocol, peerProtocol },
+                    return yield* Effect.fail(
+                      exchangeError(
+                        route.peerInstallationId,
+                        "protocol-negotiation",
+                        "Remote returned an inconsistent compatibility decision",
+                        { localProtocol, peerProtocol },
+                      ),
                     );
                   case "accepted":
                     break;
                 }
                 const codec = selectStationProtocolCodec(decision.selected);
                 if (Either.isLeft(codec)) {
-                  return yield* exchangeError(
-                    route.peerInstallationId,
-                    "protocol-negotiation",
-                    `Station protocol ${decision.selected} has no compiled codec`,
-                    { localProtocol, peerProtocol },
+                  return yield* Effect.fail(
+                    exchangeError(
+                      route.peerInstallationId,
+                      "protocol-negotiation",
+                      `Station protocol ${decision.selected} has no compiled codec`,
+                      { localProtocol, peerProtocol },
+                    ),
                   );
                 }
                 const protocol = bindNegotiatedStationProtocol({
@@ -923,10 +937,12 @@ export const makeOpenSshStationPeerExchange = (
         if (Either.isRight(negotiatedAttempt)) {
           return negotiatedAttempt.right;
         }
-        return yield* openError(
-          route.peerInstallationId,
-          negotiatedAttempt.left,
-          localProtocol,
+        return yield* Effect.fail(
+          openError(
+            route.peerInstallationId,
+            negotiatedAttempt.left,
+            localProtocol,
+          ),
         );
       }).pipe(
         Effect.mapError((error) =>

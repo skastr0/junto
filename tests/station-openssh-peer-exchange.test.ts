@@ -507,8 +507,15 @@ describe("OpenSSH Station peer exchange", () => {
         );
         return (ready as { readonly value: unknown }).value;
       });
+    let platformProbes = 0;
     const ssh = {
-      run: () => Effect.succeed({ stdout: "Linux\n", stderr: "" }),
+      run: () =>
+        Effect.sync(() => {
+          platformProbes += 1;
+          return platformProbes === 1
+            ? { stdout: "Linux\n", stderr: "" }
+            : { stdout: "/home/remote\n", stderr: "" };
+        }),
       connect,
       connectWithExitObservation: connect,
       transfer: () => Effect.die("Station exchange must not use transfer"),
