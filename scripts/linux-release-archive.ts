@@ -22,6 +22,7 @@ import {
   LINUX_RELEASE_MANIFEST,
   LINUX_RELEASE_SIGNATURE,
   LINUX_RELEASE_TARGET,
+  linuxUserlandRuntimeArchiveName,
   type LinuxReleaseVerificationReceipt,
 } from "./linux-release-bundle";
 
@@ -670,7 +671,7 @@ const readVerificationReceipt = async (
       verifiedReceipt.filesVerified + REQUIRED_METADATA_FILES.length !==
         verifiedReceipt.bundleFiles.length ||
       verifiedReceipt.packageFile !==
-        `Vellum Command-${verifiedReceipt.version}-x64-linux.deb` ||
+        linuxUserlandRuntimeArchiveName(verifiedReceipt.version) ||
       REQUIRED_METADATA_FILES.some(
         (file) =>
           verifiedReceipt.bundleFiles.filter((entry) => entry.file === file)
@@ -762,7 +763,7 @@ export const createLinuxReleaseArchive = async (input: {
   const archivePath = path.resolve(input.archivePath);
   const receipt = await readVerificationReceipt(input.verificationReceiptPath);
   const expected = expectedFileMap(receipt.bundleFiles);
-  const expectedBasename = `vellum-${receipt.version}-ubuntu-24.04-x64-release.tar.gz`;
+  const expectedBasename = linuxUserlandRuntimeArchiveName(receipt.version);
   if (path.basename(archivePath) !== expectedBasename) {
     throw new Error(`Linux release archive must be named ${expectedBasename}`);
   }

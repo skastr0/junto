@@ -304,12 +304,6 @@ const createFixture = async (options: {
       })),
       {
         scope: "evidence",
-        file: "Vellum Command-0.1.0-x64-linux.tar.gz",
-        bytes: 32,
-        sha256: "d".repeat(64),
-      },
-      {
-        scope: "evidence",
         file: "logs/qualification.log",
         bytes: 16,
         sha256: "e".repeat(64),
