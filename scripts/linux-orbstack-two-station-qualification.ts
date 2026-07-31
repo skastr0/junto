@@ -743,6 +743,44 @@ const boxInfo = async (
   return parseBoxInfo(result.stdout, id, logicalName);
 };
 
+export const parseBoxCreationId = (
+  stdout: string,
+  logicalName: string,
+): string => {
+  const lines = stdout.trim().split(/\r?\n/u).filter(Boolean);
+  let records: ReadonlyArray<Record<string, unknown>>;
+  try {
+    records = lines.map((line) => {
+      const value: unknown = JSON.parse(line);
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        Array.isArray(value)
+      ) {
+        throw new Error("non-object Box creation event");
+      }
+      return value as Record<string, unknown>;
+    });
+  } catch {
+    throw new Error(`Box creation returned malformed JSON for ${logicalName}`);
+  }
+  const first = records[0];
+  const last = records.at(-1);
+  const id = first?.id;
+  if (
+    records.length < 2 ||
+    first?.event !== "created" ||
+    last?.event !== "ready" ||
+    last.state !== "ready" ||
+    typeof id !== "string" ||
+    !MACHINE_ID.test(id) ||
+    records.some((record) => record.id !== id)
+  ) {
+    throw new Error(`Box creation returned no safe identity for ${logicalName}`);
+  }
+  return id;
+};
+
 const createBoxMachine = async (
   executor: CommandExecutor,
   boxPath: string,
@@ -753,22 +791,7 @@ const createBoxMachine = async (
     args: ["new", "--no-env", "--ttl", "21600", "--json"],
     timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS,
   });
-  let raw: unknown;
-  try {
-    raw = JSON.parse(created.stdout);
-  } catch {
-    throw new Error(`Box creation returned malformed JSON for ${logicalName}`);
-  }
-  const id =
-    typeof raw === "object" &&
-      raw !== null &&
-      !Array.isArray(raw) &&
-      typeof (raw as { box?: { id?: unknown } }).box?.id === "string"
-      ? (raw as { box: { id: string } }).box.id
-      : undefined;
-  if (id === undefined || !MACHINE_ID.test(id)) {
-    throw new Error(`Box creation returned no safe identity for ${logicalName}`);
-  }
+  const id = parseBoxCreationId(created.stdout, logicalName);
   const deadline = Date.now() + DEPLOY_COMMAND_TIMEOUT_MS;
   let last: OrbMachineInfo | undefined;
   while (Date.now() < deadline) {

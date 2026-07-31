@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   managedBundleRelativeDestination,
+  parseBoxCreationId,
   parseQualificationArgs,
   qualificationMachineNames,
   requireRunId,
@@ -79,6 +80,37 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
       runId: "release-015-box",
       kind: "qualification-candidate",
     });
+  });
+
+  it("admits only one consistent ready identity from Box JSONL creation", () => {
+    const id = "bx_pjpy4367";
+    expect(
+      parseBoxCreationId(
+        [
+          JSON.stringify({ event: "created", id, ttlSeconds: 21_600 }),
+          JSON.stringify({ event: "state", id, state: "provisioning" }),
+          JSON.stringify({ event: "state", id, state: "cloning" }),
+          JSON.stringify({ event: "state", id, state: "ready" }),
+          JSON.stringify({ event: "ready", id, state: "ready" }),
+        ].join("\n"),
+        "qualification-cc",
+      ),
+    ).toBe(id);
+    expect(() =>
+      parseBoxCreationId(
+        [
+          JSON.stringify({ event: "created", id }),
+          JSON.stringify({ event: "ready", id: "bx_other123", state: "ready" }),
+        ].join("\n"),
+        "qualification-cc",
+      ),
+    ).toThrow(/safe identity/u);
+    expect(() =>
+      parseBoxCreationId(
+        JSON.stringify({ event: "created", id }),
+        "qualification-cc",
+      ),
+    ).toThrow(/safe identity/u);
   });
 
   it("names disposable VMs from the run id", () => {
