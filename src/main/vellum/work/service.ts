@@ -314,6 +314,16 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       sentBy: ActorRef,
     ) => Effect.Effect<WorkOpResult<Message>>;
     /**
+     * Command Center system mailbox notify (no process-bound sender).
+     * Used when factory topology newly enables actor↔actor msg.send.
+     * Appends as foreign user mail so message-delivery can inject the PTY.
+     */
+    readonly workSystemMailboxNotify: (
+      canvas: string,
+      nodeId: string,
+      message: Message,
+    ) => Effect.Effect<WorkOpResult<Message>>;
+    /**
      * Durable read-ack for one mailbox message (delivery.accepted with
      * mailbox-message-read identity). Idempotent.
      */
@@ -1305,6 +1315,70 @@ export const WorkLive = Layer.effect(
                 policy.message,
               );
             if (outcome.disposition === "applied" && taskId === null) {
+              messageDelivery.notifyAppended(
+                canvas,
+                nodeId,
+                outcome.value,
+              );
+            }
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workSystemMailboxNotify: (canvas, nodeId, message) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+            ]);
+            if (context.configuration.role !== "command-center") {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message:
+                    "system mailbox notify is Command Center-homed only",
+                }),
+              );
+            }
+            const targetNode = yield* requireNode(read.doc, nodeId);
+            const targetSpec = resolveSpec({
+              isGroup: false,
+              kind: targetNode.ether?.entity?.kind,
+            });
+            const isActor = Match.value(targetSpec).pipe(
+              Match.when({ _tag: "Actor" }, () => true),
+              Match.orElse(() => false),
+            );
+            if (!isActor) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "illegal_kind",
+                  message: `system mailbox notify requires an actor inbox; got kind ${
+                    targetNode.ether?.entity?.kind ?? "none"
+                  }`,
+                }),
+              );
+            }
+            if (message.taskId != null) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "system mailbox notify cannot target a task thread",
+                }),
+              );
+            }
+            const sentBy = operatorPlanningActorRef(canvas);
+            const outcome = yield* local(
+              repository.appendMessage({
+                sink: sinkRef(canvas, nodeId),
+                basis: intentBasis(context, read.intentWitness),
+                message,
+                sentBy,
+                destination: { kind: "mailbox" },
+              }),
+            );
+            if (outcome.disposition === "applied") {
               messageDelivery.notifyAppended(
                 canvas,
                 nodeId,

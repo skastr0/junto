@@ -37,6 +37,7 @@ import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { messageDelivery } from "./work/message-delivery";
 import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
+import { onCanvasChangeForMsgSendEnable } from "./work/msg-send-enable-notify";
 import { WorkRepository } from "./work/repository";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
@@ -879,6 +880,12 @@ export const registerVellumIpc = (): void => {
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       canvases.subscribeChanges(() => {
         Effect.runFork(fleetPropagation.request());
+      });
+      // Rising-edge mailbox notify when actor↔actor msg.send is newly enabled.
+      canvases.subscribeChanges((name, detail) => {
+        void AppRuntime.runPromise(
+          onCanvasChangeForMsgSendEnable(name, detail),
+        );
       });
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
