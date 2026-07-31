@@ -262,6 +262,319 @@ export const remoteProductVersion = (
     ? remoteHerdrCli(["--version"])
     : remoteHermesCli(["version"]);
 
+/*
+ * One fixed, read-only host fact program for Linux capability Doctor.
+ *
+ * It emits a closed key/value protocol, never paths, identities, environment
+ * values, or command output. The only active viability check creates a
+ * short-lived user namespace around `/bin/true`; it does not change host
+ * policy or persistent state.
+ */
+const LINUX_CAPABILITY_DOCTOR_PROGRAM = String.raw`LC_ALL=C
+export LC_ALL
+emit() { printf '%s=%s\n' "$1" "$2"; }
+missing_binaries=
+missing_libraries=
+add_missing_binary() {
+  if [ -n "$missing_binaries" ]; then
+    missing_binaries="$missing_binaries,$1"
+  else
+    missing_binaries="$1"
+  fi
+}
+add_missing_library() {
+  if [ -n "$missing_libraries" ]; then
+    missing_libraries="$missing_libraries,$1"
+  else
+    missing_libraries="$1"
+  fi
+}
+
+emit probe_version 1
+
+platform=unknown
+if [ -x /usr/bin/uname ]; then
+  kernel=$(/usr/bin/uname -s 2>/dev/null)
+  case "$kernel" in
+    Linux) platform=linux ;;
+    ?*) platform=non-linux ;;
+  esac
+fi
+emit platform "$platform"
+
+architecture=unknown
+if [ -x /usr/bin/uname ]; then
+  architecture=$(/usr/bin/uname -m 2>/dev/null)
+  [ -n "$architecture" ] || architecture=unknown
+fi
+emit architecture "$architecture"
+
+os_id=unknown
+os_version=unknown
+if [ -r /etc/os-release ]; then
+  while IFS='=' read -r key value; do
+    case "$key:$value" in
+      ID:ubuntu|ID:\"ubuntu\"|ID:\'ubuntu\') os_id=ubuntu ;;
+      ID:*) os_id=other ;;
+      VERSION_ID:24.04|VERSION_ID:\"24.04\"|VERSION_ID:\'24.04\') os_version=24.04 ;;
+      VERSION_ID:*) os_version=other ;;
+    esac
+  done < /etc/os-release
+fi
+emit os_id "$os_id"
+emit os_version "$os_version"
+
+glibc_version=unknown
+if [ -x /usr/bin/getconf ]; then
+  glibc=$(/usr/bin/getconf GNU_LIBC_VERSION 2>/dev/null)
+  case "$glibc" in
+    "glibc "*)
+      set -- $glibc
+      [ "$1" = glibc ] && glibc_version="$2"
+      ;;
+  esac
+fi
+emit glibc_version "$glibc_version"
+
+home_state=unknown
+home_exec=unknown
+disk_free_mib=unknown
+if [ -n "$HOME" ] && [ -d "$HOME" ]; then
+  if [ -L "$HOME" ]; then
+    home_state=unsafe
+  elif [ -x /usr/bin/stat ] && [ -x /usr/bin/id ]; then
+    home_owner=$(/usr/bin/stat -c %u -- "$HOME" 2>/dev/null)
+    current_uid=$(/usr/bin/id -u 2>/dev/null)
+    if [ -n "$home_owner" ] && [ "$home_owner" = "$current_uid" ]; then
+      if [ -w "$HOME" ]; then home_state=safe-writable; else home_state=read-only; fi
+    else
+      home_state=unsafe
+    fi
+  fi
+  if [ -x /usr/bin/findmnt ]; then
+    mount_options=$(/usr/bin/findmnt -n -o OPTIONS --target "$HOME" 2>/dev/null)
+    case ",$mount_options," in
+      *,noexec,*) home_exec=noexec ;;
+      ,,) home_exec=unknown ;;
+      *) home_exec=ready ;;
+    esac
+  fi
+  if [ -x /usr/bin/df ]; then
+    while read -r filesystem blocks used available capacity mounted; do
+      case "$available" in
+        ''|*[!0-9]*) ;;
+        *) disk_free_mib=$((available / 1024)) ;;
+      esac
+    done <<EOF
+$(/usr/bin/df -Pk -- "$HOME" 2>/dev/null)
+EOF
+  fi
+fi
+emit home "$home_state"
+emit home_exec "$home_exec"
+emit disk_free_mib "$disk_free_mib"
+
+core_userland=ready
+[ -x /bin/sh ] || { add_missing_binary sh; core_userland=incomplete; }
+[ -x /usr/bin/env ] || { add_missing_binary env; core_userland=incomplete; }
+[ -x /usr/bin/uname ] || { add_missing_binary uname; core_userland=incomplete; }
+[ -x /usr/bin/id ] || { add_missing_binary id; core_userland=incomplete; }
+[ -x /usr/bin/stat ] || { add_missing_binary stat; core_userland=incomplete; }
+[ -x /usr/bin/df ] || { add_missing_binary df; core_userland=incomplete; }
+[ -x /usr/bin/findmnt ] || { add_missing_binary findmnt; core_userland=incomplete; }
+[ -x /usr/bin/systemctl ] || { add_missing_binary systemctl; core_userland=incomplete; }
+[ -x /usr/bin/loginctl ] || add_missing_binary loginctl
+[ -x /usr/bin/getconf ] || { add_missing_binary getconf; core_userland=incomplete; }
+if [ ! -x /usr/sbin/ldconfig ] && [ ! -x /sbin/ldconfig ]; then
+  add_missing_binary ldconfig
+  core_userland=incomplete
+fi
+[ -x /usr/bin/ssh ] || { add_missing_binary ssh; core_userland=incomplete; }
+[ -x /usr/bin/Xvfb ] || add_missing_binary xvfb
+[ -x /usr/bin/xauth ] || add_missing_binary xauth
+[ -x /usr/bin/mcookie ] || add_missing_binary mcookie
+[ -x /usr/bin/unshare ] || add_missing_binary unshare
+[ -x /usr/bin/secret-tool ] || add_missing_binary secret-tool
+emit core_userland "$core_userland"
+if [ -n "$missing_binaries" ]; then emit missing_binaries "$missing_binaries"; else emit missing_binaries none; fi
+
+runtime_libraries=unknown
+library_inventory=
+if [ -x /usr/sbin/ldconfig ]; then
+  library_inventory=$(/usr/sbin/ldconfig -p 2>/dev/null)
+elif [ -x /sbin/ldconfig ]; then
+  library_inventory=$(/sbin/ldconfig -p 2>/dev/null)
+fi
+if [ -n "$library_inventory" ]; then
+  runtime_libraries=ready
+  case "$library_inventory" in *libc.so.6*) ;; *) add_missing_library libc ;; esac
+  case "$library_inventory" in *libstdc++.so.6*) ;; *) add_missing_library libstdc++ ;; esac
+  case "$library_inventory" in *libgcc_s.so.1*) ;; *) add_missing_library libgcc ;; esac
+  case "$library_inventory" in *libnss3.so*) ;; *) add_missing_library libnss3 ;; esac
+  case "$library_inventory" in *libatk-1.0.so*) ;; *) add_missing_library libatk ;; esac
+  case "$library_inventory" in *libatk-bridge-2.0.so*) ;; *) add_missing_library libatk-bridge ;; esac
+  case "$library_inventory" in *libcups.so*) ;; *) add_missing_library libcups ;; esac
+  case "$library_inventory" in *libdrm.so*) ;; *) add_missing_library libdrm ;; esac
+  case "$library_inventory" in *libgbm.so*) ;; *) add_missing_library libgbm ;; esac
+  case "$library_inventory" in *libgtk-3.so*) ;; *) add_missing_library libgtk-3 ;; esac
+  case "$library_inventory" in *libasound.so*) ;; *) add_missing_library libasound ;; esac
+  case "$library_inventory" in *libX11-xcb.so*) ;; *) add_missing_library libx11-xcb ;; esac
+  case "$library_inventory" in *libXcomposite.so*) ;; *) add_missing_library libxcomposite ;; esac
+  case "$library_inventory" in *libXdamage.so*) ;; *) add_missing_library libxdamage ;; esac
+  case "$library_inventory" in *libXfixes.so*) ;; *) add_missing_library libxfixes ;; esac
+  case "$library_inventory" in *libXrandr.so*) ;; *) add_missing_library libxrandr ;; esac
+  case "$library_inventory" in *libxshmfence.so*) ;; *) add_missing_library libxshmfence ;; esac
+  case "$library_inventory" in *libxkbcommon.so*) ;; *) add_missing_library libxkbcommon ;; esac
+  [ -z "$missing_libraries" ] || runtime_libraries=incomplete
+fi
+emit runtime_libraries "$runtime_libraries"
+if [ -n "$missing_libraries" ]; then emit missing_libraries "$missing_libraries"; else emit missing_libraries none; fi
+
+user_systemd=missing
+remote_service=unknown
+if [ -x /usr/bin/systemctl ]; then
+  if /usr/bin/systemctl --user show-environment >/dev/null 2>&1; then
+    user_systemd=ready
+  else
+    user_systemd=not-running
+  fi
+  load_state=$(/usr/bin/systemctl --user show vellum-remote.service --property=LoadState --value 2>/dev/null)
+  active_state=$(/usr/bin/systemctl --user is-active vellum-remote.service 2>/dev/null)
+  case "$load_state:$active_state" in
+    not-found:*) remote_service=missing ;;
+    *:active) remote_service=active ;;
+    *:failed) remote_service=failed ;;
+    *:inactive|*:activating|*:deactivating) remote_service=inactive ;;
+  esac
+fi
+emit user_systemd "$user_systemd"
+emit remote_service "$remote_service"
+
+linger=unknown
+if [ -x /usr/bin/loginctl ] && [ -x /usr/bin/id ]; then
+  linger_value=$(/usr/bin/loginctl show-user "$(/usr/bin/id -u)" --property=Linger --value 2>/dev/null)
+  case "$linger_value" in
+    yes) linger=enabled ;;
+    no) linger=disabled ;;
+  esac
+fi
+emit linger "$linger"
+
+ptmx=unavailable
+if [ -c /dev/ptmx ]; then
+  if [ -r /dev/ptmx ] && [ -w /dev/ptmx ]; then ptmx=ready; else ptmx=misconfigured; fi
+fi
+devpts=unavailable
+if [ -d /dev/pts ]; then
+  if [ -x /usr/bin/findmnt ]; then
+    if /usr/bin/findmnt -n -t devpts --target /dev/pts >/dev/null 2>&1; then
+      devpts=ready
+    else
+      devpts=misconfigured
+    fi
+  else
+    devpts=unknown
+  fi
+fi
+native_pty=unavailable
+if [ "$ptmx" = ready ] && [ "$devpts" = ready ]; then
+  native_pty=ready
+elif [ "$ptmx" = misconfigured ] || [ "$devpts" = misconfigured ]; then
+  native_pty=misconfigured
+elif [ "$ptmx" = unknown ] || [ "$devpts" = unknown ]; then
+  native_pty=unknown
+fi
+emit ptmx "$ptmx"
+emit devpts "$devpts"
+emit native_pty "$native_pty"
+
+xvfb=missing
+xauth=missing
+mcookie=missing
+[ -x /usr/bin/Xvfb ] && xvfb=present
+[ -x /usr/bin/xauth ] && xauth=present
+[ -x /usr/bin/mcookie ] && mcookie=present
+emit xvfb "$xvfb"
+emit xauth "$xauth"
+emit mcookie "$mcookie"
+
+apparmor=unavailable
+apparmor_profile=not-required
+if [ -r /sys/module/apparmor/parameters/enabled ]; then
+  read -r apparmor_enabled < /sys/module/apparmor/parameters/enabled
+  case "$apparmor_enabled" in
+    Y|y)
+      if [ -d /sys/kernel/security/apparmor ]; then apparmor=enforcing; else apparmor=available; fi
+      apparmor_profile=missing
+      if [ -r /sys/kernel/security/apparmor/profiles ]; then
+        while IFS= read -r profile; do
+          case "$profile" in
+            vellum\ *|vellum\(*|*/vellum\ *|*/vellum\(*) apparmor_profile=loaded ;;
+          esac
+        done < /sys/kernel/security/apparmor/profiles
+      elif [ -e /sys/kernel/security/apparmor/profiles ]; then
+        apparmor_profile=unreadable
+      fi
+      ;;
+    N|n) apparmor=disabled; apparmor_profile=not-required ;;
+    *) apparmor=unknown; apparmor_profile=unknown ;;
+  esac
+elif [ -d /sys/kernel/security/apparmor ]; then
+  apparmor=unknown
+  apparmor_profile=unknown
+fi
+emit apparmor "$apparmor"
+emit apparmor_profile "$apparmor_profile"
+
+userns=unavailable
+if [ -x /usr/bin/unshare ]; then
+  userns=unknown
+  clone_policy=1
+  if [ -r /proc/sys/kernel/unprivileged_userns_clone ]; then
+    read -r clone_policy < /proc/sys/kernel/unprivileged_userns_clone
+  fi
+  if [ "$clone_policy" = 0 ]; then
+    userns=disabled
+  elif /usr/bin/unshare --user --map-root-user /bin/true >/dev/null 2>&1; then
+    userns=ready
+  else
+    userns=disabled
+  fi
+fi
+emit userns "$userns"
+
+sandbox=unavailable
+if [ "$userns" = ready ]; then
+  case "$apparmor:$apparmor_profile" in
+    enforcing:loaded|available:loaded|disabled:not-required|unavailable:not-required) sandbox=ready ;;
+    enforcing:missing|available:missing) sandbox=unavailable ;;
+    *) sandbox=misconfigured ;;
+  esac
+elif [ "$userns" = unknown ]; then
+  sandbox=unknown
+fi
+emit sandbox "$sandbox"
+
+secret_storage=unavailable
+if [ -x /usr/bin/secret-tool ]; then
+  secret_storage=headless
+  if [ -n "$DBUS_SESSION_BUS_ADDRESS" ]; then
+    secret_storage=ready
+  elif [ -x /usr/bin/systemctl ] && /usr/bin/systemctl --user is-active gnome-keyring-daemon.service >/dev/null 2>&1; then
+    secret_storage=ready
+  fi
+fi
+emit secret_storage "$secret_storage"
+`;
+
+/**
+ * Closed Linux Doctor probe. The caller cannot add argv or shell source.
+ */
+export const remoteLinuxCapabilityDoctor = (): Effect.Effect<
+  RemoteCommand,
+  SshInputError
+> => makeRemoteCommand("/bin/sh", ["-c", LINUX_CAPABILITY_DOCTOR_PROGRAM]);
+
 /**
  * Fixed host LISTEN probe used by herdr service-map.
  * `pidList` must be a comma-joined positive integer list only.

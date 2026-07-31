@@ -5,9 +5,10 @@ import * as remotePlan from "../src/main/vellum/ssh/remote-plan";
 import {
   compileDarwinRemoteDeployScript,
   compileHerdrImageStage,
-  compileLinuxReleaseBridge,
-  compileLinuxRemotePreflight,
-  compileLinuxRemotePreflightSource,
+  compileLinuxUserlandDeploy,
+  compileLinuxUserlandPreflight,
+  compileLinuxUserlandPreflightSource,
+  compileLinuxUserlandDeploySource,
   confineHerdrStagePath,
   HERDR_IMAGE_STAGE_DIR,
 } from "../src/main/vellum/ssh/remote-plan";
@@ -24,74 +25,43 @@ describe("remote-plan public surface", () => {
       "HERDR_IMAGE_STAGE_DIR",
       "compileDarwinRemoteDeployScript",
       "compileHerdrImageStage",
-      "compileLinuxFirstInstall",
-      "compileLinuxFirstInstallSource",
-      "compileLinuxReleaseBridge",
-      "compileLinuxRemotePreflight",
-      "compileLinuxRemotePreflightSource",
-      "compileLinuxRemoteUnitActivate",
-      "compileLinuxRemoteUnitActivateSource",
+      "compileLinuxUserlandDeploy",
+      "compileLinuxUserlandDeploySource",
+      "compileLinuxUserlandPreflight",
+      "compileLinuxUserlandPreflightSource",
       "confineHerdrStagePath",
     ]);
   });
 });
 
 describe("linux remote preflight compiler", () => {
-  it("emits V4 protocol with fixed product helper/bridge paths only", () => {
-    const source = compileLinuxRemotePreflightSource();
-    expect(source).toContain("LINUX_REMOTE_PREFLIGHT_V4");
-    expect(source).toContain("LINUX_REMOTE_PREFLIGHT_REFUSED_V4");
-    expect(source).toContain("installerState=");
-    expect(source).toContain("/var/lib/vellum-release-installer");
-    expect(source).toContain("/usr/libexec/vellum-release-installer");
-    expect(source).toContain("/usr/libexec/vellum-release-bridge");
-    expect(source).toContain(
-      'READY_RECEIPT="/run/user/$UID_VALUE/vellum-remote/ready-$INVOCATION"',
-    );
-    expect(source).toContain(
-      '[ "$(/usr/bin/wc -c < "$READY_RECEIPT" 2>/dev/null | /usr/bin/tr -d \' \')" = 33 ]',
-    );
-    expect(source).toContain(
-      '/usr/bin/printf \'%s\\n\' "$INVOCATION" | /usr/bin/cmp -s - "$READY_RECEIPT"',
-    );
-    expect(source).not.toContain(
-      '[ "$(/usr/bin/cat "$READY_RECEIPT" 2>/dev/null || true)" = "$INVOCATION" ]',
-    );
-    expect(source).toContain("/usr/bin/cmp");
-    expect(source).toContain("/usr/bin/wc");
-    expect(source).toContain(
-      'private_socket "$HOME/.vellum/work/control.sock"',
-    );
-    expect(source).toContain('private_file "$HOME/.vellum/work/token"');
-    expect(source).not.toContain("station_ready_receipt");
-    expect(source).not.toContain("station-ready.json");
-    expect(source).not.toContain("python3");
-    expect(source).not.toContain(
-      'private_socket "$HOME/.vellum/term/control.sock"',
-    );
-    expect(source).not.toContain(
-      'private_socket "$HOME/.vellum/browser/control.sock"',
-    );
-    // Named program: no recursive wipe or mktemp staging.
-    expect(source).not.toMatch(/rm\s+-rf\s+\//);
-    expect(source).not.toContain("mktemp");
+  it("compiles userland preflight script and keeps admin-free facts", () => {
+    const source = compileLinuxUserlandPreflightSource();
+    expect(source).toContain("LINUX_USERLAND_PREFLIGHT_V1");
+    expect(source).toContain("umask 077");
+    expect(source).toContain("systemctl --user");
+    expect(source).not.toContain("sudo");
+    expect(source).not.toContain("/usr/libexec/vellum-release-installer");
+    expect(source).not.toContain("/usr/libexec/vellum-release-bridge");
   });
 
   it("compiles to a branded RemoteCommand with plan argv label", () => {
-    const command = run(compileLinuxRemotePreflight());
+    const command = run(compileLinuxUserlandPreflight());
     const parts = inspectRemoteCommand(command);
     expect(parts.executable).toBe("/bin/sh");
     expect(parts.args[0]).toBe("-c");
-    expect(parts.args[2]).toBe("vellum-plan:linux-remote-preflight");
-    expect(parts.args[1]).toBe(compileLinuxRemotePreflightSource());
+    expect(parts.args[2]).toBe("vellum-plan:linux-userland-preflight");
+    expect(parts.args[1]).toBe(compileLinuxUserlandPreflightSource());
   });
 });
 
 describe("named deploy compilers", () => {
-  it("compiles the fixed linux release bridge with no argv", () => {
-    const parts = inspectRemoteCommand(run(compileLinuxReleaseBridge()));
-    expect(parts.executable).toBe("/usr/libexec/vellum-release-bridge");
-    expect(parts.args).toEqual([]);
+  it("compiles a userland deploy command with a fixed invocation", () => {
+    const parts = inspectRemoteCommand(run(compileLinuxUserlandDeploy()));
+    expect(parts.executable).toBe("/bin/sh");
+    expect(parts.args[0]).toBe("-c");
+    expect(parts.args[2]).toBe("vellum-plan:linux-userland-deploy");
+    expect(parts.args[1]).toBe(compileLinuxUserlandDeploySource());
   });
 
   it("admits a product Darwin deploy script and refuses free-form shell", () => {

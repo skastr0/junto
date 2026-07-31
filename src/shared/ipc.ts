@@ -833,10 +833,7 @@ export type HostsDeployRemoteRecoveryAction =
       readonly kind: "close-active-vellum-terminals";
       readonly activeTerminalSessions: number;
     }
-  | { readonly kind: "restore-terminal-live-work-observation" }
-  | { readonly kind: "bootstrap-linux-release-installer" }
-  | { readonly kind: "repair-linux-release-transaction" }
-  | { readonly kind: "retry-linux-release-install" };
+  | { readonly kind: "restore-terminal-live-work-observation" };
 
 export interface HostsDeployRemoteInput {
   readonly id: string;

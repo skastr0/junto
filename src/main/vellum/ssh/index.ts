@@ -44,11 +44,10 @@ export {
   // Darwin Remote deploy capability-gated, and the freeform bash -lc mint must
   // not be reachable from the product barrel (hosts deep-import remote-plan).
   compileHerdrImageStage,
-  compileLinuxReleaseBridge,
-  compileLinuxRemotePreflight,
-  compileLinuxRemotePreflightSource,
-  compileLinuxRemoteUnitActivate,
-  compileLinuxRemoteUnitActivateSource,
+  compileLinuxUserlandDeploy,
+  compileLinuxUserlandDeploySource,
+  compileLinuxUserlandPreflight,
+  compileLinuxUserlandPreflightSource,
   confineHerdrStagePath,
   HERDR_IMAGE_STAGE_DIR,
 } from "./remote-plan";

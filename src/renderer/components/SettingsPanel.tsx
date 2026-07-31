@@ -9,12 +9,14 @@ import type {
   HostsTestResult,
   VellumBrowserApi,
 } from "@shared/ipc";
+import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
 import type { SettingsSectionKey } from "@shared/settings";
 import {
   decodeStateBackupId,
   type StateBackupId,
   type StateBackupInventoryEntry,
 } from "@shared/state-recovery";
+import { presentLinuxHostCapabilities } from "../lib/linux-host-capability-presentation";
 import { state$ } from "../lib/state";
 import {
   closeSettings,
@@ -37,6 +39,7 @@ import {
 import { DIM, HUE, INK } from "../lib/theme";
 import { getVellumApi } from "../lib/vellum-api";
 import { HostServeCatalog } from "./HostServeCatalog";
+import { LinuxHostCapabilities } from "./LinuxHostCapabilities";
 import { LicenseSection } from "./license";
 import { Button, Select } from "./ui";
 import "./settings-panel.css";
@@ -876,6 +879,9 @@ function HostsSection() {
   const [draft, setDraft] = useState(emptyHostDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [testDetail, setTestDetail] = useState<Record<string, string>>({});
+  const [linuxCapabilities, setLinuxCapabilities] = useState<
+    Record<string, LinuxHostCapabilityObservation>
+  >({});
 
   const load = useCallback(async () => {
     const api = getVellumApi();
@@ -1015,13 +1021,32 @@ function HostsSection() {
     setTestDetail((prev) => ({ ...prev, [id]: "testing…" }));
     try {
       const result: HostsTestResult = await api.hostsTest(id);
+      setLinuxCapabilities((previous) => {
+        const next = { ...previous };
+        if (result.linuxCapabilities === undefined) delete next[id];
+        else next[id] = result.linuxCapabilities;
+        return next;
+      });
       setTestDetail((prev) => ({
         ...prev,
         [id]: result.detail || (result.ok ? "ok" : result.message ?? "failed"),
       }));
+      const presentation =
+        result.linuxCapabilities === undefined
+          ? undefined
+          : presentLinuxHostCapabilities(result.linuxCapabilities);
+      const reachable = result.reachability !== "unreachable";
+      const coreReady = presentation?.coreStatus === "ready";
+      const healthy =
+        reachable && (presentation === undefined ? result.ok : coreReady);
       setNotice({
-        kind: result.ok ? "success" : "error",
-        message: result.ok ? `${id}: connection ok` : `${id}: ${result.detail || result.message}`,
+        kind: healthy ? "success" : "error",
+        message:
+          presentation !== undefined && reachable
+            ? `${id}: ${presentation.summary}`
+            : result.ok
+              ? `${id}: connection ok`
+              : `${id}: ${result.detail || result.message}`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1148,6 +1173,12 @@ function HostsSection() {
                 <p className="settings-host-card__test" role="status">
                   {testDetail[host.id]}
                 </p>
+              ) : null}
+              {linuxCapabilities[host.id] ? (
+                <LinuxHostCapabilities
+                  observation={linuxCapabilities[host.id]}
+                  compact
+                />
               ) : null}
               <HostServeCatalog hostId={host.id} hostLabel={host.label} />
             </li>

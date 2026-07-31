@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 const rendererFiles = [
   "../src/renderer/components/SettingsPanel.tsx",
   "../src/renderer/components/fleet/FleetDetailPanel.tsx",
+  "../src/renderer/components/LinuxHostCapabilities.tsx",
+  "../src/renderer/lib/linux-host-capability-presentation.ts",
 ] as const;
 
 describe("Linux host preparation UI", () => {
@@ -13,6 +15,7 @@ describe("Linux host preparation UI", () => {
       expect(source).not.toMatch(/type=["']password["']/u);
       expect(source).not.toContain("authorization: { request, password }");
       expect(source).not.toContain("admin-password");
+      expect(source).not.toMatch(/\bsudo\b/u);
       expect(source).not.toContain("--no-sandbox");
     }
   });

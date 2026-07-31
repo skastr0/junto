@@ -220,15 +220,6 @@ export const OperatorDeployRecoveryAction = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("restore-terminal-live-work-observation"),
   }),
-  Schema.Struct({
-    kind: Schema.Literal("bootstrap-linux-release-installer"),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("repair-linux-release-transaction"),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("retry-linux-release-install"),
-  }),
 );
 export type OperatorDeployRecoveryAction =
   typeof OperatorDeployRecoveryAction.Type;

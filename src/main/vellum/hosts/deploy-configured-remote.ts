@@ -205,9 +205,6 @@ const finishWithConfiguration = (
  * A package provider may use the intended station fields as bounded admission
  * facts, but only the Station API commits durable configuration. There is no
  * settings snapshot, seal, file rollback, or alternate trust-provision lane.
- *
- * Exception: Linux first-boot may configure while the unit is still in
- * enrollment bootstrap so a second activation can publish work readiness.
  */
 export const deployConfiguredRemoteHost = (
   ssh: Ssh,

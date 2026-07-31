@@ -3616,6 +3616,136 @@ ol.note-md__list > .note-md__li::before {
   white-space: pre-wrap;
 }
 
+/* --- Linux host capability assessment ------------------------------------ */
+.linux-host-capabilities {
+  width: 100%;
+  font-family: var(--font-mono);
+}
+.linux-host-capabilities__head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+.linux-host-capabilities__head > span {
+  color: var(--color-faint);
+  font-size: 8px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.linux-host-capabilities__head > strong {
+  color: var(--color-ink-2);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.linux-host-capabilities__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.linux-host-capability {
+  position: relative;
+  padding: 8px 9px 8px 11px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-stroke) 78%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-inset) 86%, transparent);
+}
+.linux-host-capability::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--linux-host-capability-color, var(--color-faint));
+  content: "";
+}
+.linux-host-capability[data-status="ready"] {
+  --linux-host-capability-color: var(--color-green);
+}
+.linux-host-capability[data-status="requires-admin"] {
+  --linux-host-capability-color: var(--color-amber);
+}
+.linux-host-capability[data-status="declined"] {
+  --linux-host-capability-color: var(--color-faint);
+}
+.linux-host-capability[data-status="unavailable"] {
+  --linux-host-capability-color: var(--color-crimson);
+}
+.linux-host-capability[data-status="misconfigured"] {
+  --linux-host-capability-color: var(--color-violet);
+}
+.linux-host-capability__line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.linux-host-capability__label {
+  color: var(--color-ink);
+  font-size: 10px;
+  font-weight: 600;
+}
+.linux-host-capability__status {
+  flex: none;
+  color: var(--linux-host-capability-color);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.linux-host-capability__summary,
+.linux-host-capability__finding p {
+  margin: 4px 0 0;
+  color: var(--color-dim);
+  font-size: 9px;
+  line-height: 1.45;
+}
+.linux-host-capability__finding {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--color-stroke) 62%, transparent);
+}
+.linux-host-capability__finding p:first-child {
+  color: var(--color-ink-2);
+}
+.linux-host-capability__finding a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 7px;
+  color: var(--linux-host-capability-color);
+  font-size: 9px;
+  text-underline-offset: 2px;
+}
+.linux-host-capability__finding a:focus-visible {
+  border-radius: 2px;
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 3px;
+}
+.linux-host-capabilities--compact {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid color-mix(in srgb, var(--color-stroke) 62%, transparent);
+}
+.linux-host-capabilities--compact .linux-host-capabilities__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.linux-host-capabilities--compact .linux-host-capability:first-child {
+  grid-column: 1 / -1;
+}
+@media (max-width: 680px) {
+  .linux-host-capabilities--compact .linux-host-capabilities__list {
+    grid-template-columns: 1fr;
+  }
+  .linux-host-capabilities--compact .linux-host-capability:first-child {
+    grid-column: auto;
+  }
+}
+
 /* --- Unclaimed peer ghosts -------------------------------------------------- */
 .fleet-ghost__plate {
   border-color: rgba(237, 230, 218, 0.18);

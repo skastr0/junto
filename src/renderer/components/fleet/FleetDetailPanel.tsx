@@ -38,6 +38,7 @@ import { state$ } from "../../lib/state";
 import { HUE, withAlpha } from "../../lib/theme";
 import { updateState$ } from "../../lib/update-state";
 import { getVellumApi } from "../../lib/vellum-api";
+import { LinuxHostCapabilities } from "../LinuxHostCapabilities";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
 import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
 
@@ -376,6 +377,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           {probing ? "probing…" : "Test link"}
         </Button>
       </section>
+
+      {probe?.linuxCapabilities ? (
+        <section className="fleet-detail__section">
+          <div className="fleet-detail__section-label">Linux host</div>
+          <LinuxHostCapabilities observation={probe.linuxCapabilities} />
+        </section>
+      ) : null}
 
       <section className="fleet-detail__section">
         <div className="fleet-detail__section-label">Software update</div>

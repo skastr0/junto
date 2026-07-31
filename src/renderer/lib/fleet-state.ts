@@ -1,4 +1,5 @@
 import { state$ } from "./state";
+import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
 import type { StationProtocolObservation } from "@shared/station-status";
 
 /** Per-host reachability probe state for the fleet overlay. */
@@ -7,6 +8,7 @@ export interface FleetProbeState {
   readonly latencyMs?: number;
   readonly detail?: string;
   readonly protocol?: StationProtocolObservation;
+  readonly linuxCapabilities?: LinuxHostCapabilityObservation;
 }
 
 /** Warm the lazy fleet chunk (three.js) before the operator clicks. */
@@ -85,6 +87,9 @@ export const probeHost = async (id: string): Promise<void> => {
             ...(result.protocol === undefined
               ? {}
               : { protocol: result.protocol }),
+            ...(result.linuxCapabilities === undefined
+              ? {}
+              : { linuxCapabilities: result.linuxCapabilities }),
           }
         : {
             status: "unreachable",
@@ -92,6 +97,9 @@ export const probeHost = async (id: string): Promise<void> => {
             ...(result.protocol === undefined
               ? {}
               : { protocol: result.protocol }),
+            ...(result.linuxCapabilities === undefined
+              ? {}
+              : { linuxCapabilities: result.linuxCapabilities }),
           },
     );
   } catch (error) {
