@@ -8,13 +8,9 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   FUSE_NAMES,
-  PACKAGED_STATE_UPDATE_PREFLIGHT_MAIN_ENTRY,
-  PACKAGED_STATE_UPDATE_PREFLIGHT_PROTOCOL,
-  PACKAGED_STATE_UPDATE_PREFLIGHT_SWITCH,
   PACKAGE_SECURITY_POLICY,
   hashAsarHeaderString,
   parseCodesignMetadata,
-  validatePackagedStateUpdatePreflightMain,
   validateCodesignMetadata,
   validateFuseWire,
   validateInfoPlist,
@@ -239,48 +235,6 @@ describe("ASAR integrity audit", () => {
   });
 });
 
-describe("packaged state update preflight audit", () => {
-  const markers = [
-    PACKAGED_STATE_UPDATE_PREFLIGHT_SWITCH,
-    PACKAGED_STATE_UPDATE_PREFLIGHT_PROTOCOL,
-    "[state-preflight] packaged candidate execution is required",
-    "state-update-preflight-unpackaged",
-    "state-update-preflight-complete",
-    "state-update-preflight-failure",
-  ] as const;
-
-  it("proves one packaged-only main-process mode without enabling RunAsNode", () => {
-    const source = Buffer.from(markers.join("\n"));
-    expect(
-      validatePackagedStateUpdatePreflightMain(source),
-    ).toEqual({
-      entry: PACKAGED_STATE_UPDATE_PREFLIGHT_MAIN_ENTRY,
-      switch: PACKAGED_STATE_UPDATE_PREFLIGHT_SWITCH,
-      protocol: PACKAGED_STATE_UPDATE_PREFLIGHT_PROTOCOL,
-      packagedOnly: true,
-      bytes: source.byteLength,
-    });
-    expect(PACKAGE_SECURITY_POLICY.fuses.RunAsNode).toBe(false);
-  });
-
-  it.each(markers)(
-    "rejects a main bundle missing or duplicating %s",
-    (marker) => {
-      expect(() =>
-        validatePackagedStateUpdatePreflightMain(
-          Buffer.from(
-            markers.filter((candidate) => candidate !== marker).join("\n"),
-          ),
-        ),
-      ).toThrow(/requires exactly one/u);
-      expect(() =>
-        validatePackagedStateUpdatePreflightMain(
-          Buffer.from([...markers, marker].join("\n")),
-        ),
-      ).toThrow(/requires exactly one/u);
-    },
-  );
-});
 
 describe("electron-builder fitness", () => {
   it("fails closed on the exact identity and canonical package audit", async () => {

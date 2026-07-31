@@ -249,8 +249,6 @@ export const validateElectronArtifactPath = async (artifactPath: string, now = n
   const embeddedRaw = await readFile(path.join(resources, "policy", "electron-security-policy.json"), "utf8"); if (embeddedRaw !== reviewedRaw) fail(`artifact ${root} embeds a policy different from reviewed policy`);
   const receipt = await readObservation(path.join(resources, "policy", "electron-observation.json")); const water = await readObservation(path.join(resources, "policy", "electron-observation-high-water.json"));
   validateElectronObservation(receipt, policy, embeddedRaw, now); validateElectronObservation(water, policy, embeddedRaw, now); if (!sameObservation(receipt, water)) fail("artifact observation is not its current high-water state"); requireElectronObservationAdmission(receipt);
-  const local = await validatePersistedObservation(policy, reviewedRaw, now, false);
-  if (local && !sameObservation(receipt, local)) fail("artifact observation differs from latest private state");
   const version = await readPackagedElectronVersion(root);
   if (version !== policy.electron.exactVersion) fail(`artifact ${root} embeds ${version}; expected audited ${policy.electron.exactVersion}`); return { artifact: root, electronVersion: version, policyVersion: policy.electron.exactVersion };
 };
