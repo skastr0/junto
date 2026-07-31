@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { ListChecks, SquareTerminal } from "lucide-react";
+import { SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -8,12 +8,8 @@ import { agentSeat$, subscribeAgentSeatState } from "../../lib/agent-seat-state"
 import { terminalActivity } from "../../lib/activity";
 import { terminal$ } from "../../lib/terminal-state";
 import { getVellumApi } from "../../lib/vellum-api";
-import { claimedTaskForActorNode } from "../../lib/claimed-task";
-import { state$ } from "../../lib/state";
-import { releaseTaskToQueue } from "../../lib/work-actions";
-import { taskBrief } from "@shared/task";
+import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
-import { Button } from "../ui";
 
 const launchSummary = (
   launch:
@@ -42,12 +38,6 @@ export function TerminalCard({
   const binding = resolveTerminalBinding(node);
   const native = binding?.kind === "native" ? binding : undefined;
   const [session, setSession] = useState<TerminalSessionSummary>();
-  const [releasePending, setReleasePending] = useState(false);
-  const [releaseError, setReleaseError] = useState("");
-  const canvasName = use$(state$.canvasName);
-  const doc = use$(state$.doc);
-  const actorRefs = use$(state$.actorRefs);
-  const claimedTask = claimedTaskForActorNode(doc, actorRefs, node.id);
   const seatEvent = use$(
     agentSeat$.byBindingId[
       native?.bindingId ?? "__vellum-terminal-no-binding__"
@@ -104,24 +94,6 @@ export function TerminalCard({
     graphBlocked,
   });
 
-  const releaseClaim = async (): Promise<void> => {
-    if (!claimedTask || releasePending) return;
-    setReleasePending(true);
-    setReleaseError("");
-    try {
-      const result = await releaseTaskToQueue(
-        canvasName,
-        claimedTask.sinkNodeId,
-        claimedTask.task.id,
-      );
-      if (result && !result.ok) setReleaseError(result.message);
-    } catch (cause) {
-      setReleaseError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setReleasePending(false);
-    }
-  };
-
   return (
     <div
       className="group flex h-full w-full flex-col justify-between overflow-hidden"
@@ -147,27 +119,7 @@ export function TerminalCard({
           {native.hostId}
         </div>
       </div>
-      {claimedTask ? (
-        <div
-          className="mt-1.5 flex min-w-0 items-center gap-1.5 rounded border border-cyan/20 bg-cyan/[0.06] px-1.5 py-1 text-[10px]"
-          title={releaseError || `Claimed task ${claimedTask.task.id}`}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <ListChecks size={11} className="shrink-0 text-cyan" aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-ink">
-            {taskBrief(claimedTask.task)}
-          </span>
-          <Button
-            size="xs"
-            variant="subtle"
-            disabled={releasePending}
-            onClick={() => void releaseClaim()}
-          >
-            {releasePending ? "…" : "Unclaim"}
-          </Button>
-        </div>
-      ) : null}
+      <ClaimedTaskStrip node={node} />
     </div>
   );
 }

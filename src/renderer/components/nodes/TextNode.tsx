@@ -47,6 +47,7 @@ import {
   TasksCard,
   TasksDetail,
 } from "../work/WorkSurfaces";
+import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import { NodeShell } from "./NodeShell";
 
@@ -259,12 +260,9 @@ function EntityCard({
           tools: coarse?.hasBusyTools ? [{ status: "in_progress" as const }] : [],
           sending: coarse?.turnBusy ?? false,
         });
-  const context = [
-    terminalBinding?.kind === "native"
-      ? terminalBinding.hostId
-      : node.ether?.host,
-    workRole,
-  ].filter((value): value is string => Boolean(value));
+  // Host is deliberately absent: which machine a seat sits on is not what the
+  // operator reads an agent node for, and it crowded out the claimed task.
+  const context = [workRole].filter((value): value is string => Boolean(value));
 
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">
@@ -319,6 +317,7 @@ function EntityCard({
           {line || "no live data"}
         </div>
       ) : null}
+      {kind === "agent" ? <ClaimedTaskStrip node={node} /> : null}
     </div>
   );
 }

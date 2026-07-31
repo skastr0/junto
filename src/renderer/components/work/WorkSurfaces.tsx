@@ -9,7 +9,8 @@ import { DIM, HUE, INK } from "../../lib/theme";
 import { TaskBoard } from "./TaskBoard";
 import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
 
-const stateHue = (state: TaskState): string => {
+/** One task-state palette, so a task reads the same wherever it is drawn. */
+export const stateHue = (state: TaskState): string => {
   switch (state) {
     case "completed":
       return "#5FB98E";
