@@ -38,7 +38,6 @@ import {
   claimedByOf,
   taskBrief,
   taskMediaParts,
-  TASK_MEDIA_MAX_PARTS,
   validateTaskMediaParts,
 } from "@shared/task";
 import { FocusSurface } from "../FocusSurface";
@@ -737,10 +736,6 @@ function TaskCreateDialog({
 
   const appendMedia = (draft: TaskMediaDraft) => {
     setMedia((current) => {
-      if (current.length >= TASK_MEDIA_MAX_PARTS) {
-        setMediaError(`At most ${TASK_MEDIA_MAX_PARTS} images per task.`);
-        return current;
-      }
       const next = [...current, draft];
       const validation = validateTaskMediaParts(mediaPartsFromDrafts(next));
       if (validation) {
@@ -925,15 +920,15 @@ function TaskCreateDialog({
               type="button"
               size="xs"
               variant="subtle"
-              disabled={pending || media.length >= TASK_MEDIA_MAX_PARTS}
+              disabled={pending}
               onClick={() => fileInputRef.current?.click()}
             >
               <ImagePlus size={12} />
               Attach image
             </Button>
-            <span>
-              {media.length}/{TASK_MEDIA_MAX_PARTS}
-            </span>
+            {media.length > 0 ? (
+              <span>{media.length} attached</span>
+            ) : null}
           </div>
           {mediaError ? (
             <p className="task-create-dialog__media-error" role="alert">

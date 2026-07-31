@@ -128,8 +128,6 @@ export const makeTextParts = (text: string): Part[] => [{ kind: "text", text }];
 
 /** Per-attachment cap for first-class task media (raw bytes after base64 decode). */
 export const TASK_MEDIA_MAX_BYTES = 4 * 1024 * 1024;
-/** Hard ceiling on how many media parts a single task brief may carry. */
-export const TASK_MEDIA_MAX_PARTS = 4;
 /** Aggregate raw-byte budget across all media parts on one brief. */
 export const TASK_MEDIA_MAX_TOTAL_BYTES = 6 * 1024 * 1024;
 
@@ -171,9 +169,6 @@ export const validateTaskMediaParts = (
   media: ReadonlyArray<Part> | undefined,
 ): string | undefined => {
   if (media === undefined || media.length === 0) return undefined;
-  if (media.length > TASK_MEDIA_MAX_PARTS) {
-    return `at most ${TASK_MEDIA_MAX_PARTS} media attachments allowed`;
-  }
   let total = 0;
   for (let index = 0; index < media.length; index += 1) {
     const part = media[index]!;

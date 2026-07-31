@@ -4,7 +4,6 @@ import {
   isTaskMediaPart,
   taskMediaParts,
   validateTaskMediaParts,
-  TASK_MEDIA_MAX_PARTS,
 } from "../src/shared/task";
 import type { Task } from "../src/shared/work-model";
 
@@ -30,13 +29,13 @@ describe("task media helpers", () => {
     ).toMatch(/must be a raw part/);
   });
 
-  it("enforces part count and decodes base64 length", () => {
-    const many = Array.from({ length: TASK_MEDIA_MAX_PARTS + 1 }, () => ({
+  it("accepts any attachment count within the byte budget and decodes base64 length", () => {
+    const many = Array.from({ length: 32 }, () => ({
       kind: "raw" as const,
       bytesBase64: PNG,
       mediaType: "image/png",
     }));
-    expect(validateTaskMediaParts(many)).toMatch(/at most/);
+    expect(validateTaskMediaParts(many)).toBeUndefined();
     expect(base64DecodedByteLength(PNG)).toBe(70);
     expect(base64DecodedByteLength("")).toBe(0);
   });
