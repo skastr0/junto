@@ -4,6 +4,9 @@
  * kind is carried by the outlined icon, never a coloured slab or side stripe.
  */
 .focus-surface__panel.node-deck-focus-panel {
+  width: min(820px, calc(100vw - 32px));
+  height: min(820px, calc(100vh - 96px));
+  max-height: calc(100vh - 96px);
   box-shadow: none;
 }
 
@@ -15,7 +18,8 @@
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   width: 100%;
-  height: 100%;
+  height: 0;
+  flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
   background: transparent;
@@ -85,7 +89,7 @@
 
 .node-deck__agent-list {
   display: grid;
-  flex: 1 1 0;
+  flex: 0 1 auto;
   align-content: start;
   gap: 3px;
   padding: 2px;
@@ -118,6 +122,10 @@
 .node-deck__agent:focus-visible,
 .node-deck__agent.is-expanded { border-color: rgb(232 163 61 / .42); background: var(--deck-selected); color: var(--color-ink); outline: 0; }
 .node-deck__agent strong { overflow: hidden; color: inherit; font-size: 12px; font-weight: 650; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
+
+/* These portals must clear the FocusSurface work layer while preserving their anchors. */
+.agent-cascade[data-canvas-menu-surface],
+[role="dialog"][data-canvas-menu-surface] { z-index: 10001 !important; }
 
 .node-deck__agent-wiring {
   display: grid;
