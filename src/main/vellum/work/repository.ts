@@ -21,6 +21,11 @@ import {
   type TaskProposal as TaskProposalValue,
   type TaskState,
   type WorkSnapshot as WorkSnapshotValue,
+  type BoardTopic as BoardTopicValue,
+  type BoardPost as BoardPostValue,
+  type BoardAuthor as BoardAuthorValue,
+  BoardTopic,
+  BoardPost,
 } from "@shared/work-model";
 import {
   ActorRef as ActorRefSchema,
@@ -1271,6 +1276,126 @@ const loadInbox = (
       };
     });
 
+const boardAuthorFromRow = (row: {
+  readonly author_kind: string;
+  readonly author_seat_id: string | null;
+  readonly author_node_id: string | null;
+  readonly author_label: string | null;
+}): BoardAuthorValue => ({
+  kind: row.author_kind === "operator" ? "operator" : "actor",
+  ...(row.author_seat_id ? { seatId: row.author_seat_id as BoardAuthorValue["seatId"] } : {}),
+  ...(row.author_node_id ? { nodeId: row.author_node_id } : {}),
+  ...(row.author_label ? { label: row.author_label } : {}),
+});
+
+const loadBoardPosts = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  topicId: string,
+): ReadonlyArray<BoardPostValue> =>
+  reader
+    .all<
+      StateRow & {
+        readonly post_id: string;
+        readonly topic_id: string;
+        readonly position: number;
+        readonly author_kind: string;
+        readonly author_seat_id: string | null;
+        readonly author_node_id: string | null;
+        readonly author_label: string | null;
+        readonly parts_json: string;
+        readonly created_at: string;
+      }
+    >(
+      `
+        SELECT
+          post_id,
+          topic_id,
+          position,
+          author_kind,
+          author_seat_id,
+          author_node_id,
+          author_label,
+          parts_json,
+          created_at
+        FROM work_board_posts
+        WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+        ORDER BY position
+      `,
+      [sink.canvasName, sink.nodeId, topicId],
+    )
+    .map((row) =>
+      Schema.decodeUnknownSync(BoardPost, strictDecode)({
+        postId: row.post_id,
+        topicId: row.topic_id,
+        author: boardAuthorFromRow(row),
+        parts: parseJson(row.parts_json),
+        position: row.position,
+        createdAt: row.created_at,
+      }),
+    );
+
+const loadBoardTopics = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): ReadonlyArray<BoardTopicValue> => {
+  try {
+    return reader
+      .all<
+        StateRow & {
+          readonly topic_id: string;
+          readonly title: string;
+          readonly state: string;
+          readonly author_kind: string;
+          readonly author_seat_id: string | null;
+          readonly author_node_id: string | null;
+          readonly author_label: string | null;
+          readonly parts_json: string;
+          readonly post_count: number;
+          readonly last_activity_at: string;
+          readonly created_at: string;
+        }
+      >(
+        `
+          SELECT
+            topic_id,
+            title,
+            state,
+            author_kind,
+            author_seat_id,
+            author_node_id,
+            author_label,
+            parts_json,
+            post_count,
+            last_activity_at,
+            created_at
+          FROM work_board_topics
+          WHERE canvas_name = ? AND node_id = ?
+          ORDER BY last_activity_at DESC, topic_id
+        `,
+        [sink.canvasName, sink.nodeId],
+      )
+      .map((row) => {
+        const parts = parseJson(row.parts_json);
+        const posts = loadBoardPosts(reader, sink, row.topic_id);
+        return Schema.decodeUnknownSync(BoardTopic, strictDecode)({
+          topicId: row.topic_id,
+          title: row.title,
+          state: row.state,
+          openedBy: boardAuthorFromRow(row),
+          openedAt: row.created_at,
+          postCount: row.post_count,
+          lastActivityAt: row.last_activity_at,
+          ...(Array.isArray(parts) && parts.length > 0 ? { parts } : {}),
+          ...(posts.length > 0 ? { posts } : {}),
+        });
+      });
+  } catch {
+    // Pre-migration databases or missing table — empty lane.
+    return [];
+  }
+};
+
 const loadArtifacts = (
   reader: StateReader,
   sink: SinkRefValue,
@@ -1316,15 +1441,6 @@ const loadArtifacts = (
       }),
     );
 
-/**
- * Board lane loader. Full board materialization lands with board tables;
- * until then empty topics keep WorkSnapshot decode and canvas projection live.
- */
-const loadBoardTopics = (
-  _reader: StateReader,
-  _sink: SinkRefValue,
-): WorkSnapshotValue["board"]["topics"] => [];
-
 const loadSnapshot = (
   reader: StateReader,
   sink: SinkRefValue,
@@ -1367,9 +1483,11 @@ const snapshotsForCanvas = (
       SELECT node_id FROM work_messages WHERE canvas_name = ?
       UNION
       SELECT node_id FROM work_artifacts WHERE canvas_name = ?
+      UNION
+      SELECT node_id FROM work_board_topics WHERE canvas_name = ?
       ORDER BY node_id
     `,
-    [canvasName, canvasName, canvasName, canvasName, canvasName],
+    [canvasName, canvasName, canvasName, canvasName, canvasName, canvasName],
   );
   return nodes.map(({ node_id }) =>
     loadSnapshot(reader, { canvasName, nodeId: node_id }),
@@ -1393,6 +1511,12 @@ export const readCanvasWorkProjection = (
           SELECT item_canvas_name AS canvas_name FROM work_events
           UNION ALL
           SELECT canvas_name FROM work_proposal_events
+          UNION ALL
+          SELECT canvas_name FROM work_board_topics
+          UNION ALL
+          SELECT canvas_name FROM work_board_posts
+          UNION ALL
+          SELECT canvas_name FROM work_board_read_cursors
         )
         WHERE canvas_name = ?
       `,
@@ -4879,6 +5003,22 @@ export class WorkRepository extends Context.Tag("@vellum/WorkRepository")<
     readonly acceptDelivery: (
       input: AcceptDeliveryInput,
     ) => Effect.Effect<LocalFactResult<DeliveryReceipt>, RepositoryFailure>;
+    /** Local-only bulletin board mutations (no work_events protocol in P0). */
+    readonly createBoardTopic: (input: {
+      readonly sink: SinkRefValue;
+      readonly topic: BoardTopicValue;
+    }) => Effect.Effect<BoardTopicValue, RepositoryFailure>;
+    readonly appendBoardPost: (input: {
+      readonly sink: SinkRefValue;
+      readonly post: BoardPostValue;
+    }) => Effect.Effect<BoardPostValue, RepositoryFailure>;
+    readonly markBoardRead: (input: {
+      readonly sink: SinkRefValue;
+      readonly topicId: string;
+      readonly principalKey: string;
+      readonly lastReadPosition: number;
+      readonly updatedAt?: string;
+    }) => Effect.Effect<void, RepositoryFailure>;
     readonly reserveRemoteTaskClaim: (
       input: ReserveRemoteTaskClaimInput,
     ) => Effect.Effect<WorkCommandValue, RepositoryFailure>;
@@ -5720,6 +5860,198 @@ export const WorkRepositoryLive = Layer.effect(
       });
     };
 
+    const createBoardTopic = (input: {
+      readonly sink: SinkRefValue;
+      readonly topic: BoardTopicValue;
+    }): Effect.Effect<BoardTopicValue, RepositoryFailure> => {
+      const topic = Schema.decodeUnknownSync(BoardTopic, strictDecode)(
+        input.topic,
+      );
+      return transaction("work.board.topic.create", input.sink, (writer) => {
+        if (
+          writer.get<StateRow>(
+            `
+              SELECT 1 FROM work_board_topics
+              WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+            `,
+            [input.sink.canvasName, input.sink.nodeId, topic.topicId],
+          ) !== undefined
+        ) {
+          throw authorityError(
+            "identity-conflict",
+            `topic "${topic.topicId}" already exists`,
+          );
+        }
+        const partsJson = JSON.stringify(topic.parts ?? []);
+        writer.run(
+          `
+            INSERT INTO work_board_topics(
+              canvas_name, node_id, topic_id, title, state,
+              author_kind, author_seat_id, author_node_id, author_label,
+              parts_json, post_count, last_activity_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            input.sink.canvasName,
+            input.sink.nodeId,
+            topic.topicId,
+            topic.title,
+            topic.state,
+            topic.openedBy.kind,
+            topic.openedBy.seatId ?? null,
+            topic.openedBy.nodeId ?? null,
+            topic.openedBy.label ?? null,
+            partsJson,
+            topic.postCount,
+            topic.lastActivityAt,
+            topic.openedAt,
+            topic.lastActivityAt,
+          ],
+        );
+        for (const post of topic.posts ?? []) {
+          writer.run(
+            `
+              INSERT INTO work_board_posts(
+                canvas_name, node_id, topic_id, post_id, position,
+                author_kind, author_seat_id, author_node_id, author_label,
+                parts_json, created_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+              input.sink.canvasName,
+              input.sink.nodeId,
+              post.topicId,
+              post.postId,
+              post.position,
+              post.author.kind,
+              post.author.seatId ?? null,
+              post.author.nodeId ?? null,
+              post.author.label ?? null,
+              JSON.stringify(post.parts),
+              post.createdAt,
+            ],
+          );
+        }
+        return topic;
+      });
+    };
+
+    const appendBoardPost = (input: {
+      readonly sink: SinkRefValue;
+      readonly post: BoardPostValue;
+    }): Effect.Effect<BoardPostValue, RepositoryFailure> => {
+      const post = Schema.decodeUnknownSync(BoardPost, strictDecode)(
+        input.post,
+      );
+      return transaction("work.board.post.append", input.sink, (writer) => {
+        const topic = writer.get<StateRow & { readonly state: string }>(
+          `
+            SELECT state FROM work_board_topics
+            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+          `,
+          [input.sink.canvasName, input.sink.nodeId, post.topicId],
+        );
+        if (topic === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `topic "${post.topicId}" does not exist`,
+          );
+        }
+        if (topic.state === "archived") {
+          throw authorityError(
+            "invalid-transition",
+            `topic "${post.topicId}" is archived`,
+          );
+        }
+        const maxPos = writer.get<StateRow & { readonly m: number | null }>(
+          `
+            SELECT MAX(position) AS m FROM work_board_posts
+            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+          `,
+          [input.sink.canvasName, input.sink.nodeId, post.topicId],
+        );
+        const position =
+          typeof maxPos?.m === "number" && Number.isFinite(maxPos.m)
+            ? maxPos.m + 1
+            : 0;
+        const stored = { ...post, position };
+        writer.run(
+          `
+            INSERT INTO work_board_posts(
+              canvas_name, node_id, topic_id, post_id, position,
+              author_kind, author_seat_id, author_node_id, author_label,
+              parts_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            input.sink.canvasName,
+            input.sink.nodeId,
+            stored.topicId,
+            stored.postId,
+            stored.position,
+            stored.author.kind,
+            stored.author.seatId ?? null,
+            stored.author.nodeId ?? null,
+            stored.author.label ?? null,
+            JSON.stringify(stored.parts),
+            stored.createdAt,
+          ],
+        );
+        writer.run(
+          `
+            UPDATE work_board_topics
+            SET post_count = post_count + 1,
+                last_activity_at = ?,
+                updated_at = ?
+            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+          `,
+          [
+            stored.createdAt,
+            stored.createdAt,
+            input.sink.canvasName,
+            input.sink.nodeId,
+            stored.topicId,
+          ],
+        );
+        return stored;
+      });
+    };
+
+    const markBoardRead = (input: {
+      readonly sink: SinkRefValue;
+      readonly topicId: string;
+      readonly principalKey: string;
+      readonly lastReadPosition: number;
+      readonly updatedAt?: string;
+    }): Effect.Effect<void, RepositoryFailure> => {
+      const updatedAt = timestamp(input.updatedAt);
+      return transaction("work.board.mark_read", input.sink, (writer) => {
+        writer.run(
+          `
+            INSERT INTO work_board_read_cursors(
+              canvas_name, node_id, topic_id, principal_key,
+              last_read_position, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(canvas_name, node_id, topic_id, principal_key)
+            DO UPDATE SET
+              last_read_position = MAX(
+                work_board_read_cursors.last_read_position,
+                excluded.last_read_position
+              ),
+              updated_at = excluded.updated_at
+          `,
+          [
+            input.sink.canvasName,
+            input.sink.nodeId,
+            input.topicId,
+            input.principalKey,
+            input.lastReadPosition,
+            updatedAt,
+          ],
+        );
+      });
+    };
+
     const reserveRemoteTaskClaim = (
       input: ReserveRemoteTaskClaimInput,
     ): Effect.Effect<WorkCommandValue, RepositoryFailure> => {
@@ -6395,6 +6727,9 @@ export const WorkRepositoryLive = Layer.effect(
       appendMessage,
       publishArtifact,
       acceptDelivery,
+      createBoardTopic,
+      appendBoardPost,
+      markBoardRead,
       reserveRemoteTaskClaim,
       enqueueRemoteCommand,
       enqueueRemoteProposalApproval,

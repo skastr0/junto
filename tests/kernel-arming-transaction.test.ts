@@ -198,6 +198,9 @@ const makeKernelRuntime = (
         appendMessage: () => Effect.dieMessage("unused work repository"),
         publishArtifact: () => Effect.dieMessage("unused work repository"),
         acceptDelivery: () => Effect.dieMessage("unused work repository"),
+        createBoardTopic: () => Effect.dieMessage("unused work repository"),
+        appendBoardPost: () => Effect.dieMessage("unused work repository"),
+        markBoardRead: () => Effect.dieMessage("unused work repository"),
         reserveRemoteTaskClaim: () =>
           Effect.dieMessage("unused work repository"),
         enqueueRemoteCommand: () =>
@@ -235,6 +238,10 @@ const makeKernelRuntime = (
         workRequestCreate: () => Effect.dieMessage("unused work service"),
         workRequestResolve: () => Effect.dieMessage("unused work service"),
         workArtifactPublish: () => Effect.dieMessage("unused work service"),
+        workBoardList: () => Effect.dieMessage("unused work service"),
+        workBoardCreateTopic: () => Effect.dieMessage("unused work service"),
+        workBoardPost: () => Effect.dieMessage("unused work service"),
+        workBoardMarkRead: () => Effect.dieMessage("unused work service"),
         commandStatus: Effect.dieMessage("unused work service"),
       }),
     ),

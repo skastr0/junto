@@ -6,10 +6,10 @@ import {
   type NodePlacement,
 } from "./placement";
 import {
+  Port,
   PortGrant,
   asNodeId,
   type NodeId,
-  type Port,
 } from "./schema";
 
 // Pure admit: possession of undirected edge + role law + port facet + placement.
@@ -44,17 +44,8 @@ export class ScopeDenial extends Schema.TaggedError<ScopeDenial>()("ScopeDenial"
 export class Granted extends Schema.Class<Granted>("Granted")({
   caller: Schema.String.pipe(Schema.brand("NodeId")),
   target: Schema.String.pipe(Schema.brand("NodeId")),
-  port: Schema.Literal(
-    "tasks.list",
-    "tasks.create",
-    "tasks.claim",
-    "tasks.update",
-    "msg.list",
-    "msg.send",
-    "request.escalate",
-    "artifact.publish",
-    "browser.automate",
-  ),
+  /** Single alphabet with `Port` — never re-list literals here. */
+  port: Port,
   grant: PortGrant,
 }) {}
 

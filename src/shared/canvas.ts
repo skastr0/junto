@@ -3,6 +3,7 @@ import { HarnessId } from "./managed-terminal-templates";
 import { Port } from "./physics/schema";
 import {
   EtherArtifacts,
+  EtherBoard,
   EtherMessages,
   EtherRequests,
   EtherTasks,
@@ -10,9 +11,14 @@ import {
 
 export {
   Artifact,
+  BoardAuthor,
+  BoardGlanceTopic,
+  BoardPost,
+  BoardTopic,
   CompletionEvidence,
   DataPart,
   EtherArtifacts,
+  EtherBoard,
   EtherMessages,
   EtherRequests,
   EtherTasks,
@@ -26,6 +32,7 @@ export {
   TextPart,
   UrlPart,
   WorkArtifacts,
+  WorkBoard,
   WorkMessages,
   WorkMetadata,
   WorkRequests,
@@ -69,6 +76,7 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "task",
   "requests",
   "artifacts",
+  "board",
   "herdr",
   "terminal",
   "page",
@@ -358,6 +366,8 @@ export const EtherNodeExtension = Schema.Struct({
   requests: Schema.optionalWith(EtherRequests, { exact: true }),
   artifacts: Schema.optionalWith(EtherArtifacts, { exact: true }),
   messages: Schema.optionalWith(EtherMessages, { exact: true }),
+  /** Runtime overlay for entity.kind === "board" (glance only; SQLite owns truth). */
+  board: Schema.optionalWith(EtherBoard, { exact: true }),
   // Geography display binding for entity.kind === "herdr". This is not a seat:
   // a herdr pane renders and shows state, and holds no port.
   herdr: Schema.optionalWith(EtherHerdr, { exact: true }),
@@ -388,6 +398,11 @@ export const EtherEdgeExtension = Schema.Struct({
   // Authorial ocap attenuation: subset of Port strings. Absence = full offers
   // (default grant). Strip ether → still valid JSON Canvas 1.0.
   ports: Schema.optionalWith(Schema.Array(Port), { exact: true }),
+  /**
+   * Operator-authored wake eligibility for board megaphone.
+   * Not a Port — delivery plane, not capability. Absent = false.
+   */
+  notify: Schema.optionalWith(Schema.Boolean, { exact: true }),
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
 

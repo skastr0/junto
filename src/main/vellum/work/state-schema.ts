@@ -1642,6 +1642,85 @@ export const WORK_TASK_FINISH_STATE_SCHEMA_SQL = `
 `;
 
 /**
+ * Bulletin board sink (expand-only). Local multi-reader tables — not mailbox.
+ * P0 writes go through WorkRepository board verbs (not work_events protocol).
+ */
+export const WORK_BOARD_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS work_board_topics (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    topic_id TEXT NOT NULL CHECK (length(topic_id) BETWEEN 1 AND 256),
+    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 512),
+    state TEXT NOT NULL CHECK (state IN ('open', 'archived')),
+    author_kind TEXT NOT NULL CHECK (author_kind IN ('operator', 'actor')),
+    author_seat_id TEXT
+      CHECK (
+        author_seat_id IS NULL
+        OR (
+          length(author_seat_id) = 69
+          AND substr(author_seat_id, 1, 5) = 'seat_'
+          AND substr(author_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+        )
+      ),
+    author_node_id TEXT
+      CHECK (author_node_id IS NULL OR length(author_node_id) BETWEEN 1 AND 256),
+    author_label TEXT
+      CHECK (author_label IS NULL OR length(author_label) BETWEEN 1 AND 256),
+    parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
+    post_count INTEGER NOT NULL DEFAULT 0 CHECK (post_count >= 0),
+    last_activity_at TEXT NOT NULL CHECK (length(last_activity_at) BETWEEN 1 AND 64),
+    created_at TEXT NOT NULL CHECK (length(created_at) BETWEEN 1 AND 64),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, node_id, topic_id)
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_board_posts (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    topic_id TEXT NOT NULL CHECK (length(topic_id) BETWEEN 1 AND 256),
+    post_id TEXT NOT NULL CHECK (length(post_id) BETWEEN 1 AND 256),
+    position INTEGER NOT NULL CHECK (position >= 0),
+    author_kind TEXT NOT NULL CHECK (author_kind IN ('operator', 'actor')),
+    author_seat_id TEXT
+      CHECK (
+        author_seat_id IS NULL
+        OR (
+          length(author_seat_id) = 69
+          AND substr(author_seat_id, 1, 5) = 'seat_'
+          AND substr(author_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+        )
+      ),
+    author_node_id TEXT
+      CHECK (author_node_id IS NULL OR length(author_node_id) BETWEEN 1 AND 256),
+    author_label TEXT
+      CHECK (author_label IS NULL OR length(author_label) BETWEEN 1 AND 256),
+    parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
+    created_at TEXT NOT NULL CHECK (length(created_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, node_id, topic_id, post_id),
+    UNIQUE (canvas_name, node_id, topic_id, position),
+    FOREIGN KEY (canvas_name, node_id, topic_id)
+      REFERENCES work_board_topics(canvas_name, node_id, topic_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS work_board_read_cursors (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    topic_id TEXT NOT NULL CHECK (length(topic_id) BETWEEN 1 AND 256),
+    principal_key TEXT NOT NULL CHECK (length(principal_key) BETWEEN 1 AND 256),
+    last_read_position INTEGER NOT NULL CHECK (last_read_position >= -1),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, node_id, topic_id, principal_key)
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE INDEX IF NOT EXISTS work_board_topics_node
+    ON work_board_topics(canvas_name, node_id, last_activity_at, topic_id);
+  CREATE INDEX IF NOT EXISTS work_board_posts_thread
+    ON work_board_posts(canvas_name, node_id, topic_id, position);
+`;
+
+/**
  * Historical Work schema embedded in state schema versions 1–3.
  * Kept as an exact forward-migration witness; fresh installs use the current
  * trigger above. This avoids duplicating the rest of the large Work schema.

@@ -2,6 +2,10 @@ import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option, Schema } from "effect";
 import {
   ArtifactPublishCliArgs,
+  BoardCreateTopicArgs,
+  BoardListArgs,
+  BoardMarkReadArgs,
+  BoardPostArgs,
   MsgListArgs,
   MsgReadArgs,
   MsgReplyArgs,
@@ -248,6 +252,91 @@ const artifactPublishCommand = Command.make(
 export const artifactCommand = Command.make("artifact").pipe(
   Command.withDescription("Artifact ops"),
   Command.withSubcommands([artifactPublishCommand]),
+);
+
+// --- board (bulletin) ---
+
+const boardListCommand = Command.make(
+  "list",
+  { input: jsonInputArg, timeout: timeoutOption },
+  ({ input, timeout }) =>
+    executeJsonCommand(
+      "board list",
+      Effect.gen(function* () {
+        const item = yield* loadJsonInput(BoardListArgs, input);
+        return yield* callDomain("board.list", item, toUndefined(timeout));
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "List topics/posts on a connected bulletin board (optional participation)",
+  ),
+);
+
+const boardTopicCommand = Command.make(
+  "topic",
+  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
+  ({ input, concurrency, timeout }) =>
+    executeJsonCommand(
+      "board topic",
+      runMutationBatch({
+        input,
+        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+        itemSchema: BoardCreateTopicArgs,
+        run: (item) =>
+          callDomain("board.create_topic", item, toUndefined(timeout)),
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Create a board topic (does not notify other agents)",
+  ),
+);
+
+const boardPostCommand = Command.make(
+  "post",
+  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
+  ({ input, concurrency, timeout }) =>
+    executeJsonCommand(
+      "board post",
+      runMutationBatch({
+        input,
+        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+        itemSchema: BoardPostArgs,
+        run: (item) => callDomain("board.post", item, toUndefined(timeout)),
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Post a note under a topic (optional; mark_read is enough to clear attention)",
+  ),
+);
+
+const boardReadCommand = Command.make(
+  "read",
+  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
+  ({ input, concurrency, timeout }) =>
+    executeJsonCommand(
+      "board read",
+      runMutationBatch({
+        input,
+        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+        itemSchema: BoardMarkReadArgs,
+        run: (item) => callDomain("board.mark_read", item, toUndefined(timeout)),
+      }),
+    ),
+).pipe(Command.withDescription("Mark a topic read without replying"));
+
+export const boardCommand = Command.make("board").pipe(
+  Command.withDescription(
+    "Bulletin board ops — optional shared context; never a decision inbox",
+  ),
+  Command.withSubcommands([
+    boardListCommand,
+    boardTopicCommand,
+    boardPostCommand,
+    boardReadCommand,
+  ]),
 );
 
 void Schema;

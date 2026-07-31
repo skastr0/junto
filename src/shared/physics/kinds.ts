@@ -43,6 +43,12 @@ const taskOffers = portSet(
 const requestsOffers = portSet("request.escalate", "msg.list", "msg.send");
 const artifactsOffers = portSet("artifact.publish");
 const pageOffers = portSet("browser.automate");
+const boardOffers = portSet(
+  "board.list",
+  "board.create_topic",
+  "board.post",
+  "board.mark_read",
+);
 
 /**
  * The role a kind carries, decided by which literal group it was written into
@@ -75,6 +81,7 @@ export const KindSpecs = {
   task: { kind: "task", role: "sink", offers: taskOffers },
   requests: { kind: "requests", role: "sink", offers: requestsOffers },
   artifacts: { kind: "artifacts", role: "sink", offers: artifactsOffers },
+  board: { kind: "board", role: "sink", offers: boardOffers },
   watcher: { kind: "watcher", role: "scheduler", offers: emptyOffers },
   timer: { kind: "timer", role: "scheduler", offers: emptyOffers },
 } as const satisfies KindSpecTable;

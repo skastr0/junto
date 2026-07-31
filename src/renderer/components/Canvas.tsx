@@ -42,6 +42,7 @@ import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import {
   makeArtifactsNode,
+  makeBoardNode,
   makeFileNode,
   makeGroupNode,
   makeLinkNode,
@@ -589,6 +590,7 @@ interface AddActions {
   readonly addTasks: () => void;
   readonly addRequests: () => void;
   readonly addArtifacts: () => void;
+  readonly addBoard: () => void;
   readonly addTerminal: () => void;
   readonly addHerdr: () => void;
   readonly addPage: () => void;
@@ -703,6 +705,13 @@ const makeAddActions = (
   addArtifacts: () => {
     const position = positionFor({ width: 240, height: 120 });
     const node = makeArtifactsNode(position.x, position.y);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addBoard: () => {
+    const position = positionFor({ width: 240, height: 120 });
+    const node = makeBoardNode(position.x, position.y);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -859,6 +868,7 @@ function AddMenu({ actions }: { readonly actions: AddActions }) {
     { key: "tasks", label: "tasks", sub: "task list · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add tasks", group: paletteGroupFor("task", false), onSelect: () => actions.addTasks() },
     { key: "requests", label: "requests", sub: "input-required · blocks when edged", icon: <ListChecks size={14} />, ariaLabel: "Add requests", group: paletteGroupFor("requests", false), onSelect: () => actions.addRequests() },
     { key: "artifacts", label: "artifacts", sub: "published parts shelf", icon: <FileText size={14} />, ariaLabel: "Add artifacts", group: paletteGroupFor("artifacts", false), onSelect: () => actions.addArtifacts() },
+    { key: "board", label: "board", sub: "bulletin · topics + posts", icon: <FileText size={14} />, ariaLabel: "Add bulletin board", group: paletteGroupFor("board", false), onSelect: () => actions.addBoard() },
     { key: "page", label: "page", sub: "work surface · browser session", icon: <Globe size={14} />, ariaLabel: "Add browser page work surface", group: paletteGroupFor("page", false), onSelect: () => actions.addPage() },
     { key: "watcher", label: "watcher", sub: "condition over live data", icon: <Eye size={14} />, ariaLabel: "Add watcher", group: paletteGroupFor("watcher", false), onSelect: () => actions.addWatcher() },
     { key: "timer", label: "timer", sub: "pulse on an interval", icon: <Timer size={14} />, ariaLabel: "Add timer", group: paletteGroupFor("timer", false), onSelect: () => actions.addTimer() },

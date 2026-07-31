@@ -47,6 +47,10 @@ export const WorkOpName = Schema.Literal(
   "msg.reply",
   "request.escalate",
   "artifact.publish",
+  "board.list",
+  "board.create_topic",
+  "board.post",
+  "board.mark_read",
 );
 export type WorkOpName = typeof WorkOpName.Type;
 
@@ -346,6 +350,36 @@ export type ArtifactPublishCliArgs = typeof ArtifactPublishCliArgs.Type;
 
 export const EmptyArgs = Schema.Struct({});
 export type EmptyArgs = typeof EmptyArgs.Type;
+
+export const BoardListArgs = Schema.Struct({
+  target: Schema.String,
+  topicId: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type BoardListArgs = typeof BoardListArgs.Type;
+
+export const BoardCreateTopicArgs = Schema.Struct({
+  target: Schema.String,
+  title: Schema.String,
+  body: Schema.optionalWith(Schema.String, { exact: true }),
+  /** Operator IPC only — agents' true is ignored (no auto wake). */
+  notify: Schema.optionalWith(Schema.Boolean, { exact: true }),
+});
+export type BoardCreateTopicArgs = typeof BoardCreateTopicArgs.Type;
+
+export const BoardPostArgs = Schema.Struct({
+  target: Schema.String,
+  topicId: Schema.String,
+  text: Schema.String,
+});
+export type BoardPostArgs = typeof BoardPostArgs.Type;
+
+export const BoardMarkReadArgs = Schema.Struct({
+  target: Schema.String,
+  topicId: Schema.String,
+  /** Inclusive last post position read; omit = mark all current posts. */
+  upToPosition: Schema.optionalWith(Schema.Number, { exact: true }),
+});
+export type BoardMarkReadArgs = typeof BoardMarkReadArgs.Type;
 
 // ---------------------------------------------------------------------------
 // Helpers

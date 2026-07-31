@@ -259,6 +259,81 @@ export const WorkMessages = Schema.Struct({
 export type WorkMessages = typeof WorkMessages.Type;
 
 /**
+ * Bulletin-board author. Operator is the Command Center human; actor is a
+ * process-bound seat. Never Message.role and never client-supplied freeform.
+ */
+export const BoardAuthorKind = Schema.Literal("operator", "actor");
+export type BoardAuthorKind = typeof BoardAuthorKind.Type;
+
+export const BoardAuthor = Schema.Struct({
+  kind: BoardAuthorKind,
+  /** Present when kind === "actor". */
+  seatId: Schema.optionalWith(ActorSeatId, { exact: true }),
+  nodeId: Schema.optionalWith(Schema.String, { exact: true }),
+  label: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type BoardAuthor = typeof BoardAuthor.Type;
+
+export const BoardTopicState = Schema.Literal("open", "archived");
+export type BoardTopicState = typeof BoardTopicState.Type;
+
+/** Append-only post under a topic (Part[] body — not Message). */
+export const BoardPost = Schema.Struct({
+  postId: Schema.String,
+  topicId: Schema.String,
+  author: BoardAuthor,
+  parts: Schema.Array(Part).pipe(Schema.minItems(1)),
+  /** Monotone per-topic position (0-based). */
+  position: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  createdAt: Schema.String,
+});
+export type BoardPost = typeof BoardPost.Type;
+
+/** Topic shell (aggregate root). Posts stream separately or nested for list. */
+export const BoardTopic = Schema.Struct({
+  topicId: Schema.String,
+  title: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(512)),
+  state: BoardTopicState,
+  openedBy: BoardAuthor,
+  openedAt: Schema.String,
+  postCount: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  lastActivityAt: Schema.String,
+  /** Opening body as first-class optional parts (also post 0 when present). */
+  parts: Schema.optionalWith(Schema.Array(Part), { exact: true }),
+  posts: Schema.optionalWith(Schema.Array(BoardPost), { exact: true }),
+});
+export type BoardTopic = typeof BoardTopic.Type;
+
+/** Board sink contents (full lane at snapshot; ether may strip to glance). */
+export const WorkBoard = Schema.Struct({
+  topics: Schema.Array(BoardTopic),
+});
+export type WorkBoard = typeof WorkBoard.Type;
+
+/**
+ * Canvas glance strip — titles + counts only. Full posts stay on list/detail.
+ */
+export const BoardGlanceTopic = Schema.Struct({
+  topicId: Schema.String,
+  title: Schema.String,
+  state: BoardTopicState,
+  postCount: Schema.Number,
+  lastActivityAt: Schema.String,
+  authorLabel: Schema.optionalWith(Schema.String, { exact: true }),
+});
+export type BoardGlanceTopic = typeof BoardGlanceTopic.Type;
+
+export const EtherBoard = Schema.Struct({
+  topics: Schema.Array(BoardGlanceTopic),
+  /** Operator-local unread topic count when known. */
+  unread: Schema.optionalWith(
+    Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+    { exact: true },
+  ),
+});
+export type EtherBoard = typeof EtherBoard.Type;
+
+/**
  * Canonical work-lane values exposed at the runtime projection boundary.
  * These names identify projected lane contents; they are not document
  * durability or a second persistence model.
@@ -277,8 +352,8 @@ export type EtherMessages = WorkMessages;
 
 /**
  * One immutable work read model, addressed by the same composite identity the
- * SQLite repository joins on. The four lanes stay explicit: consumers never
- * decode an opaque per-node payload and never infer a lane from entity kind.
+ * SQLite repository joins on. Lanes stay explicit: consumers never decode an
+ * opaque per-node payload and never infer a lane from entity kind.
  */
 export const WorkSnapshot = Schema.Struct({
   canvasName: Schema.String,
@@ -287,5 +362,6 @@ export const WorkSnapshot = Schema.Struct({
   requests: WorkRequests,
   messages: WorkMessages,
   artifacts: WorkArtifacts,
+  board: WorkBoard,
 });
 export type WorkSnapshot = typeof WorkSnapshot.Type;

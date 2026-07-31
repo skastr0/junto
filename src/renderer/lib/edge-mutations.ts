@@ -113,7 +113,28 @@ export const inferEdgeCriteria = (fromNode: CanvasNode | undefined): EdgeCriteri
   if (!fromNode) return undefined;
   const kind = fromNode.ether?.entity?.kind;
   if (kind === "task" || kind === "requests") return { mode: "tasks" };
+  // board → soft relates only (never stoppage)
   return undefined;
+};
+
+/** Operator-authored board wake eligibility on an edge. */
+export const setEdgeNotify = (edgeId: string, notify: boolean): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    edges: doc.edges.map((edge) => {
+      if (edge.id !== edgeId) return edge;
+      const ether = { ...(edge.ether ?? {}) };
+      if (notify) ether.notify = true;
+      else delete ether.notify;
+      const nextEther = Object.keys(ether).length > 0 ? ether : undefined;
+      if (!nextEther) {
+        const { ether: _drop, ...rest } = edge;
+        return rest;
+      }
+      return { ...edge, ether: nextEther };
+    }),
+  });
 };
 
 export const addEdge = (params: {

@@ -13,6 +13,7 @@ import {
 } from "./commands/discovery";
 import {
   artifactCommand,
+  boardCommand,
   escalateCommand,
   msgCommand,
   tasksCommand,
@@ -47,6 +48,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     msgCommand,
     escalateCommand,
     artifactCommand,
+    boardCommand,
     stationOperatorCommand,
     fleetOperatorCommand,
     qualificationOperatorCommand,

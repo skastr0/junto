@@ -40,6 +40,10 @@ export const Port = Schema.Literal(
   "request.escalate",
   "artifact.publish",
   "browser.automate",
+  "board.list",
+  "board.create_topic",
+  "board.post",
+  "board.mark_read",
 );
 export type Port = typeof Port.Type;
 
@@ -53,6 +57,10 @@ export const ALL_PORTS: ReadonlyArray<Port> = [
   "request.escalate",
   "artifact.publish",
   "browser.automate",
+  "board.list",
+  "board.create_topic",
+  "board.post",
+  "board.mark_read",
 ];
 
 export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>
@@ -72,7 +80,13 @@ export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>
 export const ActorKind = Schema.Literal("agent");
 export type ActorKind = typeof ActorKind.Type;
 
-export const SinkKind = Schema.Literal("page", "task", "requests", "artifacts");
+export const SinkKind = Schema.Literal(
+  "page",
+  "task",
+  "requests",
+  "artifacts",
+  "board",
+);
 export type SinkKind = typeof SinkKind.Type;
 
 export const SchedulerKind = Schema.Literal("watcher", "timer");

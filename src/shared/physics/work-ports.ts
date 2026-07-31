@@ -26,6 +26,10 @@ export const PortForWorkOp = {
   "msg.reply": "msg.send",
   "request.escalate": "request.escalate",
   "artifact.publish": "artifact.publish",
+  "board.list": "board.list",
+  "board.create_topic": "board.create_topic",
+  "board.post": "board.post",
+  "board.mark_read": "board.mark_read",
 } as const satisfies Record<TargetWorkOpName, Port>;
 
 export type PortForWorkOp = typeof PortForWorkOp;
@@ -46,6 +50,10 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "msg.reply",
   "request.escalate",
   "artifact.publish",
+  "board.list",
+  "board.create_topic",
+  "board.post",
+  "board.mark_read",
 ];
 
 // ---------------------------------------------------------------------------
@@ -78,6 +86,12 @@ export const OPS_BY_SINK = {
     "msg.reply",
   ],
   artifacts: ["artifact.publish"],
+  board: [
+    "board.list",
+    "board.create_topic",
+    "board.post",
+    "board.mark_read",
+  ],
   page: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;
 

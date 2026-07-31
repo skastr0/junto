@@ -118,6 +118,10 @@ export const requiresConnection = (op: WorkOpName): boolean => {
     case "msg.reply":
     case "request.escalate":
     case "artifact.publish":
+    case "board.list":
+    case "board.create_topic":
+    case "board.post":
+    case "board.mark_read":
       return true;
   }
 };

@@ -96,6 +96,10 @@ export const IPC_CHANNELS = {
   workTaskRespond: "vellum:work-task-respond",
   workTaskClaim: "vellum:work-task-claim",
   workRequestResolve: "vellum:work-request-resolve",
+  workBoardCreateTopic: "vellum:work-board-create-topic",
+  workBoardPost: "vellum:work-board-post",
+  workBoardMarkRead: "vellum:work-board-mark-read",
+  workBoardNotify: "vellum:work-board-notify",
   // herdr work surface
   herdrHosts: "vellum:herdr-hosts",
   herdrEnsureServer: "vellum:herdr-ensure-server",
@@ -640,6 +644,37 @@ export interface VellumApi extends LicenseApi, UpdateApi {
     responseText: string,
     disposition: "completed" | "rejected",
   ) => Promise<WorkOpResult<Task>>;
+  readonly workBoardCreateTopic: (
+    canvas: string,
+    nodeId: string,
+    title: string,
+    body: string | undefined,
+    notify: boolean,
+  ) => Promise<
+    WorkOpResult<{
+      readonly topic: import("./work-model").BoardTopic;
+      readonly notify: boolean;
+    }>
+  >;
+  readonly workBoardPost: (
+    canvas: string,
+    nodeId: string,
+    topicId: string,
+    text: string,
+  ) => Promise<
+    WorkOpResult<{ readonly post: import("./work-model").BoardPost }>
+  >;
+  readonly workBoardMarkRead: (
+    canvas: string,
+    nodeId: string,
+    topicId: string,
+  ) => Promise<WorkOpResult<{ readonly topicId: string }>>;
+  /** Operator megaphone: wake Notify-ON seats for a board/topic. */
+  readonly workBoardNotify: (
+    canvas: string,
+    nodeId: string,
+    topicId?: string,
+  ) => Promise<WorkOpResult<{ readonly wakeCount: number }>>;
   readonly onNodeRefOpened: (
     listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
   ) => () => void;

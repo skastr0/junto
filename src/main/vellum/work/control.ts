@@ -27,6 +27,10 @@ import {
 } from "@shared/proof-stamps";
 import {
   ArtifactPublishArgs,
+  BoardCreateTopicArgs,
+  BoardListArgs,
+  BoardMarkReadArgs,
+  BoardPostArgs,
   EmptyArgs,
   MsgListArgs,
   MsgReadArgs,
@@ -73,11 +77,15 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "msg.reply",
   "request.escalate",
   "artifact.publish",
+  "board.create_topic",
+  "board.post",
+  "board.mark_read",
 ]);
 
 /**
  * Ops refused while the seat is escalate-blocked. Meta discovery
  * (ping/doctor/capabilities/onboard) stays open so agents can re-orient.
+ * Board list/mark_read stay open so agents can clear attention while blocked.
  */
 const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "tasks.list",
@@ -90,6 +98,8 @@ const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "msg.reply",
   "request.escalate",
   "artifact.publish",
+  "board.create_topic",
+  "board.post",
 ]);
 import {
   admitWorkTarget,
@@ -948,6 +958,95 @@ const dispatchOp = (
       if (stamp) {
         globalStampRuntime.recordStamp(authority, stamp);
       }
+      return exposeWorkMutation(mapped.right);
+    }
+
+    if (op === "board.list") {
+      const decoded = decodeArgs(BoardListArgs, args);
+      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const result = yield* work.workBoardList(
+        caller.canvasName,
+        decoded.right.target,
+        decoded.right.topicId,
+      );
+      const mapped = fromWorkResult(result);
+      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      return {
+        topics: mapped.right.value.topics,
+      };
+    }
+
+    if (op === "board.create_topic") {
+      const decoded = decodeArgs(BoardCreateTopicArgs, args);
+      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(bound)) return yield* Effect.fail(bound.left);
+      const author = {
+        kind: "actor" as const,
+        seatId: bound.right.seatId,
+        nodeId: bound.right.nodeId,
+        label: caller.nodeId,
+      };
+      // Agents never wake the floor — notify flag ignored.
+      const result = yield* work.workBoardCreateTopic(
+        caller.canvasName,
+        decoded.right.target,
+        decoded.right.title,
+        decoded.right.body,
+        author,
+        false,
+      );
+      const mapped = fromWorkResult(result);
+      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      return exposeWorkMutation(mapped.right);
+    }
+
+    if (op === "board.post") {
+      const decoded = decodeArgs(BoardPostArgs, args);
+      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(bound)) return yield* Effect.fail(bound.left);
+      const author = {
+        kind: "actor" as const,
+        seatId: bound.right.seatId,
+        nodeId: bound.right.nodeId,
+        label: caller.nodeId,
+      };
+      const result = yield* work.workBoardPost(
+        caller.canvasName,
+        decoded.right.target,
+        decoded.right.topicId,
+        decoded.right.text,
+        author,
+      );
+      const mapped = fromWorkResult(result);
+      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
+      return exposeWorkMutation(mapped.right);
+    }
+
+    if (op === "board.mark_read") {
+      const decoded = decodeArgs(BoardMarkReadArgs, args);
+      if (Either.isLeft(decoded)) return yield* Effect.fail(decoded.left);
+      const gate = requireTarget(board, caller.nodeId, decoded.right.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Either.isLeft(bound)) return yield* Effect.fail(bound.left);
+      const principalKey = `seat:${bound.right.seatId}`;
+      const result = yield* work.workBoardMarkRead(
+        caller.canvasName,
+        decoded.right.target,
+        decoded.right.topicId,
+        principalKey,
+        decoded.right.upToPosition,
+      );
+      const mapped = fromWorkResult(result);
+      if (Either.isLeft(mapped)) return yield* Effect.fail(mapped.left);
       return exposeWorkMutation(mapped.right);
     }
 

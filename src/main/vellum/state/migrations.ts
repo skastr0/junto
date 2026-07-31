@@ -20,6 +20,7 @@ import {
   LICENSE_STATE_V2_SCHEMA_SQL,
 } from "../license/state-schema";
 import {
+  WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_PROPOSAL_STATE_SCHEMA_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
@@ -108,7 +109,13 @@ export const STATE_SCHEMA_V7_IDENTITY = {
     "9f2aace6eaefaa20c1141304d5d4d62544a0500ff3bc7f30acda94d4099006bc",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 8;
+/** Exact witness of schema version 8 (task finish criteria; no board). */
+export const STATE_SCHEMA_V8_IDENTITY = {
+  actualSchemaSha256:
+    "8239ad37bd9fb890d585f5fedef69086890a75b1c01b5fb257bb4573c2809e71",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 9;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -199,6 +206,16 @@ export const STATE_SCHEMA_MIGRATIONS =
       fromIdentity: STATE_SCHEMA_V7_IDENTITY,
       migrate: (database) => {
         database.exec(WORK_TASK_FINISH_STATE_SCHEMA_SQL);
+      },
+    },
+    {
+      fromVersion: 8,
+      toVersion: 9,
+      name: "add-work-board",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V8_IDENTITY,
+      migrate: (database) => {
+        database.exec(WORK_BOARD_STATE_SCHEMA_SQL);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;

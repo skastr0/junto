@@ -512,6 +512,41 @@ const vellumApi: VellumApi = {
       responseText,
       disposition,
     ),
+  workBoardCreateTopic: (canvas, nodeId, title, body, notify) =>
+    invoke(
+      IPC_CHANNELS.workBoardCreateTopic,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      title,
+      body,
+      notify,
+    ),
+  workBoardPost: (canvas, nodeId, topicId, text) =>
+    invoke(
+      IPC_CHANNELS.workBoardPost,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      topicId,
+      text,
+    ),
+  workBoardMarkRead: (canvas, nodeId, topicId) =>
+    invoke(
+      IPC_CHANNELS.workBoardMarkRead,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      topicId,
+    ),
+  workBoardNotify: (canvas, nodeId, topicId) =>
+    invoke(
+      IPC_CHANNELS.workBoardNotify,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      topicId,
+    ),
   onNodeRefOpened,
   onCanvasFlushRequested,
   onCanvasQuiesceAndFlushRequested,

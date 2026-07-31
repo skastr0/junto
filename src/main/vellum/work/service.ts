@@ -325,6 +325,40 @@ export class WorkService extends Context.Tag("@vellum/WorkService")<
       artifact: Artifact,
       publishedBy: ActorRef,
     ) => Effect.Effect<WorkOpResult<Artifact>>;
+    readonly workBoardList: (
+      canvas: string,
+      nodeId: string,
+      topicId?: string,
+    ) => Effect.Effect<WorkOpResult<import("@shared/work-model").WorkBoard>>;
+    readonly workBoardCreateTopic: (
+      canvas: string,
+      nodeId: string,
+      title: string,
+      body: string | undefined,
+      author: import("@shared/work-model").BoardAuthor,
+      notify: boolean,
+    ) => Effect.Effect<
+      WorkOpResult<{
+        readonly topic: import("@shared/work-model").BoardTopic;
+        readonly notify: boolean;
+      }>
+    >;
+    readonly workBoardPost: (
+      canvas: string,
+      nodeId: string,
+      topicId: string,
+      text: string,
+      author: import("@shared/work-model").BoardAuthor,
+    ) => Effect.Effect<
+      WorkOpResult<{ readonly post: import("@shared/work-model").BoardPost }>
+    >;
+    readonly workBoardMarkRead: (
+      canvas: string,
+      nodeId: string,
+      topicId: string,
+      principalKey: string,
+      upToPosition?: number,
+    ) => Effect.Effect<WorkOpResult<{ readonly topicId: string }>>;
     readonly commandStatus: Effect.Effect<
       WorkCommandStatus,
       WorkServiceError
@@ -1458,6 +1492,152 @@ export const WorkLive = Layer.effect(
                 artifact: policy.artifact,
                 publishedBy,
               }),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workBoardList: (canvas, nodeId, topicId) =>
+        asResult(
+          Effect.gen(function* () {
+            const snap = yield* repository
+              .readSnapshot(canvas, nodeId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            const topics =
+              topicId === undefined
+                ? snap.board.topics
+                : snap.board.topics.filter((t) => t.topicId === topicId);
+            const outcome = yield* local(
+              Effect.succeed({ value: { topics } }),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workBoardCreateTopic: (canvas, nodeId, title, body, author, notify) =>
+        asResult(
+          Effect.gen(function* () {
+            const read = yield* readCanvas(canvas);
+            const node = read.doc.nodes.find((n) => n.id === nodeId);
+            if (node?.ether?.entity?.kind !== "board") {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "illegal_kind",
+                  message: `node "${nodeId}" is not a board sink`,
+                }),
+              );
+            }
+            const now = new Date().toISOString();
+            const topicId = ids.id();
+            const parts =
+              body !== undefined && body.trim().length > 0
+                ? [{ kind: "text" as const, text: body.trim() }]
+                : [];
+            const seedPost =
+              parts.length > 0
+                ? {
+                    postId: ids.messageId(),
+                    topicId,
+                    author,
+                    parts,
+                    position: 0,
+                    createdAt: now,
+                  }
+                : undefined;
+            const topic = {
+              topicId,
+              title: title.trim(),
+              state: "open" as const,
+              openedBy: author,
+              openedAt: now,
+              postCount: seedPost ? 1 : 0,
+              lastActivityAt: now,
+              ...(parts.length > 0 ? { parts } : {}),
+              ...(seedPost ? { posts: [seedPost] } : {}),
+            };
+            const outcome = yield* local(
+              repository
+                .createBoardTopic({
+                  sink: sinkRef(canvas, nodeId),
+                  topic,
+                })
+                .pipe(
+                  Effect.map((saved) => ({
+                    value: { topic: saved, notify },
+                  })),
+                ),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workBoardPost: (canvas, nodeId, topicId, text, author) =>
+        asResult(
+          Effect.gen(function* () {
+            const read = yield* readCanvas(canvas);
+            if (
+              read.doc.nodes.find((n) => n.id === nodeId)?.ether?.entity
+                ?.kind !== "board"
+            ) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "illegal_kind",
+                  message: `node "${nodeId}" is not a board sink`,
+                }),
+              );
+            }
+            const now = new Date().toISOString();
+            const post = {
+              postId: ids.messageId(),
+              topicId,
+              author,
+              parts: [{ kind: "text" as const, text: text.trim() }],
+              position: 0,
+              createdAt: now,
+            };
+            const outcome = yield* local(
+              repository
+                .appendBoardPost({
+                  sink: sinkRef(canvas, nodeId),
+                  post,
+                })
+                .pipe(Effect.map((saved) => ({ value: { post: saved } }))),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workBoardMarkRead: (canvas, nodeId, topicId, principalKey, upToPosition) =>
+        asResult(
+          Effect.gen(function* () {
+            const snap = yield* repository
+              .readSnapshot(canvas, nodeId)
+              .pipe(Effect.mapError(toWorkServiceError));
+            const topic = snap.board.topics.find((t) => t.topicId === topicId);
+            if (!topic) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "task_not_found",
+                  message: `topic "${topicId}" not found`,
+                }),
+              );
+            }
+            const maxPos =
+              upToPosition ??
+              Math.max(
+                -1,
+                ...(topic.posts ?? []).map((p) => p.position),
+                topic.postCount - 1,
+              );
+            const outcome = yield* local(
+              repository
+                .markBoardRead({
+                  sink: sinkRef(canvas, nodeId),
+                  topicId,
+                  principalKey,
+                  lastReadPosition: maxPos,
+                })
+                .pipe(Effect.map(() => ({ value: { topicId } }))),
             );
             return yield* complete(canvas, outcome);
           }),

@@ -14,6 +14,7 @@ import { STATION_STATE_SCHEMA_SQL } from "../station/state-schema";
 import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema";
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import {
+  WORK_BOARD_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_V3_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
@@ -145,9 +146,17 @@ export const STATE_SCHEMA_V7_FRAGMENTS = [
 
 export const STATE_SCHEMA_V7_SQL = STATE_SCHEMA_V7_FRAGMENTS.join("\n");
 
-export const STATE_SCHEMA_FRAGMENTS = [
+/** Schema composition at version 8 (finish criteria; no board tables). */
+export const STATE_SCHEMA_V8_FRAGMENTS = [
   ...STATE_SCHEMA_V7_FRAGMENTS,
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
+] as const;
+
+export const STATE_SCHEMA_V8_SQL = STATE_SCHEMA_V8_FRAGMENTS.join("\n");
+
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V8_FRAGMENTS,
+  WORK_BOARD_STATE_SCHEMA_SQL,
 ] as const;
 
 /**

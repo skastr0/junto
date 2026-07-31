@@ -675,6 +675,139 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
+  privilegedIpc.handle(
+    IPC_CHANNELS.workBoardCreateTopic,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      title: string,
+      body: string | undefined,
+      notify: boolean,
+    ) =>
+      runRendererWorkAuthoring(
+        "ipc.work.board-topic-create",
+        () =>
+          AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const denied = yield* denyRemoteWork;
+              if (denied) return denied;
+              const work = yield* WorkService;
+              const result = yield* work.workBoardCreateTopic(
+                canvas,
+                nodeId,
+                title,
+                body,
+                { kind: "operator", label: "operator" },
+                notify === true,
+              );
+              if (result.ok && result.data.notify) {
+                const { deliverBoardWake } = yield* Effect.promise(
+                  () => import("./work/board-delivery"),
+                );
+                yield* deliverBoardWake({
+                  canvas,
+                  boardNodeId: nodeId,
+                  kind: "operator.topic.notify",
+                  topicId: result.data.topic.topicId,
+                  topicTitle: result.data.topic.title,
+                  excerptSource: title,
+                }).pipe(Effect.catchAll(() => Effect.void));
+              }
+              return result;
+            }),
+          ),
+      ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.workBoardPost,
+    (
+      _event,
+      canvas: string,
+      nodeId: string,
+      topicId: string,
+      text: string,
+    ) =>
+      runRendererWorkAuthoring(
+        "ipc.work.board-post",
+        () =>
+          AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const denied = yield* denyRemoteWork;
+              if (denied) return denied;
+              const work = yield* WorkService;
+              return yield* work.workBoardPost(
+                canvas,
+                nodeId,
+                topicId,
+                text,
+                { kind: "operator", label: "operator" },
+              );
+            }),
+          ),
+      ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.workBoardMarkRead,
+    (_event, canvas: string, nodeId: string, topicId: string) =>
+      runRendererWorkAuthoring(
+        "ipc.work.board-mark-read",
+        () =>
+          AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const denied = yield* denyRemoteWork;
+              if (denied) return denied;
+              const work = yield* WorkService;
+              return yield* work.workBoardMarkRead(
+                canvas,
+                nodeId,
+                topicId,
+                "operator",
+              );
+            }),
+          ),
+      ),
+  );
+
+  privilegedIpc.handle(
+    IPC_CHANNELS.workBoardNotify,
+    (_event, canvas: string, nodeId: string, topicId?: string) =>
+      runRendererWorkAuthoring(
+        "ipc.work.board-notify",
+        () =>
+          AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const denied = yield* denyRemoteWork;
+              if (denied) return denied;
+              const { deliverBoardWake } = yield* Effect.promise(
+                () => import("./work/board-delivery"),
+              );
+              const wakeCount = yield* deliverBoardWake({
+                canvas,
+                boardNodeId: nodeId,
+                kind: "operator.notify.all",
+                topicId,
+                excerptSource: topicId
+                  ? `notify topic ${topicId}`
+                  : "notify all",
+              });
+              const work = yield* WorkService;
+              const listed = yield* work.workBoardList(canvas, nodeId, topicId);
+              if (!listed.ok) return listed;
+              return {
+                ok: true as const,
+                data: { wakeCount },
+                doc: listed.doc,
+                revision: listed.revision,
+                disposition: "applied" as const,
+              };
+            }),
+          ),
+      ),
+  );
+
   // Wire pushes and background loops once at startup.
   void AppRuntime.runPromise(
     Effect.gen(function* () {
@@ -898,6 +1031,15 @@ export const registerVellumIpc = (): void => {
           ? undefined
           : (bindingId, text) => writeManagedPulse(bindingId, text),
       );
+
+      // Bulletin board operator megaphone reuses managed-prompt transport.
+      const { configureBoardDelivery } = yield* Effect.promise(
+        () => import("./work/board-delivery"),
+      );
+      configureBoardDelivery({
+        sendManagedTerminalPrompt: (bindingId, text) =>
+          writeManagedPrompt(bindingId, text),
+      });
 
       // Message nudge channel: ether.messages -> live managed terminal seats.
       // Retry only on session-live / seat-idle (no polling store).

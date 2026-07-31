@@ -219,6 +219,21 @@ export const makeArtifactsNode = (x: number, y: number): TextNode => ({
   },
 });
 
+/** Bulletin board sink — topics + posts; work-plane owns durability. */
+export const makeBoardNode = (x: number, y: number): TextNode => ({
+  id: `board-${ulid()}`,
+  type: "text",
+  text: "quiet",
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 240,
+  height: 120,
+  ether: {
+    entity: { kind: "board" },
+    board: { topics: [] },
+  },
+});
+
 // A herdr work-surface node — binds a live herdr pane (local or remote).
 // Not a hermes agent: no EntitySource binding, no ACP, no pulse target.
 export const makeHerdrNode = (

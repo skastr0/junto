@@ -365,6 +365,10 @@ describe("work-control main authoring classification", () => {
       "msg.reply": "authorial",
       "request.escalate": "authorial",
       "artifact.publish": "authorial",
+      "board.list": "read",
+      "board.create_topic": "authorial",
+      "board.post": "authorial",
+      "board.mark_read": "authorial",
     } as const satisfies Record<
       WorkOpName,
       ReturnType<typeof classifyMainAuthoringWorkOperation>

@@ -26,11 +26,13 @@ import {
   STATE_SCHEMA_V5_IDENTITY,
   STATE_SCHEMA_V6_IDENTITY,
   STATE_SCHEMA_V7_IDENTITY,
+  STATE_SCHEMA_V8_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_V5_SQL,
   STATE_SCHEMA_V6_SQL,
   STATE_SCHEMA_V7_SQL,
+  STATE_SCHEMA_V8_SQL,
 } from "../src/main/vellum/state/schema";
 import {
   expectedStateSchemaIdentity,
@@ -101,7 +103,7 @@ describe("entity identity laws", () => {
 });
 
 describe("canvas entity registry", () => {
-  it("freezes v5/v6/v7 identities and opens at schema version 8", async () => {
+  it("freezes v5/v6/v7/v8 identities and opens at schema version 9", async () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V5_SQL)).toEqual(
       STATE_SCHEMA_V5_IDENTITY,
     );
@@ -111,7 +113,10 @@ describe("canvas entity registry", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V7_SQL)).toEqual(
       STATE_SCHEMA_V7_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(8);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V8_SQL)).toEqual(
+      STATE_SCHEMA_V8_IDENTITY,
+    );
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(9);
 
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-fresh-"));
     roots.push(root);

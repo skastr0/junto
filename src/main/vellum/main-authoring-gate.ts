@@ -32,7 +32,15 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.msg-send",
   "control.work.request-escalate",
   "control.work.artifact-publish",
+  "control.work.board-create-topic",
+  "control.work.board-post",
+  "control.work.board-mark-read",
+  "ipc.work.board-topic-create",
+  "ipc.work.board-post",
+  "ipc.work.board-mark-read",
+  "ipc.work.board-notify",
   "delivery.message-stamp",
+  "delivery.board-wake",
   "kernel.flag-mirror",
   "kernel.phase-mirror",
 ] as const;
@@ -62,6 +70,10 @@ const WORK_OPERATION_CLASSIFICATION = {
   "msg.reply": "authorial",
   "request.escalate": "authorial",
   "artifact.publish": "authorial",
+  "board.list": "read",
+  "board.create_topic": "authorial",
+  "board.post": "authorial",
+  "board.mark_read": "authorial",
 } as const satisfies Record<WorkOpName, MainAuthoringWorkClassification>;
 
 export const classifyMainAuthoringWorkOperation = (
@@ -77,6 +89,9 @@ const WORK_AUTHORING_LABELS = {
   "msg.reply": "control.work.msg-send",
   "request.escalate": "control.work.request-escalate",
   "artifact.publish": "control.work.artifact-publish",
+  "board.create_topic": "control.work.board-create-topic",
+  "board.post": "control.work.board-post",
+  "board.mark_read": "control.work.board-mark-read",
 } as const satisfies Record<
   Extract<
     WorkOpName,
@@ -88,6 +103,9 @@ const WORK_AUTHORING_LABELS = {
     | "msg.reply"
     | "request.escalate"
     | "artifact.publish"
+    | "board.create_topic"
+    | "board.post"
+    | "board.mark_read"
   >,
   MainAuthoringLabel
 >;

@@ -42,6 +42,8 @@ import { Button, Eyebrow, IconButton } from "../ui";
 import {
   ArtifactsCard,
   ArtifactsDetail,
+  BoardCard,
+  BoardDetail,
   RequestsCard,
   RequestsDetail,
   TasksCard,
@@ -438,7 +440,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const isWorkSurface =
     entityKind === "task" ||
     entityKind === "requests" ||
-    entityKind === "artifacts";
+    entityKind === "artifacts" ||
+    entityKind === "board";
 
   useEffect(() => {
     if (editing && !maximized) {
@@ -553,6 +556,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           }}
         />
       ) : null}
+      {workDetail && entityKind === "board" ? (
+        <BoardDetail node={node} onClose={() => setWorkDetail(false)} />
+      ) : null}
       {workDetail && entityKind === "artifacts" ? (
         <ArtifactsDetail
           node={node}
@@ -624,6 +630,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             <RequestsCard node={node} />
           ) : entityKind === "artifacts" ? (
             <ArtifactsCard node={node} />
+          ) : entityKind === "board" ? (
+            <BoardCard node={node} />
           ) : entityKind === "herdr" ? (
             <HerdrCard
               node={node}
