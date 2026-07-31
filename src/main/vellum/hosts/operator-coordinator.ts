@@ -683,11 +683,15 @@ export const makeHostsOperatorCoordinator = (
         message: "invalid Remote deployment request",
       });
     }
-    beginDeployJob(decoded.id);
     return operations
-      .run(HOST_OPERATION_ADMISSIONS.deployRemote, () =>
-        AppRuntime.runPromise(deployRemoteEffect(decoded, artifactSource)),
-      )
+      .run(HOST_OPERATION_ADMISSIONS.deployRemote, () => {
+        // A job receipt exists only after the shutdown gate admits the
+        // operation. Refusal must not leave a synthetic forever-running job.
+        beginDeployJob(decoded.id);
+        return AppRuntime.runPromise(
+          deployRemoteEffect(decoded, artifactSource),
+        );
+      })
       .catch((error: unknown) => {
         if (error instanceof HostOperationShutdownRefused) {
           return shutdownDeployFailure(error);
